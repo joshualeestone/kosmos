@@ -47,6 +47,33 @@ struct ComposerMicButton: View {
     }
 }
 
+// kosmos#7687: the send button in the microphone's place once there is something to send: a paper plane on a filled
+// rounded square (Discord's, Josh 10-31), with a 44 pt tap area. Tapping it sends, or says why it cannot (the caller's).
+struct ComposerSendButton: View {
+    let label: String   // "Send" in a chat, "Post" in a project room
+    let dictationEnded: Date?   // review 2: when dictation last ended (Dictation.endedAt)
+    let action: () -> Void
+    @Environment(\.colorScheme) private var scheme
+    // Review 1 and 2: the button appears where the stop button was, so a quick second tap on Stop would send words nobody
+    // has read. Only a tap within ComposerExtras.sendSettle of dictation ending is refused; typing, pasting, a file or Cmd-Return send at once.
+    var body: some View {
+        Button { if ComposerExtras.sendTakes(now: Date(), dictationEnded: dictationEnded) { action() } } label: {
+            Image(systemName: "paperplane.fill")
+                .font(.system(size: 15, weight: .semibold))
+                // Review 1: Palette.link is light blue in dark mode, where white on it is about 2:1; black there is about 11:1.
+                .foregroundColor(scheme == .dark ? .black : .white)
+                .frame(width: 34, height: 34)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.link))
+                .frame(minWidth: 44, minHeight: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(.return, modifiers: .command)   // review 1: a hardware keyboard sends with Cmd-Return
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("composer-send")
+    }
+}
+
 // The board's emoji panel (#pj-emoji): the 80 glyphs in a grid, in place of the keyboard while open.
 struct EmojiPanel: View {
     let pick: (String) -> Void
@@ -96,6 +123,9 @@ extension ComposerExtras {
     private var live = false
     // After a stop by hand, while the last words are still on their way (review 4: Send waits for them, a press ends it).
     @Published private(set) var finishing = false
+    // kosmos#7687 review 2: when dictation last ended, so the send button (which appears where the stop button was) can
+    // refuse only the taps that came right after it, not every first moment of the button.
+    @Published private(set) var endedAt: Date?
     // Listening, starting or finishing: Send waits, so a message never goes without its last words (review 4).
     var busy: Bool { active || finishing }
     // A generation, so a second press, a stop or a leave during the awaits cancels a start, and an old recognition task
@@ -310,6 +340,7 @@ extension ComposerExtras {
     func stop(say: Bool = false) {
         generation += 1
         starting = false
+        if finishing || active { endedAt = Date() }
         finishing = false
         live = false
         task?.cancel()

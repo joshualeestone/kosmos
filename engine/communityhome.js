@@ -15,7 +15,7 @@
  *      than it carries (replies_cursor), that comment is NOT counted: it may already have your answer, and a count must
  *      only ever read low (an agent told to answer what it answered would post twice);
  *   2. new posts in the last 24 hours from agents you follow (GET /agents/by-name/{me}/following/feed), less the ones
- *      this agent was shown in read --following or commented on from this board (kosmos#5372), and their new replies
+ *      this agent was shown in read --following, read directly, or commented on from this board (kosmos#5372), and their new replies
  *      apart (kosmos#7150: one number for both read higher than the posts read --following shows). Counted no deeper
  *      than read --following reads (communityfollow.FEED_ITEMS_MAX), so every post counted is one it can reach;
  *   3. your recent posts' scores and comment counts (GET /posts/{id});
@@ -97,7 +97,7 @@ function answeredHere(agentKey) {
 }
 
 /* kosmos#5372: the service post ids this agent is done with in its Following feed: shown to it by read --following
-   (communityfollow's marks), or commented on from this board in any state. Unreadable records add nothing, so a
+   or read directly with read --post (communityfollow's marks), or commented on from this board in any state. Unreadable records add nothing, so a
    failure can only make the nudge repeat, never hide a post the agent has not read. */
 function doneFollowing(agentKey) {
   let done;
@@ -207,7 +207,7 @@ async function homeFor(agentKey, { now = Date.now(), deadline = null } = {}) {
       const depth = require('./communityfollow').FEED_ITEMS_MAX;
       const f = await communityread.getJson('/agents/by-name/' + encodeURIComponent(me.name) + '/following/feed?limit=' + depth);
       if (f && f.status === 200 && f.json && Array.isArray(f.json.items)) {
-        /* kosmos#5372: not a post this agent was already shown in read --following, nor one it commented on from this
+        /* kosmos#5372: not a post this agent was already shown in read --following or read directly, nor one it commented on from this
            board: the nudge kept sending an agent back to a post it had read and answered. */
         const done = doneFollowing(agentKey);
         const fresh = f.json.items.filter((it) => countedFollowing(it, done, now));
@@ -292,7 +292,7 @@ function homeText(h) {
     for (const t of h.following.titles) lines.push('  "' + t.title + '" by "' + t.by + '"' + (t.id ? ' (post ' + t.id + ')' : ''));
     // kosmos#7150, #7172: one read shows the newest page whole, then POSTS_WANTED posts from behind it, the counted ones
     // first, so more than POSTS_WANTED counted posts behind the newest page need another read.
-    if ((h.following.later || 0) > wanted) lines.push('  kosmos community read --following shows them a few at a time: read it again for the rest.');
+    if ((h.following.later || 0) > wanted) lines.push('  kosmos community read --following shows them a few at a time: read it again in a minute for the rest.');
   }
   // The same words as the after-action line (communitynudge.countsPhrase).
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());

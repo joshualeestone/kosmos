@@ -6,6 +6,11 @@ import PhotosUI
 // the conversation with a sender on every row, the board's words for Kosmos's lines, reactions, replies, the
 // silence line, the grouped working line, and the board's composer (its placeholder, the gold Post, a reply strip).
 struct RoomView: View {
+    // kosmos#7654 part 2 review 2: the room anchors on a post id only where the keyboard hold runs (iOS 26 and later,
+    // KeyboardHold.Probe.off), which is also where it was measured. iOS 17 to 25 keep main's room (position retries): the
+    // anchor without the hold keeps the bottom row at the bottom edge as the keyboard rises, and a reader higher up would
+    // lose their top row. The DM anchors from iOS 17 (#7265); that is not changed here.
+    static let idAnchor: Bool = { if #available(iOS 26.0, *) { return ChatView.idAnchor } else { return false } }()
     @ObservedObject var store: RoomStore
     // kosmos#7062: the client that fetches a post's files and their pictures (the chat's), watched so a picture shows
     // when it arrives.
@@ -32,8 +37,21 @@ struct RoomView: View {
     @State private var sampleScrollRested = false
     // kosmos#7654: the latest opening jump to the end (goEnd); a newer one, or none, stops an older one's retries.
     @State private var endJumps = 0
+    // kosmos#7654 part 2 review: the room's own jumps (toEnd, toRow), as the DM's appMoves: part of the hold's moves key so a
+    // Post, a new post or a reply jump inside the hold window is not put back by it. Kept apart from endJumps so these jumps
+    // do not cancel goEnd's opening retries.
+    @State private var appMoves = 0
     // kosmos#7654 round 3: the person is scrolling (iOS 18 and later); their first touch cancels goEnd's pending retries.
     @State private var roomScrolling = false
+    @State private var roomPosition: String?   // kosmos#7654 part 2: the id anchor, as the DM's
+    // kosmos#7654 part 2 (traced 10-31 on iOS 26.5): as the keyboard starts to show, iOS shows the end marker for ~20 ms,
+    // which set atBottom and stood the hold down. The hold reads its own "at the end": the marker still showing 0.1 s later.
+    @State private var endShown = false
+    // Review 2 (NIT 2): which showing of the end marker a 0.1 s check is for, so a flash away and back cannot confirm early.
+    @State private var endShows = 0
+    @State private var holdAtEnd = true
+    @State private var keepNewestOnKeyboard = false   // kosmos#7654: as the DM's keepNewestInView
+    @State private var rowTops = RowTops()   // kosmos#7654 part 2: the DM's keyboard hold reads the reader's row by this
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
     @State private var visible = false
@@ -398,7 +416,7 @@ struct RoomView: View {
         Task {
             let before = store.archive[project.id]?.older.cursor
             await store.loadArchiveOlder(project.id)
-            if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            if let anchor { toRow(proxy, anchor, anchor: .top, animated: false) }
             let after = store.archive[project.id]?.older.cursor
             if olderShowing, after != nil, after != before, store.archive[project.id]?.olderFailed == false {
                 DispatchQueue.main.async { if olderShowing { loadArchiveOlder(proxy) } }
@@ -418,8 +436,8 @@ struct RoomView: View {
             let before = store.older[project.id]?.cursor
             await store.loadOlder(project.id)
             // kosmos#7101 review 1: a post a reply's header just went to stays centred while it flashes.
-            if let jumped = flashed, rows.contains(where: { $0.id == jumped }) { proxy.scrollTo(jumped, anchor: .center) }
-            else if let anchor { proxy.scrollTo(anchor, anchor: .top) }
+            if let jumped = flashed, rows.contains(where: { $0.id == jumped }) { toRow(proxy, jumped, anchor: .center, animated: false) }
+            else if let anchor { toRow(proxy, anchor, anchor: .top, animated: false) }
             // Still at the top with more to read (the page did not fill the screen): the next one, once per new cursor.
             let after = store.older[project.id]?.cursor
             if olderShowing, after != nil, after != before, !store.olderFailed.contains(project.id) {
@@ -728,7 +746,7 @@ struct RoomView: View {
                                 .onAppear { sayOnce(Board.roomPartialLine) }   // spoken, as the room speaks its no-match sentence
                         } else { noMatch }
                     }
-                    ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id) }
+                    ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id).modifier(RowTop(id: item.id, rows: rowTops)) }
                     if archiveShown == nil { ForEach(store.pending[project.id] ?? []) { p in pendingView(p) } }   // review 1: the live room's only
                     if archiveShown == nil && store.roomFailed.contains(project.id) {
                         Text("We cannot read this room right now. What is shown may be behind.")
@@ -736,25 +754,41 @@ struct RoomView: View {
                     }
                     Color.clear.frame(height: 1).id("bottom")
                         .onAppear {
-                            atBottom = true
+                            atBottom = true; endShown = true
+                            endShows &+= 1
+                            let shows = endShows
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { if endShown && endShows == shows { holdAtEnd = true } }
                             // The end of the room is really on screen: only now may the top ask for older pages (the
                             // spinner at the top has had its chance to leave the screen in the same layout).
                             if !settledAtBottom && !rows.isEmpty { DispatchQueue.main.async { settledAtBottom = true } }
                         }
-                        .onDisappear { atBottom = false }
+                        .onDisappear { atBottom = false; endShown = false; holdAtEnd = false; endShows &+= 1 }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
+                // kosmos#7654 part 2: the DM's keyboard hold (kosmos#7609/#7645): with the anchor holding the bottom edge, a reader
+                // higher up lost their row off the top when the keyboard came up. Put back, then the anchor lets go of a row id.
+                .background(KeyboardHold(hold: visible && !holdAtEnd && !searchMode, above: store.older[project.id]?.count ?? 0, moves: "\(endJumps)|\(appMoves)|\(searchMode)", rows: rowTops) {
+                    if RoomView.idAnchor, Board.letGoAfterPutBack(roomPosition), roomPosition != "bottom" { roomPosition = nil; ChatView.trace("room keyboard hold: anchor let go") }
+                } onRowLost: { id, f in
+                    // kosmos#7654 part 2: the anchor let go first, so the scroll position does not pull it elsewhere.
+                    if RoomView.idAnchor { roomPosition = nil }
+                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: f)); ChatView.trace("room keyboard hold: placed by id") }
+                })
+                .modifier(PositionTargets(on: RoomView.idAnchor))   // kosmos#7654 part 2
+                .modifier(ContentSpace())   // kosmos#7654 part 2
             }
             .kosmosTopFade(ground: Palette.chatGround)   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
+            .modifier(PositionById(on: RoomView.idAnchor, id: $roomPosition))   // kosmos#7654 part 2
             #if DEBUG
             // kosmos#7645, KOSMOS_SAMPLE_ROOM_SCROLLUP=<n> (with the room samples): 3 s after opening, the n-th row from the
-            // end goes to the top, as a reader scrolled up would be (nothing in the simulator can drag here), then a marker
+            // end leaves the end, as a reader scrolled up would (nothing in the simulator can drag here; on iOS 26 and later the id
+            // anchor holds it at the BOTTOM of the screen, earlier ones put it at the top), then a marker
             // shows once the room has read where the reader is (ChatView's KOSMOS_SAMPLE_SCROLLUP).
             .onAppear {
                 guard RoomStore.sample, let up = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ROOM_SCROLLUP"].flatMap(Int.init), up > 0 else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     // kosmos#7654: as a person's scroll would, it ends goEnd's retries (a programmatic scroll reports no scroll phase).
-                    if items.count > up { endJumps &+= 1; proxy.scrollTo(items[items.count - up].id, anchor: .top) }
+                    if items.count > up { endJumps &+= 1; if RoomView.idAnchor { roomPosition = items[items.count - up].id } else { proxy.scrollTo(items[items.count - up].id, anchor: .top) } }   // kosmos#7654 part 2: with the id anchor a scrollTo alone would not move it (as the DM sample)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { sampleScrollRested = true }
             }
@@ -777,15 +811,16 @@ struct RoomView: View {
                     DispatchQueue.main.async { if atBottom && !rows.isEmpty { settledAtBottom = true } }
                 } else if atBottom && !searching {
                     // Not while searching: a new post may not even be among what matched (the board's convPause).
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    toEnd(proxy)
                 }
             }
             // kosmos#7080 review 4: the working line sits below the thread, so its coming, going or growing changes the
             // thread's height; a reader at the end stays at the end (the board's holdFloorOnResize, #1037). Read before
-            // the layout moves the end marker, scrolled once it has. Animated, as the new-row scroll above is: a reply
+            // the layout moves the end marker, scrolled once it has. Animated before iOS 26 (#7654 part 2: from iOS 26 toEnd moves the
+            // id anchor, which does not animate), as the new-row scroll above is: a reply
             // usually lands in the same update that takes its writer off the line (review 5: a plain scroll cut it short).
             .onChange(of: Board.workingLine(workingNow)) { _ in
-                if atBottom && settledAtBottom && !searching { DispatchQueue.main.async { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+                if atBottom && settledAtBottom && !searching { DispatchQueue.main.async { toEnd(proxy) } }
             }
             // kosmos#7101: a reply's header goes to the post it answers, centred, flashing for the board's 1.8 s, with
             // VoiceOver's focus on it (the board's #3745: row.focus()). Still, with Reduce Motion (the board's
@@ -802,7 +837,7 @@ struct RoomView: View {
                     Self.say(Board.roomHiddenBySearch)
                     return
                 }
-                if reduceMotion { proxy.scrollTo(id, anchor: .center) } else { withAnimation { proxy.scrollTo(id, anchor: .center) } }
+                toRow(proxy, id, anchor: .center, animated: !reduceMotion)
                 // A repeat jump to the post still flashing starts the flash over, as the board's class removed and added
                 // again (review 4): only the latest jump's timer clears it.
                 flashToken += 1
@@ -816,7 +851,7 @@ struct RoomView: View {
             }
             // The person's own post always shows: pressing Post is asking to see it.
             .onChange(of: store.pending[project.id]?.count ?? 0) { n in
-                if n > pendingCount { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }   // a new post only
+                if n > pendingCount { toEnd(proxy) }   // a new post only
                 pendingCount = n
             }
             // The first scroll has happened and the top is already showing (a room shorter than the screen).
@@ -824,19 +859,31 @@ struct RoomView: View {
                 guard done && olderShowing else { return }
                 if archiveShown != nil { loadArchiveOlder(proxy) } else { loadOlder(proxy) }   // review 2: the part on screen
             }
+            // kosmos#7654 (iOS 27, measured 10-31): a reader at the newest post stays there when the keyboard comes up,
+            // as the DM's keepNewestInView: read before the keyboard shrinks the room (holdAtEnd, which iOS 26's ~20 ms end-marker
+            // flash does not set), acted on once it is up. Not animated under the anchor, as the DM.
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                keepNewestOnKeyboard = visible && holdAtEnd && !searchMode
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                guard keepNewestOnKeyboard, visible else { return }
+                keepNewestOnKeyboard = false
+                ChatView.trace("room: keyboard shown, to the newest")
+                if RoomView.idAnchor { appMoves &+= 1; proxy.scrollTo("bottom", anchor: .bottom); roomPosition = "bottom" } else { toEnd(proxy) }
+            }
             // The magnifier opened the row over a reader at the newest post: back there once the keyboard is up too (the
-            // room has no other keyboard rule; the chat's keepNewestInView does this there).
+            // chat's keepNewestInView does this there).
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                 // Once, for the open: a reader who scrolls up afterwards is not pulled back by a later keyboard.
                 if visible && searchFocused && openedAtNewest && !searching {
                     openedAtNewest = false
-                    withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                    toEnd(proxy)
                 }
             }
             // The magnifier opened the row over a reader at the newest post: back there once the row is in.
             .onReceive(NotificationCenter.default.publisher(for: .roomScrollToEnd)) { note in
                 guard visible, note.object as? String == project.id else { return }
-                withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+                toEnd(proxy)
             }
             // Putting away a search that filtered is reading at the newest post again. Until that scroll settles, the top
             // the short room left on screen is not a reader asking for older posts (as on opening): the end marker or the
@@ -848,8 +895,8 @@ struct RoomView: View {
                 clears += 1
                 let clear = clears
                 settledAtBottom = false
-                proxy.scrollTo("bottom", anchor: .bottom)
-                DispatchQueue.main.async { if !searchMode && visible && clears == clear { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } }
+                toEnd(proxy, animated: false)
+                DispatchQueue.main.async { if !searchMode && visible && clears == clear { toEnd(proxy) } }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     if !searchMode && visible && clears == clear && !settledAtBottom && !rows.isEmpty { settledAtBottom = true }
                 }
@@ -862,8 +909,8 @@ struct RoomView: View {
                     endJumps &+= 1   // kosmos#7654: the opening retries end when the archive shows
                     archiveWasShown = true
                     settledAtBottom = false
-                    proxy.scrollTo("bottom", anchor: .bottom)
-                    DispatchQueue.main.async { proxy.scrollTo("bottom", anchor: .bottom) }
+                    toEnd(proxy, animated: false)
+                    DispatchQueue.main.async { toEnd(proxy, animated: false) }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { if archiveShown != nil && !settledAtBottom { settledAtBottom = true } }
                     archiveBackFocused = true
                 } else if archiveWasShown {
@@ -871,7 +918,7 @@ struct RoomView: View {
                     // The boundary row, when it is still drawn; else the newest post (an Undo on the computer took it).
                     let back = Board.Archive.boundaryShown(olderCursor: store.older[project.id]?.cursor,
                                                            archivedCount: store.archivedCount[project.id] ?? 0, searching: searchMode)
-                    DispatchQueue.main.async { if back { proxy.scrollTo("archiveBoundary", anchor: .top) } else { proxy.scrollTo("bottom", anchor: .bottom) } }
+                    DispatchQueue.main.async { if back { toRow(proxy, "archiveBoundary", anchor: .top, animated: false) } else { toEnd(proxy, animated: false) } }
                 }
             }
             .onAppear {
@@ -890,10 +937,18 @@ struct RoomView: View {
     // scroll can cancel the retries (iOS 18 and later, PersonScroll), they run to 2.3 s; below that they stop at 0.5 s (main made
     // one jump: there this adds a half-second window with no cancel). Held back while the person scrolls; ended by a newer
     // goEnd, a reply jump, loadOlder, the archive showing or the person's scroll (endJumps).
+    // #7654 part 2: from iOS 26 (RoomView.idAnchor) goEnd sets the id anchor and makes none of these retries; everything above
+    // describes iOS 16 to 25 (and iOS 26 and later with the id anchor switched off, KOSMOS_SAMPLE_NOPOSID, Debug).
     static let endRetries: [Double] = ChatView.followsScrollPhase ? [0.05, 0.15, 0.3, 0.5, 0.8, 1.2, 1.7, 2.3] : [0.05, 0.15, 0.3, 0.5]
     private func goEnd(_ proxy: ScrollViewProxy) {
-        proxy.scrollTo("bottom", anchor: .bottom)
         endJumps &+= 1
+        // kosmos#7654 part 2: under the id anchor, go to the end the DM's way (goNewest): set the anchor to the end
+        // marker, through nil so a repeat is seen, and no position retries to fight it.
+        if RoomView.idAnchor {
+            if roomPosition == "bottom" { roomPosition = nil; let m = appMoves; DispatchQueue.main.async { if roomPosition == nil && appMoves == m { roomPosition = "bottom" } } } else { roomPosition = "bottom" }
+            return
+        }
+        proxy.scrollTo("bottom", anchor: .bottom)
         // A person already scrolling gets the one jump, as before this change, and no retries (no new touch would cancel them).
         if roomScrolling { return }
         let jump = endJumps
@@ -902,6 +957,23 @@ struct RoomView: View {
                 if jump == endJumps && visible && !searchMode && archiveShown == nil && !roomScrolling { proxy.scrollTo("bottom", anchor: .bottom) }
             }
         }
+    }
+    // Review 2 (NIT 1): the queued re-set to the end checks appMoves, so a toRow in that one turn is not undone by it.
+    // kosmos#7654 part 2: under the id anchor the room moves the anchor, as the DM's goNewest does; a jump by
+    // position alone is undone by the anchor (measured with the debug scroll-up). Before iOS 26 the room scrolls as before.
+    private func toEnd(_ proxy: ScrollViewProxy, animated: Bool = true) {
+        appMoves &+= 1
+        if RoomView.idAnchor {
+            if roomPosition == "bottom" { roomPosition = nil; let m = appMoves; DispatchQueue.main.async { if roomPosition == nil && appMoves == m { roomPosition = "bottom" } } } else { roomPosition = "bottom" }
+            return
+        }
+        if animated { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } } else { proxy.scrollTo("bottom", anchor: .bottom) }
+    }
+    // To one row: the anchor let go first, so the scroll position does not pull the list back to the row it held.
+    private func toRow(_ proxy: ScrollViewProxy, _ id: String, anchor: UnitPoint, animated: Bool) {
+        appMoves &+= 1
+        let go = { if animated { withAnimation { proxy.scrollTo(id, anchor: anchor) } } else { proxy.scrollTo(id, anchor: anchor) } }
+        if RoomView.idAnchor { roomPosition = nil; DispatchQueue.main.async { go() } } else { go() }
     }
 
     #if DEBUG
@@ -1234,8 +1306,9 @@ struct RoomView: View {
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.top, 4)
             }
             if !attachedHere.isEmpty || uploadingHere > 0 { chips }
-            // kosmos#7346 (Josh 10-27, Mona Lisa's design): one floating box, + then the text then emoji and mic, and no
-            // Post arrow: the keyboard's Send key posts (typedReturn). The chat's box, in the room's own column.
+            // kosmos#7346 (Josh 10-27, Mona Lisa's design): one floating box, + then the text then emoji and mic; kosmos#7687
+            // (Josh 10-31): return puts in a new line and the Post button takes the mic's place once there is something to
+            // post. The chat's box, in the room's own column.
             HStack(alignment: .bottom, spacing: 0) {
                 addButton
                 // kosmos#7268: the emoji face and the microphone inside the box, at its trailing end (the board's
@@ -1243,19 +1316,24 @@ struct RoomView: View {
                 HStack(alignment: .bottom, spacing: 0) {
                     CursorField(placeholder: "Message \(project.name)", text: $draft, focus: $typing, insert: $emojiInsert)
                         .lineLimit(1...6)
-                        .submitLabel(.send)
                         .accessibilityFocused($composerFocused)
                         .accessibilityLabel("Post to everyone on this project")
-                        // With no Post arrow on screen, VoiceOver gets Post as an action on the box itself.
+                        // VoiceOver keeps Post as an action on the box itself, beside the button.
                         .accessibilityAction(named: "Post") { postOrSayWhy() }
                         .padding(.vertical, 13).padding(.leading, 2)
                     ComposerEmojiButton(open: emojiOpen) {
                         if emojiOpen { emojiOpen = false; typing = true } else { emojiOpen = true; typing = false }
                     }
-                    ComposerMicButton(dictation: dictation) {
-                        dictation.toggle(base: draft, current: { draft }) { draft = $0 }
+                    // kosmos#7687 review 1: a reply's @name alone counts as no words, so the microphone stays.
+                    if ComposerExtras.showsSend(text: Board.isOnlyMention(draft, mention: replyMention) ? "" : draft, files: attachedHere.count, dictating: dictation.busy) {
+                        ComposerSendButton(label: "Post", dictationEnded: dictation.endedAt) { postOrSayWhy() }
+                            .padding(.trailing, 4)
+                    } else {
+                        ComposerMicButton(dictation: dictation) {
+                            dictation.toggle(base: draft, current: { draft }) { draft = $0 }
+                        }
+                        .padding(.trailing, 4)
                     }
-                    .padding(.trailing, 4)
                 }
                     .overlay(alignment: .top) { mentionList.alignmentGuide(.top) { $0[.bottom] + 6 } }
                     // VoiceOver hears the list open, once, not on every letter (the board's aria-activedescendant has
@@ -1301,16 +1379,6 @@ struct RoomView: View {
         // being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
         .onChange(of: draft) { [was = draft] now in
-            // kosmos#7346: the keyboard's Send key arrives as a lone new line: take it out, and post if there is something
-            // to post (canPost: as the arrow was, not while dictation finishes or a file is on its way).
-            if let without = ComposerExtras.typedReturn(was: was, now: now) {
-                draft = without
-                // With the @name list open, Send picks its first name, as Enter does on the board, rather than posting a
-                // half-typed name.
-                if let first = mentionOptions?.first, let text = Board.mentionPick(draft, key: first.session) { draft = text; return }
-                postOrSayWhy()
-                return
-            }
             // The person changed what Send was refused for: the reason no longer applies to it.
             if let b = blocked, now != b.text {
                 if client.attachLine[attachKey] == b.note { client.attachLine[attachKey] = nil }

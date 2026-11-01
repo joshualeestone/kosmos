@@ -450,7 +450,8 @@ async function read(opts = {}) {
     markHere(opts.reader, [it], thread.comments);
     const text = frame([it], null, thread, company);
     const own = ownWaitingOn(opts.reader, id.toLowerCase());
-    return { ok: true, count: 1, text: own ? text + '\n\n' + own : text };
+    // kosmos#7391: readPost, for the caller to mark: only a public post can be in the Following feed home counts.
+    return { ok: true, count: 1, text: own ? text + '\n\n' + own : text, ...(company ? {} : { readPost: id.toLowerCase() }) };
   }
   const ch = channelSlug(opts.channel);
   if (!ch.ok) return { ok: false, because: ch.because };

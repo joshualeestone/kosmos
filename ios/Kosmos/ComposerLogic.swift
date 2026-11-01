@@ -14,35 +14,18 @@ enum ComposerExtras {
         "💡", "📌", "📝", "🐛", "🔧", "🔒", "⏳", "📈", "☕", "🎯", "🧠", "🍕", "🐢", "🎈", "📎", "🗂️",
     ]
 
-    // kosmos#7346 (Josh 10-27): no send arrow; the keyboard's Send key sends. The box is a multi-line field, so the key
-    // arrives as one new line typed into the text, and this is the text without it; nil when the change is not that.
-    // The keyboard can fix the word before the caret in the same change (autocorrect), so a change of a few characters
-    // holding one more new line also counts, but only when everything after that new line was already there: the key
-    // goes in at the caret, after any correction. A pasted "\nok" adds words after its new line, so it is not a send.
-    static let returnSlack = 4
-    static func typedReturn(was: String, now: String) -> String? {
-        let a = Array(was), b = Array(now)
-        let newLine: Set<Character> = ["\n", "\r\n"]
-        let added = b.count - a.count
-        guard added >= 1, added <= returnSlack,
-              b.filter({ newLine.contains($0) }).count == a.filter({ newLine.contains($0) }).count + 1 else { return nil }
-        // The last changed character must be the new line, lined up from the left and from the right alike: with older
-        // breaks around it the two can disagree, and then it is a paste, not the key.
-        func lastChanged(leftFirst: Bool) -> Int {
-            var prefix = 0, suffix = 0
-            if leftFirst {
-                while prefix < a.count && a[prefix] == b[prefix] { prefix += 1 }
-                while suffix < a.count - prefix && a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
-            } else {
-                while suffix < a.count && a[a.count - 1 - suffix] == b[b.count - 1 - suffix] { suffix += 1 }
-            }
-            return b.count - 1 - suffix
-        }
-        let at = lastChanged(leftFirst: true)
-        guard newLine.contains(b[at]), newLine.contains(b[lastChanged(leftFirst: false)]) else { return nil }
-        var out = b
-        out.remove(at: at)
-        return String(out)
+    // kosmos#7687 review 2: the send button refuses only a tap within sendSettle of dictation ending (it appears where the
+    // stop button was, so a quick second tap on Stop would send words nobody has read). Never keyed on the button appearing.
+    static let sendSettle: TimeInterval = 0.4
+    static func sendTakes(now: Date, dictationEnded: Date?) -> Bool { dictationEnded.map { now.timeIntervalSince($0) >= sendSettle } ?? true }
+
+    // kosmos#7687 (Josh 10-31, reversing #7346's no-arrow): the keyboard's return key puts in a new line and never sends;
+    // a send button takes the microphone's place once there is something to send (words, or files with or without
+    // words), as Discord's composer does. Not while dictating or while its last words land: the microphone is the stop
+    // button then, and it stays until dictation ends.
+    static func showsSend(text: String, files: Int, dictating: Bool) -> Bool {
+        guard !dictating else { return false }
+        return files > 0 || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // The board's pjEmojiInsert: the glyph replaces the selection (or goes in at the cursor), and the cursor lands

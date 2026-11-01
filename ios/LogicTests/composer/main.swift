@@ -25,28 +25,19 @@ section("a pick goes in at the cursor")
 check(ComposerExtras.insert("👍", into: "ok then", selection: 2..<2) == ("ok👍 then", 3), "at the cursor, the cursor after it")
 check(ComposerExtras.insert("👍", into: "ok then", selection: 3..<7) == ("ok 👍", 4), "a selection is replaced")
 check(ComposerExtras.insert("👍", into: "ok", selection: nil) == ("ok👍", 3), "no cursor known: at the end")
-// kosmos#7346: the keyboard's Send key arrives as one typed new line, which sends; anything else is the person's text.
-check(ComposerExtras.typedReturn(was: "Great, start it", now: "Great, start it\n") == "Great, start it", "kosmos#7346: Return at the end sends what was there")
-check(ComposerExtras.typedReturn(was: "Great start", now: "Great\n start") == "Great start", "Return in the middle sends too, without the new line")
-check(ComposerExtras.typedReturn(was: "", now: "\n") == "", "Return in an empty box gives an empty box (nothing to send)")
-check(ComposerExtras.typedReturn(was: "a", now: "a\nb\nc") == nil, "CONTROL: pasted lines keep their breaks")
-check(ComposerExtras.typedReturn(was: "ok", now: "oks") == nil, "CONTROL: a typed letter is typing")
-check(ComposerExtras.typedReturn(was: "ab", now: "ac\n") == "ac", "a letter changed before the new line reads as a correction plus Send")
-check(ComposerExtras.typedReturn(was: "ab", now: "a\nc") == nil, "review: CONTROL: a letter changed AFTER the new line is not the Send key (it goes in at the caret, after any correction)")
-check(ComposerExtras.typedReturn(was: "abc", now: "abc\nok") == nil, "review: CONTROL: a short pasted \"\\nok\" keeps its break and does not send")
-check(ComposerExtras.typedReturn(was: "helo\nworld", now: "hello\nworld\n") == "hello\nworld", "review: a correction before an earlier pasted break takes out the new Return, not the old break")
-check(ComposerExtras.typedReturn(was: "hello there\nworld", now: "hello\n there\nworld") == "hello there\nworld", "review: Send with the caret in an earlier paragraph takes out the new Return, not the break after it")
-check(ComposerExtras.typedReturn(was: "ab\ncd", now: "ab\n\ncd") == "ab\ncd", "a Return beside an old break leaves one break")
-check(ComposerExtras.typedReturn(was: "abc\nxyz", now: "abc\nok\nxyz") == nil, "review: CONTROL: a short paste mid-text, before an older break, keeps its breaks and does not send")
-check(ComposerExtras.typedReturn(was: "abc", now: "a\n") == nil, "CONTROL: text shrinking around a new line is not a Return")
-check(ComposerExtras.typedReturn(was: "see you tomorow", now: "see you tomorrow\n") == "see you tomorrow", "review: autocorrect landing with Send still sends, corrected")
-check(ComposerExtras.typedReturn(was: "im here", now: "I'm here\n") == "I'm here", "and a correction earlier in the text too")
-check(ComposerExtras.typedReturn(was: "a", now: "a\nbcdef") == nil, "CONTROL: a pasted line longer than a correction keeps its break")
-check(ComposerExtras.typedReturn(was: "a\nb", now: "a\nb\nc\n") == nil, "CONTROL: two new lines are a paste")
-check(ComposerExtras.typedReturn(was: "line\n", now: "line\n\n") == "line\n", "a Return after a pasted break still sends, keeping the paste")
 check(ComposerExtras.insert("✌️", into: "", selection: nil) == ("✌️", 1), "an empty box; a two-scalar glyph is one character")
 check(ComposerExtras.insert("👍", into: "ab", selection: 5..<9) == ("ab👍", 3), "a stale selection past the end: at the end, never a crash")
 check(ComposerExtras.insert("👍", into: "a😀b", selection: 2..<2) == ("a😀👍b", 3), "counted in characters, not bytes or code units")
+
+section("the send button (kosmos#7687)")
+check(!ComposerExtras.showsSend(text: "", files: 0, dictating: false), "an empty box: the microphone, no send button")
+check(!ComposerExtras.showsSend(text: " \n\t", files: 0, dictating: false), "spaces and new lines only: still the microphone")
+check(ComposerExtras.showsSend(text: "ok", files: 0, dictating: false) && ComposerExtras.showsSend(text: "line one\nline two", files: 0, dictating: false),
+      "words, one line or several: the send button")
+check(ComposerExtras.showsSend(text: "", files: 1, dictating: false), "files with no words: the send button")
+check(!ComposerExtras.showsSend(text: "ok", files: 1, dictating: true), "while dictating the microphone stays (it is the stop button)")
+check(!ComposerExtras.showsSend(text: "ok", files: 0, dictating: true) && !ComposerExtras.showsSend(text: "", files: 0, dictating: true),
+      "review 1: dictating alone keeps the microphone, with words or without")
 
 section("dictation adds to the box")
 check(ComposerExtras.dictated(base: "", heard: " send it today ") == "send it today", "an empty box: the words")
@@ -117,5 +108,24 @@ check(pbx.components(separatedBy: "INFOPLIST_KEY_NSSpeechRecognitionUsageDescrip
 check(pbx.components(separatedBy: "you dictate a message or record a video").count - 1 == 2, "the microphone's reason names dictation, in both builds")
 
 print("")
+section("the send button's wiring (kosmos#7687 review 1)")
+do {
+    let chat = code("ChatView"), room = code("RoomView"), extras = code("ComposerExtras")
+    check(chat.contains("showsSend(text: draftText, files: attachedHere.count, dictating: dictation.busy) {") && chat.contains("ComposerSendButton(label: \"Send\", dictationEnded: dictation.endedAt) { sendOrSayWhy() }"),
+          "the chat shows the send button from its own words, files and dictation, and it sends through sendOrSayWhy")
+    check(room.contains("showsSend(text: Board.isOnlyMention(draft, mention: replyMention) ? \"\" : draft, files: attachedHere.count, dictating: dictation.busy) {") && room.contains("ComposerSendButton(label: \"Post\", dictationEnded: dictation.endedAt) { postOrSayWhy() }"),
+          "the room does too, with a reply's @name alone counted as no words, and it posts through postOrSayWhy")
+    check(extras.contains(".keyboardShortcut(.return, modifiers: .command)") && extras.contains("if ComposerExtras.sendTakes(now: Date(), dictationEnded: dictationEnded) { action() }"),
+          "Cmd-Return sends, and a tap in the button's first moment is not taken")
+    check(extras.contains("scheme == .dark ? .black : .white"), "a dark glyph on the light dark-mode fill")
+    // Review 3: stop() stamps when dictation ended, before it clears finishing (finish()'s path), so the guard has a time.
+    let stamp = extras.range(of: "if finishing || active { endedAt = Date() }"), cleared = extras.range(of: "        finishing = false\n        live = false")
+    check(stamp != nil && cleared != nil && stamp!.lowerBound < cleared!.lowerBound, "stop() records when dictation ended, before clearing finishing")
+    // Review 2: the guard is keyed on dictation ending, never on the button appearing.
+    let t0 = Date(timeIntervalSince1970: 1000)
+    check(ComposerExtras.sendTakes(now: t0, dictationEnded: nil), "no dictation: a send right after the first character goes through")
+    check(!ComposerExtras.sendTakes(now: t0.addingTimeInterval(0.2), dictationEnded: t0), "a tap 0.2 s after dictation ended is refused (the second tap on Stop)")
+    check(ComposerExtras.sendTakes(now: t0.addingTimeInterval(0.5), dictationEnded: t0), "and 0.5 s after it goes through")
+}
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
