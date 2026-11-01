@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: returnline-7687
-diff_hash: a826a2d7c55933c796bae022a3c7c132952dc0e4d2a8f085fc1fb2656579ee67
+diff_hash: cf1ef29c812fc79c2b2b6d703b322e40937dd0a5ab890b0e1ead2924f4c1dfd3
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-01T01:22:38Z
+timestamp: 2026-11-01T02:21:05Z
 iterations: 4
 converged: true
 ---
@@ -41,3 +41,5 @@ No BLOCKER and no WARNING.
 That nobody relied on Return sending. This reverses #7346 at Josh's ask.
 
 **CI on PR #7708, first run:** red on a star-read timing logic test and the keyboard-down rebuild clock check, neither in this diff. Rebased onto #7707, which replaces that clock.
+
+**CI on PR #7708, second run:** red on the rebuild check reading "sample rebuilt 0", a test flake outside this diff; fixed by #7714. Rebased onto it.
