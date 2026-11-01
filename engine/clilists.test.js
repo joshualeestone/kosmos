@@ -7,10 +7,10 @@ const { agentLines, roleLines } = require('./clilists');
 test('#7748: the agent list says each agent, its role, and the word on its card', () => {
   const r = agentLines([
     { name: 'Ada', role: 'Researcher', state: 'Idle' },
-    { name: 'Ben', role: null, state: 'Not running' },
+    { name: 'Roo', role: null, state: 'Not running' },
     { name: 'Di', role: 'Writer' },
   ]);
-  assert.deepEqual(r, { code: 0, lines: ['Ada  Researcher  Idle', 'Ben  no role recorded  Not running', 'Di  Writer  state not known'] });
+  assert.deepEqual(r, { code: 0, lines: ['Ada  Researcher  Idle', 'Roo  no role recorded  Not running', 'Di  Writer  state not known'] });
 });
 
 test('#7748: a partial list says so, and an empty partial list does not say there are none', () => {
