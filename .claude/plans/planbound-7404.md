@@ -27,7 +27,14 @@ run's files ARE its index; real spend is the coordinator's to refuse. The chunk 
 A status read that fails waits the hour rather than run under the company bound and pause to Monday.
 Merge this after the coordinator's ceiling rises, or a folder near 200 GB uploads every chunk and fails at the manifest.
 
-Round 2: the measured-size stop has its own sentence and ends the run for the week, so it does not walk every hour.
+Round 2: the measured-size stop has its own sentence.
 Open, for the restore screen and before the switch: the manifest GET has 78 s, about 1.7 MB/s for a 130 MiB manifest, so
 the largest plans on a slow link need a longer one (`manifestTimeoutMs` exists). Kept: the 600,000 index cap applies to a
 company too, whose allowance stops it at 200,000 anyway.
+
+Round 3 replaced the plan's reserve: 1.25 slack and 1,024 bytes a file refused real folders inside the chart. A plan's
+run has one expected size before the walk, with no slack, and the measured size after every file. It does not pause to
+Monday when it stops: within the week its chunks are reused, and what the person moves is seen next hour. Across Monday
+a new period uploads again, so a folder that can never finish costs a week's allowance each week; the coordinator's cap
+bounds that. Personal restore gives the manifest GET ten minutes. Measured 600,000 rows: 162 MiB, 186 ms to stringify,
+204 ms to parse, on the event loop. A build rolled back past this one refuses an index over 200,000.

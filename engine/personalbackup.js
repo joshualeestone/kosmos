@@ -474,7 +474,7 @@ async function runJob(input, opts = {}) {
   const planGb = await planOf(opts);
   // Before anything is listed, and not a pause to Monday: paying takes effect on the next hourly run.
   if (planGb === null) { const out = { ok: false, personActs: true, because: NO_PLAN }; noteRun(out, opts, before); return out; }
-  if (planGb === 'unread') return { ok: false, because: UNREACHED };
+  if (planGb === 'unread') return { ok: false, because: 'Kosmos+ could not be reached just now, so this backup waits for the next try' };
   const r = await run(input, Object.assign({ ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER, requireProof: true }, planGb ? { planGb } : {}));
   if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) { noteRun(r, opts, before); return r; }
   const oe = opts.orgenroll || require('./orgenroll');
