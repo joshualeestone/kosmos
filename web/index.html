@@ -71991,11 +71991,12 @@ function tkPaintHoldUntil(p, t) {
   const at = u && !m && typeof u.words === 'string' ? Date.parse(u.words) : NaN;
   const n = m ? Number(m[1]) : 0;
   const gone = m && !(p.tasks || []).some((x) => x && x.number === n);
-  const html = !u ? ''
+  const why = held && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tk-hold-why">Why: ' + esc(t.onHoldBecause) + '</span> ' : '';   // kosmos#7749
+  const html = why + (!u ? ''
     : m ? (gone ? 'Task ' + n + ' is no longer on this project, so this can come off hold.'
       : u.met === true ? 'Task ' + n + ' is closed, so this can come off hold.' : 'Waiting for task ' + n + ' to close.')
     : Number.isFinite(at) ? (u.met === true ? 'That time has passed, so this can come off hold.' : 'Waiting until ' + esc(tkHoldWhen(at)) + '.')
-    : '';
+    : '');
   if (line.tkPainted !== html) { line.innerHTML = html; line.tkPainted = html; }
   line.hidden = !html;
   if (!held) { document.getElementById('tk-hold-for-when').hidden = true; delete document.getElementById('tk-hold-for').dataset.task; return; }   // round 3: a new hold starts from what is stored
