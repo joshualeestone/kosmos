@@ -74,12 +74,32 @@ test('#7753: the signature binds every field and the device key (each changed on
 
 test('#7753: no readable device key registers exactly as before, with no signature', async () => {
   for (const read of [() => ({ ok: false, because: 'no device identity' }), () => { throw new Error('boom'); },
-    () => ({ ok: true, privateKey: crypto.generateKeyPairSync('x25519').privateKey })]) {
+    () => ({ ok: true, privateKey: crypto.generateKeyPairSync('x25519').privateKey }),
+    () => ({ ok: true, privateKey: crypto.generateKeyPairSync('ed25519').publicKey })]) {
     fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
     const c = fakeCoordinator();
     const r = await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: read });
     assert.equal(r.ok, true, JSON.stringify(r));
     assert.deepEqual(Object.keys(c.registration().body).sort(), ['epoch', 'member_public', 'wrap']);
+  }
+});
+
+test('#7753: with no deviceKey option, the connector\'s mac_key in this data root\'s state folder signs the record', async () => {
+  // The sandbox's own state folder (remote.stateDir() under AGENT_WORKFORCE_DATA), laid out as the connector leaves it.
+  const dir = require('./remote').stateDir();
+  assert.ok(dir.startsWith(SANDBOX), 'premise: the state folder is inside this test\'s sandbox, never the real one');
+  fs.mkdirSync(dir, { recursive: true });
+  const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519');
+  fs.writeFileSync(path.join(dir, 'mac_id'), 'mac_test1\n');
+  fs.writeFileSync(path.join(dir, 'mac_key'), privateKey.export({ format: 'jwk' }).d + '\n');
+  try {
+    const c = fakeCoordinator();
+    const r = await mk.ensureMemberKey({ macRequest: c.macRequest });
+    assert.equal(r.ok, true, JSON.stringify(r));
+    const body = c.registration().body;
+    assert.equal(verifies(publicKey, ORG, MEMBER, 1, Buffer.from(body.member_public, 'base64url'), body.member_key_sig), true);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

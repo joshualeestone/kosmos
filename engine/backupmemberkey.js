@@ -119,8 +119,8 @@ function newestRegistered(keys) {
   return Object.keys(keys).map(Number).sort((a, b) => b - a).find((e) => keys[e].registered);
 }
 
-/* kosmos#7753: the member key record this computer signs with its device key (the connector's mac_key, which Kosmos+
-   enrolled under two admins), so escrowd can refuse a release whose key no device of the member signed. The bytes:
+/* kosmos#7753: the member key record this computer signs with its device key (the connector's mac_key, the key Kosmos+
+   knows this computer by), so escrowd can refuse a release whose key no device of the member signed. The bytes:
    the fixed tag, then org and member each as a u16-BE length and its UTF-8, the epoch as u64-BE, then the 32-byte
    member public key. The tag keeps the signature apart from a manifest's and a mac-request's (backupdevicekey.js).
    escrowd's verifier must build the same bytes; the format is on #7753. */
@@ -136,10 +136,12 @@ function memberKeyRecordBytes(org, member, epoch, memberPublic) {
 /* The record's signature, base64url, or null when the device key cannot be read: the registration is then sent as it
    was before #7753, and a release of that epoch falls back to escrowd's first-seen pin (decided on #7753). */
 function signRecord(readDeviceKey, company, epoch, pk) {
-  let dk;
-  try { dk = readDeviceKey(); } catch { return null; }
-  if (!dk || !dk.ok || !dk.privateKey || dk.privateKey.asymmetricKeyType !== 'ed25519') return null;
-  return b64(crypto.sign(null, memberKeyRecordBytes(company.org, company.member, epoch, pk), dk.privateKey));
+  try {
+    const dk = readDeviceKey();
+    const key = dk && dk.ok ? dk.privateKey : null;
+    if (!key || key.type !== 'private' || key.asymmetricKeyType !== 'ed25519') return null;
+    return b64(crypto.sign(null, memberKeyRecordBytes(company.org, company.member, epoch, pk), key));
+  } catch { return null; }
 }
 
 async function register(macRequest, company, epoch, key, readDeviceKey) {
