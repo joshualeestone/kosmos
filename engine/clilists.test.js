@@ -4,23 +4,19 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { agentLines, roleLines } = require('./clilists');
 
-test('#7748: the agent list says each agent, its role, and whether it is running', () => {
+test('#7748: the agent list says each agent, its role, and the word on its card', () => {
   const r = agentLines([
-    { name: 'Ada', role: 'Researcher', state: 'idle' },
-    { name: 'Ben', role: null, state: 'stopped' },
-    { name: 'Cy', role: 'Writer', state: 'needs_you' },
+    { name: 'Ada', role: 'Researcher', state: 'Idle' },
+    { name: 'Ben', role: null, state: 'Not running' },
     { name: 'Di', role: 'Writer' },
-    { name: 'Ed', role: 'Writer', state: 'unknown' },
-    { name: 'Flo', role: 'Writer', state: 'restarting' },
-    { name: 'Gus', role: 'Writer', state: 'needs_trust' },
   ]);
-  assert.deepEqual(r, { code: 0, lines: ['Ada  Researcher  running, idle', 'Ben  no role recorded  not running', 'Cy  Writer  running, needs you', 'Di  Writer  state not known', 'Ed  Writer  state not known', 'Flo  Writer  restarting', 'Gus  Writer  not running, needs trust'] });
+  assert.deepEqual(r, { code: 0, lines: ['Ada  Researcher  Idle', 'Ben  no role recorded  Not running', 'Di  Writer  state not known'] });
 });
 
 test('#7748: no agents is said, and a bad row is skipped', () => {
   assert.deepEqual(agentLines([]).lines, ['There are no agents on this board yet.']);
   assert.deepEqual(agentLines(null).lines, ['There are no agents on this board yet.']);
-  assert.deepEqual(agentLines([null, { role: 'x' }, { name: 'Ada', state: 'idle' }]).lines, ['Ada  no role recorded  running, idle']);
+  assert.deepEqual(agentLines([null, { role: 'x' }, { name: 'Ada', state: 'Idle' }]).lines, ['Ada  no role recorded  Idle']);
 });
 
 const ROLES = [

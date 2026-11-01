@@ -4,14 +4,10 @@
  * Each answer is { lines, code }. A line is printed as it is; code is the exit status.
  */
 
-/* `stopped` and `needs_trust` rows have no session, and `unknown` is a board that could not tell. */
-const STATE_WORDS = { stopped: 'not running', needs_trust: 'not running, needs trust', restarting: 'restarting', unknown: 'state not known' };
-
+/* One agent on `kosmos agent list`. `state` is the word on the agent's card, sent by the board. */
 function agentLine(a) {
   const role = typeof a.role === 'string' && a.role.trim() ? a.role.trim() : 'no role recorded';
-  const known = typeof a.state === 'string' && a.state;
-  const state = (known && STATE_WORDS[a.state]) || (known ? 'running, ' + a.state.replace(/_/g, ' ') : 'state not known');
-  return a.name + '  ' + role + '  ' + state;
+  return a.name + '  ' + role + '  ' + (typeof a.state === 'string' && a.state ? a.state : 'state not known');
 }
 
 function agentLines(agents) {

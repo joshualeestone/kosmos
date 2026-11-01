@@ -59,8 +59,8 @@ const MAKE_AGENTS_LINES = [
   '  Manager called "PM". Go? Only after they say yes, run',
   '  `kosmos agent create "<name>" <role> "<why they want it>"` (`kosmos agent roles`',
   '  lists the roles, `kosmos agent list` the agents they have). Then tell them it is',
-  '  on their board, with the link Kosmos',
-  '  prints. If Kosmos refuses, tell them its reason in plain words and walk them',
+  '  on their board, with the link Kosmos prints. If Kosmos refuses, tell them its',
+  '  reason in plain words and walk them',
   '  through New agent.',
 ];
 /* #1279: a Project Manager builds the team the work needs ("PM, build me a team"). Same verb and the

@@ -53,9 +53,9 @@ test('#7748 Windows agent roles takes one word, says when nothing matches, and r
 });
 
 test('#7748 Windows agent list says each agent and takes no words', async () => {
-  const r = await run(['agent', 'list'], () => ({ body: { agents: [{ name: 'Ada', role: 'Writer', state: 'stopped' }] } }));
+  const r = await run(['agent', 'list'], () => ({ body: { agents: [{ name: 'Ada', role: 'Writer', state: 'Not running' }] } }));
   assert.equal(r.code, 0);
-  assert.match(r.out, /^Ada {2}Writer {2}not running$/m);
+  assert.match(r.out, /^Ada {2}Writer {2}Not running$/m);
   assert.equal((await run(['agent', 'list', 'x'], () => ({ body: { agents: [] } }))).code, 2);
 });
 
