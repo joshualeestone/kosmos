@@ -109,6 +109,9 @@ function freshHourly() {
   return { id: p.id, n: made.number };
 }
 const stored = (id, n) => tasks.byNumber(projects.readAll().find((x) => x.id === id), n);
+// #7716: hourly slots follow the local clock (#6893), so across a daylight-saving change two slots are not always an
+// hour apart. The k-th slot after ms is stepped as the rule steps it, never as k fixed hours.
+const slotAfter = (ms, k) => { let s = ms; for (let i = 0; i < k; i += 1) s = taskrepeat.nextAfter(HOURLY, s); return s; };
 
 test('#5920: recordRun keeps the skipped runs on the task and on the recovering run\'s history row', () => {
   const { id, n } = freshHourly();
@@ -116,12 +119,12 @@ test('#5920: recordRun keeps the skipped runs on the task and on the recovering 
   tasks.recordRun(id, n, 'ada', 'ok', first + 2 * 60000);   // on time
   assert.equal('lastRunRecovered' in stored(id, n), false, 'an on-time run recovers from nothing');
   // The next three slots pass with no run; the recovery lands 30 minutes after the third.
-  const at = first + 3 * 3600000 + 30 * 60000;
+  const at = slotAfter(first, 3) + 30 * 60000;
   tasks.recordRun(id, n, 'ada', 'recovered after a retry', at);
   const rec = stored(id, n).lastRunRecovered;
   assert.equal(rec.missed, 2, 'the two slots before the one it answers');
-  assert.equal(rec.from, new Date(first + 3600000).toISOString());
-  assert.equal(rec.to, new Date(first + 2 * 3600000).toISOString());
+  assert.equal(rec.from, new Date(slotAfter(first, 1)).toISOString());
+  assert.equal(rec.to, new Date(slotAfter(first, 2)).toISOString());
   assert.equal('more' in rec, false);
   assert.equal(stored(id, n).lastRunLate, true, 'and it is late for the slot it answers');
   const runs = taskchat.read(id, n).filter((e) => e.kind === 'run');
@@ -129,7 +132,7 @@ test('#5920: recordRun keeps the skipped runs on the task and on the recovering 
   // The board's count has moved past them: the record is where they live now.
   assert.equal(taskrepeat.missedRuns(stored(id, n), at + 60000), null);
   // The next on-time run clears the mark on the task; the history keeps it.
-  tasks.recordRun(id, n, 'ada', 'ok again', first + 4 * 3600000 + 60000);
+  tasks.recordRun(id, n, 'ada', 'ok again', slotAfter(first, 4) + 60000);
   assert.equal('lastRunRecovered' in stored(id, n), false);
   assert.equal(taskchat.read(id, n).filter((e) => e.kind === 'run')[1].missedBefore, 2);
 });
@@ -138,13 +141,13 @@ test('#5920: changing or clearing the rule drops the recovered mark (it was meas
   const { id, n } = freshHourly();
   const first = taskrepeat.nextAfter(HOURLY, Date.parse(stored(id, n).repeatSetAt));
   tasks.recordRun(id, n, 'ada', 'ok', first + 60000);
-  tasks.recordRun(id, n, 'ada', 'late recovery', first + 3 * 3600000 + 30 * 60000);
+  tasks.recordRun(id, n, 'ada', 'late recovery', slotAfter(first, 3) + 30 * 60000);
   assert.ok(stored(id, n).lastRunRecovered, 'CONTROL: the mark is there before the change');
   tasks.setRepeat(id, n, { every: 'day', at: '09:00' });
   assert.equal('lastRunRecovered' in stored(id, n), false, 'a new rule');
   tasks.setRepeat(id, n, HOURLY);
   // The runs above are dated ahead of the clock, so the next is measured from the last run, as the board does.
-  tasks.recordRun(id, n, 'ada', 'late recovery again', Date.parse(stored(id, n).lastRunAt) + 3 * 3600000 + 30 * 60000);
+  tasks.recordRun(id, n, 'ada', 'late recovery again', slotAfter(Date.parse(stored(id, n).lastRunAt), 4));
   assert.ok(stored(id, n).lastRunRecovered, 'CONTROL: marked again under the new rule');
   tasks.setRepeat(id, n, null);
   assert.equal('lastRunRecovered' in stored(id, n), false, 'the rule cleared');
@@ -154,7 +157,7 @@ test('#5920: a duplicate report of the recovering run records nothing twice', ()
   const { id, n } = freshHourly();
   const first = taskrepeat.nextAfter(HOURLY, Date.parse(stored(id, n).repeatSetAt));
   tasks.recordRun(id, n, 'ada', 'ok', first + 60000);
-  const at = first + 3 * 3600000 + 30 * 60000;
+  const at = slotAfter(first, 3) + 30 * 60000;
   tasks.recordRun(id, n, 'ada', 'recovered', at);
   const again = tasks.recordRun(id, n, 'ada', 'recovered', at + 10000);
   assert.equal(again.duplicate, true);
