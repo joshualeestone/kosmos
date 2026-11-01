@@ -7,7 +7,8 @@ function justPast(status, resetAt) {
   const now = Date.now();
   for (const minutes of [15, 5, 1, 58]) {
     const ms = now - minutes * 60e3;
-    if (status.limitResetAt(`resets ${resetAt(ms)} (America/Chicago)`, now) < now) return ms;
+    const reading = status.limitResetAt(`resets ${resetAt(ms)} (America/Chicago)`, now);
+    if (reading !== null && reading < now) return ms;
   }
   return null;
 }

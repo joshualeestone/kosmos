@@ -28,21 +28,24 @@ scan() {
     $text =~ s/\\\n[ \t]*/ /g;
     for my $line (split /\n/, $text) {
       next if $line =~ /^\s*#/;
-      next unless $line =~ /(TZ=UTC\s+(?:[A-Z_]+=\S+\s+)*)?\btouch\b[^;|&]*?\s-[a-zA-Z]*t(?=[\s"\$`\d])/;
-      my $utc = defined $1;
-      my $stamp = substr($line, $+[0]);
-      next if $stamp =~ /^\s*"?\d{8,}(?:\.\d+)?"?(?:\s|$)/;
-      next if $stamp =~ /^\s*"\d{8,}\$/ && $stamp !~ /(?<![\w\$\/.-])date\b/;   # a fixed date with a counter on the end
-      my $good = $utc;
-      if ($stamp =~ /^\s*"?\$\{?(\w+)\}?"?(?:\s|$)/) {
-        my $var = $1;
-        my @set = $text =~ /(?:^|[\s;(])\Q$var\E=([^\n]*)/mg;
-        $good = 0 unless @set;
-        for (@set) { $good = 0 unless utc_dates($_); }
-      } else {
-        $good = 0 unless utc_dates($stamp);
+      my $bad = 0;
+      while ($line =~ /(TZ=UTC\s+(?:[A-Z_]+=\S+\s+)*)?\btouch\b[^;|&]*?\s-[a-zA-Z]*t(?=[\s"\$`\d])/g) {
+        my $utc = defined $1;
+        my $stamp = substr($line, $+[0]);
+        next if $stamp =~ /^\s*"?\d{8,}(?:\.\d+)?"?(?:\s|$)/;
+        next if $stamp =~ /^\s*"\d{8,}\$/ && $stamp !~ /(?<![\w\$\/.-])date\b/;   # a fixed date with a counter on the end
+        my $good = $utc;
+        if ($stamp =~ /^\s*"?\$\{?(\w+)\}?"?(?:\s|$)/) {
+          my $var = $1;
+          my @set = $text =~ /(?:^|[\s;(])\Q$var\E=([^\n]*)/mg;
+          $good = 0 unless @set;
+          for (@set) { $good = 0 unless utc_dates($_); }
+        } else {
+          $good = 0 unless utc_dates($stamp);
+        }
+        $bad = 1 unless $good;
       }
-      print "$ARGV: $line\n" unless $good;
+      print "$ARGV: $line\n" if $bad;
     }' "$@"
 }
 
@@ -68,6 +71,7 @@ TZ=UTC touch -t "$(TZ=UTC date -r 5 +%Y%m%d%H%M || date -d @5 +%Y%m%d%H%M)" "$a"
 TZ=UTC touch -t "$fallback_stamp" "$a"                                     # UNSAFE
 touch -t \
   "$(date +%Y%m%d%H%M)" "$a"                                               # UNSAFE
+touch -t 202001010000 "$a"; touch -t "$(date +%Y%m%d%H%M)" "$b"            # UNSAFE
 local_stamp="$(date +%Y%m%d%H%M)"
 mixed_stamp="$(TZ=UTC date +%Y%m%d%H%M)"
 mixed_stamp="$(date +%Y%m%d%H%M)"
