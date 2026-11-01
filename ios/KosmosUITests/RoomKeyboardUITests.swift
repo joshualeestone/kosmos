@@ -37,15 +37,25 @@ final class RoomKeyboardUITests: XCTestCase {
         var top = app.navigationBars.firstMatch.frame.maxY
         let notice = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'need you on this project'")).firstMatch
         if notice.exists { top = max(top, notice.frame.maxY) }
-        guard let first = rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > top }).min(by: { $0.frame.minY < $1.frame.minY }) else {
-            XCTFail("no post on screen after the scroll up"); return
+        // kosmos#7690: chosen once the list has gone still: on CI's runner it moved about 490 pt after the scroll-up marker, before the
+        // keyboard was asked for, and a row read during that move was gone whatever the hold did. Two looks with no change.
+        func firstRow() -> XCUIElement? { rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > top }).min(by: { $0.frame.minY < $1.frame.minY }) }
+        var still: (String, CGFloat)?
+        for _ in 0..<10 {
+            guard let f = firstRow() else { Thread.sleep(forTimeInterval: 0.5); continue }
+            let now = (f.label, f.frame.minY)
+            if let s = still, s.0 == now.0, abs(s.1 - now.1) < 1 { break }
+            still = now
+            Thread.sleep(forTimeInterval: 1)
         }
-        let label = first.label, y0 = first.frame.minY
+        guard let chosen = still else { XCTFail("no post on screen after the scroll up"); return }
+        let label = chosen.0, y0 = chosen.1
         let row = app.staticTexts[label]
+        let beforeTap = row.exists ? Int(row.frame.minY) : -1
         try KeyboardSlideUITests.keyboardUp(app, box, row, shot: "room-read-higher-keyboard-up", test: self)
         if !(row.exists && row.isHittable) {   // what is on the screen, for a failure on CI's runner, where nothing else shows it (kosmos#7690)
             let seen = rows.allElementsBoundByIndex.filter { $0.isHittable }.map { "\($0.label.prefix(14)) at \(Int($0.frame.minY))" }.joined(separator: ", ")
-            XCTFail("'\(label)', read higher up from \(Int(y0)), left the screen when the keyboard came up (exists \(row.exists), keyboard top \(Int(app.keyboards.firstMatch.frame.minY)), on screen: \(seen))")
+            XCTFail("'\(label)', read higher up from \(Int(y0)), left the screen when the keyboard came up (at \(beforeTap) just before the tap, exists \(row.exists), keyboard top \(Int(app.keyboards.firstMatch.frame.minY)), on screen: \(seen))")
             return
         }
         XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "'\(label)' moved from \(y0) to \(row.frame.minY)")
