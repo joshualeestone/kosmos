@@ -89,7 +89,10 @@ const BATCH_BYTES = 64 * 1024 * 1024;
 // Restore's own default ceiling on entries (engine/backuprestore.js MAX_FILES).
 const MAX_FILES = 500000;
 // The manifest's JSON must fit the coordinator's ceiling after framing and padding (Padme adds at most about 12%).
-const MANIFEST_JSON_BUDGET = Math.floor(MAX_MANIFEST * 0.8);
+const MANIFEST_JSON_BUDGET = Math.floor(64 * 1024 * 1024 * 0.8);
+// kosmos#7404: a plan's manifest may be larger, to the coordinator's ceiling. Measured on generated manifests of real
+// name and key lengths: 286 bytes a chunk, so the top of the chart (about 477,000 chunks) is 130 MiB of JSON.
+const PLAN_MANIFEST_JSON_BUDGET = Math.floor(MAX_MANIFEST * 0.8);
 const MAX_SKIPPED = 100000;
 const MAX_DEPTH = 256;
 const SPLIT_WINDOW = 8;   // segments joined when looking for a credential split across folder names
@@ -619,8 +622,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   const putManifest = deps.uploadManifest || uploadManifest;
   const pos = (n, dflt) => (Number.isSafeInteger(n) && n > 0 ? n : dflt);
   const batchBytes = pos(deps.batchBytes, BATCH_BYTES), maxFile = pos(deps.maxFile, MAX_FILE), maxText = pos(deps.maxText, MAX_TEXT);
-  const budget = pos(deps.maxManifestJson, MANIFEST_JSON_BUDGET);
   const planGb = pos(deps.planGb, null);
+  const budget = pos(deps.maxManifestJson, planGb ? PLAN_MANIFEST_JSON_BUDGET : MANIFEST_JSON_BUDGET);
   const planBytes = planGb ? planGb * PLAN_BYTES_PER_GB : null;
   const chunkCap = planGb ? Math.max(CHUNK_ALLOWANCE, planGb * PLAN_OBJECTS_PER_GB) : CHUNK_ALLOWANCE;
   const slack = deps.planChunkSlack || PLAN_CHUNK_SLACK;
