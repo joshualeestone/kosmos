@@ -75,10 +75,10 @@ test('#7404: switch on, an agent is refused on every route', async (t) => {
 test('#7404: GET answers shown, the price (only in Stripe shape) and the state, from the screen', async (t) => {
   offerOn(t, '$5/month');
   let g = await call('/api/personal-backup', { method: 'GET', headers: SCREEN });
-  assert.deepEqual(g.json, { shown: true, price: '$5/month', state: 'off', job: { lastOk: null, stopped: null } });
+  assert.deepEqual(g.json, { shown: true, price: '$5/month', state: 'off', job: { lastOk: null, stopped: null, note: null } });
   process.env.KOSMOS_PERSONAL_BACKUP_PRICE = 'five dollars';
   g = await call('/api/personal-backup', { method: 'GET', headers: SCREEN });
-  assert.deepEqual(g.json, { shown: true, price: null, state: 'off', job: { lastOk: null, stopped: null } });
+  assert.deepEqual(g.json, { shown: true, price: null, state: 'off', job: { lastOk: null, stopped: null, note: null } });
 });
 
 test('#7404: with no price set, nothing can be previewed or turned on (there is nothing to agree to)', async (t) => {

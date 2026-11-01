@@ -94,7 +94,9 @@ test('pbjob-7404: Kosmos+ refusing the words stops the job through the real orge
   assert.equal(r.personActs, true);
   assert.equal(pb.mayBackUp(ask), false, 'no later run walks every file to be refused');
   assert.equal(pb.state(ask), 'on', 'slice C: the panel cannot see this yet');
+  assert.ok(fs.existsSync(path.join(root, 'personal-job.json')), 'the stop is noted');
   assert.equal((await pb.switchOff({ root, remote: c })).ok, true);
+  assert.equal(fs.existsSync(path.join(root, 'personal-job.json')), false, 'off forgets it');
   assert.equal((await on()).ok, true, 'the sentence the person is told works');
   assert.equal(pb.mayBackUp(ask), true);
 });

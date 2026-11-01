@@ -55664,18 +55664,15 @@ function pbPaint() {
   document.getElementById('pb-restore-hint').hidden = !price;   // Mona Lisa 1: the hint points at Turn on, so it goes with it
   document.getElementById('pb-words-price').textContent = PB.view === 'words' ? pbPrice({ price: PB.wordsPrice }) : price;
   const say = document.getElementById('pb-on-say');
-  const j = v === 'on' && st.job && typeof st.job === 'object' ? st.job : {};
-  const stopped = typeof j.stopped === 'string' && !!j.stopped;
+  const lines = pbJobLines(v === 'on' ? st.job : null);
   say.textContent = v === 'pending' ? 'Kosmos is checking with Kosmos+ whether personal backup is on for this computer. This takes a few minutes.'
     : v === 'needs-key' ? 'Personal backup is on for this computer, but its backup key is not set up here yet, so nothing is being backed up.'
-    : stopped ? 'Personal backup has stopped on this computer.'
+    : lines.stopped ? 'Personal backup has stopped on this computer.'
     : 'Personal backup is on for this computer.';
   const job = document.getElementById('pb-job');
-  job.textContent = stopped ? j.stopped : ''; job.hidden = !stopped;
-  const last = typeof j.lastOk === 'string' && !Number.isNaN(Date.parse(j.lastOk)) ? new Date(j.lastOk).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  job.textContent = lines.stopped; job.hidden = !lines.stopped;
   const lastEl = document.getElementById('pb-job-last');
-  lastEl.textContent = last ? 'Last backed up ' + last + '.' : (v === 'on' && !stopped ? 'The first backup runs within the hour.' : '');
-  lastEl.hidden = !lastEl.textContent;
+  lastEl.textContent = lines.plain; lastEl.hidden = !lines.plain;
   // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
   const ask = document.getElementById('pb-off-ask');
   if (!(v === 'on' || v === 'needs-key')) ask.hidden = true;
@@ -55685,6 +55682,12 @@ function pbPaint() {
     if (PB.code) pbMsg('');   // a "Copied" line belongs to the code view and leaves with it
     PB.code = null; document.getElementById('pb-code-text').textContent = ''; pbPrintClear();
   }
+}
+/* The panel's job lines from GET /api/personal-backup's `job`: stopped goes in the error colour, plain beside it. */
+function pbJobLines(j) {
+  const o = j && typeof j === 'object' ? j : {};
+  const last = typeof o.lastOk === 'string' && !Number.isNaN(Date.parse(o.lastOk)) ? 'Last backed up ' + new Date(o.lastOk).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) + '.' : '';
+  return { stopped: typeof o.stopped === 'string' ? o.stopped : '', plain: [typeof o.note === 'string' ? o.note : '', last].filter(Boolean).join(' ') };
 }
 /* One literal fetch per step, as plusOrgPost does, so web.api-routes-3957 reads each path and checks it has a route. */
 async function pbPost(kind, body) {
