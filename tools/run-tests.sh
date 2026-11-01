@@ -465,6 +465,7 @@ export KOSMOS_CATALOGUE_BASE=http://127.0.0.1:9/
 # kosmos#6756: no test waits behind a real relay pre-push build. A test that runs queued-heavy.sh or release.sh would
 # otherwise read this machine's real build lock (~/.cache/prepush/machine.lock) and wait out a live cargo step until its
 # own deadline. A path under /dev/null can never exist, so the probe answers "no build"; a test of the wait sets its own.
+# #7674: the gate lock and the gate turn are read beside this path, so it makes them unreadable too.
 export KOSMOS_PREPUSH_MACHINE_LOCK=/dev/null/kosmos-tests-no-prepush-lock
 
 # #4326: no test may run the operator's real gh or vercel. A board a test boots probes them
