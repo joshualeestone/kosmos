@@ -545,7 +545,7 @@ function reportNow(opts) {
   }
   if (stopped) return { lastOk, stopped, note: null };
   if (j.waiting === true) return { lastOk, stopped: null, note: WAITING_WEEK };
-  if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'The first backup has not finished yet.' : 'The first backup runs soon.' };
+  if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'A backup has not finished yet.' : 'A backup runs soon.' };
   return { lastOk, stopped: null, note: null };
 }
 
