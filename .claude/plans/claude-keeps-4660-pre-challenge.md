@@ -14,8 +14,8 @@ converged: false
 
 **Iterations:** 8 on the rebased branch, by PigeonPete. The earlier proof for this branch was voided by the rebase and is not counted.
 **Converged:** No. The last round still raised WARNINGs. The loop stopped at the operator's standing rule of 8 rounds with no BLOCKER open, and past that WARNINGs go to a follow-up card. Round 8's two code WARNINGs were fixed and no reviewer has read that fix; the three test files and full validation have.
-**Total findings:** 0 BLOCKERs, 18 WARNINGs, 0 CONVENTIONs, 31 NITs
-**Fixed:** 11 | **Deferred:** 7 | **Asked:** 0
+**Total findings:** 0 BLOCKERs, 19 WARNINGs, 0 CONVENTIONs, 29 NITs
+**Fixed:** 15 | **Deferred:** 4 | **Asked:** 0
 
 Validation order: per the standing rule, full validation ran once after the review ended, on 6029f329a9. The three test files ran after every fix.
 
