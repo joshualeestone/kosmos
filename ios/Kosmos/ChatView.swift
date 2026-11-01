@@ -2705,7 +2705,7 @@ struct KeyboardHold: UIViewRepresentable {
                 // after a fast scroll its old top can sit inside the band: CI held Post 102 for a reader at Post 176, 5000 pt away.
                 let rowsNow = self.rows.map { rows in
                     Board.readingsHere(rows.y.mapValues { (top: $0.top, content: $0.content) }, offset: Double(sv.contentOffset.y + sv.adjustedContentInset.top),
-                                       bandTop: Double(top), slack: Double(bottom - top))
+                                       bandTop: Double(top), slack: Board.readingSlack)
                 } ?? [:]
                 guard let rows = self.rows, let r = Board.readerRow(rowsNow, below: Double(top), above: Double(bottom)), let reading = rows.y[r.id] else {
                     ChatView.trace("keyboard hold: no row on the screen to hold"); return

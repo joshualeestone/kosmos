@@ -452,7 +452,9 @@ enum Board {
         return min(max(offset + (content - keptContent), top), end)
     }
     // kosmos#7654: the tops of the rows whose reading agrees with where the list is: a row at `top` on the screen should sit at
-    // offset + (top - bandTop) in the content. Slack, a screenful, because rows above can be measured again meanwhile.
+    // offset + (top - bandTop) in the content. A row really on the screen agrees to within its padding: CI's stale reading six rows
+    // away got through a slack of a screenful.
+    static let readingSlack = 30.0
     static func readingsHere(_ rows: [String: (top: Double, content: Double)], offset: Double, bandTop: Double, slack: Double) -> [String: Double] {
         rows.filter { abs($0.value.content - (offset + $0.value.top - bandTop)) <= max(slack, 0) }.mapValues(\.top)
     }
