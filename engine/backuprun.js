@@ -38,7 +38,7 @@
  *   flags stand beside them (a snapshot taken is still taken; its chunks are uploaded again next run).
  * A first run (no pointer) whose key step refuses keeps that answer's job state in the named pair's file (when the file
  * holds none of its own) and stops; one whose key step names no pair keeps nothing (there is no file to keep it in).
- * deps: ensureMemberKey and pointerName (a personal backup's); for tests, takeSnapshot, deviceKey, macRequest, now, snapshotId.
+ * deps: ensureMemberKey, pointerName and requireProof (a personal backup's); for tests, takeSnapshot, deviceKey, macRequest, now, snapshotId.
  */
 const fs = require('fs');
 const path = require('path');
@@ -202,6 +202,8 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
       ref.unwritable = true;
       return Object.assign({ ok: false, because: 'this computer could not keep the backup state, so no backup was taken' + fixed(err) }, err && err.retry ? { retry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
     }
+    // kosmos#7404 slice D: a personal manifest without its proof could never be restored, so no run takes one.
+    if (deps.requireProof && !k.proofKey) return { ok: false, because: 'the backup key on this computer gave no proof for this backup, so nothing was backed up' };
     const dk = (deps.deviceKey || require('./backupdevicekey').deviceKey)();
     if (!dk || !dk.ok) return deviceKeyRefusal(dk);
     result = await take({
