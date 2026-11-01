@@ -6357,7 +6357,8 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/agents/list', 'GET /api/tasks', 'GET /api/tasks/mine', 'GET /api/community/read',
   'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
 /* kosmos#7748: `kosmos agent list` (GET /api/agents/list) joins: a Windows agent holds a token and no board token. WHO GAINS:
-   a token-only caller can read every agent's name, role and state, which the board's project rooms already show it. */
+   a token-only caller can read every agent's name, role and state across the board, not only those on its projects. That is
+   a widening, taken on purpose: an agent is told to check who exists before making one, and it is three fields. */
 /* kosmos#5805 part 2: `kosmos reply-channel` (POST /api/agent/reply-channel) joins: its handler names the caller
    (processCaller) and sets only that agent's own channel; no name in the body is read. Every Windows agent holds a
    token and no board token, and the report came from there. */
@@ -7470,7 +7471,7 @@ const server = http.createServer(async (req, res) => {
 
   /* #7748: `kosmos agent list` reads the same derivation the board draws, because the stopped agents exist only here.
      It answers three fields a row, so an agent's read carries nothing else this route holds for the page. */
-  if ((pathname === '/api/status' || pathname === '/api/agents/list') && (req.method === 'GET' || req.method === 'HEAD')) {
+  if ((pathname === '/api/status' && (req.method === 'GET' || req.method === 'HEAD')) || (pathname === '/api/agents/list' && req.method === 'GET')) {
     const rosterOnly = pathname === '/api/agents/list';
     if (rosterOnly) {
       const refusedRead = crossSiteRead(req);
@@ -8328,7 +8329,8 @@ const server = http.createServer(async (req, res) => {
     if (rosterOnly) {
       let shown;
       try { shown = JSON.parse(body).agents.filter((a) => !a.isGuide); } catch { sendJson(res, 500, { error: 'we could not read the agents just now' }); return; }
-      sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: a.role || null, state: a.state || null })) });
+      // profile.role first, as the card: a running row's `role` is only the line parsed from its instruction file.
+      sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: (a.profile && a.profile.role) || a.role || null, state: a.state || null })) });
       return;
     }
     if (isSiblingRead(req)) body = statusForSibling(body, req.headers['sec-fetch-site']);   // #4973: another computer's page reads the agents only (#6178: and, same-site, the accounts)

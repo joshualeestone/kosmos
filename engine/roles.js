@@ -58,7 +58,8 @@ const MAKE_AGENTS_LINES = [
   '  you will make and ask them to confirm, for example: I will make a Project',
   '  Manager called "PM". Go? Only after they say yes, run',
   '  `kosmos agent create "<name>" <role> "<why they want it>"` (`kosmos agent roles`',
-  '  lists the roles, `kosmos agent list` the agents they have). Then tell them it is on their board, with the link Kosmos',
+  '  lists the roles, `kosmos agent list` the agents they have). Then tell them it is',
+  '  on their board, with the link Kosmos',
   '  prints. If Kosmos refuses, tell them its reason in plain words and walk them',
   '  through New agent.',
 ];

@@ -89,6 +89,8 @@ test('#7748 the agent list carries a stopped agent, which only /api/status deriv
   const stopped = 'ben';
   fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, stopped), { recursive: true });
   require('./engine/store').writeProfile(stopped, { provider: 'anthropic' });
+  fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'mara'), { recursive: true });
+  require('./engine/store').writeProfile('mara', { provider: 'anthropic', role: 'Chosen on the board' });
   const board = fleet.install([fleet.agent(GUIDE, { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
   try {
     const s = await (await fetch(base + '/api/status')).json();
@@ -97,9 +99,13 @@ test('#7748 the agent list carries a stopped agent, which only /api/status deriv
     const by = Object.fromEntries(list.agents.map((a) => [a.name.toLowerCase(), a]));
     assert.equal(by.ben && by.ben.state, 'stopped', 'a stopped agent is missing from the list: ' + JSON.stringify(list.agents));
     assert.equal(by.mara && by.mara.state, 'idle');
+    assert.equal(by.mara.role, 'Chosen on the board', 'the role on the card is the one chosen on the board');
     assert.equal(list.agents.length, 2, 'the guide was listed: ' + JSON.stringify(list.agents));
     for (const a of list.agents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role', 'state']);
-  } finally { board.restore(); fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, stopped), { recursive: true, force: true }); }
+  } finally {
+    board.restore();
+    for (const n of [stopped, 'mara']) fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, n), { recursive: true, force: true });
+  }
 });
 
 test('#7748 a page on another website is refused the agent list before anything is read', async () => {

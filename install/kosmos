@@ -5513,7 +5513,7 @@ if [ "$_kosmos_help" = 1 ]; then
       exit 0 ;;
     agents)
       # #4891 N9: it fell to the general list below. It takes no arguments and only reads.
-      printf 'Usage: kosmos agents   (list the agent sessions running on this computer, as Kosmos'"'"'s own tmux sees them)\n'
+      printf 'Usage: kosmos agents   (list the terminal sessions on this computer, as Kosmos'"'"'s own tmux sees them; every agent: kosmos agent list)\n'
       exit 0 ;;
     inbox)
       # #4784 review 1: NOT with the read-only group below. Run bare, inbox prints the person's private

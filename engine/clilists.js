@@ -4,8 +4,8 @@
  * Each answer is { lines, code }. A line is printed as it is; code is the exit status.
  */
 
-/* Only `stopped` is known to be not running, and `unknown` is a board that could not tell. */
-const STATE_WORDS = { stopped: 'not running', restarting: 'restarting', unknown: 'state not known' };
+/* `stopped` and `needs_trust` rows have no session, and `unknown` is a board that could not tell. */
+const STATE_WORDS = { stopped: 'not running', needs_trust: 'not running, needs trust', restarting: 'restarting', unknown: 'state not known' };
 
 function agentLine(a) {
   const role = typeof a.role === 'string' && a.role.trim() ? a.role.trim() : 'no role recorded';

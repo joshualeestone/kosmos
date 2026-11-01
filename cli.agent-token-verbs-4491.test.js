@@ -35,6 +35,7 @@ function makeHome() {
   fs.symlinkSync(process.execPath, path.join(home, 'runtime', 'bin', 'node'));
   fs.writeFileSync(path.join(home, 'app', 'engine', 'store.js'), `module.exports = { ROOT: ${JSON.stringify(root)} };\n`);
   fs.writeFileSync(path.join(root, 'board.token'), BOARD);
+  fs.copyFileSync(path.join(__dirname, 'engine', 'clilists.js'), path.join(home, 'app', 'engine', 'clilists.js'));
   return home;
 }
 
@@ -65,6 +66,7 @@ const READ_ANSWERS = {
   '/api/tasks': JSON.stringify({ tasks: [], count: 0 }),
   '/api/project/p4491/task/1/activity': JSON.stringify({ events: [], count: 0 }),   // #5874
   '/api/roles': JSON.stringify({ roles: [{ key: 'builder', label: 'Builder' }], own: { instructions: 'You are {{NAME}}.' } }),
+  '/api/agents/list': JSON.stringify({ agents: [] }),   // #7748
   // Slice 7: the reads its token-only list adds.
   '/api/report': 'working: on it\n',
   '/api/projects/overview': JSON.stringify({ projects: [] }),
@@ -109,6 +111,7 @@ const VERBS = [
   ['/api/tasks', ['task', 'list', 'p4491']],
   ['/api/project/p4491/task/1/activity', ['task', 'activity', 'p4491', '1']],   // #5874: a READ, sent with the agent's own token
   ['/api/roles', ['agent', 'roles']],
+  ['/api/agents/list', ['agent', 'list']],   // #7748
   ['/api/roles', ['agent', 'role-draft']],
   // Slice 5, the two task writes.
   ['/api/project/p4491/tasks', ['task', 'add', 'p4491', 'write the docs']],
