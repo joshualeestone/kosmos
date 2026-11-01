@@ -205,7 +205,7 @@ if [ "$rc" -eq 1 ]; then pass "and the gate refuses the entry that has no timest
 # the offset, the past bound, the future bound. It was fixed where it was found
 # twice, and the third survived both fixes. These arms cover all of them, and the
 # future one is the arm that matters most: that axis is what the guard is FOR.
-fut="$(TZ=America/Chicago node -e "const d=new Date(Date.now()+60*60000);const m='January February March April May June July August September October November December'.split(' ');let h=d.getHours(),a=h>=12?'PM':'AM';h=h%12||12;process.stdout.write(m[d.getMonth()]+' '+d.getDate()+', '+d.getFullYear()+', '+h+':'+String(d.getMinutes()).padStart(2,'0')+' '+a+' CDT')")"
+fut="$(stamp_at -60)"
 entry "$fut"
 out="$(run)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "FUTURE"; then pass "CONTROL: a stamp 60 min ahead refuses with a valid future bound"; else fail "control: +60 should refuse (rc=$rc): $out"; fi

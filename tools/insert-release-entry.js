@@ -82,9 +82,10 @@ if (!entry.includes('TIMESTAMP')) {
    timezone would be a different fact wearing the same format.
    #1464: the label now comes from timeZoneName, so it is CDT in summer and CST
    in winter. It used to be a hard-coded literal CDT that was simply wrong for
-   half the year. The gate reads the wall-clock time and not the label, so the
-   label is for the human reading the page -- but a page that lies about which
-   clock it used is what cost the afternoon this card is named for. */
+   half the year. The gate reads the wall-clock time, and the label only in the
+   repeated fall-back hour, where a stamp without CST reads an hour stale. A page
+   that lies about which clock it used is what cost the afternoon this card is
+   named for. */
 const when = new Date().toLocaleString('en-US', {
   timeZone: 'America/Chicago',
   month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
