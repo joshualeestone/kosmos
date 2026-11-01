@@ -574,7 +574,7 @@ function requestLine(name, bytes) {
    the request, so there is nothing for a tool to fetch. */
 function claudeArgs() {
   /* --no-session-persistence: a headless run saves its transcript by default, which here would be the chart
-     (real people's names) kept under the account's projects folder; the consent says nothing is kept.
+     (real people's names) kept under the account's projects folder; the consent says Kosmos keeps no copy.
      --setting-sources "": none of the person's own settings (their hooks, their CLAUDE.md) load into a run that
      must do nothing but read. */
   return ['-p', '--tools', '', '--strict-mcp-config', '--no-session-persistence', '--setting-sources', '',
@@ -655,6 +655,9 @@ function providerLabel(reader) {
   const r = reader === undefined ? currentReader() : reader;
   if (r && r.kind === 'key') return require('./orgchartkeys').label(r) || PROVIDER;
   if (r && r.kind === 'codex') return require('./orgchartcodex').label(r);
+  if (r && r.kind === 'claude' && r.redirected === true) return 'Claude Code';
+  // A key, not the signed-in account, takes the read, so the account's address would name the wrong one.
+  if (r && r.kind === 'claude' && r.apiKey === true) return PROVIDER;
   let acct = null;
   try { acct = readAccount(); } catch { acct = null; }
   return acct && acct.email ? 'Anthropic (Claude, ' + acct.email + ')' : PROVIDER;
@@ -669,6 +672,7 @@ const claudeHere = () => {
 /* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); then a ChatGPT
    subscription through Codex (#5346, engine/orgchartcodex.js; pictures only); otherwise the first KEY-connected OpenAI,
    Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
+const CLAUDE_REDIRECT_VARS = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'];
 let lastWhy = null;   // set by currentReader (see whyNoReader)
 let readerOverride = null;
 /** Tests only: the reader to use ({kind:'claude'}, {kind:'codex', dir, account} or {kind:'key', provider, dir, account});
@@ -689,7 +693,10 @@ function currentReader(name) {
     // (defaultModelRunner) and so bills. Not seen: an apiKeyHelper set up by hand on the default ~/.claude. That
     // person gets "using your plan" and the both-cases line, which still names an API account's 30 days.
     const apiKey = Boolean(acct && acct.apiKey === true) || Boolean(String(process.env.ANTHROPIC_API_KEY || '').trim());
-    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey };
+    // Variables that send Claude Code somewhere other than Anthropic reach the read the same way, so what Anthropic
+    // keeps is not the question there.
+    const redirected = CLAUDE_REDIRECT_VARS.some((v) => String(process.env[v] || '').trim() !== '');
+    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey, redirected };
   }
   /* #5346: a ChatGPT subscription next, read through Codex with every tool that can act switched off. Before a key,
      because a key read is billed per call and the subscription is already paid for. */
@@ -738,7 +745,8 @@ function consentFor(r) {
   const keys = require('./orgchartkeys');
   // A ChatGPT read is on the person's plan, like Claude's (#5346); only a key read is billed per call.
   return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key'
-    : (r && r.kind === 'claude' && r.apiKey === true ? 'billed to your Anthropic API key' : 'using your plan'), keeps: r && r.kind === 'codex' ? require('./orgchartcodex').KEEPS : keys.keeps(r) };
+    : (r && r.kind === 'claude' && r.redirected === true ? 'through the service this computer has it set up to use'
+      : (r && r.kind === 'claude' && r.apiKey === true ? 'billed to your Anthropic API key' : 'using your plan')), keeps: r && r.kind === 'codex' ? require('./orgchartcodex').KEEPS : keys.keeps(r) };
 }
 let availability = readerHere;
 /* `reader`, when the caller has already worked it out, so one request asks once (a second look can disagree). */
