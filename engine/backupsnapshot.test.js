@@ -785,6 +785,8 @@ test('a plan: when the expectation is wrong the measured manifest size stops the
   try {
     const r = await take(k, w.root, st, { deps: { planGb: 25, planChunkSlack: 0.01, maxManifestJson: 3000 } });
     assert.equal(r.ok, false); assert.equal(r.tooLarge, true, r.because);
+    assert.equal(r.overAllowance, true, 'ends for the week, or it walks every hour'); assert.equal(r.personActs, true);
+    assert.match(r.because, /more pieces than one backup can list/);
     assert.equal(st.batches.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
