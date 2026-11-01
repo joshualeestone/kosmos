@@ -97,8 +97,8 @@ test('#7748 the agent list carries a stopped agent, which only /api/status deriv
     assert.ok(s.agents.some((a) => a.sessionName === GUIDE), 'CONTROL: the guide is in the board payload, so its absence below means something');
     const list = await (await fetch(base + '/api/agents/list')).json();
     const by = Object.fromEntries(list.agents.map((a) => [a.name.toLowerCase(), a]));
-    assert.equal(by.ben && by.ben.state, 'stopped', 'a stopped agent is missing from the list: ' + JSON.stringify(list.agents));
-    assert.equal(by.mara && by.mara.state, 'idle');
+    assert.equal(by.ben && by.ben.state, 'Not running', 'a stopped agent is missing from the list: ' + JSON.stringify(list.agents));
+    assert.equal(by.mara && by.mara.state, 'Idle', 'the word on the card');
     assert.equal(by.mara.role, 'Chosen on the board', 'the role on the card is the one chosen on the board');
     assert.equal(list.agents.length, 2, 'the guide was listed: ' + JSON.stringify(list.agents));
     for (const a of list.agents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role', 'state']);

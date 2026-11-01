@@ -8329,8 +8329,9 @@ const server = http.createServer(async (req, res) => {
     if (rosterOnly) {
       let shown;
       try { shown = JSON.parse(body).agents.filter((a) => !a.isGuide); } catch { sendJson(res, 500, { error: 'we could not read the agents just now' }); return; }
-      // profile.role first, as the card: a running row's `role` is only the line parsed from its instruction file.
-      sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: (a.profile && a.profile.role) || a.role || null, state: a.state || null })) });
+      // As the card says it: profile.role first (a running row's `role` is only the line parsed from its instruction file),
+      // and the card's own word, so the list cannot read differently from the board.
+      sendJson(res, 200, { agents: shown.map((a) => ({ name: a.name, role: (a.profile && a.profile.role) || a.role || null, state: a.cardWord || null })) });
       return;
     }
     if (isSiblingRead(req)) body = statusForSibling(body, req.headers['sec-fetch-site']);   // #4973: another computer's page reads the agents only (#6178: and, same-site, the accounts)
