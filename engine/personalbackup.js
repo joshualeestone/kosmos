@@ -527,6 +527,9 @@ function wordsUncovered(opts) {
 /** For the panel, while state() is 'on': { lastOk, stopped, note }. stopped: why backups stopped, for a person to act on.
     note: a plain line beside it. Each is a fixed sentence, or null when nothing is established. */
 function report(opts = {}) {
+  try { return reportNow(opts); } catch { return { lastOk: null, stopped: null, note: null }; }   // never costs the panel its Turn off
+}
+function reportNow(opts) {
   const none = { lastOk: null, stopped: null, note: null };
   const rec = record(opts);
   if (!rec || state(opts) !== 'on') return none;
