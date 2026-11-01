@@ -2644,9 +2644,9 @@ struct KeyboardHold: UIViewRepresentable {
         #endif
         // kosmos#7690: from, to and the app's own frames on the stack, Debug only.
         static func jumpLine(_ a: CGFloat, _ b: CGFloat) -> String {
-            let frames = Thread.callStackSymbols.filter { $0.contains("Kosmos") && !$0.contains("jumpLine") }.prefix(5)
-                .map { String($0.split(separator: " ").dropFirst(3).first?.prefix(70) ?? "?") }
-            return "\(Int(a)) to \(Int(b)) by [" + frames.joined(separator: " | ") + "] " + Thread.callStackSymbols.dropFirst(2).prefix(6).map { String($0.split(separator: " ").dropFirst(3).first?.prefix(40) ?? "?") }.joined(separator: " < ")
+            // Every frame past KVO's own: the jump comes from the framework, and a filter on our symbols hid who.
+            let frames = Thread.callStackSymbols.dropFirst(3).prefix(28).map { String($0.split(separator: " ").dropFirst(3).first?.prefix(46) ?? "?") }
+            return "\(Int(a)) to \(Int(b)) by " + frames.joined(separator: " < ")
         }
         // kosmos#7654: the rows nearest the held one, named, in a Debug run of the sample room or chat only: its ids hold no one's words.
         // Everywhere else the words "not sampled". A held row whose numbers say nothing moved could not be identified without this.
