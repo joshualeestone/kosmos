@@ -570,7 +570,9 @@ struct ActionsPanel<Rows: View>: View {
                 .accessibilityAddTraits(.isModal)
                 .accessibilityAction(.escape) { close() }
                 .position(x: area.midX, y: y + shown / 2)
-                .onAppear { opened = y }
+                // Only once the bubble is known (review 3): its place can arrive a pass after the panel.
+                .onAppear { if bubble != nil { opened = y } }
+                .onChange(of: bubble != nil) { known in if known, opened == nil { opened = y } }
         }
         .ignoresSafeArea()
         .transition(.opacity)
@@ -823,7 +825,7 @@ struct MessageActionsHost: ViewModifier {
                 // Review 3: only the dim fades; the chat's own changes in the same update are not animated.
                 ZStack {
                     if litDim { LitDim(anchor: anchor, close: { panel = nil; target = nil }) }
-                    if let p = panel { ActionsPanel(anchor: anchor, height: smallHeight(p) - 28, keyboardTop: keyboardTop, close: { panel = nil }) { panelRows(p) } }
+                    if let p = panel { ActionsPanel(anchor: anchor, height: smallHeight(p) - 28, keyboardTop: keyboardTop, close: { panel = nil }) { panelRows(p) }.id(p.id) }
                 }
                     .animation(.easeOut(duration: 0.2), value: litDim)
             }
