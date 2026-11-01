@@ -275,6 +275,12 @@ test('#4660: keeps() returns the Claude retention line per reader kind, the API 
   assert.notEqual(keys.CLAUDE_KEEPS, keys.CLAUDE_API_KEEPS, 'the plan and API-key sentences are distinct');
 });
 
+test('#4660: every key-connected provider has a retention sentence, so no consent box goes without one', () => {
+  assert.ok(keys.ORDER.length > 0, 'premise: there are providers to check');
+  for (const p of keys.ORDER) assert.equal(keys.keeps({ kind: 'key', provider: p }), keys.KEEPS[p], `${p} has its sentence`);
+  for (const p of keys.ORDER) assert.ok(keys.KEEPS[p], `${p} is not blank`);
+});
+
 test('#4560: the timeout, and a Stop, hold through the whole answer, not only its headers', { timeout: 15000 }, async () => {
   only('openai');
   // Headers now, the body never finishes: the answer trickles and stalls.
