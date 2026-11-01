@@ -5347,7 +5347,7 @@ do {
         check(Board.readingsHere(["a": (top: 200, content: 1110)], offset: 1000, bandTop: 120, slack: Board.readingSlack)["a"] == 200, "keyboard hold: 30 pt off still agrees")
         check(Board.readingsHere(["a": (top: 200, content: 1111)], offset: 1000, bandTop: 120, slack: Board.readingSlack).isEmpty, "keyboard hold: 31 pt off does not")
     }
-    check(Board.holdReadingFar(moved: 1281, showing: 262), "keyboard hold: moved past a screenful, the reading is not trusted (as CI, 1281 over 262)")
+    check(Board.holdReadingFar(moved: 1281, showing: 262), "keyboard hold: moved past the view's height, the reading is not trusted")
     check(Board.holdReadingFar(moved: -1281, showing: 262), "keyboard hold: either way")
     check(!Board.holdReadingFar(moved: 200, showing: 262), "keyboard hold: CONTROL: within a screenful, the reading stands")
     check(Board.emptyRecovery(later: false, place: "within", scrolling: false) == .newest && Board.emptyRecovery(later: false, place: nil, scrolling: false) == .newest,

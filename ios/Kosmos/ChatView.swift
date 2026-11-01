@@ -2551,23 +2551,22 @@ struct KeyboardHold: UIViewRepresentable {
                 guard token == self.settleToken, let sv = self.scroll else { if !retried { self.onPutBack() }; return }
                 var acted = !retried
                 defer { if acted { self.onPutBack() } }
+                if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: settle skipped, a finger"); return }
                 // kosmos#7654: a reading that does not agree with the list is the stale one the row left behind, as good as not drawn.
                 let bandTop = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
                 guard let r = self.rows?.y[id],
                       !Board.readingsHere(["row": (top: r.top, content: r.content)], offset: Double(sv.contentOffset.y + sv.adjustedContentInset.top),
                                           bandTop: Double(bandTop), slack: Board.readingSlack).isEmpty else {
-                    ChatView.trace(retried ? "keyboard hold: settle retry, row still not drawn" : "keyboard hold: settle, row not drawn")
+                    ChatView.trace(retried ? "keyboard hold: settle retry, no good reading of the row" : "keyboard hold: settle, no good reading of the row")
+                    if Date() >= until { ChatView.trace("keyboard hold: settle gave up") }
                     // A row with no last reading belongs to readings that were cleared (another chat): nothing to settle.
                     if Date() < until, self.rows?.last[id] != nil { self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true) }
                     return
                 }
-                if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: settle skipped, a finger"); return }
                 if self.above != above || abs(sv.bounds.width - width) > 0.5 { ChatView.trace("keyboard hold: settle skipped, the list changed"); return }
                 let moved = CGFloat(r.top) - want
                 ChatView.trace("keyboard hold: settle, row off by \(Int(moved)), \(Self.numbers(sv))")
-                if Board.holdReadingFar(moved: Double(moved), showing: Double(sv.bounds.height)) {
-                    ChatView.trace("keyboard hold: settle \(Int(moved)) refused, past a screenful")
-                } else if abs(moved) > 1 {
+                if abs(moved) > 1 {   // any size: the reading agreed with the list above, so this one is true
                     acted = true
                     let i = sv.adjustedContentInset
                     let target = Board.settleOffset(offset: Double(sv.contentOffset.y), moved: Double(moved), insetTop: Double(i.top),
@@ -2699,7 +2698,7 @@ struct KeyboardHold: UIViewRepresentable {
             let nc = NotificationCenter.default
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
                 guard let self, let sv = self.scroll else { return }
-                if !self.keyboardUp { self.settleToken &+= 1 }   // a new keyboard: a settle still waiting belongs to the one before
+                if !self.keyboardUp { self.settleToken &+= 1; self.replaced = false }   // a new keyboard: a settle still waiting belongs to the one before
                 // A will-show while a reading waits for its did-show keeps that reading.
                 guard self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
                 ChatView.trace("keyboard hold: will-show \(Self.numbers(sv))")
