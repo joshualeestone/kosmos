@@ -451,6 +451,20 @@ enum Board {
         let top = -insetTop, end = max(top, contentHeight + insetBottom - viewHeight)
         return min(max(offset + (content - keptContent), top), end)
     }
+    // kosmos#7654: the tops of the rows whose reading agrees with where the list is: a row at `top` on the screen should sit at
+    // offset + (top - bandTop) in the content, where offset is the scroll's plus its top inset. A settled list agrees exactly; 30 pt is
+    // for a list still moving. CI's stale reading six rows away got through a slack of a screenful.
+    static let readingSlack = 30.0
+    static func readingsHere(_ rows: [String: (top: Double, content: Double)], offset: Double, bandTop: Double, slack: Double) -> [String: Double] {
+        rows.filter { abs($0.value.content - (offset + $0.value.top - bandTop)) <= max(slack, 0) }.mapValues(\.top)
+    }
+    // kosmos#7690: how far to add to the rows' tops to read them from before a jump: the distance from where the list was, if the jump
+    // landed within `within` seconds and the list is still within `settle` of where it landed; otherwise 0.
+    static func jumpBack(from: Double, to: Double, now: Double, age: Double, within: Double, settle: Double) -> Double {
+        age >= 0 && age <= within && abs(now - to) <= settle ? now - from : 0
+    }
+    // kosmos#7654: a move further than the whole view: the row's reading cannot be trusted. A view with no height trusts nothing.
+    static func holdReadingFar(moved: Double, showing: Double) -> Bool { abs(moved) > max(showing, 0) }
     // kosmos#7609: where a row's top sits in the band that shows, as a share from its top (0) to its bottom (1), held to that
     // range; an empty band is 0.
     static func bandFraction(_ y: Double, bandTop: Double, bandBottom: Double) -> Double {

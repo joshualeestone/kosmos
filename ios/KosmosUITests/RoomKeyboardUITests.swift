@@ -37,15 +37,64 @@ final class RoomKeyboardUITests: XCTestCase {
         var top = app.navigationBars.firstMatch.frame.maxY
         let notice = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'need you on this project'")).firstMatch
         if notice.exists { top = max(top, notice.frame.maxY) }
-        guard let first = rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > top }).min(by: { $0.frame.minY < $1.frame.minY }) else {
-            XCTFail("no post on screen after the scroll up"); return
+        // kosmos#7690: chosen once the list has gone still: on CI's runner it moved about 490 pt after the scroll-up marker, before the
+        // keyboard was asked for, and a row read during that move was gone whatever the hold did. Two looks with no change.
+        func firstRow() -> XCUIElement? { rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > top }).min(by: { $0.frame.minY < $1.frame.minY }) }
+        var still: (String, CGFloat)?
+        for _ in 0..<10 {
+            guard let f = firstRow() else { Thread.sleep(forTimeInterval: 0.5); continue }
+            let now = (f.label, f.frame.minY)
+            if let s = still, s.0 == now.0, abs(s.1 - now.1) < 1 { break }
+            still = now
+            Thread.sleep(forTimeInterval: 1)
         }
-        let label = first.label, y0 = first.frame.minY
+        guard let chosen = still else { XCTFail("no post on screen after the scroll up"); return }
+        let label = chosen.0, y0 = chosen.1
         let row = app.staticTexts[label]
+        let beforeTap = row.exists ? Int(row.frame.minY) : -1
         try KeyboardSlideUITests.keyboardUp(app, box, row, shot: "room-read-higher-keyboard-up", test: self)
-        XCTAssertTrue(row.exists && row.isHittable, "'\(label)', read higher up, left the screen when the keyboard came up")
+        if !(row.exists && row.isHittable) {   // what is on the screen, for a failure on CI's runner, where nothing else shows it (kosmos#7690)
+            let seen = rows.allElementsBoundByIndex.filter { $0.isHittable }.map { "\($0.label.prefix(14)) at \(Int($0.frame.minY))" }.joined(separator: ", ")
+            XCTFail("'\(label)', read higher up from \(Int(y0)), left the screen when the keyboard came up (at \(beforeTap) just before the tap, exists \(row.exists), keyboard top \(Int(app.keyboards.firstMatch.frame.minY)), on screen: \(seen))")
+            return
+        }
         XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "'\(label)' moved from \(y0) to \(row.frame.minY)")
         XCTAssertFalse(newest.exists && newest.isHittable, "the reader was pulled down to the newest post")
+    }
+
+    // kosmos#7690: as a person does it: a real drag, no debug jump. The check above moves the reader with proxy.scrollTo, and on CI the tap
+    // on the box then moved the list 488 pt with none of our code on the stack. This says whether a person can meet that.
+    func testRoomReadHigherUpAfterADragStaysWhereItWas() throws {
+        let app = Self.launch(["KOSMOS_SAMPLE_TRACE": "1"])
+        let box = Self.box(app)
+        let rows = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'"))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15), "no sample posts")
+        let list = app.scrollViews.containing(NSPredicate(format: "label CONTAINS ' of 220.'")).firstMatch
+        XCTAssertTrue(list.waitForExistence(timeout: 15), "no room list")
+        Thread.sleep(forTimeInterval: 3)
+        list.swipeDown(velocity: .slow)
+        list.swipeDown(velocity: .slow)
+        var top = app.navigationBars.firstMatch.frame.maxY
+        let notice = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'need you on this project'")).firstMatch
+        if notice.exists { top = max(top, notice.frame.maxY) }
+        func firstRow() -> XCUIElement? { rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > top }).min(by: { $0.frame.minY < $1.frame.minY }) }
+        var still: (String, CGFloat)?
+        for _ in 0..<10 {
+            guard let f = firstRow() else { Thread.sleep(forTimeInterval: 0.5); continue }
+            let now = (f.label, f.frame.minY)
+            if let s = still, s.0 == now.0, abs(s.1 - now.1) < 1 { break }
+            still = now
+            Thread.sleep(forTimeInterval: 1)
+        }
+        guard let chosen = still else { XCTFail("no post on screen after the drag"); return }
+        let row = app.staticTexts[chosen.0]
+        try KeyboardSlideUITests.keyboardUp(app, box, row, shot: "room-drag-keyboard-up", test: self)
+        if !(row.exists && row.isHittable) {
+            let seen = rows.allElementsBoundByIndex.filter { $0.isHittable }.map { "\($0.label.prefix(14)) at \(Int($0.frame.minY))" }.joined(separator: ", ")
+            XCTFail("after a real drag '\(chosen.0)' from \(Int(chosen.1)) left the screen (on screen: \(seen))")
+            return
+        }
+        XCTAssertEqual(row.frame.minY, chosen.1, accuracy: 4, "after a real drag the post moved")
     }
 
     private static func launch(_ env: [String: String]) -> XCUIApplication {

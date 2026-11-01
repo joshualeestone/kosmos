@@ -1610,10 +1610,18 @@ function holdUntilWords(x) {
   return '';
 }
 
-const HOLD_USAGE = 'Usage: kosmos task hold <project-id> <task-number> [--until-task <task-number> | --until <a date (midnight UTC) or a time with its zone, like 2026-11-02 or 2026-11-02T09:00-05:00>]';
+const HOLD_USAGE = 'Usage: kosmos task hold <project-id> <task-number> [--because "<why>"] [--until-task <task-number> | --until <a date (midnight UTC) or a time with its zone, like 2026-11-02 or 2026-11-02T09:00-05:00>]';
 /* #4771, as install/kosmos cmd_task hold|unhold: put a task on hold, or take it off. A board write, like close. */
 function taskHoldAs(want) {
   return async function taskHold(ctx, args) {
+    /* kosmos#7749: why it is parked, right after the task number or after a condition, as install/kosmos. */
+    let because = null;
+    const at = want ? args.indexOf('--because') : -1;
+    if (at === 2 || at === 4) {
+      if (!args[at + 1]) { ctx.err('--because needs a few words, so nothing was done.'); ctx.err(HOLD_USAGE); return 2; }
+      because = args[at + 1];
+      args = [...args.slice(0, at), ...args.slice(at + 2)];
+    }
     const [project, num, flag, value] = args;
     const usage = want ? HOLD_USAGE : 'Usage: kosmos task unhold <project-id> <task-number>';
     if (!project || !num) { ctx.err(usage); return 2; }
@@ -1631,7 +1639,7 @@ function taskHoldAs(want) {
         until = { at: value };
       }
     } else if (tooManyWords(ctx, 'task ' + (want ? 'hold' : 'unhold'), 2, usage, args)) return 2;   // kosmos#4889 review 6
-    const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/hold', until ? { onHold: want, until } : { onHold: want }, { agent: false });
+    const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/hold', { onHold: want, ...(until ? { until } : {}), ...(because ? { because } : {}) }, { agent: false });
     if (!r.reached) {
       return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
         : ctx.unreachable('change that task');

@@ -100,6 +100,18 @@ test('#4771 Mac CLI: task list marks held work "[on hold]"; a plain task is the 
   });
 });
 
+test('#7749 Mac CLI: task hold --because sends the reason in either order; none means no write', async () => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env, writes) => {
+    const a = await runCli(['task', 'hold', 'p1', '3', '--because', 'waits on "legal"'], env);
+    assert.equal(a.code, 0, a.stdout + a.stderr);
+    const b = await runCli(['task', 'hold', 'p1', '3', '--until-task', '5', '--because', 'legal'], env);
+    assert.equal(b.code, 0, b.stdout + b.stderr);
+    const none = await runCli(['task', 'hold', 'p1', '3', '--because'], env);
+    assert.equal(none.code, 2);
+    assert.deepEqual(writes.map((x) => x.body), [{ onHold: true, because: 'waits on "legal"' }, { onHold: true, until: { task: 5 }, because: 'legal' }]);
+  });
+});
+
 test('#7180 Mac CLI: task hold --until-task / --until send the condition and say what it waits for; bad values are sent nowhere', async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env, writes) => {
     const t = await runCli(['task', 'hold', 'p1', '3', '--until-task', '5'], env);

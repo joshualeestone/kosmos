@@ -24817,7 +24817,7 @@ const server = http.createServer(async (req, res) => {
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       try {
         // kosmos#7180: body.until, when present, is the hold's checkable reopening condition (tasks.holdUntilOf checks it).
-        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body), until: body.until === undefined ? null : body.until });
+        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body), until: body.until === undefined ? null : body.until, because: body.because });
         // The assignees' instructions mark a held task (projects.blockBody), so the block follows the record, as close does.
         // #7407 review 6: one roster read, shared by the re-tell and the unhold answer, and taken only if either needs it.
         let heldRoster;

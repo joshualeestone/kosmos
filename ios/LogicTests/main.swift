@@ -5335,6 +5335,33 @@ do {
         let tight = Board.actionsPanelTop(bubbleTop: 150, bubbleBottom: 190, areaTop: 100, areaBottom: 220, height: shown, gap: 8)
         check(tight >= 108 && tight + shown <= 212, "panel: in the tightest area it is inside both ends")
     }
+    do {
+        // kosmos#7654: shaped on CI's run (a reader at Post 176, a stale reading of Post 102 still inside the band); offset is the scroll's plus its top inset.
+        let rows: [String: (top: Double, content: Double)] = ["p102": (top: 120, content: 8500), "p176": (top: 185, content: 13800), "p177": (top: 274, content: 13889)]
+        let here = Board.readingsHere(rows, offset: 13735, bandTop: 120, slack: Board.readingSlack)
+        check(Board.readingsHere(["p179": (top: 125, content: 14270)], offset: 13735, bandTop: 120, slack: Board.readingSlack).isEmpty, "keyboard hold: a stale reading six rows away is not on the screen either")
+        check(here["p102"] == nil, "keyboard hold: a stale reading 5000 pt from the list is not a row on the screen")
+        check(here["p176"] == 185 && here["p177"] == 274, "keyboard hold: CONTROL: the rows really there stay")
+        check(Board.readerRow(rows.mapValues(\.top), below: 120, above: 382)?.id == "p102", "keyboard hold: CONTROL: without the filter the stale row is chosen, the failure on CI")
+        check(Board.readerRow(here, below: 120, above: 382)?.id == "p176", "keyboard hold: with it, the reader's row is chosen")
+        check(Board.readingsHere(["a": (top: 200, content: 1110)], offset: 1000, bandTop: 120, slack: Board.readingSlack)["a"] == 200, "keyboard hold: 30 pt off still agrees")
+        check(Board.readingsHere(["a": (top: 200, content: 1111)], offset: 1000, bandTop: 120, slack: Board.readingSlack).isEmpty, "keyboard hold: 31 pt off does not")
+    }
+    // kosmos#7690: shaped on CI's red: the list moved 13589 to 14079 20 ms before will-show.
+    check(Board.jumpBack(from: 13589, to: 14079, now: 14079, age: 0.02, within: 0.25, settle: 20) == 490, "keyboard hold: a jump just before will-show is read from before it")
+    check(Board.jumpBack(from: 13589, to: 14079, now: 14083, age: 0.02, within: 0.25, settle: 20) == 494, "keyboard hold: a settle after the jump counts from where the list was")
+    check(Board.jumpBack(from: 14079, to: 13589, now: 13589, age: 0.02, within: 0.25, settle: 20) == -490, "keyboard hold: either way")
+    check(Board.jumpBack(from: 13589, to: 14079, now: 14079, age: 0.3, within: 0.25, settle: 20) == 0, "keyboard hold: CONTROL: an older jump is where the reader is")
+    check(Board.jumpBack(from: 13589, to: 14079, now: 14300, age: 0.02, within: 0.25, settle: 20) == 0, "keyboard hold: CONTROL: the list has moved on since, the jump does not apply")
+    check(Board.jumpBack(from: 13589, to: 14079, now: 14079, age: -1, within: 0.25, settle: 20) == 0, "keyboard hold: a clock set back does not count as just now")
+    do {
+        let rows = ["p174": -231.0, "p175": -142.0, "p179": 165.0, "p180": 254.0]
+        check(Board.readerRow(rows, below: 165, above: 427)?.id == "p179", "keyboard hold: CONTROL: read after the jump, the moved row is chosen, the red on CI")
+        check(Board.readerRow(rows.mapValues { $0 + 490 }, below: 165, above: 427)?.id == "p174", "keyboard hold: read from before the jump, the reader's row is")
+    }
+    check(Board.holdReadingFar(moved: 1281, showing: 262), "keyboard hold: moved past the view's height, the reading is not trusted")
+    check(Board.holdReadingFar(moved: -1281, showing: 262), "keyboard hold: either way")
+    check(!Board.holdReadingFar(moved: 200, showing: 262), "keyboard hold: CONTROL: within a screenful, the reading stands")
     check(Board.emptyRecovery(later: false, place: "within", scrolling: false) == .newest && Board.emptyRecovery(later: false, place: nil, scrolling: false) == .newest,
           "the first empty list goes to the newest message as before, the scroll left alone when within or unread")
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: false) == .backInsideThenNewest && Board.emptyRecovery(later: false, place: "before the top", scrolling: false) == .backInsideThenNewest,
