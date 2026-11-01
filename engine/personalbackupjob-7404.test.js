@@ -277,9 +277,9 @@ test('the panel report: first run, a good run, a passing failure, a stop, and a 
   const pair = newPair();
   const o = onNow(chain(pair, []), pair);
   const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
-  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: 'The first backup runs soon.' });
+  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: 'A backup runs soon.' });
   await run({ ok: false, because: 'Kosmos+ could not be reached' }, 11);
-  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: 'The first backup has not finished yet.' }, 'tried is not untried');
+  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: 'A backup has not finished yet.' }, 'tried is not untried');
   await run({ ok: true }, 12);
   assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T12:00:00.000Z', stopped: null, note: null });
   await run({ ok: false, because: 'Kosmos+ could not be reached' }, 13);

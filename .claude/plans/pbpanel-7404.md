@@ -16,5 +16,6 @@ Rejected: a new state() value, because state() drives the screens #7681 settled,
 with a company here the panel says nothing about the job, which is true but tells the person nothing.
 
 Not here, on a follow-up before the switch: a way forward for a different key here, no key on Kosmos+, an unreadable key file,
-"remote access is not set up" and a state file that cannot be used (each says what is wrong and names no step), the off-then-on price dependency (#7685), the
+"remote access is not set up", a state file that cannot be used, and the catch-all "not running just now" (each says what is
+wrong and names no step). Off then on needs a working price (#7685), which is why that is on the switch's HOLD line. Also the off-then-on price dependency (#7685), the
 Antigravity staging before the key step, and slice D.
