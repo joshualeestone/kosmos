@@ -3,7 +3,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const st = require('./status');
 
-const PANES = ['one-discord\t0.0\t2.1.212\t0\t\t\t', 'two-discord\t0.0\t2.1.212\t0\t\t\t'].join('\n');
+const { line } = require('../test-support/fleet');
+const pane = (session) => line({ session });
+const PANES = [pane('one-discord'), pane('two-discord')].join('\n');
 const ASKING = 'Do you want to proceed?\n❯ 1. Yes\n  2. No\n';
 
 function withSeams(capture, fn) {
@@ -60,7 +62,7 @@ test('CONTROL: young text is not marked remembered', async () => {
 });
 
 test('#7693: live reads are capped: past the cap a pane with no text is marked remembered, and the snapshot answers', async () => {
-  const many = Array.from({ length: 6 }, (_, i) => `p${i}-discord\t0.0\t2.1.212\t0\t\t\t`).join('\n');
+  const many = Array.from({ length: 6 }, (_, i) => pane(`p${i}-discord`)).join('\n');
   st.setPaneSource(() => many);
   st.setCaptureAsync(() => Promise.resolve(null));
   try {
@@ -135,7 +137,7 @@ test('#7693: GET /api/status is the route that uses it', () => {
 });
 
 test('#7693: the budget of live reads is shared by requests on one gather', async () => {
-  const many = Array.from({ length: 6 }, (_, i) => `p${i}-discord\t0.0\t2.1.212\t0\t\t\t`).join('\n');
+  const many = Array.from({ length: 6 }, (_, i) => pane(`p${i}-discord`)).join('\n');
   let open;
   const gate = new Promise((r) => { open = r; });
   st.setPaneSource(() => many);
@@ -168,7 +170,7 @@ test('#7693: a list that cannot be read is the honest error, with no capture run
 });
 
 test('#7693: a pane the gather has no text for keeps its unsent record: only the live-read panes lose theirs', async () => {
-  const many = Array.from({ length: 5 }, (_, i) => `p${i}-discord\t0.0\t2.1.212\t0\t\t\t`).join('\n');
+  const many = Array.from({ length: 5 }, (_, i) => pane(`p${i}-discord`)).join('\n');
   const SCREEN = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'test-support', 'composer-6249', 'typed-long.ansi'), 'utf8');
   const BOX = SCREEN.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
   let ansi = 0;
@@ -198,7 +200,7 @@ test('#7693: the board\'s thread turns while a real (fake, slow) tmux answers, a
   fs.writeFileSync(bin, `#!/bin/sh
 for a in "$@"; do
   case "$a" in
-    list-panes) printf 'one-discord\\t0.0\\t2.1.212\\t0\\t\\t\\t\\n'; exit 0 ;;
+    list-panes) printf '%s\\n' '${pane('one-discord')}'; exit 0 ;;
     capture-pane) sleep 2; printf 'Do you want to proceed?\\n\\342\\235\\257 1. Yes\\n  2. No\\n'; exit 0 ;;
   esac
 done
@@ -228,7 +230,7 @@ test('#7693: a slow list does not make fresh captures read as old', async () => 
   fs.writeFileSync(bin, `#!/bin/sh
 for a in "$@"; do
   case "$a" in
-    list-panes) sleep 3.2; printf 'one-discord\\t0.0\\t2.1.212\\t0\\t\\t\\t\\n'; exit 0 ;;
+    list-panes) sleep 3.2; printf '%s\\n' '${pane('one-discord')}'; exit 0 ;;
     capture-pane) printf 'Do you want to proceed?\\n\\342\\235\\257 1. Yes\\n  2. No\\n'; exit 0 ;;
   esac
 done
@@ -248,7 +250,7 @@ exit 0
 });
 
 test('#7693: colour reads of the box spend the budget of live reads', async () => {
-  const many = Array.from({ length: 5 }, (_, i) => `q${i}-discord\t0.0\t2.1.212\t0\t\t\t`).join('\n');
+  const many = Array.from({ length: 5 }, (_, i) => pane(`q${i}-discord`)).join('\n');
   const SCREEN = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'test-support', 'composer-6249', 'typed-long.ansi'), 'utf8');
   const BOX = SCREEN.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
   let ansi = 0;
