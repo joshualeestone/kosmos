@@ -861,7 +861,7 @@ test('a missing versions page is reported as unreadable, not as a missing entry'
 
 test('a stale versions entry also refuses at step 1, naming the drift', () => {
   const { dir, home, site } = git_sandbox('0.6.02');
-  const r = run_git(dir, '0.6.03', home, site, { staleBy: 45 });
+  const r = run_git(dir, '0.6.03', home, site, { staleBy: 105 });   // kosmos#7725: far enough that either reading of a repeated-hour stamp is stale (45 can read as 15 ahead)
   assert.equal(r.status, 1, 'it did not refuse');
   /* ⚠️ a RANGE, not a literal 45. The stamp has minute granularity and the sandbox
      takes about a second to build, so pinning an exact minute makes this flake on a
