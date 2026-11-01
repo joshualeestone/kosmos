@@ -5347,6 +5347,17 @@ do {
         check(Board.readingsHere(["a": (top: 200, content: 1110)], offset: 1000, bandTop: 120, slack: Board.readingSlack)["a"] == 200, "keyboard hold: 30 pt off still agrees")
         check(Board.readingsHere(["a": (top: 200, content: 1111)], offset: 1000, bandTop: 120, slack: Board.readingSlack).isEmpty, "keyboard hold: 31 pt off does not")
     }
+    // kosmos#7690: shaped on CI's red: the list moved 13589 to 14079 20 ms before will-show.
+    check(Board.jumpBack(from: 13589, to: 14079, now: 14079, age: 0.02, within: 0.25) == 490, "keyboard hold: a jump just before will-show is read from before it")
+    check(Board.jumpBack(from: 14079, to: 13589, now: 13589, age: 0.02, within: 0.25) == -490, "keyboard hold: either way")
+    check(Board.jumpBack(from: 13589, to: 14079, now: 14079, age: 0.3, within: 0.25) == 0, "keyboard hold: CONTROL: an older jump is where the reader is")
+    check(Board.jumpBack(from: 13589, to: 14079, now: 14300, age: 0.02, within: 0.25) == 0, "keyboard hold: CONTROL: the list has moved on since, the jump does not apply")
+    check(Board.jumpBack(from: 13589, to: 14079, now: 14079, age: -1, within: 0.25) == 0, "keyboard hold: a clock set back does not count as just now")
+    do {
+        let rows = ["p174": -231.0, "p175": -142.0, "p179": 165.0, "p180": 254.0]
+        check(Board.readerRow(rows, below: 165, above: 427)?.id == "p179", "keyboard hold: CONTROL: read after the jump, the moved row is chosen, the red on CI")
+        check(Board.readerRow(rows.mapValues { $0 + 490 }, below: 165, above: 427)?.id == "p174", "keyboard hold: read from before the jump, the reader's row is")
+    }
     check(Board.holdReadingFar(moved: 1281, showing: 262), "keyboard hold: moved past the view's height, the reading is not trusted")
     check(Board.holdReadingFar(moved: -1281, showing: 262), "keyboard hold: either way")
     check(!Board.holdReadingFar(moved: 200, showing: 262), "keyboard hold: CONTROL: within a screenful, the reading stands")
