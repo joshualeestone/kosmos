@@ -102,6 +102,12 @@ test('#7748 the agent list carries a stopped agent, which only /api/status deriv
   } finally { board.restore(); fs.rmSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, stopped), { recursive: true, force: true }); }
 });
 
+test('#7748 a page on another website is refused the agent list before anything is read', async () => {
+  const r = await fetch(base + '/api/agents/list', { headers: { 'sec-fetch-site': 'cross-site' } });
+  assert.equal(r.status, 403);
+  assert.ok(Array.isArray((await (await fetch(base + '/api/agents/list')).json()).agents), 'CONTROL: the same read without the header answers');
+});
+
 test('#3739 markGuide names a default model for a Claude guide only (the OpenAI picker reads the field as a model id)', async () => {
   const board = fleet.install([fleet.agent(GUIDE, { state: 'idle' })]);
   try {
