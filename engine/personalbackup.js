@@ -462,6 +462,9 @@ async function planOf(opts) {
   const remote = remoteOf(opts);
   const st = remote && typeof remote.macRequest === 'function' ? await readStatus(remote) : null;
   if (!st) return 'unread';
+  // Status answers for the account's current membership: a plan is only this personal backup's if the org is its own.
+  const rec = record(opts);
+  if (!rec || !st.data.org || st.data.org.id !== rec.org.id) return undefined;
   const gb = st.data.backupWeeklyGb;
   return gb === null || (Number.isSafeInteger(gb) && gb > 0) ? gb : undefined;
 }
@@ -485,7 +488,8 @@ async function runJob(input, opts = {}) {
 }
 
 /* pbjob-7404 slice C: what the panel says about the job. The note holds the last good run, the last try, and a stop as
-   this module's own sentence: a run's `because` is passed on only for personActs, which the key step and runJob write.
+   this module's own sentence: a run's `because` is passed on only for personActs, which the key step, runJob and a
+   plan's stops in backupsnapshot write, all fixed sentences.
    Other reasons carry a server's or a file's text, so a flag picks a fixed sentence here. The note names its org and world,
    so a note from another enrollment is never shown, and a run that outlived its enrollment leaves none. */
 const JOB_NOTE = 'personal-job.json';

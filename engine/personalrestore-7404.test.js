@@ -313,6 +313,17 @@ test('a list cut on this computer says so, as one cut by Kosmos+ does', async ()
   assert.equal(r.backups.length, 5000);
 });
 
+test('a large plan: the manifest gets its long cut-off in both the fetcher and the run', async () => {
+  const w = await world({});
+  const fetch = require('./restorefetch'), runner = require('./restorerun');
+  const seen = {};
+  const restorefetch = { ...fetch, readGrantFetcher: (o) => { seen.fetcher = o.manifestTimeoutMs; return fetch.readGrantFetcher(o); } };
+  const restorerun = { ...runner, runRestore: (o) => { seen.run = o.manifestTimeoutMs; return runner.runRestore(o); } };
+  await pr.restoreFiles({ key: w.row.key }, { ...w.opts, restorefetch, restorerun });
+  assert.ok(seen.fetcher >= 10 * 60 * 1000, String(seen.fetcher));
+  assert.ok(seen.run > seen.fetcher, 'the run must not cut off a fetch still allowed to finish');
+});
+
 test('a real run stopped by a refusal part way keeps what landed, its Kosmos and its record, and names what it has', async () => {
   const w = await world({ twoFiles: true });
   const real = require('./restorefetch');

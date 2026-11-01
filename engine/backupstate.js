@@ -58,9 +58,9 @@
  *   index, so the next run's first batch is the whole tree (up to a batch). A caller that wants to avoid it can, on a
  *   staleIndex answer within an hour of its clock's Monday 00:00, run periodOf(now + 1 hour) once; that choice is the
  *   caller's, as every week choice is.
- *   Size: a slot of 200000 rows is about 35 MB (measured: 283 ms to write, 251 ms to read on this Mac), so a full one at
- *   600000 rows, the top plan's, should be about three times that, and two full slots about 210 MB and over a second
- *   each way (the times scaled; 600000 rows alone measured 162 MiB, 186 ms to stringify, 204 ms to parse). The previous week's slot stays until a third week arrives,
+ *   Size: a slot of 200000 rows is about 35 MB (measured: 283 ms to write, 251 ms to read on this Mac). A full one at
+ *   600000 rows, the top plan's, measured 162 MiB, 186 ms to stringify and 204 ms to parse, so two full slots are about
+ *   324 MiB and, with validation and the re-read, likely a few seconds each way (not measured). The previous week's slot stays until a third week arrives,
  *   carried but unused after the coordinator's Monday; accepted (it is dropped by the next week's first run).
  * withPeriod(state, period) -> state: `period` in the first slot, replacing its label's slot; at most SLOTS kept, the
  *   least recently used dropped. For writing a fresh period before its snapshot.

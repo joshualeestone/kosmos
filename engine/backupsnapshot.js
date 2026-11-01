@@ -745,9 +745,10 @@ async function snapshotInner(input, deps, added, state, fail) {
   const expectedManifest = 1024 + expectedChunks * (2 * CHUNK_NAME_LEN + 9 + PLAN_KEY_LEN) + listed.files.reduce((n, f) => n + PLAN_FILE_BYTES + 2 * Buffer.byteLength(f.path), 0);
   if (planGb && (listedBytes > planBytes || expectedChunks > chunkCap || (expectedManifest > budget && !deps.planExpectNothing))) {
     const gb = (n) => Math.ceil(n / PLAN_BYTES_PER_GB);
-    return fail(listedBytes > planBytes
-      ? `your files are about ${gb(listedBytes)} GB and your plan covers ${planGb} GB, so nothing was backed up. Move some out of your agents' folders and projects, or choose a larger plan`
-      : `you have more small files than your plan covers, so nothing was backed up. Move some out of your agents' folders and projects, or choose a larger plan`, { tooLarge: true, overPlan: true, personActs: true });
+    const why = listedBytes > planBytes ? `your files are about ${gb(listedBytes)} GB and your plan covers ${planGb} GB, so nothing was backed up. Move some out of your agents' folders and projects, or choose a larger plan`
+      : expectedChunks > chunkCap ? 'you have more small files than your plan covers, so nothing was backed up. Move some out of your agents\' folders and projects, or choose a larger plan'
+        : 'your files are split into more pieces than one backup can list, so nothing was backed up. Move some small files out of your agents\' folders and projects';
+    return fail(why, { tooLarge: true, overPlan: true, personActs: true });
   }
   // The manifest counts too: the 64 GiB is chunks and manifests together.
   const byteBound = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0) + sealedMax(budget);
@@ -764,7 +765,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   // Upload what is pending; on any failure, stop. Keys must be this period's and under one bucket.
   const flush = async () => {
     if (!pending.size) return null;
-    // No size check here: the one check before the walk already guarantees the finished manifest fits (see there).
+    // No size check here: for a company the one check before the walk guarantees the finished manifest fits (see there).
     const batch = [...pending].map(([name, object]) => ({ name, object }));
     const r = await putChunks(deps, batch, { epoch: ctx.epoch });
     const stored = (r && r.keys instanceof Map) ? r.keys : new Map();
@@ -853,7 +854,6 @@ async function snapshotInner(input, deps, added, state, fail) {
       // A key is charged at its byte length, which is its JSON length only because keyProblem allows plain segments
       // ([A-Za-z0-9._:-]); widen that rule and this charge must escape (pinned by the "a key with a quote" test).
       estimate += CHUNK_NAME_LEN + 6 + (known ? Buffer.byteLength(known.key) : keyCharge);
-      // A plan's check before the walk is an expectation, so here the size is measured, and nothing more goes up past it.
       if (known) { objects[name] = known.key; reused++; continue; }
       const sealed = sealNamedChunk(memberPk, namingKey, piece);
       if (sealed.name !== name) return fail('a chunk was sealed under another name than it was given');   // cannot differ today
@@ -937,4 +937,5 @@ async function snapshotInner(input, deps, added, state, fail) {
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 
-module.exports = { periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };
+module.exports = {
+  MANIFEST_JSON_BUDGET, PLAN_MANIFEST_JSON_BUDGET, periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };

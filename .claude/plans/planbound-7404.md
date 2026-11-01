@@ -38,3 +38,9 @@ Monday when it stops: within the week its chunks are reused, and what the person
 a new period uploads again, so a folder that can never finish costs a week's allowance each week; the coordinator's cap
 bounds that. Personal restore gives the manifest GET ten minutes. Measured 600,000 rows: 162 MiB, 186 ms to stringify,
 204 ms to parse, on the event loop. A build rolled back past this one refuses an index over 200,000.
+
+Round 5, measured: sealing a 477,000-chunk manifest is 1.2 s on the event loop (two canonical forms and a parse, 130
+MiB), at the top plan only. Kept for now; a child process is the fix if it shows. Restore STOPS at the read limit and
+does not wait, so the coordinator's OWN_READ_CALLS must rise with the ceiling: 600 calls an hour is about 240,000 objects,
+about 230 GB. Both are one relay follow-up, and that change must land first. A failed status read backs off as any
+unreached run does, doubling to a day.
