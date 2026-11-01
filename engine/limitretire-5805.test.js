@@ -34,6 +34,10 @@ function clock(ms) {
   for (const x of new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(new Date(ms))) p[x.type] = x.value;
   return `${p.hour}:${p.minute}${String(p.dayPeriod).toLowerCase()}`;
 }
+/* kosmos#7721: a clock time the fall-back repeats reads as its later one, on purpose (limituntil-5805 pins that), so a fixture
+   that wants the reset it wrote steps off that hour. Reads the same an hour on or back: it happens twice. */
+const repeats = (ms) => clock(ms) === clock(ms + 3600e3) || clock(ms) === clock(ms - 3600e3);
+const clearOfRepeat = (ms) => { let t = ms; while (repeats(t)) t += 3600e3; return t; };
 const RULE = '─'.repeat(80) + '\n';
 const STATUS_LINE = RULE + '❯ \n' + RULE + '  casey · Opus 4.8 · 7d 100%\n' + '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n';
 const FOOTER = '✻ Sautéed for 0s · done 10:35 PM\n';
@@ -65,7 +69,7 @@ test('#5805 3b: retireResetLimits retires a dateless row past its first-seen res
 
 test('#5805 3b: through the card builder, a dateless line holds until its reset and then reads idle (and is typed to)', () => {
   const real = Date.now;
-  const T = Math.floor(real() / 60e3) * 60e3;
+  const T = clearOfRepeat(Math.floor(real() / 60e3) * 60e3 + 3600e3) - 3600e3;   // an hour before a reset that happens once
   const line = `You've hit your session limit · resets ${clock(T + 3600e3)} ${Z}`;
   const read = (ms, screen, state, fn) => {
     Date.now = () => ms;
