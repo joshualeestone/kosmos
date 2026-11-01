@@ -738,6 +738,48 @@ test('a plan replaces the worst-case bound: a manifest budget that refuses a com
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('a plan: a second run\'s files are its index, so a full index does not refuse them', async () => {
+  const w = oneFile(1024), k = keys(), st = store();
+  try {
+    const first = await take(k, w.root, st, { deps: { planGb: 25 } });
+    assert.equal(first.ok, true, first.because);
+    const index = new Map(first.added);
+    const [, row] = [...first.added][0];
+    for (let i = 0; index.size < 200000; i++) index.set(crypto.createHash('sha256').update(String(i)).digest('hex'), { ...row, key: `${row.key}x${i}` });
+    const again = await take(k, w.root, st, { input: { index, bucket: first.bucket }, deps: { planGb: 25 } });
+    assert.equal(again.overPlan, undefined, again.because);
+    assert.equal(again.ok, true, again.because);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan: an optional folder past the plan is refused in words, never dropped from a good backup', async () => {
+  const w = oneFile(1024), k = keys(), st = store();
+  const extra = path.join(w.base, 'extra');
+  try {
+    fs.mkdirSync(extra);
+    fs.writeFileSync(path.join(extra, 'big.bin'), '');
+    fs.truncateSync(path.join(extra, 'big.bin'), 1_100_000_000);
+    const r = await take(k, w.root, st, { input: { root: undefined, roots: [{ name: 'workers', path: w.root }, { name: 'projects', path: extra, optional: true }] }, deps: { planGb: 1, maxFile: 2_000_000_000 } });
+    assert.equal(r.ok, false); assert.equal(r.overPlan, true, r.because);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan: the measured size stays honest across a batch', async () => {
+  const w = oneFile(16 * 1024 * 1024), k = keys(), st = store();
+  try {
+    const whole = await take(k, w.root, st, { deps: { planGb: 25 } });
+    assert.equal(whole.ok, true, whole.because);
+    const n = whole.uploaded;
+    assert.ok(n >= 7, `chunks: ${n}`);
+    const st2 = store();
+    // The objects list alone passes this budget with its last chunk, once uploaded keys are counted at their own length.
+    const keyLen = [...whole.added][0][1].key.length;
+    const budget = 1024 + n * (70 + keyLen) - 10;
+    const r = await take(k, w.root, st2, { deps: { planGb: 25, planChunkSlack: 0.01, maxManifestJson: budget, batchBytes: 1 } });
+    assert.equal(r.ok, false, `budget ${budget}`); assert.equal(r.tooLarge, true, r.because);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('a plan: when the expectation is wrong the measured manifest size stops the run before anything goes up', async () => {
   const w = oneFile(32 * 1024 * 1024), k = keys(), st = store();
   try {

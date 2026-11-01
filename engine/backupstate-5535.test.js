@@ -159,18 +159,18 @@ test('round 1: withRun leaves out a malformed added row and caps the index, so w
   const [org, member] = ids();
   bs.writeState(org, member, r);
   assert.equal(bs.readState(org, member).ok, true);
-  // The cap: an index already at MAX (200000) takes nothing more, and still writes.
+  // The cap: an index already at MAX (600000) takes nothing more, and still writes.
   const full = new Map();
-  for (let i = 0; i < 200000; i++) full.set(name('f' + i), { key: `o1/acct1/1/2026-W41/f${i}`, lockedUntilMs: 1800000000000, memberKeyId: MK });
+  for (let i = 0; i < 600000; i++) full.set(name('f' + i), { key: `o1/acct1/1/2026-W41/f${i}`, lockedUntilMs: 1800000000000, memberKeyId: MK });
   const big = { label: '2026-W41', namingKey: nk, bucket: 'b/', index: full };
   const capped = bs.withRun({ job: {}, periods: [big] }, big, { ok: true, added: new Map([entry(3)]), bucket: 'b/' });
-  assert.equal(capped.periods[0].index.size, 200000);
+  assert.equal(capped.periods[0].index.size, 600000);
   assert.equal(capped.periods[0].index.has(name(3)), false);
   assert.equal(capped.leftOut, 1);
   // And a full slot writes and reads back (the read-back bound is MAX_INDEX inclusive).
   const [o2, m2] = ids();
   bs.writeState(o2, m2, capped);
-  assert.equal(bs.readState(o2, m2).state.periods[0].index.size, 200000);
+  assert.equal(bs.readState(o2, m2).state.periods[0].index.size, 600000);
 });
 
 test('round 1: discardState sets a refused file aside (never deletes it), and the next read is a fresh start', () => {

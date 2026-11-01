@@ -42,7 +42,7 @@ const SNAPSHOT_TO_GRANT_SECS = 8 * 86400;
 const CLOCK_SKEW_SECS = 300;   // as engine/devkeyhist.js
 const FETCH_TIMEOUT_MS = 120000;   // one stored object; backuprestore leaves bounding fetches to its caller
 const SNAPSHOT_ID_RE = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z-[0-9a-f]{8}$/;
-const MAX_MANIFEST_OBJECT = 64 * 1024 * 1024;   // the coordinator's own ceiling for one manifest (backup.rs)
+const MAX_MANIFEST_OBJECT = 256 * 1024 * 1024;   // above the coordinator's ceiling for one manifest (backup.rs), as backuprestore's
 const KEY_HEX_RE = /^[0-9a-f]{64}$/;
 const MAX_LISTED = 5000;   // more than the coordinator lists (3,000)
 // The fixed DER prefix of an Ed25519 public key (SPKI), so a raw 32-byte key becomes a KeyObject.

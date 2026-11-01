@@ -20,3 +20,9 @@ the worst-case bound (needs a manifest ten times too big).
 Weakest premise: the 1 MiB average on a real folder. An unusual folder can pass the check, upload, and only then stop on
 the measured size; what went up stays in the index and is reused. Also: restore now holds up to about 1 GB of manifest,
 which is one more reason the restore screen must run it off the board's event loop.
+
+Round 1 changes: a plan's limits stay out of the listing's fit check, so an optional folder is never dropped to fit and
+read as a good backup. The small-files check counts chunks at the average with no slack and no index, because a second
+run's files ARE its index; real spend is the coordinator's to refuse. The chunk index cap is 600,000, the top plan's.
+A status read that fails waits the hour rather than run under the company bound and pause to Monday.
+Merge this after the coordinator's ceiling rises, or a folder near 200 GB uploads every chunk and fails at the manifest.
