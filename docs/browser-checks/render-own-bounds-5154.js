@@ -38,8 +38,9 @@ const { chromium } = require('playwright');
       // The two nudges only ever fire for an idle agent (the board's mootness clear drops them otherwise).
       const nudge = raised('nudge', 15, { sessionName: 'n', name: 'Mia', state: 'idle' });
       const first = raised('firstreply', 10, { sessionName: 'f', name: 'Ray', state: 'idle' });
+      const oneMin = raised('nudge', 1, { sessionName: 'm', name: 'Una', state: 'idle' });
       // CONTROL: an ownBound that is NOT raised (within grace, or recovered) shows no give-up sentence, no Issue.
-      const notRaised = base({ sessionName: 'c', name: 'Sam', state: 'idle', isNamedOurs: true, ownBound: { raised: false, items: [], stale: [] } });
+      const notRaised = base({ sessionName: 'c', name: 'Sam', state: 'idle', isNamedOurs: true, ownBound: { raised: false, items: [{ cls: 'quota', sinceAt: now - 60000, forMs: 60000, evidence: 'gave up after 3 tries that reached nothing' }], stale: [] } });
       // CONTROL: a healthy agent with no ownBound field value at all.
       const healthy = base({ sessionName: 'h', name: 'Ada', state: 'working', isNamedOurs: true, ownBound: null });
       // PRECEDENCE: an agent with BOTH a raised give-up AND its own reported question. The card must show the
@@ -49,7 +50,7 @@ const { chromium } = require('playwright');
         because: 'Which launch date should I use, the 14th or the 21st?', isNamedOurs: true,
         ownBound: { raised: true, items: [{ cls: 'quota', sinceAt: now - 20 * 60000, forMs: 20 * 60000, evidence: 'gave up after 3 tries that reached nothing' }], stale: [] } });
       const cardHtml = {};
-      try { for (const a of [quota, nudge, first, notRaised, healthy, ownQuestion]) cardHtml[a.sessionName] = card(a); }
+      try { for (const a of [quota, nudge, first, oneMin, notRaised, healthy, ownQuestion]) cardHtml[a.sessionName] = card(a); }
       catch (e) { return { error: 'card() threw: ' + e.message }; }
       // The grid card shows the STATE LABEL (cardStOf), never the reported sentence: card() renders taskLine
       // with card:true, and no surface renders a quoted reported sentence at all (#6118 removed stateReason's
@@ -57,24 +58,25 @@ const { chromium } = require('playwright');
       // the CARD: a needs_you own-question agent reads as its own calm "Question" (st-question), and the Kosmos
       // give-up sentence must not sit on that card.
       return {
-        quotaText: cardHtml.q, nudgeText: cardHtml.n, firstText: cardHtml.f, notRaisedText: cardHtml.c, ownQuestionText: cardHtml.o,
+        quotaText: cardHtml.q, nudgeText: cardHtml.n, oneMinText: cardHtml.m, firstText: cardHtml.f, notRaisedText: cardHtml.c, ownQuestionText: cardHtml.o,
         attnQuota: agentNeedsAttention(quota), attnNudge: agentNeedsAttention(nudge), attnFirst: agentNeedsAttention(first),
         attnNotRaised: agentNeedsAttention(notRaised), attnHealthy: agentNeedsAttention(healthy),
       };
     });
     if (out.error) { say(false, out.error); }
     else {
-      say(/get this agent going again after its quota reset/i.test(out.quotaText) && /20\s+minutes/.test(out.quotaText), 'a raised quota give-up names the quota resume and the minutes');
-      say(/nudged this idle agent to pick up its open task/i.test(out.nudgeText) && /15\s+minutes/.test(out.nudgeText), 'a raised nudge give-up names the idle nudge and the minutes');
-      say(/reminded this agent to answer its first message/i.test(out.firstText) && /10\s+minutes/.test(out.firstText), 'a raised first-reply give-up names the reminder and the minutes');
-      say(!/gave up/i.test(out.notRaisedText) && !/quota reset/i.test(out.notRaisedText), 'a NOT-raised ownBound shows no give-up sentence (CONTROL)');
+      say(/Its quota reset, but it has not finished its turn/.test(out.quotaText) && /20\s+minutes/.test(out.quotaText), 'a raised quota give-up names the quota resume and the minutes');
+      say(/sat idle with an open task/.test(out.nudgeText) && /15\s+minutes/.test(out.nudgeText), 'a raised nudge give-up names the idle nudge and the minutes');
+      say(/has not answered its first message/.test(out.firstText) && /10\s+minutes/.test(out.firstText), 'a raised first-reply give-up names the reminder and the minutes');
+      say(/about 1 minute ago/.test(out.oneMinText), 'one minute reads as one minute, not 1 minutes');
+      say(!/stopped about/i.test(out.notRaisedText) && !/quota reset/i.test(out.notRaisedText), 'a NOT-raised ownBound shows no give-up sentence (CONTROL)');
       // PRECEDENCE, asserted on the CARD the person sees (the real guard: a Kosmos give-up must never sit on the
       // card of an agent that is asking the person its own question). cardStOf renders a stateReportedBy agent
       // needs_you as the calm "Question" treatment (st-question); the give-up arm in stateReason is guarded on the
       // state not being needs_you, so its sentence never reaches this card. Both are rendered facts, not source
       // order. The PR carries a negative control: removing that guard makes assertion B below go RED, then green.
       say(/astate st-question/.test(out.ownQuestionText), 'a needs_you agent asking its own question reads as a Question on the card (st-question), not an Issue or a give-up');
-      say(!/get this agent going again after its quota reset/i.test(out.ownQuestionText), 'and the Kosmos give-up sentence is absent from that question card (precedence)');
+      say(!/Its quota reset, but it has not finished its turn/.test(out.ownQuestionText), 'and the Kosmos give-up sentence is absent from that question card (precedence)');
       say(out.attnQuota === true, 'a raised quota give-up counts as an Issue (agentNeedsAttention)');
       say(out.attnNudge === true, 'a raised nudge give-up counts as an Issue');
       say(out.attnFirst === true, 'a raised first-reply give-up counts as an Issue');

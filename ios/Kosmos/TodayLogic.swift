@@ -24,7 +24,7 @@ extension Board {
         "crash_loop": ("Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.", .open),
         "stuck_auth": ("Kosmos has seen it unable to sign in for a while. It cannot work until its account is reconnected.", .open),
         "stuck_rate": ("Kosmos has seen it paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.", .open),
-        "own_bound": ("Kosmos tried to get it going (a nudge, or a resume after its quota reset) and gave up. Open it to see what it shows.", .open),
+        "own_bound": ("Kosmos could not get it going, and stopped trying. Open it to see what it shows.", .open),
         "other": ("Kosmos needs you to look at it.", .open),
     ]
 
