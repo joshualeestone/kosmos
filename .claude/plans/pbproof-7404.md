@@ -13,3 +13,10 @@ The member secret stops at personalbackupkey.js; the job carries only the derive
 
 Not here: the two relay read routes (D2), the run behind the panel's Restore (D3), the stops that name no next step,
 deleting a person's objects after the lock, the switch and the price (#7685, Josh's).
+
+For D3, a duty this slice hands on: `trust: 'member-proof'` turns off the device-key history, so the caller must take it
+from this computer's own personal record (personalbackup.js record()), never from an answer of Kosmos+'s, and a test at
+that caller must pin it. Nothing calls runRestore yet.
+
+Deliberately not done: zeroing the derived proof key after a run. The member key it comes from sits in a 0600 file on the
+same disk, and backupkeys.js already says Node cannot reliably zero memory.
