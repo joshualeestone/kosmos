@@ -77,7 +77,7 @@ test('the key step refuses another org, no key, a key this computer does not hol
   assert.match((await ask(pair.org, [{ ...row, epoch: 2 }, row].reverse())).because, /holds a different key/, 'the newest epoch decides');
   const none = newPair();
   const empty = await ask(none.org, [row], {}, none);
-  assert.match(empty.because, /off here, then on again, and enter your recovery code/, 'no keys here: setUp answers already_set_up, so the code is asked for');
+  assert.match(empty.because, /turn it on again and enter your recovery code/, 'no keys here: setUp answers already_set_up, so the code is asked for');
   assert.equal(empty.personActs, true);
   assert.equal((await ask(pair.org, [row], { lostEpoch: 1 })).ok, true, 'a lostEpoch for no named pair is not this one\'s');
   assert.equal((await ask(pair.org, [row], { lostEpoch: 3, lostFor: { org: 'acme', member: 'm' } })).ok, true, 'nor another pair\'s');
@@ -248,7 +248,7 @@ test('key gone: off then on asks for the code, the code restores it, and the job
   const ctx = { org: pair.org, member: pair.member, epoch: '1' };
   const row = { epoch: 1, member_public: b64(key.pk), wrap: b64(backupkeys.wrapMemberKeyToRecovery(key.sk, rk.pk, ctx)), recovery_public: b64(rk.pk), recovery_tag: backupkeys.recoveryBindingTag(rk.authKey, ctx, key.pk) };
   const o = chain(pair, [row]);
-  assert.match((await pk.personalKeyForJob(pair.org, o)).because, /off here, then on again, and enter your recovery code/);
+  assert.match((await pk.personalKeyForJob(pair.org, o)).because, /turn it on again and enter your recovery code/);
   const set = await pb.setUpKey(o);
   assert.equal(set.code, 'restore', JSON.stringify(set));
   assert.equal(pb.mayBackUp(o), false, 'no key yet');
@@ -294,7 +294,7 @@ test('the panel report: words that keep every run from starting are said, though
   assert.equal(pb.report(o).stopped, null, 'control');
   o.orgenroll.acceptedConsent = () => ({ backsUp: [] });
   assert.equal(pb.mayBackUp(o), false);
-  assert.match(pb.report(o).stopped, /off here, then on again, to read the current words/);
+  assert.match(pb.report(o).stopped, /turn it on again to read the current words/);
   o.orgenroll.holdsEnrollment = () => true;
   assert.equal(pb.report(o).stopped, null, 'a company here is not a stopped backup');
 });

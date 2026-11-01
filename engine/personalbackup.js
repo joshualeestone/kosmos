@@ -464,7 +464,7 @@ async function runJob(input, opts = {}) {
   if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) { noteRun(r, opts); return r; }
   const oe = opts.orgenroll || require('./orgenroll');
   try { if (hash) await oe.consentWithdrawn(enrollOpts(opts), hash); } catch { /* asked again next run */ }
-  const out = Object.assign({}, r, { personActs: true, because: 'what a personal backup does changed, so backups stopped. Turn it off here, then on again, to read the new words' });
+  const out = Object.assign({}, r, { personActs: true, because: 'what a personal backup does has changed, so it needs your OK. Turn it off, then turn it on again to read the new words' });
   noteRun(out, opts);
   return out;
 }
@@ -485,7 +485,7 @@ function noteRun(r, opts) {
   const next = r.ok ? { lastOk: now } : { lastOk: was.lastOk || null, stopped: r.because };
   try { fs.mkdirSync(root(opts), { recursive: true, mode: 0o700 }); fs.writeFileSync(path.join(root(opts), JOB_NOTE), JSON.stringify(next) + '\n', { mode: 0o600 }); } catch { /* the panel then shows the last note */ }
 }
-const NOT_RUNNING = 'Backups have stopped: the words accepted here do not cover them. Turn personal backup off here, then on again, to read the current words.';
+const NOT_RUNNING = 'The words you accepted do not cover backups yet, so it needs your OK. Turn it off, then turn it on again to read the current words.';
 /** For the panel, while state() is 'on': { lastOk, stopped }. stopped also covers a gate that keeps every run from starting,
     where no run can leave a reason. */
 function report(opts = {}) {

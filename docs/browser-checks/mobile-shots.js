@@ -1740,8 +1740,8 @@ const SCREENS = [
   { name: 'pb-off', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off'); } },
   // Design review 1: no price set, so no Turn on; only the restore line.
   { name: 'pb-on-last', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: '2026-10-31T14:07:00.000Z', stopped: null }); } },
-  { name: 'pb-on-stopped', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: '2026-10-31T14:07:00.000Z', stopped: 'What a personal backup does changed, so backups stopped. Turn it off here, then on again, to read the new words.' }); } },
-  { name: 'pb-on-stopped-first', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: null, stopped: 'This computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn personal backup off here, then on again, and enter your recovery code.' }); } },
+  { name: 'pb-on-stopped', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: '2026-10-31T14:07:00.000Z', stopped: 'What a personal backup does has changed, so it needs your OK. Turn it off, then turn it on again to read the new words.' }); } },
+  { name: 'pb-on-stopped-first', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: null, stopped: 'This computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn it off, then turn it on again and enter your recovery code.' }); } },
   { name: 'pb-noprice', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off', null); } },
   // Challenge round 5: the restore field opens when the key step finds this backup set up on another computer.
   { name: 'pb-restore', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbToRestore(page); await pbTop(page); } },
