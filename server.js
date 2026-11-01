@@ -43,9 +43,6 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
    board.log starts with a UTC time, so a restart can be matched to what an agent was doing. Only when stdout/stderr is
    a regular file (board.log under launchd or nohup); a pipe or a terminal is left alone. See engine/logstamp.js. The
    bootstrap's own named-world lines (#1704/#2528, none on the default world) come before this and carry no time. */
-/* #7693: right after the world bootstrap and before the engine modules copy these functions: a blocking child process
-   over a second writes its caller to board.log. See engine/slowspawn.js. Only when this file IS the board. */
-if (require.main === module) require('./engine/slowspawn').install(require('node:child_process'));
 if (require.main === module) {
   const logstamp = require('./engine/logstamp');
   const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
@@ -61,6 +58,9 @@ if (require.main === module) {
   logring.board.tap(process.stdout, 'stdout');
   logring.board.tap(process.stderr, 'stderr');
 }
+/* #7693: after the log stamp and before the engine modules copy these functions: a blocking child process
+   over a second writes its caller to board.log. See engine/slowspawn.js. Only when this file IS the board. */
+if (require.main === module) require('./engine/slowspawn').install(require('node:child_process'));
 /* #5450: who started this board (install/kosmos board-run and start), taken out of the environment before anything
    can start a process that would inherit it (the log stamp above starts none; #4199 keeps it right after the bootstrap); engine/restartnote.js atStart reads these values. (engine/worldenv.js
    froze a copy of the environment above; its only reader takes paths from it and starts nothing.) */

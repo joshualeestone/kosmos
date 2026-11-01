@@ -22,10 +22,11 @@ const NAMES = ['execFileSync', 'execSync', 'spawnSync'];
 const SLOW_MS = 1000;
 const MAX_PER_MINUTE = 20;
 
-// The program's name only. execSync's first argument is a whole command line, so only its first word.
+// The program's name only. execSync's first argument is a whole command line, which can open with a secret or a
+// quoted path, so none of it is logged.
 function programOf(name, file) {
-  const s = String(file === undefined ? '' : file);
-  return path.basename(name === 'execSync' ? s.trim().split(/\s+/)[0] : s) || '?';
+  if (name === 'execSync') return '(shell)';
+  return path.basename(String(file === undefined ? '' : file)) || '?';
 }
 
 // The caller's frames as file:line, without the wrapper's own and without home paths.

@@ -1,6 +1,8 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const s = require('./slowspawn');
 
 function fake(result) {
@@ -48,8 +50,28 @@ test('a failing logger does not change the result', () => {
   assert.equal(cp.execFileSync('ps', []), 'out');
 });
 
-test('execSync names only the first word of its command line', () => {
-  assert.equal(s.programOf('execSync', ' /usr/bin/git log --grep=private'), 'git');
+test('execSync logs no word of its command line', () => {
+  for (const line of ['FOO=secret tool x', '"/Users/a b/bin/t" c', ' /usr/bin/git log']) assert.equal(s.programOf('execSync', line), '(shell)');
+});
+
+test('spawnSync and execSync are watched too, and this is passed through', () => {
+  const seen = [];
+  const cp = { execFileSync() { return 1; }, execSync() { seen.push(this); return 2; }, spawnSync() { return 3; } };
+  const lines = [];
+  s.install(cp, { log: (l) => lines.push(l), now: clock(1500) });
+  assert.equal(cp.execSync('x y'), 2);
+  assert.equal(seen[0], cp);
+  assert.equal(cp.spawnSync('/bin/ps', []), 3);
+  assert.match(lines[0], /execSync \(shell\) from/);
+  assert.match(lines[1], /spawnSync ps from/);
+});
+
+test('server.js installs it after the log stamp and ahead of every other engine require', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const order = [...src.matchAll(/require\('\.\/engine\/([a-z0-9-]+)'\)/gi)].map((m) => m[1]);
+  assert.ok(order.includes('slowspawn'), 'not installed');
+  assert.deepEqual(order.slice(0, order.indexOf('slowspawn')).filter((n) => !['worldenv', 'logstamp', 'logring'].includes(n)), []);
+  assert.match(src, /require\.main === module\) require\('\.\/engine\/slowspawn'\)\.install\(require\('node:child_process'\)\)/);
 });
 
 test('lines are capped per minute', () => {
