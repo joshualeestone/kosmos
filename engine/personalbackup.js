@@ -461,10 +461,43 @@ async function runJob(input, opts = {}) {
   const before = record(opts);
   const hash = before && before.consentHash;
   const r = await run(input, { ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER });
-  if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) return r;
+  if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) { noteRun(r, opts); return r; }
   const oe = opts.orgenroll || require('./orgenroll');
   try { if (hash) await oe.consentWithdrawn(enrollOpts(opts), hash); } catch { /* asked again next run */ }
-  return Object.assign({}, r, { personActs: true, because: 'what a personal backup does changed, so backups stopped. Turn it off here, then on again, to read the new words' });
+  const out = Object.assign({}, r, { personActs: true, because: 'what a personal backup does changed, so backups stopped. Turn it off here, then on again, to read the new words' });
+  noteRun(out, opts);
+  return out;
+}
+
+/* pbjob-7404 slice C: what the panel says about the job. The last good run, and the reason for a run that a person must act
+   on; a passing failure (Kosmos+ unreachable, a retry) changes neither. Local, and only the job's own fixed sentences. */
+const JOB_NOTE = 'personal-job.json';
+const PERSON_STOPS = ['personActs', 'missing', 'refusedState', 'unreadableKeyFile', 'overAllowance'];
+function readNote(opts) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(root(opts), JOB_NOTE), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch { return {}; }
+}
+function noteRun(r, opts) {
+  if (!r || typeof r !== 'object') return;
+  const stops = !r.ok && PERSON_STOPS.some((k) => r[k]) && typeof r.because === 'string';
+  if (!r.ok && !stops) return;
+  const was = readNote(opts);
+  const now = new Date((opts.now || Date.now)()).toISOString();
+  const next = r.ok ? { lastOk: now } : { lastOk: was.lastOk || null, stopped: r.because };
+  try { fs.mkdirSync(root(opts), { recursive: true, mode: 0o700 }); fs.writeFileSync(path.join(root(opts), JOB_NOTE), JSON.stringify(next) + '\n', { mode: 0o600 }); } catch { /* the panel then shows the last note */ }
+}
+const NOT_RUNNING = 'Backups have stopped: the words accepted here do not cover them. Turn personal backup off here, then on again, to read the current words.';
+/** For the panel, while state() is 'on': { lastOk, stopped }. stopped also covers a gate that keeps every run from starting,
+    where no run can leave a reason. */
+function report(opts = {}) {
+  const j = readNote(opts);
+  const lastOk = typeof j.lastOk === 'string' ? j.lastOk : null;
+  const stopped = typeof j.stopped === 'string' ? j.stopped.charAt(0).toUpperCase() + j.stopped.slice(1) + '.' : null;
+  if (state(opts) === 'on' && !mayBackUp(opts)) {
+    let company = false;
+    try { company = (opts.orgenroll || require('./orgenroll')).holdsEnrollment() === true; } catch { company = false; }
+    if (!company) return { lastOk, stopped: stopped || NOT_RUNNING };
+  }
+  return { lastOk, stopped };
 }
 
 /** Whether this computer holds a personal backup's enrollment, from this module's own record only. */
@@ -556,7 +589,7 @@ async function switchOff(opts = {}) {
   let r;
   try { r = await oe.leave(enrollOpts(opts)); } catch { r = null; }
   // Stopped here (left, or a leave pending): the key marker goes too, so turning it on again runs the key step again.
-  if (r && (r.ok || r.pending)) { try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); } catch { /* best effort */ } }
+  if (r && (r.ok || r.pending)) { try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); fs.rmSync(path.join(root(opts), JOB_NOTE), { force: true }); } catch { /* best effort */ } }
   if (r && r.ok) return { ok: true };
   if (r && r.pending) return { ok: false, pending: true, because: 'Personal backup has stopped on this computer. Kosmos tells Kosmos+ again until it answers.' };
   // Code review 4, NIT 6: a leave that threw after the record was cleared has stopped it here; do not say "still on".
@@ -564,4 +597,4 @@ async function switchOff(opts = {}) {
   return { ok: false, because: 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.' };
 }
 
-module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, restore, state, isOn, mayBackUp, runJob, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };
+module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, restore, state, isOn, mayBackUp, runJob, report, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };

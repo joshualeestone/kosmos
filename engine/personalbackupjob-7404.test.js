@@ -271,6 +271,34 @@ test('words changed, key still here: on again asks for no code, and the job can 
   assert.equal((await pk.personalKeyForJob(pair.org, o)).ok, true);
 });
 
+test('the panel report: a good run is kept, a passing failure changes nothing, a stop says why and keeps the last good run', async () => {
+  const pair = newPair();
+  const o = chain(pair, []);
+  fs.writeFileSync(path.join(o.root, 'personal-key-ready'), JSON.stringify({ org: pair.org, world: 'w' }));
+  const run = (r, at) => pb.runJob({ roots: [] }, { ...o, now: () => at, runBackup: async () => r });
+  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null }, 'nothing has run yet');
+  await run({ ok: true }, Date.UTC(2026, 9, 31, 12));
+  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T12:00:00.000Z', stopped: null });
+  await run({ ok: false, because: 'Kosmos+ could not be reached' }, Date.UTC(2026, 9, 31, 13));
+  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T12:00:00.000Z', stopped: null }, 'a passing failure is no stop');
+  await run({ ok: false, personActs: true, because: 'this backup has no key on Kosmos+ yet, so nothing was backed up' }, Date.UTC(2026, 9, 31, 14));
+  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T12:00:00.000Z', stopped: 'This backup has no key on Kosmos+ yet, so nothing was backed up.' });
+  await run({ ok: true }, Date.UTC(2026, 9, 31, 15));
+  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T15:00:00.000Z', stopped: null }, 'a good run clears the stop');
+});
+test('the panel report: words that keep every run from starting are said, though no run can say them', () => {
+  const pair = newPair();
+  const o = chain(pair, []);
+  fs.writeFileSync(path.join(o.root, 'personal-key-ready'), JSON.stringify({ org: pair.org, world: 'w' }));
+  assert.equal(pb.mayBackUp(o), true, 'control');
+  assert.equal(pb.report(o).stopped, null, 'control');
+  o.orgenroll.acceptedConsent = () => ({ backsUp: [] });
+  assert.equal(pb.mayBackUp(o), false);
+  assert.match(pb.report(o).stopped, /off here, then on again, to read the current words/);
+  o.orgenroll.holdsEnrollment = () => true;
+  assert.equal(pb.report(o).stopped, null, 'a company here is not a stopped backup');
+});
+
 test('a different reason is said, even with the last one unresolved', async () => {
   const said = [];
   const why = ['first reason', 'first reason', 'second reason'];

@@ -12783,7 +12783,8 @@ const server = http.createServer(async (req, res) => {
       let out = { shown: false };
       try {
         const o = require('./engine/personalbackupoffer').offer();
-        out = { shown: true, price: o.price, state: require('./engine/personalbackup').state() };
+        const pb = require('./engine/personalbackup');
+        out = { shown: true, price: o.price, state: pb.state(), job: pb.report() };
       } catch { out = { shown: false }; }
       sendJson(res, 200, out);
       return;
