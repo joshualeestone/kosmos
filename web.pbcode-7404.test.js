@@ -14,7 +14,7 @@ const { makeDom } = require('./test-support/fake-dom');
 
 const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 const IDS = ['pb', 'pb-off', 'pb-words', 'pb-code', 'pb-onview', 'pb-restore', 'pb-price', 'pb-on-row', 'pb-restore-hint',
-  'pb-words-price', 'pb-on-say', 'pb-off-ask', 'pb-off-row', 'pb-finish', 'pb-code-text', 'pb-restore-code', 'pb-msg', 'pb-code-lead',
+  'pb-words-price', 'pb-on-say', 'pb-job', 'pb-job-last', 'pb-off-ask', 'pb-off-row', 'pb-finish', 'pb-code-text', 'pb-restore-code', 'pb-msg', 'pb-code-lead',
   'pb-backsup', 'pb-backsup-head', 'pb-readers', 'pb-never'];
 const CODE = 'K7QD-3MXA-9VPE-H2NW-4TBR-6YC8-JF';
 
@@ -29,7 +29,7 @@ function load(answer) {
     // The network is the test's: pbPost answers what the test says, pbMaybe reads nothing.
     'async function pbPost(kind, body) { posted.push({ kind, body }); return answer; }',
     'function pbMaybe() {}',
-    liftAll(SCRIPT, ['asSentence', 'pbMsg', 'pbPrice', 'pbPaint', 'pbCodeText', 'pbShowCode', 'pbSaved', 'pbFinish', 'pbPrintClear'])].join('\n'), ctx);
+    liftAll(SCRIPT, ['asSentence', 'pbMsg', 'pbPrice', 'pbJobLines', 'pbPaint', 'pbCodeText', 'pbShowCode', 'pbSaved', 'pbFinish', 'pbPrintClear'])].join('\n'), ctx);
   ctx.PB.st = { shown: true, price: null, state: 'needs-key' };
   return { ctx, el: (id) => dom.document.getElementById(id) };
 }
