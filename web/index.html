@@ -17994,8 +17994,11 @@ window.kosmosMeasureScrollbarWidth();
             <input type="datetime-local" id="tk-hold-at" class="tk-repeat-in" aria-label="Until: the date and time this hold waits for" hidden>
           </span>
         </div>
+        <div class="tmeta" id="tk-hold-why-row" hidden><span>Why</span>
+          <input type="text" id="tk-hold-why-in" class="tk-repeat-in" maxlength="200" aria-label="Why this task is on hold, in your own words" placeholder="Optional" style="flex:1;min-width:0;">
+        </div>
         <p class="dhint" id="tk-hold-takeover" style="margin:4px 0 0;" hidden>Saving makes this hold yours, so only you can take it off.</p>
-        <div class="tk-repeat-actions" id="tk-hold-for-actions" hidden><button class="btn" id="tk-hold-save" type="button" aria-label="Save what this hold waits for" disabled>Save</button></div>
+        <div class="tk-repeat-actions" id="tk-hold-for-actions" hidden><button class="btn" id="tk-hold-save" type="button" aria-label="Save what this hold waits for and why" disabled>Save</button></div>
         <p class="fmsg" id="tk-hold-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <!-- kosmos#7430: Choose who, shown under the unhold sentence when nobody is on the task. Outside the live region,
              so a screen reader reads the sentence, not a button inside it. -->
@@ -69459,7 +69462,9 @@ function paintProjectTasks(p) {
          knows its words came from outside. Inline, not a shared helper: the tests lift this
          function and run it alone. The Tasks view row carries the same line (tsk-from). */
       + (t.addedVia === 'webhook' ? '<span class="tkcard-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
-      + who + (builtOpen ? '<span class="tkcard-built">Built, waiting for you to check it</span>' : '') + chip + '</button>';
+      + who + (builtOpen ? '<span class="tkcard-built">Built, waiting for you to check it</span>' : '')
+      + (t.onHold === true && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tkcard-from" style="overflow-wrap:anywhere;">On hold: ' + esc(t.onHoldBecause) + '</span>' : '')   // kosmos#7749
+      + chip + '</button>';
   }).join('');
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
   // repaints this project every tick, and an unconditional innerHTML write
@@ -71927,20 +71932,22 @@ document.getElementById('tk-hold-choose').addEventListener('click', () => {
 });
 function tkHoldStoredChoice(t) {
   const u = t && t.onHoldUntil;
-  if (u && Number.isInteger(u.task)) return { kind: 'task', task: u.task };
+  const why = typeof t.onHoldBecause === 'string' ? t.onHoldBecause : '';   // kosmos#7749: part of what Save compares and sends
+  if (u && Number.isInteger(u.task)) return { kind: 'task', task: u.task, why };
   const at = u && typeof u.at === 'string' ? Date.parse(u.at) : NaN;
-  if (Number.isFinite(at)) return { kind: 'at', at: tkHoldMinute(at) };
-  return { kind: '' };
+  if (Number.isFinite(at)) return { kind: 'at', at: tkHoldMinute(at), why };
+  return { kind: '', why };
 }
 function tkHoldChoice() {
   const kind = document.getElementById('tk-hold-for').value;
-  if (kind === 'task') { const n = Number(document.getElementById('tk-hold-task').value); return { kind, task: Number.isInteger(n) && n > 0 ? n : null }; }
+  const why = document.getElementById('tk-hold-why-in').value.replace(/\s+/g, ' ').trim();   // as the engine tidies it, so a stray space is no change
+  if (kind === 'task') { const n = Number(document.getElementById('tk-hold-task').value); return { kind, task: Number.isInteger(n) && n > 0 ? n : null, why }; }
   if (kind === 'at') {
     const v = document.getElementById('tk-hold-at').value;   // the picker's local time, read in the person's own zone
     const at = v ? Date.parse(v) : NaN;
-    return { kind, at: Number.isFinite(at) ? tkHoldMinute(at) : null };
+    return { kind, at: Number.isFinite(at) ? tkHoldMinute(at) : null, why };
   }
-  return { kind: '' };
+  return { kind: '', why };
 }
 function tkHoldLocalValue(ms) {
   const d = new Date(ms); const z = (n) => String(n).padStart(2, '0');
@@ -71949,6 +71956,7 @@ function tkHoldLocalValue(ms) {
 function tkHoldWhen(ms) { return new Date(ms).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); }
 function tkHoldShowChoice(c) {
   document.getElementById('tk-hold-for').value = c.kind;
+  document.getElementById('tk-hold-why-in').value = c.why || '';
   if (c.kind === 'task') document.getElementById('tk-hold-task').value = String(c.task);
   if (c.kind === 'at') document.getElementById('tk-hold-at').value = tkHoldLocalValue(c.at);
 }
@@ -71958,9 +71966,14 @@ function tkHoldShowWhen() {
   document.getElementById('tk-hold-task').hidden = kind !== 'task';
   document.getElementById('tk-hold-at').hidden = kind !== 'at';
 }
+// kosmos#7749 review 1: the form has two fields, the wait and the reason, followed and saved separately (see the repaint and Save).
+function tkHoldBaseline() { try { return JSON.parse(document.getElementById('tk-hold-for').dataset.stored || '{}'); } catch { return {}; } }
+function tkHoldSameWait(a, b) { return (a.kind || '') === (b.kind || '') && (a.task || null) === (b.task || null) && (a.at || null) === (b.at || null); }
 function tkHoldDirty() {
   const c = tkHoldChoice();
-  const ready = c.kind === '' || (c.kind === 'task' && c.task) || (c.kind === 'at' && c.at && document.getElementById('tk-hold-at').validity.valid);   // round 7: not a time already passed
+  // kosmos#7749 review 1: a reason can be saved on a hold whose time has passed: the picker is checked only if it was changed.
+  const unchanged = tkHoldSameWait(c, tkHoldBaseline());
+  const ready = unchanged || c.kind === '' || (c.kind === 'task' && c.task) || (c.kind === 'at' && c.at && document.getElementById('tk-hold-at').validity.valid);   // round 7: not a time already passed
   const save = document.getElementById('tk-hold-save');
   save.disabled = save.dataset.busy === '1' || !ready || JSON.stringify(c) === document.getElementById('tk-hold-for').dataset.stored;   // round 2: not while saving
 }
@@ -71983,7 +71996,7 @@ function tkHoldTaskOptions(p, t) {
 }
 function tkPaintHoldUntil(p, t) {
   const held = t.onHold === true && TK_ACT !== 'reopen';
-  for (const id of ['tk-hold-for-row', 'tk-hold-for-actions']) document.getElementById(id).hidden = !held;
+  for (const id of ['tk-hold-for-row', 'tk-hold-why-row', 'tk-hold-for-actions']) document.getElementById(id).hidden = !held;
   document.getElementById('tk-hold-takeover').hidden = !held || t.onHoldByPerson === true;
   const line = document.getElementById('tk-hold-until');
   const u = held ? t.holdUntil : null;
@@ -72013,6 +72026,14 @@ function tkPaintHoldUntil(p, t) {
     tkHoldShowChoice(tkHoldStoredChoice(t));
     sel.dataset.task = key;
     sel.dataset.stored = stored;
+  } else if (edited && sel.dataset.stored !== stored) {
+    // kosmos#7749 review 1: the field the person has not touched keeps following what is stored.
+    const base = tkHoldBaseline(), now = tkHoldStoredChoice(t), mine = tkHoldChoice();
+    const why = document.getElementById('tk-hold-why-in');
+    const whyTyped = mine.why !== (base.why || '');
+    if (tkHoldSameWait(mine, base)) tkHoldShowChoice({ ...now, why: why.value }); 
+    if (!whyTyped) why.value = now.why;
+    sel.dataset.stored = stored;
   }
   const atIn = document.getElementById('tk-hold-at');
   const lo = tkHoldLocalValue(Date.now() + 60000); const hi = tkHoldLocalValue(Date.now() + 365 * 86400000);
@@ -72022,6 +72043,7 @@ function tkPaintHoldUntil(p, t) {
   tkHoldDirty();
 }
 document.getElementById('tk-hold-for').addEventListener('change', () => { tkHoldShowWhen(); tkHoldDirty(); });
+document.getElementById('tk-hold-why-in').addEventListener('input', tkHoldDirty);
 document.getElementById('tk-hold-task').addEventListener('change', tkHoldDirty);
 document.getElementById('tk-hold-at').addEventListener('input', tkHoldDirty);
 document.getElementById('tk-hold-save').addEventListener('click', async () => {
@@ -72030,8 +72052,10 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
   const t = (p.tasks || []).find((x) => String(x.number) === String(TK_OPEN));
   if (!t || t.onHold !== true) return;
   const c = tkHoldChoice();
+  const base = tkHoldBaseline();
+  const waitEdited = !tkHoldSameWait(c, base), whyEdited = c.why !== (base.why || '');
   const until = c.kind === 'task' && c.task ? { task: c.task } : c.kind === 'at' && c.at ? { at: new Date(c.at).toISOString() } : null;
-  if (c.kind && !until) return;
+  if (waitEdited && c.kind && !until) return;
   const btn = document.getElementById('tk-hold-save');
   const msg = document.getElementById('tk-hold-msg');
   const key = p.id + '#' + t.number;
@@ -72056,7 +72080,8 @@ document.getElementById('tk-hold-save').addEventListener('click', async () => {
     // Round 3: the task this click was about, never TK_OPEN, which a person can move during the read above.
     const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + Number(t.number) + '/hold', {
       method: 'POST', headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(until ? { onHold: true, until } : { onHold: true }),
+      // kosmos#7749 review 1: only what was changed. An unchanged wait restates what is stored now, to the second, so nothing else moves.
+      body: JSON.stringify({ onHold: true, ...(waitEdited ? (until ? { until } : {}) : (now.onHoldUntil ? { until: now.onHoldUntil } : {})), ...(whyEdited ? { because: c.why } : {}) }),
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) { tkHoldSay(key, (out && out.error) || 'We could not change what that hold waits for.'); return; }
