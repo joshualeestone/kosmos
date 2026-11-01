@@ -11,10 +11,22 @@ converged: false
 ---
 
 #### Iteration 1
-[BLOCKER] iOS copies of own_bound missed. Fixed. [BLOCKER] "Kosmos reminded it" was false: give-up means the reminder never reached it. Now "tried to remind it". [BLOCKER] Precedence assertion pinned removed words. Fixed.
+Reviewer read the diff, the four engine files and the stateReason arm.
+- [BLOCKER] ios/Kosmos/TasksLogic.swift, BoardRoom.swift, TodayLogic.swift held the old own_bound sentence. Fixed, all three.
+- [BLOCKER] web/index.html: "Kosmos reminded it" was false, since a give-up means the tries reached nothing. Now "tried to remind it".
+- [BLOCKER] render-own-bounds-5154.js: the precedence assertion pinned removed words, so it could never fail. Fixed.
+- [NIT] Task who-lines have no Open button. Taken up in round 2.
 
 #### Iteration 2
-[WARNING] "It has an open task" is present tense the engine does not check. Now "sat idle with an open task". [WARNING] Task rows have no Open button, so "Open it" stays. [NIT] Pinned "about 1 minute ago".
+Reviewer ran plan() with parts=[] and tries=3: it still returns gaveUp.
+- [WARNING] "It has an open task" is a present-tense claim the engine does not check. Now "It sat idle with an open task".
+- [WARNING] Task rows have no Open button, so own_bound keeps "Open it to see what it shows".
+- [NIT] Nothing pinned "about 1 minute ago". Assertion added.
 
 #### Iteration 3
-[WARNING] Not-raised control had no items, so it could not fail on the raised guard. Fixed. [NIT] Stale comment and plan line fixed. Sentences, behaviour and copies held. These last fixes were not re-reviewed, hence converged: false: words-only branch, stopped at three rounds.
+Reviewer read the whole branch.
+- [WARNING] The not-raised control had items: [], so removing the raised guard could not fail it. It now carries an item.
+- [NIT] A comment claimed an arm that no longer exists. Corrected.
+- [NIT] The plan said the Open button carries the action. Corrected.
+- Held: sentences against the engine, behaviour, copies across web and iOS, no em dashes.
+- These last fixes were not re-reviewed, hence converged: false. A words branch, stopped at three rounds.
