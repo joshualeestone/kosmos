@@ -656,8 +656,8 @@ function providerLabel(reader) {
   if (r && r.kind === 'key') return require('./orgchartkeys').label(r) || PROVIDER;
   if (r && r.kind === 'codex') return require('./orgchartcodex').label(r);
   if (r && r.kind === 'claude' && r.redirected === true) return 'Claude Code';
-  // A key, not the signed-in account, takes the read, so the account's address would name the wrong one.
-  if (r && r.kind === 'claude' && r.apiKey === true) return PROVIDER;
+  // A key or token, not the signed-in account, takes the read, so the account's address would name the wrong one.
+  if (r && r.kind === 'claude' && (r.apiKey === true || r.token === true)) return PROVIDER;
   let acct = null;
   try { acct = readAccount(); } catch { acct = null; }
   return acct && acct.email ? 'Anthropic (Claude, ' + acct.email + ')' : PROVIDER;
@@ -669,12 +669,20 @@ function providerLabel(reader) {
 const claudeHere = () => {
   try { const r = require('./runners').resolveBin('claude'); return Boolean(r && r.present) && Boolean(readAccount()); } catch { return false; }
 };
+const CLAUDE_PROVIDER_SWITCHES = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'];
+const envHas = (v) => String(process.env[v] || '').trim() !== '';
+const claudeRedirected = () => envHas('ANTHROPIC_BASE_URL')
+  || CLAUDE_PROVIDER_SWITCHES.some((v) => envHas(v) && !/^(0|false|no|off)$/i.test(String(process.env[v]).trim()));
+/* What takes the read when it is not the login, in the order of Claude Code's authentication page. */
+const claudeCredential = (keyAccount) => {
+  if (envHas('ANTHROPIC_AUTH_TOKEN')) return 'token';
+  if (envHas('ANTHROPIC_API_KEY')) return 'key';
+  if (envHas('CLAUDE_CODE_OAUTH_TOKEN')) return 'token';
+  return keyAccount ? 'key' : null;
+};
 /* #4560: who reads a picture or PDF here. Claude first, when this computer can run it (#4559); then a ChatGPT
    subscription through Codex (#5346, engine/orgchartcodex.js; pictures only); otherwise the first KEY-connected OpenAI,
    Gemini or Grok account, in Settings order (engine/orgchartkeys.js); otherwise nobody. */
-const CLAUDE_PROVIDER_SWITCHES = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'];
-const claudeRedirected = () => String(process.env.ANTHROPIC_BASE_URL || '').trim() !== ''
-  || CLAUDE_PROVIDER_SWITCHES.some((v) => { const s = String(process.env[v] || '').trim(); return s !== '' && !/^(0|false|no|off)$/i.test(s); });
 let lastWhy = null;   // set by currentReader (see whyNoReader)
 let readerOverride = null;
 /** Tests only: the reader to use ({kind:'claude'}, {kind:'codex', dir, account} or {kind:'key', provider, dir, account});
@@ -694,10 +702,10 @@ function currentReader(name) {
     // folder), or ANTHROPIC_API_KEY is in the board's environment, which the Claude read passes on to `claude`
     // (defaultModelRunner) and so bills. Not seen: an apiKeyHelper set up by hand on the default ~/.claude. That
     // person gets "using your plan" and the both-cases line, which still names an API account's 30 days.
-    const apiKey = Boolean(acct && acct.apiKey === true) || Boolean(String(process.env.ANTHROPIC_API_KEY || '').trim());
+    const credential = claudeCredential(Boolean(acct && acct.apiKey === true));
     // Variables that send Claude Code somewhere other than Anthropic reach the read the same way, so what Anthropic
     // keeps is not the question there.
-    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey, redirected: claudeRedirected() };
+    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey: credential === 'key', token: credential === 'token', redirected: claudeRedirected() };
   }
   /* #5346: a ChatGPT subscription next, read through Codex with every tool that can act switched off. Before a key,
      because a key read is billed per call and the subscription is already paid for. */
@@ -733,7 +741,7 @@ function readerId(r) {
   const hash = (d) => require('node:crypto').createHash('sha256').update(String(d || '')).digest('hex').slice(0, 12);
   // Claude with its account folder hashed, like a key account's: another default account is another reader.
   // How it is paid for and where it goes too: each changes what the box told the person.
-  if (r.kind === 'claude') return (r.dir ? 'claude:' + hash(r.dir) : 'claude') + (r.apiKey === true ? '+key' : '') + (r.redirected === true ? '+elsewhere' : '');
+  if (r.kind === 'claude') return (r.dir ? 'claude:' + hash(r.dir) : 'claude') + (r.apiKey === true ? '+key' : '') + (r.token === true ? '+token' : '') + (r.redirected === true ? '+elsewhere' : '');
   // The account too, so another ChatGPT sign-in in the same folder while the box is open is another reader.
   if (r.kind === 'codex') return 'codex:' + hash(String(r.dir || '') + '\u0000' + String(r.account || ''));
   // The key's last four characters too (already on the account row), so a key replaced in the same account folder
@@ -748,7 +756,8 @@ function consentFor(r) {
   // A ChatGPT read is on the person's plan, like Claude's (#5346); only a key read is billed per call.
   return { provider: providerLabel(r), reader: readerId(r), uses: r && r.kind === 'key' ? 'billed to your ' + keys.PROVIDERS[r.provider].name + ' key'
     : (r && r.kind === 'claude' && r.redirected === true ? 'through the service this computer has it set up to use'
-      : (r && r.kind === 'claude' && r.apiKey === true ? 'billed to your Anthropic API key' : 'using your plan')), keeps: r && r.kind === 'codex' ? require('./orgchartcodex').KEEPS : keys.keeps(r) };
+      : (r && r.kind === 'claude' && r.apiKey === true ? 'billed to your Anthropic API key'
+        : (r && r.kind === 'claude' && r.token === true ? 'on the sign-in set up on this computer' : 'using your plan'))), keeps: r && r.kind === 'codex' ? require('./orgchartcodex').KEEPS : keys.keeps(r) };
 }
 let availability = readerHere;
 /* `reader`, when the caller has already worked it out, so one request asks once (a second look can disagree). */
