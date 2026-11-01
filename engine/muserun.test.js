@@ -348,14 +348,22 @@ test('#3939: runTurn never hangs or rejects: no answer at all, a closed gate, no
    after the shell created the file and before echo wrote to it, and Number('') is 0, which process.kill reads as this
    whole process group. No new turn starts after DEADLINE_MS, which leaves a slow turn room to finish inside the test's
    8 s timeout, so a machine too loaded to run the case gets the "did not run" message, not a bare timeout. */
+const isRealPid = (p) => Number.isInteger(p) && p > 1;   // 0 is our own group, 1 is launchd
+const readPid = (file) => {
+  try { return Number(fs.readFileSync(file, 'utf8').trim()); } catch { return NaN; }
+};
+// Whether a process this test started is still running; if it is, it is stopped. A number that is not a real pid is
+// never signalled. Only a PID this test started reaches here.
+function stopIfAlive(pid) {
+  if (!isRealPid(pid)) return false;
+  try { process.kill(pid, 0); } catch { return false; }
+  try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+  return true;
+}
 async function turnThatStarted(pidFile) {
   const TRIES = 5;
   const DEADLINE_MS = 4000;
   const deadline = Date.now() + DEADLINE_MS;
-  const isRealPid = (p) => Number.isInteger(p) && p > 1;   // 0 is our own group, 1 is launchd
-  const readPid = () => {
-    try { return Number(fs.readFileSync(pidFile, 'utf8').trim()); } catch { return NaN; }
-  };
   let r;
   let waited = 0;
   let pid = NaN;
@@ -364,7 +372,7 @@ async function turnThatStarted(pidFile) {
     const t0 = Date.now();
     r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
     waited = Date.now() - t0;
-    pid = readPid();
+    pid = readPid(pidFile);
     if (isRealPid(pid)) break;
   }
   assert.ok(isRealPid(pid), 'the launcher never started its child before the stop (' + TRIES + ' turns or ' + DEADLINE_MS / 1000 + ' s), so this case did not run');
@@ -382,9 +390,7 @@ test('#3939 round 1: at the timeout, what the launcher started is stopped too (i
     assert.ok(waited < 3000, 'the turn waited ' + waited + ' ms on a child the launcher started');
     assert.equal(r.because, run.TIMED_OUT);
     await new Promise((res) => setTimeout(res, 200));
-    let alive = true;
-    try { process.kill(pid, 0); } catch { alive = false; }
-    if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }   // only the PID this test started
+    const alive = stopIfAlive(pid);
     assert.equal(alive, false, 'the launcher\'s child kept running after the timeout');
   } finally { gate.resetForTests(); run.resetForTests(); }
 });
@@ -414,9 +420,7 @@ test('#3939 round 2: the hard cap alone stops a running muse, not only answers f
     const { r, pid } = await turnThatStarted(pidFile);
     assert.equal(r.because, run.TIMED_OUT);
     await new Promise((res) => setTimeout(res, 300));
-    let alive = true;
-    try { process.kill(pid, 0); } catch { alive = false; }
-    if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }   // only the PID this test started
+    const alive = stopIfAlive(pid);
     assert.equal(alive, false, 'the hard cap answered, but muse kept running behind the answer');
   } finally { gate.resetForTests(); run.resetForTests(); }
 });
@@ -433,7 +437,7 @@ test('#3939 round 3: a turn that says more than Kosmos reads is stopped at once,
     assert.match(r.because, /said more than Kosmos reads/);
     assert.equal(r.ok, false);
   } finally {
-    try { process.kill(Number(fs.readFileSync(pidFile, 'utf8').trim()), 'SIGKILL'); } catch { /* gone: only the PID this test started */ }
+    stopIfAlive(readPid(pidFile));
     gate.resetForTests(); run.resetForTests();
   }
 });
@@ -451,12 +455,12 @@ test('#3939 round 3: once the launcher has exited, its group is never signalled 
     const r = await run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi' });
     assert.ok(Date.now() - t0 < 3000, 'the turn waited on a helper outside the group');
     assert.equal(r.because, run.TIMED_OUT);
-    const launcher = Number(fs.readFileSync(pidFile, 'utf8').trim());
+    const launcher = readPid(pidFile);
     assert.ok(launcher > 0, 'CONTROL: the launcher ran');
     assert.deepEqual(groupSignals.filter((g) => g === -launcher), [], 'the exited launcher\'s group number was signalled');
   } finally {
     process.kill = realKill;
-    try { process.kill(Number(fs.readFileSync(helperFile, 'utf8').trim()), 'SIGKILL'); } catch { /* gone: only the PID this test started */ }
+    stopIfAlive(readPid(helperFile));
     gate.resetForTests(); run.resetForTests();
   }
 });
@@ -549,17 +553,15 @@ test('#3939 3c-3a: the caller\'s stop ends a running turn: Muse is stopped and t
     let stop = null;
     const turn = run.runTurn({ workspace: WORK, sessionId: SID, prompt: 'hi', onStop: (f) => { stop = f; } });
     assert.equal(typeof stop, 'function', 'the caller was not handed a stop');
-    for (let i = 0; i < 250 && !fs.existsSync(pidFile); i++) await new Promise((res) => setTimeout(res, 20));
-    assert.ok(fs.existsSync(pidFile), 'the fake muse never started, so this test cannot say anything about stop');
+    for (let i = 0; i < 250 && !isRealPid(readPid(pidFile)); i++) await new Promise((res) => setTimeout(res, 20));
+    assert.ok(isRealPid(readPid(pidFile)), 'the fake muse never started, so this test cannot say anything about stop');
     stop();
     const r = await turn;
     assert.equal(r.ok, false);
     assert.equal(r.because, run.STOPPED);
-    const pid = Number(fs.readFileSync(pidFile, 'utf8').trim());
+    const pid = readPid(pidFile);
     await new Promise((res) => setTimeout(res, 300));
-    let alive = true;
-    try { process.kill(pid, 0); } catch { alive = false; }
-    if (alive) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }   // only the PID this test started
+    const alive = stopIfAlive(pid);
     assert.equal(alive, false, 'Stopped was answered, but muse kept running behind it');
     assert.doesNotThrow(() => stop(), 'a second stop after the turn ended must do nothing');
   } finally { gate.resetForTests(); run.resetForTests(); }
