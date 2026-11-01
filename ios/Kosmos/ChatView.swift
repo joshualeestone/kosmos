@@ -2518,6 +2518,7 @@ struct KeyboardHold: UIViewRepresentable {
     }
     func updateUIView(_ view: Probe, context: Context) {
         if view.moves != moves { view.standDown() }
+        if view.above != above { view.pageLanded() }
         view.hold = hold; view.above = above; view.moves = moves; view.rows = rows; view.onPutBack = onPutBack; view.onRowLost = onRowLost
     }
 
@@ -2535,6 +2536,7 @@ struct KeyboardHold: UIViewRepresentable {
         // made, with the keyboard down (so never the hold's own writes), used once.
         private var lastJump: (from: CGFloat, to: CGFloat, at: Date)?
         // Review 1: the app's own move lands after the stand-down, in a later turn (toRow, goNewest), so it is ignored for a moment.
+        // Stamped too by a page landing and whenever hold is set false: a jump missed that way is the old behaviour for one keyboard.
         private var appMovedAt: Date?
         private var offsetWatch: NSKeyValueObservation?
         // A settle waiting its 0.1 s is dropped by anything that ends the hold's claim on the list: a stand-down (the app's
@@ -2631,6 +2633,8 @@ struct KeyboardHold: UIViewRepresentable {
             })
         }
         func standDown() { saved = nil; lastJump = nil; appMovedAt = Date(); endGuard(); settleToken &+= 1 }
+        // Review 2: a page landing above moves the offset by its height with nothing moving on the screen: not the keyboard's jump.
+        func pageLanded() { lastJump = nil; appMovedAt = Date() }
         // The reader's row, its place in the content and the scroll offset when the keyboard started to show, the rows above
         // and the width, and when (review 1: a will-show with no did-show, an iPad's floating keyboard say, must not leave a
         // reading for a later one).
@@ -2772,7 +2776,7 @@ struct KeyboardHold: UIViewRepresentable {
                 let rowsAll = self.rows?.y.count ?? 0
                 ChatView.trace("keyboard hold: \(rowsNow.count) of \(rowsAll) rows agree with the list")
                 // kosmos#7690: a jump just before will-show is the keyboard's, not the reader's: read the rows where they were before it.
-                let back = jump.map { Board.jumpBack(from: Double($0.from), to: Double($0.to), now: Double(sv.contentOffset.y), age: Date().timeIntervalSince($0.at), within: Self.jumpWindow, settle: Double(Self.jumpSettle)) } ?? 0
+                let back = self.keyboardUp ? 0 : jump.map { Board.jumpBack(from: Double($0.from), to: Double($0.to), now: Double(sv.contentOffset.y), age: Date().timeIntervalSince($0.at), within: Self.jumpWindow, settle: Double(Self.jumpSettle)) } ?? 0
                 let rowsBefore = rowsNow.mapValues { $0 + back }
                 guard let rows = self.rows, let r = Board.readerRow(rowsBefore, below: Double(top), above: Double(bottom)), let reading = rows.y[r.id] else {
                     ChatView.trace("keyboard hold: no row on the screen to hold"); return
