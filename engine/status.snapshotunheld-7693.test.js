@@ -131,9 +131,9 @@ test('#7693: with a capture seam set (a Windows board, a fixture) the gather is 
 
 test('#7693: GET /api/status is the route that uses it', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'server.js'), 'utf8');
-  const at = src.indexOf("if (pathname === '/api/status' && (req.method === 'GET' || req.method === 'HEAD')) {");
+  const at = src.indexOf("if ((pathname === '/api/status' && (req.method === 'GET' || req.method === 'HEAD'))");
   assert.ok(at > 0, 'the route was not found');
-  assert.match(src.slice(at, at + 200), /const snap = await snapshotUnheld\(\);/);
+  assert.match(src.slice(at, at + 700), /const snap = await snapshotUnheld\(\);/);
 });
 
 test('#7693: the budget of live reads is shared by requests on one gather', async () => {
