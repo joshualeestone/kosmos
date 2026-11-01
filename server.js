@@ -43,6 +43,9 @@ const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process
    board.log starts with a UTC time, so a restart can be matched to what an agent was doing. Only when stdout/stderr is
    a regular file (board.log under launchd or nohup); a pipe or a terminal is left alone. See engine/logstamp.js. The
    bootstrap's own named-world lines (#1704/#2528, none on the default world) come before this and carry no time. */
+/* #7693: right after the world bootstrap and before the engine modules copy these functions: a blocking child process
+   over a second writes its caller to board.log. See engine/slowspawn.js. Only when this file IS the board. */
+if (require.main === module) require('./engine/slowspawn').install(require('node:child_process'));
 if (require.main === module) {
   const logstamp = require('./engine/logstamp');
   const shared = logstamp.sameFile(1, 2) ? { atLineStart: true } : undefined;   // both to board.log: one line state
