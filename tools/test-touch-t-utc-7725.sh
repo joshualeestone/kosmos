@@ -18,9 +18,9 @@ scan() {
   perl -0777 -ne '
     sub utc_dates {   # every date command in this text carries TZ=UTC, and there is at least one
       my ($t) = @_; my $seen = 0;
-      while ($t =~ /(?<![\w\$\/.-])date\b(?!\s+\+%s\b)/g) {   # date +%s is an epoch, which has no zone
+      while ($t =~ /(?<![\w\$.\/-])(?:[\w.\/-]*\/)?g?date\b(?!\s+\+%s\b)/g) {   # date +%s is an epoch, which has no zone
         $seen = 1;
-        return 0 unless substr($t, 0, pos($t) - 4) =~ /TZ=UTC\s+(?:[A-Z_]+=\S+\s+)*$/;
+        return 0 unless substr($t, 0, $-[0]) =~ /TZ=UTC\s+(?:[A-Z_]+=\S+\s+)*$/;
       }
       return $seen;
     }
@@ -33,7 +33,7 @@ scan() {
         my $utc = defined $1;
         my $stamp = substr($line, $+[0]);
         next if $stamp =~ /^\s*"?\d{8,}(?:\.\d+)?"?(?:\s|$)/;
-        next if $stamp =~ /^\s*"\d{8,}\$/ && $stamp !~ /(?<![\w\$\/.-])date\b/;   # a fixed date with a counter on the end
+        next if $stamp =~ /^\s*"\d{10,}\$(?:[a-z]"|\(printf\b)/;   # a fixed date with a loop counter on the end
         my $good = $utc;
         if ($stamp =~ /^\s*"?\$\{?(\w+)\}?"?(?:\s|$)/) {
           my $var = $1;
@@ -72,6 +72,9 @@ TZ=UTC touch -t "$fallback_stamp" "$a"                                     # UNS
 touch -t \
   "$(date +%Y%m%d%H%M)" "$a"                                               # UNSAFE
 touch -t 202001010000 "$a"; touch -t "$(date +%Y%m%d%H%M)" "$b"            # UNSAFE
+TZ=UTC touch -t "$(TZ=UTC date -r 5 +%Y%m%d%H%M || gdate -d @5 +%Y%m%d%H%M)" "$a"       # UNSAFE
+TZ=UTC touch -t "$(TZ=UTC date -r 5 +%Y%m%d%H%M || /bin/date -d @5 +%Y%m%d%H%M)" "$a"   # UNSAFE
+touch -t "20261101$h" "$a"                                                 # UNSAFE
 local_stamp="$(date +%Y%m%d%H%M)"
 mixed_stamp="$(TZ=UTC date +%Y%m%d%H%M)"
 mixed_stamp="$(date +%Y%m%d%H%M)"
