@@ -23,6 +23,7 @@ const fs = require('node:fs');
 const chat = require('./chat');
 const messages = require('./messages');
 const status = require('./status');
+const { justPast } = require('../test-support/limit-reset');
 const limitqueue = require('./limitqueue');
 const store = require('./store');
 const fleet = require('../test-support/fleet');
@@ -41,16 +42,6 @@ function resetAt(ms) {
   const p = {};
   for (const x of new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).formatToParts(new Date(ms))) p[x.type] = x.value;
   return `${p.month} ${p.day} at ${p.hour}:${p.minute}${String(p.dayPeriod).toLowerCase()}`;
-}
-/* A time just past, within the hour a capped card is still held. In the repeated fall-back hour a printed time reads as its
-   later instant (status.limitResetAt), so 15 minutes ago can read as 45 minutes ahead: try closer, then the far end of that hour. */
-function justPast() {
-  const now = Date.now();
-  for (const minutes of [15, 5, 1, 59]) {
-    const ms = now - minutes * 60e3;
-    if (status.limitResetAt(`resets ${resetAt(ms)} (America/Chicago)`, now) < now) return ms;
-  }
-  return now;
 }
 const RULE = '─'.repeat(80) + '\n';
 const STATUS_LINE = RULE + '❯ \n' + RULE + '  casey · Opus 4.8 · 7d 100%\n' + '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents\n';
@@ -237,9 +228,11 @@ test('#5805 2a review 1: the same send again after the held copy was typed is th
   });
 });
 
-test('#5805 2a review 1: held past the printed reset (the card still reads capped), no time is promised', async () => {
+test('#5805 2a review 1: held past the printed reset (the card still reads capped), no time is promised', async (t) => {
+  const ms = justPast(status, resetAt);
+  if (ms === null) return t.skip('no printed time is just past in this minute');
   await withFleet(AHEAD(), 'rate_limited', async (board) => {
-    const past = `You've hit your weekly limit · resets ${resetAt(justPast())} (America/Chicago)`;
+    const past = `You've hit your weekly limit · resets ${resetAt(ms)} (America/Chicago)`;
     const r = board.agents.map((c) => (c.sessionName === 'casey' ? { ...c, state: status.STATE.RATE_LIMITED, stateEvidence: past } : c));
     const v = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'later' }, r);
     assert.equal(v.held, true, JSON.stringify(v));
