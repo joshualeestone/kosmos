@@ -374,7 +374,7 @@ enum Tasks {
         "crash_loop": "Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.",
         "stuck_auth": "Kosmos has seen it unable to sign in for a while. It cannot work until its account is reconnected.",
         "stuck_rate": "Kosmos has seen it paused by a rate limit for a while. It carries on when the limit lifts, or you can switch its model.",
-        "own_bound": "Kosmos could not get it going, and stopped trying.",
+        "own_bound": "Kosmos could not get it going, and stopped trying. Open it to see what it shows.",
         "other": "Kosmos needs you to look at it.",
     ]
 
