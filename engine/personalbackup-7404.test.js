@@ -122,7 +122,23 @@ test('pb tiers: the plan reaches the run; no plan runs nothing and is no pause; 
   }
 });
 
-test('pb tiers: a status read that fails waits the hour, and takes no run a company bound could pause to Monday', async (t) => {
+test('pb tiers: a plan for another org does not size this backup', async (t) => {
+  const root = fresh(t);
+  const consent = { ...WORDS, backsUp: ['your project folders'] };
+  const c = coordinator({ preexisting: true, preview: { ok: true, data: { org: ORG, role: 'member', consent, consentHash: HASH, computerSalt: SALT } } });
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+  const remote = { ...c, macRequest: async (m, route, body) => {
+    const a = await c.macRequest(m, route, body);
+    if (route === oe.ROUTES.status && a.ok) { a.data.org = { ...a.data.org, id: 'another-org' }; a.data.backupWeeklyGb = null; }
+    return a;
+  } };
+  const seen = [];
+  await pb.runJob({ roots: [] }, { root, remote, runBackup: async (_, deps) => { seen.push(deps.planGb); return { ok: true }; } });
+  assert.deepEqual(seen, [undefined], 'a null for another org is not this backup having no plan');
+});
+
+test('pb tiers: a status read that fails stops the run, and takes none a company bound could pause to Monday', async (t) => {
   const root = fresh(t);
   const consent = { ...WORDS, backsUp: ['your project folders'] };
   const c = coordinator({ preexisting: true, preview: { ok: true, data: { org: ORG, role: 'member', consent, consentHash: HASH, computerSalt: SALT } } });

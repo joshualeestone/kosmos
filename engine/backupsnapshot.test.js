@@ -738,6 +738,11 @@ test('a plan replaces the worst-case bound: a manifest budget that refuses a com
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('a plan: a company keeps the 64 MiB budget; only a plan gets the larger one', () => {
+  assert.equal(snap.MANIFEST_JSON_BUDGET, Math.floor(64 * 1024 * 1024 * 0.8));
+  assert.equal(snap.PLAN_MANIFEST_JSON_BUDGET, Math.floor(192 * 1024 * 1024 * 0.8));
+});
+
 test('a plan: a second run\'s files are its index, so a full index does not refuse them', async () => {
   const w = oneFile(1024), k = keys(), st = store();
   try {
@@ -788,6 +793,7 @@ test('a plan: a folder expected to pass the manifest is refused in words before 
   try {
     const r = await take(k, w.root, st, { deps: { planGb: 25, maxManifestJson: 2000 } });
     assert.equal(r.ok, false); assert.equal(r.overPlan, true, r.because); assert.equal(st.batches.length, 0);
+    assert.doesNotMatch(r.because, /larger plan/, 'a larger plan has the same manifest limit');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 

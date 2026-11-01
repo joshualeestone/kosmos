@@ -132,7 +132,7 @@ function jobOpts(pair, extra) {
   const rec = { org: { id: pair.org }, world: 'w', consentHash: 'cd'.repeat(32) };
   const withdrawn = [];
   const orgenroll = { readEnrollment: () => rec, consentWithdrawn: async (o, h) => { withdrawn.push(h); return true; } };
-  const remote = { macRequest: async () => ({ ok: true, data: { backupWeeklyGb: 25 } }) };   // the plan a run reads first
+  const remote = { macRequest: async () => ({ ok: true, data: { org: { id: pair.org }, backupWeeklyGb: 25 } }) };   // the plan a run reads first
   return { withdrawn, opts: Object.assign({ root: path.join(SANDBOX, 'job-' + pair.org), orgenroll, remote }, extra) };
 }
 test('a real run seals to the personal key under the pair Kosmos+ named, and names its state for it', async () => {

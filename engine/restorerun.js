@@ -140,7 +140,8 @@ async function fetchBounded(fetchObject, key, o, ms) {
      trust                 'member-proof' for a personal backup: no history, and only a manifest whose member proof
                            (backupformat.openManifestByProof) checks is opened. Nothing else skips the history.
      fetchObject(key, { maxBytes }) -> bytes | null   one stored object (a read grant's GET, later). It should refuse
-                           more than maxBytes; each call is also cut off after fetchTimeoutMs (default 2 min).
+                           more than maxBytes; each call is also cut off after fetchTimeoutMs, the manifest's after
+                           manifestTimeoutMs when given (default 2 min).
      sink, maxTotalBytes   as backuprestore.restoreSnapshot
      plan, planned         optional: engine/restorefetch.js readGrantFetcher's, given with its fetchObject
    Resolves { ok: true, deviceKey, backfill, takenAt, result, fetchProblems } (result is restoreSnapshot's;
