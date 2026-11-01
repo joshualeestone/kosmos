@@ -45,7 +45,7 @@ final class LongPressKeyboardUITests: XCTestCase {
         KeyboardSlideUITests.settle(message)
         shot(app, "actions open, keyboard up")
         XCTAssertTrue(keyboard.exists, "the long press lowered the keyboard")
-        XCTAssertTrue(app.otherElements["messageActionsPanel"].exists, "the actions opened as the sheet, not the in-chat panel")
+        XCTAssertTrue(app.descendants(matching: .any)["messageActionsPanel"].exists, "the actions opened as the sheet, not the in-chat panel")
         XCTAssertEqual(message.frame.minY, before.minY, accuracy: 1, "the pressed message moved: \(before.minY) to \(message.frame.minY)")
         // A tap on the dim, above the panel, closes it: the keyboard and the message still where they were.
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12)).tap()
@@ -126,7 +126,7 @@ final class LongPressKeyboardUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5), "the actions did not open")
         shot(app, "room, actions open, keyboard up")
         XCTAssertTrue(keyboard.exists, "the long press lowered the keyboard")
-        XCTAssertTrue(app.otherElements["messageActionsPanel"].exists, "the room opened the sheet, not the panel")
+        XCTAssertTrue(app.descendants(matching: .any)["messageActionsPanel"].exists, "the room opened the sheet, not the panel")
     }
 
     // The control: with the keyboard down, the long press opens the sheet as before (#7419), not the panel.
@@ -135,7 +135,7 @@ final class LongPressKeyboardUITests: XCTestCase {
         let message = pressed(app)
         message.press(forDuration: 0.8)
         XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5), "the sheet did not open")
-        XCTAssertFalse(app.otherElements["messageActionsPanel"].exists, "the panel opened with the keyboard down")
+        XCTAssertFalse(app.descendants(matching: .any)["messageActionsPanel"].exists, "the panel opened with the keyboard down")
         shot(app, "keyboard down: the sheet")
     }
 }
