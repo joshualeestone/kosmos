@@ -206,7 +206,7 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
     if (!dk || !dk.ok) return deviceKeyRefusal(dk);
     result = await take({
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
-      deviceKey: dk.privateKey, index: p.index, bucket: p.bucket,
+      deviceKey: dk.privateKey, index: p.index, bucket: p.bucket, ...(k.proofKey ? { proofKey: k.proofKey } : {}),
       ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },
     }, deps.macRequest ? { macRequest: deps.macRequest } : { macRequest: (m, r, b) => require('./remote').macRequest(m, r, b) });
     if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };

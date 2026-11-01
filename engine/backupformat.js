@@ -269,15 +269,64 @@ function verifyManifestSignature(devicePub, ctx, object) {
 // The opened manifest holds a SECRET since #5535: namingKey, the period's naming key. With it and the store's chunk names,
 // anyone can test guessed content without the member key. A consumer (the content view, restore) picks the fields it
 // needs and never passes the opened object on, logs it or returns it whole.
+/* kosmos#7404 slice D: the member proof, how a PERSONAL manifest says who made it. A company manifest's device key comes
+   from the history escrowd signs (engine/devkeyhist.js); a personal org has no escrow, and a list from Kosmos+ alone
+   would let Kosmos+ vouch for a key of its own, seal to the public member key and sign. So the manifest carries, inside
+   its sealed body, the signing device's public key and an HMAC over the snapshot context and that key, under a key
+   derived from the member SECRET. Anyone can seal to the member public key; only a holder of the secret can make the
+   proof, and the device signature then ties the sealed bytes to the key the proof names.
+   What it does not stop, stated: every computer that ever held the member key can make a proof (the key is on its
+   disk), until the key is replaced. */
+const PROOF_INFO = Buffer.from(`kosmos-backup v${FORMAT} member-proof key`);
+const PROOF_DOMAIN = Buffer.from(`kosmos-backup v${FORMAT} member-proof\0`);
+const HEX32_RE = /^[0-9a-f]{64}$/;
+const SPKI_ED25519 = Buffer.from('302a300506032b6570032100', 'hex');
+/** The proof key from a member secret (32 bytes). X25519 ignores the clamped bits, so they are set first: two spellings
+    of one secret are one key, and must make one proof key (engine/backupkeys.js says not to hash raw secret bytes). */
+function memberProofKey(memberSk) {
+  if (!(memberSk instanceof Uint8Array) || memberSk.length !== 32) throw new Error('backupformat: a member secret is 32 bytes');
+  const k = Buffer.alloc(32);
+  k.set(memberSk);
+  k[0] &= 248; k[31] &= 127; k[31] |= 64;
+  try { return Buffer.from(crypto.hkdfSync('sha256', k, Buffer.alloc(0), PROOF_INFO, 32)); } finally { k.fill(0); }
+}
+const proofOf = (proofKey, ctx, deviceHex) => crypto.createHmac('sha256', proofKey).update(PROOF_DOMAIN).update(contextBytes(ctx)).update('\n').update(deviceHex).digest();
+/** The manifest field: { device, proof }, both hex, for this context and this device's public KeyObject. */
+function memberProof(proofKey, ctx, devicePub) {
+  if (!Buffer.isBuffer(proofKey) || proofKey.length !== 32) throw new Error('backupformat: a member proof key is 32 bytes');
+  if (!devicePub || devicePub.type !== 'public' || devicePub.asymmetricKeyType !== 'ed25519') throw new Error('backupformat: the device key must be an Ed25519 public key');
+  const device = devicePub.export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex');
+  return { device, proof: proofOf(proofKey, ctx, device).toString('hex') };
+}
+/* The sealed body of a manifest object, parsed, or null. The signature is the caller's to check: this alone proves nothing. */
+function openSealedBody(memberSk, ctx, object) {
+  const enc = object.subarray(4 + SIG_LEN, 4 + SIG_LEN + ENC_LEN), ct = object.subarray(4 + SIG_LEN + ENC_LEN);
+  const f = hpkeOpen(memberSk, enc, Buffer.from(`kosmos-backup v${FORMAT} manifest`), contextBytes(ctx), ct);
+  const pt = f ? unframe(f) : null;
+  const m = pt ? JSON.parse(pt.toString('utf8')) : null;
+  return m && typeof m === 'object' && !Array.isArray(m) ? m : null;  // what sealManifest accepts, and nothing else
+}
+/** Open a personal manifest: the member proof, then the device signature under the key the proof names. Answers
+    { manifest, devicePub } or null on ANY failure, in particular for a manifest with no proof. */
+function openManifestByProof(memberSk, ctx, object) {
+  try {
+    if (!Buffer.isBuffer(object) || object.length < 4 + SIG_LEN + ENC_LEN + 16 || !object.subarray(0, 4).equals(MANIFEST_MAGIC)) return null;
+    const m = openSealedBody(memberSk, ctx, object);
+    const held = m && m.memberProof;
+    if (!held || typeof held !== 'object' || typeof held.device !== 'string' || !HEX32_RE.test(held.device) || typeof held.proof !== 'string' || !HEX32_RE.test(held.proof)) return null;
+    const pk = memberProofKey(memberSk);
+    const same = crypto.timingSafeEqual(proofOf(pk, ctx, held.device), Buffer.from(held.proof, 'hex'));
+    pk.fill(0);
+    if (!same) return null;
+    const devicePub = crypto.createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(held.device, 'hex')]), format: 'der', type: 'spki' });
+    return verifyManifestSignature(devicePub, ctx, object) ? { manifest: m, devicePub } : null;
+  } catch { return null; }
+}
 /** Verify the device signature, then open the manifest. Returns the parsed manifest, or null on ANY failure. */
 function openManifest(memberSk, devicePub, ctx, object) {
   try {
     if (!verifyManifestSignature(devicePub, ctx, object)) return null;
-    const enc = object.subarray(4 + SIG_LEN, 4 + SIG_LEN + ENC_LEN), ct = object.subarray(4 + SIG_LEN + ENC_LEN);
-    const f = hpkeOpen(memberSk, enc, Buffer.from(`kosmos-backup v${FORMAT} manifest`), contextBytes(ctx), ct);
-    const pt = f ? unframe(f) : null;
-    const m = pt ? JSON.parse(pt.toString('utf8')) : null;
-    return m && typeof m === 'object' && !Array.isArray(m) ? m : null;  // what sealManifest accepts, and nothing else
+    return openSealedBody(memberSk, ctx, object);
   } catch { return null; }
 }
 
@@ -293,6 +342,9 @@ module.exports = {
   sealManifest,
   verifyManifestSignature,
   openManifest,
+  memberProofKey,
+  memberProof,
+  openManifestByProof,
   checkBackupContext,
   // kosmos#7118: the rule for one context id, for the uploader to check the snapshot id it sends (one copy of the rule).
   CTX_ID_RE,

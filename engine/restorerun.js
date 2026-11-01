@@ -24,7 +24,7 @@
  */
 const crypto = require('crypto');
 const { unwrapMemberKey } = require('./backupkeys');
-const { openManifest } = require('./backupformat');
+const { openManifest, openManifestByProof } = require('./backupformat');
 const { restoreSnapshot, toSinkPath } = require('./backuprestore');
 const devkeyhist = require('./devkeyhist');
 
@@ -131,6 +131,8 @@ async function fetchBounded(fetchObject, key, o, ms) {
      manifest              the coordinator's record: { key, period, snapshot, sha256, size, granted_at }
      memberSk              the member key, from newDestination().open(...)
      history, now          the device-key history escrowd signed, and this computer's clock (devkeyhist.verify)
+     trust                 'member-proof' for a personal backup: no history, and only a manifest whose member proof
+                           (backupformat.openManifestByProof) checks is opened. Nothing else skips the history.
      fetchObject(key, { maxBytes }) -> bytes | null   one stored object (a read grant's GET, later). It should refuse
                            more than maxBytes; each call is also cut off after fetchTimeoutMs (default 2 min).
      sink, maxTotalBytes   as backuprestore.restoreSnapshot
@@ -153,11 +155,13 @@ async function runRestore(opts) {
   const takenAt = snapshotTimeOf(manifest && manifest.snapshot);
   const why = timeProblem(manifest, takenAt);
   if (why) return { ok: false, because: why };
-  const h = devkeyhist.verify(opts.history, { org, member, now: opts.now });
-  if (!h.ok) return { ok: false, because: h.because };
+  // kosmos#7404 slice D: a personal backup has no escrow, so no history: the manifest proves itself to the member key.
+  const byProof = opts.trust === 'member-proof';
+  const h = byProof ? null : devkeyhist.verify(opts.history, { org, member, now: opts.now });
+  if (h && !h.ok) return { ok: false, because: h.because };
   // Every key valid when Kosmos+ recorded the grant (normally one; two only across a re-registration).
-  const candidates = h.keys.filter((k) => devkeyhist.keyAt(h.keys, k.key, manifest.granted_at));
-  if (!candidates.length) return { ok: false, because: 'no device key of this member was valid when this backup was recorded' };
+  const candidates = byProof ? [] : h.keys.filter((k) => devkeyhist.keyAt(h.keys, k.key, manifest.granted_at));
+  if (!byProof && !candidates.length) return { ok: false, because: 'no device key of this member was valid when this backup was recorded' };
   if (!keyOk(manifest.key, org, member)) return { ok: false, because: 'the backup\'s manifest is not filed under this member' };
   const bytes = await fetchBounded(opts.fetchObject, manifest.key, { maxBytes: MAX_MANIFEST_OBJECT }, ms);
   if (!bytes) {
@@ -180,6 +184,12 @@ async function runRestore(opts) {
     const pub = crypto.createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(k.key, 'hex')]), format: 'der', type: 'spki' });
     const m = openManifest(opts.memberSk, pub, ctx, bytes);
     if (m) { opened = m; used = { k, pub }; break; }
+  }
+  if (byProof) {
+    const got = openManifestByProof(opts.memberSk, ctx, bytes);
+    if (!got) return { ok: false, because: 'this backup does not carry the proof only your own key can make, so it was not restored' };
+    opened = got.manifest;
+    used = { k: { key: got.devicePub.export({ format: 'der', type: 'spki' }).subarray(-32).toString('hex') }, pub: got.devicePub };
   }
   if (!opened) return { ok: false, because: 'the backup\'s manifest does not open under this member\'s device key for that time' };
   const objects = opened.objects && typeof opened.objects === 'object' ? opened.objects : {};

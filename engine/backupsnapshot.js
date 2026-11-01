@@ -49,7 +49,7 @@
 const crypto = require('crypto');
 const nodeFs = require('fs');
 const path = require('path');
-const { CDC, chunkBuffer, chunkName, sealNamedChunk, sealManifest, checkBackupContext } = require('./backupformat');
+const { CDC, chunkBuffer, chunkName, sealNamedChunk, sealManifest, memberProof, checkBackupContext } = require('./backupformat');
 const { scanFile, pathDecision, insideWorkKosmos } = require('./backupscan');
 const { uploadChunks, uploadManifest, MAX_MANIFEST, isKeyEpoch } = require('./backupupload');
 const { pathProblem, collisionKey, collidingPaths } = require('./backuprestore');
@@ -571,6 +571,7 @@ function upperBound(f, maxFile) {
  *                  root that cannot be used fails the snapshot; an OPTIONAL one (at most 1024) never does: it is
  *                  left out and recorded in skipped (unreadable, conflicting, too large, a bad name). `only`: the paths
  *                  inside the root to keep; nothing else from it is stored or named. See rootsOf.
+ *     proofKey     a personal backup's member proof key (backupformat.memberProofKey), or absent for a company's
  *     memberPk     the member's backup public key (32 bytes), namingKey this period's naming key (32 bytes) and
  *                  namingKeyId its id (backupkeys namingKeyId), deviceKey the device's Ed25519 private KeyObject
  *     ctx          the manifest context { org, member, epoch, period, snapshot }; period must be periodOf(now)
@@ -606,7 +607,7 @@ async function takeSnapshot(input, deps) {
 }
 
 async function snapshotInner(input, deps, added, state, fail) {
-  const { memberPk, namingKey, namingKeyId, deviceKey, ctx } = input;
+  const { memberPk, namingKey, namingKeyId, deviceKey, ctx, proofKey } = input;
   const now = deps.now || Date.now;
   const fs = deps.fs || nodeFs;
   const putChunks = deps.uploadChunks || uploadChunks;
@@ -851,6 +852,9 @@ async function snapshotInner(input, deps, added, state, fail) {
     format: FORMAT, takenAt: new Date(t).toISOString(), namingKeyId, namingKey: namingKey.toString('base64'),   // t: the reading already checked
     files, objects, redacted, skipped, skippedNotListed: skippedExtra,
   };
+  // kosmos#7404 slice D: a personal backup's only proof of who made it (backupformat.js). About 170 bytes, inside the
+  // 1024 above. A company run passes no proofKey and its manifest is unchanged.
+  if (proofKey !== undefined) manifest.memberProof = memberProof(proofKey, ctx, crypto.createPublicKey(deviceKey));
   // A period boundary passed during the run: NO manifest grant is asked for. The manifest is sealed with
   // ctx.period, but the coordinator would file it under the period of the moment it is granted (its key and record), so a
   // restore looking it up by that period could not open it; and its lock would be the new period's, which earlier

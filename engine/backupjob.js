@@ -93,6 +93,8 @@ async function memberKeyFor(state, deps) {
   const out = fromAnswer(st, r, named, now);
   return named ? Object.assign(out, { pair: named }) : out;
 }
+/* kosmos#7404 slice D: a personal key's proof key, a secret: it reaches the snapshot and never runOnce's `key`. */
+const proofField = (r) => (Buffer.isBuffer(r.proofKey) && r.proofKey.length === 32 ? { proofKey: r.proofKey } : {});
 function fromAnswer(st, r, named, now) {
   if (r && r.ok && isEpoch(r.epoch) && Buffer.isBuffer(r.publicKey) && r.publicKey.length === 32) {
     // An answer below the lost epoch comes when ensureMemberKey ignored lostEpoch (it is not the file's newest
@@ -107,7 +109,7 @@ function fromAnswer(st, r, named, now) {
     if (isEpoch(r.pendingEpoch) && r.pendingEpoch > r.epoch) {
       return { ok: false, pendingEpoch: r.pendingEpoch, because: 'a newer backup key for this computer is not confirmed with Kosmos+ yet; it is sent next time', state: Object.assign({ lostEpoch: r.epoch }, waitsKept) };
     }
-    return Object.assign({ ok: true, key: Object.assign({ epoch: r.epoch, publicKey: r.publicKey }, named || {}), state: {} },
+    return Object.assign({ ok: true, key: Object.assign({ epoch: r.epoch, publicKey: r.publicKey }, named || {}, proofField(r)), state: {} },
       r.lostEpochIgnored === true ? { lostEpochIgnored: true } : {});
   }
   const keep = Object.assign(st.lostEpoch ? { lostEpoch: st.lostEpoch } : {}, st.waits ? { waits: st.waits } : {});
@@ -146,11 +148,12 @@ async function runOnce(state, deps) {
   }
   if (!deps || typeof deps.snapshot !== 'function') return Object.assign({ state: k.state, key: k.key, result: { ok: false, because: 'no snapshot step' } }, top);
   let result;
-  const named = k.key.org ? { org: k.key.org, member: k.key.member } : {};
-  try { result = await deps.snapshot(Object.assign({ memberPk: k.key.publicKey, epoch: String(k.key.epoch) }, named)); } catch { result = null; }
+  const { proofKey, ...kept } = k.key;
+  const named = kept.org ? { org: kept.org, member: kept.member } : {};
+  try { result = await deps.snapshot(Object.assign({ memberPk: kept.publicKey, epoch: String(kept.epoch) }, named, proofField(k.key))); } catch { result = null; }
   if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
-  const key = Object.assign({}, k.key, k.lostEpochIgnored ? { lostEpochIgnored: true } : {});
-  return Object.assign({ state: afterSnapshot(k.state, k.key, result), key, result }, top);
+  const key = Object.assign({}, kept, k.lostEpochIgnored ? { lostEpochIgnored: true } : {});
+  return Object.assign({ state: afterSnapshot(k.state, kept, result), key, result }, top);
 }
 
 module.exports = { BACKOFF_MIN_MS, BACKOFF_MAX_MS, backoffMs, memberKeyFor, afterSnapshot, runOnce };
