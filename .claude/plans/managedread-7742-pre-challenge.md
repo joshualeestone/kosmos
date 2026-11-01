@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: managedread-7742
-diff_hash: 4329794f284678d638673556af05dfe5c96586fc4410364198a45a80902ffbe1
+diff_hash: 75cd5f4b67b7135fc87f954c759945cc62647d1fbd3c01e7a8d1bea50a18d2dc
 validation: orgchartfile tests 53, server.orgchart-read-4559 and orgchartcodex pass; the whole suite is CI
 subdir_audit: passed
 timestamp: 2026-11-01T17:35:00Z
