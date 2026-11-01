@@ -932,7 +932,10 @@ struct ChatView: View {
     // kosmos#7420: KOSMOS_SAMPLE_REBUILD's recovery, once the reader is at the newest: on CI's loaded runner a long chat can
     // still be settling at the delay, and the real decision then rightly gives no rebuild, which is not what this checks.
     private func sampleRebuild(_ proxy: ScrollViewProxy, waited: Double = 0) {
-        if !atBottom, waited < 15 {
+        // All that emptyRecovery asks for: "sample rebuilt 0" on CI (#7708) showed the newest alone was not enough on a loaded
+        // runner, where the list can still be moving or outside its content.
+        let ready = atBottom && !personScrolling && !scrollBox.underFinger && scrollBox.reading()?.place == "within"
+        if !ready, waited < 15 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { sampleRebuild(proxy, waited: waited + 0.5) }
             return
         }
