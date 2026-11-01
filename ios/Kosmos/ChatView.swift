@@ -2560,7 +2560,7 @@ struct KeyboardHold: UIViewRepresentable {
                 if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: settle skipped, a finger"); return }
                 if self.above != above || abs(sv.bounds.width - width) > 0.5 { ChatView.trace("keyboard hold: settle skipped, the list changed"); return }
                 let moved = CGFloat(r.top) - want
-                ChatView.trace("keyboard hold: settle, row off by \(Int(moved))")
+                ChatView.trace("keyboard hold: settle, row off by \(Int(moved)), \(Self.numbers(sv))")
                 if abs(moved) > 1 {
                     acted = true
                     let i = sv.adjustedContentInset
@@ -2582,6 +2582,26 @@ struct KeyboardHold: UIViewRepresentable {
                     }
                 }
             } }
+        }
+        // The reader's row placed by its id and settled by its place on the screen, for a reading that cannot be used. False when
+        // there is no way to place it. The same stand-downs as putBack: under a finger, earlier messages landed, or the width changed.
+        private func placeById(_ kept: Reading, far: Bool) -> Bool {
+            guard let lost = onRowLost, let sv = scroll else { return false }
+            if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: skipped, a finger"); endGuard(); return true }
+            if above != kept.above { ChatView.trace("keyboard hold: skipped, earlier messages landed"); endGuard(); return true }
+            if abs(sv.bounds.width - kept.width) > 0.5 { ChatView.trace("keyboard hold: skipped, the width changed"); endGuard(); return true }
+            let top = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
+            let bottom = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.bounds.height - sv.adjustedContentInset.bottom), to: nil).y
+            let f = CGFloat(Board.bandFraction(Double(keptScreenTop), bandTop: Double(top), bandBottom: Double(bottom)))
+            ChatView.trace(far ? "keyboard hold: row moved far off, placed by id at \(Int(f * 100))% of the screen" : "keyboard hold: row not drawn at did-show, placed by id at \(Int(f * 100))% of the screen")
+            // f is the row's will-show top against the band as it is now (keyboard up), and scrollTo lines up the row's
+            // point f, not its top: an approximate place, which the settle then corrects to the will-show top.
+            // A will-show top now under the keyboard is held to the band's bottom (f = 1); the settle then aims at the
+            // will-show top all the same, its own place on the screen before the keyboard.
+            let until = guarding?.until ?? Date().addingTimeInterval(Self.window)
+            lost(kept.row, f); endGuard()
+            settleOnScreen(kept.row, above: kept.above, width: kept.width, want: keptScreenTop, until: until)
+            return true
         }
         // While held, every move of the reader's row is put back (deferred to the next turn of the main queue, so a move made
         // inside a layout pass is answered after it); the row leaving the drawn rows is put back once by its last reading, and
@@ -2607,6 +2627,7 @@ struct KeyboardHold: UIViewRepresentable {
         // The reading being held after did-show, and until when; the row's moves are answered only meanwhile.
         private var guarding: (kept: Reading, until: Date)?
         private var generation = 0   // review 2: a timer from an earlier keyboard never ends a later guard
+        private var replaced = false   // kosmos#7654: the one placing a far put-back may ask for, per keyboard
         // kosmos#7645: 1.5 s, not 0.8: on CI's runner did-show came 1.3 s after will-show, and with the anchor let go nothing
         // fights a longer window (a finger or the app's own move still ends it).
         static let window: TimeInterval = 1.5
@@ -2632,6 +2653,17 @@ struct KeyboardHold: UIViewRepresentable {
                                                   contentHeight: Double(sv.contentSize.height), viewHeight: Double(sv.bounds.height)))
             let moved = sv.contentOffset.y - target   // how far the row is from its place on the screen, the number the record keeps
             guard abs(moved) > 1 else { return }
+            // kosmos#7654: a put-back past a screenful answers a reading that cannot be used (CI, after a good placing: -7336 sent the
+            // row away). Placed by id once for this keyboard; a second one leaves the list alone.
+            let showing = sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom
+            if Board.holdReadingFar(moved: Double(moved), showing: Double(showing)) {
+                ChatView.trace("keyboard hold: put back \(Int(moved)) refused, past a screenful")
+                ChatView.trace("keyboard hold: at \(Self.numbers(sv))")
+                if replaced { endGuard(); return }
+                replaced = true
+                if !placeById(g.kept, far: true) { endGuard() }
+                return
+            }
             ChatView.trace("keyboard hold: put back \(Int(moved))")
             sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: target)
             ChatView.trace("keyboard hold: now \(Self.numbers(sv))")
@@ -2685,6 +2717,7 @@ struct KeyboardHold: UIViewRepresentable {
                 self.settleToken &+= 1
                 let mine = self.generation
                 self.guarding = (kept, Date().addingTimeInterval(Self.window))
+                self.replaced = false
                 // The reader's row no longer drawn (iOS moved it far off): put back once by its last known place in the content (it
                 // stops being read when it leaves, so rows above measured again after that are not seen), then the hold ends. The same
                 // rule when it leaves while held, below.
@@ -2697,24 +2730,7 @@ struct KeyboardHold: UIViewRepresentable {
                 } ?? false
                 guard !far, let r = rows.y[kept.row] else {
                     // A row with no last reading belongs to readings that were cleared (a fresh chat): nothing of this chat to place.
-                    if let lost = self.onRowLost, let sv = self.scroll, rows.last[kept.row] != nil {
-                        // The same stand-downs as putBack: under a finger, earlier messages landed, or the width changed.
-                        if sv.isTracking || sv.isDragging || sv.isDecelerating { ChatView.trace("keyboard hold: skipped, a finger"); self.endGuard(); return }
-                        if self.above != kept.above { ChatView.trace("keyboard hold: skipped, earlier messages landed"); self.endGuard(); return }
-                        if abs(sv.bounds.width - kept.width) > 0.5 { ChatView.trace("keyboard hold: skipped, the width changed"); self.endGuard(); return }
-                        let top = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
-                        let bottom = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.bounds.height - sv.adjustedContentInset.bottom), to: nil).y
-                        let f = CGFloat(Board.bandFraction(Double(self.keptScreenTop), bandTop: Double(top), bandBottom: Double(bottom)))
-                        ChatView.trace(far ? "keyboard hold: row moved far off at did-show, placed by id at \(Int(f * 100))% of the screen" : "keyboard hold: row not drawn at did-show, placed by id at \(Int(f * 100))% of the screen")
-                        // f is the row's will-show top against the band as it is now (keyboard up), and scrollTo lines up the row's
-                        // point f, not its top: an approximate place, which the settle then corrects to the will-show top.
-                        // A will-show top now under the keyboard is held to the band's bottom (f = 1); the settle then aims at the
-                        // will-show top all the same, its own place on the screen before the keyboard.
-                        let until = self.guarding?.until ?? Date().addingTimeInterval(Self.window)
-                        lost(kept.row, f); self.endGuard()
-                        self.settleOnScreen(kept.row, above: kept.above, width: kept.width, want: self.keptScreenTop, until: until)
-                        return
-                    }
+                    if rows.last[kept.row] != nil, self.placeById(kept, far: far) { return }
                     // No last reading at all means the readings were cleared (a fresh chat opened): nothing of this chat to put back.
                     ChatView.trace("keyboard hold: the row was not drawn at did-show" + (rows.last[kept.row] == nil ? ", nothing put back" : ", put back by its last reading"))
                     if let c = rows.last[kept.row] { self.putBack(CGFloat(c)) }
