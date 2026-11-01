@@ -5338,7 +5338,8 @@ do {
     do {
         // kosmos#7654: the numbers from CI: the reader at Post 176 (y 13762), a stale reading of Post 102 still inside the band.
         let rows: [String: (top: Double, content: Double)] = ["p102": (top: 120, content: 8500), "p176": (top: 185, content: 13800), "p177": (top: 274, content: 13889)]
-        let here = Board.readingsHere(rows, offset: 13735, bandTop: 120, slack: 262)
+        let here = Board.readingsHere(rows, offset: 13735, bandTop: 120, slack: Board.readingSlack)
+        check(Board.readingsHere(["p179": (top: 125, content: 14270)], offset: 13735, bandTop: 120, slack: Board.readingSlack).isEmpty, "keyboard hold: a stale reading six rows away is not on the screen either")
         check(here["p102"] == nil, "keyboard hold: a stale reading 5000 pt from the list is not a row on the screen")
         check(here["p176"] == 185 && here["p177"] == 274, "keyboard hold: CONTROL: the rows really there stay")
         check(Board.readerRow(rows.mapValues(\.top), below: 120, above: 382)?.id == "p102", "keyboard hold: CONTROL: without the filter the stale row is chosen, the failure on CI")
