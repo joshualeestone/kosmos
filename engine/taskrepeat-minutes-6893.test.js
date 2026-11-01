@@ -151,7 +151,9 @@ test('#6893: a task made to repeat every 30 minutes stores the rule, says it, an
   // Due on the slot after the rule was set, then not again until the next slot after a run.
   const setAt = Date.parse(t.repeatSetAt);
   const due = r.nextAfter(t.repeat, setAt);
-  assert.ok(due - setAt <= 30 * 60000 && due > setAt);
+  // The repeated fall-back hour takes no slots (see the clock-change test above), so set beside it the next is up to 90 minutes on (01:30 daylight, then 02:00 standard).
+  const nearChange = new Date(setAt - 3600000).getTimezoneOffset() !== new Date(setAt + 3600000).getTimezoneOffset();
+  assert.ok(due - setAt <= (nearChange ? 90 : 30) * 60000 && due > setAt);
   assert.equal(r.waitingForNextRun(t, due - 1000), true, 'before its slot it is waiting');
   assert.equal(r.waitingForNextRun(t, due + 1000), false, 'at its slot it is due');
   // Review 2: every 60 minutes on a task already hourly at :00 is the same rule: no change is recorded, the time it was set stays.

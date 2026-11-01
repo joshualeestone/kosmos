@@ -535,7 +535,7 @@ test('#4787: a due repeating task is nudged with its due run and the record verb
   // every run.
   const back = new Date(now - 2 * 60000);
   const hhmm = String(back.getHours()).padStart(2, '0') + ':' + String(back.getMinutes()).padStart(2, '0');
-  const daily = { number: 9, sentence: 'Daily check', who: 'ag', repeat: { every: 'day', at: hhmm }, repeatSetAt: new Date(now - 10 * 60000).toISOString(), createdAt: new Date(now - 10 * 60000).toISOString() };
+  const daily = { number: 9, sentence: 'Daily check', who: 'ag', repeat: { every: 'day', at: hhmm }, repeatSetAt: new Date(now - 3 * 3600000).toISOString(), createdAt: new Date(now - 10 * 60000).toISOString() };
   const d = nudge.openParts('ag', proj(daily))[0];
   const slotD = new Date(back.getFullYear(), back.getMonth(), back.getDate(), back.getHours(), back.getMinutes()).getTime();
   const tomorrow = tr.nextAfter(daily.repeat, slotD);
