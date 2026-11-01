@@ -3,9 +3,8 @@ import XCTest
 // kosmos#7645: KeyboardSlideUITests' two long-chat checks on a project room. With the room at its newest post, bringing the
 // keyboard up keeps that post visible above the message box; a room read higher up stays where it was (iOS 26 moved a DM
 // read higher up, #7609). Sample room (a Debug build), Spring catalogue made long (KOSMOS_SAMPLE_ROOM_LONG, 220 posts).
-// #7654 part 2 made both pass on iOS 27 and 26.5 (measured on this Mac, one run of each per system). Still not in
-// ios/tools/ui-sample.sh: CI's slower runner stopped this 220-post room short once already (#7654 round 3), and one run
-// each is not yet evidence it holds there. Run it by hand with -only-testing:KosmosUITests/RoomKeyboardUITests.
+// Run in CI by the ios workflow's "ui tests (sample board)" job (ios/tools/ui-sample.sh, #7690), and by hand with
+// -only-testing:KosmosUITests/RoomKeyboardUITests.
 final class RoomKeyboardUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
 
@@ -17,8 +16,10 @@ final class RoomKeyboardUITests: XCTestCase {
         let newest = Self.post(app, 220)
         XCTAssertTrue(newest.waitForExistence(timeout: 10), "the swipes did not reach the newest post")
         KeyboardSlideUITests.settle(newest)
+        guard Self.still(app, newest, "after the swipes settled") else { return }
         XCTAssertLessThanOrEqual(newest.frame.maxY, box.frame.minY, "the newest post was not above the box before the keyboard")
         try KeyboardSlideUITests.keyboardUp(app, box, newest, shot: "room-long-keyboard-up", test: self)
+        guard Self.still(app, newest, "after the keyboard came up") else { return }
         KeyboardSlideUITests.assertAbove(newest, box, app.keyboards.firstMatch)
     }
 
@@ -111,6 +112,15 @@ final class RoomKeyboardUITests: XCTestCase {
         let box = app.textFields.matching(NSPredicate(format: "placeholderValue == 'Message Spring catalogue'")).firstMatch
         XCTAssertTrue(box.waitForExistence(timeout: 30), "no message box")
         return box
+    }
+
+    // A frame read on a post that has gone fails with XCTest's "no matches", which names neither the step nor the screen.
+    private static func still(_ app: XCUIApplication, _ post: XCUIElement, _ when: String) -> Bool {
+        if post.exists { return true }
+        let rows = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'")).allElementsBoundByIndex
+        let seen = rows.map { "\($0.label.prefix(12)) at \(Int($0.frame.minY))" }.joined(separator: ", ")
+        XCTFail("Post 220 was gone \(when); on screen: \(seen)")
+        return false
     }
 
     private static func post(_ app: XCUIApplication, _ n: Int) -> XCUIElement {

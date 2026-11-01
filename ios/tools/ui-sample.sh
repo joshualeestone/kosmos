@@ -1,8 +1,9 @@
 #!/bin/bash
 # kosmos#7609: the sample-board UI tests (no account, a Debug build) a CI runner can run, on one fresh simulator: the +
-# panel (AttachMenuUITests), the room title check (RoomTitleUITests), the keyboard (KeyboardSlideUITests) and a long
-# room opening on its newest post (RoomOpensAtNewestUITests, #7654) and the x on an add (StopAddingUITests, #7682). Run by
-# the ios workflow's "ui tests (sample board)" job and by hand. Prints PASS, or FAIL with the failing check's own words.
+# panel (AttachMenuUITests), the room title check (RoomTitleUITests), the keyboard (KeyboardSlideUITests), a long
+# room opening on its newest post (RoomOpensAtNewestUITests, #7654), the x on an add (StopAddingUITests, #7682) and the
+# keyboard in that long room (RoomKeyboardUITests, #7690). Run by the ios workflow's "ui tests (sample board)" job and by
+# hand. Prints PASS, or FAIL with the failing check's own words.
 #
 #
 #   ios/tools/ui-sample.sh [--keep]
@@ -17,20 +18,24 @@ keep=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --keep) keep=1; shift ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
+    # The header comment, however long it grows: a fixed line range has to be raised each time the header grows, and
+    # #7690's longer header would have cut its last line.
+    -h|--help) awk 'NR > 1 && /^#/ { print; next } NR > 1 { exit }' "$0"; exit 0 ;;
     *) echo "ui-sample: unknown argument $1" >&2; exit 2 ;;
   esac
 done
 # Each class and how many tests it holds: a filter that matches nothing also exits 0, so the count is what proves a run.
 # kosmos#7420: KeyboardSlideUITests is 7 (its three rebuild checks and the composer-growth guard joined it; all 7 passed on
 # CI's runner on PR #7692 before this count was raised, the job failing only on the count).
-classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:7 RoomOpensAtNewestUITests:5 StopAddingUITests:2"
+classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:7 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3"
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
 # "Timed out while evaluating UI query" on both CI runs, iOS 26.5, while it passes here). Run it alone on a Mac:
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests
 # KeyboardSlideUITests' third check (read higher up) used to wait on a clock and flake under load; Mona Lisa's #7627
 # (kbrested-7609) replaced the wait with a marker, so all three run here again. It records the chat's scroll events
 # (KOSMOS_SAMPLE_TRACE=1): when it fails, the last of them are printed below while the simulator still exists.
+# RoomKeyboardUITests' read-higher-up check (#7690) appends to the SAME file, so the dump below names which of the two
+# ran, and prints the whole file when the DM check failed and the room check ran after it.
 skip=""
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
@@ -90,13 +95,28 @@ echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)
 [ -n "$why" ] && printf '%s\n' "$why"
 # kosmos#7609: as ui-keyboard.sh does, the read-higher-up check's scroll trace, read from the app's own data container
 # before cleanup deletes the simulator (--keep keeps the log, not the simulator). The bundle id is the built app's.
-if grep -q -E "^Test Case '-\[KosmosUITests\.KeyboardSlideUITests testReadHigherUpStaysWhereItWas\]' failed" "$log"; then
+# #7690: and the long room's own read-higher-up check, which appends to the same file.
+dm_check="KeyboardSlideUITests testReadHigherUpStaysWhereItWas"
+room_check="RoomKeyboardUITests testRoomReadHigherUpStaysWhereItWas"
+if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check)\]' failed" "$log"; then
   app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
-    echo "  the chat's last scroll events (read-higher-up check):"
-    tail -60 "$data/Documents/trace.txt" | sed 's/^/    /'
+    ran=""; for c in "$dm_check" "$room_check"; do
+      grep -q -E "^Test Case '-\[KosmosUITests\.$c\]' (passed|failed)" "$log" && ran="$ran, ${c% *}"
+    done
+    ran="${ran#, }"
+    lines="$(wc -l < "$data/Documents/trace.txt" | tr -d ' ')"
+    # The DM check failed but the room check ran after it (XCTest runs the classes in name order, KeyboardSlide first),
+    # so its own events open the file, followed by the room's: the whole file, never a tail that may miss them.
+    if grep -q -E "^Test Case '-\[KosmosUITests\.$dm_check\]' failed" "$log" && [ "${ran#*RoomKeyboardUITests}" != "$ran" ]; then
+      echo "  the app's whole scroll trace, $lines lines (one file: $ran ran this run, in that order):"
+      sed 's/^/    /' "$data/Documents/trace.txt"
+    else
+      echo "  the app's last 60 of $lines scroll events (one file: $ran ran this run):"
+      tail -60 "$data/Documents/trace.txt" | sed 's/^/    /'
+    fi
   else
     echo "  (no scroll trace from the app)"
   fi
