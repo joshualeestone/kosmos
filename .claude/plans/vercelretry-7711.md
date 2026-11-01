@@ -7,7 +7,7 @@
 Mortals' sign-in is an 8-hour OAuth token the CLI refreshes just before its next request. On 0.7.79 and on 10-21 (#6771), the refusal and the auth.json rewrite fall in the same minute. Why Vercel refuses a deploy on a token just minted is not known. 0.7.77 and 0.7.69 have no timing to compare.
 
 ## Call
-`site_vercel_deploy` in tools/lib/site-deploy.sh runs `vercel whoami` first, so a refresh happens on a call that cannot fail the cut, then runs the deploy and tries again on "Not authorized", up to 4 tries, 60 s apart. Any other failure returns at once, into #5471's landed check as before. Each try prints the token's time left, so the next refusal can be read against it. release.sh keeps its literal deploy line in `_vdep_once`, which three structural tests anchor on.
+`site_vercel_deploy` in tools/lib/site-deploy.sh runs `vercel whoami` first, so a refresh happens on a call that cannot fail the cut, then runs the deploy and tries again on "Not authorized", up to 4 tries, 60 s apart. Any other failure returns at once, into #5471's landed check as before. The #6620 freeze re-check runs again before each retry, or a freeze pushed in those minutes would be deployed over. Each try prints the token's time left, so the next refusal can be read against it. release.sh keeps its literal deploy line in `_vdep_once`, which three structural tests anchor on.
 
 ## Rejected
 - Retry alone: it would work, but the whoami removes the likely cause and costs a second.

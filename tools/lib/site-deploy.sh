@@ -321,11 +321,12 @@ site_deploy_serves_this_build() {   # <host> <local .sha256 file> <name>
 
 # kosmos#7711: `vercel deploy` from a cut, surviving the refusal that has cost three cuts their last step. Mortals' sign-in
 # is an 8-hour OAuth token the CLI refreshes just before its next request, and the deploy that made that refresh has
-# answered "Error: Not authorized" in the same minute, with nothing uploaded, while reads on the new token work. So any
-# refresh is done first by `vercel whoami`, whose failure means nothing, and a refused deploy is tried again
+# answered "Error: Not authorized" in the same minute, while reads on the new token work. So any refresh is done first by
+# `vercel whoami`, whose failure means nothing, and a deploy that exits 1 with those words is tried again
 # KOSMOS_VERCEL_RETRY_S apart (default 60), up to KOSMOS_VERCEL_TRIES tries in all (default 4). Any other failure returns
-# at once. Why Vercel refuses a new token is not known; each try prints the token's time left so the next refusal
-# can be read against it.
+# at once. KOSMOS_VERCEL_BEFORE_RETRY, if set, runs before each retry, in this shell. KOSMOS_VERCEL_TMP holds the capture.
+# Why Vercel refuses a new token is not known; each try prints the token's time left so the next refusal can be read
+# against it.
 # site_vercel_deploy <dir> <command that deploys...>: output as vercel gave it; returns the last try's exit code.
 site_vercel_token_left() {
   local f="${KOSMOS_VERCEL_AUTH_FILE:-$HOME/Library/Application Support/com.vercel.cli/auth.json}" at
@@ -337,16 +338,17 @@ site_vercel_deploy() {
   shift
   case "$tries" in ''|*[!0-9]*) tries=4 ;; esac
   case "$wait" in ''|*[!0-9]*) wait=60 ;; esac
-  out=$(mktemp "${TMPDIR:-/tmp}/kosmos-vercel.XXXXXX") || return 1
+  out=$(mktemp "${KOSMOS_VERCEL_TMP:-${TMPDIR:-/tmp}}/kosmos-vercel.XXXXXX") || return 1
   echo "   (#7711) sign-in token left before the refresh check: $(site_vercel_token_left)"
   ( cd "$dir" && vercel whoami ) > /dev/null 2>&1 || true
   while :; do
     echo "   (#7711) vercel deploy, try $try of $tries; sign-in token left: $(site_vercel_token_left)"
     { rc=0; "$@" || rc=$?; echo "$rc" > "$out.rc"; } 2>&1 | tee "$out" || true
     rc=$(cat "$out.rc" 2>/dev/null); rc=${rc:-1}
-    if [ "$rc" = 0 ] || [ "$try" -ge "$tries" ] || ! grep -q 'Not authorized' "$out"; then break; fi
-    echo "   (#7711) Vercel said Not authorized, and nothing was uploaded; trying again in ${wait}s"
+    if [ "$rc" != 1 ] || [ "$try" -ge "$tries" ] || ! grep -q 'Not authorized' "$out"; then break; fi
+    echo "   (#7711) Vercel said Not authorized; trying again in ${wait}s"
     sleep "$wait"
+    [ -z "${KOSMOS_VERCEL_BEFORE_RETRY:-}" ] || "$KOSMOS_VERCEL_BEFORE_RETRY"
     try=$(( try + 1 ))
   done
   rm -f "$out" "$out.rc"

@@ -38,15 +38,24 @@ run 130 ok; ok "nor an interrupted one" "$rc $deploys" "130 1"
 run refuse other ok; ok "a refusal then another failure stops there" "$rc $deploys" "1 2"
 KOSMOS_VERCEL_TRIES=2; run refuse refuse ok; ok "KOSMOS_VERCEL_TRIES bounds it" "$rc $deploys" "1 2"; unset KOSMOS_VERCEL_TRIES
 KOSMOS_VERCEL_TRIES=x; run refuse refuse refuse refuse ok; ok "a bad setting falls back to 4" "$rc $deploys" "1 4"; unset KOSMOS_VERCEL_TRIES
-# set -e callers: release.sh runs under it, so the refusal must not end the shell inside the helper.
-r=$(set -e; site_vercel_deploy_rc=0; printf 'refuse\nok\n' > "$T/script"; rm -f "$T/calls"; site_vercel_deploy "$T/site" once >/dev/null 2>&1 || site_vercel_deploy_rc=$?; echo "rc=$site_vercel_deploy_rc"); ok "under set -e" "$r" rc=0
+# release.sh runs under set -e and pipefail, so a refusal must not end the shell inside the helper.
+r=$(set -eo pipefail; printf 'refuse\nok\n' > "$T/script"; rm -f "$T/calls"; site_vercel_deploy "$T/site" once >/dev/null 2>&1; echo reached); ok "a refusal then a success, under set -e and pipefail" "$r" reached
+# A signal is never retried, whatever it printed first.
+printf '#!/bin/bash\necho "Error: Not authorized"; exit 130\n' > "$T/bin/vercel-sig"; chmod +x "$T/bin/vercel-sig"
+sigd() { "$T/bin/vercel-sig"; }; rm -f "$T/calls"; out=$(site_vercel_deploy "$T/site" sigd 2>&1); rc=$?; n=$(printf '%s\n' "$out" | grep -c 'try [0-9] of'); ok "exit 130 after the words is not retried" "$rc $n" "130 1"
+# The hook runs before each retry, not before the first try, and may stop the cut.
+hook() { echo x >> "$T/hooked"; }; rm -f "$T/hooked"; KOSMOS_VERCEL_BEFORE_RETRY=hook; run refuse refuse ok; ok "the hook runs before each retry" "$(wc -l < "$T/hooked" | tr -d ' ')" 2
+hook() { echo FROZEN; exit 3; }; printf 'refuse\nok\n' > "$T/script"; rm -f "$T/calls"; out=$( (site_vercel_deploy "$T/site" once) 2>&1 ); rc=$?; ok "a hook that exits stops the deploy" "$rc $(grep -c '^deploy' "$T/calls")" "3 1"
+unset KOSMOS_VERCEL_BEFORE_RETRY
+KOSMOS_VERCEL_TMP="$T/kt"; mkdir -p "$T/kt"; run ok; ok "the capture goes in KOSMOS_VERCEL_TMP and is removed" "$(ls "$T/kt" | wc -l | tr -d ' ')" 0; unset KOSMOS_VERCEL_TMP
 # The token note: time left, never the token.
 now=$(date +%s); printf '{"token":"SECRET-T","refreshToken":"SECRET-R","expiresAt": %s}\n' $((now + 100)) > "$T/auth.json"
 run ok; case "$out" in *SECRET*) r=leaked ;; *"token left"*s*) r=clean ;; *) r="$out" ;; esac; ok "the note never prints the token" "$r" clean
 l=$(site_vercel_token_left); case "$l" in 9?s|100s) r=ok ;; *) r="$l" ;; esac; ok "it prints the seconds left" "$r" ok
 rm -f "$T/auth.json"; ok "no file reads unknown" "$(site_vercel_token_left)" unknown
 # The wiring: release.sh's one deploy goes through the helper.
-ok "release.sh deploys through the helper" "$(grep -c '^site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?$' "$HERE/release.sh")" 1
+ok "release.sh deploys through the helper, with the freeze check" "$(grep -c 'KOSMOS_VERCEL_BEFORE_RETRY=_vdep_freeze_check .*site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?$' "$HERE/release.sh")" 1
+ok "the freeze check also runs before the first try" "$(grep -c '^_vdep_freeze_check$' "$HERE/release.sh")" 1
 ok "and its one deploy line is the helper's command" "$(grep -cE '^[^#]*vercel deploy --prod --yes' "$HERE/release.sh")" 1
 ok "inside _vdep_once" "$(grep -c '^_vdep_once() { ( cd "$_site_export" && vercel deploy --prod --yes ); }$' "$HERE/release.sh")" 1
 echo; echo "$pass passed, $fail failed"

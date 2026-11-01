@@ -1952,18 +1952,21 @@ echo "   (#5471 record) THIS cut's build is sha256 ${_my_sha:-<unreadable>}; onc
 # kosmos#6620: the push itself refused a frozen tip; this asks origin/main again, just before vercel, so a freeze pushed
 # from any machine since the site push stops the deploy. It narrows the window to the deploy itself and does not close
 # it: a freeze (and its pin deploy) landing while vercel uploads is not seen here. A fetch that fails here is said and
-# the cut goes on: the push-time check ran on a tip fetched moments ago.
-if pointer_freeze_fetch "$SITE"; then
-  if git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
-    echo "the site's origin/main is FROZEN now (dist/POINTER_FROZEN, kosmos#6620), so this cut does not deploy; nothing was deployed. Its site commit is on origin/main: tools/pointer-freeze.sh status says what is frozen."
-    exit 1
+# the cut goes on: the push-time check ran on a tip fetched moments ago. #7711: it runs again before each retry.
+_vdep_freeze_check() {
+  if pointer_freeze_fetch "$SITE"; then
+    if git -C "$SITE" cat-file -e "origin/main:dist/POINTER_FROZEN" 2>/dev/null; then
+      echo "the site's origin/main is FROZEN now (dist/POINTER_FROZEN, kosmos#6620), so this cut does not deploy; nothing was deployed. Its site commit is on origin/main: tools/pointer-freeze.sh status says what is frozen."
+      exit 1
+    fi
+  else
+    echo "   (#6620) could not fetch origin/main to re-check the pointer freeze before deploying; going on (the site push checked it moments ago)"
   fi
-else
-  echo "   (#6620) could not fetch origin/main to re-check the pointer freeze before deploying; going on (the site push checked it moments ago)"
-fi
+}
+_vdep_freeze_check
 _vdep_rc=0
 _vdep_once() { ( cd "$_site_export" && vercel deploy --prod --yes ); }
-site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?
+KOSMOS_VERCEL_BEFORE_RETRY=_vdep_freeze_check KOSMOS_VERCEL_TMP="$BUILD_ROOT" site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?
 if [ "$_vdep_rc" != 0 ]; then
   # #5471: the CLI's own failure is not the answer; what is served is. LANDED means the served
   # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote. Only a deploy carrying this cut's files can serve it: an
