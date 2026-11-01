@@ -209,7 +209,7 @@ async function runInto(d, keys, row, made, base, opts) {
     const fetcher = fetcherOf(d, keys, row, opts);
     result = await d.restorerun.runRestore({ org: keys.org, member: keys.member, epoch: row.epoch, manifest: row.record, trust: 'member-proof',
       memberSk: keys.epochs.find((e) => e.epoch === row.epoch).sk,
-      fetchObject: fetcher.fetchObject, plan: fetcher.plan, planned: fetcher.planned, sink, maxTotalBytes: budget });
+      fetchObject: fetcher.fetchObject, plan: fetcher.plan, planned: fetcher.planned, sink, maxTotalBytes: budget, manifestTimeoutMs: MANIFEST_GET_MS + 60000 });
   } catch { result = { ok: false, because: 'the restore failed on this computer' }; }
   // close throws when its temp folder cannot go: never in a finally, and never over the run's own answer.
   let closed = true;

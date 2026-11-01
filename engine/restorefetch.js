@@ -51,7 +51,8 @@ const GET_TIMEOUT_MS = 40000;
 const GRANT_TIMEOUT_MS = 15000;   // a grant that does not answer in this long reads as not reached (review 2)
 const RETRY_WAIT_MS = 2000;   // before a second try at a grant that was not reached
 // A manifest can be 64 MB or more (a large plan's, kosmos#7404, passes its own timeout) where a chunk is a few: ONE GET with most of the 2 minutes, after up to two grants (a
-// blip there must not fail the restore): 15 + 2 + 15 + 78 = 110 s, 10 s inside the 2 minutes (reviews 4 and 6).
+// blip there must not fail the restore): 15 + 2 + 15 + 78 = 110 s, 10 s inside the 2 minutes (reviews 4 and 6). This is
+// the default; a personal restore sets its own (personalrestore.js MANIFEST_GET_MS).
 const MANIFEST_GET_TIMEOUT_MS = 78000;
 const MAX_UNREACHED = 3;   // grants in a row that could not be reached before the restore gives up
 const LINKS_EXPIRED = 'the storage service says each download link had already expired, so the clock on this computer or on Kosmos+ may be wrong';
