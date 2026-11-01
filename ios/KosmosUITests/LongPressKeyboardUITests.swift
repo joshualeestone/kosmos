@@ -148,7 +148,7 @@ final class LongPressKeyboardUITests: XCTestCase {
         shot(app, "room, keyboard up, before the press")
         print("MEASURE room-press post=\(post.frame) keyboardTop=\(keyboard.frame.minY) hittable=\(post.isHittable) press-at=\(post.frame.midY)")
         XCTAssertLessThanOrEqual(post.frame.midY, keyboard.frame.minY, "the post's middle is behind the keyboard: the press would land on the keyboard")
-        post.press(forDuration: 0.8)
+        post.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).press(forDuration: 0.8)   // its lower part: on a small phone the top can sit under the banner
         XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5), "the actions did not open")
         KeyboardSlideUITests.settle(post)
         shot(app, "room, actions open, keyboard up")
