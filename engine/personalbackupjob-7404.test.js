@@ -333,6 +333,15 @@ test('the panel report claims nothing it did not establish', () => {
   o.orgenroll.mayReport = () => false;
   assert.match(pb.report(o).stopped, /turn it on again to read the current words/, 'no accepted hash on the record: the words need an OK');
 });
+test('a report that throws costs the panel nothing', () => {
+  const o = { root: SANDBOX, orgenroll: { readEnrollment() { throw new Error('bad file'); } } };
+  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: null });
+  const pair = newPair();
+  const bad = onNow(chain(pair, []), pair);
+  bad.offer = () => { throw new Error('no'); };
+  bad.orgenroll.holdsEnrollment = () => { throw new Error('no'); };
+  assert.deepEqual(Object.keys(pb.report(bad)).sort(), ['lastOk', 'note', 'stopped']);
+});
 test('a company here silences a stop that would send the person through off and on', async () => {
   const pair = newPair();
   const o = onNow(chain(pair, []), pair);

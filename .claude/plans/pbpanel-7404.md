@@ -5,7 +5,7 @@ The job (#7710) is built dark, and a stop reaches only the log. This slice makes
 - engine/personalbackup.js: runJob notes the last good run and the reason for a stop a person must act on, in the module's
   own root; a passing failure changes neither. report() answers both, and also covers a gate that keeps every run from
   starting, where no run can leave a reason.
-- GET /api/personal-backup carries it as job. The panel says the last backup, or that it stopped, why, and when it last ran.
+- GET /api/personal-backup carries it as job. The panel says the last good backup, or that it stopped, why, and when it last succeeded.
 - The words heading changes so the 30-day line is not listed as a thing backed up.
 
 The note holds fixed sentences only: a run's because passes through only for personActs, which this module's key step
@@ -15,6 +15,6 @@ Decisions: a note file beside the record, removed on turn off, rather than askin
 Rejected: a new state() value, because state() drives the screens #7681 settled, and stopped is still on. Weakest premise:
 with a company here the panel says nothing about the job, which is true but tells the person nothing.
 
-Not here: a way forward for a different key here, for "remote access is not set up" and for a state file that cannot be read
-(each says what is wrong and names no step), the off-then-on price dependency (#7685), the
+Not here, on a follow-up before the switch: a way forward for a different key here, no key on Kosmos+, an unreadable key file,
+"remote access is not set up" and a state file that cannot be used (each says what is wrong and names no step), the off-then-on price dependency (#7685), the
 Antigravity staging before the key step, and slice D.
