@@ -20,6 +20,7 @@ const path = require('node:path');
 /* Test seams and re-exports, excused BY NAME WITH A REASON. An entry here is
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
+  setManagedSourcesForTest: 'test seam (#7742): engine/orgchartfile.js reads where Claude Code keeps managed settings from this, as those places need root, so engine/orgchartfile.test.js points it at a temp folder.',
   switchOff: '#7404 personalswitch-7404 (Baron): engine/personalbackup.js, turning a personal backup off; the personal backup screen calls it, pending the screens slice (behind KOSMOS_PERSONAL_BACKUP, off). If #7404 is abandoned it goes with it.',
   setUpPersonalKey: '#7404 step 3, end to end (Baron): engine/personalbackupkey.js, the personal backup setup screen calls it, pending that slice (board piece 3, behind KOSMOS_PERSONAL_BACKUP, off). If #7404 is abandoned it goes with it.',
   confirmRecoveryCodeSaved: '#7404 step 3: the same setup screen calls it once the person says they saved the code (it deletes this computer\'s copy), pending that slice.',
@@ -323,6 +324,7 @@ const SEAMS_5548 = {
   setVersion: 'engine/orgchartcodex.js',
   setBin: 'engine/orgchartcodex.js',
   setReaderForTest: 'engine/orgchartfile.js',
+  setManagedSourcesForTest: 'engine/orgchartfile.js',
   setModelRunner: 'engine/orgchartfile.js',
   setModelAvailable: 'engine/orgchartfile.js',
   _ageFallbackForTests: 'engine/personlanguage.js',

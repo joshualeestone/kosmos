@@ -23,6 +23,9 @@
  * Node's own zlib plus the three XML parts a sheet's cells live in.
  */
 const zlib = require('node:zlib');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { envDelete, envSet } = require('./win32env');   // #5386: env copies keep names as spelled; on Windows any spelling counts
 
 /* A bound on what one upload may be, so a huge file cannot pin the board. A real org chart export
@@ -692,10 +695,64 @@ function providerLabel(reader) {
 const claudeHere = () => {
   try { const r = require('./runners').resolveBin('claude'); return Boolean(r && r.present) && Boolean(readAccount()); } catch { return false; }
 };
-const CLAUDE_PROVIDER_SWITCHES = ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_MANTLE', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_ANTHROPIC_AWS'];
+/* #7742: a switch is any CLAUDE_CODE_USE_ name but these, read from the Claude Code 2.1.316 binary, so a provider added later
+   counts by default. One added later that is not a provider only costs that person the positive statement. */
+const NOT_PROVIDER_SWITCHES = ['CLAUDE_CODE_USE_CCR_V2', 'CLAUDE_CODE_USE_COWORK_PLUGINS', 'CLAUDE_CODE_USE_NATIVE_FILE_SEARCH', 'CLAUDE_CODE_USE_POWERSHELL_TOOL'];
 const envHas = (v) => String(process.env[v] || '').trim() !== '';
-const claudeRedirected = () => envHas('ANTHROPIC_BASE_URL')
-  || CLAUDE_PROVIDER_SWITCHES.some((v) => envHas(v) && !/^(0|false|no|off)$/i.test(String(process.env[v]).trim()));
+/* Whether a set of environment variables sends a read elsewhere: a base URL, or a provider switch that is on. */
+const envRedirects = (env) => Object.keys(env).some((name) => {
+  const k = name.toUpperCase();   // Windows reads these in any case
+  const v = String(env[name] ?? '').trim();
+  if (v === '') return false;
+  if (/^ANTHROPIC_(.*_)?BASE_URL$/.test(k) || k === 'CLAUDE_CODE_API_BASE_URL' || k === 'ANTHROPIC_UNIX_SOCKET') return true;
+  return k.startsWith('CLAUDE_CODE_USE_') && !NOT_PROVIDER_SWITCHES.includes(k) && !/^(0|false|no|off)$/i.test(v);
+});
+/* #7742: an administrator's settings still apply under --setting-sources '', and can set either. The locations are the ones in the
+   Claude Code 2.1.316 binary. Whether a base URL there is honoured is not measured (it needs root), so this errs one way: a
+   file that says so, or that cannot be read, or a form this does not parse, counts as sent elsewhere, and the box says less. */
+const userNameClaude = () => { try { return os.userInfo().username || ''; } catch { return ''; } };
+function managedSourcesReal() {
+  if (process.platform === 'win32') return { dirs: ['C:\\Program Files\\ClaudeCode'], opaque: [], registry: ['HKLM\\SOFTWARE\\Policies\\ClaudeCode', 'HKCU\\SOFTWARE\\Policies\\ClaudeCode'] };
+  if (process.platform === 'darwin') {
+    return { dirs: ['/Library/Application Support/ClaudeCode'], registry: [], opaque: ['/Library/Managed Preferences/com.anthropic.claudecode.plist',
+      path.join('/Library/Managed Preferences', userNameClaude(), 'com.anthropic.claudecode.plist')] };
+  }
+  return { dirs: ['/etc/claude-code', '/mnt/c/Program Files/ClaudeCode'], opaque: [], registry: [] };   // the second is WSL's
+}
+let managedSources = managedSourcesReal;
+/** Tests only: where to look; null restores the real places. */
+function setManagedSourcesForTest(fn) { managedSources = typeof fn === 'function' ? fn : managedSourcesReal; }
+const MAX_MANAGED_BYTES = 1024 * 1024;
+function managedFileRedirects(file) {
+  let st;
+  try { st = fs.statSync(file); } catch (e) { return !(e && e.code === 'ENOENT'); }   // gone is fine; anything else cannot be read
+  if (!st.isFile() || st.size > MAX_MANAGED_BYTES) return true;
+  try {
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object') return true;
+    return parsed.env !== undefined && (typeof parsed.env !== 'object' || parsed.env === null || envRedirects(parsed.env));
+  } catch { return true; }
+}
+function registryHas(key) {
+  try { require('child_process').execFileSync('reg', ['query', key], { stdio: 'ignore', timeout: 3000, windowsHide: true }); return true; }
+  catch (e) { return Boolean(e) && (e.code === 'ETIMEDOUT' || e.code === 'ENOENT'); }   // no answer is not an answer of "none"
+}
+function managedDirRedirects(dir) {
+  if (managedFileRedirects(path.join(dir, 'managed-settings.json'))) return true;
+  const dropIns = path.join(dir, 'managed-settings.d');
+  let names;
+  try { names = fs.readdirSync(dropIns); } catch (e) { return !(e && e.code === 'ENOENT'); }
+  return names.filter((n) => n.endsWith('.json')).some((n) => managedFileRedirects(path.join(dropIns, n)));
+}
+/* `configDir`: the account's folder, where Claude Code keeps settings its server hands down (remote-settings.json). */
+function managedRedirects(configDir) {
+  const m = managedSources();
+  if (configDir && managedFileRedirects(path.join(configDir, 'remote-settings.json'))) return true;
+  if ((m.opaque || []).some((p) => { try { fs.lstatSync(p); return true; } catch { return false; } })) return true;
+  if ((m.registry || []).some((k) => (m.registryHas || registryHas)(k))) return true;
+  return (m.dirs || []).some(managedDirRedirects);
+}
+const claudeRedirected = (configDir) => envRedirects(process.env) || managedRedirects(configDir);
 /* What takes the read when it is not the login, in the order of Claude Code's authentication page. */
 const claudeCredential = (keyAccount) => {
   if (envHas('ANTHROPIC_AUTH_TOKEN')) return 'token';
@@ -722,11 +779,11 @@ function currentReader(name) {
     try { acct = readAccount(); } catch { acct = null; }
     // What takes the read (#4660): the variables in the board's environment, which the Claude read passes on to
     // `claude` (defaultModelRunner), then the account row (#2420, marked only on a non-default folder).
-    // Not seen, so these get what the login would: an apiKeyHelper (#7741), and anything a managed settings file sets.
+    // Not seen, so it gets what the login would: an apiKeyHelper (#7741). Where a read goes is claudeRedirected's, managed settings included (#7742).
     const credential = claudeCredential(Boolean(acct && acct.apiKey === true));
     // Variables that send Claude Code somewhere other than Anthropic reach the read the same way, so what Anthropic
     // keeps is not the question there.
-    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey: credential === 'key', token: credential === 'token', redirected: claudeRedirected() };
+    return { kind: 'claude', dir: acct ? acct.dir : null, apiKey: credential === 'key', token: credential === 'token', redirected: claudeRedirected(acct && acct.dir) };
   }
   /* #5346: a ChatGPT subscription next, read through Codex with every tool that can act switched off. Before a key,
      because a key read is billed per call and the subscription is already paid for. */
@@ -862,5 +919,5 @@ async function readWithModel(name, bytes, opts = {}) {
 }
 
 module.exports = { MODEL_TIMEOUT_MS, keyHelperFor, readArgs,
-  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, readerProblem, currentReader, NO_MANAGER_COLUMN, get NO_MODEL() { return noModelFor(process.platform); }, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, unzip, blocks, cells, innerOf, xmlText, stripBlocks, attr, colIndex,   // #6098: the zip and XML readers, for engine/attachtext.js
+  readerAndWhy, whyNoReader, readerId, consentFor, setReaderForTest, setManagedSourcesForTest, claudeRedirected, readerProblem, currentReader, NO_MANAGER_COLUMN, get NO_MODEL() { return noModelFor(process.platform); }, noModelFor, noModelAfter, composeWhy, MAX_COLS, KEEP_COLS, MAX_IMAGE_BYTES, providerLabel, readAccount, readWithModel, fromModel, forModel, setModelRunner, modelAvailable, setModelAvailable, requestLine, claudeArgs, SCHEMA, PROVIDER, MODEL_TYPES, readLocal, parseDelimited, readXlsx, tableToPeople, unzip, blocks, cells, innerOf, xmlText, stripBlocks, attr, colIndex,   // #6098: the zip and XML readers, for engine/attachtext.js
    markLoops, plain, MAX_BYTES, MAX_ROWS, MAX_PART_BYTES, MAX_PERSON, MAX_TITLE, HEADERS };
