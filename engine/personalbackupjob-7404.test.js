@@ -271,32 +271,76 @@ test('words changed, key still here: on again asks for no code, and the job can 
   assert.equal((await pk.personalKeyForJob(pair.org, o)).ok, true);
 });
 
-test('the panel report: a good run is kept, a passing failure changes nothing, a stop says why and keeps the last good run', async () => {
+function onNow(o, pair) { fs.writeFileSync(path.join(o.root, 'personal-key-ready'), JSON.stringify({ org: pair.org, world: 'w' })); return o; }
+const at = (h) => Date.UTC(2026, 9, 31, h);
+test('the panel report: first run, a good run, a passing failure, a stop, and a good run again', async () => {
   const pair = newPair();
-  const o = chain(pair, []);
-  fs.writeFileSync(path.join(o.root, 'personal-key-ready'), JSON.stringify({ org: pair.org, world: 'w' }));
-  const run = (r, at) => pb.runJob({ roots: [] }, { ...o, now: () => at, runBackup: async () => r });
-  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null }, 'nothing has run yet');
-  await run({ ok: true }, Date.UTC(2026, 9, 31, 12));
-  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T12:00:00.000Z', stopped: null });
-  await run({ ok: false, because: 'Kosmos+ could not be reached' }, Date.UTC(2026, 9, 31, 13));
-  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T12:00:00.000Z', stopped: null }, 'a passing failure is no stop');
-  await run({ ok: false, personActs: true, because: 'this backup has no key on Kosmos+ yet, so nothing was backed up' }, Date.UTC(2026, 9, 31, 14));
-  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T12:00:00.000Z', stopped: 'This backup has no key on Kosmos+ yet, so nothing was backed up.' });
-  await run({ ok: true }, Date.UTC(2026, 9, 31, 15));
-  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T15:00:00.000Z', stopped: null }, 'a good run clears the stop');
+  const o = onNow(chain(pair, []), pair);
+  const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
+  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: 'The first backup runs within the hour.' });
+  await run({ ok: false, because: 'Kosmos+ could not be reached' }, 11);
+  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: 'The first backup has not finished yet.' }, 'tried is not untried');
+  await run({ ok: true }, 12);
+  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T12:00:00.000Z', stopped: null, note: null });
+  await run({ ok: false, because: 'Kosmos+ could not be reached' }, 13);
+  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T12:00:00.000Z', stopped: null, note: null }, 'a passing failure is no stop');
+  await run({ ok: false, personActs: true, because: 'this backup has no key on Kosmos+ yet, so nothing was backed up' }, 14);
+  const stop = 'This backup has no key on Kosmos+ yet, so nothing was backed up.';
+  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T12:00:00.000Z', stopped: stop, note: null });
+  await run({ ok: false, because: 'Kosmos+ could not be reached' }, 15);
+  assert.equal(pb.report(o).stopped, stop, 'a passing failure does not clear a stop either');
+  await run({ ok: true }, 16);
+  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T16:00:00.000Z', stopped: null, note: null }, 'a good run clears the stop');
 });
-test('the panel report: words that keep every run from starting are said, though no run can say them', () => {
+test('no server or file text reaches the panel, whichever flag a refusal carries', async () => {
   const pair = newPair();
-  const o = chain(pair, []);
-  fs.writeFileSync(path.join(o.root, 'personal-key-ready'), JSON.stringify({ org: pair.org, world: 'w' }));
+  const o = onNow(chain(pair, []), pair);
+  const run = (r) => pb.runJob({ roots: [] }, { ...o, runBackup: async () => r });
+  const raw = 'RAW /Users/someone/secret (HTTP 429 on /v1/org/backup/grant, code backup_quota)';
+  await run({ ok: false, overAllowance: true, because: raw });
+  let r = pb.report(o);
+  assert.equal(r.stopped, null, 'a used-up week carries on by itself');
+  assert.match(r.note, /carry on next week/);
+  for (const flag of ['tooLarge', 'missing', 'refusedState']) {
+    await run({ ok: false, [flag]: true, because: raw });
+    r = pb.report(o);
+    assert.ok(r.stopped, flag);
+    assert.doesNotMatch(JSON.stringify(r) + fs.readFileSync(path.join(o.root, 'personal-job.json'), 'utf8'), /RAW|Users/, flag);
+  }
+  await run({ ok: true });
+  await run({ ok: false, refusedState: true, stateNotKept: true, because: 'chunks could not be uploaded: ' + raw });
+  assert.equal(pb.report(o).stopped, null, 'stateNotKept: the flag and the sentence are different failures');
+});
+test('the panel report claims nothing it did not establish', () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
   assert.equal(pb.mayBackUp(o), true, 'control');
-  assert.equal(pb.report(o).stopped, null, 'control');
   o.orgenroll.acceptedConsent = () => ({ backsUp: [] });
-  assert.equal(pb.mayBackUp(o), false);
   assert.match(pb.report(o).stopped, /turn it on again to read the current words/);
+  o.orgenroll.acceptedConsent = () => ({ backsUp: ['x'] });
   o.orgenroll.holdsEnrollment = () => true;
-  assert.equal(pb.report(o).stopped, null, 'a company here is not a stopped backup');
+  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: null }, 'a company here: no promise of a first backup');
+  o.orgenroll.holdsEnrollment = () => false;
+  const mr = o.orgenroll.mayReport;
+  o.orgenroll.mayReport = () => false;
+  assert.deepEqual(pb.report(o), { lastOk: null, stopped: null, note: null }, 'not the words: the words are not blamed');
+  o.orgenroll.mayReport = mr;
+});
+test('a note from another enrollment is not shown, and a run that outlived its enrollment leaves none', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  await pb.runJob({ roots: [] }, { ...o, runBackup: async () => ({ ok: true }) });
+  assert.ok(pb.report(o).lastOk);
+  const rec = o.orgenroll.readEnrollment();
+  const other = { ...o, orgenroll: { ...o.orgenroll, readEnrollment: () => ({ ...rec, org: { id: 'another' } }) } };
+  fs.writeFileSync(path.join(o.root, 'personal-key-ready'), JSON.stringify({ org: 'another', world: 'w' }));
+  assert.equal(pb.report(other).lastOk, null);
+  fs.rmSync(path.join(o.root, 'personal-job.json'));
+  const gone = { ...o, orgenroll: { ...o.orgenroll } };
+  let calls = 0;
+  gone.orgenroll.readEnrollment = () => (calls++ === 0 ? rec : null);
+  await pb.runJob({ roots: [] }, { ...gone, runBackup: async () => ({ ok: true }) });
+  assert.equal(fs.existsSync(path.join(o.root, 'personal-job.json')), false);
 });
 
 test('a different reason is said, even with the last one unresolved', async () => {

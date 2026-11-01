@@ -285,6 +285,7 @@ async function bindAndKey(ticket, t, opts) {
   /* The key-ready marker is NOT removed here (code review 6, NIT 4): state() compares its org and world with the record,
      so a marker from another membership already reads needs-key, and one for this same binding stays true even when
      the key step below fails on a passing error. switchOff removes it. */
+  forgetNote(opts);   // a new binding: an ending this module did not see may have left one
   return setUpKey(opts);
 }
 
@@ -461,43 +462,78 @@ async function runJob(input, opts = {}) {
   const before = record(opts);
   const hash = before && before.consentHash;
   const r = await run(input, { ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER });
-  if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) { noteRun(r, opts); return r; }
+  if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) { noteRun(r, opts, before); return r; }
   const oe = opts.orgenroll || require('./orgenroll');
   try { if (hash) await oe.consentWithdrawn(enrollOpts(opts), hash); } catch { /* asked again next run */ }
   const out = Object.assign({}, r, { personActs: true, because: 'what a personal backup does has changed, so it needs your OK. Turn it off, then turn it on again to read the new words' });
-  noteRun(out, opts);
+  noteRun(out, opts, before);
   return out;
 }
 
-/* pbjob-7404 slice C: what the panel says about the job. The last good run, and the reason for a run that a person must act
-   on; a passing failure (Kosmos+ unreachable, a retry) changes neither. Local, and only the job's own fixed sentences. */
+/* pbjob-7404 slice C: what the panel says about the job. The note holds the last good run, the last try, and a stop as
+   this module's own sentence: a run's `because` is passed on only for personActs, which the key step and runJob write.
+   Other reasons carry a server's or a file's text, so a flag picks a fixed sentence here. The note names its org and world,
+   so a note from another enrollment is never shown, and a run that outlived its enrollment leaves none. */
 const JOB_NOTE = 'personal-job.json';
-const PERSON_STOPS = ['personActs', 'missing', 'refusedState', 'unreadableKeyFile', 'overAllowance'];
+const WAITING_WEEK = 'This week\'s backup allowance is used up. Backups carry on next week.';
+const STOP_SAY = [
+  ['tooLarge', 'Your files are too large for one backup, so nothing was backed up'],
+  ['missing', 'Remote access is not set up on this computer, so nothing was backed up'],
+  ['refusedState', 'This computer could not read what it keeps for its backups, so nothing was backed up'],
+];
+function stopOf(r) {
+  if (r.personActs && typeof r.because === 'string') return r.because;
+  if (r.stateNotKept) return null;   // backuprun adds this flag's refusedState onto a run that failed for its own reason
+  const hit = STOP_SAY.find(([flag]) => r[flag]);
+  return hit ? hit[1] : null;
+}
 function readNote(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(root(opts), JOB_NOTE), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch { return {}; }
 }
-function noteRun(r, opts) {
-  if (!r || typeof r !== 'object') return;
-  const stops = !r.ok && PERSON_STOPS.some((k) => r[k]) && typeof r.because === 'string';
-  if (!r.ok && !stops) return;
+function forgetNote(opts) { try { fs.rmSync(path.join(root(opts), JOB_NOTE), { force: true }); } catch { /* report() checks its org and world */ } }
+function noteRun(r, opts, before) {
+  if (!r || typeof r !== 'object' || !before) return;
+  const rec = record(opts);
+  if (!rec || rec.org.id !== before.org.id || rec.world !== before.world) return;
   const was = readNote(opts);
+  const same = was.org === rec.org.id && was.world === rec.world;
   const now = new Date((opts.now || Date.now)()).toISOString();
-  const next = r.ok ? { lastOk: now } : { lastOk: was.lastOk || null, stopped: r.because };
-  try { fs.mkdirSync(root(opts), { recursive: true, mode: 0o700 }); fs.writeFileSync(path.join(root(opts), JOB_NOTE), JSON.stringify(next) + '\n', { mode: 0o600 }); } catch { /* the panel then shows the last note */ }
-}
-const NOT_RUNNING = 'The words you accepted do not cover backups yet, so it needs your OK. Turn it off, then turn it on again to read the current words.';
-/** For the panel, while state() is 'on': { lastOk, stopped }. stopped also covers a gate that keeps every run from starting,
-    where no run can leave a reason. */
-function report(opts = {}) {
-  const j = readNote(opts);
-  const lastOk = typeof j.lastOk === 'string' ? j.lastOk : null;
-  const stopped = typeof j.stopped === 'string' ? j.stopped.charAt(0).toUpperCase() + j.stopped.slice(1) + '.' : null;
-  if (state(opts) === 'on' && !mayBackUp(opts)) {
-    let company = false;
-    try { company = (opts.orgenroll || require('./orgenroll')).holdsEnrollment() === true; } catch { company = false; }
-    if (!company) return { lastOk, stopped: stopped || NOT_RUNNING };
+  const next = { org: rec.org.id, world: rec.world, lastTry: now, lastOk: r.ok ? now : (same && was.lastOk) || null };
+  if (!r.ok) {
+    const stopped = stopOf(r);
+    if (stopped) next.stopped = stopped;
+    else if (r.overAllowance) next.waiting = true;
+    else if (same && was.stopped) next.stopped = was.stopped;   // a passing failure says nothing about a stop
   }
-  return { lastOk, stopped };
+  try { fs.mkdirSync(root(opts), { recursive: true, mode: 0o700 }); require('./securewrite').writeSecret(path.join(root(opts), JOB_NOTE), JSON.stringify(next), 0o600, { atomicOnly: true }); } catch { /* the panel shows the last note */ }
+}
+const sentence = (t) => { const s = t.charAt(0).toUpperCase() + t.slice(1); return /[.!?]$/.test(s) ? s : s + '.'; };
+const WORDS_UNCOVERED = 'The words you accepted do not cover backups yet, so it needs your OK. Turn it off, then turn it on again to read the current words.';
+/* The one failed condition of mayBackUp that a person can fix by reading the words. */
+function wordsUncovered(opts) {
+  try {
+    const oe = opts.orgenroll || require('./orgenroll');
+    const eo = enrollOpts(opts);
+    if (oe.mayReport(eo) !== true) return false;
+    const words = oe.acceptedConsent(eo);
+    return !(words && Array.isArray(words.backsUp) && words.backsUp.length);
+  } catch { return false; }
+}
+/** For the panel, while state() is 'on': { lastOk, stopped, note }. stopped: why backups stopped, for a person to act on.
+    note: a plain line beside it. Each is a fixed sentence, or null when nothing is established. */
+function report(opts = {}) {
+  const none = { lastOk: null, stopped: null, note: null };
+  const rec = record(opts);
+  if (!rec || state(opts) !== 'on') return none;
+  const raw = readNote(opts);
+  const j = raw.org === rec.org.id && raw.world === rec.world ? raw : {};
+  const lastOk = typeof j.lastOk === 'string' ? j.lastOk : null;
+  const stopped = typeof j.stopped === 'string' ? sentence(j.stopped) : null;
+  if (!mayBackUp(opts)) return { lastOk, stopped: stopped || (wordsUncovered(opts) ? WORDS_UNCOVERED : null), note: null };
+  if (stopped) return { lastOk, stopped, note: null };
+  if (j.waiting === true) return { lastOk, stopped: null, note: WAITING_WEEK };
+  if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'The first backup has not finished yet.' : 'The first backup runs within the hour.' };
+  return { lastOk, stopped: null, note: null };
 }
 
 /** Whether this computer holds a personal backup's enrollment, from this module's own record only. */
@@ -589,7 +625,7 @@ async function switchOff(opts = {}) {
   let r;
   try { r = await oe.leave(enrollOpts(opts)); } catch { r = null; }
   // Stopped here (left, or a leave pending): the key marker goes too, so turning it on again runs the key step again.
-  if (r && (r.ok || r.pending)) { try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); fs.rmSync(path.join(root(opts), JOB_NOTE), { force: true }); } catch { /* best effort */ } }
+  if (r && (r.ok || r.pending)) { try { fs.rmSync(path.join(root(opts), KEY_READY), { force: true }); } catch { /* best effort */ } forgetNote(opts); }
   if (r && r.ok) return { ok: true };
   if (r && r.pending) return { ok: false, pending: true, because: 'Personal backup has stopped on this computer. Kosmos tells Kosmos+ again until it answers.' };
   // Code review 4, NIT 6: a leave that threw after the record was cleared has stopped it here; do not say "still on".

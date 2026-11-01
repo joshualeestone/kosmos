@@ -423,7 +423,7 @@ async function orgConnected(page, enrolled, extra) {
     never: ['your chats are never shown in the console', 'keys and passwords'] } }) }));
 }
 /* kosmos#7404: a connected computer whose board offers personal backup, in `state`; preview and on answer samples. */
-async function pbShot(page, state, price = '$5/month', job = { lastOk: null, stopped: null }) {
+async function pbShot(page, state, price = '$5/month', job = { lastOk: null, stopped: null, note: null }) {
   await orgConnected(page, false);
   const json = (body) => (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route('**/api/personal-backup', json({ shown: true, price, state, job }));
@@ -1738,10 +1738,10 @@ const SCREENS = [
   /* kosmos#7404: personal backup in Settings, Kosmos+, one shot per view. The routes are stubbed (the price is a sample
      in Stripe's shape; the code is a sample in the engine's shape, never a real one; the words are the coordinator's). */
   { name: 'pb-off', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off'); } },
-  // Design review 1: no price set, so no Turn on; only the restore line.
   { name: 'pb-on-last', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: '2026-10-31T14:07:00.000Z', stopped: null }); } },
   { name: 'pb-on-stopped', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: '2026-10-31T14:07:00.000Z', stopped: 'What a personal backup does has changed, so it needs your OK. Turn it off, then turn it on again to read the new words.' }); } },
   { name: 'pb-on-stopped-first', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: null, stopped: 'This computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn it off, then turn it on again and enter your recovery code.' }); } },
+  // Design review 1: no price set, so no Turn on; only the restore line.
   { name: 'pb-noprice', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off', null); } },
   // Challenge round 5: the restore field opens when the key step finds this backup set up on another computer.
   { name: 'pb-restore', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbToRestore(page); await pbTop(page); } },
