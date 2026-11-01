@@ -39,6 +39,24 @@ QHFN="$(awk '/^_qh_clear\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$qhs")"
 [ -n "$RELFN" ] && pass "9 release.sh defines _rel_prepush" || fail "9 release.sh has no _rel_prepush to run"
 [ -n "$QHFN" ] && pass "9 queued-heavy.sh defines _qh_clear" || fail "9 queued-heavy.sh has no _qh_clear to run"
 eval "$RELFN"; eval "$QHFN"
+
+# 11. kosmos-relay#721: the relay's .githooks/pre-push loads functions from this lib by name, in a /bin/bash of its own.
+# Without one of the first six (its QFNS list) it reads the queue as unreadable and refuses the pushes it should queue.
+# The last two it calls only when they are defined, so without one it skips that check and says nothing. A rename here
+# must therefore fail a kosmos test. Each name is looked up in a new /bin/bash, which inherits no function from this
+# file (so not the stubs below), after loading the lib as the hook does. Keep the list in step with the hook's.
+QFNS="kosmos_mark_suite_waiting _kosmos_suite_waiters_ahead _kosmos_suite_waiter_file _kosmos_suite_waiter_live kosmos_refuse_if_suite_live kosmos_refuse_if_harness_live kosmos_refuse_if_cut_live kosmos_refuse_if_light_side_live"
+qfn_in_lib() { /bin/bash -c 'set +u; . "$1" >/dev/null 2>&1 || exit 3; declare -F "$2" >/dev/null' _ "$1" "$2"; }
+for fn in $QFNS; do
+  qfn_in_lib "$HERE/lib/cut-guard.sh" "$fn" && pass "11 the relay hook's lib function $fn is in the lib" \
+    || fail "11 $fn is gone from tools/lib/cut-guard.sh, and kosmos-relay's .githooks/pre-push loads it by name"
+done
+# CONTROL: a copy with two of the names renamed (one the hook needs, one it skips without) fails for exactly those two.
+sed -e 's/^kosmos_refuse_if_harness_live() {/kosmos_refuse_if_harness_live_x() {/' \
+    -e 's/^kosmos_refuse_if_light_side_live() {/kosmos_refuse_if_light_side_live_x() {/' "$HERE/lib/cut-guard.sh" > "$T/cut-guard-renamed.sh"
+missing=""; for fn in $QFNS; do qfn_in_lib "$T/cut-guard-renamed.sh" "$fn" || missing="$missing $fn"; done
+[ "$missing" = " kosmos_refuse_if_harness_live kosmos_refuse_if_light_side_live" ] \
+  && pass "11 CONTROL: a lib with two of the names renamed fails for those two only" || fail "11 CONTROL: the renamed copy was missing:${missing:- nothing}"
 # The other checks _qh_clear makes read the real box (its suites, harnesses, claim); this file tests only its new
 # check, so they answer go here.
 kosmos_refuse_if_machine_claimed() { return 0; }; kosmos_refuse_if_light_side_live() { return 0; }
