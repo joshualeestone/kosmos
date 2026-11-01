@@ -1966,7 +1966,7 @@ _vdep_freeze_check() {
 _vdep_freeze_check
 _vdep_rc=0
 _vdep_once() { ( cd "$_site_export" && vercel deploy --prod --yes ); }
-KOSMOS_VERCEL_BEFORE_RETRY=_vdep_freeze_check KOSMOS_VERCEL_TMP="$BUILD_ROOT" site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?
+KOSMOS_VERCEL_BEFORE_RETRY=_vdep_freeze_check KOSMOS_VERCEL_TMP="${BUILD_ROOT:-}" site_vercel_deploy "$_site_export" _vdep_once || _vdep_rc=$?
 if [ "$_vdep_rc" != 0 ]; then
   # #5471: the CLI's own failure is not the answer; what is served is. LANDED means the served
   # kosmos-$V-arm64.tar.gz.sha256 is the one this cut wrote. Only a deploy carrying this cut's files can serve it: an
