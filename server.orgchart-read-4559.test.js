@@ -153,6 +153,29 @@ test('#4660: a Claude account on an API key is told it is billed to that key and
   } finally { orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); }
 });
 
+test('#4660: a consent carries through the send when the reader id holds a +, encoded as the page encodes it', async () => {
+  const sent = [];
+  orgchartfile.setModelAvailable(() => true);
+  orgchartfile.setModelRunner(async (line) => { sent.push(line); return { ok: true, structured: { people: [] } }; });
+  const post = (q) => fetch(base + '/api/orgchart/read' + q, { method: 'POST', headers: { 'content-type': 'application/octet-stream', 'x-orgchart-name': 'chart.png', ...SCREEN }, body: fs.readFileSync(path.join(FIX, 'chart.png')) });
+  try {
+    for (const reader of [{ kind: 'claude', dir: null, apiKey: true }, { kind: 'claude', dir: null, token: true }, { kind: 'claude', dir: null, redirected: true }]) {
+      orgchartfile.setReaderForTest(() => reader);
+      const ask = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
+      assert.match(ask.json.reader, /\+/);
+      assert.equal((await post('?consent=1&reader=' + ask.json.reader)).status, 409, 'CONTROL: unencoded, the + reads as a space');
+      assert.equal((await post('?consent=1&reader=' + encodeURIComponent(ask.json.reader))).status, 200);
+    }
+    assert.equal(sent.length, 3);
+    // Consent given for the plan does not carry to a key that appeared while the box was open.
+    orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: null }));
+    const ask = await send('chart.png', Buffer.alloc(0), { headers: SCREEN });
+    orgchartfile.setReaderForTest(() => ({ kind: 'claude', dir: null, apiKey: true }));
+    assert.equal((await post('?consent=1&reader=' + encodeURIComponent(ask.json.reader))).status, 409);
+    assert.equal(sent.length, 3, 'the file did not go');
+  } finally { orgchartfile.setReaderForTest(() => ({ kind: 'claude' })); orgchartfile.setModelRunner(null); }
+});
+
 test('#4559: the consent question needs no file: an empty body is answered with the provider', async () => {
   orgchartfile.setModelAvailable(() => true);
   const r = await send('chart.pdf', Buffer.alloc(0), { headers: SCREEN });

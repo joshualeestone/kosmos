@@ -460,8 +460,8 @@ test('#4660: the Claude reader carries whether its account runs on an API key (t
   const runners = require('./runners');
   const saved = { dir: process.env.CLAUDE_CONFIG_DIR, key: process.env.ANTHROPIC_API_KEY };
   delete process.env.ANTHROPIC_API_KEY;
-  // The host's own redirect variables must not decide this test.
-  const hostRedirect = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].map((v) => [v, process.env[v]]);
+  // The host's own redirect and credential variables must not decide this test.
+  const hostRedirect = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].map((v) => [v, process.env[v]]);
   for (const [v] of hostRedirect) delete process.env[v];
   t.after(() => { for (const [v, was] of hostRedirect) { if (was !== undefined) process.env[v] = was; } });
   // The shape accounts.list() really emits for a key account: a non-default folder, reached through CLAUDE_CONFIG_DIR.
@@ -470,12 +470,12 @@ test('#4660: the Claude reader carries whether its account runs on an API key (t
   let rows = [{ dir: '/tmp/x-claude', isDefault: false, email: null, apiKey: true }];
   t.mock.method(accounts, 'list', () => rows);
   try {
-    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-claude', apiKey: true, redirected: false });
+    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-claude', apiKey: true, token: false, redirected: false });
     assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
     // The default account on a subscription: not a key, until the board's own environment carries one.
     delete process.env.CLAUDE_CONFIG_DIR;
     rows = [{ dir: '/tmp/x-default', isDefault: true, email: 'a@b.c', apiKey: false }];
-    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-default', apiKey: false, redirected: false }, 'CONTROL: a subscription row');
+    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-default', apiKey: false, token: false, redirected: false }, 'CONTROL: a subscription row');
     assert.equal(o.consentFor(o.currentReader()).uses, 'using your plan');
     process.env.ANTHROPIC_API_KEY = '  ';
     assert.equal(o.currentReader().apiKey, false, 'a blank variable is not a key');
@@ -495,8 +495,23 @@ test('#4660: the Claude reader carries whether its account runs on an API key (t
         assert.notEqual(c.reader, plainId, `${v}: a read sent elsewhere is another reader, so a consent for this one does not carry over`);
       } finally { delete process.env[v]; }
     }
-    // A switch set to off goes to Anthropic, and a bearer token with no address of its own does too: the sentence stays.
-    for (const [v, off] of [['CLAUDE_CODE_USE_BEDROCK', '0'], ['CLAUDE_CODE_USE_VERTEX', 'false'], ['CLAUDE_CODE_USE_FOUNDRY', 'off'], ['ANTHROPIC_AUTH_TOKEN', 'tok']]) {
+    // ANTHROPIC_AUTH_TOKEN outranks the key on Claude Code's authentication page, so the key does not bill the read.
+    process.env.ANTHROPIC_AUTH_TOKEN = 'tok';
+    { const c = o.consentFor(o.currentReader());
+      assert.equal(c.uses, 'on the sign-in set up on this computer');
+      assert.equal(c.provider, 'Anthropic (Claude)', 'neither the login nor its address takes this read');
+      assert.equal(c.keeps, require('./orgchartkeys').CLAUDE_KEEPS, 'it still goes to Anthropic');
+      assert.notEqual(c.reader, plainId); }
+    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    // CLAUDE_CODE_OAUTH_TOKEN ranks below the key, and above the login.
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'tok';
+    assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key', 'the key outranks an OAuth token');
+    delete process.env.ANTHROPIC_API_KEY;
+    assert.equal(o.consentFor(o.currentReader()).uses, 'on the sign-in set up on this computer', 'an OAuth token outranks the login');
+    process.env.ANTHROPIC_API_KEY = 'sk-ant-TEST-4660';
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    // A switch set to off goes to Anthropic: the sentence stays.
+    for (const [v, off] of [['CLAUDE_CODE_USE_BEDROCK', '0'], ['CLAUDE_CODE_USE_VERTEX', 'false'], ['CLAUDE_CODE_USE_FOUNDRY', 'off']]) {
       process.env[v] = off;
       try {
         assert.equal(o.currentReader().redirected, false, `${v}=${off} is not a redirect`);
