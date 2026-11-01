@@ -88,7 +88,7 @@ function looksLikeText(buf) {
 const BATCH_BYTES = 64 * 1024 * 1024;
 // Restore's own default ceiling on entries (engine/backuprestore.js MAX_FILES).
 const MAX_FILES = 500000;
-// The manifest's JSON must fit the coordinator's ceiling after framing and padding (Padme adds at most about 12%).
+// The manifest's JSON must fit a ceiling after framing and padding (Padme adds at most about 12%): a company's here.
 const COMPANY_MANIFEST_OBJECT = 64 * 1024 * 1024;
 const MANIFEST_JSON_BUDGET = Math.floor(COMPANY_MANIFEST_OBJECT * 0.8);
 // kosmos#7404: a plan's manifest may be larger, to the coordinator's ceiling. Measured on generated manifests of real
@@ -588,7 +588,7 @@ function upperBound(f, maxFile) {
  *     ctx          the manifest context { org, member, epoch, period, snapshot }; period must be periodOf(now)
  *     index        this period's chunks stored by earlier runs: Map name -> { key, lockedUntilMs, memberKeyId }, all under
  *                  bucket; memberKeyId binds each to the member key it was sealed to (an entry for another is stale)
- *   deps: { macRequest, fetch?, now?, sleep?, fs?, uploadChunks?, uploadManifest?, batchBytes?, maxFile?, maxManifestJson?, planGb? }
+ *   deps: { macRequest, fetch?, now?, sleep?, fs?, uploadChunks?, uploadManifest?, batchBytes?, maxFile?, maxManifestJson?, planGb?, planExpectNothing? (tests only: skips the expectation, to reach the measured stop) }
  *     planGb       a personal backup's plan in GB of files: sizes the run to it (see PLAN_BYTES_PER_GB)
  * Resolves { ok: true, manifestKey, files, skipped, uploaded, reused, added, bucket } or
  * { ok: false, because, retryLater?, newPeriod?, grantedPeriod?, staleIndex?, tooLarge?, overAllowance?, grantSpent?, unsure?, otherEpoch?, added, bucket }.
@@ -740,7 +740,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   // backup_quota refusal, which ends the run as overAllowance below.
   // A plan's chunks at the format's average, no slack, no index: a second run's files ARE its index, and what a run
   // really spends is the coordinator's to refuse.
-  const expectedChunks = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : Math.floor(f.size / CDC.avg) + 1), 0);
+  const expectedChunks = listed.files.reduce((n, f) => n + plannedChunks(f), 0);
   const chunkBound = index.size + listed.files.reduce((n, f) => n + chunksMax(f, maxFile), 0);
   const expectedManifest = 1024 + expectedChunks * (2 * CHUNK_NAME_LEN + 9 + PLAN_KEY_LEN) + listed.files.reduce((n, f) => n + PLAN_FILE_BYTES + 2 * Buffer.byteLength(f.path), 0);
   if (planGb && (listedBytes > planBytes || expectedChunks > chunkCap || (expectedManifest > budget && !deps.planExpectNothing))) {
