@@ -7474,7 +7474,7 @@ const server = http.createServer(async (req, res) => {
   if ((pathname === '/api/status' && (req.method === 'GET' || req.method === 'HEAD')) || (pathname === '/api/agents/list' && req.method === 'GET')) {
     const rosterOnly = pathname === '/api/agents/list';
     if (rosterOnly) {
-      const refusedRead = crossSiteRead(req);
+      const refusedRead = crossSiteRead(req) || (isSiblingRead(req) ? 'only an agent or the person on this computer can list its agents' : null);
       if (refusedRead) { sendJson(res, 403, { error: refusedRead }); return; }
     }
     let body;

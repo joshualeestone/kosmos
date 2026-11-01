@@ -2200,7 +2200,9 @@ async function agentList(ctx, args) {
   if (ctx.refusedBy(r)) { ctx.err('Kosmos could not list the agents: ' + ctx.refusedBy(r) + '.'); return 1; }
   const agents = r.json && Array.isArray(r.json.agents) ? r.json.agents : null;
   if (!agents) { ctx.err('Kosmos gave an answer we could not read when listing the agents.'); return 1; }
-  const out = ctx.engine('clilists').agentLines(agents, r.json.partial === true);
+  let lists;
+  try { lists = ctx.engine('clilists'); } catch { ctx.err('Kosmos could not find its own list reader; this install looks incomplete.'); return 1; }
+  const out = lists.agentLines(agents, r.json.partial === true);
   for (const l of out.lines) ctx.out(l);
   return out.code;
 }
@@ -2214,7 +2216,9 @@ async function agentRoles(ctx, args) {
   if (!r.reached) return ctx.unreachable('list the roles');
   const roles = r.json && Array.isArray(r.json.roles) ? r.json.roles : null;
   if (!roles) { ctx.err('Kosmos gave an answer we could not read when listing the roles.'); return 1; }
-  const out = ctx.engine('clilists').roleLines(roles, word);
+  let lists;
+  try { lists = ctx.engine('clilists'); } catch { ctx.err('Kosmos could not find its own list reader; this install looks incomplete.'); return 1; }
+  const out = lists.roleLines(roles, word);
   for (const l of out.lines) ctx.out(l);
   return out.code;
 }
