@@ -784,7 +784,18 @@ test('a plan: the measured size stops a run the expectation let through, honestl
     const r = await take(k, w.root, st2, { deps: { planGb: 25, maxManifestJson: budget, batchBytes: 1, planExpectNothing: true } });
     assert.equal(r.ok, false, `budget ${budget}`); assert.equal(r.tooLarge, true, r.because); assert.equal(r.personActs, true);
     assert.equal(r.overAllowance, undefined, 'no pause to Monday: what a person moves is seen next hour');
+    assert.ok(r.added.size > 0 && st2.batches.length > 0, 'what went up before the stop is kept for the next run');
     assert.match(r.because, /more pieces than one backup can list/);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan: a long run hands what it stored to a checkpoint, so a killed run keeps it', async () => {
+  const w = oneFile(4 * 1024 * 1024), k = keys(), st = store();
+  try {
+    const seen = [];
+    const r = await take(k, w.root, st, { deps: { planGb: 25, batchBytes: 1, checkpointBatches: 2, checkpoint: (added, bucket) => seen.push([added.size, bucket]) } });
+    assert.equal(r.ok, true, r.because);
+    assert.ok(seen.length >= 1 && seen[0][0] > 0 && seen[0][1], JSON.stringify(seen));
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 

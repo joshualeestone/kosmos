@@ -121,6 +121,9 @@ const PLAN_BYTES_PER_GB = 1e9, PLAN_OBJECTS_PER_GB = 1200;
 // 20 GB: chunks at the format's average, and keys at the coordinator's length. PLAN_FILE_BYTES is a file's own manifest
 // entry past its path, an estimate.
 const PLAN_KEY_LEN = 140, PLAN_FILE_BYTES = 200;
+// Batches between a plan's checkpoints (about 16 GB): a first backup of hundreds of GB takes days, and a killed run must
+// keep what it stored, or the retry spends the week's allowance on the same chunks.
+const CHECKPOINT_BATCHES = 256;
 // The bounds backupupload.uploadManifest puts on a chunk's lock end (its LOCK_MAX_MS, plus an hour), checked here up front.
 const LOCK_FLOOR_MS = Date.UTC(2020, 0, 1), LOCK_MAX_MS = 39 * 86400 * 1000;
 const ownerOf = (key) => key.split('/').slice(0, 2).join('/');
@@ -493,7 +496,7 @@ async function listRoots(roots, fs, budgets) {
     const c = budgets ? budgets.cost(mine, mySkips) : null;
     const goneBytes = gone.reduce((n, x) => n + entryBytes(x), 0) + 512;   // left-out records, and one more for this root
     const fitsHere = !c || budgets.fits({ chunks: totals.chunks + c.chunks, bytes: totals.bytes + c.bytes, manifest: totals.manifest + c.manifest + goneBytes });
-    if (opt && (got.over || !fitsHere)) {
+    if (opt && !(budgets && budgets.keepOptional) && (got.over || !fitsHere)) {
       gone.push({ path: roots[i].name, why: got.over ? `more files than one snapshot can list beside the other folders` : 'too large to fit this week\'s backup beside the other folders' });
       await pause();
       continue;
@@ -588,7 +591,7 @@ function upperBound(f, maxFile) {
  *     ctx          the manifest context { org, member, epoch, period, snapshot }; period must be periodOf(now)
  *     index        this period's chunks stored by earlier runs: Map name -> { key, lockedUntilMs, memberKeyId }, all under
  *                  bucket; memberKeyId binds each to the member key it was sealed to (an entry for another is stale)
- *   deps: { macRequest, fetch?, now?, sleep?, fs?, uploadChunks?, uploadManifest?, batchBytes?, maxFile?, maxManifestJson?, planGb?, planExpectNothing? (tests only: skips the expectation, to reach the measured stop) }
+ *   deps: { macRequest, fetch?, now?, sleep?, fs?, uploadChunks?, uploadManifest?, batchBytes?, maxFile?, maxManifestJson?, planGb?, checkpoint?, planExpectNothing? (tests only: skips the expectation, to reach the measured stop) }
  *     planGb       a personal backup's plan in GB of files: sizes the run to it (see PLAN_BYTES_PER_GB)
  * Resolves { ok: true, manifestKey, files, skipped, uploaded, reused, added, bucket } or
  * { ok: false, because, retryLater?, newPeriod?, grantedPeriod?, staleIndex?, tooLarge?, overAllowance?, grantSpent?, unsure?, otherEpoch?, added, bucket }.
@@ -710,10 +713,11 @@ async function snapshotInner(input, deps, added, state, fail) {
   });
   // A plan keeps every limit out of here: an optional folder dropped to fit would read as a good backup with it missing.
   const fits = (t) => !!planGb || (index.size + t.chunks <= CHUNK_ALLOWANCE && t.bytes + sealedMax(budget) <= BYTE_ALLOWANCE && 1024 + t.manifest <= budget);
-  const listed = await listRoots(roots, fs, { cost, fits });
+  const listed = await listRoots(roots, fs, { cost, fits, keepOptional: !!planGb });
   if (typeof listed === 'string') return fail(listed);
   const pause = yielder();
-  if (listed.over) return fail(`the work Kosmos holds more than ${MAX_FILES} files, more than one snapshot can list`, planGb ? { tooLarge: true, personActs: true } : { tooLarge: true });
+  if (listed.over && planGb) return fail(`you have more than ${MAX_FILES} files in your agents' folders and projects, so nothing was backed up. Move some out`, { tooLarge: true, personActs: true });
+  if (listed.over) return fail(`the work Kosmos holds more than ${MAX_FILES} files, more than one snapshot can list`, { tooLarge: true });
   // The manifest budget, kept so that NOTHING is uploaded unless the finished manifest is sure to fit (for a company; a
   // plan's run has no reserve: it expects once before the walk, then stops on the measured size, with keys at keyCharge):
   //   estimate  the exact JSON so far (entries, objects, skips), with keys not yet granted charged at MAX_KEY_LEN
@@ -760,7 +764,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   const files = [], redacted = [];
   const objects = {};        // every referenced chunk: name -> key (filled as chunks are stored or reused)
   const pending = new Map(); // sealed this run, not yet uploaded: name -> object
-  let pendingBytes = 0, uploaded = 0, reused = 0;
+  let pendingBytes = 0, uploaded = 0, reused = 0, batchesSinceCheckpoint = 0;
 
   // Upload what is pending; on any failure, stop. Keys must be this period's and under one bucket.
   const flush = async () => {
@@ -821,6 +825,10 @@ async function snapshotInner(input, deps, added, state, fail) {
     for (const name of pending.keys()) if (!objects[name]) return fail('the uploader reported success without a key for every chunk', spent);
     uploaded += pending.size;
     pending.clear(); pendingBytes = 0;
+    if (planGb && deps.checkpoint && ++batchesSinceCheckpoint >= pos(deps.checkpointBatches, CHECKPOINT_BATCHES)) {
+      batchesSinceCheckpoint = 0;
+      deps.checkpoint(added, state.bucket);
+    }
     return null;
   };
 
@@ -870,7 +878,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   }
   const stop = await flush();
   if (stop) return stop;
-  // A backstop for a company: by construction (the check before the walk) it cannot fire. For a plan, skips land here.
+  // A backstop for a company: by construction (the check before the walk) it cannot fire. A plan's skips land here.
   if (estimate > budget) return planGb ? tooManyPieces() : fail(tooLargeWhy(), { tooLarge: true });
 
   // Every chunk a file names, with its key and lock end, for the manifest uploader's checks.
