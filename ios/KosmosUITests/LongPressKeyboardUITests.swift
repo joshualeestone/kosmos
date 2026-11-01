@@ -46,6 +46,7 @@ final class LongPressKeyboardUITests: XCTestCase {
         shot(app, "actions open, keyboard up")
         XCTAssertTrue(keyboard.exists, "the long press lowered the keyboard")
         assertAllAboveKeyboard(app, "Copy text")
+        XCTAssertLessThan(abs(app.buttons["Reply"].frame.minY - message.frame.maxY), 160, "the panel is not beside the pressed message")
         XCTAssertTrue(app.descendants(matching: .any)["messageActionsPanel"].exists, "the actions opened as the sheet, not the in-chat panel")
         XCTAssertEqual(message.frame.minY, before.minY, accuracy: 1, "the pressed message moved: \(before.minY) to \(message.frame.minY)")
         // A tap on the dim, above the panel, closes it: the keyboard and the message still where they were.
@@ -124,6 +125,7 @@ final class LongPressKeyboardUITests: XCTestCase {
         message.press(forDuration: 0.8)
         let more = app.buttons["More reactions"]
         XCTAssertTrue(more.waitForExistence(timeout: 5), "no More in the panel")
+        XCTAssertTrue(app.descendants(matching: .any)["messageActionsPanel"].exists, "the actions opened as the sheet, not the panel")
         more.tap()
         let gone = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
         XCTAssertEqual(XCTWaiter().wait(for: [gone], timeout: 5), .completed, "More left the keyboard up")
