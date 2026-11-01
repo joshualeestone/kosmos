@@ -460,23 +460,41 @@ test('#4660: the Claude reader carries whether its account runs on an API key (t
   const runners = require('./runners');
   const saved = { dir: process.env.CLAUDE_CONFIG_DIR, key: process.env.ANTHROPIC_API_KEY };
   delete process.env.ANTHROPIC_API_KEY;
+  // The host's own redirect variables must not decide this test.
+  const hostRedirect = ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY'].map((v) => [v, process.env[v]]);
+  for (const [v] of hostRedirect) delete process.env[v];
+  t.after(() => { for (const [v, was] of hostRedirect) { if (was !== undefined) process.env[v] = was; } });
   // The shape accounts.list() really emits for a key account: a non-default folder, reached through CLAUDE_CONFIG_DIR.
   process.env.CLAUDE_CONFIG_DIR = '/tmp/x-claude';
   t.mock.method(runners, 'resolveBin', () => ({ present: true, bin: 'claude' }));
   let rows = [{ dir: '/tmp/x-claude', isDefault: false, email: null, apiKey: true }];
   t.mock.method(accounts, 'list', () => rows);
   try {
-    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-claude', apiKey: true });
+    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-claude', apiKey: true, redirected: false });
     assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
     // The default account on a subscription: not a key, until the board's own environment carries one.
     delete process.env.CLAUDE_CONFIG_DIR;
     rows = [{ dir: '/tmp/x-default', isDefault: true, email: 'a@b.c', apiKey: false }];
-    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-default', apiKey: false }, 'CONTROL: a subscription row');
+    assert.deepEqual(o.currentReader(), { kind: 'claude', dir: '/tmp/x-default', apiKey: false, redirected: false }, 'CONTROL: a subscription row');
     assert.equal(o.consentFor(o.currentReader()).uses, 'using your plan');
     process.env.ANTHROPIC_API_KEY = '  ';
     assert.equal(o.currentReader().apiKey, false, 'a blank variable is not a key');
     process.env.ANTHROPIC_API_KEY = 'sk-ant-TEST-4660';
     assert.equal(o.currentReader().apiKey, true, 'ANTHROPIC_API_KEY in the board env is what the read bills');
+    assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
+    assert.equal(o.consentFor(o.currentReader()).provider, 'Anthropic (Claude)', 'the key takes the read, so the signed-in address is not named');
+    // A read sent somewhere else is not Anthropic's to keep, and that wins over a key in the same environment.
+    for (const v of ['ANTHROPIC_BASE_URL', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY']) {
+      const was = process.env[v];
+      process.env[v] = '1';
+      try {
+        const c = o.consentFor(o.currentReader());
+        assert.equal(c.provider, 'Claude Code', v);
+        assert.equal(c.uses, 'through the service this computer has it set up to use', v);
+        assert.equal(c.keeps, null, `${v}: no sentence about what Anthropic keeps`);
+      } finally { if (was === undefined) delete process.env[v]; else process.env[v] = was; }
+    }
+    // CONTROL, in the same environment with the variables gone: the key's own case is back.
     assert.equal(o.consentFor(o.currentReader()).uses, 'billed to your Anthropic API key');
   } finally {
     for (const [k, v] of [['CLAUDE_CONFIG_DIR', saved.dir], ['ANTHROPIC_API_KEY', saved.key]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }

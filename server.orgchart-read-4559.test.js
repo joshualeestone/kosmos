@@ -132,7 +132,7 @@ test('#4559: a picture is NOT sent without consent: the first answer names the p
   // The wording itself, not the constant: each plan's case, the de-identified rendering, and no claim that Kosmos
   // asked Anthropic not to store it (the Claude read makes no such request).
   const k = r.json.keeps;
-  assert.match(k, /^On a Free, Pro, Max or Ultra plan, Anthropic keeps what you send for up to 30 days\. If you have allowed Anthropic to use your chats to improve Claude \(in your Claude privacy settings\), Anthropic keeps it for up to 5 years to train its models, with details that identify you removed\. /);
+  assert.match(k, /^On a Free, Pro, Max or Ultra plan, Anthropic keeps what you send for up to 30 days\. If you have allowed Anthropic to use your chats to improve Claude \(in your Claude privacy settings\), Anthropic keeps it for up to 5 years to train its models, in a form it calls de-identified; it does not say the names in the file are removed\. /);
   assert.match(k, / On a Team or Enterprise plan, or an Anthropic API account, Anthropic keeps it for up to 30 days\. Anything its safety systems flag can be kept for up to 2 years\.$/);
   assert.doesNotMatch(k, /even though Kosmos asks|anonymous|separated from your account|Help improve Claude/);
   assert.doesNotMatch(k, /(?<!up to )30 days/, 'never a flat 30 days: the sources say within 30 days, and the API may keep less');

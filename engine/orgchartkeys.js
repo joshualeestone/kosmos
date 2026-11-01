@@ -207,25 +207,28 @@ const KEEPS = {
    allow data use for model improvement: 30-day retention period", "Users who allow data use for model improvement:
    5-year retention period", "Commercial users (Team, Enterprise, and API): Standard: 30-day retention period") and
    the privacy center (privacy.claude.com, "How long do you store my data?": "in a de-identified format for up to 5
-   years", flagged chats "inputs and outputs for up to 2 years"), and for the API the commercial article
-   (privacy.claude.com 7996866: "we automatically delete inputs and outputs on our backend within 30 days").
+   years", flagged chats "inputs and outputs for up to 2 years"), and for commercial and API use the commercial article
+   (privacy.claude.com 7996866: "we automatically delete inputs and outputs on our backend within 30 days", and
+   flagged "inputs and outputs for up to 2 years").
    "UP TO 30 days", never a flat 30: "within 30 days" is a ceiling, and the API retention page says conversation
    content "is not retained by default" (except Covered Models, 30 days), so up to 30 is true of every source.
    No "even though Kosmos asks": the Claude read sends
    no such request to Anthropic (--no-session-persistence only stops the local transcript).
    Said as each plan's own case, because the training setting is a Free/Pro/Max/Ultra setting; the setting is described as
    the pages do ("allow us to use your chats ... to improve Claude", "Model Improvement in your Privacy Settings"), not
-   by a toggle label they never print. A Claude account known to run on an API key (#2420, `apiKey` on its row) gets
-   CLAUDE_API_KEEPS, its own case. "De-identified" is said as "with details that identify you removed", not as anonymous or unlinked: the source promises no more than that.
+   by a toggle label they never print. A reader on an API key (the account row, or ANTHROPIC_API_KEY in the board's
+   environment) gets CLAUDE_API_KEEPS, its own case. The sentence after "de-identified" is there because this file's
+   content is other people's names, and the source promises nothing about names inside what was sent.
    Left out, on purpose: the classifier SCORES kept up to 7 years for flagged content (scores, not what was sent), and
    Enterprise zero data retention (Kosmos cannot see it; "up to 30 days" stays true there). */
 const CLAUDE_KEEPS = 'On a Free, Pro, Max or Ultra plan, Anthropic keeps what you send for up to 30 days. If you have allowed Anthropic to use '
-  + 'your chats to improve Claude (in your Claude privacy settings), Anthropic keeps it for up to 5 years to train its models, with details '
-  + 'that identify you removed. On a Team or Enterprise plan, or an Anthropic API account, Anthropic keeps it for up to 30 days. '
+  + 'your chats to improve Claude (in your Claude privacy settings), Anthropic keeps it for up to 5 years to train its models, in a form it '
+  + 'calls de-identified; it does not say the names in the file are removed. On a Team or Enterprise plan, or an Anthropic API account, Anthropic keeps it for up to 30 days. '
   + 'Anything its safety systems flag can be kept for up to 2 years.';
 const CLAUDE_API_KEEPS = 'On an Anthropic API key, Anthropic keeps what you send for up to 30 days. '
   + 'Anything its safety systems flag can be kept for up to 2 years.';
 const keeps = (reader) => {
+  if (reader && reader.kind === 'claude' && reader.redirected === true) return null;
   if (reader && reader.kind === 'claude') return reader.apiKey === true ? CLAUDE_API_KEEPS : CLAUDE_KEEPS;
   return (reader && KEEPS[reader.provider]) || null;
 };
