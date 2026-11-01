@@ -135,11 +135,13 @@ final class LongPressKeyboardUITests: XCTestCase {
 
     // Review 1: the room has its own list and box, so the panel is checked there too.
     func testRoomKeyboardStaysAndPanelOpens() throws {
-        let app = try launch(["KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"])
+        // The long sample room: plain posts fill the list, so one sits clear of the banner on any phone (in the short room the last
+        // posts are under it on a small phone, and a post's frame runs past its bubble to the lines under it).
+        let app = try launch(["KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue", "KOSMOS_SAMPLE_ROOM_LONG": "220"])
         let field = app.textFields.matching(NSPredicate(format: "label == 'Post to everyone on this project'")).firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 30), "no room message box")
-        let post = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "start on 9 to 12")).firstMatch   // the person's own post, on screen: the keyboard keeps the newest posts in view
-        XCTAssertTrue(post.waitForExistence(timeout: 15), "the person's post is not in the room")
+        let post = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Post 219 of 220.")).firstMatch
+        XCTAssertTrue(post.waitForExistence(timeout: 15), "post 219 is not in the room")
         field.tap()
         let keyboard = app.keyboards.firstMatch
         XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "no on-screen keyboard")
@@ -148,7 +150,7 @@ final class LongPressKeyboardUITests: XCTestCase {
         shot(app, "room, keyboard up, before the press")
         print("MEASURE room-press post=\(post.frame) keyboardTop=\(keyboard.frame.minY) hittable=\(post.isHittable) press-at=\(post.frame.midY)")
         XCTAssertLessThanOrEqual(post.frame.midY, keyboard.frame.minY, "the post's middle is behind the keyboard: the press would land on the keyboard")
-        post.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)).press(forDuration: 0.8)   // its lower part: on a small phone the top can sit under the banner
+        post.press(forDuration: 0.8)
         XCTAssertTrue(app.buttons["Reply"].waitForExistence(timeout: 5), "the actions did not open")
         KeyboardSlideUITests.settle(post)
         shot(app, "room, actions open, keyboard up")
