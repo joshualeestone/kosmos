@@ -516,7 +516,7 @@ let chatSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmo
 let traceLines = chatSource.components(separatedBy: "\n").filter { $0.contains("Self.trace(") || $0.contains("ChatView.trace(") }
 // Review 1: an allow-list, not a ban-list. Every value a trace line puts in the record is one of these numbers, yes/no
 // flags or fixed words; anything new (an id, a session, a name) fails here until it is judged and added.
-let allowedInTrace: Set<String> = ["atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
+let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
     "endVisible", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
     "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why",
     "Int(x.rounded())", "self.shifts",   // build 16: the stack's width and a sideways offset, both numbers

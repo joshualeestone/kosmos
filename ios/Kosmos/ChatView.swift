@@ -2551,7 +2551,11 @@ struct KeyboardHold: UIViewRepresentable {
                 guard token == self.settleToken, let sv = self.scroll else { if !retried { self.onPutBack() }; return }
                 var acted = !retried
                 defer { if acted { self.onPutBack() } }
-                guard let r = self.rows?.y[id] else {
+                // kosmos#7654: a reading that does not agree with the list is the stale one the row left behind, as good as not drawn.
+                let bandTop = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
+                guard let r = self.rows?.y[id],
+                      !Board.readingsHere(["row": (top: r.top, content: r.content)], offset: Double(sv.contentOffset.y + sv.adjustedContentInset.top),
+                                          bandTop: Double(bandTop), slack: Board.readingSlack).isEmpty else {
                     ChatView.trace(retried ? "keyboard hold: settle retry, row still not drawn" : "keyboard hold: settle, row not drawn")
                     // A row with no last reading belongs to readings that were cleared (another chat): nothing to settle.
                     if Date() < until, self.rows?.last[id] != nil { self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true) }
@@ -2561,7 +2565,9 @@ struct KeyboardHold: UIViewRepresentable {
                 if self.above != above || abs(sv.bounds.width - width) > 0.5 { ChatView.trace("keyboard hold: settle skipped, the list changed"); return }
                 let moved = CGFloat(r.top) - want
                 ChatView.trace("keyboard hold: settle, row off by \(Int(moved)), \(Self.numbers(sv))")
-                if abs(moved) > 1 {
+                if Board.holdReadingFar(moved: Double(moved), showing: Double(sv.bounds.height)) {
+                    ChatView.trace("keyboard hold: settle \(Int(moved)) refused, past a screenful")
+                } else if abs(moved) > 1 {
                     acted = true
                     let i = sv.adjustedContentInset
                     let target = Board.settleOffset(offset: Double(sv.contentOffset.y), moved: Double(moved), insetTop: Double(i.top),
@@ -2657,8 +2663,8 @@ struct KeyboardHold: UIViewRepresentable {
             guard abs(moved) > 1 else { return }
             // kosmos#7654: a put-back past a screenful answers a reading that cannot be used (CI, after a good placing: -7336 sent the
             // row away). Placed by id once for this keyboard; a second one leaves the list alone.
-            let showing = sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom
-            if Board.holdReadingFar(moved: Double(moved), showing: Double(showing)) {
+            // The whole view, not the band left by the keyboard: in landscape that is nearly nothing.
+            if Board.holdReadingFar(moved: Double(moved), showing: Double(sv.bounds.height)) {
                 ChatView.trace("keyboard hold: put back \(Int(moved)) refused, past a screenful")
                 ChatView.trace("keyboard hold: at \(Self.numbers(sv))")
                 if replaced { endGuard(); return }
@@ -2698,7 +2704,7 @@ struct KeyboardHold: UIViewRepresentable {
                 guard self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
                 ChatView.trace("keyboard hold: will-show \(Self.numbers(sv))")
                 // The top of what shows, below the top inset (the bar), in window points: the same space as RowTop's .global for
-                // a full-screen window (an iPhone); elsewhere only which row is chosen could differ, not the put-back.
+                // a full-screen window (an iPhone). kosmos#7654: since the agreement below, a mismatch here means no hold at all.
                 let top = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.adjustedContentInset.top), to: nil).y
                 let bottom = sv.convert(CGPoint(x: 0, y: sv.contentOffset.y + sv.bounds.height - sv.adjustedContentInset.bottom), to: nil).y
                 // kosmos#7654: only rows whose reading agrees with where the list is now. A row kept alive off the screen stops being read, so
@@ -2707,6 +2713,8 @@ struct KeyboardHold: UIViewRepresentable {
                     Board.readingsHere(rows.y.mapValues { (top: $0.top, content: $0.content) }, offset: Double(sv.contentOffset.y + sv.adjustedContentInset.top),
                                        bandTop: Double(top), slack: Board.readingSlack)
                 } ?? [:]
+                let rowsAll = self.rows?.y.count ?? 0
+                ChatView.trace("keyboard hold: \(rowsNow.count) of \(rowsAll) rows agree with the list")
                 guard let rows = self.rows, let r = Board.readerRow(rowsNow, below: Double(top), above: Double(bottom)), let reading = rows.y[r.id] else {
                     ChatView.trace("keyboard hold: no row on the screen to hold"); return
                 }
@@ -2725,20 +2733,12 @@ struct KeyboardHold: UIViewRepresentable {
                 self.settleToken &+= 1
                 let mine = self.generation
                 self.guarding = (kept, Date().addingTimeInterval(Self.window))
-                self.replaced = false
                 // The reader's row no longer drawn (iOS moved it far off): put back once by its last known place in the content (it
                 // stops being read when it leaves, so rows above measured again after that are not seen), then the hold ends. The same
                 // rule when it leaves while held, below.
-                // kosmos#7654: iOS moved the list further than a screenful: the row can be alive off the screen with its reading not
-                // updated, so it reads as drawn and in place while the put-back leaves it off the screen (CI, iOS 26.5, twice: content
-                // grew about 1000 pt, y back where it was, the row gone). A reading from there is no better than a row not drawn.
-                let far = self.scroll.map { sv in
-                    Board.holdReadingFar(moved: Double(sv.contentOffset.y - kept.offset),
-                                         showing: Double(sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom))
-                } ?? false
-                guard !far, let r = rows.y[kept.row] else {
+                guard let r = rows.y[kept.row] else {
                     // A row with no last reading belongs to readings that were cleared (a fresh chat): nothing of this chat to place.
-                    if rows.last[kept.row] != nil, self.placeById(kept, far: far) { return }
+                    if rows.last[kept.row] != nil { self.replaced = true; if self.placeById(kept, far: false) { return } }
                     // No last reading at all means the readings were cleared (a fresh chat opened): nothing of this chat to put back.
                     ChatView.trace("keyboard hold: the row was not drawn at did-show" + (rows.last[kept.row] == nil ? ", nothing put back" : ", put back by its last reading"))
                     if let c = rows.last[kept.row] { self.putBack(CGFloat(c)) }
@@ -2767,7 +2767,7 @@ struct KeyboardHold: UIViewRepresentable {
             })
             // A keyboard that hides before it finished showing leaves nothing held.
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.saved = nil; self?.endGuard(); self?.settleToken &+= 1; self?.keyboardUp = false
+                self?.saved = nil; self?.endGuard(); self?.settleToken &+= 1; self?.keyboardUp = false; self?.replaced = false
             })
         }
     }
