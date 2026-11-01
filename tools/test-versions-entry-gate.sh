@@ -467,7 +467,9 @@ if [ "$off_utc" -ge -2 ] 2>/dev/null && [ "$off_utc" -le 4 ] 2>/dev/null; then p
 # stamp as stale, so the arm above is not just reading 0 for everything.
 central_stale="$(node -e "const d=new Date(Date.now()-90*60000);process.stdout.write(d.toLocaleString('en-US',{timeZone:'America/Chicago',month:'long',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'}).replace(' at ', ', '))")"
 off_stale="$(TZ=UTC bash -c '. "'"$HERE"'/lib/versions-entry.sh"; kosmos_versions_entry_stamp_off "'"$central_stale"'"')"
-if [ "$off_stale" -ge 88 ] 2>/dev/null && [ "$off_stale" -le 92 ] 2>/dev/null; then pass "CONTROL: a 90-min-stale Central stamp reads ~90 under TZ=UTC, not 0 (off=$off_stale)"; else fail "control: 90-min-stale Central stamp read $off_stale under TZ=UTC (expected ~90)"; fi
+# kosmos#7725: in the repeated fall-back hour that stamp also names an instant an hour later, which reads 30.
+low=88; TZ=America/Chicago node -e "const a=new Date(Date.now()-90*60000),b=new Date(a.getTime()+3600000);process.exit(a.getHours()===b.getHours()?0:1)" && low=28
+if [ "$off_stale" -ge "$low" ] 2>/dev/null && [ "$off_stale" -le 92 ] 2>/dev/null; then pass "CONTROL: a 90-min-stale Central stamp reads ~90 under TZ=UTC, not 0 (off=$off_stale)"; else fail "control: 90-min-stale Central stamp read $off_stale under TZ=UTC (expected ~90)"; fi
 
 # #1464 (separator): toLocaleString emits a narrow no-break space (U+202F) before
 # AM/PM on some ICU builds and a plain space on others; the reader regex uses \s,
