@@ -4,7 +4,7 @@
 # `touch -t` reads its stamp as local time and the stamp carries no offset, so in the repeated hour of a fall-back it
 # names two instants. A test that does this passes on every other day of the year, so an ordinary run cannot catch it.
 #
-# The rule, on any line where touch takes -t: the stamp is fixed digits, or touch and every date on the line run in UTC.
+# The rule, on any line where touch takes -t: the stamp is a fixed date, or touch and every date in it run in UTC.
 #   TZ=UTC touch -t "$(TZ=UTC date -v-2H +%Y%m%d%H%M)" "$file"
 # A stamp in a variable counts only if every assignment to it in the same file obeys the same rule.
 #
@@ -18,7 +18,7 @@ scan() {
   perl -0777 -ne '
     sub utc_dates {   # every date command in this text carries TZ=UTC, and there is at least one
       my ($t) = @_; my $seen = 0;
-      while ($t =~ /(?<![\w\$\/.-])date\b/g) {
+      while ($t =~ /(?<![\w\$\/.-])date\b(?!\s+\+%s\b)/g) {   # date +%s is an epoch, which has no zone
         $seen = 1;
         return 0 unless substr($t, 0, pos($t) - 4) =~ /TZ=UTC\s+(?:[A-Z_]+=\S+\s+)*$/;
       }
@@ -31,7 +31,8 @@ scan() {
       next unless $line =~ /(TZ=UTC\s+(?:[A-Z_]+=\S+\s+)*)?\btouch\b[^;|&]*?\s-[a-zA-Z]*t(?=[\s"\$`\d])/;
       my $utc = defined $1;
       my $stamp = substr($line, $+[0]);
-      next if $stamp =~ /^\s*\d{8}/;
+      next if $stamp =~ /^\s*"?\d{8,}(?:\.\d+)?"?(?:\s|$)/;
+      next if $stamp =~ /^\s*"\d{8,}\$/ && $stamp !~ /(?<![\w\$\/.-])date\b/;   # a fixed date with a counter on the end
       my $good = $utc;
       if ($stamp =~ /^\s*"?\$\{?(\w+)\}?"?(?:\s|$)/) {
         my $var = $1;
@@ -79,6 +80,9 @@ TZ=UTC touch -mt "$(TZ=UTC LC_ALL=C date +%Y%m%d%H%M)" "$a"
 TZ=UTC touch -t "`TZ=UTC date +%Y%m%d%H%M`" "$a"
 touch -t 202001010000 "$a"
 touch -t 202001010000.30 "$a"
+touch -t "20260101010$i" "$a"
+touch -t "2001010101$(printf %02d $i)" "$a"
+TZ=UTC touch -t "$(TZ=UTC date -r $(( $(date +%s) - 60 )) +%Y%m%d%H%M)" "$a"
 touch -A -0130 "$a"
 touch "$a"
 # touch -t "$(date)" in a comment
