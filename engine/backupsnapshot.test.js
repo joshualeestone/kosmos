@@ -705,6 +705,48 @@ test('an index chunk whose lock ends before this snapshot\'s manifest would is s
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+// kosmos#7404: one random file alone in a folder, so a plan's arithmetic is about that file.
+function oneFile(bytes) {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'planbound-'));
+  const root = path.join(base, 'root');
+  fs.mkdirSync(root);
+  // Low entropy on purpose: the scanner holds back random-looking binaries of a few MB as credential-shaped.
+  fs.writeFileSync(path.join(root, 'data.bin'), crypto.randomBytes(bytes).map((x) => x & 15));
+  return { base, root };
+}
+
+test('a plan: files past it are refused in its own words before anything is spent', async () => {
+  const w = oneFile(1024), k = keys(), st = store();
+  try {
+    fs.truncateSync(path.join(w.root, 'data.bin'), 1_100_000_000);   // sparse: never read, since the refusal comes first
+    const r = await take(k, w.root, st, { deps: { planGb: 1, maxFile: 2_000_000_000 } });
+    assert.equal(r.ok, false); assert.equal(r.overPlan, true); assert.equal(r.personActs, true);
+    assert.match(r.because, /about 2 GB and your plan covers 1 GB/);
+    assert.equal(r.overAllowance, undefined, 'not a pause to Monday');
+    assert.equal(st.batches.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan replaces the worst-case bound: a manifest budget that refuses a company backs up the plan', async () => {
+  const w = oneFile(2 * 1024 * 1024), k = keys(), st = store();
+  try {
+    const deps = { maxManifestJson: 6000 };
+    const company = await take(k, w.root, st, { deps });
+    assert.equal(company.ok, false); assert.equal(company.tooLarge, true, company.because);
+    const planned = await take(k, w.root, st, { deps: { ...deps, planGb: 25 } });
+    assert.equal(planned.ok, true, planned.because);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan: when the expectation is wrong the measured manifest size stops the run before anything goes up', async () => {
+  const w = oneFile(32 * 1024 * 1024), k = keys(), st = store();
+  try {
+    const r = await take(k, w.root, st, { deps: { planGb: 25, planChunkSlack: 0.01, maxManifestJson: 3000 } });
+    assert.equal(r.ok, false); assert.equal(r.tooLarge, true, r.because);
+    assert.equal(st.batches.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('a second run in the period, reusing what the first stored, is not refused by the allowance check', async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {

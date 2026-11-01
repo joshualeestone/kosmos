@@ -38,7 +38,7 @@
  *   flags stand beside them (a snapshot taken is still taken; its chunks are uploaded again next run).
  * A first run (no pointer) whose key step refuses keeps that answer's job state in the named pair's file (when the file
  * holds none of its own) and stops; one whose key step names no pair keeps nothing (there is no file to keep it in).
- * deps: ensureMemberKey, pointerName and requireProof (a personal backup's); for tests, takeSnapshot, deviceKey, macRequest, now, snapshotId.
+ * deps: ensureMemberKey, pointerName, requireProof and planGb (a personal backup's); for tests, takeSnapshot, deviceKey, macRequest, now, snapshotId.
  */
 const fs = require('fs');
 const path = require('path');
@@ -210,7 +210,7 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
       deviceKey: dk.privateKey, index: p.index, bucket: p.bucket, ...(k.proofKey ? { proofKey: k.proofKey } : {}),
       ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },
-    }, deps.macRequest ? { macRequest: deps.macRequest } : { macRequest: (m, r, b) => require('./remote').macRequest(m, r, b) });
+    }, Object.assign(deps.planGb ? { planGb: deps.planGb } : {}, deps.macRequest ? { macRequest: deps.macRequest } : { macRequest: (m, r, b) => require('./remote').macRequest(m, r, b) }));
     if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
     // "Ran" means a snapshot was stored (review 4): a refused or failed pass took none.
     if (result.ok === true) ref.took = true;
