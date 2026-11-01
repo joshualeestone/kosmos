@@ -690,7 +690,7 @@ test('#4655 only a Mac is refused: a failing ps elsewhere is not evidence of a s
     assert.match(r.out, /Bringing the board up\./, 'a non-Mac start was refused on a ps failure');
     assert.doesNotMatch(r.out, WORDS);
   } finally { await run(CLI, ['stop'], e); }
-  assert.match(SRC, /_start_is_sandboxed\(\) \{\n[^\n]*\[ -x \/bin\/ps \]/, 'a missing ps must not count as a refused one');
+  assert.match(SRC, /_start_is_sandboxed\(\) \{\n[^\n]*command -v \/bin\/ps /, 'a missing ps must not count as a refused one');
 });
 
 test('#4655 board-run typed in that sandbox launches nothing either', { skip: !PS_DENIED_IN_SANDBOX && 'no sandbox-exec here, or ps works inside it' }, async () => {

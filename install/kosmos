@@ -917,7 +917,7 @@ _shell_is_sandboxed() {
 # A Mac only, and only where ps is there to be refused: _shell_is_sandboxed reads ANY ps failure as evidence, which is
 # enough beside an unreachable board, but alone it would refuse every start on a Linux box or container with no ps.
 _start_is_sandboxed() {
-  [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Darwin ] && [ -x /bin/ps ] && _shell_is_sandboxed
+  [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Darwin ] && command -v /bin/ps >/dev/null 2>&1 && _shell_is_sandboxed
 }
 _SANDBOXED_START_WORDS="This shell is sandboxed, so a board started from it could not reach your AI provider. Nothing was started. Start Kosmos from a normal Terminal, or open the Kosmos app."
 _unreachable_is_ours() {
