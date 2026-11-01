@@ -45,6 +45,7 @@ const AGENT_VERBS = [
   [['task', 'close', 'p4491', '1'], '/api/project/p4491/task/1/close'],
   [['task', 'message', 'p4491', '1', 'hello'], '/api/project/p4491/task/1/message'],
   [['agent', 'roles'], '/api/roles?catalogue=1'],
+  [['agent', 'list'], '/api/agents/list'],   // #7748
   [['project', 'list'], '/api/projects/overview'],
   // Review 1: the verbs the first version switched but did not test.
   [['task', 'built', 'p4491', '1', 'the tests'], '/api/project/p4491/task/1/built'],

@@ -12,8 +12,9 @@ test('#7748: the agent list says each agent, its role, and whether it is running
     { name: 'Di', role: 'Writer' },
     { name: 'Ed', role: 'Writer', state: 'unknown' },
     { name: 'Flo', role: 'Writer', state: 'restarting' },
+    { name: 'Gus', role: 'Writer', state: 'needs_trust' },
   ]);
-  assert.deepEqual(r, { code: 0, lines: ['Ada  Researcher  running, idle', 'Ben  no role recorded  not running', 'Cy  Writer  running, needs you', 'Di  Writer  state not known', 'Ed  Writer  state not known', 'Flo  Writer  restarting'] });
+  assert.deepEqual(r, { code: 0, lines: ['Ada  Researcher  running, idle', 'Ben  no role recorded  not running', 'Cy  Writer  running, needs you', 'Di  Writer  state not known', 'Ed  Writer  state not known', 'Flo  Writer  restarting', 'Gus  Writer  not running, needs trust'] });
 });
 
 test('#7748: no agents is said, and a bad row is skipped', () => {
