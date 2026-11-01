@@ -546,37 +546,34 @@ struct ActionsPanel<Rows: View>: View {
     let keyboardTop: CGFloat
     let close: () -> Void
     @ViewBuilder let rows: () -> Rows
+    // Where it opened: it stays there, so a new message moving the bubble cannot move a row from under a finger (review 2).
+    @State private var opened: CGFloat?
     var body: some View {
         GeometryReader { g in
             let seen = anchor.visible.map { g[$0] } ?? CGRect(origin: .zero, size: g.size)
-            let area = CGRect(x: seen.minX, y: seen.minY, width: seen.width, height: max(seen.height, keyboardTop - seen.minY))
+            let area = CGRect(x: seen.minX, y: seen.minY, width: seen.width, height: max(0, keyboardTop - seen.minY))
             let bubble = anchor.bubble.map { g[$0] }
             let width = min(area.width - 24, 400)
             let gap: CGFloat = 8
-            let y: CGFloat = Self.top(bubble: bubble, area: area, height: height, gap: gap)
-            rows()
-                .frame(width: width, height: height, alignment: .top)
+            // Never taller than the room there is: the rows scroll rather than run under the keyboard (review 2).
+            let shown = CGFloat(Board.actionsPanelHeight(wanted: Double(height), areaHeight: Double(area.height), gap: Double(gap)))
+            let y: CGFloat = opened ?? CGFloat(Board.actionsPanelTop(bubbleTop: bubble.map { Double($0.minY) }, bubbleBottom: bubble.map { Double($0.maxY) }, areaTop: Double(area.minY), areaBottom: Double(area.maxY), height: Double(shown), gap: Double(gap)))
+            ScrollView { rows() }
+                .frame(width: width, height: shown, alignment: .top)
                 .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Palette.ground))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .shadow(color: .black.opacity(0.25), radius: 12, y: 4)
                 .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .onTapGesture {}   // a tap between the rows stays in the panel, not on the dim under it
-                .position(x: area.midX, y: y + height / 2)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("messageActionsPanel")
                 .accessibilityAddTraits(.isModal)
                 .accessibilityAction(.escape) { close() }
+                .position(x: area.midX, y: y + shown / 2)
+                .onAppear { opened = y }
         }
         .ignoresSafeArea()
         .transition(.opacity)
-    }
-    // Above the bubble, else below, else the side with more room (never above the area's top or below its bottom).
-    static func top(bubble: CGRect?, area: CGRect, height: CGFloat, gap: CGFloat) -> CGFloat {
-        guard let b = bubble else { return max(area.minY + gap, area.maxY - height - gap) }
-        if b.minY - gap - height >= area.minY { return b.minY - gap - height }
-        if b.maxY + gap + height <= area.maxY { return b.maxY + gap }
-        let wanted = b.minY - area.minY >= area.maxY - b.maxY ? b.minY - gap - height : b.maxY + gap
-        return min(max(wanted, area.minY + gap), max(area.minY + gap, area.maxY - height - gap))
     }
 }
 
@@ -840,6 +837,13 @@ struct MessageActionsHost: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
                 keyboardUp = true
                 if let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect { keyboardTop = f.minY }
+            }
+            // Review 2: the keyboard can move without a hide (the emoji keyboard, a rotation): the top stays true, and an open
+            // panel closes rather than sit behind it.
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+                guard let f = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect, f.minY != keyboardTop else { return }
+                keyboardTop = f.minY
+                panel = nil
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                 keyboardUp = false

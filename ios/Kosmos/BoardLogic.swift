@@ -508,6 +508,20 @@ enum Board {
         return !scrolling && (place == "past the end" || place == "before the top") ? .backInsideThenNewest : .newest
     }
 
+    // kosmos#7678: the in-chat actions panel. Never taller than the room between the top of the messages and the keyboard.
+    static func actionsPanelHeight(wanted: Double, areaHeight: Double, gap: Double) -> Double {
+        min(wanted, max(0, areaHeight - 2 * gap))
+    }
+    // Above the bubble, else below, else the side with more room; always inside the area, for a height that fits it.
+    static func actionsPanelTop(bubbleTop: Double?, bubbleBottom: Double?, areaTop: Double, areaBottom: Double, height: Double, gap: Double) -> Double {
+        let lowest = max(areaTop + gap, areaBottom - height - gap)
+        guard let top = bubbleTop, let bottom = bubbleBottom else { return lowest }
+        if top - gap - height >= areaTop { return top - gap - height }
+        if bottom + gap + height <= areaBottom { return bottom + gap }
+        let wanted = top - areaTop >= areaBottom - bottom ? top - gap - height : bottom + gap
+        return min(max(wanted, areaTop + gap), lowest)
+    }
+
     // kosmos#7575: the chat's running count and when it goes. The count always runs (a shift before the chat's onAppear
     // is kept, review 3); flush() sends what was counted, if anything, and starts the next count at once. attach() gives
     // the sender (the chat showing on this computer); reset() drops the count (another computer: never sent elsewhere).
