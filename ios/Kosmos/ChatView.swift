@@ -2568,6 +2568,8 @@ struct KeyboardHold: UIViewRepresentable {
                                                     insetBottom: Double(i.bottom), contentHeight: Double(sv.contentSize.height),
                                                     viewHeight: Double(sv.bounds.height))
                     sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: CGFloat(target))
+                    // kosmos#7654: read once more: on CI's runner a 7 pt correction was undone while the list settled and nothing looked again.
+                    if !retried, Date() < until { self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true); return }
                 }
                 if Date() < until, self.guarding == nil {
                     // The row's place in the content and the offset as they are now, settled: what the watch keeps from here.
