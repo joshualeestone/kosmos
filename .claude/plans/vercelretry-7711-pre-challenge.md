@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 3 WARNINGs, 0 CONVENTIONs, 8 NITs
 **Fixed:** 2 | **Deferred:** 1 | **Asked (awaiting user):** 0
 
-Validation, final run at ade9e230a0: node 25739 passed, 2 failed, both in engine/tasks.recovered-5920.test.js, a file this branch does not touch. That is kosmos#7716, red across the clock change: run alone it fails in America/Chicago and America/New_York and passes in UTC. The shell shards and the four named shell tests passed. The first run at ef7716a8f9 found a real leak from this branch's own test, fixed in ade9e230a0. So the validation helper recorded failed, and this proof says so.
+Validation, final run at ade9e230a0: node 25739 passed, 2 failed, both in engine/tasks.recovered-5920.test.js, a file this branch does not touch. That is kosmos#7716, red across the clock change: run alone it fails in America/Chicago and America/New_York and passes in UTC. Node's red stopped that run before the shell stage, so its shell shards did not run; only the four named shell tests did, and they passed. All four shards passed in the first run, at ef7716a8f9, whose only red was a real leak from this branch's own test, fixed in ade9e230a0, a change to that test alone. CI runs the shards on this head. So the validation helper recorded failed, and this proof says so.
 
 ### Per-Iteration Breakdown
 
