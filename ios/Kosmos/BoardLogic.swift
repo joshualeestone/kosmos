@@ -452,13 +452,13 @@ enum Board {
         return min(max(offset + (content - keptContent), top), end)
     }
     // kosmos#7654: the tops of the rows whose reading agrees with where the list is: a row at `top` on the screen should sit at
-    // offset + (top - bandTop) in the content. A row really on the screen agrees to within its padding: CI's stale reading six rows
-    // away got through a slack of a screenful.
+    // offset + (top - bandTop) in the content, where offset is the scroll's plus its top inset. A settled list agrees exactly; 30 pt is
+    // for a list still moving. CI's stale reading six rows away got through a slack of a screenful.
     static let readingSlack = 30.0
     static func readingsHere(_ rows: [String: (top: Double, content: Double)], offset: Double, bandTop: Double, slack: Double) -> [String: Double] {
         rows.filter { abs($0.value.content - (offset + $0.value.top - bandTop)) <= max(slack, 0) }.mapValues(\.top)
     }
-    // kosmos#7654: the list moved further than a screenful since the reading: the row's reading cannot be trusted.
+    // kosmos#7654: a move further than the whole view: the row's reading cannot be trusted. A view with no height trusts nothing.
     static func holdReadingFar(moved: Double, showing: Double) -> Bool { abs(moved) > max(showing, 0) }
     // kosmos#7609: where a row's top sits in the band that shows, as a share from its top (0) to its bottom (1), held to that
     // range; an empty band is 0.

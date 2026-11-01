@@ -5336,7 +5336,7 @@ do {
         check(tight >= 108 && tight + shown <= 212, "panel: in the tightest area it is inside both ends")
     }
     do {
-        // kosmos#7654: the numbers from CI: the reader at Post 176 (y 13762), a stale reading of Post 102 still inside the band.
+        // kosmos#7654: shaped on CI's run (a reader at Post 176, a stale reading of Post 102 still inside the band); offset is the scroll's plus its top inset.
         let rows: [String: (top: Double, content: Double)] = ["p102": (top: 120, content: 8500), "p176": (top: 185, content: 13800), "p177": (top: 274, content: 13889)]
         let here = Board.readingsHere(rows, offset: 13735, bandTop: 120, slack: Board.readingSlack)
         check(Board.readingsHere(["p179": (top: 125, content: 14270)], offset: 13735, bandTop: 120, slack: Board.readingSlack).isEmpty, "keyboard hold: a stale reading six rows away is not on the screen either")
@@ -5344,6 +5344,8 @@ do {
         check(here["p176"] == 185 && here["p177"] == 274, "keyboard hold: CONTROL: the rows really there stay")
         check(Board.readerRow(rows.mapValues(\.top), below: 120, above: 382)?.id == "p102", "keyboard hold: CONTROL: without the filter the stale row is chosen, the failure on CI")
         check(Board.readerRow(here, below: 120, above: 382)?.id == "p176", "keyboard hold: with it, the reader's row is chosen")
+        check(Board.readingsHere(["a": (top: 200, content: 1110)], offset: 1000, bandTop: 120, slack: Board.readingSlack)["a"] == 200, "keyboard hold: 30 pt off still agrees")
+        check(Board.readingsHere(["a": (top: 200, content: 1111)], offset: 1000, bandTop: 120, slack: Board.readingSlack).isEmpty, "keyboard hold: 31 pt off does not")
     }
     check(Board.holdReadingFar(moved: 1281, showing: 262), "keyboard hold: moved past a screenful, the reading is not trusted (as CI, 1281 over 262)")
     check(Board.holdReadingFar(moved: -1281, showing: 262), "keyboard hold: either way")
