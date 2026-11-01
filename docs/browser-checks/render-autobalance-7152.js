@@ -32,6 +32,8 @@ catch { console.log('render-autobalance-7152: playwright is not on NODE_PATH - S
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 const H = 3600e3, now = (() => { const d = new Date(); d.setHours(12, 0, 0, 0); return d.getTime(); })();
+// Noon three days ago by the calendar, not 72 hours back: across a clock change those are an hour apart.
+const threeDaysAgo = (() => { const d = new Date(now); d.setDate(d.getDate() - 3); return d.getTime(); })();
 const conn = { state: 'connected', badge: 'working', checkedLive: true, because: 'a real request succeeded', observedAt: now - 9000, observedAgeMs: 9000 };
 const claude = (id, extra) => ({ provider: 'anthropic', providerName: 'Anthropic / Claude', email: id + '@example.com', label: id + '@example.com', dir: '/home/.claude-' + id,
   organization: null, isDefault: false, keyTail: null, name: null, memoryShared: true, connection: conn, bulkTargetable: true,
@@ -62,7 +64,7 @@ const CASES = {
   recorded: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [
     { kind: 'decision', at: now - 5 * 60e3, moves: [{ agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-gone', toLabel: 'Old', why: WHY, kind: 'usage' }] },
     { kind: 'decision', at: now - 10 * 60e3, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: 'its login has stopped working', kind: 'login' }] },
-    { kind: 'decision', at: now - 3 * 24 * H, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
+    { kind: 'decision', at: threeDaysAgo, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
   /* kosmos#7548 (slice 3b): the mover's own lines, with moves switched on (moving), newest first. */
   moving: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, recent: [
     { kind: 'works', at: now - 1 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', works: 'no' },
