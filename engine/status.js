@@ -562,7 +562,7 @@ function isVersionWall(got) {
    started the server; the launcher's pick is made once, so the board read no agent until a person repointed the
    bundled path. Now the board asks again when it meets the wall: the first tmux that can LIST the live server wins,
    for the whole process (the engine's readers and writers read AGENT_WORKFORCE_TMUX_BIN at call time, and a bare
-   `tmux` follows PATH; tmuxsignin and musesignin cache it, harmlessly, on their own private sockets). The agents'
+   `tmux` follows PATH; tmuxsignin caches it, harmlessly, for the sign-ins on their own private sockets). The agents'
    supervisors make the same choice the same way (bin/agent-supervisor.sh, _kosmos_supervisor_tmux).
    ⚠️ ONLY OVER THIS BOARD'S LAUNCHER PICK, read once when this module loads: the marker AND the value it marked must
    both be there and agree. An explicit AGENT_WORKFORCE_TMUX_BIN is a choice (the harness's stubs, a sandbox's inert

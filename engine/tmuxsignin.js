@@ -1,9 +1,8 @@
 'use strict';
 /*
  * The hidden-tmux plumbing that a sign-in run in its own tmux session needs (kosmos #4195).
- * engine/agysignin.js (Gemini's Antigravity sign-in) uses it; engine/musesignin.js (#3939) is
- * meant to, so a fix to one of these (a new transient tmux error, say) reaches both sign-ins
- * (convention 5). Each sign-in keeps its own session name, screens and seams; only the plumbing
+ * engine/agysignin.js (Gemini's Antigravity sign-in) and engine/musesignin.js (#3939) both use it,
+ * so a fix to one of these (a new transient tmux error, say) reaches both sign-ins (convention 5). Each sign-in keeps its own session name, screens and seams; only the plumbing
  * under them lives here.
  */
 const crypto = require('node:crypto');
