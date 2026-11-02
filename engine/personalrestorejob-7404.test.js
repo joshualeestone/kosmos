@@ -229,11 +229,14 @@ test('an answer that arrives just before the child exits is still read', async (
   assert.equal((await p).ok, true);
 });
 
-/* The real child, under a parent that goes away: the child must exit when its channel closes. */
-test('the real child exits when the board that forked it goes away', async () => {
+/* The real child, under a parent that goes away: the child must exit when its channel closes. It is kept busy, as a
+   restore in flight is (a timer stands in for its sockets): an idle child would exit on its own and prove nothing. */
+test('the real child exits when the board that forked it goes away, even while busy', async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-prjob-parent-'));
   const parent = path.join(dir, 'parent.js');
-  fs.writeFileSync(parent, `const c = require('node:child_process').fork(${JSON.stringify(path.join(__dirname, 'personalrestore-child.js'))}, [], { execArgv: [], stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+  const busy = path.join(dir, 'busy.js');
+  fs.writeFileSync(busy, 'setInterval(() => {}, 1000);\n');
+  fs.writeFileSync(parent, `const c = require('node:child_process').fork(${JSON.stringify(path.join(__dirname, 'personalrestore-child.js'))}, [], { execArgv: ['--require', ${JSON.stringify(busy)}], stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
 c.on('spawn', () => { process.stdout.write(String(c.pid) + '\\n'); setTimeout(() => process.exit(0), 200); });
 `);
   const { execFileSync } = require('node:child_process');
