@@ -70359,8 +70359,8 @@ function tskAskingShown(asking, st) {
 /* One row per question: who asks, about what, for how long, and Answer, which opens the agent (its conversation is there).
    No checkbox and no number: a question is not a task, so it cannot be closed or held here. */
 function tskAskRow(a, now) {
-  const p = a.projectId ? pjById(a.projectId) : null;
-  const about = p ? ' asks about ' + pjChainText(pjChainOf(p)) : ' asks you something';
+  /* The route names the project as it names a task row's (projectName, projectPath), so this works before the Projects list is read. */
+  const about = typeof a.projectName === 'string' && a.projectName ? ' asks about ' + pjChainText(tskChainOf(a)) : ' asks you something';
   const ago = typeof a.waitingSince === 'string' ? agoWords(now - Date.parse(a.waitingSince)) : '';
   const wait = !ago ? '' : ago === 'just now' ? 'Just started waiting for your answer.' : 'Waiting for your answer for ' + ago.replace(/ ago$/, '') + '.';
   return '<div class="tsk-ask" data-ask="' + esc(a.who) + '"><span aria-hidden="true"></span><div class="t">'

@@ -2288,8 +2288,10 @@ function waitingOnOf(task, roster, members) {
  * out of usage, #6341), and a question is left out when a row already names its agent for it (`rows[].waitingOn`, from
  * waitingOnOf), so one question is never in two places. Only a question: a trust wait or a connection given up on is
  * about the agent, and the person meets it on the agent. `scope`, when given, keeps only questions about that project.
+ * `projectList`, when given, names the project as a task row does (`projectName`, `projectPath`, #3029); a project it
+ * does not hold (deleted since the question) leaves both out, and the page words that row as a question about nothing.
  */
-function askingWithoutTask(rows, roster, scope) {
+function askingWithoutTask(rows, roster, scope, projectList) {
   if (!Array.isArray(roster)) return [];
   const status = require('./status');
   const carried = new Set();
@@ -2297,6 +2299,8 @@ function askingWithoutTask(rows, roster, scope) {
     if (!r || !Array.isArray(r.waitingOn)) continue;
     for (const w of r.waitingOn) if (w && w.reason === 'question') carried.add(w.who + '\u0000' + r.projectId);
   }
+  const all = Array.isArray(projectList) ? projectList : [];
+  const byId = new Map(all.filter((x) => x && x.id).map((x) => [x.id, x]));
   const out = [];
   const seen = new Set();
   for (const card of roster) {
@@ -2307,7 +2311,9 @@ function askingWithoutTask(rows, roster, scope) {
     if (projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, projectId) === 'stuck_rate') continue;
     seen.add(card.sessionName);
     const at = typeof card.waitingSince === 'string' ? Date.parse(card.waitingSince) : NaN;
-    out.push({ who: card.sessionName, projectId, waitingSince: Number.isFinite(at) ? new Date(at).toISOString() : null });
+    const p = projectId ? byId.get(projectId) : null;
+    out.push({ who: card.sessionName, projectId, waitingSince: Number.isFinite(at) ? new Date(at).toISOString() : null,
+      ...(p ? { projectName: p.name == null ? '' : String(p.name), projectPath: projectPathOf(p, byId) } : {}) });
   }
   return out.sort((a, b) => (a.waitingSince === null) - (b.waitingSince === null)
     || (a.waitingSince && b.waitingSince ? Date.parse(a.waitingSince) - Date.parse(b.waitingSince) : 0));

@@ -51,6 +51,9 @@ test('#7797: a question about a project where the agent holds no task is listed;
   assert.deepEqual(tasks.askingWithoutTask(rows, roster), [
     { who: 'bo', projectId: p.id, waitingSince: '2026-11-02T09:00:00.000Z' },
   ]);
+  assert.deepEqual(tasks.askingWithoutTask(rows, roster, null, projects.readAll()), [
+    { who: 'bo', projectId: p.id, waitingSince: '2026-11-02T09:00:00.000Z', projectName: 'Asking', projectPath: [] },
+  ], 'with the project list, the project is named as a task row names it');
 });
 
 test('#7797: a question about no project is listed with a null project; oldest first, unknown starts last', () => {
