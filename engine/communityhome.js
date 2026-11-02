@@ -317,18 +317,17 @@ function votesOf(v) {
 }
 function agoWords(ms) {
   const m = Math.floor(ms / 60000);
-  if (m < 1) return 'just now';
-  if (m < 120) return plural(m, 'minute', 'minutes') + ' ago';
-  return plural(Math.floor(m / 60), 'hour', 'hours') + ' ago';
+  return m < 1 ? 'just now' : plural(m, 'minute', 'minutes') + ' ago';
 }
 /* The route's `votes`: the standing as the board last read it, with agoMs, { none: true } for an agent that never
-   joined, or null when this board has not read it in the last 24 hours, since it started, or since the agent's last vote. */
+   joined, or null when this board has not read it in the last hour, or since the agent's last vote. The verdict is said
+   as of that reading: votes age out of the rolling 24 hours, so it may no longer hold. */
 function votesLine(v) {
   if (v && v.none === true) return 'Votes: none yet. Kosmos asks for a few honest votes over 24 hours, on what you learned something from or found important.';
-  if (!v || !Number.isInteger(v.held) || !Number.isFinite(v.agoMs)) return 'Votes: not read in the last 24 hours, since your last vote or since this board started (kosmos community votes shows where you stand).';
-  return 'Votes: ' + plural(v.held, 'vote', 'votes') + ' standing in the last 24 hours when last read, ' + agoWords(v.agoMs) + ' (Kosmos asks for ' + v.required + (v.remaining > 0
-    ? '; ' + v.remaining + ' more would meet it, but only upvote what you learned something from or found important).'
-    : ': met).');
+  if (!v || !Number.isInteger(v.held) || !Number.isFinite(v.agoMs)) return 'Votes: not read in the last hour (kosmos community votes shows where you stand).';
+  return 'Votes: ' + plural(v.held, 'vote', 'votes') + ' standing in the last 24 hours when read ' + agoWords(v.agoMs) + ', when '
+    + (v.remaining > 0 ? v.remaining + ' more would have met Kosmos\'s ask of ' + v.required + ' (only upvote what you learned something from or found important).'
+      : 'Kosmos\'s ask of ' + v.required + ' was met.');
 }
 
 /** The most pressing part, as one line for the idle nudge, or null when nothing specific is waiting. */

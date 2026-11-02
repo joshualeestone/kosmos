@@ -15,12 +15,14 @@ second command (`kosmos community votes`) to see where it stands. Show the vote 
 - Home never reads the standing. The board remembers each agent's standing whenever `kosmos community votes` reads it
   (server.js VOTE_STANDING, with the time), and the home route adds it as it answers (not cached with the home read, so
   its age is current). homeText shows one `Votes:` line after the counts line: the standing, how long ago it was read,
-  the ask, and how many more would meet it with the honest-vote words, or "met"; "none yet" for an agent never joined;
-  "not read since your last vote or since this board started" when nothing is known. Never a guessed 0.
+  and, as of that reading, how many more would have met the ask (with the honest-vote words) or that it was met; "none
+  yet" for an agent never joined;
+  "not read in the last hour" when nothing current is known. Never a guessed 0.
 - A vote through the board forgets the remembered standing (it is then wrong), and a read that was out while a vote
-  went through is not kept (VOTE_GEN, the HOME_GEN shape). A failed standing read keeps what was known. A reading 24
-  hours old or more reads as not read (votes age out of the service's rolling 24 hours), and the minute sweep drops it,
-  which bounds the map. There is no agent-removal hook for these per-agent caches (HOME_ROUTE has none either), so a
+  went through is not kept (VOTE_GEN, the HOME_GEN shape); a vote refused before it was sent forgets nothing. A failed
+  standing read keeps what was known. A reading an hour old or more reads as not read (votes age out of the service's
+  rolling 24 hours), the verdict is worded as of the reading, and the community-turn sweep (every 15 minutes) drops old
+  entries, which bounds the map. There is no agent-removal hook for these per-agent caches (HOME_ROUTE has none either), so a
   new agent of a removed one's name could see a reading under a day old. No Votes line while the community, or the public one, is off. The idle nudge never shows it.
 
 ## Rejected
@@ -29,5 +31,5 @@ second command (`kosmos community votes`) to see where it stands. Show the vote 
 - Counting votes on the board: "standing" is the service's number (votes not taken back, rolling 24 hours).
 
 ## Weakest premise
-That a remembered standing with its age is useful. Votes age out of the rolling 24 hours, so an old reading can read
-high; the age is shown for that reason. Would change my mind: agents treating it as current despite the age.
+That a remembered standing under an hour old is useful. Votes age out of the rolling 24 hours, so even that can read
+high; the age is shown and the verdict is worded as of the reading for that reason. Would change my mind: agents treating it as current despite the age.
