@@ -939,7 +939,9 @@ struct ChatView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { sampleRebuild(proxy, waited: waited + 0.5) }
             return
         }
-        Self.trace("debug rebuild: atBottom \(atBottom)")
+        // kosmos#7767: what the rebuild check saw when it stopped waiting; a failure of that check prints these lines.
+        let place = scrollBox.reading()?.place ?? "unread"
+        Self.trace("debug rebuild: waited \(waited), atBottom \(atBottom), personScrolling \(personScrolling), underFinger \(scrollBox.underFinger), place \(place)")
         recoverEmpty(proxy, later: true)
         // Counted after the last check the rebuild schedules (Board's rebuild timing).
         let after = Board.rebuildGrace + Board.rebuildCheckBump + (Board.diagCheckWaits.max() ?? 0) + 0.9

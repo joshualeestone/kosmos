@@ -121,5 +121,18 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check)\]' failed" 
     echo "  (no scroll trace from the app)"
   fi
 fi
+# kosmos#7767: a rebuild check's failure says what the check saw when it stopped waiting.
+if grep -q -E "^Test Case '-\[KosmosUITests\.KeyboardSlideUITests testRebuilt[A-Za-z]*\]' failed" "$log"; then
+  app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
+  bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
+  data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
+  if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
+    said="$(grep -E 'debug rebuild|diag: empty' "$data/Documents/trace.txt" || true)"
+    echo "  the rebuild hook's lines:"
+    if [ -n "$said" ]; then printf '%s\n' "$said" | sed 's/^/    /'; else echo "    (none in the trace)"; fi
+  else
+    echo "  (no trace from the app for the rebuild check)"
+  fi
+fi
 [ "$keep" = 1 ] || echo "  (run again with --keep to keep the log and result)"
 exit 1
