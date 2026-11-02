@@ -69962,7 +69962,8 @@ function tskRow(t, at) {
      has never written its report (the engine's `neverReported`), not that it has said nothing
      anywhere (it may have in the room), so the sentence claims exactly that: "Rex has not
      reported what it is working on yet." When we could not read the report, or it is too old to
-     trust, that would be false too, so those rows keep the reason. */
+     trust, that would be false too, so those rows keep the reason. #7786: an agent that has never
+     taken a turn reads "Rex has not started yet." instead (claimNotReported). */
   const notReported = claimNotReported(t.claim);
   const cannot = t.state !== 'assigned' || !t.claim || t.claim.claimed !== null ? ''
     : notReported && t.claim.about
@@ -70774,7 +70775,7 @@ function paintTaskPage() {
   const notReported = claimNotReported(t.claim);
   /* The agent the claim is ABOUT, by name (claim.about: an agent still holding open work here, so a
      finished agent is never named). Said ONCE: when its part's claim line is on screen, that line
-     already says "not reported" beside the name and this line stays quiet for it; a could-not-tell
+     already says so (claimNotReported's words) beside the name and this line stays quiet for it; a could-not-tell
      reason is given here in full (the part line leaves it out). */
   const aboutName = t.claim && t.claim.about ? tkMemberName(p, t.claim.about) : null;
   const sayShown = !!sayPart;

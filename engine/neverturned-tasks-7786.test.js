@@ -11,11 +11,12 @@ process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const projects = require('./projects');
+const commitments = require('./commitments');
 
-function claimOf(card) {
-  const tasks = [{ number: 1, sentence: 'write the brief', who: 'ava' }];
-  const all = [{ id: 'p', name: 'P', tasks, agents: ['ava'] }];
-  const out = projects.joinTaskClaims(tasks, all, ['ava'], card ? [card] : [], { name: 'P', id: 'p' });
+function claimOf(card, who = 'ava') {
+  const tasks = [{ number: 1, sentence: 'write the brief', who }];
+  const all = [{ id: 'p', name: 'P', tasks, agents: [who] }];
+  const out = projects.joinTaskClaims(tasks, all, [who], card ? [card] : [], { name: 'P', id: 'p' });
   return out[0].claim;
 }
 
@@ -27,6 +28,14 @@ test('a never-reported claim carries neverTurned from the agent card, and only t
   assert.equal(claimOf({ sessionName: 'ava', isNamedOurs: true, neverTurned: false, state: 'idle' }).neverTurned, undefined, 'a card that has turned');
   assert.equal(claimOf({ sessionName: 'ava', isNamedOurs: true, state: 'idle' }).neverTurned, undefined, 'no field on the card');
   assert.equal(claimOf(null).neverTurned, undefined, 'not on the roster');
+});
+
+test('the engine stamps neverTurned only beside neverReported: an agent that has reported keeps its own claim', () => {
+  assert.equal(commitments.report('bo', []).ok !== false, true, 'CONTROL: the report was written');
+  const c = claimOf({ sessionName: 'bo', isNamedOurs: true, neverTurned: true, state: 'idle' }, 'bo');
+  assert.equal(c.claimed, false, 'CONTROL: bo has a report on this board, which does not name task 1');
+  assert.notEqual(c.neverReported, true, 'CONTROL');
+  assert.equal(c.neverTurned, undefined, 'a card that says never turned does not override a report');
 });
 
 test('the page says "has not started yet" only for a claim the engine marked', () => {
