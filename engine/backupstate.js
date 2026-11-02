@@ -183,9 +183,15 @@ function stillOurs(f) {
 }
 
 function readState(org, member) { return runSync(readSteps(org, member)); }
+/* A read that does not answer ok forgets the file: only a read that found it ours may let a write skip its re-read. */
+function* readSteps(org, member) {
+  const r = yield* readFileSteps(org, member);
+  if (!r.ok) known.delete(fileFor(org, member));
+  return r;
+}
 /** readState with a turn for the event loop every ROWS_PER_PAUSE rows (kosmos#7746). The same answers. */
 function readStateAsync(org, member) { return runAsync(readSteps(org, member)); }
-function* readSteps(org, member) {
+function* readFileSteps(org, member) {
   ids(org, member);
   const f = fileFor(org, member);
   try { if (fs.lstatSync(f).isSymbolicLink()) return { ok: false, because: 'the backup state file is a link, so it was not read' }; } catch { /* missing: the read decides */ }
@@ -227,9 +233,24 @@ function* mayReplaceSteps(org, member) {
     : 'backupstate: the existing state file is not one this computer wrote; discardState it first'), { code: 'refused', retry: r.retry === true });
 }
 
-function writeState(org, member, state) { return runSync(writeSteps(org, member, state)); }
+/* kosmos#7746: an async write takes turns, so two writes of one file could interleave and the older body land last. Async
+   writes of one file run one after another (`writing` holds the newest one's promise), and a sync write while one is in
+   flight throws: it would land in the middle of it. */
+const writing = new Map();
+function writeState(org, member, state) {
+  if (writing.has(fileFor(org, member))) throw new Error('backupstate: a write of this state file is still in progress');
+  return runSync(writeSteps(org, member, state));
+}
 /** writeState with a turn for the event loop every ROWS_PER_PAUSE rows (kosmos#7746). The same result and throws. */
-function writeStateAsync(org, member, state) { return runAsync(writeSteps(org, member, state)); }
+function writeStateAsync(org, member, state) {
+  const f = fileFor(org, member);
+  const prev = writing.get(f) || Promise.resolve();
+  const mine = prev.catch(() => {}).then(() => runAsync(writeSteps(org, member, state)));
+  const tail = mine.catch(() => {});
+  writing.set(f, tail);
+  tail.then(() => { if (writing.get(f) === tail) writing.delete(f); });
+  return mine;
+}
 function* writeSteps(org, member, state) {
   ids(org, member);
   const list = (state && state.periods) || [];
@@ -253,6 +274,7 @@ function* writeSteps(org, member, state) {
     fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
     try { fs.chmodSync(dir(), 0o700); } catch { /* the file itself is 0600 either way */ }
     require('./securewrite').writeSecret(fileFor(org, member), body, 0o600, { atomicOnly: true });
+    // No turn between the rename and this lstat, so what it fingerprints is the file just written.
     remember(fileFor(org, member));
   } catch (err) {
     const code = err && typeof err.code === 'string' ? err.code : undefined;
@@ -304,6 +326,7 @@ function withPeriod(state, period) {
 function discardState(org, member) {
   ids(org, member);
   const f = fileFor(org, member);
+  known.delete(f);
   try { fs.renameSync(f, `${f}.bad-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`); return { ok: true }; } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true };
     return { ok: false, because: 'the backup state file could not be set aside' };

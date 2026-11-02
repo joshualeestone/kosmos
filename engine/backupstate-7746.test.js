@@ -98,3 +98,34 @@ test('#7746: the async read and write give the event loop a turn while they work
   done = true;
   assert.equal(turns, 0);
 });
+
+test('#7746: two async writes of one file land in the order they were asked for; a sync write meanwhile is refused', async () => {
+  const [org, member] = ids();
+  const a = stateOf(120000), b = stateOf(3);
+  const first = bs.writeStateAsync(org, member, a);
+  const second = bs.writeStateAsync(org, member, b);
+  assert.throws(() => bs.writeState(org, member, stateOf(1)), /still in progress/);
+  await Promise.all([first, second]);
+  const r = bs.readState(org, member);
+  assert.equal(r.state.periods[0].index.size, 3, 'the later write is the one on disk');
+  assert.ok(r.state.periods[0].namingKey.equals(b.periods[0].namingKey));
+  bs.writeState(org, member, stateOf(1));   // and a sync write goes through once nothing is in flight
+});
+
+test('#7746: a file swapped in by rename, same size and mtime to the nanosecond, is still checked in full', async () => {
+  const [org, member] = ids();
+  const f = bs.fileFor(org, member);
+  bs.writeState(org, member, stateOf(5));
+  const T = Math.floor(Date.now() / 1000) - 10;   // whole seconds, so the mtime in ns can be set exactly on both files
+  fs.utimesSync(f, T, T);
+  assert.equal(bs.readState(org, member).ok, true);   // the fingerprint is now ours at mtime T
+  const ours = fs.readFileSync(f, 'utf8');
+  const theirs = ours.replace(`"member":"${member}"`, `"member":"${member.replace(/.$/, 'x')}"`);
+  assert.equal(theirs.length, ours.length, 'premise: the same size');
+  const tmp = `${f}.swap`;
+  fs.writeFileSync(tmp, theirs);
+  fs.utimesSync(tmp, T, T);
+  fs.renameSync(tmp, f);
+  assert.equal(fs.statSync(f, { bigint: true }).mtimeNs, BigInt(T) * 1000000000n, 'premise: the same mtime');
+  assert.throws(() => bs.writeState(org, member, stateOf(5)), /discardState it first/, 'only the inode differs, and it is caught');
+});
