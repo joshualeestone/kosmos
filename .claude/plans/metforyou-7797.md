@@ -19,3 +19,9 @@ Weakest premise: that an agent reads "only once they have answered" as a conditi
 
 1. holdstale owed() carries forPerson; metText words it. Test in engine/holdcond-7180.test.js with a plain-hold control.
 2. The other #7797 items (slice B, the project page, Save, the "?" tile, CLI unmark) are separate pieces.
+
+## Item 2, the project task card (2026-11-02 14:1x)
+
+The project page's task card says "On hold until you answer: <reason>" for an agent's hold for the person (and
+"On hold until you answer" with no reason), as the Tasks row does; a plain hold keeps "On hold: <reason>". Checked in
+render-onhold-4771 in both viewports. The project page's needs-you COUNT is still roster-only: next piece.

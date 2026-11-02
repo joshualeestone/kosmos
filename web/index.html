@@ -69834,7 +69834,10 @@ function paintProjectTasks(p) {
          function and run it alone. The Tasks view row carries the same line (tsk-from). */
       + (t.addedVia === 'webhook' ? '<span class="tkcard-from">' + (t.addedBy ? 'From ' + esc(t.addedBy) + ' (a webhook)' : 'From a webhook') + '</span>' : '')
       + who + (builtOpen ? '<span class="tkcard-built">Built, waiting for you to check it</span>' : '')
-      + (t.onHold === true && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tkcard-from" style="overflow-wrap:anywhere;">On hold: ' + esc(t.onHoldBecause) + '</span>' : '')   // kosmos#7749
+      /* kosmos#7797: an agent's hold for the person says it waits on them, as the Tasks row does (tsk-for-you). */
+      + (t.onHold === true && t.onHoldForPerson === true
+        ? '<span class="tkcard-from tkcard-for-you" style="overflow-wrap:anywhere;">On hold until you answer' + (typeof t.onHoldBecause === 'string' && t.onHoldBecause ? ': ' + esc(t.onHoldBecause) : '') + '</span>'
+        : t.onHold === true && typeof t.onHoldBecause === 'string' && t.onHoldBecause ? '<span class="tkcard-from" style="overflow-wrap:anywhere;">On hold: ' + esc(t.onHoldBecause) + '</span>' : '')   // kosmos#7749
       + chip + '</button>';
   }).join('');
   // ⚠️ Change-guarded, the removed-list's own pattern: the five-second poll
