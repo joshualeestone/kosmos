@@ -1,8 +1,8 @@
 'use strict';
 /*
- * kosmos#7796: GET /api/community/home also reads the agent's vote standing (the one signed read on that route), with a
- * bounded wait, and not while the community or the public one is off. A vote cast through the board drops the agent's
- * cached home read, so the next home shows the new standing. engine/communityhome and engine/communityvote are stubbed at
+ * kosmos#7796: GET /api/community/home shows the agent's vote standing as the board last read it (kosmos community votes), with
+ * its age, and never makes the signed call itself. A vote through the board forgets it; nothing is shown while the
+ * community or the public one is off. engine/communityhome and engine/communityvote are stubbed at
  * their seams (the routes call them through the module objects). No network.
  *
  *   node --test server.homevotes-7796.test.js
@@ -48,54 +48,50 @@ test.after(() => { communityhome.homeFor = realHomeFor; communityvote.standing =
 
 const base = () => `http://127.0.0.1:${server.address().port}`;
 const home = (tok) => fetch(`${base()}/api/community/home`, { headers: { 'x-kosmos-agent-token': tok } });
+const votesRead = (tok) => fetch(`${base()}/api/community/votes`, { headers: { 'x-kosmos-agent-token': tok } });
+const castVote = (tok) => fetch(`${base()}/api/community/vote`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
+  body: JSON.stringify({ kind: 'post', id: '1b2c3d4e-0000-4000-8000-000000000001', direction: 'up' }) });
 
-test('home carries the Votes line, read once for the authenticated agent with a bounded wait', async (t) => {
-  const b = fleet.install([fleet.agent('Voter', { state: 'idle' })]);
-  t.after(() => b.restore());
-  homes = []; standings = []; homeAs = {};
-  const j = await (await home(sendertoken.mint('Voter').token)).json();
-  assert.match(j.text, /\nVotes: 1 vote standing in the last 24 hours \(Kosmos asks for 3; 2 more would meet it/);
-  assert.deepEqual(standings.map((s) => s.agentKey), ['Voter']);
-  const w = standings[0].opts.waitMs;
-  assert.ok(Number.isFinite(w) && w > 0 && w <= 10000, 'the wait for the slot is bounded: ' + w);
-});
-
-test('a failed standing read says so, never a 0', async (t) => {
-  const b = fleet.install([fleet.agent('Busy', { state: 'idle' })]);
-  t.after(() => { b.restore(); standingAnswer = { ok: true, standing: { held: 1, required: 3, remaining: 2, cast: 1, limit: 50 } }; });
-  standingAnswer = { ok: false, because: 'busy' };
-  homeAs = {};
-  const j = await (await home(sendertoken.mint('Busy').token)).json();
-  assert.match(j.text, /\nVotes: could not be read just now/);
-});
-
-test('nothing signed is read while the community, or the public one, is off', async (t) => {
-  const b = fleet.install([fleet.agent('Off1', { state: 'idle' }), fleet.agent('Off2', { state: 'idle' }), fleet.agent('On1', { state: 'idle' })]);
-  t.after(() => { b.restore(); homeAs = {}; });
-  standings = [];
-  homeAs = { switchedOn: false };
-  await (await home(sendertoken.mint('Off1').token)).json();
-  homeAs = { publicOff: 'your company has the public community off' };
-  await (await home(sendertoken.mint('Off2').token)).json();
-  assert.deepEqual(standings, []);
-  homeAs = {};
-  await (await home(sendertoken.mint('On1').token)).json();
-  assert.deepEqual(standings.map((s) => s.agentKey), ['On1'], 'CONTROL: with it on, the standing is read');
-});
-
-test('a vote through the board drops the cached home read, so the next home reads the standing again', async (t) => {
-  const b = fleet.install([fleet.agent('Caster', { state: 'idle' })]);
+test('home never reads the standing itself; before any read of it, it says so', async (t) => {
+  const b = fleet.install([fleet.agent('Fresh', { state: 'idle' })]);
   t.after(() => b.restore());
   standings = []; homeAs = {};
+  const j = await (await home(sendertoken.mint('Fresh').token)).json();
+  assert.match(j.text, /\nVotes: not read since your last vote or since this board started/);
+  assert.deepEqual(standings, [], 'home made the signed call');
+});
+
+test('after kosmos community votes, home shows that standing and its age, from the same cached home read', async (t) => {
+  const b = fleet.install([fleet.agent('Reader', { state: 'idle' })]);
+  t.after(() => b.restore());
+  standings = []; homes = []; homeAs = {};
+  const tok = sendertoken.mint('Reader').token;
+  await (await home(tok)).json();
+  assert.equal((await votesRead(tok)).status, 200);
+  const j = await (await home(tok)).json();
+  assert.match(j.text, /\nVotes: 1 vote standing in the last 24 hours when last read, just now \(Kosmos asks for 3; 2 more would meet it/);
+  assert.deepEqual(homes, ['Reader'], 'CONTROL: the second home reused the first read, and still shows the new standing');
+  assert.deepEqual(standings.map((s) => s.agentKey), ['Reader'], 'only the votes command read it');
+});
+
+test('a vote forgets the remembered standing; a failed standing read does not replace it', async (t) => {
+  const b = fleet.install([fleet.agent('Caster', { state: 'idle' })]);
+  t.after(() => { b.restore(); standingAnswer = { ok: true, standing: { held: 1, required: 3, remaining: 2, cast: 1, limit: 50 } }; });
+  homeAs = {};
   const tok = sendertoken.mint('Caster').token;
-  await (await home(tok)).json();
-  await (await home(tok)).json();
-  /* Standing reads, not home reads: a vote also starts the board's read-ahead refresh (homeFor, never the standing). */
-  assert.deepEqual(standings.map((s) => s.agentKey), ['Caster'], 'CONTROL: a second read inside the reuse window is the first one');
-  const v = await fetch(`${base()}/api/community/vote`, { method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok },
-    body: JSON.stringify({ kind: 'post', id: '1b2c3d4e-0000-4000-8000-000000000001', direction: 'up' }) });
-  assert.equal(v.status, 200, 'the vote went through: ' + v.status);
-  await (await home(tok)).json();
-  assert.deepEqual(standings.map((s) => s.agentKey), ['Caster', 'Caster'], 'the home after the vote read the standing again');
+  await votesRead(tok);
+  standingAnswer = { ok: false, because: 'busy' };
+  await votesRead(tok);
+  assert.match((await (await home(tok)).json()).text, /\nVotes: 1 vote standing/, 'a failed read kept what was known');
+  assert.equal((await castVote(tok)).status, 200);
+  assert.match((await (await home(tok)).json()).text, /\nVotes: not read since your last vote/);
+});
+
+test('no Votes line while the community, or the public one, is off', async (t) => {
+  const b = fleet.install([fleet.agent('Off1', { state: 'idle' }), fleet.agent('Off2', { state: 'idle' })]);
+  t.after(() => { b.restore(); homeAs = {}; });
+  homeAs = { switchedOn: false };
+  assert.doesNotMatch((await (await home(sendertoken.mint('Off1').token)).json()).text, /Votes:/);
+  homeAs = { publicOff: 'your company has the public community off' };
+  assert.doesNotMatch((await (await home(sendertoken.mint('Off2').token)).json()).text, /Votes:/);
 });

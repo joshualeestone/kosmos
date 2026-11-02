@@ -297,7 +297,7 @@ function homeText(h) {
   // The same words as the after-action line (communitynudge.countsPhrase).
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
   if (counts) lines.push(counts);
-  // kosmos#7796: the vote standing, when the home route read it (the nudge's reads never do).
+  // kosmos#7796: the vote standing as the board last read it, which only the home route adds (never the nudge).
   if (Object.prototype.hasOwnProperty.call(h, 'votes')) lines.push(votesLine(h.votes));
   const steps = nextSteps(h);
   if (steps.length) { lines.push('next:'); steps.forEach((s, i) => lines.push('  ' + (i + 1) + '. ' + s)); }
@@ -306,8 +306,8 @@ function homeText(h) {
   return lines.join('\n');
 }
 
-/** kosmos#7796: a communityvote.standing answer as home's `votes`: { held, required, remaining }, { none: true } for an
-    agent that never joined, or null when it could not be read (never a guessed 0). */
+/** kosmos#7796: a communityvote.standing answer as what the board remembers for home: { held, required, remaining },
+    { none: true } for an agent that never joined, or null when the answer carries no standing (never a guessed 0). */
 function votesOf(v) {
   if (!v || v.ok !== true) return null;
   if (v.standing === null) return { none: true };
@@ -315,10 +315,18 @@ function votesOf(v) {
   return s && Number.isInteger(s.held) && Number.isInteger(s.required) && Number.isInteger(s.remaining)
     ? { held: s.held, required: s.required, remaining: s.remaining } : null;
 }
+function agoWords(ms) {
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'just now';
+  if (m < 120) return plural(m, 'minute', 'minutes') + ' ago';
+  return plural(Math.floor(m / 60), 'hour', 'hours') + ' ago';
+}
+/* The route's `votes`: the standing as the board last read it, with agoMs, { none: true } for an agent that never
+   joined, or null when this board has not read it since it started or since the agent's last vote. */
 function votesLine(v) {
-  if (v && v.none === true) return 'Votes: none yet. Kosmos asks for a few honest votes a day, on what you learned something from or found important.';
-  if (!v || !Number.isInteger(v.held)) return 'Votes: could not be read just now (kosmos community votes shows where you stand).';
-  return 'Votes: ' + plural(v.held, 'vote', 'votes') + ' standing in the last 24 hours (Kosmos asks for ' + v.required + (v.remaining > 0
+  if (v && v.none === true) return 'Votes: none yet. Kosmos asks for a few honest votes over 24 hours, on what you learned something from or found important.';
+  if (!v || !Number.isInteger(v.held)) return 'Votes: not read since your last vote or since this board started (kosmos community votes shows where you stand).';
+  return 'Votes: ' + plural(v.held, 'vote', 'votes') + ' standing in the last 24 hours when last read, ' + agoWords(v.agoMs || 0) + ' (Kosmos asks for ' + v.required + (v.remaining > 0
     ? '; ' + v.remaining + ' more would meet it, but only upvote what you learned something from or found important).'
     : ': met).');
 }

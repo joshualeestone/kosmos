@@ -1397,7 +1397,14 @@ const homeGen = (s) => HOME_GEN.get(String(s)) || 0;
 const HOME_ROUTE = new Map();          // agent -> { p, done }: the route's in-flight or recent read (review 1)
 const HOME_ROUTE_REUSE_MS = 30 * 1000;
 const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
-const HOME_VOTES_WAIT_MS = 10 * 1000;   // kosmos#7796: at most this long for the agent's call slot
+/* kosmos#7796: each agent's vote standing as `kosmos community votes` last read it ({ held, required, remaining } or
+   { none: true }, and when), for community home. Forgotten when the agent votes through the board (it is then wrong);
+   in memory, so a restart forgets it too. */
+const VOTE_STANDING = new Map();
+function voteStandingNow(agentKey, now = Date.now()) {
+  const e = VOTE_STANDING.get(String(agentKey));
+  return e ? { ...e.v, agoMs: Math.max(0, now - e.at) } : null;
+}
 const HOME_LINE_TTL_MS = 60 * 60 * 1000;
 const HOME_REFRESH_PER_PASS = 4;
 let homeRefreshing = false;
@@ -11702,8 +11709,8 @@ const server = http.createServer(async (req, res) => {
 
   /* #5212: what is waiting for an agent in the community (engine/communityhome.js): unanswered comments on its recent
      posts, new posts from agents it follows, its posts' scores, the floors over the last 24 hours, and next steps. The reader is the agent
-     authenticated by its token (resolveAgentSender), never a name in the request. Public service reads, and one signed
-     read for the vote standing (kosmos#7796, below); nothing is sent as the agent. */
+     authenticated by its token (resolveAgentSender), never a name in the request. Public service reads only; nothing
+     is sent as the agent, so it never takes the agent's one community slot. */
   if (pathname === '/api/community/home' && req.method === 'GET') {
     if (!presentedAgentToken(req, null)) { sendJson(res, 403, { error: 'reading your community home requires an agent token' }); return; }
     const authRoster = safeRoster();
@@ -11716,21 +11723,16 @@ const server = http.createServer(async (req, res) => {
     const agentKey = String(who.card.sessionName);
     let pending = HOME_ROUTE.get(agentKey);
     if (!pending || (pending.done && Date.now() - pending.done > HOME_ROUTE_REUSE_MS)) {
-      const deadline = Date.now() + HOME_ROUTE_DEADLINE_MS;
-      /* kosmos#7796: the vote standing too, read after the public parts with what is left of the deadline. It is the
-         one signed read here: communityvote.standing takes the agent's call slot, answers busy at once when the agent
-         has a call out, and waits at most HOME_VOTES_WAIT_MS. Not read while the community, or the public one, is off. */
-      pending = { done: 0, p: communityhome.homeFor(agentKey, { deadline }).then(async (h) => {
-        if (!h || !h.switchedOn || h.publicOff) return h;
-        let v = null;
-        try { v = await communityvote.standing(agentKey, { waitMs: Math.max(0, Math.min(HOME_VOTES_WAIT_MS, deadline - Date.now())) }); } catch { v = null; }
-        return { ...h, votes: communityhome.votesOf(v) };
-      }) };
+      pending = { done: 0, p: communityhome.homeFor(agentKey, { deadline: Date.now() + HOME_ROUTE_DEADLINE_MS }) };
       pending.p.then(() => { pending.done = Date.now(); }, () => { HOME_ROUTE.delete(agentKey); });
       HOME_ROUTE.set(agentKey, pending);
     }
+    /* kosmos#7796: the vote standing as this board last read it for the agent (VOTE_STANDING), added as it is sent, not
+       cached with the read, so its age is now's. Never read here: the standing is behind the agent's own signed call,
+       and a read must never make the agent's next vote answer busy (#5211 review 2). */
+    const withVotes = (h) => (h && h.switchedOn && !h.publicOff ? { ...h, votes: voteStandingNow(agentKey) } : h);
     pending.p
-      .then((h) => sendJson(res, 200, { ok: true, text: communityhome.homeText(h), home: h }))
+      .then((h0) => { const h = withVotes(h0); sendJson(res, 200, { ok: true, text: communityhome.homeText(h), home: h }); })
       .catch(() => sendJson(res, 500, { error: 'we could not read your community home just now' }));
     return;
   }
@@ -11769,7 +11771,9 @@ const server = http.createServer(async (req, res) => {
           .then((r) => {
             const answer = (extra) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text, ...extra } : { error: r.because });
             // #5211 item 2: after a vote that went through, the post's author, whether you follow them, the floors over the last 24 hours.
-            if (casting) HOME_ROUTE.delete(String(who.card.sessionName));   // kosmos#7796: home shows the vote standing
+            /* kosmos#7796: what community home shows of the standing: forgotten after a vote, kept after a read of it. */
+            if (casting) VOTE_STANDING.delete(String(who.card.sessionName));
+            else if (r.ok) { const v = require('./engine/communityhome').votesOf(r); if (v) VOTE_STANDING.set(String(who.card.sessionName), { v, at: Date.now() }); }
             if (!casting || !r.ok) { answer({}); return; }
             const postId = str(body.kind).trim().toLowerCase() === 'post' ? str(body.id) : null;
             return communityNudge(who.card.sessionName, postId, startedAt).then((nudge) => answer(nudge ? { nudge } : {}));
