@@ -285,8 +285,13 @@ let carriedT = row(9, "decision") { $0.waitingOn = [.init(who: "max", reason: "q
 let drawnTwice = Tasks.sections(Board.TasksRead(tasks: [carriedT], rosterUnknown: false), project: nil)
 let closedT = row(9, "closed")
 let liveTwice = Tasks.keepingPlaces(drawnTwice, with: Board.TasksRead(tasks: [closedT], rosterUnknown: false, asking: [maxAsks]), project: nil)
-check(liveTwice.first { $0.group.key == "decision" }.map { $0.rows.count == 1 && $0.asking.isEmpty } == true, "a kept decision row still showing the question is not listed again (no double count)")
-check(Tasks.sections(Board.TasksRead(tasks: [closedT], rosterUnknown: false, asking: [maxAsks]), project: nil).first { $0.group.key == "decision" }?.asking.map(\.who) == ["max"], "CONTROL: laid out again, the question is listed")
+check(liveTwice.first { $0.group.key == "decision" }?.asking.map(\.who) == ["max"], "review 2: a task closed in place no longer shows the question, so the question is listed (never lost)")
+check(Tasks.sections(Board.TasksRead(tasks: [closedT], rosterUnknown: false, asking: [maxAsks]), project: nil).first { $0.group.key == "decision" }?.asking.map(\.who) == ["max"], "laid out again, the same")
+let workingTB = row(9, "working")
+let carriesA = row(9, "working") { $0.waitingOn = [.init(who: "max", reason: "question")] }
+let maxAsksB = Board.Asking(who: "max", projectId: "p2", projectName: "Other", projectPath: [], waitingSince: nil)
+let drawnB = Tasks.sections(Board.TasksRead(tasks: [workingTB], rosterUnknown: false, asking: [maxAsksB]), project: nil)
+check(Tasks.keepingPlaces(drawnB, with: Board.TasksRead(tasks: [carriesA], rosterUnknown: false), project: nil).first { $0.group.key == "decision" }?.asking ?? [] == [], "review 2: a row carrying the agent's question about ANOTHER project does not keep this one")
 let workingT = row(9, "working")
 let drawnLost = Tasks.sections(Board.TasksRead(tasks: [workingT], rosterUnknown: false, asking: [maxAsks]), project: nil)
 let nowCarried = row(9, "decision") { $0.waitingOn = [.init(who: "max", reason: "question")] }
