@@ -29,7 +29,7 @@ function load(answer) {
     // The network is the test's: pbPost answers what the test says, pbMaybe reads nothing.
     'async function pbPost(kind, body) { posted.push({ kind, body }); return answer; }',
     'function pbMaybe() {}',
-    liftConst(SCRIPT, 'PB_WHY'),
+    liftConst(SCRIPT, 'PB_WHY'), liftConst(SCRIPT, 'PB_WHY_OPENING'),
     liftAll(SCRIPT, ['asSentence', 'pbMsg', 'pbPrice', 'pbJobLines', 'pbWhyWords', 'pbSkippedWords', 'pbSkippedShow', 'pbPaint', 'pbCodeText', 'pbShowCode', 'pbSaved', 'pbFinish', 'pbPrintClear'])].join('\n'), ctx);
   ctx.PB.st = { shown: true, price: null, state: 'needs-key' };
   return { ctx, el: (id) => dom.document.getElementById(id) };
@@ -176,4 +176,27 @@ test('#pb-printout is never in the page\'s own markup (made only to print), and 
   // #7681 suite: a static child of body is a 43rd pre-rail row in the consolidated grid (web.consolidated-980.test.js).
   assert.doesNotMatch(html, /<div id="pb-printout"/, 'the printout is back in the static markup');
   assert.match(html, /body\.pb-printing > \*:not\(#pb-printout\) \{ display: none !important; \}/, 'the print rule changed');
+});
+
+/* kosmos#7404 review 2: the left-out list through the real pbPaint. Shown on a plain on view, rebuilt only when it
+   changes (so an open list stays open), and hidden and closed beside a stop. */
+test('the left-out list shows on a plain on view, stays open across a repaint, and goes with a stop', () => {
+  const { ctx, el } = load({ ok: true });
+  const job = { lastOk: '2026-10-31T14:07:00.000Z', stopped: null, note: null,
+    skippedFiles: { count: 3, files: [{ path: 'a/film.mov', why: 'larger than 64 MB, too large to scan' }, { path: 'b.zip', why: 'compressed content (cannot be scanned)' }] } };
+  ctx.PB.st = { shown: true, price: '$5/month', state: 'on', job };
+  ctx.pbPaint();
+  assert.equal(el('pb-skipped').hidden, false, 'shown beside a plain on view');
+  assert.equal(el('pb-skipped-sum').textContent, '3 files and folders were left out of the last backup');
+  assert.equal(el('pb-skipped-list').children.length, 2);
+  assert.equal(el('pb-skipped-more').textContent, '1 more is not named here.');
+  el('pb-skipped').open = true;
+  const first = el('pb-skipped-list').children[0];
+  ctx.pbPaint();
+  assert.equal(el('pb-skipped').open, true, 'an open list stays open across the repaint');
+  assert.equal(el('pb-skipped-list').children[0], first, 'not rebuilt when nothing changed');
+  ctx.PB.st = { shown: true, price: '$5/month', state: 'on', job: { ...job, stopped: 'Stopped.' } };
+  ctx.pbPaint();
+  assert.equal(el('pb-skipped').hidden, true, 'hidden beside a stop');
+  assert.equal(el('pb-skipped').open, false, 'and closed, so it does not come back open');
 });
