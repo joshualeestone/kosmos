@@ -48,7 +48,9 @@ function holdSet(projectId, n, read) {
     const at = Date.parse(e.at);
     if (!Number.isFinite(at)) continue;
     if (e.kind === 'hold-cleared' && at > cleared) cleared = at;
-    if (e.kind === 'hold-set' && (!last || at >= last.at)) last = { at, byPerson: e.via === 'screen' };
+    /* kosmos#7797 review 2: marking or unmarking a hold for the person is recorded (it moves the task between groups) but
+       is not a new hold: the condition's age and the stale-hold count keep running from the hold itself. */
+    if (e.kind === 'hold-set' && e.markOnly !== true && (!last || at >= last.at)) last = { at, byPerson: e.via === 'screen' };
   }
   return last && cleared <= last.at ? last : null;
 }
