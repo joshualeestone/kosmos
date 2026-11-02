@@ -344,3 +344,53 @@ test('untilIdle waits for a stopped restore to end, and forget drops its answer'
   job.forget();
   assert.equal(job.status().last, null);
 });
+
+test('a restore that ends after Off brings back no names', async () => {
+  const { fork, made } = fakeFork();
+  job.start('k1', { fork, base: SANDBOX });
+  await tick();
+  job.stop();
+  job.forget();   // Off gave up waiting: the child ends later
+  made[0].emit('message', { done: { ok: true, moved: ['taxes-2025'], world: { id: 'w', name: 'n' } } });
+  await tick(); await tick();
+  const s = job.status();
+  assert.ok(!JSON.stringify(s).includes('taxes-2025'), 'a late answer kept its names after Off');
+  assert.equal(s.last.code, 'stopped');
+  assert.match(s.last.because, /Personal backup was turned off/);
+});
+
+test('forget ends a list that is running', async () => {
+  const { fork, made } = fakeFork();
+  const p = job.list({ fork });
+  await tick();
+  job.forget();
+  assert.equal(made[0].killed, true);
+  made[0].emit('close', null, 'SIGTERM');
+  assert.equal((await p).ok, false);
+});
+
+test('a restore whose child could not start says so, even if Stop came first', async () => {
+  const fork = () => { throw new Error('no fork'); };
+  job.start('k1', { fork, base: SANDBOX });
+  job.stop();
+  await tick(); await tick();
+  const s = job.status();
+  assert.equal(s.running, false);
+  assert.match(s.last.because, /could not start/);
+  assert.equal(s.last.stoppedByPerson, undefined);
+});
+
+test('a child that ends without an answer has its last stderr written to the board log', async () => {
+  const { fork, made } = fakeFork();
+  const warned = [];
+  const was = console.warn;
+  console.warn = (m) => warned.push(String(m));
+  try {
+    const p = job.list({ fork: (...a) => { const c = fork(...a); c.stderr = new EventEmitter(); return c; } });
+    await tick();
+    made[0].stderr.emit('data', Buffer.from('TypeError: boom at restoresink.js:1\n'));
+    made[0].emit('close', 1, null);
+    await p;
+  } finally { console.warn = was; }
+  assert.ok(warned.some((w) => w.includes('TypeError: boom')), JSON.stringify(warned));
+});
