@@ -520,14 +520,15 @@ function stopOf(r) {
 /* kosmos#7775: what the last run did that a person may want to know, though it backed up. Each is a fixed sentence
    picked by a flag the run carried: checkpointsLost (backuprun, a progress write that failed) and sealedInProcess
    (backupsnapshot, the seal worker could not be used, so the board waited for the seal). unsignedBecause is not here:
-   it is on ensureMemberKey's answer, which runOnce does not pass to runBackup's. */
+   backupjob.fromAnswer builds the run's key without it. */
 const RUN_SAY = [
-  ['lostCheckpoints', 'On the last try, this computer could not save its progress along the way, so an interrupted backup may have to redo some work.'],
+  ['lostCheckpoints', 'On the last try, this computer could not save its progress along the way, so the next backup may have to redo some work.'],
+  ['troubleSaving', 'The last backup finished, but this computer had trouble saving its progress along the way. If this keeps happening, check that this computer has free disk space.'],
   ['sealedHere', 'The last backup finished without its background helper, so Kosmos may have been slow for a moment while it did.'],
 ];
 const SEALED_HOW = ['not-sent', 'no-worker', 'worker-ended', 'no-answer'];
 function runFlags(r) {
-  return Object.assign({}, Number.isInteger(r.checkpointsLost) && r.checkpointsLost > 0 ? { lostCheckpoints: true } : {},
+  return Object.assign({}, Number.isInteger(r.checkpointsLost) && r.checkpointsLost > 0 ? { [r.ok ? 'troubleSaving' : 'lostCheckpoints']: true } : {},
     SEALED_HOW.includes(r.sealedInProcess) ? { sealedHere: true } : {});
 }
 const runSay = (j) => RUN_SAY.filter(([flag]) => j[flag] === true).map(([, say]) => say);

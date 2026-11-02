@@ -355,7 +355,7 @@ test('#7775: the last run\'s lost checkpoints and in-process seal are plain line
   const pair = newPair();
   const o = onNow(chain(pair, []), pair);
   const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
-  const lost = /On the last try, this computer could not save its progress/;
+  const lost = /On the last try, this computer could not save its progress|had trouble saving its progress/;
   const sealed = /without its background helper/;
   await run({ ok: true, checkpointsLost: 3 }, 12);
   let r = pb.report(o);
@@ -395,6 +395,18 @@ test('#7775: the in-process seal line belongs to the last finished backup, so a 
   assert.match(String(pb.report(o).note), sealed, 'a failed try does not drop it');
   await run({ ok: true }, 14);
   assert.equal(pb.report(o).note, null, 'the next finished backup replaces it');
+});
+test('#7775: lost checkpoints on a finished backup say it finished; on a failed try, that the next may redo work', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
+  await run({ ok: true, checkpointsLost: 2 }, 12);
+  let note = String(pb.report(o).note);
+  assert.match(note, /^The last backup finished, but this computer had trouble saving its progress/);
+  assert.doesNotMatch(note, /redo/, 'nothing was interrupted, so nothing is to redo');
+  await run({ ok: false, because: 'Kosmos+ could not be reached', checkpointsLost: 2 }, 13);
+  note = String(pb.report(o).note);
+  assert.match(note, /^On the last try, this computer could not save its progress along the way, so the next backup may have to redo some work\.$/);
 });
 test('#7775: before any backup has finished, the line follows "not finished yet"', async () => {
   const pair = newPair();
