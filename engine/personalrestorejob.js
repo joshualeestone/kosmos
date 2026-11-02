@@ -8,11 +8,13 @@
  *   start(key)    restore one backup into a new Kosmos (personalrestore.restoreFiles, in a child). One at a time on
  *                 this board; answers at once with { ok: true }, and status() says the rest (a child that
  *                 could not start shows there too).
- *   status()      { running, startedAt, last }: last is the most recent restore's answer, by named fields. With
+ *   status()      { running, startedAt, last }: last is the most recent FINISHED restore's answer, by named fields
+ *                 (while one runs, it is the one before). With
  *                 { namesHidden }, the counts of moved, kept, held back and failed files and not their names.
  *   stop()        ends the restore that is running; what it had already written stays in its new Kosmos.
  *   untilIdle(ms) resolves true once no restore runs, or false after ms.
- *   forget()      drops the last restore's answer (personal backup was turned off).
+ *   forget()      personal backup was turned off: drops the last restore's answer (and that of one still ending)
+ *                 and ends any list that is running.
  * A child also exits by itself when the board goes, because its IPC channel closes.
  *
  * Known limits, on #7404 for the screen slice:
@@ -44,6 +46,7 @@ const ROUTES = new Set([
 ]);
 // A list is a few signed rounds; past this something is stuck. A restore has no such bound: it can run for hours.
 const LIST_TIMEOUT_MS = 5 * 60 * 1000;
+const STDERR_KEPT = 4096;
 
 const refused = (because, code) => (code ? { ok: false, because, code } : { ok: false, because });
 const LIST_FAILED = 'Your backups could not be listed on this computer just now. Try again.';
@@ -116,15 +119,21 @@ function runChild(ask, deps = {}) {
       resolve(answer);
     };
     try {
-      child = fork(CHILD, [], { execArgv: [], stdio: ['ignore', 'ignore', 'ignore', 'ipc'], serialization: 'json', windowsHide: true });
+      child = fork(CHILD, [], { execArgv: [], stdio: ['ignore', 'ignore', 'pipe', 'ipc'], serialization: 'json', windowsHide: true });
     } catch { done(null); return; }
+    // The end of the child's stderr, for the board's log when it ends without an answer (a crash leaves nothing else).
+    let errTail = '';
+    if (child.stderr) child.stderr.on('data', (b) => { errTail = (errTail + String(b)).slice(-STDERR_KEPT); });
     children.add(child);
     if (deps.onChild) deps.onChild(child);
     if (deps.timeoutMs) { timer = setTimeout(() => done(null), deps.timeoutMs); if (timer.unref) timer.unref(); }
     child.on('error', () => done(null));
     // A child gone without its answer. On close, not exit: close comes after the channel is read to its end, so an
     // answer sent just before the child exited is always read first.
-    child.on('close', (code, signal) => done({ gone: true, code, signal }));
+    child.on('close', (code, signal) => {
+      if (!settled && errTail.trim()) { try { console.warn('personal restore: the child ended without an answer; its last words: ' + errTail.trim()); } catch { /* no console */ } }
+      done({ gone: true, code, signal });
+    });
     child.on('message', (m) => {
       if (settled || !m || typeof m !== 'object') return;
       if ('done' in m) { done(m.done); return; }
@@ -172,10 +181,16 @@ function start(key, deps = {}) {
   runChild({ op: 'restore', key, base }, Object.assign({}, deps, { onChild: (c) => { mine.child = c; } })).then((r) => r, () => null).then((r) => {
     // r: the child's answer; { gone, code, signal } when it ended without one; null when it never started.
     const how = r && r.gone ? (r.signal ? ` (it was ended by ${r.signal})` : Number.isSafeInteger(r.code) ? ` (it exited with code ${r.code})` : '') : '';
-    const cut = mine.stopped ? { ok: false, code: 'stopped', because: 'You stopped this restore. The files it had already restored stay in its new Kosmos.' }
-      : { ok: false, because: 'the restore stopped on this computer before it finished' + how };
-    last = Object.assign({ finishedAt: Date.now() }, shapeRestore(r && !r.gone ? r : cut));
-    if (mine.stopped && (!r || r.gone)) last.stoppedByPerson = true;   // set here only, never from the child's answer
+    const cut = !r ? { ok: false, because: 'the restore could not start on this computer' }
+      : mine.stopped ? { ok: false, code: 'stopped', because: 'You stopped this restore. The files it had already restored stay in its new Kosmos.' }
+        : { ok: false, because: 'the restore stopped on this computer before it finished' + how };
+    if (mine.forgotten) {
+      // Personal backup was turned off while this ended: its answer, names and all, is not kept.
+      last = { finishedAt: Date.now(), ok: false, code: 'stopped', because: 'Personal backup was turned off, so this restore was stopped.', stoppedByPerson: true };
+    } else {
+      last = Object.assign({ finishedAt: Date.now() }, shapeRestore(r && !r.gone ? r : cut));
+      if (mine.stopped && r && r.gone) last.stoppedByPerson = true;   // set here only, never from the child's answer
+    }
     if (restoring === mine) restoring = null;
   });
   return { ok: true, startedAt: mine.startedAt };
@@ -218,7 +233,12 @@ function untilIdle(ms) {
   });
 }
 
-function forget() { last = null; }
+/* Drops the last answer, and the answer of a restore still ending, so neither comes back after Off. Ends any list too. */
+function forget() {
+  last = null;
+  if (restoring) restoring.forgotten = true;
+  for (const c of children) { if (!restoring || c !== restoring.child) { try { c.kill(); } catch { /* gone */ } } }
+}
 
 /* Tests: forget the last answer and anything in flight. */
 function resetForTests() { endChildren(); children.clear(); listing = null; restoring = null; last = null; }
