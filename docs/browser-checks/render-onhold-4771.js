@@ -346,6 +346,30 @@ function chk(ok, label, extra) {
         `${tag} #6683 a hold made outside the screen says an agent or the person can take it off`, await text(page, '#tk-hold-hint'));
       tasks.setOnHold(launch.id, 2, false);
 
+      /* kosmos#7788: an agent's hold for the person (`kosmos task hold --for-you`) sits in Needs Your Decision, not On
+         hold, and says how it clears, on its row and its page. The plain hold just above is the control: it said the
+         #6683 words and counted under On hold. Taken off again after, so the next viewport starts the same. */
+      const decisionBefore = await (async () => { await page.evaluate(() => showTab('tasks')); await page.waitForTimeout(300); return text(page, '#tsk-tiles [data-tile="decision"] .num'); })();
+      tasks.setOnHold(launch.id, 2, true, { forPerson: true, because: 'needs your yes on the price' });
+      await openTask(page, launch.id, 2);
+      await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Take off hold', null, { timeout: 5000 }).catch(() => {});
+      chk(/^An agent put this on hold until you answer it\. Once you have, take it off hold here, or tell the agent\./.test(await text(page, '#tk-hold-hint') || ''),
+        `${tag} #7788 a hold for you says it waits on your answer and how it clears`, await text(page, '#tk-hold-hint'));
+      await page.evaluate(() => showTab('tasks'));
+      const wantDecision = String(Number(decisionBefore) + 1);
+      await page.waitForFunction((w) => { const n = document.querySelector('#tsk-tiles [data-tile="decision"] .num'); return n && n.textContent === w; }, wantDecision, { timeout: 6000 }).catch(() => {});
+      chk(await text(page, '#tsk-tiles [data-tile="decision"] .num') === wantDecision,
+        `${tag} #7788 Needs Your Decision counts the hold for you`, JSON.stringify([decisionBefore, await text(page, '#tsk-tiles [data-tile="decision"] .num')]));
+      const decisionRows = await tileRows(page, 'decision');
+      const heldNow = await heldRows(page);
+      const launchTwo = (await page.evaluate(async (pid) => { const r = await fetch('/api/tasks?project=' + encodeURIComponent(pid)); return (await r.json()).tasks.find((t) => t.number === 2); }, launch.id)) || {};
+      chk(decisionRows.includes(launchTwo.sentence) && !heldNow.includes(launchTwo.sentence),
+        `${tag} #7788 the task lists under Needs Your Decision and not under On hold`, JSON.stringify({ decisionRows, heldNow }));
+      const forYou = await page.evaluate(() => { const e = document.querySelector('#tsk-groups .tsk-for-you'); return e ? e.textContent.trim() : null; });
+      chk(forYou === 'On hold until you answer: needs your yes on the price. Open it and take it off hold once you have.',
+        `${tag} #7788 its row says what it waits on and how it clears`, forYou);
+      tasks.setOnHold(launch.id, 2, false);
+
       /* A finished task offers no hold; the open task above is the control that it is offered at all. */
       await page.evaluate(async (pid) => { if (await tskGoToProject(pid)) openTaskPage(3); }, launch.id);
       await page.waitForTimeout(300);
