@@ -8,7 +8,7 @@
  *   start(key)    restore one backup into a new Kosmos (personalrestore.restoreFiles, in a child). One at a time on
  *                 this board; answers at once, { ok: true } once the child is started, and status() says the rest.
  *   status()      { running, startedAt, last }: last is the most recent restore's answer, by named fields.
- *   stopAll()     ends every child (tests, and a board that stops on purpose).
+ *   (no stop: a child exits by itself when the board goes, because its IPC channel closes.)
  *
  * The child signs nothing. Its Kosmos+ requests come back here and only ROUTES are signed, through remote.macRequest,
  * so the busy() guard around a register or a Forget holds for a restore as for anything else. Any other route is
@@ -137,11 +137,11 @@ function status() {
   return { running: !!restoring, startedAt: restoring ? restoring.startedAt : null, last };
 }
 
-function stopAll() {
+function endChildren() {
   for (const c of children) { try { c.kill(); } catch { /* gone */ } }
 }
 
 /* Tests: forget the last answer and anything in flight. */
-function resetForTests() { stopAll(); children.clear(); listing = null; restoring = null; last = null; }
+function resetForTests() { endChildren(); children.clear(); listing = null; restoring = null; last = null; }
 
-module.exports = { list, start, status, stopAll, ROUTES, shapeList, shapeRestore, _resetForTests: resetForTests };
+module.exports = { list, start, status, ROUTES, shapeList, shapeRestore, _resetForTests: resetForTests };

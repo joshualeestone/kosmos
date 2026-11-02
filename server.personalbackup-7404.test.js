@@ -46,7 +46,7 @@ async function call(p, { method = 'POST', body, headers } = {}) {
   return { status: res.status, json };
 }
 const SCREEN = { 'sec-fetch-site': 'same-origin' };
-const POSTS = ['preview', 'on', 'key', 'saved', 'restore', 'off'].map((k) => '/api/personal-backup/' + k);
+const POSTS = ['preview', 'on', 'key', 'saved', 'restore', 'off', 'backups', 'files'].map((k) => '/api/personal-backup/' + k);
 function offerOn(t, price) {
   process.env.KOSMOS_PERSONAL_BACKUP = '1';
   if (price === undefined) delete process.env.KOSMOS_PERSONAL_BACKUP_PRICE; else process.env.KOSMOS_PERSONAL_BACKUP_PRICE = price;
@@ -57,6 +57,7 @@ test('#7404: with the switch off there is no surface: every route answers 404, e
   assert.ok(store.ROOT.startsWith(SANDBOX), 'not sandboxed: ' + store.ROOT);
   const g = await call('/api/personal-backup', { method: 'GET', headers: SCREEN });
   assert.equal(g.status, 404, JSON.stringify(g));
+  assert.equal((await call('/api/personal-backup/files', { method: 'GET', headers: SCREEN })).status, 404);
   for (const p of POSTS) assert.equal((await call(p, { body: {}, headers: SCREEN })).status, 404, p);
 });
 
@@ -66,6 +67,7 @@ test('#7404: switch on, an agent is refused on every route', async (t) => {
   t.after(() => b.restore());
   const asLeo = { 'x-kosmos-agent-token': sendertoken.mint('leo').token };
   assert.equal((await call('/api/personal-backup', { method: 'GET', headers: asLeo })).status, 403);
+  assert.equal((await call('/api/personal-backup/files', { method: 'GET', headers: asLeo })).status, 403);
   for (const p of POSTS) {
     const r = await call(p, { body: { ticket: 'x', accepted: true, code: 'K7QD-3MXA-9VPE-H2NW-4TBR-6YC8-JF' }, headers: asLeo });
     assert.equal(r.status, 403, p + ' answered an agent: ' + JSON.stringify(r));
@@ -121,7 +123,7 @@ test('#7404: from the screen, a decline turns nothing on; a bad code restores no
 });
 
 test('#7404: every step needs a step-up (preview makes a membership; saved deletes what may be the only copy of the code)', () => {
-  for (const k of ['preview', 'on', 'key', 'restore', 'off', 'saved']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), true, k);
+  for (const k of ['preview', 'on', 'key', 'restore', 'off', 'saved', 'backups', 'files']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), true, k);
   assert.equal(needsRemoteStepUp('/api/personal-backup', 'GET'), false);
 });
 
@@ -162,4 +164,28 @@ test('#7404: restore and off pass only their own fields; restore goes through th
   assert.equal(gotCode, 'k7qd 3mxa', 'the typed code reaches the engine as typed (it normalises)');
   const o = await call('/api/personal-backup/off', { body: {}, headers: SCREEN });
   assert.deepEqual(o.json, { ok: false, pending: true, because: 'stopped here' });
+});
+
+/* kosmos#7404 (pbrestorejob-7404): the list and a restore of files, through the real child process. Personal backup is
+   off on this computer, so both are refused before anything is signed. */
+test('#7404: from the screen, backups and files run in the child and answer by name', async (t) => {
+  offerOn(t, '$5/month');
+  const l = await call('/api/personal-backup/backups', { body: {}, headers: SCREEN });
+  assert.equal(l.status, 200);
+  assert.equal(l.json.ok, false, JSON.stringify(l.json));
+  assert.equal(l.json.code, 'not_on');
+  const f = await call('/api/personal-backup/files', { body: { key: 'mine/k1', extra: 'x' }, headers: SCREEN });
+  assert.equal(f.json.ok, true, JSON.stringify(f.json));
+  assert.deepEqual(Object.keys(f.json).sort(), ['ok', 'startedAt']);
+  let s = null;
+  for (let i = 0; i < 200; i++) {
+    s = (await call('/api/personal-backup/files', { method: 'GET', headers: SCREEN })).json;
+    if (!s.running) break;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  assert.equal(s.running, false, JSON.stringify(s));
+  assert.equal(s.last.ok, false);
+  assert.equal(s.last.code, 'not_on');
+  const bad = await call('/api/personal-backup/files', { body: { key: 3 }, headers: SCREEN });
+  assert.equal(bad.json.code, 'no_such_backup');
 });
