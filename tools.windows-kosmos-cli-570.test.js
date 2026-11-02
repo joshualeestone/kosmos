@@ -985,3 +985,11 @@ test('#7788 Windows task hold --for-you: a board that ignores it (older) holds i
   assert.equal(ok.code, 0, 'CONTROL: a board that records the mark exits 0');
   assert.match(ok.out, /It is on the list of what is waiting on your person/);
 });
+
+test('#7788 review 2 Windows: --for-you as the value of --because is the reason, not the switch', async () => {
+  const a = await run(['task', 'hold', 'p1', '3', '--because', '--for-you'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(a.code, 0, a.err);
+  assert.deepEqual(a.calls[0].body, { onHold: true, because: '--for-you' });
+  const b = await run(['task', 'hold', 'p1', '3', '--because', 'legal', '--for-you'], () => ({ body: { task: { number: 3, onHold: true, onHoldForPerson: true } } }));
+  assert.deepEqual(b.calls[0].body, { onHold: true, because: 'legal', forPerson: true }, 'CONTROL: the switch after a reason');
+});

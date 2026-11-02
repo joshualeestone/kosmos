@@ -344,6 +344,8 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Take off hold', null, { timeout: 5000 }).catch(() => {});
       chk(/^This was put on hold outside this screen \(by an agent, or with kosmos task hold\), so an agent or you can take it off\./.test(await text(page, '#tk-hold-hint') || ''),
         `${tag} #6683 a hold made outside the screen says an agent or the person can take it off`, await text(page, '#tk-hold-hint'));
+      chk(await text(page, '#tk-hold-takeover') === 'Saving makes this hold yours, so only you can take it off.',
+        `${tag} #7788 CONTROL: Save on a plain agent hold keeps its words`, await text(page, '#tk-hold-takeover'));
       tasks.setOnHold(launch.id, 2, false);
 
       /* kosmos#7788: an agent's hold for the person (`kosmos task hold --for-you`) sits in Needs Your Decision, not On
@@ -355,6 +357,8 @@ function chk(ok, label, extra) {
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Take off hold', null, { timeout: 5000 }).catch(() => {});
       chk(/^An agent put this on hold until you answer its question\. Once you have, take it off hold here, or tell the agent\./.test(await text(page, '#tk-hold-hint') || ''),
         `${tag} #7788 a hold for you says it waits on your answer and how it clears`, await text(page, '#tk-hold-hint'));
+      chk(await text(page, '#tk-hold-takeover') === 'Saving makes this hold yours, so only you can take it off, and the task leaves Needs Your Decision.',
+        `${tag} #7788 review 2: Save says taking it over moves the task out of Needs Your Decision`, await text(page, '#tk-hold-takeover'));
       await page.evaluate(() => showTab('tasks'));
       const wantDecision = String(Number(decisionBefore) + 1);
       await page.waitForFunction((w) => { const n = document.querySelector('#tsk-tiles [data-tile="decision"] .num'); return n && n.textContent === w; }, wantDecision, { timeout: 6000 }).catch(() => {});

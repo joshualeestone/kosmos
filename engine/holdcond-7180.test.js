@@ -337,3 +337,20 @@ test('#7180 a bare re-hold that drops a condition says so in the task\'s activit
   const phrase = require('../engine/taskactphrase').phrase;
   assert.equal(phrase(sets[1]), 'Put on hold by an agent, no longer waiting for anything');
 });
+
+test('kosmos#7788 review 2: a hold for you with a condition is told once when it is met, and never by the posts rule after', () => {
+  const f = fixture();
+  const only = () => projects.readAll().filter((x) => x.id === f.id);
+  tasks.setOnHold(f.id, f.a, true, { until: { task: f.b }, forPerson: true });
+  tasks.close(f.id, f.b);
+  const freshAt = iso(Date.now() - 60000);
+  const met = hs.owed(only(), [], Date.now(), { read: () => [{ kind: 'hold-set', at: freshAt, via: 'agent', forPerson: true }] });
+  assert.equal(met.length, 1, 'the met condition of a hold for you was not owed its one line');
+  assert.equal(met[0].met, 'task #' + f.b + ' is closed');
+  // After the met line: five hours old, five posts, and still nothing, because it waits on the person.
+  const oldHold = iso(Date.now() - 5 * HOUR);
+  hs.markTold({ ...met[0], holdAt: Date.parse(oldHold) }, 'reached');
+  const posts = Array.from({ length: 5 }, (_, i) => ({ kind: 'post', id: 'q' + i, project: f.id, from: REX, to: [ADA], text: 'asking', at: iso(Date.parse(oldHold) + (i + 1) * 60000) }));
+  assert.deepEqual(hs.owed(only(), posts, Date.now(), { read: () => [{ kind: 'hold-set', at: oldHold, via: 'agent', forPerson: true }] }), [],
+    'the posts rule told the owner to lift a hold that waits on the person');
+});
