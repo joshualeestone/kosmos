@@ -75,6 +75,15 @@ test('an agent that never reported: the row says so in the agent\'s name, briefl
   assert.doesNotMatch(html, /holding/, 'our word is back on the row');
 });
 
+test('#7786: an agent that never took a turn: the row and the project card say it has not started', () => {
+  const html = rowOf(T({ claim: { claimed: null, neverReported: true, neverTurned: true, about: 'rex', because: 'this agent has never reported what it is holding' } }), 'status');
+  assert.ok(html.includes('<div class="why">' + REX.name + ' has not started yet.</div>'), html);
+  assert.doesNotMatch(html, /has not reported/, 'the old line is said as well');
+  const helper = page.liftAll(SCRIPT, ['claimNotReported', 'taskClaimHtml']);
+  const { taskClaimHtml } = new Function('esc', helper + '\nreturn { claimNotReported, taskClaimHtml };')((x) => String(x));
+  assert.match(taskClaimHtml({ claimed: null, neverReported: true, neverTurned: true }), />has not started yet</);
+});
+
 test('one fact, one wording: the project card and the task page say "never reported" the same way', () => {
   const helper = page.liftAll(SCRIPT, ['claimNotReported', 'taskClaimHtml']);
   const { claimNotReported, taskClaimHtml } = new Function('esc', helper + '\nreturn { claimNotReported, taskClaimHtml };')((x) => String(x));
