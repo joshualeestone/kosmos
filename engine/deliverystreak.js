@@ -189,8 +189,8 @@ function spanWords(ms) {
 
 /* The board log's line for one stall that ended (kosmos#7212 item 2). */
 function endedLine(e) {
-  return 'delivery-stall-ended: a message reached ' + e.name + ' at ' + e.endedAt + ', ending the stall that began ' + e.since
-    + ' (' + spanWords(e.ms) + ', ' + e.count + ' tries not seen to land' + (e.pushed ? '; the phone was told of the stall' : '') + ').\n';
+  return 'delivery-stall-ended: Kosmos saw a message land for ' + e.name + ' at ' + e.endedAt + ', ending the stall that began ' + e.since
+    + ' (' + spanWords(e.ms) + ', ' + e.count + ' tries not seen to land' + (e.pushed ? '; a stall push was sent' : '') + ').\n';
 }
 
 /* Why the last one did not land, as the middle sentence of the card's line (Mona Lisa's design, #7212): no full stop,
