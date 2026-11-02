@@ -22,16 +22,15 @@ test('votesOf reads a standing, a never-joined agent, and an unreadable answer',
   assert.equal(home.votesOf({ ok: true, standing: { held: '2', required: 3, remaining: 1 } }), null, 'a malformed standing is not shown as a number');
 });
 
-test('the Votes line sits after the counts line, and says when it was read and what is left or that it is met', () => {
+test('the Votes line sits after the counts line, with its age and the verdict as of that reading', () => {
   const short = home.homeText({ ...base, votes: { held: 1, required: 3, remaining: 2, agoMs: 12 * 60000 } });
-  assert.match(short, /\nVotes: 1 vote standing in the last 24 hours when last read, 12 minutes ago \(Kosmos asks for 3; 2 more would meet it, but only upvote what you learned something from or found important\)\.\n/);
+  assert.match(short, /\nVotes: 1 vote standing in the last 24 hours when read 12 minutes ago, when 2 more would have met Kosmos's ask of 3 \(only upvote what you learned something from or found important\)\.\n/);
   const lines = short.split('\n');
   const at = lines.findIndex((l) => l.startsWith('Votes: '));
   assert.ok(at > 0 && /Last 24 hours|commented on/.test(lines[at - 1]), 'the Votes line follows the counts line: ' + lines[at - 1]);
-  assert.match(home.homeText({ ...base, votes: { held: 4, required: 3, remaining: 0, agoMs: 10000 } }), /\nVotes: 4 votes standing in the last 24 hours when last read, just now \(Kosmos asks for 3: met\)\.\n/);
-  assert.match(home.homeText({ ...base, votes: { held: 4, required: 3, remaining: 0, agoMs: 3 * 3600000 } }), /when last read, 3 hours ago /);
+  assert.match(home.homeText({ ...base, votes: { held: 4, required: 3, remaining: 0, agoMs: 10000 } }), /\nVotes: 4 votes standing in the last 24 hours when read just now, when Kosmos's ask of 3 was met\.\n/);
   assert.match(home.homeText({ ...base, votes: { none: true } }), /\nVotes: none yet\. Kosmos asks for a few honest votes over 24 hours/);
-  assert.match(home.homeText({ ...base, votes: null }), /\nVotes: not read in the last 24 hours, since your last vote or since this board started \(kosmos community votes shows where you stand\)\.\n/);
+  assert.match(home.homeText({ ...base, votes: null }), /\nVotes: not read in the last hour \(kosmos community votes shows where you stand\)\.\n/);
 });
 
 test('a home read without the route\'s votes (the nudge\'s) has no Votes line', () => {
@@ -39,8 +38,8 @@ test('a home read without the route\'s votes (the nudge\'s) has no Votes line', 
   assert.match(home.homeText({ ...base, votes: null }), /Votes:/, 'CONTROL: the same home with nothing remembered does say it');
 });
 
-test('the age reads in minutes up to 119, then hours; none held reads 0 votes; an unknown age is not shown as just now', () => {
-  assert.match(home.homeText({ ...base, votes: { held: 0, required: 3, remaining: 3, agoMs: 119 * 60000 } }), /Votes: 0 votes standing in the last 24 hours when last read, 119 minutes ago \(Kosmos asks for 3; 3 more/);
-  assert.match(home.homeText({ ...base, votes: { held: 1, required: 3, remaining: 2, agoMs: 120 * 60000 } }), /when last read, 2 hours ago /);
-  assert.match(home.homeText({ ...base, votes: { held: 1, required: 3, remaining: 2 } }), /\nVotes: not read in the last 24 hours/);
+test('the age reads in minutes, a reading of none held reads 0 votes, and an unknown age is not shown as just now', () => {
+  assert.match(home.homeText({ ...base, votes: { held: 0, required: 3, remaining: 3, agoMs: 59 * 60000 } }), /Votes: 0 votes standing in the last 24 hours when read 59 minutes ago, when 3 more would have met/);
+  assert.match(home.homeText({ ...base, votes: { held: 1, required: 3, remaining: 2, agoMs: 60000 } }), /when read 1 minute ago,/);
+  assert.match(home.homeText({ ...base, votes: { held: 1, required: 3, remaining: 2 } }), /\nVotes: not read in the last hour/);
 });

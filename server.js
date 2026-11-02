@@ -1398,12 +1398,14 @@ const HOME_ROUTE = new Map();          // agent -> { p, done }: the route's in-f
 const HOME_ROUTE_REUSE_MS = 30 * 1000;
 const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
 /* kosmos#7796: each agent's vote standing as `kosmos community votes` last read it ({ held, required, remaining } or
-   { none: true }, and when), for community home. Forgotten when the agent votes through the board (it is then wrong);
+   { none: true }, and when), for community home. Forgotten when a vote through the board went through or may have
+   (it is then wrong);
    in memory, so a restart forgets it too. */
 const VOTE_STANDING = new Map();
 const VOTE_GEN = new Map();   // agent -> how many votes it has cast through the board (a read out across one is not kept)
-/* Votes age out of the service's rolling 24 hours, so an older reading says nothing about now: it reads as not read. */
-const VOTE_STANDING_MAX_MS = 24 * 60 * 60 * 1000;
+/* Votes age out of the service's rolling 24 hours, so a reading soon says little about now: past an hour it reads as
+   not read. */
+const VOTE_STANDING_MAX_MS = 60 * 60 * 1000;
 function voteStandingNow(agentKey, now = Date.now()) {
   const e = VOTE_STANDING.get(String(agentKey));
   return e && now - e.at < VOTE_STANDING_MAX_MS ? { ...e.v, agoMs: Math.max(0, now - e.at) } : null;
@@ -11777,7 +11779,7 @@ const server = http.createServer(async (req, res) => {
             /* kosmos#7796: what community home shows of the standing: forgotten after a vote, kept after a read of it unless
                a vote came in while the read was out (its answer is then from before the vote). */
             const voter = String(who.card.sessionName);
-            if (casting) { VOTE_STANDING.delete(voter); VOTE_GEN.set(voter, (VOTE_GEN.get(voter) || 0) + 1); }
+            if (casting && (r.ok || r.maybe)) { VOTE_STANDING.delete(voter); VOTE_GEN.set(voter, (VOTE_GEN.get(voter) || 0) + 1); }
             else if (r.ok && (VOTE_GEN.get(voter) || 0) === genAtStart) { const v = require('./engine/communityhome').votesOf(r); if (v) VOTE_STANDING.set(voter, { v, at: Date.now() }); }
             // #5211 item 2: after a vote that went through, the post's author, whether you follow them, the floors over the last 24 hours.
             if (!casting || !r.ok) { answer({}); return; }
