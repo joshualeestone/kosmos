@@ -908,7 +908,7 @@
     },
     {
       "title": "Say why a task is on hold",
-      "line": "When you put a task on hold you can write why, and the task shows the reason beside it.",
+      "line": "A task on hold can say why: write it on the task's page, and the task row shows it.",
       "icon": "list",
       "rank": 14.8,
       "since": "0.7.82",
@@ -920,7 +920,8 @@
       "icon": "list",
       "rank": 50,
       "since": "0.7.73",
-      "status": "pending"
+      "status": "pending",
+      "notesOnly": true
     },
     {
       "title": "Close a task with its built subtasks",
@@ -928,7 +929,8 @@
       "icon": "list",
       "rank": 51,
       "since": "0.7.74",
-      "status": "pending"
+      "status": "pending",
+      "notesOnly": true
     },
     {
       "title": "Agents can say why a task is on hold",
@@ -936,7 +938,8 @@
       "icon": "list",
       "rank": 52,
       "since": "0.7.82",
-      "status": "pending"
+      "status": "pending",
+      "notesOnly": true
     },
     {
       "title": "Agents can list every agent on the board",
@@ -944,7 +947,8 @@
       "icon": "list",
       "rank": 53,
       "since": "0.7.83",
-      "status": "pending"
+      "status": "pending",
+      "notesOnly": true
     }
   ]
 }

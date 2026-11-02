@@ -5,14 +5,13 @@ have none. The pool had nothing newer than 0.7.76.
 
 Adds five pending items to release/whats-new-pool.json:
 - "Say why a task is on hold" (0.7.82, #7749), for people, rank 14.8: it takes a slot in the next window.
-- Four agent CLI notes, ranks 50 to 53 so they reach `kosmos whats-new` without taking a slot in the next windows
-  (eleven items are pending above them, this branch's hold note included): `task built --commit` (0.7.73, #7508),
-  `task close --with-built` (0.7.74, #7514), `task hold --because` (0.7.82, #7749), `agent list` (0.7.83, #7748:
-  the list itself is 0.7.82, but an agent saw whether each agent runs only from 0.7.83, rosterstate-7748).
-  Nothing keeps them out of the window for good: after about two prod promotes they would rise into it. The release
-  owner (Baron Draxum today) checks at each cut's `build` whether any rank-50-to-53 item made the five, and if one did,
-  retires it by hand first (status shown, as a Windows-only item is) or adds a notes-only mark to the pool. Each is in both CLIs (install/kosmos and
+- Four agent CLI notes, marked `notesOnly`: they reach `kosmos whats-new` and never the app window, whatever their rank
+  (ranks 50 to 53 order them among themselves): `task built --commit` (0.7.73, #7508), `task close --with-built`
+  (0.7.74, #7514), `task hold --because` (0.7.82, #7749), `agent list` (0.7.83, #7748: the list itself is 0.7.82, but
+  an agent saw whether each agent runs only from 0.7.83, rosterstate-7748). Each is in both CLIs (install/kosmos and
   tools/windows/kosmos-cli.js), so none is tagged for a platform.
+- `notesOnly` is new in tools/whats-new-pool.js: `choose` skips it, `readPool` refuses any value but true, and the
+  release notes (engine/releasenotes.js, which filters on status only) keep it. Test in tools.whats-new-pool-5711.
 
 `since` is the first version commit after each change merged. No restart marks: none changes an agent's instructions,
 hooks or launch.
