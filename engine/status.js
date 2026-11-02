@@ -8204,6 +8204,18 @@ function lastWorkedOf(pane) {
   const at = observed.lastOk(provider, pane.name);
   return at === null ? { at: null, why: 'not_seen' } : { at: new Date(at).toISOString(), why: null };
 }
+/* #7786: true when this card reads idle and its agent has never taken a turn (selfreport.turnTakenOf), so the card can
+   say "Not started yet" rather than the "Idle" of an agent resting after work. Only for Claude Code and Grok: both
+   report through the one hook (engine/kosmos-report-hook.js), which writes `started` at launch and a row on every
+   prompt (UserPromptSubmit) and finished answer (Stop), so a record holding only starts means no turn. Gemini, Codex,
+   Antigravity and Muse report through other events, where a turn may write nothing; for them the card keeps its word
+   rather than call a working agent not started. False when the record cannot say (turnTakenOf null): the old word. */
+const NEVER_TURNED_RUNNERS = new Set(['claude', 'grok']);
+function neverTurnedOf(pane, status) {
+  if (!status || status.state !== STATE.IDLE || !isNamedOurs(pane)) return false;
+  if (!NEVER_TURNED_RUNNERS.has(cardRunnerOf(pane))) return false;
+  try { return selfreport.turnTakenOf(pane.name) === false; } catch { return false; }
+}
 /* #5948: the automatic report of a turn its provider refused for the sign-in (see the blocked rule in reconcileReport). */
 function providerAuthReport(reported) {
   return !!reported && reported.state === 'blocked' && reported.by === 'auto'
@@ -8917,6 +8929,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
     reachedByChannel: false,
     runner: null,
     lastWorked: null,   // #5959 slice 2: no pane, nothing observed; its page shows no health line
+    neverTurned: false,   // #7786: a paneless card has no runner whose hook vouches for its record (see neverTurnedOf)
     deliveryStall: null,   // #7212 slice 2: carried only while a pane card reads idle or working
     task: null,
     state: status.state,
@@ -9843,6 +9856,8 @@ function snapshot() {
       deliveryStall: deliveryStallOf(pane, status),
       /* #5959 slice 2: when it was last seen working, for the health line on its page (see lastWorkedOf). */
       lastWorked: lastWorkedOf(pane),
+      /* #7786: an idle card whose agent launched and has never taken a turn (see neverTurnedOf). */
+      neverTurned: neverTurnedOf(pane, status),
       because: status.because,
       /* #2019: present while state === 'restarting' -- {cause, startedAt}
          for the deliberate disruption in flight -- and (#4006) on the needs_you of a
@@ -10263,7 +10278,7 @@ function sessionStartIn(text, want) {
   return null;
 }
 
-module.exports = { cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
+module.exports = { neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, modelInEarlierSession, splitModelReading,
   composerText, unsentInputOf, deliveryStallOf, unsentSweep, setAnsiCapture, resetUnsentForTests, UNSENT_SHOW_MS,   // #6249
   limitFor,   // kosmos#6051: the product shots read a Claude model's memory limit from here, not a typed copy
   waitingSinceFrom,   // kosmos#5942: the card's waitingSince, from the self-report's askedAt (#5943)

@@ -49,6 +49,7 @@ function labelOf(a) {
   }
   if (a && a.crashLoop && a.crashLoop.looping === true) return 'Keeps stopping';
   if (a && a.deliveryStall) return 'Messages stuck';   // #7212 slice 2: the page's stateCopyOf, as the crash loop above
+  if (a && a.state === 'idle' && a.neverTurned === true) return 'Not started yet';   // #7786: the page's stateCopyOf
   if (a && a.state === 'restarting') return restartingLabel(a);
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
   // #6091: the card is on its permission prompt (status.awaitingApprovalOf), as the page's stateCopyOf.
