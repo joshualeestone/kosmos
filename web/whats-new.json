@@ -1,10 +1,15 @@
 {
-  "version": "0.7.77",
+  "version": "0.7.84",
   "highlights": [
     {
       "icon": "chat",
       "title": "Delete your own messages",
       "line": "Hover or tap one of your own messages, choose ..., then Delete message. Agents that already read it are told you withdrew it."
+    },
+    {
+      "icon": "list",
+      "title": "Say why a task is on hold",
+      "line": "A task on hold can say why: write it on the task's page, and the task row shows it."
     },
     {
       "icon": "spark",
@@ -20,14 +25,6 @@
       "icon": "chat",
       "title": "A long Meta Muse answer says it was cut",
       "line": "A Meta Muse agent answer too long to show in full now ends by saying so, instead of stopping mid-sentence.",
-      "platforms": [
-        "mac"
-      ]
-    },
-    {
-      "icon": "shield",
-      "title": "The Kosmos app itself is read-only",
-      "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
       "platforms": [
         "mac"
       ]
