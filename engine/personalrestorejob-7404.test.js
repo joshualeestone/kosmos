@@ -176,3 +176,26 @@ test('the real child restoring with personal backup off refuses, and frees the s
   assert.equal(s.last.ok, false);
   assert.equal(s.last.code, 'not_on');
 });
+
+/* The child's half of the channel, in this process: a request goes out by id, and only its own answer resolves it. */
+test('the child sends each request to the board and resolves it with that id\'s answer only', async () => {
+  const child = require('./personalrestore-child');
+  const sent = [];
+  const had = process.send;
+  process.send = (m) => { sent.push(m); };
+  try {
+    const a = child.macRequest('POST', '/v1/org/backup/mine/manifests', { epoch: 1 });
+    const b = child.macRequest('POST', '/v1/org/backup/mine/read', { keys: ['x'] });
+    assert.equal(sent.length, 2);
+    const [qa, qb] = sent.map((m) => m.mac);
+    assert.notEqual(qa.id, qb.id);
+    assert.deepEqual([qa.method, qa.route, qa.body], ['POST', '/v1/org/backup/mine/manifests', { epoch: 1 }]);
+    child.onMessage({ macAnswer: { id: qb.id, got: { ok: true, data: 'b' } } });
+    child.onMessage({ macAnswer: { id: 999999, got: { ok: true, data: 'stray' } } });   // no such request: ignored
+    child.onMessage({ macAnswer: { id: qa.id, got: 'not an object' } });
+    assert.deepEqual(await b, { ok: true, data: 'b' });
+    const ra = await a;
+    assert.equal(ra.ok, false);
+    assert.equal(ra.notSent, true);
+  } finally { if (had) process.send = had; else delete process.send; }
+});
