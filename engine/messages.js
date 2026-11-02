@@ -4517,16 +4517,22 @@ function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 /* kosmos#7812: a project that was paused is resumed. Its agents were otherwise told nothing until their next idle check,
    so each member is typed one line now, the way nudgeOwnComputerPost types its line: only an addressable card, never one
    switched off in this project, one failing pane not skipping the rest, a removed agent never typed to, and nobody
-   told for an archived or still-paused project. Only a line actually typed counts in `told`. Not recorded in the room log (a nudge row
+   told for an archived, still-paused or deleted project, or within two minutes of the last resume line it typed. Only a line actually typed counts in `told`. Not recorded in the room log (a nudge row
    names a post, and this has none). Answers { ok, told: [{ to, outcome }] }. Never throws. */
 function resumedLine(projectId, projectName) {
   const rawName = String(projectName == null ? '' : projectName).trim();
   const shown = (rawName && /^[A-Za-z0-9._ -]+$/.test(rawName)) ? rawName + ' (' + projectId + ')' : projectId;
   return '[from Kosmos] Project ' + shown + ' was resumed: its tasks not on hold can be worked on and handed out again. See them with: kosmos task list ' + projectId;
 }
-function tellResumed(projectId, projectName, members, roster) {
+/* Review 2: one resume line per project per RESUME_TELL_GAP_MS, so a resume, a pause and a resume again in a minute
+   types one line, not two (the own-computer nudge keeps the same kind of gap). */
+const RESUME_TELL_GAP_MS = 2 * 60 * 1000;
+const resumeToldAt = new Map();
+function tellResumed(projectId, projectName, members, roster, now = Date.now()) {
   const ok = (v) => typeof v === 'string' && v.length > 0;
   if (!ok(projectId) || !/^[A-Za-z0-9._-]+$/.test(projectId) || !Array.isArray(members) || !Array.isArray(roster)) return { ok: false, told: [] };
+  const last = resumeToldAt.get(projectId);
+  if (Number.isFinite(last) && last <= now && now - last < RESUME_TELL_GAP_MS) return { ok: true, told: [], recent: true };
   const room = _roomMembers(members.filter(ok));   // review 1: a removed agent is never typed to, and an unreadable list types nobody
   if (!room.ok) return { ok: false, told: [] };
   let offHere = new Set();
@@ -4548,6 +4554,7 @@ function tellResumed(projectId, projectName, members, roster) {
     if (sent && (sent.held === true || sent.state === chat.DELIVERY.COULD_NOT)) continue;
     told.push({ to: name, outcome: sent && sent.state });
   }
+  if (told.length) resumeToldAt.set(projectId, now);
   return { ok: true, told };
 }
 
@@ -4626,6 +4633,7 @@ module.exports = {
   nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, reopenForOwnPost,   // #5902
   _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
   tellResumed, resumedLine,   // kosmos#7812
+  _resetResumeToldForTests: () => resumeToldAt.clear(),
   staleHeld, memberAfter, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS, ROOM_READ_ROWS, ROOM_READ_KINDS,
   CLOSING_POST_MIN,   // #6925: the room's text view states it
   SEND_DEDUP_WINDOW_MS,

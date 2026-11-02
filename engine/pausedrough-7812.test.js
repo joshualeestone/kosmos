@@ -119,9 +119,23 @@ test('#7812 a removed agent is never typed to, and an unreadable removed list ty
     arm();
     remove.removedNames = () => ({ ok: true, names: ['dana'] });
     assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey', 'dana'], w.board.agents).told.map((t) => t.to), ['casey']);
+    messages._resetResumeToldForTests();   // the two-minute gap would answer first
     remove.removedNames = () => ({ ok: false, names: [] });
     assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey', 'dana'], w.board.agents), { ok: false, told: [] });
   } finally { remove.removedNames = real; chat.resetForTests(); w.board.restore(); }
+});
+
+test('#7812 a second resume within two minutes types nothing more; one after the gap does', () => {
+  const w = resumedWorld(['casey']);
+  try {
+    arm();
+    const t0 = Date.now();
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents, t0).told.map((t) => t.to), ['casey']);
+    const again = messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents, t0 + 60 * 1000);
+    assert.deepEqual(again.told, [], 'a resume a minute later typed a second line');
+    assert.equal(again.recent, true);
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents, t0 + 3 * 60 * 1000).told.map((t) => t.to), ['casey'], 'CONTROL: after the gap it is told');
+  } finally { chat.resetForTests(); w.board.restore(); }
 });
 
 test('#7812 a line held off the pane (a menu on screen) is not counted as told', () => {
