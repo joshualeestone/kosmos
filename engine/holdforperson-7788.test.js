@@ -87,3 +87,26 @@ test('the wiring: the hold route passes forPerson from the body', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /tasks\.setOnHold\(id, taskHold\[2\], body\.onHold, \{[^}]*forPerson: body\.forPerson \}/);
 });
+
+test('step 4: a hold for the person reads decision, so the red tile counts it', () => {
+  const { id, n } = fresh('hfp nine');
+  tasks.setOnHold(id, n, true, { forPerson: true, because: 'needs your yes' });
+  assert.equal(tasks.taskState(read(id, n)), 'decision');
+  assert.equal(tasks.isOnHold(read(id, n)), true, 'the hold itself stays: the Assigner and nudger read this');
+});
+
+test('step 4 control: a plain agent hold, and the person\'s own hold, stay held', () => {
+  const a = fresh('hfp ten');
+  tasks.setOnHold(a.id, a.n, true, { because: 'waiting on the build' });
+  assert.equal(tasks.taskState(read(a.id, a.n)), 'held');
+  const b = fresh('hfp eleven');
+  tasks.setOnHold(b.id, b.n, true, { viaScreen: true });
+  assert.equal(tasks.taskState(read(b.id, b.n)), 'held');
+});
+
+test('step 4: lifting the hold takes it out of decision', () => {
+  const { id, n } = fresh('hfp twelve');
+  tasks.setOnHold(id, n, true, { forPerson: true });
+  tasks.setOnHold(id, n, false);
+  assert.notEqual(tasks.taskState(read(id, n)), 'decision');
+});
