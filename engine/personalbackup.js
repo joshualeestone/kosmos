@@ -496,7 +496,9 @@ async function runJob(input, opts = {}) {
   return out;
 }
 
-/* pbjob-7404 slice C: what the panel says about the job. The note holds the last good run, the last try, and a stop as
+/* pbjob-7404 slice C: what the panel says about the job. The note holds the last good run, the last try, what that good
+   run left out (paths, masked by the walk, and the scanner's fixed reasons, so it is the one part with a person's file
+   names, kept unencrypted at mode 600), and a stop as
    this module's own sentence: a run's `because` is passed on only for personActs, which the key step, runJob and a
    plan's stops in backupsnapshot write, all fixed sentences.
    Other reasons carry a server's or a file's text, so a flag picks a fixed sentence here. The note names its org and world,
@@ -580,7 +582,9 @@ function reportNow(opts) {
   if (j.waiting === true) return { lastOk, stopped: null, note: WAITING_WEEK };
   if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'A backup has not finished yet.' : 'A backup runs soon.' };
   const sk = j.skippedFiles;
-  return { lastOk, stopped: null, note: null, ...(sk && Array.isArray(sk.files) ? { skippedFiles: sk } : {}) };
+  const skippedFiles = sk && Array.isArray(sk.files) && Number.isSafeInteger(sk.count)
+    ? { count: sk.count, files: sk.files.filter((x) => x && typeof x.path === 'string' && typeof x.why === 'string').map((x) => ({ path: x.path, why: x.why })) } : null;
+  return { lastOk, stopped: null, note: null, ...(skippedFiles ? { skippedFiles } : {}) };
 }
 
 /** kosmos#7404 slice D: what a files restore needs to know: { state, rec, codeWaiting }. state is state()'s, and
