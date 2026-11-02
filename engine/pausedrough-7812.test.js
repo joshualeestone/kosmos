@@ -2,7 +2,7 @@
 /* kosmos#7812 (feedback 11-02): three rough edges around paused projects.
  *   1. a paused project's task does not read "decision" (Needs your decision), as the project page already hides it (#6341);
  *   2. a resume types each member one line, so it does not wait for its next idle check;
- *   3. the role command's help states the 60-character limit, from the same constant the command enforces.
+ *   3. the role command's help and its usage line state the 60-character limit, checked against the constant the command enforces.
  *
  *   node --test engine/pausedrough-7812.test.js
  */
@@ -133,8 +133,46 @@ test('#7812 a second resume within two minutes types nothing more; one after the
     assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents, t0).told.map((t) => t.to), ['casey']);
     const again = messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents, t0 + 60 * 1000);
     assert.deepEqual(again.told, [], 'a resume a minute later typed a second line');
-    assert.equal(again.recent, true);
     assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents, t0 + 3 * 60 * 1000).told.map((t) => t.to), ['casey'], 'CONTROL: after the gap it is told');
+  } finally { chat.resetForTests(); w.board.restore(); }
+});
+
+test('#7812 an agent\'s pause clears the gap, so the next resume reaches the members it told "paused"', () => {
+  const w = resumedWorld(['casey']);
+  try {
+    arm();
+    const t0 = Date.now();
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents, t0).told.map((t) => t.to), ['casey']);
+    messages.forgetResumeTold(w.pid);   // what the edit route does on an agent's pause
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents, t0 + 60 * 1000).told.map((t) => t.to), ['casey'], 'a resume after an agent\'s pause was swallowed by the gap');
+  } finally { chat.resetForTests(); w.board.restore(); }
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('messages.forgetResumeTold(id)');
+  assert.ok(at > 0, 'the edit route no longer clears the gap on an agent\'s pause');
+  assert.match(src.slice(Math.max(0, at - 1500), at), /if \(fields\.paused !== undefined && fields\.viaScreen !== true && fields\.paused !== wasPaused\) \{[\s\S]*if \(fields\.paused\) \{ try \{ $/, 'the gap is cleared somewhere other than an agent\'s pause');
+});
+
+test('#7812 a member whose line was held is tried again within the gap; one already told is not', () => {
+  const w = resumedWorld(['casey', 'dana']);
+  const MENU = fs.readFileSync(path.join(__dirname, '..', 'test-support', 'claude-screens', 'question-menu-2.1.29x.txt'), 'utf8');
+  try {
+    chat.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: args.join(' ').includes('dana') ? MENU : IDLE, err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    chat.setPauser(() => {});
+    const board = fleet.install([fleet.agent('casey', { state: 'idle' }), fleet.agent('dana', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
+    const t0 = Date.now();
+    try {
+      assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey', 'dana'], board.agents, t0).told.map((t) => t.to), ['casey'], 'precondition: dana was held');
+    } finally { board.restore(); }
+    arm();
+    const idle = fleet.install([fleet.agent('casey', { state: 'idle' }), fleet.agent('dana', { state: 'idle' })]);
+    try {
+      assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey', 'dana'], idle.agents, t0 + 60 * 1000).told.map((t) => t.to), ['dana'], 'dana, held before, was not retried (or casey was told twice)');
+    } finally { idle.restore(); }
   } finally { chat.resetForTests(); w.board.restore(); }
 });
 
@@ -174,11 +212,13 @@ test('#7812 the edit route tells the members only on a resume of a project that 
 });
 
 /* --- 3. the help ------------------------------------------------------------------------------------------------------ */
-test('#7812 both command-line helps state the role limit, from the constant the command enforces', () => {
+test('#7812 both command-line helps and usage lines state the role limit, checked against the constant the command enforces', () => {
   const want = projects.ROLE_HERE_MAX + ' characters at most';
   for (const f of ['install/kosmos', 'tools/windows/kosmos-cli.js']) {
-    const line = fs.readFileSync(path.join(__dirname, '..', f), 'utf8').split('\n').find((l) => l.includes('kosmos project role <project-id>'));
-    assert.ok(line, f + ' has no role help line');
-    assert.ok(line.includes(want), f + ' does not say "' + want + '": ' + line.trim());
+    const lines = fs.readFileSync(path.join(__dirname, '..', f), 'utf8').split('\n');
+    const help = lines.find((l) => l.includes('kosmos project role <project-id>') && l.includes('say what you do on this project'));
+    const usage = lines.find((l) => l.includes('Usage: kosmos project role <project-id>') && l.includes('quote it'));
+    assert.ok(help && usage, f + ' has no role help or usage line');
+    for (const line of [help, usage]) assert.ok(line.includes(want), f + ' does not say "' + want + '": ' + line.trim());
   }
 });

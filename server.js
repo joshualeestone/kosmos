@@ -22825,6 +22825,8 @@ const server = http.createServer(async (req, res) => {
             const card = (res && res.ok === true && res.card) ? res.card : null;
             who = (card && typeof card.name === 'string' && card.name.trim()) || null;
           } catch { who = null; }
+          // kosmos#7812 review 3: an agent's pause told the members "paused", so the next resume reaches them, gap or not.
+          if (fields.paused) { try { messages.forgetResumeTold(id); } catch { /* the gap stands; the idle check still comes */ } }
           messages.roomNote(id, fields.paused
             ? (who || 'Someone') + ' paused this project: nobody is nudged about its tasks or handed them. The person can resume it on the project\'s page.'
             : (who || 'Someone') + ' resumed this project, not from the project\'s page: its tasks can be nudged about and handed out again.');

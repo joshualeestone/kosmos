@@ -2041,7 +2041,7 @@ async function verbReplyChannel(ctx, args) {
 /* #5300, as install/kosmos cmd_project role: an agent says what it does on one project, for itself only (the board
    names the caller from its token). An empty role clears it. */
 async function projectRole(ctx, args) {
-  const usage = 'Usage: kosmos project role <project-id> "<what you do here>"   (quote it; "" clears it)';
+  const usage = 'Usage: kosmos project role <project-id> "<what you do here>"   (quote it, 60 characters at most; "" clears it)';
   if (args.length !== 2 || !args[0]) { ctx.err(usage); return 2; }
   const project = args[0];
   const slug = projectSlug(project);

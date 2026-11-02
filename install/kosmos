@@ -6792,7 +6792,7 @@ cmd_project() {
     # #5300 (10-05 user diagnostic R10): every member showed its agent's one role. An agent says what it does on one
     # project, for itself only (the board names the caller from its token or pane). An empty role clears it.
     role)
-      { [ -n "${1:-}" ] && [ $# -eq 2 ]; } || { say "Usage: kosmos project role <project-id> \"<what you do here>\"   (quote it; \"\" clears it)"; exit 2; }
+      { [ -n "${1:-}" ] && [ $# -eq 2 ]; } || { say "Usage: kosmos project role <project-id> \"<what you do here>\"   (quote it, 60 characters at most; \"\" clears it)"; exit 2; }
       require_valid_project_id "$1"
       case "$1" in *[!.]*) ;; *) say "there is no project by that name"; exit 1 ;; esac
       case "$2" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "project role" "Usage: kosmos project role <project-id> \"<what you do here>\"" "$2" target ;; esac ;;
