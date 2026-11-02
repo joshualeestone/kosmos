@@ -72,6 +72,9 @@ test('after kosmos community votes, home shows that standing and its age, from t
   const j = await (await home(tok)).json();
   assert.match(j.text, /\nVotes: 1 vote standing in the last 24 hours when read just now, when 2 more would have met Kosmos's ask of 3/);
   assert.deepEqual(homes, ['Reader'], 'CONTROL: the second home reused the first read, and still shows the new standing');
+  const { agoMs, ...shown } = j.home.votes;
+  assert.deepEqual(shown, { held: 1, required: 3, remaining: 2 }, 'the home data carries the standing as read');
+  assert.ok(Number.isFinite(agoMs) && agoMs >= 0 && agoMs < 60000, 'and its age: ' + agoMs);
   assert.deepEqual(standings.map((s) => s.agentKey), ['Reader'], 'only the votes command read it');
 });
 

@@ -1402,7 +1402,9 @@ const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
    (it is then wrong);
    in memory, so a restart forgets it too. */
 const VOTE_STANDING = new Map();
-const VOTE_GEN = new Map();   // agent -> how many votes it has cast through the board (a read out across one is not kept)
+/* agent -> how many votes it has cast through the board, so a standing read out across one is not kept. Never swept,
+   as HOME_GEN is not: a counter per agent that ever voted, small, and dropping one could let an in-flight read through. */
+const VOTE_GEN = new Map();
 /* Votes age out of the service's rolling 24 hours, so a reading soon says little about now: past an hour it reads as
    not read. */
 const VOTE_STANDING_MAX_MS = 60 * 60 * 1000;
