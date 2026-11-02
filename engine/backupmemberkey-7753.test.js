@@ -401,3 +401,20 @@ test('#7753 re-send: a write of the key file during the re-send is kept; only th
   assert.ok(after[2] && after[2].pk.equals(other.pk), 'the other writer\'s epoch survives');
   assert.ok(Number.isSafeInteger(after[1].sigAskedAt) && after[1].sigAskedAt === T0 + (7 * 24 + 1) * H, 'and this epoch\'s re-send is recorded');
 });
+
+test('#7753 re-send: an epoch whose key was replaced during the re-send gets none of this re-send\'s fields', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  const real = c.macRequest;
+  const other = backupkeys.newMemberKey();
+  c.state.echo = true;   // the re-send would be echoed, so a merge would mark it kept
+  const swap = async (m, route, body) => {
+    if (route === mk.MEMBER_KEY_ROUTE) mk.writeKeys(ORG, MEMBER, { 1: { sk: other.sk, pk: other.pk, registered: true } });
+    return real(m, route, body);
+  };
+  await mk.ensureMemberKey({ macRequest: swap, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  const e = mk.readKeys(ORG, MEMBER).keys[1];
+  assert.ok(e.pk.equals(other.pk), 'premise: the other key holds epoch 1');
+  assert.equal(e.sigKept, undefined); assert.equal(e.sigAskedAt, undefined);
+});

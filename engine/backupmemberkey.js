@@ -210,7 +210,7 @@ async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, a
   const nowMs = Math.floor(Number(at));   // an injected clock that is not a whole number is read as one
   if (!Number.isSafeInteger(nowMs) || nowMs <= 0) return;   // no usable time: never a POST on every call
   const k = keys[epoch];
-  if (!k || !k.registered || k.sigKept) return;
+  if (!k || !k.registered || k.sigKept) return;   // `registered` is defensive: the caller passes its newest registered epoch
   const id = `${company.org}\u0000${company.member}\u0000${epoch}`;
   const recent = (at) => Number.isSafeInteger(at) && at > 0 && nowMs - at >= 0 && nowMs - at < RESIGN_EVERY_MS;
   if (recent(k.sigAskedAt) || recent(lastTry.get(id))) return;
@@ -298,7 +298,7 @@ async function ensureNow(opts, seen) {
     const ignored = opts.lostEpoch != null && lost === null ? { lostEpochIgnored: true } : {};
     const above = done !== undefined && epochs.length && epochs[0] > done && !keys[epochs[0]].registered ? { pendingEpoch: epochs[0] } : {};
     if (done !== undefined) {
-      // Awaited, so a due re-send (at most once a week) adds its POST's time to this answer, never anything to the answer.
+      // The answer below is the key read before this await; a write during it is seen on the next call. Awaited, so a due re-send (at most once a week) adds its POST's time to this answer, never anything to the answer.
       await resignIfNeeded(macRequest, company, done, keys, readDeviceKey, (opts.now || Date.now)());
       return { ok: true, epoch: done, publicKey: keys[done].pk, ...ignored, ...above };
     }
