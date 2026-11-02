@@ -5253,7 +5253,8 @@ const REMOTE_STEP_UP_EXACT = new Set([
   'POST /api/personal-backup/preview', 'POST /api/personal-backup/on', 'POST /api/personal-backup/key', 'POST /api/personal-backup/restore',
   'POST /api/personal-backup/off', 'POST /api/personal-backup/saved',
   // Listing the backups and restoring one: a restore writes a whole backup onto this computer as a new Kosmos.
-  'POST /api/personal-backup/backups', 'POST /api/personal-backup/files',
+  // Stop too: it can cut a restore off in the middle of moving files into its new Kosmos.
+  'POST /api/personal-backup/backups', 'POST /api/personal-backup/files', 'POST /api/personal-backup/stop',
   // Resetting the account's second factor: from a stolen session it would let the thief enrol their own, and then
   // pass this very step-up. At the computer it needs nothing more.
   'POST /api/remote/second-reset',
@@ -12855,13 +12856,13 @@ const server = http.createServer(async (req, res) => {
         else if (kind === 'key') r = await pb.setUpKey();
         else if (kind === 'saved') r = await pk.confirmRecoveryCodeSaved({ org: body.org, member: body.member });
         else if (kind === 'restore') r = typeof body.code === 'string' && body.code.length <= 64 ? await pb.restore(body.code) : { ok: false, code: 'not_a_code', because: 'That is not a recovery code (26 letters and digits).' };
-        else if (kind === 'off') r = await pb.switchOff();
+        /* Off stops a restore of files first: the person said Off, and the child holds the member keys in memory. */
+        else if (kind === 'off') { try { require('./engine/personalrestorejob').stop(); } catch { /* nothing running */ } r = await pb.switchOff(); }
         /* kosmos#7404: the list and a restore of files, each in a child process off this event loop. The job shapes
            both answers by name, and a restore answers as soon as it has started: GET /api/personal-backup/files says
            how it went. Only the key goes to the job, never the body. */
         else if (kind === 'backups') r = await require('./engine/personalrestorejob').list();
         else if (kind === 'files') r = require('./engine/personalrestorejob').start(typeof body.key === 'string' ? body.key : null);
-        // Stopping a restore takes nothing away that it had not made, so it needs no step-up (as leaving does not).
         else if (kind === 'stop') r = require('./engine/personalrestorejob').stop();
         else r = null;   // unreachable: kind was checked above; answers the generic refusal below
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and

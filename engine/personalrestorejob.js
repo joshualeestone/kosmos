@@ -12,12 +12,15 @@
  *   stop()        ends the restore that is running; what it had already written stays in its new Kosmos.
  * A child also exits by itself when the board goes, because its IPC channel closes.
  *
- * Known limits, on #7404 for the screen slice: a restore has no time limit, only stop(); the slot and the last answer live in this process, so after a restart the screen
- * cannot say a restore was cut off; and an old board's child may still be finishing a write when a new board starts
- * another restore (each makes its own new Kosmos, and restoreworld's list has its own lock); the child reads the member keys outside personalbackupkey's serial() queue,
- * which is this process's (a read only, of files written whole); and a list while a restore runs spends the same hourly
- * Kosmos+ allowance; stop() ends the child wherever it is, the move into the new Kosmos included, and
- * nothing tidies what that leaves.
+ * Known limits, on #7404 for the screen slice:
+ * - a restore has no time limit, only stop();
+ * - stop() ends the child wherever it is, the move into the new Kosmos included, and nothing tidies what that leaves;
+ * - the slot and the last answer live in this process, so after a restart nothing says a restore was cut off;
+ * - an old board's child may still be finishing a write when a new board starts another restore (each makes its own
+ *   new Kosmos, and restoreworld's list has its own lock);
+ * - the child reads the member keys outside personalbackupkey's serial() queue, which is this process's (a read only,
+ *   of files written whole);
+ * - a list while a restore runs spends the same hourly Kosmos+ allowance.
  *
  * The child signs nothing. Its Kosmos+ requests come back here and only ROUTES are signed, through remote.macRequest,
  * so the busy() guard around a register or a Forget holds for a restore as for anything else. Any other route is
@@ -117,7 +120,7 @@ function runChild(ask, deps = {}) {
     child.on('error', () => done(null));
     // A child gone without its answer. On close, not exit: close comes after the channel is read to its end, so an
     // answer sent just before the child exited is always read first.
-    child.on('close', () => done(null));
+    child.on('close', (code, signal) => done({ gone: true, code, signal }));
     child.on('message', (m) => {
       if (settled || !m || typeof m !== 'object') return;
       if ('done' in m) { done(m.done); return; }
@@ -163,9 +166,12 @@ function start(key, deps = {}) {
   try { base = deps.base || baseOfBoard(); } catch { base = null; }
   if (typeof base !== 'string' || !path.isAbsolute(base)) { restoring = null; return refused('this Kosmos could not tell where to put the restore, so nothing was restored'); }
   runChild({ op: 'restore', key, base }, Object.assign({}, deps, { onChild: (c) => { mine.child = c; } })).then((r) => r, () => null).then((r) => {
+    // r: the child's answer; { gone, code, signal } when it ended without one; null when it never started.
+    const how = r && r.gone ? (r.signal ? ` (it was ended by ${r.signal})` : Number.isSafeInteger(r.code) ? ` (it exited with code ${r.code})` : '') : '';
     const cut = mine.stopped ? { ok: false, code: 'stopped', because: 'You stopped this restore. The files it had already restored stay in its new Kosmos.' }
-      : { ok: false, because: 'the restore stopped on this computer before it finished' };
-    last = Object.assign({ finishedAt: Date.now() }, shapeRestore(r || cut));
+      : { ok: false, because: 'the restore stopped on this computer before it finished' + how };
+    last = Object.assign({ finishedAt: Date.now() }, shapeRestore(r && !r.gone ? r : cut));
+    if (mine.stopped && (!r || r.gone)) last.stoppedByPerson = true;   // set here only, never from the child's answer
     if (restoring === mine) restoring = null;
   });
   return { ok: true, startedAt: mine.startedAt };
@@ -177,9 +183,9 @@ function status(opts = {}) {
   let shown = last;
   if (last && opts.namesHidden) {
     shown = {};
-    for (const k of ['finishedAt', 'ok', 'code', 'partial', 'restored', 'failed']) if (k in last) shown[k] = last[k];
+    for (const k of ['finishedAt', 'ok', 'code', 'partial', 'restored', 'failed', 'stoppedByPerson']) if (k in last) shown[k] = last[k];
     // A reason can quote a path from the backup (restorerun names what failed), so a remote session gets one fixed line.
-    if ('because' in last) shown.because = last.code === 'stopped' ? last.because : REMOTE_BECAUSE;
+    if ('because' in last) shown.because = last.stoppedByPerson === true ? last.because : REMOTE_BECAUSE;
     if (last.world) shown.world = last.world;   // the new Kosmos's name, not a file's
     for (const k of ['moved', 'kept', 'heldBack']) if (k in last) shown[k + 'Count'] = counted(last[k]);
     if (last.details) shown.details = { failedCount: counted(last.details.failed), leftOutAtBackup: last.details.leftOutAtBackup };
