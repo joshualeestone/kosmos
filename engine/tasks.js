@@ -2290,8 +2290,10 @@ function waitingOnOf(task, roster, members) {
  * about the agent, and the person meets it on the agent. `scope`, when given, keeps only questions about that project.
  * `projectList`, when given, names the project as a task row does (`projectName`, `projectPath`, #3029); a project it
  * does not hold (deleted since the question) leaves both out, and the page words that row as a question about nothing.
+ * Final review: a question about an ARCHIVED project is left out (the view lists none of its tasks, and the project page
+ * keeps it quiet), except for `keepArchived`, the one archived project a door has opened.
  */
-function askingWithoutTask(rows, roster, scope, projectList) {
+function askingWithoutTask(rows, roster, scope, projectList, keepArchived) {
   if (!Array.isArray(roster)) return [];
   const status = require('./status');
   const carried = new Set();
@@ -2311,6 +2313,7 @@ function askingWithoutTask(rows, roster, scope, projectList) {
     seen.add(card.sessionName);
     const at = typeof card.waitingSince === 'string' ? Date.parse(card.waitingSince) : NaN;
     const p = projectId ? byId.get(projectId) : null;
+    if (p && p.archived === true && p.id !== keepArchived) continue;
     out.push({ who: card.sessionName, projectId, waitingSince: Number.isFinite(at) ? new Date(at).toISOString() : null,
       ...(p ? { projectName: p.name == null ? '' : String(p.name), projectPath: projectPathOf(p, byId) } : {}) });
   }

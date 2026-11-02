@@ -22303,7 +22303,7 @@ const server = http.createServer(async (req, res) => {
       /* kosmos#7797 item 1: an agent's question no row carries (it holds no open task in the project it asks about, or
          names none), so Needs your decision lists it too. The same roster read and rule as the rows (tasks.askingWithoutTask). */
       sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope, rosterUnreadable: !Array.isArray(roster),
-        askingWithoutTask: tasks.askingWithoutTask(rows, roster, projectScope, everyProject) });
+        askingWithoutTask: tasks.askingWithoutTask(rows, roster, projectScope, everyProject, withArchived) });
     };
     /* Review 3: the page waits at most LANDED_WAIT_MS for the checks; a row whose check is still running goes as stored
        (its answer is cached for the next read). A later push only ever upgrades "only on this computer": a remote

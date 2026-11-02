@@ -69909,7 +69909,7 @@ const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
     /* Not "your go-ahead" (review round 11): a trust wait never reaches the tasks route's roster today (the
        status route builds those rows offline), the same gap projects.js names; the rule covers it if it does. */
-    why: 'The agent on these needs you: a question about its project, or a connection Kosmos could not restore. Also a task an agent put on hold until you answer, and a repeating task you review that missed a run.' },
+    why: 'An agent needs you: a question it asked you, or a connection Kosmos could not restore. Also a task an agent put on hold until you answer, and a repeating task you review that missed a run.' },
   { k: 'working', l: 'In progress', c: 'var(--tsk-working)',
     why: 'The agent’s own report names these as what it is working on.' },
   { k: 'assigned', l: 'Assigned but not started', c: 'var(--tsk-assigned)',
@@ -70541,10 +70541,12 @@ function tskPaint() {
     for (const t of sorted) { if (!byP.has(t.projectId)) byP.set(t.projectId, []); byP.get(t.projectId).push(t); }
     /* #3029: a group is named and ordered by its project's chain, so a subproject's group follows its parent's. */
     const chainOfGroup = new Map([...byP.entries()].map(([id, ts]) => [id, tskChainOf(ts[0])]));   // built once, as pjSortByChain does
-    /* kosmos#7797 item 1: questions no task carries lead, under the decision group's own name, so the tile's count is on screen. */
+    /* kosmos#7797 item 1: questions no task carries lead, in red as the decision group is (the tile counts them). */
     const dg = TSK_GROUPS[0];
+    /* Final review: its own name, not the decision group's: the decision tasks stay in their projects' groups, so this
+       heading's count is the questions only and must not read as the tile's. */
     const askHead = !asking.length || (TSK.tile && TSK.tile !== 'decision') ? ''
-      : '<section class="tsk-grp"><h3><span class="tsk-dot" style="--tsk-c:' + dg.c + '"></span>' + esc(dg.l) + '<span class="count">' + asking.length + '</span></h3>' + tskAskList(asking, now) + '</section>';
+      : '<section class="tsk-grp"><h3><span class="tsk-dot" style="--tsk-c:' + dg.c + '"></span>Questions for you<span class="count">' + asking.length + '</span></h3>' + tskAskList(asking, now) + '</section>';
     groups.innerHTML = askHead + [...byP.entries()].sort((a, b) => pjChainCompare(chainOfGroup.get(a[0]), chainOfGroup.get(b[0])))
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
