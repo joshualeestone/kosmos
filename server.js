@@ -12805,7 +12805,8 @@ const server = http.createServer(async (req, res) => {
   /* Exact paths, never a startsWith prefix: a prefix would serve every path under it, a handler or not (web.api-routes-3957). */
   if (pathname === '/api/personal-backup' || pathname === '/api/personal-backup/preview' || pathname === '/api/personal-backup/on'
     || pathname === '/api/personal-backup/key' || pathname === '/api/personal-backup/saved' || pathname === '/api/personal-backup/restore'
-    || pathname === '/api/personal-backup/off' || pathname === '/api/personal-backup/backups' || pathname === '/api/personal-backup/files') {
+    || pathname === '/api/personal-backup/off' || pathname === '/api/personal-backup/backups' || pathname === '/api/personal-backup/files'
+    || pathname === '/api/personal-backup/stop') {
     let off = true;
     try { off = !require('./engine/personalbackupoffer').offer().shown; } catch { off = true; }
     if (off) { sendJson(res, 404, { error: 'not found' }); return; }
@@ -12825,14 +12826,16 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/personal-backup/files' && (req.method === 'GET' || req.method === 'HEAD')) {
       if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'only you can see personal backup, from Settings' }); return; }
       let out;
-      try { out = require('./engine/personalrestorejob').status(); } catch { out = { running: false, startedAt: null, last: null }; }
+      /* From a remote session, the counts and not the names: the names are the person's own files, and this read needs
+         no step-up (challenge round 3). At the computer, all of it. */
+      try { out = require('./engine/personalrestorejob').status({ namesHidden: isRemoteRequest(req) }); } catch { out = { running: false, startedAt: null, last: null }; }
       sendJson(res, 200, out);
       return;
     }
     /* Only the named steps exist. The bare path is GET only: a POST there has no step (challenge round 3: it fell
        through to switchOff, past the step-up gate, which is keyed on /off). */
     const kind = pathname.slice('/api/personal-backup/'.length);
-    if (req.method !== 'POST' || !['preview', 'on', 'key', 'saved', 'restore', 'off', 'backups', 'files'].includes(kind)) { sendJson(res, 404, { error: 'not found' }); return; }
+    if (req.method !== 'POST' || !['preview', 'on', 'key', 'saved', 'restore', 'off', 'backups', 'files', 'stop'].includes(kind)) { sendJson(res, 404, { error: 'not found' }); return; }
     readBody(req, 4096)
       .then(async (buf) => {
         let body = {};
@@ -12858,12 +12861,14 @@ const server = http.createServer(async (req, res) => {
            how it went. Only the key goes to the job, never the body. */
         else if (kind === 'backups') r = await require('./engine/personalrestorejob').list();
         else if (kind === 'files') r = require('./engine/personalrestorejob').start(typeof body.key === 'string' ? body.key : null);
+        // Stopping a restore takes nothing away that it had not made, so it needs no step-up (as leaving does not).
+        else if (kind === 'stop') r = require('./engine/personalrestorejob').stop();
         else r = null;   // unreachable: kind was checked above; answers the generic refusal below
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and
            member are the opaque ids confirmRecoveryCodeSaved needs back, nothing more. */
         // Named fields only, per step (challenge round 4): each step can send the page only what that step answers.
         const KEEP = { preview: ['ticket', 'words', 'price'], on: ['declined', 'unknown', 'org', 'member'], key: ['org', 'member'],
-          saved: ['deleted'], restore: ['epochs'], off: ['pending'], backups: ['more', 'keyMissing', 'backups'], files: ['startedAt'] };
+          saved: ['deleted'], restore: ['epochs'], off: ['pending'], backups: ['more', 'keyMissing', 'backups'], files: ['startedAt'], stop: [] };
         const keep = ['ok', 'because', 'code'].concat(KEEP[kind] || []);
         const out = {};
         if (r && typeof r === 'object') for (const k of keep) if (k in r) out[k] = r[k];

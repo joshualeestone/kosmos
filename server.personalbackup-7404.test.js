@@ -46,7 +46,7 @@ async function call(p, { method = 'POST', body, headers } = {}) {
   return { status: res.status, json };
 }
 const SCREEN = { 'sec-fetch-site': 'same-origin' };
-const POSTS = ['preview', 'on', 'key', 'saved', 'restore', 'off', 'backups', 'files'].map((k) => '/api/personal-backup/' + k);
+const POSTS = ['preview', 'on', 'key', 'saved', 'restore', 'off', 'backups', 'files', 'stop'].map((k) => '/api/personal-backup/' + k);
 function offerOn(t, price) {
   process.env.KOSMOS_PERSONAL_BACKUP = '1';
   if (price === undefined) delete process.env.KOSMOS_PERSONAL_BACKUP_PRICE; else process.env.KOSMOS_PERSONAL_BACKUP_PRICE = price;
@@ -188,4 +188,24 @@ test('#7404: from the screen, backups and files answer by name, and a restore is
   assert.equal(s.last.code, 'not_on');
   const bad = await call('/api/personal-backup/files', { body: { key: 3 }, headers: SCREEN });
   assert.equal(bad.json.code, 'no_such_backup');
+});
+
+test('#7404: GET files hides the names from a remote session, and shows them at the computer', async (t) => {
+  offerOn(t, '$5/month');
+  const job = require('./engine/personalrestorejob');
+  const was = job.status;
+  t.after(() => { job.status = was; });
+  const asked = [];
+  job.status = (o) => { asked.push(!!(o && o.namesHidden)); return { running: false, startedAt: null, last: null }; };
+  await call('/api/personal-backup/files', { method: 'GET', headers: SCREEN });
+  await call('/api/personal-backup/files', { method: 'GET', headers: Object.assign({ 'x-forwarded-for': '203.0.113.9' }, SCREEN) });
+  assert.deepEqual(asked, [false, true]);
+});
+
+test('#7404: stop needs no step-up and answers when nothing runs', async (t) => {
+  offerOn(t, '$5/month');
+  assert.equal(needsRemoteStepUp('/api/personal-backup/stop', 'POST'), false);
+  const r = await call('/api/personal-backup/stop', { body: {}, headers: SCREEN });
+  assert.equal(r.json.ok, false);
+  assert.equal(r.json.code, 'not_running');
 });

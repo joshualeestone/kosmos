@@ -7,13 +7,16 @@
  *                 an ask while one runs shares its answer.
  *   start(key)    restore one backup into a new Kosmos (personalrestore.restoreFiles, in a child). One at a time on
  *                 this board; answers at once, { ok: true } once the child is started, and status() says the rest.
- *   status()      { running, startedAt, last }: last is the most recent restore's answer, by named fields.
+ *   status()      { running, startedAt, last }: last is the most recent restore's answer, by named fields. With
+ *                 { namesHidden }, the counts of moved, kept, held back and failed files and not their names.
+ *   stop()        ends the restore that is running; what it had already written stays in its new Kosmos.
  *   (no stop: a child exits by itself when the board goes, because its IPC channel closes.)
  *
- * Known limits, on #7404 for the screen slice: a restore has no time limit and no Stop, so a child that wedges holds the
- * slot until the board restarts; the slot and the last answer live in this process, so after a restart the screen
+ * Known limits, on #7404 for the screen slice: a restore has no time limit, only stop(); the slot and the last answer live in this process, so after a restart the screen
  * cannot say a restore was cut off; and an old board's child may still be finishing a write when a new board starts
- * another restore (each makes its own new Kosmos, and restoreworld's list has its own lock).
+ * another restore (each makes its own new Kosmos, and restoreworld's list has its own lock); the child reads the member keys outside personalbackupkey's serial() queue,
+ * which is this process's (a read only, of files written whole); and a list while a restore runs spends the same hourly
+ * Kosmos+ allowance.
  *
  * The child signs nothing. Its Kosmos+ requests come back here and only ROUTES are signed, through remote.macRequest,
  * so the busy() guard around a register or a Forget holds for a restore as for anything else. Any other route is
@@ -108,6 +111,7 @@ function runChild(ask, deps = {}) {
       child = fork(CHILD, [], { execArgv: [], stdio: ['ignore', 'ignore', 'ignore', 'ipc'], serialization: 'json', windowsHide: true });
     } catch { done(null); return; }
     children.add(child);
+    if (deps.onChild) deps.onChild(child);
     if (deps.timeoutMs) { timer = setTimeout(() => done(null), deps.timeoutMs); if (timer.unref) timer.unref(); }
     child.on('error', () => done(null));
     // A child gone without its answer. On close, not exit: close comes after the channel is read to its end, so an
@@ -150,22 +154,41 @@ function baseOfBoard() {
 function start(key, deps = {}) {
   if (typeof key !== 'string' || !key || key.length > 1024) return refused('That backup is not on Kosmos+ any more.', 'no_such_backup');
   if (restoring) return refused('A restore is already running on this computer.', 'restore_running');
-  const mine = { startedAt: Date.now() };
+  const mine = { startedAt: Date.now(), stopped: false, child: null };
   restoring = mine;
   /* The worlds' base is the board's, read here: the child cannot see which world this board booted into
      (worldenv.bootedBaseDir is this process's own), and a world made under another base never reaches the switcher. */
   let base = null;
   try { base = deps.base || baseOfBoard(); } catch { base = null; }
   if (typeof base !== 'string' || !path.isAbsolute(base)) { restoring = null; return refused('this Kosmos could not tell where to put the restore, so nothing was restored'); }
-  runChild({ op: 'restore', key, base }, deps).then((r) => r, () => null).then((r) => {
-    last = Object.assign({ finishedAt: Date.now() }, shapeRestore(r || { ok: false, because: 'the restore stopped on this computer before it finished' }));
+  runChild({ op: 'restore', key, base }, Object.assign({}, deps, { onChild: (c) => { mine.child = c; } })).then((r) => r, () => null).then((r) => {
+    const cut = mine.stopped ? { ok: false, code: 'stopped', because: 'You stopped this restore. The files it had already restored stay in its new Kosmos.' }
+      : { ok: false, because: 'the restore stopped on this computer before it finished' };
+    last = Object.assign({ finishedAt: Date.now() }, shapeRestore(r || cut));
     if (restoring === mine) restoring = null;
   });
   return { ok: true, startedAt: mine.startedAt };
 }
 
-function status() {
-  return { running: !!restoring, startedAt: restoring ? restoring.startedAt : null, last };
+const counted = (a) => (Array.isArray(a) ? a.length : 0);
+function status(opts = {}) {
+  let shown = last;
+  if (last && opts.namesHidden) {
+    shown = {};
+    for (const k of ['finishedAt', 'ok', 'because', 'code', 'partial', 'restored', 'failed']) if (k in last) shown[k] = last[k];
+    if (last.world) shown.world = last.world;   // the new Kosmos's name, not a file's
+    for (const k of ['moved', 'kept', 'heldBack']) if (k in last) shown[k + 'Count'] = counted(last[k]);
+    if (last.details) shown.details = { failedCount: counted(last.details.failed), leftOutAtBackup: last.details.leftOutAtBackup };
+  }
+  return { running: !!restoring, startedAt: restoring ? restoring.startedAt : null, last: shown };
+}
+
+/* The person's Stop. The answer arrives through start's own settle, so the slot frees there, as on any end. */
+function stop() {
+  if (!restoring) return refused('No restore is running on this computer.', 'not_running');
+  restoring.stopped = true;
+  if (restoring.child) { try { restoring.child.kill(); } catch { /* gone */ } }
+  return { ok: true };
 }
 
 function endChildren() {
@@ -175,4 +198,4 @@ function endChildren() {
 /* Tests: forget the last answer and anything in flight. */
 function resetForTests() { endChildren(); children.clear(); listing = null; restoring = null; last = null; }
 
-module.exports = { list, start, status, ROUTES, shapeList, shapeRestore, _resetForTests: resetForTests };
+module.exports = { list, start, status, stop, ROUTES, shapeList, shapeRestore, _resetForTests: resetForTests };
