@@ -12173,6 +12173,15 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #pb-skipped-list li { margin: 2px 0; }
 /* Design review 2: the "more" line closes the list with the list's own gap, so it does not read as Turn off's caption. */
 #pb-skipped { margin-bottom: var(--space-7); }
+/* kosmos#7404: restore from a backup. Each backup is one row: its time, then Restore at the end of the row. */
+#pb-files { margin-bottom: var(--space-7); }
+#s-sec-plus .pb-files-head { color: var(--label); font-weight: 600; }
+#pb-files-list { list-style: none; margin: 0 0 var(--space-4); padding: 0; max-height: 40vh; overflow-y: auto; }
+#pb-files-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; border-bottom: 1px solid var(--border); font: var(--text-callout) var(--font-ui); color: var(--label-2); }
+#pb-files-list li .pb-files-problem { color: var(--label-3); }
+#pb-files-failed summary { cursor: pointer; min-height: 44px; display: list-item; padding: 12px 0; color: var(--label-2); }
+#pb-files-failed summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+#pb-files-failed-list { max-height: 40vh; overflow-y: auto; margin: 0 0 var(--space-4); padding-left: 20px; font: var(--text-callout) var(--font-ui); color: var(--label-2); overflow-wrap: anywhere; }
 #pb-skipped-more { margin: 0; }
 @media print {
   body.pb-printing > *:not(#pb-printout) { display: none !important; }
@@ -20502,6 +20511,30 @@ window.kosmosMeasureScrollbarWidth();
           <!-- kosmos#7404: what the last good backup left out (report().skippedFiles), named so the person is never surprised
                by a file that was never backed up. Paths stay on this computer: the board reads them from its own job note. -->
           <details id="pb-skipped" hidden><summary class="fhint" id="pb-skipped-sum"></summary><ul id="pb-skipped-list"></ul><p class="fhint" id="pb-skipped-more" hidden></p></details>
+          <!-- kosmos#7404: restore from a backup, into a separate copy (POST /api/personal-backup/backups, files and stop; GET
+               /api/personal-backup/files). Mona Lisa's design review (fleetbuilders m2528): nothing is listed until asked,
+               because a list spends the hourly Kosmos+ allowance; the confirm is inline; no progress bar, since the restore
+               reports none; and the end says how to open the copy. -->
+          <div id="pb-files" role="group" aria-label="Restore from a backup" hidden>
+            <p class="fhint pb-files-head" id="pb-files-head">Restore from a backup</p>
+            <div class="frow" id="pb-files-see-row"><button class="btn" type="button" id="pb-files-see">See your backups</button></div>
+            <ul id="pb-files-list" hidden></ul>
+            <p class="fhint" id="pb-files-more" hidden>Older backups are not shown.</p>
+            <div id="pb-files-ask" hidden>
+              <p class="fhint" id="pb-files-ask-say"></p>
+              <div class="frow"><button class="btn uprime" type="button" id="pb-files-yes">Restore</button><button class="btn" type="button" id="pb-files-no">Cancel</button></div>
+            </div>
+            <p class="fhint" id="pb-files-run" hidden></p>
+            <div class="frow" id="pb-files-stop-row" hidden><button class="btn" type="button" id="pb-files-stop">Stop</button></div>
+            <div id="pb-files-stop-ask" hidden>
+              <p class="fhint">Stop now? What is restored so far stays in the copy.</p>
+              <div class="frow"><button class="btn danger-btn" type="button" id="pb-files-stop-yes">Stop</button><button class="btn" type="button" id="pb-files-stop-no">Keep going</button></div>
+            </div>
+            <p class="fhint" id="pb-files-last" hidden></p>
+            <details id="pb-files-failed" hidden><summary class="fhint" id="pb-files-failed-sum"></summary><ul id="pb-files-failed-list"></ul></details>
+            <div class="frow" id="pb-files-open-row" hidden><button class="btn" type="button" id="pb-files-open">Open the copy</button></div>
+            <p class="fmsg" id="pb-files-msg" role="alert" aria-live="assertive"></p>
+          </div>
           <div class="frow" id="pb-off-row"><button class="btn uprime" type="button" id="pb-finish" hidden>Finish setting up</button><button class="btn" type="button" id="pb-off-btn">Turn off personal backup</button></div>
           <div id="pb-off-ask" hidden>
             <!-- Only what is true: the coordinator ends the membership (org.rs mac_leave), and its purge (relay
@@ -55698,6 +55731,7 @@ function pbPaint() {
   const lastEl = document.getElementById('pb-job-last');
   lastEl.textContent = lines.plain; lastEl.hidden = !lines.plain;
   pbSkippedShow(v === 'on' && !lines.stopped ? st.job : null);
+  if (typeof pbfShow === 'function') pbfShow(v === 'on');   // typeof: the panel's functions are lifted alone by tests
   // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
   const ask = document.getElementById('pb-off-ask');
   if (!(v === 'on' || v === 'needs-key')) ask.hidden = true;
@@ -55956,6 +55990,165 @@ async function pbRestore() {
   } finally { PB.busy = false; pbMaybe(); }
 }
 document.getElementById('pb-on').addEventListener('click', pbOpen);
+/* ---- kosmos#7404: restore from a backup, into a separate copy (engine/personalrestorejob.js). The list is read only when
+   asked (it spends the hourly Kosmos+ allowance); where a restore is (GET /api/personal-backup/files) is read every 5
+   seconds while one runs and once a minute otherwise, only while the panel shows it. The copy is a Kosmos of its own in the
+   switcher (restoreworld.prepareRestoreWorld), so "Open the copy" is the switcher's own restart-to-switch confirm. */
+var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, busy: false, stopAsk: false };
+function pbfWhen(ms) { return Number.isFinite(ms) ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''; }
+function pbfBackupWhen(b) { return b && Number.isFinite(b.takenAt) ? pbfWhen(b.takenAt * 1000) : 'A backup with no date'; }   // takenAt is Unix seconds
+function pbfMsg(t) { document.getElementById('pb-files-msg').textContent = t ? asSentence(t) : ''; }
+/* The end of a restore, in Mona Lisa's words. `last` is personalrestorejob.status()'s; from a remote session it has counts and
+   no names (details.failedCount). A stop says the copy's place in words, since a stopped restore's answer names no copy. */
+function pbfLastWords(last) {
+  const l = last && typeof last === 'object' ? last : null;
+  if (!l) return null;
+  const world = l.world && typeof l.world.id === 'string' ? l.world : null;
+  const d = l.details && typeof l.details === 'object' ? l.details : {};
+  const failedPaths = Array.isArray(d.failed) ? d.failed.filter((f) => f && typeof f.path === 'string').map((f) => f.path) : [];
+  const failed = Number.isSafeInteger(l.failed) ? l.failed : Number.isSafeInteger(d.failedCount) ? d.failedCount : failedPaths.length;
+  const leftOut = Number.isSafeInteger(d.leftOutAtBackup) ? d.leftOutAtBackup : 0;
+  const n = (k, one, many) => (k === 1 ? '1 ' + one : k.toLocaleString() + ' ' + many);
+  const parts = [];
+  if (l.ok === true) parts.push('Restored ' + n(Number.isSafeInteger(l.restored) ? l.restored : 0, 'file', 'files') + ' into ' + (world ? world.name : 'a separate copy') + '.');
+  else if (l.code === 'stopped') parts.push(l.stoppedByPerson === true && /turned off/.test(String(l.because || '')) ? asSentence(l.because)
+    : 'You stopped the restore. What it restored so far is in its copy, in the Kosmos menu at the top.');
+  else parts.push(asSentence(l.because || 'The restore did not finish') + (world ? ' Its copy is ' + world.name + '.' : ''));
+  if (leftOut > 0) parts.push(n(leftOut, 'file was', 'files were') + ' not in this backup (' + (leftOut === 1 ? 'it was' : 'they were') + ' left out when it was made).');
+  return {
+    line: parts.join(' '), world: l.ok === true || l.code !== 'stopped' ? world : null,
+    failedSum: failed > 0 ? n(failed, 'file', 'files') + ' could not be restored' : '', failedPaths,
+  };
+}
+function pbfShow(on) {
+  const box = document.getElementById('pb-files');
+  box.hidden = !on;
+  if (!on) { PBF.asked = null; PBF.stopAsk = false; return; }
+  if (Date.now() - PBF.at > (PBF.status && PBF.status.running ? 5000 : 60000)) pbfRead();
+  pbfPaint();
+}
+function pbfRead() {
+  PBF.at = Date.now();
+  const seq = ++PBF.seq;
+  fetch('/api/personal-backup/files').then((res) => (res.ok ? res.json() : null)).then((j) => {
+    if (seq !== PBF.seq || !j || typeof j !== 'object') return;
+    const wasRunning = !!(PBF.status && PBF.status.running);
+    PBF.status = j;
+    if (wasRunning && !j.running) { PBF.stopAsk = false; PBF.list = null; }   // a finished restore puts the list away
+    pbfPaint();
+  }).catch(() => { /* the next read tries again */ });
+}
+function pbfPaint() {
+  const st = PBF.status || {};
+  const running = st.running === true;
+  document.getElementById('pb-files-see-row').hidden = running || !!PBF.asked;
+  document.getElementById('pb-files-see').disabled = PBF.busy;
+  const list = document.getElementById('pb-files-list');
+  const rows = !running && !PBF.asked && Array.isArray(PBF.list) ? PBF.list : [];
+  const sig = JSON.stringify(rows.map((b) => [b.key, b.takenAt, b.problem]));
+  if (list.dataset.sig !== sig) {
+    list.dataset.sig = sig; list.textContent = '';
+    for (const b of rows) {
+      const li = document.createElement('li');
+      const when = document.createElement('span'); when.textContent = pbfBackupWhen(b);
+      li.appendChild(when);
+      if (b.problem) { const pr = document.createElement('span'); pr.className = 'pb-files-problem'; pr.textContent = asSentence(b.problem); li.appendChild(pr); }
+      else {
+        const go = document.createElement('button'); go.className = 'btn'; go.type = 'button'; go.textContent = 'Restore';
+        go.setAttribute('aria-label', 'Restore ' + pbfBackupWhen(b));
+        go.addEventListener('click', () => { PBF.asked = b; pbfMsg(''); pbfPaint(); document.getElementById('pb-files-no').focus(); });
+        li.appendChild(go);
+      }
+      list.appendChild(li);
+    }
+  }
+  list.hidden = !rows.length;
+  document.getElementById('pb-files-more').hidden = !(rows.length && PBF.more);
+  const ask = document.getElementById('pb-files-ask');
+  ask.hidden = running || !PBF.asked;
+  if (PBF.asked) document.getElementById('pb-files-ask-say').textContent = 'Restore ' + pbfBackupWhen(PBF.asked) + '? It goes into a separate copy, so nothing here changes.';
+  const run = document.getElementById('pb-files-run');
+  run.hidden = !running;
+  if (running) {
+    const what = PBF.startedFor ? pbfBackupWhen(PBF.startedFor) : 'a backup';
+    run.textContent = 'Restoring ' + what + (Number.isFinite(st.startedAt) ? ', started ' + pbfWhen(st.startedAt) : '') + '. This can take a while, and you can keep using Kosmos.';
+  }
+  document.getElementById('pb-files-stop-row').hidden = !running || PBF.stopAsk;
+  document.getElementById('pb-files-stop-ask').hidden = !running || !PBF.stopAsk;
+  const w = running ? null : pbfLastWords(st.last);
+  const lastEl = document.getElementById('pb-files-last');
+  lastEl.textContent = w ? w.line : ''; lastEl.hidden = !w;
+  const fd = document.getElementById('pb-files-failed');
+  fd.hidden = !(w && w.failedSum);
+  if (w && w.failedSum) {
+    document.getElementById('pb-files-failed-sum').textContent = w.failedSum + (w.failedPaths.length ? '' : '.');
+    const fl = document.getElementById('pb-files-failed-list');
+    const fsig = JSON.stringify(w.failedPaths);
+    if (fl.dataset.sig !== fsig) { fl.dataset.sig = fsig; fl.textContent = ''; for (const f of w.failedPaths) { const li = document.createElement('li'); li.textContent = f; fl.appendChild(li); } }
+    fl.hidden = !w.failedPaths.length;
+  }
+  document.getElementById('pb-files-open-row').hidden = !(w && w.world);
+}
+async function pbfSee() {
+  if (PBF.busy) return;
+  PBF.busy = true; pbfMsg(''); pbfPaint();
+  let r;
+  try {
+    const res = await fetch('/api/personal-backup/backups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    r = await res.json();
+  } catch { r = { ok: false, because: 'This Kosmos could not be reached. Try again.' }; }
+  PBF.busy = false;
+  if (r && r.ok === true && Array.isArray(r.backups)) {
+    PBF.list = r.backups; PBF.more = r.more === true; PBF.keyMissing = r.keyMissing === true;
+    pbfMsg(!r.backups.length ? 'There are no backups from this account yet.' : '');
+  } else pbfMsg((r && (r.because || r.error)) || 'Your backups could not be listed just now. Try again.');
+  pbfPaint();
+}
+async function pbfStart() {
+  const b = PBF.asked;
+  if (!b || PBF.busy) return;
+  PBF.busy = true;
+  document.getElementById('pb-files-yes').disabled = true;
+  let r;
+  try {
+    const res = await fetch('/api/personal-backup/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: b.key }) });
+    r = await res.json();
+  } catch { r = { ok: false, because: 'This Kosmos could not be reached. Nothing was restored.' }; }
+  PBF.busy = false;
+  document.getElementById('pb-files-yes').disabled = false;
+  if (r && r.ok === true) {
+    PBF.startedFor = b; PBF.asked = null;
+    PBF.status = { running: true, startedAt: Number.isFinite(r.startedAt) ? r.startedAt : Date.now(), last: PBF.status && PBF.status.last };
+    pbfMsg('');
+  } else pbfMsg((r && (r.because || r.error)) || 'The restore did not start. Nothing was restored.');
+  pbfRead();
+  pbfPaint();
+}
+async function pbfStop() {
+  PBF.stopAsk = false;
+  let r;
+  try {
+    const res = await fetch('/api/personal-backup/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    r = await res.json();
+  } catch { r = { ok: false, because: 'This Kosmos could not be reached. The restore is still running.' }; }
+  pbfMsg(r && r.ok === true ? '' : ((r && (r.because || r.error)) || 'The restore could not be stopped just now.'));
+  pbfRead();
+  pbfPaint();
+}
+function pbfOpen() {
+  const w = pbfLastWords(PBF.status && PBF.status.last);
+  if (!w || !w.world) return;
+  if (typeof worldsFetch === 'function') worldsFetch().catch(() => {});   // the copy is new, so the switcher's list may not have it yet
+  worldswOpen();
+  worldswConfirmSwitch(w.world.id, w.world.name);
+}
+document.getElementById('pb-files-see').addEventListener('click', pbfSee);
+document.getElementById('pb-files-yes').addEventListener('click', pbfStart);
+document.getElementById('pb-files-no').addEventListener('click', () => { PBF.asked = null; pbfPaint(); document.getElementById('pb-files-see').focus(); });
+document.getElementById('pb-files-stop').addEventListener('click', () => { PBF.stopAsk = true; pbfPaint(); document.getElementById('pb-files-stop-no').focus(); });
+document.getElementById('pb-files-stop-no').addEventListener('click', () => { PBF.stopAsk = false; pbfPaint(); document.getElementById('pb-files-stop').focus(); });
+document.getElementById('pb-files-stop-yes').addEventListener('click', pbfStop);
+document.getElementById('pb-files-open').addEventListener('click', pbfOpen);
 document.getElementById('pb-finish').addEventListener('click', pbFinish);
 document.getElementById('pb-accept').addEventListener('click', () => pbAccept(true));
 document.getElementById('pb-no').addEventListener('click', () => pbAccept(false));
