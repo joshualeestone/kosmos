@@ -905,6 +905,46 @@
       "rank": 14.5,
       "since": "0.7.76",
       "status": "pending"
+    },
+    {
+      "title": "Say why a task is on hold",
+      "line": "When you put a task on hold you can write why, and the task shows the reason beside it.",
+      "icon": "list",
+      "rank": 14.8,
+      "since": "0.7.82",
+      "status": "pending"
+    },
+    {
+      "title": "Agents can record the commit a fix landed as",
+      "line": "An agent marking a task built can add --commit, and the task keeps the commit its fix landed as after it closes.",
+      "icon": "list",
+      "rank": 50,
+      "since": "0.7.73",
+      "status": "pending"
+    },
+    {
+      "title": "Close a task with its built subtasks",
+      "line": "kosmos task close now takes --with-built, which closes the task's built subtasks with it.",
+      "icon": "list",
+      "rank": 51,
+      "since": "0.7.74",
+      "status": "pending"
+    },
+    {
+      "title": "Agents can say why a task is on hold",
+      "line": "kosmos task hold now takes --because with a few words, and the task shows them.",
+      "icon": "list",
+      "rank": 52,
+      "since": "0.7.82",
+      "status": "pending"
+    },
+    {
+      "title": "Agents can list every agent on the board",
+      "line": "kosmos agent list shows every agent on this board, its role, and whether it is running.",
+      "icon": "list",
+      "rank": 53,
+      "since": "0.7.82",
+      "status": "pending"
     }
   ]
 }
