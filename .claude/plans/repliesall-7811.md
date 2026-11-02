@@ -16,12 +16,14 @@ at"), so a comment on an older post is owed an answer but never listed. Cover ev
 ## Decided
 - One shared choice, `postsToRead`, for both the read and the nudge's count: the newest REPLIES_POSTS posts as now, plus
   up to REPLIES_OLDER_MAX (5) older posts with something new, newest activity first. Something new: the profile's
-  `latest_reply` is after the post's mark as the read compares it (afterMark: (time, id) order, not an id already seen)
-  and was not written by the agent itself (its own reply would otherwise keep the post active forever); or the post's
+  `latest_reply` is after the post's mark as the read compares it (afterMark: (time, id) order, not an id already seen;
+  the agent's own items read above the mark are kept as seen, so its own reply makes the post read once, not forever,
+  and anything owed before it is listed); or the post's
   last read held its mark or saved a thread's place, since that read promised to look again.
-- The profile is read once per read, with the newest posts' round 1 (in parallel, so it adds no wait). The older posts'
-  round 1 starts only if that took under OLDER_START_MS (1.5 s), so the read still fits the CLI's 30 s; otherwise they
-  are said as waiting ("read again for them"). With 10 posts or fewer nothing is asked.
+- The profile is read once per read, alongside the newest posts' round 1. The older posts' round 1 starts the moment
+  the profile answers, if that is within OLDER_START_MS (1 s) of round 1 starting, so the read's rounds still fit the
+  CLI's 30 s (29 s in the worst case); a slower profile leaves them for the next read, said as such. A profile 429 is
+  treated as round 1 limiting (no round 2 pages). With 10 posts or fewer nothing is asked.
 - A profile that cannot be read: the read keeps the newest 10 and says the older posts could not be checked; the count
   is partial, as for an unreadable post, and after FRESH_DOWN_PASSES failures in a row it counts the newest only, so a
   profile that never answers cannot hold the agent's nudges forever. An agent with no stored name reads the newest only
@@ -36,5 +38,6 @@ at"), so a comment on an older post is owed an answer but never listed. Cover ev
 ## Weakest premise
 That `latest_reply` moves for every new comment or reply the read would show. It is the newest shown comment of any
 depth by created_at; a comment hidden then restored, or one committed with an earlier stamp, would not move it (the
-read already names both as rare misses). Second: the count and the read each read the profile, so a comment landing
-between them can change which older posts each takes; the count is then stale, as for any change between the two.
+read already names both as rare misses). Second: the count and the read can take different older posts (each reads
+the profile itself, and only the read leaves them for later on a slow profile); the count is then stale, as for any
+change between the two.
