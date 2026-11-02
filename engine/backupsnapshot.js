@@ -946,7 +946,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   // takeSnapshot's catch returns `added` intact.
   // kosmos#7746: sealed in a worker; a worker refusal rejects with an Error, which takeSnapshot's catch handles as above.
   let sealedHere = null;
-  const sealed = await sealOffThread(memberPk, deviceKey, ctx, manifest, { report: (how, why) => { sealedHere = how === 'here' ? why : null; } });
+  const sealed = await sealOffThread(memberPk, deviceKey, ctx, manifest, Object.assign({ report: (how, why) => { sealedHere = how === 'here' ? why : null; } },
+    deps.sealWorkerFile ? { workerFile: deps.sealWorkerFile } : {}));   // sealWorkerFile: tests only
   // kosmos#7118: with the snapshot id the manifest is sealed under, so a restore (or the console) can open it.
   const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks, epoch: ctx.epoch, snapshot: ctx.snapshot });
   if (!m || !m.ok) {
@@ -1019,18 +1020,18 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
     // The seal here, as before this change, so it freezes the board for the seal's time again; `why` says which way the
     // worker could not be used: 'not-sent' (the manifest or keys could not be handed over), 'no-worker' (no worker could
     // be made at all), 'worker-ended' (it failed, a missing worker file included, or ended without answering), 'no-answer' (none within the wait).
+    let json;
     const here = (why) => {
       done();
+      json = null;   // the string is not held while the seal is made here
       if (w) w.terminate().catch(() => {});
       report('here', why);
       try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); }
     };
-    let json;
     // A member key that is not bytes is not handed over (Uint8Array would quietly turn it into another one).
     if (!Buffer.isBuffer(memberPk) && !(memberPk instanceof Uint8Array)) { here('not-sent'); return; }
     try { json = JSON.stringify(manifest, sealable); } catch { here('not-sent'); return; }   // before any worker starts
     try { w = new (require('node:worker_threads').Worker)(file); } catch { w = null; here('no-worker'); return; }
-    if (typeof opts.onWorker === 'function') { try { opts.onWorker(w); } catch { here('worker-ended'); return; } }   // tests only
     w.once('message', (m) => {
       if (settled) return;
       // The worker failed without the seal refusing (its copy or its post): sealed here, and said so.
@@ -1051,6 +1052,8 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
     w.once('error', () => { if (!settled) here('worker-ended'); });
     w.once('exit', () => { if (!settled) here('worker-ended'); });
     timer = setTimeout(() => { if (!settled) here('no-answer'); }, waitMs);
+    // Tests only, once every listener is attached, so a hook that throws still leaves the worker's events handled.
+    if (typeof opts.onWorker === 'function') { try { opts.onWorker(w); } catch { here('worker-ended'); return; } }
     try {
       w.postMessage({ memberPk: new Uint8Array(memberPk), deviceKey, ctx, json });
       json = null;   // not held past the post, so a fallback seal does not also hold it

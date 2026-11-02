@@ -1975,3 +1975,18 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
     assert.ok(Date.now() - t0 < 30000, 'not left to the wait');
   } finally { fs.rmSync(quits, { force: true }); }
 });
+
+test('#7746: a snapshot sealed by the worker says nothing; one sealed here says sealedInProcess and why', async () => {
+  const w = workKosmos(), k = keys();
+  try {
+    const st = store();
+    const r = await take(k, w.root, st);
+    assert.equal(r.ok, true, r.because);
+    assert.equal('sealedInProcess' in r, false);
+    const st2 = store();
+    const k2 = Object.assign({}, k, { ctx: Object.assign({}, k.ctx, { snapshot: 's2' }) });
+    const r2 = await take(k2, w.root, st2, { deps: { sealWorkerFile: path.join(os.tmpdir(), 'no-such-backupseal-worker.js') } });
+    assert.equal(r2.ok, true, r2.because);
+    assert.equal(r2.sealedInProcess, 'worker-ended');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});

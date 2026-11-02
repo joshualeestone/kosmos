@@ -16,3 +16,5 @@ Not pinned by a test of its own, stated as such: the messageerror listener (fall
 Only a refusal by the seal itself (the worker says `refused`) is passed on as a rejection; a worker that failed otherwise (its copy or its post) is sealed here instead. The worker transfers the sealed bytes without a copy when they fill their own buffer.
 
 A worker answer that is a failure but not the seal's refusal falls back here and reports 'worker-ended' (tested with a worker that answers { ok: false }). Not covered: a ctx whose fields come from a prototype would seal in process but be refused by the worker (structured clone keeps own fields only); snapshotInner's ctx is plain.
+
+The JSON string is released inside the fallback itself, so no fallback holds it beside the seal. sealedInProcess is tested through takeSnapshot (absent after a worker seal, 'worker-ended' with a missing worker file via a tests-only deps.sealWorkerFile). Not measured: the worker's own peak memory (it parses the string and canonicalizes it); an out-of-memory worker falls back here, which then freezes the board for the seal as before.
