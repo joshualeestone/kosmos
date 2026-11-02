@@ -159,6 +159,35 @@ test('#7746: a file swapped in by rename, same size and mtime to the nanosecond,
   assert.throws(() => bs.writeState(org, member, stateOf(5)), /discardState it first/, 'only the inode differs, and it is caught');
 });
 
+test('#7746: a read refused while the file is unchanged (EBUSY) forgets it, so the next write reads it in full', async () => {
+  // A changed file (a chmod, a rewrite, discardState and a new file) changes its ctime, so it is read in full whatever
+  // is remembered; only a read refused over an unchanged file shows whether the refusal forgets.
+  const [org, member] = ids();
+  const f = bs.fileFor(org, member);
+  bs.writeState(org, member, stateOf(5));
+  const real = fs.readFileSync;
+  fs.readFileSync = function (file, ...rest) {
+    if (String(file) === f) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; }
+    return real.call(fs, file, ...rest);
+  };
+  let r;
+  try { r = bs.readState(org, member); } finally { fs.readFileSync = real; }
+  assert.equal(r.ok, false); assert.equal(r.retry, true);
+  assert.equal(await readsOf(f, () => bs.writeState(org, member, stateOf(5))), 1, 'forgotten after a refused read');
+});
+
+test('#7746: a read paused across a newer write does not replace that write\'s fingerprint', async () => {
+  const [org, member] = ids();
+  const f = bs.fileFor(org, member);
+  bs.writeState(org, member, stateOf(200000));
+  let readDone = false;
+  const reading = bs.readStateAsync(org, member).then((r) => { readDone = true; return r; });
+  await bs.writeStateAsync(org, member, stateOf(3));
+  assert.equal(readDone, false, 'premise: the read is still paused when the write lands');
+  assert.equal((await reading).ok, true);
+  assert.equal(await readsOf(f, () => bs.writeState(org, member, stateOf(3))), 0, 'the newer write is still remembered');
+});
+
 test('#7746: a file rewritten in place, same inode and size, mtime set back to the nanosecond, is still checked in full', async () => {
   const [org, member] = ids();
   const f = bs.fileFor(org, member);

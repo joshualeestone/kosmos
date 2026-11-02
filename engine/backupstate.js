@@ -17,9 +17,8 @@
  *
  * readState(org, member) -> { ok: true, state } | { ok: false, because }
  *   readStateAsync and writeStateAsync (kosmos#7746) give the same answers and the same errors (as rejections) as
- *   readState and writeState, giving the
- *   event loop a turn every 50,000 rows and between steps; JSON.parse and JSON.stringify of the whole file each stay one
- *   block. A run uses them; at the top plan the sync ones block for seconds.
+ *   readState and writeState, giving the event loop a turn every 50,000 rows and between steps; JSON.parse and
+ *   JSON.stringify of the whole file each stay one block. A run uses them; at the top plan the sync ones block for seconds.
  *   Async writes of one file run in the order asked; a sync writeState while one is in flight throws with no code (a
  *   caller mistake: it would land in the middle of it).
  *   A missing file is ok and empty ({ job: {}, periods: [] }). A file that is a link, malformed, or for another
@@ -39,9 +38,9 @@
  *   discardState first (after which there is no file) or wait out the retry. "Plainly ours" is readState's own test, the
  *   whole file (review 10: a head-only check let a body-corrupt file be overwritten, and refused a reformatted good one),
  *   so a write costs one read first, UNLESS the file is exactly the one this process last read or wrote as ours (kosmos#7746:
- *   the same device, inode, size and mtime in ns, kept only when a read saw the same before and after it); then the write
- *   replaces it without re-reading. A second writer that kept the size and mtime to the nanosecond would be replaced
- *   unchecked, which the one-run-at-a-time duty below already rules out. The window between that read and the rename is covered by
+ *   the same device, inode, size, and mtime and ctime in ns, kept only when a read saw the same before and after it); then
+ *   the write replaces it without re-reading. No program can set a ctime back, so a file replaced meanwhile is read in
+ *   full. The window between that read and the rename is covered by
  *   the one-run-at-a-time duty (the folder is 0700: only this user can put a file there meanwhile). A passing error
  *   from the write itself (Windows refusing the rename while a scanner holds the file) throws with retry too, and every
  *   error FROM THE WRITE ITSELF carries the underlying `code` and `cause` (a full disk, a read-only folder), so the
@@ -188,8 +187,10 @@ function stillOurs(f) {
 function readState(org, member) { return runSync(readSteps(org, member)); }
 /* A read that does not answer ok forgets the file: only a read that found it ours may let a write skip its re-read. */
 function* readSteps(org, member) {
+  const f = fileFor(org, member), knownAtStart = known.get(f);
   const r = yield* readFileSteps(org, member);
-  if (!r.ok) known.delete(fileFor(org, member));
+  // A write that landed while this read was paused is newer than what this read found: left as it is.
+  if (!r.ok && known.get(f) === knownAtStart) known.delete(f);
   return r;
 }
 /** readState with a turn for the event loop every ROWS_PER_PAUSE rows (kosmos#7746). The same answers. */
@@ -206,7 +207,9 @@ function* readFileSteps(org, member) {
   try {
     const st = fs.lstatSync(f, { bigint: true });
     before = fingerprint(st);
-    loose = (Number(st.mode) & 0o777) !== 0o600;
+    // On Windows the mode bits mean nothing (the profile's ACLs protect the file), and every file reads as other than
+    // 0600: it is never changed there, so the fingerprint can still be kept.
+    loose = process.platform !== 'win32' && (Number(st.mode) & 0o777) !== 0o600;
   } catch { /* missing: the read decides */ }
   try { raw = fs.readFileSync(f, 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true, state: { job: {}, periods: [] } };
