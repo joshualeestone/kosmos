@@ -97,6 +97,7 @@ const PLAN_MANIFEST_JSON_BUDGET = Math.floor(MAX_MANIFEST * 0.8);
 const MAX_SKIPPED = 100000;
 // Named to the person (kosmos#7404), newest first: a read-time skip (a film, an archive) is what they want to see, and a
 // walk-time one (a link) comes earlier. Past MAX_SKIPPED, the newest that were kept. `skipped` is the whole count.
+// 200 is a guess at what a person reads.
 const SKIPS_REPORTED = 200;
 const MAX_DEPTH = 256;
 const SPLIT_WINDOW = 8;   // segments joined when looking for a credential split across folder names

@@ -756,10 +756,14 @@ test('a good run names what it left out, to a limit, beside the whole count', as
     const links = path.join(w.base, 'links');
     fs.mkdirSync(links);
     for (let i = 0; i < 201; i++) fs.symlinkSync(path.join(w.root, 'data.bin'), path.join(links, `l-${i}`));
-    const mixed = await take(k, links, store(), { input: { root: undefined, roots: [{ name: 'links', path: links }, { name: 'work', path: w.root }] }, deps: { maxFile: 1500 } });
+    const work = path.join(w.base, 'work');
+    fs.mkdirSync(work);
+    fs.writeFileSync(path.join(work, 'small.bin'), Buffer.alloc(1024, 1));
+    fs.writeFileSync(path.join(work, 'big-film.bin'), Buffer.alloc(2048, 1));
+    const mixed = await take(k, links, store(), { input: { root: undefined, roots: [{ name: 'links', path: links }, { name: 'work', path: work }] }, deps: { maxFile: 1500 } });
     assert.equal(mixed.ok, true, mixed.because);
     assert.ok(mixed.skipped > 200);
-    assert.match(mixed.skippedList[0].path, /big/, JSON.stringify(mixed.skippedList.slice(0, 2)));
+    assert.match(mixed.skippedList[0].path, /big-film/, 'first, ahead of every link');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
