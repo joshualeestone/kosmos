@@ -20521,17 +20521,19 @@ window.kosmosMeasureScrollbarWidth();
             <p class="fhint pb-files-head" id="pb-files-head">Restore from a backup</p>
             <ul id="pb-files-list" hidden></ul>
             <p class="fhint" id="pb-files-more" hidden>Older backups are not shown.</p>
+            <!-- Review 1: listBackups' keyMissing, backups under a key this computer does not hold, which may be the newest. -->
+            <p class="fhint" id="pb-files-keymissing" hidden>Some backups were made with a key this computer does not have, so they are not listed here. They may be the newest.</p>
             <div id="pb-files-ask" hidden>
               <p class="fhint" id="pb-files-ask-say"></p>
               <div class="frow"><button class="btn uprime" type="button" id="pb-files-yes">Restore</button><button class="btn" type="button" id="pb-files-no">Cancel</button></div>
             </div>
-            <p class="fhint" id="pb-files-run" hidden></p>
+            <p class="fhint" id="pb-files-run" tabindex="-1" hidden></p>
             <div class="frow" id="pb-files-stop-row" hidden><button class="btn" type="button" id="pb-files-stop">Stop</button></div>
             <div id="pb-files-stop-ask" hidden>
               <p class="fhint">Stop now? What is restored so far stays in the copy.</p>
               <div class="frow"><button class="btn danger-btn" type="button" id="pb-files-stop-yes">Stop</button><button class="btn" type="button" id="pb-files-stop-no">Keep going</button></div>
             </div>
-            <p class="fhint" id="pb-files-last" hidden></p>
+            <p class="fhint" id="pb-files-last" tabindex="-1" hidden></p>
             <details id="pb-files-failed" hidden><summary class="fhint" id="pb-files-failed-sum"></summary><ul id="pb-files-failed-list"></ul></details>
             <!-- Mona Lisa's review 2: one row, Open the copy first and primary (it is the next step), as Restore and Cancel are. -->
             <div class="frow" id="pb-files-end-row"><button class="btn uprime" type="button" id="pb-files-open" hidden>Open the copy</button><button class="btn" type="button" id="pb-files-see">See your backups</button></div>
@@ -55996,7 +55998,7 @@ document.getElementById('pb-on').addEventListener('click', pbOpen);
    asked (it spends the hourly Kosmos+ allowance); where a restore is (GET /api/personal-backup/files) is read every 5
    seconds while one runs and once a minute otherwise, only while the panel shows it. The copy is a Kosmos of its own in the
    switcher (restoreworld.prepareRestoreWorld), so "Open the copy" is the switcher's own restart-to-switch confirm. */
-var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, busy: false, stopAsk: false };
+var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, busy: false, stopAsk: false, stopping: false };
 function pbfWhen(ms) { return Number.isFinite(ms) ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''; }
 /* Mona Lisa's review 2: a restore that started today says the time alone; the list's backups keep the full date. */
 function pbfStartedWhen(ms, now = Date.now()) {
@@ -56004,8 +56006,11 @@ function pbfStartedWhen(ms, now = Date.now()) {
 }
 function pbfBackupWhen(b) { return b && Number.isFinite(b.takenAt) ? pbfWhen(b.takenAt * 1000) : 'A backup with no date'; }   // takenAt is Unix seconds
 function pbfMsg(t) { document.getElementById('pb-files-msg').textContent = t ? asSentence(t) : ''; }
+/* Focus goes to the control a step leaves on screen, so a keyboard or screen reader is never left on a hidden one. */
+function pbfFocus(el) { if (el && !el.hidden) { try { el.focus(); } catch { /* gone */ } } }
 /* The end of a restore, in Mona Lisa's words. `last` is personalrestorejob.status()'s; from a remote session it has counts and
-   no names (details.failedCount). A stop says the copy's place in words, since a stopped restore's answer names no copy. */
+   no names (details.failedCount), so failed files are a plain line there. A stopped restore's answer names no copy, and a
+   Stop before the copy was made leaves none, so that end says where one would be, not that there is one. */
 function pbfLastWords(last) {
   const l = last && typeof last === 'object' ? last : null;
   if (!l) return null;
@@ -56018,19 +56023,29 @@ function pbfLastWords(last) {
   const parts = [];
   if (l.ok === true) parts.push('Restored ' + n(Number.isSafeInteger(l.restored) ? l.restored : 0, 'file', 'files') + ' into ' + (world ? world.name : 'a separate copy') + '.');
   else if (l.code === 'stopped') parts.push(l.stoppedByPerson === true && /turned off/.test(String(l.because || '')) ? asSentence(l.because)
-    : 'You stopped the restore. What it restored so far is in its copy, in the Kosmos menu at the top.');
-  else parts.push(asSentence(l.because || 'The restore did not finish') + (world ? ' Its copy is ' + world.name + '.' : ''));
+    : 'You stopped the restore. Any files it had already restored are in a copy in the Kosmos menu at the top.');
+  // A child that ended without an answer carries how ("(it exited with code 1)"): engineer words, left off the screen.
+  else parts.push(asSentence(String(l.because || 'The restore did not finish').replace(/ \((it exited with code -?\d+|it was ended by [A-Z0-9]+)\)/, '')) + (world ? ' Its copy is ' + world.name + '.' : ''));
   if (leftOut > 0) parts.push(n(leftOut, 'file was', 'files were') + ' not in this backup (' + (leftOut === 1 ? 'it was' : 'they were') + ' left out when it was made).');
+  const sum = failed > 0 ? n(failed, 'file', 'files') + ' could not be restored' : '';
+  if (sum && !failedPaths.length) parts.push(sum + '.');   // no names to open, so no disclosure
   return {
     line: parts.join(' '), world: l.ok === true || l.code !== 'stopped' ? world : null,
-    failedSum: failed > 0 ? n(failed, 'file', 'files') + ' could not be restored' : '', failedPaths,
+    failedSum: sum && failedPaths.length ? sum + (failed > failedPaths.length ? ' (the first ' + failedPaths.length.toLocaleString() + ' are named)' : '') : '',
+    failedPaths,
   };
 }
 function pbfShow(on) {
   const box = document.getElementById('pb-files');
   box.hidden = !on;
-  if (!on) { PBF.asked = null; PBF.stopAsk = false; return; }
-  if (Date.now() - PBF.at > (PBF.status && PBF.status.running ? 5000 : 60000)) pbfRead();
+  if (!on) {
+    // Off drops the restore's answer on the board (personalrestorejob.forget), so the page drops its copy of it too.
+    PBF.asked = null; PBF.stopAsk = false; PBF.list = null; PBF.more = false; PBF.keyMissing = false; PBF.status = null; PBF.startedFor = null; PBF.at = 0;
+    PBF.seq++;   // a read already in flight answers nothing
+    return;
+  }
+  // 4500, not 5000: the panel repaints every 5 seconds, and a repaint a moment early would skip a read.
+  if (Date.now() - PBF.at > (PBF.status && PBF.status.running ? 4500 : 60000)) pbfRead();
   pbfPaint();
 }
 function pbfRead() {
@@ -56047,12 +56062,13 @@ function pbfRead() {
 function pbfPaint() {
   const st = PBF.status || {};
   const running = st.running === true;
+  const listed = Array.isArray(PBF.list);
   const seeHidden = running || !!PBF.asked
-    || (!PBF.busy && Array.isArray(PBF.list) && PBF.list.length > 0);   // the list is up: its own Restore buttons are the next step
+    || (!PBF.busy && listed && PBF.list.length > 0);   // the list is up: its own Restore buttons are the next step
   document.getElementById('pb-files-see').hidden = seeHidden;
   document.getElementById('pb-files-see').disabled = PBF.busy;
   const list = document.getElementById('pb-files-list');
-  const rows = !running && !PBF.asked && Array.isArray(PBF.list) ? PBF.list : [];
+  const rows = !running && !PBF.asked && listed ? PBF.list : [];
   const sig = JSON.stringify(rows.map((b) => [b.key, b.takenAt, b.problem]));
   if (list.dataset.sig !== sig) {
     list.dataset.sig = sig; list.textContent = '';
@@ -56063,8 +56079,9 @@ function pbfPaint() {
       if (b.problem) { const pr = document.createElement('span'); pr.className = 'pb-files-problem'; pr.textContent = asSentence(b.problem); li.appendChild(pr); }
       else {
         const go = document.createElement('button'); go.className = 'btn'; go.type = 'button'; go.textContent = 'Restore';
+        go.dataset.key = b.key;
         go.setAttribute('aria-label', 'Restore ' + pbfBackupWhen(b));
-        go.addEventListener('click', () => { PBF.asked = b; pbfMsg(''); pbfPaint(); document.getElementById('pb-files-no').focus(); });
+        go.addEventListener('click', () => { PBF.asked = b; pbfMsg(''); pbfPaint(); pbfFocus(document.getElementById('pb-files-no')); });
         li.appendChild(go);
       }
       list.appendChild(li);
@@ -56072,8 +56089,12 @@ function pbfPaint() {
   }
   list.hidden = !rows.length;
   document.getElementById('pb-files-more').hidden = !(rows.length && PBF.more);
+  document.getElementById('pb-files-keymissing').hidden = !(listed && !running && !PBF.asked && PBF.keyMissing);
   const ask = document.getElementById('pb-files-ask');
   ask.hidden = running || !PBF.asked;
+  // Review 1: while the start is sent, Cancel cannot take back what is already on its way.
+  document.getElementById('pb-files-yes').disabled = PBF.busy;
+  document.getElementById('pb-files-no').disabled = PBF.busy;
   if (PBF.asked) document.getElementById('pb-files-ask-say').textContent = 'Restore ' + pbfBackupWhen(PBF.asked) + '? It goes into a separate copy, so nothing here changes.';
   const run = document.getElementById('pb-files-run');
   run.hidden = !running;
@@ -56083,21 +56104,27 @@ function pbfPaint() {
   }
   document.getElementById('pb-files-stop-row').hidden = !running || PBF.stopAsk;
   document.getElementById('pb-files-stop-ask').hidden = !running || !PBF.stopAsk;
+  document.getElementById('pb-files-stop-yes').disabled = PBF.stopping;
   const w = running ? null : pbfLastWords(st.last);
   const lastEl = document.getElementById('pb-files-last');
   lastEl.textContent = w ? w.line : ''; lastEl.hidden = !w;
   const fd = document.getElementById('pb-files-failed');
   fd.hidden = !(w && w.failedSum);
   if (w && w.failedSum) {
-    document.getElementById('pb-files-failed-sum').textContent = w.failedSum + (w.failedPaths.length ? '' : '.');
+    document.getElementById('pb-files-failed-sum').textContent = w.failedSum;
     const fl = document.getElementById('pb-files-failed-list');
     const fsig = JSON.stringify(w.failedPaths);
     if (fl.dataset.sig !== fsig) { fl.dataset.sig = fsig; fl.textContent = ''; for (const f of w.failedPaths) { const li = document.createElement('li'); li.textContent = f; fl.appendChild(li); } }
-    fl.hidden = !w.failedPaths.length;
   }
   const openHidden = !(w && w.world);
   document.getElementById('pb-files-open').hidden = openHidden;
   document.getElementById('pb-files-end-row').hidden = seeHidden && openHidden;
+}
+/* The first Restore button in the list, or the one for `key`. */
+function pbfRowButton(key) {
+  const list = document.getElementById('pb-files-list');
+  const all = Array.from(list.querySelectorAll('button'));
+  return (key ? all.find((b) => b.dataset.key === key) : null) || all[0] || null;
 }
 async function pbfSee() {
   if (PBF.busy) return;
@@ -56110,53 +56137,62 @@ async function pbfSee() {
   PBF.busy = false;
   if (r && r.ok === true && Array.isArray(r.backups)) {
     PBF.list = r.backups; PBF.more = r.more === true; PBF.keyMissing = r.keyMissing === true;
-    pbfMsg(!r.backups.length ? 'There are no backups from this account yet.' : '');
+    // keyMissing: there are backups, under a key this computer lacks, so "none yet" would be false (its line says so).
+    pbfMsg(!r.backups.length && !PBF.keyMissing ? 'There are no backups from this account yet.' : '');
   } else pbfMsg((r && (r.because || r.error)) || 'Your backups could not be listed just now. Try again.');
   pbfPaint();
+  pbfFocus(pbfRowButton(null) || document.getElementById('pb-files-see'));
 }
 async function pbfStart() {
   const b = PBF.asked;
   if (!b || PBF.busy) return;
-  PBF.busy = true;
-  document.getElementById('pb-files-yes').disabled = true;
+  PBF.busy = true; pbfPaint();
   let r;
   try {
     const res = await fetch('/api/personal-backup/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: b.key }) });
     r = await res.json();
   } catch { r = { ok: false, because: 'This Kosmos could not be reached. Nothing was restored.' }; }
   PBF.busy = false;
-  document.getElementById('pb-files-yes').disabled = false;
-  if (r && r.ok === true) {
+  const started = !!(r && r.ok === true);
+  if (started) {
     PBF.startedFor = b; PBF.asked = null;
     PBF.status = { running: true, startedAt: Number.isFinite(r.startedAt) ? r.startedAt : Date.now(), last: PBF.status && PBF.status.last };
     pbfMsg('');
   } else pbfMsg((r && (r.because || r.error)) || 'The restore did not start. Nothing was restored.');
   pbfRead();
   pbfPaint();
+  pbfFocus(started ? document.getElementById('pb-files-stop') : document.getElementById('pb-files-no'));
 }
 async function pbfStop() {
-  PBF.stopAsk = false;
+  if (PBF.stopping) return;   // review 1: a second Stop would answer "No restore is running" over the first one's success
+  PBF.stopping = true; pbfPaint();
   let r;
   try {
     const res = await fetch('/api/personal-backup/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     r = await res.json();
   } catch { r = { ok: false, because: 'This Kosmos could not be reached. The restore is still running.' }; }
+  PBF.stopping = false; PBF.stopAsk = false;
   pbfMsg(r && r.ok === true ? '' : ((r && (r.because || r.error)) || 'The restore could not be stopped just now.'));
   pbfRead();
   pbfPaint();
+  pbfFocus(document.getElementById('pb-files-run'));
 }
-function pbfOpen() {
+async function pbfOpen() {
   const w = pbfLastWords(PBF.status && PBF.status.last);
   if (!w || !w.world) return;
-  if (typeof worldsFetch === 'function') worldsFetch().catch(() => {});   // the copy is new, so the switcher's list may not have it yet
+  // The copy is new, so the switcher's list may not have it yet: read it first, then open the menu and its confirm.
+  if (typeof worldsFetch === 'function') { try { await worldsFetch(); } catch { /* the confirm names the copy by id anyway */ } }
   worldswOpen();
   worldswConfirmSwitch(w.world.id, w.world.name);
 }
 document.getElementById('pb-files-see').addEventListener('click', pbfSee);
 document.getElementById('pb-files-yes').addEventListener('click', pbfStart);
-document.getElementById('pb-files-no').addEventListener('click', () => { PBF.asked = null; pbfPaint(); document.getElementById('pb-files-see').focus(); });
-document.getElementById('pb-files-stop').addEventListener('click', () => { PBF.stopAsk = true; pbfPaint(); document.getElementById('pb-files-stop-no').focus(); });
-document.getElementById('pb-files-stop-no').addEventListener('click', () => { PBF.stopAsk = false; pbfPaint(); document.getElementById('pb-files-stop').focus(); });
+document.getElementById('pb-files-no').addEventListener('click', () => {
+  const key = PBF.asked && PBF.asked.key;
+  PBF.asked = null; pbfPaint(); pbfFocus(pbfRowButton(key) || document.getElementById('pb-files-see'));
+});
+document.getElementById('pb-files-stop').addEventListener('click', () => { PBF.stopAsk = true; pbfPaint(); pbfFocus(document.getElementById('pb-files-stop-no')); });
+document.getElementById('pb-files-stop-no').addEventListener('click', () => { PBF.stopAsk = false; pbfPaint(); pbfFocus(document.getElementById('pb-files-stop')); });
 document.getElementById('pb-files-stop-yes').addEventListener('click', pbfStop);
 document.getElementById('pb-files-open').addEventListener('click', pbfOpen);
 document.getElementById('pb-finish').addEventListener('click', pbFinish);
