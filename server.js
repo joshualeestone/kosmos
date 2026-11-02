@@ -27451,6 +27451,9 @@ function start(port = PORT) {
           const names = r.map((c) => c && c.sessionName).filter((n) => typeof n === 'string' && n);
           ds.sweep(names);
           for (const c of r) ds.settleFor(c);   // a card that says itself starts its streak over (round 3)
+          /* kosmos#7212 item 2: a said stall that a landed line ended is said to have ended, once. Before stallsToSay, which
+             forgets a name whose streak is gone. */
+          try { for (const e of ds.endsToSay(stallSaid)) process.stdout.write(ds.endedLine(e)); } catch { /* an end not said is not retried */ }
           const byName = new Map(r.filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */
