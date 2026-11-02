@@ -85,6 +85,6 @@ test('a reason that is too long, not words, or sent with taking off is refused a
 
 test('the wiring: the route passes it, the page shows it escaped', () => {
   const root = path.join(__dirname, '..');
-  assert.match(fs.readFileSync(path.join(root, 'server.js'), 'utf8'), /tasks\.setOnHold\(id, taskHold\[2\], body\.onHold, \{[^}]*because: body\.because \}/);
+  assert.match(fs.readFileSync(path.join(root, 'server.js'), 'utf8'), /tasks\.setOnHold\(id, taskHold\[2\], body\.onHold, \{[^}]*because: body\.because[,\s][^}]*\}/);
   assert.match(fs.readFileSync(path.join(root, 'web', 'index.html'), 'utf8'), /Why: ' \+ esc\(t\.onHoldBecause\)/);
 });
