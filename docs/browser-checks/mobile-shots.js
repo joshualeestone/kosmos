@@ -690,6 +690,20 @@ function holdForYou7788(where) {
       await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
       await page.waitForSelector('#tsk-groups .tsk-for-you', { state: 'attached', timeout: 8000 });
       await page.evaluate(() => document.querySelector('#tsk-groups .tsk-for-you').closest('.tsk-row').scrollIntoView({ block: 'center' }));
+    } else if (where === 'card') {
+      // kosmos#7797 item 2: the project's own page, where the task card says it waits on the person's answer.
+      await openTab(page, 'projects');
+      await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+      await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+      await page.evaluate(async () => { await pjReload(); });
+      await page.waitForSelector('#pj-one-view .tkcard-for-you', { state: 'attached', timeout: 8000 });
+      await page.evaluate(() => document.querySelector('#pj-one-view .tkcard-for-you').scrollIntoView({ block: 'center' }));
+    } else if (where === 'pill') {
+      // kosmos#7797 item 2: the Projects list, where the project holding it wears the calm Question pill.
+      await openTab(page, 'projects');
+      await page.evaluate(async () => { await pjReload(); });
+      await page.waitForSelector(`#pj-list .pj-row[data-project="${data.projectId}"]`, { state: 'attached', timeout: 8000 });
+      await page.evaluate((id) => document.querySelector(`#pj-list .pj-row[data-project="${id}"]`).scrollIntoView({ block: 'center' }), data.projectId);
     } else {
       await openTab(page, 'projects');
       await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
@@ -700,7 +714,8 @@ function holdForYou7788(where) {
     }
     await page.waitForTimeout(300);
   }, verify: async (page) => {
-    const t = await page.evaluate((w) => ((w === 'list' ? document.querySelector('#tsk-groups .tsk-for-you') : document.getElementById('tk-hold-hint')) || {}).textContent || '', where);
+    if (where === 'pill') return;   // the pill is read in the shot; its words are pinned by render-onhold-4771
+    const t = await page.evaluate((w) => ((w === 'list' ? document.querySelector('#tsk-groups .tsk-for-you') : w === 'card' ? document.querySelector('#pj-one-view .tkcard-for-you') : document.getElementById('tk-hold-hint')) || {}).textContent || '', where);
     if (!/until you answer/.test(t)) throw new Error('holdforyou-7788: the line says ' + JSON.stringify(t));
   }, after: async (page, data) => {
     if (typeof data.holdForYouTask !== 'number') return;
@@ -2554,6 +2569,8 @@ const SCREENS = [
     await page.evaluate(() => { document.querySelector('#tsk-groups .tsk-ask').closest('.tsk-grp').scrollIntoView({ block: 'start' }); });
     await page.waitForTimeout(300);
   } },
+  { name: 'project-holdforyou-7797', owner: 'Mona Lisa', ...holdForYou7788('card') },   // kosmos#7797 item 2: the task card
+  { name: 'projects-holdforyou-7797', owner: 'Mona Lisa', ...holdForYou7788('pill') },   // kosmos#7797 item 2: the Question pill
   /* #6923: a task closed as replaced by a later one, and the later one's page. Each screen adds its own pair of tasks,
      closes the first as replaced by the second, opens one of them, and closes both plainly after the shot. */
   { name: 'task-replaced-6923', owner: 'Angel', ...replaced6923('replaced') },
