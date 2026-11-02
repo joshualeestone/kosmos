@@ -131,6 +131,20 @@ function chk(ok, label, extra) {
         const searched = await page.evaluate(read);
         chk(searched.allAsks === 0, `${tag} a search leaves the questions out`, JSON.stringify(searched));
         await page.evaluate(() => { TSK.q = ''; tskPaint(); });
+        /* Review 3: the questions and the task under them are one card, square where they meet, in both looks. */
+        for (const look of ['', 'new']) {
+          const seam = await page.evaluate((lk) => {
+            if (lk) document.documentElement.dataset.look = lk; else delete document.documentElement.dataset.look;
+            const a = document.querySelector('#tsk-groups .tsk-asking');
+            const b = a && a.nextElementSibling;
+            const cs = (el, k) => (el ? getComputedStyle(el)[k] : 'none');
+            return { look: document.documentElement.dataset.look || 'default', next: b ? b.className : '',
+              aBottom: cs(a, 'borderBottomLeftRadius'), bTop: cs(b, 'borderTopLeftRadius'), aTop: cs(a, 'borderTopLeftRadius') };
+          }, look);
+          chk(seam.next === 'tsk-list' && seam.aBottom === '0px' && seam.bTop === '0px' && seam.aTop !== '0px',
+            `${tag} ${seam.look} look: one card, square only at the seam`, JSON.stringify(seam));
+        }
+        await page.evaluate(() => { delete document.documentElement.dataset.look; });
         /* Review 2: grouped by project, the questions lead under the decision group's name, so the tile's 3 is on screen. */
         await page.selectOption('#tsk-by', 'project');
         await page.waitForTimeout(200);

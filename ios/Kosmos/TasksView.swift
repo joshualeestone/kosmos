@@ -338,6 +338,7 @@ struct TasksView: View {
                 Text("Answer").font(.footnote.weight(.semibold)).foregroundColor(Palette.card)
                     .padding(.horizontal, 14).padding(.vertical, 6)
                     .background(Capsule().fill(Palette.primary))
+                    .frame(minHeight: 44).contentShape(Rectangle())   // review 3 of #7797: a 44pt tap area, the capsule as it was
             }
             .buttonStyle(.plain)
             .accessibilityHint("Opens the chat")
@@ -368,6 +369,7 @@ struct TasksView: View {
                     Text("Answer").font(.footnote.weight(.semibold)).foregroundColor(Palette.card)
                         .padding(.horizontal, 14).padding(.vertical, 6)
                         .background(Capsule().fill(Palette.primary))
+                        .frame(minHeight: 44).contentShape(Rectangle())   // review 3 of #7797: a 44pt tap area, the capsule as it was
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Opens the chat")
