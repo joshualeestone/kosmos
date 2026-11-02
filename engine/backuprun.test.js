@@ -376,6 +376,7 @@ test('#7746 item 3: a measured stop is kept in the state and handed to the next 
     { ok: true, added: added(WEEK, 2), bucket: 'b1' });
   await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
   assert.deepEqual(backupstate.readState(A.org, A.member).state.stop, stopShape, 'kept');
+  assert.equal('measuredStop' in (await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: false, tooLarge: true, personActs: true, because: 'z', measuredStop: stopShape, added: new Map(), bucket: null }), planGb: 25 }))), false, 'not passed on to the caller');
   await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
   assert.deepEqual(backupstate.readState(A.org, A.member).state.stop, stopShape, 'an early stop leaves the kept stop as it was');
   await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));

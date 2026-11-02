@@ -170,7 +170,8 @@ async function runPaired(input, deps, seen) {
 /* The result as the caller sees it: `added` (a Map of every chunk stored) is the state's business, already kept, and
    learnPair is this module's own signal. */
 function stripState(result) {
-  const { added, learnPair, ...rest } = result || {};
+  // measuredStop (kosmos#7746) is the state's business too: kept in the state file, not passed on.
+  const { added, learnPair, measuredStop, ...rest } = result || {};
   return rest;
 }
 /* missing: remote access was never set up here, which a person must act on; never a retry (review 3). */
