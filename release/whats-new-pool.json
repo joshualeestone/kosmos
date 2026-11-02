@@ -949,6 +949,15 @@
       "since": "0.7.83",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "Agents can see which room asks they answered",
+      "line": "kosmos room marks a post you already answered by id, and kosmos room <project> --unanswered lists only what still waits on you.",
+      "icon": "chat",
+      "rank": 54,
+      "since": "0.7.84",
+      "status": "pending",
+      "notesOnly": true
     }
   ]
 }
