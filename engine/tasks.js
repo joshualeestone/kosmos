@@ -2280,6 +2280,40 @@ function waitingOnOf(task, roster, members) {
 }
 
 /**
+ * kosmos#7797 item 1: an agent's question that no task row carries, for Needs your decision on Tasks. A question names a
+ * project, not a task, so an agent asking about a project where it holds no open task (or about no project at all) was
+ * red on the Agents page and missing from the screen with the red tile. One entry per such agent:
+ * `{ who, projectId (or null), waitingSince (or null) }`, oldest wait first, unknown starts last.
+ * The same cards as cardsNeedingPerson (on the roster, tied by isNamedOurs, a question by status.needsPerson, never only
+ * out of usage, #6341), and a question is left out when a row already names its agent for it (`rows[].waitingOn`, from
+ * waitingOnOf), so one question is never in two places. Only a question: a trust wait or a connection given up on is
+ * about the agent, and the person meets it on the agent. `scope`, when given, keeps only questions about that project.
+ */
+function askingWithoutTask(rows, roster, scope) {
+  if (!Array.isArray(roster)) return [];
+  const status = require('./status');
+  const carried = new Set();
+  for (const r of Array.isArray(rows) ? rows : []) {
+    if (!r || !Array.isArray(r.waitingOn)) continue;
+    for (const w of r.waitingOn) if (w && w.reason === 'question') carried.add(w.who + '\u0000' + r.projectId);
+  }
+  const out = [];
+  const seen = new Set();
+  for (const card of roster) {
+    if (!card || card.isNamedOurs !== true || card.state !== status.STATE.NEEDS_YOU || !status.needsPerson(card)) continue;
+    const projectId = typeof card.stateProject === 'string' && card.stateProject ? card.stateProject : null;
+    if (scope && projectId !== scope) continue;
+    if (seen.has(card.sessionName) || carried.has(card.sessionName + '\u0000' + projectId)) continue;
+    if (projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, projectId) === 'stuck_rate') continue;
+    seen.add(card.sessionName);
+    const at = typeof card.waitingSince === 'string' ? Date.parse(card.waitingSince) : NaN;
+    out.push({ who: card.sessionName, projectId, waitingSince: Number.isFinite(at) ? new Date(at).toISOString() : null });
+  }
+  return out.sort((a, b) => (a.waitingSince === null) - (b.waitingSince === null)
+    || (a.waitingSince && b.waitingSince ? Date.parse(a.waitingSince) - Date.parse(b.waitingSince) : 0));
+}
+
+/**
  * kosmos#5942: since when this open task has needed the person, for the task list's "Waiting on you for 12 days": the OLDEST
  * `waitingSince` among the cards that make waitingOnPerson true (the same holders and the same project rule), as an
  * ISO string, or null when none of them knows when its wait began. Null is shown as no age, never as "just now".
@@ -2611,7 +2645,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 }
 
 module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
+  taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
