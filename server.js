@@ -1360,6 +1360,8 @@ async function promptCommunityOnTaskDoneNow({ projectId, taskNumber, session, na
       postTimes: (s) => { const all = communitystore.postTimesAll(); return all === null ? null : (all.get(String(s).trim().toLowerCase()) || []); },
       deliver: (s, text) => chat.deliverAutomaticAsync(s, text, roster()),
       paneBusy: (s) => chat.paneBusyVerdict(s, roster()),   // kosmos#7649: never typed behind another message
+      turnTries: (s) => communityturn.readBook().get(s) || [],   // kosmos#6593: the idle sweep's asks, from its file
+      stamp: true,   // kosmos#6593 F7a: the line says when it was sent, as the sweep's does
       DELIVERY: chat.DELIVERY,
     });
     // #5313: the prompt has already reached the pane when recorded; if the book write fails (disk full,
@@ -28284,6 +28286,7 @@ function start(port = PORT) {
         communityTurnRunning = true;
         (async () => {
         let postsNow;   // one read of posts.json a pass, and only once the gates pass and an agent is looked at
+        let taskDoneTries;   // kosmos#6593: one read of the task-done book a pass, only when an agent is looked at
         const allPosts = () => (postsNow === undefined ? (postsNow = require('./engine/communitystore').postTimesAll()) : postsNow);
         // One check of "is this agent in the community" (its instructions carry the block), for the turn and the read-ahead.
         // #5313: the shared module-scope agentInCommunity (same check the task-done prompt uses), so the two cannot drift.
@@ -28301,11 +28304,12 @@ function start(port = PORT) {
           history: (session) => selfreport.history(session),   // #5296: has it worked since its last post
           kosmosLines: (session) => require('./engine/instructionreread').sentTimes(session),   // #5297: turns a re-read line woke
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
-          beforeRecheck: () => { postsNow = undefined; },   // kosmos#7649 review 4: a post made while the agent before was typed into is seen
+          beforeRecheck: () => { postsNow = undefined; taskDoneTries = undefined; },   // kosmos#7649 review 4 and #6593: a post, or a task-done ask, made while the agent before was typed into is seen
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
           saveBook: (b) => communityturn.writeBook(b),   // kosmos#7649 review 1: after each booking, so a stop mid-pass keeps it
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
           stamp: true,   // #5636 F7a: the line says when it was sent, for a runner that rereads one long session
+          otherTries: (session) => { if (taskDoneTries === undefined) taskDoneTries = communitytaskdone.readBook(); return communitytaskdone.askTimes(taskDoneTries, session); },   // kosmos#6593
           deliver: (session, text, r) => chat.deliverAutomaticAsync(session, text, r, undefined, undefined),
           paneBusy: (session, r) => chat.paneBusyVerdict(session, r),   // kosmos#7649 review 3: never typed behind another message
           DELIVERY: chat.DELIVERY,

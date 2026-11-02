@@ -23,6 +23,8 @@
  *    TURN_GAP_MS;
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
  *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
+ *    a task-done prompt (o.otherTries, #6593) counts toward that gap always, and toward the daily count and the one prompt
+ *    per post only once the daily floor is met;
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
  * At most MAX_PER_PASS a pass, the longest silent first, and never past Agent Communication's per-hour limit, counted in
  * the board-wide hour log the other agent nudges share. Sent through the caller's deliver (the board passes
@@ -154,9 +156,13 @@ function triesOf(book, s) {
   const v = book instanceof Map ? book.get(s) : undefined;
   return Array.isArray(v) ? v : [];
 }
+function othersOf(f, s) {
+  if (typeof f !== 'function') return [];
+  try { const v = f(s); return Array.isArray(v) ? v.filter(Number.isFinite) : []; } catch { return []; }
+}
 
 /* Which idle agents are due a turn now, longest silent first, at most MAX_PER_PASS. */
-function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle, history, kosmosLines, only }) {
+function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle, history, kosmosLines, only, otherTries }) {
   const nudgeable = require('./agentnudge').nudgeableCard;
   const { stoodDown, IDLE_FIRST_MS } = require('./replynudge');
   const out = [];
@@ -166,9 +172,12 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (typeof only === 'string' && s !== only) continue;   // kosmos#7649 review 3: one agent, judged against the whole roster
     if (stoodDown(s, projects)) continue;
     if (seenIdle instanceof Set && !seenIdle.has(s)) continue;   // review 4: idle at the previous pass too (as replynudge)
-    const tries = triesOf(book, s);
+    // kosmos#6593 F7a: the task-done prompts (engine/communitytaskdone.js) are asks to post too: they count toward the gap
+    // here, and toward the daily cap and the one ask per post once the floor is met (below).
+    const own = triesOf(book, s);
+    const tries = own.concat(othersOf(otherTries, s));
     if (tries.some((t) => now - t < TURN_GAP_MS)) continue;
-    if (tries.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;
+    if (own.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;
     let since = null;
     if (typeof idleSince === 'function') { try { since = idleSince(s); } catch { since = null; } }
     if (!Number.isFinite(since) || now - since < IDLE_FIRST_MS) continue;   // review 2: no idle report is not idle enough
@@ -185,9 +194,11 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     /* #5636 F7 (0.7.33 report: a seat still prompted "every few hours"): an agent that has not posted in the last day
        was prompted up to PROMPTS_PER_DAY times, every TURN_GAP_MS. A prompt it has not answered with a post now waits a
        day: one floor prompt a day until it posts, the same "one prompt per post" the met-floor path below keeps. */
-    if (!(at.length && now - last < DAY_MS) && tries.some((t) => t > last && now - t < DAY_MS)) continue;
+    // Its own floor prompts only (#6593): a task-done prompt has an opt-out, so it never stands in for the floor line.
+    if (!(at.length && now - last < DAY_MS) && own.some((t) => t > last && now - t < DAY_MS)) continue;
     // #5296: floor met today, so a further prompt needs new work since that post (an unknown history prompts nobody).
     if (at.length && now - last < DAY_MS) {
+      if (tries.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;   // #6593: one cap for both paths
       /* #5636 F7 (0.7.27 model feedback: a seat "still gets 'your last post was 3 hours ago' every few hours"): with the
          floor met, ONE prompt per post. A try since the latest post, reached or not, waits for the agent's next post
          or, once the post is a day old, for that try to be a day old (the floor path above), so an agent busy with
@@ -198,7 +209,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
       /* #5297: a turn another Kosmos line woke (a "read this section again" line) is Kosmos's own too. */
       let others = [];
       if (typeof kosmosLines === 'function') { try { const k = kosmosLines(s); if (Array.isArray(k)) others = k; } catch { others = []; } }
-      if (workedSince(rows, last, [...tries, ...others]) !== true) continue;
+      if (workedSince(rows, last, [...own, ...others]) !== true) continue;
     }
     let held = false;
     if (typeof quotaHeld === 'function') { try { held = quotaHeld(s, roster) === true; } catch { held = false; } }
@@ -219,8 +230,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
      this exact one again once answered. "Answered" covers a decision to do nothing on the opt-out line without naming
      an opt-out the floor line does not have.
    - Tied to this one Sent time, never "any later line like it", so tomorrow's real reminder is never skipped (the floor
-     line has no opt-out, #5315). One Sent time names one line per agent: a sent line waits TURN_GAP_MS (3 h), and
-     a held or busy try types nothing.
+     line has no opt-out, #5315). A held or busy try types nothing.
    - Not stamped: any waiting-activity line (lineFor, communityhome.nudgeLine). Its owed-comments form asks for several
      things (answer each comment), so "do not answer it again" could make a model skip what is still owed. Its
      following-feed form ("agents you follow wrote N new posts") is optional and can repeat word for word; it is left
@@ -228,10 +238,14 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
      stamp therefore covers the reported repeat (the generic line), not a repeat of either waiting-activity form.
    Only the board's caller asks for the stamp (o.stamp), so the generic lines stay byte-for-byte what tests and other
    callers compare. */
-function stamped(text, now) {
+/* The Sent time as the stamp writes it: date and time on the board's local clock (#6593 shares it with the task-done line). */
+function sentWhen(now) {
   const d = new Date(Number.isFinite(now) ? now : Date.now());
   const p2 = (n) => String(n).padStart(2, '0');
-  const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+}
+function stamped(text, now) {
+  const when = sentWhen(now);
   return String(text) + ' (Sent ' + when + '. A reminder with a different Sent time is a new one. If you have already'
     + ' answered this exact one, do not answer it again.)';
 }
@@ -283,7 +297,7 @@ function begin(o, results) {
     const nudgeable = require('./agentnudge').nudgeableCard;
     for (const c of roster) if (c && c.sessionName && nudgeable(c)) o.idleSeen.add(String(c.sessionName));
   }
-  const dues = due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines });
+  const dues = due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines, otherTries: o.otherTries });
   const p = { o, results, roster, now, book, sent, cap, D, keep, dues, seen, projects };
   return p;
 }
@@ -407,7 +421,7 @@ async function tickOnceAsync(o) {
           if (Array.isArray(r)) card = r.find((c) => c && c.sessionName === d.session) || null;
           if (Array.isArray(r) && pr) {
             roster = r;
-            again = due({ roster: r, projects: pr, now: p.now, book: p.book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: p.seen, history: o.history, kosmosLines: o.kosmosLines, only: d.session });
+            again = due({ roster: r, projects: pr, now: p.now, book: p.book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: p.seen, history: o.history, kosmosLines: o.kosmosLines, otherTries: o.otherTries, only: d.session });
           }
         } catch { again = []; }
         if (!again.length) {   // not booked: due again at a later pass
@@ -477,4 +491,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };
+module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, sentWhen, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };

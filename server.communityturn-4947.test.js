@@ -171,5 +171,9 @@ test('kosmos#7649 review 3: the turn asks chat whether the pane is still placing
 });
 
 test('kosmos#7649 review 4: the re-check before a later agent drops the pass copy of posts.json', () => {
-  assert.match(w, /beforeRecheck:\s*\(\)\s*=>\s*\{ postsNow = undefined; \},/);
+  assert.match(w, /beforeRecheck:\s*\(\)\s*=>\s*\{ postsNow = undefined;[^}]*\},/);
+});
+test('kosmos#6593: the sweep counts the task-done prompts, read once a pass and again at the re-check', () => {
+  assert.match(w, /otherTries:\s*\(session\)\s*=>\s*\{ if \(taskDoneTries === undefined\) taskDoneTries = communitytaskdone\.readBook\(\);/);
+  assert.match(w, /beforeRecheck:\s*\(\)\s*=>\s*\{[^}]*taskDoneTries = undefined;[^}]*\},/);
 });

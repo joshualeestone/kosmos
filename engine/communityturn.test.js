@@ -811,3 +811,56 @@ test('kosmos#7649 review 5: the delivery starts in the same turn as the busy che
   await ct.tickOnceAsync(o);
   assert.equal(sawQueued, false);
 });
+
+/* kosmos#6593 F7a: a task-done prompt (engine/communitytaskdone.js) is an ask to post too. */
+test('#6593 due: a task-done prompt within the gap holds the reminder; one past it does not', () => {
+  assert.deepEqual(ct.due(args({ otherTries: (s) => (s === 'ann' ? [NOW - 2 * H] : []) })).map((d) => d.session), ['bea']);
+  assert.deepEqual(ct.due(args({ otherTries: (s) => (s === 'ann' ? [NOW - 9 * H] : []) })).map((d) => d.session), ['ann', 'bea'], 'CONTROL: past the gap, before its last post');
+});
+test('#6593 due: with the floor met, a task-done prompt since the last post is that post\'s one ask', () => {
+  assert.deepEqual(ct.due(args({ otherTries: (s) => (s === 'ann' ? [NOW - 4 * H] : []) })).map((d) => d.session), ['bea']);
+  assert.deepEqual(ct.due(args({ otherTries: (s) => (s === 'ann' ? [NOW - 9 * H] : []) })).map((d) => d.session), ['ann', 'bea'], 'CONTROL: a try before the post is not this post\'s ask');
+});
+test('#6593 due: with no post in a day, a task-done prompt never stands in for the floor line', () => {
+  const postTimes = (s) => (s === 'ann' ? [ago(30 * H)] : [ago(1 * H)]);
+  assert.deepEqual(ct.due(args({ postTimes, otherTries: (s) => (s === 'ann' ? [NOW - 5 * H] : []) })).map((d) => d.session), ['ann']);
+  assert.deepEqual(ct.due(args({ postTimes, book: new Map([['ann', [NOW - 5 * H]]]) })).map((d) => d.session), [], 'CONTROL: its own floor prompt does hold it');
+});
+test('#6593 due: task-done prompts and reminders share the daily cap', () => {
+  // All before ann's last post (8 h ago), so only the cap can hold it.
+  const book = new Map([['ann', [NOW - 10 * H]]]);
+  const other = Array.from({ length: ct.PROMPTS_PER_DAY - 1 }, (_, i) => NOW - (9 + 2 * i) * H);
+  assert.deepEqual(ct.due(args({ book, otherTries: (s) => (s === 'ann' ? other : []) })).map((d) => d.session), ['bea']);
+  assert.deepEqual(ct.due(args({ book, otherTries: (s) => (s === 'ann' ? other.slice(1) : []) })).map((d) => d.session), ['ann', 'bea'], 'CONTROL: one under');
+});
+test('#6593 due: an otherTries that throws or answers junk counts nothing', () => {
+  for (const otherTries of [() => { throw new Error('x'); }, () => null, () => ['x', NaN]]) {
+    assert.deepEqual(ct.due(args({ otherTries })).map((d) => d.session), ['ann', 'bea']);
+  }
+});
+test('#6593 tickOnce: otherTries reaches due', () => {
+  const { sent, o } = tickArgs({ otherTries: (s) => (s === 'ann' ? [NOW - H] : []) });
+  assert.deepEqual(ct.tickOnce(o).map((x) => x.session), ['bea']);
+  assert.equal(sent.length, 1);
+});
+test('#6593 tickOnceAsync: a task-done prompt made while the agent before was typed into holds the next one at the re-check', async () => {
+  const run = async (withHook) => {
+    let taskDone = { ann: [], bea: [] };
+    let cached;   // the board's taskDoneTries: read once, kept until dropped
+    const sends = [];
+    const { o } = tickArgs({
+      otherTries: (s) => { if (cached === undefined) cached = JSON.parse(JSON.stringify(taskDone)); return cached[s]; },
+      ...(withHook ? { beforeRecheck: () => { cached = undefined; } } : {}),
+      deliver: (s) => { sends.push(s); taskDone = { ...taskDone, bea: [NOW] }; return later({ state: D.PLACED }); },
+    });
+    await ct.tickOnceAsync(o);
+    return sends;
+  };
+  assert.deepEqual(await run(true), ['ann'], 'bea was asked by the task-done path while ann was typed into');
+  assert.deepEqual(await run(false), ['ann', 'bea'], 'CONTROL: without the hook the cached read misses it');
+});
+test('#6593 due: task-done prompts never fill the daily cap against the floor line', () => {
+  const postTimes = (s) => (s === 'ann' ? [ago(30 * H)] : [ago(1 * H)]);
+  const three = Array.from({ length: ct.PROMPTS_PER_DAY }, (_, i) => NOW - (4 + 2 * i) * H);
+  assert.deepEqual(ct.due(args({ postTimes, otherTries: (s) => (s === 'ann' ? three : []) })).map((d) => d.session), ['ann']);
+});

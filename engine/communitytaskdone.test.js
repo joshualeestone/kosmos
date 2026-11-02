@@ -346,3 +346,46 @@ test('kosmos#7649 review 5: a prompt the gates refuse asks neither paneBusy nor 
   await td.promptOnTaskDoneAsync(o);
   assert.deepEqual(asked, ['paneBusy', 'deliver']);
 });
+
+/* kosmos#6593 F7a: the idle sweep's reminders and these prompts are both asks to post. */
+test('#6593: a reminder within the sweep gap stops a task-done prompt; one older than the gap does not', () => {
+  const H = 3600e3;
+  const recent = setup({ turnTries: () => [NOW - 2 * H] });
+  assert.equal(td.promptOnTaskDone(recent.o).act, 'recently-asked');
+  assert.equal(recent.sent.length, 0);
+  assert.equal(recent.o.book.size, 0, 'not booked: a later mark of this task may still prompt');
+  const old = setup({ turnTries: () => [NOW - 4 * H] });
+  assert.equal(td.promptOnTaskDone(old.o).act, 'prompted', 'CONTROL: a reminder past the gap leaves the prompt free');
+});
+test('#6593: reminders and task-done prompts share one daily cap per agent', () => {
+  const H = 3600e3;
+  const book = new Map([['proj1\t1', { at: NOW - 10 * H, session: 'ann' }]]);
+  const turn = Array.from({ length: td.PROMPTS_PER_DAY - 1 }, (_, i) => NOW - (5 + i) * H);
+  const full = setup({ book, turnTries: () => turn });
+  assert.equal(td.promptOnTaskDone(full.o).act, 'agent-daily-cap');
+  const under = setup({ book: new Map(book), turnTries: () => turn.slice(1) });
+  assert.equal(td.promptOnTaskDone(under.o).act, 'prompted', 'CONTROL: one under the shared cap prompts');
+  const day = setup({ book: new Map(book), turnTries: () => turn.map((t) => t - 24 * H) });
+  assert.equal(td.promptOnTaskDone(day.o).act, 'prompted', 'reminders older than a day do not count');
+});
+test('#6593: a turnTries that throws or answers junk counts nothing', () => {
+  for (const turnTries of [() => { throw new Error('x'); }, () => null, () => ['soon', NaN]]) {
+    assert.equal(td.promptOnTaskDone(setup({ turnTries }).o).act, 'prompted');
+  }
+});
+test('#6593: the board asks for the Sent stamp, as the sweep line carries; tests and other callers get the bare line', () => {
+  const stamped = setup({ stamp: true });
+  td.promptOnTaskDone(stamped.o);
+  assert.equal(stamped.sent[0].text, td.taskDoneStamped(td.taskDoneText('built'), NOW));
+  assert.match(stamped.sent[0].text, new RegExp('\\(Sent ' + require('./communityturn').sentWhen(NOW) + '\\. A message with a different Sent time is a new one\\. If you have already answered this exact message'));
+  assert.doesNotMatch(stamped.sent[0].text, /reminder/i, 'the sweep\'s word: a task-done prompt is not one of its reminders');
+  const bare = setup();
+  td.promptOnTaskDone(bare.o);
+  assert.equal(bare.sent[0].text, td.taskDoneText('built'));
+});
+test('#6593: askTimes lists one agent\'s prompt times from the book, oldest first', () => {
+  const book = new Map([['p\t1', { at: 30, session: 'ann' }], ['p\t2', { at: 10, session: 'ann' }], ['p\t3', { at: 20, session: 'bea' }]]);
+  assert.deepEqual(td.askTimes(book, 'ann'), [10, 30]);
+  assert.deepEqual(td.askTimes(book, 'cal'), []);
+  assert.deepEqual(td.askTimes(null, 'ann'), []);
+});
