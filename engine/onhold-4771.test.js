@@ -322,7 +322,7 @@ test('#4771 review: the project view says whose pause it is', () => {
   } finally { w.restore(); }
 });
 
-test('#4771 review: a task needing the person\'s decision reads decision even held or in a paused project (control: without it, held)', () => {
+test('#4771 review: a held task needing the person\'s decision reads decision; a paused project\'s does not (#7812) (control: without it, held)', () => {
   const w = world('holddecide' + seq, true);
   try {
     const row = () => tasks.allTasks().find((t) => t.projectId === w.pid && t.number === w.n);
@@ -331,8 +331,10 @@ test('#4771 review: a task needing the person\'s decision reads decision even he
     assert.equal(tasks.taskState(row()), 'held', 'control: the same held task without a decision is not held');
     tasks.setOnHold(w.pid, w.n, false);
     projects.edit(w.pid, { paused: true });
-    assert.equal(tasks.taskState(Object.assign({}, row(), { waitingOnPerson: true })), 'decision', 'a paused project\'s task needing the person hid under On hold');
-    assert.equal(tasks.taskState(row()), 'held', 'control: the same paused task without a decision is not held');
+    /* kosmos#7812 reverses this half: a paused project flags nobody (Josh 10-16, #6341, the rule the project page already
+       follows), so its task reads held even when its agent needs the person. The held TASK above still reads decision. */
+    assert.equal(tasks.taskState(Object.assign({}, row(), { waitingOnPerson: true })), 'held', 'a paused project\'s task flagged the person (#7812)');
+    assert.equal(tasks.taskState(row()), 'held', 'control: the same paused task without a decision is held');
   } finally { w.restore(); }
 });
 
