@@ -228,6 +228,22 @@ test('kosmos#6717: a short box showing only part of the board\'s long line is a 
   assert.equal(saved.length, 1);
   assert.equal(saved[0].text.replace(/\s+/g, ' ').trim(), CUT);
 }));
+test('kosmos#6717: a long line cut down to a short box between the sweep\'s look and the Enter is not pressed', () => withAgent(async (roster, card) => {
+  leaveLong(roster, 76);
+  const CUT = LONG.slice(-300).replace(/^\S*\s/, '');
+  const p = pane(LONG, { keep: 7, width: 60 });
+  let looks = 0;
+  const fn = (args) => {
+    if (args[0] === 'capture-pane' && args.includes('-e')) { looks += 1; if (looks >= 3) p.state.text = CUT; }
+    return p(args);
+  };
+  chat.setRunner(fn);
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.ok(looks >= 3, 'PRECONDITION: the box was read again before the Enter, looks: ' + looks);
+  assert.notEqual(r.outcome, 'pressed', JSON.stringify(r));
+  assert.equal(p.enters(), 0, 'nothing pressed');
+}));
 test('kosmos#6717: a long text that only ends like the board\'s line, with words of a person\'s after it, is left', () => withAgent(async (roster, card) => {
   leaveLong(roster, 76);
   const p = pane(LONG + ' and ' + PERSON, { keep: 7, width: 60 });

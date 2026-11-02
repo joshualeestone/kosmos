@@ -1015,8 +1015,7 @@ const SCROLLED_MIN = 200;
 const SCROLLED_ROWS = 4;
 /* `exact`: only all of the line, or exactly what the box showed when it was left (the unattended retries use this;
    the wider SCROLLED_MIN end, on a box that has scrolled, is left to a delivery and to the #6717 sweep on a box over
-   STUCK_ROWS_MAX). `seen` counts only at the length
-   composerHolds asks of a piece of ours. */
+   STUCK_ROWS_MAX). `seen` counts only at the length composerHolds asks of a piece of ours. */
 function rememberedShows(text, kept, exact = false, rows = 0) {
   if (!kept) return false;
   /* kosmos#6717: a box showing a chip is decided only by the chip kept with our line: exactly that chip (its number), in
@@ -1166,7 +1165,9 @@ async function pressRememberedNow(target, card, wide = false) {
     if (still && still.id === kept.id) forgetUnsent(target);
     return 'empty';
   }
-  if (!rememberedShows(box.text, kept, !wide, box.rows)) return 'changed';
+  /* Wide only while the box is over STUCK_ROWS_MAX, at each read: a box cut down meanwhile is no longer ours. */
+  const wideAt = (b) => wide && (b.rows || 0) > STUCK_ROWS_MAX;
+  if (!rememberedShows(box.text, kept, !wideAt(box), box.rows)) return 'changed';
   /* Every hold an automatic sender passes (a menu up, a usage limit or sign-out, a quota) and every gate a delivery
      passes before a keystroke (a question being answered, the trust dialog, a paused swarm, quiet hours, the usage
      cap, Claude Code's menus and prompts read fresh: an Enter on a permission prompt would approve it), on the roster
@@ -1186,7 +1187,7 @@ async function pressRememberedNow(target, card, wide = false) {
   /* Read again right before the Enter: the gates took time, and the box must still be only our line. */
   const now = readComposer(target);
   if (!now.ok) return 'unread';
-  if (!now.text || !rememberedShows(now.text, kept, !wide, now.rows)) return 'changed';
+  if (!now.text || !rememberedShows(now.text, kept, !wideAt(now), now.rows)) return 'changed';
   if (!verifyAtSend(card).ok) return 'pane';
   /* The pane is busy while this runs (deliver refuses a pane in deliveryQueues, deliverAsync waits behind it), so no
      line is pasted while this one is being watched. */
