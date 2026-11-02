@@ -686,9 +686,10 @@ const PROFILE_POSTS = 50;   // the service's profile list (kosmos-community agen
 /* The profile carries 50 posts and 50 of the agent's comments with their whole bodies (4000 and 2000 characters, up to
    4 bytes each), about 1.2 MB at the very most. */
 const PROFILE_CAP = 2 * 1024 * 1024;
-/* The older posts' round 1 starts only this soon after the newest posts' round 1 and the profile began (they run
-   together), so the read's rounds still fit the CLI's 30 s; later, they are said as waiting for the next read. */
-const OLDER_START_MS = 1500;
+/* The older posts' round 1 starts as soon as the profile answers, if that is within this long of round 1 starting (the
+   newest posts' round 1 runs meanwhile), so round 1 as a whole ends within OLDER_START_MS plus one request's timeout;
+   a profile slower than that leaves them for the next read, said as such. */
+const OLDER_START_MS = 1000;
 /* { map: remoteId -> { at, id, own } of each listed post's newest reply, or null for none }; { failed, status } when the
    profile could not be read; null when this agent has no name to look up (then only the newest are read, by both the
    read and the nudge's count). */
@@ -696,24 +697,22 @@ async function postActivity(me) {
   const name = communityself.asSelf(me).name;
   if (!name) return null;
   const r = await getJson('/agents/by-name/' + encodeURIComponent(name), PROFILE_CAP);
-  if (r.status !== 200 || !r.json || !Array.isArray(r.json.posts)) return { failed: true, status: r.status };
+  if (r.status !== 200 || !r.json || !Array.isArray(r.json.posts)) return { failed: true, status: r.status, noName: false };
   const out = new Map();
   for (const x of r.json.posts.slice(0, PROFILE_POSTS)) {
     if (!x || !UUID_RE.test(String(x.id || ''))) continue;
     const lr = x.latest_reply;
     const at = lr && typeof lr.created_at === 'string' ? Date.parse(lr.created_at) : NaN;
-    const ag = lr && lr.agent && typeof lr.agent === 'object' ? lr.agent : null;
-    const own = Boolean(ag) && communityself.isOwn(me, { id: ag.id, name: ag.name, kind: ag.kind });
-    out.set(String(x.id).toLowerCase(), validAt(at) && UUID_RE.test(String(lr.id || '')) ? { at, id: String(lr.id).toLowerCase(), own } : null);
+    out.set(String(x.id).toLowerCase(), validAt(at) && UUID_RE.test(String(lr.id || '')) ? { at, id: String(lr.id).toLowerCase() } : null);
   }
   return { map: out };
 }
 /* The posts both the read and the nudge's count take, by one rule: the newest REPLIES_POSTS, then up to
    REPLIES_OLDER_MAX older ones with something new, newest activity first. Something new: its newest reply is after the
-   post's mark as the read compares (afterMark) and is not the agent's own, or the post's last read held its mark or
-   saved a thread's place (it promised to look again). The two take the profile separately, so a comment landing between
-   the count and the read can change which older posts they take (the count is then partial or stale, as for any change
-   between them). `own` as ownPosts answers; `activity` as postActivity. Returns { posts, total, all, older, active,
+   post's mark as the read compares (afterMark; the agent's own items read once are kept as seen), or the post's last
+   read held its mark or saved a thread's place (it promised to look again). The two can still take different older
+   posts: each reads the profile itself, so a comment landing between them changes it, and the read leaves the older
+   posts for next time when the profile is slow (OLDER_START_MS) or limited, which the count does not. `own` as ownPosts answers; `activity` as postActivity. Returns { posts, total, all, older, active,
    read, unlisted, checked }. */
 function postsToRead(own, { marks, activity, firstLook }) {
   const base = { posts: own.posts, total: own.total, all: own.all, older: own.older.length, active: 0, read: 0, unlisted: 0, checked: false };
@@ -725,7 +724,7 @@ function postsToRead(own, { marks, activity, firstLook }) {
     const promised = Boolean(m) && (m.held > 0 || Object.values(m.threads || {}).some((t) => t && t.cursor));
     if (!activity.map.has(p.remoteId)) { if (promised) active.push({ p, at: m.at }); else unlisted += 1; continue; }
     const a = activity.map.get(p.remoteId);
-    const fresh = Boolean(a) && !a.own && afterMark({ ts: a.at, id: a.id }, m, firstLook);
+    const fresh = Boolean(a) && afterMark({ ts: a.at, id: a.id }, m, firstLook);
     if (fresh || promised) active.push({ p, at: a ? a.at : m.at });
   }
   active.sort((x, y) => y.at - x.at);
@@ -814,12 +813,13 @@ let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's re
    just told reads at once, and a refusal there left the reply unanswered (the nudge does not repeat). Review 14: it
    waits for ANOTHER agent's own read too (READ_WAIT_MS, shorter), rather than the #4833 review-5 refusal; one after
    another costs the service no more than refuse-and-retry. Review 2 (Opus): both bounds keep a wait plus the read's own
-   rounds (#6201: round 1, round 2's ROUND2_START_MS start window and its last batch, 8 s each at most) under the CLI's 30 s
+   rounds (#6201: round 1, round 2's ROUND2_START_MS start window and its last batch, 8 s each at most; kosmos#7811:
+   round 1 can run OLDER_START_MS longer, 29 s in all) under the CLI's 30 s
    when the wait is for another agent's read (READ_WAIT_MS); a wait on the nudge's count (FRESH_WAIT_MS) can pass it, as
    it could before #6201 (a read that outwaited its caller still ran and moved the marks, so the agent saw
    "could not reach" and then nothing new); the nudge also spaces its lines (replynudge.TYPE_GAP_MS). */
 const FRESH_WAIT_MS = 20 * 1000;
-const READ_WAIT_MS = 10 * 1000;   // review 14: waiting for ANOTHER agent's own read (#6201: up to 8 s + ROUND2_START_MS + 8 s), see readReplies
+const READ_WAIT_MS = 10 * 1000;   // review 14: waiting for ANOTHER agent's own read (#6201: up to 8 s + ROUND2_START_MS + 8 s; #7811: + OLDER_START_MS), see readReplies
 let replyReadWaiting = 0;   // own reads waiting for the lock: the count steps aside, and does not start, while there is one
 let replyReadSession = null;   // review 12: whose own read holds the lock
 const readingSessions = new Map();   // review 15: session -> own reads asked and not finished (waiting or running)
@@ -1118,10 +1118,17 @@ async function repliesFor(sessionName, opts) {
   /* kosmos#7811: the newest posts' round 1 and the profile (only when there are older posts) together; then the older
      posts with something new, if that was quick (OLDER_START_MS). */
   const r1Start = Date.now();
-  const [newestThreads, activity] = await Promise.all([Promise.all(own.posts.map(roundOne)), own.older.length ? postActivity(me) : Promise.resolve(null)]);
-  const pick = postsToRead(own, { marks, activity, firstLook });
-  if (pick.read && (Date.now() - r1Start > OLDER_START_MS || round1Limited)) { pick.posts = own.posts; pick.read = 0; }
-  const threads = newestThreads.concat(await Promise.all(pick.posts.slice(own.posts.length).map(roundOne)));
+  const olderStartMs = Number.isFinite(opts.olderStartMs) ? opts.olderStartMs : OLDER_START_MS;   // tests set it
+  let pick = null;
+  let profileSlow = false;
+  const olderRound = (own.older.length ? postActivity(me) : Promise.resolve(null)).then((activity) => {
+    if (activity && activity.status === 429) round1Limited = true;   // round 2 sends no pages to a service already limiting
+    pick = postsToRead(own, { marks, activity, firstLook });
+    if (pick.read && Date.now() - r1Start > olderStartMs) { profileSlow = true; pick.posts = own.posts; pick.read = 0; }
+    return Promise.all(pick.posts.slice(own.posts.length).map(roundOne));
+  });
+  const [newestThreads, olderThreads] = await Promise.all([Promise.all(own.posts.map(roundOne)), olderRound]);
+  const threads = newestThreads.concat(olderThreads);
   const { posts, total, all } = pick;
   /* Round 2 (#6201, F7d): a bounded queue. Each comment with unshown replies is paged to the end (replies come oldest
      first, so the newest are on the LAST page), and a post's older comments are paged too, their unshown replies joining
@@ -1339,7 +1346,10 @@ async function repliesFor(sessionName, opts) {
         : ' past what a read reaches, so new ones among them may be missed (reading again right away will not reach them))'), '');
   }
   if (pick.older && !pick.checked) lines.push('(only your newest ' + REPLIES_POSTS + ' of ' + total + ' posts were looked at: your older posts could not be checked for new comments)', '');
-  if (pick.active > pick.read) lines.push('(' + (pick.active - pick.read) + ' more of your older posts have new comments: read again for them)', '');
+  if (pick.active > pick.read) {
+    lines.push('(' + (pick.active - pick.read) + (pick.active - pick.read === 1 ? ' more of your older posts has' : ' more of your older posts have') + ' something new to look at: '
+      + (profileSlow ? 'the community was slow to say which, so read again in a moment)' : 'read again for them)'), '');
+  }
   if (pick.unlisted) lines.push('(' + (pick.unlisted === 1 ? '1 of your older posts is' : pick.unlisted + ' of your older posts are') + ' not on your public profile, so Kosmos cannot check ' + (pick.unlisted === 1 ? 'it' : 'them') + ' for new comments)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
   /* Each post's mark (service time), review 6: unchanged if it could not be reached or has gone. Otherwise the candidate
@@ -1405,6 +1415,9 @@ async function repliesFor(sessionName, opts) {
     const base = old && byPos(top, asItem(old)) <= 0 ? asItem(old) : top;
     let keep = (old && old.seen ? old.seen : []).slice();
     for (const { x, post } of shownItems) if (post === pid && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
+    /* kosmos#7811: the agent's own items read above the mark are never shown, so they are kept as seen too: an older post
+       whose newest reply is the agent's own is then read once for it (anything owed before it is listed), not every time. */
+    for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.ts && isMine(me, x) && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
     /* #6201 review 5: an id this read saw at or below the mark is no longer needed; past SEEN_MAX, ids this read did not
        see go first (oldest first), so an id still readable above a mark that cannot move is the last to go. */
     const readNow = new Map();
