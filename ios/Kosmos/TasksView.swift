@@ -341,6 +341,7 @@ struct TasksView: View {
                     .frame(minHeight: 44).contentShape(Rectangle())   // review 3 of #7797: a 44pt tap area, the capsule as it was
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Answer " + agentName(a.who))   // final review: as the web's aria-label, one per agent
             .accessibilityHint("Opens the chat")
         }
         .padding(.vertical, 4)

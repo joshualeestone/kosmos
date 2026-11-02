@@ -153,7 +153,7 @@ function chk(ok, label, extra) {
           return { head: first ? first.querySelector('h3').textContent : '', asks: first ? first.querySelectorAll('.tsk-ask').length : 0,
             all: document.querySelectorAll('#tsk-groups .tsk-ask').length };
         });
-        chk(/^Needs Your Decision2$/.test(byProj.head) && byProj.asks === 2 && byProj.all === 2, `${tag} grouped by project, the two questions lead, once`, JSON.stringify(byProj));
+        chk(/^Questions for you2$/.test(byProj.head) && byProj.asks === 2 && byProj.all === 2, `${tag} grouped by project, the two questions lead, once, under their own heading (not the tile's count)`, JSON.stringify(byProj));
         if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'asknotask-by-project.png'), fullPage: false });
         await page.selectOption('#tsk-by', 'status');
         await page.waitForTimeout(200);
