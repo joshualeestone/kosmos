@@ -984,15 +984,16 @@ async function snapshotInner(input, deps, added, state, fail) {
    and the copy of that string into the worker's message. The worker parses it and seals it as sealManifest would here; a
    seal error comes back as a throw, as it would here. A worker that cannot start, ends without answering, or does not
    answer within SEAL_WAIT_MS seals here instead: never no seal. opts.report(how, why), told 'worker', or 'here' with a
-   reason below, says which sealed (the caller flags a run sealed here; tests check the path). opts.workerFile, opts.waitMs
-   and opts.onWorker: tests only. */
+   reason below, says which sealed (snapshotInner uses it to flag a run sealed here; tests check the path).
+   opts.workerFile, opts.waitMs and opts.onWorker are for tests only. */
 const SEAL_WAIT_MS = 10 * 60 * 1000;
 /* JSON.stringify would quietly rewrite values sealManifest's canonicalJson refuses (undefined dropped, NaN to null, -0 to
    0, a Date to a string), and the worker would then seal the rewritten manifest. This replacer refuses them instead, so
    such a manifest is sealed here, where canonicalJson refuses it as it always did. It reads the value before toJSON
    (this[key]). Measured: about 60 to 150 ms more than a plain stringify at 477,000 chunks. Not mirrored, because each
    needs a look at every object's own keys: an array's extra properties, symbol keys and hidden properties, which
-   JSON.stringify drops; the snapshot builds none of them. */
+   JSON.stringify drops, and a toJSON that is not an own enumerable key (JSON.stringify calls it, canonicalJson refuses
+   it as hidden); the snapshot builds none of them. */
 function sealable(key, value) {
   const v = this[key];
   if (v === null || typeof v === 'string' || typeof v === 'boolean') return value;
@@ -1024,15 +1025,22 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
       try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); }
     };
     let json;
+    // A member key that is not bytes is not handed over (Uint8Array would quietly turn it into another one).
+    if (!Buffer.isBuffer(memberPk) && !(memberPk instanceof Uint8Array)) { here('not-sent'); return; }
     try { json = JSON.stringify(manifest, sealable); } catch { here('not-sent'); return; }   // before any worker starts
     try { w = new (require('node:worker_threads').Worker)(file); } catch { w = null; here('no-worker'); return; }
     if (typeof opts.onWorker === 'function') opts.onWorker(w);   // tests only: to see the worker end
     w.once('message', (m) => {
       if (settled) return;
+      let sealed = null;
+      if (m && m.ok) {
+        try { sealed = Buffer.from(m.sealed.buffer, m.sealed.byteOffset, m.sealed.byteLength); } catch { sealed = null; }
+        if (!sealed) { here('worker-ended'); return; }   // an answer in a shape this side cannot read
+      }
       done();
       w.terminate().catch(() => {});
       report('worker');
-      if (m && m.ok) resolve(Buffer.from(m.sealed.buffer, m.sealed.byteOffset, m.sealed.byteLength));
+      if (sealed) resolve(sealed);
       else reject(new Error((m && m.message) || 'the manifest could not be sealed'));
     });
     // An answer that cannot be read arrives as messageerror, with no message, error or exit after it.

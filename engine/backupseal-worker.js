@@ -19,6 +19,8 @@ parentPort.once('message', (m) => {
     out.set(sealed);
     parentPort.postMessage({ ok: true, sealed: out }, [out.buffer]);
   } catch (err) {
+    // A failed seal, or a failed post of the sealed bytes: either way an error is answered (if this post fails too, the
+    // main thread's exit and wait fallbacks seal it there).
     parentPort.postMessage({ ok: false, message: String((err && err.message) || 'the manifest could not be sealed') });
   }
 });

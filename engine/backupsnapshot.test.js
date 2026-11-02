@@ -1907,9 +1907,10 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
   const here = bf.openManifest(k.member.sk, pub, k.ctx, bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, manifest));
   const paths = [];
   const report = (how, why) => paths.push(why ? `${how} ${why}` : how);
-  let w1 = null;
-  const there = bf.openManifest(k.member.sk, pub, k.ctx, await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, onWorker: (w) => { w1 = w; } }));
-  const w1ended = await Promise.race([new Promise((r) => w1.once('exit', () => r(true))), new Promise((r) => setTimeout(() => r(false), 5000).unref())]);
+  // The exit is watched from the moment the worker is made, so an exit before the seal returns is not missed.
+  let w1 = null, w1exit = null;
+  const there = bf.openManifest(k.member.sk, pub, k.ctx, await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, onWorker: (w) => { w1 = w; w1exit = new Promise((r) => w.once('exit', () => r(true))); } }));
+  const w1ended = await Promise.race([w1exit, new Promise((r) => setTimeout(() => r(false), 5000).unref())]);
   if (!w1ended) await w1.terminate();   // so a failure here fails, rather than holding the file open
   assert.equal(w1ended, true, 'the worker that answered was ended');
   assert.ok(here && there);
@@ -1923,14 +1924,14 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
   const silent = path.join(os.tmpdir(), `silent-seal-worker-${process.pid}.js`);
   fs.writeFileSync(silent, "require('node:worker_threads').parentPort.on('message', () => {});\n");
   try {
-    let worker = null;
-    const late = await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, workerFile: silent, waitMs: 300, onWorker: (w) => { worker = w; } });
+    let worker = null, workerExit = null;
+    const late = await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, workerFile: silent, waitMs: 300, onWorker: (w) => { worker = w; workerExit = new Promise((r) => w.once('exit', () => r(true))); } });
     assert.deepStrictEqual(bf.openManifest(k.member.sk, pub, k.ctx, late), here);
     assert.equal(paths[paths.length - 1], 'here no-answer');
     // The worker that never answered is ended, not left running.
-    const ended = await Promise.race([new Promise((r) => worker.once('exit', () => r(true))), new Promise((r) => setTimeout(() => r(false), 5000).unref())]);
+    const ended = await Promise.race([workerExit, new Promise((r) => setTimeout(() => r(false), 5000).unref())]);
     if (!ended) await worker.terminate();   // so a failure here fails, rather than holding the file open
-  assert.equal(ended, true, 'the silent worker was ended');
+    assert.equal(ended, true, 'the silent worker was ended');
   } finally { fs.rmSync(silent, { force: true }); }
   // A manifest the seal refuses: the worker's refusal carries the same message as a seal here.
   let mine; try { bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, [1]); } catch (err) { mine = err.message; }
@@ -1946,6 +1947,10 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
     await assert.rejects(snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, bad, { report }), (err) => err.message === theirs);
     assert.deepEqual(paths.slice(b2), ['here not-sent']);
   }
+  // A member key that is not bytes is not handed over.
+  const b3 = paths.length;
+  await assert.rejects(snap.sealOffThread('not-bytes', k.dev.privateKey, k.ctx, manifest, { report }));
+  assert.deepEqual(paths.slice(b3), ['here not-sent']);
   // A worker that ends without answering (exits on its message): sealed here at once, well inside the wait.
   const quits = path.join(os.tmpdir(), `quitting-seal-worker-${process.pid}.js`);
   fs.writeFileSync(quits, "require('node:worker_threads').parentPort.once('message', () => process.exit(0));\n");
