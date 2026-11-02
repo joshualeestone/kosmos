@@ -1401,9 +1401,12 @@ const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
    { none: true }, and when), for community home. Forgotten when the agent votes through the board (it is then wrong);
    in memory, so a restart forgets it too. */
 const VOTE_STANDING = new Map();
+const VOTE_GEN = new Map();   // agent -> how many votes it has cast through the board (a read out across one is not kept)
+/* Votes age out of the service's rolling 24 hours, so an older reading says nothing about now: it reads as not read. */
+const VOTE_STANDING_MAX_MS = 24 * 60 * 60 * 1000;
 function voteStandingNow(agentKey, now = Date.now()) {
   const e = VOTE_STANDING.get(String(agentKey));
-  return e ? { ...e.v, agoMs: Math.max(0, now - e.at) } : null;
+  return e && now - e.at < VOTE_STANDING_MAX_MS ? { ...e.v, agoMs: Math.max(0, now - e.at) } : null;
 }
 const HOME_LINE_TTL_MS = 60 * 60 * 1000;
 const HOME_REFRESH_PER_PASS = 4;
@@ -11778,6 +11781,7 @@ const server = http.createServer(async (req, res) => {
           sendJson(res, 403, { error: who.because || 'we could not verify which agent is voting' }); return;
         }
         const str = (v) => (typeof v === 'string' ? v : '');
+        const genAtStart = VOTE_GEN.get(String(who.card.sessionName)) || 0;   // kosmos#7796
         const work = casting
           ? communityvote.vote(who.card.sessionName, str(body.kind), str(body.id), str(body.direction))
           : communityvote.standing(who.card.sessionName);
@@ -11786,10 +11790,12 @@ const server = http.createServer(async (req, res) => {
         return work
           .then((r) => {
             const answer = (extra) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text, ...extra } : { error: r.because });
+            /* kosmos#7796: what community home shows of the standing: forgotten after a vote, kept after a read of it unless
+               a vote came in while the read was out (its answer is then from before the vote). */
+            const voter = String(who.card.sessionName);
+            if (casting) { VOTE_STANDING.delete(voter); VOTE_GEN.set(voter, (VOTE_GEN.get(voter) || 0) + 1); }
+            else if (r.ok && (VOTE_GEN.get(voter) || 0) === genAtStart) { const v = require('./engine/communityhome').votesOf(r); if (v) VOTE_STANDING.set(voter, { v, at: Date.now() }); }
             // #5211 item 2: after a vote that went through, the post's author, whether you follow them, the floors over the last 24 hours.
-            /* kosmos#7796: what community home shows of the standing: forgotten after a vote, kept after a read of it. */
-            if (casting) VOTE_STANDING.delete(String(who.card.sessionName));
-            else if (r.ok) { const v = require('./engine/communityhome').votesOf(r); if (v) VOTE_STANDING.set(String(who.card.sessionName), { v, at: Date.now() }); }
             if (!casting || !r.ok) { answer({}); return; }
             const postId = str(body.kind).trim().toLowerCase() === 'post' ? str(body.id) : null;
             return communityNudge(who.card.sessionName, postId, startedAt).then((nudge) => answer(nudge ? { nudge } : {}));
@@ -28444,6 +28450,7 @@ function start(port = PORT) {
           // April's review: the route's reads are swept too once past their reuse window (HOME_GEN stays: a counter per
           // agent that ever commented, small, and dropping one could let an in-flight read through).
           for (const [s, e] of HOME_ROUTE) if (e.done && Date.now() - e.done > HOME_ROUTE_REUSE_MS) HOME_ROUTE.delete(s);
+          for (const [s, e] of VOTE_STANDING) if (!(Date.now() - e.at < VOTE_STANDING_MAX_MS)) VOTE_STANDING.delete(s);   // kosmos#7796
         } catch { /* the generic line stands in */ }
         })().catch(() => null).finally(() => { communityTurnRunning = false; });
       }, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS) > 0 ? Math.max(60 * 1000, Number(process.env.AGENT_WORKFORCE_COMMUNITY_TURN_MS)) : communityturn.TURN_INTERVAL_MS); // the env is the test seam only, never under a minute

@@ -40,7 +40,8 @@ let homes = [];
 let standings = [];
 let standingAnswer = { ok: true, standing: { held: 1, required: 3, remaining: 2, cast: 1, limit: 50 } };
 communityhome.homeFor = async (agentKey) => { homes.push(agentKey); return { ok: true, switchedOn: true, posts: [], following: { count: 0, replies: 0, later: 0, titles: [] }, counts: { comments: 0, follows: 0, posts: 0 }, floors: null, ...homeAs }; };
-communityvote.standing = async (agentKey, opts) => { standings.push({ agentKey, opts }); return standingAnswer; };
+let gate = null;   // a promise the standing stub waits on, for the read-across-a-vote case
+communityvote.standing = async (agentKey, opts) => { standings.push({ agentKey, opts }); if (gate) await gate; return standingAnswer; };
 communityvote.vote = async () => ({ ok: true, text: 'You voted that post up.' });
 
 test.before(async () => { await start(0); });
@@ -57,7 +58,7 @@ test('home never reads the standing itself; before any read of it, it says so', 
   t.after(() => b.restore());
   standings = []; homeAs = {};
   const j = await (await home(sendertoken.mint('Fresh').token)).json();
-  assert.match(j.text, /\nVotes: not read since your last vote or since this board started/);
+  assert.match(j.text, /\nVotes: not read in the last 24 hours, since your last vote or since this board started/);
   assert.deepEqual(standings, [], 'home made the signed call');
 });
 
@@ -84,7 +85,7 @@ test('a vote forgets the remembered standing; a failed standing read does not re
   await votesRead(tok);
   assert.match((await (await home(tok)).json()).text, /\nVotes: 1 vote standing/, 'a failed read kept what was known');
   assert.equal((await castVote(tok)).status, 200);
-  assert.match((await (await home(tok)).json()).text, /\nVotes: not read since your last vote/);
+  assert.match((await (await home(tok)).json()).text, /\nVotes: not read in the last 24 hours, since your last vote/);
 });
 
 test('no Votes line while the community, or the public one, is off', async (t) => {
@@ -94,4 +95,39 @@ test('no Votes line while the community, or the public one, is off', async (t) =
   assert.doesNotMatch((await (await home(sendertoken.mint('Off1').token)).json()).text, /Votes:/);
   homeAs = { publicOff: 'your company has the public community off' };
   assert.doesNotMatch((await (await home(sendertoken.mint('Off2').token)).json()).text, /Votes:/);
+});
+
+test('a standing read that was out while the agent voted is not kept', async (t) => {
+  const b = fleet.install([fleet.agent('Racer', { state: 'idle' })]);
+  let open;
+  gate = new Promise((r) => { open = r; });
+  t.after(() => { b.restore(); gate = null; });
+  homeAs = {};
+  const tok = sendertoken.mint('Racer').token;
+  const reading = votesRead(tok);
+  while (!standings.some((s) => s.agentKey === 'Racer')) await new Promise((r) => setTimeout(r, 5));
+  assert.equal((await castVote(tok)).status, 200);
+  open();
+  assert.equal((await reading).status, 200);
+  assert.match((await (await home(tok)).json()).text, /\nVotes: not read in the last 24 hours, since your last vote/);
+  gate = null;
+  await votesRead(tok);
+  assert.match((await (await home(tok)).json()).text, /\nVotes: 1 vote standing/, 'CONTROL: a read with no vote across it is kept');
+});
+
+test('each agent sees only its own standing, and a reading over 24 hours old reads as not read', async (t) => {
+  const b = fleet.install([fleet.agent('Ann', { state: 'idle' }), fleet.agent('Bob', { state: 'idle' })]);
+  const realNow = Date.now;
+  t.after(() => { b.restore(); Date.now = realNow; });
+  homeAs = {};
+  const ann = sendertoken.mint('Ann').token;
+  const bob = sendertoken.mint('Bob').token;
+  await votesRead(ann);
+  assert.match((await (await home(bob)).json()).text, /\nVotes: not read/, 'Bob was shown Ann\'s standing');
+  assert.match((await (await home(ann)).json()).text, /\nVotes: 1 vote standing/);
+  const t0 = realNow();
+  Date.now = () => t0 + 23 * 3600000;
+  assert.match((await (await home(ann)).json()).text, /when last read, 23 hours ago/, 'CONTROL: under a day it is shown');
+  Date.now = () => t0 + 25 * 3600000;
+  assert.match((await (await home(ann)).json()).text, /\nVotes: not read in the last 24 hours/);
 });
