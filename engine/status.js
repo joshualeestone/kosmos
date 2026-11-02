@@ -10135,16 +10135,17 @@ function projectsUnreadTotal(projects, unreadMap) {
    needsPerson rule), the Messages tile (each agent's dmUnread) and the Projects badge
    (counts.projectsUnread). The guide's row is left out, as the tiles leave it out, and an unknown
    part counts 0 as it does on the tiles: a badge never shows a guess.
-   Not added: tasks that need the person's decision (#3949). tasks.waitingOnPerson is true exactly
-   when an agent holding the task passes needsPerson, so that agent is already in needsYou and a
-   task on top would count one question twice.
+   Not added: tasks that need the person's decision because an agent on them needs the person
+   (#3949, tasks.waitingOnPerson): that agent is already in needsYou, so the task would count one
+   question twice. Added: tasks an agent held for the person (kosmos#7788, counts.heldForYou,
+   tasks.heldForPersonCount), which no agent's needsYou carries.
    RAW: the page's tiles leave out the thread open on screen, which only the page knows. */
 function waitingTotal(counts, agents) {
   const n = (v) => { const x = Number(v); return Number.isFinite(x) && x > 0 ? Math.floor(x) : 0; };
   const dms = (Array.isArray(agents) ? agents : [])
     .filter((a) => a && a.isGuide !== true)
     .reduce((t, a) => t + n(a.dmUnread), 0);
-  return n(counts && counts.needsYou) + dms + n(counts && counts.projectsUnread);
+  return n(counts && counts.needsYou) + dms + n(counts && counts.projectsUnread) + n(counts && counts.heldForYou);
 }
 
 /* #4025: the person's switch for that count on the app icon (Settings > Computer > App icon). On

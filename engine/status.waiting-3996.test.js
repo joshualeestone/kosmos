@@ -38,3 +38,8 @@ test('#3996: an unknown part counts 0, never a guess (as on the tiles)', () => {
   assert.equal(status.waitingTotal({ needsYou: -3, projectsUnread: NaN }, [agent('a', -1)]), 0, 'a negative is not a count');
   assert.equal(status.waitingTotal({ needsYou: 1, projectsUnread: 2.9 }, [agent('a', 1.5)]), 1 + 2 + 1, 'whole numbers only');
 });
+
+test('kosmos#7788 review 5: tasks an agent held for the person are added; no other part carries them', () => {
+  assert.equal(status.waitingTotal({ needsYou: 1, projectsUnread: 2, heldForYou: 3 }, []), 1 + 2 + 3);
+  assert.equal(status.waitingTotal({ needsYou: 0, projectsUnread: 0, heldForYou: null }, []), 0, 'unknown counts 0');
+});

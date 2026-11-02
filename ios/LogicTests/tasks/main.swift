@@ -50,6 +50,9 @@ if let start = page.range(of: "const TSK_GROUPS = ["), let end = page.range(of: 
     check(Tasks.groups.firstIndex { $0.key == "built" } == 4, "Built but waiting stays fifth (Josh, #3949)")
 } else { check(false, "TSK_GROUPS was found in web/index.html") }
 check(page.contains("const TSK_DECISION_UNKNOWN = '" + Tasks.decisionUnknown + "';"), "the cannot-tell sentence is the board's TSK_DECISION_UNKNOWN")
+check(page.contains("const TSK_DECISION_UNKNOWN_SOME = '" + Tasks.decisionUnknownSome + "';"), "kosmos#7788: and with rows listed, TSK_DECISION_UNKNOWN_SOME")
+check(Tasks.decisionUnknownLine(rows: 1) == Tasks.decisionUnknownSome && Tasks.decisionUnknownLine(rows: 0) == Tasks.decisionUnknown,
+      "rows listed: more than these; none (control): cannot tell")
 for (k, v) in Tasks.needsWhy {
     check(page.contains("  " + k + ": ['" + v + "',"), "the \(k) reason is the board's PJ_NEEDS_WHY")
 }

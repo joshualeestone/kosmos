@@ -141,6 +141,10 @@ enum Tasks {
     ]
     // TSK_DECISION_UNKNOWN, word for word.
     static let decisionUnknown = "Kosmos could not read your agents just now, so it cannot tell whether one is waiting on you."
+    // kosmos#7788: TSK_DECISION_UNKNOWN_SOME, when rows are listed anyway (a hold for you needs no agents), so the words
+    // never deny the rows under them.
+    static let decisionUnknownSome = "Kosmos could not read your agents just now, so it cannot tell whether more than these are waiting on you."
+    static func decisionUnknownLine(rows: Int) -> String { rows > 0 ? decisionUnknownSome : decisionUnknown }
 
     // tskDot: Needs Your Decision is red only with something in it and the agents read; otherwise the neutral dot.
     static func dotToken(_ g: Group, count: Int, rosterUnknown: Bool) -> String {

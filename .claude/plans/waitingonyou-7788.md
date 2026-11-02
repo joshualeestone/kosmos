@@ -23,7 +23,8 @@ shows on the Agents page and the project's Issue list, not on Tasks. Folding it 
 tasks, a different row shape and click target; it is a separate build.
 
 Rejected: a page-side rule adding held-for-you tasks to the decision count. It would make the tile and the
-`state` field disagree, and every other reader of `state` (the CLI list, the project card) would still say held.
+`state` field the Tasks route sends disagree (the page, the iPhone app). The agents' `kosmos task list` groups by
+tasks.listGroup, not the state, and still lists these as held, which is right for an agent: it must not start them.
 
 Weakest premise: that nothing reads `state === 'held'` to mean "Kosmos must not touch this". Measured: the
 Assigner and nudger read `isOnHold`, not `taskState` (grep of engine/ for taskState consumers, 11-02). If that is
@@ -64,3 +65,22 @@ wrong, a held-for-you task could be handed out.
   held by the parity test).
 - Unmarking a hold for you starts the stale-hold clock again: it is a different hold from then. Pinned, deliberate.
 - The task page hint no longer says "its question": a hold for you can wait on a decision too.
+
+## Review round 4
+
+- An agent's own task list marks a hold for you "waiting on your person: do not start it until they answer and it is
+  taken off hold".
+- An agent restating the person's hold with forPerson false is no change, not a 403; true is still refused.
+
+## Review round 5
+
+- The app icon's count (Dock, Windows taskbar) adds tasks held for the person (counts.heldForYou), so it agrees with
+  the red tile; tasks waiting because an agent asks are still not added (that agent is already counted).
+- The iPhone app says "more than these" when it cannot read the agents but lists rows, as the board does.
+
+## Follow-up card (slice B and what review left for it)
+
+- An agent's question tied to no task, on Tasks.
+- The project page's needs-you count and its task card ("On hold: <reason>") do not mark a hold for you.
+- Save on the hold form takes an agent's hold for you over (disclosed under the button); a Save that keeps the agent's
+  hold when only its reason or condition changed is an option.

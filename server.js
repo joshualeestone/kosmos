@@ -8254,6 +8254,8 @@ const server = http.createServer(async (req, res) => {
       /* #4025: null when the person switched the icon count off in Settings; the apps clear the badge on null. */
       let badgeSettings;
       try { badgeSettings = store.readSettings(); } catch { badgeSettings = {}; }
+      // kosmos#7788 review 5: tasks an agent held for the person are in Needs Your Decision with no agent asking.
+      try { counts.heldForYou = tasks.heldForPersonCount(projectList); } catch { counts.heldForYou = 0; }
       counts.waiting = waitingBadgeOn(badgeSettings) ? waitingTotal(counts, rows) : null;
       body = strictStringify({   // #7108: never a lone surrogate (the iPhone polls this route and refuses one whole)
         ...snap, agents: rows, counts, connection, version, dependsOnClaude,

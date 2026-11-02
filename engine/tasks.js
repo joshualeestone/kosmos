@@ -2216,6 +2216,19 @@ function taskState(task) {
  * A trust wait is counted by the same rule, but today it never reaches the roster this is given (the
  * status route builds those rows offline, after snapshot), as projects.js says of the project page.
  */
+/* kosmos#7788 review 5: how many open tasks, in projects not archived, an agent held for the person. They are in Needs
+   Your Decision without any agent asking (taskState), so the app icon's count adds them (status.waitingTotal). */
+function heldForPersonCount(projectList) {
+  let n = 0;
+  for (const p of Array.isArray(projectList) ? projectList : []) {
+    if (!p || p.archived === true) continue;
+    for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
+      if (t && isOnHold(t) && t.onHoldForPerson === true && !progressOf(t).closed) n += 1;
+    }
+  }
+  return n;
+}
+
 function waitingOnPerson(task, roster, members) {
   if (!task || progressOf(task).closed || !Array.isArray(roster)) return false;
   return cardsNeedingPerson(task, roster, members).length > 0;
@@ -2593,7 +2606,7 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 }
 
 module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  taskState, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
+  taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
   partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
