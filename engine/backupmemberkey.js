@@ -22,8 +22,10 @@
  *      by a fresh one, once.
  * A 429 member_key_rotation_wait keeps the new key and answers `waiting`; the next call sends the same key.
  * kosmos#7753: each registration carries the key's signed record (member_key_sig). A registered key whose answer never
- * echoed a signature (Kosmos+ kept none yet) is sent again as a repeat, at most once a day, until an answer echoes one
- * (this computer's, or another's, which Kosmos+ never replaces); that never changes what a call answers.
+ * echoed a signature (Kosmos+ kept none yet) is sent again as a repeat, only when this computer can sign, at most once a
+ * week, until an answer for that epoch and key echoes one (this computer's, or another's, which Kosmos+ never replaces).
+ * That never changes what a call answers; a refusal of the re-send is ignored. Answering from disk therefore reads the
+ * device key while a re-send may be due.
  * It does NOT ask whether a key Kosmos+ took is still the member's current one: the backup job compares the epoch
  * it answers with each grant's `epoch` (the uploader refuses a grant for another epoch), and a mismatch is the sign
  * the member moved on elsewhere. Calls run one at a time in this process; ONE board process per data root is
@@ -170,10 +172,10 @@ function signRecord(readDeviceKey, company, epoch, pk) {
   catch { return { because: 'the backup key record could not be signed' }; }
 }
 
-async function register(macRequest, company, epoch, key, readDeviceKey) {
+async function register(macRequest, company, epoch, key, readDeviceKey, signedAlready) {
   const wrap = backupkeys.wrapMemberKey(key.sk, company.orgPublic, { org: company.org, member: company.member, epoch: String(epoch) });
   const body = { epoch, member_public: b64(key.pk), wrap: b64(wrap) };
-  const signed = signRecord(readDeviceKey, company, epoch, key.pk);
+  const signed = signedAlready || signRecord(readDeviceKey, company, epoch, key.pk);
   if (signed.sig) body.member_key_sig = signed.sig;
   return { r: await macRequest('POST', MEMBER_KEY_ROUTE, body), unsignedBecause: signed.because, sentSig: signed.sig };
 }
@@ -194,15 +196,25 @@ function keptSig(r, sentSig) {
 /* kosmos#7753: a key registered before Kosmos+ kept the signed record (any key whose answer did not echo it) is sent
    again, as the repeat registration the route answers without change, at most once per RESIGN_EVERY_MS, until an answer
    echoes it. Only when this computer can sign; never changes the answer the caller gets, whatever happens. */
-const RESIGN_EVERY_MS = 24 * 3600 * 1000;
+// A week: each re-send costs Kosmos+ a pass through the member's registration limiter and, for a company member, an
+// escrow open of the wrap (coordinator/src/memberkey.rs) before it is answered as a repeat, for every computer, until a
+// coordinator that keeps the record ships. A week bounds that; the record reaches Kosmos+ within a week of it shipping.
+const RESIGN_EVERY_MS = 7 * 24 * 3600 * 1000;
 async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, nowMs) {
   const k = keys[epoch];
   if (!k || !k.registered || k.sigKept || (k.sigAskedAt && nowMs - k.sigAskedAt >= 0 && nowMs - k.sigAskedAt < RESIGN_EVERY_MS)) return;
-  if (!signRecord(readDeviceKey, company, epoch, k.pk).sig) return;
+  const signed = signRecord(readDeviceKey, company, epoch, k.pk);
+  if (!signed.sig) return;
   let got;
-  try { got = await register(macRequest, company, epoch, k, readDeviceKey); } catch { got = null; }
+  try { got = await register(macRequest, company, epoch, k, readDeviceKey, signed); } catch { got = null; }
   k.sigAskedAt = nowMs;
-  const kept = got ? keptSig(got.r, got.sentSig) : null;
+  // Only an answer that names this epoch and this key, as the first registration requires, can say what Kosmos+ keeps.
+  // A refusal (another key holds the epoch, a later epoch is current) is ignored here on purpose: the answer stays the
+  // key from disk, and the backup job's grant-epoch check is what notices a member who moved on.
+  const r = got && got.r;
+  const echoedPk = r && r.ok && r.data && typeof r.data.member_public === 'string' ? Buffer.from(r.data.member_public, 'base64url') : null;
+  const sameKey = Boolean(r && r.ok && r.data && r.data.epoch === epoch && echoedPk && echoedPk.equals(k.pk));
+  const kept = sameKey ? keptSig(r, got.sentSig) : null;
   if (kept) { k.sigKept = true; if (kept === 'other') k.sigOther = true; }
   try { writeKeys(company.org, company.member, keys); } catch { /* asked again after the next interval */ }
 }

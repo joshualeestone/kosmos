@@ -187,27 +187,27 @@ function storingCoordinator() {
   return { macRequest, posts, state };
 }
 
-test('#7753 re-send: a key registered before Kosmos+ kept its record is sent again once a day until an answer echoes it', async () => {
+test('#7753 re-send: a key registered before Kosmos+ kept its record is sent again once a week until an answer echoes it', async () => {
   const c = storingCoordinator(), d = device();
   const T0 = 1800000000000, H = 3600 * 1000;
   const call = (t) => mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => t });
   const first = await call(T0);
   assert.equal(first.ok, true);
   assert.equal(c.posts.length, 1, 'the registration, unechoed (today\'s coordinator)');
-  assert.equal((await call(T0 + 23 * H)).ok, true);
-  assert.equal(c.posts.length, 1, 'not again within a day');
-  const again = await call(T0 + 25 * H);
-  assert.equal(c.posts.length, 2, 'sent again after a day');
+  assert.equal((await call(T0 + (7 * 24 - 1) * H)).ok, true);
+  assert.equal(c.posts.length, 1, 'not again within a week');
+  const again = await call(T0 + (7 * 24 + 1) * H);
+  assert.equal(c.posts.length, 2, 'sent again after a week');
   assert.equal(again.ok, true); assert.equal(again.epoch, first.epoch); assert.ok(again.publicKey.equals(first.publicKey), 'the answer is the same key');
   const resent = c.posts[1];
   assert.equal(resent.member_public, c.posts[0].member_public, 'the same key, a repeat');
   assert.equal(verifies(d.publicKey, ORG, MEMBER, resent.epoch, Buffer.from(resent.member_public, 'base64url'), resent.member_key_sig), true);
   // The coordinator starts keeping signatures: the next due re-send is echoed, and then nothing is sent again.
   c.state.echo = true;
-  await call(T0 + 50 * H);
+  await call(T0 + (14 * 24 + 2) * H);
   assert.equal(c.posts.length, 3);
-  await call(T0 + 100 * H);
-  await call(T0 + 1000 * H);
+  await call(T0 + 28 * 24 * H);
+  await call(T0 + 300 * 24 * H);
   assert.equal(c.posts.length, 3, 'kept: never sent again');
 });
 
@@ -216,7 +216,7 @@ test('#7753 re-send: an echo of another computer\'s signature ends the re-sendin
   const c = storingCoordinator();
   c.state.echo = 'other';   // the coordinator kept another of the member's computers' signature
   await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
-  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + 25 * H });
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
   assert.equal(c.posts.length, 1, 'another signature is kept, never replaced: nothing to send again');
   const file = path.join(store.ROOT, 'backupkeys', fs.readdirSync(path.join(store.ROOT, 'backupkeys')).find((f) => f.endsWith('.json')));
   const entry = Object.values(JSON.parse(fs.readFileSync(file, 'utf8')).keys)[0];
@@ -225,8 +225,41 @@ test('#7753 re-send: an echo of another computer\'s signature ends the re-sendin
   const p = storingCoordinator();
   p.state.echo = 'padded';   // the same 64 bytes, with padding
   await mk.ensureMemberKey({ macRequest: p.macRequest, deviceKey: d.read, now: () => T0 });
-  await mk.ensureMemberKey({ macRequest: p.macRequest, deviceKey: d.read, now: () => T0 + 25 * H });
+  await mk.ensureMemberKey({ macRequest: p.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
   assert.equal(p.posts.length, 1, 'the same bytes: kept');
+  const pf = path.join(store.ROOT, 'backupkeys', fs.readdirSync(path.join(store.ROOT, 'backupkeys')).find((f) => f.endsWith('.json')));
+  const pe = Object.values(JSON.parse(fs.readFileSync(pf, 'utf8')).keys)[0];
+  assert.equal(pe.sigKept, true); assert.equal(pe.sigOther, undefined, 'padding is this computer\'s own signature, not another');
+});
+
+test('#7753 re-send: on the re-send path an echo of another signature is recorded; an echo for another key is not; a send dated ahead does not block', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const keyFile = () => Object.values(JSON.parse(fs.readFileSync(path.join(store.ROOT, 'backupkeys', fs.readdirSync(path.join(store.ROOT, 'backupkeys')).find((f) => f.endsWith('.json'))), 'utf8')).keys)[0];
+  // No echo at first, another computer's echo on the re-send.
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  c.state.echo = 'other';
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(c.posts.length, 2);
+  assert.equal(keyFile().sigKept, true); assert.equal(keyFile().sigOther, true);
+  // An ok answer that names another key: its echo says nothing about this key, so it is not recorded and is asked again.
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  const odd = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: odd.macRequest, deviceKey: d.read, now: () => T0 });
+  const real = odd.macRequest;
+  const wrongKey = async (m, route, body) => {
+    const a = await real(m, route, body);
+    if (route === mk.MEMBER_KEY_ROUTE && a.ok) return { ok: true, data: { epoch: body.epoch, member_public: Buffer.alloc(32, 9).toString('base64url'), member_key_sig: body.member_key_sig } };
+    return a;
+  };
+  await mk.ensureMemberKey({ macRequest: wrongKey, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(keyFile().sigKept, undefined, 'an echo for another key is not this key kept');
+  // A last send dated after now (a clock that was ahead): due, not blocked until the clock catches up.
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  const ahead = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: ahead.macRequest, deviceKey: d.read, now: () => T0 + 30 * 24 * H });
+  await mk.ensureMemberKey({ macRequest: ahead.macRequest, deviceKey: d.read, now: () => T0 });
+  assert.equal(ahead.posts.length, 2, 'sent again although the last send is dated ahead');
 });
 
 test('#7753 re-send: an echoed first registration is never re-sent; a failed re-send or no device key changes nothing for the caller', async () => {
@@ -235,22 +268,22 @@ test('#7753 re-send: an echoed first registration is never re-sent; a failed re-
   const c1 = storingCoordinator(), d = device();
   c1.state.echo = true;
   await mk.ensureMemberKey({ macRequest: c1.macRequest, deviceKey: d.read, now: () => T0 });
-  await mk.ensureMemberKey({ macRequest: c1.macRequest, deviceKey: d.read, now: () => T0 + 100 * H });
+  await mk.ensureMemberKey({ macRequest: c1.macRequest, deviceKey: d.read, now: () => T0 + 28 * 24 * H });
   assert.equal(c1.posts.length, 1);
   // A re-send that fails: the answer is still the registered key, and it is asked again a day later.
   fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
   const c2 = storingCoordinator();
   const first = await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 });
   c2.state.fail = true;
-  const during = await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 + 25 * H });
+  const during = await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
   assert.equal(during.ok, true); assert.ok(during.publicKey.equals(first.publicKey));
   assert.equal(c2.posts.length, 2);
-  await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 + 26 * H });
-  assert.equal(c2.posts.length, 2, 'a failed re-send still waits a day');
+  await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 2) * H });
+  assert.equal(c2.posts.length, 2, 'a failed re-send still waits a week');
   // No device key: nothing to re-send, so nothing is sent.
   fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
   const c3 = storingCoordinator();
   await mk.ensureMemberKey({ macRequest: c3.macRequest, deviceKey: () => ({ ok: false }), now: () => T0 });
-  await mk.ensureMemberKey({ macRequest: c3.macRequest, deviceKey: () => ({ ok: false }), now: () => T0 + 100 * H });
+  await mk.ensureMemberKey({ macRequest: c3.macRequest, deviceKey: () => ({ ok: false }), now: () => T0 + 28 * 24 * H });
   assert.equal(c3.posts.length, 1);
 });
