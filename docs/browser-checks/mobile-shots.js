@@ -648,6 +648,47 @@ function unholdNext7430(withAgent) {
   } };
 }
 
+/* kosmos#7788: a task an agent held for the person (`kosmos task hold --for-you`), shown on the Tasks view under Needs
+   Your Decision ('list') or on its own page ('page'). The hold is sent from here, not from the page: the page's own
+   request is the person's (isViaScreen), and the board refuses a hold for the person from the person. */
+function holdForYou7788(where) {
+  return { go: async (page, data) => {
+    const base = new URL(page.url()).origin;
+    const post = async (p, body) => {
+      const r = await fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      return { status: r.status, json: await r.json().catch(() => ({})) };
+    };
+    const pbase = '/api/project/' + encodeURIComponent(data.projectId);
+    const made = await post(pbase + '/tasks', { sentence: 'Order the spring proofs', who: data.chatAgent });
+    const n = made.status === 200 ? ((made.json.task && made.json.task.number) || made.json.number) : null;
+    if (typeof n !== 'number') throw new Error('holdforyou-7788: could not add the task (' + made.status + ')');
+    data.holdForYouTask = n;
+    const held = await post(pbase + '/task/' + n + '/hold', { onHold: true, forPerson: true, because: 'needs your yes on the printer’s price' });
+    if (held.status !== 200) throw new Error('holdforyou-7788: the hold answered ' + held.status);
+    if (where === 'list') {
+      await openTab(page, 'tasks');
+      await page.waitForSelector('#tsk-groups .tsk-for-you', { state: 'visible', timeout: 8000 });
+      await page.evaluate(() => document.querySelector('#tsk-tiles').scrollIntoView({ block: 'start' }));
+    } else {
+      await openTab(page, 'projects');
+      await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
+      await page.waitForSelector('#pj-one-view', { state: 'visible', timeout: 8000 });
+      await page.evaluate(async (num) => { await pjReload(); openTaskPage(num); }, n);
+      await page.waitForSelector('#tk-hold-hint', { state: 'visible', timeout: 8000 });
+      await page.evaluate(() => document.getElementById('tk-hold-row').scrollIntoView({ block: 'center' }));
+    }
+    await page.waitForTimeout(300);
+  }, verify: async (page) => {
+    const t = await page.evaluate((w) => ((w === 'list' ? document.querySelector('#tsk-groups .tsk-for-you') : document.getElementById('tk-hold-hint')) || {}).textContent || '', where);
+    if (!/until you answer/.test(t)) throw new Error('holdforyou-7788: the line says ' + JSON.stringify(t));
+  }, after: async (page, data) => {
+    if (typeof data.holdForYouTask !== 'number') return;
+    const st = await page.evaluate(([id, num]) => fetch('/api/project/' + encodeURIComponent(id) + '/task/' + num + '/close', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then((r) => r.status), [data.projectId, data.holdForYouTask]);
+    if (st !== 200) throw new Error('holdforyou-7788: could not close the task after the shot (' + st + ')');
+    data.holdForYouTask = null;
+  } };
+}
+
 /* #6923: the three replaced-by screens share one body (see their entries in SCREENS). */
 function replaced6923(which) {
   return { go: async (page, data) => {
@@ -2464,6 +2505,8 @@ const SCREENS = [
      own task (nobody on it, or the chat agent on it), holds it, presses Take off hold, and closes the task after. */
   { name: 'task-unholdnext-7430', owner: 'Baron Draxum', ...unholdNext7430(false) },
   { name: 'task-unholdkeep-7430', owner: 'Baron Draxum', ...unholdNext7430(true) },
+  { name: 'tasks-holdforyou-7788', owner: 'Mona Lisa', ...holdForYou7788('list') },
+  { name: 'task-holdforyou-7788', owner: 'Mona Lisa', ...holdForYou7788('page') },
   /* #6923: a task closed as replaced by a later one, and the later one's page. Each screen adds its own pair of tasks,
      closes the first as replaced by the second, opens one of them, and closes both plainly after the shot. */
   { name: 'task-replaced-6923', owner: 'Angel', ...replaced6923('replaced') },
