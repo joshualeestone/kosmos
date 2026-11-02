@@ -48,3 +48,19 @@ wrong, a held-for-you task could be handed out.
 - Marking or unmarking an existing hold for you records a hold-set event (with forPerson when set).
 - Follow-up, not this branch: the project page's needs-you count reads the roster, not taskState, so a held-for-you
   task shows there only as on hold. Goes on the slice B card.
+
+## Review round 2
+
+- Save on the hold form takes an agent's hold for you over (the person's hold waits on nobody), so the line under it now
+  says the task leaves Needs Your Decision. Rejected: keeping the mark on the person's own hold.
+- `--because --for-you` is a reason, not the switch, on Mac and Windows.
+- A hold for you with a met condition is told once; the posts rule never tells about it after (pinned).
+
+## Review round 3
+
+- The iPhone app groups by the same state, so its Tasks row and task page now carry the same words (Swift, with
+  LogicTests against the board's text).
+- The task's history says "Put on hold by an agent, waiting on you" and ", no longer waiting on you" (page and CLI,
+  held by the parity test).
+- Unmarking a hold for you starts the stale-hold clock again: it is a different hold from then. Pinned, deliberate.
+- The task page hint no longer says "its question": a hold for you can wait on a decision too.

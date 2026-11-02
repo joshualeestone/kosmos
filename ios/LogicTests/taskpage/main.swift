@@ -96,6 +96,17 @@ let stranger = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"who":"gu
 check(stranger?.partLines(roster: roster).first?.who == "Gus (not on this project)", "an agent holding open work without being a member")
 let allDoneOpen = synthetic(#"{"number":1,"sentence":"S","parts":[{"id":1,"sentence":"S"}],"progress":{"done":1,"total":1,"closed":true}}"#)
 check(allDoneOpen?.closed == true && allDoneOpen?.act == .reopen, "every part done with no closedAt: closed by its progress, so Reopen")
+// kosmos#7788: an agent's hold for the person says it waits on them; a plain agent hold keeps the outside words (control).
+check(synthetic(#"{"number":1,"sentence":"S","onHold":true,"onHoldForPerson":true}"#)?.holdLine?.hasPrefix("An agent put this on hold because it waits on you.") == true,
+      "an agent's hold for you says it waits on you")
+check(synthetic(#"{"number":1,"sentence":"S","onHold":true}"#)?.holdLine?.hasPrefix("This was put on hold outside this screen") == true,
+      "control: a plain agent hold keeps its words")
+// The board's page, found from this file (ios/LogicTests/taskpage/main.swift -> the repo root): run-taskpage.sh passes no repo.
+let boardPage = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    .appendingPathComponent("web/index.html")
+check(String(data: (try? Data(contentsOf: boardPage)) ?? Data(), encoding: .utf8)?
+        .contains("'An agent put this on hold because it waits on you. Once you have answered, take it off hold here, or tell the agent.") == true,
+      "the board's hint opens with the same words")
 check(synthetic(#"{"number":1,"sentence":"S"}"#, paused: true)?.holdLine == "This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out.",
       "a paused project says so")
 let webhook = synthetic(#"{"number":1,"sentence":"S","addedBy":"Shop","addedVia":"webhook","createdAt":"2026-10-01T10:00:00.000Z"}"#)

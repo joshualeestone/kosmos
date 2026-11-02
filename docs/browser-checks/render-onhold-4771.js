@@ -355,10 +355,14 @@ function chk(ok, label, extra) {
       tasks.setOnHold(launch.id, 2, true, { forPerson: true, because: 'needs your yes on the price' });
       await openTask(page, launch.id, 2);
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Take off hold', null, { timeout: 5000 }).catch(() => {});
-      chk(/^An agent put this on hold until you answer its question\. Once you have, take it off hold here, or tell the agent\./.test(await text(page, '#tk-hold-hint') || ''),
+      chk(/^An agent put this on hold because it waits on you\. Once you have answered, take it off hold here, or tell the agent\./.test(await text(page, '#tk-hold-hint') || ''),
         `${tag} #7788 a hold for you says it waits on your answer and how it clears`, await text(page, '#tk-hold-hint'));
       chk(await text(page, '#tk-hold-takeover') === 'Saving makes this hold yours, so only you can take it off, and the task leaves Needs Your Decision.',
         `${tag} #7788 review 2: Save says taking it over moves the task out of Needs Your Decision`, await text(page, '#tk-hold-takeover'));
+      // Review 3: its history says the hold waits on you (tkActPhrase, held to engine/taskactphrase.js by its parity test).
+      await page.waitForFunction(() => /Put on hold by an agent, waiting on you/.test(document.getElementById('tk-activity').textContent), null, { timeout: 5000 }).catch(() => {});
+      chk(/Put on hold by an agent, waiting on you/.test(await text(page, '#tk-activity') || ''),
+        `${tag} #7788 review 3: the task's history says the hold waits on you`, await text(page, '#tk-activity'));
       await page.evaluate(() => showTab('tasks'));
       const wantDecision = String(Number(decisionBefore) + 1);
       await page.waitForFunction((w) => { const n = document.querySelector('#tsk-tiles [data-tile="decision"] .num'); return n && n.textContent === w; }, wantDecision, { timeout: 6000 }).catch(() => {});

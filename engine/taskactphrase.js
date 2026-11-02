@@ -50,7 +50,9 @@ function phrase(ev, nameOfMember, opts) {
     // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
     case 'hold-set': return (ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold')
       + (typeof ev.until === 'string' && ev.until ? ' until ' + own(/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : when(ev.until))
-        : ev.untilCleared === true ? ', no longer waiting for anything' : '');
+        : ev.untilCleared === true ? ', no longer waiting for anything' : '')
+      // kosmos#7788: an agent's hold that waits on the person, or one that stopped waiting on them.
+      + (ev.forPerson === true ? ', waiting on ' + (agent ? 'the person' : 'you') : ev.forPersonCleared === true ? ', no longer waiting on ' + (agent ? 'the person' : 'you') : '');
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';

@@ -24,6 +24,9 @@ extension Board {
         var parentSentence: String? = nil
         var waitingOn: [Waiting] = []
         var waitingSince: String? = nil
+        // kosmos#7788: an agent held it for the person (onHold and onHoldForPerson), with its reason (onHoldBecause).
+        var holdForYou = false
+        var holdBecause: String? = nil
         var createdAt: String? = nil
         var builtAt: String? = nil
         var builtBy: String? = nil
@@ -85,6 +88,8 @@ extension Board {
                 return TaskRow.Waiting(who: who, reason: w["reason"] as? String ?? "other")
             } ?? []
             t.waitingSince = str(row, "waitingSince")
+            t.holdForYou = (row["onHold"] as? Bool) == true && (row["onHoldForPerson"] as? Bool) == true
+            t.holdBecause = str(row, "onHoldBecause")
             t.createdAt = str(row, "createdAt")
             t.builtAt = str(row, "builtAt")
             t.builtBy = str(row, "builtBy")
@@ -395,6 +400,7 @@ enum Tasks {
         if t.state == "decision" {
             let d = decisionLine(t, now: now, name: name)
             if !d.isEmpty { lines.append(d) }
+            if t.holdForYou { lines.append(forYouLine(t)) }
         }
         if t.repeating && t.state != "closed" { lines.append(repeatSentence(t, now: now, name: name)) }
         let b = builtLine(t, now: now, name: name)
@@ -404,6 +410,11 @@ enum Tasks {
     private static func uniqueNames(_ xs: [String]) -> [String] {
         var seen = Set<String>()
         return xs.filter { seen.insert($0).inserted }
+    }
+
+    // kosmos#7788: tskRow's forYouLine, in the board's words.
+    static func forYouLine(_ t: Board.TaskRow) -> String {
+        (t.holdBecause.map { "On hold until you answer: " + $0 + "." } ?? "On hold until you answer.") + " Open it and take it off hold once you have."
     }
 
     // tskRow's waitLine and whoLine: "Cleo: Waiting for your answer for 24 seconds." for a question; "Just started
