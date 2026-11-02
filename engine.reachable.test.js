@@ -593,6 +593,7 @@ const NO_LITERAL_EXPORTS = {
   'engine/github.js': 'module.exports = Object.assign(makeDoor({...}), ...) (a connection door built by a factory)',
   'engine/vercel.js': 'module.exports = Object.assign(makeDoor({...}), ...) (a connection door built by a factory)',
   'engine/usagecap-worker.js': 'no module.exports (#6309: a worker thread engine/usagecap.js starts by path; it talks by messages)',
+  'engine/backupseal-worker.js': 'no module.exports (#7746: a worker thread engine/backupsnapshot.js sealOffThread starts by path; it talks by messages)',
 };
 
 test('#5548: the guard reads every engine exports block', () => {

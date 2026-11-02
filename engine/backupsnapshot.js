@@ -944,7 +944,10 @@ async function snapshotInner(input, deps, added, state, fail) {
   // Cannot throw on this content: file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
-  const sealed = sealManifest(memberPk, deviceKey, ctx, manifest);
+  // kosmos#7746: sealed in a worker; a worker refusal rejects with an Error, which takeSnapshot's catch handles as above.
+  let sealedHere = null;
+  const sealed = await sealOffThread(memberPk, deviceKey, ctx, manifest, Object.assign({ report: (how, why) => { sealedHere = how === 'here' ? why : null; } },
+    deps.sealWorkerFile ? { workerFile: deps.sealWorkerFile } : {}));   // sealWorkerFile: tests only
   // kosmos#7118: with the snapshot id the manifest is sealed under, so a restore (or the console) can open it.
   const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks, epoch: ctx.epoch, snapshot: ctx.snapshot });
   if (!m || !m.ok) {
@@ -972,7 +975,91 @@ async function snapshotInner(input, deps, added, state, fail) {
   // newPeriod only when the period is what differs; another org or a malformed key is a plain failure.
   if (mk && onlyPeriodDiffers(m.key, ctx) && (!owner || ownerOf(m.key) === owner)) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
   if (mk) return fail(`the manifest was stored under a key that is not this snapshot's (${mk})`, { grantSpent: true });
-  return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
+  // sealedInProcess: the seal worker could not be used, so the board waited for the seal (kosmos#7746); its value says
+  // which way ('not-sent', 'no-worker', 'worker-ended', 'no-answer').
+  return Object.assign({ ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket }, sealedHere ? { sealedInProcess: sealedHere } : {});
+}
+
+/* kosmos#7746: the manifest sealed in a worker thread (engine/backupseal-worker.js), so the board is not frozen for the
+   seal (one block of 1.6 to 1.8 s at 477,000 chunks, measured). The main thread keeps one JSON.stringify of the manifest
+   and the copy of that string into the worker's message. The worker parses it and seals it as sealManifest would here; a
+   seal error comes back as a throw, as it would here. A worker that cannot start, ends without answering, or does not
+   answer within SEAL_WAIT_MS seals here instead: never no seal. opts.report(how, why), told 'worker', or 'here' with a
+   reason below, says which sealed (snapshotInner uses it to flag a run sealed here; tests check the path).
+   opts.workerFile, opts.waitMs and opts.onWorker are for tests only. */
+const SEAL_WAIT_MS = 10 * 60 * 1000;
+/* JSON.stringify would quietly rewrite values sealManifest's canonicalJson refuses (undefined dropped, NaN to null, -0 to
+   0, a Date to a string), and the worker would then seal the rewritten manifest. This replacer refuses them instead, so
+   such a manifest is sealed here, where canonicalJson refuses it as it always did. It reads the value before toJSON
+   (this[key]). Measured: about 60 to 150 ms more than a plain stringify at 477,000 chunks. Not mirrored, because each
+   needs a look at every object's own keys: an array's extra properties, symbol keys and hidden properties, which
+   JSON.stringify drops; the snapshot builds none of them. An object carrying a callable toJSON, own or not, is refused
+   (JSON.stringify would call it before this replacer saw the result). */
+function sealable(key, value) {
+  const v = this[key];
+  if (v === null || typeof v === 'string' || typeof v === 'boolean') return value;
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v) || Object.is(v, -0) || (Number.isInteger(v) && !Number.isSafeInteger(v))) throw new Error('not sealable');
+    return value;
+  }
+  if (Array.isArray(v)) return value;
+  if (typeof v === 'object') {
+    // A toJSON is called by JSON.stringify before this sees its result, so an object carrying one is refused whole.
+    const proto = Object.getPrototypeOf(v);
+    if ((proto === Object.prototype || proto === null) && typeof v.toJSON !== 'function') return value;
+  }
+  throw new Error('not sealable');   // undefined, a function, a symbol, a bigint, a Date or any other class
+}
+function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
+  const report = typeof opts.report === 'function' ? opts.report : () => {};
+  const file = opts.workerFile || require('node:path').join(__dirname, 'backupseal-worker.js');
+  const waitMs = Number.isSafeInteger(opts.waitMs) && opts.waitMs > 0 ? opts.waitMs : SEAL_WAIT_MS;
+  return new Promise((resolve, reject) => {
+    let settled = false, w = null, timer = null;
+    const done = () => { settled = true; if (timer) clearTimeout(timer); };
+    // The seal here, as before this change, so it freezes the board for the seal's time again; `why` says which way the
+    // worker could not be used: 'not-sent' (the manifest or keys could not be handed over), 'no-worker' (no worker could
+    // be made at all), 'worker-ended' (it failed, a missing worker file included, or ended without answering), 'no-answer' (none within the wait).
+    let json;
+    const here = (why) => {
+      done();
+      json = null;   // the string is not held while the seal is made here
+      if (w) w.terminate().catch(() => {});
+      try { report('here', why); } catch { /* a report hook never stops the seal */ }
+      try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); }
+    };
+    // A member key that is not bytes is not handed over (Uint8Array would quietly turn it into another one).
+    if (!Buffer.isBuffer(memberPk) && !(memberPk instanceof Uint8Array)) { here('not-sent'); return; }
+    try { json = JSON.stringify(manifest, sealable); } catch { here('not-sent'); return; }   // before any worker starts
+    try { w = new (require('node:worker_threads').Worker)(file); } catch { w = null; here('no-worker'); return; }
+    w.once('message', (m) => {
+      if (settled) return;
+      // The worker failed without the seal refusing (its copy or its post): sealed here, and said so.
+      if (!(m && (m.ok || m.refused))) { here('worker-ended'); return; }
+      let sealed = null;
+      if (m && m.ok) {
+        try { sealed = Buffer.from(m.sealed.buffer, m.sealed.byteOffset, m.sealed.byteLength); } catch { sealed = null; }
+        if (!sealed) { here('worker-ended'); return; }   // an answer in a shape this side cannot read
+      }
+      done();
+      w.terminate().catch(() => {});
+      try { report('worker'); } catch { /* a report hook never stops the seal */ }
+      if (sealed) resolve(sealed);
+      else reject(new Error(m.message || 'the manifest could not be sealed'));   // the seal itself refused
+    });
+    // An answer that cannot be read arrives as messageerror, with no message, error or exit after it.
+    w.once('messageerror', () => { if (!settled) here('worker-ended'); });
+    w.once('error', () => { if (!settled) here('worker-ended'); });
+    w.once('exit', () => { if (!settled) here('worker-ended'); });
+    timer = setTimeout(() => { if (!settled) here('no-answer'); }, waitMs);
+    if (timer.unref) timer.unref();   // the live worker keeps the process up; the timer never does on its own
+    // Tests only, once every listener is attached, so a hook that throws still leaves the worker's events handled.
+    if (typeof opts.onWorker === 'function') { try { opts.onWorker(w); } catch { here('worker-ended'); return; } }
+    try {
+      w.postMessage({ memberPk: new Uint8Array(memberPk), deviceKey, ctx, json });
+      json = null;   // not held past the post, so a fallback seal does not also hold it
+    } catch { json = null; if (!settled) here('not-sent'); }
+  });
 }
 
 /** The most chunk objects one period can hold for this run: a company's allowance, or a personal plan's (kosmos#7746: the
@@ -982,4 +1069,4 @@ function indexCapFor(planGb) {
 }
 
 module.exports = {
-  indexCapFor, MANIFEST_JSON_BUDGET, PLAN_MANIFEST_JSON_BUDGET, periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };
+  indexCapFor, sealOffThread, MANIFEST_JSON_BUDGET, PLAN_MANIFEST_JSON_BUDGET, periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };
