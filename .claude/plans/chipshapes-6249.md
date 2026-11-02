@@ -30,14 +30,17 @@ agent jams. That is the 0.7.70 report on #6249, a version that already had #6780
   in order; or when it is exactly the pinned/kept folded form. Otherwise 'other', as today. A several-lines chip is
   still never ours (our line is one line).
 - The pre-Enter pin (`ourChip`) and the kept `chip` record the whole squashed folded form, not only a single chip.
-- The pin is taken only once two reads a look apart agree (a fold can still be drawing); a box still changing after
-  `FOLD_STABLE_LOOKS` is not pressed.
+- Each chip of ours must hide at least `CHIP_HIDES_MIN` (half of `CHIP_MIN_CHARS`, squashed) of our line, so a
+  person's own chip beside words of ours that hide nothing (our whole line plus a chip) is never ours.
+- The pin is taken once two reads a look apart agree (a fold can still be drawing). A failed read, or a form still
+  changing after `FOLD_STABLE_LOOKS`, leaves the latest good read pinned, as main pinned one read: refusing there
+  would only move the jam to the still-drawing case.
 - After our Enter, a box holding any of our pinned chips is still ours (not sent). Otherwise a lone chip is someone
   else's as before, and text with someone's chip in it is judged by our end (`stillHoldsOurEnd`), as on main.
 
 ## Decided
 
-- No cap on how many chips a box may hold. A cap tied to length would rest on the read size, which was not pinned
+- No cap on how many chips a box may hold beyond the per-chip floor above. A cap tied to length would rest on the read size, which was not pinned
   (a 1500-character single paste stayed text). The tie still needs an empty box just before our paste and a line of
   at least `CHIP_MIN_CHARS`.
 - Text pieces must each be a run of our line, in order. Rejected: accepting any text next to a chip (a person typing

@@ -211,7 +211,8 @@ test('kosmos#6717: a box that could not be read before our paste ties no chip to
 }));
 
 test('kosmos#6717: a short line can never come back as a chip, so a chip after one is never ours', () => {
-  assert.equal(chat.composerHolds('[Pasted text #3]', 'short line', true), 'ours', 'composerHolds alone takes the tie it is given');
+  /* #6249: composerHolds now also asks that a chip hide part of the line, so a short line's chip is refused here too. */
+  assert.equal(chat.composerHolds('[Pasted text #3]', 'short line', true), 'other', 'a chip cannot stand for a line too short to fold');
   // The delivery gives the tie only to a line long enough to fold (measured: 800 characters stays text, 1,000 folds).
   return withAgent((roster) => {
     const p = pane({ fold: 5 });   // this pane folds even a short paste

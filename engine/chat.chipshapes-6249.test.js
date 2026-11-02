@@ -185,6 +185,11 @@ test('#6249: which folded boxes count as ours', () => {
   assert.equal(h('[Pasted text #2][Pasted text #3]', w), 'other', 'nothing ties the chips to our paste');
   assert.equal(h('[Pasted text #2][Pasted text #3]', w, '[Pastedtext#2][Pastedtext#3]'), 'ours', 'the exact form we left');
   assert.equal(h('[Pasted text #2][Pasted text #3]', w, '[Pastedtext#2]'), 'other', 'more than the form we left');
+  // A person's own chip beside words of ours that hide nothing is not ours (each chip of ours hides part of the line).
+  assert.equal(h(w + ' [Pasted text #5]', w, true), 'other', 'all of our line, then a chip');
+  assert.equal(h('[Pasted text #5]' + w, w, true), 'other', 'a chip, then all of our line');
+  assert.equal(h(w.slice(0, 100) + '[Pasted text #5]' + w.slice(100), w, true), 'other', 'a chip inside our line, hiding nothing');
+  assert.equal(h('[Pasted text #2][Pasted text #3]' + w.slice(-300), w.slice(0, 900) + w.slice(-300), true), 'other', 'two chips with room for one');
 });
 
 test('#6249: a short message that only MENTIONS a chip in its words is compared word for word and pressed', () => withAgent((roster) => {
@@ -227,12 +232,25 @@ test('#6249: a fold still drawing (one chip, then all three) is pinned only once
   assert.equal(entry && entry.chip, '[Pastedtext#1][Pastedtext#2][Pastedtext#3]', 'the settled whole form is what was pinned and kept');
 }));
 
-test('#6249 CONTROL: a folded box that never stops changing before our Enter is not pressed', () => withAgent((roster) => {
-  const p = pane({ shape: THREE_CHIPS });
+test('#6249: a folded box still changing after its looks is pinned as its latest form, as one read was before', () => withAgent((roster) => {
+  const p = pane({ shape: THREE_CHIPS, enterTakes: false });
   const frames = Array.from({ length: 20 }, (_, i) => Array.from({ length: i + 1 }, (_, j) => `[Pasted text #${j + 1}]`).join(''));
-  drawing(p, frames);
+  const reads = drawing(p, frames);
   const v = chat.deliver('al', LONG, roster);
-  assert.equal(p.state.enters, 0, 'never pressed: it never settled');
+  assert.equal(p.state.enters, 1, 'pressed: still ours, only still drawing');
+  assert.equal(v.unsubmitted, true, 'PRECONDITION: Enter did not take');
+  const entry = Object.values(keptLines())[0];
+  const pinned = entry && entry.chip;
+  assert.ok(pinned && pinned.startsWith('[Pastedtext#1][Pastedtext#2]'), 'the latest form read before the Enter is kept: ' + pinned);
+  assert.ok(reads() >= 3, 'PRECONDITION: it looked more than once');
+}));
+
+test('#6249 CONTROL: a person pasting in the gap beside our whole line (which stayed text) is never sent with it', () => withAgent((roster) => {
+  const mid = LONG.slice(0, 900);   // long enough for the tie, and here it stays text
+  const p = pane();
+  drawing(p, [mid + ' [Pasted text #5]']);
+  const v = chat.deliver('al', mid, roster);
+  assert.equal(p.state.enters, 0, 'no Enter: that chip hides none of our line');
   assert.equal(v.unsubmitted, true);
 }));
 
