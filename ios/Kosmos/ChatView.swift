@@ -936,6 +936,9 @@ struct ChatView: View {
         // runner, where the list can still be moving or outside its content.
         let ready = atBottom && !personScrolling && !scrollBox.underFinger && scrollBox.reading()?.place == "within"
         if !ready, waited < 15 {
+            // kosmos#7767: measured on CI: the long list can sit past its end for all 15 s, and the check then saw no rebuild. What the
+            // app does for a list past its end brings it back, so the wait can end in the state this hook is for.
+            if waited == 5, scrollBox.reading()?.place == "past the end" { Self.trace("debug rebuild: past the end at 5 s"); recoverEmpty(proxy, later: true) }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { sampleRebuild(proxy, waited: waited + 0.5) }
             return
         }
