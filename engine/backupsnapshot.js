@@ -944,8 +944,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   // Cannot throw on this content: file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
-  let sealedHere = false;
-  const sealed = await sealOffThread(memberPk, deviceKey, ctx, manifest, { report: (how) => { sealedHere = how === 'here'; } });
+  // kosmos#7746: sealed in a worker; a worker refusal rejects with an Error, which takeSnapshot's catch handles as above.
+  let sealedHere = null;
+  const sealed = await sealOffThread(memberPk, deviceKey, ctx, manifest, { report: (how, why) => { sealedHere = how === 'here' ? why : null; } });
   // kosmos#7118: with the snapshot id the manifest is sealed under, so a restore (or the console) can open it.
   const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks, epoch: ctx.epoch, snapshot: ctx.snapshot });
   if (!m || !m.ok) {
@@ -973,8 +974,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   // newPeriod only when the period is what differs; another org or a malformed key is a plain failure.
   if (mk && onlyPeriodDiffers(m.key, ctx) && (!owner || ownerOf(m.key) === owner)) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
   if (mk) return fail(`the manifest was stored under a key that is not this snapshot's (${mk})`, { grantSpent: true });
-  // sealedInProcess: the seal worker could not be used, so the board waited for the seal (kosmos#7746).
-  return Object.assign({ ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket }, sealedHere ? { sealedInProcess: true } : {});
+  // sealedInProcess: the seal worker could not be used, so the board waited for the seal (kosmos#7746); its value says
+  // which way ('not-sent', 'no-worker', 'worker-ended', 'no-answer').
+  return Object.assign({ ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket }, sealedHere ? { sealedInProcess: sealedHere } : {});
 }
 
 /* kosmos#7746: the manifest sealed in a worker thread (engine/backupseal-worker.js), so the board is not frozen for the
@@ -991,13 +993,18 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
   return new Promise((resolve, reject) => {
     let settled = false, w = null, timer = null;
     const done = () => { settled = true; if (timer) clearTimeout(timer); };
-    const here = () => {
+    // The seal here, as before this change, so it freezes the board for the seal's time again; `why` says which way the
+    // worker could not be used: 'not-sent' (the manifest or keys could not be handed over), 'no-worker' (no worker could
+    // be made at all), 'worker-ended' (it failed, a missing worker file included, or ended without answering), 'no-answer' (none within the wait).
+    const here = (why) => {
       done();
       if (w) w.terminate().catch(() => {});
-      report('here');
+      report('here', why);
       try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); }
     };
-    try { w = new (require('node:worker_threads').Worker)(file); } catch { w = null; here(); return; }
+    let json;
+    try { json = JSON.stringify(manifest); } catch { here('not-sent'); return; }   // before any worker is started
+    try { w = new (require('node:worker_threads').Worker)(file); } catch { w = null; here('no-worker'); return; }
     w.once('message', (m) => {
       if (settled) return;
       done();
@@ -1006,13 +1013,15 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
       if (m && m.ok) resolve(Buffer.from(m.sealed.buffer, m.sealed.byteOffset, m.sealed.byteLength));
       else reject(new Error((m && m.message) || 'the manifest could not be sealed'));
     });
-    w.once('error', () => { if (!settled) here(); });
-    w.once('exit', () => { if (!settled) here(); });
-    timer = setTimeout(() => { if (!settled) here(); }, waitMs);
+    // An answer that cannot be read arrives as messageerror, with no message, error or exit after it.
+    w.once('messageerror', () => { if (!settled) here('worker-ended'); });
+    w.once('error', () => { if (!settled) here('worker-ended'); });
+    w.once('exit', () => { if (!settled) here('worker-ended'); });
+    timer = setTimeout(() => { if (!settled) here('no-answer'); }, waitMs);
     try {
-      // The string goes out of scope once posted, so a fallback seal here does not also hold it.
-      w.postMessage({ memberPk: new Uint8Array(memberPk), deviceKey, ctx, json: JSON.stringify(manifest) });
-    } catch { if (!settled) here(); }
+      w.postMessage({ memberPk: new Uint8Array(memberPk), deviceKey, ctx, json });
+    } catch { if (!settled) here('not-sent'); }
+    json = null;   // not held past the post, so a fallback seal does not also hold it
   });
 }
 
