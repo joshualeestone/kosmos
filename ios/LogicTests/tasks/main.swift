@@ -267,6 +267,25 @@ check(Tasks.spoken(ask, line: "a\nb", projectShown: false) == "Task 1. a b.", "a
 let url = Tasks.taskPageURL(board: URL(string: "https://studio.kosmosplus.com")!, project: "book a", number: 7)
 check(url?.absoluteString == "https://studio.kosmosplus.com/?project=book%20a&task=7", "the board's task page, by ?project=&task=")
 
+section("kosmos#7797 item 1: a question no task carries")
+let askJSON = #"{"rosterUnreadable":false,"tasks":[{"projectId":"p1","projectName":"Launch","number":1,"sentence":"Pick","state":"decision","waitingOn":[{"who":"ada","reason":"question"}]}],"askingWithoutTask":[{"who":"max","projectId":"p1","projectName":"Launch","projectPath":["Book A"],"waitingSince":""# + iso(180) + #""},{"who":"zoe","projectId":null,"waitingSince":null}]}"#
+let askRead = Board.parseTasks(Data(askJSON.utf8))!
+check(askRead.asking.map(\.who) == ["max", "zoe"], "askingWithoutTask is read, in the route's order")
+check(Board.parseTasks(Data(#"{"tasks":[]}"#.utf8))?.asking == [], "CONTROL: an older board sends none, and none are drawn")
+let askSections = Tasks.sections(askRead, project: nil)
+check(askSections.first?.group.key == "decision" && askSections.first?.asking.map(\.who) == ["max", "zoe"] && askSections.first?.rows.count == 1, "they sit in Needs Your Decision beside its task")
+check(Tasks.tiles(askSections, rosterUnknown: false).first { $0.key == "decision" }?.count == 3, "Needs you counts them with the task")
+check(Tasks.tiles(askSections, rosterUnknown: false).first { $0.key == "open" }?.count == 1, "Open counts tasks only")
+check(Tasks.sections(askRead, project: "p1").first?.asking.map(\.who) == ["max"], "a project picked keeps only questions about it")
+check(Tasks.sections(Board.TasksRead(tasks: [], rosterUnknown: false, asking: [askRead.asking[1]]), project: nil).first?.group.key == "decision", "a question alone still draws the group")
+check(Tasks.keepingPlaces(askSections, with: Board.TasksRead(tasks: askRead.tasks, rosterUnknown: false), project: nil).first?.asking == [], "a live update takes the fresh questions (an answered one goes)")
+let nameOf = { (s: String) -> String in s == "max" ? "Max" : s == "zoe" ? "Zoe" : s }
+check(Tasks.askTitle(askRead.asking[0], name: nameOf) == "Max asks about Book A \u{203A} Launch", "named with the project's chain")
+check(Tasks.askTitle(askRead.asking[1], name: nameOf) == "Zoe asks you something", "no project: asks you something")
+check(Tasks.askWait(askRead.asking[0], now: now) == "Waiting for your answer for 3 minutes.", "the wait in the board's words")
+check(Tasks.askWait(askRead.asking[1], now: now) == "", "no known start: no wait line")
+check(page.contains("' asks you something'") && page.contains("' asks about '") && page.contains("'Waiting for your answer for '"), "premise: the board's tskAskRow says the same words")
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

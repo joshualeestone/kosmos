@@ -23,6 +23,7 @@ struct TasksTab: View {
             TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
                       open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
                       answer: answer,
+                      answerAgent: { who in answer(who: who) },
                       refresh: { await client.refreshTasks() },
                       newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
                       notice: notice, switcher: AnyView(MacSwitcher(client: client)))
@@ -91,6 +92,9 @@ struct TasksTab: View {
     // its chat on the board instead.
     private func answer(_ t: Board.TaskRow) {
         guard let who = t.waitingOn.first?.who else { return }
+        answer(who: who)
+    }
+    private func answer(who: String) {
         if let agent = client.agents.first(where: { $0.session == who }) { openAgent = agent; return }
         if let url = client.chatURL(session: who) { openPage(url) }
     }
@@ -125,6 +129,7 @@ struct TasksView: View {
     let agentName: (String) -> String      // tskAgentName
     let open: (Board.TaskRow) -> Void
     let answer: (Board.TaskRow) -> Void
+    let answerAgent: (String) -> Void      // kosmos#7797 item 1: a question no task carries opens its agent's chat
     let refresh: () async -> Void
     // kosmos#7078: the New task sheet, opened with the project picked here (nil on All projects), and the line the
     // sheet leaves after a create ("Added task 12 to Launch."). Both optional, so the samples and checks need neither.
@@ -235,9 +240,10 @@ struct TasksView: View {
                 } else {
                     Section {
                         if s.unknown {
-                            Text(Tasks.decisionUnknownLine(rows: s.rows.count)).font(.footnote).foregroundColor(Palette.secondary)
+                            Text(Tasks.decisionUnknownLine(rows: s.rows.count + s.asking.count)).font(.footnote).foregroundColor(Palette.secondary)
                                 .listRowBackground(Palette.card)
                         }
+                        ForEach(s.asking) { a in askRow(a) }
                         rows(s.rows, projectShown: projectShown)
                     } header: { header(s, read: read) }
                 }
@@ -291,8 +297,8 @@ struct TasksView: View {
     #endif
 
     private func header(_ s: Tasks.Section, read: Board.TasksRead) -> some View {
-        let count = s.unknown ? "?" : String(s.rows.count)
-        let token = Tasks.dotToken(s.group, count: s.rows.count, rosterUnknown: read.rosterUnknown)
+        let count = s.unknown ? "?" : String(s.rows.count + s.asking.count)   // kosmos#7797: the questions count too
+        let token = Tasks.dotToken(s.group, count: s.rows.count + s.asking.count, rosterUnknown: read.rosterUnknown)
         // The dot is centred on the label's FIRST line at any text size (Mona Lisa's review: resting on the baseline it
         // read as a full stop): it sits in a hidden one-line text of the same font, which also gives it that line's
         // baseline, so a label wrapped at the largest sizes keeps its dot beside the first line.
@@ -317,6 +323,30 @@ struct TasksView: View {
         .accessibilityAddTraits(.isHeader)
     }
 
+    // kosmos#7797 item 1: a question no task carries. Not a task, so it opens nothing but the agent's chat: Answer.
+    private func askRow(_ a: Board.Asking) -> some View {
+        let title = Tasks.askTitle(a, name: agentName)
+        let wait = Tasks.askWait(a, now: Date())
+        return VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.body).foregroundColor(Palette.primary)
+                if !wait.isEmpty { Text(wait).font(.footnote).foregroundColor(Palette.secondary) }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAction(named: Text("Answer")) { answerAgent(a.who) }
+            Button { answerAgent(a.who) } label: {
+                Text("Answer").font(.footnote.weight(.semibold)).foregroundColor(Palette.card)
+                    .padding(.horizontal, 14).padding(.vertical, 6)
+                    .background(Capsule().fill(Palette.primary))
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens the chat")
+        }
+        .padding(.vertical, 4)
+        .listRowBackground(Palette.card)
+        .listRowSeparatorTint(Palette.separator)
+        .id(a.id)
+    }
     // A group's rows as taskNest places them: under their parent when it is in the same group, else with a crumb.
     private func rows(_ list: [Board.TaskRow], projectShown: Bool) -> some View {
         ForEach(Tasks.nest(list), id: \.row.id) { p in row(p.row, depth: p.depth, crumb: p.crumb, projectShown: projectShown) }
