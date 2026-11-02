@@ -15,6 +15,8 @@ const path = require('node:path');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-memberkey-7753-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+// No AGENT_WORKFORCE_TUNNEL_STATE here on purpose: the default state folder is inside SANDBOX, and the default-wiring
+// test below writes a connector key there (asserting it is inside the sandbox first).
 const store = require('./store');
 const backupkeys = require('./backupkeys');
 const mk = require('./backupmemberkey');

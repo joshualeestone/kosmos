@@ -143,7 +143,8 @@ function memberKeyRecordBytes(org, member, epoch, memberPublic) {
 /* { sig } (base64url), or { because } when this computer cannot sign: the registration is then sent as it was before
    #7753, and escrowd treats that epoch as unsigned (decided on #7753). `because` is a fixed sentence per cause, so the
    answer can say which: a key not read is not a record that could not be built. A read asking for a retry (the
-   connector mid-write) is read once more. */
+   connector mid-write) is read once more, straight away: best effort, since backupdevicekey.js says the next read
+   clears a mid-write, and a second refusal registers unsigned. */
 function signRecord(readDeviceKey, company, epoch, pk) {
   let dk;
   try {
@@ -250,7 +251,7 @@ async function ensureNow(opts, seen) {
         }
         // kosmos#7753: a key registered without its signed record says why, on this answer only (a key answered from
         // disk was registered earlier).
-        return unsignedBecause ? { ok: true, epoch, publicKey: keys[epoch].pk, unsignedBecause } : { ok: true, epoch, publicKey: keys[epoch].pk };
+        return { ok: true, epoch, publicKey: keys[epoch].pk, ...(unsignedBecause ? { unsignedBecause } : {}) };
       }
       const code = r && r.refusal && r.refusal.code;
       if (code === 'member_key_rotation_wait') {
