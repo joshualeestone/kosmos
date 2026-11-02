@@ -190,3 +190,15 @@ test('review 6: a held-for-you task whose holder already asks the person is not 
   assert.equal(tasks.heldForPersonCount(list, new Map([['ada', 'elsewhere']])), 2, 'review 7: a question about another project does not carry this hold');
   assert.equal(tasks.heldForPersonCount(list, new Map()), 2, 'CONTROL: nobody asking, both');
 });
+
+test('kosmos#7797: the project summary counts its open holds for the person (no roster needed); a plain hold is not one', () => {
+  const a = fresh('hfp eighteen');
+  tasks.setOnHold(a.id, a.n, true, { forPerson: true });
+  const b = fresh('hfp nineteen');
+  tasks.setOnHold(b.id, b.n, true);
+  const row = (id) => projects.list([]).find((p) => p.id === id);
+  assert.equal(row(a.id).summary.heldForYou, 1);
+  assert.equal(row(b.id).summary.heldForYou, 0, 'CONTROL: a plain hold');
+  assert.ok(tasks.close(a.id, a.n), 'fixture: close refused');
+  assert.equal(row(a.id).summary.heldForYou, 0, 'a closed task is not waiting');
+});

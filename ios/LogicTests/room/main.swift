@@ -300,6 +300,11 @@ func proj(_ needs: Int = 0, q: Int = 0, working: Int = 0, restarting: Int = 0, p
 check(Board.projectWord(proj(2, q: 2, working: 1), agentsUnreadable: false) == .question, "only questions: the calm Question")
 check(Board.projectWord(proj(2, q: 1, working: 1), agentsUnreadable: false) == .issue, "anything else that needs you: Issue")
 check(Board.projectWord(proj(working: 1, paused: true), agentsUnreadable: false) == .paused, "Paused above Working")
+// kosmos#7797: a hold for the person reads Question, needs no roster, and a member's Issue outranks it.
+func held(_ needs: Int = 0, q: Int = 0, paused: Bool = false) -> Board.ProjectRow { var p = proj(needs, q: q, working: 1, paused: paused); p.heldForYou = 1; return p }
+check(Board.projectWord(held(paused: true), agentsUnreadable: false) == .question, "a hold for you: Question, above Paused")
+check(Board.projectWord(held(), agentsUnreadable: true) == .question, "and with the agents unreadable (the hold needs none)")
+check(Board.projectWord(held(1, q: 0), agentsUnreadable: false) == .issue, "control: a member's Issue outranks it")
 check(Board.projectWord(proj(working: 1, restarting: 1), agentsUnreadable: false) == .working, "Working above Restarting")
 check(Board.projectWord(proj(restarting: 1), agentsUnreadable: false) == .restarting, "Restarting")
 check(Board.projectWord(proj(2, working: 1), agentsUnreadable: true) == nil, "agents unreadable: no word that could not be read")

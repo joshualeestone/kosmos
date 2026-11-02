@@ -25,3 +25,12 @@ Weakest premise: that an agent reads "only once they have answered" as a conditi
 The project page's task card says "On hold until you answer: <reason>" for an agent's hold for the person (and
 "On hold until you answer" with no reason), as the Tasks row does; a plain hold keeps "On hold: <reason>". Checked in
 render-onhold-4771 in both viewports. The project page's needs-you COUNT is still roster-only: next piece.
+
+## Item 2, the project's count and card word (2026-11-02 14:2x)
+
+Call: the project summary carries heldForYou (open tasks an agent held for the person; no roster needed). The project
+card reads the calm Question for it (as an agent's own question does), below a member's Issue and above Paused; the
+Projects "need you" tile counts a project holding one, also when the agents cannot be read. The iPhone app's
+projectWord mirrors it. Rejected: adding these tasks to summary.needsYou, which counts MEMBERS and names each in the
+Issue list; a task is not a member. Weakest premise: that Question (calm) is the right weight for a hold; it is the
+weight of the agent question it stands for.

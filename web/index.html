@@ -68555,8 +68555,9 @@ function paintProjects() {
      red cards below one-for-one, so this tile and the agents tab's twin
      count different things and say so by their labels; the alert hides at
      zero and under a blind roster (a claim we cannot make). */
-  const attnProjects = PJ_AGENTS_UNREADABLE ? 0
-    : active.filter((p) => (((p.summary || {}).needsYou) || 0) > 0).length;
+  /* kosmos#7797: a project holding a task for the person needs them too; that count needs no roster. */
+  const attnProjects = PJ_AGENTS_UNREADABLE ? active.filter((p) => (((p.summary || {}).heldForYou) || 0) > 0).length
+    : active.filter((p) => (((p.summary || {}).needsYou) || 0) > 0 || (((p.summary || {}).heldForYou) || 0) > 0).length;
   document.getElementById('st-pj').textContent = String(active.length);
   document.getElementById('st-pjattn').textContent = String(attnProjects);
   document.getElementById('st-pjattn-tile').hidden = !attnProjects;
@@ -68996,6 +68997,9 @@ function pjPillOf(p, unreadable) {
      "Question" with its "?" and no red; anything else that needs the person is still the red Issue. */
   if (!unreadable && s.needsYou && s.needsYouQuestions === s.needsYou) return { cls: 'question', glyph: GLYPH.question, label: 'Question' };
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
+  /* kosmos#7797: a task an agent held for the person waits on their answer, so the card reads the calm Question; a
+     member's Issue above outranks it. The hold needs no roster, so it shows even when the agents cannot be read. */
+  if (s.heldForYou > 0) return { cls: 'question', glyph: GLYPH.question, label: 'Question' };
   /* kosmos#5391 option B (for Josh to choose; it bends #4730's "only a badge if something is running"): a project the
      person paused says so on its card, above Working (its agents may still be busy, but nothing is nudged or handed
      out) and below Issue (an agent needs the person). */

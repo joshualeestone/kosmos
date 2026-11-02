@@ -666,6 +666,7 @@ extension Board {
         let folderProblem: String?
         let needsYou: Int
         let needsYouQuestions: Int
+        var heldForYou: Int = 0   // kosmos#7797: open tasks an agent held for the person (summary.heldForYou)
         let working: Int
         let restarting: Int
         // kosmos#7342 (Mona Lisa): on Mentions only or Muted (the board's notify, #7210): its count stays on its row but
@@ -837,6 +838,7 @@ extension Board {
                               paused: isTrue(p["paused"]), createdAt: isoDate(p["createdAt"] as? String), members: members,
                               folderProblem: folderProblem.flatMap { $0.isEmpty ? nil : $0 },
                               needsYou: integer(s["needsYou"]) ?? 0, needsYouQuestions: integer(s["needsYouQuestions"]) ?? 0,
+                              heldForYou: integer(s["heldForYou"]) ?? 0,
                               working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0,
                               quiet: ["mentions", "muted"].contains(p["notify"] as? String ?? ""))
         }
@@ -850,6 +852,8 @@ extension Board {
     static func projectWord(_ p: ProjectRow, agentsUnreadable: Bool) -> ProjectWord? {
         if !agentsUnreadable && p.needsYou > 0 && p.needsYouQuestions == p.needsYou { return .question }
         if !agentsUnreadable && p.needsYou > 0 { return .issue }
+        // kosmos#7797: pjPillOf's hold for the person, a calm Question that needs no roster.
+        if p.heldForYou > 0 { return .question }
         if p.paused && !p.archived { return .paused }
         if !agentsUnreadable && p.working > 0 { return .working }
         if !agentsUnreadable && p.restarting > 0 { return .restarting }
