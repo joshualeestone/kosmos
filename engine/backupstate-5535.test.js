@@ -272,7 +272,9 @@ test('review 9: writeState never replaces a file that is not plainly this member
   bs.discardState(org, member);
   bs.writeState(org, member, fresh);
   assert.equal(bs.readState(org, member).ok, true);
-  // A file another program holds: refused with retry, untouched (the guard reads it as readState does).
+  // A file another program holds: refused with retry, untouched (the guard reads it as readState does). Its mtime is
+  // moved first: a file exactly as this process last wrote it is replaced without a re-read (kosmos#7746).
+  fs.utimesSync(f, new Date(), new Date(Date.now() + 5000));
   const realRead = fs.readFileSync;
   try {
     fs.readFileSync = function (file, ...rest) {

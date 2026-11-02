@@ -799,6 +799,25 @@ test('a plan: a long run hands what it stored to a checkpoint, so a killed run k
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('#7746: a checkpoint that takes turns is waited for: no batch goes up and the run does not end while it is pending', async () => {
+  const w = oneFile(4 * 1024 * 1024), k = keys(), st = store();
+  try {
+    let pending = 0, overlaps = 0, finished = 0;
+    const checkpoint = async () => {
+      pending++;
+      const before = st.batches.length;
+      for (let i = 0; i < 5; i++) await new Promise((resolve) => setImmediate(resolve));
+      if (st.batches.length !== before) overlaps++;
+      pending--; finished++;
+    };
+    const r = await take(k, w.root, st, { deps: { planGb: 25, batchBytes: 1, checkpointBatches: 1, checkpoint } });
+    assert.equal(r.ok, true, r.because);
+    assert.ok(finished >= 2, `premise: checkpoints ran (${finished})`);
+    assert.equal(overlaps, 0, 'a batch went up while a checkpoint was still writing');
+    assert.equal(pending, 0, 'the run ended with a checkpoint still writing');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('a plan: a folder expected to pass the manifest is refused in words before anything is spent', async () => {
   const w = oneFile(16 * 1024 * 1024), k = keys(), st = store();
   try {

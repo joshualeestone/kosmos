@@ -16,6 +16,13 @@
  *     index      Map name -> { key, lockedUntilMs, memberKeyId }: the chunks stored this period (takeSnapshot's `index`)
  *
  * readState(org, member) -> { ok: true, state } | { ok: false, because }
+ *   readStateAsync and writeStateAsync (kosmos#7746) give the same answers and the same errors (as rejections) as
+ *   readState and writeState, giving the event loop a turn every 50,000 rows and between steps; JSON.parse and
+ *   JSON.stringify of the whole file each stay one block. A run uses them; at the top plan the sync ones block for seconds.
+ *   Async writes of one file run in the order asked; a sync writeState (or discardState, which answers ok: false) while
+ *   one is in flight is refused: it would land in the middle of it. The sync throw has no code (a caller mistake), so a
+ *   caller on the run path uses the async versions only. A caller must not change a state's index Maps while a write of
+ *   it is in flight: the write reads them across its turns (backuprun hands it a copy, withRun's).
  *   A missing file is ok and empty ({ job: {}, periods: [] }). A file that is a link, malformed, or for another
  *   (org, member) is NOT ok, and is never overwritten in place; the way out is discardState. A file that could not be
  *   read for a passing reason (EBUSY, EAGAIN, EPERM, EACCES: a scanner, or a rename in progress on Windows) is NOT ok
@@ -32,7 +39,10 @@
  *   falls back to a fresh state after a refused read cannot overwrite the good or set-aside-worthy file: it must
  *   discardState first (after which there is no file) or wait out the retry. "Plainly ours" is readState's own test, the
  *   whole file (review 10: a head-only check let a body-corrupt file be overwritten, and refused a reformatted good one),
- *   so a write costs one read first (measured: 251 ms for one full slot; about half a second at two, 70 MB). The window between that read and the rename is covered by
+ *   so a write costs one read first, UNLESS the file is exactly the one this process last read or wrote as ours (kosmos#7746:
+ *   the same device, inode, size, and mtime and ctime in ns, kept only when a read saw the same before and after it); then
+ *   the write replaces it without re-reading. A program cannot set a ctime back, so a file replaced meanwhile is read in
+ *   full (on a filesystem with nanosecond times, as APFS, ext4 and NTFS have, and short of changing the clock). The window between that read and the rename is covered by
  *   the one-run-at-a-time duty (the folder is 0700: only this user can put a file there meanwhile). A passing error
  *   from the write itself (Windows refusing the rename while a scanner holds the file) throws with retry too, and every
  *   error FROM THE WRITE ITSELF carries the underlying `code` and `cause` (a full disk, a read-only folder), so the
@@ -133,8 +143,16 @@ function cleanJob(j) {
 const goodEntry = (name, e, label) => NAME_RE.test(name) && e && goodKey(e.key) && isPosInt(e.lockedUntilMs) && HEX32_RE.test(e.memberKeyId)
   && e.key.split('/')[3] === label;
 
-/* A period as stored, or null when any part is not one this module writes. */
-function periodFrom(p) {
+/* kosmos#7746: the row check and the row building pause every ROWS_PER_PAUSE rows, so the async readState and writeState
+   can give the event loop a turn. At the top plan (two slots of 600000) each was one block of about 900 ms (measured on
+   #7746). The sync versions run the same steps straight through. */
+const ROWS_PER_PAUSE = 50000;
+const runSync = (gen) => { let r = gen.next(); while (!r.done) r = gen.next(); return r.value; };
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+async function runAsync(gen) { let r = gen.next(); while (!r.done) { await turn(); r = gen.next(); } return r.value; }
+
+/* A period as stored (null for a null input), or undefined when any part is not one this module writes. */
+function* periodSteps(p) {
   if (p === null) return null;
   if (!p || typeof p !== 'object' || !PERIOD_RE.test(p.label)) return undefined;
   const namingKey = unb64(p.namingKey);
@@ -143,7 +161,9 @@ function periodFrom(p) {
   if (p.bucket !== null && (typeof p.bucket !== 'string' || !p.bucket || p.bucket.length > 1024)) return undefined;
   if (!Array.isArray(p.index) || p.index.length > MAX_INDEX) return undefined;
   const index = new Map();
+  let n = 0;
   for (const row of p.index) {
+    if (++n % ROWS_PER_PAUSE === 0) yield;
     if (!Array.isArray(row) || row.length !== 4) return undefined;
     const [name, key, lockedUntilMs, memberKeyId] = row;
     if (!NAME_RE.test(name) || !goodKey(key) || !isPosInt(lockedUntilMs) || !HEX32_RE.test(memberKeyId) || index.has(name)) return undefined;
@@ -154,53 +174,132 @@ function periodFrom(p) {
   return { label: p.label, namingKey, bucket: p.bucket, index };
 }
 
-function readState(org, member) {
+/* kosmos#7746: the file this process last read or wrote as ours, per path: device, inode, size, and mtime and ctime (ns;
+   no program can set a ctime back, as it can an mtime). mayReplaceSteps
+   skips its full re-read when the file on disk still matches; any other file gets the whole check. */
+const known = new Map();
+function fingerprint(st) { return `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}`; }
+function remember(f) { try { known.set(f, fingerprint(fs.lstatSync(f, { bigint: true }))); } catch { known.delete(f); } }
+function stillOurs(f) {
+  const k = known.get(f);
+  if (!k) return false;
+  try { const st = fs.lstatSync(f, { bigint: true }); return st.isFile() && fingerprint(st) === k; } catch { return false; }
+}
+
+function readState(org, member) { return runSync(readSteps(org, member)); }
+/* A read that does not answer ok forgets the file: only a read that found it ours may let a write skip its re-read. */
+function* readSteps(org, member) {
+  const f = fileFor(org, member), knownAtStart = known.get(f);
+  const r = yield* readFileSteps(org, member);
+  // A write that landed while this read was paused is newer than what this read found: left as it is.
+  if (!r.ok && known.get(f) === knownAtStart) known.delete(f);
+  return r;
+}
+/** readState with a turn for the event loop every ROWS_PER_PAUSE rows (kosmos#7746). The same answers. */
+function readStateAsync(org, member) { return runAsync(readSteps(org, member)); }
+function* readFileSteps(org, member) {
   ids(org, member);
   const f = fileFor(org, member);
   try { if (fs.lstatSync(f).isSymbolicLink()) return { ok: false, because: 'the backup state file is a link, so it was not read' }; } catch { /* missing: the read decides */ }
   let raw;
+  // Fingerprinted before and after the read: kept only when both agree, so it describes the bytes read, never a file
+  // swapped in meanwhile (then nothing is remembered and the next write checks in full).
+  let before = null, loose = false;
+  const knownAtStart = known.get(f);   // a write that lands while this read is paused is newer: never replaced below
+  try {
+    const st = fs.lstatSync(f, { bigint: true });
+    before = fingerprint(st);
+    // On Windows the mode bits stand only for the read-only attribute (the profile's ACLs protect the file), and every
+    // file reads as other than 0600. There a file is loose only when it is read-only: the chmod clears that, or the next
+    // write's rename would be refused. A writable file is not touched, so its fingerprint can still be kept.
+    loose = process.platform === 'win32' ? (Number(st.mode) & 0o200) === 0 : (Number(st.mode) & 0o777) !== 0o600;
+  } catch { /* missing: the read decides */ }
   try { raw = fs.readFileSync(f, 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true, state: { job: {}, periods: [] } };
     return Object.assign({ ok: false, because: 'the backup state file could not be read' }, err && TRANSIENT.has(err.code) ? { retry: true } : {});
   }
+  let after = null;
+  try { after = fingerprint(fs.lstatSync(f, { bigint: true })); } catch { /* gone after the read: nothing remembered */ }
+  yield;
   let got;
   try { got = JSON.parse(raw); } catch { return { ok: false, because: 'the backup state file is not one this computer wrote' }; }
+  raw = null;
   if (!got || got.v !== 1 || got.org !== org || got.member !== member) return { ok: false, because: 'the backup state file is not one this computer wrote' };
-  const periods = Array.isArray(got.periods) && got.periods.length <= SLOTS ? got.periods.map(periodFrom) : [undefined];
+  yield;
+  const periods = [];
+  if (Array.isArray(got.periods) && got.periods.length <= SLOTS) {
+    for (const x of got.periods) { const one = yield* periodSteps(x); periods.push(one); if (!one) break; }
+  } else periods.push(undefined);
   if (periods.some((x) => !x) || new Set(periods.map((x) => x.label)).size !== periods.length) return { ok: false, because: 'the backup state file is not one this computer wrote' };
   // A file left looser (a copy, a restore) is made owner-only once it has read as ours, best effort. (Its contents were
   // trusted first, as backupmemberkey does: the folder is 0700, so only this user could have loosened it.)
-  try { fs.chmodSync(f, 0o600); } catch { /* the read stands */ }
+  // Only a loose file is changed, since a chmod moves the ctime the fingerprint holds: that file is then not
+  // remembered, and the next write reads it in full once.
+  if (loose) try { fs.chmodSync(f, 0o600); } catch { /* the read stands */ }
+  if (known.get(f) === knownAtStart) { if (before && before === after && !loose) known.set(f, before); else known.delete(f); }
   return { ok: true, state: { job: cleanJob(got.job), periods } };
 }
 
 /* Throws unless the file for (org, member) is absent or reads as this module's (readState's own test), with err.retry
    when the read failed for a passing reason. */
-function mayReplace(org, member) {
-  const r = readState(org, member);
+function* mayReplaceSteps(org, member) {
+  if (stillOurs(fileFor(org, member))) return;
+  const r = yield* readSteps(org, member);
   if (r.ok) return;
   throw Object.assign(new Error(r.retry ? 'backupstate: the existing state file could not be read just now; try again'
     : 'backupstate: the existing state file is not one this computer wrote; discardState it first'), { code: 'refused', retry: r.retry === true });
 }
 
+/* kosmos#7746: an async write takes turns, so two writes of one file could interleave and the older body land last. Async
+   writes of one file run one after another (`writing` holds the newest one's promise), and a sync write while one is in
+   flight throws: it would land in the middle of it. */
+const writing = new Map();
 function writeState(org, member, state) {
+  if (writing.has(fileFor(org, member))) throw new Error('backupstate: a write of this state file is still in progress');
+  return runSync(writeSteps(org, member, state));
+}
+/** writeState with a turn for the event loop every ROWS_PER_PAUSE rows (kosmos#7746). The same result and throws. */
+function writeStateAsync(org, member, state) {
+  let f;
+  try { f = fileFor(org, member); } catch (err) { return Promise.reject(err); }   // a bad id rejects, as readStateAsync does
+  const prev = writing.get(f) || Promise.resolve();
+  let tail;
+  // The entry is cleared inside the chain, before `mine` settles, so a caller resuming from `await` finds no write in
+  // flight (cleared afterwards, a sync write straight after the await would throw).
+  const mine = prev.catch(() => {}).then(() => runAsync(writeSteps(org, member, state)))
+    .finally(() => { if (writing.get(f) === tail) writing.delete(f); });
+  tail = mine.catch(() => {});
+  writing.set(f, tail);
+  return mine;
+}
+function* writeSteps(org, member, state) {
   ids(org, member);
   const list = (state && state.periods) || [];
-  const periods = list.map((p) => ({
-    label: p.label, namingKey: b64(p.namingKey), namingKeyId: backupkeys.namingKeyId(p.namingKey), bucket: p.bucket,
-    index: [...p.index].map(([name, e]) => [name, e.key, e.lockedUntilMs, e.memberKeyId]),
-  }));
-  // Never write what would not read back: a file that read as "not ours" would stop every later run.
-  if (periods.length > SLOTS || periods.some((x) => periodFrom(x) === undefined) || new Set(periods.map((x) => x.label)).size !== periods.length) {
-    throw new Error('backupstate: refusing to write a period that would not read back');
+  const periods = [];
+  for (const p of list) {
+    const index = [];
+    for (const [name, e] of p.index) {
+      if (index.push([name, e.key, e.lockedUntilMs, e.memberKeyId]) % ROWS_PER_PAUSE === 0) yield;
+    }
+    periods.push({ label: p.label, namingKey: b64(p.namingKey), namingKeyId: backupkeys.namingKeyId(p.namingKey), bucket: p.bucket, index });
   }
+  // Never write what would not read back: a file that read as "not ours" would stop every later run.
+  let readsBack = periods.length <= SLOTS && new Set(periods.map((x) => x.label)).size === periods.length;
+  for (const x of periods) if (readsBack && (yield* periodSteps(x)) === undefined) readsBack = false;
+  if (!readsBack) throw new Error('backupstate: refusing to write a period that would not read back');
+  yield;
   const body = JSON.stringify({ v: 1, org, member, job: cleanJob(state && state.job), periods });
-  mayReplace(org, member);
+  yield;
+  yield* mayReplaceSteps(org, member);
   try {
     fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
     try { fs.chmodSync(dir(), 0o700); } catch { /* the file itself is 0600 either way */ }
     require('./securewrite').writeSecret(fileFor(org, member), body, 0o600, { atomicOnly: true });
+    // No turn for this process between the rename and this lstat, so it fingerprints the file just written (another
+    // process writing in that instant is the one-run-at-a-time duty above).
+    remember(fileFor(org, member));
   } catch (err) {
+    known.delete(fileFor(org, member));   // the rename may have happened before the throw: nothing is remembered
     const code = err && typeof err.code === 'string' ? err.code : undefined;
     throw Object.assign(new Error(`backupstate: the state file could not be written${code && /^[A-Z0-9_]{1,32}$/.test(code) ? ` (${code})` : ''}`),
       { code, cause: err, retry: TRANSIENT.has(code) || TRANSIENT.has(err && err.cause && err.cause.code) });
@@ -250,10 +349,13 @@ function withPeriod(state, period) {
 function discardState(org, member) {
   ids(org, member);
   const f = fileFor(org, member);
+  // kosmos#7746: an async write in flight would put the old state back after the discard.
+  if (writing.has(f)) return { ok: false, because: 'the backup state is being written just now; try again' };
+  known.delete(f);
   try { fs.renameSync(f, `${f}.bad-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`); return { ok: true }; } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true };
     return { ok: false, because: 'the backup state file could not be set aside' };
   }
 }
 
-module.exports = { readState, writeState, forPeriod, withRun, withPeriod, discardState, fileFor };
+module.exports = { readState, readStateAsync, writeState, writeStateAsync, forPeriod, withRun, withPeriod, discardState, fileFor };
