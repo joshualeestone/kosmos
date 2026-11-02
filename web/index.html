@@ -12166,6 +12166,11 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 /* kosmos#7681 item 2: Print prints THIS page with only the code on it, while body.pb-printing is set (pbPrint). A hidden
    0x0 frame printed the parent page in some browsers (Safari, some Firefox), so the person got Settings with no code. */
 #pb-printout { display: none; }
+/* kosmos#7404: the list of what a backup left out. A long path wraps rather than widening the panel. */
+#pb-skipped summary { cursor: pointer; min-height: 44px; display: list-item; margin-bottom: 0; padding: 12px 0; }
+#pb-skipped summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+#pb-skipped-list { margin: 0 0 var(--space-4); padding-left: 20px; font: var(--text-callout) var(--font-ui); color: var(--label-2); overflow-wrap: anywhere; }
+#pb-skipped-list li { margin: 2px 0; }
 @media print {
   body.pb-printing > *:not(#pb-printout) { display: none !important; }
   body.pb-printing #pb-printout { display: block !important; color: #000; background: #fff; }
@@ -20491,11 +20496,15 @@ window.kosmosMeasureScrollbarWidth();
           <p class="fhint" id="pb-on-say">Personal backup is on for this computer.</p>
           <p class="fhint" id="pb-job" hidden></p>
           <p class="fhint" id="pb-job-last" hidden></p>
+          <!-- kosmos#7404: what the last good backup left out (report().skippedFiles), named so the person is never surprised
+               by a file that was never backed up. Paths stay on this computer: the board reads them from its own job note. -->
+          <details id="pb-skipped" hidden><summary class="fhint" id="pb-skipped-sum"></summary><ul id="pb-skipped-list"></ul><p class="fhint" id="pb-skipped-more" hidden></p></details>
           <div class="frow" id="pb-off-row"><button class="btn uprime" type="button" id="pb-finish" hidden>Finish setting up</button><button class="btn" type="button" id="pb-off-btn">Turn off personal backup</button></div>
           <div id="pb-off-ask" hidden>
-            <!-- Only what is true: the coordinator ends the membership (org.rs mac_leave). What it then keeps of a personal
-                 backup is not settled anywhere yet, so this promises nothing about it. -->
-            <p class="fhint">Turn off personal backup on this computer? Nothing more from it is backed up.</p>
+            <!-- Only what is true: the coordinator ends the membership (org.rs mac_leave), and its purge (relay
+                 coordinator/src/backuppurge.rs, kosmos#7404) deletes a person's backups 30 days after they left, and never
+                 before each one's 30-day lock has passed. Personal backup does not switch on before that purge does. -->
+            <p class="fhint">Turn off personal backup on this computer? Nothing more from it is backed up, and what is already backed up is kept for at least 30 days, then deleted.</p>
             <div class="frow">
               <button class="btn danger-btn" type="button" id="pb-off-yes">Turn off</button>
               <button class="btn" type="button" id="pb-off-no">Cancel</button>
@@ -55676,6 +55685,7 @@ function pbPaint() {
   job.textContent = lines.stopped; job.hidden = !lines.stopped;
   const lastEl = document.getElementById('pb-job-last');
   lastEl.textContent = lines.plain; lastEl.hidden = !lines.plain;
+  pbSkippedShow(v === 'on' && !lines.stopped ? st.job : null);
   // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
   const ask = document.getElementById('pb-off-ask');
   if (!(v === 'on' || v === 'needs-key')) ask.hidden = true;
@@ -55685,6 +55695,32 @@ function pbPaint() {
     if (PB.code) pbMsg('');   // a "Copied" line belongs to the code view and leaves with it
     PB.code = null; document.getElementById('pb-code-text').textContent = ''; pbPrintClear();
   }
+}
+/* kosmos#7404: what the last good backup left out, from `job.skippedFiles` { count, files: [{ path, why }] }. The panel
+   repaints every 5 seconds, so the list is rebuilt only when it changes: an open list stays open and keeps its scroll. */
+function pbSkippedWords(sk) {
+  const o = sk && typeof sk === 'object' ? sk : null;
+  const files = o && Array.isArray(o.files) ? o.files.filter((f) => f && typeof f.path === 'string' && f.path) : [];
+  const count = o && Number.isSafeInteger(o.count) && o.count >= files.length ? o.count : files.length;
+  if (!count) return null;
+  return {
+    sum: count === 1 ? '1 file was left out of the last backup' : count + ' files were left out of the last backup',
+    items: files.map((f) => f.path + (typeof f.why === 'string' && f.why ? ': ' + f.why : '')),
+    more: count > files.length ? (count - files.length) + ' more ' + (count - files.length === 1 ? 'is' : 'are') + ' not named here.' : '',
+  };
+}
+function pbSkippedShow(job) {
+  const box = document.getElementById('pb-skipped');
+  const w = pbSkippedWords(job && typeof job === 'object' ? job.skippedFiles : null);
+  if (!w) { box.hidden = true; box.open = false; box.dataset.sig = ''; return; }
+  const sig = JSON.stringify(w);
+  box.hidden = false;
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  document.getElementById('pb-skipped-sum').textContent = w.sum;
+  const list = document.getElementById('pb-skipped-list'); list.textContent = '';
+  for (const s of w.items) { const li = document.createElement('li'); li.textContent = s; list.appendChild(li); }
+  const more = document.getElementById('pb-skipped-more'); more.textContent = w.more; more.hidden = !w.more;
 }
 /* The panel's job lines from GET /api/personal-backup's `job`: stopped goes in the error colour, plain beside it. */
 function pbJobLines(j) {

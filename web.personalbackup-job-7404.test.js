@@ -27,3 +27,26 @@ test('nothing established, nothing said: no job, a bad date, an empty answer', (
 test('the panel paints only an on view', () => {
   assert.match(page, /const lines = pbJobLines\(v === 'on' \? st\.job : null\);/);
 });
+
+/* kosmos#7404 (pbleftout-7404): what the last good backup left out. */
+const sw = page.match(/function pbSkippedWords\(sk\) \{[\s\S]*?\n\}\n/);
+assert.ok(sw, 'pbSkippedWords is in the page');
+const pbSkippedWords = Function(sw[0] + 'return pbSkippedWords;')();
+
+test('a list of what was left out: the count, each path with its reason, and how many are not named', () => {
+  const w = pbSkippedWords({ count: 3, files: [{ path: 'agents/a/film.mov', why: 'over 64 MB' }, { path: 'notes.zip', why: '' }] });
+  assert.equal(w.sum, '3 files were left out of the last backup');
+  assert.deepEqual(w.items, ['agents/a/film.mov: over 64 MB', 'notes.zip']);
+  assert.equal(w.more, '1 more is not named here.');
+  assert.equal(pbSkippedWords({ count: 1, files: [{ path: 'a.pdf', why: 'x' }] }).sum, '1 file was left out of the last backup');
+  assert.equal(pbSkippedWords({ count: 1, files: [{ path: 'a.pdf', why: 'x' }] }).more, '');
+});
+test('nothing left out, or nothing readable, shows nothing', () => {
+  for (const sk of [null, undefined, {}, { count: 0, files: [] }, { files: 'x' }, { count: 'x', files: [{ path: '' }] }]) assert.equal(pbSkippedWords(sk), null);
+});
+test('a count smaller than the list cannot hide named files', () => {
+  assert.equal(pbSkippedWords({ count: 1, files: [{ path: 'a' }, { path: 'b' }] }).sum, '2 files were left out of the last backup');
+});
+test('the list shows only beside a plain on view, never with a stop', () => {
+  assert.match(page, /pbSkippedShow\(v === 'on' && !lines\.stopped \? st\.job : null\);/);
+});
