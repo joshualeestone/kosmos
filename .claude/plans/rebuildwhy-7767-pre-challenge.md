@@ -3,7 +3,7 @@ pre_challenge: true
 method: pre-challenge
 explicit_override: true
 branch: rebuildwhy-7767
-diff_hash: 25c41738a9544906bca21fa12ca738061ef939b80a647dad4c6f49c416769240
+diff_hash: 24e2c2398de5187d570b8b14fd63fb938480a34a91dd4b14e52ca54264f91b2b
 subdir_audit: passed
 timestamp: 2026-11-02T03:59:27Z
 converged: false
@@ -22,4 +22,4 @@ Checked by reading:
 - [NIT] the regex matches every testRebuilt check in KeyboardSlideUITests, by name pattern.
 
 Measured: room logic tests 744 of 744, bash -n, typecheck before the last script edit.
-Not run: the new script block has never fired; only a real red on CI runs it. Full suite left to CI.
+Measured on CI: the script block fired on this PR's own red and printed place past the end after 15 s. The Debug hook's follow-up has no run yet. Full suite left to CI.
