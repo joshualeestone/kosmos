@@ -1737,8 +1737,18 @@ const SCREENS = [
   } },
   /* kosmos#7404: personal backup in Settings, Kosmos+, one shot per view. The routes are stubbed (the price is a sample
      in Stripe's shape; the code is a sample in the engine's shape, never a real one; the words are the coordinator's). */
+const PB_LEFTOUT = { lastOk: '2026-10-31T14:07:00.000Z', stopped: null, note: null, skippedFiles: { count: 214, files: [
+  { path: 'projects/launch/demo-video-final.mov', why: 'over 64 MB' },
+  { path: 'agents/writer/archive/old-drafts.zip', why: 'an archive (its insides cannot be checked)' },
+  { path: 'projects/launch/brand-guide.pdf', why: 'a compressed PDF (its text cannot be checked)' },
+  { path: 'agents/research/notes/interview-transcripts-all.txt', why: 'text over 4 MB' },
+] } };
   { name: 'pb-off', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off'); } },
   { name: 'pb-on-last', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: '2026-10-31T14:07:00.000Z', stopped: null }); } },
+  // kosmos#7404 (pbleftout-7404): what the last good backup left out, closed and open. Sample paths, never a real one.
+  { name: 'pb-on-leftout', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', PB_LEFTOUT); } },
+  { name: 'pb-on-leftout-open', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', PB_LEFTOUT);
+    await page.click('#pb-skipped-sum'); await page.waitForSelector('#pb-skipped-list li', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
   { name: 'pb-on-stopped', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: '2026-10-31T14:07:00.000Z', stopped: 'What a personal backup does has changed, so it needs your OK. Turn it off, then turn it on again to read the new words.' }); } },
   { name: 'pb-on-stopped-first', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: null, stopped: 'This computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn it off, then turn it on again and enter your recovery code.' }); } },
   // Design review 1: no price set, so no Turn on; only the restore line.
