@@ -214,7 +214,7 @@ test('#7788 review 2 Mac CLI: --for-you as the value of --because is the reason,
 });
 
 test('#7797 Mac CLI: --not-for-you sends forPerson false, keeps the hold, and says it left the list; both switches refused', async () => {
-  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson === true ? { onHoldForPerson: true } : {}) } }], async (env, writes) => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson === true ? { onHoldForPerson: true } : {}) }, ...(w.body && w.body.forPerson === false ? { forPersonCleared: true } : {}) }], async (env, writes) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--not-for-you'], env);
     assert.equal(a.code, 0, a.stdout + a.stderr);
     assert.match(a.stdout, /no longer on the list of what is waiting on your person/);
@@ -224,6 +224,13 @@ test('#7797 Mac CLI: --not-for-you sends forPerson false, keeps the hold, and sa
     assert.equal(c.code, 0, c.stdout + c.stderr);
     assert.deepEqual(writes.map((x) => x.body), [{ onHold: true, forPerson: false }, { onHold: true, because: '--not-for-you' }],
       'unmarked; nothing sent for both; and as a reason it is words (control)');
+  });
+  // Review 4: a board that does not say whether the mark came off: only what is true either way, and exit 0.
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env) => {
+    const unsaid = await runCli(['task', 'hold', 'p1', '3', '--not-for-you'], env);
+    assert.equal(unsaid.code, 0, unsaid.stdout + unsaid.stderr);
+    assert.match(unsaid.stdout, /It is not on the list of what is waiting on your person\./);
+    assert.doesNotMatch(unsaid.stdout, /no longer on the list/);
   });
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, onHoldForPerson: true } }], async (env) => {
     const old = await runCli(['task', 'hold', 'p1', '3', '--not-for-you'], env);
