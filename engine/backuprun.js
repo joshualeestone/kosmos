@@ -112,7 +112,7 @@ async function runPaired(input, deps, seen) {
       } else {
         state = { job: {}, periods: [] };
       }
-      const ref = { state, leftOut: 0, unwritable: false, took: false };
+      const ref = { state, leftOut: 0, unwritable: false, took: false, checkpointsLost: 0 };
       const known = pair;
       const r = await job.runOnce(state.job, {
         ensureMemberKey: deps.ensureMemberKey || require('./backupmemberkey').ensureMemberKey,
@@ -154,11 +154,11 @@ async function runPaired(input, deps, seen) {
       try { await backupstate.writeStateAsync(known.org, known.member, ref.state); } catch (err) {
         // The run's own answer stands, flags and all; the write failure rides beside it (review 1). "Ran" only when a
         // snapshot was taken.
-        return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {}, { stateNotKept: true,
+        return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {}, ref.checkpointsLost ? { checkpointsLost: ref.checkpointsLost } : {}, { stateNotKept: true,
           stateBecause: (ref.took ? 'the backup ran, but this computer could not keep what it needs for the next one' : 'this computer could not keep the backup state') + fixed(err) },
           err && err.retry ? { stateRetry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
       }
-      return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {});
+      return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {}, ref.checkpointsLost ? { checkpointsLost: ref.checkpointsLost } : {});
     }
     return { ok: false, pairChanged: true, because: 'Kosmos+ named another company or member twice in one run; this computer tries again next time' };
   } catch (err) {
@@ -221,7 +221,7 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
       try {
         const { leftOut, ...kept } = backupstate.withRun(ref.state, p, { added, bucket }, { maxIndex: snapshotsMod.indexCapFor(deps.planGb) });
         await backupstate.writeStateAsync(pair.org, pair.member, kept);
-      } catch { /* the run's own write comes after */ }
+      } catch { ref.checkpointsLost++; /* the run's own write comes after; the count rides the answer (kosmos#7746) */ }
     }));
     if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
     // "Ran" means a snapshot was stored (review 4): a refused or failed pass took none.

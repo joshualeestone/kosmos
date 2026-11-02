@@ -367,3 +367,26 @@ test('#7746 item 2: a company run keeps at most its allowance (200000) in the in
   const noCap = backupstate.withRun({ job: {}, periods: [] }, p, { added: added(WEEK, 3), bucket: 'b1' }, { maxIndex: 10 ** 9 });
   assert.equal(noCap.periods[0].index.size, 3);
 });
+
+test('#7746 item 5: checkpoints that could not be kept are counted on the run\'s answer; none lost says nothing', async () => {
+  for (const [failing, want] of [[true, 2], [false, undefined]]) {
+    wipe();
+    const take = async (input, sd) => {
+      await sd.checkpoint(added(WEEK, 2), 'b1');
+      await sd.checkpoint(added(WEEK, 2), 'b1');
+      return { ok: true, added: added(WEEK, 4), bucket: 'b1' };
+    };
+    const real = backupstate.writeStateAsync;
+    let inCheckpoint = 0;
+    backupstate.writeStateAsync = async (...a) => {
+      // The run writes once before the snapshot and once after it; the two in between are the checkpoints.
+      if (failing && ++inCheckpoint > 1 && inCheckpoint <= 3) throw new Error('disk full');
+      return real(...a);
+    };
+    let r;
+    try { r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 })); }
+    finally { backupstate.writeStateAsync = real; }
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.checkpointsLost, want);
+  }
+});

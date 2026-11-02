@@ -12,3 +12,11 @@ The coordinator sends null or one of BACKUP_PLAN_GB (kosmos-relay coordinator/sr
 Decided: a field that is present but not null or a positive whole number makes that run wait for the next try, with its own fixed sentence (not personActs: nothing for the person to do). An absent field behaves as before.
 Measured: '25', 2.5, -1, 0, {} and true each wait without running; red with the old fallback.
 Rejected: stopping until a person acts. A bad value is a version skew or a fault, and the next hourly run reads it again.
+
+## Item 5: a checkpoint that fails is invisible
+Each checkpoint write that throws is counted, and the run's answer carries `checkpointsLost` when any was lost (nothing when none). The run still never stops for one, as before: a lost checkpoint only loses what a kill would have lost.
+Measured: two failing checkpoints give checkpointsLost 2; none give no field; red without the count.
+Not done here: the panel showing it (personalbackup's note picks fixed sentences per flag); that is the screen's step.
+
+## Item 3: a folder that can never finish re-walks hourly
+Not built yet; next on this branch.
