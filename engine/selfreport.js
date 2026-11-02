@@ -654,20 +654,24 @@ function history(sessionName, tailBytes) {
    be no `started`) and nothing it did since was a turn. Any working, idle, needs_you or blocked row is a turn (the hook
    writes one on every prompt and every finished answer, and an agent's own report comes from a turn); a person's clear
    (`by: 'operator'`) is not, since it only acts on a report already there. No record is null, not false: a provider
-   whose hook never writes, or a hook that was never wired, leaves none (register.hasRun's weakest premise, review 21).
+   whose hook never writes, or a hook that was never wired, leaves none (engine/register.js hasRun says the same).
    A record longer than the tail with no turn row in the tail is null too: older rows exist that this read did not
-   see. The rows are append-only, so once true it stays true: that answer is kept per name and the record is not read
-   again for it (the status poll asks for every idle card). */
+   see. A true is kept per name with the record file's inode (the status poll asks for every idle card), so the same
+   file is not read again, and a file that was replaced is. */
 const TURN_STATES = Object.freeze(['working', 'idle', 'needs_you', 'blocked']);
-const TURNED = new Set();
+const TURNED = new Map();   // name -> inode of the record that held a turn
+function inodeOf(sessionName) {
+  try { return fs.statSync(fileFor(sessionName)).ino; } catch { return null; }
+}
 function turnTakenOf(sessionName) {
-  if (TURNED.has(sessionName)) return true;
+  const ino = inodeOf(sessionName);
+  if (ino !== null && TURNED.get(sessionName) === ino) return true;
   const rows = history(sessionName);
   if (!rows) return null;
   let started = false;
   for (const row of rows) {
     if (row.by === 'operator') continue;
-    if (TURN_STATES.includes(row.state)) { TURNED.add(sessionName); return true; }
+    if (TURN_STATES.includes(row.state)) { if (ino !== null) TURNED.set(sessionName, ino); return true; }
     if (row.state === 'started') started = true;
   }
   if (rows.truncated) return null;
