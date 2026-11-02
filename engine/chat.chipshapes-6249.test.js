@@ -279,3 +279,18 @@ test('#6249 CONTROL: after our Enter, our pinned chips still there with a person
   assert.equal(p.state.enters, 1, 'only our own Enter');
   assert.notEqual(v.state, chat.DELIVERY.PLACED, 'not said as sent: our chips are still in the box');
 }));
+
+test('#6249: with nothing pinned (the read before our Enter failed), a box of several chips after it is never said as sent', () => withAgent((roster) => {
+  const p = pane({ shape: THREE_CHIPS, enterTakes: false });
+  let blind = 0;
+  chat.setRunner((args) => {
+    // The read just before our Enter shows no box (a dialog drawn over it), so nothing is pinned and Enter goes blind.
+    if (args[0] === 'capture-pane' && args.includes('-e') && pastedCount(p) > 0 && p.state.enters === 0) { blind += 1; return ok('a screen with no input box on it\n'); }
+    return p(args);
+  });
+  const v = chat.deliver('al', LONG, roster);
+  assert.ok(blind >= 1, 'PRECONDITION: the read before the Enter failed');
+  assert.equal(p.state.enters, 1, 'PRECONDITION: the Enter went blind');
+  assert.ok(p.state.shown.startsWith('[Pasted text'), 'PRECONDITION: our fold is still in the box');
+  assert.notEqual(v.state, chat.DELIVERY.PLACED, 'not said as sent: chips hide their words, so ours may be there');
+}));

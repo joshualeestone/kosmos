@@ -40,7 +40,13 @@ agent jams. That is the 0.7.70 report on #6249, a version that already had #6780
 
 ## Decided
 
-- No cap on how many chips a box may hold beyond the per-chip floor above. A cap tied to length would rest on the read size, which was not pinned
+- No cap on how many chips a box may hold beyond the per-chip floor above.
+- `CHIP_HIDES_MIN` is an assumption, not a measurement: half of `CHIP_MIN_CHARS` after whitespace is squashed out. A
+  line so full of whitespace that a fold hides fewer squashed characters than that would be refused, as all folds were
+  before this card.
+- Not done: a fold that pauses longer than a look and then continues can be pinned part-drawn. After the Enter the
+  full box no longer equals the pin, so it reads as left there unsent and is not pressed again. That is safe, and
+  pressing a box that grew past the pin would widen what counts as ours at the one moment a person's paste can land. A cap tied to length would rest on the read size, which was not pinned
   (a 1500-character single paste stayed text). The tie still needs an empty box just before our paste and a line of
   at least `CHIP_MIN_CHARS`.
 - Text pieces must each be a run of our line, in order. Rejected: accepting any text next to a chip (a person typing
