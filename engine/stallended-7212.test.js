@@ -54,7 +54,7 @@ test('a said stall that a landed line ends is said to have ended, once', () => {
   assert.equal(e.count, 4);
   assert.equal(e.ms, 95 * MIN);
   assert.equal(e.pushed, false);
-  assert.equal(ds.endedLine(e), 'delivery-stall-ended: Kosmos saw a message land for a1 at 2026-11-02T11:35:00.000Z, ending the stall'
+  assert.equal(ds.endedLine(e), 'delivery-stall-ended: Kosmos placed a message for a1 at 2026-11-02T11:35:00.000Z, ending the stall'
     + ' that began 2026-11-02T10:00:00.000Z (95 minutes, 4 tries not seen to land).\n');
   assert.equal(said.has('a1'), false, 'the said entry is spent');
   assert.deepEqual(ds.endsToSay(said), [], 'never said twice');
@@ -112,9 +112,13 @@ test('the board asks for ends before stallsToSay forgets them, inside the sweep'
   assert.ok(at > 0, 'CONTROL: the sweep is found');
   const body = src.slice(at, src.indexOf('} catch { /* said next minute */ }', at));
   const settled = body.indexOf('for (const c of r) ds.settleFor(c);');
+  /* stuckOf reads byName as endsToSay runs, so byName must be declared first (review 7: above it, every read threw and
+     the catch made every agent read as not stuck). */
+  const named = body.indexOf('const byName = new Map(');
   const ends = body.indexOf('ds.endsToSay(stallSaid');
   const says = body.indexOf('ds.stallsToSay(');
-  assert.ok(settled > 0 && ends > settled && says > ends, 'endsToSay is not between settleFor and stallsToSay: ' + [settled, ends, says]);
+  assert.ok(settled > 0 && named > settled && ends > named && says > ends,
+    'endsToSay is not after settleFor and byName and before stallsToSay: ' + [settled, named, ends, says]);
 });
 
 test('an end the sweep reads after a new streak began still names the stall that was said', () => {
