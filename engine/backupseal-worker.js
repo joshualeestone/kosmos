@@ -5,17 +5,21 @@
  * (477,000 chunks, a 117 MiB manifest) sealManifest is one block of 1.6 to 1.8 s (measured), which would freeze the board.
  *
  * Told { memberPk, deviceKey, ctx, json } once (json is the manifest as JSON.stringify wrote it on the main thread), it
- * parses it, seals it with backupformat.sealManifest exactly as the main thread would, and posts back { ok: true, sealed }
- * (the bytes, transferred) or { ok: false, message } (the seal's own error message, which is never a key or a path).
+ * parses it, seals it with backupformat.sealManifest exactly as the main thread would, and posts back one of:
+ *   { ok: true, sealed }                 the bytes, transferred
+ *   { ok: false, refused: true, message } the seal itself refused (its own message, never a key or a path)
+ *   { ok: false }                        anything else failed (the parse, the copy, the post): the main thread seals
  */
 
 const { parentPort } = require('node:worker_threads');
 const { sealManifest } = require('./backupformat');
 
 parentPort.once('message', (m) => {
+  let manifest, memberPk;
+  try { manifest = JSON.parse(m.json); memberPk = Buffer.from(m.memberPk); } catch { parentPort.postMessage({ ok: false }); return; }
   let sealed;
   try {
-    sealed = sealManifest(Buffer.from(m.memberPk), m.deviceKey, m.ctx, JSON.parse(m.json));
+    sealed = sealManifest(memberPk, m.deviceKey, m.ctx, manifest);
   } catch (err) {
     // The seal itself refused: `refused` tells the main thread to pass the refusal on rather than seal again there.
     parentPort.postMessage({ ok: false, refused: true, message: String((err && err.message) || 'the manifest could not be sealed') });

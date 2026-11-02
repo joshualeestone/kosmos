@@ -1025,7 +1025,7 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
       done();
       json = null;   // the string is not held while the seal is made here
       if (w) w.terminate().catch(() => {});
-      report('here', why);
+      try { report('here', why); } catch { /* a report hook never stops the seal */ }
       try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); }
     };
     // A member key that is not bytes is not handed over (Uint8Array would quietly turn it into another one).
@@ -1043,7 +1043,7 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
       }
       done();
       w.terminate().catch(() => {});
-      report('worker');
+      try { report('worker'); } catch { /* a report hook never stops the seal */ }
       if (sealed) resolve(sealed);
       else reject(new Error(m.message || 'the manifest could not be sealed'));   // the seal itself refused
     });
@@ -1052,6 +1052,7 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
     w.once('error', () => { if (!settled) here('worker-ended'); });
     w.once('exit', () => { if (!settled) here('worker-ended'); });
     timer = setTimeout(() => { if (!settled) here('no-answer'); }, waitMs);
+    if (timer.unref) timer.unref();   // the live worker keeps the process up; the timer never does on its own
     // Tests only, once every listener is attached, so a hook that throws still leaves the worker's events handled.
     if (typeof opts.onWorker === 'function') { try { opts.onWorker(w); } catch { here('worker-ended'); return; } }
     try {

@@ -1944,7 +1944,8 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
   await assert.rejects(snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, [1], { report }), (err) => err.message === mine);
   assert.deepEqual(paths.slice(before), ['worker'], 'refused by the worker itself');
   // Values JSON.stringify would quietly rewrite (and a BigInt it throws on) are not handed to the worker: the seal here
-  // refuses each, with the same message as ever, so bad content stays a loud failure, never a changed backup.
+  // refuses each, with the same message as ever, so this content stays a loud failure. (Not covered, see the replacer's
+  // comment: an array's extra properties, symbol keys and hidden properties, which JSON.stringify drops.)
   for (const bad of [{ b: undefined }, { a: -0 }, { a: NaN }, { a: new Date(0) }, { n: 1n }, { a: [1, undefined] }, { a: { toJSON() { return 1; } } }]) {
     let theirs; try { bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, bad); } catch (err) { theirs = err.message; }
     assert.ok(theirs, `premise: the seal here refuses ${String(Object.keys(bad))}`);
