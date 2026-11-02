@@ -489,9 +489,17 @@ function capBytes(v, n) {
 }
 const cap = (v, n) => (v === null || v === undefined || v === '' ? null : capBytes(v, n));
 
-function payload(notifyId, { kind, id, agent, session, project, projectId }) {
+/* kosmos#7794: every body this file sends starts with the coordinator's field for its own notify id, from this one line
+   (installid-senders-5995 holds it to exactly one). */
+function addressed(notifyId, fields) {
   return {
     installId: notifyId,
+    ...fields,
+  };
+}
+
+function payload(notifyId, { kind, id, agent, session, project, projectId }) {
+  return addressed(notifyId, {
     id: cap(id, CAPS.id),
     kind,
     agent: capBytes(agent || 'An agent', CAPS.agent),
@@ -502,7 +510,7 @@ function payload(notifyId, { kind, id, agent, session, project, projectId }) {
     // present like project/session, null off a posted event or on an older board.
     projectId: cap(projectId, CAPS.project),
     at: new Date().toISOString(),
-  };
+  });
 }
 
 // Test seams: (url, headers, body) => void, and a clock. Without an injected
@@ -642,7 +650,7 @@ function acked(eventId) {
     const s = readState();
     if (!s.token || !s.notifyId) return false;
     const sentId = cap(eventId, CAPS.id);
-    const body = JSON.stringify({ installId: s.notifyId, eventId: sentId });
+    const body = JSON.stringify(addressed(s.notifyId, { eventId: sentId }));
     (sender || defaultSend)(coordinatorUrl(ACK_ROUTE), { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body, null);
     process.stderr.write('phonenotify: acked ' + require('./phonenotice').idKind(eventId) + ' ref ' + require('./phonenotice').idRef(sentId) + '\n');
     return true;
