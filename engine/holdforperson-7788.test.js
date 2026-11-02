@@ -160,3 +160,24 @@ test('review 4: the agent\'s own list says a hold waits on its person; a plain h
   assert.match(line(1), /\[on hold, waiting on your person: do not start it until they answer and it is taken off hold\]/, body);
   assert.match(line(2), /\[on hold: do not start it until it is taken off hold\]/, 'CONTROL: a plain hold');
 });
+
+test('review 5: heldForPersonCount counts open held-for-you tasks in live projects only', () => {
+  const t = (number, extra) => Object.assign({ number, sentence: 's' }, extra);
+  const list = [
+    { id: 'a', tasks: [t(1, { onHold: true, onHoldForPerson: true }), t(2, { onHold: true }), t(3, { onHoldForPerson: true })] },
+    { id: 'b', archived: true, tasks: [t(1, { onHold: true, onHoldForPerson: true })] },
+  ];
+  assert.equal(tasks.heldForPersonCount(list), 1, 'a plain hold, a mark with no hold, and an archived project are not counted');
+  assert.equal(tasks.heldForPersonCount(null), 0);
+  const { id, n } = fresh('hfp seventeen');
+  tasks.setOnHold(id, n, true, { forPerson: true });
+  const live = projects.readAll().filter((p) => p.id === id);
+  assert.equal(tasks.heldForPersonCount(live), 1, 'a real hold for you is counted');
+  assert.ok(tasks.close(id, n), 'fixture: close refused');
+  assert.equal(tasks.heldForPersonCount(projects.readAll().filter((p) => p.id === id)), 0, 'a closed task is not');
+});
+
+test('review 5 wiring: the status route adds held-for-you tasks to the icon count before it sums it', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /counts\.heldForYou = tasks\.heldForPersonCount\(projectList\);[^\n]*\n\s*counts\.waiting = waitingBadgeOn\(badgeSettings\) \? waitingTotal\(counts, rows\)/);
+});

@@ -235,7 +235,7 @@ struct TasksView: View {
                 } else {
                     Section {
                         if s.unknown {
-                            Text(Tasks.decisionUnknown).font(.footnote).foregroundColor(Palette.secondary)
+                            Text(Tasks.decisionUnknownLine(rows: s.rows.count)).font(.footnote).foregroundColor(Palette.secondary)
                                 .listRowBackground(Palette.card)
                         }
                         rows(s.rows, projectShown: projectShown)
