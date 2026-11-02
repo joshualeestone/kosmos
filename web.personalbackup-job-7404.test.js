@@ -56,7 +56,10 @@ test('the list shows only beside a plain on view, never with a stop', () => {
 
 test('every reason the scanner and walker give reads as plain words, never as the raw text', () => {
   const cases = {
-    'text that already holds the masking placeholder': 'may hold a password or key',
+    'text that already holds the masking placeholder': 'Kosmos could not check it',
+    'could not write the redacted text back': 'Kosmos could not check it',
+    'its redacted copy is over twice its size': 'Kosmos could not check it',
+    'something shaped like a credential is still readable in the bytes': 'may hold a password or key',
     'binary file holding something shaped like a credential, or that could not be checked': 'may hold a password or key',
     'environment file': 'may hold a password or key',
     'git internals (objects and packs carry every committed secret; config carries remote tokens)': 'may hold a password or key',
