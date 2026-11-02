@@ -9,15 +9,16 @@ The routes a restore screen calls, with the restore itself in a child process th
   restore at a time on this board; answers at once), `status()`. Signs only the three routes a restore makes
   (member-key/mine, mine/manifests, mine/read), through remote.macRequest so the busy() guard around register and
   Forget holds; any other is answered as refused and never sent. Both answers leave by named fields only.
-- `server.js`: POST /api/personal-backup/backups, POST /api/personal-backup/files, GET /api/personal-backup/files. Same
-  gates as the other personal backup steps: 404 with the switch off, the person's only, and both POSTs need a step-up
-  from a remote session.
+- `server.js`: POST /api/personal-backup/backups, POST /api/personal-backup/files, GET /api/personal-backup/files, POST
+  /api/personal-backup/stop. Same gates as the other personal backup steps: 404 with the switch off, the person's only.
+  backups and files need a step-up from a remote session; stop does not (it ends a restore and takes nothing else away,
+  as leaving does not). GET files gives a remote session the counts and a fixed reason, not the names or the raw reason.
 
 Rejected: a worker thread (shares the board's process, so a crash or kill in the restore takes the board), and letting
 the child call the tunnel itself (signs outside busy()).
 
-Known limits, for the screen slice: no time limit and no Stop on a restore, so a wedged child holds the slot until
-the board restarts; the slot and the last answer are in memory, so after a restart nothing says a restore was cut off;
+Known limits, for the screen slice: no time limit on a restore, only Stop; Stop ends the child wherever it is, the move
+into the new Kosmos included, and nothing tidies what that leaves; the slot and the last answer are in memory, so after a restart nothing says a restore was cut off;
 an old board's child may still be finishing a write when a new board starts another (each makes its own new Kosmos,
 and restoreworld's list has its own lock).
 
