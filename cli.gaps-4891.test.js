@@ -217,7 +217,8 @@ test('#4926: --unanswered on a board that ignored it says the answer is the whol
     const WARN = /does not know --unanswered yet/;
     const old = await runCli(['room', 'proj', '--unanswered'], envFor(port));
     assert.equal(old.code, 0, old.stderr);
-    assert.match(old.stdout + old.stderr, WARN, 'an older board\'s whole room read as the filtered view');
+    assert.match(old.stderr, WARN, 'an older board\'s whole room read as the filtered view (the notice goes to stderr, as on Windows)');
+    assert.doesNotMatch(old.stdout, WARN, 'the notice is in stdout, where a reader of the room takes it for a room line');
     const now = await runCli(['room', 'newboard', '--unanswered'], envFor(port));
     assert.match(now.stdout, /^Waiting on an answer from you: nothing in this room\./m, 'fixture: the stub did not answer as a new board');
     assert.doesNotMatch(now.stdout + now.stderr, WARN, 'a board that applied the flag was called an older one');

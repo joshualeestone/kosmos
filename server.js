@@ -23347,9 +23347,7 @@ const server = http.createServer(async (req, res) => {
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
-          : (lines.length ? ''
-            // #4926: --unanswered with nothing waiting is not an empty room.
-            : onlyUnanswered ? UNANSWERED_HEAD + 'nothing in this room.\n'
+          : (lines.length || onlyUnanswered ? ''
             // kosmos#7365 slice 3: a room whose every message is archived is not an empty room.
             : archivedCount > 0 ? 'Everything said in this room so far is archived; nothing has been said since.\n'
             : 'Nothing has been said in this room yet.\n');
@@ -23386,10 +23384,11 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
         /* #4926: a filtered view says it is one, so it never reads as the whole room, and a CLI can tell a board that
            ignored ?unanswered=1 (an older one) by this line being absent. */
-        const filtered = onlyUnanswered && lines.length
-          ? UNANSWERED_HEAD + tail.length + (tail.length === 1 ? ' post' : ' posts')
+        const filtered = !onlyUnanswered ? ''
+          : lines.length ? UNANSWERED_HEAD + tail.length + (tail.length === 1 ? ' post' : ' posts')
             + ' in this room (each asked you something, and no post of yours cites it by id with --reply-to):\n'
-          : '';
+          : rec.ok === false ? UNANSWERED_HEAD + 'none found, but this room could not be read, so that may be wrong.\n'
+          : UNANSWERED_HEAD + 'nothing in this room.\n';
         res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : ''));
         return;
       }

@@ -29,16 +29,17 @@ visible, the safer failure. Not reproduced on the model-family board (its log is
 Also not used, on purpose: the idle reminder's N7 rule (messages.staleHeld), which counts one reply to post X as
 answering the posts a read showing X could have shown before it. For a reminder that only skips a nudge. For
 `--unanswered` it would hide asks that are still open, the failure rejected above. So an agent that answers a whole round
-with one reply to its newest post still sees the older asks listed; the filtered view says on its first line that it
-counts only replies citing a post by id.
+with one reply to its newest post still sees the older asks listed; the filtered view has a line saying it counts only
+replies citing a post by id.
 
-A filtered answer starts with "Waiting on an answer from you: ", and both CLIs say so when that line is missing (a board
-from before this change ignores the flag and sends the whole room).
+A filtered answer always has a line starting "Waiting on an answer from you: " (after any shared-room or hold line),
+including when nothing is waiting or the room could not be read, and both CLIs say so on stderr when no line starts that
+way (a board from before this change ignores the flag and sends the whole room).
 
 ## Steps
 - [x] server text view: reader, marker, unanswered filter
 - [x] both CLIs
 - [x] tests, mutation-checked (no answered map: 4 of 5 red)
-- [ ] challenge loop (cap 8); iteration 1 fixed W2 and four nits, deferred W1 (above)
+- [ ] challenge loop (cap 8); iteration 1 fixed W2 and four nits, deferred W1 (above); iteration 2 fixed the partial-read head line and moved the Mac notice to stderr, deferred the hold-drop point (staleHeld already treats a post answered by id as handled, engine/messages.js) and the outcome allowlist (askedOfReader uses the post line's own reached test)
 - [ ] full suite via queued-heavy
 - [ ] PR, merge, verify served
