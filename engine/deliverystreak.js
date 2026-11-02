@@ -64,7 +64,12 @@ function note(name, v, now = Date.now()) {
     if (typeof name !== 'string' || !name || !v || typeof v !== 'object') return;
     if (v.state === 'placed') {
       const was = streaks.get(name);
-      if (was) { streaks.delete(name); ended.set(name, { since: was.since, count: was.count, endedAt: now }); }
+      if (was) {
+        streaks.delete(name);
+        /* An end the sweep has not read yet is kept: a short streak that starts and ends after it, inside the same minute,
+           must not replace the end of the stall that was said (review 1 W1). */
+        if (!ended.has(name)) ended.set(name, { since: was.since, count: was.count, endedAt: now });
+      }
       return;
     }
     if (v.busy === true || v.contentRefused === true) return;
@@ -154,7 +159,8 @@ function stallsToSay(names, said, { now = Date.now(), limitShownOf = () => false
 /* kosmos#7212 item 2: which said stalls ended with a landed line since the last sweep, each once. `said` is the same Map
    stallsToSay keeps; call this first, since stallsToSay forgets a name whose streak is gone. Each entry is { name, since
    (ISO), endedAt (ISO), count, ms, pushed } where `pushed` is true when a stall push for this agent went out during the
-   streak (pushTold), the one case a phone all-clear would answer. A streak that ended but was never said is forgotten
+   streak (pushTold), the one case a phone all-clear would answer. It reads only this board run's pushes, so after a
+   restart it can read false for an agent the phone was told about before the restart. A streak that ended but was never said is forgotten
    silently: nobody was told it started. Never throws. */
 function endsToSay(said) {
   const out = [];
