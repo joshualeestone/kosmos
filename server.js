@@ -27456,7 +27456,7 @@ function start(port = PORT) {
              forgets a name whose streak is gone. */
           let stallEnds = [];
           try { stallEnds = ds.endsToSay(stallSaid, { stuckOf: (n) => { const c = byName.get(n); return !!(c && c.deliveryStall && c.deliveryStall.lastWhy === 'turn'); } }); for (const e of stallEnds) process.stdout.write(ds.endedLine(e)); } catch { /* an end not said is not retried */ }
-          /* kosmos#7794: every minute, even with no ends, so a push held back by an agent failing again is acked once it stops. */
+          /* kosmos#7794: asked with no ends too, so a push held back by an agent failing again is acked once it stops. */
           try { for (const id of ds.acksDue(stallEnds)) phonenotify.acked(id); } catch { /* emailed as before */ }
           const limitShownOf = (n) => ds.limitShownOn(byName.get(n));
           /* Only agents whose card carries the stall, so the log and the card say the same thing (round 1 W3). */

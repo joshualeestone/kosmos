@@ -15,9 +15,11 @@ the push (POST /v1/mac/notify-ack, #3540) once it is over. No coordinator change
   reported an end AND none has a live streak, and no sooner than 25 minutes after the push: the coordinator reads the
   ack only when it decides the email at 30 minutes, and an ack cannot be taken back, so an agent that recovers and
   stalls again inside that window keeps its email. A push whose answer was a failure stays open (the coordinator may
-  have stored it; an ack for an id it lacks matches nothing); a push the sender did not take opens nothing. Entries
+  have stored it; an ack for an id it lacks matches nothing); a push the sender did not take opens nothing. A retry
+  of a failed push carries the same id and joins the open entry, keeping its time (the coordinator keeps the first row)
+  and the agents already seen to recover. Entries
   older than an hour are dropped.
-- `server.js` minute sweep: `acksDue(stallEnds)` every minute, each id to `phonenotify.acked`.
+- `server.js` minute sweep (when the roster is not empty): `acksDue(stallEnds)`, each id to `phonenotify.acked`.
 
 ## Decided
 - Ack, not a new `resolved` kind (step 2 on the card): the coordinator path exists, and a new kind needs the phone first.
@@ -34,11 +36,13 @@ email goes as before. Safe, but the ack may fire less often than it could; if th
 - The window between the ack (25 minutes, board clock) and the coordinator's decision (30 minutes after it received the
   push, its own clock): an agent that stalls again in it has already been acked. Narrow: a new stall needs STALL_MS and
   STALL_MIN_FAILS before it is one.
-- A board asleep past the 30-minute mark acks late; the coordinator answers `matched: false` and the email has gone.
+- A board asleep past the 30-minute mark acks late: the email has gone. The coordinator still stamps the row and answers
+  `matched: true` (it checks only `acked_at`), so `matched` does not mean the email was stopped. A minute whose roster
+  is empty asks nothing, and an entry past an hour is dropped.
 - An ack is one attempt: the entry is gone once handed to the sender, and a refused or failed ack is not retried.
 
 ## Tests
-`engine/stallack-7794.test.js` (10). Each rule was mutated and its test went red: wait-for-all (caught by the reset
+`engine/stallack-7794.test.js` (11). Each rule was mutated and its test went red: wait-for-all (caught by the reset
 case, since the still-failing rule also holds the multi-agent case), still-failing hold, the 25-minute window, the
-Kosmos+ switch, a restart clearing pushes, keeping a failed push, not opening an untaken push, the uncut id, the sweep
+Kosmos+ switch, the test seam clearing pushes (a real restart empties the in-memory map by itself), keeping a failed push, a retry joining it, not opening an untaken push, the uncut id, the sweep
 wiring.

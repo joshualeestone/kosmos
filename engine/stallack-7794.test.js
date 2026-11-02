@@ -104,6 +104,17 @@ test('a push whose answer was a failure is still acked once it is over (the coor
   assert.deepEqual(ds.acksDue(recover('x1', said, PUSH + 5 * MIN), DUE), [ev.id]);
 });
 
+test('a retry of a failed push joins it: the first push\'s time counts, as the coordinator keeps the first', () => {
+  const { said, ev } = pushedStalls(['r1']);
+  ev.onResult(false);   // taken back, so r1 is due again
+  const again = [];
+  ds.tellStalls([stalledCard('r1')], { now: PUSH + 16 * MIN, send: (e) => { again.push(e); return true; } });
+  assert.equal(again.length, 1, 'precondition: the push was retried');
+  assert.equal(again[0].id, ev.id, 'precondition: the retry carries the same id');
+  const ends = recover('r1', said, PUSH + 20 * MIN);
+  assert.deepEqual(ds.acksDue(ends, DUE), [ev.id], 'the retry moved the ack past the coordinator\'s decision');
+});
+
 test('a push the sender did not take opens nothing', () => {
   const said = new Map();
   for (let i = 0; i < 4; i += 1) ds.note('n1', FAIL, T0 + i * MIN);
