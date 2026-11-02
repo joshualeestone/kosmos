@@ -1784,7 +1784,7 @@ const SCREENS = [
   { name: 'pb-files-done', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
     await pbFilesShot(page, { running: false, startedAt: null, last: { finishedAt: Date.now(), ok: true, restored: 1204, failed: 2, world: PB_COPY,
       details: { failed: [{ path: 'projects/site/assets/hero.png', why: 'sample' }, { path: 'workers/sam/notes/old.md', why: 'sample' }], leftOutAtBackup: 12, fetchProblems: [] } } },
-    async () => { await page.waitForSelector('#pb-files-open-row', { state: 'visible', timeout: 10000 }); await page.click('#pb-files-failed-sum'); }); } },
+    async () => { await page.waitForSelector('#pb-files-open', { state: 'visible', timeout: 10000 }); await page.click('#pb-files-failed-sum'); }); } },
   { name: 'pb-files-stopped', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
     await pbFilesShot(page, { running: false, startedAt: null, last: { finishedAt: Date.now(), ok: false, code: 'stopped', stoppedByPerson: true,
       because: 'You stopped this restore. The files it had already restored stay in its new Kosmos.' } },
