@@ -1094,12 +1094,14 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
        not for a chip, whose words are hidden: one that is not tied to our paste is someone else's, said as 'other'. */
     if (holds === 'other') {
       /* #6249: a chip pinned as ours still in the box means ours did not go, whatever else is there now. A lone chip
-         hides its words, as before. Several chips and nothing else may be ours unpinned only when our line is long
-         enough to fold; a shorter line cannot be under them. Anything else is judged by our end. */
+         hides its words, as before. Several chips and nothing else may be ours only when nothing was pinned (with a pin,
+         none of whose chips is there, they are not ours) and our line is long enough to fold. Anything else is judged
+         by our end. */
       const shown = squash(box.text);
       const pinned = pin ? pin.match(ANY_CHIP) || [] : [];
-      const couldBeOurFold = !shown.replace(ANY_CHIP, '') && String(wire).length >= CHIP_MIN_CHARS;   // the tie's own test
-      if (isLoneChip(box.text) || couldBeOurFold || pinned.some((c) => shown.includes(c))) return { outcome: 'other', retried };
+      const shownChips = new Set(shown.match(ANY_CHIP) || []);
+      const couldBeOurFold = !pin && !shown.replace(ANY_CHIP, '') && String(wire).length >= CHIP_MIN_CHARS;   // the tie's own test
+      if (isLoneChip(box.text) || couldBeOurFold || pinned.some((c) => shownChips.has(c))) return { outcome: 'other', retried };
       return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
     }
     if (waited < settleMs) {
@@ -2667,7 +2669,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
        floor for the same reason, unmeasured like grok's. */
     (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini' || allowed.card.runner === 'grok' || allowed.card.runner === 'antigravity') ? CODEX_ENTER_GAP_MS : 0,
   );
-  /* #6249: a generator, so the looks while a fold settles are waits the async driver awaits (#4468), not blocks. */
+  /* #6249: a generator, so the looks while a fold settles are waits: the async driver awaits them (#4468); the sync
+     driver, like the rest of a sync delivery, waits in place. */
   const finishSubmitSteps = function* () {
   /**
    * ⚠️ RE-VERIFY THE PANE IS STILL AN AGENT'S WINDOW IMMEDIATELY BEFORE THE
@@ -2717,6 +2720,15 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
         const settled = squash(again.text) === squash(box.text);
         box = again;
         if (settled) break;
+      }
+      /* The looks widened the gap the check above closes, so the window is checked again before the Enter. */
+      const stillOurs = verifyAtSend(allowed.card);
+      if (!stillOurs.ok) {
+        return {
+          state: DELIVERY.UNCONFIRMED,
+          because: 'its window changed before we could submit, so what we typed may be sitting there unsent',
+          at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED),
+        };
       }
       if (isChipBox(box.text, wire) && foldedFromOurs(squash(box.text), wire)) ourChip = squash(box.text);
     }
