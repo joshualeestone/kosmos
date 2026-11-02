@@ -31,7 +31,8 @@
  * the member moved on elsewhere. Calls run one at a time in this process; ONE board process per data root is
  * assumed (the board's own lock), and ONE computer per member: Kosmos+ answers backup-key only to the member's
  * enrolled computer (403 backup_not_member otherwise), so "another key holds this epoch" means this computer lost its
- * key, not that a second computer of the member registered one. That needs one key file per tunnel identity too: two
+ * key, not that a second computer of the member registered one. (One kept signed record that is not this computer's,
+ * sigOther below, can still come from a computer the member used earlier at the same epoch, such as a replaced Mac.) That needs one key file per tunnel identity too: two
  * data roots sharing one tunnel state (AGENT_WORKFORCE_TUNNEL_STATE, a test or development setup) would each read the
  * other's key as lost. A rotation or a fresh key re-reads the file first, so a key another process
  * REGISTERED meanwhile is answered, never replaced (an unregistered one it kept is not protected).
@@ -203,7 +204,8 @@ const RESIGN_EVERY_MS = 7 * 24 * 3600 * 1000;
 /* The last attempt per (org, member, epoch) in this process as well as in the key file, so neither a key file that cannot
    be written nor a computer that cannot sign makes it try (a POST, or a read of the device key) on every call. */
 const lastTry = new Map();
-async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, nowMs) {
+async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, at) {
+  const nowMs = Math.floor(Number(at));   // an injected clock that is not a whole number is read as one
   const k = keys[epoch];
   if (!k || !k.registered || k.sigKept) return;
   const id = `${company.org}\u0000${company.member}\u0000${epoch}`;
@@ -377,4 +379,6 @@ async function ensureNow(opts, seen) {
 
 // kosmos#7404: the key file is shared with a personal backup's keys (engine/personalbackupkey.js), so the backup job
 // reads one place whichever way a key was made: readKeys and writeKeys keep its format and checks in one module.
-module.exports = { ensureMemberKey, BACKUP_KEY_ROUTE, MEMBER_KEY_ROUTE, readKeys, writeKeys, memberKeyRecordBytes };
+/* Test seam (kosmos#7753): forgets this process's re-send attempts, so each test starts clean. Production never calls it. */
+function _resetResendForTests() { lastTry.clear(); }
+module.exports = { ensureMemberKey, BACKUP_KEY_ROUTE, MEMBER_KEY_ROUTE, readKeys, writeKeys, memberKeyRecordBytes, _resetResendForTests };
