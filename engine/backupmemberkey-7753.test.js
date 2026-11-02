@@ -254,6 +254,10 @@ test('#7753 re-send: on the re-send path an echo of another signature is recorde
   };
   await mk.ensureMemberKey({ macRequest: wrongKey, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
   assert.equal(keyFile().sigKept, undefined, 'an echo for another key is not this key kept');
+  assert.ok(Number.isSafeInteger(keyFile().sigAskedAt), 'the attempt is recorded');
+  const n = odd.posts.length;
+  await mk.ensureMemberKey({ macRequest: wrongKey, deviceKey: d.read, now: () => T0 + (14 * 24 + 2) * H });
+  assert.equal(odd.posts.length, n + 1, 'asked again a week later');
   // A last send dated after now (a clock that was ahead): due, not blocked until the clock catches up.
   fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
   const ahead = storingCoordinator();
@@ -286,4 +290,31 @@ test('#7753 re-send: an echoed first registration is never re-sent; a failed re-
   await mk.ensureMemberKey({ macRequest: c3.macRequest, deviceKey: () => ({ ok: false }), now: () => T0 });
   await mk.ensureMemberKey({ macRequest: c3.macRequest, deviceKey: () => ({ ok: false }), now: () => T0 + 28 * 24 * H });
   assert.equal(c3.posts.length, 1);
+});
+
+test('#7753 re-send: a key file that cannot be written, or a computer that cannot sign, still waits a week in this process', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  const dir = path.join(store.ROOT, 'backupkeys');
+  const file = path.join(dir, fs.readdirSync(dir).find((f) => f.endsWith('.json')));
+  const realWrite = require('./securewrite').writeSecret;
+  const sw = require('./securewrite');
+  sw.writeSecret = function (f, ...rest) { if (String(f) === file) { const e = new Error('read-only'); e.code = 'EROFS'; throw e; } return realWrite.call(sw, f, ...rest); };
+  try {
+    for (const h of [7 * 24 + 1, 7 * 24 + 2, 7 * 24 + 3]) await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + h * H });
+  } finally { sw.writeSecret = realWrite; }
+  assert.equal(c.posts.length, 2, 'one re-send, though its time could not be written');
+  // A computer that cannot sign reads its device key at most once a week too.
+  fs.rmSync(dir, { recursive: true, force: true });
+  const c2 = storingCoordinator();
+  let reads = 0, signs = true;
+  const dk = () => { reads++; return signs ? d.read() : { ok: false }; };
+  // Two months on, so the first half's attempt for the same (org, member, epoch) in this process is long past.
+  const T1 = T0 + 60 * 24 * H;
+  await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: dk, now: () => T1 });
+  signs = false; reads = 0;
+  for (const h of [7 * 24 + 1, 7 * 24 + 2, 7 * 24 + 3]) await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: dk, now: () => T1 + h * H });
+  assert.equal(reads, 1, 'the device key read once in the week');
+  assert.equal(c2.posts.length, 1);
 });

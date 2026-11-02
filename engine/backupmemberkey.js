@@ -200,9 +200,16 @@ function keptSig(r, sentSig) {
 // escrow open of the wrap (coordinator/src/memberkey.rs) before it is answered as a repeat, for every computer, until a
 // coordinator that keeps the record ships. A week bounds that; the record reaches Kosmos+ within a week of it shipping.
 const RESIGN_EVERY_MS = 7 * 24 * 3600 * 1000;
+/* The last attempt per (org, member, epoch) in this process as well as in the key file, so neither a key file that cannot
+   be written nor a computer that cannot sign makes it try (a POST, or a read of the device key) on every call. */
+const lastTry = new Map();
 async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, nowMs) {
   const k = keys[epoch];
-  if (!k || !k.registered || k.sigKept || (k.sigAskedAt && nowMs - k.sigAskedAt >= 0 && nowMs - k.sigAskedAt < RESIGN_EVERY_MS)) return;
+  if (!k || !k.registered || k.sigKept) return;
+  const id = `${company.org}\u0000${company.member}\u0000${epoch}`;
+  const recent = (at) => Number.isSafeInteger(at) && at > 0 && nowMs - at >= 0 && nowMs - at < RESIGN_EVERY_MS;
+  if (recent(k.sigAskedAt) || recent(lastTry.get(id))) return;
+  lastTry.set(id, nowMs);
   const signed = signRecord(readDeviceKey, company, epoch, k.pk);
   if (!signed.sig) return;
   let got;
@@ -216,7 +223,7 @@ async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, n
   const sameKey = Boolean(r && r.ok && r.data && r.data.epoch === epoch && echoedPk && echoedPk.equals(k.pk));
   const kept = sameKey ? keptSig(r, got.sentSig) : null;
   if (kept) { k.sigKept = true; if (kept === 'other') k.sigOther = true; }
-  try { writeKeys(company.org, company.member, keys); } catch { /* asked again after the next interval */ }
+  try { writeKeys(company.org, company.member, keys); } catch { /* this process still waits the interval (lastTry); a restart may ask once more */ }
 }
 
 /* One at a time, in this process only (the header assumes one board process per data root). Today reading the file
@@ -274,6 +281,7 @@ async function ensureNow(opts, seen) {
     const ignored = opts.lostEpoch != null && lost === null ? { lostEpochIgnored: true } : {};
     const above = done !== undefined && epochs.length && epochs[0] > done && !keys[epochs[0]].registered ? { pendingEpoch: epochs[0] } : {};
     if (done !== undefined) {
+      // Awaited, so a due re-send (at most once a week) adds its POST's time to this answer, never anything to the answer.
       await resignIfNeeded(macRequest, company, done, keys, readDeviceKey, (opts.now || Date.now)());
       return { ok: true, epoch: done, publicKey: keys[done].pk, ...ignored, ...above };
     }
