@@ -123,6 +123,7 @@ test('#6178 a sibling read carries the accounts and the join, with no folder pat
   assert.equal(entry.weekly.usedPct, 71);
   const agent = sib.agents.find((a) => a.sessionName === 'sib-on-default');
   assert.ok(agent && agent.acct === entry.key && agent.runner === 'claude', 'the agent does not carry its account key and runner: ' + JSON.stringify(agent));
+  assert.ok(typeof agent.cardWord === 'string' && agent.cardWord.length > 0, 'kosmos#7791: the agent does not carry its card word: ' + JSON.stringify(agent));
 
   const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   const slice = (name) => { const i = PAGE.indexOf('function ' + name + '('); assert.ok(i >= 0, name + ' moved'); return PAGE.slice(i, PAGE.indexOf('\n}\n', i) + 2); };

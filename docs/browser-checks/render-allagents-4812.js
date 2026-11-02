@@ -63,6 +63,7 @@ const COMPUTERS = {
 const HOSTILE = '<img src=x onerror="window.__oaPwned=1">';
 const SIBLING_AGENTS = { agents: [
   { sessionName: 'angel', name: 'Angel', state: 'working' },
+  { sessionName: 'kitty', name: 'Kitty', state: 'working', cardWord: 'Messages stuck' },   // kosmos#7791: that computer's own card word
   { sessionName: 'evil one', name: HOSTILE, state: 'idle' },
   { sessionName: 'guide', name: 'Guide', isGuide: true },
 ] };
@@ -142,10 +143,12 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       chk(landed && r.shown, 'S1 the section shows on this computer\'s own Kosmos+ address', JSON.stringify(r).slice(0, 200));
       chk(JSON.stringify(r.groups.map((g) => g.name)) === JSON.stringify(['agent1s', 'mortals', 'pizzarama']), 'S1 one group per OTHER computer, this one excluded', r.groups.map((g) => g.name).join(','));
       const a1 = r.groups[0] || { cards: [] };
-      chk(a1.cards.length === 2 && a1.cards.every((c) => c.tag === 'A'), 'S1 agent1s: its two agents (the guide left out), each a link', JSON.stringify(a1.cards).slice(0, 220));
+      chk(a1.cards.length === 3 && a1.cards.every((c) => c.tag === 'A'), 'S1 agent1s: its three agents (the guide left out), each a link', JSON.stringify(a1.cards).slice(0, 220));
       const angel = a1.cards.find((c) => c.name === 'Angel') || {};
       chk(angel.href === 'https://agent1s.kosmosplus.com/?agent=angel', 'S1 a card opens the agent on its own computer', angel.href);
       chk(angel.sub === 'agent1s · Working', 'S1 a card names its computer and its state', angel.sub);
+      const kitty = a1.cards.find((c) => c.name === 'Kitty') || {};
+      chk(kitty.sub === 'agent1s · Messages stuck', 'S1 #7791 a card shows the word its own computer\'s card shows', kitty.sub);
       const evil = a1.cards.find((c) => c.href === 'https://agent1s.kosmosplus.com/?agent=evil%20one') || {};
       chk(evil.name === HOSTILE && !r.pwned && r.imgs === 0, 'S1 another computer\'s text is shown as text, never markup', JSON.stringify({ name: evil.name, pwned: r.pwned, imgs: r.imgs }));
       const mo = r.groups[1] || { cards: [] };
@@ -159,7 +162,7 @@ const cors = { 'access-control-allow-origin': HOME, 'access-control-allow-creden
       // CONTROL B: agent1s stops being readable while the board says it is online: the last list stays, greyed.
       agent1sMode = 'gone';
       await page.evaluate(() => oaRound());
-      const greyed = await until(page, () => [...document.querySelectorAll('#oa-groups .oa-group')][0].querySelectorAll('.oa-card.oa-off').length === 2);
+      const greyed = await until(page, () => [...document.querySelectorAll('#oa-groups .oa-group')][0].querySelectorAll('.oa-card.oa-off').length === 3);
       const b = (await read(page)).groups[0] || { cards: [] };
       chk(greyed && b.cards.every((c) => c.tag === 'DIV') && /online, but its agents cannot be read from here yet\. It may need the latest Kosmos\. Showing what this page last read\./.test(b.note), 'CONTROL B unreadable: the last list stays, greyed, not links, and says why', JSON.stringify(b).slice(0, 220));
       chk(b.cards.every((c) => c.sub === 'agent1s'), 'CONTROL B no live state word on a stale card', JSON.stringify(b.cards.map((c) => c.sub)));
