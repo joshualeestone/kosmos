@@ -935,9 +935,17 @@ function panePidOf(target) {
 }
 /* #6249 (measured on 2.1.312): one paste is not always one chip. A 3000-character paste showed as three chips, so a box
    may hold several chips, or chips with plain text between them, for one message of ours. A box is a chip box when it
-   shows a chip anywhere; what is there is then decided by the chip rules below, never by comparing words. */
-const isChipBox = (text) => /\[Pastedtext#\d+(?:\+\d+lines)?\]/.test(squash(text));
+   is one chip and nothing else (as before #6249), or when it shows a chip that is not words of our own line: a message
+   that merely mentions "[Pasted text #2]" is still compared word for word, as before. What a chip box holds is then
+   decided by the chip rules below, never by comparing words. */
+const ANY_CHIP = /\[Pastedtext#\d+(?:\+\d+lines)?\]/g;
 const ONE_LINE_CHIP_ANY = /\[Pastedtext#\d+\]/g;
+function isChipBox(text, wire = '') {
+  const t = squash(text);
+  if (/^\[Pastedtext#\d+(?:\+\d+lines)?\]$/.test(t)) return true;
+  const w = squash(wire);
+  return (t.match(ANY_CHIP) || []).some((c) => !w.includes(c));
+}
 /* #6249: a squashed chip box that our own paste, folded, could be: only one-line chips (ours is one line), at least one,
    with any text in it being runs of our line in order: a piece before the first chip is our start, one after the last
    is our end, and one between two chips is a run of ours after the piece before it. Text a person adds after ours is
@@ -950,7 +958,7 @@ function foldedFromOurs(t, wire) {
   const w = squash(wire);
   const last = pieces.length - 1;
   if (pieces[0] && !w.startsWith(pieces[0])) return false;
-  if (pieces[last] && last > 0 && !w.endsWith(pieces[last])) return false;
+  if (pieces[last] && !w.endsWith(pieces[last])) return false;
   let at = pieces[0].length;
   for (let i = 1; i < last; i += 1) {
     if (!pieces[i]) continue;
@@ -958,17 +966,17 @@ function foldedFromOurs(t, wire) {
     if (found < 0) return false;
     at = found + pieces[i].length;
   }
-  return !pieces[last] || last === 0 || w.length - pieces[last].length >= at;
+  return !pieces[last] || w.length - pieces[last].length >= at;
 }
 /* 'empty', 'ours' (what is there is a piece of what we pasted, and nothing else), or 'other'. `chip` ties a chip to our
    paste: true for a box read right after we pasted into it while it was empty (the delivery holds the pane, so no
-   other delivery pastes meanwhile, and the before-paste read found nothing), where any one-line chip is ours; or the
-   exact squashed chip recorded when our line was left there (a retry), where only that chip, same number, is ours.
-   Anything else that is a chip is 'other'. */
+   other delivery pastes meanwhile, and the before-paste read found nothing), where one-line chips with runs of ours
+   between them are ours (foldedFromOurs, #6249); or the exact squashed form recorded when our line was left there (a
+   retry), where only that form, same numbers, is ours. Anything else that is a chip box is 'other'. */
 function composerHolds(text, wire, chip = null) {
   const t = squash(text);
   if (!t) return 'empty';
-  if (isChipBox(text)) {   // #6249: one chip or several, with runs of ours between them
+  if (isChipBox(text, wire)) {   // #6249: one chip or several, with runs of ours between them
     if (chip === true && foldedFromOurs(t, wire)) return 'ours';
     return typeof chip === 'string' && chip && t === chip ? 'ours' : 'other';
   }
@@ -1004,7 +1012,7 @@ function rememberedShows(text, kept, exact = false, rows = 0) {
   if (!kept) return false;
   /* kosmos#6717: a box showing a chip is decided only by the chip kept with our line: exactly that chip (its number), in
      that same process; never by comparing the chip's text with the line (a line could read like a chip). */
-  if (isChipBox(text)) {
+  if (isChipBox(text, kept.wire)) {
     return typeof kept.chip === 'string' && !!kept.chip && squash(text) === kept.chip
       && !!kept.chipPid && !!kept.target && panePidOf(kept.target) === kept.chipPid;
   }
@@ -1076,7 +1084,7 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
     /* Round 9: other text, but none of our ending in it: ours went and someone has started typing since. kosmos#6717:
        not for a chip, whose words are hidden: one that is not tied to our paste is someone else's, said as 'other'. */
     if (holds === 'other') {
-      if (isChipBox(box.text)) return { outcome: 'other', retried };   // kosmos#6717: its words are hidden; never "ours went"
+      if (isChipBox(box.text, wire)) return { outcome: 'other', retried };   // kosmos#6717: its words are hidden; never "ours went"
       return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
     }
     if (waited < settleMs) {
@@ -2679,7 +2687,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
        delivery lock, within the gap (chip: true). A person's paste in that same second is the one case it cannot
        tell from ours; a multi-line chip never is ours (our line is one line). #6249: so are several one-line chips,
        with runs of ours between them, and the whole folded form is what is pinned. */
-    if (before.ok && chipTie && isChipBox(before.text) && foldedFromOurs(squash(before.text), wire)) ourChip = squash(before.text);   // #6249: the whole folded form
+    if (before.ok && chipTie && isChipBox(before.text, wire) && foldedFromOurs(squash(before.text), wire)) ourChip = squash(before.text);   // #6249: the whole folded form
     if (before.ok && composerHolds(before.text, wire, ourChip || chipTie) === 'other') {
       return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, because: UNSENT_NOT_PRESSED_BECAUSE, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };
     }
@@ -2723,7 +2731,7 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       unsentSeq += 1;
       seq = unsentSeq;
       /* kosmos#6717: left there as a chip: its exact text (the number) is what a later look must find to press it. */
-      const chipSeen = isChipBox(result.text) ? squash(result.text) : '';   // #6249: 'unsent' here means it matched the pinned form
+      const chipSeen = isChipBox(result.text, wire) ? squash(result.text) : '';   // #6249: 'unsent' here means it matched the pinned form
       rememberUnsent(target, { wire, at: Date.now(), seq, seen: chipSeen ? '' : endSeen(result.text),
         ...(chipSeen ? { chip: chipSeen, chipPid: panePidOf(target) } : {}) });
       scheduleUnsentRetries(target, allowed.card);
