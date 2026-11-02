@@ -11,8 +11,8 @@ const page = require('./test-support/page');
 
 const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = page.scriptOf(PAGE);
-const { pbfLastWords, pbfBackupWhen } = new Function(
-  page.liftAll(SCRIPT, ['asSentence', 'pbfWhen', 'pbfBackupWhen', 'pbfLastWords']) + '\nreturn { pbfLastWords, pbfBackupWhen };')();
+const { pbfLastWords, pbfBackupWhen, pbfStartedWhen } = new Function(
+  page.liftAll(SCRIPT, ['asSentence', 'pbfWhen', 'pbfStartedWhen', 'pbfBackupWhen', 'pbfLastWords']) + '\nreturn { pbfLastWords, pbfBackupWhen, pbfStartedWhen };')();
 
 const WORLD = { id: 'w-restored', name: 'Restored: Josh, 2 Nov' };
 
@@ -62,6 +62,18 @@ test('a backup is named by its time in the person\'s own clock format, from Unix
   const sec = Date.UTC(2026, 10, 2, 16, 15) / 1000;
   assert.equal(pbfBackupWhen({ takenAt: sec }), new Date(sec * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }));
   assert.equal(pbfBackupWhen({ takenAt: null }), 'A backup with no date');
+});
+
+test('a restore that started today says the time alone; another day keeps the date', () => {
+  const now = new Date(2026, 10, 2, 14, 0).getTime();
+  const today = new Date(2026, 10, 2, 13, 55).getTime();
+  assert.equal(pbfStartedWhen(today, now), new Date(today).toLocaleTimeString([], { timeStyle: 'short' }));
+  const yesterday = new Date(2026, 10, 1, 23, 50).getTime();
+  assert.equal(pbfStartedWhen(yesterday, now), new Date(yesterday).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }));
+});
+
+test('Open the copy is the primary, in one row with See your backups', () => {
+  assert.match(PAGE, /<div class="frow" id="pb-files-end-row"><button class="btn uprime" type="button" id="pb-files-open" hidden>Open the copy<\/button><button class="btn" type="button" id="pb-files-see">See your backups<\/button><\/div>/);
 });
 
 test('the screen says the words Mona Lisa approved', () => {

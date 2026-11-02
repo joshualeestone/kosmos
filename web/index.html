@@ -20533,8 +20533,8 @@ window.kosmosMeasureScrollbarWidth();
             </div>
             <p class="fhint" id="pb-files-last" hidden></p>
             <details id="pb-files-failed" hidden><summary class="fhint" id="pb-files-failed-sum"></summary><ul id="pb-files-failed-list"></ul></details>
-            <div class="frow" id="pb-files-open-row" hidden><button class="btn" type="button" id="pb-files-open">Open the copy</button></div>
-            <div class="frow" id="pb-files-see-row"><button class="btn" type="button" id="pb-files-see">See your backups</button></div>
+            <!-- Mona Lisa's review 2: one row, Open the copy first and primary (it is the next step), as Restore and Cancel are. -->
+            <div class="frow" id="pb-files-end-row"><button class="btn uprime" type="button" id="pb-files-open" hidden>Open the copy</button><button class="btn" type="button" id="pb-files-see">See your backups</button></div>
             <p class="fmsg" id="pb-files-msg" role="alert" aria-live="assertive"></p>
           </div>
           <div class="frow" id="pb-off-row"><button class="btn uprime" type="button" id="pb-finish" hidden>Finish setting up</button><button class="btn" type="button" id="pb-off-btn">Turn off personal backup</button></div>
@@ -55989,6 +55989,10 @@ document.getElementById('pb-on').addEventListener('click', pbOpen);
    switcher (restoreworld.prepareRestoreWorld), so "Open the copy" is the switcher's own restart-to-switch confirm. */
 var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, busy: false, stopAsk: false };
 function pbfWhen(ms) { return Number.isFinite(ms) ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''; }
+/* Mona Lisa's review 2: a restore that started today says the time alone; the list's backups keep the full date. */
+function pbfStartedWhen(ms, now = Date.now()) {
+  return new Date(ms).toDateString() === new Date(now).toDateString() ? new Date(ms).toLocaleTimeString([], { timeStyle: 'short' }) : pbfWhen(ms);
+}
 function pbfBackupWhen(b) { return b && Number.isFinite(b.takenAt) ? pbfWhen(b.takenAt * 1000) : 'A backup with no date'; }   // takenAt is Unix seconds
 function pbfMsg(t) { document.getElementById('pb-files-msg').textContent = t ? asSentence(t) : ''; }
 /* The end of a restore, in Mona Lisa's words. `last` is personalrestorejob.status()'s; from a remote session it has counts and
@@ -56034,8 +56038,9 @@ function pbfRead() {
 function pbfPaint() {
   const st = PBF.status || {};
   const running = st.running === true;
-  document.getElementById('pb-files-see-row').hidden = running || !!PBF.asked
+  const seeHidden = running || !!PBF.asked
     || (!PBF.busy && Array.isArray(PBF.list) && PBF.list.length > 0);   // the list is up: its own Restore buttons are the next step
+  document.getElementById('pb-files-see').hidden = seeHidden;
   document.getElementById('pb-files-see').disabled = PBF.busy;
   const list = document.getElementById('pb-files-list');
   const rows = !running && !PBF.asked && Array.isArray(PBF.list) ? PBF.list : [];
@@ -56065,7 +56070,7 @@ function pbfPaint() {
   run.hidden = !running;
   if (running) {
     const what = PBF.startedFor ? pbfBackupWhen(PBF.startedFor) : 'a backup';
-    run.textContent = 'Restoring ' + what + (Number.isFinite(st.startedAt) ? ', started ' + pbfWhen(st.startedAt) : '') + '. This can take a while, and you can keep using Kosmos.';
+    run.textContent = 'Restoring ' + what + (Number.isFinite(st.startedAt) ? ', started ' + pbfStartedWhen(st.startedAt) : '') + '. This can take a while, and you can keep using Kosmos.';
   }
   document.getElementById('pb-files-stop-row').hidden = !running || PBF.stopAsk;
   document.getElementById('pb-files-stop-ask').hidden = !running || !PBF.stopAsk;
@@ -56081,7 +56086,9 @@ function pbfPaint() {
     if (fl.dataset.sig !== fsig) { fl.dataset.sig = fsig; fl.textContent = ''; for (const f of w.failedPaths) { const li = document.createElement('li'); li.textContent = f; fl.appendChild(li); } }
     fl.hidden = !w.failedPaths.length;
   }
-  document.getElementById('pb-files-open-row').hidden = !(w && w.world);
+  const openHidden = !(w && w.world);
+  document.getElementById('pb-files-open').hidden = openHidden;
+  document.getElementById('pb-files-end-row').hidden = seeHidden && openHidden;
 }
 async function pbfSee() {
   if (PBF.busy) return;
