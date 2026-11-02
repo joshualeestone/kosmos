@@ -22,11 +22,21 @@ Validation: full `validation_log_run_or_skip` on Mortals at 4e142b2a2, hash bad2
 Read from the iteration commits' diffs at proof time. The review reports themselves did not survive a restart, so
 this names what was fixed, not each reviewer's wording. Which model ran which round is not recorded here.
 
-1. e8c6ab8833: `leftOut` renamed `skippedFiles`. The list is kept across a failed run, and a stop or a good run with
+### Iteration 1
+
+e8c6ab8833: `leftOut` renamed `skippedFiles`. The list is kept across a failed run, and a stop or a good run with
    no list no longer shows an older one. `report()` gives it on the plain good state only. Test added for the 200 limit.
-2. 9fcfa48a3d: the list is newest first, so a folder of links cannot push a film off it. A run that failed under
+### Iteration 2
+
+9fcfa48a3d: the list is newest first, so a folder of links cannot push a film off it. A run that failed under
    another enrollment no longer carries that enrollment's list. `skippedList` documented on the result.
-3. eb4dbed16b: the comment states what happens past MAX_SKIPPED. The test now asserts the first entry, not any entry.
-4. 4e142b2a29: the mixed test uses a real film beside a kept small file. Comments: 200 is a guess; reasons are short
+### Iteration 3
+
+eb4dbed16b: the comment states what happens past MAX_SKIPPED. The test now asserts the first entry, not any entry.
+### Iteration 4
+
+4e142b2a29: the mixed test uses a real film beside a kept small file. Comments: 200 is a guess; reasons are short
    text, not only the scanner's fixed ones.
-5. No change: one WARNING, a deliberate behaviour that is tested.
+### Iteration 5
+
+[WARNING] One, a deliberate behaviour that is tested. No change.
