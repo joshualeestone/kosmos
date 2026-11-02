@@ -5355,7 +5355,7 @@ cmd_room() {
   # #4926: the board starts a filtered answer with this line; without it, this board does not know --unanswered and
   # what printed is the whole room.
   if [ -n "$_unans" ] && ! printf '%s\n' "$_body" | grep -q '^Waiting on an answer from you: '; then
-    say "This Kosmos does not know --unanswered yet, so what is above is the whole room, not only what is waiting on you. Update Kosmos to use it."
+    say "This Kosmos does not know --unanswered yet, so what is above is the whole room, not only what is waiting on you. Update Kosmos to use it." >&2
   fi
 }
 

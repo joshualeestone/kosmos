@@ -168,3 +168,15 @@ test('?unanswered=1 leaves out the person\'s post that could not reach the reade
   assert.ok(r.text.includes('[' + reached + ']'), 'CONTROL: the post that reached it is not listed:\n' + r.text);
   assert.ok(!r.text.includes('[' + missed + ']'), 'a post that could not reach the reader is listed as waiting on it:\n' + r.text);
 });
+
+test('?unanswered=1 on a room log that cannot be read still answers as a board that knows the flag, and says it may be wrong', async () => {
+  const pid = newRoom('Answered4926h');
+  post(pid, { text: '@grokseat an ask', mentioned: [WHO] });   // grows the log, so the next read re-reads it
+  fs.chmodSync(messages.LOG, 0o000);
+  let r;
+  try { r = await room(pid, tokenFor(WHO), '&unanswered=1'); } finally { fs.chmodSync(messages.LOG, 0o644); }
+  assert.match(r.text, /^We could not read some of this room/m, 'fixture: the room log was read after all:\n' + r.text);
+  assert.match(r.text, /^Waiting on an answer from you: none found, but this room could not be read/m,
+    'a current board left out its filtered-view line, so a CLI calls it an older board:\n' + r.text);
+  assert.doesNotMatch(r.text, /nothing in this room\./, 'an unreadable room claims nothing is waiting');
+});
