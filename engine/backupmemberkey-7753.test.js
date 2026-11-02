@@ -211,13 +211,16 @@ test('#7753 re-send: a key registered before Kosmos+ kept its record is sent aga
   assert.equal(c.posts.length, 3, 'kept: never sent again');
 });
 
-test('#7753 re-send: an echo of another signature is not kept (sent again a day later); the same bytes spelled otherwise are', async () => {
+test('#7753 re-send: an echo of another computer\'s signature ends the re-sending too (it is never replaced); padding is the same bytes', async () => {
   const T0 = 1800000000000, H = 3600 * 1000, d = device();
   const c = storingCoordinator();
   c.state.echo = 'other';   // the coordinator kept another of the member's computers' signature
   await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
   await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + 25 * H });
-  assert.equal(c.posts.length, 2, 'not kept: sent again');
+  assert.equal(c.posts.length, 1, 'another signature is kept, never replaced: nothing to send again');
+  const file = path.join(store.ROOT, 'backupkeys', fs.readdirSync(path.join(store.ROOT, 'backupkeys')).find((f) => f.endsWith('.json')));
+  const entry = Object.values(JSON.parse(fs.readFileSync(file, 'utf8')).keys)[0];
+  assert.equal(entry.sigKept, true); assert.equal(entry.sigOther, true, 'recorded as another computer\'s');
   fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
   const p = storingCoordinator();
   p.state.echo = 'padded';   // the same 64 bytes, with padding

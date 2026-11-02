@@ -22,8 +22,8 @@
  *      by a fresh one, once.
  * A 429 member_key_rotation_wait keeps the new key and answers `waiting`; the next call sends the same key.
  * kosmos#7753: each registration carries the key's signed record (member_key_sig). A registered key whose answer never
- * echoed it (Kosmos+ did not keep it yet) is sent again as a repeat, at most once a day, until an answer echoes it; that
- * never changes what a call answers.
+ * echoed a signature (Kosmos+ kept none yet) is sent again as a repeat, at most once a day, until an answer echoes one
+ * (this computer's, or another's, which Kosmos+ never replaces); that never changes what a call answers.
  * It does NOT ask whether a key Kosmos+ took is still the member's current one: the backup job compares the epoch
  * it answers with each grant's `epoch` (the uploader refuses a grant for another epoch), and a mismatch is the sign
  * the member moved on elsewhere. Calls run one at a time in this process; ONE board process per data root is
@@ -94,6 +94,7 @@ function readKeys(org, member) {
     keys[e] = { sk, pk, registered: k.registered === true };
     // kosmos#7753: whether Kosmos+ echoed this key's signed record (kept it), and when this computer last sent it.
     if (k.sigKept === true) keys[e].sigKept = true;
+    if (k.sigOther === true) keys[e].sigOther = true;   // what Kosmos+ keeps is another computer's signature
     if (Number.isSafeInteger(k.sigAskedAt) && k.sigAskedAt > 0) keys[e].sigAskedAt = k.sigAskedAt;
   }
   // The file invariant (header): at most one unregistered entry, and it is the newest. A file breaking it is not ours.
@@ -111,6 +112,7 @@ function writeKeys(org, member, keys) {
   for (const [e, k] of Object.entries(keys)) {
     out[e] = { sk: b64(k.sk), pk: b64(k.pk), registered: k.registered === true };
     if (k.sigKept === true) out[e].sigKept = true;
+    if (k.sigOther === true) out[e].sigOther = true;
     if (Number.isSafeInteger(k.sigAskedAt) && k.sigAskedAt > 0) out[e].sigAskedAt = k.sigAskedAt;
   }
   require('./securewrite').writeSecret(fileFor(org, member), JSON.stringify({ org, member, keys: out }), 0o600, { atomicOnly: true });
@@ -175,15 +177,18 @@ async function register(macRequest, company, epoch, key, readDeviceKey) {
   if (signed.sig) body.member_key_sig = signed.sig;
   return { r: await macRequest('POST', MEMBER_KEY_ROUTE, body), unsignedBecause: signed.because, sentSig: signed.sig };
 }
-/* Whether an answer to a registration that carried `sentSig` says Kosmos+ kept THIS signature: it echoes member_key_sig
-   (agreed with the coordinator's owner on #7753), compared as bytes with what was sent, since the one kept could be
-   another of the member's computers'. Kept is not trusted: escrowd checks the signature itself. */
+/* What an answer to a registration that carried `sentSig` says Kosmos+ keeps for the epoch: null (no echo: nothing kept
+   yet), 'mine' (it echoes this computer's signature, compared as bytes) or 'other' (another signature, 64 bytes). The
+   coordinator checks a signature against the registering computer's key before keeping it and never replaces one (agreed
+   with its owner on #7753), so either echo ends the re-sending: 'other' means this computer's can never be kept. Kept is
+   not trusted here: escrowd checks the signature itself. */
 function keptSig(r, sentSig) {
-  if (!sentSig || !r || !r.ok || !r.data || typeof r.data.member_key_sig !== 'string') return false;
+  if (!sentSig || !r || !r.ok || !r.data || typeof r.data.member_key_sig !== 'string') return null;
   try {
     const echoed = Buffer.from(r.data.member_key_sig, 'base64url'), sent = Buffer.from(sentSig, 'base64url');
-    return sent.length === 64 && echoed.length === sent.length && crypto.timingSafeEqual(echoed, sent);
-  } catch { return false; }
+    if (echoed.length !== 64) return null;
+    return sent.length === 64 && crypto.timingSafeEqual(echoed, sent) ? 'mine' : 'other';
+  } catch { return null; }
 }
 
 /* kosmos#7753: a key registered before Kosmos+ kept the signed record (any key whose answer did not echo it) is sent
@@ -197,7 +202,8 @@ async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, n
   let got;
   try { got = await register(macRequest, company, epoch, k, readDeviceKey); } catch { got = null; }
   k.sigAskedAt = nowMs;
-  if (got && keptSig(got.r, got.sentSig)) k.sigKept = true;
+  const kept = got ? keptSig(got.r, got.sentSig) : null;
+  if (kept) { k.sigKept = true; if (kept === 'other') k.sigOther = true; }
   try { writeKeys(company.org, company.member, keys); } catch { /* asked again after the next interval */ }
 }
 
@@ -284,7 +290,8 @@ async function ensureNow(opts, seen) {
       if (r && r.ok) {
         keys[epoch].registered = true;
         if (sentSig) keys[epoch].sigAskedAt = (opts.now || Date.now)();
-        if (keptSig(r, sentSig)) keys[epoch].sigKept = true;
+        const kept = keptSig(r, sentSig);
+        if (kept) { keys[epoch].sigKept = true; if (kept === 'other') keys[epoch].sigOther = true; }
         try { writeKeys(company.org, company.member, keys); } catch {
           // Kosmos+ has it; the next call sends the same kept key and gets a repeat.
           return { ok: false, because: 'Kosmos+ took the backup key, but this computer could not note that; it will confirm it next time' };
