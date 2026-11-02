@@ -32,23 +32,23 @@ const fleet = require('../test-support/fleet');
 const RULE = '\x1b[38;5;244m' + '─'.repeat(80);
 const WIDTH = 76;
 /* Rows as Claude Code wraps them (measured): at a space, the space not drawn; a word longer than a row is cut. */
-function wrap(text) {
+function wrap(text, width = WIDTH) {
   const rows = [];
   let row = '';
   for (const word of String(text).split(' ')) {
     let w = word;
-    while (w.length > WIDTH) { if (row) { rows.push(row); row = ''; } rows.push(w.slice(0, WIDTH)); w = w.slice(WIDTH); }
+    while (w.length > width) { if (row) { rows.push(row); row = ''; } rows.push(w.slice(0, width)); w = w.slice(width); }
     if (!row) row = w;
-    else if (row.length + 1 + w.length <= WIDTH) row += ' ' + w;
+    else if (row.length + 1 + w.length <= width) row += ' ' + w;
     else { rows.push(row); row = w; }
   }
   if (row) rows.push(row);
   return rows;
 }
 /* `keep`: the rows a scrolled box shows (measured: its last 7, ❯ on the first of them). */
-function draw(text, keep) {
+function draw(text, keep, width) {
   if (!text) return [RULE, '\x1b[39m❯ \x1b[2mTry "write a test"\x1b[0m', RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
-  let rows = wrap(text);
+  let rows = wrap(text, width);
   if (keep && rows.length > keep) rows = rows.slice(-keep);
   return [RULE, ...rows.map((r, i) => (i === 0 ? '\x1b[39m❯ ' : '  ') + r), RULE, '  scratch · Haiku 5.5'].join('\n') + '\n';
 }
@@ -61,11 +61,11 @@ function pane(initial, opts = {}) {
     calls.push(args);
     if (args[0] === 'display-message' && args.includes('#{session_attached}')) return ok(opts.attached ? '1\n' : '0\n');
     if (args[0] === 'display-message') return ok('2.1.303\t\t0\n');
-    if (args[0] === 'capture-pane' && args.includes('-e')) return ok(opts.raw ? opts.raw : draw(state.text, opts.keep));
+    if (args[0] === 'capture-pane' && args.includes('-e')) return ok(opts.raw ? opts.raw : draw(state.text, opts.keep, opts.width));
     if (args[0] === 'capture-pane') return ok('');
     if (args[0] === 'send-keys' && args[args.length - 1] === 'Enter') { if (state.text) state.sent.push(state.text); state.text = ''; return ok(); }
     if (args[0] === 'send-keys' && args.includes('C-u')) {
-      state.text = wrap(state.text).slice(0, -1).join(' ');
+      state.text = wrap(state.text, opts.width).slice(0, -1).join(' ');
       state.rounds += 1;
       if (opts.onClear) opts.onClear(state.rounds, state);
       return ok();
@@ -192,6 +192,39 @@ test('kosmos#6717: the board\'s own line is pressed, even after a restart that l
   assert.deepEqual(p.state.sent, [MSG]);
   assert.equal(saved.length, 0, 'the board\'s own line is not a draft');
   assert.equal(p.clears(), 0);
+}));
+
+/* The 0.7.83 report (#7784 item 1): a delivery sat unsent over 15 minutes with posts held behind it. A long line
+   scrolls in the box, so it is remembered by the end it showed; a pane resized since wraps the same end to a different
+   length, the exact rule no longer knows it, and the delivery whose wider rule would press it never comes (posts wait
+   while the box holds text). The sweep decides it by the wider rule, as a delivery would. */
+const LONG = Array.from({ length: 30 }, (_, i) => `Kosmos here, point ${i} of the release ruling for the room`).join(', ') + '.';
+function leaveLong(roster, width) {
+  const first = pane('', { keep: 7, width });
+  const fn = (args) => (args[0] === 'send-keys' && args[args.length - 1] === 'Enter' ? ok() : first(args));
+  chat.setRunner(fn);
+  assert.equal(chat.deliver('al', LONG, roster).unsubmitted, true, 'PRECONDITION: left in the box');
+}
+test('kosmos#6717: the board\'s own long line, scrolled in a pane resized since, is pressed by the sweep', () => withAgent(async (roster, card) => {
+  leaveLong(roster, 76);
+  const p = pane(LONG, { keep: 7, width: 60 });
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'pressed', JSON.stringify(r));
+  assert.equal(p.enters(), 1);
+  assert.deepEqual(p.state.sent, [LONG]);
+  assert.equal(saved.length, 0, 'the board\'s own line is not a draft');
+  assert.equal(p.clears(), 0);
+}));
+test('kosmos#6717: a long text that only ends like the board\'s line, with words of a person\'s after it, is left', () => withAgent(async (roster, card) => {
+  leaveLong(roster, 76);
+  const p = pane(LONG + ' and ' + PERSON, { keep: 7, width: 60 });
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'left', JSON.stringify(r));
+  assert.equal(r.because, 'it is too long to read whole');
+  assert.equal(p.enters() + p.clears(), 0);
+  assert.equal(saved.length, 0);
 }));
 
 test('kosmos#6717: the board\'s own line on an agent that is no longer idle is not pressed', () => withAgent(async (roster, card) => {
