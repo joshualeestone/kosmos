@@ -5304,6 +5304,7 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // Listing the backups and restoring one: a restore writes a whole backup onto this computer as a new Kosmos.
   // Stop too: it can cut a restore off in the middle of moving files into its new Kosmos.
   'POST /api/personal-backup/backups', 'POST /api/personal-backup/files', 'POST /api/personal-backup/stop',
+  'POST /api/personal-backup/checkout',   // #7404 plan screen: opening a payment page is a write, like on and off
   // Resetting the account's second factor: from a stolen session it would let the thief enrol their own, and then
   // pass this very step-up. At the computer it needs nothing more.
   'POST /api/remote/second-reset',
@@ -12887,7 +12888,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/personal-backup' || pathname === '/api/personal-backup/preview' || pathname === '/api/personal-backup/on'
     || pathname === '/api/personal-backup/key' || pathname === '/api/personal-backup/saved' || pathname === '/api/personal-backup/restore'
     || pathname === '/api/personal-backup/off' || pathname === '/api/personal-backup/backups' || pathname === '/api/personal-backup/files'
-    || pathname === '/api/personal-backup/stop') {
+    || pathname === '/api/personal-backup/stop' || pathname === '/api/personal-backup/plans' || pathname === '/api/personal-backup/checkout') {
     let off = true;
     try { off = !require('./engine/personalbackupoffer').offer().shown; } catch { off = true; }
     if (off) { sendJson(res, 404, { error: 'not found' }); return; }
@@ -12916,7 +12917,7 @@ const server = http.createServer(async (req, res) => {
     /* Only the named steps exist. The bare path is GET only: a POST there has no step (challenge round 3: it fell
        through to switchOff, past the step-up gate, which is keyed on /off). */
     const kind = pathname.slice('/api/personal-backup/'.length);
-    if (req.method !== 'POST' || !['preview', 'on', 'key', 'saved', 'restore', 'off', 'backups', 'files', 'stop'].includes(kind)) { sendJson(res, 404, { error: 'not found' }); return; }
+    if (req.method !== 'POST' || !['preview', 'on', 'key', 'saved', 'restore', 'off', 'backups', 'files', 'stop', 'plans', 'checkout'].includes(kind)) { sendJson(res, 404, { error: 'not found' }); return; }
     readBody(req, 4096)
       .then(async (buf) => {
         let body = {};
@@ -12949,12 +12950,17 @@ const server = http.createServer(async (req, res) => {
         else if (kind === 'backups') r = await require('./engine/personalrestorejob').list();
         else if (kind === 'files') r = require('./engine/personalrestorejob').start(typeof body.key === 'string' ? body.key : null);
         else if (kind === 'stop') r = require('./engine/personalrestorejob').stop();
+        /* #7404 plan screen: the plans on sale and the current plan (a read, only once on), and Stripe's page for one
+           size (the page names a size, never a price; the engine opens only Stripe's own hosted checkout). */
+        else if (kind === 'plans') r = await pb.plansNow();
+        else if (kind === 'checkout') r = await pb.checkout(Number.isSafeInteger(body.gb) ? body.gb : null);
         else r = null;   // unreachable: kind was checked above; answers the generic refusal below
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and
            member are the opaque ids confirmRecoveryCodeSaved needs back, nothing more. */
         // Named fields only, per step (challenge round 4): each step can send the page only what that step answers.
         const KEEP = { preview: ['ticket', 'words', 'price', 'plans'], on: ['declined', 'unknown', 'org', 'member'], key: ['org', 'member'],
-          saved: ['deleted'], restore: ['epochs'], off: ['pending'], backups: ['more', 'keyMissing', 'backups'], files: ['startedAt'], stop: [] };
+          saved: ['deleted'], restore: ['epochs'], off: ['pending'], backups: ['more', 'keyMissing', 'backups'], files: ['startedAt'], stop: [],
+          plans: ['plans', 'planGb'], checkout: ['url'] };
         const keep = ['ok', 'because', 'code'].concat(KEEP[kind] || []);
         const out = {};
         if (r && typeof r === 'object') for (const k of keep) if (k in r) out[k] = r[k];

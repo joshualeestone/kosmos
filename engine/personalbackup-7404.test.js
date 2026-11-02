@@ -1032,3 +1032,55 @@ test('#7404 plans: a list read wrong offers nothing (not a whole positive GB, a 
     assert.equal(r.ticket, undefined, label + ': a ticket was issued');
   }
 });
+
+/* #7404 plan screen: plansNow and checkout, once personal backup is on here (turned on through the real flow). */
+async function onWith(t, extra) {
+  const root = fresh(t);
+  const c = coordinator();
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true, 'premise: turned on');
+  const sold = [{ gb: 50, price: '$10/month' }, { gb: 25, price: '$5/month' }];
+  const remote = { sent: [], macRequest: async (m, route, body) => {
+    remote.sent.push(route);
+    if (route === pb.ROUTE) return extra.preview || { ok: true, data: { org: ORG, role: 'member', consent: WORDS, consentHash: HASH, computerSalt: SALT, plans: sold } };
+    if (route === '/v1/mac/personal-backup/checkout') return extra.checkout ? extra.checkout(body) : { ok: false, because: 'unexpected' };
+    const r = await c.macRequest(m, route, body);
+    if (route === oe.ROUTES.status && r && r.ok && 'planGb' in extra) r.data = Object.assign({}, r.data, { backupWeeklyGb: extra.planGb });
+    return r;
+  } };
+  return { root, remote };
+}
+
+test('#7404 plansNow: the plans, smallest first, and the current plan, only for this board\'s own backup', async (t) => {
+  const a = await onWith(t, { planGb: null });
+  const r = await pb.plansNow({ root: a.root, remote: a.remote });
+  assert.deepEqual(r, { ok: true, plans: [{ gb: 25, price: '$5/month' }, { gb: 50, price: '$10/month' }], planGb: null });
+  const b = await onWith(t, { planGb: 50 });
+  assert.equal((await pb.plansNow({ root: b.root, remote: b.remote })).planGb, 50, 'the plan Kosmos+ granted');
+  const other = await onWith(t, { preview: { ok: true, data: { org: { id: 'org_' + 'b'.repeat(24), kind: 'personal' }, plans: [] } } });
+  const o = await pb.plansNow({ root: other.root, remote: other.remote });
+  assert.equal(o.ok, false, 'an answer about another backup was used');
+  // Not on here: the preview route (which MAKES a membership) is never called just to read prices.
+  const sent = [];
+  const off = await pb.plansNow({ root: fresh(t), remote: { macRequest: async (m, route) => { sent.push(route); return { ok: false }; } } });
+  assert.equal(off.ok, false);
+  assert.deepEqual(sent, [], 'a board that is not on asked Kosmos+ anyway');
+});
+
+test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in plain words; nothing sent off', async (t) => {
+  const page = 'https://checkout.stripe.com/c/pay/cs_test_sample';
+  const ok = await onWith(t, { checkout: (body) => ({ ok: true, data: { url: page, gb: body.gb } }) });
+  assert.deepEqual(await pb.checkout(25, { root: ok.root, remote: ok.remote }), { ok: true, url: page });
+  for (const bad of ['http://checkout.stripe.com/c/pay/x', 'https://checkout.stripe.com.evil.example/x', 'https://evil.example/x', 'javascript:alert(1)', 'https://user@checkout.stripe.com/x']) {
+    const a = await onWith(t, { checkout: () => ({ ok: true, data: { url: bad } }) });
+    const r = await pb.checkout(25, { root: a.root, remote: a.remote });
+    assert.equal(r.ok, false, bad + ' was opened');
+    assert.equal(r.url, undefined);
+  }
+  const refused = await onWith(t, { checkout: () => ({ ok: false, because: '402 {"code":"not_subscribed"}', refusal: { status: 402, code: 'not_subscribed' } }) });
+  assert.deepEqual(await pb.checkout(25, { root: refused.root, remote: refused.remote }), { ok: false, code: 'not_subscribed', because: 'Backup needs a Kosmos+ subscription first.' });
+  const sent = [];
+  assert.equal((await pb.checkout(25, { root: fresh(t), remote: { macRequest: async (m, route) => { sent.push(route); return { ok: true, data: { url: page } }; } } })).ok, false, 'not on here');
+  assert.deepEqual(sent, [], 'a checkout was asked for with personal backup off here');
+  assert.equal((await pb.checkout(2.5, { root: ok.root, remote: ok.remote })).ok, false, 'a size that is not a whole number');
+});
