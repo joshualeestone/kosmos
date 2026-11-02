@@ -1093,12 +1093,13 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
     /* Round 9: other text, but none of our ending in it: ours went and someone has started typing since. kosmos#6717:
        not for a chip, whose words are hidden: one that is not tied to our paste is someone else's, said as 'other'. */
     if (holds === 'other') {
-      /* #6249: a chip pinned as ours still in the box means ours did not go, whatever else is there now. A box of chips
-         and nothing else hides its words, one chip or several, as a lone chip did before; text with someone's chip in
-         it is judged by our end. */
+      /* #6249: a chip pinned as ours still in the box means ours did not go, whatever else is there now. A lone chip
+         hides its words, as before. Several chips and nothing else may be ours unpinned only when our line is long
+         enough to fold; a shorter line cannot be under them. Anything else is judged by our end. */
       const shown = squash(box.text);
       const pinned = pin ? pin.match(ANY_CHIP) || [] : [];
-      if (!shown.replace(ANY_CHIP, '') || pinned.some((c) => shown.includes(c))) return { outcome: 'other', retried };
+      const couldBeOurFold = !shown.replace(ANY_CHIP, '') && String(wire).length >= CHIP_MIN_CHARS;
+      if (isLoneChip(box.text) || couldBeOurFold || pinned.some((c) => shown.includes(c))) return { outcome: 'other', retried };
       return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
     }
     if (waited < settleMs) {
@@ -2582,9 +2583,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
   }
   /* kosmos#6717: what may count as our own paste chip (since #6249, chips: several, or chips with runs of ours between
      them): only when the box was read empty just before our paste and our line is long enough to fold, and only a chip
-     seen BEFORE our Enter (our fold happens while we paste; the Enter then
-     submits what is there). That chip is pinned (ourChip) for the watch after the Enter and its retry. A chip seen for
-     the first time after our Enter is never ours: nothing ties it to our paste. */
+     seen BEFORE our Enter (our fold happens while we paste; the Enter then submits what is there). That chip is pinned
+     (ourChip) for the watch after the Enter and its retry. A chip seen for the first time after our Enter is never
+     ours: nothing ties it to our paste. */
   const chipTie = emptyBefore && String(wire).length >= CHIP_MIN_CHARS ? true : null;
   let ourChip = null;
 

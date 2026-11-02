@@ -304,3 +304,17 @@ test('#6249: a fold first read mid-draw (a chip, then words not yet at our end) 
   assert.equal(p.state.enters, 1, 'pressed once it had drawn');
   assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
 }));
+
+test('#6249: a short line, then two chips of someone else\'s after our Enter, is said as sent (it cannot be under them)', () => withAgent((roster) => {
+  const p = pane({ enterTakes: false });
+  chat.setRunner((args) => {
+    const out = p(args);
+    // Our short line stays text and goes; after our Enter the box shows only chips, which a short line cannot be.
+    if (args[0] === 'send-keys' && args[args.length - 1] === 'Enter') p.state.shown = '[Pasted text #7][Pasted text #8]';
+    return out;
+  });
+  const v = chat.deliver('al', 'a short line of ours', roster);
+  assert.equal(p.state.enters, 1, 'only our own Enter, never one on those chips');
+  assert.equal(v.state, chat.DELIVERY.PLACED, 'said as sent, as on main: ' + v.because);
+  assert.equal(Object.values(keptLines()).some((e) => e && e.chip), false, 'and those chips are never kept as our line');
+}));
