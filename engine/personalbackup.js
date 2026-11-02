@@ -521,17 +521,25 @@ function stopOf(r) {
    picked by a flag the run carried: checkpointsLost (backuprun, a progress write that failed) and sealedInProcess
    (backupsnapshot, the seal worker could not be used, so the board waited for the seal). unsignedBecause is not here:
    backupjob.fromAnswer builds the run's key without it. */
-const RUN_SAY = [
-  ['lostCheckpoints', 'On the last try, this computer could not save its progress along the way, so the next backup may have to redo some work.'],
-  ['troubleSaving', 'The last backup finished, but this computer had trouble saving its progress along the way. If this keeps happening, check that this computer has free disk space.'],
-  ['sealedHere', 'The last backup finished without its background helper, so Kosmos may have been slow for a moment while it did.'],
-];
+const LOST_SAY = 'On the last try, this computer could not save its progress, so the next backup may have to redo some work.';
+const FINISHED_SAY = {
+  troubleSaving: 'The last finished backup had trouble saving its progress along the way.',
+  sealedHere: 'The last finished backup ran without its background helper, so Kosmos may have been slow for a moment.',
+  both: 'The last finished backup had trouble saving its progress along the way, and ran without its background helper, so Kosmos may have been slow for a moment.',
+};
 const SEALED_HOW = ['not-sent', 'no-worker', 'worker-ended', 'no-answer'];
 function runFlags(r) {
   return Object.assign({}, Number.isInteger(r.checkpointsLost) && r.checkpointsLost > 0 ? { [r.ok ? 'troubleSaving' : 'lostCheckpoints']: true } : {},
     r.ok && SEALED_HOW.includes(r.sealedInProcess) ? { sealedHere: true } : {});
 }
-const runSay = (j) => RUN_SAY.filter(([flag]) => j[flag] === true).map(([, say]) => say);
+/* A failed try's lost checkpoints replace the finished backup's trouble saving: one line about saving progress. */
+function runSay(j) {
+  const lost = j.lostCheckpoints === true;
+  const trouble = !lost && j.troubleSaving === true;
+  const sealed = j.sealedHere === true;
+  const finished = trouble && sealed ? FINISHED_SAY.both : trouble ? FINISHED_SAY.troubleSaving : sealed ? FINISHED_SAY.sealedHere : null;
+  return [lost ? LOST_SAY : null, finished].filter(Boolean);
+}
 function readNote(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(root(opts), JOB_NOTE), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch { return {}; }
 }

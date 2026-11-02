@@ -15,3 +15,4 @@ The personal backup panel's plain line says, in a fixed sentence, when the last 
 - Lines are plain, not the error colour: neither flag stops a backup.
 - A failed try's lost checkpoints are that try's ("On the last try"): every run writes the note, so a run without them clears the line. The in-process seal and the finished run's trouble-saving line are the last finished backup's: only a finished run sets them, a failed try keeps them, and the next finished backup replaces them (reviews 2 and 4).
 - Validation: targeted suites each round; the full validation helper once at convergence.
+- Wording (review 5): a finished backup's lines say "the last finished backup" so they are not read as the last try; both on one finished backup make one sentence; a failed try's lost checkpoints replace the finished backup's trouble-saving line, so the panel has one line about saving progress. No advice about disk space: a checkpoint write fails for other reasons too.
