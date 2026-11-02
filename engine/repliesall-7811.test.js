@@ -35,10 +35,11 @@ function writeSendState(agent, n) {
 }
 function clearSeen() { try { fs.rmSync(path.join(require('./store').ROOT, 'communityread', 'replies-seen'), { recursive: true, force: true }); } catch { /* none */ } }
 /* The service: a profile listing `listed` post ids (latest_reply from `latest`), and threads from `threads`. */
-function serve({ listed, latest = {}, threads = {}, profile = 200 }) {
+function serve({ listed, latest = {}, threads = {}, profile = 200, slowProfileMs = 0 }) {
   const urls = [];
   cr.setFetcher(async (url) => {
     urls.push(url);
+    if (slowProfileMs && url.includes('/agents/by-name/')) await new Promise((r) => setTimeout(r, slowProfileMs));
     const u = new URL(url);
     if (u.pathname.startsWith('/agents/by-name/')) {
       if (profile !== 200) return { status: profile, json: null };
@@ -75,7 +76,7 @@ test('a profile that cannot be read keeps the newest 10 and says the older posts
   const urls = serve({ listed: [], profile: 503 });
   const r = await cr.readReplies('Bad7811', { now: NOW });
   assert.deepEqual(threadReads(urls), range(2, 12));
-  assert.match(r.text, /only your newest 10 of 12 posts were looked at: your older posts could not be checked for new comments just now/);
+  assert.match(r.text, /only your newest 10 of 12 posts were looked at: your older posts could not be checked for new comments\)/);
 });
 
 test('past REPLIES_OLDER_MAX older posts with something new, the newest activity is read first and the rest are said', async () => {
@@ -90,13 +91,13 @@ test('past REPLIES_OLDER_MAX older posts with something new, the newest activity
   assert.match(r.text, /\(3 more of your older posts have new comments: read again for them\)/);
 });
 
-test('older posts past the profile\'s list are said as not looked at', async () => {
+test('older posts not on the profile are said as not checked', async () => {
   clearSeen();
   writeSendState('Unl7811', 12);
   const urls = serve({ listed: range(1, 12) });   // post 0 is not on the profile
   const r = await cr.readReplies('Unl7811', { now: NOW });
   assert.deepEqual(threadReads(urls), range(2, 12));
-  assert.match(r.text, /\(your oldest post is past what Kosmos can check for new comments, so it is not looked at\)/);
+  assert.match(r.text, /\(1 of your older posts is not on your public profile, so Kosmos cannot check it for new comments\)/);
 });
 
 test('ten posts or fewer make no profile read at all', async () => {
@@ -120,4 +121,75 @@ test('the nudge\'s count takes the same older post, and a profile it cannot read
   const bad = await cr.freshReplies('Nud7811', { now: NOW, paceMs: 0 });
   assert.equal(bad.ok, false);
   assert.equal(bad.partial, true, 'an unread profile did not make the count partial');
+});
+
+const at = (h, m = 0) => '2026-10-01T' + String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':00Z';
+
+test('the agent\'s own reply as an older post\'s newest is not something new; a held mark is', async () => {
+  clearSeen();
+  writeSendState('Own7811', 12);
+  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9), agent: { name: 'own7811-writes' } },
+    1: { id: CID(2), created_at: at(9), agent: { name: 'Ann' } } }, threads: { 1: [comment({ id: CID(2), created_at: at(9) })] } });
+  await cr.readReplies('Own7811', { now: NOW });
+  assert.deepEqual(threadReads(urls), [1].concat(range(2, 12)), 'the post whose newest reply is the agent\'s own was read, or the other was not');
+  /* CONTROL: read again with nothing new, the older post is not read (its mark is at its newest reply). */
+  const quiet = serve({ listed: range(0, 12), latest: { 1: { id: CID(2), created_at: at(9), agent: { name: 'Ann' } } }, threads: { 1: [comment({ id: CID(2), created_at: at(9) })] } });
+  await cr.readReplies('Own7811', { now: NOW + 500 });
+  assert.ok(!threadReads(quiet).includes(1), 'an older post with nothing past its mark was read');
+  /* A mark the last read held (a failed page) is looked at again, though its newest reply is already seen. */
+  const f = path.join(require('./store').ROOT, 'communityread', 'replies-seen', require('node:crypto').createHash('sha256').update('Own7811').digest('hex') + '.json');
+  const j = JSON.parse(fs.readFileSync(f, 'utf8'));
+  j.posts[PID(1)].held = 1;
+  fs.writeFileSync(f, JSON.stringify(j));
+  const again = serve({ listed: range(0, 12), latest: { 1: { id: CID(2), created_at: at(9), agent: { name: 'Ann' } } } });
+  await cr.readReplies('Own7811', { now: NOW + 1000 });
+  assert.ok(threadReads(again).includes(1), 'a held older post was not read again');
+});
+
+test('an older post with no mark and its newest reply before the first look is not read', async () => {
+  clearSeen();
+  writeSendState('Old27811', 11);
+  const urls = serve({ listed: range(0, 11), latest: { 0: { id: CID(1), created_at: '2026-09-20T09:00:00Z' } } });
+  await cr.readReplies('Old27811', { now: NOW });
+  assert.deepEqual(threadReads(urls), range(1, 11));
+  const ctl = serve({ listed: range(0, 11), latest: { 0: { id: CID(1), created_at: '2026-09-28T09:00:00Z' } } });
+  clearSeen();
+  await cr.readReplies('Old27811', { now: NOW });
+  assert.deepEqual(threadReads(ctl), range(0, 11), 'CONTROL: inside the first look it is read');
+});
+
+test('a slow profile leaves the older posts to the next read, and says so', async () => {
+  clearSeen();
+  writeSendState('Slow7811', 12);
+  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, slowProfileMs: 1700 });
+  const r = await cr.readReplies('Slow7811', { now: NOW });
+  assert.deepEqual(threadReads(urls), range(2, 12));
+  assert.match(r.text, /\(1 more of your older posts have new comments: read again for them\)/);
+});
+
+test('the nudge\'s count and the read take the same 5 when more are active', async () => {
+  clearSeen();
+  writeSendState('Same7811', 18);
+  const latest = {};
+  const threads = {};
+  for (let i = 0; i < 8; i += 1) { latest[i] = { id: CID(i + 1), created_at: at(i, 30) }; threads[i] = [comment({ id: CID(i + 1), created_at: at(i, 30) })]; }
+  serve({ listed: range(0, 18), latest, threads });
+  const f = await cr.freshReplies('Same7811', { now: NOW, paceMs: 0 });
+  assert.equal(f.ok, true, f.because);
+  const counted = f.posts.map((p) => p.remoteId).sort();
+  const urls = serve({ listed: range(0, 18), latest, threads });
+  await cr.readReplies('Same7811', { now: NOW });
+  const read = threadReads(urls).filter((i) => i < 8).map(PID).sort();   // the newest 10 are 8..17
+  assert.deepEqual(counted, read, 'the count and the read took different older posts');
+  assert.equal(read.length, 5);
+});
+
+test('a profile that fails pass after pass stops holding the nudge\'s count: after three, the newest are counted', async () => {
+  clearSeen();
+  writeSendState('Down7811', 11);
+  serve({ listed: [], profile: 503, threads: { 1: [comment({ id: CID(1) })] } });
+  for (let k = 0; k < 2; k += 1) assert.equal((await cr.freshReplies('Down7811', { now: NOW, paceMs: 0 })).partial, true, 'pass ' + (k + 1));
+  const third = await cr.freshReplies('Down7811', { now: NOW, paceMs: 0 });
+  assert.equal(third.ok, true, third.because);
+  assert.deepEqual(third.posts.map((p) => p.remoteId), [PID(1)]);
 });
