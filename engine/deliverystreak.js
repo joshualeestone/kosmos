@@ -35,7 +35,7 @@ const SPEAKS_FOR_ITSELF = new Set(['stopped', 'restarting', 'needs_you', 'needs_
 /* name -> { since: ms, count, lastWhy, lastAt: ms, kinds: Set<string>, said?: true (stallsToSay said it), pushedAt?: ms (its
    own stall push went out, tellStalls) } */
 const streaks = new Map();
-/* kosmos#7212 item 2: name -> { since, count, endedAt }, a streak a PLACED verdict ended, kept until the minute sweep asks
+/* kosmos#7212 item 2: name -> { since, count, endedAt, pushedAt? }, a streak a PLACED verdict ended, kept until the minute sweep asks
    (endsToSay) so a stall that was said can be said to have ended. Only a landed line writes it: a streak cleared because
    the card says itself (reset) or the agent left the board (sweep) did not recover. */
 const ended = new Map();
@@ -159,8 +159,8 @@ function stallsToSay(names, said, { now = Date.now(), limitShownOf = () => false
 
 /* kosmos#7212 item 2: which said stalls ended with a landed line since the last sweep, each once. `said` is the same Map
    stallsToSay keeps; call this first, since stallsToSay forgets a name whose streak is gone. Each entry is { name, since
-   (ISO), endedAt (ISO), count, ms, pushed }, `pushed` true when this streak's own stall push went out and was not taken
-   back. `stuckOf(name)` true (the card shows a stuck step) says nothing for that agent: turnsToSay speaks for it. Every
+   (ISO), endedAt (ISO), count, ms, pushed }, `pushed` true when this streak's own stall push went out and had not been
+   taken back when the end was read. `stuckOf(name)` true (the card shows a stuck step) says nothing for that agent: turnsToSay speaks for it. Every
    end is dropped once read, said or not. Never throws. */
 function endsToSay(said, { stuckOf = () => false } = {}) {
   const out = [];
@@ -193,7 +193,7 @@ function spanWords(ms) {
 
 /* The board log's line for one stall that ended (kosmos#7212 item 2). */
 function endedLine(e) {
-  return 'delivery-stall-ended: Kosmos saw a message land for ' + e.name + ' at ' + e.endedAt + ', ending the stall that began ' + e.since
+  return 'delivery-stall-ended: Kosmos placed a message for ' + e.name + ' at ' + e.endedAt + ', ending the stall that began ' + e.since
     + ' (' + spanWords(e.ms) + ', ' + e.count + ' tries not seen to land' + (e.pushed ? '; a stall push was sent' : '') + ').\n';
 }
 
