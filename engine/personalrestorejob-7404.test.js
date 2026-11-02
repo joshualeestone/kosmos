@@ -257,7 +257,6 @@ c.on('spawn', () => { process.stdout.write(String(c.pid) + '\\n'); setTimeout(()
 
 test('the child restores into the base the board names', async () => {
   const child = require('./personalrestore-child');
-  // No base: refused before personalrestore is asked anything.
   const pr = require('./personalrestore');
   const was = pr.restoreFiles;
   let got = null;
@@ -273,4 +272,38 @@ test('the child restores into the base the board names', async () => {
     for (let i = 0; i < 50 && !sent.some((m) => 'done' in m); i++) await tick();
     assert.deepEqual(got, { pick: { key: 'k9' }, base });
   } finally { pr.restoreFiles = was; process.exit = exit; if (had) process.send = had; else delete process.send; }
+});
+
+test('stop ends the running restore, records that the person stopped it, and frees the slot', async () => {
+  assert.equal(job.stop().code, 'not_running');
+  const { fork, made } = fakeFork();
+  assert.equal(job.start('k1', { fork, base: SANDBOX }).ok, true);
+  await tick();
+  assert.deepEqual(job.stop(), { ok: true });
+  assert.equal(made[0].killed, true);
+  made[0].emit('close', null, 'SIGTERM');
+  await tick(); await tick();
+  const s = job.status();
+  assert.equal(s.running, false);
+  assert.equal(s.last.code, 'stopped');
+  assert.match(s.last.because, /You stopped this restore/);
+  assert.equal(job.start('k2', { fork, base: SANDBOX }).ok, true);
+});
+
+test('with names hidden, status gives counts and not the person\'s file names', async () => {
+  const { fork, made } = fakeFork();
+  job.start('k1', { fork, base: SANDBOX });
+  await tick();
+  made[0].emit('message', { done: { ok: true, world: { id: 'w1', name: 'Personal backup, Nov 2' }, restored: 2, failed: 1,
+    moved: ['taxes-2025', 'diary'], kept: ['k'], heldBack: [], details: { failed: [{ path: 'secret/plans.txt', why: 'x' }], leftOutAtBackup: 3, fetchProblems: [] } } });
+  await tick(); await tick();
+  const hidden = job.status({ namesHidden: true });
+  const text = JSON.stringify(hidden);
+  for (const name of ['taxes-2025', 'diary', 'secret/plans.txt']) assert.ok(!text.includes(name), name + ' shown with names hidden');
+  assert.equal(hidden.last.movedCount, 2);
+  assert.equal(hidden.last.keptCount, 1);
+  assert.equal(hidden.last.details.failedCount, 1);
+  assert.equal(hidden.last.world.name, 'Personal backup, Nov 2');
+  // Control: at the computer, the names are there, so the check above is what hides them.
+  assert.ok(JSON.stringify(job.status()).includes('taxes-2025'));
 });

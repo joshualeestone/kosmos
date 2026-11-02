@@ -7,7 +7,8 @@
  *   { run: { op: 'list' } }               engine/personalrestore.js listBackups()
  *   { run: { op: 'restore', key, base } } engine/personalrestore.js restoreFiles({ key }), into the board's worlds' base
  *
- * and gets ONE answer back, { done: <the answer> }, then this process exits.
+ * and gets ONE answer back, { done: <the answer> }, then this process exits (the board also ends it once it has the
+ * answer, and when the person stops the restore).
  *
  * This process signs nothing. Every Kosmos+ request the restore makes is sent to the board as
  * { mac: { id, method, route, body } }, and the board answers { macAnswer: { id, got } } after checking the route
