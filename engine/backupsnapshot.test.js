@@ -1896,7 +1896,9 @@ test('kosmos#7156: an index entry stored under another key epoch is a stale inde
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
-test('#7746: the manifest sealed in a worker opens to the same manifest; a worker that cannot start seals here; a seal error is the same', async () => {
+// A timeout, so a worker left running or a timer left armed (which would hold the process open) fails the test rather
+// than hanging the file.
+test('#7746: the manifest sealed in a worker opens to the same manifest; a worker that cannot start seals here; a seal error is the same', { timeout: 60000 }, async () => {
   const k = keys();
   const objects = {}, files = [];
   for (let i = 0; i < 3000; i++) { const n = crypto.createHash('sha256').update('c' + i).digest('hex'); objects[n] = `o1/acct1/1/${k.ctx.period}/${n}`; files.push({ path: `D/f${i}.txt`, size: 10 + i, chunks: [n] }); }
@@ -1905,7 +1907,11 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
   const here = bf.openManifest(k.member.sk, pub, k.ctx, bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, manifest));
   const paths = [];
   const report = (how, why) => paths.push(why ? `${how} ${why}` : how);
-  const there = bf.openManifest(k.member.sk, pub, k.ctx, await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report }));
+  let w1 = null;
+  const there = bf.openManifest(k.member.sk, pub, k.ctx, await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, onWorker: (w) => { w1 = w; } }));
+  const w1ended = await Promise.race([new Promise((r) => w1.once('exit', () => r(true))), new Promise((r) => setTimeout(() => r(false), 5000).unref())]);
+  if (!w1ended) await w1.terminate();   // so a failure here fails, rather than holding the file open
+  assert.equal(w1ended, true, 'the worker that answered was ended');
   assert.ok(here && there);
   assert.deepStrictEqual(there, here);
   assert.deepEqual(paths, ['worker'], 'sealed in the worker, not by the fallback');
@@ -1917,18 +1923,37 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
   const silent = path.join(os.tmpdir(), `silent-seal-worker-${process.pid}.js`);
   fs.writeFileSync(silent, "require('node:worker_threads').parentPort.on('message', () => {});\n");
   try {
-    const late = await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, workerFile: silent, waitMs: 300 });
+    let worker = null;
+    const late = await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, workerFile: silent, waitMs: 300, onWorker: (w) => { worker = w; } });
     assert.deepStrictEqual(bf.openManifest(k.member.sk, pub, k.ctx, late), here);
     assert.equal(paths[paths.length - 1], 'here no-answer');
+    // The worker that never answered is ended, not left running.
+    const ended = await Promise.race([new Promise((r) => worker.once('exit', () => r(true))), new Promise((r) => setTimeout(() => r(false), 5000).unref())]);
+    if (!ended) await worker.terminate();   // so a failure here fails, rather than holding the file open
+  assert.equal(ended, true, 'the silent worker was ended');
   } finally { fs.rmSync(silent, { force: true }); }
   // A manifest the seal refuses: the worker's refusal carries the same message as a seal here.
   let mine; try { bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, [1]); } catch (err) { mine = err.message; }
   const before = paths.length;
   await assert.rejects(snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, [1], { report }), (err) => err.message === mine);
   assert.deepEqual(paths.slice(before), ['worker'], 'refused by the worker itself');
-  // A manifest that cannot be handed over (JSON.stringify throws on a BigInt): no worker is started, and the seal here
-  // refuses it as it always did.
-  const b2 = paths.length;
-  await assert.rejects(snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, { n: 1n }, { report }));
-  assert.deepEqual(paths.slice(b2), ['here not-sent']);
+  // Values JSON.stringify would quietly rewrite (and a BigInt it throws on) are not handed to the worker: the seal here
+  // refuses each, with the same message as ever, so bad content stays a loud failure, never a changed backup.
+  for (const bad of [{ b: undefined }, { a: -0 }, { a: NaN }, { a: new Date(0) }, { n: 1n }, { a: [1, undefined] }]) {
+    let theirs; try { bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, bad); } catch (err) { theirs = err.message; }
+    assert.ok(theirs, `premise: the seal here refuses ${String(Object.keys(bad))}`);
+    const b2 = paths.length;
+    await assert.rejects(snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, bad, { report }), (err) => err.message === theirs);
+    assert.deepEqual(paths.slice(b2), ['here not-sent']);
+  }
+  // A worker that ends without answering (exits on its message): sealed here at once, well inside the wait.
+  const quits = path.join(os.tmpdir(), `quitting-seal-worker-${process.pid}.js`);
+  fs.writeFileSync(quits, "require('node:worker_threads').parentPort.once('message', () => process.exit(0));\n");
+  try {
+    const t0 = Date.now();
+    const out = await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, workerFile: quits, waitMs: 60000 });
+    assert.deepStrictEqual(bf.openManifest(k.member.sk, pub, k.ctx, out), here);
+    assert.equal(paths[paths.length - 1], 'here worker-ended');
+    assert.ok(Date.now() - t0 < 30000, 'not left to the wait');
+  } finally { fs.rmSync(quits, { force: true }); }
 });

@@ -983,9 +983,30 @@ async function snapshotInner(input, deps, added, state, fail) {
    seal (one block of 1.6 to 1.8 s at 477,000 chunks, measured). The main thread keeps one JSON.stringify of the manifest
    and the copy of that string into the worker's message. The worker parses it and seals it as sealManifest would here; a
    seal error comes back as a throw, as it would here. A worker that cannot start, ends without answering, or does not
-   answer within SEAL_WAIT_MS seals here instead: never no seal. opts.report(how), told 'worker' or 'here', says which
-   sealed (the caller flags a run sealed here; tests check the path). opts.workerFile and opts.waitMs: tests only. */
+   answer within SEAL_WAIT_MS seals here instead: never no seal. opts.report(how, why), told 'worker', or 'here' with a
+   reason below, says which sealed (the caller flags a run sealed here; tests check the path). opts.workerFile, opts.waitMs
+   and opts.onWorker: tests only. */
 const SEAL_WAIT_MS = 10 * 60 * 1000;
+/* JSON.stringify would quietly rewrite values sealManifest's canonicalJson refuses (undefined dropped, NaN to null, -0 to
+   0, a Date to a string), and the worker would then seal the rewritten manifest. This replacer refuses them instead, so
+   such a manifest is sealed here, where canonicalJson refuses it as it always did. It reads the value before toJSON
+   (this[key]). Measured: about 60 to 150 ms more than a plain stringify at 477,000 chunks. Not mirrored, because each
+   needs a look at every object's own keys: an array's extra properties, symbol keys and hidden properties, which
+   JSON.stringify drops; the snapshot builds none of them. */
+function sealable(key, value) {
+  const v = this[key];
+  if (v === null || typeof v === 'string' || typeof v === 'boolean') return value;
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v) || Object.is(v, -0) || (Number.isInteger(v) && !Number.isSafeInteger(v))) throw new Error('not sealable');
+    return value;
+  }
+  if (Array.isArray(v)) return value;
+  if (typeof v === 'object') {
+    const proto = Object.getPrototypeOf(v);
+    if (proto === Object.prototype || proto === null) return value;
+  }
+  throw new Error('not sealable');   // undefined, a function, a symbol, a bigint, a Date or any other class
+}
 function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
   const report = typeof opts.report === 'function' ? opts.report : () => {};
   const file = opts.workerFile || require('node:path').join(__dirname, 'backupseal-worker.js');
@@ -1003,8 +1024,9 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
       try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); }
     };
     let json;
-    try { json = JSON.stringify(manifest); } catch { here('not-sent'); return; }   // before any worker is started
+    try { json = JSON.stringify(manifest, sealable); } catch { here('not-sent'); return; }   // before any worker starts
     try { w = new (require('node:worker_threads').Worker)(file); } catch { w = null; here('no-worker'); return; }
+    if (typeof opts.onWorker === 'function') opts.onWorker(w);   // tests only: to see the worker end
     w.once('message', (m) => {
       if (settled) return;
       done();
@@ -1020,8 +1042,8 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
     timer = setTimeout(() => { if (!settled) here('no-answer'); }, waitMs);
     try {
       w.postMessage({ memberPk: new Uint8Array(memberPk), deviceKey, ctx, json });
-    } catch { if (!settled) here('not-sent'); }
-    json = null;   // not held past the post, so a fallback seal does not also hold it
+      json = null;   // not held past the post, so a fallback seal does not also hold it
+    } catch { json = null; if (!settled) here('not-sent'); }
   });
 }
 
