@@ -369,7 +369,7 @@ test('#7746 item 2: a company run keeps at most its allowance (200000) in the in
 });
 
 test('#7746 item 3: a measured stop is kept in the state and handed to the next run; a run that finishes forgets it', async () => {
-  const stopShape = { files: 3, bytes: 900, budget: 5000, at: NOW };
+  const stopShape = { files: 3, bytes: 900, budget: 5000, at: NOW, roots: 'ab'.repeat(8) };
   const take = taker({ ok: false, tooLarge: true, personActs: true, because: 'too many pieces', measuredStop: stopShape, added: new Map(), bucket: null },
     { ok: false, tooLarge: true, personActs: true, stoppedBefore: true, because: 'did not try again', added: new Map(), bucket: null },
     { ok: true, added: added(WEEK, 2), bucket: 'b1' });
@@ -384,9 +384,11 @@ test('#7746 item 3: a measured stop is kept in the state and handed to the next 
 });
 
 test('#7746 item 3: a kept stop older than 28 days is not handed on, so one real attempt is made', async () => {
-  const old = { files: 3, bytes: 900, budget: 5000, at: NOW - 29 * 24 * 3600 * 1000 };
-  const fresh = { files: 3, bytes: 900, budget: 5000, at: NOW - 27 * 24 * 3600 * 1000 };
-  for (const [stop, handed] of [[old, false], [fresh, true]]) {
+  const base = { files: 3, bytes: 900, budget: 5000, roots: 'ab'.repeat(8) };
+  const old = { ...base, at: NOW - 29 * 24 * 3600 * 1000 };
+  const fresh = { ...base, at: NOW - 27 * 24 * 3600 * 1000 };
+  const ahead = { ...base, at: NOW + 3600 * 1000 };   // measured by a clock that was ahead
+  for (const [stop, handed] of [[old, false], [fresh, true], [ahead, false]]) {
     wipe();
     const first = taker({ ok: true, added: added(WEEK, 1), bucket: 'b1' });
     await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: first, planGb: 25 }));

@@ -738,12 +738,15 @@ async function snapshotInner(input, deps, added, state, fail) {
   const listedBytes = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : f.size), 0);
   const over = () => estimate + reserve > budget;
   if (planGb) {
-    measuredOn = { files: listed.files.length, bytes: listedBytes, budget, at: t };
+    // `roots`: which folders the listing came from (a short hash of their paths, sorted), so another set of folders of
+    // the same size is tried rather than stopped.
+    const rootsId = crypto.createHash('sha256').update(JSON.stringify(roots.map((r) => String(r.path)).sort())).digest('hex').slice(0, 16);
+    measuredOn = { files: listed.files.length, bytes: listedBytes, budget, at: t, roots: rootsId };
     const prior = input.priorStop;
     // A listing at least as large as the one a run already stopped on (files and bytes), under the same manifest budget,
     // would stop again after spending the week's chunks: this run stops now, before anything is uploaded. Smaller in
     // either, or another budget, it tries. No measuredStop rides this answer: the stop kept is the one measured.
-    if (prior && prior.budget === budget && Number.isSafeInteger(prior.files) && Number.isSafeInteger(prior.bytes) && measuredOn.files >= prior.files && measuredOn.bytes >= prior.bytes) {
+    if (prior && prior.budget === budget && prior.roots === rootsId && Number.isSafeInteger(prior.files) && Number.isSafeInteger(prior.bytes) && measuredOn.files >= prior.files && measuredOn.bytes >= prior.bytes) {
       return fail('your files are still split into more pieces than one backup can list, so this backup did not try again. Move some small files out of your agents\' folders and projects', { tooLarge: true, personActs: true, stoppedBefore: true });
     }
   }

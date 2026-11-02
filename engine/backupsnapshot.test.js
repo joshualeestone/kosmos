@@ -801,7 +801,8 @@ test('#7746 item 3: a measured stop names its listing; a later run no smaller st
     const st2 = store();
     const r = await take(k, w.root, st2, { deps });
     assert.equal(r.tooLarge, true, r.because); assert.ok(st2.batches.length > 0, 'premise: the first stop spent');
-    assert.deepEqual(r.measuredStop, { files: 1, bytes: 16 * 1024 * 1024, budget, at: r.measuredStop.at });
+    assert.deepEqual(r.measuredStop, { files: 1, bytes: 16 * 1024 * 1024, budget, at: r.measuredStop.at, roots: r.measuredStop.roots });
+    assert.match(r.measuredStop.roots, /^[0-9a-f]{16}$/);
     assert.ok(Number.isSafeInteger(r.measuredStop.at) && r.measuredStop.at > 0);
     // The same listing again: stopped before any batch, and said as not tried again.
     const st3 = store();
@@ -814,6 +815,10 @@ test('#7746 item 3: a measured stop names its listing; a later run no smaller st
     const st5 = store();
     const other = await take(k, w.root, st5, { deps, input: { priorStop: Object.assign({}, r.measuredStop, { budget: budget + 1 }) } });
     assert.equal(other.stoppedBefore, undefined); assert.ok(st5.batches.length > 0);
+    // Measured on other folders: the run tries.
+    const st6 = store();
+    const moved = await take(k, w.root, st6, { deps, input: { priorStop: Object.assign({}, r.measuredStop, { roots: '0'.repeat(16) }) } });
+    assert.equal(moved.stoppedBefore, undefined); assert.ok(st6.batches.length > 0);
     // A person moved files out (the stop was larger than this listing): the run tries.
     const st4 = store();
     const tried = await take(k, w.root, st4, { deps, input: { priorStop: Object.assign({}, r.measuredStop, { files: 2 }) } });

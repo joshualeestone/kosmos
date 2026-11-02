@@ -52,11 +52,14 @@ test('#7746: the async read and write answer exactly as the sync ones do', async
 
 test('#7746 item 3: a measured stop round-trips through the file; a malformed one is dropped, not refused', async () => {
   const [org, member] = ids();
-  bs.writeState(org, member, Object.assign(stateOf(2), { stop: { files: 4, bytes: 10, budget: 99, at: 1800000000000 } }));
-  assert.deepEqual(bs.readState(org, member).state.stop, { files: 4, bytes: 10, budget: 99, at: 1800000000000 });
-  bs.writeState(org, member, Object.assign(stateOf(2), { stop: { files: 0, bytes: -1 } }));
-  const r = bs.readState(org, member);
-  assert.equal(r.ok, true); assert.equal('stop' in r.state, false);
+  const good = { files: 4, bytes: 10, budget: 99, at: 1800000000000, roots: 'cd'.repeat(8) };
+  bs.writeState(org, member, Object.assign(stateOf(2), { stop: good }));
+  assert.deepEqual(bs.readState(org, member).state.stop, good);
+  for (const bad of [{ files: 0 }, { bytes: -1 }, { budget: 0 }, { at: 1.5 }, { roots: 'xyz' }, { roots: undefined }]) {
+    bs.writeState(org, member, Object.assign(stateOf(2), { stop: Object.assign({}, good, bad) }));
+    const r = bs.readState(org, member);
+    assert.equal(r.ok, true); assert.equal('stop' in r.state, false, JSON.stringify(bad));
+  }
 });
 
 test('#7746: the async write refuses what the sync one refuses, and a file that is not ours', async () => {

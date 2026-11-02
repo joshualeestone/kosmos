@@ -218,7 +218,8 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
       deviceKey: dk.privateKey, index: p.index, bucket: p.bucket, ...(k.proofKey ? { proofKey: k.proofKey } : {}),
       // kosmos#7746 item 3: a kept stop is handed on for STOP_KEPT_MS, then one real attempt is made again, so a stop that
       // was wrong (a borderline estimate) costs at most one try in that time.
-      ...(ref.state.stop && now() - ref.state.stop.at < STOP_KEPT_MS ? { priorStop: ref.state.stop } : {}),
+      // A stop dated after now (a clock that was ahead) counts as expired too, so it cannot outlive the 28 days.
+      ...(ref.state.stop && now() >= ref.state.stop.at && now() - ref.state.stop.at < STOP_KEPT_MS ? { priorStop: ref.state.stop } : {}),
       ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },
     }, snapshotDeps(deps, async (added, bucket) => {
       // Never stops the run: a checkpoint that cannot be kept only loses what a kill would have lost anyway.
