@@ -759,7 +759,7 @@ test('a good run names what it left out, to a limit, beside the whole count', as
     const mixed = await take(k, links, store(), { input: { root: undefined, roots: [{ name: 'links', path: links }, { name: 'work', path: w.root }] }, deps: { maxFile: 1500 } });
     assert.equal(mixed.ok, true, mixed.because);
     assert.ok(mixed.skipped > 200);
-    assert.ok(mixed.skippedList.some((x) => /big-/.test(x.path)), JSON.stringify(mixed.skippedList.slice(0, 2)));
+    assert.match(mixed.skippedList[0].path, /big/, JSON.stringify(mixed.skippedList.slice(0, 2)));
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
