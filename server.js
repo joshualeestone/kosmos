@@ -12860,8 +12860,8 @@ const server = http.createServer(async (req, res) => {
            the member keys in memory. The last restore's file names go with it. */
         else if (kind === 'off') {
           const rj = require('./engine/personalrestorejob');
-          try { rj.stop(); await rj.untilIdle(5000); rj.forget(); } catch { /* nothing was running */ }
-          r = await pb.switchOff();
+          try { rj.offStarting(); rj.stop(); await rj.untilIdle(5000); rj.forget(); } catch { /* nothing was running */ }
+          try { r = await pb.switchOff(); } finally { try { rj.offDone(); } catch { /* gone */ } }
         }
         /* kosmos#7404: the list and a restore of files, each in a child process off this event loop. The job shapes
            both answers by name, and a restore answers as soon as it has started: GET /api/personal-backup/files says

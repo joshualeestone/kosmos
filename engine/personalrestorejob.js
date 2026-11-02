@@ -13,8 +13,9 @@
  *                 { namesHidden }, the counts of moved, kept, held back and failed files and not their names.
  *   stop()        ends the restore that is running; what it had already written stays in its new Kosmos.
  *   untilIdle(ms) resolves true once no restore runs, or false after ms.
- *   forget()      personal backup was turned off: drops the last restore's answer (and that of one still ending)
- *                 and ends any list that is running.
+ *   forget()      personal backup was turned off: stops a running restore, drops the last answer (and that of
+ *                 one still ending) and ends any list. offStarting()/offDone() bracket Off, and start() refuses
+ *                 between them.
  * A child also exits by itself when the board goes, because its IPC channel closes.
  *
  * Known limits, on #7404 for the screen slice:
@@ -171,6 +172,7 @@ function baseOfBoard() {
 function start(key, deps = {}) {
   if (typeof key !== 'string' || !key || key.length > 1024) return refused('That backup is not on Kosmos+ any more.', 'no_such_backup');
   if (restoring) return refused('A restore is already running on this computer.', 'restore_running');
+  if (turningOff) return refused('Personal backup is being turned off, so nothing was restored.', 'not_on');
   const mine = { startedAt: Date.now(), stopped: false, child: null };
   restoring = mine;
   /* The worlds' base is the board's, read here: the child cannot see which world this board booted into
@@ -236,11 +238,16 @@ function untilIdle(ms) {
 /* Drops the last answer, and the answer of a restore still ending, so neither comes back after Off. Ends any list too. */
 function forget() {
   last = null;
-  if (restoring) restoring.forgotten = true;
-  for (const c of children) { if (!restoring || c !== restoring.child) { try { c.kill(); } catch { /* gone */ } } }
+  if (restoring) { restoring.forgotten = true; stop(); }
+  for (const c of children) { try { c.kill(); } catch { /* gone */ } }
 }
 
-/* Tests: forget the last answer and anything in flight. */
-function resetForTests() { endChildren(); children.clear(); listing = null; restoring = null; last = null; }
+/* While Off runs, no restore may start: Off's stop and forget would not cover it. offDone() lets them start again. */
+let turningOff = false;
+function offStarting() { turningOff = true; }
+function offDone() { turningOff = false; }
 
-module.exports = { list, start, status, stop, untilIdle, forget, ROUTES, shapeList, shapeRestore, _resetForTests: resetForTests };
+/* Tests: forget the last answer and anything in flight. */
+function resetForTests() { endChildren(); children.clear(); listing = null; restoring = null; last = null; turningOff = false; }
+
+module.exports = { list, start, status, stop, untilIdle, forget, offStarting, offDone, ROUTES, shapeList, shapeRestore, _resetForTests: resetForTests };
