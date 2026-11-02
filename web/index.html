@@ -71968,7 +71968,8 @@ function tkHoldShowWhen() {
 }
 // kosmos#7749 review 1: the form has two fields, the wait and the reason, followed and saved separately (see the repaint and Save).
 function tkHoldBaseline() { try { return JSON.parse(document.getElementById('tk-hold-for').dataset.stored || '{}'); } catch { return {}; } }
-function tkHoldSameWait(a, b) { return (a.kind || '') === (b.kind || '') && (a.task || null) === (b.task || null) && (a.at || null) === (b.at || null); }
+// Times compare as the picker shows them: a time in the repeated autumn hour does not parse back to itself.
+function tkHoldSameWait(a, b) { return (a.kind || '') === (b.kind || '') && (a.task || null) === (b.task || null) && (a.at ? tkHoldLocalValue(a.at) : null) === (b.at ? tkHoldLocalValue(b.at) : null); }
 function tkHoldDirty() {
   const c = tkHoldChoice();
   // kosmos#7749 review 1: a reason can be saved on a hold whose time has passed: the picker is checked only if it was changed.
@@ -72028,10 +72029,10 @@ function tkPaintHoldUntil(p, t) {
     sel.dataset.stored = stored;
   } else if (edited && sel.dataset.stored !== stored) {
     // kosmos#7749 review 1: the field the person has not touched keeps following what is stored.
-    const base = tkHoldBaseline(), now = tkHoldStoredChoice(t), mine = tkHoldChoice();
+    const base = tkHoldBaseline(), now = tkHoldStoredChoice(t), mine = JSON.parse(choiceNow);   // read before the options were rebuilt
     const why = document.getElementById('tk-hold-why-in');
     const whyTyped = mine.why !== (base.why || '');
-    if (tkHoldSameWait(mine, base)) tkHoldShowChoice({ ...now, why: why.value }); 
+    if (tkHoldSameWait(mine, base)) tkHoldShowChoice({ ...now, why: why.value });
     if (!whyTyped) why.value = now.why;
     sel.dataset.stored = stored;
   }
