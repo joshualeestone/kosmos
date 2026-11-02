@@ -8255,7 +8255,8 @@ const server = http.createServer(async (req, res) => {
       let badgeSettings;
       try { badgeSettings = store.readSettings(); } catch { badgeSettings = {}; }
       // kosmos#7788 review 5: tasks an agent held for the person are in Needs Your Decision with no agent asking.
-      try { counts.heldForYou = tasks.heldForPersonCount(projectList); } catch { counts.heldForYou = 0; }
+      // Review 6: less those whose holder the needs-you count already carries (the same needsPerson rule).
+      try { counts.heldForYou = tasks.heldForPersonCount(projectList, new Set(rows.filter((r) => r && needsPerson(r)).map((r) => r.sessionName))); } catch { counts.heldForYou = 0; }
       counts.waiting = waitingBadgeOn(badgeSettings) ? waitingTotal(counts, rows) : null;
       body = strictStringify({   // #7108: never a lone surrogate (the iPhone polls this route and refuses one whole)
         ...snap, agents: rows, counts, connection, version, dependsOnClaude,

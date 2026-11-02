@@ -2216,14 +2216,18 @@ function taskState(task) {
  * A trust wait is counted by the same rule, but today it never reaches the roster this is given (the
  * status route builds those rows offline, after snapshot), as projects.js says of the project page.
  */
-/* kosmos#7788 review 5: how many open tasks, in projects not archived, an agent held for the person. They are in Needs
-   Your Decision without any agent asking (taskState), so the app icon's count adds them (status.waitingTotal). */
-function heldForPersonCount(projectList) {
+/* kosmos#7788 review 5: how many open tasks, in projects not archived, an agent held for the person, for the app icon's
+   count (status.waitingTotal). Review 6: a task one of whose open holders is in `asking` (session names the icon already
+   counts as needing the person) is left out, so one agent's question is not counted twice. */
+function heldForPersonCount(projectList, asking) {
+  const counted = asking instanceof Set ? asking : new Set();
   let n = 0;
   for (const p of Array.isArray(projectList) ? projectList : []) {
     if (!p || p.archived === true) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
-      if (t && isOnHold(t) && t.onHoldForPerson === true && !progressOf(t).closed) n += 1;
+      if (!t || !isOnHold(t) || t.onHoldForPerson !== true || progressOf(t).closed) continue;
+      if (partsOf(t).some((x) => x && x.who && !x.closedAt && counted.has(x.who))) continue;
+      n += 1;
     }
   }
   return n;
