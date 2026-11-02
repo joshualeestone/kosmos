@@ -1139,12 +1139,13 @@ function confirmedVerdict(placed, result) {
    'unread', 'empty' (two reads agree the box is empty; forgotten), 'changed' (it shows something else, never
    pressed; remembered), 'gate' (no roster, a hold, or a delivery gate refused), 'pane', or 'unsent' (tmux refused the
    Enter, or the watch did not see it go; remembered, and its day starts again only when the box still shows it).
-   The waits do not hold the board; its tmux reads are synchronous, as a delivery's are. */
-/* `wide` (kosmos#6717, the stuck-input sweep only): a box that has scrolled may also be decided by the wider end rule
-   (any end of our line at least SCROLLED_MIN long), as a delivery decides it; the sweep asks for it only on a box over
-   STUCK_ROWS_MAX. A pane resized since the line was left
-   wraps the same end to a different length, and the delivery that would then press it never comes: posts are held
-   while the box holds text (#6256), so the agent stayed deaf behind its own line. The #6436 retries stay exact. */
+   The waits do not hold the board; its tmux reads are synchronous, as a delivery's are.
+   `wide` (kosmos#6717, the stuck-input sweep only, on a box over STUCK_ROWS_MAX): the box may also be decided by the
+   wider end rule (any end of our line at least SCROLLED_MIN long), as a delivery decides it. A pane resized since the
+   line was left wraps the same end to a different length, and the delivery that would press it never comes: posts
+   are held while the box holds text (#6256). The cost is the one rememberedShows states: rows above the visible end,
+   cut or typed by a person, are not seen, so what is left of a line a person trimmed from its start is sent. The
+   #6436 retries stay exact. */
 async function pressRememberedNow(target, card, wide = false) {
   const kept = recallUnsent(target);
   if (!kept) return 'gone';
