@@ -66,61 +66,79 @@ function pushedStalls(names, { answer = true } = {}) {
 const recover = (name, said, at) => { ds.note(name, PLACED, at); return ds.endsToSay(said); };
 
 test.beforeEach(() => ds.resetForTests());
+/* The push goes out at T0 + 40 min (pushedStalls), so the earliest an ack can go is 25 minutes later. */
+const PUSH = T0 + 40 * MIN;
+const DUE = PUSH + 25 * MIN;
 
-test('one pushed stall that recovers is acked once, with the id the push carried', () => {
+test('one pushed stall that recovers is acked once, 25 minutes after the push, with the id the push carried', () => {
   const { said, ev } = pushedStalls(['a1']);
-  assert.deepEqual(ds.acksDue([], T0 + 41 * MIN), [], 'acked before anything recovered');
-  const ends = recover('a1', said, T0 + 50 * MIN);
+  const ends = recover('a1', said, PUSH + 5 * MIN);
   assert.equal(ends.length, 1);
-  assert.deepEqual(ds.acksDue(ends, T0 + 50 * MIN), [ev.id]);
-  assert.deepEqual(ds.acksDue([], T0 + 51 * MIN), [], 'acked twice');
+  assert.deepEqual(ds.acksDue(ends, PUSH + 5 * MIN), [], 'acked before the coordinator would read it');
+  assert.deepEqual(ds.acksDue([], DUE - MIN), [], 'acked a minute early');
+  assert.deepEqual(ds.acksDue([], DUE), [ev.id]);
+  assert.deepEqual(ds.acksDue([], DUE + MIN), [], 'acked twice');
 });
 
 test('a push covering several agents is acked only when the last of them recovers', () => {
   const { said, ev } = pushedStalls(['m1', 'm2', 'm3']);
   assert.match(ev.agent, /and 2 more$/, 'precondition: the push named the others');
-  assert.deepEqual(ds.acksDue(recover('m1', said, T0 + 45 * MIN), T0 + 45 * MIN), [], 'acked while m2 and m3 were still stalled');
-  assert.deepEqual(ds.acksDue(recover('m3', said, T0 + 46 * MIN), T0 + 46 * MIN), [], 'acked while m2 was still stalled');
-  assert.deepEqual(ds.acksDue(recover('m2', said, T0 + 47 * MIN), T0 + 47 * MIN), [ev.id]);
+  assert.deepEqual(ds.acksDue(recover('m1', said, PUSH + 5 * MIN), DUE), [], 'acked while m2 and m3 were still stalled');
+  assert.deepEqual(ds.acksDue(recover('m3', said, DUE + MIN), DUE + MIN), [], 'acked while m2 was still stalled');
+  assert.deepEqual(ds.acksDue(recover('m2', said, DUE + 2 * MIN), DUE + 2 * MIN), [ev.id]);
 });
 
-test('an agent the push covered that is failing again holds the ack until it stops', () => {
+test('an agent that recovers and stalls again before the ack is due keeps its email', () => {
   const { said, ev } = pushedStalls(['f1']);
-  ds.note('f1', PLACED, T0 + 45 * MIN);
-  const ends = ds.endsToSay(said);
-  ds.note('f1', FAIL, T0 + 46 * MIN);   // a new streak no push covered: the old push's email is its only warning
-  assert.deepEqual(ds.acksDue(ends, T0 + 46 * MIN), [], 'acked while the agent was failing again');
-  ds.note('f1', PLACED, T0 + 50 * MIN);   // that streak ends (never said, so it reports no end)
-  assert.deepEqual(ds.acksDue([], T0 + 51 * MIN), [ev.id], 'not acked once it stopped failing');
+  const ends = recover('f1', said, PUSH + 5 * MIN);
+  assert.deepEqual(ds.acksDue(ends, PUSH + 5 * MIN), [], 'acked before it was due');
+  ds.note('f1', FAIL, PUSH + 8 * MIN);   // stalled again: the old push's email is its only warning (no new push for a day)
+  assert.deepEqual(ds.acksDue([], DUE), [], 'acked while the agent was failing again');
+  ds.note('f1', PLACED, DUE + 2 * MIN);   // that streak ends (never said, so it reports no end)
+  assert.deepEqual(ds.acksDue([], DUE + 3 * MIN), [ev.id], 'not acked once it stopped failing');
 });
 
-test('nothing is acked for a push that never landed, after a restart, or for an agent that never reports an end', () => {
-  const failed = pushedStalls(['x1']);
-  failed.ev.onResult(false);   // Kosmos+ did not take it (tellStalls' untold)
-  assert.deepEqual(ds.acksDue(recover('x1', failed.said, T0 + 50 * MIN), T0 + 50 * MIN), [], 'acked a push that never landed');
+test('a push whose answer was a failure is still acked once it is over (the coordinator may hold it)', () => {
+  const { said, ev } = pushedStalls(['x1']);
+  ev.onResult(false);   // Kosmos+ answered badly (tellStalls' untold); it may still have stored the push
+  assert.deepEqual(ds.acksDue(recover('x1', said, PUSH + 5 * MIN), DUE), [ev.id]);
+});
 
-  ds.resetForTests();
-  const before = pushedStalls(['x2']);
+test('a push the sender did not take opens nothing', () => {
+  const said = new Map();
+  for (let i = 0; i < 4; i += 1) ds.note('n1', FAIL, T0 + i * MIN);
+  ds.stallsToSay(['n1'], said, { now: PUSH });
+  let sent = 0;
+  ds.tellStalls([stalledCard('n1')], { now: PUSH, send: () => { sent += 1; return false; } });
+  assert.equal(sent, 1, 'precondition: the push was offered');
+  assert.deepEqual(ds.acksDue(recover('n1', said, PUSH + 5 * MIN), DUE), [], 'acked a push that was never handed over');
+});
+
+test('nothing is acked after a restart, or for an agent that never reports an end', () => {
+  pushedStalls(['x2']);
   ds.resetForTests();   // a board restart: nothing in memory
-  ds.note('x2', FAIL, T0 + 41 * MIN);
-  ds.note('x2', PLACED, T0 + 50 * MIN);
-  assert.deepEqual(ds.acksDue(ds.endsToSay(before.said), T0 + 50 * MIN), [], 'acked after a restart');
+  const said = new Map();
+  for (let i = 0; i < 4; i += 1) ds.note('x2', FAIL, T0 + i * MIN);
+  assert.equal(ds.stallsToSay(['x2'], said, { now: PUSH }).length, 1, 'precondition: the same stall is said again');
+  const ends = recover('x2', said, PUSH + 5 * MIN);
+  assert.equal(ends.length, 1, 'precondition: its end is reported, so only the lost push can hold the ack');
+  assert.deepEqual(ds.acksDue(ends, DUE), [], 'acked a push made before the restart');
 
   ds.resetForTests();
   const reset = pushedStalls(['x3']);
   ds.reset('x3');   // the card speaks for itself now; no end is ever reported
-  assert.deepEqual(ds.acksDue(ds.endsToSay(reset.said), T0 + 50 * MIN), [], 'acked an agent that never recovered');
+  assert.deepEqual(ds.acksDue(ds.endsToSay(reset.said), DUE), [], 'acked an agent that never recovered');
 
   /* CONTROL: the same shape, recovered, is acked (so the empty answers above are the rules, not a dead function). */
   ds.resetForTests();
   const ok = pushedStalls(['x4']);
-  assert.deepEqual(ds.acksDue(recover('x4', ok.said, T0 + 50 * MIN), T0 + 50 * MIN), [ok.ev.id]);
+  assert.deepEqual(ds.acksDue(recover('x4', ok.said, PUSH + 5 * MIN), DUE), [ok.ev.id]);
 });
 
-test('an open push older than six hours is dropped, not acked', () => {
+test('an open push older than an hour is dropped, not acked', () => {
   const { said } = pushedStalls(['o1']);
-  assert.deepEqual(ds.acksDue([], T0 + 40 * MIN + 6 * 60 * MIN), [], 'kept past six hours');
-  assert.deepEqual(ds.acksDue(recover('o1', said, T0 + 7 * 60 * MIN), T0 + 7 * 60 * MIN), [], 'acked after it was dropped');
+  assert.deepEqual(ds.acksDue([], PUSH + 60 * MIN), [], 'kept past an hour');
+  assert.deepEqual(ds.acksDue(recover('o1', said, PUSH + 61 * MIN), PUSH + 61 * MIN), [], 'acked after it was dropped');
 });
 
 test('acked() posts the id, cut as the push cut it, to /v1/mac/notify-ack with the notify token', () => {
@@ -146,6 +164,9 @@ test('acked() sends nothing with no token, an empty id, or on a computer marked 
   const kept = fs.readFileSync(notifyFile, 'utf8');
   fs.writeFileSync(notifyFile, JSON.stringify({ on: true, notifyId: NOTIFY_ID }));
   try { assert.equal(pn.acked('stall:0:x:y'), false); } finally { fs.writeFileSync(notifyFile, kept); }
+  const plus = fs.readFileSync(remote.FILE, 'utf8');
+  fs.writeFileSync(remote.FILE, JSON.stringify({ on: false }));   // #6488: Kosmos+ switched off on this computer
+  try { assert.equal(pn.acked('stall:0:x:y'), false, 'acked with Kosmos+ switched off here'); } finally { fs.writeFileSync(remote.FILE, plus); }
   assert.equal(posts.length, 0);
   /* CONTROL: switched OFF but still holding the token, it acks (an email about something over is still wrong). */
   fs.writeFileSync(notifyFile, JSON.stringify({ on: false, notifyId: NOTIFY_ID, token: TOKEN }));

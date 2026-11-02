@@ -638,8 +638,8 @@ function happened(event) {
 
 /** kosmos#7794: tell the coordinator a needs_you push it holds is dealt with (POST /v1/mac/notify-ack, #3540), so its
     deferred email never goes. `eventId` is the id happened() was given; it is cut exactly as happened() cut it, so the
-    coordinator matches the row it stored. Needs the token and the notify id only: a person who turned phone notices
-    off after the push still should not be emailed about something that is over. Returns true when it handed the ack
+    coordinator matches the row it stored. It does not ask the phone switch (a person who turned phone notices off after
+    the push still should not be emailed about something that is over), but it does ask Kosmos+'s. Returns true when it handed the ack
     to the coordinator. Never throws. */
 function acked(eventId) {
   try {
@@ -649,6 +649,7 @@ function acked(eventId) {
     if (!sender && process.env.NODE_TEST_CONTEXT) return false;
     const s = readState();
     if (!s.token || !s.notifyId) return false;
+    if (!plusLive()) return false;   // #6488: Kosmos+ switched off here sends nothing about agents, an ack included
     const sentId = cap(eventId, CAPS.id);
     const body = JSON.stringify(addressed(s.notifyId, { eventId: sentId }));
     (sender || defaultSend)(coordinatorUrl(ACK_ROUTE), { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body, null);
