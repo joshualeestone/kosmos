@@ -4381,6 +4381,22 @@ function sendText(res, code, text) {
   res.writeHead(code, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
   res.end(text);
 }
+/* kosmos#7810: sendJson with an ETag of the body. A read that names the same tag (If-None-Match) gets a bodyless 304,
+   so a phone polling a conversation every 5 s over a weak signal pays for its 100 KB only when something changed.
+   Uncompressed as every API answer is (engine/pagecompress.js); the tag is a hash of bytes the reader already has. */
+function sendJsonTagged(req, res, code, obj) {
+  if (answeredAlready(res, 'sendJsonTagged ' + code)) return;
+  const body = strictStringify(obj);
+  const tag = '"' + crypto.createHash('sha256').update(body).digest('base64url').slice(0, 27) + '"';
+  const asked = String((req && req.headers && req.headers['if-none-match']) || '');
+  if (code === 200 && asked.split(',').map((t) => t.trim()).includes(tag)) {
+    res.writeHead(304, { etag: tag, 'cache-control': 'no-store' });
+    res.end();
+    return;
+  }
+  res.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store', etag: tag });
+  res.end(body);
+}
 function sendJson(res, code, obj) {
   if (answeredAlready(res, 'sendJson ' + code)) return;
   // #7686 review 4: serialise BEFORE the head, so a value that cannot be written (circular, too large) throws with no
@@ -19812,6 +19828,11 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 404, nameRefusalBody(refusal));
       return;
     }
+    /* kosmos#7810: ?tail=N (1 to 200) answers only the newest N, so a phone on a weak signal draws a screenful first. */
+    let tailRaw = null;
+    try { tailRaw = new URL(req.url, ROUTING_BASE).searchParams.get('tail'); } catch { tailRaw = null; }
+    const tailAsked = tailRaw === null ? 200 : (/^\d{1,3}$/.test(tailRaw) ? Number(tailRaw) : NaN);
+    if (!Number.isInteger(tailAsked) || tailAsked < 1 || tailAsked > 200) { sendJson(res, 400, { error: 'tail must be a whole number from 1 to 200' }); return; }
     /**
      * ⚠️ ONE roster read for everything DERIVED BELOW THIS LINE, which is a
      * narrower claim than the one that used to sit here.
@@ -19997,7 +20018,7 @@ const server = http.createServer(async (req, res) => {
         }
       } catch { /* no report: the line stays "Nothing back yet" */ }
     }
-    const TAIL = 200;
+    const TAIL = tailAsked;
     /* kosmos#5841: a conversation that rolled over at the engine's cap continues earlier files; their messages are
        older still, and counted here so "Show earlier messages" reaches them (positions run across the whole chain). */
     /* The current file's first `carried` rows copy the end of the file it continues, so the position of its row i is
@@ -20108,7 +20129,7 @@ const server = http.createServer(async (req, res) => {
       ? chat.permissionCard(view.text) : null;
     // kosmos#7017 part 2: with its fingerprint, which a phone's lock-screen press is checked against before it sends.
     const permCard = permRead ? { ...permRead, request: chat.permissionRequestId(permRead) } : null;
-    sendJson(res, 200, {
+    sendJsonTagged(req, res, 200, {
       messages: permCard
         ? servedRows.map((m) => (m && m.kind === 'question' && !m.reported ? { ...m, permission: permCard } : m))
         : servedRows,
