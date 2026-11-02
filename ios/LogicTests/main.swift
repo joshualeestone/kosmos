@@ -1036,6 +1036,15 @@ do {
     check(get?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/dana/thread" && get?.httpMethod == "GET",
           "the conversation is the board chat's own route")
     check(Board.threadRequest(mac: mac, session: "../status") == nil, "a name the app does not accept builds no request")
+    // kosmos#7810: a small newest page, and the shown window's ETag.
+    let small = Board.threadRequest(mac: mac, session: "dana", tail: Board.threadFirstPage)
+    check(small?.url?.absoluteString == "https://studio.kosmosplus.com/api/agent/dana/thread?tail=30", "the first read asks for the newest 30")
+    check(small?.value(forHTTPHeaderField: "If-None-Match") == nil && get?.value(forHTTPHeaderField: "If-None-Match") == nil,
+          "a read with no tag names none")
+    let tagged = Board.threadRequest(mac: mac, session: "dana", tag: #""abc""#)
+    check(tagged?.value(forHTTPHeaderField: "If-None-Match") == #""abc""# && tagged?.url?.query == nil, "a poll names the shown window's tag, whole window")
+    check(Board.threadRequest(mac: mac, session: "dana", tail: 900)?.url?.query == "tail=200"
+          && Board.threadRequest(mac: mac, session: "dana", tail: 0)?.url?.query == "tail=1", "a tail is kept to what the Mac accepts")
     let post = Board.sendRequest(mac: mac, session: "dana", text: "  Hello there \n")
     let body = post?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
     check(post?.httpMethod == "POST" && post?.url?.path == "/api/agent/dana/thread" && body?["text"] as? String == "Hello there",
@@ -1129,6 +1138,7 @@ do {
     // What a read says: the conversation, the Mac's own reason, or no answer.
     let read = { (s: Int, b: String?) in Board.readThread(status: s, data: b.map { Data($0.utf8) }) }
     if case .thread = read(200, #"{"messages":[]}"#) { check(true, "a conversation") } else { check(false, "a conversation") }
+    check(read(304, nil) == .unchanged && read(304, "") == .unchanged, "kosmos#7810: a 304 is the shown conversation, unchanged, never no answer")
     check(read(200, #"{"messages":null,"historyBecause":"we could not read this conversation"}"#) == .refused("we could not read this conversation"),
           "a history the Mac could not read says so, not that the Mac is not answering")
     check(read(404, #"{"error":"that name belongs to another session"}"#) == .refused("that name belongs to another session"),
@@ -1945,6 +1955,10 @@ final class FakeBoardWorld {
     // kosmos#7008: one agent's conversation (GET) and the answers to sends (POST, each takes the first queued; nil is no
     // answer at all), with the texts posted.
     var threadAnswer: (Int, String)? = (200, #"{"messages":[],"olderCount":0}"#)
+    // kosmos#7810: the conversation's ETag (answered with every read, and a 304 to a read naming it), and every read's
+    // query and If-None-Match.
+    var threadETag: String?
+    var threadReads: [(query: String, tag: String)] = []
     var sendQueue: [(Int, String)?] = []
     var posted: [String] = []
     // kosmos#7020: each post's `request` ("" when it named none), beside `posted`.
@@ -2066,7 +2080,13 @@ final class FakeBoardWorld {
                     let next: (Int, String)? = sendQueue.isEmpty ? (200, #"{"delivery":{"state":"placed","at":"2026-10-23T20:00:00.000Z"},"recorded":true}"#) : sendQueue.removeFirst()
                     return next.map { answer($0.0, $0.1) }
                 }
+                let named = r.value(forHTTPHeaderField: "If-None-Match") ?? ""
+                threadReads.append((url.query ?? "", named))
                 onThreadRead?()
+                if let tag = threadETag {
+                    if named == tag { return (Data(), HTTPURLResponse(url: url, statusCode: 304, httpVersion: nil, headerFields: ["ETag": tag])!) }
+                    return threadAnswer.map { (Data($0.1.utf8), HTTPURLResponse(url: url, statusCode: $0.0, httpVersion: nil, headerFields: ["Content-Type": "application/json", "ETag": tag])!) }
+                }
                 return threadAnswer.map { answer($0.0, $0.1) }
             }
             if url.path.hasSuffix("/thread/older") {
@@ -2096,13 +2116,16 @@ let testFiles = FileManager.default.temporaryDirectory.appendingPathComponent("k
 let testUploads = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-logic-tests-uploads-\(getpid())", isDirectory: true)
 // And for kept agent pictures (#7677), one folder per client under it.
 let testAvatars = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-logic-tests-avatars-\(getpid())", isDirectory: true)
+// kosmos#7810: and for kept conversations, one folder per client under it.
+let testThreads = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-logic-tests-threads-\(getpid())", isDirectory: true)
 
 @MainActor
 func boardLoopTests() async {
     defer { try? FileManager.default.removeItem(at: testAvatars) }   // kosmos#7677 review 2: every client's picture folder
+    defer { try? FileManager.default.removeItem(at: testThreads) }   // kosmos#7810
     // kosmos#7677: every client keeps pictures in a folder of its own (a fresh one unless `avatars` names one, as a relaunch
     // of the same phone would), never in this Mac's caches folder.
-    func make(_ session: String?, kept: String? = nil, avatars: URL? = nil) -> (BoardClient, FakeBoardWorld, MemoryStore, MemoryStore) {
+    func make(_ session: String?, kept: String? = nil, avatars: URL? = nil, threads: URL? = nil) -> (BoardClient, FakeBoardWorld, MemoryStore, MemoryStore) {
         let world = FakeBoardWorld()
         let sessions = MemoryStore(session)
         let macs = MemoryStore(kept)
@@ -2150,7 +2173,8 @@ func boardLoopTests() async {
                                             },
                                             uploads: testUploads,
                                             deviceKey: { world.deviceKey },
-                                            avatars: avatars ?? testAvatars.appendingPathComponent(UUID().uuidString, isDirectory: true)))
+                                            avatars: avatars ?? testAvatars.appendingPathComponent(UUID().uuidString, isDirectory: true),
+                                            threads: threads ?? testThreads.appendingPathComponent(UUID().uuidString, isDirectory: true)))
         return (client, world, sessions, macs)
     }
     func settle(_ cond: () -> Bool) async -> Bool {
@@ -2856,6 +2880,54 @@ section("native board loop: connecting")
         sessions.value = nil
         c.start()
         check(got && c.youName == nil && c.youPicture == nil, "a sign-out forgets the person's name and picture")
+        c.stop()
+    }
+
+    section("a long conversation opens fast: a small first page, an unchanged poll costs no body, a kept copy (kosmos#7810)")
+    do {
+        let folder = testThreads.appendingPathComponent("relaunch-7810", isDirectory: true)
+        let body = #"{"messages":[{"at":"2026-11-02T20:00:01.000Z","text":"Morning Dana","from":null}],"olderCount":420}"#
+        let (c, w, sessions, _) = make("kst1", threads: folder)
+        c.start()
+        _ = await settle { isLive(c) }
+        check(c.keptThread(for: "dana") == nil, "nothing kept before any read")
+        w.threadETag = #""t1""#
+        w.threadAnswer = (200, body)
+        let first = await c.threadRead(for: "dana", tail: Board.threadFirstPage)
+        check(w.threadReads.last?.query == "tail=30" && w.threadReads.last?.tag == "", "the first read asks for 30, naming no tag")
+        if case .thread = first.read { check(true, "the small page is a conversation") } else { check(false, "the small page is a conversation") }
+        check(c.keptThread(for: "dana") == nil, "a small page is never kept (it is not the window the next open shows)")
+        let full = await c.threadRead(for: "dana")
+        check(full.tag == #""t1""#, "the whole window comes with its ETag")
+        check(c.keptThread(for: "dana")?.rows.first?.text == "Morning Dana" && c.keptThread(for: "dana")?.olderCount == 420,
+              "the whole window is kept on the phone")
+        let poll = await c.threadRead(for: "dana", tag: full.tag)
+        check(poll.read == .unchanged && w.threadReads.last?.tag == #""t1""#, "a poll naming the tag is told it is unchanged, with no body")
+        w.threadETag = #""t2""#
+        let changed = await c.threadRead(for: "dana", tag: full.tag)
+        if case .thread = changed.read { check(changed.tag == #""t2""#, "a changed conversation comes whole, with its new tag") }
+        else { check(false, "a changed conversation comes whole") }
+        c.stop()
+        // Another launch of the same phone, same account and computer: the kept copy is there before any read.
+        let (c2, w2, _, _) = make("kst1", threads: folder)
+        c2.start()
+        _ = await settle { isLive(c2) }
+        let readsBefore = w2.threadReads.count
+        check(c2.keptThread(for: "dana")?.rows.first?.text == "Morning Dana" && w2.threadReads.count == readsBefore,
+              "the next launch draws the kept conversation without asking the Mac")
+        check(c2.keptThread(for: "../status") == nil, "a name the app does not accept reads nothing kept")
+        c2.stop()
+        // Another account on the same phone never sees it, and a sign-out removes it.
+        let (c3, _, _, _) = make("kst-other", threads: folder)
+        c3.start()
+        _ = await settle { isLive(c3) }
+        check(c3.keptThread(for: "dana") == nil, "another account's phone shows nothing kept under the first account")
+        c3.stop()
+        // A session briefly unreadable keeps it (as it keeps the chats); a sign-out (accountChanged) removes it.
+        sessions.value = nil
+        c.accountChanged()
+        let left = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        check(left.isEmpty, "a sign-out leaves no kept conversation on the phone: \(left)")
         c.stop()
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import ImageIO
+import CryptoKit   // kosmos#7810: the kept conversations are filed under a hash
 #if DEBUG && canImport(UIKit)
 import UIKit   // the sample chats draw their file pictures (Debug only)
 #endif
@@ -61,6 +62,10 @@ final class BoardClient: ObservableObject {
         // (iOS may empty it; the pictures are then fetched again), and a folder of their own in ios/LogicTests.
         var avatars: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("agent-avatars", isDirectory: true)
+        // kosmos#7810: the last read of each conversation, so an open draws it at once (offline too) before the Mac
+        // answers. The app's caches folder (iOS may empty it), a folder of their own in ios/LogicTests.
+        var threads: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("chat-threads", isDirectory: true)
     }
 
     @Published private(set) var phase: Phase = .starting
@@ -622,9 +627,41 @@ final class BoardClient: ObservableObject {
             return .thread(sample)
         }
         #endif
-        guard let held = admitted, let request = Board.threadRequest(mac: held.url, session: session) else { return .noAnswer }
+        return await threadRead(for: session).read
+    }
+
+    // kosmos#7810: a read of the newest `tail` only, or (tail nil) the whole window, which is kept on the phone for the
+    // next open and comes with its ETag. `tag` is the ETag of what the chat shows; an unchanged conversation answers
+    // .unchanged with no body.
+    func threadRead(for session: String, tail: Int? = nil, tag: String? = nil) async -> (read: Board.ThreadRead, tag: String?) {
+        #if DEBUG
+        if sampleThreads[session] != nil { return (await thread(for: session), nil) }
+        #endif
+        guard let held = admitted, let request = Board.threadRequest(mac: held.url, session: session, tail: tail, tag: tag) else { return (.noAnswer, nil) }
+        let owner = chatsOwner
+        let mac = held.url.absoluteString
         let result = await env.send(request)
-        return Board.readThread(status: result?.1.statusCode ?? 0, data: result?.0)
+        let read = Board.readThread(status: result?.1.statusCode ?? 0, data: result?.0)
+        let etag = result?.1.value(forHTTPHeaderField: "ETag")
+        if tail == nil, case .thread = read, let data = result?.0, owner == chatsOwner,
+           let file = threadFile(session, owner: owner, mac: mac) {
+            try? FileManager.default.createDirectory(at: env.threads, withIntermediateDirectories: true)
+            try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        }
+        return (read, etag)
+    }
+
+    // kosmos#7810: the conversation this phone last read from this computer for this account, or nil.
+    func keptThread(for session: String) -> Board.Thread? {
+        guard let mac = admitted?.url.absoluteString, let file = threadFile(session, owner: chatsOwner, mac: mac),
+              let data = try? Data(contentsOf: file) else { return nil }
+        return Board.parseThread(data)
+    }
+    // One file per account, computer and agent, named by a hash of the three, so no name or address is in a file name.
+    private func threadFile(_ session: String, owner: String?, mac: String) -> URL? {
+        guard let owner, Board.isAgentSession(session) else { return nil }
+        let key = SHA256.hash(data: Data((owner + "\n" + mac + "\n" + session).utf8)).map { String(format: "%02x", $0) }.joined()
+        return env.threads.appendingPathComponent(key + ".json")
     }
 
     // kosmos#7032: one request through this client's own session to the Mac it is connected to, for the Projects tab and
@@ -1126,6 +1163,8 @@ final class BoardClient: ObservableObject {
         attachLine = [:]
         // Picked files still waiting to go are not left on the phone either.
         try? FileManager.default.removeItem(at: env.uploads)
+        // kosmos#7810: nor the conversations kept for a fast open.
+        try? FileManager.default.removeItem(at: env.threads)
         resending = []
         newestSeen = [:]
         // An open chat is showing what was forgotten: it resets when this moves (ChatView, AgentsView).
