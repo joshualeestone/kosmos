@@ -54,7 +54,7 @@ test('a said stall that a landed line ends is said to have ended, once', () => {
   assert.equal(e.count, 4);
   assert.equal(e.ms, 95 * MIN);
   assert.equal(e.pushed, false);
-  assert.equal(ds.endedLine(e), 'delivery-stall-ended: a message reached a1 at 2026-11-02T11:35:00.000Z, ending the stall'
+  assert.equal(ds.endedLine(e), 'delivery-stall-ended: Kosmos saw a message land for a1 at 2026-11-02T11:35:00.000Z, ending the stall'
     + ' that began 2026-11-02T10:00:00.000Z (95 minutes, 4 tries not seen to land).\n');
   assert.equal(said.has('a1'), false, 'the said entry is spent');
   assert.deepEqual(ds.endsToSay(said), [], 'never said twice');
@@ -140,7 +140,7 @@ test('pushed is true only for a stall push that went out during the streak', () 
   ds.note('p1', PLACED, T0 + 3 * 24 * 60 * MIN);
   const [e] = ds.endsToSay(said);
   assert.equal(e.pushed, true);
-  assert.match(ds.endedLine(e), /\(3 days, 4 tries not seen to land; the phone was told of the stall\)\.\n$/);
+  assert.match(ds.endedLine(e), /\(3 days, 4 tries not seen to land; a stall push was sent\)\.\n$/);
   /* Control: a push before this streak began is not this stall's push. */
   ds.resetForTests();
   const said2 = new Map();
@@ -169,4 +169,19 @@ test('an unread end of a streak never said does not hold back the end of a said 
   const ends = ds.endsToSay(said);
   assert.equal(ends.length, 1, 'the said stall\'s end is said');
   assert.equal(ends[0].since, new Date(T0).toISOString());
+});
+
+test('an end whose said entry is for another streak, or spent, says nothing and is dropped', () => {
+  ds.resetForTests();
+  const said = new Map();
+  saidStall('m1', said);
+  saidStall('m2', said);
+  ds.note('m1', PLACED, T0 + 50 * MIN);
+  ds.note('m2', PLACED, T0 + 50 * MIN);
+  said.set('m1', { since: T0 + 5 * MIN, at: T0 + 40 * MIN });   // the said entry names a different streak
+  said.delete('m2');   // the said entry was spent
+  assert.deepEqual(ds.endsToSay(said), []);
+  said.set('m1', { since: T0, at: T0 + 40 * MIN });
+  said.set('m2', { since: T0, at: T0 + 40 * MIN });
+  assert.deepEqual(ds.endsToSay(said), [], 'the dropped ends do not come back once the entries match again');
 });
