@@ -490,7 +490,7 @@ function writeParts(projectId, n, fn, { dropBuilt = false } = {}) {
     if (!closedNow && (forWork || progressOf(t).closed)) changed = withoutLanded(changed);
     /* #4771: a hold does not outlive the task either (the same reason: a reopen must not come back silently held,
        with the control hidden while it was closed). */
-    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; heldDropped = true; }
+    if (closedNow && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; heldDropped = true; }
     // kosmos#4787 review 2: nor does a repeat rule, when the task closes because its last part did (as setClosed).
     if (closedNow && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     /* ⚠️ `who` is DROPPED once parts are stored, not kept in step. Two fields
@@ -1112,7 +1112,7 @@ function setClosed(projectId, n, closedAt, said = {}, { replacedBy = null, onlyI
     if (after) changed = withoutBuilt(changed);
     if (before && !after) changed = withoutLanded(changed);   // #7508: a reopen is new work, so the old commit goes
     // #4771: nor does a hold: a reopen must not come back silently held, its control hidden while it was closed.
-    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; heldDropped = true; }
+    if (after && isOnHold(t)) { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; heldDropped = true; }
     // kosmos#4787 review 1: closing is how a recurring job ends; a reopen does not bring the rule back silently.
     if (after && changed.repeat) { delete changed.repeat; delete changed.repeatByPerson; delete changed.repeatSetAt; dropRunStreak(changed); dropReviewer(changed); repeatDropped = true; }
     return {
@@ -1228,8 +1228,12 @@ function holdBecauseOf(because, onHold) {
  * agent's bare re-hold of the person's hold keeps it whole. Restating the stored condition changes nothing, even once it
  * is met. A changed condition is recorded as a new hold.
  */
-function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, because } = {}) {
+function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, because, forPerson } = {}) {
   if (typeof onHold !== 'boolean') throw new Error('onHold must be true or false');
+  /* kosmos#7788: an agent's hold can say it waits on the person, so it joins what is waiting on them. undefined keeps what
+     is stored; the person's own hold never waits on them. */
+  if (forPerson !== undefined && typeof forPerson !== 'boolean') { const e = new Error('forPerson must be true or false'); e.status = 400; throw e; }
+  if (forPerson === true && (!onHold || viaScreen === true)) { const e = new Error(onHold ? 'only an agent\'s hold can wait on the person' : 'waiting on the person goes with a hold, not with taking one off'); e.status = 400; throw e; }
   const reason = holdBecauseOf(because, onHold);
   if (!onHold && until != null) { const e = new Error('a reopening condition goes with a hold, not with taking one off'); e.status = 400; throw e; }
   let changed;
@@ -1275,6 +1279,12 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       refused.status = 403;
       throw refused;
     }
+    // kosmos#7788: and so is whether it waits on anyone: an agent cannot mark the person's hold.
+    if (forPerson !== undefined && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true) {
+      const refused = new Error('the person put this task on hold, so it is theirs');
+      refused.status = 403;
+      throw refused;
+    }
     const wantBecause = !onHold ? null : reason !== undefined ? reason : isOnHold(t) ? (t.onHoldBecause || null) : null;
     const want = keepPersons || (onHold && restates) ? (u1 || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
     const sameUntil = JSON.stringify(t.onHoldUntil || null) === JSON.stringify(want);
@@ -1285,11 +1295,13 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       changed.onHold = true;
       if (want) changed.onHoldUntil = want; else delete changed.onHoldUntil;
       if (wantBecause) changed.onHoldBecause = wantBecause; else delete changed.onHoldBecause;
+      const keepFor = forPerson === undefined && isOnHold(t) && t.onHoldForPerson === true;
+      if (viaScreen !== true && (forPerson === true || keepFor)) changed.onHoldForPerson = true; else delete changed.onHoldForPerson;
       /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
          an agent's hold never takes the person's away. */
       if (viaScreen === true) changed.onHoldByPerson = true;
       else if (isOnHold(t) !== onHold) delete changed.onHoldByPerson;   // kosmos#7180: only a new hold, never a changed condition
-    } else { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; }
+    } else { delete changed.onHold; delete changed.onHoldByPerson; delete changed.onHoldUntil; delete changed.onHoldBecause; delete changed.onHoldForPerson; }
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
