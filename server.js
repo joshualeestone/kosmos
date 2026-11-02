@@ -5252,6 +5252,8 @@ const REMOTE_STEP_UP_EXACT = new Set([
   // personalbackup.js preview); the rest move a key, end a membership, or delete this computer's copy of the code.
   'POST /api/personal-backup/preview', 'POST /api/personal-backup/on', 'POST /api/personal-backup/key', 'POST /api/personal-backup/restore',
   'POST /api/personal-backup/off', 'POST /api/personal-backup/saved',
+  // Listing the backups and restoring one: a restore writes a whole backup onto this computer as a new Kosmos.
+  'POST /api/personal-backup/backups', 'POST /api/personal-backup/files',
   // Resetting the account's second factor: from a stolen session it would let the thief enrol their own, and then
   // pass this very step-up. At the computer it needs nothing more.
   'POST /api/remote/second-reset',
@@ -12803,7 +12805,7 @@ const server = http.createServer(async (req, res) => {
   /* Exact paths, never a startsWith prefix: a prefix would serve every path under it, a handler or not (web.api-routes-3957). */
   if (pathname === '/api/personal-backup' || pathname === '/api/personal-backup/preview' || pathname === '/api/personal-backup/on'
     || pathname === '/api/personal-backup/key' || pathname === '/api/personal-backup/saved' || pathname === '/api/personal-backup/restore'
-    || pathname === '/api/personal-backup/off') {
+    || pathname === '/api/personal-backup/off' || pathname === '/api/personal-backup/backups' || pathname === '/api/personal-backup/files') {
     let off = true;
     try { off = !require('./engine/personalbackupoffer').offer().shown; } catch { off = true; }
     if (off) { sendJson(res, 404, { error: 'not found' }); return; }
@@ -12818,10 +12820,19 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, out);
       return;
     }
-    /* Only the six named steps exist. The bare path is GET only: a POST there has no step (challenge round 3: it fell
+    /* kosmos#7404: where a restore of files is (engine/personalrestorejob.js). It runs in a child process, so this reads
+       only the board's own record of it, and starts nothing. */
+    if (pathname === '/api/personal-backup/files' && (req.method === 'GET' || req.method === 'HEAD')) {
+      if (!isViaScreen(req, {})) { sendJson(res, 403, { error: 'only you can see personal backup, from Settings' }); return; }
+      let out;
+      try { out = require('./engine/personalrestorejob').status(); } catch { out = { running: false, startedAt: null, last: null }; }
+      sendJson(res, 200, out);
+      return;
+    }
+    /* Only the named steps exist. The bare path is GET only: a POST there has no step (challenge round 3: it fell
        through to switchOff, past the step-up gate, which is keyed on /off). */
     const kind = pathname.slice('/api/personal-backup/'.length);
-    if (req.method !== 'POST' || !['preview', 'on', 'key', 'saved', 'restore', 'off'].includes(kind)) { sendJson(res, 404, { error: 'not found' }); return; }
+    if (req.method !== 'POST' || !['preview', 'on', 'key', 'saved', 'restore', 'off', 'backups', 'files'].includes(kind)) { sendJson(res, 404, { error: 'not found' }); return; }
     readBody(req, 4096)
       .then(async (buf) => {
         let body = {};
@@ -12842,12 +12853,17 @@ const server = http.createServer(async (req, res) => {
         else if (kind === 'saved') r = await pk.confirmRecoveryCodeSaved({ org: body.org, member: body.member });
         else if (kind === 'restore') r = typeof body.code === 'string' && body.code.length <= 64 ? await pb.restore(body.code) : { ok: false, code: 'not_a_code', because: 'That is not a recovery code (26 letters and digits).' };
         else if (kind === 'off') r = await pb.switchOff();
+        /* kosmos#7404: the list and a restore of files, each in a child process off this event loop. The job shapes
+           both answers by name, and a restore answers as soon as it has started: GET /api/personal-backup/files says
+           how it went. Only the key goes to the job, never the body. */
+        else if (kind === 'backups') r = await require('./engine/personalrestorejob').list();
+        else if (kind === 'files') r = require('./engine/personalrestorejob').start(typeof body.key === 'string' ? body.key : null);
         else r = null;   // unreachable: kind was checked above; answers the generic refusal below
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and
            member are the opaque ids confirmRecoveryCodeSaved needs back, nothing more. */
         // Named fields only, per step (challenge round 4): each step can send the page only what that step answers.
         const KEEP = { preview: ['ticket', 'words', 'price'], on: ['declined', 'unknown', 'org', 'member'], key: ['org', 'member'],
-          saved: ['deleted'], restore: ['epochs'], off: ['pending'] };
+          saved: ['deleted'], restore: ['epochs'], off: ['pending'], backups: ['more', 'keyMissing', 'backups'], files: ['startedAt'] };
         const keep = ['ok', 'because', 'code'].concat(KEEP[kind] || []);
         const out = {};
         if (r && typeof r === 'object') for (const k of keep) if (k in r) out[k] = r[k];
