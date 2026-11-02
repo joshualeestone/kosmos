@@ -280,7 +280,7 @@ function sweep(names) {
   for (const k of [...ended.keys()]) if (!present.has(k)) ended.delete(k);
 }
 
-function resetForTests() { streaks.clear(); ended.clear(); pushedAt.clear(); takenBack.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
+function resetForTests() { streaks.clear(); pushOpen.clear(); ended.clear(); pushedAt.clear(); takenBack.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
 
 /* kosmos#7212 (#7615 item 1): the needs-you notification for a card's stall (its deliveryStall: a streak, or a stuck
    Windows turn), so the person is told away from the board, as a crash loop or a stuck terminal tells them. `card` is
@@ -407,13 +407,57 @@ function tellStalls(cards, { now = Date.now(), file, send, ownBound = null }) {
     if (Number.isFinite(lastStallPushAt) && lastStallPushAt <= now && now - lastStallPushAt < STALL_PUSH_EVERY_MS) return;
     const sessions = due.map((d) => d.session);
     const ev = { ...due[0], agent: withMore(due[0].agent, due.length - 1), onResult: (ok) => { if (ok === false) untold(sessions, now, file); } };
-    if (send(ev) === true) {
+    /* kosmos#7794: a retry under the same id joins the open entry once it is taken: every agent it lists is open again,
+       and agents the first push covered are still waited for. */
+    const open = pushOpen.get(ev.id);
+    if (!open) pushOpen.set(ev.id, { at: now, all: sessions.slice(), open: new Set(sessions) });
+    let took = false;
+    try { took = send(ev) === true; } catch { took = false; }
+    if (took) {
       lastStallPushAt = now;
+      if (open) {   // kosmos#7794: the coordinator may have stored only this one, so its clock starts here
+        open.at = now;
+        for (const s of sessions) { if (!open.all.includes(s)) open.all.push(s); open.open.add(s); }
+      }
       for (const s of sessions) pushTold(s, now, file);
       /* kosmos#7212 item 2: the streak itself keeps that its stall push went out (not a stuck step's push), for endsToSay. */
       for (const d of due) { const st = streaks.get(d.session); if (st && d.id.startsWith('stall:')) st.pushedAt = now; }
-    }
+    } else if (!open) pushOpen.delete(ev.id);
   } catch { /* told next minute */ }
 }
 
-module.exports = { endsToSay, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+/* kosmos#7794: a sent stall push's id -> { at, all: the sessions it covered, open: those not yet seen to recover }. The
+   coordinator emails a needs_you nobody acked within 30 minutes, so a stall that recovered first would still be emailed.
+   One push covers every agent due in that sweep ("and N more") under the FIRST one's id, so the ack waits for all of
+   them. In memory only: after a restart nothing is acked and the email goes as before. A push whose answer was a
+   failure stays here too: the coordinator may have stored it anyway, and an ack for an id it does not hold matches
+   nothing. */
+const pushOpen = new Map();
+/* The coordinator reads the ack only when it decides the email, 30 minutes after the push (NEEDS_YOU_DUE_SECS), so
+   acking earlier gains nothing and an ack cannot be taken back: an agent that recovers and stalls again within those
+   minutes would lose its only warning. So a push is acked no sooner than ACK_AFTER_MS, and the conditions are read
+   then. An entry past PUSH_OPEN_MS is dropped. */
+const ACK_AFTER_MS = 25 * 60 * 1000;
+const PUSH_OPEN_MS = 60 * 60 * 1000;
+/* The ids to ack now, given this minute's ends (endsToSay's entries, each { name }). A push is acked once it is
+   ACK_AFTER_MS old, every agent it covered was seen to recover, and none of them is failing again. An agent that never
+   reports an end (a stuck turn, one that left the board) keeps its push open, so its email goes as before. Each id is
+   returned once. Never throws. */
+function acksDue(ends, now = Date.now()) {
+  const out = [];
+  try {
+    /* An end clears an agent only from pushes made before it ended: a later push is about a later stall. */
+    for (const e of ends || []) {
+      const endedAt = e && typeof e.name === 'string' ? Date.parse(e.endedAt) : NaN;
+      if (Number.isFinite(endedAt)) for (const p of pushOpen.values()) if (p.at <= endedAt) p.open.delete(e.name);
+    }
+    for (const [id, p] of [...pushOpen]) {
+      if (!(p.at <= now && now - p.at < PUSH_OPEN_MS)) { pushOpen.delete(id); continue; }
+      if (now - p.at < ACK_AFTER_MS) continue;
+      if (p.open.size === 0 && !p.all.some((s) => streaks.has(s))) { out.push(id); pushOpen.delete(id); }
+    }
+  } catch { /* acked next minute, or emailed as before */ }
+  return out;
+}
+
+module.exports = { endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };

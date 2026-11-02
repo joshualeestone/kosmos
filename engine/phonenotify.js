@@ -66,6 +66,7 @@ const KIND_DEFAULTS = { needsYou: true, replied: true, postedMention: true, read
 const TOKEN_SHAPE = /^knt1_[A-Za-z0-9_-]{8,200}$/;
 const NOTIFY_ROUTE = '/v1/mac/notify';
 const CREDENTIAL_ROUTE = '/v1/mac/notify-credential';
+const ACK_ROUTE = '/v1/mac/notify-ack';   // kosmos#7794 (#3540): a needs_you that is dealt with is not emailed
 // A notification is fire and forget; after 4 s the socket is dropped, the same
 // bound as engine/mac-standing.js.
 const TIMEOUT_MS = 4000;
@@ -488,9 +489,17 @@ function capBytes(v, n) {
 }
 const cap = (v, n) => (v === null || v === undefined || v === '' ? null : capBytes(v, n));
 
-function payload(notifyId, { kind, id, agent, session, project, projectId }) {
+/* kosmos#7794: every body this file sends starts with the coordinator's field for its own notify id, from this one line
+   (installid-senders-5995 holds it to exactly one). */
+function addressed(notifyId, fields) {
   return {
     installId: notifyId,
+    ...fields,
+  };
+}
+
+function payload(notifyId, { kind, id, agent, session, project, projectId }) {
+  return addressed(notifyId, {
     id: cap(id, CAPS.id),
     kind,
     agent: capBytes(agent || 'An agent', CAPS.agent),
@@ -501,7 +510,7 @@ function payload(notifyId, { kind, id, agent, session, project, projectId }) {
     // present like project/session, null off a posted event or on an older board.
     projectId: cap(projectId, CAPS.project),
     at: new Date().toISOString(),
-  };
+  });
 }
 
 // Test seams: (url, headers, body) => void, and a clock. Without an injected
@@ -627,4 +636,26 @@ function happened(event) {
   return sent;
 }
 
-module.exports = { noPush, NO_PUSH_WHY, reportPhoneNotices, PHONE_NOTICES_ROUTE, resetNoticesReportedForTests: () => { noticesReported = null; }, whenNoticesIdle: () => (noticesInFlight || Promise.resolve()).catch(() => {}), setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, plusLive, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
+/** kosmos#7794: tell the coordinator a needs_you push it holds is dealt with (POST /v1/mac/notify-ack, #3540), so its
+    deferred email never goes. `eventId` is the id happened() was given; it is cut exactly as happened() cut it, so the
+    coordinator matches the row it stored. It does not ask the phone switch (a person who turned phone notices off after
+    the push still should not be emailed about something that is over), but it does ask Kosmos+'s. Returns true when it handed the ack
+    to the coordinator. Never throws. */
+function acked(eventId) {
+  try {
+    if (!available) return false;
+    if (typeof eventId !== 'string' || !eventId) return false;
+    if (noPush()) return false;
+    if (!sender && process.env.NODE_TEST_CONTEXT) return false;
+    const s = readState();
+    if (!s.token || !s.notifyId) return false;
+    if (!plusLive()) return false;   // #6488: Kosmos+ switched off here sends nothing about agents, an ack included
+    const sentId = cap(eventId, CAPS.id);
+    const body = JSON.stringify(addressed(s.notifyId, { eventId: sentId }));
+    (sender || defaultSend)(coordinatorUrl(ACK_ROUTE), { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body, null);
+    process.stderr.write('phonenotify: acked ' + require('./phonenotice').idKind(eventId) + ' ref ' + require('./phonenotice').idRef(sentId) + '\n');
+    return true;
+  } catch { return false; }
+}
+
+module.exports = { noPush, acked, NO_PUSH_WHY, reportPhoneNotices, PHONE_NOTICES_ROUTE, resetNoticesReportedForTests: () => { noticesReported = null; }, whenNoticesIdle: () => (noticesInFlight || Promise.resolve()).catch(() => {}), setProjectLevel, PHONE_APP_CAN_RECEIVE, setAvailableForTests, plusLive, KINDS, KIND_DEFAULTS, NEEDS_YOU_COOLDOWN_MS, READY_COOLDOWN_MS, POSTED_MENTION_COOLDOWN_MS, POSTED_ROOM_COOLDOWN_MS, status, turnOn, turnOff, setKind, masterChoice, ensureDefaultOn, startDefaultOn, pokeDefaultOn, DEFAULT_ON_EVERY_MS, DEFAULT_ON_MAX_MS, DEFAULT_ON_FAIL_MAX_MS, happened, payload, setSender, setClock, readState, resetCooldownForTests: () => lastSent.clear() };
