@@ -99,6 +99,7 @@ function owed(projects, log, now = Date.now(), o = {}) {
           ...(metNow ? { met: until.words } : {}),
           projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
           owner, holdAt: hold.at, byPerson: hold.byPerson || t.onHoldByPerson === true, posts,
+          ...(t.onHoldForPerson === true ? { forPerson: true } : {}),   // kosmos#7797: the met line says it waits on the person
           members: Array.isArray(p.agents) ? p.agents.slice() : [],
           swarmOff: require('./projects').isSwarmOff(p, owner),
         });
@@ -154,7 +155,10 @@ function metText(items, now = Date.now()) {
   // holdAt is when this condition was set (a changed condition is a new hold), so the age is said of the condition.
   const one = (x) => 'task #' + x.n + ', "' + plain(x.sentence, 120) + '", is on hold until ' + plain(x.met, 80)
     + ' (set ' + agoWords(x.holdAt, now) + ' ago), and that has now happened';
+  /* kosmos#7797: a hold for the person also waits on their answer, so its owner lifts it only once they have answered;
+     lifted sooner, it leaves Needs Your Decision unanswered. */
   const way = (x) => (x.byPerson ? 'ask the person to take #' + x.n + ' off hold (only they can lift their own hold, on the screen)'
+    : x.forPerson ? '#' + x.n + ' also waits on your person, so take it off hold only once they have answered: kosmos task unhold ' + idOf(x) + ' ' + x.n
     : 'take #' + x.n + ' off hold: kosmos task unhold ' + idOf(x) + ' ' + x.n);
   const many = items.length > 1;
   return 'Kosmos: in ' + plain(items[0].project, 80) + ', ' + items.map(one).join('; ') + '. '

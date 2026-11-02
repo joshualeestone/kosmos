@@ -347,6 +347,10 @@ test('kosmos#7788 review 2: a hold for you with a condition is told once when it
   const met = hs.owed(only(), [], Date.now(), { read: () => [{ kind: 'hold-set', at: freshAt, via: 'agent', forPerson: true }] });
   assert.equal(met.length, 1, 'the met condition of a hold for you was not owed its one line');
   assert.equal(met[0].met, 'task #' + f.b + ' is closed');
+  // kosmos#7797: the line says it also waits on the person, and when to lift it.
+  assert.equal(met[0].forPerson, true);
+  assert.match(hs.metText(met), new RegExp('#' + f.a + ' also waits on your person, so take it off hold only once they have answered: kosmos task unhold ' + f.id + ' ' + f.a));
+  assert.doesNotMatch(hs.metText([{ ...met[0], forPerson: undefined }]), /also waits on your person/, 'CONTROL: a plain hold\'s met line');
   // After the met line: five hours old, five posts, and still nothing, because it waits on the person.
   const oldHold = iso(Date.now() - 5 * HOUR);
   hs.markTold({ ...met[0], holdAt: Date.parse(oldHold) }, 'reached');
