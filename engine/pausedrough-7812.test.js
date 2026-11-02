@@ -43,6 +43,12 @@ test('#7812 finished work in a paused project still reads built, even when its a
   assert.equal(tasks.taskState(open({ waitingOnPerson: true, projectPaused: true, builtAt: '2026-11-02T10:00:00.000Z' })), 'built');
 });
 
+test('#7812 the app icon\'s count leaves out a hold for the person in a paused project, as the Tasks view does', () => {
+  const held = { number: 1, sentence: 'x', parts: [{ who: 'casey' }], onHold: true, onHoldForPerson: true };
+  assert.equal(tasks.heldForPersonCount([{ id: 'a', tasks: [held] }]), 1, 'CONTROL: a live project counts it');
+  assert.equal(tasks.heldForPersonCount([{ id: 'a', paused: true, tasks: [held] }]), 0, 'a paused project\'s hold for the person counted on the badge');
+});
+
 /* --- 2. tellResumed --------------------------------------------------------------------------------------------------- */
 const IDLE = '⏺ Done.\n\n────────\n❯ \n────────\n  bypass permissions on (shift+tab to cycle)';
 function arm() {
@@ -59,33 +65,86 @@ function arm() {
   return calls;
 }
 
+let seq = 0;
+/* A real project with real members (projects.create + addAgent), paused then resumed the way the route leaves it. */
+function resumedWorld(names) {
+  const board = fleet.install(names.map((n) => fleet.agent(n, { state: 'idle' })));
+  const p = projects.create({ name: 'Resume Test ' + (++seq) });
+  for (const n of names) projects.addAgent(p.id, n, board.agents);
+  projects.edit(p.id, { paused: true, viaScreen: true });
+  projects.edit(p.id, { paused: false, viaScreen: true });
+  return { pid: p.id, name: 'Resume Test ' + seq, board };
+}
+
 test('#7812 a resume types each addressable member one line naming the project and how to see its tasks', () => {
-  const board = fleet.install([fleet.agent('casey', { state: 'idle' }), fleet.agent('dana', { state: 'idle' })]);
+  const w = resumedWorld(['casey', 'dana']);
   try {
     const calls = arm();
-    const r = messages.tellResumed('p7812', 'Plans', ['casey', 'dana', 'gone'], board.agents);
+    const r = messages.tellResumed(w.pid, w.name, ['casey', 'dana', 'gone'], w.board.agents);
     assert.equal(r.ok, true);
     assert.deepEqual(r.told.map((t) => t.to), ['casey', 'dana'], 'a member with no card was typed to, or one was missed');
-    const line = messages.resumedLine('p7812', 'Plans');
-    assert.equal(line, '[from Kosmos] Project Plans (p7812) was resumed: its tasks can be worked on and handed out again. See them with: kosmos task list p7812');
+    assert.equal(messages.resumedLine('p7812', 'Plans'), '[from Kosmos] Project Plans (p7812) was resumed: its tasks not on hold can be worked on and handed out again. See them with: kosmos task list p7812');
     assert.ok(calls.text().includes('was resumed'), 'nothing like the line reached tmux');
-  } finally { chat.resetForTests(); board.restore(); }
+  } finally { chat.resetForTests(); w.board.restore(); }
 });
 
 test('#7812 a member switched off in the project is not woken by a resume', () => {
-  const board = fleet.install([fleet.agent('casey', { state: 'idle' }), fleet.agent('dana', { state: 'idle' })]);
-  const real = projects.swarmOffSet;
-  projects.swarmOffSet = (id) => (id === 'p7812' ? new Set(['dana']) : new Set());
+  const w = resumedWorld(['casey', 'dana']);
+  try {
+    projects.setSwarmOn(w.pid, 'dana', false);
+    arm();
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey', 'dana'], w.board.agents).told.map((t) => t.to), ['casey']);
+  } finally { chat.resetForTests(); w.board.restore(); }
+});
+
+test('#7812 nobody is told for a project that is archived or still paused', () => {
+  const w = resumedWorld(['casey']);
   try {
     arm();
-    const r = messages.tellResumed('p7812', 'Plans', ['casey', 'dana'], board.agents);
-    assert.deepEqual(r.told.map((t) => t.to), ['casey']);
-  } finally { projects.swarmOffSet = real; chat.resetForTests(); board.restore(); }
+    projects.edit(w.pid, { paused: true, viaScreen: true });
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents).told, [], 'told about a project still paused');
+    projects.edit(w.pid, { paused: false, viaScreen: true });
+    projects.edit(w.pid, { archived: true });
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents).told, [], 'told about an archived project');
+    projects.edit(w.pid, { archived: false });
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey'], w.board.agents).told.map((t) => t.to), ['casey'], 'CONTROL: live again, told');
+  } finally { chat.resetForTests(); w.board.restore(); }
+});
+
+test('#7812 a removed agent is never typed to, and an unreadable removed list types nobody', () => {
+  const w = resumedWorld(['casey', 'dana']);
+  const remove = require('./remove');
+  const real = remove.removedNames;
+  try {
+    arm();
+    remove.removedNames = () => ({ ok: true, names: ['dana'] });
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey', 'dana'], w.board.agents).told.map((t) => t.to), ['casey']);
+    remove.removedNames = () => ({ ok: false, names: [] });
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey', 'dana'], w.board.agents), { ok: false, told: [] });
+  } finally { remove.removedNames = real; chat.resetForTests(); w.board.restore(); }
+});
+
+test('#7812 a line held off the pane (a menu on screen) is not counted as told', () => {
+  const w = resumedWorld(['casey']);
+  try {
+    const MENU = fs.readFileSync(path.join(__dirname, '..', 'test-support', 'claude-screens', 'question-menu-2.1.29x.txt'), 'utf8');
+    chat.setRunner((args) => {
+      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+      if (args[0] === 'capture-pane') return { ran: true, spawnFailed: false, status: 0, out: MENU, err: '' };
+      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+    });
+    chat.setDryRun(false);
+    chat.setPauser(() => {});
+    const board = fleet.install([fleet.agent('casey', { state: 'needs_you', runner: 'claude', command: 'claude', screen: MENU })]);
+    try {
+      assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey'], board.agents).told, [], 'a held line was counted as told');
+    } finally { board.restore(); }
+  } finally { chat.resetForTests(); w.board.restore(); }
 });
 
 test('#7812 a project id that is not a plain id is refused, and the name is shown only when it is plain', () => {
   assert.deepEqual(messages.tellResumed('../x', 'Plans', ['casey'], []), { ok: false, told: [] });
-  assert.equal(messages.resumedLine('p1', 'Plans; rm -rf'), '[from Kosmos] Project p1 was resumed: its tasks can be worked on and handed out again. See them with: kosmos task list p1');
+  assert.equal(messages.resumedLine('p1', 'Plans; rm -rf'), '[from Kosmos] Project p1 was resumed: its tasks not on hold can be worked on and handed out again. See them with: kosmos task list p1');
 });
 
 test('#7812 the edit route tells the members only on a resume of a project that was paused', () => {
@@ -93,7 +152,9 @@ test('#7812 the edit route tells the members only on a resume of a project that 
   const at = src.indexOf('messages.tellResumed(');
   assert.ok(at > 0, 'server.js no longer tells the members on a resume');
   assert.equal(src.indexOf('messages.tellResumed(', at + 1), -1, 'a second caller: read it');
-  assert.match(src.slice(Math.max(0, at - 200), at), /if \(fields\.paused === false && wasPaused === true && reRead && roster\) \{/);
+  const before = src.slice(Math.max(0, at - 700), at);
+  assert.match(before, /if \(fields\.paused === false && wasPaused === true && reRead\) \{/, 'the tell is no longer gated on a resume of a paused project');
+  assert.match(before, /setImmediate\(\(\) => \{/, 'the tell runs inside the request again (review 1: it blocks the Resume press)');
   const edit = src.lastIndexOf('projects.edit(id, fields);', at);
   assert.ok(edit > 0 && at - edit < 4000, 'the tell is no longer after the edit in the same route');
 });

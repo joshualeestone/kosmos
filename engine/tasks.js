@@ -2175,9 +2175,10 @@ function retireOffers(rows, records, getRoster, historyOf) {
  *   'decision' (#3949) open, and the agent holding it needs the person right now
  *              (`waitingOnPerson`, set by the Tasks route from the roster), or an agent held it for the person
  *              (kosmos#7788: `onHoldForPerson`, ahead of held; engine/holdforperson-7788.test.js); it
- *              wins over working and assigned, so each open task is in one group
+ *              wins over working and assigned, so each open task is in one group. Never in a paused project
+ *              (kosmos#7812, #6341: a paused project flags nobody)
  *   'held'     (#4771, #5864) the task's own hold (before built), or a paused project (after built, so a built task in a
- *              paused project reads built)
+ *              paused project reads built), including a paused project's task that would otherwise read decision
  *   'built'    (#3951) open, and marked built (`builtAt`, by `kosmos task built`): Josh's "Built but waiting". After
  *              decision (an agent needing the person is still the one to act on), before nobody, working and
  *              assigned (a built task whose agent was since taken off is still built).
@@ -2225,7 +2226,7 @@ function waitingOnPerson(task, roster, members) {
   return cardsNeedingPerson(task, roster, members).length > 0;
 }
 
-/* kosmos#7788 review 5: how many open tasks, in projects not archived, an agent held for the person, for the app icon's
+/* kosmos#7788 review 5: how many open tasks, in projects not archived or paused (kosmos#7812), an agent held for the person, for the app icon's
    count (status.waitingTotal). Review 6 and 7: a task is left out when one of its open holders is already counted as
    needing the person for it, by the rule cardsNeedingPerson uses: `asking` maps a session name to the project its
    question is about, or to '*' for a reason about the agent itself (a trust wait, a connection given up on). */
@@ -2233,7 +2234,7 @@ function heldForPersonCount(projectList, asking) {
   const counted = asking instanceof Map ? asking : new Map();
   let n = 0;
   for (const p of Array.isArray(projectList) ? projectList : []) {
-    if (!p || p.archived === true) continue;
+    if (!p || p.archived === true || p.paused === true) continue;   // kosmos#7812: a paused project flags nobody, as taskState
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (!t || !isOnHold(t) || t.onHoldForPerson !== true || progressOf(t).closed) continue;
       if (partsOf(t).some((x) => x && x.who && !x.closedAt && (counted.get(x.who) === '*' || counted.get(x.who) === p.id))) continue;

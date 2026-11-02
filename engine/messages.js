@@ -4516,26 +4516,36 @@ function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
 /* kosmos#7812: a project that was paused is resumed. Its agents were otherwise told nothing until their next idle check,
    so each member is typed one line now, the way nudgeOwnComputerPost types its line: only an addressable card, never one
-   switched off in this project, one failing pane not skipping the rest. Not recorded in the room log (a nudge row
+   switched off in this project, one failing pane not skipping the rest, a removed agent never typed to, and nobody
+   told for an archived or still-paused project. Only a line actually typed counts in `told`. Not recorded in the room log (a nudge row
    names a post, and this has none). Answers { ok, told: [{ to, outcome }] }. Never throws. */
 function resumedLine(projectId, projectName) {
   const rawName = String(projectName == null ? '' : projectName).trim();
   const shown = (rawName && /^[A-Za-z0-9._ -]+$/.test(rawName)) ? rawName + ' (' + projectId + ')' : projectId;
-  return '[from Kosmos] Project ' + shown + ' was resumed: its tasks can be worked on and handed out again. See them with: kosmos task list ' + projectId;
+  return '[from Kosmos] Project ' + shown + ' was resumed: its tasks not on hold can be worked on and handed out again. See them with: kosmos task list ' + projectId;
 }
 function tellResumed(projectId, projectName, members, roster) {
   const ok = (v) => typeof v === 'string' && v.length > 0;
   if (!ok(projectId) || !/^[A-Za-z0-9._-]+$/.test(projectId) || !Array.isArray(members) || !Array.isArray(roster)) return { ok: false, told: [] };
+  const room = _roomMembers(members.filter(ok));   // review 1: a removed agent is never typed to, and an unreadable list types nobody
+  if (!room.ok) return { ok: false, told: [] };
   let offHere = new Set();
-  try { offHere = require('./projects').swarmOffSet(projectId); } catch { offHere = new Set(); }
+  try {
+    const projectsMod = require('./projects');
+    const rec = projectsMod.readAll().find((x) => x && x.id === projectId);
+    if (!rec || rec.archived === true || projectsMod.isPaused(rec)) return { ok: true, told: [] };   // review 1: only a live, unpaused project
+    offHere = projectsMod.swarmOffSet(projectId);
+  } catch { return { ok: false, told: [] }; }
   const line = resumedLine(projectId, projectName);
   const told = [];
-  for (const name of members.filter(ok)) {
+  for (const name of room.members) {
     if (offHere.has(name)) continue;   // #3564: switched off in this project, so not woken
     const card = roster.find((c) => c && c.sessionName === name);
     if (!card || !card.target) continue;
     let sent;
     try { sent = chat.deliverAutomatic(name, line, roster); } catch { continue; }
+    // Review 1: held, or not typed at all, is not told (nothing is kept for later: the next idle check still finds the work).
+    if (sent && (sent.held === true || sent.state === chat.DELIVERY.COULD_NOT)) continue;
     told.push({ to: name, outcome: sent && sent.state });
   }
   return { ok: true, told };

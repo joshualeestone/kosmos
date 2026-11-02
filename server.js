@@ -22848,10 +22848,18 @@ const server = http.createServer(async (req, res) => {
             for (const a of (reRead ? reRead.agents : [])) projects.syncAgent(a, roster);
           }
         } catch { /* reported by the row's own told verdict on the next read */ }
-        /* kosmos#7812: a resume (from either side) is typed to the members now, so they do not wait for their next
-           idle check. After syncAgent, so an agent that reads its instructions on the line finds the pause gone. */
-        if (fields.paused === false && wasPaused === true && reRead && roster) {
-          try { messages.tellResumed(id, reRead.name, reRead.agents || [], roster); } catch { /* told at their next idle check, as before */ }
+        /* kosmos#7812: a resume (from either side) is typed to the members, so they do not wait for their next idle
+           check. After syncAgent, so an agent that reads its instructions on the line finds the pause gone. Review 1:
+           after the answer goes out (setImmediate, as the own-computer post nudge), on a fresh roster, since typing
+           into panes is synchronous and the person's Resume press must not wait for it. */
+        if (fields.paused === false && wasPaused === true && reRead) {
+          const resumed = { id, name: reRead.name, agents: (reRead.agents || []).slice() };
+          setImmediate(() => {
+            try {
+              const fresh = safeRoster();
+              if (fresh) messages.tellResumed(resumed.id, resumed.name, resumed.agents, fresh);
+            } catch { /* told at their next idle check, as before */ }
+          });
         }
         let project = null;
         try { project = projects.get(id, roster); } catch { project = null; }
