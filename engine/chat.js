@@ -2763,7 +2763,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       unsentSeq += 1;
       seq = unsentSeq;
       /* kosmos#6717: left there as a chip: its exact text (the number) is what a later look must find to press it. */
-      /* #6249: a chip box is 'ours' in submitConfirmSteps only as the exact pinned form, so a chip box here is that form. */
+      /* #6249: a chip box is 'ours' in submitConfirmSteps only as the exact pinned form, so a chip box here is that form
+         (never a several-lines chip: foldedFromOurs refuses those, so none is ever pinned). */
       const chipSeen = isChipBox(result.text, wire) ? squash(result.text) : '';
       rememberUnsent(target, { wire, at: Date.now(), seq, seen: chipSeen ? '' : endSeen(result.text),
         ...(chipSeen ? { chip: chipSeen, chipPid: panePidOf(target) } : {}) });
