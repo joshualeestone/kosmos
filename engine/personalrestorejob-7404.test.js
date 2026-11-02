@@ -304,6 +304,17 @@ test('with names hidden, status gives counts and not the person\'s file names', 
   assert.equal(hidden.last.keptCount, 1);
   assert.equal(hidden.last.details.failedCount, 1);
   assert.equal(hidden.last.world.name, 'Personal backup, Nov 2');
+  assert.equal(job.status({ namesHidden: true }).last.because, undefined, 'a finished restore has no reason to give');
   // Control: at the computer, the names are there, so the check above is what hides them.
   assert.ok(JSON.stringify(job.status()).includes('taxes-2025'));
+});
+
+test('with names hidden, a failed restore\'s own reason is replaced by one fixed line', async () => {
+  const { fork, made } = fakeFork();
+  job.start('k1', { fork, base: SANDBOX });
+  await tick();
+  made[0].emit('message', { done: { ok: false, because: 'the backup could not be restored (secret/plans.txt)' } });
+  await tick(); await tick();
+  assert.equal(job.status({ namesHidden: true }).last.because, 'This restore did not finish. Open Kosmos on this computer to see why.');
+  assert.match(job.status().last.because, /secret\/plans\.txt/);   // control: at the computer, the reason itself
 });

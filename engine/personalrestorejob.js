@@ -10,13 +10,14 @@
  *   status()      { running, startedAt, last }: last is the most recent restore's answer, by named fields. With
  *                 { namesHidden }, the counts of moved, kept, held back and failed files and not their names.
  *   stop()        ends the restore that is running; what it had already written stays in its new Kosmos.
- *   (no stop: a child exits by itself when the board goes, because its IPC channel closes.)
+ * A child also exits by itself when the board goes, because its IPC channel closes.
  *
  * Known limits, on #7404 for the screen slice: a restore has no time limit, only stop(); the slot and the last answer live in this process, so after a restart the screen
  * cannot say a restore was cut off; and an old board's child may still be finishing a write when a new board starts
  * another restore (each makes its own new Kosmos, and restoreworld's list has its own lock); the child reads the member keys outside personalbackupkey's serial() queue,
  * which is this process's (a read only, of files written whole); and a list while a restore runs spends the same hourly
- * Kosmos+ allowance.
+ * Kosmos+ allowance; stop() ends the child wherever it is, the move into the new Kosmos included, and
+ * nothing tidies what that leaves.
  *
  * The child signs nothing. Its Kosmos+ requests come back here and only ROUTES are signed, through remote.macRequest,
  * so the busy() guard around a register or a Forget holds for a restore as for anything else. Any other route is
@@ -170,12 +171,15 @@ function start(key, deps = {}) {
   return { ok: true, startedAt: mine.startedAt };
 }
 
+const REMOTE_BECAUSE = 'This restore did not finish. Open Kosmos on this computer to see why.';
 const counted = (a) => (Array.isArray(a) ? a.length : 0);
 function status(opts = {}) {
   let shown = last;
   if (last && opts.namesHidden) {
     shown = {};
-    for (const k of ['finishedAt', 'ok', 'because', 'code', 'partial', 'restored', 'failed']) if (k in last) shown[k] = last[k];
+    for (const k of ['finishedAt', 'ok', 'code', 'partial', 'restored', 'failed']) if (k in last) shown[k] = last[k];
+    // A reason can quote a path from the backup (restorerun names what failed), so a remote session gets one fixed line.
+    if ('because' in last) shown.because = last.code === 'stopped' ? last.because : REMOTE_BECAUSE;
     if (last.world) shown.world = last.world;   // the new Kosmos's name, not a file's
     for (const k of ['moved', 'kept', 'heldBack']) if (k in last) shown[k + 'Count'] = counted(last[k]);
     if (last.details) shown.details = { failedCount: counted(last.details.failed), leftOutAtBackup: last.details.leftOutAtBackup };
