@@ -329,3 +329,18 @@ test('a child\'s own answer cannot pass as the person\'s stop to a remote sessio
   await tick(); await tick();
   assert.equal(job.status({ namesHidden: true }).last.because, 'This restore did not finish. Open Kosmos on this computer to see why.');
 });
+
+test('untilIdle waits for a stopped restore to end, and forget drops its answer', async () => {
+  assert.equal(await job.untilIdle(10), true);
+  const { fork, made } = fakeFork();
+  job.start('k1', { fork, base: SANDBOX });
+  await tick();
+  assert.equal(await job.untilIdle(30), false, 'still running: not idle');
+  job.stop();
+  const idle = job.untilIdle(2000);
+  made[0].emit('close', null, 'SIGTERM');
+  assert.equal(await idle, true);
+  assert.equal(job.status().last.code, 'stopped');
+  job.forget();
+  assert.equal(job.status().last, null);
+});
