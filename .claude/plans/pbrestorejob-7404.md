@@ -16,6 +16,11 @@ The routes a restore screen calls, with the restore itself in a child process th
 Rejected: a worker thread (shares the board's process, so a crash or kill in the restore takes the board), and letting
 the child call the tunnel itself (signs outside busy()).
 
+Known limits, for the screen slice: no time limit and no Stop on a restore, so a wedged child holds the slot until
+the board restarts; the slot and the last answer are in memory, so after a restart nothing says a restore was cut off;
+an old board's child may still be finishing a write when a new board starts another (each makes its own new Kosmos,
+and restoreworld's list has its own lock).
+
 Not here: the screen (design review); carrying on a stopped restore; a real restore through the child end to end (the
 tests fork the real child but personal backup is off in their sandbox, so the signing path is covered by a stand-in
 child and by the child's own half in-process).
