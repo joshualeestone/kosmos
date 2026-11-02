@@ -20519,7 +20519,7 @@ window.kosmosMeasureScrollbarWidth();
                reports none; and the end says how to open the copy. -->
           <div id="pb-files" role="group" aria-labelledby="pb-files-head" hidden>
             <p class="fhint pb-files-head" id="pb-files-head">Restore from a backup</p>
-            <ul id="pb-files-list" hidden></ul>
+            <ul id="pb-files-list" role="list" hidden></ul>
             <p class="fhint" id="pb-files-more" hidden>Older backups are not shown.</p>
             <!-- Review 1: listBackups' keyMissing, backups under a key this computer does not hold, which may be the newest. -->
             <p class="fhint" id="pb-files-keymissing" hidden>Some backups were made with a key this computer does not have, so they are not listed. They may be the newest.</p>
@@ -20533,7 +20533,7 @@ window.kosmosMeasureScrollbarWidth();
               <p class="fhint">Stop now? What is restored so far stays in the copy.</p>
               <div class="frow"><button class="btn danger-btn" type="button" id="pb-files-stop-yes">Stop</button><button class="btn" type="button" id="pb-files-stop-no">Keep going</button></div>
             </div>
-            <p class="fhint" id="pb-files-last" tabindex="-1" hidden></p>
+            <p class="fhint" id="pb-files-last" tabindex="-1" aria-live="polite" hidden></p>
             <details id="pb-files-failed" hidden><summary class="fhint" id="pb-files-failed-sum"></summary><ul id="pb-files-failed-list"></ul></details>
             <!-- Mona Lisa's review 2: one row, Open the copy first and primary (it is the next step), as Restore and Cancel are. -->
             <div class="frow" id="pb-files-end-row"><button class="btn uprime" type="button" id="pb-files-open" hidden>Open the copy</button><button class="btn" type="button" id="pb-files-see">See your backups</button></div>
@@ -55710,7 +55710,7 @@ function pbPaint() {
   const box = document.getElementById('pb');
   if (!box) return;
   box.hidden = st.shown !== true;
-  if (box.hidden) { PB.code = null; PB.who = null; PB.view = null; document.getElementById('pb-code-text').textContent = ''; document.getElementById('pb-restore-code').value = ''; pbPrintClear(); return; }
+  if (box.hidden) { if (typeof pbfShow === 'function') pbfShow(false, true); PB.code = null; PB.who = null; PB.view = null; document.getElementById('pb-code-text').textContent = ''; document.getElementById('pb-restore-code').value = ''; pbPrintClear(); return; }
   // The step the person opened wins over the engine's state, except that 'on' closes the words and restore.
   let v = PB.view;
   if (!v || (st.state === 'on' && (v === 'words' || v === 'restore'))) v = st.state === 'on' ? 'on' : st.state === 'needs-key' ? 'needs-key' : st.state === 'pending' ? 'pending' : 'off';
@@ -55735,7 +55735,8 @@ function pbPaint() {
   const lastEl = document.getElementById('pb-job-last');
   lastEl.textContent = lines.plain; lastEl.hidden = !lines.plain;
   pbSkippedShow(v === 'on' && !lines.stopped ? st.job : null);
-  if (typeof pbfShow === 'function') pbfShow(v === 'on');   // typeof: the panel's functions are lifted alone by tests
+  // typeof: the panel's functions are lifted alone by tests. Its state drops only when personal backup is off here.
+  if (typeof pbfShow === 'function') pbfShow(v === 'on', st.state === 'off');
   // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
   const ask = document.getElementById('pb-off-ask');
   if (!(v === 'on' || v === 'needs-key')) ask.hidden = true;
@@ -56039,12 +56040,14 @@ function pbfLastWords(last) {
     failedPaths,
   };
 }
-function pbfShow(on) {
+/* `drop`: personal backup is off here, or the panel is hidden. Off drops the restore's answer on the board
+   (personalrestorejob.forget), so nothing of it is kept here either. Any other view (checking, needs a key, the words)
+   only hides the section: a restore running then is still this page's, and is shown again with it. */
+function pbfShow(on, drop) {
   const box = document.getElementById('pb-files');
   box.hidden = !on;
+  if (!on && !drop) return;
   if (!on) {
-    // Whenever the section is not shown (Off, or any view but on): the status is read again when it is. Off also drops the
-    // restore's answer on the board (personalrestorejob.forget), so nothing of it is kept here either.
     PBF.asked = null; PBF.stopAsk = false; PBF.stopSent = false; PBF.list = null; PBF.more = false; PBF.keyMissing = false; PBF.status = null; PBF.startedFor = null; PBF.at = 0;
     PBF.seq++; PBF.gen++;   // a read, a list, a start or a stop already in flight answers nothing
     return;
@@ -56185,7 +56188,7 @@ async function pbfStop() {
   pbfMsg(r && r.ok === true ? '' : ((r && r.because) || 'The restore could not be stopped just now.'));
   pbfRead();
   pbfPaint();
-  pbfFocus(document.getElementById('pb-files-run'));
+  pbfFocus(document.getElementById(PBF.stopSent ? 'pb-files-run' : 'pb-files-stop'));   // a refused stop: Stop is back
 }
 async function pbfOpen() {
   const w = pbfLastWords(PBF.status && PBF.status.last);
