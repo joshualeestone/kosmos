@@ -68,6 +68,10 @@ const FLOOR = 10;
 const SITES = [
   { file: 'ios/Kosmos/BoardRoom.swift', text: 'var r = URLRequest(url: url)', method: 'GET',
     routes: ['GET /api/project/x/room'], pins: ['URLComponents(url: URL(string: "/api/project/\\(project)/room"'] },
+  // kosmos#7810: one agent's conversation, the whole window or (?tail=N) only its newest messages.
+  { file: 'ios/Kosmos/BoardLogic.swift', text: 'var thread = URLRequest(url: url)', method: 'GET',
+    routes: ['GET /api/agent/x/thread', 'GET /api/agent/x/thread?tail=30'],
+    pins: ['URLComponents(url: URL(string: "/api/agent/\\(session)/thread"', 'URLQueryItem(name: "tail"'] },
   // A chat file and its thumbnail: the path comes from the board, accepted only as /api/attachment/<24 hex>[/preview].
   { file: 'ios/Kosmos/BoardLogic.swift', text: 'var r = URLRequest(url: url)', method: 'GET',
     routes: ['GET /api/attachment/000000000000000000000000', 'GET /api/attachment/000000000000000000000000/preview'],

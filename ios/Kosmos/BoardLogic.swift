@@ -1123,13 +1123,23 @@ enum Board {
     // MARK: - One agent's conversation (kosmos#7008, slice 3a)
 
     // The conversation the board's own chat reads (GET /api/agent/<name>/thread).
-    static func threadRequest(mac: URL, session: String) -> URLRequest? {
-        guard isAgentSession(session) else { return nil }
-        var r = URLRequest(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL)
-        r.setValue("application/json", forHTTPHeaderField: "Accept")
-        r.cachePolicy = .reloadIgnoringLocalCacheData
-        return r
+    // kosmos#7810: `tail` asks for only the newest messages (the first read of an open, so a weak signal draws a screenful
+    // first); `tag` is the ETag of the conversation already shown, which the Mac answers with a bodyless 304 when nothing
+    // changed.
+    static func threadRequest(mac: URL, session: String, tail: Int? = nil, tag: String? = nil) -> URLRequest? {
+        guard isAgentSession(session),
+              var parts = URLComponents(url: URL(string: "/api/agent/\(session)/thread", relativeTo: mac)!.absoluteURL, resolvingAgainstBaseURL: false)
+        else { return nil }
+        if let tail { parts.queryItems = [URLQueryItem(name: "tail", value: String(max(1, min(200, tail))))] }
+        guard let url = parts.url else { return nil }
+        var thread = URLRequest(url: url)
+        thread.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let tag, !tag.isEmpty { thread.setValue(tag, forHTTPHeaderField: "If-None-Match") }
+        thread.cachePolicy = .reloadIgnoringLocalCacheData
+        return thread
     }
+    // kosmos#7810: the newest messages the first read of an open asks for (about two phone screens).
+    static let threadFirstPage = 30
 
     // A link in an agent's message is kept only when it opens a web page (http or https, with a host).
     static func isWebLink(_ url: URL) -> Bool {
@@ -2359,9 +2369,11 @@ enum Board {
 
     // A read of the conversation: the conversation, the Mac's own reason it could not give one (a name it refuses, a
     // history it could not read), or no answer at all.
-    enum ThreadRead: Equatable { case thread(Thread), refused(String), noAnswer }
+    // kosmos#7810: `unchanged` is the Mac's 304 to a read that named the conversation's ETag: what is shown is current.
+    enum ThreadRead: Equatable { case thread(Thread), refused(String), noAnswer, unchanged }
 
     static func readThread(status: Int, data: Data?) -> ThreadRead {
+        if status == 304 { return .unchanged }
         let obj = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if (200...299).contains(status) {
             // A conversation the Mac cannot file says so (historyUnfilable), rather than reading as an empty one. Its

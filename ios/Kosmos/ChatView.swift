@@ -25,6 +25,10 @@ struct ChatView: View {
     @State private var thread: Board.Thread?
     @State private var lastRead: Date?
     @State private var failedReads = 0
+    // kosmos#7810: whether a read of the whole window has landed since this chat opened (until then the chat shows the
+    // kept copy or the first small page, and loads no earlier pages), and that read's ETag for the next poll.
+    @State private var fullRead = false
+    @State private var threadTag: String?
     // The Mac's own reason it gave no conversation (a name it refuses, a history it could not read).
     @State private var refusal: String?
     @State private var loop: Task<Void, Never>?
@@ -399,6 +403,7 @@ struct ChatView: View {
             positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuilds = []   // kosmos#7265 review: a fresh chat's anchor
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
+            fullRead = false; threadTag = nil   // kosmos#7810
             replying = nil
             retryNote = nil
             retrySettling = []
@@ -1293,7 +1298,9 @@ struct ChatView: View {
     // Try again (the board's earlierNearTop: on scroll, after a paint, and from its button).
     private func loadEarlier() {
         // A search shortens the thread; its top showing is not a reader at the top (the board's earlierNearTop).
-        guard !searchMode, let t = thread, Board.shouldAsk(settled: settledAtEnd, topVisible: topVisible, earlier: earlier, olderCount: t.olderCount)
+        // kosmos#7810: not from the kept copy or the small first page: their positions are not the window the next read
+        // brings, so a page loaded from them could overlap it.
+        guard fullRead, !searchMode, let t = thread, Board.shouldAsk(settled: settledAtEnd, topVisible: topVisible, earlier: earlier, olderCount: t.olderCount)
         else { return }
         let start = Board.startLoad(earlier, olderCount: t.olderCount)
         earlier = start
@@ -1319,7 +1326,7 @@ struct ChatView: View {
     // earlierFillGap: messages that left the latest 200 while the chat was open are fetched into the loaded pages, so
     // nothing falls between them and the latest read. Dropped if a reset came while it ran.
     private func fillGap(_ t: Board.Thread) {
-        guard earlier.open, !earlier.filling, !earlier.loading, Board.hasGap(end: earlier.end, olderCount: t.olderCount) else { return }
+        guard fullRead, earlier.open, !earlier.filling, !earlier.loading, Board.hasGap(end: earlier.end, olderCount: t.olderCount) else { return }
         earlier.filling = true
         let end = earlier.end
         let token = earlier.opening
@@ -1973,25 +1980,46 @@ struct ChatView: View {
 
     private func startReading() {
         loop?.cancel()
+        // kosmos#7810: the conversation this phone last read is drawn at once, offline too; the first read replaces it.
+        if thread == nil, let kept = client.keptThread(for: agent.session) {
+            thread = kept; recomputeHiddenHeads()
+            Self.trace("kept copy drawn")
+        }
         loop = Task {
             while !Task.isCancelled {
-                await read()
+                let landedSmall = await read()
+                // The small first page drawn: the whole window is read straight after it, not 5 s later.
+                if landedSmall { continue }
                 try? await Task.sleep(nanoseconds: 5_000_000_000)   // the web chat's own cadence
             }
         }
     }
 
-    private func read() async {
+    // kosmos#7810: true when this read was the small first page and it landed (the caller reads the whole window next).
+    @discardableResult
+    private func read() async -> Bool {
         readsStarted += 1
         let mine = readsStarted
         let startedIn = client.chatEpoch
-        let result = await client.thread(for: agent.session)
+        // The first read of an open with nothing to show asks for a screenful; later reads ask for the whole window,
+        // naming what is shown (its ETag) once a whole window is shown, so an unchanged one costs no body.
+        let small = !fullRead && thread == nil
+        let (result, tag) = await client.threadRead(for: agent.session, tail: small ? Board.threadFirstPage : nil,
+                                                    tag: fullRead ? threadTag : nil)
         // A read cut short (the chat closed, the app went away) says nothing about the Mac, and an older read than the
         // one shown changes nothing.
-        guard !Task.isCancelled, mine > readShown, startedIn == client.chatEpoch else { return }
+        guard !Task.isCancelled, mine > readShown, startedIn == client.chatEpoch else { return false }
         readShown = mine
         switch result {
+        case .unchanged:
+            // Only a read that named the shown window's tag can be answered so: nothing changed, the Mac is answering.
+            lastRead = Date()
+            failedReads = 0
+            refusal = nil
+            return false
         case .thread(let fresh):
+            let wasFull = fullRead
+            if !small { fullRead = true; threadTag = tag }
             // The hidden headers in the same pass as the rows, so a pending reply's swap to its kept row never draws one
             // frame with the old set (onChange alone runs after that body).
             // kosmos#7265 (Josh 10-27): rows this read slid out of the latest window stay, so nothing above the reader
@@ -2002,7 +2030,8 @@ struct ChatView: View {
                 // follow() ran, so a reader at the bottom was left behind with "New messages" (measured on the simulator).
                 // Until the open has settled (the end not yet shown) the reader is still being taken there.
                 let pinned = !Self.sampleNoKeep && (atBottom || !endSeen) && !searching
-                if !Self.sampleNoKeep { earlier = Board.carryDropped(earlier, previous: thread, fresh: fresh) }   // NOKEEP: the control
+                // kosmos#7810: only from a whole window read in this open (a kept copy or a small page is not one).
+                if !Self.sampleNoKeep, wasFull { earlier = Board.carryDropped(earlier, previous: thread, fresh: fresh) }   // NOKEEP: the control
                 thread = fresh; recomputeHiddenHeads()
                 if pinned { keepAtEndTick += 1 }
                 Self.trace("read \(mine): rows \(fresh.rows.count) older \(fresh.olderCount) pinned \(pinned) atBottom \(atBottom) endSeen \(endSeen) settled \(settledAtEnd) earlierOpen \(earlier.open) earlierRows \(earlier.rows.count) loading \(earlier.loading) filling \(earlier.filling)")
@@ -2019,8 +2048,11 @@ struct ChatView: View {
             lastRead = Date()
             failedReads = 0
             refusal = nil
+            return small
         case .refused(let why):
             // The Mac answered, with a reason: said as it is, never as "not answering".
+            // kosmos#7810: a kept copy is not left over the reason (the chat draws the reason only with no thread).
+            if !fullRead { thread = nil }
             refusal = why
             dropChoices()
             failedReads = 0
@@ -2028,6 +2060,7 @@ struct ChatView: View {
             failedReads += 1
             dropChoices()
         }
+        return false
     }
 }
 
