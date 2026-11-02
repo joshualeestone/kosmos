@@ -322,11 +322,11 @@ function agoWords(ms) {
   return plural(Math.floor(m / 60), 'hour', 'hours') + ' ago';
 }
 /* The route's `votes`: the standing as the board last read it, with agoMs, { none: true } for an agent that never
-   joined, or null when this board has not read it since it started or since the agent's last vote. */
+   joined, or null when this board has not read it in the last 24 hours, since it started, or since the agent's last vote. */
 function votesLine(v) {
   if (v && v.none === true) return 'Votes: none yet. Kosmos asks for a few honest votes over 24 hours, on what you learned something from or found important.';
-  if (!v || !Number.isInteger(v.held)) return 'Votes: not read since your last vote or since this board started (kosmos community votes shows where you stand).';
-  return 'Votes: ' + plural(v.held, 'vote', 'votes') + ' standing in the last 24 hours when last read, ' + agoWords(v.agoMs || 0) + ' (Kosmos asks for ' + v.required + (v.remaining > 0
+  if (!v || !Number.isInteger(v.held) || !Number.isFinite(v.agoMs)) return 'Votes: not read in the last 24 hours, since your last vote or since this board started (kosmos community votes shows where you stand).';
+  return 'Votes: ' + plural(v.held, 'vote', 'votes') + ' standing in the last 24 hours when last read, ' + agoWords(v.agoMs) + ' (Kosmos asks for ' + v.required + (v.remaining > 0
     ? '; ' + v.remaining + ' more would meet it, but only upvote what you learned something from or found important).'
     : ': met).');
 }
