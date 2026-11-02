@@ -23,6 +23,10 @@ process.env.AGENT_WORKFORCE_PROJECTS = mk('projects');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const ds = require('./deliverystreak');
+/* A real board card from test-support/fleet (fixture-discipline.test.js: never a hand-built one), carrying a stall. */
+const fleet = require('../test-support/fleet');
+test.after(() => fleet.restore());
+const stalledCard = (session, deliveryStall) => ({ ...fleet.install([fleet.agent(session)]).card(session), deliveryStall });
 
 const T0 = Date.parse('2026-11-02T10:00:00Z');
 const MIN = 60 * 1000;
@@ -130,7 +134,7 @@ test('pushed is true only for a stall push that went out during the streak', () 
   const file = path.join(SANDBOX, 'data', ds.PUSH_FILE);
   const said = new Map();
   saidStall('p1', said);
-  const card = { sessionName: 'p1', name: 'p1', deliveryStall: ds.stallOf('p1', { now: T0 + 40 * MIN }) };
+  const card = stalledCard('p1', ds.stallOf('p1', { now: T0 + 40 * MIN }));
   assert.ok(card.deliveryStall);
   ds.tellStalls([card], { now: T0 + 40 * MIN, file, send: () => true });
   ds.note('p1', PLACED, T0 + 3 * 24 * 60 * MIN);
@@ -140,7 +144,7 @@ test('pushed is true only for a stall push that went out during the streak', () 
   /* Control: a push before this streak began is not this stall's push. */
   ds.resetForTests();
   const said2 = new Map();
-  ds.tellStalls([{ sessionName: 'p3', name: 'p3', deliveryStall: { since: new Date(T0 - 60 * MIN).toISOString(), count: 3, lastWhy: 'input' } }],
+  ds.tellStalls([stalledCard('p3', { since: new Date(T0 - 60 * MIN).toISOString(), count: 3, lastWhy: 'input' })],
     { now: T0 - 20 * MIN, file: null, send: () => true });
   saidStall('p3', said2);
   ds.note('p3', PLACED, T0 + 50 * MIN);
