@@ -3880,6 +3880,10 @@ function blockRules(sessionName, cliShown) {
       'them they can also press Pause beside the project\'s name, at the top of its page. When they answer: if they',
       'pressed it, nothing more is needed; if they say yes, pause it; if they want nothing paused, leave it as it is; if',
       `they mean only some tasks, put those on hold: \`${cliShown} task hold <project-id> <task-number>\`.`,
+      /* kosmos#7788: a hold that waits on the person joins what is waiting on them. */
+      'When a task cannot go on until your person decides or does something only they can, put it on hold for them:',
+      `\`${cliShown} task hold <project-id> <task-number> --because "<what you need from them>" --for-you\`. It then shows`,
+      'in what is waiting on them.',
       /* #5300: every member showed its agent's one role (five Project Managers on one project). */
       '',
       `Say in a few words what you do on each project, so \`${cliShown} project show <project-id>\` lists it beside you:`,
