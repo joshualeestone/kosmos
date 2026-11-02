@@ -18,10 +18,13 @@ Three rough edges around paused projects, each checked live on 0.7.84 (10ce35b96
    nobody. `told` lists only lines actually typed (a held or refused delivery is not told, and nothing is kept for
    later). `server.js`'s project edit route calls it when `paused` goes from true to false, from either side, after the
    members' instructions are re-synced, in `setImmediate` on a fresh roster, so the answer to the Resume press goes out first (the typing still runs on the
-   event loop afterwards, as the own-computer nudge does). One line per project per two minutes, so a quick
-   resume, pause and resume types one line.
+   event loop afterwards, as the own-computer nudge does). One line per member per two minutes, so a person's
+   quick resume, pause and resume on the screen types one line; a member whose line was held is tried again; and an
+   agent's pause clears the project's gap (`forgetResumeTold`, from the edit route), since those members were told
+   "paused" and the next resume must reach them. Only the project's current members are typed to.
    Not recorded in the room log: a nudge row needs a post.
-3. **The role help states its limit.** `install/kosmos` and `tools/windows/kosmos-cli.js`: "60 characters at most".
+3. **The role help states its limit.** `install/kosmos` and `tools/windows/kosmos-cli.js`: "60 characters at most", in
+   the help overview and in the role command's own usage line.
 
 ## Decided
 - Reverses the paused half of a #4771 review test (09-30: a paused project's task needing the person read decision).
@@ -36,6 +39,7 @@ That Josh's 10-16 ruling covers the task rows as well as the project page. If he
 stay red on the task, revert the two `!paused` guards and the #4771 test change.
 
 ## Tests
-`engine/pausedrough-7812.test.js` (13), on real projects and members. Mutants red: decision ignoring the pause, the
+`engine/pausedrough-7812.test.js` (16), on real projects and members. Mutants red: decision ignoring the pause, the
 for-person hold ignoring it, the badge counting a paused project, no switched-off skip, no _roomMembers, no archived or
-paused check, a held line counted as told, the tell run inline, no two-minute gap, Windows help without the limit, the route not calling it.
+paused check, a held line counted as told, the tell run inline, no two-minute gap, a per-project gap, no clearing on an agent's pause, no current-members check,
+the Mac usage line without the limit, Windows help without the limit, the route not calling it.
