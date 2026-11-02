@@ -20522,7 +20522,7 @@ window.kosmosMeasureScrollbarWidth();
             <ul id="pb-files-list" hidden></ul>
             <p class="fhint" id="pb-files-more" hidden>Older backups are not shown.</p>
             <!-- Review 1: listBackups' keyMissing, backups under a key this computer does not hold, which may be the newest. -->
-            <p class="fhint" id="pb-files-keymissing" hidden>Some backups were made with a key this computer does not have, so they are not listed here. They may be the newest.</p>
+            <p class="fhint" id="pb-files-keymissing" hidden>Some backups were made with a key this computer does not have, so they are not listed. They may be the newest.</p>
             <div id="pb-files-ask" hidden>
               <p class="fhint" id="pb-files-ask-say"></p>
               <div class="frow"><button class="btn uprime" type="button" id="pb-files-yes">Restore</button><button class="btn" type="button" id="pb-files-no">Cancel</button></div>
@@ -55989,7 +55989,7 @@ document.getElementById('pb-on').addEventListener('click', pbOpen);
    asked (it spends the hourly Kosmos+ allowance); where a restore is (GET /api/personal-backup/files) is read every 5
    seconds while one runs and once a minute otherwise, only while the panel shows it. The copy is a Kosmos of its own in the
    switcher (restoreworld.prepareRestoreWorld), so "Open the copy" is the switcher's own restart-to-switch confirm. */
-var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, busy: false, stopAsk: false, stopping: false };
+var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, gen: 0, busy: false, stopAsk: false, stopping: false };
 function pbfWhen(ms) { return Number.isFinite(ms) ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''; }
 /* Mona Lisa's review 2: a restore that started today says the time alone; the list's backups keep the full date. */
 function pbfStartedWhen(ms, now = Date.now()) {
@@ -56014,7 +56014,7 @@ function pbfLastWords(last) {
   const parts = [];
   if (l.ok === true) parts.push('Restored ' + n(Number.isSafeInteger(l.restored) ? l.restored : 0, 'file', 'files') + ' into ' + (world ? world.name : 'a separate copy') + '.');
   else if (l.code === 'stopped') parts.push(l.stoppedByPerson === true && /turned off/.test(String(l.because || '')) ? asSentence(l.because)
-    : 'You stopped the restore. Any files it had already restored are in a copy in the Kosmos menu at the top.');
+    : 'You stopped the restore. If it had already restored any files, they are in a copy you can open from the Kosmos menu at the top.');
   // A child that ended without an answer carries how ("(it exited with code 1)"): engineer words, left off the screen.
   else parts.push(asSentence(String(l.because || 'The restore did not finish').replace(/ \((it exited with code -?\d+|it was ended by [A-Z0-9]+)\)/, '')) + (world ? ' Its copy is ' + world.name + '.' : ''));
   if (leftOut > 0) parts.push(n(leftOut, 'file was', 'files were') + ' not in this backup (' + (leftOut === 1 ? 'it was' : 'they were') + ' left out when it was made).');
@@ -56032,7 +56032,7 @@ function pbfShow(on) {
   if (!on) {
     // Off drops the restore's answer on the board (personalrestorejob.forget), so the page drops its copy of it too.
     PBF.asked = null; PBF.stopAsk = false; PBF.list = null; PBF.more = false; PBF.keyMissing = false; PBF.status = null; PBF.startedFor = null; PBF.at = 0;
-    PBF.seq++;   // a read already in flight answers nothing
+    PBF.seq++; PBF.gen++;   // a read, a list, a start or a stop already in flight answers nothing
     return;
   }
   // 4500, not 5000: the panel repaints every 5 seconds, and a repaint a moment early would skip a read.
@@ -56046,13 +56046,19 @@ function pbfRead() {
     if (seq !== PBF.seq || !j || typeof j !== 'object') return;
     const wasRunning = !!(PBF.status && PBF.status.running);
     PBF.status = j;
-    if (wasRunning && !j.running) { PBF.stopAsk = false; PBF.list = null; }   // a finished restore puts the list away
+    const ended = wasRunning && !j.running;
+    if (ended) { PBF.stopAsk = false; PBF.list = null; }   // a finished restore puts the list away
+    // The control in focus (Stop, or the running line) goes with the restore, so the end takes it.
+    const inside = ended && typeof document.activeElement !== 'undefined' && document.activeElement
+      && (document.activeElement === document.body || document.getElementById('pb-files').contains(document.activeElement));
     pbfPaint();
+    if (inside) pbfFocus(!document.getElementById('pb-files-open').hidden ? document.getElementById('pb-files-open') : document.getElementById('pb-files-last'));
   }).catch(() => { /* the next read tries again */ });
 }
 function pbfPaint() {
   const st = PBF.status || {};
   const running = st.running === true;
+  if (!running) PBF.stopAsk = false;   // a confirm for a restore that has ended never comes back for the next
   const listed = Array.isArray(PBF.list);
   const seeHidden = running || !!PBF.asked
     || (!PBF.busy && listed && PBF.list.length > 0);   // the list is up: its own Restore buttons are the next step
@@ -56119,6 +56125,7 @@ function pbfRowButton(key) {
 }
 async function pbfSee() {
   if (PBF.busy) return;
+  const gen = PBF.gen;
   PBF.busy = true; pbfMsg(''); pbfPaint();
   let r;
   try {
@@ -56126,6 +56133,7 @@ async function pbfSee() {
     r = await res.json();
   } catch { r = { ok: false, because: 'This Kosmos could not be reached. Try again.' }; }
   PBF.busy = false;
+  if (gen !== PBF.gen) return;   // personal backup went off meanwhile: this answer is for a panel that is gone
   if (r && r.ok === true && Array.isArray(r.backups)) {
     PBF.list = r.backups; PBF.more = r.more === true; PBF.keyMissing = r.keyMissing === true;
     // keyMissing: there are backups, under a key this computer lacks, so "none yet" would be false (its line says so).
@@ -56137,6 +56145,7 @@ async function pbfSee() {
 async function pbfStart() {
   const b = PBF.asked;
   if (!b || PBF.busy) return;
+  const gen = PBF.gen;
   PBF.busy = true; pbfPaint();
   let r;
   try {
@@ -56144,6 +56153,7 @@ async function pbfStart() {
     r = await res.json();
   } catch { r = { ok: false, because: 'This Kosmos could not be reached. Nothing was restored.' }; }
   PBF.busy = false;
+  if (gen !== PBF.gen) return;
   const started = !!(r && r.ok === true);
   if (started) {
     PBF.startedFor = b; PBF.asked = null;
@@ -56156,13 +56166,16 @@ async function pbfStart() {
 }
 async function pbfStop() {
   if (PBF.stopping) return;   // review 1: a second Stop would answer "No restore is running" over the first one's success
+  const gen = PBF.gen;
   PBF.stopping = true; pbfPaint();
   let r;
   try {
     const res = await fetch('/api/personal-backup/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     r = await res.json();
   } catch { r = { ok: false, because: 'This Kosmos could not be reached. The restore is still running.' }; }
-  PBF.stopping = false; PBF.stopAsk = false;
+  PBF.stopping = false;
+  if (gen !== PBF.gen) return;
+  PBF.stopAsk = false;
   pbfMsg(r && r.ok === true ? '' : ((r && (r.because || r.error)) || 'The restore could not be stopped just now.'));
   pbfRead();
   pbfPaint();
