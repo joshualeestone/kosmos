@@ -15,6 +15,8 @@ const path = require('node:path');
 
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-memberkey-5744-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+// kosmos#7753: registrations read the device key; point it at an empty folder in the sandbox so no real one is read.
+process.env.AGENT_WORKFORCE_TUNNEL_STATE = path.join(SANDBOX, 'no-device-key');
 const store = require('./store');
 const backupkeys = require('./backupkeys');
 const mk = require('./backupmemberkey');
