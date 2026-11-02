@@ -938,8 +938,11 @@ function panePidOf(target) {
    is one chip and nothing else (as before #6249), or when it shows a chip that is not words of our own line: a message
    that merely mentions "[Pasted text #2]" is still compared word for word, as before. What a chip box holds is then
    decided by the chip rules below, never by comparing words. */
-const ANY_CHIP = /\[Pastedtext#\d+(?:\+\d+lines)?\]/g;
+const ANY_CHIP = /\[Pastedtext#\d+(?:\+\d+lines)?\]/g;   // global: used with match/split only, never .test/.exec
 const ONE_LINE_CHIP_ANY = /\[Pastedtext#\d+\]/g;
+/* #6249: a chip of ours stands for a stretch of our line long enough to have folded (CHIP_MIN_CHARS stays text, so a
+   chip hides more than that). Squashed, without its whitespace, that stretch is shorter; half is the floor used. */
+const CHIP_HIDES_MIN = CHIP_MIN_CHARS / 2;
 const isLoneChip = (text) => /^\[Pastedtext#\d+(?:\+\d+lines)?\]$/.test(squash(text));
 function isChipBox(text, wire = '') {
   const t = squash(text);
@@ -960,14 +963,18 @@ function foldedFromOurs(t, wire) {
   const last = pieces.length - 1;
   if (pieces[0] && !w.startsWith(pieces[0])) return false;
   if (pieces[last] && !w.endsWith(pieces[last])) return false;
+  /* Each chip hides at least CHIP_HIDES_MIN of our line: a person's own chip set beside words of ours that hide nothing
+     is not ours. `gap` counts the chips since the last piece, so runs of chips need room for each of them. */
   let at = pieces[0].length;
+  let gap = 1;
   for (let i = 1; i < last; i += 1) {
-    if (!pieces[i]) continue;
-    const found = w.indexOf(pieces[i], at);
+    if (!pieces[i]) { gap += 1; continue; }
+    const found = w.indexOf(pieces[i], at + gap * CHIP_HIDES_MIN);
     if (found < 0) return false;
     at = found + pieces[i].length;
+    gap = 1;
   }
-  return !pieces[last] || w.length - pieces[last].length >= at;
+  return w.length - pieces[last].length - at >= gap * CHIP_HIDES_MIN;
 }
 /* 'empty', 'ours' (what is there is a piece of what we pasted, and nothing else), or 'other'. `chip` ties a chip to our
    paste: true for a box read right after we pasted into it while it was empty (the delivery holds the pane, so no
@@ -2694,23 +2701,18 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
        with runs of ours between them, and the whole folded form is what is pinned. */
     let box = before;
     if (box.ok && chipTie && isChipBox(box.text, wire) && foldedFromOurs(squash(box.text), wire)) {
-      /* #6249: a fold can still be drawing (one chip showing of several), so the form is pinned only once two reads a
-         look apart agree; one still changing after FOLD_STABLE_LOOKS is not pressed. */
-      let looks = 0;
-      for (;;) {
+      /* #6249: a fold can still be drawing (one chip showing of several), so the form is pinned once two reads a look
+         apart agree. A read that fails, or a form still changing after FOLD_STABLE_LOOKS, leaves the latest good read
+         pinned, as before #6249 (one read, pinned): what is pinned must still be ours, so the shape is checked again. */
+      for (let looks = 0; looks < FOLD_STABLE_LOOKS; looks += 1) {
         submitGap(SUBMIT_LOOK_MS);
         const again = readComposer(target);
-        if (again.ok && squash(again.text) === squash(box.text)) {
-          if (isChipBox(box.text, wire) && foldedFromOurs(squash(box.text), wire)) ourChip = squash(box.text);   // settled, and still ours
-          break;
-        }
+        if (!again.ok) break;
+        const settled = squash(again.text) === squash(box.text);
         box = again;
-        looks += 1;
-        if (!box.ok || looks >= FOLD_STABLE_LOOKS) break;
+        if (settled) break;
       }
-      if (!ourChip) {
-        return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, because: UNSENT_NOT_PRESSED_BECAUSE, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };
-      }
+      if (isChipBox(box.text, wire) && foldedFromOurs(squash(box.text), wire)) ourChip = squash(box.text);
     }
     if (box.ok && composerHolds(box.text, wire, ourChip || chipTie) === 'other') {
       return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, because: UNSENT_NOT_PRESSED_BECAUSE, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };
