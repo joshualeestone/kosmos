@@ -161,7 +161,7 @@ test('turning personal backup off drops the list and the last restore, names and
   const p = painter(doc);
   p.PBF.list = [{ key: 'k1', takenAt: 1e9, problem: null }];
   p.PBF.status = { running: false, last: { ok: true, restored: 1, world: WORLD, details: { failed: [{ path: 'secret/plan.md', why: '' }] } } };
-  p.pbfShow(false);
+  p.pbfShow(false, true);
   assert.equal(p.PBF.list, null);
   assert.equal(p.PBF.status, null);
   assert.equal(p.PBF.at, 0, 'the next show reads at once');
@@ -192,7 +192,7 @@ test('Off while a list is on its way: its answer writes nothing back', async () 
   p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
   p.pbfShow(true);
   const pending = p.pbfSee();
-  p.pbfShow(false);
+  p.pbfShow(false, true);
   release(); await pending;
   assert.equal(p.PBF.list, null, 'the old list came back after Off');
 });
@@ -310,4 +310,30 @@ test('a remote session\'s failed restore: the job\'s fixed line, and the copy wh
   const w = pbfLastWords({ ok: false, because: m[1], world: WORLD, details: { failedCount: 0, leftOutAtBackup: 0 } });
   assert.equal(w.line, m[1] + ' Its copy is ' + WORLD.name + '.');
   assert.deepEqual(w.world, WORLD, 'Open the copy, from a phone too');
+});
+
+test('another view (checking, needs a key) only hides the section: a running restore is still this page\'s', () => {
+  const doc = fakeDoc();
+  const p = painter(doc);
+  p.PBF.status = { running: true, startedAt: 7, last: null }; p.PBF.startedFor = { backup: { key: 'k1', takenAt: 1e9 }, at: 7 }; p.PBF.at = Date.now();
+  p.pbfShow(false, false);
+  assert.ok(!vis(doc, 'pb-files'), 'hidden');
+  assert.ok(p.PBF.status && p.PBF.status.running && p.PBF.startedFor, 'the running restore was forgotten on a view change');
+  p.pbfShow(true);
+  assert.match(doc.getElementById('pb-files-run').textContent, /^Restoring (?!a backup)/, 'named again when it shows');
+});
+
+test('the panel hiding drops the section\'s state, as Off does (pbPaint\'s early return calls it)', () => {
+  const m = SCRIPT.match(/\n  if \(box\.hidden\) \{ [^\n]*\n/);
+  assert.ok(m, 'CONTROL: pbPaint\'s hidden branch was not found');
+  assert.match(m[0], /pbfShow\(false, true\)/, 'a hidden panel kept the last restore\'s file names');
+});
+
+test('a refused Stop puts focus back on Stop', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, answer({ ok: false, code: 'not_running', because: 'No restore is running on this computer.' }));
+  p.PBF.status = { running: true, startedAt: 5, last: null }; p.PBF.at = Date.now();
+  p.pbfShow(true); p.PBF.stopAsk = true; p.pbfPaint();
+  await p.pbfStop();
+  assert.equal(doc.focused && doc.focused.id, 'pb-files-stop');
 });
