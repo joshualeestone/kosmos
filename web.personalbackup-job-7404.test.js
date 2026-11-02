@@ -38,17 +38,17 @@ const pbSkippedWords = Function(pw[0] + sw[0] + 'return pbSkippedWords;')();
 
 test('a list of what was left out: the count, each path with its reason, and how many are not named', () => {
   const w = pbSkippedWords({ count: 3, files: [{ path: 'agents/a/film.mov', why: 'larger than 64 MB, too large to scan' }, { path: 'notes.zip', why: '' }] });
-  assert.equal(w.sum, '3 files were left out of the last backup');
+  assert.equal(w.sum, '3 files and folders were left out of the last backup');
   assert.deepEqual(w.items, ['agents/a/film.mov: too large', 'notes.zip: Kosmos could not check it']);
   assert.equal(w.more, '1 more is not named here.');
-  assert.equal(pbSkippedWords({ count: 1, files: [{ path: 'a.pdf', why: 'x' }] }).sum, '1 file was left out of the last backup');
+  assert.equal(pbSkippedWords({ count: 1, files: [{ path: 'a.pdf', why: 'x' }] }).sum, '1 file or folder was left out of the last backup');
   assert.equal(pbSkippedWords({ count: 1, files: [{ path: 'a.pdf', why: 'x' }] }).more, '');
 });
 test('nothing left out, or nothing readable, shows nothing', () => {
   for (const sk of [null, undefined, {}, { count: 0, files: [] }, { files: 'x' }, { count: 'x', files: [{ path: '' }] }]) assert.equal(pbSkippedWords(sk), null);
 });
 test('a count smaller than the list cannot hide named files', () => {
-  assert.equal(pbSkippedWords({ count: 1, files: [{ path: 'a' }, { path: 'b' }] }).sum, '2 files were left out of the last backup');
+  assert.equal(pbSkippedWords({ count: 1, files: [{ path: 'a' }, { path: 'b' }] }).sum, '2 files and folders were left out of the last backup');
 });
 test('the list shows only beside a plain on view, never with a stop', () => {
   assert.match(page, /pbSkippedShow\(v === 'on' && !lines\.stopped \? st\.job : null\);/);
@@ -79,4 +79,36 @@ test('every reason the scanner and walker give reads as plain words, never as th
   };
   for (const [why, words] of Object.entries(cases)) assert.equal(pbWhyWords(why), words, why);
   for (const odd of [undefined, null, 5, '']) assert.equal(pbWhyWords(odd), 'Kosmos could not check it');
+});
+
+/* Review 1: every reason the engine can write, read out of its own source, must map to plain words. Only the ones listed
+   here may take the fallback, and each is a real "could not check" case. A new scanner reason fails this test. */
+const engineWhys = () => {
+  const src = ['backupscan.js', 'backupsnapshot.js'].map((f) => fs.readFileSync(path.join(__dirname, 'engine', f), 'utf8')).join('\n');
+  const out = new Set();
+  for (const m of src.matchAll(/why: '((?:[^'\\]|\\.)+)'/g)) out.add(m[1].replace(/\\'/g, "'"));
+  for (const m of src.matchAll(/\[[^\n]*?, '([^']+)'\],?\n/g)) out.add(m[1]);   // DENY and KOSMOS_STORES rows
+  for (const m of src.matchAll(/why: `([^`]+)`/g)) out.add(m[1].replace(/\$\{[^}]+\}/g, 'X'));
+  return [...out];
+};
+const MAY_FALL_BACK = new Set(['unusable path', 'a name too long to check', 'text that already holds the masking placeholder',
+  'text that could not be fully checked', 'could not write the redacted text back', 'unreadable', 'UTF-16 text of odd length',
+  'could not be checked', 'a folder that could not be read', 'an entry that could not be read', 'a file that could not be read',
+  'its redacted copy is over twice its size', 'folders nested more than X deep', 'X (a temp copy being written)', 'X the root X',
+  'not a regular file']);
+test('every engine reason maps to plain words, and only known could-not-check reasons fall back', () => {
+  const whys = engineWhys();
+  assert.ok(whys.length > 40, 'CONTROL: the engine reasons were read: ' + whys.length);
+  const fell = whys.filter((w) => pbWhyWords(w) === 'Kosmos could not check it' && !MAY_FALL_BACK.has(w));
+  assert.deepEqual(fell, []);
+});
+test('a vanished file is not called a shortcut, and a bad name is not called a clash', () => {
+  assert.equal(pbWhyWords('a file that could not be opened (gone, or replaced by a link)'), 'changed while it was being backed up');
+  assert.equal(pbWhyWords('a trailing dot: restore cannot write it'), 'its name cannot be restored on every computer');
+  assert.equal(pbWhyWords('restore would refuse it beside A.txt (names it treats as one)'), 'its name clashes with another file');
+  assert.equal(pbWhyWords('Kosmos undo copies (the files are backed up at their own paths)'), 'an undo copy (the file itself is backed up)');
+  assert.equal(pbWhyWords('Kosmos tunnel TLS key'), 'may hold a password or key');
+});
+test('the Turn off confirm says what is kept', () => {
+  assert.match(page, /What is already backed up is kept for at least 30 days, then deleted\./);
 });
