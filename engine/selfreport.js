@@ -655,18 +655,22 @@ function history(sessionName, tailBytes) {
    writes one on every prompt and every finished answer, and an agent's own report comes from a turn); a person's clear
    (`by: 'operator'`) is not, since it only acts on a report already there. No record is null, not false: a provider
    whose hook never writes, or a hook that was never wired, leaves none (register.hasRun's weakest premise, review 21).
-   A record longer than the tail is null too: older rows exist that this read did not see. The rows survive a restart
-   and a board restart (append-only, never trimmed), so an agent that worked yesterday is true today. */
+   A record longer than the tail with no turn row in the tail is null too: older rows exist that this read did not
+   see. The rows are append-only, so once true it stays true: that answer is kept per name and the record is not read
+   again for it (the status poll asks for every idle card). */
 const TURN_STATES = Object.freeze(['working', 'idle', 'needs_you', 'blocked']);
+const TURNED = new Set();
 function turnTakenOf(sessionName) {
+  if (TURNED.has(sessionName)) return true;
   const rows = history(sessionName);
-  if (!rows || rows.truncated) return null;
+  if (!rows) return null;
   let started = false;
   for (const row of rows) {
     if (row.by === 'operator') continue;
-    if (TURN_STATES.includes(row.state)) return true;
+    if (TURN_STATES.includes(row.state)) { TURNED.add(sessionName); return true; }
     if (row.state === 'started') started = true;
   }
+  if (rows.truncated) return null;
   return started ? false : null;
 }
 
