@@ -8,14 +8,17 @@ log said (`delivery-stall:`) never says it ended, so the reader of the log canno
 recovered an hour later.
 
 ## Change
-- `note()`: on `placed`, if the streak was said (stallsToSay marks it `said`), record `{ since, count, endedAt }` in an
-  `ended` map before deleting it.
-- `endsToSay(said)`: for each recorded end whose `since` matches the `said` entry stallsToSay keeps, return it once
-  (and spend the `said` entry); ends never said are dropped silently. `pushed` is true when `pushedAt` shows a stall
-  push inside the streak.
-- `endedLine(e)` / `spanWords(ms)`: the `delivery-stall-ended:` log line.
-- `sweep()` drops ends for agents gone from the board; `reset()` deliberately does not create one (no recovery).
-- server.js minute sweep calls endsToSay BEFORE stallsToSay (which forgets a name whose streak is gone).
+- `note()`: on `placed`, if the streak was said (stallsToSay marks it `said`), record `{ since, count, endedAt, pushedAt }`
+  in an `ended` map before deleting it.
+- `tellStalls`: when a stall push (not a stuck step's) goes out, the streak keeps `pushedAt`; `untold` clears it on the
+  streak and on its end record when the push is taken back.
+- `endsToSay(said, { stuckOf })`: for each recorded end whose `since` matches the `said` entry stallsToSay keeps, return
+  it once and spend the entry, unless `stuckOf(name)` (the card shows a stuck Windows step, which turn-stuck speaks for).
+  Every end is dropped once read.
+- `endedLine(e)` / `spanWords(ms)`: the `delivery-stall-ended:` log line ("Kosmos placed a message for X").
+- `sweep()` drops ends for agents gone from the board; `reset()` creates none (no recovery).
+- server.js minute sweep calls endsToSay after `byName` is built (stuckOf reads it) and BEFORE stallsToSay (which forgets
+  a name whose streak is gone). A source-order test pins both.
 
 ## Decided, rejected
 - Rejected: a phone all-clear in this change. coordinator/src/notify.rs refuses kinds outside
