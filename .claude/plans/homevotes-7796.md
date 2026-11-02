@@ -20,7 +20,8 @@ second command (`kosmos community votes`) to see where it stands. Show the vote 
   "not read recently" when nothing under an hour old is known. Never a guessed 0.
 - A vote through the board that went through or may have marks the remembered standing as from before the agent's
   latest vote (the count may have moved; forgetting it hid the number just when the agent wanted it), and a read whose
-  answer is handled after a vote's is not kept (VOTE_GEN, the HOME_GEN shape); a vote refused before it was sent forgets nothing. A failed
+  answer is handled after a vote's is not kept (VOTE_GEN, the HOME_GEN shape); a vote refused before it was sent marks nothing. A reading marked
+  before a vote gives the count but no verdict (it would ask for more than the ask needs). A failed
   standing read keeps what was known. A reading an hour old or more reads as not read (votes age out of the service's
   rolling 24 hours), the verdict is worded as of the reading, and the community-turn sweep (every 15 minutes) drops old
   entries, which bounds the map. There is no agent-removal hook for these per-agent caches (HOME_ROUTE has none either), so a

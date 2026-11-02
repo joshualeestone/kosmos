@@ -11794,8 +11794,8 @@ const server = http.createServer(async (req, res) => {
         return work
           .then((r) => {
             const answer = (extra) => sendJson(res, r.ok ? 200 : (r.limited ? 429 : (r.maybe ? 202 : (r.upstream ? 502 : 400))), r.ok ? { ok: true, text: r.text, ...extra } : { error: r.because });
-            /* kosmos#7796: what community home shows of the standing: forgotten after a vote, kept after a read of it unless
-               a vote came in while the read was out (its answer is then from before the vote). */
+            /* kosmos#7796: what community home shows of the standing: kept after a read of it, and marked as from before
+               the vote after a vote that went through or may have. */
             const voter = String(who.card.sessionName);
             /* agentCall runs one call per agent at a time, so a read cannot be out across a vote's own call; the counter
                covers a read whose answer is handled after a vote's. */
