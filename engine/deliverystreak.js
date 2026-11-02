@@ -32,7 +32,8 @@ const FRESH_MS = 2 * 60 * 60 * 1000;
 const SPEAKS_FOR_ITSELF = new Set(['stopped', 'restarting', 'needs_you', 'needs_trust', 'rate_limited', 'auth_failed',
   'connection_lost', 'blocked']);
 
-/* name -> { since: ms, count, lastWhy, lastAt: ms, kinds: Set<string>, said?: true (stallsToSay said it) } */
+/* name -> { since: ms, count, lastWhy, lastAt: ms, kinds: Set<string>, said?: true (stallsToSay said it), pushedAt?: ms (its
+   own stall push went out, tellStalls) } */
 const streaks = new Map();
 /* kosmos#7212 item 2: name -> { since, count, endedAt }, a streak a PLACED verdict ended, kept until the minute sweep asks
    (endsToSay) so a stall that was said can be said to have ended. Only a landed line writes it: a streak cleared because
@@ -66,7 +67,7 @@ function note(name, v, now = Date.now()) {
       const was = streaks.get(name);
       if (was) {
         streaks.delete(name);
-        if (was.said === true) ended.set(name, { since: was.since, count: was.count, endedAt: now });
+        if (was.said === true) ended.set(name, { since: was.since, count: was.count, endedAt: now, pushedAt: was.pushedAt });
       }
       return;
     }
@@ -158,18 +159,21 @@ function stallsToSay(names, said, { now = Date.now(), limitShownOf = () => false
 
 /* kosmos#7212 item 2: which said stalls ended with a landed line since the last sweep, each once. `said` is the same Map
    stallsToSay keeps; call this first, since stallsToSay forgets a name whose streak is gone. Each entry is { name, since
-   (ISO), endedAt (ISO), count, ms, pushed } where `pushed` is true when a stall push for this agent went out during the
-   streak (pushTold), the one case a phone all-clear would answer. A streak that ended but was never said is forgotten
-   silently: nobody was told it started. Never throws. */
-function endsToSay(said) {
+   (ISO), endedAt (ISO), count, ms, pushed }, `pushed` true when this streak's own stall push went out and was not taken
+   back. `stuckOf(name)` true (the card shows a stuck step) says nothing for that agent: turnsToSay speaks for it. Every
+   end is dropped once read, said or not. Never throws. */
+function endsToSay(said, { stuckOf = () => false } = {}) {
   const out = [];
   try {
     for (const [name, e] of [...ended]) {
       const told = said.get(name);
       if (told && told.since === e.since) {
-        const p = pushedAt.get(name);
-        out.push({ name, since: new Date(e.since).toISOString(), endedAt: new Date(e.endedAt).toISOString(), count: e.count,
-          ms: Math.max(0, e.endedAt - e.since), pushed: Number.isFinite(p) && p >= e.since && p <= e.endedAt });
+        let stuck = false;
+        try { stuck = !!stuckOf(name); } catch { /* not stuck */ }
+        if (!stuck) {
+          out.push({ name, since: new Date(e.since).toISOString(), endedAt: new Date(e.endedAt).toISOString(), count: e.count,
+            ms: Math.max(0, e.endedAt - e.since), pushed: Number.isFinite(e.pushedAt) });
+        }
         said.delete(name);
       }
       ended.delete(name);
@@ -372,6 +376,7 @@ function untold(sessions, at, file) {
     sessions = sessions.filter((s) => { const t = takenBack.get(s); return !(Number.isFinite(t) && t <= at && at - t < PUSH_GAP_MS); });
     for (const s of sessions) takenBack.set(s, at);
     for (const s of sessions) if (pushedAt.get(s) === at) pushedAt.delete(s);
+    for (const s of sessions) for (const st of [streaks.get(s), ended.get(s)]) if (st && st.pushedAt === at) delete st.pushedAt;
     if (typeof file !== 'string' || !file) return;
     const book = readPushes(file);
     let changed = false;
@@ -402,7 +407,12 @@ function tellStalls(cards, { now = Date.now(), file, send, ownBound = null }) {
     if (Number.isFinite(lastStallPushAt) && lastStallPushAt <= now && now - lastStallPushAt < STALL_PUSH_EVERY_MS) return;
     const sessions = due.map((d) => d.session);
     const ev = { ...due[0], agent: withMore(due[0].agent, due.length - 1), onResult: (ok) => { if (ok === false) untold(sessions, now, file); } };
-    if (send(ev) === true) { lastStallPushAt = now; for (const s of sessions) pushTold(s, now, file); }
+    if (send(ev) === true) {
+      lastStallPushAt = now;
+      for (const s of sessions) pushTold(s, now, file);
+      /* kosmos#7212 item 2: the streak itself keeps that its stall push went out (not a stuck step's push), for endsToSay. */
+      for (const d of due) { const st = streaks.get(d.session); if (st && d.id.startsWith('stall:')) st.pushedAt = now; }
+    }
   } catch { /* told next minute */ }
 }
 

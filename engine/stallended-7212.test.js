@@ -112,7 +112,7 @@ test('the board asks for ends before stallsToSay forgets them, inside the sweep'
   assert.ok(at > 0, 'CONTROL: the sweep is found');
   const body = src.slice(at, src.indexOf('} catch { /* said next minute */ }', at));
   const settled = body.indexOf('for (const c of r) ds.settleFor(c);');
-  const ends = body.indexOf('ds.endsToSay(stallSaid)');
+  const ends = body.indexOf('ds.endsToSay(stallSaid');
   const says = body.indexOf('ds.stallsToSay(');
   assert.ok(settled > 0 && ends > settled && says > ends, 'endsToSay is not between settleFor and stallsToSay: ' + [settled, ends, says]);
 });
@@ -184,4 +184,44 @@ test('an end whose said entry is for another streak, or spent, says nothing and 
   said.set('m1', { since: T0, at: T0 + 40 * MIN });
   said.set('m2', { since: T0, at: T0 + 40 * MIN });
   assert.deepEqual(ds.endsToSay(said), [], 'the dropped ends do not come back once the entries match again');
+});
+
+test('an agent whose card shows a stuck step is not said to have recovered', () => {
+  ds.resetForTests();
+  const said = new Map();
+  saidStall('w1', said);
+  saidStall('w2', said);
+  ds.note('w1', PLACED, T0 + 50 * MIN);
+  ds.note('w2', PLACED, T0 + 50 * MIN);
+  const ends = ds.endsToSay(said, { stuckOf: (n) => n === 'w1' });
+  assert.deepEqual(ends.map((e) => e.name), ['w2'], 'CONTROL: w2, not stuck, is said');
+  assert.equal(said.has('w1'), false, 'the stuck one is spent, not said later');
+});
+
+test('pushed counts only this streak\'s own stall push, and not one taken back', () => {
+  ds.resetForTests();
+  const said = new Map();
+  /* A stuck step's push (turn:) is not this streak's. */
+  saidStall('t1', said);
+  ds.tellStalls([stalledCard('t1', { since: new Date(T0).toISOString(), count: 2, lastWhy: 'turn', step: 'x' })],
+    { now: T0 + 40 * MIN, file: null, send: () => true });
+  ds.note('t1', PLACED, T0 + 50 * MIN);
+  assert.equal(ds.endsToSay(said)[0].pushed, false);
+  /* A stall push that is taken back after the streak ended does not count. */
+  ds.resetForTests();
+  const said2 = new Map();
+  saidStall('k1', said2);
+  let onResult = null;
+  ds.tellStalls([stalledCard('k1', ds.stallOf('k1', { now: T0 + 40 * MIN }))],
+    { now: T0 + 40 * MIN, file: null, send: (ev) => { onResult = ev.onResult; return true; } });
+  ds.note('k1', PLACED, T0 + 50 * MIN);
+  onResult(false);
+  assert.equal(ds.endsToSay(said2)[0].pushed, false);
+  /* CONTROL: the same push, not taken back, counts. */
+  ds.resetForTests();
+  const said3 = new Map();
+  saidStall('k2', said3);
+  ds.tellStalls([stalledCard('k2', ds.stallOf('k2', { now: T0 + 40 * MIN }))], { now: T0 + 40 * MIN, file: null, send: () => true });
+  ds.note('k2', PLACED, T0 + 50 * MIN);
+  assert.equal(ds.endsToSay(said3)[0].pushed, true);
 });
