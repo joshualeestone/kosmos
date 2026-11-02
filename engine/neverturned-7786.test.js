@@ -36,6 +36,25 @@ test('turnTakenOf: a record of starts (and stops) only is false; any turn row is
   assert.equal(selfreport.turnTakenOf('operator-only'), false, "a person's clear is not the agent's turn");
 });
 
+test('the turn states are pinned here, not read from the module: dropping one would make a worked agent read not started', () => {
+  assert.deepEqual([...selfreport.TURN_STATES].sort(), ['blocked', 'idle', 'needs_you', 'working']);
+  rows('stop-only', [{ state: 'started', by: 'auto' }, { state: 'idle', by: 'auto', text: 'finished responding' }]);
+  assert.equal(selfreport.turnTakenOf('stop-only'), true, 'a Stop row alone is a turn');
+});
+
+test('turnTakenOf: a long record with a turn in its tail is true; once true it is not read again', () => {
+  const many = [];
+  for (let i = 0; i < 2000; i++) many.push({ state: 'started', by: 'auto', pad: 'p'.repeat(40) });
+  many.push({ state: 'working', by: 'auto', text: 'answering a prompt' });
+  rows('long-turned', many);
+  assert.ok(fs.statSync(selfreport.fileFor('long-turned')).size > selfreport.TAIL_BYTES, 'CONTROL: the file is past the tail');
+  assert.equal(selfreport.turnTakenOf('long-turned'), true);
+  rows('cached', [{ state: 'started', by: 'auto' }, { state: 'working', by: 'auto' }]);
+  assert.equal(selfreport.turnTakenOf('cached'), true);
+  rows('cached', [{ state: 'started', by: 'auto' }]);   // the record cannot lose a row; if it did, the answer stays true
+  assert.equal(selfreport.turnTakenOf('cached'), true, 'kept, not read again');
+});
+
 test('turnTakenOf: a record longer than the tail is null (older rows were not read)', () => {
   const many = [];
   for (let i = 0; i < 2000; i++) many.push({ state: 'started', by: 'auto', pad: 'p'.repeat(40) });
