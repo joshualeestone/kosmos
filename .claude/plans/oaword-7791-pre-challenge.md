@@ -16,7 +16,14 @@ Change: another computer's agent rows carry that computer's own card word, and t
 - [WARN] privacy: the restart word can carry a raw model name ("Switching to <model>"), and the cross-site answer (#4973) was meant to be fixed words only. FIXED: cross-site says "Switching model", tested; the comment no longer says every word is fixed.
 - [NIT] slice(0, 40) can cut a surrogate pair from a model id: left, cosmetic.
 - [NIT] nothing pinned the cross-site answer: FIXED, tested.
-- Clean: every row path carries the word (offline rows too, via withCardWords); a stale card shows no word; the word is text only; no other consumer of the sibling answer breaks on a new key.
+- Clean: labelOf returns only fixed words apart from the model restart word; it reads no project name, account, path or screen text.
+- Clean: same-site already carries account emails, so a model name there adds nothing new.
+- Clean: every row path carries the word, offline rows too ("Not running", trust prompt, "Can't tell"), via withCardWords at the status route.
+- Clean: a row withCardWords cannot label goes without a word, and the card falls back to the state's word.
+- Clean: a stale card still shows no word (browser check CONTROL B asserts it).
+- Clean: the word goes in through textContent only, never markup (unit test with a tag).
+- Clean: oaAgentsOf is the page's only reader of the sibling agents; aoKeep picks its own fields; the iOS app reads /api/status whole.
+- [NIT] the plan file was not reviewed: left.
 
 ## Measured
 render-allagents-4812 headless in chromium and webkit: the other computer's agent reads "agent1s · Messages stuck", and it first FAILED because the page's row filter dropped the field (fixed). Page and server tests 43 of 43. Full suite left to CI.
