@@ -88,16 +88,25 @@ test('every reason the scanner and walker give reads as plain words, never as th
    parts become X. This reads the reasons written as literals; one built from a variable elsewhere is not seen, so the
    composed cases below name those. Only the reasons listed may take the fallback. */
 const ENGINE = ['backupscan.js', 'backupsnapshot.js', 'backupsessions.js', 'backupagy.js'];
+// Review 3: one reason known to be in each file, and a floor per file, so one file read as nothing cannot pass.
+const KNOWN = { 'backupscan.js': 'environment file', 'backupsnapshot.js': 'a file that could not be read',
+  'backupsessions.js': 'a session folder that is a link (not followed)', 'backupagy.js': 'Antigravity conversations larger than one backup file can be' };
+const FLOOR = { 'backupscan.js': 40, 'backupsnapshot.js': 25, 'backupsessions.js': 3, 'backupagy.js': 2 };
 const engineWhys = () => {
   const out = new Set();
   const lit = (s) => s.replace(/\\'/g, "'").replace(/\$\{[^}]+\}/g, 'X');
   for (const f of ENGINE) {
     const src = fs.readFileSync(path.join(__dirname, 'engine', f), 'utf8');
+    const read = [];
     for (const m of src.matchAll(/(?:why|refused): *((?:[^,\n]*?\? *)?)(['`])((?:[^'`\\]|\\.)+)\2(?: *: *(['`])((?:[^'`\\]|\\.)+)\4)?/g)) {
-      out.add(lit(m[3])); if (m[5]) out.add(lit(m[5]));
+      read.push(lit(m[3])); if (m[5]) read.push(lit(m[5]));
     }
-    for (const m of src.matchAll(/leave\(\w+, *(['`])((?:[^'`\\]|\\.)+)\1/g)) out.add(lit(m[2]));
-    for (const m of src.matchAll(/^ *\[[^\n]*?, '([^']+)'\],?(?: *\/\/[^\n]*)?$/gm)) out.add(m[1]);
+    for (const m of src.matchAll(/leave\(\w+, *(['`])((?:[^'`\\]|\\.)+)\1/g)) read.push(lit(m[2]));
+    for (const m of src.matchAll(/^ *\[[^\n]*?, '([^']+)'\],?(?: *\/\/[^\n]*)?$/gm)) read.push(m[1]);
+    // Review 3: a floor per file and one reason known to be in it, so a file read as nothing cannot pass.
+    assert.ok(read.length >= FLOOR[f], `CONTROL: ${read.length} reasons read from ${f}, fewer than ${FLOOR[f]}`);
+    assert.ok(read.includes(KNOWN[f]), `CONTROL: ${f}'s known reason was read`);
+    for (const r of read) out.add(r);
   }
   return [...out];
 };
@@ -118,8 +127,8 @@ test('every engine reason maps to plain words, and only known could-not-check re
 test('a reason carrying a path is judged by its fixed opening, never by a word inside the path', () => {
   assert.equal(pbWhyWords('restore would refuse it beside notes/Secret-plan.md (names it treats as one)'), 'its name clashes with another file');
   assert.equal(pbWhyWords('restore would refuse it beside projects/archive/Report.md (names it treats as one)'), 'its name clashes with another file');
-  assert.equal(pbWhyWords('names a file also named by the root secrets-and-zips'), 'already backed up from another folder');
-  assert.equal(pbWhyWords('is inside the root sessions/a/claude'), 'already backed up from another folder');
+  assert.equal(pbWhyWords('names a file also named by the root secrets-and-zips'), 'it overlaps another folder');
+  assert.equal(pbWhyWords('is inside the root sessions/a/claude'), 'it overlaps another folder');
   assert.equal(pbWhyWords('a secret/archive/x: restore cannot write it'), 'its name cannot be restored');
   assert.equal(pbWhyWords('names more than 100000 files, more than one snapshot can list'), 'more than one backup can hold');
   assert.equal(pbWhyWords('more than 64 session folders, more than one snapshot takes'), 'more than one backup can hold');
