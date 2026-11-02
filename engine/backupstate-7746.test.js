@@ -158,3 +158,20 @@ test('#7746: a file swapped in by rename, same size and mtime to the nanosecond,
   assert.equal(fs.statSync(f, { bigint: true }).mtimeNs, BigInt(T) * 1000000000n, 'premise: the same mtime');
   assert.throws(() => bs.writeState(org, member, stateOf(5)), /discardState it first/, 'only the inode differs, and it is caught');
 });
+
+test('#7746: a file rewritten in place, same inode and size, mtime set back to the nanosecond, is still checked in full', async () => {
+  const [org, member] = ids();
+  const f = bs.fileFor(org, member);
+  bs.writeState(org, member, stateOf(5));
+  const T = Math.floor(Date.now() / 1000) - 20;
+  fs.utimesSync(f, T, T);
+  assert.equal(bs.readState(org, member).ok, true);   // remembered at mtime T
+  const ours = fs.readFileSync(f, 'utf8');
+  const ino = fs.statSync(f).ino;
+  fs.writeFileSync(f, ours.replace(`"member":"${member}"`, `"member":"${member.replace(/.$/, 'x')}"`));   // in place, same length
+  fs.utimesSync(f, T, T);   // the mtime set back; only the ctime still shows the change
+  assert.equal(fs.statSync(f).ino, ino, 'premise: the same inode');
+  assert.equal(fs.statSync(f).size, Buffer.byteLength(ours), 'premise: the same size');
+  assert.equal(fs.statSync(f, { bigint: true }).mtimeNs, BigInt(T) * 1000000000n, 'premise: the same mtime');
+  assert.throws(() => bs.writeState(org, member, stateOf(5)), /discardState it first/, 'only the ctime differs, and it is caught');
+});

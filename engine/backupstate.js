@@ -16,7 +16,8 @@
  *     index      Map name -> { key, lockedUntilMs, memberKeyId }: the chunks stored this period (takeSnapshot's `index`)
  *
  * readState(org, member) -> { ok: true, state } | { ok: false, because }
- *   readStateAsync and writeStateAsync (kosmos#7746) answer and throw exactly as readState and writeState, giving the
+ *   readStateAsync and writeStateAsync (kosmos#7746) give the same answers and the same errors (as rejections) as
+ *   readState and writeState, giving the
  *   event loop a turn every 50,000 rows and between steps; JSON.parse and JSON.stringify of the whole file each stay one
  *   block. A run uses them; at the top plan the sync ones block for seconds.
  *   Async writes of one file run in the order asked; a sync writeState while one is in flight throws with no code (a
@@ -149,7 +150,6 @@ const runSync = (gen) => { let r = gen.next(); while (!r.done) r = gen.next(); r
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 async function runAsync(gen) { let r = gen.next(); while (!r.done) { await turn(); r = gen.next(); } return r.value; }
 
-function periodFrom(p) { return runSync(periodSteps(p)); }
 /* A period as stored (null for a null input), or undefined when any part is not one this module writes. */
 function* periodSteps(p) {
   if (p === null) return null;
@@ -173,10 +173,11 @@ function* periodSteps(p) {
   return { label: p.label, namingKey, bucket: p.bucket, index };
 }
 
-/* kosmos#7746: the file this process last read or wrote as ours, per path: device, inode, size and mtime (ns). mayReplace
+/* kosmos#7746: the file this process last read or wrote as ours, per path: device, inode, size, and mtime and ctime (ns;
+   no program can set a ctime back, as it can an mtime). mayReplaceSteps
    skips its full re-read when the file on disk still matches; any other file gets the whole check. */
 const known = new Map();
-function fingerprint(st) { return `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}`; }
+function fingerprint(st) { return `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}:${st.ctimeNs}`; }
 function remember(f) { try { known.set(f, fingerprint(fs.lstatSync(f, { bigint: true }))); } catch { known.delete(f); } }
 function stillOurs(f) {
   const k = known.get(f);
@@ -200,9 +201,13 @@ function* readFileSteps(org, member) {
   let raw;
   // Fingerprinted before and after the read: kept only when both agree, so it describes the bytes read, never a file
   // swapped in meanwhile (then nothing is remembered and the next write checks in full).
-  let before = null;
+  let before = null, loose = false;
   const knownAtStart = known.get(f);   // a write that lands while this read is paused is newer: never replaced below
-  try { before = fingerprint(fs.lstatSync(f, { bigint: true })); } catch { /* missing: the read decides */ }
+  try {
+    const st = fs.lstatSync(f, { bigint: true });
+    before = fingerprint(st);
+    loose = (Number(st.mode) & 0o777) !== 0o600;
+  } catch { /* missing: the read decides */ }
   try { raw = fs.readFileSync(f, 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true, state: { job: {}, periods: [] } };
     return Object.assign({ ok: false, because: 'the backup state file could not be read' }, err && TRANSIENT.has(err.code) ? { retry: true } : {});
@@ -222,8 +227,10 @@ function* readFileSteps(org, member) {
   if (periods.some((x) => !x) || new Set(periods.map((x) => x.label)).size !== periods.length) return { ok: false, because: 'the backup state file is not one this computer wrote' };
   // A file left looser (a copy, a restore) is made owner-only once it has read as ours, best effort. (Its contents were
   // trusted first, as backupmemberkey does: the folder is 0700, so only this user could have loosened it.)
-  try { fs.chmodSync(f, 0o600); } catch { /* the read stands */ }
-  if (known.get(f) === knownAtStart) { if (before && before === after) known.set(f, before); else known.delete(f); }
+  // Only a loose file is changed, since a chmod moves the ctime the fingerprint holds: that file is then not
+  // remembered, and the next write reads it in full once.
+  if (loose) try { fs.chmodSync(f, 0o600); } catch { /* the read stands */ }
+  if (known.get(f) === knownAtStart) { if (before && before === after && !loose) known.set(f, before); else known.delete(f); }
   return { ok: true, state: { job: cleanJob(got.job), periods } };
 }
 
