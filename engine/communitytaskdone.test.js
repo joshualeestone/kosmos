@@ -376,14 +376,16 @@ test('#6593: a turnTries that throws or answers junk counts nothing', () => {
 test('#6593: the board asks for the Sent stamp, as the sweep line carries; tests and other callers get the bare line', () => {
   const stamped = setup({ stamp: true });
   td.promptOnTaskDone(stamped.o);
-  assert.equal(stamped.sent[0].text, require('./communityturn').stamped(td.taskDoneText('built'), NOW));
+  assert.equal(stamped.sent[0].text, td.taskDoneStamped(td.taskDoneText('built'), NOW));
+  assert.match(stamped.sent[0].text, new RegExp('\\(Sent ' + require('./communityturn').sentWhen(NOW) + '\\. If you have already answered this exact message'));
+  assert.doesNotMatch(stamped.sent[0].text, /reminder/i, 'the sweep\'s word: a task-done prompt is not one of its reminders');
   const bare = setup();
   td.promptOnTaskDone(bare.o);
   assert.equal(bare.sent[0].text, td.taskDoneText('built'));
 });
-test('#6593: triesOf lists one agent\'s prompt times from the book, oldest first', () => {
+test('#6593: askTimes lists one agent\'s prompt times from the book, oldest first', () => {
   const book = new Map([['p\t1', { at: 30, session: 'ann' }], ['p\t2', { at: 10, session: 'ann' }], ['p\t3', { at: 20, session: 'bea' }]]);
-  assert.deepEqual(td.triesOf(book, 'ann'), [10, 30]);
-  assert.deepEqual(td.triesOf(book, 'cal'), []);
-  assert.deepEqual(td.triesOf(null, 'ann'), []);
+  assert.deepEqual(td.askTimes(book, 'ann'), [10, 30]);
+  assert.deepEqual(td.askTimes(book, 'cal'), []);
+  assert.deepEqual(td.askTimes(null, 'ann'), []);
 });

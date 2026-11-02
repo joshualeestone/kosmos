@@ -209,6 +209,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
       /* #5297: a turn another Kosmos line woke (a "read this section again" line) is Kosmos's own too. */
       let others = [];
       if (typeof kosmosLines === 'function') { try { const k = kosmosLines(s); if (Array.isArray(k)) others = k; } catch { others = []; } }
+      // Its own tries only: a task-done prompt reaches an agent already at work, so the turn it lands in is not one Kosmos woke.
       if (workedSince(rows, last, [...own, ...others]) !== true) continue;
     }
     let held = false;
@@ -238,10 +239,14 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
      stamp therefore covers the reported repeat (the generic line), not a repeat of either waiting-activity form.
    Only the board's caller asks for the stamp (o.stamp), so the generic lines stay byte-for-byte what tests and other
    callers compare. */
-function stamped(text, now) {
+/* The Sent time as the stamp writes it: date and time on the board's local clock (#6593 shares it with the task-done line). */
+function sentWhen(now) {
   const d = new Date(Number.isFinite(now) ? now : Date.now());
   const p2 = (n) => String(n).padStart(2, '0');
-  const when = d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+}
+function stamped(text, now) {
+  const when = sentWhen(now);
   return String(text) + ' (Sent ' + when + '. A reminder with a different Sent time is a new one. If you have already'
     + ' answered this exact one, do not answer it again.)';
 }
@@ -487,4 +492,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };
+module.exports = { _pauseEnded: pauseEnded, PAUSE_OVER_TEXT, stamped, sentWhen, TURN_INTERVAL_MS, TURN_GAP_MS, MAX_PER_PASS, PROMPTS_PER_DAY, TURN_TEXT, FLOOR_TEXT, INTRO_TEXT, WORK_GRACE_MS, workedSince, brakeOn, due, tickOnce, tickOnceAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile };

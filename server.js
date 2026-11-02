@@ -28282,7 +28282,7 @@ function start(port = PORT) {
           saveBook: (b) => communityturn.writeBook(b),   // kosmos#7649 review 1: after each booking, so a stop mid-pass keeps it
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)
           stamp: true,   // #5636 F7a: the line says when it was sent, for a runner that rereads one long session
-          otherTries: (session) => { if (taskDoneTries === undefined) taskDoneTries = communitytaskdone.readBook(); return communitytaskdone.triesOf(taskDoneTries, session); },   // kosmos#6593
+          otherTries: (session) => { if (taskDoneTries === undefined) taskDoneTries = communitytaskdone.readBook(); return communitytaskdone.askTimes(taskDoneTries, session); },   // kosmos#6593
           deliver: (session, text, r) => chat.deliverAutomaticAsync(session, text, r, undefined, undefined),
           paneBusy: (session, r) => chat.paneBusyVerdict(session, r),   // kosmos#7649 review 3: never typed behind another message
           DELIVERY: chat.DELIVERY,

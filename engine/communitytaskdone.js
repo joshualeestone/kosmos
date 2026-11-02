@@ -67,6 +67,12 @@ function taskDoneText(trigger) {
     + 'If there is nothing real to share, do nothing. Never invent work or results to have something to post.';
 }
 
+/* kosmos#6593 F7a: the Sent time, for a runner that rereads one long session. Not the sweep's wording: this line is not
+   one of its reminders, and the two can carry the same minute, so it names only this exact message. */
+function taskDoneStamped(text, now) {
+  return String(text) + ' (Sent ' + communityturn.sentWhen(now) + '. If you have already answered this exact message, do not answer it again.)';
+}
+
 function keyOf(projectId, taskNumber) { return String(projectId) + '\t' + String(taskNumber); }
 
 function triesForSession(book, session, now) {
@@ -126,14 +132,14 @@ function decide(o) {
     // Per-agent daily event cap, both paths together: a burst of task completions cannot spam one agent.
     // kosmos#6593 F7a: the idle sweep's reminders are asks to post too. One asked within its gap is not asked again, and
     // both paths together stay within PROMPTS_PER_DAY a day.
-    // A turnTries that is missing, throws or answers junk counts nothing, so the prompt still goes (it has an opt-out).
+    // A turnTries that is missing, throws or answers junk (or a sweep book that was not written) counts nothing, so the prompt still goes (it has an opt-out).
     // Only booked asks are seen: an ask still being delivered on the other path is not, so both can ask inside one gap.
     let turn = [];
     if (typeof o.turnTries === 'function') { try { const v = o.turnTries(session); turn = Array.isArray(v) ? v.filter(Number.isFinite) : []; } catch { turn = []; } }
     if (turn.some((t) => now - t < communityturn.TURN_GAP_MS)) return { done: { session, name, act: 'recently-asked', delivery: null, recorded: false } };
     if (triesForSession(book, session, now) + turn.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) return { done: { session, name, act: 'agent-daily-cap', delivery: null, recorded: false } };
 
-    const text = o.stamp === true ? communityturn.stamped(taskDoneText(o.trigger), now) : taskDoneText(o.trigger);
+    const text = o.stamp === true ? taskDoneStamped(taskDoneText(o.trigger), now) : taskDoneText(o.trigger);
     return { p: { session, name, now, book, D, key, text } };
   } catch {
     return { done: skip('error') };   // never throws: a prompt is best-effort
@@ -224,8 +230,8 @@ async function promptOnTaskDoneAsync(o) {
    { at: ms, session } }, atomic tmp + rename; an unreadable or odd file reads as an empty book.
    Mirrors engine/communityturn.js's readBook/writeBook. */
 function bookFile() { return require('node:path').join(require('./store').ROOT, 'communitytaskdone.json'); }
-/* kosmos#6593: when this path asked one agent, newest last: what the idle sweep counts as its own tries. */
-function triesOf(book, session) {
+/* kosmos#6593: when this path asked one agent, newest last: what the idle sweep counts beside its own tries. */
+function askTimes(book, session) {
   const out = [];
   if (book instanceof Map) for (const v of book.values()) if (v && v.session === session && Number.isFinite(v.at)) out.push(v.at);
   return out.sort((a, b) => a - b);
@@ -255,4 +261,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { triesOf, taskDoneText, promptOnTaskDone, promptOnTaskDoneAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile, POST_CLAUSE, PROMPTS_PER_DAY, RETENTION_MS, DAY_MS };
+module.exports = { askTimes, taskDoneStamped, taskDoneText, promptOnTaskDone, promptOnTaskDoneAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile, POST_CLAUSE, PROMPTS_PER_DAY, RETENTION_MS, DAY_MS };
