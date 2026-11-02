@@ -22965,6 +22965,9 @@ const server = http.createServer(async (req, res) => {
        Without it a page is drawn from the whole room as before, so a board page or an iPhone build from before the
        archive, which has no way to open it, still reaches every message by scrolling back. */
     let archiveView = null;   // null (the whole room), 'live' or 'archive'
+    /* #4926: `kosmos room <id> --unanswered` (text view only): the posts that asked the reading agent something and that
+       none of its posts answers by id. */
+    let onlyUnanswered = false;
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
@@ -22973,6 +22976,7 @@ const server = http.createServer(async (req, res) => {
       if (jsonRows !== null) jsonCursor = q.get('cursor') || null;   // an empty cursor is no cursor (the newest page)
       const av = jsonRows !== null ? q.get('archive') : null;
       archiveView = av === '1' ? 'archive' : av === '0' ? 'live' : null;  // the text view ignores it: agents read the live part only
+      onlyUnanswered = asText && q.get('unanswered') === '1';
     } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
@@ -23178,6 +23182,40 @@ const server = http.createServer(async (req, res) => {
         try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
         /* #3311: at most half the rows shown (half of the default messages.ROOM_READ_ROWS) come from outside, so a busy
            peer cannot push every local post out of the view agents read. #4891: of `textRows`. */
+        /* #4926: which agent is reading, by its own token (KOSMOS_AGENT_TOKEN; `kosmos room` sends it when the agent has
+           one). null for a read nobody identified (the person's board token, an older CLI): that read is unchanged. */
+        let readerName = null;
+        try {
+          const reader = senderFromAgentToken(req, null, safeRoster());
+          readerName = reader && reader.ok && reader.card && typeof reader.card.sessionName === 'string' ? reader.card.sessionName : null;
+        } catch { readerName = null; }
+        /* #4926: a post the reader answered by id (--reply-to) says so, so an agent in a long session that reads the room
+           again can tell the asks it already answered from new ones (Josh's 0.7.83 report, #7784 item 4: answered posts
+           came back as if new). Post id -> the reader's answering post ids, oldest first, from the whole room (archived
+           rows too: an answer is never older than its ask, but the ask can be the older side of the archive line). */
+        const answeredBy = new Map();
+        if (readerName) {
+          for (const m of roomRows) {
+            if (!m || m.kind !== 'post' || m.operator === true || m.from !== readerName || typeof m.replyTo !== 'string') continue;
+            const list = answeredBy.get(m.replyTo) || [];
+            list.push(String(m.id));
+            answeredBy.set(m.replyTo, list);
+          }
+        }
+        /* Asked of the reader: it was named (@name, recorded when sent), or the person posted and it reached the reader.
+           A colleague's post that only reached it is not counted: an FYI is not an ask, and listing it would invite the
+           re-answers this exists to stop. Never the reader's own post. */
+        const askedOfReader = (m) => !!readerName && m && m.kind === 'post'
+          && (m.operator === true || m.from !== readerName)
+          && ((Array.isArray(m.mentioned) && m.mentioned.includes(readerName))
+            || (m.operator === true && Array.isArray(m.to) && m.to.includes(readerName)
+              && !(m.outcomes && (m.outcomes[readerName] === 'quiet' || m.outcomes[readerName] === 'could_not'))));
+        if (onlyUnanswered && !readerName) {
+          res.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end('Kosmos could not tell which agent is reading, so it cannot say which posts are waiting on you. '
+            + '--unanswered works for an agent with its own Kosmos token.\n');
+          return;
+        }
         const tail = [];
         let outside = 0;
         /* At least one, so `-n 1` on a room whose newest row came from outside shows that row rather than an older
@@ -23185,6 +23223,12 @@ const server = http.createServer(async (req, res) => {
         const outsideCap = Math.max(1, Math.floor(textRows / 2));
         // kosmos#7365 slice 3: agents read the live room only, so the walk stops at the archive.
         for (let i = rows.length - 1; i >= archivedCount && tail.length < textRows; i--) {
+          /* #4926: --unanswered walks the whole live room, not just the last N rows, so an ask further back that is still
+             open is found; N then caps how many are listed (the newest). */
+          if (onlyUnanswered) {
+            if (askedOfReader(rows[i]) && !answeredBy.has(String(rows[i].id))) tail.unshift(rows[i]);
+            continue;
+          }
           if (rows[i] && rows[i].kind === 'external') { if (outside >= outsideCap) continue; outside += 1; }
           tail.unshift(rows[i]);
         }
@@ -23199,8 +23243,7 @@ const server = http.createServer(async (req, res) => {
            the idle reminder is missed. Moving it to 'finish' would not fix that (it means handed to the OS, not read). */
         if (req.method === 'GET') {
           try {
-            const reader = senderFromAgentToken(req, null, safeRoster());
-            const who = reader && reader.ok && reader.card && typeof reader.card.sessionName === 'string' ? reader.card.sessionName : null;
+            const who = readerName;
             const shownIds = tail.filter((m) => m && m.kind === 'post' && typeof m.id === 'string').map((m) => m.id);
             /* kosmos#7365 slice 3: a held post that is now archived is never shown here again, so it stops being held
                too, or its idle reminder would point at a post this view no longer has. That includes one that asked
@@ -23293,11 +23336,18 @@ const server = http.createServer(async (req, res) => {
             ? [when + '  [kosmos] [' + m.id + '] is claimed by ' + claimedBy + ' (' + messages.claimAge(c.at) + '); unless you are '
               + claimedBy + ', do not post that you are taking it.']
             : [];
-          return [line, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
+          /* #4926: on its own [kosmos] line, so the post line keeps its shape for anything that reads it. */
+          const mine = answeredBy.get(String(m.id));
+          const youAnswered = mine && (m.operator === true || m.from !== readerName)
+            ? [when + '  [kosmos] you already answered [' + m.id + '] in ' + mine.map((x) => '[' + x + ']').join(', ') + '.']
+            : [];
+          return [line, ...youAnswered, ...reacted, ...claimed, ...owed.map((name) => when + '  [kosmos] ' + name + ' has not answered here yet.')];
         });
         const head = rec.ok === false
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
           : (lines.length ? ''
+            // #4926: --unanswered with nothing waiting is not an empty room.
+            : onlyUnanswered ? 'Nothing in this room is waiting on an answer from you: every post that asked you something has a reply from you citing it.\n'
             // kosmos#7365 slice 3: a room whose every message is archived is not an empty room.
             : archivedCount > 0 ? 'Everything said in this room so far is archived; nothing has been said since.\n'
             : 'Nothing has been said in this room yet.\n');

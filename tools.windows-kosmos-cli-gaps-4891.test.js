@@ -103,3 +103,15 @@ test('#4891 N4 Windows: `kosmos report clear` records working, with the note', a
   const idle = await run(['report', 'idle'], () => ({ body: JSON.stringify({ recorded: true }) }));
   assert.equal(JSON.parse(idle.calls.find((c) => c.method === 'POST').body).state, 'idle');
 });
+
+test('#4926 Windows: --unanswered reaches the board as &unanswered=1, as on the Mac', async () => {
+  for (const [argv, want] of [
+    [['room', 'proj', '--unanswered'], '/api/project/proj/room?as=text&unanswered=1'],
+    [['room', '--unanswered', 'proj'], '/api/project/proj/room?as=text&unanswered=1'],
+    [['room', 'proj', '-n', '5', '--unanswered'], '/api/project/proj/room?as=text&n=5&unanswered=1'],
+  ]) {
+    const r = await run(argv, () => ({ body: 'the room\n' }));
+    assert.equal(r.code, 0, argv.join(' ') + ': ' + r.err);
+    assert.deepEqual(r.calls.map((c) => c.route), [want], argv.join(' '));
+  }
+});
