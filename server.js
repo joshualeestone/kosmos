@@ -3044,6 +3044,22 @@ function refreshCommunityBlock() {
   }
 }
 
+/* kosmos#7693 (measured on 0.7.83, 11-02): under load each sweep's safeRoster() is a blocking capture of every pane, 1 to 5 s
+   each, and about ten sweeps ran one after another inside two minutes, about 80 s of a stalled board. Four sweeps (the
+   Antigravity and Gemini quota sweeps, account notices, the Assigner) DECIDE from one reading at most SWEEP_ROSTER_TTL_MS
+   old, and their sends read a fresh roster (review 1: an idle card 20 s old would let a line and its Enter land on a
+   question menu the agent has since reached; chat.js reads the screen only for a working or needs-you card). The Gemini
+   sweep's one key is checked against a fresh capture of the pane already. Most ticks send nothing, so the full capture is
+   paid only when one acts. A failed read is not kept. */
+const SWEEP_ROSTER_TTL_MS = 20 * 1000;
+let sweepRosterKept = null;   // { at, roster }
+function sweepRoster(now = Date.now()) {
+  if (sweepRosterKept && now - sweepRosterKept.at >= 0 && now - sweepRosterKept.at < SWEEP_ROSTER_TTL_MS) return sweepRosterKept.roster;
+  const roster = safeRoster();
+  sweepRosterKept = Array.isArray(roster) ? { at: now, roster } : null;
+  return roster;
+}
+
 function safeRoster() {
   try {
     const board = snapshot();
@@ -27644,9 +27660,9 @@ function start(port = PORT) {
       const agyQuotaTick = agyQuota.makeTick({
         allowed: () => liveExecution.liveExecutionAllowed(),
         env: process.env, // both brakes: AGY_QUOTA_RESUME_OFF, and AGY_QUOTA_HOLD_OFF for the pool gate (#4588 B review 5)
-        roster: () => safeRoster(),
+        roster: () => sweepRoster(),
         book: AGY_QUOTA_BOOK,
-        deliver: (session, text, r) => chat.deliver(session, text, r, undefined, undefined),
+        deliver: (session, text) => chat.deliver(session, text, safeRoster(), undefined, undefined),   // #7693: a fresh roster at the send
         // #5382 (review 8): the parts the failover gave away that this agent was not yet told about, marked once told.
         movedAway: (session, roster) => require('./engine/failovertell').owedFor(session, projects.readAll(), roster),
         movedTold: (session, items) => require('./engine/failovertell').markAll(session, items, tasks.markMoveTold),
@@ -27672,7 +27688,7 @@ function start(port = PORT) {
         if (!liveExecution.liveExecutionAllowed() || process.env.AGENT_WORKFORCE_GEMINI_QUOTA_OFF === '1') return;
         try {
           geminiQuota.sweepOnce({
-            roster: safeRoster(), book: GEMINI_QUOTA_BOOK, now: Date.now(),
+            roster: sweepRoster(), book: GEMINI_QUOTA_BOOK, now: Date.now(),
             answer: (session, roster) => chat.answerGeminiQuotaStop(session, roster),
             log: (r) => process.stdout.write(`gemini-quota: ${r.name} (${r.session}) ${r.answered ? 'answered Stop' : 'not answered'} - ${r.because}\n`),
           });
@@ -27690,7 +27706,7 @@ function start(port = PORT) {
         if (!liveExecution.liveExecutionAllowed() || process.env.AGENT_WORKFORCE_ACCOUNT_NOTIFY_OFF === '1') return;
         accountBusy = true;
         try {
-          const cards = safeRoster();
+          const cards = sweepRoster();
           if (!Array.isArray(cards) || !cards.length) return;
           const profile = (s) => { try { return store.readProfile(s) || {}; } catch { return {}; } };
           accountNotify.sweepOnce({
@@ -27700,7 +27716,7 @@ function start(port = PORT) {
               roleOf: (s) => profile(s).role,
               projectsOf: (s) => projects.readAll().filter((p) => p && p.archived !== true && (p.agents || []).includes(s)).map((p) => p.agents || []),
             },
-            deliver: (session, text) => chat.deliverAutomatic(session, text, cards, undefined, undefined),
+            deliver: (session, text) => chat.deliverAutomatic(session, text, safeRoster(), undefined, undefined),   // #7693: fresh at the send
             DELIVERY: chat.DELIVERY,
             log: (r) => process.stdout.write(`account-notify: ${r.session} ${r.act}${r.manager ? ' manager=' + r.manager : ''}${r.delivery ? ' delivery=' + r.delivery : ''}\n`),
           });
@@ -27889,13 +27905,13 @@ function start(port = PORT) {
           const out = assigner.tick({
             prev: assignerPrev, now: Date.now(),
             readSetting: () => assignerSetting.read(),
-            readRoster: () => safeRoster(),
+            readRoster: () => sweepRoster(),
             readRecords: () => projects.readAll(),
             readCommitment: (session) => commitments.read(session),
             readRunner: (card) => failoverRunnerOf(card),   // #5382: the runner the failover compares (null: unknown)
             readGoal: (project) => brief.readGoal(project && project.folder),
-            give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster, from }),
-            ask: (session, text, roster) => chat.deliverAutomatic(session, text, roster),
+            give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster: safeRoster() || roster, from }),   // #7693: fresh at the send
+            ask: (session, text, roster) => chat.deliverAutomatic(session, text, safeRoster() || roster),   // #7693: fresh at the send
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;
