@@ -324,3 +324,16 @@ test('kosmos#7802: acked() names a late ack in its log line, and hands the sende
   assert.doesNotMatch(acks[0], /decided/, 'an on-time ack read as late');
   assert.match(acks[1], /after its email was decided/);
 });
+
+test('kosmos#7802: late is measured from the first push the sender took, which a retry does not move', () => {
+  const { said, ev } = pushedStalls(['lr1']);
+  ev.onResult(false);   // a failed answer; the coordinator may still have stored this first push
+  ds.tellStalls([stalledCard('lr1')], { now: PUSH + 16 * MIN, send: () => true });   // the retry, same id
+  const ends = recover('lr1', said, PUSH + 20 * MIN);
+  assert.deepEqual(ds.acksDue(ends, PUSH + 16 * MIN + 25 * MIN), [{ id: ev.id, late: true }], 'a retried ack past the first push\'s mark read as on time');
+});
+
+test('kosmos#7802: exactly 30 minutes after the push is late (the coordinator\'s mark is inclusive)', () => {
+  const { said, ev } = pushedStalls(['lb1']);
+  assert.deepEqual(ds.acksDue(recover('lb1', said, PUSH + 30 * MIN), PUSH + 30 * MIN), [{ id: ev.id, late: true }]);
+});

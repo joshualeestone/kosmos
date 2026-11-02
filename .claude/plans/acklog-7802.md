@@ -13,13 +13,15 @@ Stacked on stallack-7794 (PR #7807). Rebase onto main once that merges.
 - `server.js`: the sweep passes `late` through.
 
 ## Decided
-- Late is measured on the board's clock from the board's push time. The coordinator times from when it received the push,
-  which is a little later, so an ack in the last seconds before the mark can be called on time when it was not. Only the
-  log line depends on it.
+- Late is measured from the FIRST push the sender took (review 1): the coordinator keeps the first row of an id and
+  decides its email 30 minutes after receiving it, so a retry must not move the mark. If that first push never reached
+  the coordinator, a retried ack can be called late when it was not; the words say the email "may have gone". The
+  board clock and the coordinator's receive time differ by a few seconds the other way. Only the log line depends on it.
 - Rejected: a retry for a failed ack. It stays one attempt (the #7794 residual); this card is about the log only.
 
 ## Tests
-`engine/stallack-7794.test.js` (20): on time, late, and a minute before the mark; the log line and the label.
+`engine/stallack-7794.test.js` (22): on time, late, a minute before and exactly at the mark, a retry measured from the
+first push; the log line and the label.
 `engine.phonenotify-send-4163.test.js` (8): a real refused and an unreachable ack, logged as an ack, in a child process
-against a local coordinator. Five mutants went red: no label, an earlier mark, no late words, fixed wording, no label
-on the unreachable line.
+against a local coordinator. Seven mutants went red: no label, an earlier mark, an exclusive mark, late measured from the retry,
+no late words, fixed wording, no label on the unreachable line.
