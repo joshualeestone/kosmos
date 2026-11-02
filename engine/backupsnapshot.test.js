@@ -738,6 +738,19 @@ test('a plan replaces the worst-case bound: a manifest budget that refuses a com
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('a good run names what it left out, to a limit, beside the whole count', async () => {
+  const w = oneFile(1024), k = keys(), st = store();
+  try {
+    fs.writeFileSync(path.join(w.root, 'big.bin'), Buffer.alloc(2048, 1));
+    const r = await take(k, w.root, st, { deps: { maxFile: 1500 } });
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.skipped, 1);
+    assert.equal(r.skippedList.length, 1);
+    assert.match(r.skippedList[0].path, /big\.bin/);
+    assert.match(r.skippedList[0].why, /too large/);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('a plan: a company keeps the 64 MiB budget; only a plan gets the larger one', () => {
   assert.equal(snap.MANIFEST_JSON_BUDGET, Math.floor(64 * 1024 * 1024 * 0.8));
   assert.equal(snap.PLAN_MANIFEST_JSON_BUDGET, Math.floor(192 * 1024 * 1024 * 0.8));

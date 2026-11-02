@@ -95,6 +95,7 @@ const MANIFEST_JSON_BUDGET = Math.floor(COMPANY_MANIFEST_OBJECT * 0.8);
 // name and key lengths: 286 bytes a chunk, so the top of the chart (about 477,000 chunks) is 130 MiB of JSON.
 const PLAN_MANIFEST_JSON_BUDGET = Math.floor(MAX_MANIFEST * 0.8);
 const MAX_SKIPPED = 100000;
+const SKIPS_REPORTED = 200;   // named to the person (kosmos#7404); `skipped` is the whole count
 const MAX_DEPTH = 256;
 const SPLIT_WINDOW = 8;   // segments joined when looking for a credential split across folder names
 // The clock skew tolerated between this Mac and the coordinator, as backupupload's clock check does (an hour): within it
@@ -977,7 +978,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (mk) return fail(`the manifest was stored under a key that is not this snapshot's (${mk})`, { grantSpent: true });
   // sealedInProcess: the seal worker could not be used, so the board waited for the seal (kosmos#7746); its value says
   // which way ('not-sent', 'no-worker', 'worker-ended', 'no-answer').
-  return Object.assign({ ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket }, sealedHere ? { sealedInProcess: sealedHere } : {});
+  return Object.assign({ ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, skippedList: skipped.slice(0, SKIPS_REPORTED), uploaded, reused, added, bucket: state.bucket }, sealedHere ? { sealedInProcess: sealedHere } : {});
 }
 
 /* kosmos#7746: the manifest sealed in a worker thread (engine/backupseal-worker.js), so the board is not frozen for the

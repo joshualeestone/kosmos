@@ -530,6 +530,9 @@ function noteRun(r, opts, before) {
   const same = was.org === rec.org.id && was.world === rec.world;
   const now = new Date((opts.now || Date.now)()).toISOString();
   const next = { org: rec.org.id, world: rec.world, lastTry: now, lastOk: r.ok ? now : (same && was.lastOk) || null };
+  // What the last good backup left out, so the panel can name it. A failed run says nothing about that.
+  if (r.ok && Array.isArray(r.skippedList)) next.leftOut = { count: Number.isSafeInteger(r.skipped) ? r.skipped : r.skippedList.length, files: r.skippedList.map((x) => ({ path: String(x.path), why: String(x.why) })) };
+  else if (same && was.leftOut) next.leftOut = was.leftOut;
   if (!r.ok) {
     const stopped = stopOf(r);
     if (stopped) next.stopped = stopped;
@@ -575,7 +578,7 @@ function reportNow(opts) {
   if (stopped) return { lastOk, stopped, note: null };
   if (j.waiting === true) return { lastOk, stopped: null, note: WAITING_WEEK };
   if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'A backup has not finished yet.' : 'A backup runs soon.' };
-  return { lastOk, stopped: null, note: null };
+  return { lastOk, stopped: null, note: null, ...(j.leftOut && typeof j.leftOut === 'object' ? { leftOut: j.leftOut } : {}) };
 }
 
 /** kosmos#7404 slice D: what a files restore needs to know: { state, rec, codeWaiting }. state is state()'s, and

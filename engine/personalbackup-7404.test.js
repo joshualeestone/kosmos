@@ -157,6 +157,20 @@ test('pb tiers: a status read that was never sent lets the run say remote access
   assert.equal(ran, 1);
 });
 
+test('pb tiers: the panel can name what the last good backup left out, and a failed run does not wipe it', async (t) => {
+  const root = fresh(t);
+  const consent = { ...WORDS, backsUp: ['your project folders'] };
+  const c = coordinator({ preexisting: true, preview: { ok: true, data: { org: ORG, role: 'member', consent, consentHash: HASH, computerSalt: SALT } } });
+  const p = await pb.preview({ root, remote: c });
+  assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+  const opts = { root, remote: c, offer: () => ({ shown: true }), personalbackupkey: { ...KEY_OK, hasPendingCode: () => false } };
+  const skippedList = [{ path: 'workers/a/film.mp4', why: 'larger than 64 MB, too large to scan' }];
+  await pb.runJob({ roots: [] }, { ...opts, runBackup: async () => ({ ok: true, skipped: 3, skippedList }) });
+  assert.deepEqual(pb.report(opts).leftOut, { count: 3, files: skippedList });
+  await pb.runJob({ roots: [] }, { ...opts, runBackup: async () => ({ ok: false, because: 'x' }) });
+  assert.deepEqual(pb.report(opts).leftOut, { count: 3, files: skippedList });
+});
+
 test('pb tiers: a plan for another org does not size this backup', async (t) => {
   const root = fresh(t);
   const consent = { ...WORDS, backsUp: ['your project folders'] };
