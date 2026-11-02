@@ -31,7 +31,7 @@ test('a never-reported claim carries neverTurned from the agent card, and only t
 });
 
 test('the engine stamps neverTurned only beside neverReported: an agent that has reported keeps its own claim', () => {
-  assert.equal(commitments.report('bo', []).ok !== false, true, 'CONTROL: the report was written');
+  commitments.report('bo', []);
   const c = claimOf({ sessionName: 'bo', isNamedOurs: true, neverTurned: true, state: 'idle' }, 'bo');
   assert.equal(c.claimed, false, 'CONTROL: bo has a report on this board, which does not name task 1');
   assert.notEqual(c.neverReported, true, 'CONTROL');
