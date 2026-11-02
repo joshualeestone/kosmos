@@ -114,10 +114,12 @@ function pbfState() {
   assert.ok(m, 'CONTROL: var PBF was not found in the page');
   return m[0];
 }
-function painter(doc, fetchImpl) {
-  const src = page.liftAll(SCRIPT, ['asSentence', 'pbfWhen', 'pbfStartedWhen', 'pbfBackupWhen', 'pbfMsg', 'pbfFocus', 'pbfLastWords', 'pbfShow', 'pbfRead', 'pbfPaint', 'pbfRowButton', 'pbfSee', 'pbfStart', 'pbfStop'])
+function painter(doc, fetchImpl, extra = {}) {
+  const src = page.liftAll(SCRIPT, ['asSentence', 'pbfWhen', 'pbfStartedWhen', 'pbfBackupWhen', 'pbfMsg', 'pbfFocus', 'pbfLastWords', 'pbfShow', 'pbfRead', 'pbfPaint', 'pbfRowButton', 'pbfSee', 'pbfStart', 'pbfStop', 'pbfOpen'])
     + '\n' + pbfState();
-  return new Function('document', 'fetch', src + '\nreturn { PBF, pbfShow, pbfPaint, pbfSee, pbfStart, pbfStop, pbfRead };')(doc, fetchImpl || (() => new Promise(() => {})));
+  const names = Object.keys(extra);
+  return new Function('document', 'fetch', ...names, src + '\nreturn { PBF, pbfShow, pbfPaint, pbfSee, pbfStart, pbfStop, pbfRead, pbfOpen };')(
+    doc, fetchImpl || (() => new Promise(() => {})), ...names.map((k) => extra[k]));
 }
 const vis = (doc, id) => !doc.getElementById(id).hidden;
 
@@ -145,7 +147,7 @@ test('the paint: idle, listed, asked, running, stop asked, ended', () => {
 
 test('keyMissing: said, and never "no backups yet"', async () => {
   const doc = fakeDoc();
-  const p = painter(doc, () => Promise.resolve({ json: () => Promise.resolve({ ok: true, more: false, keyMissing: true, backups: [] }) }));
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, more: false, keyMissing: true, backups: [] }) }));
   p.PBF.status = { running: false, startedAt: null, last: null }; p.PBF.at = Date.now();
   p.pbfShow(true);
   await p.pbfSee();
@@ -170,13 +172,17 @@ const tick = () => new Promise((r) => setImmediate(r));
 
 test('Restore: a start that answers shows the running line and puts focus on Stop', async () => {
   const doc = fakeDoc();
-  const p = painter(doc, answer({ ok: true, startedAt: Date.now() }));
+  const p = painter(doc, answer({ ok: true, startedAt: 99 }));
   p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
   p.PBF.list = [{ key: 'k1', takenAt: 1e9, problem: null }]; p.PBF.asked = p.PBF.list[0];
   p.pbfShow(true);
   await p.pbfStart();
   assert.ok(vis(doc, 'pb-files-run') && !vis(doc, 'pb-files-ask'));
   assert.equal(doc.focused && doc.focused.id, 'pb-files-stop');
+  assert.match(doc.getElementById('pb-files-run').textContent, new RegExp('^Restoring ' + new Date(1e9 * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  // Another restore (another tab, a phone) with a different start: not named as this one.
+  p.PBF.status = { running: true, startedAt: 12345, last: null }; p.pbfPaint();
+  assert.match(doc.getElementById('pb-files-run').textContent, /^Restoring a backup, started /);
 });
 
 test('Off while a list is on its way: its answer writes nothing back', async () => {
@@ -211,4 +217,47 @@ test('when a restore ends with focus on Stop, focus moves to Open the copy', asy
   p.pbfRead(); await tick(); await tick();
   assert.ok(vis(doc, 'pb-files-open'));
   assert.equal(doc.focused && doc.focused.id, 'pb-files-open');
+});
+
+test('Stop: a stop that was accepted says so and keeps Stop away until the restore ends; a second press sends nothing', async () => {
+  const doc = fakeDoc();
+  let calls = 0;
+  const p = painter(doc, (url) => { if (url === '/api/personal-backup/stop') calls++; return new Promise((r) => setImmediate(() => r({ ok: true, json: () => Promise.resolve(url === '/api/personal-backup/stop' ? { ok: true } : { running: true, startedAt: 5, last: null }) }))); });
+  p.PBF.status = { running: true, startedAt: 5, last: null }; p.PBF.at = Date.now();
+  p.pbfShow(true); p.PBF.stopAsk = true; p.pbfPaint();
+  const a = p.pbfStop(); const b = p.pbfStop();
+  await a; await b;
+  assert.equal(calls, 1, 'a second press sent a second stop');
+  assert.equal(doc.getElementById('pb-files-run').textContent, 'Stopping the restore.');
+  assert.ok(!vis(doc, 'pb-files-stop-row') && !vis(doc, 'pb-files-stop-ask'), 'Stop came back before the restore ended');
+  assert.equal(doc.focused && doc.focused.id, 'pb-files-run');
+  p.PBF.status = { running: false, last: { ok: false, code: 'stopped', stoppedByPerson: true } }; p.pbfPaint();
+  assert.equal(p.PBF.stopSent, false, 'the next restore would open as stopping');
+});
+
+test('Open the copy reads the switcher first, then opens its confirm for the copy the restore answered', async () => {
+  const doc = fakeDoc();
+  const order = [];
+  const p = painter(doc, null, {
+    worldsFetch: () => { order.push('fetch'); return Promise.resolve(); },
+    worldswOpen: () => order.push('open'),
+    worldswConfirmSwitch: (id, name) => order.push('confirm ' + id + ' ' + name),
+  });
+  p.PBF.status = { running: false, last: { ok: true, restored: 1, world: WORLD } };
+  await p.pbfOpen();
+  assert.deepEqual(order, ['fetch', 'open', 'confirm ' + WORLD.id + ' ' + WORLD.name]);
+  order.length = 0;
+  p.PBF.status = { running: false, last: { ok: false, code: 'stopped' } };
+  await p.pbfOpen();
+  assert.deepEqual(order, [], 'no copy, nothing opened');
+});
+
+test('a restore that ends while the person is elsewhere does not move their focus', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, answer({ running: false, startedAt: null, last: { ok: true, restored: 4, world: WORLD } }));
+  p.PBF.status = { running: true, startedAt: Date.now(), last: null }; p.PBF.at = Date.now();
+  p.pbfShow(true);
+  doc.focused = null;   // nothing in the section has focus
+  p.pbfRead(); await tick(); await tick();
+  assert.equal(doc.focused, null);
 });
