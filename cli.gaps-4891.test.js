@@ -195,3 +195,17 @@ test('#4891 N9: agents --help is its own usage; report --help names show and cle
     const start = await runCli(['start', '--help'], envFor(port));
     assert.match(start.stdout, /Kosmos commands:/);
   }));
+
+test('#4926: --unanswered reaches the board as &unanswered=1, either side of the project id and beside -n', () =>
+  withBoard(async (port, hits) => {
+    for (const [args, want] of [
+      [['room', 'proj', '--unanswered'], '/api/project/proj/room?as=text&unanswered=1'],
+      [['room', '--unanswered', 'proj'], '/api/project/proj/room?as=text&unanswered=1'],
+      [['room', 'proj', '-n', '5', '--unanswered'], '/api/project/proj/room?as=text&n=5&unanswered=1'],
+    ]) {
+      hits.length = 0;
+      const out = await runCli(args, envFor(port));
+      assert.equal(out.code, 0, args.join(' ') + ': ' + out.stderr);
+      assert.deepEqual(roomReads(hits), [want], args.join(' '));
+    }
+  }));

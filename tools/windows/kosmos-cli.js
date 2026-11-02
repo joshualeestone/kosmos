@@ -101,7 +101,7 @@ const USAGE = {
   fingerprint: 'Usage: kosmos fingerprint <file> [expected]   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: sha256:<hex> is the plain sha256 of the file, what shasum prints; pdf-normalized:<hex> is a PDF with its creation and change dates and document ID left out, so the same source rendered twice matches, and is not what shasum prints; a PDF over 64 MB is hashed as plain bytes. With an expected value it compares like with like and says which kind: a bare 64-hex value or sha256: is checked against the plain sha256)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
   inbox: 'Usage: kosmos inbox [--limit N] [--unanswered] [--since <time>]   (your recent messages with the person, newest last; 10 by default, 50 at most. --unanswered: only theirs since your last reply. --since: only those at or after a time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22")',
-  room: 'Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
+  room: 'Usage: kosmos room <project-id> [-n N] [--unanswered]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something and that no post of yours answers by id; or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, its line breaks kept (agents reading the room see it on one line), at most 4000 characters; <source> names the job, such as "builder alarm")',
   task: [
     'Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>',
@@ -1043,8 +1043,10 @@ async function verbRoom(ctx, args) {
   let project = '';
   let n = '';
   let given = false;
+  let unanswered = false;   // #4926, as install/kosmos
   while (args.length) {
     const a = args.shift();
+    if (a === '--unanswered') { unanswered = true; continue; }
     if (a === '-n' || a === '--limit') { given = true; n = args.length ? args.shift() : ''; continue; }
     const m = /^--limit=(.*)$/.exec(a);
     if (m) { given = true; n = m[1]; continue; }
@@ -1055,7 +1057,7 @@ async function verbRoom(ctx, args) {
   if (!project) { ctx.err(USAGE.room); return 2; }
   if (given && !(/^[1-9]\d{0,2}$/.test(n) && Number(n) <= 200)) { ctx.err('-n takes a whole number from 1 to 200.'); return 2; }
   // #4491 slice 4: the agent's own token rides too (the default), as on the Mac, so the read works without the board token.
-  const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text' + (given ? '&n=' + n : ''));
+  const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text' + (given ? '&n=' + n : '') + (unanswered ? '&unanswered=1' : ''));
   if (!r.reached) return ctx.unreachable('read that room');
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   return r.status >= 400 ? 1 : 0;

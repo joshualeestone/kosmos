@@ -5290,11 +5290,13 @@ cmd_room() {
   fi
   # #4891 N8: `-n N` / `--limit N` (or `--limit=N`) reads only the last N rows (1 to 200; 40 without it). Before
   # this, -n was ignored and the whole tail printed. Either side of the project id.
-  local _n="" _ngiven=0 _arg
+  # #4926: --unanswered lists only the posts that asked you something and that no post of yours answers by id.
+  local _n="" _ngiven=0 _arg _unans=""
   project=""
   while [ $# -gt 0 ]; do
     _arg="$1"; shift
     case "$_arg" in
+      --unanswered) _unans="&unanswered=1" ;;
       -n|--limit) _ngiven=1; _n="${1:-}"; shift 2>/dev/null || true ;;
       --limit=*)  _ngiven=1; _n="${_arg#--limit=}" ;;
       # Any other word is the project, even one starting with "-": Kosmos makes ids like "-drafts" from a name
@@ -5303,7 +5305,7 @@ cmd_room() {
     esac
   done
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id> [-n N]   (read a room, the last 40 rows or the last N, up to 200; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
+    say "Usage: kosmos room <project-id> [-n N] [--unanswered]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something and that no post of yours answers by id; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
   fi
   # Checked as text first (no leading 0, at most 3 digits), so a huge number can never reach bash arithmetic.
@@ -5335,7 +5337,7 @@ cmd_room() {
   # once the CLI stops holding the person's board token.
   local _tok=""
   case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
-  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}" 2>/dev/null) || _rc=$?
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text${_n:+&n=$_n}${_unans}" 2>/dev/null) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
     say_unreached "read that room" "$_rc"
     exit 1
