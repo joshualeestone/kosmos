@@ -686,9 +686,10 @@ function holdForYou7788(where) {
     const held = await post(pbase + '/task/' + n + '/hold', { onHold: true, forPerson: true, because: 'needs your yes on the printer’s price' });
     if (held.status !== 200) throw new Error('holdforyou-7788: the hold answered ' + held.status);
     if (where === 'list') {
-      await openTab(page, 'tasks');
-      await page.waitForSelector('#tsk-groups .tsk-for-you', { state: 'visible', timeout: 8000 });
-      await page.evaluate(() => document.querySelector('#tsk-tiles').scrollIntoView({ block: 'start' }));
+      await at(page, '?tab=tasks');   // as the tasks screens open it (openTab has no Tasks door on every layout)
+      await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+      await page.waitForSelector('#tsk-groups .tsk-for-you', { state: 'attached', timeout: 8000 });
+      await page.evaluate(() => document.querySelector('#tsk-groups .tsk-for-you').closest('.tsk-row').scrollIntoView({ block: 'center' }));
     } else {
       await openTab(page, 'projects');
       await page.click(`#pj-list .pj-row[data-project="${data.projectId}"]`);
