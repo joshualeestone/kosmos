@@ -676,7 +676,52 @@ function ownPosts(sessionName) {
     out.push({ remoteId: String(rec.remoteId).toLowerCase(), sentAt: String(rec.sentAt || '') });
   }
   out.sort((a, b) => b.sentAt.localeCompare(a.sentAt));
-  return { posts: out.slice(0, REPLIES_POSTS), total: out.length, all: new Set(out.map((p) => p.remoteId)) };
+  return { posts: out.slice(0, REPLIES_POSTS), total: out.length, all: new Set(out.map((p) => p.remoteId)), older: out.slice(REPLIES_POSTS) };
+}
+/* kosmos#7811: an agent with more than REPLIES_POSTS posts also has its older ones read when they have something new,
+   at most REPLIES_OLDER_MAX in one read. What is new is told by ONE public read, the agent's profile, which lists its
+   newest PROFILE_POSTS posts each with `latest_reply` (its newest shown comment or reply of any depth). */
+const REPLIES_OLDER_MAX = 5;
+const PROFILE_POSTS = 50;   // the service's profile list (kosmos-community agents.py _profile)
+const PROFILE_CAP = 512 * 1024;
+/* remoteId -> { at, id } of each listed post's newest reply, or null when the profile could not be read. */
+async function postActivity(me) {
+  const name = communityself.asSelf(me).name;
+  if (!name) return null;
+  const r = await getJson('/agents/by-name/' + encodeURIComponent(name), PROFILE_CAP);
+  if (r.status !== 200 || !r.json || !Array.isArray(r.json.posts)) return { failed: true, status: r.status };
+  const out = new Map();
+  for (const x of r.json.posts.slice(0, PROFILE_POSTS)) {
+    if (!x || !UUID_RE.test(String(x.id || ''))) continue;
+    const lr = x.latest_reply;
+    const at = lr && typeof lr.created_at === 'string' ? Date.parse(lr.created_at) : NaN;
+    out.set(String(x.id).toLowerCase(), validAt(at) && UUID_RE.test(String(lr.id || '')) ? { at, id: String(lr.id).toLowerCase() } : null);
+  }
+  return { map: out };
+}
+/* The posts both the read and the nudge's count take (one rule, so the two never count different sets): the newest
+   REPLIES_POSTS, then up to REPLIES_OLDER_MAX older ones whose newest reply is strictly after the post's mark in (time,
+   id) order and not an id already seen above it (or after the first look, with no mark), newest activity first.
+   `activity` as postActivity answers; with none, only the newest. Returns { posts, total, all, older, active, read,
+   unlisted } (older: how many older posts; active: how many have something new; read: how many of those are read;
+   unlisted: older posts past the profile's list, so not checked). */
+function postsToRead(sessionName, { marks, activity, firstLook }) {
+  const own = ownPosts(sessionName);
+  const base = { posts: own.posts, total: own.total, all: own.all, older: own.older.length, active: 0, read: 0, unlisted: 0, checked: false };
+  if (!own.older.length || !activity || !activity.map) return base;
+  const active = [];
+  let unlisted = 0;
+  for (const p of own.older) {
+    if (!activity.map.has(p.remoteId)) { unlisted += 1; continue; }
+    const a = activity.map.get(p.remoteId);
+    if (!a) continue;
+    const m = marks[p.remoteId];
+    const after = m ? (a.at > m.at || (a.at === m.at && a.id > m.id)) && !m.seen.includes(a.id) : a.at > firstLook;
+    if (after) active.push({ p, at: a.at });
+  }
+  active.sort((x, y) => y.at - x.at);
+  const picked = active.slice(0, REPLIES_OLDER_MAX).map((x) => x.p);
+  return { ...base, posts: own.posts.concat(picked), active: active.length, read: picked.length, unlisted, checked: true };
 }
 /* Review 5: the service's own name, case-folded, not the cleaned display name (cleaning drops brackets and cuts at 64,
    so another agent "kim()" would have looked like "kim"). kosmos#6705: with the agent's id, through communityself. */
@@ -854,10 +899,20 @@ async function freshReplies(sessionName, opts) {
   try {
     const now = Number.isFinite(opts.now) ? opts.now : Date.now();
     const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
-    const { posts } = ownPosts(sessionName);
-    if (!posts.length) return { ok: true, posts: [], persons: [], answered: [], asked: 0 };
+    const own = ownPosts(sessionName);
+    if (!own.posts.length) return { ok: true, posts: [], persons: [], answered: [], asked: 0 };
     const marks = readMarks(sessionName);
     const me = communityself.stored(sessionName);   // kosmos#6705: a background pass reads the stored self, no request
+    /* kosmos#7811: the read's own set (postsToRead), so the older posts it reads are counted here too. A profile that
+       cannot be read makes this count partial, as an unreadable post does: the read may take posts this count did not. */
+    let activity = null;
+    if (own.older.length) {
+      asked += 1;
+      activity = await postActivity(me);
+      if (activity && activity.status === 429) return { ok: false, busy: true, stop: true, because: 'the community service is limiting requests' };
+      if (!activity || !activity.map) return unreadable();
+    }
+    const { posts } = postsToRead(sessionName, { marks, activity, firstLook });
     const titles = postTitles(sessionName);
     const out = [];
     const persons = [];   // #5623
@@ -1014,8 +1069,8 @@ function placesOf(th, old, unshownIds, newestSeen) {
 async function repliesFor(sessionName, opts) {
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
-  const { posts, total, all } = ownPosts(sessionName);
-  if (!posts.length) {
+  const { posts: newestPosts } = ownPosts(sessionName);
+  if (!newestPosts.length) {
     /* #4939: a post that has not gone out yet is not "no posts": every family in Josh's test read this line as lost. */
     let waiting = 0;
     try { waiting = require('./communitystatus').waitingPosts(sessionName); } catch { waiting = 0; }
@@ -1026,6 +1081,10 @@ async function repliesFor(sessionName, opts) {
   }
   const marks = readMarks(sessionName);   // service time, apart from a new post's first-look floor
   const me = await communityself.current(sessionName);   // kosmos#6705: refreshed from the service, at most every 10 min
+  // kosmos#7811: older posts with something new join the newest (one profile read, only when there are older posts).
+  const activity = ownPosts(sessionName).older.length ? await postActivity(me) : null;
+  const pick = postsToRead(sessionName, { marks, activity, firstLook });
+  const { posts, total, all } = pick;
   // Round 1: each post's newest top-level comments with their first replies, in parallel. 404/410: gone, not a failure.
   let round1Limited = false;
   const threads = await Promise.all(posts.map(async (p) => {
@@ -1261,7 +1320,9 @@ async function repliesFor(sessionName, opts) {
            cut of a thread is said above, as going on next time. */
         : ' past what a read reaches, so new ones among them may be missed (reading again right away will not reach them))'), '');
   }
-  if (total > posts.length) lines.push('(only your newest ' + posts.length + ' of ' + total + ' posts are looked at)', '');
+  if (pick.older && !pick.checked) lines.push('(only your newest ' + REPLIES_POSTS + ' of ' + total + ' posts were looked at: your older posts could not be checked for new comments just now)', '');
+  if (pick.active > pick.read) lines.push('(' + (pick.active - pick.read) + ' more of your older posts have new comments: read again for them)', '');
+  if (pick.unlisted) lines.push('(your ' + (pick.unlisted === 1 ? 'oldest post is' : pick.unlisted + ' oldest posts are') + ' past what Kosmos can check for new comments, so ' + (pick.unlisted === 1 ? 'it is' : 'they are') + ' not looked at)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
   /* Each post's mark (service time), review 6: unchanged if it could not be reached or has gone. Otherwise the candidate
      is the newest item of its FIRST-round page, or, when the read's cap cut the post, the earlier of that and the last item
@@ -1345,4 +1406,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { postsToRead, postActivity, REPLIES_OLDER_MAX, HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
