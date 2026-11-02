@@ -25,9 +25,12 @@ person's text, or our line with words added after it, is still never pressed.
 
 ## Weakest premise
 The wide rule cannot see rows above the visible end: a person who moved the cursor up and typed there would be sent
-with our line. A delivery already accepts this; the sweep adds 10 minutes idle and the same gates before the Enter.
+with our line. A delivery already accepts this; the sweep acts only after 10 idle minutes, on a box over
+STUCK_ROWS_MAX at every read, under the same gates before the Enter.
 Not covered: a delivery that believed it was placed (no memory) and sits unsent; that stays `left` and said once.
 
 ## Tests
-engine/chat.stuckinput-6717.test.js: resized long line pressed by the sweep; our line plus a person's words left.
+engine/chat.stuckinput-6717.test.js: resized long line pressed by the sweep (the fix); a 4 to 6 row cut of our line
+drafted, never pressed, also when cut between the sweep's look and the Enter (the boundary); our line plus a person's
+words left (a guard against widening the match, passes on main too).
 Mutants: sweep not wide in either place -> the new test fails (waiting/changed; left/too long).
