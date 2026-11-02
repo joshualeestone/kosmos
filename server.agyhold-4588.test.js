@@ -263,7 +263,7 @@ const AUTOMATIC = [
   ['firstreply-nudge', 'book: FIRSTREPLY_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],
   ['account-notify', 'accountNotify.sweepOnce({', /deliver:\s*\(session, text\)\s*=>\s*chat\.deliverAutomatic\(session, text, safeRoster\(\),/],   // #7693: fresh at the send
   ['recommender', 'recommender.runOnce({', /deliver:\s*\(session, text\)\s*=>\s*chat\.deliverAutomatic\(session, text, roster,/],
-  ['assigner ask', 'give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster: safeRoster() || roster, from }),', /ask:\s*\(session, text, roster\)\s*=>\s*chat\.deliverAutomatic\(session, text, safeRoster\(\) \|\| roster\)/],
+  ['assigner ask', 'give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster: sendRoster() || roster, from }),', /ask:\s*\(session, text, roster\)\s*=>\s*chat\.deliverAutomatic\(session, text, sendRoster\(\) \|\| roster\)/],
   ['agent-nudge', 'book: AGENT_NUDGE_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],
   ['stalereport-nudge', 'book: STALEREPORT_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],   // #5959 slice 3
   ['summarydue-nudge', 'book: SUMMARYDUE_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],   // #6209 part 2

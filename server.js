@@ -27900,6 +27900,9 @@ function start(port = PORT) {
       const assignerSweep = setInterval(() => {
         if (!liveExecution.liveExecutionAllowed()) return; // inert under test / before opt-in
         try {
+          // #7693 review 2: one fresh roster per tick, shared by every give and ask in it (not one capture per send).
+          let freshAtSend;
+          const sendRoster = () => (freshAtSend === undefined ? (freshAtSend = safeRoster()) : freshAtSend);
           const out = assigner.tick({
             prev: assignerPrev, now: Date.now(),
             readSetting: () => assignerSetting.read(),
@@ -27908,8 +27911,8 @@ function start(port = PORT) {
             readCommitment: (session) => commitments.read(session),
             readRunner: (card) => failoverRunnerOf(card),   // #5382: the runner the failover compares (null: unknown)
             readGoal: (project) => brief.readGoal(project && project.folder),
-            give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster: safeRoster() || roster, from }),   // #7693: fresh at the send
-            ask: (session, text, roster) => chat.deliverAutomatic(session, text, safeRoster() || roster),   // #7693: fresh at the send
+            give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster: sendRoster() || roster, from }),   // #7693: fresh at the send
+            ask: (session, text, roster) => chat.deliverAutomatic(session, text, sendRoster() || roster),   // #7693: fresh at the send
             DELIVERY: chat.DELIVERY,
           });
           assignerPrev = out.next;

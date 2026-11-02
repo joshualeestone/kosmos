@@ -16,7 +16,9 @@ test('the shared reading is used by exactly the four deciding sweeps', () => {
 test('their sends read a fresh roster, never the shared one', () => {
   assert.match(src, /deliver: \(session, text\) => chat\.deliver\(session, text, safeRoster\(\), undefined, undefined\)/);
   assert.match(src, /deliver: \(session, text\) => chat\.deliverAutomatic\(session, text, safeRoster\(\), undefined, undefined\)/);
-  assert.match(src, /givePart\(projectId, n, partId, who, \{ assigner: true, roster: safeRoster\(\) \|\| roster, from \}\)/);
-  assert.match(src, /ask: \(session, text, roster\) => chat\.deliverAutomatic\(session, text, safeRoster\(\) \|\| roster\)/);
+  assert.match(src, /givePart\(projectId, n, partId, who, \{ assigner: true, roster: sendRoster\(\) \|\| roster, from \}\)/);
+  assert.match(src, /ask: \(session, text, roster\) => chat\.deliverAutomatic\(session, text, sendRoster\(\) \|\| roster\)/);
   assert.doesNotMatch(src, /deliver[A-Za-z]*\([^)]*sweepRoster\(\)/, 'CONTROL: no send takes the shared reading');
+  // Review 2: the Assigner's sends share one fresh read per tick.
+  assert.match(src, /const sendRoster = \(\) => \(freshAtSend === undefined \? \(freshAtSend = safeRoster\(\)\) : freshAtSend\);/);
 });
