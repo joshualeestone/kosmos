@@ -646,6 +646,64 @@ function restoreRecord(opts = {}) {
 
 /** Whether this computer holds a personal backup's enrollment, from this module's own record only. */
 function isOn(opts = {}) { return !!record(opts); }
+
+/* #7404 plan screen (design on #7404, Mona Lisa and Ice Cream Kitty, 11-02). Only once personal backup is on here: the
+   preview route is then safe to call again ("the same answer, nothing new made", relay org.rs mac_personal_backup),
+   while before it MAKES a membership, so it is never called just to read prices. Its org must be this board's own.
+   { ok: true, plans, planGb } (planGb: GB, null with no plan, undefined when Kosmos+ does not say) or { ok: false, because }. */
+const PLANS_UNREAD = 'Kosmos+ could not be reached just now, so the plans cannot be shown. Try again in a minute.';
+async function plansNow(opts = {}) {
+  const rec = record(opts);
+  if (!rec) return { ok: false, code: 'not_on', because: 'Personal backup is not on for this computer.' };
+  const remote = remoteOf(opts);
+  if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: PLANS_UNREAD };
+  let r;
+  try { r = await remote.macRequest('POST', ROUTE, {}); } catch { return { ok: false, because: PLANS_UNREAD }; }
+  if (!r || !r.ok) {
+    const c = codeOf(r);
+    return { ok: false, because: c && SAY[c] ? SAY[c].replace(/ Nothing was turned on\.?$/, '') : PLANS_UNREAD };
+  }
+  const d = r.data;
+  if (!d || !d.org || d.org.id !== rec.org.id) return { ok: false, because: 'Kosmos+ answered about another backup, so the plans cannot be shown here.' };
+  const plans = cleanPlans(d.plans);
+  if (!plans) return { ok: false, because: 'Kosmos+ sent plans this Kosmos cannot read. Updating Kosmos may fix it.' };
+  const gb = await planOf(opts);
+  return { ok: true, plans, planGb: gb === null || Number.isSafeInteger(gb) ? gb : undefined };
+}
+
+/* #7404 plan screen: open Stripe's page for one size (relay backup_plans.rs checkout). The client names a size, never a
+   price. The answer's url is used only when it is Stripe's own hosted checkout over https: this board never sends a
+   person to a page Kosmos+ names anywhere else. */
+const CHECKOUT_ROUTE = '/v1/mac/personal-backup/checkout';
+const CHECKOUT_SAY = {
+  personal_backup_off: 'Personal backup is not available on Kosmos+ yet.',
+  backup_plan_unknown: 'That plan is not on sale any more. Open personal backup again to see the plans.',
+  personal_backup_not_on: 'Personal backup is not on for this account on Kosmos+. Turn it on here first.',
+  not_subscribed: 'Backup needs a Kosmos+ subscription first.',
+  backup_plan_exists: 'This account already has a backup plan.',
+};
+function stripeCheckoutUrl(u) {
+  let url;
+  try { url = new URL(String(u)); } catch { return null; }
+  return url.protocol === 'https:' && url.hostname === 'checkout.stripe.com' && !url.username && !url.password && !url.port ? url.href : null;
+}
+async function checkout(gb, opts = {}) {
+  if (!Number.isSafeInteger(gb) || gb <= 0) return { ok: false, code: 'backup_plan_unknown', because: CHECKOUT_SAY.backup_plan_unknown };
+  if (!record(opts)) return { ok: false, code: 'not_on', because: 'Personal backup is not on for this computer.' };
+  const remote = remoteOf(opts);
+  if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: 'Kosmos+ could not be reached just now. Nothing was charged; try again in a minute.' };
+  let r;
+  try { r = await remote.macRequest('POST', CHECKOUT_ROUTE, { gb }); } catch { r = null; }
+  if (!r || !r.ok) {
+    const c = codeOf(r);
+    if (c && CHECKOUT_SAY[c]) return { ok: false, code: c, because: CHECKOUT_SAY[c] };
+    // A conflict with no code: an earlier page is still being opened (backup_plans.rs Opening).
+    return { ok: false, because: r && r.refusal ? 'Kosmos+ is opening a payment page for this already. Try again in a moment.' : 'Kosmos+ could not be reached just now. Nothing was charged; try again in a minute.' };
+  }
+  const url = stripeCheckoutUrl(r.data && r.data.url);
+  if (!url) return { ok: false, because: 'Kosmos+ answered with a payment page this Kosmos does not open. Nothing was charged.' };
+  return { ok: true, url };
+}
 function record(opts) {
   try { const oe = opts.orgenroll || require('./orgenroll'); const rec = oe.readEnrollment(enrollOpts(opts)); return rec && rec.org && rec.world ? rec : null; } catch { return null; }
 }
@@ -741,4 +799,4 @@ async function switchOff(opts = {}) {
   return { ok: false, because: 'Kosmos+ could not be reached just now. Personal backup is still on; try again in a minute.' };
 }
 
-module.exports = { ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, restore, restoreRecord, state, isOn, mayBackUp, runJob, report, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };
+module.exports = { plansNow, checkout /* #7404 plan screen */, ROUTE, INERT_POLICY, root, cleanPreview, preview, switchOn, setUpKey, restore, restoreRecord, state, isOn, mayBackUp, runJob, report, followUp, startFollowUp, switchOff, _TICKETS: TICKETS, _resetFollowUpForTests: () => { LAST_REFRESH = 0; LAST_SETTLE = 0; } };
