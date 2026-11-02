@@ -318,3 +318,26 @@ test('#6249: a short line, then two chips of someone else\'s after our Enter, is
   assert.equal(v.state, chat.DELIVERY.PLACED, 'said as sent, as on main: ' + v.because);
   assert.equal(Object.values(keptLines()).some((e) => e && e.chip), false, 'and those chips are never kept as our line');
 }));
+
+test('#6249: on the async path the looks while a fold settles are awaited, not blocked on', () => withAgent(async (roster) => {
+  const p = pane({ shape: THREE_CHIPS });
+  const frames = ['[Pasted text #1]', '[Pasted text #1][Pasted text #2][Pasted text #3]'];
+  let n = 0;
+  let pending = false;
+  const readsWhilePaused = [];
+  chat.setRunner((args) => {
+    if (args[0] === 'capture-pane' && args.includes('-e') && pastedCount(p) > 0 && p.state.enters === 0) {
+      if (pending) readsWhilePaused.push(n);
+      p.state.shown = frames[Math.min(n, frames.length - 1)];
+      n += 1;
+    }
+    return p(args);
+  });
+  // A pause that only ends on a later turn: a read before it ends means the wait was not awaited.
+  chat.setPauser(() => { pending = true; return new Promise((resolve) => setImmediate(() => { pending = false; resolve(); })); });
+  const v = await chat.deliverAsync('al', LONG, roster);
+  assert.ok(n >= 2, 'PRECONDITION: it looked again while the fold drew: ' + n);
+  assert.deepEqual(readsWhilePaused, [], 'no read of the box while a look\'s wait was still running');
+  assert.equal(p.state.enters, 1, 'pressed once it settled');
+  assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+}));

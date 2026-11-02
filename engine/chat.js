@@ -939,7 +939,7 @@ function panePidOf(target) {
    that merely mentions "[Pasted text #2]" is still compared word for word, as before. What a chip box holds is then
    decided by the chip rules below, never by comparing words. */
 const ANY_CHIP = /\[Pastedtext#\d+(?:\+\d+lines)?\]/g;   // global: used with match/split only, never .test/.exec
-const ONE_LINE_CHIP_ANY = /\[Pastedtext#\d+\]/g;
+const ONE_LINE_CHIP_ANY = /\[Pastedtext#\d+\]/g;   // global too: match/split only
 /* #6249: a chip of ours stands for a stretch of our line long enough to have folded (CHIP_MIN_CHARS stays text, so a
    chip hides more than that). Squashed, without its whitespace, that stretch is shorter; half is the floor used. */
 const CHIP_HIDES_MIN = CHIP_MIN_CHARS / 2;
@@ -1098,7 +1098,7 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
          enough to fold; a shorter line cannot be under them. Anything else is judged by our end. */
       const shown = squash(box.text);
       const pinned = pin ? pin.match(ANY_CHIP) || [] : [];
-      const couldBeOurFold = !shown.replace(ANY_CHIP, '') && String(wire).length >= CHIP_MIN_CHARS;
+      const couldBeOurFold = !shown.replace(ANY_CHIP, '') && String(wire).length >= CHIP_MIN_CHARS;   // the tie's own test
       if (isLoneChip(box.text) || couldBeOurFold || pinned.some((c) => shown.includes(c))) return { outcome: 'other', retried };
       return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
     }
@@ -2667,7 +2667,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
        floor for the same reason, unmeasured like grok's. */
     (allowed.card.runner === 'codex' || allowed.card.runner === 'gemini' || allowed.card.runner === 'grok' || allowed.card.runner === 'antigravity') ? CODEX_ENTER_GAP_MS : 0,
   );
-  const finishSubmit = () => {
+  /* #6249: a generator, so the looks while a fold settles are waits the async driver awaits (#4468), not blocks. */
+  const finishSubmitSteps = function* () {
   /**
    * ⚠️ RE-VERIFY THE PANE IS STILL AN AGENT'S WINDOW IMMEDIATELY BEFORE THE
    * SUBMIT ENTER. The old send-keys path put the whole message in one call, so
@@ -2708,10 +2709,9 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       /* #6249: a fold can still be drawing (one chip showing of several), so the form is pinned once two reads a look
          apart agree. A read that fails, or a form still changing after FOLD_STABLE_LOOKS, leaves the latest good read
          pinned, as before #6249 (one read, pinned). Whose it is is decided on that read, not the first: a fold caught
-         mid-draw may not yet look like ours. The waits block, as the earlier-line watch's do, for at most
-         FOLD_STABLE_LOOKS looks. */
+         mid-draw may not yet look like ours. */
       for (let looks = 0; looks < FOLD_STABLE_LOOKS; looks += 1) {
-        submitGap(SUBMIT_LOOK_MS);
+        yield { wait: SUBMIT_LOOK_MS };
         const again = readComposer(target);
         if (!again.ok) break;
         const settled = squash(again.text) === squash(box.text);
@@ -2799,12 +2799,29 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
     }
     return settle(v, step.value);
   };
+  const finishSubmitSync = () => {
+    const steps = finishSubmitSteps();
+    let step = steps.next();
+    while (!step.done) { submitGap(step.value.wait); step = steps.next(); }
+    return step.value;
+  };
+  const finishSubmitAsync = async () => {
+    const steps = finishSubmitSteps();
+    let step = steps.next();
+    while (!step.done) {
+      const ms = step.value.wait;
+      if (pauser) await pauser(ms);
+      else if (!runner) await new Promise((resolve) => setTimeout(resolve, ms));
+      step = steps.next();
+    }
+    return step.value;
+  };
   if (asynchronousGap) {
-    if (pauser) return Promise.resolve(pauser(gapMs)).then(finishSubmit).then(confirmAsync);
-    if (!runner) return new Promise((resolve) => setTimeout(resolve, gapMs)).then(finishSubmit).then(confirmAsync);
+    if (pauser) return Promise.resolve(pauser(gapMs)).then(finishSubmitAsync).then(confirmAsync);
+    if (!runner) return new Promise((resolve) => setTimeout(resolve, gapMs)).then(finishSubmitAsync).then(confirmAsync);
   }
   submitGap(gapMs);
-  return confirmSync(finishSubmit());
+  return confirmSync(finishSubmitSync());
 }
 
 /* #5400: the failover's "your part was moved" notice rides on WHATEVER Kosmos next types into an owed agent. A person

@@ -32,6 +32,7 @@ agent jams. That is the 0.7.70 report on #6249, a version that already had #6780
 - The pre-Enter pin (`ourChip`) and the kept `chip` record the whole squashed folded form, not only a single chip.
 - Each chip of ours must hide at least `CHIP_HIDES_MIN` (half of `CHIP_MIN_CHARS`, squashed) of our line, so a
   person's own chip beside words of ours that hide nothing (our whole line plus a chip) is never ours.
+- The looks are yielded waits (a generator), so the async delivery awaits them rather than blocking the board (#4468).
 - The pin is taken once two reads a look apart agree (a fold can still be drawing). A failed read, or a form still
   changing after `FOLD_STABLE_LOOKS`, leaves the latest good read pinned, as main pinned one read: refusing there
   would only move the jam to the still-drawing case.
@@ -40,7 +41,11 @@ agent jams. That is the 0.7.70 report on #6249, a version that already had #6780
 
 ## Decided
 
-- No cap on how many chips a box may hold beyond the per-chip floor above.
+- No cap on how many chips a box may hold beyond the per-chip floor above. This widens a window main already had: a
+  person who pastes a long block in the moment between our empty-box read and our Enter, on a line of ours long
+  enough to leave room under the floor, is sent with ours. Before #6249 only one chip was accepted, so a second chip
+  was always refused; the window is now wider for long lines. Accepted, because refusing every multi-chip box is the
+  jam this card is about.
 - `CHIP_HIDES_MIN` is an assumption, not a measurement: half of `CHIP_MIN_CHARS` after whitespace is squashed out. A
   line so full of whitespace that a fold hides fewer squashed characters than that would be refused, as all folds were
   before this card.
