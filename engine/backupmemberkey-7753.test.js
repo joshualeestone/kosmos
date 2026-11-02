@@ -346,3 +346,11 @@ test('#7753 re-send: the time kept in the key file holds across a restart; a sho
   await mk.ensureMemberKey({ macRequest: short, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
   assert.equal(s.posts.length, 2, 'a short echo is not kept: re-sent');
 });
+
+test('#7753 re-send: a clock that gives no usable time never re-sends', async () => {
+  const T0 = 1800000000000, d = device();
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  for (let i = 0; i < 3; i++) await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => NaN });
+  assert.equal(c.posts.length, 1);
+});

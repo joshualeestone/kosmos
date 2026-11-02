@@ -31,11 +31,12 @@
  * the member moved on elsewhere. Calls run one at a time in this process; ONE board process per data root is
  * assumed (the board's own lock), and ONE computer per member: Kosmos+ answers backup-key only to the member's
  * enrolled computer (403 backup_not_member otherwise), so "another key holds this epoch" means this computer lost its
- * key, not that a second computer of the member registered one. (One kept signed record that is not this computer's,
- * sigOther below, can still come from a computer the member used earlier at the same epoch, such as a replaced Mac.) That needs one key file per tunnel identity too: two
+ * key, not that a second computer of the member registered one. That needs one key file per tunnel identity too: two
  * data roots sharing one tunnel state (AGENT_WORKFORCE_TUNNEL_STATE, a test or development setup) would each read the
  * other's key as lost. A rotation or a fresh key re-reads the file first, so a key another process
- * REGISTERED meanwhile is answered, never replaced (an unregistered one it kept is not protected).
+ * REGISTERED meanwhile is answered, never replaced (an unregistered one it kept is not protected). One kept signed
+ * record that is not this computer's (sigOther, below) can still come from a computer the member used earlier at the
+ * same epoch, such as a replaced Mac.
  *
  * The keys are kept in one 0600 file per (org, member) under the store, in a 0700 folder: the raw X25519 halves,
  * base64url. This code keeps one unregistered entry at most, the newest: a move deletes the epoch it left (never a
@@ -206,6 +207,7 @@ const RESIGN_EVERY_MS = 7 * 24 * 3600 * 1000;
 const lastTry = new Map();
 async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, at) {
   const nowMs = Math.floor(Number(at));   // an injected clock that is not a whole number is read as one
+  if (!Number.isSafeInteger(nowMs) || nowMs <= 0) return;   // no usable time: never a POST on every call
   const k = keys[epoch];
   if (!k || !k.registered || k.sigKept) return;
   const id = `${company.org}\u0000${company.member}\u0000${epoch}`;
@@ -311,7 +313,7 @@ async function ensureNow(opts, seen) {
       }
       if (r && r.ok) {
         keys[epoch].registered = true;
-        if (sentSig) keys[epoch].sigAskedAt = (opts.now || Date.now)();
+        if (sentSig) keys[epoch].sigAskedAt = Math.floor(Number((opts.now || Date.now)()));
         const kept = keptSig(r, sentSig);
         if (kept) { keys[epoch].sigKept = true; if (kept === 'other') keys[epoch].sigOther = true; }
         try { writeKeys(company.org, company.member, keys); } catch {
