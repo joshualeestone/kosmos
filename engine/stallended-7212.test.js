@@ -51,7 +51,7 @@ test('a said stall that a landed line ends is said to have ended, once', () => {
   assert.equal(e.ms, 95 * MIN);
   assert.equal(e.pushed, false);
   assert.equal(ds.endedLine(e), 'delivery-stall-ended: a message reached a1 at 2026-11-02T11:35:00.000Z, ending the stall'
-    + ' said since 2026-11-02T10:00:00.000Z (95 minutes, 4 tries that did not land).\n');
+    + ' that began 2026-11-02T10:00:00.000Z (95 minutes, 4 tries not seen to land).\n');
   assert.equal(said.has('a1'), false, 'the said entry is spent');
   assert.deepEqual(ds.endsToSay(said), [], 'never said twice');
 });
@@ -136,7 +136,7 @@ test('pushed is true only for a stall push that went out during the streak', () 
   ds.note('p1', PLACED, T0 + 3 * 24 * 60 * MIN);
   const [e] = ds.endsToSay(said);
   assert.equal(e.pushed, true);
-  assert.match(ds.endedLine(e), /\(3 days, 4 tries that did not land; the phone was told of the stall\)\.\n$/);
+  assert.match(ds.endedLine(e), /\(3 days, 4 tries not seen to land; the phone was told of the stall\)\.\n$/);
   /* Control: a push before this streak began is not this stall's push. */
   ds.resetForTests();
   const said2 = new Map();

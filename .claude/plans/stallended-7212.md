@@ -8,7 +8,8 @@ log said (`delivery-stall:`) never says it ended, so the reader of the log canno
 recovered an hour later.
 
 ## Change
-- `note()`: on `placed`, if a streak existed, record `{ since, count, endedAt }` in an `ended` map before deleting it.
+- `note()`: on `placed`, if the streak was said (stallsToSay marks it `said`), record `{ since, count, endedAt }` in an
+  `ended` map before deleting it.
 - `endsToSay(said)`: for each recorded end whose `since` matches the `said` entry stallsToSay keeps, return it once
   (and spend the `said` entry); ends never said are dropped silently. `pushed` is true when `pushedAt` shows a stall
   push inside the streak.
@@ -27,5 +28,6 @@ Streaks and `said` live in memory, so a stall said before a board restart and en
 same scope as the existing stall line, stated on the card.
 
 ## Tests
-engine/stallended-7212.test.js (6 tests); perturbation: removing `ended.set` fails 4 of 6. Related files
-(stallpush, heldwarn2, turn-7368, stallsignin, server.stallob-7633) 93/93. Whole node suite after review converges.
+engine/stallended-7212.test.js, run with the related stall files (stallpush, heldwarn2, turn-7368, stallsignin,
+server.stallob-7633). Each review fix was perturbed to show its test can fail; the counts are in the commit messages
+and the PR, which are measured at the time, rather than here. Whole node suite after review converges.
