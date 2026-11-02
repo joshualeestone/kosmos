@@ -74,7 +74,7 @@
  *   carried but unused after the coordinator's Monday; accepted (it is dropped by the next week's first run).
  * withPeriod(state, period) -> state: `period` in the first slot, replacing its label's slot; at most SLOTS kept, the
  *   least recently used dropped. For writing a fresh period before its snapshot.
- * withRun(state, period, result) -> state: withPeriod with the period after a takeSnapshot result, plus `leftOut` (how
+ * withRun(state, period, result, { maxIndex? }) -> state: (maxIndex, kosmos#7746: the run's own cap, at most MAX_INDEX) withPeriod with the period after a takeSnapshot result, plus `leftOut` (how
  *   many `added` rows it did not keep: malformed, another period's, past the cap, or with no bucket; not persisted), so
  *   a caller bug shows. The index is dropped ONLY when the
  *   result says so: staleIndex, or chunks stored under a DIFFERENT non-null bucket. A null bucket is not "another
@@ -116,7 +116,7 @@ const KEY_SEG_RE = /^[A-Za-z0-9._:-]+$/;
 // Two periods kept: near Monday 00:00 this clock's week and the coordinator's granted week can differ, and each keeps
 // its own naming key and index instead of overwriting the other's every run (review 7).
 const SLOTS = 2;
-const MAX_INDEX = 600000;   // the most objects a week can hold: the top plan's (backupsnapshot); withRun caps the index at it
+const MAX_INDEX = 600000;   // the most objects a week can hold: the top plan's (backupsnapshot); withRun caps at the run's own cap, never above this
 
 function dir() { return path.join(store.ROOT, 'backupstate'); }
 function fileFor(org, member) {
@@ -319,8 +319,10 @@ function forPeriod(state, label, opts = {}) {
   return { label, namingKey, bucket: null, index: new Map() };
 }
 
-function withRun(state, period, result) {
+function withRun(state, period, result, opts = {}) {
   const r = result || {};
+  // kosmos#7746: the run's own cap (backupsnapshot indexCapFor: a company's 200000, a plan's), never above MAX_INDEX.
+  const cap = Number.isSafeInteger(opts.maxIndex) && opts.maxIndex > 0 ? Math.min(opts.maxIndex, MAX_INDEX) : MAX_INDEX;
   let index = period.index, bucket = period.bucket, leftOut = 0;
   if (r.staleIndex) index = new Map();
   if (typeof r.bucket === 'string' && r.bucket && r.bucket !== bucket) {
@@ -332,7 +334,7 @@ function withRun(state, period, result) {
   if (r.added instanceof Map && r.added.size && bucket) {
     index = new Map(index);
     for (const [name, e] of r.added) {
-      if (index.size < MAX_INDEX && goodEntry(name, e, period.label)) index.set(name, { key: e.key, lockedUntilMs: e.lockedUntilMs, memberKeyId: e.memberKeyId });
+      if (index.size < cap && goodEntry(name, e, period.label)) index.set(name, { key: e.key, lockedUntilMs: e.lockedUntilMs, memberKeyId: e.memberKeyId });
       else leftOut++;
     }
   }

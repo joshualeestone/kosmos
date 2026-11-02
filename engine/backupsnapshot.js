@@ -634,7 +634,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   const planGb = pos(deps.planGb, null);
   const budget = pos(deps.maxManifestJson, planGb ? PLAN_MANIFEST_JSON_BUDGET : MANIFEST_JSON_BUDGET);
   const planBytes = planGb ? planGb * PLAN_BYTES_PER_GB : null;
-  const chunkCap = planGb ? Math.max(CHUNK_ALLOWANCE, planGb * PLAN_OBJECTS_PER_GB) : CHUNK_ALLOWANCE;
+  const chunkCap = indexCapFor(planGb);
   const plannedChunks = (f) => (f.size > maxFile ? 0 : Math.floor(f.size / CDC.avg) + 1);
   const keyCharge = planGb ? PLAN_KEY_LEN : MAX_KEY_LEN;
   // A run that stopped on the measured size repeats hourly and reuses its index, so what a person moves is seen next hour.
@@ -950,5 +950,11 @@ async function snapshotInner(input, deps, added, state, fail) {
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 
+/** The most chunk objects one period can hold for this run: a company's allowance, or a personal plan's (kosmos#7746: the
+ *  state's index is capped at the same number, so the two limits cannot differ by accident). */
+function indexCapFor(planGb) {
+  return Number.isSafeInteger(planGb) && planGb > 0 ? Math.max(CHUNK_ALLOWANCE, planGb * PLAN_OBJECTS_PER_GB) : CHUNK_ALLOWANCE;
+}
+
 module.exports = {
-  MANIFEST_JSON_BUDGET, PLAN_MANIFEST_JSON_BUDGET, periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };
+  indexCapFor, MANIFEST_JSON_BUDGET, PLAN_MANIFEST_JSON_BUDGET, periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };

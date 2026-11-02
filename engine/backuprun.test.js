@@ -348,3 +348,22 @@ test('review 6: every result names the pair the run worked under, so a refused f
   const none = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer({ ok: false, because: 'no answer' }) }));
   assert.equal('pair' in none, false);
 });
+
+test('#7746 item 2: a company run keeps at most its allowance (200000) in the index; a plan keeps its own, never above 600000', async () => {
+  assert.equal(snap.indexCapFor(undefined), 200000);
+  assert.equal(snap.indexCapFor(100), 200000, 'a small plan is never below a company\'s allowance');
+  assert.equal(snap.indexCapFor(500), 600000, 'the top plan');
+  // A company run whose snapshot reports more rows than its allowance: the kept index stops at the allowance.
+  const big = added(WEEK, 200005);
+  const take = taker({ ok: true, added: big, bucket: 'b1' });
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take }));
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.leftOut, 5, 'the rows past the allowance are said, not kept');
+  assert.equal(backupstate.readState(A.org, A.member).state.periods[0].index.size, 200000);
+  // withRun never goes above the module's own cap, whatever it is asked.
+  const p = { label: WEEK, namingKey: crypto.randomBytes(32), bucket: 'b1', index: new Map() };
+  const out = backupstate.withRun({ job: {}, periods: [] }, p, { added: added(WEEK, 3), bucket: 'b1' }, { maxIndex: 2 });
+  assert.equal(out.periods[0].index.size, 2); assert.equal(out.leftOut, 1);
+  const noCap = backupstate.withRun({ job: {}, periods: [] }, p, { added: added(WEEK, 3), bucket: 'b1' }, { maxIndex: 10 ** 9 });
+  assert.equal(noCap.periods[0].index.size, 3);
+});

@@ -219,14 +219,14 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
     }, snapshotDeps(deps, async (added, bucket) => {
       // Never stops the run: a checkpoint that cannot be kept only loses what a kill would have lost anyway.
       try {
-        const { leftOut, ...kept } = backupstate.withRun(ref.state, p, { added, bucket });
+        const { leftOut, ...kept } = backupstate.withRun(ref.state, p, { added, bucket }, { maxIndex: snapshotsMod.indexCapFor(deps.planGb) });
         await backupstate.writeStateAsync(pair.org, pair.member, kept);
       } catch { /* the run's own write comes after */ }
     }));
     if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
     // "Ran" means a snapshot was stored (review 4): a refused or failed pass took none.
     if (result.ok === true) ref.took = true;
-    const after = backupstate.withRun(ref.state, p, result);
+    const after = backupstate.withRun(ref.state, p, result, { maxIndex: snapshotsMod.indexCapFor(deps.planGb) });
     ref.leftOut += after.leftOut || 0;
     const { leftOut, ...kept } = after;
     ref.state = kept;
