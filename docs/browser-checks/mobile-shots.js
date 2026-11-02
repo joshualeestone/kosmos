@@ -2545,6 +2545,15 @@ const SCREENS = [
   { name: 'task-unholdkeep-7430', owner: 'Baron Draxum', ...unholdNext7430(true) },
   { name: 'tasks-holdforyou-7788', owner: 'Mona Lisa', ...holdForYou7788('list') },
   { name: 'task-holdforyou-7788', owner: 'Mona Lisa', ...holdForYou7788('page') },
+  /* kosmos#7797 item 1: an agent's question that no task carries, listed first in Needs Your Decision with Answer, one card
+     with the decision tasks under it. The seed's asking agent (data.askAgent) holds no task in the project it asks about. */
+  { name: 'tasks-asknotask-7797', owner: 'Mona Lisa', go: async (page) => {
+    await at(page, '?tab=tasks');
+    await page.waitForSelector('#panel-tasks', { state: 'visible', timeout: 5000 });
+    await page.waitForSelector('#tsk-groups .tsk-ask', { state: 'attached', timeout: 8000 });
+    await page.evaluate(() => { document.querySelector('#tsk-groups .tsk-ask').closest('.tsk-grp').scrollIntoView({ block: 'start' }); });
+    await page.waitForTimeout(300);
+  } },
   /* #6923: a task closed as replaced by a later one, and the later one's page. Each screen adds its own pair of tasks,
      closes the first as replaced by the second, opens one of them, and closes both plainly after the shot. */
   { name: 'task-replaced-6923', owner: 'Angel', ...replaced6923('replaced') },
