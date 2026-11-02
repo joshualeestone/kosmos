@@ -412,7 +412,9 @@ function tellStalls(cards, { now = Date.now(), file, send, ownBound = null }) {
     const open = pushOpen.get(ev.id);
     if (open) { for (const s of sessions) if (!open.all.includes(s)) { open.all.push(s); open.open.add(s); } }
     else pushOpen.set(ev.id, { at: now, all: sessions.slice(), open: new Set(sessions) });
-    if (send(ev) === true) {
+    let took = false;
+    try { took = send(ev) === true; } catch { took = false; }
+    if (took) {
       lastStallPushAt = now;
       for (const s of sessions) pushTold(s, now, file);
       /* kosmos#7212 item 2: the streak itself keeps that its stall push went out (not a stuck step's push), for endsToSay. */
@@ -441,7 +443,11 @@ const PUSH_OPEN_MS = 60 * 60 * 1000;
 function acksDue(ends, now = Date.now()) {
   const out = [];
   try {
-    for (const e of ends || []) if (e && typeof e.name === 'string') for (const p of pushOpen.values()) p.open.delete(e.name);
+    /* An end clears an agent only from pushes made before it ended: a later push is about a later stall. */
+    for (const e of ends || []) {
+      const endedAt = e && typeof e.name === 'string' ? Date.parse(e.endedAt) : NaN;
+      if (Number.isFinite(endedAt)) for (const p of pushOpen.values()) if (p.at <= endedAt) p.open.delete(e.name);
+    }
     for (const [id, p] of [...pushOpen]) {
       if (!(p.at <= now && now - p.at < PUSH_OPEN_MS)) { pushOpen.delete(id); continue; }
       if (now - p.at < ACK_AFTER_MS) continue;

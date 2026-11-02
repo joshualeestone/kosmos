@@ -115,6 +115,32 @@ test('a retry of a failed push joins it: the first push\'s time counts, as the c
   assert.deepEqual(ds.acksDue(ends, DUE), [ev.id], 'the retry moved the ack past the coordinator\'s decision');
 });
 
+test('an end clears an agent only from pushes made before it ended', () => {
+  const said = new Map();
+  for (let i = 0; i < 4; i += 1) ds.note('e1', FAIL, T0 + i * MIN);
+  ds.stallsToSay(['e1'], said, { now: T0 + 40 * MIN });
+  const early = recover('e1', said, T0 + 45 * MIN);   // a real end of an EARLIER stall, ended at T0 + 45 min
+  assert.equal(early.length, 1, 'precondition: the earlier stall ended');
+  const LATER = T0 + 3 * 60 * MIN;
+  const SINCE2 = new Date(T0 + 2 * 60 * MIN).toISOString();
+  for (let i = 0; i < 4; i += 1) ds.note('e1', FAIL, T0 + 2 * 60 * MIN + i * MIN);
+  ds.stallsToSay(['e1'], said, { now: LATER });
+  const sent = [];
+  ds.tellStalls([{ ...stalledCard('e1'), deliveryStall: { since: SINCE2, count: 4, lastWhy: 'input' } }],
+    { now: LATER, send: (ev) => { sent.push(ev); return true; } });
+  assert.equal(sent.length, 1, 'precondition: the later stall was pushed');
+  ds.note('e1', PLACED, LATER + 5 * MIN);   // it recovers, but its own end is not read yet
+  assert.deepEqual(ds.acksDue(early, LATER + 25 * MIN), [], 'an end from before the push cleared it');
+});
+
+test('a sender that throws opens nothing', () => {
+  const said = new Map();
+  for (let i = 0; i < 4; i += 1) ds.note('t1', FAIL, T0 + i * MIN);
+  ds.stallsToSay(['t1'], said, { now: PUSH });
+  ds.tellStalls([stalledCard('t1')], { now: PUSH, send: () => { throw new Error('a sender that fails'); } });
+  assert.deepEqual(ds.acksDue(recover('t1', said, PUSH + 5 * MIN), DUE), [], 'acked a push that was never handed over');
+});
+
 test('a push the sender did not take opens nothing', () => {
   const said = new Map();
   for (let i = 0; i < 4; i += 1) ds.note('n1', FAIL, T0 + i * MIN);
