@@ -154,3 +154,15 @@ test('spanWords reads minutes, then hours, then days', () => {
   assert.equal(ds.spanWords(47 * 60 * MIN), '47 hours');
   assert.equal(ds.spanWords(16 * 24 * 60 * MIN), '16 days');
 });
+
+test('an unread end of a streak never said does not hold back the end of a said stall', () => {
+  ds.resetForTests();
+  const said = new Map();
+  for (let i = 0; i < 2; i += 1) ds.note('u1', FAIL, T0 - 10 * MIN + i * MIN);
+  ds.note('u1', PLACED, T0 - 5 * MIN);   // a short streak, never said, and no sweep asked after it
+  saidStall('u1', said);
+  ds.note('u1', PLACED, T0 + 50 * MIN);
+  const ends = ds.endsToSay(said);
+  assert.equal(ends.length, 1, 'the said stall\'s end is said');
+  assert.equal(ends[0].since, new Date(T0).toISOString());
+});

@@ -66,9 +66,7 @@ function note(name, v, now = Date.now()) {
       const was = streaks.get(name);
       if (was) {
         streaks.delete(name);
-        /* An end the sweep has not read yet is kept: a short streak that starts and ends after it, inside the same minute,
-           must not replace the end of the stall that was said (review 1 W1). */
-        if (!ended.has(name)) ended.set(name, { since: was.since, count: was.count, endedAt: now });
+        if (was.said === true) ended.set(name, { since: was.since, count: was.count, endedAt: now });
       }
       return;
     }
@@ -150,7 +148,9 @@ function stallsToSay(names, said, { now = Date.now(), limitShownOf = () => false
     if (!st) continue;
     const prev = said.get(name);
     if (prev && now - prev.at < RESAY_MS) continue;
-    said.set(name, { since: streaks.get(name).since, at: now });
+    const live = streaks.get(name);
+    live.said = true;   // kosmos#7212 item 2: only a said streak records its end (note)
+    said.set(name, { since: live.since, at: now });
     out.push({ name, ...st });
   }
   return out;
@@ -159,20 +159,20 @@ function stallsToSay(names, said, { now = Date.now(), limitShownOf = () => false
 /* kosmos#7212 item 2: which said stalls ended with a landed line since the last sweep, each once. `said` is the same Map
    stallsToSay keeps; call this first, since stallsToSay forgets a name whose streak is gone. Each entry is { name, since
    (ISO), endedAt (ISO), count, ms, pushed } where `pushed` is true when a stall push for this agent went out during the
-   streak (pushTold), the one case a phone all-clear would answer. It reads only this board run's pushes, so after a
-   restart it can read false for an agent the phone was told about before the restart. A streak that ended but was never said is forgotten
+   streak (pushTold), the one case a phone all-clear would answer. A streak that ended but was never said is forgotten
    silently: nobody was told it started. Never throws. */
 function endsToSay(said) {
   const out = [];
   try {
     for (const [name, e] of [...ended]) {
-      ended.delete(name);
       const told = said.get(name);
-      if (!told || told.since !== e.since) continue;
-      said.delete(name);
-      const p = pushedAt.get(name);
-      out.push({ name, since: new Date(e.since).toISOString(), endedAt: new Date(e.endedAt).toISOString(), count: e.count,
-        ms: Math.max(0, e.endedAt - e.since), pushed: Number.isFinite(p) && p >= e.since && p <= e.endedAt });
+      if (told && told.since === e.since) {
+        const p = pushedAt.get(name);
+        out.push({ name, since: new Date(e.since).toISOString(), endedAt: new Date(e.endedAt).toISOString(), count: e.count,
+          ms: Math.max(0, e.endedAt - e.since), pushed: Number.isFinite(p) && p >= e.since && p <= e.endedAt });
+        said.delete(name);
+      }
+      ended.delete(name);
     }
   } catch { /* said next minute, or not at all */ }
   return out;
