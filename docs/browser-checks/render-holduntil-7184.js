@@ -1,4 +1,4 @@
-// Browser-check-surface: tk-hold tk-hold-msg tk-hold-until tk-hold-for tk-hold-for-row tk-hold-for-when tk-hold-task tk-hold-at tk-hold-takeover tk-hold-save tk-activity
+// Browser-check-surface: tk-hold tk-hold-why-in tk-hold-why-row tkcard-from tk-hold-msg tk-hold-until tk-hold-for tk-hold-for-row tk-hold-for-when tk-hold-task tk-hold-at tk-hold-takeover tk-hold-save tk-activity
 'use strict';
 /**
  * What a held task waits for, on its page (kosmos#7184, the screen half of #7180).
@@ -141,6 +141,39 @@ function chk(ok, label, extra) {
       await page.evaluate(async () => { await pjReload(); });
       await page.waitForFunction(() => document.getElementById('tk-hold-until').hidden, null, { timeout: 5000 }).catch(() => {});
       chk(await page.isHidden('#tk-hold-until'), `${tag} CONTROL: with no reason there is no line`);
+
+      /* kosmos#7749: the person writes the reason here: Save stores it, the line and the task row show it, a stray space is no change. */
+      await page.fill('#tk-hold-why-in', 'waiting on the lawyer');
+      chk(await page.isEnabled('#tk-hold-save'), `${tag} typing a reason offers Save`);
+      await page.click('#tk-hold-save');
+      await waitText(page, '#tk-hold-until', /^Why: waiting on the lawyer/);
+      chk(stored(p.id, 1).onHoldBecause === 'waiting on the lawyer' && stored(p.id, 1).onHoldByPerson === true, `${tag} Save stores the reason as the person's`, JSON.stringify(stored(p.id, 1).onHoldBecause));
+      const rowLines = await page.evaluate(() => { paintProjectTasks(pjById(PJ_CURRENT)); return [...document.querySelectorAll('.tkcard .tkcard-from')].map((x) => x.textContent); });
+      chk(rowLines.includes('On hold: waiting on the lawyer'), `${tag} the task row shows the reason`, JSON.stringify(rowLines));
+      await page.fill('#tk-hold-why-in', ' waiting on  the lawyer ');
+      chk(await page.isDisabled('#tk-hold-save'), `${tag} CONTROL: a stray space is no change, so no Save`);
+      await page.fill('#tk-hold-why-in', 'typed, not saved');
+      await page.evaluate(async () => { await pjReload(); });
+      chk(await page.inputValue('#tk-hold-why-in') === 'typed, not saved', `${tag} an unsaved reason survives a refresh`);
+      /* Review 1: Save changes only what was changed: a wait set meanwhile stays when only the reason is saved. */
+      const soon = new Date(Date.now() + 30 * 86400000); soon.setUTCSeconds(30, 0);
+      const soonIso = soon.toISOString();
+      tasks.setOnHold(p.id, 1, true, { viaScreen: true, until: { at: soonIso } });
+      await page.evaluate(async () => { await pjReload(); });
+      await page.click('#tk-hold-save');
+      await waitText(page, '#tk-hold-until', /^Why: typed, not saved/);
+      chk(stored(p.id, 1).onHoldBecause === 'typed, not saved' && stored(p.id, 1).onHoldUntil && stored(p.id, 1).onHoldUntil.at === soonIso, `${tag} saving a reason leaves a wait set meanwhile, to the second`, JSON.stringify(stored(p.id, 1).onHoldUntil));
+      await page.selectOption('#tk-hold-for', 'task');
+      tasks.setOnHold(p.id, 1, true, { viaScreen: true, until: { at: soonIso }, because: 'changed elsewhere' });
+      await page.evaluate(async () => { await pjReload(); });
+      chk(await page.inputValue('#tk-hold-why-in') === 'changed elsewhere', `${tag} a box nobody typed in follows what is stored`);
+      await page.selectOption('#tk-hold-for', '');
+      tasks.setOnHold(p.id, 1, true, { viaScreen: true, because: 'waiting on the lawyer' });
+      await page.evaluate(async () => { await pjReload(); });
+      await page.fill('#tk-hold-why-in', '');
+      await page.click('#tk-hold-save');
+      await page.waitForFunction(() => document.getElementById('tk-hold-until').hidden, null, { timeout: 5000 }).catch(() => {});
+      chk(stored(p.id, 1).onHoldBecause === undefined && stored(p.id, 1).onHold === true, `${tag} an emptied box clears the reason, still on hold`);
 
       /* An unsaved choice survives a refresh. */
       await page.selectOption('#tk-hold-for', 'task');
