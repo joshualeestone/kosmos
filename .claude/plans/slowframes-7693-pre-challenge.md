@@ -3,7 +3,7 @@ pre_challenge: true
 method: pre-challenge
 explicit_override: true
 branch: slowframes-7693
-diff_hash: c3ec94a85a5b464e1f15117fc61af687b17f6b92633fc93ece864ceede4cdb80
+diff_hash: a43959e5483a32431e772f54dc29ce1af4456fb894d06bb7e57bb39a0bcd3a7a
 subdir_audit: passed
 timestamp: 2026-11-02T01:17:25Z
 converged: false
