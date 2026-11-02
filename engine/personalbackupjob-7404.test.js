@@ -406,7 +406,20 @@ test('#7775: lost checkpoints on a finished backup say it finished; on a failed 
   assert.doesNotMatch(note, /redo/, 'nothing was interrupted, so nothing is to redo');
   await run({ ok: false, because: 'Kosmos+ could not be reached', checkpointsLost: 2 }, 13);
   note = String(pb.report(o).note);
-  assert.match(note, /^On the last try, this computer could not save its progress along the way, so the next backup may have to redo some work\.$/);
+  assert.match(note, /^On the last try, this computer could not save its progress along the way, so the next backup may have to redo some work\. /);
+  assert.match(note, /The last backup finished, but this computer had trouble saving/, 'the finished backup\'s line stays beside it');
+});
+test('#7775: a failed run never says a backup finished, and a failed try keeps the finished backup\'s trouble-saving line', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
+  await run({ ok: false, because: 'Kosmos+ could not be reached', sealedInProcess: 'no-answer' }, 11);
+  assert.doesNotMatch(String(pb.report(o).note), /background helper/, 'nothing finished');
+  await run({ ok: true, checkpointsLost: 1 }, 12);
+  await run({ ok: false, because: 'Kosmos+ could not be reached' }, 13);
+  assert.match(String(pb.report(o).note), /^The last backup finished, but this computer had trouble saving/);
+  await run({ ok: true }, 14);
+  assert.equal(pb.report(o).note, null);
 });
 test('#7775: before any backup has finished, the line follows "not finished yet"', async () => {
   const pair = newPair();

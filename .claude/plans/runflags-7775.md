@@ -13,5 +13,5 @@ The personal backup panel's plain line says, in a fixed sentence, when the last 
 ## Decided
 - unsignedBecause is not shown. A personal key is never signed (personalKeyForJob never reaches backupmemberkey.register), so on a personal run it is always absent; it rides company runs, and no company panel exists. Not carried through backupjob.fromAnswer either: nothing would read it. Written on the card.
 - Lines are plain, not the error colour: neither flag stops a backup.
-- Lost checkpoints are the last try's ("On the last try"): every run writes the note, so a run without them clears the line. The in-process seal is the last finished backup's: only a finished run sets it, a failed try keeps it, and the next finished backup replaces it (review 2).
+- A failed try's lost checkpoints are that try's ("On the last try"): every run writes the note, so a run without them clears the line. The in-process seal and the finished run's trouble-saving line are the last finished backup's: only a finished run sets them, a failed try keeps them, and the next finished backup replaces them (reviews 2 and 4).
 - Validation: targeted suites each round; the full validation helper once at convergence.

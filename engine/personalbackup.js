@@ -529,7 +529,7 @@ const RUN_SAY = [
 const SEALED_HOW = ['not-sent', 'no-worker', 'worker-ended', 'no-answer'];
 function runFlags(r) {
   return Object.assign({}, Number.isInteger(r.checkpointsLost) && r.checkpointsLost > 0 ? { [r.ok ? 'troubleSaving' : 'lostCheckpoints']: true } : {},
-    SEALED_HOW.includes(r.sealedInProcess) ? { sealedHere: true } : {});
+    r.ok && SEALED_HOW.includes(r.sealedInProcess) ? { sealedHere: true } : {});
 }
 const runSay = (j) => RUN_SAY.filter(([flag]) => j[flag] === true).map(([, say]) => say);
 function readNote(opts) {
@@ -545,7 +545,8 @@ function noteRun(r, opts, before) {
   const same = was.org === rec.org.id && was.world === rec.world;
   const now = new Date((opts.now || Date.now)()).toISOString();
   const next = { org: rec.org.id, world: rec.world, lastTry: now, lastOk: r.ok ? now : (same && was.lastOk) || null, ...runFlags(r) };
-  if (!r.ok && same && was.sealedHere === true && next.lastOk) next.sealedHere = true;   // sealedHere goes with lastOk's run
+  // troubleSaving and sealedHere describe the last finished run, so a failed try keeps them (next.lastOk is that run's).
+  if (!r.ok && same && next.lastOk) for (const k of ['troubleSaving', 'sealedHere']) if (was[k] === true) next[k] = true;
   if (!r.ok) {
     const stopped = stopOf(r);
     if (stopped) next.stopped = stopped;
