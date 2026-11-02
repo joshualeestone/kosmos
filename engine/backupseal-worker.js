@@ -2,7 +2,7 @@
 
 /**
  * kosmos#7746: seals one backup manifest off the board's main thread, for backupsnapshot's sealOffThread. At the top plan
- * (477,000 chunks, a 117 MiB manifest) sealManifest is one block of about 2.5 s, which would freeze the board.
+ * (477,000 chunks, a 117 MiB manifest) sealManifest is one block of 1.6 to 1.8 s (measured), which would freeze the board.
  *
  * Told { memberPk, deviceKey, ctx, json } once (json is the manifest as JSON.stringify wrote it on the main thread), it
  * parses it, seals it with backupformat.sealManifest exactly as the main thread would, and posts back { ok: true, sealed }

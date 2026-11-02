@@ -1903,13 +1903,27 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
   const manifest = { format: 1, takenAt: new Date(NOW).toISOString(), files, objects, redacted: [], skipped: [], skippedNotListed: 0 };
   const pub = crypto.createPublicKey(k.dev.privateKey);
   const here = bf.openManifest(k.member.sk, pub, k.ctx, bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, manifest));
-  const there = bf.openManifest(k.member.sk, pub, k.ctx, await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest));
+  const paths = [];
+  const report = (how) => paths.push(how);
+  const there = bf.openManifest(k.member.sk, pub, k.ctx, await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report }));
   assert.ok(here && there);
   assert.deepStrictEqual(there, here);
+  assert.deepEqual(paths, ['worker'], 'sealed in the worker, not by the fallback');
   // A worker that cannot start (its file is missing): sealed here instead, and it still opens.
-  const fallback = await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { workerFile: path.join(os.tmpdir(), 'no-such-backupseal-worker.js') });
+  const fallback = await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, workerFile: path.join(os.tmpdir(), 'no-such-backupseal-worker.js') });
   assert.deepStrictEqual(bf.openManifest(k.member.sk, pub, k.ctx, fallback), here);
+  assert.equal(paths[paths.length - 1], 'here');
+  // A worker that never answers: after the wait, sealed here, and the worker is ended.
+  const silent = path.join(os.tmpdir(), `silent-seal-worker-${process.pid}.js`);
+  fs.writeFileSync(silent, "require('node:worker_threads').parentPort.on('message', () => {});\n");
+  try {
+    const late = await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, workerFile: silent, waitMs: 300 });
+    assert.deepStrictEqual(bf.openManifest(k.member.sk, pub, k.ctx, late), here);
+    assert.equal(paths[paths.length - 1], 'here');
+  } finally { fs.rmSync(silent, { force: true }); }
   // A manifest the seal refuses: the worker's refusal carries the same message as a seal here.
   let mine; try { bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, [1]); } catch (err) { mine = err.message; }
-  await assert.rejects(snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, [1]), (err) => err.message === mine);
+  const before = paths.length;
+  await assert.rejects(snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, [1], { report }), (err) => err.message === mine);
+  assert.deepEqual(paths.slice(before), ['worker'], 'refused by the worker itself');
 });

@@ -944,7 +944,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   // Cannot throw on this content: file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
-  const sealed = await (deps.sealManifest || sealOffThread)(memberPk, deviceKey, ctx, manifest);
+  let sealedHere = false;
+  const sealed = await sealOffThread(memberPk, deviceKey, ctx, manifest, { report: (how) => { sealedHere = how === 'here'; } });
   // kosmos#7118: with the snapshot id the manifest is sealed under, so a restore (or the console) can open it.
   const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks, epoch: ctx.epoch, snapshot: ctx.snapshot });
   if (!m || !m.ok) {
@@ -972,31 +973,46 @@ async function snapshotInner(input, deps, added, state, fail) {
   // newPeriod only when the period is what differs; another org or a malformed key is a plain failure.
   if (mk && onlyPeriodDiffers(m.key, ctx) && (!owner || ownerOf(m.key) === owner)) return fail(`the manifest was stored under a key ${mk} (a period boundary passed as it was granted): start again in the new period`, { newPeriod: true, grantSpent: true });
   if (mk) return fail(`the manifest was stored under a key that is not this snapshot's (${mk})`, { grantSpent: true });
-  return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
+  // sealedInProcess: the seal worker could not be used, so the board waited for the seal (kosmos#7746).
+  return Object.assign({ ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket }, sealedHere ? { sealedInProcess: true } : {});
 }
 
 /* kosmos#7746: the manifest sealed in a worker thread (engine/backupseal-worker.js), so the board is not frozen for the
-   seal (one block of about 2.5 s at the top plan). The main thread keeps one JSON.stringify of the manifest. The worker
-   parses it and seals it as sealManifest would here; a seal error comes back as a throw, as it would here. A worker that
-   cannot start, or ends without answering, seals here instead: never no seal. */
+   seal (one block of 1.6 to 1.8 s at 477,000 chunks, measured). The main thread keeps one JSON.stringify of the manifest
+   and the copy of that string into the worker's message. The worker parses it and seals it as sealManifest would here; a
+   seal error comes back as a throw, as it would here. A worker that cannot start, ends without answering, or does not
+   answer within SEAL_WAIT_MS seals here instead: never no seal. opts.report(how), told 'worker' or 'here', says which
+   sealed (the caller flags a run sealed here; tests check the path). opts.workerFile and opts.waitMs: tests only. */
+const SEAL_WAIT_MS = 10 * 60 * 1000;
 function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
-  const json = JSON.stringify(manifest);
-  const file = opts.workerFile || require('node:path').join(__dirname, 'backupseal-worker.js');   // workerFile: tests only
+  const report = typeof opts.report === 'function' ? opts.report : () => {};
+  const file = opts.workerFile || require('node:path').join(__dirname, 'backupseal-worker.js');
+  const waitMs = Number.isSafeInteger(opts.waitMs) && opts.waitMs > 0 ? opts.waitMs : SEAL_WAIT_MS;
   return new Promise((resolve, reject) => {
-    let w;
-    try { w = new (require('node:worker_threads').Worker)(file); }
-    catch { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); return; }
-    let answered = false;
-    const here = () => { try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); } };
+    let settled = false, w = null, timer = null;
+    const done = () => { settled = true; if (timer) clearTimeout(timer); };
+    const here = () => {
+      done();
+      if (w) w.terminate().catch(() => {});
+      report('here');
+      try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); }
+    };
+    try { w = new (require('node:worker_threads').Worker)(file); } catch { w = null; here(); return; }
     w.once('message', (m) => {
-      answered = true;
+      if (settled) return;
+      done();
       w.terminate().catch(() => {});
+      report('worker');
       if (m && m.ok) resolve(Buffer.from(m.sealed.buffer, m.sealed.byteOffset, m.sealed.byteLength));
       else reject(new Error((m && m.message) || 'the manifest could not be sealed'));
     });
-    w.once('error', () => { if (!answered) { answered = true; here(); } });
-    w.once('exit', () => { if (!answered) { answered = true; here(); } });
-    w.postMessage({ memberPk: new Uint8Array(memberPk), deviceKey, ctx, json });
+    w.once('error', () => { if (!settled) here(); });
+    w.once('exit', () => { if (!settled) here(); });
+    timer = setTimeout(() => { if (!settled) here(); }, waitMs);
+    try {
+      // The string goes out of scope once posted, so a fallback seal here does not also hold it.
+      w.postMessage({ memberPk: new Uint8Array(memberPk), deviceKey, ctx, json: JSON.stringify(manifest) });
+    } catch { if (!settled) here(); }
   });
 }
 
