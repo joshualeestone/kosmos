@@ -294,3 +294,13 @@ test('#6249: with nothing pinned (the read before our Enter failed), a box of se
   assert.ok(p.state.shown.startsWith('[Pasted text'), 'PRECONDITION: our fold is still in the box');
   assert.notEqual(v.state, chat.DELIVERY.PLACED, 'not said as sent: chips hide their words, so ours may be there');
 }));
+
+test('#6249: a fold first read mid-draw (a chip, then words not yet at our end) gets its second look and is pressed', () => withAgent((roster) => {
+  const p = pane({ shape: THREE_CHIPS });
+  const mid = '[Pasted text #1] ' + LONG.slice(1000, 1100);
+  drawing(p, [mid, '[Pasted text #1][Pasted text #2][Pasted text #3]']);
+  assert.equal(chat.composerHolds(mid, LONG, true), 'other', 'PRECONDITION: the first read alone does not look like ours');
+  const v = chat.deliver('al', LONG, roster);
+  assert.equal(p.state.enters, 1, 'pressed once it had drawn');
+  assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+}));

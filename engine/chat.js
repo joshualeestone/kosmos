@@ -1096,9 +1096,9 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
       /* #6249: a chip pinned as ours still in the box means ours did not go, whatever else is there now. A box of chips
          and nothing else hides its words, one chip or several, as a lone chip did before; text with someone's chip in
          it is judged by our end. */
+      const shown = squash(box.text);
       const pinned = pin ? pin.match(ANY_CHIP) || [] : [];
-      const onlyChips = !squash(box.text).replace(ANY_CHIP, '');
-      if (onlyChips || pinned.some((c) => squash(box.text).includes(c))) return { outcome: 'other', retried };
+      if (!shown.replace(ANY_CHIP, '') || pinned.some((c) => shown.includes(c))) return { outcome: 'other', retried };
       return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
     }
     if (waited < settleMs) {
@@ -2698,15 +2698,17 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
      now (the person started typing), the Enter would send it with ours. Never pressed then. */
   if (composerReadable(allowed.card)) {
     const before = readComposer(target);
-    /* kosmos#6717: a one-line chip here is our own paste, folded: the box was read empty before it, under this pane's
-       delivery lock, within the gap (chip: true). A person's paste in that same second is the one case it cannot
-       tell from ours; a multi-line chip never is ours (our line is one line). #6249: so are several one-line chips,
-       with runs of ours between them, and the whole folded form is what is pinned. */
+    /* kosmos#6717, #6249: our fold here (one chip, several, or chips with runs of ours between them) is our own paste:
+       the box was read empty before it, under this pane's delivery lock, within the gap (chip: true). A person's paste
+       in that same second is the one case it cannot tell from ours; a multi-line chip never is ours (our line is one
+       line). The whole folded form is what is pinned. */
     let box = before;
-    if (box.ok && chipTie && isChipBox(box.text, wire) && foldedFromOurs(squash(box.text), wire)) {
+    if (box.ok && chipTie && isChipBox(box.text, wire)) {
       /* #6249: a fold can still be drawing (one chip showing of several), so the form is pinned once two reads a look
          apart agree. A read that fails, or a form still changing after FOLD_STABLE_LOOKS, leaves the latest good read
-         pinned, as before #6249 (one read, pinned): what is pinned must still be ours, so the shape is checked again. */
+         pinned, as before #6249 (one read, pinned). Whose it is is decided on that read, not the first: a fold caught
+         mid-draw may not yet look like ours. The waits block, as the earlier-line watch's do, for at most
+         FOLD_STABLE_LOOKS looks. */
       for (let looks = 0; looks < FOLD_STABLE_LOOKS; looks += 1) {
         submitGap(SUBMIT_LOOK_MS);
         const again = readComposer(target);
