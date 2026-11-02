@@ -895,7 +895,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
        carries `about`, so every surface names and places it by the same agent. */
     const who = tasksMod.claimWho(t);
     if (!who || tasksMod.progressOf(t).closed) return withParts(t);
-    return aboutWho(who, (() => {
+    return aboutWho(who, cards, (() => {
       // ⚠️ A departed assignee: removal does not unassign (the given-to record
       // is the person's, and history should not vanish because membership
       // changed), but the taught convention and the managed block both derive
@@ -945,9 +945,15 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
     })());
   });
 }
-/* Stamp the agent a claim is about on the claim itself (see joinTaskClaims). */
-function aboutWho(who, row) {
-  return row && row.claim ? { ...row, claim: { ...row.claim, about: who } } : row;
+/* Stamp the agent a claim is about on the claim itself (see joinTaskClaims). #7786: an agent that has never written its
+   report AND whose card says it has never taken a turn (status.js neverTurnedOf) also gets `neverTurned`, so the page
+   says it has not started rather than that it has not reported. Only beside neverReported: any other could-not-tell
+   case keeps its own reason. */
+function aboutWho(who, cards, row) {
+  if (!row || !row.claim) return row;
+  const card = row.claim.neverReported === true && Array.isArray(cards)
+    ? cards.find((a) => a && a.sessionName === who && a.isNamedOurs === true) : null;
+  return { ...row, claim: { ...row.claim, about: who, ...(card && card.neverTurned === true ? { neverTurned: true } : {}) } };
 }
 
 /* #5688: why a member needs the person on THIS project, or null. The #3726 rule, unchanged: a needs_you counts only for

@@ -69662,8 +69662,9 @@ function tkFace(p, sessionName) {
    card, the task page). The engine's `neverReported` field decides it, never our prose; every
    other could-not-tell case keeps its own reason. */
 function claimNotReported(claim) {
-  return claim && claim.claimed === null && claim.neverReported === true
-    ? 'has not reported what it is working on yet' : '';
+  if (!claim || claim.claimed !== null || claim.neverReported !== true) return '';
+  /* #7786: the engine adds neverTurned only beside neverReported, when the agent's card says it has never taken a turn. */
+  return claim.neverTurned === true ? 'has not started yet' : 'has not reported what it is working on yet';
 }
 /* The ONE part that carries an agent's claim line, on every surface that lists parts (the project
    card, the task page): that agent's first OPEN part. The claim is about the agent, so it is said
