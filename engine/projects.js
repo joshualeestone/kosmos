@@ -1487,6 +1487,10 @@ function describe(project, roster, all) {
          wait is counted by the same rule, but today it never reaches this roster (the route builds
          those rows offline, so such a member is not `present`); the rule covers it when it does. */
       needsYou: members.filter((m) => m.needsYouHere !== null).length,   // #5688: one rule, needsYouReason
+      /* kosmos#7797: open tasks of this project an agent held for the person (`kosmos task hold --for-you`). They need no
+         roster: the hold says so. The card reads them as a calm Question unless a member's Issue outranks it. */
+      heldForYou: (Array.isArray(project.tasks) ? project.tasks : []).filter((t) => t && require('./tasks').isOnHold(t)
+        && t.onHoldForPerson === true && !require('./tasks').progressOf(t).closed).length,
       /* #6483: of needsYou, how many are an agent's own question about this project (reported by the agent, #2808 class
          2), the case the agent's card calls a calm "Question". When it is all of them, the project card says Question
          too; any other reason (sign-in lapsed, a crash loop, a technical prompt) keeps Issue. */

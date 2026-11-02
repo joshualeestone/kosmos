@@ -7488,6 +7488,10 @@ test('the projects tiles DRAW, not just compute: present at non-zero, hidden at 
   const blind = drive([{ summary: { needsYou: 3 } }], true);
   assert.equal(blind['st-pjattn-tile'].hidden, true,
     'a blind roster drew a needs-you claim it cannot make');
+  /* kosmos#7797: a task held for the person needs no roster, so it counts, blind or not, once per project. */
+  const held = drive([{ summary: { heldForYou: 2 } }, { summary: { needsYou: 1, heldForYou: 1 } }, { summary: {} }], false);
+  assert.equal(held['st-pjattn'].textContent, '2', 'projects holding a task for you, counted once each');
+  assert.equal(drive([{ summary: { heldForYou: 1, needsYou: 3 } }], true)['st-pjattn'].textContent, '1', 'blind: the hold still counts');
 });
 
 test('the disc hash spreads: the pack seven-bucket system, order-sensitive, all buckets reachable', () => {

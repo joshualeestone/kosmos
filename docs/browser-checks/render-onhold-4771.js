@@ -381,6 +381,11 @@ function chk(ok, label, extra) {
       await page.waitForSelector('.tkcard-for-you', { state: 'attached', timeout: 6000 }).catch(() => {});
       const card = await page.evaluate(() => { const e = document.querySelector('.tkcard-for-you'); return e ? e.textContent.trim() : null; });
       chk(card === 'On hold until you answer: needs your yes on the price', `${tag} #7797 the project's task card says it waits on your answer`, card);
+      /* kosmos#7797: and the project's own card in the Projects list reads Question (no member asks here). */
+      await page.evaluate(() => showTab('projects'));
+      await page.waitForFunction((pid) => { const r = document.querySelector('#pj-list .pj-row[data-project="' + pid + '"]'); return r && /Question/.test(r.textContent); }, launch.id, { timeout: 6000 }).catch(() => {});
+      const pjRow = await page.evaluate((pid) => { const r = document.querySelector('#pj-list .pj-row[data-project="' + pid + '"]'); return r ? r.textContent.replace(/\s+/g, ' ').trim() : null; }, launch.id);
+      chk(/Question/.test(pjRow || ''), `${tag} #7797 the project's card reads Question while a task waits on your answer`, pjRow);
       await page.evaluate(() => showTab('tasks'));
       /* Review 1: with the agents unreadable the row is still known, so the words never deny it. Through the page's own
          flag and painter, as render-tasks-view-3559 drives the empty case. */
