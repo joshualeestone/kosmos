@@ -39,8 +39,8 @@
  *   whole file (review 10: a head-only check let a body-corrupt file be overwritten, and refused a reformatted good one),
  *   so a write costs one read first, UNLESS the file is exactly the one this process last read or wrote as ours (kosmos#7746:
  *   the same device, inode, size, and mtime and ctime in ns, kept only when a read saw the same before and after it); then
- *   the write replaces it without re-reading. No program can set a ctime back, so a file replaced meanwhile is read in
- *   full. The window between that read and the rename is covered by
+ *   the write replaces it without re-reading. A program cannot set a ctime back, so a file replaced meanwhile is read in
+ *   full (on a filesystem with nanosecond times, as APFS, ext4 and NTFS have, and short of changing the clock). The window between that read and the rename is covered by
  *   the one-run-at-a-time duty (the folder is 0700: only this user can put a file there meanwhile). A passing error
  *   from the write itself (Windows refusing the rename while a scanner holds the file) throws with retry too, and every
  *   error FROM THE WRITE ITSELF carries the underlying `code` and `cause` (a full disk, a read-only folder), so the
@@ -207,9 +207,10 @@ function* readFileSteps(org, member) {
   try {
     const st = fs.lstatSync(f, { bigint: true });
     before = fingerprint(st);
-    // On Windows the mode bits mean nothing (the profile's ACLs protect the file), and every file reads as other than
-    // 0600: it is never changed there, so the fingerprint can still be kept.
-    loose = process.platform !== 'win32' && (Number(st.mode) & 0o777) !== 0o600;
+    // On Windows the mode bits stand only for the read-only attribute (the profile's ACLs protect the file), and every
+    // file reads as other than 0600. There a file is loose only when it is read-only: the chmod clears that, or the next
+    // write's rename would be refused. A writable file is not touched, so its fingerprint can still be kept.
+    loose = process.platform === 'win32' ? (Number(st.mode) & 0o200) === 0 : (Number(st.mode) & 0o777) !== 0o600;
   } catch { /* missing: the read decides */ }
   try { raw = fs.readFileSync(f, 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true, state: { job: {}, periods: [] } };
@@ -345,6 +346,8 @@ function withPeriod(state, period) {
 function discardState(org, member) {
   ids(org, member);
   const f = fileFor(org, member);
+  // kosmos#7746: an async write in flight would put the old state back after the discard.
+  if (writing.has(f)) return { ok: false, because: 'the backup state is being written just now; try again' };
   known.delete(f);
   try { fs.renameSync(f, `${f}.bad-${Date.now()}-${crypto.randomBytes(4).toString('hex')}`); return { ok: true }; } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true };

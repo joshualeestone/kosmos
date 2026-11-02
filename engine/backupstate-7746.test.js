@@ -176,6 +176,17 @@ test('#7746: a read refused while the file is unchanged (EBUSY) forgets it, so t
   assert.equal(await readsOf(f, () => bs.writeState(org, member, stateOf(5))), 1, 'forgotten after a refused read');
 });
 
+test('#7746: discardState refuses while an async write is in flight, and works once it has landed', async () => {
+  const [org, member] = ids();
+  bs.writeState(org, member, stateOf(5));
+  const writing = bs.writeStateAsync(org, member, stateOf(120000));
+  const r = bs.discardState(org, member);
+  assert.equal(r.ok, false); assert.match(r.because, /being written just now/);
+  await writing;
+  assert.equal(bs.discardState(org, member).ok, true);
+  assert.equal(fs.existsSync(bs.fileFor(org, member)), false);
+});
+
 test('#7746: a read paused across a newer write does not replace that write\'s fingerprint', async () => {
   const [org, member] = ids();
   const f = bs.fileFor(org, member);
