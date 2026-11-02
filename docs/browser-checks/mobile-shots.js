@@ -445,6 +445,26 @@ async function pbToRestore(page) {
   await page.click('#pb-finish'); await page.waitForSelector('#pb-restore', { state: 'visible', timeout: 10000 });
 }
 async function pbTop(page) { await page.evaluate(() => document.getElementById('pb').scrollIntoView({ block: 'start' })); }
+/* kosmos#7404 (pbrestorescreen-7404): restore from a backup. `files` is GET /api/personal-backup/files's answer; the list
+   is three sample backups made from now (one with a problem) and more behind them. The copy's name is a sample. */
+const PB_COPY = { id: 'w-sample-restored', name: 'Restored: Sam, 2 Nov 2026 (a1b2)' };
+async function pbFilesShot(page, files, open) {
+  const now = Math.floor(Date.now() / 1000);
+  const json = (body) => (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  await page.route('**/api/personal-backup/backups', json({ ok: true, more: true, keyMissing: false, backups: [
+    { key: 'k-sample-1', epoch: 1, takenAt: now - 3 * 3600, problem: null },
+    { key: 'k-sample-2', epoch: 1, takenAt: now - 27 * 3600, problem: null },
+    { key: 'k-sample-3', epoch: 1, takenAt: now - 51 * 3600, problem: 'this backup could not be opened with your key' },
+  ] }));
+  await page.route('**/api/personal-backup/files', (r) => (r.request().method() === 'POST'
+    ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, startedAt: Date.now() }) })
+    : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(files) })));
+  await pbShot(page, 'on', '$5/month', { lastOk: new Date((now - 3 * 3600) * 1000).toISOString(), stopped: null });
+  await page.waitForSelector('#pb-files', { state: 'visible', timeout: 10000 });
+  if (open) await open();
+  await page.evaluate(() => document.getElementById('pb-files').scrollIntoView({ block: 'start' }));
+}
+const PB_IDLE = { running: false, startedAt: null, last: null };
 /* #5359: a restart note made seven minutes ago, on this page's own route (engine/restartnote.js makes the real one). */
 async function stubRebootNote(page) {
   const now = Date.now();
@@ -1752,6 +1772,23 @@ const SCREENS = [
     await page.click('#pb-skipped-sum'); await page.waitForSelector('#pb-skipped-list li', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
   { name: 'pb-on-stopped', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: '2026-10-31T14:07:00.000Z', stopped: 'What a personal backup does has changed, so it needs your OK. Turn it off, then turn it on again to read the new words.' }); } },
   { name: 'pb-on-stopped-first', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'on', '$5/month', { lastOk: null, stopped: 'This computer does not hold the key Kosmos+ lists for this backup, so nothing was backed up. Turn it off, then turn it on again and enter your recovery code.' }); } },
+  // kosmos#7404 (pbrestorescreen-7404): restore from a backup, Mona Lisa's design review (fleetbuilders m2528).
+  { name: 'pb-files-list', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbFilesShot(page, PB_IDLE, async () => {
+    await page.click('#pb-files-see'); await page.waitForSelector('#pb-files-list li', { state: 'visible', timeout: 10000 }); }); } },
+  { name: 'pb-files-ask', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbFilesShot(page, PB_IDLE, async () => {
+    await page.click('#pb-files-see'); await page.waitForSelector('#pb-files-list li button', { state: 'visible', timeout: 10000 });
+    await page.click('#pb-files-list li button'); await page.waitForSelector('#pb-files-ask', { state: 'visible', timeout: 10000 }); }); } },
+  { name: 'pb-files-running', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
+    await pbFilesShot(page, { running: true, startedAt: Date.now() - 4 * 60000, last: null }, async () => {
+      await page.waitForSelector('#pb-files-run', { state: 'visible', timeout: 10000 }); }); } },
+  { name: 'pb-files-done', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
+    await pbFilesShot(page, { running: false, startedAt: null, last: { finishedAt: Date.now(), ok: true, restored: 1204, failed: 2, world: PB_COPY,
+      details: { failed: [{ path: 'projects/site/assets/hero.png', why: 'sample' }, { path: 'workers/sam/notes/old.md', why: 'sample' }], leftOutAtBackup: 12, fetchProblems: [] } } },
+    async () => { await page.waitForSelector('#pb-files-open-row', { state: 'visible', timeout: 10000 }); await page.click('#pb-files-failed-sum'); }); } },
+  { name: 'pb-files-stopped', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
+    await pbFilesShot(page, { running: false, startedAt: null, last: { finishedAt: Date.now(), ok: false, code: 'stopped', stoppedByPerson: true,
+      because: 'You stopped this restore. The files it had already restored stay in its new Kosmos.' } },
+    async () => { await page.waitForSelector('#pb-files-last', { state: 'visible', timeout: 10000 }); }); } },
   // Design review 1: no price set, so no Turn on; only the restore line.
   { name: 'pb-noprice', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbShot(page, 'off', null); } },
   // Challenge round 5: the restore field opens when the key step finds this backup set up on another computer.
