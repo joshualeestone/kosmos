@@ -115,3 +115,15 @@ test('#4926 Windows: --unanswered reaches the board as &unanswered=1, as on the 
     assert.deepEqual(r.calls.map((c) => c.route), [want], argv.join(' '));
   }
 });
+
+test('#4926 Windows: --unanswered on a board that ignored it says the answer is the whole room; on one that applied it, nothing extra', async () => {
+  const WARN = /does not know --unanswered yet/;
+  const old = await run(['room', 'proj', '--unanswered'], () => ({ body: 'the room\n' }));
+  assert.equal(old.code, 0, old.err);
+  assert.match(old.err, WARN, 'an older board\'s whole room read as the filtered view');
+  const now = await run(['room', 'proj', '--unanswered'], () => ({ body: 'Waiting on an answer from you: nothing in this room.\n' }));
+  assert.equal(now.code, 0, now.err);
+  assert.doesNotMatch(now.out + now.err, WARN, 'a board that applied the flag was called an older one');
+  const plain = await run(['room', 'proj'], () => ({ body: 'the room\n' }));
+  assert.doesNotMatch(plain.out + plain.err, WARN);
+});

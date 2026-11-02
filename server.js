@@ -6563,6 +6563,9 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    let a caller into a project that has members. */
 /* kosmos#5752 slice 2: a refusal for not being on the project names its fix (engine/messages.js says where). */
 const NOT_ON_PROJECT_FIX = messages.NOT_ON_PROJECT_FIX;
+/* #4926: the first line of `kosmos room <id> --unanswered`'s answer. Both CLIs look for it at the start of a line to
+   tell a board that ignored the flag (an older one, which sends the whole room) from one that applied it. */
+const UNANSWERED_HEAD = 'Waiting on an answer from you: ';
 /* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it without the agent
    having to say so, and can add the agent from that row. `doing` is what the agent tried, in the row's words. */
 /* `addable` (the room's Add button) only for a caller its token named: a pane claim is advisory, so a button on it
@@ -23225,8 +23228,6 @@ const server = http.createServer(async (req, res) => {
            machine the operator is sitting at, never to an error. */
         let zone = null;
         try { zone = (store.readSettings() || {}).timezone || null; } catch { zone = null; }
-        /* #3311: at most half the rows shown (half of the default messages.ROOM_READ_ROWS) come from outside, so a busy
-           peer cannot push every local post out of the view agents read. #4891: of `textRows`. */
         /* #4926: which agent is reading, by its own token (KOSMOS_AGENT_TOKEN; `kosmos room` sends it when the agent has
            one). null for a read nobody identified (the person's board token, an older CLI): that read is unchanged. */
         let readerName = null;
@@ -23236,8 +23237,7 @@ const server = http.createServer(async (req, res) => {
         } catch { readerName = null; }
         /* #4926: a post the reader answered by id (--reply-to) says so, so an agent in a long session that reads the room
            again can tell the asks it already answered from new ones (Josh's 0.7.83 report, #7784 item 4: answered posts
-           came back as if new). Post id -> the reader's answering post ids, oldest first, from the whole room (archived
-           rows too: an answer is never older than its ask, but the ask can be the older side of the archive line). */
+           came back as if new). Post id -> the reader's answering post ids, oldest first. */
         const answeredBy = new Map();
         if (readerName) {
           for (const m of roomRows) {
@@ -23261,6 +23261,8 @@ const server = http.createServer(async (req, res) => {
             + '--unanswered works for an agent with its own Kosmos token.\n');
           return;
         }
+        /* #3311: at most half the rows shown (half of the default messages.ROOM_READ_ROWS) come from outside, so a busy
+           peer cannot push every local post out of the view agents read. #4891: of `textRows`. */
         const tail = [];
         let outside = 0;
         /* At least one, so `-n 1` on a room whose newest row came from outside shows that row rather than an older
@@ -23392,7 +23394,7 @@ const server = http.createServer(async (req, res) => {
           ? 'We could not read some of this room; what follows may be missing recent posts.\n'
           : (lines.length ? ''
             // #4926: --unanswered with nothing waiting is not an empty room.
-            : onlyUnanswered ? 'Nothing in this room is waiting on an answer from you: every post that asked you something has a reply from you citing it.\n'
+            : onlyUnanswered ? UNANSWERED_HEAD + 'nothing in this room.\n'
             // kosmos#7365 slice 3: a room whose every message is archived is not an empty room.
             : archivedCount > 0 ? 'Everything said in this room so far is archived; nothing has been said since.\n'
             : 'Nothing has been said in this room yet.\n');
@@ -23427,7 +23429,13 @@ const server = http.createServer(async (req, res) => {
             + messages.CLOSING_POST_MIN + ' characters or more that settles the thread.\n'
           : '';
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end(shared + onHold + head + lines.join('\n') + (lines.length ? '\n' : ''));
+        /* #4926: a filtered view says it is one, so it never reads as the whole room, and a CLI can tell a board that
+           ignored ?unanswered=1 (an older one) by this line being absent. */
+        const filtered = onlyUnanswered && lines.length
+          ? UNANSWERED_HEAD + tail.length + (tail.length === 1 ? ' post' : ' posts')
+            + ' in this room (each asked you something, and no post of yours cites it by id with --reply-to):\n'
+          : '';
+        res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : ''));
         return;
       }
       if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)

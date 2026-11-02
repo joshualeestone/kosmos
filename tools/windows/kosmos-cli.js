@@ -1060,7 +1060,12 @@ async function verbRoom(ctx, args) {
   const r = await ctx.call('GET', '/api/project/' + projectSlug(project) + '/room?as=text' + (given ? '&n=' + n : '') + (unanswered ? '&unanswered=1' : ''));
   if (!r.reached) return ctx.unreachable('read that room');
   ctx.out(String(r.text || '').replace(/\n$/, ''));
-  return r.status >= 400 ? 1 : 0;
+  if (r.status >= 400) return 1;
+  // #4926, as install/kosmos: without the board's filtered-view line, the board ignored the flag and sent the whole room.
+  if (unanswered && !/^Waiting on an answer from you: /m.test(String(r.text || ''))) {
+    ctx.err('This Kosmos does not know --unanswered yet, so what is above is the whole room, not only what is waiting on you. Update Kosmos to use it.');
+  }
+  return 0;
 }
 
 /* #2710, as install/kosmos cmd_room: clears a room the loop-guard is holding, so

@@ -107,6 +107,7 @@ test('?unanswered=1 lists the asks still open: named, or the person\'s post that
   const own = post(pid, { from: WHO, to: [OTHER], text: '@poster my own ask', mentioned: [OTHER] });
   const r = await room(pid, tokenFor(WHO), '&unanswered=1');
   assert.equal(r.status, 200, r.text);
+  assert.match(r.text, /^Waiting on an answer from you: 2 posts in this room /m, 'the filtered view does not say it is one:\n' + r.text);
   const ids = (r.text.match(/^\S.*?  \[(m\d+)\] /gm) || []).map((l) => /\[(m\d+)\]/.exec(l)[1]);
   assert.deepEqual(ids, [named, person], 'the open asks listed are wrong:\n' + r.text);
   for (const gone of [answered, fyi, quiet, own]) assert.ok(!ids.includes(gone), gone + ' is listed:\n' + r.text);
@@ -134,11 +135,36 @@ test('?unanswered=1 with nothing open says so; with no agent token it refuses ra
   post(pid, { from: WHO, to: [OTHER], text: 'answered', replyTo: ask });
   const r = await room(pid, tokenFor(WHO), '&unanswered=1');
   assert.equal(r.status, 200, r.text);
-  assert.match(r.text, /^Nothing in this room is waiting on an answer from you/m, r.text);
+  assert.match(r.text, /^Waiting on an answer from you: nothing in this room\.$/m, r.text);
   assert.doesNotMatch(r.text, /Nothing has been said in this room yet/, 'an answered room reads as empty');
   const anon = await room(pid, {}, '&unanswered=1');
   assert.equal(anon.status, 400, anon.text);
   assert.match(anon.text, /could not tell which agent is reading/);
   // CONTROL: the other agent was asked nothing here, so its list is empty, not the reader's.
-  assert.match((await room(pid, tokenFor(OTHER), '&unanswered=1')).text, /^Nothing in this room is waiting/m);
+  assert.match((await room(pid, tokenFor(OTHER), '&unanswered=1')).text, /^Waiting on an answer from you: nothing in this room\.$/m);
+  // CONTROL: the unfiltered read carries no such line.
+  assert.doesNotMatch((await room(pid, tokenFor(WHO))).text, /Waiting on an answer from you/);
+});
+
+test('the reader answering its own post, or the person\'s post, by id: marked only where someone else asked', async () => {
+  const pid = newRoom('Answered4926f');
+  const mine = post(pid, { from: WHO, to: [OTHER], text: '@poster are you there?', mentioned: [OTHER] });
+  const followUp = post(pid, { from: WHO, to: [OTHER], text: 'following up', replyTo: mine });
+  const person = post(pid, { from: 'you', operator: true, text: 'grokseat, a status please', mentioned: [] });
+  const answer = post(pid, { from: WHO, to: [OTHER], text: 'all green', replyTo: person });
+  const r = await room(pid, tokenFor(WHO));
+  assert.ok(r.text.includes(followUp), 'fixture: the follow-up is not in the room');
+  assert.ok(!r.text.includes('you already answered [' + mine + ']'), 'the reader\'s own post is marked answered by its own follow-up:\n' + r.text);
+  assert.ok(r.text.includes(marker(person, answer)), 'the person\'s post the reader answered by id is not marked:\n' + r.text);
+  assert.match((await room(pid, tokenFor(WHO), '&unanswered=1')).text, /^Waiting on an answer from you: nothing in this room\.$/m,
+    'the answered person\'s post, or the reader\'s own post, is listed as waiting');
+});
+
+test('?unanswered=1 leaves out the person\'s post that could not reach the reader', async () => {
+  const pid = newRoom('Answered4926g');
+  const missed = post(pid, { from: 'you', operator: true, text: 'never typed to it', mentioned: [], outcomes: { [WHO]: 'could_not' } });
+  const reached = post(pid, { from: 'you', operator: true, text: 'typed to it', mentioned: [] });
+  const r = await room(pid, tokenFor(WHO), '&unanswered=1');
+  assert.ok(r.text.includes('[' + reached + ']'), 'CONTROL: the post that reached it is not listed:\n' + r.text);
+  assert.ok(!r.text.includes('[' + missed + ']'), 'a post that could not reach the reader is listed as waiting on it:\n' + r.text);
 });
