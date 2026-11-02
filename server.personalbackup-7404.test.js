@@ -216,12 +216,14 @@ test('#7404: off stops a restore of files before it turns personal backup off', 
   const was = { stop: job.stop, switchOff: pb.switchOff };
   t.after(() => { job.stop = was.stop; pb.switchOff = was.switchOff; });
   const order = [];
-  const wasIdle = { untilIdle: job.untilIdle, forget: job.forget };
-  t.after(() => { job.untilIdle = wasIdle.untilIdle; job.forget = wasIdle.forget; });
+  const wasIdle = { untilIdle: job.untilIdle, forget: job.forget, offStarting: job.offStarting, offDone: job.offDone };
+  t.after(() => Object.assign(job, wasIdle));
+  job.offStarting = () => { order.push('starting'); };
+  job.offDone = () => { order.push('done'); };
   job.untilIdle = async () => { order.push('idle'); return true; };
   job.forget = () => { order.push('forget'); };
   job.stop = () => { order.push('stop'); return { ok: true }; };
   pb.switchOff = async () => { order.push('off'); return { ok: true }; };
   await call('/api/personal-backup/off', { body: {}, headers: SCREEN });
-  assert.deepEqual(order, ['stop', 'idle', 'forget', 'off']);
+  assert.deepEqual(order, ['starting', 'stop', 'idle', 'forget', 'off', 'done']);
 });

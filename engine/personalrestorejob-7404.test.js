@@ -394,3 +394,17 @@ test('a child that ends without an answer has its last stderr written to the boa
   } finally { console.warn = was; }
   assert.ok(warned.some((w) => w.includes('TypeError: boom')), JSON.stringify(warned));
 });
+
+test('forget alone stops a running restore, and no restore starts while Off runs', async () => {
+  const { fork, made } = fakeFork();
+  job.start('k1', { fork, base: SANDBOX });
+  await tick();
+  job.forget();
+  assert.equal(made[0].killed, true);
+  made[0].emit('close', null, 'SIGTERM');
+  await tick(); await tick();
+  job.offStarting();
+  assert.equal(job.start('k2', { fork, base: SANDBOX }).code, 'not_on');
+  job.offDone();
+  assert.equal(job.start('k2', { fork, base: SANDBOX }).ok, true);
+});
