@@ -56061,7 +56061,7 @@ function pbfPaint() {
   if (!running) { PBF.stopAsk = false; PBF.stopSent = false; }   // a confirm, or a stop, for a restore that has ended never comes back for the next
   const listed = Array.isArray(PBF.list);
   const seeHidden = running || !!PBF.asked
-    || (!PBF.busy && listed && PBF.list.length > 0);   // the list is up: its own Restore buttons are the next step
+    || (!PBF.busy && listed && PBF.list.some((b) => b && !b.problem));   // a row can be restored: its own Restore is the next step
   document.getElementById('pb-files-see').hidden = seeHidden;
   document.getElementById('pb-files-see').disabled = PBF.busy;
   const list = document.getElementById('pb-files-list');

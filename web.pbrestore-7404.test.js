@@ -261,3 +261,13 @@ test('a restore that ends while the person is elsewhere does not move their focu
   p.pbfRead(); await tick(); await tick();
   assert.equal(doc.focused, null);
 });
+
+test('a list where no backup can be restored keeps See your backups, and focus lands on it', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, answer({ ok: true, more: false, keyMissing: false, backups: [{ key: 'k1', takenAt: 1e9, problem: 'this backup could not be opened with your key' }] }));
+  p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
+  p.pbfShow(true);
+  await p.pbfSee();
+  assert.ok(vis(doc, 'pb-files-list') && vis(doc, 'pb-files-see'), 'rows with no action and no way to read the list again');
+  assert.equal(doc.focused && doc.focused.id, 'pb-files-see');
+});
