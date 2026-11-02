@@ -748,6 +748,10 @@ test('a good run names what it left out, to a limit, beside the whole count', as
     assert.equal(r.skippedList.length, 1);
     assert.match(r.skippedList[0].path, /big\.bin/);
     assert.match(r.skippedList[0].why, /too large/);
+    for (let i = 0; i < 201; i++) fs.writeFileSync(path.join(w.root, `big-${i}.bin`), Buffer.alloc(2048, 1));
+    const many = await take(k, w.root, store(), { deps: { maxFile: 1500 } });
+    assert.equal(many.skipped, 202, 'the whole count');
+    assert.equal(many.skippedList.length, 200, 'a limit on what is named');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 

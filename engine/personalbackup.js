@@ -531,8 +531,8 @@ function noteRun(r, opts, before) {
   const now = new Date((opts.now || Date.now)()).toISOString();
   const next = { org: rec.org.id, world: rec.world, lastTry: now, lastOk: r.ok ? now : (same && was.lastOk) || null };
   // What the last good backup left out, so the panel can name it. A failed run says nothing about that.
-  if (r.ok && Array.isArray(r.skippedList)) next.leftOut = { count: Number.isSafeInteger(r.skipped) ? r.skipped : r.skippedList.length, files: r.skippedList.map((x) => ({ path: String(x.path), why: String(x.why) })) };
-  else if (same && was.leftOut) next.leftOut = was.leftOut;
+  if (r.ok && Array.isArray(r.skippedList)) next.skippedFiles = { count: Number.isSafeInteger(r.skipped) ? r.skipped : r.skippedList.length, files: r.skippedList.map((x) => ({ path: String(x.path), why: String(x.why) })) };
+  else if (!r.ok && same && was.skippedFiles) next.skippedFiles = was.skippedFiles;
   if (!r.ok) {
     const stopped = stopOf(r);
     if (stopped) next.stopped = stopped;
@@ -557,7 +557,8 @@ function wordsUncovered(opts) {
   } catch { return false; }
 }
 /** For the panel, while state() is 'on': { lastOk, stopped, note }. stopped: why backups stopped, for a person to act on.
-    note: a plain line beside it. Each is a fixed sentence, or null when nothing is established. */
+    note: a plain line beside it. Each is a fixed sentence, or null when nothing is established. On the plain good state
+    only, skippedFiles { count, files: [{ path, why }] }: the one field that carries paths. */
 function report(opts = {}) {
   try { return reportNow(opts); } catch { return { lastOk: null, stopped: null, note: null }; }   // never costs the panel its Turn off
 }
@@ -578,7 +579,8 @@ function reportNow(opts) {
   if (stopped) return { lastOk, stopped, note: null };
   if (j.waiting === true) return { lastOk, stopped: null, note: WAITING_WEEK };
   if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'A backup has not finished yet.' : 'A backup runs soon.' };
-  return { lastOk, stopped: null, note: null, ...(j.leftOut && typeof j.leftOut === 'object' ? { leftOut: j.leftOut } : {}) };
+  const sk = j.skippedFiles;
+  return { lastOk, stopped: null, note: null, ...(sk && Array.isArray(sk.files) ? { skippedFiles: sk } : {}) };
 }
 
 /** kosmos#7404 slice D: what a files restore needs to know: { state, rec, codeWaiting }. state is state()'s, and
