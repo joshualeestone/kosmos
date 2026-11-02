@@ -681,7 +681,7 @@ test('#4833 slice 2 review 3 / #6201: at most 10 posts are read (and the read sa
   cr.setFetcher(async (url) => { urls.push(url); return { status: 200, json: { comments: [] } }; });
   const r = await cr.readReplies('Lim4833', { now: NOW });
   assert.equal(urls.filter((u) => u.endsWith('/comments?order=newest&limit=' + cr.COMMENTS_ASKED)).length, cr.REPLIES_POSTS, 'more than REPLIES_POSTS threads were fetched');
-  assert.match(r.text, /only your newest 10 of 11 posts were looked at: your older posts could not be checked for new comments just now/);   // kosmos#7811: this fetcher answers no profile
+  assert.match(r.text, /only your newest 10 of 11 posts were looked at: your older posts could not be checked for new comments/);   // kosmos#7811: this fetcher answers no profile
   clearSeen();
   writeSendState({ a: { state: 'sent', agent: 'Pag4833', remoteId: RP(4), sentAt: '2026-09-30T10:00:00Z' } }, {});
   const four = [1, 2, 3, 4].map((k) => comment({ id: CID(k), created_at: T(k), reply_count: 5, replies: [], replies_cursor: 'C' + k }));

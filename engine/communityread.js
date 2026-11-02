@@ -483,7 +483,7 @@ function feedFooter(spec, next, company, pub) {
 
 /* ===== #4833 slice 2: `kosmos community read --replies`, the replies to the reader's own posts since it last looked. =====
    The board knows which posts are this agent's (communitysend's sent records name the sending agent and the service id).
-   For its newest REPLIES_POSTS posts the threads are read in parallel and every live comment or reply after that post's
+   For its newest REPLIES_POSTS posts, and up to REPLIES_OLDER_MAX older ones with something new (kosmos#7811, postsToRead), the threads are read in parallel and every live comment or reply after that post's
    mark, and not under the agent's own registered name, is listed oldest first, at most REPLIES_SHOWN_MAX in one read and fewer when long (#7056, shownWithin).
 
    THE MARK IS PER POST AND IS A POSITION IN THE SERVICE'S OWN TIME (reviews 3 and 4). Each post keeps its own mark, so
@@ -508,7 +508,7 @@ function feedFooter(spec, next, company, pub) {
 const REPLIES_POSTS = 10;
 const REPLIES_FIRST_DAYS = 7;
 /* #6201 (F7d): every comment's unshown replies, and a post's older comments, are paged through the service's cursors,
-   at most REPLY_PAGES_MAX pages in one read (with round 1's 10, the 40 requests a read is sized at below), the first
+   at most REPLY_PAGES_MAX pages in one read (with round 1's 10, the 40 requests a read is sized at below; kosmos#7811 adds the profile and up to 5 older posts' round 1), the first
    wave every post's newest REPLY_PAGES_PER_POST waiting threads at once (up to 30, the burst main sent) and later waves
    REPLY_PAGES_AT_ONCE at a time (a busy post's older-comments pages add its threads to the back, so later waves are not
    strictly fair across posts), and no new batch is started ROUND2_START_MS after round 2 began, so a read still fits
@@ -683,8 +683,15 @@ function ownPosts(sessionName) {
    newest PROFILE_POSTS posts each with `latest_reply` (its newest shown comment or reply of any depth). */
 const REPLIES_OLDER_MAX = 5;
 const PROFILE_POSTS = 50;   // the service's profile list (kosmos-community agents.py _profile)
-const PROFILE_CAP = 512 * 1024;
-/* remoteId -> { at, id } of each listed post's newest reply, or null when the profile could not be read. */
+/* The profile carries 50 posts and 50 of the agent's comments with their whole bodies (4000 and 2000 characters, up to
+   4 bytes each), about 1.2 MB at the very most. */
+const PROFILE_CAP = 2 * 1024 * 1024;
+/* The older posts' round 1 starts only this soon after the newest posts' round 1 and the profile began (they run
+   together), so the read's rounds still fit the CLI's 30 s; later, they are said as waiting for the next read. */
+const OLDER_START_MS = 1500;
+/* { map: remoteId -> { at, id, own } of each listed post's newest reply, or null for none }; { failed, status } when the
+   profile could not be read; null when this agent has no name to look up (then only the newest are read, by both the
+   read and the nudge's count). */
 async function postActivity(me) {
   const name = communityself.asSelf(me).name;
   if (!name) return null;
@@ -695,29 +702,31 @@ async function postActivity(me) {
     if (!x || !UUID_RE.test(String(x.id || ''))) continue;
     const lr = x.latest_reply;
     const at = lr && typeof lr.created_at === 'string' ? Date.parse(lr.created_at) : NaN;
-    out.set(String(x.id).toLowerCase(), validAt(at) && UUID_RE.test(String(lr.id || '')) ? { at, id: String(lr.id).toLowerCase() } : null);
+    const ag = lr && lr.agent && typeof lr.agent === 'object' ? lr.agent : null;
+    const own = Boolean(ag) && communityself.isOwn(me, { id: ag.id, name: ag.name, kind: ag.kind });
+    out.set(String(x.id).toLowerCase(), validAt(at) && UUID_RE.test(String(lr.id || '')) ? { at, id: String(lr.id).toLowerCase(), own } : null);
   }
   return { map: out };
 }
-/* The posts both the read and the nudge's count take (one rule, so the two never count different sets): the newest
-   REPLIES_POSTS, then up to REPLIES_OLDER_MAX older ones whose newest reply is strictly after the post's mark in (time,
-   id) order and not an id already seen above it (or after the first look, with no mark), newest activity first.
-   `activity` as postActivity answers; with none, only the newest. Returns { posts, total, all, older, active, read,
-   unlisted } (older: how many older posts; active: how many have something new; read: how many of those are read;
-   unlisted: older posts past the profile's list, so not checked). */
-function postsToRead(sessionName, { marks, activity, firstLook }) {
-  const own = ownPosts(sessionName);
+/* The posts both the read and the nudge's count take, by one rule: the newest REPLIES_POSTS, then up to
+   REPLIES_OLDER_MAX older ones with something new, newest activity first. Something new: its newest reply is after the
+   post's mark as the read compares (afterMark) and is not the agent's own, or the post's last read held its mark or
+   saved a thread's place (it promised to look again). The two take the profile separately, so a comment landing between
+   the count and the read can change which older posts they take (the count is then partial or stale, as for any change
+   between them). `own` as ownPosts answers; `activity` as postActivity. Returns { posts, total, all, older, active,
+   read, unlisted, checked }. */
+function postsToRead(own, { marks, activity, firstLook }) {
   const base = { posts: own.posts, total: own.total, all: own.all, older: own.older.length, active: 0, read: 0, unlisted: 0, checked: false };
   if (!own.older.length || !activity || !activity.map) return base;
   const active = [];
   let unlisted = 0;
   for (const p of own.older) {
-    if (!activity.map.has(p.remoteId)) { unlisted += 1; continue; }
-    const a = activity.map.get(p.remoteId);
-    if (!a) continue;
     const m = marks[p.remoteId];
-    const after = m ? (a.at > m.at || (a.at === m.at && a.id > m.id)) && !m.seen.includes(a.id) : a.at > firstLook;
-    if (after) active.push({ p, at: a.at });
+    const promised = Boolean(m) && (m.held > 0 || Object.values(m.threads || {}).some((t) => t && t.cursor));
+    if (!activity.map.has(p.remoteId)) { if (promised) active.push({ p, at: m.at }); else unlisted += 1; continue; }
+    const a = activity.map.get(p.remoteId);
+    const fresh = Boolean(a) && !a.own && afterMark({ ts: a.at, id: a.id }, m, firstLook);
+    if (fresh || promised) active.push({ p, at: a ? a.at : m.at });
   }
   active.sort((x, y) => y.at - x.at);
   const picked = active.slice(0, REPLIES_OLDER_MAX).map((x) => x.p);
@@ -797,7 +806,8 @@ function afterMark(x, mark, firstLook) {
   if (mark.seen && mark.seen.includes(x.id)) return false;
   return x.ts > mark.at || (x.ts === mark.at && x.id > mark.id);
 }
-/* Review 5: one --replies read at a time PER BOARD. Each is up to 40 unauthenticated service requests, and the service
+/* Review 5: one --replies read at a time PER BOARD. Each is up to 46 unauthenticated service requests (kosmos#7811: the
+   profile and 5 older posts' round 1), and the service
    allows 200 a minute per address, so several agents reading at once could spend the board's whole budget. */
 let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's read --replies) or 'fresh' (#4951's count)
 /* #4951 (review 1, Opus): an agent's own read WAITS for the nudge's count rather than being refused: the agent it has
@@ -863,7 +873,7 @@ function readingNow(sessionName) { return (replyReadRunning === 'read' && replyR
    Returns { ok: true, posts: [{ remoteId, title, ids, more }], asked, marksAt } (ids oldest first), or
    { ok: false, busy: true, because, stop?, partial?, asked? } (the nudge's pass retries a plain busy, ends on stop, and
    leaves a partial one to the next pass), or { ok: false, because }. */
-const FRESH_PACE_MS = 1500;   // review 10 (Opus): 40 a minute at most, so two agents' own reads (40 each) always fit in 200
+const FRESH_PACE_MS = 1500;   // review 10 (Opus): 40 a minute at most, so two agents' own reads (46 each at most) always fit in 200
 const NO_ANSWER_STOP = 2;   // review 8 (Opus): this many unanswered requests in a row end the count (one is skipped)
 /* Review 10 (Opus): a post the count cannot read makes the WHOLE count unknown, not just that post: the cap is taken
    over the posts read, and the agent's read a minute later may reach the skipped post, whose older replies then push
@@ -910,9 +920,13 @@ async function freshReplies(sessionName, opts) {
       asked += 1;
       activity = await postActivity(me);
       if (activity && activity.status === 429) return { ok: false, busy: true, stop: true, because: 'the community service is limiting requests' };
-      if (!activity || !activity.map) return unreadable();
+      /* As an unreadable post: partial, unless it has failed FRESH_DOWN_PASSES passes in a row; then the newest only, so a
+         profile that never answers cannot hold the agent's nudges forever. */
+      const profileKey = { remoteId: '\nprofile' };
+      if (activity && activity.failed) { if (!downOnce(profileKey)) return unreadable(); activity = null; }
+      else postDown.delete(downKey(profileKey));
     }
-    const { posts } = postsToRead(sessionName, { marks, activity, firstLook });
+    const { posts } = postsToRead(own, { marks, activity, firstLook });
     const titles = postTitles(sessionName);
     const out = [];
     const persons = [];   // #5623
@@ -1069,8 +1083,8 @@ function placesOf(th, old, unshownIds, newestSeen) {
 async function repliesFor(sessionName, opts) {
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
   const firstLook = now - REPLIES_FIRST_DAYS * 24 * 3600 * 1000;
-  const { posts: newestPosts } = ownPosts(sessionName);
-  if (!newestPosts.length) {
+  const own = ownPosts(sessionName);
+  if (!own.posts.length) {
     /* #4939: a post that has not gone out yet is not "no posts": every family in Josh's test read this line as lost. */
     let waiting = 0;
     try { waiting = require('./communitystatus').waitingPosts(sessionName); } catch { waiting = 0; }
@@ -1081,13 +1095,9 @@ async function repliesFor(sessionName, opts) {
   }
   const marks = readMarks(sessionName);   // service time, apart from a new post's first-look floor
   const me = await communityself.current(sessionName);   // kosmos#6705: refreshed from the service, at most every 10 min
-  // kosmos#7811: older posts with something new join the newest (one profile read, only when there are older posts).
-  const activity = ownPosts(sessionName).older.length ? await postActivity(me) : null;
-  const pick = postsToRead(sessionName, { marks, activity, firstLook });
-  const { posts, total, all } = pick;
   // Round 1: each post's newest top-level comments with their first replies, in parallel. 404/410: gone, not a failure.
   let round1Limited = false;
-  const threads = await Promise.all(posts.map(async (p) => {
+  const roundOne = async (p) => {
     const t = await getJson('/posts/' + encodeURIComponent(p.remoteId) + '/comments?order=newest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
     if (t.status === 404 || t.status === 410) return { post: p, gone: true, comments: [] };
     if (t.status === 429) round1Limited = true;   // review 17: round 2 sends no pages to a service already limiting
@@ -1104,7 +1114,15 @@ async function repliesFor(sessionName, opts) {
     let r1top = null;   // review 5: the newest item of the FIRST-round page sets a fully read post's mark
     for (const c of comments) for (const x of [c, ...c.replies]) if (x.ts && (!r1top || byPos(x, r1top) > 0)) r1top = x;
     return { post: p, comments, r1top, commentsCursor, olderPending: cutHere };
-  }));
+  };
+  /* kosmos#7811: the newest posts' round 1 and the profile (only when there are older posts) together; then the older
+     posts with something new, if that was quick (OLDER_START_MS). */
+  const r1Start = Date.now();
+  const [newestThreads, activity] = await Promise.all([Promise.all(own.posts.map(roundOne)), own.older.length ? postActivity(me) : Promise.resolve(null)]);
+  const pick = postsToRead(own, { marks, activity, firstLook });
+  if (pick.read && (Date.now() - r1Start > OLDER_START_MS || round1Limited)) { pick.posts = own.posts; pick.read = 0; }
+  const threads = newestThreads.concat(await Promise.all(pick.posts.slice(own.posts.length).map(roundOne)));
+  const { posts, total, all } = pick;
   /* Round 2 (#6201, F7d): a bounded queue. Each comment with unshown replies is paged to the end (replies come oldest
      first, so the newest are on the LAST page), and a post's older comments are paged too, their unshown replies joining
      the queue. Posts newest first and, within one, comments newest first; a continuation page queues behind what is
@@ -1129,7 +1147,7 @@ async function repliesFor(sessionName, opts) {
     return null;
   };
   /* Review 7: posts take turns (each post's newest waiting thread, then each post's second, ...), so a busy newer post
-     cannot take the whole budget from the older ones; with 10 posts and 30 pages each post gets at least 3, as before
+     cannot take the whole budget from the older ones; with 10 posts and 30 pages each post gets at least 3, as before (2 with kosmos#7811's 15)
      #6201. A post's older comments come first in its turn (review 17). */
   const perPost = threads.filter((th) => !th.failed && !th.gone).map((th) => {
     /* #6204 review 3: threads with a saved place go first in their post's turn, the one that has waited the most reads
@@ -1320,9 +1338,9 @@ async function repliesFor(sessionName, opts) {
            cut of a thread is said above, as going on next time. */
         : ' past what a read reaches, so new ones among them may be missed (reading again right away will not reach them))'), '');
   }
-  if (pick.older && !pick.checked) lines.push('(only your newest ' + REPLIES_POSTS + ' of ' + total + ' posts were looked at: your older posts could not be checked for new comments just now)', '');
+  if (pick.older && !pick.checked) lines.push('(only your newest ' + REPLIES_POSTS + ' of ' + total + ' posts were looked at: your older posts could not be checked for new comments)', '');
   if (pick.active > pick.read) lines.push('(' + (pick.active - pick.read) + ' more of your older posts have new comments: read again for them)', '');
-  if (pick.unlisted) lines.push('(your ' + (pick.unlisted === 1 ? 'oldest post is' : pick.unlisted + ' oldest posts are') + ' past what Kosmos can check for new comments, so ' + (pick.unlisted === 1 ? 'it is' : 'they are') + ' not looked at)', '');
+  if (pick.unlisted) lines.push('(' + (pick.unlisted === 1 ? '1 of your older posts is' : pick.unlisted + ' of your older posts are') + ' not on your public profile, so Kosmos cannot check ' + (pick.unlisted === 1 ? 'it' : 'them') + ' for new comments)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
   /* Each post's mark (service time), review 6: unchanged if it could not be reached or has gone. Otherwise the candidate
      is the newest item of its FIRST-round page, or, when the read's cap cut the post, the earlier of that and the last item
