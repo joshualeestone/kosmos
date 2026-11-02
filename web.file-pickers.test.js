@@ -117,7 +117,7 @@ test('the two Save buttons on the agent panel say which they are', () => {
      page; named for the same reason, pinned here so the count stays explained. */
   assert.match(PAGE, /id="you-name-save" aria-label="Save your name"/, 'the Settings Save button announces as a bare Save');
   assert.match(PAGE, /id="tk-repeat-save" [^>]*aria-label="Save how this task repeats"/, 'the task page Repeats Save announces as a bare Save');
-  assert.match(PAGE, /id="tk-hold-save" [^>]*aria-label="Save what this hold waits for"/, 'kosmos#7184: the task page hold Save announces as a bare Save');
+  assert.match(PAGE, /id="tk-hold-save" [^>]*aria-label="Save what this hold waits for and why"/, 'kosmos#7184: the task page hold Save announces as a bare Save');
   assert.ok(!PAGE.includes('id="you-tz-save"'), '#3338: the time-zone Save button is gone (auto-detected, read-only)');
   // #2054: the auto-handoff and Prompter Save buttons are gone (sliders commit on flip).
   assert.ok(!PAGE.includes('id="ah-save"'), 'the auto-handoff Save button should be gone');
