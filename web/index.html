@@ -4569,7 +4569,7 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
 .tsk-ask:first-child { border-top: 0; }
 .tsk-ask .t { min-width: 0; }
 .tsk-ask .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
-.tsk-ask .tsk-ask-l { font: 400 .9375rem var(--font-ui); color: var(--k-ink); }
+.tsk-ask .tsk-ask-l { font: 400 .9375rem var(--font-ui); color: var(--k-ink); overflow-wrap: anywhere; }   /* review 4: a long unbroken name wraps, never pushes Answer off a phone */
 .tsk-ask .tsk-ask-l b { font-weight: 600; }
 .tsk-ask .tsk-answer { align-self: center; min-height: 32px; padding: 0 14px; border: 1px solid var(--k-rule); border-radius: 999px; background: none; font: 600 .8125rem var(--font-ui); color: var(--k-ink); cursor: pointer; }
 .tsk-ask .tsk-answer:hover { border-color: var(--gold); }
