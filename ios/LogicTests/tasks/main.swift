@@ -279,6 +279,19 @@ check(Tasks.tiles(askSections, rosterUnknown: false).first { $0.key == "open" }?
 check(Tasks.sections(askRead, project: "p1").first?.asking.map(\.who) == ["max"], "a project picked keeps only questions about it")
 check(Tasks.sections(Board.TasksRead(tasks: [], rosterUnknown: false, asking: [askRead.asking[1]]), project: nil).first?.group.key == "decision", "a question alone still draws the group")
 check(Tasks.keepingPlaces(askSections, with: Board.TasksRead(tasks: askRead.tasks, rosterUnknown: false), project: nil).first?.asking == [], "a live update takes the fresh questions (an answered one goes)")
+// Review 1: a live update keeps rows in place, so the questions follow the rows it kept.
+let maxAsks = Board.Asking(who: "max", projectId: "p1", projectName: "Launch", projectPath: [], waitingSince: nil)
+let carriedT = row(9, "decision") { $0.waitingOn = [.init(who: "max", reason: "question")] }
+let drawnTwice = Tasks.sections(Board.TasksRead(tasks: [carriedT], rosterUnknown: false), project: nil)
+let closedT = row(9, "closed")
+let liveTwice = Tasks.keepingPlaces(drawnTwice, with: Board.TasksRead(tasks: [closedT], rosterUnknown: false, asking: [maxAsks]), project: nil)
+check(liveTwice.first { $0.group.key == "decision" }.map { $0.rows.count == 1 && $0.asking.isEmpty } == true, "a kept decision row still showing the question is not listed again (no double count)")
+check(Tasks.sections(Board.TasksRead(tasks: [closedT], rosterUnknown: false, asking: [maxAsks]), project: nil).first { $0.group.key == "decision" }?.asking.map(\.who) == ["max"], "CONTROL: laid out again, the question is listed")
+let workingT = row(9, "working")
+let drawnLost = Tasks.sections(Board.TasksRead(tasks: [workingT], rosterUnknown: false, asking: [maxAsks]), project: nil)
+let nowCarried = row(9, "decision") { $0.waitingOn = [.init(who: "max", reason: "question")] }
+let liveLost = Tasks.keepingPlaces(drawnLost, with: Board.TasksRead(tasks: [nowCarried], rosterUnknown: false), project: nil)
+check(liveLost.first { $0.group.key == "decision" }?.asking.map(\.who) == ["max"], "a question a row kept in another group has taken over stays listed until the lay-out")
 let nameOf = { (s: String) -> String in s == "max" ? "Max" : s == "zoe" ? "Zoe" : s }
 check(Tasks.askTitle(askRead.asking[0], name: nameOf) == "Max asks about Book A \u{203A} Launch", "named with the project's chain")
 check(Tasks.askTitle(askRead.asking[1], name: nameOf) == "Zoe asks you something", "no project: asks you something")
