@@ -455,13 +455,35 @@ function jobKey(opts = {}) {
   };
 }
 const JOB_POINTER = 'current-personal.json';
+const NO_PLAN = 'there is no backup plan on this account, so nothing new is backed up. What is already backed up stays yours to restore';
+/* The plan in GB of files, null with none, undefined from a Kosmos+ that does not send it yet, 'unread' when Kosmos+ did
+   not answer: that run waits, because the company bound would pause a person's backup to Monday over one failed read. */
+async function planOf(opts) {
+  const remote = remoteOf(opts);
+  if (!remote || typeof remote.macRequest !== 'function') return 'unread';
+  let raw = null;
+  try { raw = await remote.macRequest('POST', STATUS, {}); } catch { /* unanswered */ }
+  // Never sent (remote access not set up, or busy): the run itself says so, with its own stop and no backoff.
+  if (raw && raw.notSent) return undefined;
+  const st = raw && raw.ok && raw.data && typeof raw.data === 'object' ? raw : null;
+  if (!st) return 'unread';
+  // Status answers for the account's current membership: a plan is only this personal backup's if the org is its own.
+  const rec = record(opts);
+  if (!rec || !st.data.org || st.data.org.id !== rec.org.id) return undefined;
+  const gb = st.data.backupWeeklyGb;
+  return gb === null || (Number.isSafeInteger(gb) && gb > 0) ? gb : undefined;
+}
 /* One run under this backup's key. Kosmos+ refusing the words: the hash the run started under goes (read before the run,
    so words accepted during it stay), mayBackUp turns false, and no later run walks every file to be refused the same way. */
 async function runJob(input, opts = {}) {
   const run = opts.runBackup || require('./backuprun').runBackup;
   const before = record(opts);
   const hash = before && before.consentHash;
-  const r = await run(input, { ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER, requireProof: true });
+  const planGb = await planOf(opts);
+  // Before anything is listed, and not a pause to Monday: paying takes effect on the next hourly run.
+  if (planGb === null) { const out = { ok: false, personActs: true, because: NO_PLAN }; noteRun(out, opts, before); return out; }
+  if (planGb === 'unread') { const out = { ok: false, because: 'Kosmos+ could not be reached just now, so this backup waits for the next try' }; noteRun(out, opts, before); return out; }
+  const r = await run(input, Object.assign({ ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER, requireProof: true }, planGb ? { planGb } : {}));
   if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) { noteRun(r, opts, before); return r; }
   const oe = opts.orgenroll || require('./orgenroll');
   try { if (hash) await oe.consentWithdrawn(enrollOpts(opts), hash); } catch { /* asked again next run */ }
@@ -471,7 +493,8 @@ async function runJob(input, opts = {}) {
 }
 
 /* pbjob-7404 slice C: what the panel says about the job. The note holds the last good run, the last try, and a stop as
-   this module's own sentence: a run's `because` is passed on only for personActs, which the key step and runJob write.
+   this module's own sentence: a run's `because` is passed on only for personActs, which the key step, runJob and a
+   plan's stops in backupsnapshot write, all fixed sentences.
    Other reasons carry a server's or a file's text, so a flag picks a fixed sentence here. The note names its org and world,
    so a note from another enrollment is never shown, and a run that outlived its enrollment leaves none. */
 const JOB_NOTE = 'personal-job.json';

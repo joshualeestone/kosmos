@@ -705,6 +705,109 @@ test('an index chunk whose lock ends before this snapshot\'s manifest would is s
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+// kosmos#7404: one random file alone in a folder, so a plan's arithmetic is about that file.
+function oneFile(bytes) {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'planbound-'));
+  const root = path.join(base, 'root');
+  fs.mkdirSync(root);
+  // Low entropy on purpose: the scanner holds back random-looking binaries of a few MB as credential-shaped.
+  fs.writeFileSync(path.join(root, 'data.bin'), crypto.randomBytes(bytes).map((x) => x & 15));
+  return { base, root };
+}
+
+test('a plan: files past it are refused in its own words before anything is spent', async () => {
+  const w = oneFile(1024), k = keys(), st = store();
+  try {
+    fs.truncateSync(path.join(w.root, 'data.bin'), 1_100_000_000);   // sparse: never read, since the refusal comes first
+    const r = await take(k, w.root, st, { deps: { planGb: 1, maxFile: 2_000_000_000 } });
+    assert.equal(r.ok, false); assert.equal(r.overPlan, true); assert.equal(r.personActs, true);
+    assert.match(r.because, /about 2 GB and your plan covers 1 GB/);
+    assert.equal(r.overAllowance, undefined, 'not a pause to Monday');
+    assert.equal(st.batches.length, 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan replaces the worst-case bound: a manifest budget that refuses a company backs up the plan', async () => {
+  const w = oneFile(2 * 1024 * 1024), k = keys(), st = store();
+  try {
+    const deps = { maxManifestJson: 6000 };
+    const company = await take(k, w.root, st, { deps });
+    assert.equal(company.ok, false); assert.equal(company.tooLarge, true, company.because);
+    const planned = await take(k, w.root, st, { deps: { ...deps, planGb: 25 } });
+    assert.equal(planned.ok, true, planned.because);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan: a company keeps the 64 MiB budget; only a plan gets the larger one', () => {
+  assert.equal(snap.MANIFEST_JSON_BUDGET, Math.floor(64 * 1024 * 1024 * 0.8));
+  assert.equal(snap.PLAN_MANIFEST_JSON_BUDGET, Math.floor(192 * 1024 * 1024 * 0.8));
+});
+
+test('a plan: a second run\'s files are its index, so a full index does not refuse them', async () => {
+  const w = oneFile(1024), k = keys(), st = store();
+  try {
+    const first = await take(k, w.root, st, { deps: { planGb: 25 } });
+    assert.equal(first.ok, true, first.because);
+    const index = new Map(first.added);
+    const [, row] = [...first.added][0];
+    for (let i = 0; index.size < 200000; i++) index.set(crypto.createHash('sha256').update(String(i)).digest('hex'), { ...row, key: `${row.key}x${i}` });
+    const again = await take(k, w.root, st, { input: { index, bucket: first.bucket }, deps: { planGb: 25 } });
+    assert.equal(again.overPlan, undefined, again.because);
+    assert.equal(again.ok, true, again.because);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan: an optional folder past the plan is refused in words, never dropped from a good backup', async () => {
+  const w = oneFile(1024), k = keys(), st = store();
+  const extra = path.join(w.base, 'extra');
+  try {
+    fs.mkdirSync(extra);
+    fs.writeFileSync(path.join(extra, 'big.bin'), '');
+    fs.truncateSync(path.join(extra, 'big.bin'), 1_100_000_000);
+    const r = await take(k, w.root, st, { input: { root: undefined, roots: [{ name: 'workers', path: w.root }, { name: 'projects', path: extra, optional: true }] }, deps: { planGb: 1, maxFile: 2_000_000_000 } });
+    assert.equal(r.ok, false); assert.equal(r.overPlan, true, r.because);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan: the measured size stops a run the expectation let through, honestly across a batch', async () => {
+  const w = oneFile(16 * 1024 * 1024), k = keys(), st = store();
+  try {
+    const whole = await take(k, w.root, st, { deps: { planGb: 25 } });
+    assert.equal(whole.ok, true, whole.because);
+    const n = whole.uploaded;
+    assert.ok(n >= 7, `chunks: ${n}`);
+    // The expectation is 17 chunks at 277 bytes. A budget just past it, and under what this many small chunks really cost.
+    const keyLen = [...whole.added][0][1].key.length;
+    const entry = (64 + 3) * n + 100;
+    const budget = 1024 + n * (70 + keyLen) + entry - 10;
+    const st2 = store();
+    const r = await take(k, w.root, st2, { deps: { planGb: 25, maxManifestJson: budget, batchBytes: 1, planExpectNothing: true } });
+    assert.equal(r.ok, false, `budget ${budget}`); assert.equal(r.tooLarge, true, r.because); assert.equal(r.personActs, true);
+    assert.equal(r.overAllowance, undefined, 'no pause to Monday: what a person moves is seen next hour');
+    assert.ok(r.added.size > 0 && st2.batches.length > 0, 'what went up before the stop is kept for the next run');
+    assert.match(r.because, /more pieces than one backup can list/);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan: a long run hands what it stored to a checkpoint, so a killed run keeps it', async () => {
+  const w = oneFile(4 * 1024 * 1024), k = keys(), st = store();
+  try {
+    const seen = [];
+    const r = await take(k, w.root, st, { deps: { planGb: 25, batchBytes: 1, checkpointBatches: 2, checkpoint: (added, bucket) => seen.push([added.size, bucket]) } });
+    assert.equal(r.ok, true, r.because);
+    assert.ok(seen.length >= 1 && seen[0][0] > 0 && seen[0][1], JSON.stringify(seen));
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
+test('a plan: a folder expected to pass the manifest is refused in words before anything is spent', async () => {
+  const w = oneFile(16 * 1024 * 1024), k = keys(), st = store();
+  try {
+    const r = await take(k, w.root, st, { deps: { planGb: 25, maxManifestJson: 2000 } });
+    assert.equal(r.ok, false); assert.equal(r.overPlan, true, r.because); assert.equal(st.batches.length, 0);
+    assert.doesNotMatch(r.because, /larger plan/, 'a larger plan has the same manifest limit');
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('a second run in the period, reusing what the first stored, is not refused by the allowance check', async () => {
   const w = workKosmos(), k = keys(), st = store();
   try {

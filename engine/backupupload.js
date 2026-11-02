@@ -57,7 +57,7 @@ const GRANT_ROUTE = '/v1/org/backup/grant';
 const MANIFEST_ROUTE = '/v1/org/backup/manifest';
 // kosmos#7118: a manifest context id, the format's own rule (the coordinator checks the same one).
 const { CTX_ID_RE: SNAPSHOT_ID_RE } = require('./backupformat');
-const MAX_MANIFEST = 64 * 1024 * 1024;   // the coordinator's manifest ceiling (its floor is MIN_OBJECT, as a chunk's)
+const MAX_MANIFEST = 192 * 1024 * 1024;   // the coordinator's manifest ceiling, from kosmos-relay's raise of it (its floor is MIN_OBJECT, as a chunk's)
 const MAX_PER_GRANT = 500;              // the coordinator's limit per grant request
 const MIN_OBJECT = 4148;                // a sealed chunk's framing floor (backupformat's 4 KiB Padme floor plus framing)
 const MAX_OBJECT = 5 * 1024 * 1024;     // the coordinator's per-object ceiling
@@ -580,7 +580,7 @@ function ownerOf(key) {
    and 4 random bytes). Optional; one that is not a context id (backupformat CTX_ID_RE) is refused before any grant.
    Plus epoch, as uploadChunks (the manifest's own key must be under it; the chunks it names may be under an earlier
    one), and putTimeoutMs, as uploadChunks; by default one PUT may take a minute plus its bytes at 16 KB/s, so a black-holed
-   PUT of a 64 MiB manifest holds the call about 70 minutes before it ends retryLater. The bytes are copied on entry,
+   PUT of a 192 MiB manifest holds the call about 3.5 hours before it ends retryLater. The bytes are copied on entry,
    so a caller reusing its buffer meanwhile cannot change what is sent. Resolves { ok: true, key, sha256,
    lockedUntilMs } or { ok: false, because, code?, retryLater?, unsure?, outlastsChunks?, grantSpent?, otherEpoch? }, unsure being
    [{ key }] when a write may have landed. Three states of grantSpent: true on every refusal made after a grant
@@ -615,8 +615,8 @@ async function uploadManifestInner(deps, bytes, o, st) {
   const now = deps.now || Date.now;
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   if (!Buffer.isBuffer(bytes)) return { ok: false, grantSpent: false, because: 'the manifest is not bytes' };
-  // Our own copy: what is hashed is what is sent, whatever the caller does meanwhile (at the 64 MiB ceiling, a second
-  // 64 MiB held for the call; a walker that wants less should keep manifests small).
+  // Our own copy: what is hashed is what is sent, whatever the caller does meanwhile (at the 192 MiB ceiling, a second
+  // 192 MiB held for the call; a walker that wants less should keep manifests small).
   bytes = Buffer.from(bytes);
   if (bytes.length < MIN_OBJECT || bytes.length > MAX_MANIFEST) return { ok: false, grantSpent: false, because: `the manifest is ${bytes.length} bytes, outside ${MIN_OBJECT} to ${MAX_MANIFEST}` };
   if (typeof o.bucket !== 'string' || !o.bucket) return { ok: false, grantSpent: false, because: "no bucket for the manifest (its chunks' bucket path)" };

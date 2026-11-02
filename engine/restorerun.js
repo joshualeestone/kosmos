@@ -42,7 +42,7 @@ const SNAPSHOT_TO_GRANT_SECS = 8 * 86400;
 const CLOCK_SKEW_SECS = 300;   // as engine/devkeyhist.js
 const FETCH_TIMEOUT_MS = 120000;   // one stored object; backuprestore leaves bounding fetches to its caller
 const SNAPSHOT_ID_RE = /^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z-[0-9a-f]{8}$/;
-const MAX_MANIFEST_OBJECT = 64 * 1024 * 1024;   // the coordinator's own ceiling for one manifest (backup.rs)
+const MAX_MANIFEST_OBJECT = 256 * 1024 * 1024;   // above the coordinator's ceiling for one manifest (backup.rs), as backuprestore's
 const KEY_HEX_RE = /^[0-9a-f]{64}$/;
 const MAX_LISTED = 5000;   // more than the coordinator lists (3,000)
 // The fixed DER prefix of an Ed25519 public key (SPKI), so a raw 32-byte key becomes a KeyObject.
@@ -140,7 +140,8 @@ async function fetchBounded(fetchObject, key, o, ms) {
      trust                 'member-proof' for a personal backup: no history, and only a manifest whose member proof
                            (backupformat.openManifestByProof) checks is opened. Nothing else skips the history.
      fetchObject(key, { maxBytes }) -> bytes | null   one stored object (a read grant's GET, later). It should refuse
-                           more than maxBytes; each call is also cut off after fetchTimeoutMs (default 2 min).
+                           more than maxBytes; each call is also cut off after fetchTimeoutMs, the manifest's after
+                           manifestTimeoutMs when given (default 2 min).
      sink, maxTotalBytes   as backuprestore.restoreSnapshot
      plan, planned         optional: engine/restorefetch.js readGrantFetcher's, given with its fetchObject
    Resolves { ok: true, deviceKey, backfill, takenAt, result, fetchProblems } (result is restoreSnapshot's;
@@ -157,6 +158,7 @@ async function runRestore(opts) {
   if (!(Number.isSafeInteger(opts.epoch) && opts.epoch > 0) && !(typeof opts.epoch === 'string' && /^[1-9][0-9]{0,17}$/.test(opts.epoch))) return { ok: false, because: 'the restore was asked without a key epoch' };
   const epoch = String(opts.epoch);
   if (!(opts.memberSk instanceof Uint8Array) || opts.memberSk.length !== 32) return { ok: false, because: 'the member key was not opened, so nothing can be restored' };
+  const pos = (n, dflt) => (Number.isSafeInteger(n) && n > 0 ? n : dflt);   // manifestTimeoutMs: one manifest's own cut-off
   const ms = Number.isSafeInteger(opts.fetchTimeoutMs) && opts.fetchTimeoutMs > 0 ? opts.fetchTimeoutMs : FETCH_TIMEOUT_MS;
   const takenAt = snapshotTimeOf(manifest && manifest.snapshot);
   const why = timeProblem(manifest, takenAt);
@@ -169,7 +171,7 @@ async function runRestore(opts) {
   const candidates = byProof ? [] : h.keys.filter((k) => devkeyhist.keyAt(h.keys, k.key, manifest.granted_at));
   if (!byProof && !candidates.length) return { ok: false, because: 'no device key of this member was valid when this backup was recorded' };
   if (!keyOk(manifest.key, org, member)) return { ok: false, because: 'the backup\'s manifest is not filed under this member' };
-  const bytes = await fetchBounded(opts.fetchObject, manifest.key, { maxBytes: MAX_MANIFEST_OBJECT }, ms);
+  const bytes = await fetchBounded(opts.fetchObject, manifest.key, { maxBytes: MAX_MANIFEST_OBJECT }, pos(opts.manifestTimeoutMs, ms));
   if (!bytes) {
     // slice 2: a refused read grant says why (a 429's wait included), rather than only that nothing came back.
     let why = null;

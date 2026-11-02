@@ -38,7 +38,7 @@
  *   flags stand beside them (a snapshot taken is still taken; its chunks are uploaded again next run).
  * A first run (no pointer) whose key step refuses keeps that answer's job state in the named pair's file (when the file
  * holds none of its own) and stops; one whose key step names no pair keeps nothing (there is no file to keep it in).
- * deps: ensureMemberKey, pointerName and requireProof (a personal backup's); for tests, takeSnapshot, deviceKey, macRequest, now, snapshotId.
+ * deps: ensureMemberKey, pointerName, requireProof and planGb (a personal backup's); for tests, takeSnapshot, deviceKey, macRequest, now, snapshotId.
  */
 const fs = require('fs');
 const path = require('path');
@@ -182,6 +182,12 @@ function keepPointer(pair, deps) {
   try { writePointer(pair, deps); return true; } catch { return false; }
 }
 
+function snapshotDeps(deps, checkpoint) {
+  const out = { macRequest: deps.macRequest || ((m, r, b) => require('./remote').macRequest(m, r, b)) };
+  if (deps.planGb) { out.planGb = deps.planGb; out.checkpoint = checkpoint; }
+  return out;
+}
+
 /* The snapshot under an ok key for `pair`: this clock's week, and once more in a granted week. ref.state is kept
    current, so the job's state is written over the latest periods. */
 async function snapshotStep(pair, k, ref, input, deps, now) {
@@ -210,7 +216,13 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
       deviceKey: dk.privateKey, index: p.index, bucket: p.bucket, ...(k.proofKey ? { proofKey: k.proofKey } : {}),
       ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },
-    }, deps.macRequest ? { macRequest: deps.macRequest } : { macRequest: (m, r, b) => require('./remote').macRequest(m, r, b) });
+    }, snapshotDeps(deps, (added, bucket) => {
+      // Never stops the run: a checkpoint that cannot be kept only loses what a kill would have lost anyway.
+      try {
+        const { leftOut, ...kept } = backupstate.withRun(ref.state, p, { added, bucket });
+        backupstate.writeState(pair.org, pair.member, kept);
+      } catch { /* the run's own write comes after */ }
+    }));
     if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
     // "Ran" means a snapshot was stored (review 4): a refused or failed pass took none.
     if (result.ok === true) ref.took = true;

@@ -132,23 +132,25 @@ function jobOpts(pair, extra) {
   const rec = { org: { id: pair.org }, world: 'w', consentHash: 'cd'.repeat(32) };
   const withdrawn = [];
   const orgenroll = { readEnrollment: () => rec, consentWithdrawn: async (o, h) => { withdrawn.push(h); return true; } };
-  return { withdrawn, opts: Object.assign({ root: path.join(SANDBOX, 'job-' + pair.org), orgenroll }, extra) };
+  const remote = { macRequest: async () => ({ ok: true, data: { org: { id: pair.org }, backupWeeklyGb: 25 } }) };   // the plan a run reads first
+  return { withdrawn, opts: Object.assign({ root: path.join(SANDBOX, 'job-' + pair.org), orgenroll, remote }, extra) };
 }
 test('a real run seals to the personal key under the pair Kosmos+ named, and names its state for it', async () => {
   const pair = newPair();
   const { key, row } = keyed(pair);
   const k = kosmosPlus({ ...pair, keys: [row] });
-  const taken = [];
+  const taken = [], plans = [];
   const dk = backupkeys.newMemberKey();
   const runBackup = (input, deps) => backuprun.runBackup(input, Object.assign({}, deps, {
     deviceKey: () => ({ ok: true, privateKey: dk.sk }), now: () => Date.UTC(2026, 9, 31),
-    takeSnapshot: async (s) => { taken.push(s); return { ok: true, added: new Map(), files: 1 }; },
+    takeSnapshot: async (s, d) => { taken.push(s); plans.push(d.planGb); return { ok: true, added: new Map(), files: 1 }; },
   }));
   const { opts, withdrawn } = jobOpts(pair, { macRequest: k.macRequest, runBackup });
   const r = await pb.runJob({ roots: [{ name: 'workers', path: SANDBOX }] }, opts);
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.deepEqual(r.pair, pair);
   assert.equal(taken.length, 1, 'one snapshot, after the pair was learned');
+  assert.deepEqual(plans, [25], 'the plan reached the snapshot through the real run');
   assert.ok(taken[0].memberPk.equals(key.pk));
   assert.ok(taken[0].proofKey.equals(require('./backupformat').memberProofKey(key.sk)), 'slice D: the proof key reaches the real run');
   assert.deepEqual([taken[0].ctx.org, taken[0].ctx.member, taken[0].ctx.epoch], [pair.org, pair.member, '1']);

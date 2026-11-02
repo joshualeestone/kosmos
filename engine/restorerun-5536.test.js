@@ -182,7 +182,8 @@ test('#5536 review 1: what a store or a caller hands it is refused by name, neve
     r = await run({ memberSk: null }); assert.match(r.because, /member key was not opened/);
     r = await run({ manifest: Object.assign({}, s.record, { key: 'o2/m1/1/2026-W41/m1' }) }); assert.match(r.because, /not filed under this member/);
     r = await run({ manifest: Object.assign({}, s.record, { key: 'o1/m1/../x' }) }); assert.match(r.because, /not filed under this member/);
-    r = await run({ fetchObject: async () => Buffer.alloc(64 * 1024 * 1024 + 1) }); assert.match(r.because, /larger than any manifest/);
+    r = await run({ fetchObject: async () => Buffer.alloc(256 * 1024 * 1024 + 1) }); assert.match(r.because, /larger than any manifest/);
+    r = await run({ fetchTimeoutMs: 600000, manifestTimeoutMs: 20, fetchObject: () => new Promise(() => {}) }); assert.equal(r.ok, false, 'the manifest has its own cut-off');
     r = await run({ fetchObject: async () => 12345 }); assert.match(r.because, /could not be fetched/, 'a number is not bytes');
     const t0 = Date.now();
     r = await run({ fetchObject: () => new Promise(() => {}), fetchTimeoutMs: 50 }); assert.match(r.because, /could not be fetched/);
