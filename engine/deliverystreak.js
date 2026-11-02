@@ -34,6 +34,10 @@ const SPEAKS_FOR_ITSELF = new Set(['stopped', 'restarting', 'needs_you', 'needs_
 
 /* name -> { since: ms, count, lastWhy, lastAt: ms, kinds: Set<string> } */
 const streaks = new Map();
+/* kosmos#7212 item 2: name -> { since, count, endedAt }, a streak a PLACED verdict ended, kept until the minute sweep asks
+   (endsToSay) so a stall that was said can be said to have ended. Only a landed line writes it: a streak cleared because
+   the card says itself (reset) or the agent left the board (sweep) did not recover. */
+const ended = new Map();
 
 /* kosmos#7368: on Windows a message is written into the agent's input and counts as PLACED even while a turn is
    running, so the agent queues it behind that turn, and a turn that never ends holds every later message. The streak
@@ -58,7 +62,11 @@ function whyOf(v) {
 function note(name, v, now = Date.now()) {
   try {
     if (typeof name !== 'string' || !name || !v || typeof v !== 'object') return;
-    if (v.state === 'placed') { streaks.delete(name); return; }
+    if (v.state === 'placed') {
+      const was = streaks.get(name);
+      if (was) { streaks.delete(name); ended.set(name, { since: was.since, count: was.count, endedAt: now }); }
+      return;
+    }
     if (v.busy === true || v.contentRefused === true) return;
     if (v.state !== 'could_not' && v.state !== 'unconfirmed') return;
     const why = whyOf(v);
@@ -143,6 +151,42 @@ function stallsToSay(names, said, { now = Date.now(), limitShownOf = () => false
   return out;
 }
 
+/* kosmos#7212 item 2: which said stalls ended with a landed line since the last sweep, each once. `said` is the same Map
+   stallsToSay keeps; call this first, since stallsToSay forgets a name whose streak is gone. Each entry is { name, since
+   (ISO), endedAt (ISO), count, ms, pushed } where `pushed` is true when a stall push for this agent went out during the
+   streak (pushTold), the one case a phone all-clear would answer. A streak that ended but was never said is forgotten
+   silently: nobody was told it started. Never throws. */
+function endsToSay(said) {
+  const out = [];
+  try {
+    for (const [name, e] of [...ended]) {
+      ended.delete(name);
+      const told = said.get(name);
+      if (!told || told.since !== e.since) continue;
+      said.delete(name);
+      const p = pushedAt.get(name);
+      out.push({ name, since: new Date(e.since).toISOString(), endedAt: new Date(e.endedAt).toISOString(), count: e.count,
+        ms: Math.max(0, e.endedAt - e.since), pushed: Number.isFinite(p) && p >= e.since && p <= e.endedAt });
+    }
+  } catch { /* said next minute, or not at all */ }
+  return out;
+}
+
+/* How long, in the board log's words: whole minutes under two hours, then hours under two days, then days. */
+function spanWords(ms) {
+  const m = Math.max(0, Math.floor(ms / 60000));
+  if (m < 120) return m + (m === 1 ? ' minute' : ' minutes');
+  const h = Math.floor(m / 60);
+  if (h < 48) return h + ' hours';
+  return Math.floor(h / 24) + ' days';
+}
+
+/* The board log's line for one stall that ended (kosmos#7212 item 2). */
+function endedLine(e) {
+  return 'delivery-stall-ended: a message reached ' + e.name + ' at ' + e.endedAt + ', ending the stall said since ' + e.since
+    + ' (' + spanWords(e.ms) + ', ' + e.count + ' tries that did not land' + (e.pushed ? '; the phone was told of the stall' : '') + ').\n';
+}
+
 /* Why the last one did not land, as the middle sentence of the card's line (Mona Lisa's design, #7212): no full stop,
    the page adds it. */
 const WHY_WORDS = {
@@ -223,9 +267,10 @@ function settleFor(card) {
 function sweep(names) {
   const present = new Set(Array.from(names || [], String));
   for (const k of [...streaks.keys()]) if (!present.has(k)) streaks.delete(k);
+  for (const k of [...ended.keys()]) if (!present.has(k)) ended.delete(k);
 }
 
-function resetForTests() { streaks.clear(); pushedAt.clear(); takenBack.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
+function resetForTests() { streaks.clear(); ended.clear(); pushedAt.clear(); takenBack.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
 
 /* kosmos#7212 (#7615 item 1): the needs-you notification for a card's stall (its deliveryStall: a streak, or a stuck
    Windows turn), so the person is told away from the board, as a crash loop or a stuck terminal tells them. `card` is
@@ -355,4 +400,4 @@ function tellStalls(cards, { now = Date.now(), file, send, ownBound = null }) {
   } catch { /* told next minute */ }
 }
 
-module.exports = { stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { endsToSay, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
