@@ -520,9 +520,9 @@ function stopOf(r) {
 /* kosmos#7775: what the last run did that a person may want to know, though it backed up. Each is a fixed sentence
    picked by a flag the run carried: checkpointsLost (backuprun, a progress write that failed) and sealedInProcess
    (backupsnapshot, the seal worker could not be used, so the board waited for the seal). unsignedBecause is not here:
-   a personal key is never signed (personalbackupkey), so it only ever rides a company run, and no company panel exists. */
+   it is on ensureMemberKey's answer, which runOnce does not pass to runBackup's. */
 const RUN_SAY = [
-  ['lostCheckpoints', 'This computer could not save the last backup\'s progress as it went, so a backup that is interrupted may repeat some of its work.'],
+  ['lostCheckpoints', 'On the last try, this computer could not save its progress along the way, so an interrupted backup may have to redo some work.'],
   ['sealedHere', 'The last backup finished without its background helper, so Kosmos may have paused for a moment while it did.'],
 ];
 const SEALED_HOW = ['not-sent', 'no-worker', 'worker-ended', 'no-answer'];

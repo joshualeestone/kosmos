@@ -355,7 +355,7 @@ test('#7775: the last run\'s lost checkpoints and in-process seal are plain line
   const pair = newPair();
   const o = onNow(chain(pair, []), pair);
   const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
-  const lost = /could not save the last backup's progress/;
+  const lost = /On the last try, this computer could not save its progress/;
   const sealed = /without its background helper/;
   await run({ ok: true, checkpointsLost: 3 }, 12);
   let r = pb.report(o);
@@ -377,14 +377,32 @@ test('#7775: the last run\'s lost checkpoints and in-process seal are plain line
   r = pb.report(o);
   assert.equal(r.lastOk, '2026-10-31T15:00:00.000Z');
   assert.match(r.note, lost);
-  // Beside the week's wait, and beside a first try that has not finished.
   await run({ ok: false, overAllowance: true, because: 'x', checkpointsLost: 1 }, 17);
-  assert.match(pb.report(o).note, /allowance is used up\..*could not save/);
+  assert.match(pb.report(o).note, /allowance is used up\. Backups carry on next week\. On the last try/);
   // A stop outranks them: the person acts on the stop.
   await run({ ok: false, personActs: true, because: 'this backup has no key on Kosmos+ yet, so nothing was backed up', checkpointsLost: 1 }, 18);
   r = pb.report(o);
   assert.ok(r.stopped);
   assert.equal(r.note, null);
+});
+test('#7775: before any backup has finished, the line follows "not finished yet"', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  await pb.runJob({ roots: [] }, { ...o, now: () => at(11), runBackup: async () => ({ ok: false, because: 'Kosmos+ could not be reached', checkpointsLost: 2 }) });
+  const r = pb.report(o);
+  assert.equal(r.lastOk, null);
+  assert.match(r.note, /^A backup has not finished yet\. On the last try, this computer could not save its progress/);
+});
+test('#7775: every seal reason backupsnapshot can give is said on the panel', async () => {
+  const src = fs.readFileSync(path.join(__dirname, 'backupsnapshot.js'), 'utf8');
+  const hows = [...new Set([...src.matchAll(/\bhere\('([a-z-]+)'\)/g)].map((m) => m[1]))];
+  assert.ok(hows.length >= 4, 'control: the reasons were found in backupsnapshot.js: ' + hows.join(','));
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  for (const how of hows) {
+    await pb.runJob({ roots: [] }, { ...o, runBackup: async () => ({ ok: true, sealedInProcess: how }) });
+    assert.match(String(pb.report(o).note), /without its background helper/, how);
+  }
 });
 test('#7775: only a positive whole count and a known seal reason are said; nothing of the run\'s own text is', async () => {
   const pair = newPair();
