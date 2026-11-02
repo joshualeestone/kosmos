@@ -115,7 +115,7 @@ function pbfState() {
   return m[0];
 }
 function painter(doc, fetchImpl, extra = {}) {
-  const src = page.liftAll(SCRIPT, ['asSentence', 'pbfWhen', 'pbfStartedWhen', 'pbfBackupWhen', 'pbfMsg', 'pbfFocus', 'pbfLastWords', 'pbfShow', 'pbfRead', 'pbfPaint', 'pbfRowButton', 'pbfSee', 'pbfStart', 'pbfStop', 'pbfOpen'])
+  const src = page.liftAll(SCRIPT, ['asSentence', 'pbfWhen', 'pbfStartedWhen', 'pbfBackupWhen', 'pbfMsg', 'pbfFocus', 'pbfLastWords', 'pbfShow', 'pbfRead', 'pbfPaint', 'pbfRowButton', 'pbfSee', 'pbfStart', 'pbfStop', 'pbfOpen', 'pbPost'])
     + '\n' + pbfState();
   const names = Object.keys(extra);
   return new Function('document', 'fetch', ...names, src + '\nreturn { PBF, pbfShow, pbfPaint, pbfSee, pbfStart, pbfStop, pbfRead, pbfOpen };')(
@@ -167,7 +167,7 @@ test('turning personal backup off drops the list and the last restore, names and
   assert.equal(p.PBF.at, 0, 'the next show reads at once');
 });
 
-const answer = (body) => () => Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+const answer = (body, status = 200) => () => Promise.resolve({ ok: status < 400, status, json: () => Promise.resolve(body) });
 const tick = () => new Promise((r) => setImmediate(r));
 
 test('Restore: a start that answers shows the running line and puts focus on Stop', async () => {
@@ -270,4 +270,44 @@ test('a list where no backup can be restored keeps See your backups, and focus l
   await p.pbfSee();
   assert.ok(vis(doc, 'pb-files-list') && vis(doc, 'pb-files-see'), 'rows with no action and no way to read the list again');
   assert.equal(doc.focused && doc.focused.id, 'pb-files-see');
+});
+
+test('refusals: a remote session gets the board\'s step-up instruction, never a "Try again" that cannot work', async () => {
+  for (const step of ['see', 'start', 'stop']) {
+    const doc = fakeDoc();
+    const p = painter(doc, answer({ code: 'remote_step_up_needed', error: 'confirm it is you on this device first' }, 403));
+    p.PBF.status = { running: step === 'stop', startedAt: 1, last: null }; p.PBF.at = Date.now();
+    p.PBF.list = [{ key: 'k1', takenAt: 1e9, problem: null }]; if (step === 'start') p.PBF.asked = p.PBF.list[0];
+    p.pbfShow(true);
+    await (step === 'see' ? p.pbfSee() : step === 'start' ? p.pbfStart() : p.pbfStop());
+    assert.equal(doc.getElementById('pb-files-msg').textContent, 'Confirm it is you on this device first.', step);
+  }
+});
+
+test('refusals: an answer that says why is shown as it says, and nothing starts', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, answer({ ok: false, code: 'restore_running', because: 'A restore is already running on this computer.' }));
+  p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
+  p.PBF.list = [{ key: 'k1', takenAt: 1e9, problem: null }]; p.PBF.asked = p.PBF.list[0];
+  p.pbfShow(true);
+  await p.pbfStart();
+  assert.equal(doc.getElementById('pb-files-msg').textContent, 'A restore is already running on this computer.');
+  assert.ok(vis(doc, 'pb-files-ask') && !vis(doc, 'pb-files-run'), 'the confirm stays; no running line');
+});
+
+test('the turned-off stop reads as the engine words it, so a rewording there cannot make it "You stopped"', () => {
+  const ENGINE = fs.readFileSync(path.join(__dirname, 'engine', 'personalrestorejob.js'), 'utf8');
+  const m = ENGINE.match(/because: '(Personal backup was turned off[^']*)'/);
+  assert.ok(m, 'CONTROL: the engine\'s turned-off sentence was not found; this test must follow it');
+  const w = pbfLastWords({ ok: false, code: 'stopped', stoppedByPerson: true, because: m[1] });
+  assert.equal(w.line, m[1], 'the page treated a turned-off stop as the person\'s own Stop');
+});
+
+test('a remote session\'s failed restore: the job\'s fixed line, and the copy when there is one', () => {
+  const ENGINE = fs.readFileSync(path.join(__dirname, 'engine', 'personalrestorejob.js'), 'utf8');
+  const m = ENGINE.match(/const REMOTE_BECAUSE = '([^']*)'/);
+  assert.ok(m, 'CONTROL: REMOTE_BECAUSE was not found');
+  const w = pbfLastWords({ ok: false, because: m[1], world: WORLD, details: { failedCount: 0, leftOutAtBackup: 0 } });
+  assert.equal(w.line, m[1] + ' Its copy is ' + WORLD.name + '.');
+  assert.deepEqual(w.world, WORLD, 'Open the copy, from a phone too');
 });

@@ -20517,7 +20517,7 @@ window.kosmosMeasureScrollbarWidth();
                /api/personal-backup/files). Mona Lisa's design review (fleetbuilders m2528): nothing is listed until asked,
                because a list spends the hourly Kosmos+ allowance; the confirm is inline; no progress bar, since the restore
                reports none; and the end says how to open the copy. -->
-          <div id="pb-files" role="group" aria-label="Restore from a backup" hidden>
+          <div id="pb-files" role="group" aria-labelledby="pb-files-head" hidden>
             <p class="fhint pb-files-head" id="pb-files-head">Restore from a backup</p>
             <ul id="pb-files-list" hidden></ul>
             <p class="fhint" id="pb-files-more" hidden>Older backups are not shown.</p>
@@ -55818,7 +55818,11 @@ async function pbPost(kind, body) {
       : kind === 'key' ? await fetch('/api/personal-backup/key', init)
       : kind === 'saved' ? await fetch('/api/personal-backup/saved', init)
       : kind === 'restore' ? await fetch('/api/personal-backup/restore', init)
-      : kind === 'off' ? await fetch('/api/personal-backup/off', init) : null;
+      : kind === 'off' ? await fetch('/api/personal-backup/off', init)
+      // kosmos#7404: restore from a backup (the list, a start, a stop), so their refusals read as the panel's do.
+      : kind === 'backups' ? await fetch('/api/personal-backup/backups', init)
+      : kind === 'files' ? await fetch('/api/personal-backup/files', init)
+      : kind === 'stop' ? await fetch('/api/personal-backup/stop', init) : null;
   } catch { res = null; }
   if (!res) return { ok: false, because: 'This Kosmos could not be reached. Try again.' };
   let b = null;
@@ -56030,7 +56034,8 @@ function pbfShow(on) {
   const box = document.getElementById('pb-files');
   box.hidden = !on;
   if (!on) {
-    // Off drops the restore's answer on the board (personalrestorejob.forget), so the page drops its copy of it too.
+    // Whenever the section is not shown (Off, or any view but on): the status is read again when it is. Off also drops the
+    // restore's answer on the board (personalrestorejob.forget), so nothing of it is kept here either.
     PBF.asked = null; PBF.stopAsk = false; PBF.stopSent = false; PBF.list = null; PBF.more = false; PBF.keyMissing = false; PBF.status = null; PBF.startedFor = null; PBF.at = 0;
     PBF.seq++; PBF.gen++;   // a read, a list, a start or a stop already in flight answers nothing
     return;
@@ -56047,7 +56052,7 @@ function pbfRead() {
     const wasRunning = !!(PBF.status && PBF.status.running);
     PBF.status = j;
     const ended = wasRunning && !j.running;
-    if (ended) { PBF.stopAsk = false; PBF.list = null; }   // a finished restore puts the list away
+    if (ended) { PBF.stopAsk = false; PBF.list = null; PBF.asked = null; }   // a restore this tab saw end puts the list, and any confirm, away
     // The control in focus (Stop, or the running line) goes with the restore, so the end takes it.
     const inside = ended && document.activeElement && document.activeElement !== document.body
       && document.getElementById('pb-files').contains(document.activeElement);
@@ -56129,19 +56134,14 @@ async function pbfSee() {
   if (PBF.busy) return;
   const gen = PBF.gen;
   PBF.busy = true; pbfMsg(''); pbfPaint();
-  let r;
-  try {
-    const res = await fetch('/api/personal-backup/backups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    r = await res.json();
-    if (!res.ok && r && typeof r.because !== 'string') r = null;   // a refusal with no sentence (a 404 { error }) gets this step's own line
-  } catch { r = { ok: false, because: 'This Kosmos could not be reached. Try again.' }; }
+  const r = await pbPost('backups', {});   // review 5: pbPost passes a remote step-up's own instruction through
   PBF.busy = false;
   if (gen !== PBF.gen) { pbfPaint(); return; }   // personal backup went off meanwhile: this answer is for a panel that is gone
   if (r && r.ok === true && Array.isArray(r.backups)) {
     PBF.list = r.backups; PBF.more = r.more === true; PBF.keyMissing = r.keyMissing === true;
     // keyMissing: there are backups, under a key this computer lacks, so "none yet" would be false (its line says so).
     pbfMsg(!r.backups.length && !PBF.keyMissing ? 'There are no backups from this account yet.' : '');
-  } else pbfMsg((r && (r.because || r.error)) || 'Your backups could not be listed just now. Try again.');
+  } else pbfMsg((r && r.because) || 'Your backups could not be listed just now. Try again.');
   pbfPaint();
   pbfFocus(pbfRowButton(null) || document.getElementById('pb-files-see'));
 }
@@ -56150,12 +56150,7 @@ async function pbfStart() {
   if (!b || PBF.busy) return;
   const gen = PBF.gen;
   PBF.busy = true; pbfPaint();
-  let r;
-  try {
-    const res = await fetch('/api/personal-backup/files', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: b.key }) });
-    r = await res.json();
-    if (!res.ok && r && typeof r.because !== 'string') r = null;   // a refusal with no sentence (a 404 { error }) gets this step's own line
-  } catch { r = { ok: false, because: 'This Kosmos could not be reached. Nothing was restored.' }; }
+  const r = await pbPost('files', { key: b.key });
   PBF.busy = false;
   if (gen !== PBF.gen) { pbfPaint(); return; }
   const started = !!(r && r.ok === true);
@@ -56164,7 +56159,7 @@ async function pbfStart() {
     PBF.startedFor = { backup: b, at }; PBF.asked = null;
     PBF.status = { running: true, startedAt: at, last: PBF.status && PBF.status.last };
     pbfMsg('');
-  } else pbfMsg((r && (r.because || r.error)) || 'The restore did not start. Nothing was restored.');
+  } else pbfMsg((r && r.because) || 'The restore did not start. Nothing was restored.');
   pbfRead();
   pbfPaint();
   pbfFocus(started ? document.getElementById('pb-files-stop') : document.getElementById('pb-files-no'));
@@ -56173,17 +56168,12 @@ async function pbfStop() {
   if (PBF.stopping) return;   // review 1: a second Stop would answer "No restore is running" over the first one's success
   const gen = PBF.gen;
   PBF.stopping = true; pbfPaint();
-  let r;
-  try {
-    const res = await fetch('/api/personal-backup/stop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    r = await res.json();
-    if (!res.ok && r && typeof r.because !== 'string') r = null;   // a refusal with no sentence (a 404 { error }) gets this step's own line
-  } catch { r = { ok: false, because: 'This Kosmos could not be reached. The restore is still running.' }; }
+  const r = await pbPost('stop', {});
   PBF.stopping = false;
   if (gen !== PBF.gen) { pbfPaint(); return; }
   PBF.stopAsk = false;
   if (r && r.ok === true) PBF.stopSent = true;
-  pbfMsg(r && r.ok === true ? '' : ((r && (r.because || r.error)) || 'The restore could not be stopped just now.'));
+  pbfMsg(r && r.ok === true ? '' : ((r && r.because) || 'The restore could not be stopped just now.'));
   pbfRead();
   pbfPaint();
   pbfFocus(document.getElementById('pb-files-run'));
