@@ -16,8 +16,10 @@ the push (POST /v1/mac/notify-ack, #3540) once it is over. No coordinator change
   ack only when it decides the email at 30 minutes, and an ack cannot be taken back, so an agent that recovers and
   stalls again inside that window keeps its email. A push whose answer was a failure stays open (the coordinator may
   have stored it; an ack for an id it lacks matches nothing); a push the sender did not take opens nothing. A retry
-  under the same id joins the open entry (keeping every agent it covered, so one left out of the retry is still
-  waited for), and its clock restarts at the retry: a failed answer can mean the coordinator never stored the first. An end clears an agent only from pushes made at or before it ended, so the sweep's
+  under the same id joins the open entry once the sender takes it: every agent it lists is open again (even one an
+  earlier end cleared), agents only the first push covered are still waited for, and the clock restarts at the retry,
+  since a failed answer can mean the coordinator never stored the first. A retry the sender does not take changes
+  nothing. An end clears an agent only from pushes made at or before it ended, so the sweep's
   order (ends, then acks, then new pushes) is not load-bearing. Entries
   older than an hour are dropped.
 - `server.js` minute sweep (when the roster is not empty): `acksDue(stallEnds)`, each id to `phonenotify.acked`.
@@ -44,7 +46,7 @@ email goes as before. Safe, but the ack may fire less often than it could; if th
 - An ack is one attempt: the entry is gone once handed to the sender, and a refused or failed ack is not retried.
 
 ## Tests
-`engine/stallack-7794.test.js` (14). Each rule was mutated and its test went red: wait-for-all (caught by the reset
+`engine/stallack-7794.test.js` (17). Each rule was mutated and its test went red: wait-for-all (caught by the reset
 case, since the still-failing rule also holds the multi-agent case), still-failing hold, the 25-minute window, the
-Kosmos+ switch, the test seam clearing pushes (a real restart empties the in-memory map by itself), keeping a failed push, a retry joining it and keeping a left-out agent, a retry restarting the clock, an end clearing only earlier pushes, a throwing sender opening nothing, not opening an untaken push, the uncut id, the sweep
+Kosmos+ switch, the test seam clearing pushes (a real restart empties the in-memory map by itself), keeping a failed push, a retry joining it and keeping a left-out agent, a retry reopening an agent it lists, a retry adding its agents to the hold, an untaken retry changing nothing, a retry restarting the clock, an end clearing only earlier pushes, a throwing sender opening nothing, not opening an untaken push, the uncut id, the sweep
 wiring.

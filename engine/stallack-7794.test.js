@@ -131,7 +131,53 @@ test('a retry that leaves out an agent the push covered keeps waiting for that a
   assert.equal(pushes[2].id, pushes[1].id, 'precondition: the retry carries the same id');
   assert.equal(pushes[2].agent, pushes[1].agent.replace(/ and 1 more$/, ''), 'precondition: the retry left j2 out');
   const ends = recover('j1', said, PUSH + 40 * MIN);
-  assert.deepEqual(ds.acksDue(ends, PUSH + 32 * MIN + 25 * MIN), [], 'acked while j2, which the push named, was still stalled');
+  ds.reset('j2');   // j2's streak is cleared with no end, so only the push's own list can still hold the ack
+  assert.deepEqual(ds.acksDue(ends, PUSH + 32 * MIN + 25 * MIN), [], 'acked while j2, which the push named, never recovered');
+});
+
+test('a retry reopens an agent it lists again, even one an earlier end had cleared', () => {
+  const { said, ev } = pushedStalls(['k1', 'k2']);   // one push, under k1's id
+  ev.onResult(false);                                 // both taken back
+  ds.acksDue(recover('k2', said, PUSH + 5 * MIN), PUSH + 5 * MIN);   // k2's end clears it from the push
+  for (let i = 0; i < 4; i += 1) ds.note('k2', FAIL, PUSH + 6 * MIN + i * MIN);   // and k2 stalls again
+  const again = [];
+  ds.tellStalls([stalledCard('k1'), stalledCard('k2')], { now: PUSH + 16 * MIN, send: (e) => { again.push(e); return true; } });
+  assert.equal(again.length, 1, 'precondition: the retry went');
+  assert.equal(again[0].id, ev.id, 'precondition: under the same id');
+  assert.match(again[0].agent, /and 1 more$/, 'precondition: the retry lists k2 again');
+  ds.reset('k2');   // k2's new streak is cleared with no end
+  const ends = recover('k1', said, PUSH + 20 * MIN);
+  assert.deepEqual(ds.acksDue(ends, PUSH + 16 * MIN + 25 * MIN), [], 'acked though k2, listed again by the retry, never recovered');
+});
+
+test('an agent a retry added is held by its failing again, like the agents the first push covered', () => {
+  const said = new Map();
+  for (const n of ['c1', 'c2']) for (let i = 0; i < 4; i += 1) ds.note(n, FAIL, T0 + i * MIN);
+  ds.stallsToSay(['c1', 'c2'], said, { now: PUSH });
+  const pushes = [];
+  const take = (e) => { pushes.push(e); return true; };
+  ds.tellStalls([stalledCard('c1')], { now: PUSH, send: take });   // c1 alone first
+  pushes[0].onResult(false);
+  ds.tellStalls([stalledCard('c1'), stalledCard('c2')], { now: PUSH + 16 * MIN, send: take });   // the retry adds c2
+  assert.equal(pushes[1].id, pushes[0].id, 'precondition: under the same id');
+  const ends = [...recover('c1', said, PUSH + 20 * MIN), ...recover('c2', said, PUSH + 21 * MIN)];
+  assert.equal(ends.length, 2, 'precondition: both reported an end');
+  ds.note('c2', FAIL, PUSH + 22 * MIN);   // c2 is failing again
+  assert.deepEqual(ds.acksDue(ends, PUSH + 16 * MIN + 25 * MIN), [], 'acked while c2, which the retry named, was failing again');
+});
+
+test('a retry the sender did not take changes nothing in the open push', () => {
+  const said = new Map();
+  for (const n of ['u1', 'u2']) for (let i = 0; i < 4; i += 1) ds.note(n, FAIL, T0 + i * MIN);
+  ds.stallsToSay(['u1', 'u2'], said, { now: PUSH });
+  const pushes = [];
+  ds.tellStalls([stalledCard('u1')], { now: PUSH, send: (e) => { pushes.push(e); return true; } });   // u1 alone
+  pushes[0].onResult(false);
+  ds.tellStalls([stalledCard('u1'), stalledCard('u2')], { now: PUSH + 16 * MIN, send: (e) => { pushes.push(e); return false; } });
+  assert.equal(pushes.length, 2, 'precondition: the retry was offered');
+  assert.equal(pushes[1].id, pushes[0].id, 'precondition: under the same id');
+  ds.reset('u2');   // u2 never recovers through an end; it was never in a push that went out
+  assert.deepEqual(ds.acksDue(recover('u1', said, PUSH + 5 * MIN), DUE), [pushes[0].id], 'the untaken retry added u2 or moved the clock');
 });
 
 test('an end clears an agent only from pushes made before it ended', () => {

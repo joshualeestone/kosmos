@@ -407,15 +407,18 @@ function tellStalls(cards, { now = Date.now(), file, send, ownBound = null }) {
     if (Number.isFinite(lastStallPushAt) && lastStallPushAt <= now && now - lastStallPushAt < STALL_PUSH_EVERY_MS) return;
     const sessions = due.map((d) => d.session);
     const ev = { ...due[0], agent: withMore(due[0].agent, due.length - 1), onResult: (ok) => { if (ok === false) untold(sessions, now, file); } };
-    /* kosmos#7794: when a retry has the same id it joins the open entry, keeping the agents already seen to recover. */
+    /* kosmos#7794: a retry under the same id joins the open entry once it is taken: every agent it lists is open again,
+       and agents the first push covered are still waited for. */
     const open = pushOpen.get(ev.id);
-    if (open) { for (const s of sessions) if (!open.all.includes(s)) { open.all.push(s); open.open.add(s); } }
-    else pushOpen.set(ev.id, { at: now, all: sessions.slice(), open: new Set(sessions) });
+    if (!open) pushOpen.set(ev.id, { at: now, all: sessions.slice(), open: new Set(sessions) });
     let took = false;
     try { took = send(ev) === true; } catch { took = false; }
     if (took) {
       lastStallPushAt = now;
-      if (open) open.at = now;   // kosmos#7794: the coordinator may have stored only this one, so its clock starts here
+      if (open) {   // kosmos#7794: the coordinator may have stored only this one, so its clock starts here
+        open.at = now;
+        for (const s of sessions) { if (!open.all.includes(s)) open.all.push(s); open.open.add(s); }
+      }
       for (const s of sessions) pushTold(s, now, file);
       /* kosmos#7212 item 2: the streak itself keeps that its stall push went out (not a stuck step's push), for endsToSay. */
       for (const d of due) { const st = streaks.get(d.session); if (st && d.id.startsWith('stall:')) st.pushedAt = now; }
