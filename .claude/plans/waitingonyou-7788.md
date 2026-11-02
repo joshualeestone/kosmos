@@ -84,3 +84,13 @@ wrong, a held-for-you task could be handed out.
 - The project page's needs-you count and its task card ("On hold: <reason>") do not mark a hold for you.
 - Save on the hold form takes an agent's hold for you over (disclosed under the button); a Save that keeps the agent's
   hold when only its reason or condition changed is an option.
+
+## Review rounds 6 and 7
+
+- The icon count leaves out a held-for-you task whose holder it already counts as needing the person for it: a
+  question about that task's project, or a reason about the agent itself (cardsNeedingPerson's rule). A question about
+  another project does not.
+- The for-you row line is its own class (tsk-for-you), not the age line's tsk-waiting, which render-tasks-view-3559
+  counts as ages.
+- Follow-up card also: the met-condition line (holdstale metText) could say a hold also waits on the person; neither
+  CLI can send forPerson false (unmark is take it off hold and put it back).
