@@ -199,3 +199,49 @@ test('the child sends each request to the board and resolves it with that id\'s 
     assert.equal(ra.notSent, true);
   } finally { if (had) process.send = had; else delete process.send; }
 });
+
+test('a restore\'s reasons and failed files reach the screen capped, the cleaned list kept', async () => {
+  const many = Array.from({ length: 30 }, (_, i) => 'why ' + i + ' ' + 'x'.repeat(400));
+  const r = job.shapeRestore({ ok: true, fetchProblems: ['cleaned'], details: { fetchProblems: many,
+    failed: Array.from({ length: 250 }, (_, i) => ({ path: 'p' + i + 'y'.repeat(2000), why: 'w'.repeat(500) })), leftOutAtBackup: 0 } });
+  assert.deepEqual(r.fetchProblems, ['cleaned']);
+  assert.equal(r.details.fetchProblems.length, 21);
+  assert.equal(r.details.fetchProblems[20], '(more not listed)');
+  assert.ok(r.details.fetchProblems.slice(0, 20).every((x) => x.length <= 300));
+  assert.equal(r.details.failed.length, 200);
+  assert.ok(r.details.failed.every((f) => f.path.length <= 1024 && f.why.length <= 300));
+});
+
+test('a list that never answers is ended at its time limit, and the child killed', async () => {
+  const { fork, made } = fakeFork();
+  const r = await job.list({ fork, timeoutMs: 30 });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /could not be listed/);
+  assert.equal(made[0].killed, true);
+});
+
+test('an answer that arrives just before the child exits is still read', async () => {
+  const { fork, made } = fakeFork();
+  const p = job.list({ fork });
+  await tick();
+  made[0].emit('exit', 0);   // the exit event first, then the answer in the same turn
+  made[0].emit('message', { done: { ok: true, backups: [] } });
+  assert.equal((await p).ok, true);
+});
+
+/* The real child, under a parent that goes away: the child must exit when its channel closes. */
+test('the real child exits when the board that forked it goes away', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-prjob-parent-'));
+  const parent = path.join(dir, 'parent.js');
+  fs.writeFileSync(parent, `const c = require('node:child_process').fork(${JSON.stringify(path.join(__dirname, 'personalrestore-child.js'))}, [], { execArgv: [], stdio: ['ignore', 'ignore', 'ignore', 'ipc'] });
+c.on('spawn', () => { process.stdout.write(String(c.pid) + '\\n'); setTimeout(() => process.exit(0), 200); });
+`);
+  const { execFileSync } = require('node:child_process');
+  const pid = Number(String(execFileSync(process.execPath, [parent], { timeout: 10000 })).trim());
+  assert.ok(Number.isSafeInteger(pid) && pid > 0, 'the parent named its child');
+  const alive = () => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+  let gone = false;
+  for (let i = 0; i < 100 && !gone; i++) { if (!alive()) gone = true; else await new Promise((r) => setTimeout(r, 50)); }
+  if (!gone) { try { process.kill(pid); } catch { /* gone */ } }
+  assert.equal(gone, true, 'the child outlived its parent');
+});

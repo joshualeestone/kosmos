@@ -166,9 +166,9 @@ test('#7404: restore and off pass only their own fields; restore goes through th
   assert.deepEqual(o.json, { ok: false, pending: true, because: 'stopped here' });
 });
 
-/* kosmos#7404 (pbrestorejob-7404): the list and a restore of files, through the real child process. Personal backup is
-   off on this computer, so both are refused before anything is signed. */
-test('#7404: from the screen, backups and files run in the child and answer by name', async (t) => {
+/* kosmos#7404 (pbrestorejob-7404): the list and a restore of files from the screen. Personal backup is off on this
+   computer, so both are refused before anything is signed. That they run in a child is engine/personalrestorejob-7404's. */
+test('#7404: from the screen, backups and files answer by name, and a restore is read back from GET files', async (t) => {
   offerOn(t, '$5/month');
   const l = await call('/api/personal-backup/backups', { body: {}, headers: SCREEN });
   assert.equal(l.status, 200);

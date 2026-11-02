@@ -14,8 +14,9 @@
  * against its own short list and signing it inside its own busy() guard (engine/remote.js macRequest). So a restore
  * here can never sign a route the board has not named, nor sign while a register or a Forget is out.
  *
- * The board going away (a crash, a quit, a kill) closes the channel, and this process exits on that: no restore
- * outlives its board. A restore cut off that way keeps the sink's record, as one stopped any other way does.
+ * The board going away (a crash, a quit, a kill) closes the channel, and this process exits when it next sees that
+ * (engine/personalrestorejob-7404.test.js forks it and checks). A restore cut off that way stops where it was: its
+ * Kosmos and the files already written stay, and nothing tidies them.
  */
 const pending = new Map();
 let nextId = 1;
