@@ -576,7 +576,8 @@ function upperBound(f, maxFile) {
 
 /**
  * Take one snapshot.
- *   input: { root | roots, memberPk, namingKey, namingKeyId, deviceKey, ctx, index?, bucket?, exclude? }
+ *   input: { root | roots, memberPk, namingKey, namingKeyId, deviceKey, ctx, index?, bucket?, exclude?, priorStop? }
+ *     priorStop    (kosmos#7746) the measuredStop a plan's earlier run stopped on, as the caller kept it
  *     exclude      folders to leave out, as '/'-separated paths relative to root (each named once in skipped)
  *     root         the work Kosmos folder (absolute)
  *     roots        instead of root (and exclude): [{ name, path, exclude?, optional?, only? }], several folders, each stored under its
@@ -607,7 +608,9 @@ function upperBound(f, maxFile) {
  *     drop it, keep `added` under `bucket`, and take the next snapshot from that.
  *   tooLarge: the manifest would pass its ceiling (too many files): not a retry.
  *   overPlan, with personActs and tooLarge: a plan's run whose files do not fit the plan; nothing was spent. personActs
- *     and tooLarge alone: a plan's run stopped on the measured manifest size; what was stored is in `added`.
+ *     and tooLarge alone: a plan's run stopped on the measured manifest size; what was stored is in `added`, and
+ *     `measuredStop` { files, bytes, budget, at, roots } names the listing it stopped on, for the caller to keep. With
+ *     `stoppedBefore` as well: a listing no smaller than priorStop, stopped before anything was spent (nothing stored).
  * Never throws. (If an injected uploader throws mid-batch, that batch's stored chunks cannot be known, so they are not in
  * `added`; the real uploaders never throw.)
  */
@@ -740,15 +743,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   if (planGb) {
     // `roots`: which folders the listing came from (a short hash of their paths, sorted), so another set of folders of
     // the same size is tried rather than stopped.
-    const rootsId = crypto.createHash('sha256').update(JSON.stringify(roots.map((r) => String(r.path)).sort())).digest('hex').slice(0, 16);
+    const rootsId = crypto.createHash('sha256').update(JSON.stringify(roots.map((r) => `${r.name}\u0000${r.path}`).sort())).digest('hex').slice(0, 16);
     measuredOn = { files: listed.files.length, bytes: listedBytes, budget, at: t, roots: rootsId };
-    const prior = input.priorStop;
-    // A listing at least as large as the one a run already stopped on (files and bytes), under the same manifest budget,
-    // would stop again after spending the week's chunks: this run stops now, before anything is uploaded. Smaller in
-    // either, or another budget, it tries. No measuredStop rides this answer: the stop kept is the one measured.
-    if (prior && prior.budget === budget && prior.roots === rootsId && Number.isSafeInteger(prior.files) && Number.isSafeInteger(prior.bytes) && measuredOn.files >= prior.files && measuredOn.bytes >= prior.bytes) {
-      return fail('your files are still split into more pieces than one backup can list, so this backup did not try again. Move some small files out of your agents\' folders and projects', { tooLarge: true, personActs: true, stoppedBefore: true });
-    }
   }
 
   const skipped = [];
@@ -772,6 +768,15 @@ async function snapshotInner(input, deps, added, state, fail) {
       : expectedChunks > chunkCap ? 'you have more small files than your plan covers, so nothing was backed up. Move some out of your agents\' folders and projects, or choose a larger plan'
         : 'your files are split into more pieces than one backup can list, so nothing was backed up. Move some small files out of your agents\' folders and projects';
     return fail(why, { tooLarge: true, overPlan: true, personActs: true });
+  }
+  // kosmos#7746 item 3, after the plan's own checks (whose sentence is the more useful one) and before anything is spent:
+  // a listing at least as large as the one a run already stopped on (files and bytes), from the same folders under the
+  // same manifest budget, would stop again after spending the week's chunks, so this run stops now. Smaller in either,
+  // other folders or another budget, it tries. No measuredStop rides this answer: the stop kept is the one measured.
+  const prior = input.priorStop;
+  if (measuredOn && prior && prior.budget === measuredOn.budget && prior.roots === measuredOn.roots && Number.isSafeInteger(prior.files)
+    && Number.isSafeInteger(prior.bytes) && measuredOn.files >= prior.files && measuredOn.bytes >= prior.bytes) {
+    return fail('your files are still split into more pieces than one backup can list, so this backup did not try again. Move some small files out of your agents\' folders and projects', { tooLarge: true, personActs: true, stoppedBefore: true });
   }
   // The manifest counts too: the 64 GiB is chunks and manifests together.
   const byteBound = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0) + sealedMax(budget);

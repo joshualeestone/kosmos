@@ -4,6 +4,7 @@
  *
  * Design on #5535 (comment 6114619425). One owner-only file beside the member key's folder, holding:
  *   job     engine/backupjob.js's state: { lostEpoch?, waitUntilMs?, waits? }
+ *   stop    (optional, kosmos#7746) where a plan's run last stopped on the measured manifest size (cleanStop)
  *   periods up to two periods' run state, most recently used first: [{ label, namingKey, bucket, index }]. Two,
  *           because near Monday 00:00 this clock's week and the coordinator's granted week can differ, and each must keep
  *           its own naming key and index rather than overwrite the other's every run (review 7).

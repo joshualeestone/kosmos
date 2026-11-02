@@ -823,6 +823,14 @@ test('#7746 item 3: a measured stop names its listing; a later run no smaller st
     const st4 = store();
     const tried = await take(k, w.root, st4, { deps, input: { priorStop: Object.assign({}, r.measuredStop, { files: 2 }) } });
     assert.equal(tried.stoppedBefore, undefined); assert.ok(st4.batches.length > 0);
+    // More bytes in the stop than in this listing (the same file count): the run tries.
+    const st7 = store();
+    const fewerBytes = await take(k, w.root, st7, { deps, input: { priorStop: Object.assign({}, r.measuredStop, { bytes: r.measuredStop.bytes + 1 }) } });
+    assert.equal(fewerBytes.stoppedBefore, undefined); assert.ok(st7.batches.length > 0);
+    // A plan's own refusal comes first, with its more useful sentence: the expectation (not skipped this time) refuses.
+    const st8 = store();
+    const plan = await take(k, w.root, st8, { deps: { planGb: 25, maxManifestJson: budget, batchBytes: 1 }, input: { priorStop: r.measuredStop } });
+    assert.equal(plan.overPlan, true, plan.because); assert.equal(plan.stoppedBefore, undefined); assert.equal(st8.batches.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 

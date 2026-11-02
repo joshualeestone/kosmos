@@ -486,7 +486,7 @@ async function runJob(input, opts = {}) {
   // Before anything is listed, and not a pause to Monday: paying takes effect on the next hourly run.
   if (planGb === null) { const out = { ok: false, personActs: true, because: NO_PLAN }; noteRun(out, opts, before); return out; }
   if (planGb === 'unread') { const out = { ok: false, because: 'Kosmos+ could not be reached just now, so this backup waits for the next try' }; noteRun(out, opts, before); return out; }
-  if (planGb === 'malformed') { const out = { ok: false, because: 'Kosmos+ sent a backup plan this computer could not read, so this backup waits for the next try' }; noteRun(out, opts, before); return out; }
+  if (planGb === 'malformed') { const out = { ok: false, planUnreadable: true, because: 'Kosmos+ sent a backup plan this computer could not read, so this backup waits for the next try' }; noteRun(out, opts, before); return out; }
   const r = await run(input, Object.assign({ ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER, requireProof: true }, planGb ? { planGb } : {}));
   if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) { noteRun(r, opts, before); return r; }
   const oe = opts.orgenroll || require('./orgenroll');
@@ -507,6 +507,8 @@ const STOP_SAY = [
   ['tooLarge', 'Your files are too large for one backup, so nothing was backed up. Move some out of your agents\' folders and projects to back up the rest'],
   ['missing', 'Remote access is not set up on this computer, so nothing was backed up'],
   ['refusedState', 'This computer could not use what it keeps for its backups, so nothing was backed up'],
+  // kosmos#7746 item 4: a plan value this version cannot read waits every hour; say so, since updating Kosmos may fix it.
+  ['planUnreadable', 'Kosmos+ sent a backup plan this computer could not read, so nothing new is backed up. Updating Kosmos may fix it'],
 ];
 function stopOf(r) {
   if (r.personActs && typeof r.because === 'string') return r.because;

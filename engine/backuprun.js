@@ -216,8 +216,9 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
     result = await take({
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
       deviceKey: dk.privateKey, index: p.index, bucket: p.bucket, ...(k.proofKey ? { proofKey: k.proofKey } : {}),
-      // kosmos#7746 item 3: a kept stop is handed on for STOP_KEPT_MS, then one real attempt is made again, so a stop that
-      // was wrong (a borderline estimate) costs at most one try in that time.
+      // kosmos#7746 item 3: a kept stop is handed on for STOP_KEPT_MS, and every run no smaller is stopped meanwhile; after
+      // it, one real attempt measures again. So a stop that was wrong (a borderline estimate) holds backups for up to that
+      // long, and a right one costs one spent attempt in that time instead of one a week.
       // A stop dated after now (a clock that was ahead) counts as expired too, so it cannot outlive the 28 days.
       ...(ref.state.stop && now() >= ref.state.stop.at && now() - ref.state.stop.at < STOP_KEPT_MS ? { priorStop: ref.state.stop } : {}),
       ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },

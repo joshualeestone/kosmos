@@ -139,6 +139,9 @@ test('#7746 item 4: a plan sent in a shape this computer cannot read waits for t
     assert.equal(ran, 0, JSON.stringify(gb));
     assert.equal(r.ok, false); assert.equal(r.personActs, undefined); assert.equal(r.overAllowance, undefined);
     assert.match(r.because, /could not read, so this backup waits/);
+    assert.equal(r.planUnreadable, true);
+    const note = JSON.parse(fs.readFileSync(path.join(root, 'personal-job.json'), 'utf8'));
+    assert.match(note.stopped, /Updating Kosmos may fix it/, 'the panel is told, not left showing an ageing last backup');
   }
 });
 
