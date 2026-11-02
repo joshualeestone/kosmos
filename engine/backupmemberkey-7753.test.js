@@ -46,7 +46,7 @@ const verifies = (devicePub, org, member, epoch, memberPublic, sig) => {
   try { return crypto.verify(null, mk.memberKeyRecordBytes(org, member, epoch, memberPublic), devicePub, Buffer.from(sig, 'base64url')); } catch { return false; }
 };
 
-test.beforeEach(() => fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true }));
+test.beforeEach(() => { fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true }); mk._resetResendForTests(); });
 test.after(() => fs.rmSync(SANDBOX, { recursive: true, force: true }));
 
 test('#7753: the registration carries a device signature over (org, member, epoch, member_public)', async () => {
@@ -166,4 +166,255 @@ test('#7753: the shared vector: seed, device public key, record bytes and signat
   assert.equal(bytes.toString('hex'), VECTOR.bytes);
   assert.equal(crypto.sign(null, bytes, priv).toString('hex'), VECTOR.sig);
   assert.equal(crypto.verify(null, bytes, pub, Buffer.from(VECTOR.sig, 'hex')), true);
+});
+
+/* A coordinator that keeps keys, answers a repeat of the same key as a repeat, and echoes member_key_sig only once it
+   "stores" signatures (echo true): today's live one has echo false. */
+function storingCoordinator() {
+  const company = backupkeys.newMemberKey();
+  const posts = [];
+  const state = { echo: false, fail: false };
+  const kept = new Map();
+  const macRequest = async (method, route, body) => {
+    if (route === mk.BACKUP_KEY_ROUTE) return { ok: true, data: { org: ORG, member: MEMBER, epoch: 1, public_key: company.pk.toString('base64url') } };
+    posts.push(body);
+    if (state.fail) return { ok: false, because: 'unreachable' };
+    if (kept.has(body.epoch) && kept.get(body.epoch) !== body.member_public) return { ok: false, refusal: { status: 409, code: 'member_key_exists' } };
+    kept.set(body.epoch, body.member_public);
+    const echo = state.echo === 'other' ? Buffer.alloc(64, 7).toString('base64url') : state.echo === 'padded' && body.member_key_sig ? body.member_key_sig + '==' : body.member_key_sig;
+    return { ok: true, data: Object.assign({ epoch: body.epoch, member_public: body.member_public }, state.echo && body.member_key_sig ? { member_key_sig: echo } : {}) };
+  };
+  return { macRequest, posts, state };
+}
+
+test('#7753 re-send: a key registered before Kosmos+ kept its record is sent again once a week until an answer echoes it', async () => {
+  const c = storingCoordinator(), d = device();
+  const T0 = 1800000000000, H = 3600 * 1000;
+  const call = (t) => mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => t });
+  const first = await call(T0);
+  assert.equal(first.ok, true);
+  assert.equal(c.posts.length, 1, 'the registration, unechoed (today\'s coordinator)');
+  assert.equal((await call(T0 + (7 * 24 - 1) * H)).ok, true);
+  assert.equal(c.posts.length, 1, 'not again within a week');
+  const again = await call(T0 + (7 * 24 + 1) * H);
+  assert.equal(c.posts.length, 2, 'sent again after a week');
+  assert.equal(again.ok, true); assert.equal(again.epoch, first.epoch); assert.ok(again.publicKey.equals(first.publicKey), 'the answer is the same key');
+  const resent = c.posts[1];
+  assert.equal(resent.member_public, c.posts[0].member_public, 'the same key, a repeat');
+  assert.equal(verifies(d.publicKey, ORG, MEMBER, resent.epoch, Buffer.from(resent.member_public, 'base64url'), resent.member_key_sig), true);
+  // The coordinator starts keeping signatures: the next due re-send is echoed, and then nothing is sent again.
+  c.state.echo = true;
+  await call(T0 + (14 * 24 + 2) * H);
+  assert.equal(c.posts.length, 3);
+  await call(T0 + 28 * 24 * H);
+  await call(T0 + 300 * 24 * H);
+  assert.equal(c.posts.length, 3, 'kept: never sent again');
+});
+
+test('#7753 re-send: an echo of another computer\'s signature ends the re-sending too (it is never replaced); padding is the same bytes', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  c.state.echo = 'other';   // the coordinator kept another of the member's computers' signature
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(c.posts.length, 1, 'another signature is kept, never replaced: nothing to send again');
+  const file = path.join(store.ROOT, 'backupkeys', fs.readdirSync(path.join(store.ROOT, 'backupkeys')).find((f) => f.endsWith('.json')));
+  const entry = Object.values(JSON.parse(fs.readFileSync(file, 'utf8')).keys)[0];
+  assert.equal(entry.sigKept, true); assert.equal(entry.sigOther, true, 'recorded as another computer\'s');
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  const p = storingCoordinator();
+  p.state.echo = 'padded';   // the same 64 bytes, with padding
+  await mk.ensureMemberKey({ macRequest: p.macRequest, deviceKey: d.read, now: () => T0 });
+  await mk.ensureMemberKey({ macRequest: p.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(p.posts.length, 1, 'the same bytes: kept');
+  const pf = path.join(store.ROOT, 'backupkeys', fs.readdirSync(path.join(store.ROOT, 'backupkeys')).find((f) => f.endsWith('.json')));
+  const pe = Object.values(JSON.parse(fs.readFileSync(pf, 'utf8')).keys)[0];
+  assert.equal(pe.sigKept, true); assert.equal(pe.sigOther, undefined, 'padding is this computer\'s own signature, not another');
+});
+
+test('#7753 re-send: on the re-send path an echo of another signature is recorded; an echo for another key is not; a send dated ahead does not block', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const keyFile = () => Object.values(JSON.parse(fs.readFileSync(path.join(store.ROOT, 'backupkeys', fs.readdirSync(path.join(store.ROOT, 'backupkeys')).find((f) => f.endsWith('.json'))), 'utf8')).keys)[0];
+  // No echo at first, another computer's echo on the re-send.
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  c.state.echo = 'other';
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(c.posts.length, 2);
+  assert.equal(keyFile().sigKept, true); assert.equal(keyFile().sigOther, true);
+  // An ok answer that names another key: its echo says nothing about this key, so it is not recorded and is asked again.
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  const odd = storingCoordinator();
+  mk._resetResendForTests();   // the first case's re-send for the same (org, member, epoch) is not this one's
+  await mk.ensureMemberKey({ macRequest: odd.macRequest, deviceKey: d.read, now: () => T0 });
+  const real = odd.macRequest;
+  const wrongKey = async (m, route, body) => {
+    const a = await real(m, route, body);
+    if (route === mk.MEMBER_KEY_ROUTE && a.ok) return { ok: true, data: { epoch: body.epoch, member_public: Buffer.alloc(32, 9).toString('base64url'), member_key_sig: body.member_key_sig } };
+    return a;
+  };
+  const before = odd.posts.length;
+  await mk.ensureMemberKey({ macRequest: wrongKey, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(odd.posts.length, before + 1, 'premise: the re-send was posted');
+  assert.equal(keyFile().sigKept, undefined, 'an echo for another key is not this key kept');
+  assert.ok(Number.isSafeInteger(keyFile().sigAskedAt), 'the attempt is recorded');
+  const n = odd.posts.length;
+  await mk.ensureMemberKey({ macRequest: wrongKey, deviceKey: d.read, now: () => T0 + (14 * 24 + 2) * H });
+  assert.equal(odd.posts.length, n + 1, 'asked again a week later');
+  // A last send dated after now (a clock that was ahead): due, not blocked until the clock catches up.
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  mk._resetResendForTests();
+  const ahead = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: ahead.macRequest, deviceKey: d.read, now: () => T0 + 30 * 24 * H });
+  await mk.ensureMemberKey({ macRequest: ahead.macRequest, deviceKey: d.read, now: () => T0 });
+  assert.equal(ahead.posts.length, 2, 'sent again although the last send is dated ahead');
+});
+
+test('#7753 re-send: an echoed first registration is never re-sent; a failed re-send or no device key changes nothing for the caller', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000;
+  // Echoed straight away: kept.
+  const c1 = storingCoordinator(), d = device();
+  c1.state.echo = true;
+  await mk.ensureMemberKey({ macRequest: c1.macRequest, deviceKey: d.read, now: () => T0 });
+  await mk.ensureMemberKey({ macRequest: c1.macRequest, deviceKey: d.read, now: () => T0 + 28 * 24 * H });
+  assert.equal(c1.posts.length, 1);
+  // A re-send that fails: the answer is still the registered key, and it is asked again a week later.
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  const c2 = storingCoordinator();
+  const first = await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 });
+  c2.state.fail = true;
+  const during = await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(during.ok, true); assert.ok(during.publicKey.equals(first.publicKey));
+  assert.equal(c2.posts.length, 2);
+  await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 2) * H });
+  assert.equal(c2.posts.length, 2, 'a failed re-send still waits a week');
+  // No device key: nothing to re-send, so nothing is sent.
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  const c3 = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c3.macRequest, deviceKey: () => ({ ok: false }), now: () => T0 });
+  await mk.ensureMemberKey({ macRequest: c3.macRequest, deviceKey: () => ({ ok: false }), now: () => T0 + 28 * 24 * H });
+  assert.equal(c3.posts.length, 1);
+});
+
+test('#7753 re-send: a key file that cannot be written, or a computer that cannot sign, still waits a week in this process', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  const dir = path.join(store.ROOT, 'backupkeys');
+  const file = path.join(dir, fs.readdirSync(dir).find((f) => f.endsWith('.json')));
+  const realWrite = require('./securewrite').writeSecret;
+  const sw = require('./securewrite');
+  sw.writeSecret = function (f, ...rest) { if (String(f) === file) { const e = new Error('read-only'); e.code = 'EROFS'; throw e; } return realWrite.call(sw, f, ...rest); };
+  try {
+    for (const h of [7 * 24 + 1, 7 * 24 + 2, 7 * 24 + 3]) await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + h * H });
+  } finally { sw.writeSecret = realWrite; }
+  assert.equal(c.posts.length, 2, 'one re-send, though its time could not be written');
+  // A computer that cannot sign reads its device key at most once a week too.
+  fs.rmSync(dir, { recursive: true, force: true });
+  const c2 = storingCoordinator();
+  let reads = 0, signs = true;
+  const dk = () => { reads++; return signs ? d.read() : { ok: false }; };
+  // Two months on, so the first half's attempt for the same (org, member, epoch) in this process is long past.
+  const T1 = T0 + 60 * 24 * H;
+  await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: dk, now: () => T1 });
+  signs = false; reads = 0;
+  for (const h of [7 * 24 + 1, 7 * 24 + 2, 7 * 24 + 3]) await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: dk, now: () => T1 + h * H });
+  assert.equal(reads, 1, 'the device key read once in the week');
+  assert.equal(c2.posts.length, 1);
+});
+
+test('#7753 re-send: the time kept in the key file holds across a restart; a short echo is not a kept signature', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(c.posts.length, 2, 'premise: re-sent');
+  mk._resetResendForTests();   // a new board process: only the key file remembers
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + (7 * 24 + 5) * H });
+  assert.equal(c.posts.length, 2, 'the key file\'s time holds after a restart');
+  // An echo that is not 64 bytes says nothing kept: asked again a week later.
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  mk._resetResendForTests();
+  const s = storingCoordinator();
+  const real = s.macRequest;
+  const short = async (m, route, body) => {
+    const a = await real(m, route, body);
+    if (route === mk.MEMBER_KEY_ROUTE && a.ok) a.data.member_key_sig = Buffer.alloc(32, 1).toString('base64url');
+    return a;
+  };
+  await mk.ensureMemberKey({ macRequest: short, deviceKey: d.read, now: () => T0 });
+  await mk.ensureMemberKey({ macRequest: short, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(s.posts.length, 2, 'a short echo is not kept: re-sent');
+});
+
+test('#7753 re-send: a clock that gives no usable time never re-sends', async () => {
+  const T0 = 1800000000000, d = device();
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  for (let i = 0; i < 3; i++) await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => NaN });
+  assert.equal(c.posts.length, 1);
+});
+
+test('#7753 re-send: an echo in an answer for another epoch is not this epoch kept; sigOther survives a read and a write', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  const real = c.macRequest;
+  let otherEpoch = false;
+  const odd = async (m, route, body) => {
+    const a = await real(m, route, body);
+    if (otherEpoch && route === mk.MEMBER_KEY_ROUTE && a.ok) return { ok: true, data: { epoch: body.epoch + 1, member_public: body.member_public, member_key_sig: body.member_key_sig } };
+    return a;
+  };
+  await mk.ensureMemberKey({ macRequest: odd, deviceKey: d.read, now: () => T0 });
+  otherEpoch = true;
+  await mk.ensureMemberKey({ macRequest: odd, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(c.posts.length, 2, 'premise: re-sent');
+  assert.equal(mk.readKeys(ORG, MEMBER).keys[1].sigKept, undefined, 'another epoch\'s answer says nothing about this one');
+  await mk.ensureMemberKey({ macRequest: odd, deviceKey: d.read, now: () => T0 + (14 * 24 + 2) * H });
+  assert.equal(c.posts.length, 3, 'asked again a week later');
+  // sigOther round-trips through the file.
+  const k = mk.readKeys(ORG, MEMBER).keys;
+  k[1].sigKept = true; k[1].sigOther = true;
+  mk.writeKeys(ORG, MEMBER, k);
+  const back = mk.readKeys(ORG, MEMBER).keys[1];
+  assert.equal(back.sigKept, true); assert.equal(back.sigOther, true);
+});
+
+test('#7753 re-send: a write of the key file during the re-send is kept; only this epoch\'s fields are merged in', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  const real = c.macRequest;
+  const other = backupkeys.newMemberKey();
+  const during = async (m, route, body) => {
+    if (route === mk.MEMBER_KEY_ROUTE) {
+      // Another writer adds a registered epoch 2 while the re-send is in the air.
+      const now = mk.readKeys(ORG, MEMBER).keys;
+      now[2] = { sk: other.sk, pk: other.pk, registered: true };
+      mk.writeKeys(ORG, MEMBER, now);
+    }
+    return real(m, route, body);
+  };
+  // Answered from disk as epoch 2 now? No: the call read the file before the POST, so it answers epoch 1 and re-sends it.
+  await mk.ensureMemberKey({ macRequest: during, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  const after = mk.readKeys(ORG, MEMBER).keys;
+  assert.ok(after[2] && after[2].pk.equals(other.pk), 'the other writer\'s epoch survives');
+  assert.ok(Number.isSafeInteger(after[1].sigAskedAt) && after[1].sigAskedAt === T0 + (7 * 24 + 1) * H, 'and this epoch\'s re-send is recorded');
+});
+
+test('#7753 re-send: an epoch whose key was replaced during the re-send gets none of this re-send\'s fields', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  const real = c.macRequest;
+  const other = backupkeys.newMemberKey();
+  c.state.echo = true;   // the re-send would be echoed, so a merge would mark it kept
+  const swap = async (m, route, body) => {
+    if (route === mk.MEMBER_KEY_ROUTE) mk.writeKeys(ORG, MEMBER, { 1: { sk: other.sk, pk: other.pk, registered: true } });
+    return real(m, route, body);
+  };
+  await mk.ensureMemberKey({ macRequest: swap, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  const e = mk.readKeys(ORG, MEMBER).keys[1];
+  assert.ok(e.pk.equals(other.pk), 'premise: the other key holds epoch 1');
+  assert.equal(e.sigKept, undefined); assert.equal(e.sigAskedAt, undefined);
 });

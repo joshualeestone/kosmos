@@ -21,6 +21,11 @@
  *      all) means epoch 1. A kept key Kosmos+ already holds for another epoch (409 member_key_reused) is replaced
  *      by a fresh one, once.
  * A 429 member_key_rotation_wait keeps the new key and answers `waiting`; the next call sends the same key.
+ * kosmos#7753: each registration carries the key's signed record (member_key_sig). A registered key whose answer never
+ * echoed a signature (Kosmos+ kept none yet) is sent again as a repeat, only when this computer can sign, at most once a
+ * week, until an answer for that epoch and key echoes one (this computer's, or another's, which Kosmos+ never replaces).
+ * That never changes what a call answers; a refusal of the re-send is ignored. Answering from disk therefore reads the
+ * device key while a re-send may be due.
  * It does NOT ask whether a key Kosmos+ took is still the member's current one: the backup job compares the epoch
  * it answers with each grant's `epoch` (the uploader refuses a grant for another epoch), and a mismatch is the sign
  * the member moved on elsewhere. Calls run one at a time in this process; ONE board process per data root is
@@ -29,7 +34,9 @@
  * key, not that a second computer of the member registered one. That needs one key file per tunnel identity too: two
  * data roots sharing one tunnel state (AGENT_WORKFORCE_TUNNEL_STATE, a test or development setup) would each read the
  * other's key as lost. A rotation or a fresh key re-reads the file first, so a key another process
- * REGISTERED meanwhile is answered, never replaced (an unregistered one it kept is not protected).
+ * REGISTERED meanwhile is answered, never replaced (an unregistered one it kept is not protected). One kept signed
+ * record that is not this computer's (sigOther, below) can still come from a computer the member used earlier at the
+ * same epoch, such as a replaced Mac.
  *
  * The keys are kept in one 0600 file per (org, member) under the store, in a 0700 folder: the raw X25519 halves,
  * base64url. This code keeps one unregistered entry at most, the newest: a move deletes the epoch it left (never a
@@ -89,6 +96,10 @@ function readKeys(org, member) {
     // The pair must be a pair: a public half that is not the private half's would be sealed to and never opened.
     if (!backupkeys.publicKeyOf(sk).equals(pk)) return { ok: false, keys: {} };
     keys[e] = { sk, pk, registered: k.registered === true };
+    // kosmos#7753: whether Kosmos+ echoed this key's signed record (kept it), and when this computer last sent it.
+    if (k.sigKept === true) keys[e].sigKept = true;
+    if (k.sigOther === true) keys[e].sigOther = true;   // what Kosmos+ keeps is another computer's signature
+    if (Number.isSafeInteger(k.sigAskedAt) && k.sigAskedAt > 0) keys[e].sigAskedAt = k.sigAskedAt;
   }
   // The file invariant (header): at most one unregistered entry, and it is the newest. A file breaking it is not ours.
   const es = Object.keys(keys).map(Number).sort((a, b) => b - a);
@@ -102,7 +113,12 @@ function writeKeys(org, member, keys) {
   fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
   try { fs.chmodSync(dir(), 0o700); } catch { /* the file itself is 0600 either way */ }
   const out = {};
-  for (const [e, k] of Object.entries(keys)) out[e] = { sk: b64(k.sk), pk: b64(k.pk), registered: k.registered === true };
+  for (const [e, k] of Object.entries(keys)) {
+    out[e] = { sk: b64(k.sk), pk: b64(k.pk), registered: k.registered === true };
+    if (k.sigKept === true) out[e].sigKept = true;
+    if (k.sigOther === true) out[e].sigOther = true;
+    if (Number.isSafeInteger(k.sigAskedAt) && k.sigAskedAt > 0) out[e].sigAskedAt = k.sigAskedAt;
+  }
   require('./securewrite').writeSecret(fileFor(org, member), JSON.stringify({ org, member, keys: out }), 0o600, { atomicOnly: true });
 }
 
@@ -158,12 +174,77 @@ function signRecord(readDeviceKey, company, epoch, pk) {
   catch { return { because: 'the backup key record could not be signed' }; }
 }
 
-async function register(macRequest, company, epoch, key, readDeviceKey) {
+async function register(macRequest, company, epoch, key, readDeviceKey, signedAlready) {
   const wrap = backupkeys.wrapMemberKey(key.sk, company.orgPublic, { org: company.org, member: company.member, epoch: String(epoch) });
   const body = { epoch, member_public: b64(key.pk), wrap: b64(wrap) };
-  const signed = signRecord(readDeviceKey, company, epoch, key.pk);
+  const signed = signedAlready || signRecord(readDeviceKey, company, epoch, key.pk);
   if (signed.sig) body.member_key_sig = signed.sig;
-  return { r: await macRequest('POST', MEMBER_KEY_ROUTE, body), unsignedBecause: signed.because };
+  return { r: await macRequest('POST', MEMBER_KEY_ROUTE, body), unsignedBecause: signed.because, sentSig: signed.sig };
+}
+/* What an answer to a registration that carried `sentSig` says Kosmos+ keeps for the epoch: null (no echo: nothing kept
+   yet), 'mine' (it echoes this computer's signature, compared as bytes) or 'other' (another signature, 64 bytes). The
+   coordinator checks a signature against the registering computer's key before keeping it and never replaces one (agreed
+   with its owner on #7753), so either echo ends the re-sending: 'other' means this computer's can never be kept. 'other'
+   also covers this computer's own signature made with an earlier device key (a re-created one): harmless, since the kept
+   one is never replaced either way. Kept is
+   not trusted here: escrowd checks the signature itself. */
+function keptSig(r, sentSig) {
+  if (!sentSig || !r || !r.ok || !r.data || typeof r.data.member_key_sig !== 'string') return null;
+  try {
+    const echoed = Buffer.from(r.data.member_key_sig, 'base64url'), sent = Buffer.from(sentSig, 'base64url');
+    if (echoed.length !== 64) return null;
+    return sent.length === 64 && crypto.timingSafeEqual(echoed, sent) ? 'mine' : 'other';
+  } catch { return null; }
+}
+
+/* kosmos#7753: a key registered before Kosmos+ kept the signed record (any key whose answer did not echo it) is sent
+   again, as the repeat registration the route answers without change, at most once per RESIGN_EVERY_MS, until an answer
+   echoes it. Only when this computer can sign; never changes the answer the caller gets, whatever happens. */
+// A week: each re-send costs Kosmos+ a pass through the member's registration limiter and, until kosmos#7768 (which
+// answers a repeat before the escrow open) ships, an escrow open of the wrap for a company member (coordinator/src/
+// memberkey.rs), for every computer, until a coordinator that keeps the record ships. A week bounds that; the record
+// reaches Kosmos+ within a week of it shipping.
+const RESIGN_EVERY_MS = 7 * 24 * 3600 * 1000;
+/* The last attempt per (org, member, epoch) in this process as well as in the key file, so neither a key file that cannot
+   be written nor a computer that cannot sign makes it try (a POST, or a read of the device key) on every call. */
+const lastTry = new Map();
+async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, at) {
+  const nowMs = Math.floor(Number(at));   // an injected clock that is not a whole number is read as one
+  if (!Number.isSafeInteger(nowMs) || nowMs <= 0) return;   // no usable time: never a POST on every call
+  const k = keys[epoch];
+  if (!k || !k.registered || k.sigKept) return;   // `registered` is defensive: the caller passes its newest registered epoch
+  const id = `${company.org}\u0000${company.member}\u0000${epoch}`;
+  const recent = (when) => Number.isSafeInteger(when) && when > 0 && nowMs - when >= 0 && nowMs - when < RESIGN_EVERY_MS;
+  if (recent(k.sigAskedAt) || recent(lastTry.get(id))) return;
+  lastTry.set(id, nowMs);
+  const signed = signRecord(readDeviceKey, company, epoch, k.pk);
+  if (!signed.sig) return;
+  let got;
+  try { got = await register(macRequest, company, epoch, k, readDeviceKey, signed); } catch { got = null; }
+  // Kept in the file only when Kosmos+ answered: a re-send that never reached it (offline) waits in this process only
+  // (lastTry), so it is tried again after the next start rather than a week later.
+  if (got && got.r && (got.r.ok || got.r.refusal)) k.sigAskedAt = nowMs;
+  // Only an answer that names this epoch and this key, as the first registration requires, can say what Kosmos+ keeps.
+  // A refusal (another key holds the epoch, a later epoch is current) is ignored here on purpose: the answer stays the
+  // key from disk, and the backup job's grant-epoch check is what notices a member who moved on.
+  const r = got && got.r;
+  const echoedPk = r && r.ok && r.data && typeof r.data.member_public === 'string' ? Buffer.from(r.data.member_public, 'base64url') : null;
+  const sameKey = Boolean(r && r.ok && r.data && r.data.epoch === epoch && echoedPk && echoedPk.equals(k.pk));
+  const kept = sameKey ? keptSig(r, got.sentSig) : null;
+  if (kept) { k.sigKept = true; if (kept === 'other') k.sigOther = true; }
+  // `keys` was read before the awaited POST, and another writer of this file in this process (personalbackupkey.js, on its
+  // own chain) may have written meanwhile: the file is read again and only this epoch's three fields are merged into it,
+  // and only while it still holds this key.
+  try {
+    const fresh = readKeys(company.org, company.member);
+    const e = fresh.ok ? fresh.keys[epoch] : null;
+    if (e && e.pk.equals(k.pk)) {
+      e.sigAskedAt = k.sigAskedAt;
+      if (k.sigKept) e.sigKept = true;
+      if (k.sigOther) e.sigOther = true;
+      writeKeys(company.org, company.member, fresh.keys);
+    }
+  } catch { /* this process still waits the interval (lastTry); a restart may ask once more */ }
 }
 
 /* One at a time, in this process only (the header assumes one board process per data root). Today reading the file
@@ -220,7 +301,11 @@ async function ensureNow(opts, seen) {
     // newer key still pending (the job forgot lostEpoch, or restarted), so falling back is never silent.
     const ignored = opts.lostEpoch != null && lost === null ? { lostEpochIgnored: true } : {};
     const above = done !== undefined && epochs.length && epochs[0] > done && !keys[epochs[0]].registered ? { pendingEpoch: epochs[0] } : {};
-    if (done !== undefined) return { ok: true, epoch: done, publicKey: keys[done].pk, ...ignored, ...above };
+    if (done !== undefined) {
+      // The answer below is the key read before this await; a write during it is seen on the next call. Awaited, so a due re-send (at most once a week) adds its POST's time to this answer, never anything to the answer.
+      await resignIfNeeded(macRequest, company, done, keys, readDeviceKey, (opts.now || Date.now)());
+      return { ok: true, epoch: done, publicKey: keys[done].pk, ...ignored, ...above };
+    }
     // The newest key not yet taken (kept before an earlier send), else a new one for epoch 1.
     // A stale registered key is KEPT (it still opens its own epoch's backups); the new key starts one past it, and the
     // move path takes it to the member's current epoch + 1 if that is later.
@@ -235,7 +320,7 @@ async function ensureNow(opts, seen) {
     // At most one move to a next epoch and one fresh key: each new epoch is audited and limited to one a day.
     let moved = false, refreshed = false;
     for (;;) {
-      const { r, unsignedBecause } = await register(macRequest, company, epoch, keys[epoch], readDeviceKey);
+      const { r, unsignedBecause, sentSig } = await register(macRequest, company, epoch, keys[epoch], readDeviceKey);
       // The answer must name what was sent, so a changed coordinator or tunnel shape is not taken as registered.
       // Compared as bytes (a lenient decode: padding, and characters Node's decoder skips), so only a different key
       // refuses.
@@ -245,6 +330,9 @@ async function ensureNow(opts, seen) {
       }
       if (r && r.ok) {
         keys[epoch].registered = true;
+        if (sentSig) keys[epoch].sigAskedAt = Math.floor(Number((opts.now || Date.now)()));
+        const kept = keptSig(r, sentSig);
+        if (kept) { keys[epoch].sigKept = true; if (kept === 'other') keys[epoch].sigOther = true; }
         try { writeKeys(company.org, company.member, keys); } catch {
           // Kosmos+ has it; the next call sends the same kept key and gets a repeat.
           return { ok: false, because: 'Kosmos+ took the backup key, but this computer could not note that; it will confirm it next time' };
@@ -310,4 +398,6 @@ async function ensureNow(opts, seen) {
 
 // kosmos#7404: the key file is shared with a personal backup's keys (engine/personalbackupkey.js), so the backup job
 // reads one place whichever way a key was made: readKeys and writeKeys keep its format and checks in one module.
-module.exports = { ensureMemberKey, BACKUP_KEY_ROUTE, MEMBER_KEY_ROUTE, readKeys, writeKeys, memberKeyRecordBytes };
+/* Test seam (kosmos#7753): forgets this process's re-send attempts, so each test starts clean. Production never calls it. */
+function _resetResendForTests() { lastTry.clear(); }
+module.exports = { ensureMemberKey, BACKUP_KEY_ROUTE, MEMBER_KEY_ROUTE, readKeys, writeKeys, memberKeyRecordBytes, _resetResendForTests };
