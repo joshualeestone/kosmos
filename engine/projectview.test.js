@@ -626,6 +626,29 @@ test('#5635 F2: a stale summary of an idle member says idle since when, for any 
   assert.doesNotMatch(show({ found: true, state: 'idle', at: at(840) }, { state: 'working' }).text, /idle since/);
 });
 
+/* ---- kosmos#5635 (Josh's 0.7.83 model-family report): a working member's two-day-old summary is stale by the clock ---- */
+test('#5635 0.7.83: working now with a summary over the wall-clock cap reads stale, and says why; CONTROLS', () => {
+  const at = (minAgo) => NOW - minAgo * 60000;
+  const stale = (minAgo) => ({ state: 'stale', file: 'summaries/2026-09-29-11.md', at: new Date(at(minAgo)).toISOString(), ageMinutes: minAgo });
+  const hist = (rows) => () => rows.map(([state, minAgo]) => ({ state, at: at(minAgo) }));
+  const raw = { id: 'wc', name: 'Wall Clock', folder: '/p/wc', agents: ['mark'], tasks: [] };
+  const mark = projects.describe(raw, BOARD.agents, [raw]).agents.find((m) => m.sessionName === 'mark');
+  assert.ok(mark && mark.present && mark.tied && mark.state === 'working', 'fixture: mark is not a working tied member');
+  const claude = Object.assign({}, mark, { runner: 'claude' });
+  // The report's shape: two days on the clock, a little reported work.
+  const sparse = hist([['idle', 2870], ['working', 20], ['idle', 15], ['working', 1]]);
+  const old = v.workExcused(stale(2880), claude, sparse, NOW);
+  assert.equal(old.state, 'stale');
+  assert.equal(old.wallClock, true);
+  // CONTROL: the same history, not working now, still reads by reported work (Josh, 0.7.48).
+  assert.equal(v.workExcused(stale(2880), Object.assign({}, claude, { state: 'idle' }), sparse, NOW).state, 'worked');
+  // CONTROL: working now, under the cap by the clock: reported work decides, as before.
+  assert.equal(v.workExcused(stale(v.WORKING_WALL_CAP_HOURS * 60 - 5), claude, sparse, NOW).state, 'worked');
+  // A turn-ends-only runner past its own cap is already stale (untimed); under it, its turns decide.
+  const codex = Object.assign({}, claude, { runner: 'codex' });
+  assert.equal(v.workExcused(stale(600), codex, hist([['idle', 590]]), NOW).state, 'worked', 'CONTROL: a turn-ends runner under both caps still reads by its turns');
+});
+
 /* ---- kosmos#5635 F2 (five-family reports on 0.7.45 and 0.7.46): the rhythm is four hours of WORK ---- */
 test('#5635 F2 workExcused: a summary reads current while the member has worked under the rhythm since; CONTROLS', () => {
   const at = (minAgo) => NOW - minAgo * 60000;

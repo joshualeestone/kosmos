@@ -18,6 +18,14 @@ const path = require('node:path');
 /* The rhythm the roles ask for (engine/roles.js SUMMARY_RHYTHM): a summary file every four hours while
    working, as summaries/YYYY-MM-DD-HH.md in the agent's own folder. */
 const SUMMARY_RHYTHM_HOURS = 4;
+/* kosmos#5635 (Josh's 0.7.83 model-family report, 11-02): two seats working at the check read current on two-day-old
+   summaries, because little of their work was reported. Counting only reported work (Josh, 0.7.48) still holds under this:
+   a member the board reads WORKING now whose summary is older than this by the clock reads stale, whatever was counted.
+   24 hours, so the 0.7.48 case (woken after a quiet night or afternoon) still reads current. */
+const WORKING_WALL_CAP_HOURS = 24;
+function wallClockStale(summary, member) {
+  return Boolean(member && member.state === 'working' && Number.isFinite(summary.ageMinutes) && summary.ageMinutes > WORKING_WALL_CAP_HOURS * 60);
+}
 const SUMMARY_NAME = /^\d{4}-\d{2}-\d{2}-\d{2}\.md$/;
 /* How many of the newest-NAMED summaries are checked (round 2: the whole folder was sorted and up to 5000 files were
    stat'ed per member per request, on the single-threaded board). The names are dated, so the newest file is among the
@@ -305,6 +313,7 @@ function workExcused(summary, member, readHistory, nowMs) {
     // #6329: when it stays stale, the count that decided it travels with it, so the line can say why.
     // turnsEnded counts the turn that wrote the summary, so the later turns are one fewer (it inherits the caveat above:
     // if the writing turn's idle landed before the summary's time, this is one too many).
+    if (turnsEnded <= 1 && wallClockStale(summary, member)) return { ...summary, wallClock: true };   // #5635 (0.7.83 report)
     return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : { ...summary, turnsSince: turnsEnded - 1 };
   }
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
@@ -351,6 +360,7 @@ function workExcused(summary, member, readHistory, nowMs) {
     const byReports = reportedWorking > SUMMARY_RHYTHM_HOURS * 3600000;
     return { ...summary, workedSince: Math.ceil((byReports ? reportedWorking : worked) / 60000), workAllReported: byReports || reportedWorking >= worked };
   }
+  if (wallClockStale(summary, member)) return { ...summary, wallClock: true };   // #5635 (0.7.83 report)
   // Review 5: rounded up, so any reported work reads as at least a minute, never as none.
   return { ...summary, state: 'worked', workMinutes: Math.max(0, Math.ceil(worked / 60000)) };
 }
@@ -593,7 +603,8 @@ const SUMMARY_WORDS = {
         : '; ' + span(s.workedSince) + ' counted as working or waiting since it was written')
       : Number.isFinite(s.turnsSince) ? '; ' + (s.turnsSince === 1 ? '1 more turn has' : s.turnsSince + ' more turns have') + ' ended after the one that wrote it'
         : s.waitedSince ? '; it reported working or a wait since it was written'
-          : s.untimed ? '; written more than ' + (TURN_ENDS_CAP_MS / 3600000) + ' hours ago, and this agent reports only when a turn ends, so the board no longer counts its turns' : '';
+          : s.untimed ? '; written more than ' + (TURN_ENDS_CAP_MS / 3600000) + ' hours ago, and this agent reports only when a turn ends, so the board no longer counts its turns'
+        : s.wallClock ? '; it is working now, and the summary is more than ' + WORKING_WALL_CAP_HOURS + ' hours old by the clock' : '';
     return 'older than the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm (' + one(s.file) + ', ' + ago(s.ageMinutes) + why
       + (Number.isFinite(s.idleMinutes) ? (s.idleReported ? (s.idleKind === 'started' ? '; last reported starting ' : '; last reported idle ') : s.idleKind === 'started' ? '; idle since this session started ' : '; idle since ') + ago(s.idleMinutes) : '') + ')';   // review 3: as before for every runner
   },
@@ -664,4 +675,4 @@ function renderShow(payload) {
   return out;
 }
 
-module.exports = { summaryFreshness, idleExcused, workExcused, familyOf, overviewOf, listOf, renderList, renderShow, one, SUMMARY_RHYTHM_HOURS };
+module.exports = { summaryFreshness, idleExcused, workExcused, familyOf, overviewOf, listOf, renderList, renderShow, one, SUMMARY_RHYTHM_HOURS, WORKING_WALL_CAP_HOURS };
