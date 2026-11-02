@@ -110,6 +110,9 @@ test('#7746: two async writes of one file land in the order they were asked for;
   assert.equal(r.state.periods[0].index.size, 3, 'the later write is the one on disk');
   assert.ok(r.state.periods[0].namingKey.equals(b.periods[0].namingKey));
   bs.writeState(org, member, stateOf(1));   // and a sync write goes through once nothing is in flight
+  // Straight after an await, with no extra ticks in between, nothing is in flight either.
+  await bs.writeStateAsync(org, member, stateOf(2));
+  bs.writeState(org, member, stateOf(1));
 });
 
 test('#7746: a held file that is still ours (no re-read) is refused with retry by the rename, and left as it was', async () => {

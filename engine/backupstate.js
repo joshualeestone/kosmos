@@ -19,6 +19,8 @@
  *   readStateAsync and writeStateAsync (kosmos#7746) answer and throw exactly as readState and writeState, giving the
  *   event loop a turn every 50,000 rows and between steps; JSON.parse and JSON.stringify of the whole file each stay one
  *   block. A run uses them; at the top plan the sync ones block for seconds.
+ *   Async writes of one file run in the order asked; a sync writeState while one is in flight throws with no code (a
+ *   caller mistake: it would land in the middle of it).
  *   A missing file is ok and empty ({ job: {}, periods: [] }). A file that is a link, malformed, or for another
  *   (org, member) is NOT ok, and is never overwritten in place; the way out is discardState. A file that could not be
  *   read for a passing reason (EBUSY, EAGAIN, EPERM, EACCES: a scanner, or a rename in progress on Windows) is NOT ok
@@ -43,7 +45,7 @@
  *   from the write itself (Windows refusing the rename while a scanner holds the file) throws with retry too, and every
  *   error FROM THE WRITE ITSELF carries the underlying `code` and `cause` (a full disk, a read-only folder), so the
  *   caller can tell the person why. The refusal to replace a file not ours carries code 'refused' (and retry when the
- *   read was passing); a state that would not read back throws with no code (a caller mistake), and so does a sync writeState while an async write of the same file is in flight (kosmos#7746: it would land in the middle of it). EACCES and EPERM are retry on write as on read, and the same bounded-retry duty applies.
+ *   read was passing); a state that would not read back throws with no code (a caller mistake). EACCES and EPERM are retry on write as on read, and the same bounded-retry duty applies.
  * forPeriod(state, label, { memberKeyId, nowMs, newKey? }) -> period: the stored period whose label IS `label`, its index
  *   pruned of entries sealed to another member key (a #5744 rotation, which takeSnapshot would refuse as a stale index,
  *   costing a run) and, defensively, of locks already ended (uploadManifest's own floor is stricter: a chunk must
@@ -199,6 +201,7 @@ function* readFileSteps(org, member) {
   // Fingerprinted before and after the read: kept only when both agree, so it describes the bytes read, never a file
   // swapped in meanwhile (then nothing is remembered and the next write checks in full).
   let before = null;
+  const knownAtStart = known.get(f);   // a write that lands while this read is paused is newer: never replaced below
   try { before = fingerprint(fs.lstatSync(f, { bigint: true })); } catch { /* missing: the read decides */ }
   try { raw = fs.readFileSync(f, 'utf8'); } catch (err) {
     if (err && err.code === 'ENOENT') return { ok: true, state: { job: {}, periods: [] } };
@@ -220,7 +223,7 @@ function* readFileSteps(org, member) {
   // A file left looser (a copy, a restore) is made owner-only once it has read as ours, best effort. (Its contents were
   // trusted first, as backupmemberkey does: the folder is 0700, so only this user could have loosened it.)
   try { fs.chmodSync(f, 0o600); } catch { /* the read stands */ }
-  if (before && before === after) known.set(f, before); else known.delete(f);
+  if (known.get(f) === knownAtStart) { if (before && before === after) known.set(f, before); else known.delete(f); }
   return { ok: true, state: { job: cleanJob(got.job), periods } };
 }
 
@@ -247,10 +250,13 @@ function writeStateAsync(org, member, state) {
   let f;
   try { f = fileFor(org, member); } catch (err) { return Promise.reject(err); }   // a bad id rejects, as readStateAsync does
   const prev = writing.get(f) || Promise.resolve();
-  const mine = prev.catch(() => {}).then(() => runAsync(writeSteps(org, member, state)));
-  const tail = mine.catch(() => {});
+  let tail;
+  // The entry is cleared inside the chain, before `mine` settles, so a caller resuming from `await` finds no write in
+  // flight (cleared afterwards, a sync write straight after the await would throw).
+  const mine = prev.catch(() => {}).then(() => runAsync(writeSteps(org, member, state)))
+    .finally(() => { if (writing.get(f) === tail) writing.delete(f); });
+  tail = mine.catch(() => {});
   writing.set(f, tail);
-  tail.then(() => { if (writing.get(f) === tail) writing.delete(f); });
   return mine;
 }
 function* writeSteps(org, member, state) {
