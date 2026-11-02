@@ -1673,14 +1673,19 @@ function taskHoldAs(want) {
         : ctx.unreachable('change that task');
     }
     if (r.json && r.json.task) {
-      ctx.out(want ? 'Put task ' + num + ' on ' + project + ' on hold. Kosmos will not nudge anyone about it or hand it out.'
-        : 'Took task ' + num + ' on ' + project + ' off hold.');
+      // kosmos#7797 review 1, as install/kosmos: --not-for-you only takes the mark off, so it never says it put the task on hold.
+      const cleared = r.json.forPersonCleared;
+      ctx.out(!want ? 'Took task ' + num + ' on ' + project + ' off hold.'
+        : !notForPerson ? 'Put task ' + num + ' on ' + project + ' on hold. Kosmos will not nudge anyone about it or hand it out.'
+          : cleared === true ? 'Task ' + num + ' on ' + project + ' stays on hold.'
+            : cleared === false ? 'Task ' + num + ' on ' + project + ' stays on hold as it was. It was not on the list of what is waiting on your person.'
+              : 'Task ' + num + ' on ' + project + ' is on hold.');
       // kosmos#7788: only when the board's answer carries the mark; an older board ignores forPerson and still holds it.
       const forOlder = (forPerson && r.json.task.onHoldForPerson !== true) || (notForPerson && r.json.task.onHoldForPerson === true);
       if (forPerson) ctx.out(forOlder ? 'This Kosmos is older than --for-you, so it is on hold but not on the list of what is waiting on your person. Ask them in their room yourself.'
         : 'It is on the list of what is waiting on your person.');
       // kosmos#7797, as install/kosmos: unmarked, it stays on hold and leaves the person's list.
-      if (notForPerson) ctx.out(forOlder ? 'This Kosmos is older than --not-for-you, so it still waits on your person. Take it off hold and put it back to change that.'
+      if (notForPerson && cleared !== false) ctx.out(forOlder ? 'This Kosmos is older than --not-for-you, so it still waits on your person. Take it off hold and put it back to change that.'
         : 'It is no longer on the list of what is waiting on your person.');
       // kosmos#7407, as install/kosmos: who has it now, as the board says; none from an older board.
       const next = !want && typeof r.json.next === 'string' ? r.json.next.trim() : '';

@@ -158,7 +158,7 @@ function metText(items, now = Date.now()) {
   /* kosmos#7797: a hold for the person also waits on their answer, so its owner lifts it only once they have answered;
      lifted sooner, it leaves Needs Your Decision unanswered. */
   const way = (x) => (x.byPerson ? 'ask the person to take #' + x.n + ' off hold (only they can lift their own hold, on the screen)'
-    : x.forPerson ? '#' + x.n + ' also waits on your person, so take it off hold only once they have answered: kosmos task unhold ' + idOf(x) + ' ' + x.n
+    : x.forPerson ? 'take #' + x.n + ' off hold once your person has answered (it also waits on them): kosmos task unhold ' + idOf(x) + ' ' + x.n   // review 1: reads on from "If its work can go on now,"
     : 'take #' + x.n + ' off hold: kosmos task unhold ' + idOf(x) + ' ' + x.n);
   const many = items.length > 1;
   return 'Kosmos: in ' + plain(items[0].project, 80) + ', ' + items.map(one).join('; ') + '. '

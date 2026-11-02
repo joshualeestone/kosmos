@@ -231,3 +231,28 @@ test('#7797 Mac CLI: --not-for-you sends forPerson false, keeps the hold, and sa
     assert.match(old.stdout, /older than --not-for-you, so it still waits on your person/);
   });
 });
+
+test('#7797 review 1 Mac CLI: --not-for-you says the task stays on hold, never that it put it on hold; a refusal is said and exits 1', async () => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true }, forPersonCleared: true }], async (env) => {
+    const a = await runCli(['task', 'hold', 'p1', '3', '--not-for-you'], env);
+    assert.equal(a.code, 0, a.stdout + a.stderr);
+    assert.match(a.stdout, /Task 3 on p1 stays on hold\./);
+    assert.match(a.stdout, /no longer on the list of what is waiting on your person/);
+    assert.doesNotMatch(a.stdout, /Put task 3/, 'it said it put the task on hold');
+  });
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true }, forPersonCleared: false }], async (env) => {
+    const b = await runCli(['task', 'hold', 'p1', '3', '--not-for-you'], env);
+    assert.equal(b.code, 0, b.stdout + b.stderr);
+    assert.match(b.stdout, /stays on hold as it was\. It was not on the list/);
+    assert.doesNotMatch(b.stdout, /no longer on the list/, 'it claimed a mark came off that was never there');
+  });
+  await withBoard(() => [409, { error: 'this task is not on hold, so there is no mark to take off' }], async (env) => {
+    const c = await runCli(['task', 'hold', 'p1', '3', '--not-for-you'], env);
+    assert.equal(c.code, 1);
+    assert.match(c.stdout + c.stderr, /not on hold, so there is no mark to take off/);
+  });
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env) => {
+    const d = await runCli(['task', 'hold', 'p1', '3'], env);
+    assert.match(d.stdout, /Put task 3 on p1 on hold/, 'CONTROL: an ordinary hold still says it put it on hold');
+  });
+});
