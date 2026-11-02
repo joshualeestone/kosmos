@@ -19,8 +19,10 @@
  *   readStateAsync and writeStateAsync (kosmos#7746) give the same answers and the same errors (as rejections) as
  *   readState and writeState, giving the event loop a turn every 50,000 rows and between steps; JSON.parse and
  *   JSON.stringify of the whole file each stay one block. A run uses them; at the top plan the sync ones block for seconds.
- *   Async writes of one file run in the order asked; a sync writeState while one is in flight throws with no code (a
- *   caller mistake: it would land in the middle of it).
+ *   Async writes of one file run in the order asked; a sync writeState (or discardState, which answers ok: false) while
+ *   one is in flight is refused: it would land in the middle of it. The sync throw has no code (a caller mistake), so a
+ *   caller on the run path uses the async versions only. A caller must not change a state's index Maps while a write of
+ *   it is in flight: the write reads them across its turns (backuprun hands it a copy, withRun's).
  *   A missing file is ok and empty ({ job: {}, periods: [] }). A file that is a link, malformed, or for another
  *   (org, member) is NOT ok, and is never overwritten in place; the way out is discardState. A file that could not be
  *   read for a passing reason (EBUSY, EAGAIN, EPERM, EACCES: a scanner, or a rename in progress on Windows) is NOT ok
@@ -297,6 +299,7 @@ function* writeSteps(org, member, state) {
     // process writing in that instant is the one-run-at-a-time duty above).
     remember(fileFor(org, member));
   } catch (err) {
+    known.delete(fileFor(org, member));   // the rename may have happened before the throw: nothing is remembered
     const code = err && typeof err.code === 'string' ? err.code : undefined;
     throw Object.assign(new Error(`backupstate: the state file could not be written${code && /^[A-Z0-9_]{1,32}$/.test(code) ? ` (${code})` : ''}`),
       { code, cause: err, retry: TRANSIENT.has(code) || TRANSIENT.has(err && err.cause && err.cause.code) });
