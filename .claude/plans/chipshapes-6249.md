@@ -41,6 +41,10 @@ agent jams. That is the 0.7.70 report on #6249, a version that already had #6780
 
 ## Decided
 
+  For a line long enough to fold, a box of only chips after the Enter is also said as not sent, pinned or not, since
+  ours may be under them (a blind Enter, the read before it failed). The cost: if ours did go and a person then
+  pasted only chips, that reads as not sent where main said sent for several chips. A shorter line cannot be under
+  chips, so there it is judged by our end, as on main.
 - No cap on how many chips a box may hold beyond the per-chip floor above. This widens a window main already had: a
   person who pastes a long block in the moment between our empty-box read and our Enter, on a line of ours long
   enough to leave room under the floor, is sent with ours. Before #6249 only one chip was accepted, so a second chip
