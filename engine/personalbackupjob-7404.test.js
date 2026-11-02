@@ -385,6 +385,17 @@ test('#7775: the last run\'s lost checkpoints and in-process seal are plain line
   assert.ok(r.stopped);
   assert.equal(r.note, null);
 });
+test('#7775: the in-process seal line belongs to the last finished backup, so a failed try after it keeps the line', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
+  const sealed = /without its background helper/;
+  await run({ ok: true, sealedInProcess: 'no-answer' }, 12);
+  await run({ ok: false, because: 'Kosmos+ could not be reached' }, 13);
+  assert.match(String(pb.report(o).note), sealed, 'a failed try does not drop it');
+  await run({ ok: true }, 14);
+  assert.equal(pb.report(o).note, null, 'the next finished backup replaces it');
+});
 test('#7775: before any backup has finished, the line follows "not finished yet"', async () => {
   const pair = newPair();
   const o = onNow(chain(pair, []), pair);

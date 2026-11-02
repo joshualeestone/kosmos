@@ -523,7 +523,7 @@ function stopOf(r) {
    it is on ensureMemberKey's answer, which runOnce does not pass to runBackup's. */
 const RUN_SAY = [
   ['lostCheckpoints', 'On the last try, this computer could not save its progress along the way, so an interrupted backup may have to redo some work.'],
-  ['sealedHere', 'The last backup finished without its background helper, so Kosmos may have paused for a moment while it did.'],
+  ['sealedHere', 'The last backup finished without its background helper, so Kosmos may have been slow for a moment while it did.'],
 ];
 const SEALED_HOW = ['not-sent', 'no-worker', 'worker-ended', 'no-answer'];
 function runFlags(r) {
@@ -544,6 +544,7 @@ function noteRun(r, opts, before) {
   const same = was.org === rec.org.id && was.world === rec.world;
   const now = new Date((opts.now || Date.now)()).toISOString();
   const next = { org: rec.org.id, world: rec.world, lastTry: now, lastOk: r.ok ? now : (same && was.lastOk) || null, ...runFlags(r) };
+  if (!r.ok && same && was.sealedHere === true && next.lastOk) next.sealedHere = true;   // sealedHere goes with lastOk's run
   if (!r.ok) {
     const stopped = stopOf(r);
     if (stopped) next.stopped = stopped;
