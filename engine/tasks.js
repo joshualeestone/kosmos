@@ -1298,7 +1298,10 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       throw notHeld;
     }
     const wantBecause = !onHold ? null : reason !== undefined ? reason : isOnHold(t) ? (t.onHoldBecause || null) : null;
-    const want = keepPersons || (onHold && restates) || (unmarkOnly && until == null) ? (u1 || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
+    /* Final review: --for-you on an agent's existing hold, with no condition given, is a mark too, so it keeps the
+       condition as --not-for-you does (a bare re-hold still sets exactly what it is given). */
+    const markOnlyFor = onHold && forPerson === true && viaScreen !== true && isOnHold(t) && until == null;
+    const want = keepPersons || (onHold && restates) || (unmarkOnly && until == null) || markOnlyFor ? (u1 || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
     const sameUntil = JSON.stringify(t.onHoldUntil || null) === JSON.stringify(want);
     // Review 1: a changed reason alone is no new hold, so it records nothing: the stale-hold clock reads hold-set.
     didChange = isOnHold(t) !== onHold || (onHold && !sameUntil);
