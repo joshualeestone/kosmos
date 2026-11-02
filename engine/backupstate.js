@@ -43,7 +43,7 @@
  *   from the write itself (Windows refusing the rename while a scanner holds the file) throws with retry too, and every
  *   error FROM THE WRITE ITSELF carries the underlying `code` and `cause` (a full disk, a read-only folder), so the
  *   caller can tell the person why. The refusal to replace a file not ours carries code 'refused' (and retry when the
- *   read was passing); a state that would not read back throws with no code (a caller mistake). EACCES and EPERM are retry on write as on read, and the same bounded-retry duty applies.
+ *   read was passing); a state that would not read back throws with no code (a caller mistake), and so does a sync writeState while an async write of the same file is in flight (kosmos#7746: it would land in the middle of it). EACCES and EPERM are retry on write as on read, and the same bounded-retry duty applies.
  * forPeriod(state, label, { memberKeyId, nowMs, newKey? }) -> period: the stored period whose label IS `label`, its index
  *   pruned of entries sealed to another member key (a #5744 rotation, which takeSnapshot would refuse as a stale index,
  *   costing a run) and, defensively, of locks already ended (uploadManifest's own floor is stricter: a chunk must
@@ -213,8 +213,9 @@ function* readFileSteps(org, member) {
   if (!got || got.v !== 1 || got.org !== org || got.member !== member) return { ok: false, because: 'the backup state file is not one this computer wrote' };
   yield;
   const periods = [];
-  if (Array.isArray(got.periods) && got.periods.length <= SLOTS) for (const x of got.periods) periods.push(yield* periodSteps(x));
-  else periods.push(undefined);
+  if (Array.isArray(got.periods) && got.periods.length <= SLOTS) {
+    for (const x of got.periods) { const one = yield* periodSteps(x); periods.push(one); if (!one) break; }
+  } else periods.push(undefined);
   if (periods.some((x) => !x) || new Set(periods.map((x) => x.label)).size !== periods.length) return { ok: false, because: 'the backup state file is not one this computer wrote' };
   // A file left looser (a copy, a restore) is made owner-only once it has read as ours, best effort. (Its contents were
   // trusted first, as backupmemberkey does: the folder is 0700, so only this user could have loosened it.)
@@ -243,7 +244,8 @@ function writeState(org, member, state) {
 }
 /** writeState with a turn for the event loop every ROWS_PER_PAUSE rows (kosmos#7746). The same result and throws. */
 function writeStateAsync(org, member, state) {
-  const f = fileFor(org, member);
+  let f;
+  try { f = fileFor(org, member); } catch (err) { return Promise.reject(err); }   // a bad id rejects, as readStateAsync does
   const prev = writing.get(f) || Promise.resolve();
   const mine = prev.catch(() => {}).then(() => runAsync(writeSteps(org, member, state)));
   const tail = mine.catch(() => {});
@@ -274,7 +276,8 @@ function* writeSteps(org, member, state) {
     fs.mkdirSync(dir(), { recursive: true, mode: 0o700 });
     try { fs.chmodSync(dir(), 0o700); } catch { /* the file itself is 0600 either way */ }
     require('./securewrite').writeSecret(fileFor(org, member), body, 0o600, { atomicOnly: true });
-    // No turn between the rename and this lstat, so what it fingerprints is the file just written.
+    // No turn for this process between the rename and this lstat, so it fingerprints the file just written (another
+    // process writing in that instant is the one-run-at-a-time duty above).
     remember(fileFor(org, member));
   } catch (err) {
     const code = err && typeof err.code === 'string' ? err.code : undefined;

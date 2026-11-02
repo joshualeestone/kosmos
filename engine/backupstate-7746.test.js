@@ -112,6 +112,32 @@ test('#7746: two async writes of one file land in the order they were asked for;
   bs.writeState(org, member, stateOf(1));   // and a sync write goes through once nothing is in flight
 });
 
+test('#7746: a held file that is still ours (no re-read) is refused with retry by the rename, and left as it was', async () => {
+  const [org, member] = ids();
+  const f = bs.fileFor(org, member);
+  bs.writeState(org, member, stateOf(5));
+  const before = fs.readFileSync(f, 'utf8');
+  const realRename = fs.renameSync;
+  let caught;
+  fs.renameSync = function (from, to, ...rest) {
+    if (String(to) === f) { const e = new Error('busy'); e.code = 'EBUSY'; throw e; }
+    return realRename.call(fs, from, to, ...rest);
+  };
+  try {
+    assert.equal(await readsOf(f, async () => { try { bs.writeState(org, member, stateOf(7)); } catch (err) { caught = err; } }), 0, 'premise: the skip path');
+  } finally { fs.renameSync = realRename; }
+  assert.ok(caught); assert.equal(caught.retry, true); assert.equal(caught.code, 'EBUSY');
+  assert.equal(fs.readFileSync(f, 'utf8'), before);
+});
+
+test('#7746: a bad id rejects from writeStateAsync as from readStateAsync, never throws synchronously', async () => {
+  let threw = false, p;
+  try { p = bs.writeStateAsync(7, 'm', stateOf(1)); } catch { threw = true; }
+  assert.equal(threw, false);
+  await assert.rejects(p, TypeError);
+  await assert.rejects(bs.readStateAsync(7, 'm'), TypeError);
+});
+
 test('#7746: a file swapped in by rename, same size and mtime to the nanosecond, is still checked in full', async () => {
   const [org, member] = ids();
   const f = bs.fileFor(org, member);
