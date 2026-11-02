@@ -265,3 +265,22 @@ test('kosmos#7797 review 2: an archived project counts no hold for the person, s
   projects.edit(a.id, { archived: true });
   assert.equal(row(a.id).summary.heldForYou, 0);
 });
+
+test('kosmos#7797 review 3: the person taking over an agent\'s hold for them on the screen is a new hold, so the clock restarts', () => {
+  const hs = require('./holdstale');
+  const { id, n } = fresh('hfp takeover');
+  tasks.setOnHold(id, n, true, { forPerson: true });
+  const before = hs.holdSet(id, n, taskchat.read);
+  tasks.setOnHold(id, n, true, { viaScreen: true });
+  const last = taskchat.read(id, n).filter((e) => e.kind === 'hold-set').pop();
+  assert.equal(last.via, 'screen');
+  assert.equal('markOnly' in last, false, 'the takeover was recorded as a mark change');
+  const after = hs.holdSet(id, n, taskchat.read);
+  assert.equal(after.byPerson, true, 'the clock still reads the agent\'s hold');
+  assert.ok(after.at >= before.at);
+  // CONTROL: the same takeover of an unmarked agent hold.
+  const c = fresh('hfp takeover control');
+  tasks.setOnHold(c.id, c.n, true);
+  tasks.setOnHold(c.id, c.n, true, { viaScreen: true });
+  assert.equal(hs.holdSet(c.id, c.n, taskchat.read).byPerson, true);
+});

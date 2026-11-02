@@ -1310,7 +1310,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       const keepFor = forPerson === undefined && isOnHold(t) && t.onHoldForPerson === true;
       if (viaScreen !== true && (forPerson === true || keepFor)) changed.onHoldForPerson = true; else delete changed.onHoldForPerson;
       // kosmos#7788 review 1: marking or unmarking it moves the task between groups, so the history records it.
-      if (isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true)) { markOnly = !didChange; didChange = true; }
+      if (isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true)) { markOnly = !didChange && viaScreen !== true; didChange = true; }   // review 3: the person's hold on the screen (a takeover too) is a new hold
       forCleared = isOnHold(t) && t.onHoldForPerson === true && changed.onHoldForPerson !== true;
       /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
          an agent's hold never takes the person's away. */
