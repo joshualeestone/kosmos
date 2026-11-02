@@ -388,6 +388,20 @@ function chk(ok, label, extra) {
       });
       chk(unread.row && /cannot tell whether more than these are waiting on you/.test(unread.why) && /more than these/.test(unread.label),
         `${tag} #7788 review 1: agents unreadable, the listed hold stays and the warning says "more than these"`, JSON.stringify(unread));
+      /* kosmos#7812: in a paused project the same hold flags nobody. It lists under On hold, not Needs Your Decision,
+         and its Save line no longer promises to move it out of a group it is not in. Resumed again after. */
+      projects.edit(launch.id, { paused: true });
+      await page.evaluate(() => showTab('tasks'));
+      await page.waitForFunction(() => !document.querySelector('#tsk-groups .tsk-for-you'), null, { timeout: 6000 }).catch(() => {});
+      const pausedDecision = await tileRows(page, 'decision');
+      const pausedHeld = await heldRows(page);
+      chk(!pausedDecision.includes(launchTwo.sentence) && pausedHeld.includes(launchTwo.sentence),
+        `${tag} #7812 in a paused project the hold for you lists under On hold, not Needs Your Decision`, JSON.stringify({ pausedDecision, pausedHeld }));
+      await openTask(page, launch.id, 2);
+      await page.waitForFunction(() => document.getElementById('tk-hold-takeover').textContent === 'Saving makes this hold yours, so only you can take it off.', null, { timeout: 5000 }).catch(() => {});
+      chk(await text(page, '#tk-hold-takeover') === 'Saving makes this hold yours, so only you can take it off.',
+        `${tag} #7812 in a paused project Save does not say the task leaves Needs Your Decision`, await text(page, '#tk-hold-takeover'));
+      projects.edit(launch.id, { paused: false });
       tasks.setOnHold(launch.id, 2, false);
 
       /* A finished task offers no hold; the open task above is the control that it is offered at all. */

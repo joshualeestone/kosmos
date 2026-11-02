@@ -10,7 +10,8 @@ Three rough edges around paused projects, each checked live on 0.7.84 (10ce35b96
    project is paused, and comes back on resume if the agent still needs the person. kosmos#7788's app-icon count
    (heldForPersonCount) skips a paused project too, so the badge agrees with the Tasks view. The agent's own card still
    shows its question, and the Needs you count (counts.needsYou), which counts agents, still includes it: deliberate,
-   since Josh's 10-16 words were that such things show "only on the agent".
+   since Josh's 10-16 words were that such things show "only on the agent". The task sheet's takeover line (web/index.html
+   tkPaintHoldUntil) says the task "leaves Needs Your Decision" only when its project is not paused.
 2. **A resume tells the members.** `engine/messages.js` `tellResumed` types each member one `[from Kosmos]` line naming
    the project, that its tasks not on hold can be worked on again, and `kosmos task list <id>`. As in nudgeOwnComputerPost (but with no roomHeld valve, since the line asks for no
    reply in the room):
@@ -33,6 +34,10 @@ Three rough edges around paused projects, each checked live on 0.7.84 (10ce35b96
 - Rejected: a stored "cleared" mark on pause (the flag is derived; a stored mark could go stale against the agent).
 - Rejected: posting the resume line as the person (`sendPostAsync` with operator: words they did not write).
 - The agent that resumes a project itself is told too; one redundant line, not worth a second rule.
+
+## Browser check
+`docs/browser-checks/render-onhold-4771.js` gains a paused arm (light 1400 and dark 390): the hold for you lists under On
+hold, and the Save line drops the Needs Your Decision clause. 134/134 pass; with the page fix removed, that arm fails.
 
 ## Known limits
 - The route tests read server.js as text (the gates, setImmediate, the forget call): they fail when a rule is removed,
