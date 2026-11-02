@@ -55730,7 +55730,8 @@ const PB_WHY_OPENING = [
   [/^restore would refuse it beside /, 'its name clashes with another file'],
   [/^restore would refuse it as colliding/, 'its name clashes with another file'],
   [/^restore would refuse it: |: restore cannot write it$/, 'its name cannot be restored'],
-  [/^names a file also named by the root |^is inside the root |^is the same folder as the root /, 'already backed up from another folder'],
+  // Review 3: when both folders are optional the engine leaves out both, so nothing here may claim the other was backed up.
+  [/^names a file also named by the root |^is inside the root |^is the same folder as the root /, 'it overlaps another folder'],
 ];
 function pbWhyWords(why) {
   const s = typeof why === 'string' ? why : '';
