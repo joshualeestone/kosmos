@@ -69931,6 +69931,9 @@ const TSK_BYS = [['status', 'Status'], ['project', 'Project']];
 /* The dot a group wears, on its tile and its heading alike (review round 10: the heading had kept red at zero).
    Needs Your Decision is red only when there is something to act on and Kosmos could read the agents. */
 const TSK_DECISION_UNKNOWN = 'Kosmos could not read your agents just now, so it cannot tell whether one is waiting on you.';
+/* kosmos#7788 review 1: rows can still be listed then (a hold for you and a missed run do not need the agents), so the
+   words never deny the rows under them. */
+const TSK_DECISION_UNKNOWN_SOME = 'Kosmos could not read your agents just now, so it cannot tell whether more than these are waiting on you.';
 function tskDot(g, n) {
   return g.k === 'decision' && (!n || TSK.rosterUnknown) ? 'var(--tsk-nobody)' : g.c;
 }
@@ -70458,7 +70461,7 @@ function tskPaint() {
     /* Review round 9: when the server could not read the agents, a 0 here would say nobody needs the person
        when nobody could look. The tile says it cannot tell, and stays neutral. */
     if (g.k === 'decision' && TSK.rosterUnknown) {
-      const why = TSK_DECISION_UNKNOWN;
+      const why = n ? TSK_DECISION_UNKNOWN_SOME : TSK_DECISION_UNKNOWN;
       return '<button type="button" class="tsk-tile" data-tile="decision" data-n="unknown" aria-pressed="' + (TSK.tile === g.k) + '" style="--tsk-c:var(--tsk-nobody)" title="' + esc(why) + '" aria-label="' + esc(g.l + ': cannot tell. ' + why) + '">'
         + '<span class="tsk-mkrow">' + tskBadge(g.k) + '<span class="num">?</span></span><span class="lab"><span class="tsk-dot"></span>' + esc(g.l) + '</span></button>';
     }
@@ -70515,7 +70518,7 @@ function tskPaint() {
          that one is a warning about now, not an explanation. */
       const dot = '<span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>';
       const head = unknown
-        ? '<h3>' + dot + esc(g.l) + '<span class="count">?</span></h3><p class="why">' + esc(TSK_DECISION_UNKNOWN) + '</p>'
+        ? '<h3>' + dot + esc(g.l) + '<span class="count">?</span></h3><p class="why">' + esc(ts.length ? TSK_DECISION_UNKNOWN_SOME : TSK_DECISION_UNKNOWN) + '</p>'
         : '<h3 title="' + esc(g.why) + '" aria-describedby="tsk-why-' + g.k + '">' + dot + esc(g.l) + '<span class="count">' + ts.length + '</span></h3>'
           + '<span class="vh" id="tsk-why-' + g.k + '">' + esc(g.why) + '</span>';
       if (unknown && !ts.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
@@ -70976,7 +70979,7 @@ function paintTaskPage() {
       ? 'While a task is on hold, Kosmos does not nudge anyone about it or hand it out.'
       /* kosmos#7788: an agent's hold that waits on the person says so, and what clears it. */
       : t.onHoldForPerson === true
-        ? 'An agent put this on hold until you answer it. Once you have, take it off hold here, or tell the agent. Kosmos does not nudge anyone about it or hand it out.'
+        ? 'An agent put this on hold until you answer its question. Once you have, take it off hold here, or tell the agent. Kosmos does not nudge anyone about it or hand it out.'
       : t.onHoldByPerson === true
         ? 'You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out.'
         : 'This was put on hold outside this screen (by an agent, or with kosmos task hold), so an agent or you can take it off. Kosmos does not nudge anyone about it or hand it out.';

@@ -113,7 +113,7 @@ test('#7749 Mac CLI: task hold --because sends the reason in either order; none 
 });
 
 test('#7788 Mac CLI: task hold --for-you sends forPerson anywhere after the number, and says so; never on unhold', async () => {
-  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env, writes) => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson ? { onHoldForPerson: true } : {}) } }], async (env, writes) => {
     const a = await runCli(['task', 'hold', 'p1', '3', '--for-you', '--because', 'needs your yes'], env);
     assert.equal(a.code, 0, a.stdout + a.stderr);
     assert.match(a.stdout, /waiting on your person/);
@@ -189,5 +189,15 @@ test('#7180 Mac CLI: each wrong hold shape gets its own message; the time said b
     const ok = await runCli(['task', 'hold', 'p1', '3', '--until', '2026-11-02'], env);
     assert.equal(ok.code, 0, ok.stdout + ok.stderr);
     assert.match(ok.stdout, /It waits until 2026-11-02T00:00:00\.000Z/, 'the typed date, not the stored time, was said back');
+  });
+});
+
+test('#7788 Mac CLI: a board that ignores --for-you (older) holds it, says it is not on the list, and exits 1', async () => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env) => {
+    const a = await runCli(['task', 'hold', 'p1', '3', '--for-you'], env);
+    assert.equal(a.code, 1, a.stdout + a.stderr);
+    assert.match(a.stdout, /Put task 3 on p1 on hold/);
+    assert.match(a.stdout, /older than --for-you, so it is on hold but not on the list/);
+    assert.doesNotMatch(a.stdout, /It is on the list of what is waiting on your person/, 'claimed a mark the board did not record');
   });
 });

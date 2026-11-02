@@ -6242,7 +6242,14 @@ cmd_task() {
         '{"task":'*)
           if [ "$want" = true ]; then say "Put task $num on ${project:-the project} on hold. Kosmos will not nudge anyone about it or hand it out."
             [ -z "$_hold_because" ] || say "Why, as shown on the task: $_hold_because"
-            [ -z "$_hold_for" ] || say "It is on the list of what is waiting on your person."
+            # kosmos#7788: only when the board's answer carries the mark; an older board ignores forPerson and still holds it.
+            local _hold_for_older=""
+            if [ -n "$_hold_for" ]; then
+              case "$body" in
+                *'"onHoldForPerson":true'*) say "It is on the list of what is waiting on your person." ;;
+                *) say "This Kosmos is older than --for-you, so it is on hold but not on the list of what is waiting on your person. Ask them in their room yourself."; _hold_for_older=1 ;;
+              esac
+            fi
             # kosmos#7180: say what it waits for, as the board recorded it.
             case "$_hold_until" in
               '{"task":'*) say "It waits for task ${4:-} to be closed; Kosmos tells its owner when it is." ;;
@@ -6251,6 +6258,7 @@ cmd_task() {
                 local _hat; _hat=$(printf '%s' "$body" | sed -n 's/.*"onHoldUntil":{"at":"\([0-9TZ:.+-]*\)".*/\1/p')
                 say "It waits until ${_hat:-${4:-}}; Kosmos tells its owner when that time has passed." ;;
             esac
+            [ -z "$_hold_for_older" ] || exit 1   # held, but not all of what was asked: not 0
           else say "Took task $num on ${project:-the project} off hold."
             # kosmos#7407: who has it now, as the board says (it carries no double quote); none from an older board.
             local _next; _next=$(printf '%s' "$body" | sed -n 's/.*"next":"\([^"]*\)".*/\1/p')

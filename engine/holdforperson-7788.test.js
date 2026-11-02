@@ -110,3 +110,20 @@ test('step 4: lifting the hold takes it out of decision', () => {
   tasks.setOnHold(id, n, false);
   assert.notEqual(tasks.taskState(read(id, n)), 'decision');
 });
+
+test('review 1: marking or unmarking an existing hold records a hold-set event, which says forPerson when set', () => {
+  const { id, n } = fresh('hfp thirteen');
+  tasks.setOnHold(id, n, true, { because: 'plain' });
+  const count = () => taskchat.read(id, n).filter((e) => e.kind === 'hold-set').length;
+  assert.equal(count(), 1, 'fixture: the first hold records one event');
+  tasks.setOnHold(id, n, true, { because: 'plain' });
+  assert.equal(count(), 1, 'CONTROL: a bare re-hold records nothing');
+  tasks.setOnHold(id, n, true, { forPerson: true });
+  const evs = taskchat.read(id, n).filter((e) => e.kind === 'hold-set');
+  assert.equal(evs.length, 2, 'marking it waits on the person was not recorded');
+  assert.equal(evs[1].forPerson, true);
+  tasks.setOnHold(id, n, true, { forPerson: false });
+  const after = taskchat.read(id, n).filter((e) => e.kind === 'hold-set');
+  assert.equal(after.length, 3, 'unmarking it was not recorded');
+  assert.equal('forPerson' in after[2], false);
+});

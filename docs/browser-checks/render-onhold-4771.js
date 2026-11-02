@@ -353,7 +353,7 @@ function chk(ok, label, extra) {
       tasks.setOnHold(launch.id, 2, true, { forPerson: true, because: 'needs your yes on the price' });
       await openTask(page, launch.id, 2);
       await page.waitForFunction(() => document.getElementById('tk-hold').textContent === 'Take off hold', null, { timeout: 5000 }).catch(() => {});
-      chk(/^An agent put this on hold until you answer it\. Once you have, take it off hold here, or tell the agent\./.test(await text(page, '#tk-hold-hint') || ''),
+      chk(/^An agent put this on hold until you answer its question\. Once you have, take it off hold here, or tell the agent\./.test(await text(page, '#tk-hold-hint') || ''),
         `${tag} #7788 a hold for you says it waits on your answer and how it clears`, await text(page, '#tk-hold-hint'));
       await page.evaluate(() => showTab('tasks'));
       const wantDecision = String(Number(decisionBefore) + 1);
@@ -368,6 +368,18 @@ function chk(ok, label, extra) {
       const forYou = await page.evaluate(() => { const e = document.querySelector('#tsk-groups .tsk-for-you'); return e ? e.textContent.trim() : null; });
       chk(forYou === 'On hold until you answer: needs your yes on the price. Open it and take it off hold once you have.',
         `${tag} #7788 its row says what it waits on and how it clears`, forYou);
+      /* Review 1: with the agents unreadable the row is still known, so the words never deny it. Through the page's own
+         flag and painter, as render-tasks-view-3559 drives the empty case. */
+      const unread = await page.evaluate(() => {
+        TSK.rosterUnknown = true; tskPaint();
+        const t = document.querySelector('#tsk-tiles [data-tile="decision"]');
+        const h = [...document.querySelectorAll('#tsk-groups .tsk-grp h3')].find((x) => /Needs Your Decision/.test(x.textContent));
+        const out = { label: t.getAttribute('aria-label') || '', why: h ? (h.parentNode.querySelector('.why') || {}).textContent || '' : '', row: !!document.querySelector('#tsk-groups .tsk-for-you') };
+        TSK.rosterUnknown = false; tskPaint();
+        return out;
+      });
+      chk(unread.row && /cannot tell whether more than these are waiting on you/.test(unread.why) && /more than these/.test(unread.label),
+        `${tag} #7788 review 1: agents unreadable, the listed hold stays and the warning says "more than these"`, JSON.stringify(unread));
       tasks.setOnHold(launch.id, 2, false);
 
       /* A finished task offers no hold; the open task above is the control that it is offered at all. */

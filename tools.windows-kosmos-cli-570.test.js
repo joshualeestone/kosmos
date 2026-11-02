@@ -612,11 +612,11 @@ test('#7180 Windows task hold --until-task / --until send the condition; bad val
 });
 
 test('#7788 Windows task hold --for-you sends forPerson anywhere after the number, and says so; never on unhold', async () => {
-  const a = await run(['task', 'hold', 'p1', '3', '--for-you', '--because', 'needs your yes'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  const a = await run(['task', 'hold', 'p1', '3', '--for-you', '--because', 'needs your yes'], () => ({ body: { task: { number: 3, onHold: true, onHoldForPerson: true } } }));
   assert.equal(a.code, 0, a.err);
   assert.deepEqual(a.calls[0].body, { onHold: true, because: 'needs your yes', forPerson: true });
   assert.match(a.out, /waiting on your person/);
-  const b = await run(['task', 'hold', 'p1', '3', '--until-task', '5', '--for-you'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  const b = await run(['task', 'hold', 'p1', '3', '--until-task', '5', '--for-you'], () => ({ body: { task: { number: 3, onHold: true, onHoldForPerson: true } } }));
   assert.equal(b.code, 0, b.err);
   assert.deepEqual(b.calls[0].body, { onHold: true, until: { task: 5 }, forPerson: true });
   const c = await run(['task', 'hold', 'p1', '3'], () => ({ body: { task: { number: 3, onHold: true } } }));
@@ -974,4 +974,14 @@ test('#6849: task built --file and kosmos fingerprint give a PDF the fingerprint
   assert.equal(kind.code, 0, kind.err);
   assert.match(kind.out, /matches the PDF fingerprint/);
   assert.equal((await run(['fingerprint', a, plain(a), 'extra'])).code, 2);
+});
+
+test('#7788 Windows task hold --for-you: a board that ignores it (older) holds it, says it is not on the list, and exits 1', async () => {
+  const a = await run(['task', 'hold', 'p1', '3', '--for-you'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(a.code, 1, a.err);
+  assert.match(a.out, /older than --for-you, so it is on hold but not on the list/);
+  assert.doesNotMatch(a.out, /It is on the list of what is waiting on your person/, 'claimed a mark the board did not record');
+  const ok = await run(['task', 'hold', 'p1', '3', '--for-you'], () => ({ body: { task: { number: 3, onHold: true, onHoldForPerson: true } } }));
+  assert.equal(ok.code, 0, 'CONTROL: a board that records the mark exits 0');
+  assert.match(ok.out, /It is on the list of what is waiting on your person/);
 });

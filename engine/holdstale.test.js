@@ -40,12 +40,12 @@ const iso = (t) => new Date(t).toISOString();
 
 /* A project whose task (owned by REX) is on hold. The hold's own time comes from `holds` (the history setOnHold
    writes), given to holdstale through its `read` seam so the fixture sets it at a known moment. */
-function fixture({ byPerson = false, paused = false, closed = false } = {}) {
+function fixture({ byPerson = false, paused = false, closed = false, forPerson = false } = {}) {
   const p = projects.create({ name: 'Supplier ' + Math.random().toString(36).slice(2) });
   const n = tasks.create(p.id, { sentence: 'Check the supplier price' }).number;
   projects.mutate(p.id, (x) => ({
     ...x, agents: [ADA, REX], ...(paused ? { paused: true } : {}),
-    tasks: x.tasks.map((t) => (t.number === n ? { ...t, who: REX, onHold: true, ...(byPerson ? { onHoldByPerson: true } : {}),
+    tasks: x.tasks.map((t) => (t.number === n ? { ...t, who: REX, onHold: true, ...(byPerson ? { onHoldByPerson: true } : {}), ...(forPerson ? { onHoldForPerson: true } : {}),
       ...(closed ? { closedAt: iso(NOW - HOUR) } : {}) } : t)),
   }));
   return { id: p.id, n };
@@ -323,4 +323,13 @@ test('#7367: stamps unknown at entry and the file repaired DURING the reads is c
   let out;
   try { out = hs.owed(list, rows, NOW, { read: repairMidRead }); } finally { fs.writeFileSync(f, good); }
   assert.deepEqual(out, [], 'unknown at entry: owed nobody, even though the stamps are known again by the end');
+});
+
+test('kosmos#7788: a hold for the person is never told about for its owner\'s posts; the same hold without it is (control)', () => {
+  const held = fixture({ forPerson: true });
+  assert.equal(pass(held.id, [post(held.id, REX, 2 * HOUR), post(held.id, REX, HOUR), post(held.id, REX, 0.5 * HOUR)], holdAt(3 * HOUR)).sent.length, 0,
+    'the owner was told to lift a hold that waits on the person');
+  const plain = fixture();
+  assert.equal(pass(plain.id, [post(plain.id, REX, 2 * HOUR), post(plain.id, REX, HOUR), post(plain.id, REX, 0.5 * HOUR)], holdAt(3 * HOUR)).sent.length, 1,
+    'CONTROL: the same posts about a plain hold tell the owner');
 });

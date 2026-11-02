@@ -1297,6 +1297,8 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       if (wantBecause) changed.onHoldBecause = wantBecause; else delete changed.onHoldBecause;
       const keepFor = forPerson === undefined && isOnHold(t) && t.onHoldForPerson === true;
       if (viaScreen !== true && (forPerson === true || keepFor)) changed.onHoldForPerson = true; else delete changed.onHoldForPerson;
+      // kosmos#7788 review 1: marking or unmarking it moves the task between groups, so the history records it.
+      if (isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true)) didChange = true;
       /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
          an agent's hold never takes the person's away. */
       if (viaScreen === true) changed.onHoldByPerson = true;
@@ -1308,7 +1310,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
     };
   });
   // via: whether the person did it on the screen or a process (an agent) did, so an agent's hold never reads as the person's.
-  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent', ...(onHold && changed.onHoldUntil ? { until: Number.isInteger(changed.onHoldUntil.task) ? 'task #' + changed.onHoldUntil.task : changed.onHoldUntil.at }
+  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent', ...(onHold && changed.onHoldForPerson === true ? { forPerson: true } : {}), ...(onHold && changed.onHoldUntil ? { until: Number.isInteger(changed.onHoldUntil.task) ? 'task #' + changed.onHoldUntil.task : changed.onHoldUntil.at }
     : onHold && hadUntil ? { untilCleared: true } : {}) });
   else if (tookOver) taskchat.record(projectId, changed.number, { kind: 'hold-set', via: 'screen' });   // the person made an agent's hold theirs
   return changed;

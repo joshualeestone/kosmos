@@ -1659,7 +1659,10 @@ function taskHoldAs(want) {
     if (r.json && r.json.task) {
       ctx.out(want ? 'Put task ' + num + ' on ' + project + ' on hold. Kosmos will not nudge anyone about it or hand it out.'
         : 'Took task ' + num + ' on ' + project + ' off hold.');
-      if (forPerson) ctx.out('It is on the list of what is waiting on your person.');
+      // kosmos#7788: only when the board's answer carries the mark; an older board ignores forPerson and still holds it.
+      const forOlder = forPerson && r.json.task.onHoldForPerson !== true;
+      if (forPerson) ctx.out(forOlder ? 'This Kosmos is older than --for-you, so it is on hold but not on the list of what is waiting on your person. Ask them in their room yourself.'
+        : 'It is on the list of what is waiting on your person.');
       // kosmos#7407, as install/kosmos: who has it now, as the board says; none from an older board.
       const next = !want && typeof r.json.next === 'string' ? r.json.next.trim() : '';
       if (next) ctx.out(next);
@@ -1670,7 +1673,7 @@ function taskHoldAs(want) {
         const at = r.json.task.onHoldUntil && typeof r.json.task.onHoldUntil.at === 'string' ? r.json.task.onHoldUntil.at : value;
         ctx.out('It waits until ' + at + '; Kosmos tells its owner when that time has passed.');
       }
-      return 0;
+      return forOlder ? 1 : 0;   // held, but not all of what was asked: not 0
     }
     if (ctx.refusedBy(r)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r) + '.'); return 1; }
     ctx.err('Kosmos gave an answer we could not read when changing that task.');
