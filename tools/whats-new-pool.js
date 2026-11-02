@@ -11,6 +11,8 @@
  *   shown    shown by a release that reached prod (shownIn names it): never chosen again
  *   held     a feature that is held or dropped (conversation mode, Josh 10:49): never chosen, whatever its rank
  * restart (optional, kosmos#7411) is "agents" when a running agent keeps the old behaviour until it restarts.
+ * notesOnly (optional, kosmos#7411) is true for a note meant for `kosmos whats-new` only (an agent's command): `build`
+ * never puts it in the window, whatever its rank, and the release notes keep it.
  * "prod" here is the Mac prod family (promote-channel.sh without --family win). Windows is promoted on its own and
  * shows whichever list is current when its build is made (its number goes in the built file's "also", by hand,
  * on the release branch, docs/windows RELEASING.md); the pool does not record Windows promotes.
@@ -76,6 +78,11 @@ function readPool(file) {
   if (pool.lastProd !== undefined && (typeof pool.lastProd !== 'string' || !/^\d+\.\d+\.\d+$/.test(pool.lastProd))) {
     throw new Error(file + ': lastProd must be a version like 0.7.35, not ' + JSON.stringify(pool.lastProd));
   }
+  for (const it of pool.items) {
+    if (it.notesOnly !== undefined && it.notesOnly !== true) {
+      throw new Error(file + ': "' + it.title + '" has notesOnly ' + JSON.stringify(it.notesOnly) + '; it is true or left out');
+    }
+  }
   // Titles are how `shown` finds what prod showed: two items with one title would be marked together.
   const seen = new Set();
   for (const it of pool.items) {
@@ -91,10 +98,10 @@ const newerFirst = (a, b) => {
   return 0;
 };
 
-/** The highlights a cut shows: pending only, by rank, newest first on a tie, at most `max`. */
+/** The highlights a cut shows: pending only and never a notes-only one, by rank, newest first on a tie, at most `max`. */
 function choose(pool, max) {
   return pool.items
-    .filter((it) => it.status === 'pending')
+    .filter((it) => it.status === 'pending' && it.notesOnly !== true)
     .sort((a, b) => a.rank - b.rank || newerFirst(a.since, b.since) || (a.title < b.title ? -1 : 1))
     .slice(0, max)
     .map((it) => {

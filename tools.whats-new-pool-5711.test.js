@@ -265,3 +265,22 @@ test('#5711 review 11: a malformed lastProd is refused when the pool is read', (
   try { assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0); }
   finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
 });
+
+test('#7411: a notes-only item never reaches the window, whatever its rank, and stays in the release notes', () => {
+  const t = tmp({ lastProd: '0.7.35', items: [
+    item('Agent command', 0, 'pending', { notesOnly: true }), item('First', 1, 'pending'), item('Second', 2, 'pending'),
+  ] });
+  try {
+    assert.equal(quiet(() => tool.main(['build', '--offline', '0.7.36', `--pool=${t.file}`, `--out=${t.out}`])), 0);
+    assert.deepEqual(JSON.parse(fs.readFileSync(t.out, 'utf8')).highlights.map((h) => h.title), ['First', 'Second']);
+    const notes = require('./engine/releasenotes').notesFor(JSON.parse(fs.readFileSync(t.file, 'utf8')), '0.7.36', 'mac');
+    assert.ok(JSON.stringify(notes).includes('Agent command'), 'the release notes keep it');
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
+
+test('#7411: notesOnly is true or left out', () => {
+  const t = tmp({ lastProd: '0.7.35', items: [item('First', 1, 'pending', { notesOnly: 'yes' })] });
+  try {
+    assert.throws(() => tool.readPool(t.file), /notesOnly/);
+  } finally { fs.rmSync(t.dir, { recursive: true, force: true }); }
+});
