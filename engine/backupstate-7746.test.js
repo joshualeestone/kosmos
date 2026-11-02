@@ -66,6 +66,8 @@ test('#7746: a write re-reads the old file only when it is not exactly the one t
   const f = bs.fileFor(org, member);
   bs.writeState(org, member, stateOf(5));
   assert.equal(await readsOf(f, () => bs.writeState(org, member, stateOf(5))), 0, 'unchanged since our own write: no re-read');
+  // Moved first, so only the read below can be what lets the write skip (our own write's fingerprint no longer matches).
+  fs.utimesSync(f, new Date(), new Date(Date.now() + 3000));
   bs.readState(org, member);
   assert.equal(await readsOf(f, () => bs.writeStateAsync(org, member, stateOf(5))), 0, 'unchanged since our own read: no re-read');
   // Control: the same file touched by anyone else (its mtime moved) is read in full again, and still written.

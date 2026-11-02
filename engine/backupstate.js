@@ -16,6 +16,9 @@
  *     index      Map name -> { key, lockedUntilMs, memberKeyId }: the chunks stored this period (takeSnapshot's `index`)
  *
  * readState(org, member) -> { ok: true, state } | { ok: false, because }
+ *   readStateAsync and writeStateAsync (kosmos#7746) answer and throw exactly as readState and writeState, giving the
+ *   event loop a turn every 50,000 rows and between steps; JSON.parse and JSON.stringify of the whole file each stay one
+ *   block. A run uses them; at the top plan the sync ones block for seconds.
  *   A missing file is ok and empty ({ job: {}, periods: [] }). A file that is a link, malformed, or for another
  *   (org, member) is NOT ok, and is never overwritten in place; the way out is discardState. A file that could not be
  *   read for a passing reason (EBUSY, EAGAIN, EPERM, EACCES: a scanner, or a rename in progress on Windows) is NOT ok
@@ -32,7 +35,10 @@
  *   falls back to a fresh state after a refused read cannot overwrite the good or set-aside-worthy file: it must
  *   discardState first (after which there is no file) or wait out the retry. "Plainly ours" is readState's own test, the
  *   whole file (review 10: a head-only check let a body-corrupt file be overwritten, and refused a reformatted good one),
- *   so a write costs one read first (measured: 251 ms for one full slot; about half a second at two, 70 MB). The window between that read and the rename is covered by
+ *   so a write costs one read first, UNLESS the file is exactly the one this process last read or wrote as ours (kosmos#7746:
+ *   the same device, inode, size and mtime in ns, kept only when a read saw the same before and after it); then the write
+ *   replaces it without re-reading. A second writer that kept the size and mtime to the nanosecond would be replaced
+ *   unchecked, which the one-run-at-a-time duty below already rules out. The window between that read and the rename is covered by
  *   the one-run-at-a-time duty (the folder is 0700: only this user can put a file there meanwhile). A passing error
  *   from the write itself (Windows refusing the rename while a scanner holds the file) throws with retry too, and every
  *   error FROM THE WRITE ITSELF carries the underlying `code` and `cause` (a full disk, a read-only folder), so the
@@ -133,7 +139,6 @@ function cleanJob(j) {
 const goodEntry = (name, e, label) => NAME_RE.test(name) && e && goodKey(e.key) && isPosInt(e.lockedUntilMs) && HEX32_RE.test(e.memberKeyId)
   && e.key.split('/')[3] === label;
 
-/* A period as stored, or null when any part is not one this module writes. */
 /* kosmos#7746: the row check and the row building pause every ROWS_PER_PAUSE rows, so the async readState and writeState
    can give the event loop a turn. At the top plan (two slots of 600000) each was one block of about 900 ms (measured on
    #7746). The sync versions run the same steps straight through. */
@@ -143,6 +148,7 @@ const turn = () => new Promise((resolve) => setImmediate(resolve));
 async function runAsync(gen) { let r = gen.next(); while (!r.done) { await turn(); r = gen.next(); } return r.value; }
 
 function periodFrom(p) { return runSync(periodSteps(p)); }
+/* A period as stored (null for a null input), or undefined when any part is not one this module writes. */
 function* periodSteps(p) {
   if (p === null) return null;
   if (!p || typeof p !== 'object' || !PERIOD_RE.test(p.label)) return undefined;
