@@ -8209,7 +8209,9 @@ function lastWorkedOf(pane) {
    report through the one hook (engine/kosmos-report-hook.js), which writes `started` at launch and a row on every
    prompt (UserPromptSubmit) and finished answer (Stop), so a record holding only starts means no turn. Gemini, Codex,
    Antigravity and Muse report through other events, where a turn may write nothing; for them the card keeps its word
-   rather than call a working agent not started. False when the record cannot say (turnTakenOf null): the old word. */
+   rather than call a working agent not started. False when the record cannot say (turnTakenOf null): the old word.
+   A turn whose report never reached the board (it was down or restarting) leaves no row, so that agent reads "Not
+   started yet" until its next turn writes one. */
 const NEVER_TURNED_RUNNERS = new Set(['claude', 'grok']);
 function neverTurnedOf(pane, status) {
   if (!status || status.state !== STATE.IDLE || !isNamedOurs(pane)) return false;
