@@ -4514,6 +4514,33 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
 }
 function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
+/* kosmos#7812: a project that was paused is resumed. Its agents were otherwise told nothing until their next idle check,
+   so each member is typed one line now, the way nudgeOwnComputerPost types its line: only an addressable card, never one
+   switched off in this project, one failing pane not skipping the rest. Not recorded in the room log (a nudge row
+   names a post, and this has none). Answers { ok, told: [{ to, outcome }] }. Never throws. */
+function resumedLine(projectId, projectName) {
+  const rawName = String(projectName == null ? '' : projectName).trim();
+  const shown = (rawName && /^[A-Za-z0-9._ -]+$/.test(rawName)) ? rawName + ' (' + projectId + ')' : projectId;
+  return '[from Kosmos] Project ' + shown + ' was resumed: its tasks can be worked on and handed out again. See them with: kosmos task list ' + projectId;
+}
+function tellResumed(projectId, projectName, members, roster) {
+  const ok = (v) => typeof v === 'string' && v.length > 0;
+  if (!ok(projectId) || !/^[A-Za-z0-9._-]+$/.test(projectId) || !Array.isArray(members) || !Array.isArray(roster)) return { ok: false, told: [] };
+  let offHere = new Set();
+  try { offHere = require('./projects').swarmOffSet(projectId); } catch { offHere = new Set(); }
+  const line = resumedLine(projectId, projectName);
+  const told = [];
+  for (const name of members.filter(ok)) {
+    if (offHere.has(name)) continue;   // #3564: switched off in this project, so not woken
+    const card = roster.find((c) => c && c.sessionName === name);
+    if (!card || !card.target) continue;
+    let sent;
+    try { sent = chat.deliverAutomatic(name, line, roster); } catch { continue; }
+    told.push({ to: name, outcome: sent && sent.state });
+  }
+  return { ok: true, told };
+}
+
 /* kosmos#7614: the person deletes one of their own room posts. It leaves the room for everyone (record() drops it, and
    its reactions, from every reader), a copy still held for a busy member is never delivered, a long post's spill file
    goes, and a member that was already given it is told, in one line that never repeats the words, to treat it as
@@ -4588,6 +4615,7 @@ module.exports = {
   logRoomRefusal,       // kosmos#5752 slice 3
   nudgeOwnComputerPost, ownPostNudges, OWN_POST_NUDGE_GAP_MS, reopenForOwnPost,   // #5902
   _resetOwnPostNudgesForTests: resetOwnPostNudgesForTests,   // #5732
+  tellResumed, resumedLine,   // kosmos#7812
   staleHeld, memberAfter, HELD_TELL_MAX_MS, HELD_ASKED_MAX_MS, ROOM_READ_ROWS, ROOM_READ_KINDS,
   CLOSING_POST_MIN,   // #6925: the room's text view states it
   SEND_DEDUP_WINDOW_MS,

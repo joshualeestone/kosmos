@@ -22848,6 +22848,11 @@ const server = http.createServer(async (req, res) => {
             for (const a of (reRead ? reRead.agents : [])) projects.syncAgent(a, roster);
           }
         } catch { /* reported by the row's own told verdict on the next read */ }
+        /* kosmos#7812: a resume (from either side) is typed to the members now, so they do not wait for their next
+           idle check. After syncAgent, so an agent that reads its instructions on the line finds the pause gone. */
+        if (fields.paused === false && wasPaused === true && reRead && roster) {
+          try { messages.tellResumed(id, reRead.name, reRead.agents || [], roster); } catch { /* told at their next idle check, as before */ }
+        }
         let project = null;
         try { project = projects.get(id, roster); } catch { project = null; }
         // ⚠️ ONE roster read, and `agentsUnreadable` reported — PUT was the one

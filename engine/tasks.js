@@ -2188,11 +2188,15 @@ function retireOffers(rows, records, getRoster, historyOf) {
 function taskState(task) {
   if (!task) return 'nobody';
   if (progressOf(task).closed) return 'closed';
-  if (task.waitingOnPerson === true && whoOf(task).length > 0) return 'decision';
+  /* kosmos#7812: a paused project flags nobody (#6341, Josh 10-16: "I don't think we should be flagging users ... when
+     the project's already paused"), so its tasks do not read decision, from either source below: they fall through to
+     held or built. The project page already hides that red; the agent's own card still shows it. */
+  const paused = task.projectPaused === true;
+  if (!paused && task.waitingOnPerson === true && whoOf(task).length > 0) return 'decision';
   /* kosmos#7788: a hold an agent set for the person (`kosmos task hold --for-you`) waits on the person, so it reads
      decision, ahead of held: the red tile counts it and its group lists it. The hold itself is unchanged (isOnHold
      is still true), so the Assigner and nudger, which read isOnHold and never this state, still leave it alone. */
-  if (isOnHold(task) && task.onHoldForPerson === true) return 'decision';
+  if (!paused && isOnHold(task) && task.onHoldForPerson === true) return 'decision';
   /* #4771: held by the person (the task, or its paused project): after a decision, which the person still acts on.
      #5864 (feedback, 2026-10-11): a project pause does not hide FINISHED work. A built task in a paused project reads
      built ("Built but waiting"), not held, so a paused project with its work done reads as waiting for review rather
