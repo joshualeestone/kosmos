@@ -1907,9 +1907,14 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
   const here = bf.openManifest(k.member.sk, pub, k.ctx, bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, manifest));
   const paths = [];
   const report = (how, why) => paths.push(why ? `${how} ${why}` : how);
-  // The exit is watched from the moment the worker is made, so an exit before the seal returns is not missed.
-  let w1 = null, w1exit = null;
-  const there = bf.openManifest(k.member.sk, pub, k.ctx, await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, onWorker: (w) => { w1 = w; w1exit = new Promise((r) => w.once('exit', () => r(true))); } }));
+  // The real worker, kept alive after it answers (an interval), so only sealOffThread ending it ends it. The exit is
+  // watched from the moment the worker is made, so an exit before the seal returns is not missed.
+  const lingering = path.join(os.tmpdir(), `lingering-seal-worker-${process.pid}.js`);
+  fs.writeFileSync(lingering, `require(${JSON.stringify(path.join(__dirname, 'backupseal-worker.js'))}); setInterval(() => {}, 1000);\n`);
+  let w1 = null, w1exit = null, there;
+  try {
+    there = bf.openManifest(k.member.sk, pub, k.ctx, await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, workerFile: lingering, onWorker: (w) => { w1 = w; w1exit = new Promise((r) => w.once('exit', () => r(true))); } }));
+  } finally { fs.rmSync(lingering, { force: true }); }
   const w1ended = await Promise.race([w1exit, new Promise((r) => setTimeout(() => r(false), 5000).unref())]);
   if (!w1ended) await w1.terminate();   // so a failure here fails, rather than holding the file open
   assert.equal(w1ended, true, 'the worker that answered was ended');
@@ -1940,7 +1945,7 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
   assert.deepEqual(paths.slice(before), ['worker'], 'refused by the worker itself');
   // Values JSON.stringify would quietly rewrite (and a BigInt it throws on) are not handed to the worker: the seal here
   // refuses each, with the same message as ever, so bad content stays a loud failure, never a changed backup.
-  for (const bad of [{ b: undefined }, { a: -0 }, { a: NaN }, { a: new Date(0) }, { n: 1n }, { a: [1, undefined] }]) {
+  for (const bad of [{ b: undefined }, { a: -0 }, { a: NaN }, { a: new Date(0) }, { n: 1n }, { a: [1, undefined] }, { a: { toJSON() { return 1; } } }]) {
     let theirs; try { bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, bad); } catch (err) { theirs = err.message; }
     assert.ok(theirs, `premise: the seal here refuses ${String(Object.keys(bad))}`);
     const b2 = paths.length;

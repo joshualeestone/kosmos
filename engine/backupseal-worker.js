@@ -13,14 +13,21 @@ const { parentPort } = require('node:worker_threads');
 const { sealManifest } = require('./backupformat');
 
 parentPort.once('message', (m) => {
+  let sealed;
   try {
-    const sealed = sealManifest(Buffer.from(m.memberPk), m.deviceKey, m.ctx, JSON.parse(m.json));
-    const out = new Uint8Array(sealed.length);
-    out.set(sealed);
-    parentPort.postMessage({ ok: true, sealed: out }, [out.buffer]);
+    sealed = sealManifest(Buffer.from(m.memberPk), m.deviceKey, m.ctx, JSON.parse(m.json));
   } catch (err) {
-    // A failed seal, or a failed post of the sealed bytes: either way an error is answered (if this post fails too, the
-    // main thread's exit and wait fallbacks seal it there).
-    parentPort.postMessage({ ok: false, message: String((err && err.message) || 'the manifest could not be sealed') });
+    // The seal itself refused: `refused` tells the main thread to pass the refusal on rather than seal again there.
+    parentPort.postMessage({ ok: false, refused: true, message: String((err && err.message) || 'the manifest could not be sealed') });
+    return;
+  }
+  try {
+    // The sealed bytes are transferred, not copied, when they fill their own buffer (the usual case for a large one).
+    const whole = sealed.byteOffset === 0 && sealed.byteLength === sealed.buffer.byteLength;
+    const out = whole ? new Uint8Array(sealed.buffer) : Uint8Array.from(sealed);
+    parentPort.postMessage({ ok: true, sealed: out }, [out.buffer]);
+  } catch {
+    // Not a refusal (the copy or the post failed): the main thread seals it there instead.
+    parentPort.postMessage({ ok: false });
   }
 });

@@ -992,8 +992,8 @@ const SEAL_WAIT_MS = 10 * 60 * 1000;
    such a manifest is sealed here, where canonicalJson refuses it as it always did. It reads the value before toJSON
    (this[key]). Measured: about 60 to 150 ms more than a plain stringify at 477,000 chunks. Not mirrored, because each
    needs a look at every object's own keys: an array's extra properties, symbol keys and hidden properties, which
-   JSON.stringify drops, and a toJSON that is not an own enumerable key (JSON.stringify calls it, canonicalJson refuses
-   it as hidden); the snapshot builds none of them. */
+   JSON.stringify drops; the snapshot builds none of them. An object carrying a callable toJSON, own or not, is refused
+   (JSON.stringify would call it before this replacer saw the result). */
 function sealable(key, value) {
   const v = this[key];
   if (v === null || typeof v === 'string' || typeof v === 'boolean') return value;
@@ -1003,8 +1003,9 @@ function sealable(key, value) {
   }
   if (Array.isArray(v)) return value;
   if (typeof v === 'object') {
+    // A toJSON is called by JSON.stringify before this sees its result, so an object carrying one is refused whole.
     const proto = Object.getPrototypeOf(v);
-    if (proto === Object.prototype || proto === null) return value;
+    if ((proto === Object.prototype || proto === null) && typeof v.toJSON !== 'function') return value;
   }
   throw new Error('not sealable');   // undefined, a function, a symbol, a bigint, a Date or any other class
 }
@@ -1029,7 +1030,7 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
     if (!Buffer.isBuffer(memberPk) && !(memberPk instanceof Uint8Array)) { here('not-sent'); return; }
     try { json = JSON.stringify(manifest, sealable); } catch { here('not-sent'); return; }   // before any worker starts
     try { w = new (require('node:worker_threads').Worker)(file); } catch { w = null; here('no-worker'); return; }
-    if (typeof opts.onWorker === 'function') opts.onWorker(w);   // tests only: to see the worker end
+    if (typeof opts.onWorker === 'function') { try { opts.onWorker(w); } catch { here('worker-ended'); return; } }   // tests only
     w.once('message', (m) => {
       if (settled) return;
       let sealed = null;
@@ -1040,8 +1041,10 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
       done();
       w.terminate().catch(() => {});
       report('worker');
-      if (sealed) resolve(sealed);
-      else reject(new Error((m && m.message) || 'the manifest could not be sealed'));
+      if (sealed) { resolve(sealed); return; }
+      if (m && m.refused) { reject(new Error(m.message || 'the manifest could not be sealed')); return; }
+      // The worker failed without the seal refusing (its copy or post): sealed here instead, never no seal.
+      try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); }
     });
     // An answer that cannot be read arrives as messageerror, with no message, error or exit after it.
     w.once('messageerror', () => { if (!settled) here('worker-ended'); });
