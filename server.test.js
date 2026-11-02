@@ -662,6 +662,8 @@ test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalid
  * why it is cheap enough to run every time.
  */
 const UNREAD_ON_PURPOSE = {
+  heldForYou: 'kosmos#7788: a part of counts.waiting (the app icon count, status.waitingTotal), sent beside it as '
+    + 'needsYou and projectsUnread are; the page counts those tasks itself in its Needs Your Decision tile',
   cardTone: '#7004: the tone of that word in the iPhone app\'s Agents list (cardlabel toneOf); the page colours its '
     + 'cards its own way',
   needsReason: '#7030: why the iPhone app\'s Today shows the agent (cardlabel reasonOf); the page words its own '
@@ -15845,7 +15847,7 @@ test('#3996: /api/status carries counts.waiting = needsYou + every DM unread + p
   assert.ok(b1.counts.needsYou >= 1, 'CONTROL: the needs-you fixture reached the count: ' + JSON.stringify(b1.counts));
   assert.ok(dms >= 2, 'CONTROL: the two DM replies reached the board');
   assert.equal(typeof b1.counts.waiting, 'number', 'no counts.waiting on the payload');
-  assert.equal(b1.counts.waiting, b1.counts.needsYou + dms + (b1.counts.projectsUnread || 0), JSON.stringify(b1.counts));
+  assert.equal(b1.counts.waiting, b1.counts.needsYou + dms + (b1.counts.projectsUnread || 0) + (b1.counts.heldForYou || 0), JSON.stringify(b1.counts));
   assert.equal((await postJson('/api/agent/zora/seen', {})).status, 200);
   const b2 = await read();
   assert.equal(b2.counts.waiting, b1.counts.waiting - 2, 'reading the thread did not take its two messages off the count');
