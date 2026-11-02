@@ -256,20 +256,24 @@ enum Tasks {
         }
     }
 
-    // The questions a live update shows (review 1 of #7797). Rows keep the group they were drawn in, so the fresh
-    // askingWithoutTask alone can disagree with them: a question a kept decision row still shows (its task closed since,
-    // say) would be listed twice, and one a row outside the decision group has just taken over would vanish until the
-    // next lay-out. So: the fresh questions, less any agent a kept decision row already showed asking, plus any question
-    // shown before whose agent is now carried only by a row kept in another group. Each agent at most once.
+    // The questions a live update shows (reviews 1 and 2 of #7797). Every place shows the FRESH row, and the route never
+    // lists a question a fresh row carries, so the fresh askingWithoutTask is never shown twice. What it can do is drop a
+    // question a fresh row has just taken over while that row is kept in another group (its task moved, say, from In
+    // progress): then the question would be on no Needs Your Decision row until the next lay-out. Such a question, shown
+    // before, stays listed until then. Keyed by agent and project, as a question is about one project; a fresh row kept
+    // in the decision group that carries it already shows it there.
     static func askingKept(_ shown: [Section], kept: [String: [Board.TaskRow]], fresh: Board.TasksRead, project: String?) -> [Board.Asking] {
-        let drawnDecision = shown.first { $0.group.key == "decision" }?.rows ?? []
-        let keptIds = Set((kept["decision"] ?? []).map(\.id))
-        // Keyed by agent and project: a question is about one project, so a kept row hides only the same question.
-        let showing = Set(drawnDecision.filter { keptIds.contains($0.id) }.flatMap { r in r.waitingOn.filter { $0.reason == "question" }.map { $0.who + "\u{0}" + r.projectId } })
-        var out = askingShown(fresh, project: project).filter { !showing.contains($0.who + "\u{0}" + ($0.projectId ?? "")) }
-        let elsewhere = Set(kept.filter { $0.key != "decision" }.values.joined().flatMap { $0.waitingOn.filter { $0.reason == "question" }.map(\.who) })
+        func questions(_ rows: [Board.TaskRow]) -> Set<String> {
+            Set(rows.flatMap { r in r.waitingOn.filter { $0.reason == "question" }.map { $0.who + "\u{0}" + r.projectId } })
+        }
+        let inDecision = questions(kept["decision"] ?? [])
+        let elsewhere = questions(kept.filter { $0.key != "decision" }.flatMap { $0.value })
+        var out = askingShown(fresh, project: project)
         let before = shown.first { $0.group.key == "decision" }?.asking ?? []
-        for a in before where elsewhere.contains(a.who) && !out.contains(where: { $0.who == a.who }) { out.append(a) }
+        for a in before {
+            let k = a.who + "\u{0}" + (a.projectId ?? "")
+            if elsewhere.contains(k) && !inDecision.contains(k) && !out.contains(where: { $0.who == a.who }) { out.append(a) }
+        }
         return out
     }
 
