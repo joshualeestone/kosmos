@@ -70713,7 +70713,7 @@ function paintTaskPage() {
     : t.onHold !== true
       ? 'While a task is on hold, Kosmos does not nudge anyone about it or hand it out.'
       /* kosmos#7788: an agent's hold that waits on the person says so, and what clears it. */
-      : t.onHoldForPerson === true
+      : t.onHoldForPerson === true && t.onHoldByPerson !== true
         ? 'An agent put this on hold because it waits on you. Once you have answered, take it off hold here, or tell the agent. Kosmos does not nudge anyone about it or hand it out.'
       : t.onHoldByPerson === true
         ? 'You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out.'

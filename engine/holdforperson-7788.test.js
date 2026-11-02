@@ -179,5 +179,12 @@ test('review 5: heldForPersonCount counts open held-for-you tasks in live projec
 
 test('review 5 wiring: the status route adds held-for-you tasks to the icon count before it sums it', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /counts\.heldForYou = tasks\.heldForPersonCount\(projectList\);[^\n]*\n\s*counts\.waiting = waitingBadgeOn\(badgeSettings\) \? waitingTotal\(counts, rows\)/);
+  assert.match(src, /counts\.heldForYou = tasks\.heldForPersonCount\(projectList, new Set\(rows\.filter\(\(r\) => r && needsPerson\(r\)\)\.map\(\(r\) => r\.sessionName\)\)\);[^\n]*\n\s*counts\.waiting = waitingBadgeOn\(badgeSettings\) \? waitingTotal\(counts, rows\)/);
+});
+
+test('review 6: a held-for-you task whose holder already asks the person is not counted again', () => {
+  const t = (number, who, extra) => Object.assign({ number, sentence: 's', who }, extra);
+  const list = [{ id: 'a', tasks: [t(1, 'ada', { onHold: true, onHoldForPerson: true }), t(2, 'rex', { onHold: true, onHoldForPerson: true })] }];
+  assert.equal(tasks.heldForPersonCount(list, new Set(['ada'])), 1, 'ada asks, so only rex\'s is added');
+  assert.equal(tasks.heldForPersonCount(list, new Set()), 2, 'CONTROL: nobody asking, both');
 });
