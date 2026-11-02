@@ -280,7 +280,7 @@ function sweep(names) {
   for (const k of [...ended.keys()]) if (!present.has(k)) ended.delete(k);
 }
 
-function resetForTests() { streaks.clear(); ended.clear(); pushedAt.clear(); takenBack.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
+function resetForTests() { streaks.clear(); pushOpen.clear(); ended.clear(); pushedAt.clear(); takenBack.clear(); lastStallPushAt = null; }   // kosmos#7212: the pushes' in-memory copy too
 
 /* kosmos#7212 (#7615 item 1): the needs-you notification for a card's stall (its deliveryStall: a streak, or a stuck
    Windows turn), so the person is told away from the board, as a crash loop or a stuck terminal tells them. `card` is
@@ -373,6 +373,7 @@ function withMore(name, more) {
 const takenBack = new Map();   // session -> when it was last taken back
 function untold(sessions, at, file) {
   try {
+    for (const [id, p] of pushOpen) if (p.at === at) pushOpen.delete(id);   // kosmos#7794: a push that never landed has nothing to ack
     sessions = sessions.filter((s) => { const t = takenBack.get(s); return !(Number.isFinite(t) && t <= at && at - t < PUSH_GAP_MS); });
     for (const s of sessions) takenBack.set(s, at);
     for (const s of sessions) if (pushedAt.get(s) === at) pushedAt.delete(s);
@@ -412,8 +413,33 @@ function tellStalls(cards, { now = Date.now(), file, send, ownBound = null }) {
       for (const s of sessions) pushTold(s, now, file);
       /* kosmos#7212 item 2: the streak itself keeps that its stall push went out (not a stuck step's push), for endsToSay. */
       for (const d of due) { const st = streaks.get(d.session); if (st && d.id.startsWith('stall:')) st.pushedAt = now; }
+      pushOpen.set(ev.id, { at: now, all: sessions.slice(), open: new Set(sessions) });   // kosmos#7794
     }
   } catch { /* told next minute */ }
 }
 
-module.exports = { endsToSay, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+/* kosmos#7794: a sent stall push's id -> { at, all: the sessions it covered, open: those not yet seen to recover }. The
+   coordinator emails a needs_you nobody acked within 30 minutes, so a stall that recovered first would still be emailed.
+   One push covers every agent due in that sweep ("and N more") under the FIRST one's id, so the ack waits for all of
+   them. In memory only: after a restart nothing is acked and the email goes as before. */
+const pushOpen = new Map();
+/* The coordinator decides a needs_you's email once, at 30 minutes, and ignores one older than 6 hours; an entry past
+   that has nothing left to stop. */
+const PUSH_OPEN_MS = 6 * 60 * 60 * 1000;
+/* The ids to ack now, given this minute's ends (endsToSay's entries, each { name }). A push is acked when every agent it
+   covered was seen to recover and none of them is failing again now (a new streak that a later push did not cover would
+   otherwise lose its only warning). An agent that never reports an end (a stuck turn, one that left the board) keeps
+   its push open, so its email goes as before. Each id is returned once. Never throws. */
+function acksDue(ends, now = Date.now()) {
+  const out = [];
+  try {
+    for (const e of ends || []) if (e && typeof e.name === 'string') for (const p of pushOpen.values()) p.open.delete(e.name);
+    for (const [id, p] of [...pushOpen]) {
+      if (!(p.at <= now && now - p.at < PUSH_OPEN_MS)) { pushOpen.delete(id); continue; }
+      if (p.open.size === 0 && !p.all.some((s) => streaks.has(s))) { out.push(id); pushOpen.delete(id); }
+    }
+  } catch { /* acked next minute, or emailed as before */ }
+  return out;
+}
+
+module.exports = { endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
