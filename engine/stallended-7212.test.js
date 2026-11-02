@@ -68,15 +68,49 @@ test('a streak that ended without being said says nothing', () => {
   assert.equal(ds.endsToSay(said).length, 1);
 });
 
-test('a stall cleared by reset or by leaving the board did not recover and says nothing', () => {
+test('a stall cleared by reset did not recover and says nothing', () => {
   ds.resetForTests();
   const said = new Map();
   saidStall('r1', said);
-  saidStall('s1', said);
   ds.reset('r1');
-  ds.sweep(['r1']);   // s1 left the board
   ds.note('r1', PLACED, T0 + 60 * MIN);   // no streak any more, so a landed line ends nothing
   assert.deepEqual(ds.endsToSay(said), []);
+});
+
+test('an end for an agent that then left the board is forgotten by the sweep', () => {
+  ds.resetForTests();
+  const said = new Map();
+  saidStall('s1', said);
+  saidStall('s2', said);
+  ds.note('s1', PLACED, T0 + 50 * MIN);
+  ds.note('s2', PLACED, T0 + 50 * MIN);
+  ds.sweep(['s2']);   // s1 left the board before the sweep asked
+  const ends = ds.endsToSay(said);
+  assert.deepEqual(ends.map((e) => e.name), ['s2'], 'CONTROL: s2, still on the board, is said; s1 is not');
+});
+
+test('a second short streak ending before the sweep does not replace the said one', () => {
+  ds.resetForTests();
+  const said = new Map();
+  saidStall('q1', said);
+  ds.note('q1', PLACED, T0 + 50 * MIN);
+  ds.note('q1', { state: 'unconfirmed' }, T0 + 50 * MIN + 10000);
+  ds.note('q1', PLACED, T0 + 50 * MIN + 20000);
+  const ends = ds.endsToSay(said);
+  assert.equal(ends.length, 1);
+  assert.equal(ends[0].since, new Date(T0).toISOString());
+  assert.equal(ends[0].count, 4);
+});
+
+test('the board asks for ends before stallsToSay forgets them, inside the sweep', () => {
+  const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const at = src.indexOf('const sayStalls = () => {');
+  assert.ok(at > 0, 'CONTROL: the sweep is found');
+  const body = src.slice(at, src.indexOf('} catch { /* said next minute */ }', at));
+  const settled = body.indexOf('for (const c of r) ds.settleFor(c);');
+  const ends = body.indexOf('ds.endsToSay(stallSaid)');
+  const says = body.indexOf('ds.stallsToSay(');
+  assert.ok(settled > 0 && ends > settled && says > ends, 'endsToSay is not between settleFor and stallsToSay: ' + [settled, ends, says]);
 });
 
 test('an end the sweep reads after a new streak began still names the stall that was said', () => {
@@ -104,8 +138,6 @@ test('pushed is true only for a stall push that went out during the streak', () 
   assert.equal(e.pushed, true);
   assert.match(ds.endedLine(e), /\(3 days, 4 tries that did not land; the phone was told of the stall\)\.\n$/);
   /* Control: a push before this streak began is not this stall's push. */
-  saidStall('p2', said, { sayAt: T0 + 40 * MIN });
-  ds.note('p2', PLACED, T0 + 45 * MIN);
   ds.resetForTests();
   const said2 = new Map();
   ds.tellStalls([{ sessionName: 'p3', name: 'p3', deliveryStall: { since: new Date(T0 - 60 * MIN).toISOString(), count: 3, lastWhy: 'input' } }],
