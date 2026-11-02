@@ -435,3 +435,13 @@ test('#7746 item 5: checkpoints that could not be kept are counted on the run\'s
     assert.equal(r.checkpointsLost, want);
   }
 });
+
+test('#7775: sealedInProcess rides the run\'s answer, so the personal panel can say it', async () => {
+  for (const how of ['no-worker', undefined]) {
+    wipe();
+    const take = taker(Object.assign({ ok: true, added: added(WEEK, 1), bucket: 'b1' }, how ? { sealedInProcess: how } : {}));
+    const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.sealedInProcess, how);
+  }
+});

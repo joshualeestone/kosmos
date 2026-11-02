@@ -351,6 +351,54 @@ test('the panel report: first run, a good run, a passing failure, a stop, and a 
   await run({ ok: true }, 16);
   assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T16:00:00.000Z', stopped: null, note: null }, 'a good run clears the stop');
 });
+test('#7775: the last run\'s lost checkpoints and in-process seal are plain lines, and the next run replaces them', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
+  const lost = /could not save the last backup's progress/;
+  const sealed = /without its background helper/;
+  await run({ ok: true, checkpointsLost: 3 }, 12);
+  let r = pb.report(o);
+  assert.equal(r.stopped, null);
+  assert.match(r.note, lost);
+  assert.doesNotMatch(r.note, sealed);
+  await run({ ok: true, sealedInProcess: 'worker-ended' }, 13);
+  r = pb.report(o);
+  assert.match(r.note, sealed);
+  assert.doesNotMatch(r.note, lost, 'a good run without lost checkpoints drops that line');
+  await run({ ok: true, checkpointsLost: 1, sealedInProcess: 'no-answer' }, 14);
+  r = pb.report(o);
+  assert.ok(lost.test(r.note) && sealed.test(r.note), r.note);
+  assert.ok(r.note.search(lost) < r.note.search(sealed), 'a fixed order');
+  await run({ ok: true }, 15);
+  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T15:00:00.000Z', stopped: null, note: null }, 'a clean run says nothing');
+  // A failed run's lost checkpoints (a second pass that could not write) are said beside the earlier good run.
+  await run({ ok: false, because: 'Kosmos+ could not be reached', checkpointsLost: 2 }, 16);
+  r = pb.report(o);
+  assert.equal(r.lastOk, '2026-10-31T15:00:00.000Z');
+  assert.match(r.note, lost);
+  // Beside the week's wait, and beside a first try that has not finished.
+  await run({ ok: false, overAllowance: true, because: 'x', checkpointsLost: 1 }, 17);
+  assert.match(pb.report(o).note, /allowance is used up\..*could not save/);
+  // A stop outranks them: the person acts on the stop.
+  await run({ ok: false, personActs: true, because: 'this backup has no key on Kosmos+ yet, so nothing was backed up', checkpointsLost: 1 }, 18);
+  r = pb.report(o);
+  assert.ok(r.stopped);
+  assert.equal(r.note, null);
+});
+test('#7775: only a positive whole count and a known seal reason are said; nothing of the run\'s own text is', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  const run = (r) => pb.runJob({ roots: [] }, { ...o, runBackup: async () => r });
+  for (const bad of [{ checkpointsLost: 0 }, { checkpointsLost: -1 }, { checkpointsLost: 1.5 }, { checkpointsLost: '2' }, { sealedInProcess: 'RAW /Users/someone/secret' }, { sealedInProcess: true }]) {
+    await run(Object.assign({ ok: true }, bad));
+    assert.equal(pb.report(o).note, null, JSON.stringify(bad));
+  }
+  await run({ ok: true, sealedInProcess: 'not-sent' });
+  assert.ok(pb.report(o).note, 'control: a known reason is said');
+  const note = JSON.parse(fs.readFileSync(path.join(o.root, 'personal-job.json'), 'utf8'));
+  assert.deepEqual(Object.keys(note).sort(), ['lastOk', 'lastTry', 'org', 'sealedHere', 'world'], 'the note keeps a flag, never the reason');
+});
 test('no server or file text reaches the panel, whichever flag a refusal carries', async () => {
   const pair = newPair();
   const o = onNow(chain(pair, []), pair);

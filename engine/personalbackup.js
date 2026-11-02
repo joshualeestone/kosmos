@@ -517,6 +517,20 @@ function stopOf(r) {
   if (!hit) return null;
   return hit[0] === 'tooLarge' && r.overAllowance ? hit[1] + '. The next try is next week' : hit[1];
 }
+/* kosmos#7775: what the last run did that a person may want to know, though it backed up. Each is a fixed sentence
+   picked by a flag the run carried: checkpointsLost (backuprun, a progress write that failed) and sealedInProcess
+   (backupsnapshot, the seal worker could not be used, so the board waited for the seal). unsignedBecause is not here:
+   a personal key is never signed (personalbackupkey), so it only ever rides a company run, and no company panel exists. */
+const RUN_SAY = [
+  ['lostCheckpoints', 'This computer could not save the last backup\'s progress as it went, so a backup that is interrupted may repeat some of its work.'],
+  ['sealedHere', 'The last backup finished without its background helper, so Kosmos may have paused for a moment while it did.'],
+];
+const SEALED_HOW = ['not-sent', 'no-worker', 'worker-ended', 'no-answer'];
+function runFlags(r) {
+  return Object.assign({}, Number.isInteger(r.checkpointsLost) && r.checkpointsLost > 0 ? { lostCheckpoints: true } : {},
+    SEALED_HOW.includes(r.sealedInProcess) ? { sealedHere: true } : {});
+}
+const runSay = (j) => RUN_SAY.filter(([flag]) => j[flag] === true).map(([, say]) => say);
 function readNote(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(root(opts), JOB_NOTE), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch { return {}; }
 }
@@ -529,7 +543,7 @@ function noteRun(r, opts, before) {
   const was = readNote(opts);
   const same = was.org === rec.org.id && was.world === rec.world;
   const now = new Date((opts.now || Date.now)()).toISOString();
-  const next = { org: rec.org.id, world: rec.world, lastTry: now, lastOk: r.ok ? now : (same && was.lastOk) || null };
+  const next = { org: rec.org.id, world: rec.world, lastTry: now, lastOk: r.ok ? now : (same && was.lastOk) || null, ...runFlags(r) };
   if (!r.ok) {
     const stopped = stopOf(r);
     if (stopped) next.stopped = stopped;
@@ -573,9 +587,11 @@ function reportNow(opts) {
     return wordsUncovered(opts) ? { lastOk, stopped: WORDS_UNCOVERED, note: null } : { lastOk, stopped: null, note: 'Backups are not running on this computer just now.' };
   }
   if (stopped) return { lastOk, stopped, note: null };
-  if (j.waiting === true) return { lastOk, stopped: null, note: WAITING_WEEK };
-  if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'A backup has not finished yet.' : 'A backup runs soon.' };
-  return { lastOk, stopped: null, note: null };
+  // kosmos#7775: the last run's own lines follow whatever else the note says; a stop above outranks them.
+  const also = (say) => { const all = [say, ...runSay(j)].filter(Boolean); return all.length ? all.join(' ') : null; };
+  if (j.waiting === true) return { lastOk, stopped: null, note: also(WAITING_WEEK) };
+  if (!lastOk) return { lastOk, stopped: null, note: also(typeof j.lastTry === 'string' ? 'A backup has not finished yet.' : 'A backup runs soon.') };
+  return { lastOk, stopped: null, note: also(null) };
 }
 
 /** kosmos#7404 slice D: what a files restore needs to know: { state, rec, codeWaiting }. state is state()'s, and
