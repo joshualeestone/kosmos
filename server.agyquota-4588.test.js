@@ -20,8 +20,8 @@ test('#4588: server.js builds the agy quota resume tick and runs it on its own t
   const block = src.slice(at, at + 2600);
   assert.match(block, /agyQuota\.makeTick\(\{/);
   assert.match(block, /allowed: \(\) => liveExecution\.liveExecutionAllowed\(\)/);
-  assert.match(block, /roster: \(\) => safeRoster\(\)/);
-  assert.match(block, /chat\.deliver\(session, text, r, undefined, undefined\)/);
+  assert.match(block, /roster: \(\) => sweepRoster\(\)/);   // #7693: decides from the shared reading
+  assert.match(block, /chat\.deliver\(session, text, safeRoster\(\), undefined, undefined\)/);   // #7693: sends with a fresh one
   // Anchored at the start of a line to the real assignment: a mention (a comment, `null && setInterval(...)`) is not a timer.
   assert.match(block, /^\s*const agyQuotaSweep = setInterval\(agyQuotaTick,/m);
   assert.match(block, /agyQuotaSweep\.unref\(\)/);
