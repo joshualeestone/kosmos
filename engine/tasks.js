@@ -2284,8 +2284,8 @@ function waitingOnOf(task, roster, members) {
  * project, not a task, so an agent asking about a project where it holds no open task (or about no project at all) was
  * red on the Agents page and missing from the screen with the red tile. One entry per such agent:
  * `{ who, projectId (or null), waitingSince (or null) }`, oldest wait first, unknown starts last.
- * The same cards as cardsNeedingPerson (on the roster, tied by isNamedOurs, a question by status.needsPerson, never only
- * out of usage, #6341), and a question is left out when a row already names its agent for it (`rows[].waitingOn`, from
+ * The same cards as cardsNeedingPerson (on the roster, tied by isNamedOurs, a question by status.needsPerson; a needs_you
+ * card is never only out of usage, #6341, so that rule has nothing to drop here), and a question is left out when a row already names its agent for it (`rows[].waitingOn`, from
  * waitingOnOf), so one question is never in two places. Only a question: a trust wait or a connection given up on is
  * about the agent, and the person meets it on the agent. `scope`, when given, keeps only questions about that project.
  * `projectList`, when given, names the project as a task row does (`projectName`, `projectPath`, #3029); a project it
@@ -2308,7 +2308,6 @@ function askingWithoutTask(rows, roster, scope, projectList) {
     const projectId = typeof card.stateProject === 'string' && card.stateProject ? card.stateProject : null;
     if (scope && projectId !== scope) continue;
     if (seen.has(card.sessionName) || carried.has(card.sessionName + '\u0000' + projectId)) continue;
-    if (projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, projectId) === 'stuck_rate') continue;
     seen.add(card.sessionName);
     const at = typeof card.waitingSince === 'string' ? Date.parse(card.waitingSince) : NaN;
     const p = projectId ? byId.get(projectId) : null;

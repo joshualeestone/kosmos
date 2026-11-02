@@ -250,11 +250,27 @@ enum Tasks {
         return groups.compactMap { g in
             let ts = kept[g.key] ?? []
             let unknown = g.key == "decision" && fresh.rosterUnknown
-            // A question is not a place in the list: the fresh read's, as asked now.
-            let ask = g.key == "decision" ? askingShown(fresh, project: project) : []
+            let ask = g.key == "decision" ? askingKept(shown, kept: kept, fresh: fresh, project: project) : []
             if ts.isEmpty && ask.isEmpty && !unknown { return nil }
             return Section(group: g, rows: ts, unknown: unknown, asking: ask)
         }
+    }
+
+    // The questions a live update shows (review 1 of #7797). Rows keep the group they were drawn in, so the fresh
+    // askingWithoutTask alone can disagree with them: a question a kept decision row still shows (its task closed since,
+    // say) would be listed twice, and one a row outside the decision group has just taken over would vanish until the
+    // next lay-out. So: the fresh questions, less any agent a kept decision row already showed asking, plus any question
+    // shown before whose agent is now carried only by a row kept in another group. Each agent at most once.
+    static func askingKept(_ shown: [Section], kept: [String: [Board.TaskRow]], fresh: Board.TasksRead, project: String?) -> [Board.Asking] {
+        let drawnDecision = shown.first { $0.group.key == "decision" }?.rows ?? []
+        let keptIds = Set((kept["decision"] ?? []).map(\.id))
+        // Keyed by agent and project: a question is about one project, so a kept row hides only the same question.
+        let showing = Set(drawnDecision.filter { keptIds.contains($0.id) }.flatMap { r in r.waitingOn.filter { $0.reason == "question" }.map { $0.who + "\u{0}" + r.projectId } })
+        var out = askingShown(fresh, project: project).filter { !showing.contains($0.who + "\u{0}" + ($0.projectId ?? "")) }
+        let elsewhere = Set(kept.filter { $0.key != "decision" }.values.joined().flatMap { $0.waitingOn.filter { $0.reason == "question" }.map(\.who) })
+        let before = shown.first { $0.group.key == "decision" }?.asking ?? []
+        for a in before where elsewhere.contains(a.who) && !out.contains(where: { $0.who == a.who }) { out.append(a) }
+        return out
     }
 
     // tskScoped, without the board's search and Created window (the phone has neither; both default to off).
