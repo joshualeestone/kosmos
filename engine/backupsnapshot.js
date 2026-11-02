@@ -672,7 +672,10 @@ async function snapshotInner(input, deps, added, state, fail) {
   const mkid = memberKeyIdOf(memberPk);
   if (index.size) {
     if (typeof input.bucket !== 'string' || !input.bucket) return fail('an index of earlier chunks needs the bucket they are stored under', { staleIndex: true });
+    let checked = 0;
     for (const [name, e] of index) {
+      // kosmos#7746: a turn for the event loop every 50,000 entries (the top plan's index is 600,000).
+      if (++checked % 50000 === 0) await new Promise((resolve) => setImmediate(resolve));
       const why = typeof name !== 'string' || !/^[0-9a-f]{64}$/.test(name) || !e ? 'malformed'
         : keyProblem(e.key, ctx) || (Buffer.byteLength(e.key) > MAX_KEY_LEN ? `a key longer than ${MAX_KEY_LEN} characters` : null)
           || (e.memberKeyId !== mkid ? 'sealed to another member key' : null)

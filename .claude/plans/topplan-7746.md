@@ -10,3 +10,5 @@ Changed:
 Measured after (same machine, same data, a 10 ms timer measuring the longest gap, the sync versions as the control that shows the timer can see a stall): writeStateAsync 1.2 to 1.4 s in total with a longest stall of 129 to 139 ms; readStateAsync a longest stall of 253 to 310 ms (JSON.parse of the file, not chunked). Sync control: 1.2 to 1.7 s stalls.
 Rejected: skipping writeState's own row check for maps already checked (it would rest "never write what would not read back" on nobody mutating a map); a streaming parser (a bigger change, only if 300 ms is not acceptable).
 Weakest premise: that one process writes the file (the caller duty this module already states). A second writer that kept the same size and mtime to the nanosecond would be overwritten unchecked.
+- snapshotInner's index check pauses every 50,000 entries.
+Not in this stage, decided on #7746: sealManifest is one block of 2.55 s at 477,000 chunks (canonicalJson 966 ms). It moves to a worker as its own step: handed a JSON string, since handing the object costs a 464 ms synchronous copy (structuredClone).
