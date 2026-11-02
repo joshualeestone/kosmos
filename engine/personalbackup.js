@@ -496,7 +496,9 @@ async function runJob(input, opts = {}) {
   return out;
 }
 
-/* pbjob-7404 slice C: what the panel says about the job. The note holds the last good run, the last try, and a stop as
+/* pbjob-7404 slice C: what the panel says about the job. The note holds the last good run, the last try, what that good
+   run left out (paths, masked by the walk, and short reasons, so it is the one part with a person's file
+   names, kept unencrypted at mode 600), and a stop as
    this module's own sentence: a run's `because` is passed on only for personActs, which the key step, runJob and a
    plan's stops in backupsnapshot write, all fixed sentences.
    Other reasons carry a server's or a file's text, so a flag picks a fixed sentence here. The note names its org and world,
@@ -555,6 +557,9 @@ function noteRun(r, opts, before) {
   const next = { org: rec.org.id, world: rec.world, lastTry: now, lastOk: r.ok ? now : (same && was.lastOk) || null, ...runFlags(r) };
   // troubleSaving and sealedHere describe the last finished run, so a failed try keeps them (next.lastOk is that run's).
   if (!r.ok && same && next.lastOk) for (const k of ['troubleSaving', 'sealedHere']) if (was[k] === true) next[k] = true;
+  // What the last good backup left out, so the panel can name it. A failed run says nothing about that.
+  if (r.ok && Array.isArray(r.skippedList)) next.skippedFiles = { count: Number.isSafeInteger(r.skipped) ? r.skipped : r.skippedList.length, files: r.skippedList.map((x) => ({ path: String(x.path), why: String(x.why) })) };
+  else if (!r.ok && same && was.skippedFiles) next.skippedFiles = was.skippedFiles;
   if (!r.ok) {
     const stopped = stopOf(r);
     if (stopped) next.stopped = stopped;
@@ -579,7 +584,8 @@ function wordsUncovered(opts) {
   } catch { return false; }
 }
 /** For the panel, while state() is 'on': { lastOk, stopped, note }. stopped: why backups stopped, for a person to act on.
-    note: a plain line beside it. Each is a fixed sentence, or null when nothing is established. */
+    note: a plain line beside it. Each is a fixed sentence, or null when nothing is established. On the plain good state
+    only, skippedFiles { count, files: [{ path, why }] }: the one field that carries paths. */
 function report(opts = {}) {
   try { return reportNow(opts); } catch { return { lastOk: null, stopped: null, note: null }; }   // never costs the panel its Turn off
 }
@@ -602,7 +608,10 @@ function reportNow(opts) {
   const also = (say) => { const all = [say, ...runSay(j)].filter(Boolean); return all.length ? all.join(' ') : null; };
   if (j.waiting === true) return { lastOk, stopped: null, note: also(WAITING_WEEK) };
   if (!lastOk) return { lastOk, stopped: null, note: also(typeof j.lastTry === 'string' ? 'A backup has not finished yet.' : 'A backup runs soon.') };
-  return { lastOk, stopped: null, note: also(null) };
+  const sk = j.skippedFiles;
+  const skippedFiles = sk && Array.isArray(sk.files) && Number.isSafeInteger(sk.count)
+    ? { count: sk.count, files: sk.files.filter((x) => x && typeof x.path === 'string' && typeof x.why === 'string').map((x) => ({ path: x.path, why: x.why })) } : null;
+  return { lastOk, stopped: null, note: also(null), ...(skippedFiles ? { skippedFiles } : {}) };
 }
 
 /** kosmos#7404 slice D: what a files restore needs to know: { state, rec, codeWaiting }. state is state()'s, and

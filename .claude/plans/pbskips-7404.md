@@ -1,0 +1,15 @@
+# pbskips-7404: a personal backup keeps what it left out, for the panel to name (kosmos#7404)
+
+The plan screen says "After each backup you can see exactly what was left out". Today nothing keeps that list.
+
+- `takeSnapshot`'s good answer adds `skippedList`, the newest 200 skips, newest first, because read-time skips (a film, an archive) come after walk-time ones (a link); `skipped` stays the whole count.
+- `noteRun` keeps `skippedFiles { count, files }` from a good run, and a failed run keeps the last one.
+- `report()` answers `skippedFiles` on the plain good state only.
+
+The panel's display is a separate web change with a design review. The note holds paths, masked by the walk, stored
+unencrypted at mode 600, and reaches only the `isViaScreen` route, which may be a remote browser on the owner's own screen.
+
+Rejected: showing the list while a stop is up (the stop is what the person needs then).
+Weakest premise: 200 is a guess at what a person reads; the count says the rest.
+
+A good run with nothing skipped reports count 0 and an empty list: the panel reads that as nothing left out.
