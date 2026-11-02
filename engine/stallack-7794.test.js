@@ -5,7 +5,7 @@ require('../test-support/tmpscope');   // #4273: this file's temp dirs are remov
  * kosmos#7794: a stall pushed to the phone as needs_you is acked to the coordinator (POST /v1/mac/notify-ack) once every
  * agent the push covered recovered, so its deferred 30-minute email does not go out about something already over. One
  * push covers every agent due in that sweep under the first one's id, so the ack waits for all of them, and for none of
- * them to be failing again. Nothing else changes: a push that never landed, a board restart, or an agent that never
+ * them to be failing again. A board restart, or an agent that never
  * reports an end leaves the email to go as before.
  *
  *   node --test engine/stallack-7794.test.js
@@ -235,6 +235,13 @@ test('nothing is acked after a restart, or for an agent that never reports an en
   ds.resetForTests();
   const ok = pushedStalls(['x4']);
   assert.deepEqual(ds.acksDue(recover('x4', ok.said, PUSH + 5 * MIN), DUE), [ok.ev.id]);
+});
+
+test('an open push with a time from the future (a clock that went back) is dropped, not acked', () => {
+  const { said } = pushedStalls(['z1']);
+  const ends = recover('z1', said, PUSH + 5 * MIN);
+  assert.deepEqual(ds.acksDue(ends, PUSH - MIN), [], 'acked a push from the future');
+  assert.deepEqual(ds.acksDue([], DUE), [], 'kept a push from the future');
 });
 
 test('an open push older than an hour is dropped, not acked', () => {

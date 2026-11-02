@@ -43,10 +43,15 @@ email goes as before. Safe, but the ack may fire less often than it could; if th
   `matched: true` (it checks only `acked_at`), so `matched` does not mean the email was stopped. A minute whose roster
   is empty asks nothing, and an entry past an hour is dropped.
 - A retry whose first push WAS stored acks at least 10 minutes after the email decision (retries are 15 minutes apart at least), so that email goes.
+- Any streak at all on a covered agent holds the ack, even one stray failed delivery after it recovered that is never
+  followed by another; such a push is dropped at an hour and its email goes. Narrowing it to "a streak that could become
+  a stall" would ack more; not done.
+- A push can go out in the same sweep as a landed line that ended its stall seconds earlier (the cards are a snapshot);
+  that push is never cleared and its email goes.
 - An ack is one attempt: the entry is gone once handed to the sender, and a refused or failed ack is not retried.
 
 ## Tests
-`engine/stallack-7794.test.js` (17). Each rule was mutated and its test went red: wait-for-all (caught by the reset
+`engine/stallack-7794.test.js` (18). Each rule was mutated and its test went red: wait-for-all (caught by the reset
 case, since the still-failing rule also holds the multi-agent case), still-failing hold, the 25-minute window, the
-Kosmos+ switch, the test seam clearing pushes (a real restart empties the in-memory map by itself), keeping a failed push, a retry joining it and keeping a left-out agent, a retry reopening an agent it lists, a retry adding its agents to the hold, an untaken retry changing nothing, a retry restarting the clock, an end clearing only earlier pushes, a throwing sender opening nothing, not opening an untaken push, the uncut id, the sweep
+Kosmos+ switch, the test seam clearing pushes (a real restart empties the in-memory map by itself), keeping a failed push, a retry joining it and keeping a left-out agent, a retry reopening an agent it lists, a retry adding its agents to the hold, an untaken retry changing nothing, a push from the future dropped, a retry restarting the clock, an end clearing only earlier pushes, a throwing sender opening nothing, not opening an untaken push, the uncut id, the sweep
 wiring.
