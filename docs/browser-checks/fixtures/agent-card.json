@@ -14,10 +14,10 @@
   "reachedByChannel": false,
   "runner": "claude",
   "task": "an example task",
-  "state": "working",
+  "state": "idle",
   "stateConfidence": "structured",
-  "stateProject": "example-project",
-  "stateProjectInferred": true,
+  "stateProject": null,
+  "stateProjectInferred": false,
   "stateEvidence": null,
   "quotaDialog": false,
   "quotaDaily": false,
@@ -29,10 +29,11 @@
   "unsentInput": null,
   "deliveryStall": null,
   "lastWorked": {
-    "at": "2026-09-03T00:00:00.000Z",
-    "why": null
+    "at": null,
+    "why": "example-why"
   },
-  "because": "it says it is working",
+  "neverTurned": false,
+  "because": "it is at rest and nothing is needed",
   "disruption": null,
   "activeWhileWaiting": false,
   "waitingSince": null,

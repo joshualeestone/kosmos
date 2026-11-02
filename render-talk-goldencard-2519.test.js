@@ -998,6 +998,8 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       'linkLost',
       /* #6091: whether the agent's screen shows its permission prompt. One boolean, nothing identifying. */
       'awaitingApproval',
+      /* #7786: whether an idle agent has launched and never taken a turn. One boolean, nothing identifying. */
+      'neverTurned',
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     /* #2698: avatarVer is a PINNED NUMBER (category 1), forced to a constant in
