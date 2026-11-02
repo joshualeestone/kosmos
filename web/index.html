@@ -12171,6 +12171,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #pb-skipped summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 #pb-skipped-list { margin: 0 0 var(--space-4); padding-left: 20px; font: var(--text-callout) var(--font-ui); color: var(--label-2); overflow-wrap: anywhere; }
 #pb-skipped-list li { margin: 2px 0; }
+/* Design review 2: the "more" line closes the list with the list's own gap, so it does not read as Turn off's caption. */
+#pb-skipped { margin-bottom: var(--space-4); }
+#pb-skipped-more { margin: 0; }
 @media print {
   body.pb-printing > *:not(#pb-printout) { display: none !important; }
   body.pb-printing #pb-printout { display: block !important; color: #000; background: #fff; }
@@ -20504,7 +20507,7 @@ window.kosmosMeasureScrollbarWidth();
             <!-- Only what is true: the coordinator ends the membership (org.rs mac_leave), and its purge (relay
                  coordinator/src/backuppurge.rs, kosmos#7404) deletes a person's backups 30 days after they left, and never
                  before each one's 30-day lock has passed. Personal backup does not switch on before that purge does. -->
-            <p class="fhint">Turn off personal backup on this computer? Nothing more from it is backed up, and what is already backed up is kept for at least 30 days, then deleted.</p>
+            <p class="fhint">Turn off personal backup on this computer? Nothing more from it is backed up. What is already backed up is kept for at least 30 days, then deleted.</p>
             <div class="frow">
               <button class="btn danger-btn" type="button" id="pb-off-yes">Turn off</button>
               <button class="btn" type="button" id="pb-off-no">Cancel</button>
@@ -55698,6 +55701,25 @@ function pbPaint() {
 }
 /* kosmos#7404: what the last good backup left out, from `job.skippedFiles` { count, files: [{ path, why }] }. The panel
    repaints every 5 seconds, so the list is rebuilt only when it changes: an open list stays open and keeps its scroll. */
+/* Design review (Mona Lisa, 6575487941): the scanner's reasons are written for engineers ("UTF-16 text of odd length"),
+   so the panel says one of a few fixed plain phrases. First match wins, so a credential reason beats a generic "could not
+   be checked"; anything unmatched gets the fallback, never the raw text. */
+const PB_WHY = [
+  [/credential|ssh key|environment file|secret|sign-in|auth folder|browser profile|masking placeholder|redact/i, 'may hold a password or key'],
+  [/git internals/i, 'part of a Git history'],
+  [/compressed|archive/i, 'compressed, so Kosmos cannot look inside'],
+  [/temp (or backup )?copy/i, 'a temporary copy'],
+  [/larger than|too large/i, 'too large'],
+  [/link|more than one name|another volume|not a regular file/i, 'a link or shortcut'],
+  [/replaced while|grew while|changed while/i, 'changed while it was being backed up'],
+  [/restore|colliding|also named by/i, 'its name clashes with another file'],
+  [/outside the work Kosmos/i, 'outside your Kosmos folders'],
+];
+function pbWhyWords(why) {
+  const s = typeof why === 'string' ? why : '';
+  for (const [re, words] of PB_WHY) if (re.test(s)) return words;
+  return 'Kosmos could not check it';
+}
 function pbSkippedWords(sk) {
   const o = sk && typeof sk === 'object' ? sk : null;
   const files = o && Array.isArray(o.files) ? o.files.filter((f) => f && typeof f.path === 'string' && f.path) : [];
@@ -55705,7 +55727,7 @@ function pbSkippedWords(sk) {
   if (!count) return null;
   return {
     sum: count === 1 ? '1 file was left out of the last backup' : count + ' files were left out of the last backup',
-    items: files.map((f) => f.path + (typeof f.why === 'string' && f.why ? ': ' + f.why : '')),
+    items: files.map((f) => f.path + ': ' + pbWhyWords(f.why)),
     more: count > files.length ? (count - files.length) + ' more ' + (count - files.length === 1 ? 'is' : 'are') + ' not named here.' : '',
   };
 }

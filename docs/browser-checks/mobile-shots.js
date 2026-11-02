@@ -842,12 +842,12 @@ async function restartLineGo(page, shape, open) {
   }
   await page.mouse.move(1, 1);
 }
-// kosmos#7404 (pbleftout-7404): sample paths for the left-out list, never a real one.
+// kosmos#7404 (pbleftout-7404): sample paths for the left-out list, never a real one, with the scanner's own reasons.
 const PB_LEFTOUT = { lastOk: '2026-10-31T14:07:00.000Z', stopped: null, note: null, skippedFiles: { count: 214, files: [
-  { path: 'projects/launch/demo-video-final.mov', why: 'over 64 MB' },
-  { path: 'agents/writer/archive/old-drafts.zip', why: 'an archive (its insides cannot be checked)' },
-  { path: 'projects/launch/brand-guide.pdf', why: 'a compressed PDF (its text cannot be checked)' },
-  { path: 'agents/research/notes/interview-transcripts-all.txt', why: 'text over 4 MB' },
+  { path: 'projects/launch/demo-video-final.mov', why: 'larger than 64 MB, too large to scan' },
+  { path: 'agents/writer/archive/old-drafts.zip', why: 'compressed content (cannot be scanned)' },
+  { path: 'projects/launch/brand-guide.pdf', why: 'UTF-16 text of odd length' },
+  { path: 'agents/research/notes/interview-transcripts-all.txt', why: 'text that already holds the masking placeholder' },
 ] } };
 const SCREENS = [
   // Raiden: the app frame on a phone (top bar, navigation, agents list, home).
