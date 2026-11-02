@@ -368,6 +368,17 @@ test('#7746 item 2: a company run keeps at most its allowance (200000) in the in
   assert.equal(noCap.periods[0].index.size, 3);
 });
 
+test('#7746 item 3: a measured stop is kept in the state and handed to the next run; a run that finishes forgets it', async () => {
+  const stopShape = { files: 3, bytes: 900 };
+  const take = taker({ ok: false, tooLarge: true, personActs: true, because: 'too many pieces', measuredStop: stopShape, added: new Map(), bucket: null },
+    { ok: true, added: added(WEEK, 2), bucket: 'b1' });
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
+  assert.deepEqual(backupstate.readState(A.org, A.member).state.stop, stopShape, 'kept');
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
+  assert.deepEqual(take.calls[1].input.priorStop, stopShape, 'handed to the next run');
+  assert.equal('stop' in backupstate.readState(A.org, A.member).state, false, 'forgotten once a run finished');
+});
+
 test('#7746 item 5: checkpoints that could not be kept are counted on the run\'s answer; none lost says nothing', async () => {
   for (const [failing, want] of [[true, 2], [false, undefined]]) {
     wipe();

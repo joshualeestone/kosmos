@@ -638,7 +638,10 @@ async function snapshotInner(input, deps, added, state, fail) {
   const plannedChunks = (f) => (f.size > maxFile ? 0 : Math.floor(f.size / CDC.avg) + 1);
   const keyCharge = planGb ? PLAN_KEY_LEN : MAX_KEY_LEN;
   // A run that stopped on the measured size repeats hourly and reuses its index, so what a person moves is seen next hour.
-  const tooManyPieces = () => fail('your files are split into more pieces than one backup can list, so this backup did not finish. Move some small files out of your agents\' folders and projects', { tooLarge: true, personActs: true });
+  // kosmos#7746 item 3: the stop names the listing it was measured on, so the run can keep it and a later run that is no
+  // smaller stops before it spends anything (see priorStop below).
+  let measuredOn = null;
+  const tooManyPieces = () => fail('your files are split into more pieces than one backup can list, so this backup did not finish. Move some small files out of your agents\' folders and projects', Object.assign({ tooLarge: true, personActs: true }, measuredOn ? { measuredStop: measuredOn } : {}));
   const roots = rootsOf(input);
   if (typeof roots === 'string') return fail(roots);
   if (!isKey32(memberPk) || !isKey32(namingKey)) return fail('the member key and the naming key must be 32-byte Buffers');
@@ -734,6 +737,15 @@ async function snapshotInner(input, deps, added, state, fail) {
   let reserve = listed.files.reduce((n, f) => n + ub(f), 0);
   const listedBytes = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : f.size), 0);
   const over = () => estimate + reserve > budget;
+  if (planGb) {
+    measuredOn = { files: listed.files.length, bytes: listedBytes };
+    const prior = input.priorStop;
+    // A listing at least as large as the one a run already stopped on (files and bytes) would stop again after spending
+    // the week's chunks: this run stops now, before anything is uploaded. Smaller in either, it tries.
+    if (prior && Number.isSafeInteger(prior.files) && Number.isSafeInteger(prior.bytes) && measuredOn.files >= prior.files && measuredOn.bytes >= prior.bytes) {
+      return fail('your files are still split into more pieces than one backup can list, so this backup did not try again. Move some small files out of your agents\' folders and projects', { tooLarge: true, personActs: true, measuredStop: measuredOn, stoppedBefore: true });
+    }
+  }
 
   const skipped = [];
   // Every skip is charged to the manifest estimate as it happens, so the last batch is never uploaded for a manifest

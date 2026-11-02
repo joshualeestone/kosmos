@@ -130,6 +130,12 @@ const isEpoch = (e) => Number.isSafeInteger(e) && e >= 1;
 const isPosInt = (n) => Number.isSafeInteger(n) && n > 0;
 const goodKey = (k) => typeof k === 'string' && k.length <= 1024 && k.split('/').length === 5 && k.split('/').every((s) => KEY_SEG_RE.test(s) && s !== '.' && s !== '..');
 
+/* kosmos#7746 item 3: where a plan's run last stopped on the measured manifest size, { files, bytes } of its listing, or
+   undefined. Kept beside the job so a later run whose listing is no smaller stops before it spends anything. */
+function cleanStop(s) {
+  if (!s || typeof s !== 'object' || !isPosInt(s.files) || !Number.isSafeInteger(s.bytes) || s.bytes < 0) return undefined;
+  return { files: s.files, bytes: s.bytes };
+}
 function cleanJob(j) {
   const out = {};
   if (!j || typeof j !== 'object') return out;
@@ -237,7 +243,8 @@ function* readFileSteps(org, member) {
   // remembered, and the next write reads it in full once.
   if (loose) try { fs.chmodSync(f, 0o600); } catch { /* the read stands */ }
   if (known.get(f) === knownAtStart) { if (before && before === after && !loose) known.set(f, before); else known.delete(f); }
-  return { ok: true, state: { job: cleanJob(got.job), periods } };
+  const stop = cleanStop(got.stop);
+  return { ok: true, state: Object.assign({ job: cleanJob(got.job), periods }, stop ? { stop } : {}) };
 }
 
 /* Throws unless the file for (org, member) is absent or reads as this module's (readState's own test), with err.retry
@@ -288,7 +295,8 @@ function* writeSteps(org, member, state) {
   for (const x of periods) if (readsBack && (yield* periodSteps(x)) === undefined) readsBack = false;
   if (!readsBack) throw new Error('backupstate: refusing to write a period that would not read back');
   yield;
-  const body = JSON.stringify({ v: 1, org, member, job: cleanJob(state && state.job), periods });
+  const stop = cleanStop(state && state.stop);
+  const body = JSON.stringify(Object.assign({ v: 1, org, member, job: cleanJob(state && state.job), periods }, stop ? { stop } : {}));
   yield;
   yield* mayReplaceSteps(org, member);
   try {

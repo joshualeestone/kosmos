@@ -215,6 +215,7 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
     result = await take({
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
       deviceKey: dk.privateKey, index: p.index, bucket: p.bucket, ...(k.proofKey ? { proofKey: k.proofKey } : {}),
+      ...(ref.state.stop ? { priorStop: ref.state.stop } : {}),
       ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },
     }, snapshotDeps(deps, async (added, bucket) => {
       // Never stops the run: a checkpoint that cannot be kept only loses what a kill would have lost anyway.
@@ -226,6 +227,9 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
     if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
     // "Ran" means a snapshot was stored (review 4): a refused or failed pass took none.
     if (result.ok === true) ref.took = true;
+    // kosmos#7746 item 3: a measured stop is kept for the next run; a run that got a snapshot forgets it.
+    if (result.measuredStop) ref.state = Object.assign({}, ref.state, { stop: result.measuredStop });
+    else if (result.ok === true && ref.state.stop) { const { stop, ...rest } = ref.state; ref.state = rest; }
     const after = backupstate.withRun(ref.state, p, result, { maxIndex: snapshotsMod.indexCapFor(deps.planGb) });
     ref.leftOut += after.leftOut || 0;
     const { leftOut, ...kept } = after;

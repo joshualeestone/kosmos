@@ -789,6 +789,32 @@ test('a plan: the measured size stops a run the expectation let through, honestl
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
 
+test('#7746 item 3: a measured stop names its listing; a later run no smaller stops before uploading, a smaller one tries', async () => {
+  const w = oneFile(16 * 1024 * 1024), k = keys(), st = store();
+  try {
+    const whole = await take(k, w.root, st, { deps: { planGb: 25 } });
+    assert.equal(whole.ok, true, whole.because);
+    assert.equal(whole.measuredStop, undefined, 'a run that finished names no stop');
+    const n = whole.uploaded, keyLen = [...whole.added][0][1].key.length;
+    const budget = 1024 + n * (70 + keyLen) + (64 + 3) * n + 100 - 10;
+    const deps = { planGb: 25, maxManifestJson: budget, batchBytes: 1, planExpectNothing: true };
+    const st2 = store();
+    const r = await take(k, w.root, st2, { deps });
+    assert.equal(r.tooLarge, true, r.because); assert.ok(st2.batches.length > 0, 'premise: the first stop spent');
+    assert.deepEqual(r.measuredStop, { files: 1, bytes: 16 * 1024 * 1024 });
+    // The same listing again: stopped before any batch, and said as not tried again.
+    const st3 = store();
+    const again = await take(k, w.root, st3, { deps, input: { priorStop: r.measuredStop } });
+    assert.equal(again.ok, false); assert.equal(again.personActs, true); assert.equal(again.stoppedBefore, true);
+    assert.equal(st3.batches.length, 0, 'nothing uploaded');
+    assert.match(again.because, /did not try again/);
+    // A person moved files out (the stop was larger than this listing): the run tries.
+    const st4 = store();
+    const tried = await take(k, w.root, st4, { deps, input: { priorStop: { files: 2, bytes: 16 * 1024 * 1024 } } });
+    assert.equal(tried.stoppedBefore, undefined); assert.ok(st4.batches.length > 0);
+  } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
+});
+
 test('a plan: a long run hands what it stored to a checkpoint, so a killed run keeps it', async () => {
   const w = oneFile(4 * 1024 * 1024), k = keys(), st = store();
   try {

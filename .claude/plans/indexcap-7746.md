@@ -19,4 +19,8 @@ Measured: two failing checkpoints give checkpointsLost 2; none give no field; re
 Not done here: the panel showing it (personalbackup's note picks fixed sentences per flag); that is the screen's step.
 
 ## Item 3: a folder that can never finish re-walks hourly
-Not built yet; next on this branch.
+A plan's run that stopped on the measured manifest size had uploaded chunks first. Within a week the index made the hourly repeats cheap, but each new week uploaded everything again and stopped again, spending the allowance with no snapshot.
+Decided: the stop names its listing (`measuredStop: { files, bytes }`), backuprun keeps it in the state file beside the job (not per period, since the manifest limit is the same in every week and every plan), and hands it to the next run as `priorStop`. A run whose listing is at least as large in both files and bytes stops before anything is uploaded (`stoppedBefore`, with personActs and its own sentence). Smaller in either, it tries. A run that finishes forgets the stop.
+Measured: the same listing stops with zero batches; one file fewer in the stop's count (smaller listing relative to it) tries; kept, handed on and forgotten through backuprun; a malformed stop in the file is dropped. Each red without its part.
+Rejected: remembering it for the period only, which spends a week's allowance every week (what the card describes).
+Weakest premise: that files and bytes no smaller means pieces no fewer. A person who replaces many small files with fewer large ones of the same total keeps the file count only if they add files elsewhere; the comparison needs BOTH to be no smaller, so most real tidy-ups get a fresh try.
