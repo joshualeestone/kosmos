@@ -50,6 +50,26 @@ test('#7746: the async read and write answer exactly as the sync ones do', async
   assert.equal(bs.readState(org, member).ok, false);
 });
 
+test('#7746 item 3: a measured stop round-trips through the file; a malformed one is dropped, not refused', async () => {
+  const [org, member] = ids();
+  const good = { files: 4, bytes: 10, budget: 99, at: 1800000000000, roots: 'cd'.repeat(8), period: '2026-W41' };
+  bs.writeState(org, member, Object.assign(stateOf(2), { stop: good }));
+  assert.deepEqual(bs.readState(org, member).state.stop, good);
+  const f = bs.fileFor(org, member);
+  for (const bad of [{ files: 0 }, { bytes: -1 }, { budget: 0 }, { at: 1.5 }, { roots: 'xyz' }, { roots: undefined }, { period: '2026-W99' }]) {
+    const stop = Object.assign({}, good, bad);
+    // Written: a malformed stop never reaches the file.
+    bs.writeState(org, member, Object.assign(stateOf(2), { stop }));
+    assert.equal('stop' in JSON.parse(fs.readFileSync(f, 'utf8')), false, `written ${JSON.stringify(bad)}`);
+    // Read: a file that holds one (put there by hand) reads ok, without it.
+    const raw = JSON.parse(fs.readFileSync(f, 'utf8'));
+    raw.stop = stop;
+    fs.writeFileSync(f, JSON.stringify(raw));
+    const r = bs.readState(org, member);
+    assert.equal(r.ok, true); assert.equal('stop' in r.state, false, `read ${JSON.stringify(bad)}`);
+  }
+});
+
 test('#7746: the async write refuses what the sync one refuses, and a file that is not ours', async () => {
   const [org, member] = ids();
   const bad = stateOf(3);

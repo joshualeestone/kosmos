@@ -576,7 +576,8 @@ function upperBound(f, maxFile) {
 
 /**
  * Take one snapshot.
- *   input: { root | roots, memberPk, namingKey, namingKeyId, deviceKey, ctx, index?, bucket?, exclude? }
+ *   input: { root | roots, memberPk, namingKey, namingKeyId, deviceKey, ctx, index?, bucket?, exclude?, priorStop? }
+ *     priorStop    (kosmos#7746) the measuredStop a plan's earlier run stopped on, as the caller kept it
  *     exclude      folders to leave out, as '/'-separated paths relative to root (each named once in skipped)
  *     root         the work Kosmos folder (absolute)
  *     roots        instead of root (and exclude): [{ name, path, exclude?, optional?, only? }], several folders, each stored under its
@@ -607,7 +608,9 @@ function upperBound(f, maxFile) {
  *     drop it, keep `added` under `bucket`, and take the next snapshot from that.
  *   tooLarge: the manifest would pass its ceiling (too many files): not a retry.
  *   overPlan, with personActs and tooLarge: a plan's run whose files do not fit the plan; nothing was spent. personActs
- *     and tooLarge alone: a plan's run stopped on the measured manifest size; what was stored is in `added`.
+ *     and tooLarge alone: a plan's run stopped on the measured manifest size; what was stored is in `added`, and
+ *     `measuredStop` { files, bytes, budget, at, roots, period } names the listing it stopped on, for the caller to keep. With
+ *     `stoppedBefore` as well: a listing no smaller than priorStop, stopped before anything was spent (nothing stored).
  * Never throws. (If an injected uploader throws mid-batch, that batch's stored chunks cannot be known, so they are not in
  * `added`; the real uploaders never throw.)
  */
@@ -634,11 +637,14 @@ async function snapshotInner(input, deps, added, state, fail) {
   const planGb = pos(deps.planGb, null);
   const budget = pos(deps.maxManifestJson, planGb ? PLAN_MANIFEST_JSON_BUDGET : MANIFEST_JSON_BUDGET);
   const planBytes = planGb ? planGb * PLAN_BYTES_PER_GB : null;
-  const chunkCap = planGb ? Math.max(CHUNK_ALLOWANCE, planGb * PLAN_OBJECTS_PER_GB) : CHUNK_ALLOWANCE;
+  const chunkCap = indexCapFor(planGb);
   const plannedChunks = (f) => (f.size > maxFile ? 0 : Math.floor(f.size / CDC.avg) + 1);
   const keyCharge = planGb ? PLAN_KEY_LEN : MAX_KEY_LEN;
-  // A run that stopped on the measured size repeats hourly and reuses its index, so what a person moves is seen next hour.
-  const tooManyPieces = () => fail('your files are split into more pieces than one backup can list, so this backup did not finish. Move some small files out of your agents\' folders and projects', { tooLarge: true, personActs: true });
+  // A run that stopped on the measured size repeats hourly within its week and reuses its index, so what a person moves is
+  // seen next hour. kosmos#7746 item 3: the stop names the listing it was measured on (measuredOn), so the caller can keep
+  // it, and in a later week a listing no smaller stops before anything is spent (priorStop, below).
+  let measuredOn = null;
+  const tooManyPieces = () => fail('your files are split into more pieces than one backup can list, so this backup did not finish. Move some small files out of your agents\' folders and projects', Object.assign({ tooLarge: true, personActs: true }, measuredOn ? { measuredStop: measuredOn } : {}));
   const roots = rootsOf(input);
   if (typeof roots === 'string') return fail(roots);
   if (!isKey32(memberPk) || !isKey32(namingKey)) return fail('the member key and the naming key must be 32-byte Buffers');
@@ -734,6 +740,12 @@ async function snapshotInner(input, deps, added, state, fail) {
   let reserve = listed.files.reduce((n, f) => n + ub(f), 0);
   const listedBytes = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : f.size), 0);
   const over = () => estimate + reserve > budget;
+  if (planGb) {
+    // `roots`: which folders the listing came from (a short hash of their paths, sorted), so another set of folders of
+    // the same size is tried rather than stopped.
+    const rootsId = crypto.createHash('sha256').update(JSON.stringify(roots.map((r) => `${r.name}\u0000${r.path}`).sort())).digest('hex').slice(0, 16);
+    measuredOn = { files: listed.files.length, bytes: listedBytes, budget, at: t, roots: rootsId, period: ctx.period };
+  }
 
   const skipped = [];
   // Every skip is charged to the manifest estimate as it happens, so the last batch is never uploaded for a manifest
@@ -756,6 +768,19 @@ async function snapshotInner(input, deps, added, state, fail) {
       : expectedChunks > chunkCap ? 'you have more small files than your plan covers, so nothing was backed up. Move some out of your agents\' folders and projects, or choose a larger plan'
         : 'your files are split into more pieces than one backup can list, so nothing was backed up. Move some small files out of your agents\' folders and projects';
     return fail(why, { tooLarge: true, overPlan: true, personActs: true });
+  }
+  // kosmos#7746 item 3, after the plan's own checks (whose sentence is the more useful one) and before anything is spent:
+  // in a LATER week than the stop's, a listing at least as large as the one a run already stopped on (files and bytes),
+  // from the same folders under the same manifest budget, would stop again after spending that week's chunks, so this run
+  // stops now. In the stop's own week it goes on: the index makes the repeat cheap, and with stored chunks charged at
+  // their real key length it may fit. Smaller in either, other folders or another budget, it tries. No measuredStop rides
+  // this answer: the stop kept is the one measured.
+  const prior = input.priorStop;
+  // ISO week labels (2026-W09) sort as their weeks do, so `>` is later, never merely different (a clock gone back, or
+  // an earlier granted week, is not a later week).
+  if (measuredOn && prior && typeof prior.period === 'string' && ctx.period > prior.period && prior.budget === measuredOn.budget && prior.roots === measuredOn.roots && Number.isSafeInteger(prior.files)
+    && Number.isSafeInteger(prior.bytes) && measuredOn.files >= prior.files && measuredOn.bytes >= prior.bytes) {
+    return fail('your files are still split into more pieces than one backup can list, so this backup did not try again. Move some small files out of your agents\' folders and projects, and it tries at the next backup; otherwise it tries again within four weeks', { tooLarge: true, personActs: true, stoppedBefore: true });
   }
   // The manifest counts too: the 64 GiB is chunks and manifests together.
   const byteBound = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0) + sealedMax(budget);
@@ -950,5 +975,11 @@ async function snapshotInner(input, deps, added, state, fail) {
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 
+/** The most chunk objects one period can hold for this run: a company's allowance, or a personal plan's (kosmos#7746: the
+ *  state's index is capped at the same number, so the two limits cannot differ by accident). */
+function indexCapFor(planGb) {
+  return Number.isSafeInteger(planGb) && planGb > 0 ? Math.max(CHUNK_ALLOWANCE, planGb * PLAN_OBJECTS_PER_GB) : CHUNK_ALLOWANCE;
+}
+
 module.exports = {
-  MANIFEST_JSON_BUDGET, PLAN_MANIFEST_JSON_BUDGET, periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };
+  indexCapFor, MANIFEST_JSON_BUDGET, PLAN_MANIFEST_JSON_BUDGET, periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };

@@ -348,3 +348,90 @@ test('review 6: every result names the pair the run worked under, so a refused f
   const none = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer({ ok: false, because: 'no answer' }) }));
   assert.equal('pair' in none, false);
 });
+
+test('#7746 item 2: a company run keeps at most its allowance (200000) in the index; a plan keeps its own, never above 600000', async () => {
+  assert.equal(snap.indexCapFor(undefined), 200000);
+  assert.equal(snap.indexCapFor(100), 200000, 'a small plan is never below a company\'s allowance');
+  assert.equal(snap.indexCapFor(500), 600000, 'the top plan');
+  // A company run whose snapshot reports more rows than its allowance: the kept index stops at the allowance.
+  const big = added(WEEK, 200005);
+  const take = taker({ ok: true, added: big, bucket: 'b1' });
+  const r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take }));
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.leftOut, 5, 'the rows past the allowance are said, not kept');
+  assert.equal(backupstate.readState(A.org, A.member).state.periods[0].index.size, 200000);
+  // withRun takes the cap it is given (and a larger one than the rows need keeps them all). Its clamp at MAX_INDEX
+  // (600000) is not exercised here: that would take more than 600000 rows.
+  const p = { label: WEEK, namingKey: crypto.randomBytes(32), bucket: 'b1', index: new Map() };
+  const out = backupstate.withRun({ job: {}, periods: [] }, p, { added: added(WEEK, 3), bucket: 'b1' }, { maxIndex: 2 });
+  assert.equal(out.periods[0].index.size, 2); assert.equal(out.leftOut, 1);
+  const noCap = backupstate.withRun({ job: {}, periods: [] }, p, { added: added(WEEK, 3), bucket: 'b1' }, { maxIndex: 10 ** 9 });
+  assert.equal(noCap.periods[0].index.size, 3);
+});
+
+test('#7746 item 3: a measured stop is kept in the state and handed to the next run; a run that finishes forgets it', async () => {
+  const stopShape = { files: 3, bytes: 900, budget: 5000, at: NOW, roots: 'ab'.repeat(8), period: WEEK };
+  const take = taker({ ok: false, tooLarge: true, personActs: true, because: 'too many pieces', measuredStop: stopShape, added: new Map(), bucket: null },
+    { ok: false, tooLarge: true, personActs: true, stoppedBefore: true, because: 'did not try again', added: new Map(), bucket: null },
+    { ok: true, added: added(WEEK, 2), bucket: 'b1' });
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
+  assert.deepEqual(backupstate.readState(A.org, A.member).state.stop, stopShape, 'kept');
+  assert.equal('measuredStop' in (await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: taker({ ok: false, tooLarge: true, personActs: true, because: 'z', measuredStop: stopShape, added: new Map(), bucket: null }), planGb: 25 }))), false, 'not passed on to the caller');
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
+  assert.deepEqual(backupstate.readState(A.org, A.member).state.stop, stopShape, 'an early stop leaves the kept stop as it was');
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
+  assert.deepEqual(take.calls[1].input.priorStop, stopShape, 'handed to the next run');
+  assert.deepEqual(take.calls[2].input.priorStop, stopShape);
+  assert.equal('stop' in backupstate.readState(A.org, A.member).state, false, 'forgotten once a run finished');
+});
+
+test('#7746 item 3: a second pass in a granted week is never handed the stop its first pass just measured', async () => {
+  // A synthetic first answer: takeSnapshot never gives newPeriod and measuredStop together (the measured stop comes after
+  // the grant). It stands for any first pass that measured a stop and then moved to a granted week.
+  const stopShape = { files: 3, bytes: 900, budget: 5000, at: NOW, roots: 'ab'.repeat(8), period: WEEK };
+  const take = taker({ ok: false, newPeriod: true, grantedPeriod: NEXT, tooLarge: true, personActs: true, because: 'x', measuredStop: stopShape, added: new Map(), bucket: null },
+    { ok: false, tooLarge: true, personActs: true, because: 'y', added: new Map(), bucket: null });
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
+  assert.equal(take.calls.length, 2, 'premise: two passes');
+  assert.equal('priorStop' in take.calls[1].input, false);
+});
+
+test('#7746 item 3: a kept stop older than 28 days is not handed on, so one real attempt is made', async () => {
+  const base = { files: 3, bytes: 900, budget: 5000, roots: 'ab'.repeat(8), period: WEEK };
+  const old = { ...base, at: NOW - 29 * 24 * 3600 * 1000 };
+  const fresh = { ...base, at: NOW - 27 * 24 * 3600 * 1000 };
+  const ahead = { ...base, at: NOW + 3600 * 1000 };   // measured by a clock that was ahead
+  for (const [stop, handed] of [[old, false], [fresh, true], [ahead, false]]) {
+    wipe();
+    const first = taker({ ok: true, added: added(WEEK, 1), bucket: 'b1' });
+    await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: first, planGb: 25 }));
+    const st = backupstate.readState(A.org, A.member).state;
+    backupstate.writeState(A.org, A.member, Object.assign({}, st, { stop }));
+    const take = taker({ ok: false, tooLarge: true, personActs: true, because: 'x', added: new Map(), bucket: null });
+    await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
+    assert.equal('priorStop' in take.calls[0].input, handed, JSON.stringify(stop));
+  }
+});
+
+test('#7746 item 5: checkpoints that could not be kept are counted on the run\'s answer; none lost says nothing', async () => {
+  for (const [failing, want] of [[true, 2], [false, undefined]]) {
+    wipe();
+    const take = async (input, sd) => {
+      await sd.checkpoint(added(WEEK, 2), 'b1');
+      await sd.checkpoint(added(WEEK, 2), 'b1');
+      return { ok: true, added: added(WEEK, 4), bucket: 'b1' };
+    };
+    const real = backupstate.writeStateAsync;
+    let inCheckpoint = 0;
+    backupstate.writeStateAsync = async (...a) => {
+      // The run writes once before the snapshot and once after it; the two in between are the checkpoints.
+      if (failing && ++inCheckpoint > 1 && inCheckpoint <= 3) throw new Error('disk full');
+      return real(...a);
+    };
+    let r;
+    try { r = await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 })); }
+    finally { backupstate.writeStateAsync = real; }
+    assert.equal(r.ok, true, r.because);
+    assert.equal(r.checkpointsLost, want);
+  }
+});

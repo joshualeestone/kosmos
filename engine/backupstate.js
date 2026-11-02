@@ -4,6 +4,7 @@
  *
  * Design on #5535 (comment 6114619425). One owner-only file beside the member key's folder, holding:
  *   job     engine/backupjob.js's state: { lostEpoch?, waitUntilMs?, waits? }
+ *   stop    (optional, kosmos#7746) where a plan's run last stopped on the measured manifest size (cleanStop)
  *   periods up to two periods' run state, most recently used first: [{ label, namingKey, bucket, index }]. Two,
  *           because near Monday 00:00 this clock's week and the coordinator's granted week can differ, and each must keep
  *           its own naming key and index rather than overwrite the other's every run (review 7).
@@ -74,8 +75,9 @@
  *   carried but unused after the coordinator's Monday; accepted (it is dropped by the next week's first run).
  * withPeriod(state, period) -> state: `period` in the first slot, replacing its label's slot; at most SLOTS kept, the
  *   least recently used dropped. For writing a fresh period before its snapshot.
- * withRun(state, period, result) -> state: withPeriod with the period after a takeSnapshot result, plus `leftOut` (how
- *   many `added` rows it did not keep: malformed, another period's, past the cap, or with no bucket; not persisted), so
+ * withRun(state, period, result, { maxIndex? }) -> state: withPeriod with the period after a takeSnapshot result, plus `leftOut` (how
+ *   many `added` rows it did not keep: malformed, another period's, past the cap, or with no bucket; not persisted; the cap
+ *   is maxIndex, the run's own (kosmos#7746), never above MAX_INDEX), so
  *   a caller bug shows. The index is dropped ONLY when the
  *   result says so: staleIndex, or chunks stored under a DIFFERENT non-null bucket. A null bucket is not "another
  *   bucket": takeSnapshot returns null on every failure before it reads the index (a bad root, the clock, a key), and
@@ -116,7 +118,7 @@ const KEY_SEG_RE = /^[A-Za-z0-9._:-]+$/;
 // Two periods kept: near Monday 00:00 this clock's week and the coordinator's granted week can differ, and each keeps
 // its own naming key and index instead of overwriting the other's every run (review 7).
 const SLOTS = 2;
-const MAX_INDEX = 600000;   // the most objects a week can hold: the top plan's (backupsnapshot); withRun caps the index at it
+const MAX_INDEX = 600000;   // the most objects a week can hold: the top plan's (backupsnapshot); withRun caps at the run's own cap, never above this
 
 function dir() { return path.join(store.ROOT, 'backupstate'); }
 function fileFor(org, member) {
@@ -130,6 +132,14 @@ const isEpoch = (e) => Number.isSafeInteger(e) && e >= 1;
 const isPosInt = (n) => Number.isSafeInteger(n) && n > 0;
 const goodKey = (k) => typeof k === 'string' && k.length <= 1024 && k.split('/').length === 5 && k.split('/').every((s) => KEY_SEG_RE.test(s) && s !== '.' && s !== '..');
 
+/* kosmos#7746 item 3: where a plan's run last stopped on the measured manifest size: { files, bytes } of its listing, the
+   manifest budget it was measured under, when (ms), which folders (a hash) and which week, or undefined. Kept beside the job so a later run whose listing is
+   no smaller stops before it spends anything (backuprun and backupsnapshot say when it no longer applies). */
+function cleanStop(s) {
+  if (!s || typeof s !== 'object' || !isPosInt(s.files) || !Number.isSafeInteger(s.bytes) || s.bytes < 0 || !isPosInt(s.budget) || !isPosInt(s.at)
+    || typeof s.roots !== 'string' || !/^[0-9a-f]{16}$/.test(s.roots) || typeof s.period !== 'string' || !PERIOD_RE.test(s.period)) return undefined;
+  return { files: s.files, bytes: s.bytes, budget: s.budget, at: s.at, roots: s.roots, period: s.period };
+}
 function cleanJob(j) {
   const out = {};
   if (!j || typeof j !== 'object') return out;
@@ -237,7 +247,8 @@ function* readFileSteps(org, member) {
   // remembered, and the next write reads it in full once.
   if (loose) try { fs.chmodSync(f, 0o600); } catch { /* the read stands */ }
   if (known.get(f) === knownAtStart) { if (before && before === after && !loose) known.set(f, before); else known.delete(f); }
-  return { ok: true, state: { job: cleanJob(got.job), periods } };
+  const stop = cleanStop(got.stop);
+  return { ok: true, state: Object.assign({ job: cleanJob(got.job), periods }, stop ? { stop } : {}) };
 }
 
 /* Throws unless the file for (org, member) is absent or reads as this module's (readState's own test), with err.retry
@@ -288,7 +299,8 @@ function* writeSteps(org, member, state) {
   for (const x of periods) if (readsBack && (yield* periodSteps(x)) === undefined) readsBack = false;
   if (!readsBack) throw new Error('backupstate: refusing to write a period that would not read back');
   yield;
-  const body = JSON.stringify({ v: 1, org, member, job: cleanJob(state && state.job), periods });
+  const stop = cleanStop(state && state.stop);
+  const body = JSON.stringify(Object.assign({ v: 1, org, member, job: cleanJob(state && state.job), periods }, stop ? { stop } : {}));
   yield;
   yield* mayReplaceSteps(org, member);
   try {
@@ -319,8 +331,10 @@ function forPeriod(state, label, opts = {}) {
   return { label, namingKey, bucket: null, index: new Map() };
 }
 
-function withRun(state, period, result) {
+function withRun(state, period, result, opts = {}) {
   const r = result || {};
+  // kosmos#7746: the run's own cap (backupsnapshot indexCapFor: a company's 200000, a plan's), never above MAX_INDEX.
+  const cap = Number.isSafeInteger(opts.maxIndex) && opts.maxIndex > 0 ? Math.min(opts.maxIndex, MAX_INDEX) : MAX_INDEX;
   let index = period.index, bucket = period.bucket, leftOut = 0;
   if (r.staleIndex) index = new Map();
   if (typeof r.bucket === 'string' && r.bucket && r.bucket !== bucket) {
@@ -332,7 +346,7 @@ function withRun(state, period, result) {
   if (r.added instanceof Map && r.added.size && bucket) {
     index = new Map(index);
     for (const [name, e] of r.added) {
-      if (index.size < MAX_INDEX && goodEntry(name, e, period.label)) index.set(name, { key: e.key, lockedUntilMs: e.lockedUntilMs, memberKeyId: e.memberKeyId });
+      if (index.size < cap && goodEntry(name, e, period.label)) index.set(name, { key: e.key, lockedUntilMs: e.lockedUntilMs, memberKeyId: e.memberKeyId });
       else leftOut++;
     }
   }

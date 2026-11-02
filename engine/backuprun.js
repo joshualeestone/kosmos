@@ -112,7 +112,7 @@ async function runPaired(input, deps, seen) {
       } else {
         state = { job: {}, periods: [] };
       }
-      const ref = { state, leftOut: 0, unwritable: false, took: false };
+      const ref = { state, leftOut: 0, unwritable: false, took: false, checkpointsLost: 0 };
       const known = pair;
       const r = await job.runOnce(state.job, {
         ensureMemberKey: deps.ensureMemberKey || require('./backupmemberkey').ensureMemberKey,
@@ -149,16 +149,17 @@ async function runPaired(input, deps, seen) {
       }
       // The snapshot step could not write the state, so no snapshot was taken: its own answer says why, and writing
       // again would only fail again under a sentence claiming the backup ran.
-      if (ref.unwritable) return stripState(r.result);
+      // A second pass in a granted week can fail its write after the first pass's checkpoints: their count rides along.
+      if (ref.unwritable) return Object.assign(stripState(r.result), ref.checkpointsLost ? { checkpointsLost: ref.checkpointsLost } : {});
       ref.state = Object.assign({}, ref.state, { job: r.state });
       try { await backupstate.writeStateAsync(known.org, known.member, ref.state); } catch (err) {
         // The run's own answer stands, flags and all; the write failure rides beside it (review 1). "Ran" only when a
         // snapshot was taken.
-        return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {}, { stateNotKept: true,
+        return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {}, ref.checkpointsLost ? { checkpointsLost: ref.checkpointsLost } : {}, { stateNotKept: true,
           stateBecause: (ref.took ? 'the backup ran, but this computer could not keep what it needs for the next one' : 'this computer could not keep the backup state') + fixed(err) },
           err && err.retry ? { stateRetry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
       }
-      return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {});
+      return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {}, ref.checkpointsLost ? { checkpointsLost: ref.checkpointsLost } : {});
     }
     return { ok: false, pairChanged: true, because: 'Kosmos+ named another company or member twice in one run; this computer tries again next time' };
   } catch (err) {
@@ -169,7 +170,8 @@ async function runPaired(input, deps, seen) {
 /* The result as the caller sees it: `added` (a Map of every chunk stored) is the state's business, already kept, and
    learnPair is this module's own signal. */
 function stripState(result) {
-  const { added, learnPair, ...rest } = result || {};
+  // measuredStop (kosmos#7746) is the state's business too: kept in the state file, not passed on.
+  const { added, learnPair, measuredStop, ...rest } = result || {};
   return rest;
 }
 /* missing: remote access was never set up here, which a person must act on; never a retry (review 3). */
@@ -188,6 +190,7 @@ function snapshotDeps(deps, checkpoint) {
   return out;
 }
 
+const STOP_KEPT_MS = 28 * 24 * 3600 * 1000;   // kosmos#7746 item 3: how long a kept stop is handed on
 /* The snapshot under an ok key for `pair`: this clock's week, and once more in a granted week. ref.state is kept
    current, so the job's state is written over the latest periods. */
 async function snapshotStep(pair, k, ref, input, deps, now) {
@@ -195,6 +198,9 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
   const take = deps.takeSnapshot || snapshotsMod.takeSnapshot;
   const memberKeyId = snapshotsMod.memberKeyIdOf(k.memberPk);
   let label = snapshotsMod.periodOf(now());
+  // kosmos#7746 item 3: only a stop kept before this run is handed on, so a stop the first pass measures never stops a
+  // second pass (a granted week) in the same run.
+  const keptStop = ref.state.stop && now() >= ref.state.stop.at && now() - ref.state.stop.at < STOP_KEPT_MS ? ref.state.stop : null;
   let result;
   for (let i = 0; i < 2; i++) {
     let p;
@@ -215,18 +221,27 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
     result = await take({
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
       deviceKey: dk.privateKey, index: p.index, bucket: p.bucket, ...(k.proofKey ? { proofKey: k.proofKey } : {}),
+      // kosmos#7746 item 3: a kept stop is handed on for STOP_KEPT_MS from its `at` (refreshed while it is measured again
+      // within its week; an early stop does not refresh it), and every later-week run no smaller is stopped meanwhile;
+      // then one real attempt measures again. So a stop that was wrong (a borderline estimate) holds backups for up to
+      // that long, and a right one costs one spent attempt in that time instead of one a week. A stop dated after now (a
+      // clock that was ahead) counts as expired.
+      ...(keptStop ? { priorStop: keptStop } : {}),
       ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },
     }, snapshotDeps(deps, async (added, bucket) => {
       // Never stops the run: a checkpoint that cannot be kept only loses what a kill would have lost anyway.
       try {
-        const { leftOut, ...kept } = backupstate.withRun(ref.state, p, { added, bucket });
+        const { leftOut, ...kept } = backupstate.withRun(ref.state, p, { added, bucket }, { maxIndex: snapshotsMod.indexCapFor(deps.planGb) });
         await backupstate.writeStateAsync(pair.org, pair.member, kept);
-      } catch { /* the run's own write comes after */ }
+      } catch { ref.checkpointsLost++; /* the run's own write comes after; the count rides the answer (kosmos#7746) */ }
     }));
     if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
     // "Ran" means a snapshot was stored (review 4): a refused or failed pass took none.
     if (result.ok === true) ref.took = true;
-    const after = backupstate.withRun(ref.state, p, result);
+    // kosmos#7746 item 3: a measured stop is kept for the next run; a run that got a snapshot forgets it.
+    if (result.measuredStop) ref.state = Object.assign({}, ref.state, { stop: result.measuredStop });
+    else if (result.ok === true && ref.state.stop) { const { stop, ...rest } = ref.state; ref.state = rest; }
+    const after = backupstate.withRun(ref.state, p, result, { maxIndex: snapshotsMod.indexCapFor(deps.planGb) });
     ref.leftOut += after.leftOut || 0;
     const { leftOut, ...kept } = after;
     ref.state = kept;
