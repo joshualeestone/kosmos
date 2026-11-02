@@ -351,6 +351,107 @@ test('the panel report: first run, a good run, a passing failure, a stop, and a 
   await run({ ok: true }, 16);
   assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T16:00:00.000Z', stopped: null, note: null }, 'a good run clears the stop');
 });
+test('#7775: the last run\'s lost checkpoints and in-process seal are plain lines, and the next run replaces them', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
+  const lost = /On the last try, this computer could not save its progress|had trouble saving its progress/;
+  const sealed = /without its background helper/;
+  await run({ ok: true, checkpointsLost: 3 }, 12);
+  let r = pb.report(o);
+  assert.equal(r.stopped, null);
+  assert.match(r.note, lost);
+  assert.doesNotMatch(r.note, sealed);
+  await run({ ok: true, sealedInProcess: 'worker-ended' }, 13);
+  r = pb.report(o);
+  assert.match(r.note, sealed);
+  assert.doesNotMatch(r.note, lost, 'a good run without lost checkpoints drops that line');
+  await run({ ok: true, checkpointsLost: 1, sealedInProcess: 'no-answer' }, 14);
+  r = pb.report(o);
+  assert.equal(r.note, 'The last finished backup had trouble saving its progress along the way, and ran without its background helper, so Kosmos may have been slow for a moment.', 'both on one finished backup: one sentence');
+  assert.ok(r.note.search(lost) < r.note.search(sealed), 'a fixed order');
+  await run({ ok: true }, 15);
+  assert.deepEqual(pb.report(o), { lastOk: '2026-10-31T15:00:00.000Z', stopped: null, note: null }, 'a clean run says nothing');
+  // A failed run's lost checkpoints (a second pass that could not write) are said beside the earlier good run.
+  await run({ ok: false, because: 'Kosmos+ could not be reached', checkpointsLost: 2 }, 16);
+  r = pb.report(o);
+  assert.equal(r.lastOk, '2026-10-31T15:00:00.000Z');
+  assert.match(r.note, lost);
+  await run({ ok: false, overAllowance: true, because: 'x', checkpointsLost: 1 }, 17);
+  assert.match(pb.report(o).note, /allowance is used up\. Backups carry on next week\. On the last try/);
+  // A stop outranks them: the person acts on the stop.
+  await run({ ok: false, personActs: true, because: 'this backup has no key on Kosmos+ yet, so nothing was backed up', checkpointsLost: 1 }, 18);
+  r = pb.report(o);
+  assert.ok(r.stopped);
+  assert.equal(r.note, null);
+});
+test('#7775: the in-process seal line belongs to the last finished backup, so a failed try after it keeps the line', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
+  const sealed = /without its background helper/;
+  await run({ ok: true, sealedInProcess: 'no-answer' }, 12);
+  await run({ ok: false, because: 'Kosmos+ could not be reached' }, 13);
+  assert.match(String(pb.report(o).note), sealed, 'a failed try does not drop it');
+  await run({ ok: true }, 14);
+  assert.equal(pb.report(o).note, null, 'the next finished backup replaces it');
+});
+test('#7775: lost checkpoints on a finished backup say it finished; on a failed try, that the next may redo work', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
+  await run({ ok: true, checkpointsLost: 2 }, 12);
+  let note = String(pb.report(o).note);
+  assert.equal(note, 'The last finished backup had trouble saving its progress along the way.');
+  assert.doesNotMatch(note, /redo/, 'nothing was interrupted, so nothing is to redo');
+  await run({ ok: false, because: 'Kosmos+ could not be reached', checkpointsLost: 2 }, 13);
+  note = String(pb.report(o).note);
+  assert.equal(note, 'On the last try, this computer could not save its progress, so the next backup may have to redo some work.', 'one line about saving progress, the failed try\'s');
+});
+test('#7775: a failed run never says a backup finished, and a failed try keeps the finished backup\'s trouble-saving line', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  const run = (r, h) => pb.runJob({ roots: [] }, { ...o, now: () => at(h), runBackup: async () => r });
+  await run({ ok: false, because: 'Kosmos+ could not be reached', sealedInProcess: 'no-answer' }, 11);
+  assert.doesNotMatch(String(pb.report(o).note), /background helper/, 'nothing finished');
+  await run({ ok: true, checkpointsLost: 1 }, 12);
+  await run({ ok: false, because: 'Kosmos+ could not be reached' }, 13);
+  assert.equal(pb.report(o).note, 'The last finished backup had trouble saving its progress along the way.');
+  await run({ ok: true }, 14);
+  assert.equal(pb.report(o).note, null);
+});
+test('#7775: before any backup has finished, the line follows "not finished yet"', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  await pb.runJob({ roots: [] }, { ...o, now: () => at(11), runBackup: async () => ({ ok: false, because: 'Kosmos+ could not be reached', checkpointsLost: 2 }) });
+  const r = pb.report(o);
+  assert.equal(r.lastOk, null);
+  assert.match(r.note, /^A backup has not finished yet\. On the last try, this computer could not save its progress/);
+});
+test('#7775: every seal reason backupsnapshot can give is said on the panel', async () => {
+  const src = fs.readFileSync(path.join(__dirname, 'backupsnapshot.js'), 'utf8');
+  const hows = [...new Set([...src.matchAll(/\bhere\('([a-z-]+)'\)/g)].map((m) => m[1]))];
+  assert.ok(hows.length >= 4, 'control: the reasons were found in backupsnapshot.js: ' + hows.join(','));
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  for (const how of hows) {
+    await pb.runJob({ roots: [] }, { ...o, runBackup: async () => ({ ok: true, sealedInProcess: how }) });
+    assert.match(String(pb.report(o).note), /without its background helper/, how);
+  }
+});
+test('#7775: only a positive whole count and a known seal reason are said; nothing of the run\'s own text is', async () => {
+  const pair = newPair();
+  const o = onNow(chain(pair, []), pair);
+  const run = (r) => pb.runJob({ roots: [] }, { ...o, runBackup: async () => r });
+  for (const bad of [{ checkpointsLost: 0 }, { checkpointsLost: -1 }, { checkpointsLost: 1.5 }, { checkpointsLost: '2' }, { sealedInProcess: 'RAW /Users/someone/secret' }, { sealedInProcess: true }]) {
+    await run(Object.assign({ ok: true }, bad));
+    assert.equal(pb.report(o).note, null, JSON.stringify(bad));
+  }
+  await run({ ok: true, sealedInProcess: 'not-sent' });
+  assert.ok(pb.report(o).note, 'control: a known reason is said');
+  const note = JSON.parse(fs.readFileSync(path.join(o.root, 'personal-job.json'), 'utf8'));
+  assert.deepEqual(Object.keys(note).sort(), ['lastOk', 'lastTry', 'org', 'sealedHere', 'world'], 'the note keeps a flag, never the reason');
+});
 test('no server or file text reaches the panel, whichever flag a refusal carries', async () => {
   const pair = newPair();
   const o = onNow(chain(pair, []), pair);

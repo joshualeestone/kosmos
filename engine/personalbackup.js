@@ -519,6 +519,29 @@ function stopOf(r) {
   if (!hit) return null;
   return hit[0] === 'tooLarge' && r.overAllowance ? hit[1] + '. The next try is next week' : hit[1];
 }
+/* kosmos#7775: what the last run did that a person may want to know, though it backed up. Each is a fixed sentence
+   picked by a flag the run carried: checkpointsLost (backuprun, a progress write that failed) and sealedInProcess
+   (backupsnapshot, the seal worker could not be used, so the board waited for the seal). unsignedBecause is not here:
+   backupjob.fromAnswer builds the run's key without it. */
+const LOST_SAY = 'On the last try, this computer could not save its progress, so the next backup may have to redo some work.';
+const FINISHED_SAY = {
+  troubleSaving: 'The last finished backup had trouble saving its progress along the way.',
+  sealedHere: 'The last finished backup ran without its background helper, so Kosmos may have been slow for a moment.',
+  both: 'The last finished backup had trouble saving its progress along the way, and ran without its background helper, so Kosmos may have been slow for a moment.',
+};
+const SEALED_HOW = ['not-sent', 'no-worker', 'worker-ended', 'no-answer'];
+function runFlags(r) {
+  return Object.assign({}, Number.isInteger(r.checkpointsLost) && r.checkpointsLost > 0 ? { [r.ok ? 'troubleSaving' : 'lostCheckpoints']: true } : {},
+    r.ok && SEALED_HOW.includes(r.sealedInProcess) ? { sealedHere: true } : {});
+}
+/* A failed try's lost checkpoints replace the finished backup's trouble saving: one line about saving progress. */
+function runSay(j) {
+  const lost = j.lostCheckpoints === true;
+  const trouble = !lost && j.troubleSaving === true;
+  const sealed = j.sealedHere === true;
+  const finished = trouble && sealed ? FINISHED_SAY.both : trouble ? FINISHED_SAY.troubleSaving : sealed ? FINISHED_SAY.sealedHere : null;
+  return [lost ? LOST_SAY : null, finished].filter(Boolean);
+}
 function readNote(opts) {
   try { const j = JSON.parse(fs.readFileSync(path.join(root(opts), JOB_NOTE), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch { return {}; }
 }
@@ -531,7 +554,9 @@ function noteRun(r, opts, before) {
   const was = readNote(opts);
   const same = was.org === rec.org.id && was.world === rec.world;
   const now = new Date((opts.now || Date.now)()).toISOString();
-  const next = { org: rec.org.id, world: rec.world, lastTry: now, lastOk: r.ok ? now : (same && was.lastOk) || null };
+  const next = { org: rec.org.id, world: rec.world, lastTry: now, lastOk: r.ok ? now : (same && was.lastOk) || null, ...runFlags(r) };
+  // troubleSaving and sealedHere describe the last finished run, so a failed try keeps them (next.lastOk is that run's).
+  if (!r.ok && same && next.lastOk) for (const k of ['troubleSaving', 'sealedHere']) if (was[k] === true) next[k] = true;
   // What the last good backup left out, so the panel can name it. A failed run says nothing about that.
   if (r.ok && Array.isArray(r.skippedList)) next.skippedFiles = { count: Number.isSafeInteger(r.skipped) ? r.skipped : r.skippedList.length, files: r.skippedList.map((x) => ({ path: String(x.path), why: String(x.why) })) };
   else if (!r.ok && same && was.skippedFiles) next.skippedFiles = was.skippedFiles;
@@ -579,12 +604,14 @@ function reportNow(opts) {
     return wordsUncovered(opts) ? { lastOk, stopped: WORDS_UNCOVERED, note: null } : { lastOk, stopped: null, note: 'Backups are not running on this computer just now.' };
   }
   if (stopped) return { lastOk, stopped, note: null };
-  if (j.waiting === true) return { lastOk, stopped: null, note: WAITING_WEEK };
-  if (!lastOk) return { lastOk, stopped: null, note: typeof j.lastTry === 'string' ? 'A backup has not finished yet.' : 'A backup runs soon.' };
+  // kosmos#7775: the last run's own lines follow whatever else the note says; a stop above outranks them.
+  const also = (say) => { const all = [say, ...runSay(j)].filter(Boolean); return all.length ? all.join(' ') : null; };
+  if (j.waiting === true) return { lastOk, stopped: null, note: also(WAITING_WEEK) };
+  if (!lastOk) return { lastOk, stopped: null, note: also(typeof j.lastTry === 'string' ? 'A backup has not finished yet.' : 'A backup runs soon.') };
   const sk = j.skippedFiles;
   const skippedFiles = sk && Array.isArray(sk.files) && Number.isSafeInteger(sk.count)
     ? { count: sk.count, files: sk.files.filter((x) => x && typeof x.path === 'string' && typeof x.why === 'string').map((x) => ({ path: x.path, why: x.why })) } : null;
-  return { lastOk, stopped: null, note: null, ...(skippedFiles ? { skippedFiles } : {}) };
+  return { lastOk, stopped: null, note: also(null), ...(skippedFiles ? { skippedFiles } : {}) };
 }
 
 /** kosmos#7404 slice D: what a files restore needs to know: { state, rec, codeWaiting }. state is state()'s, and
