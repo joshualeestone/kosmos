@@ -1685,8 +1685,9 @@ function taskHoldAs(want) {
       if (forPerson) ctx.out(forOlder ? 'This Kosmos is older than --for-you, so it is on hold but not on the list of what is waiting on your person. Ask them in their room yourself.'
         : 'It is on the list of what is waiting on your person.');
       // kosmos#7797, as install/kosmos: unmarked, it stays on hold and leaves the person's list.
+      // Review 4, as install/kosmos: a board that does not say whether the mark came off gets only what is true either way.
       if (notForPerson && cleared !== false) ctx.out(forOlder ? 'This Kosmos is older than --not-for-you, so it still waits on your person. Take it off hold and put it back to change that.'
-        : 'It is no longer on the list of what is waiting on your person.');
+        : cleared === true ? 'It is no longer on the list of what is waiting on your person.' : 'It is not on the list of what is waiting on your person.');
       // kosmos#7407, as install/kosmos: who has it now, as the board says; none from an older board.
       const next = !want && typeof r.json.next === 'string' ? r.json.next.trim() : '';
       if (next) ctx.out(next);

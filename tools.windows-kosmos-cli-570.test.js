@@ -1010,10 +1010,15 @@ test('#7797 review 1 Windows: --not-for-you says the task stays on hold, never t
 });
 
 test('#7797 Windows task hold --not-for-you sends forPerson false and says it left the list; both refused; an older board exits 1', async () => {
-  const a = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  const a = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ body: { task: { number: 3, onHold: true }, forPersonCleared: true } }));
   assert.equal(a.code, 0, a.err);
   assert.deepEqual(a.calls[0].body, { onHold: true, forPerson: false });
   assert.match(a.out, /no longer on the list of what is waiting on your person/);
+  // Review 4, as the Mac test: a board that does not say whether the mark came off.
+  const unsaid = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(unsaid.code, 0, unsaid.err);
+  assert.match(unsaid.out, /It is not on the list of what is waiting on your person\./);
+  assert.doesNotMatch(unsaid.out, /no longer on the list/);
   const both = await run(['task', 'hold', 'p1', '3', '--for-you', '--not-for-you']);
   assert.equal(both.code, 2);
   const old = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ body: { task: { number: 3, onHold: true, onHoldForPerson: true } } }));

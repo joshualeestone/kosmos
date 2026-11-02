@@ -6273,7 +6273,9 @@ cmd_task() {
               case "$body" in
                 *'"onHoldForPerson":true'*) say "This Kosmos is older than --not-for-you, so it still waits on your person. Take it off hold and put it back to change that."; _hold_for_older=1 ;;
                 *'"forPersonCleared":false'*) ;;
-                *) say "It is no longer on the list of what is waiting on your person." ;;
+                *'"forPersonCleared":true'*) say "It is no longer on the list of what is waiting on your person." ;;
+                # Review 4: a board that does not say whether the mark came off: only what is true either way.
+                *) say "It is not on the list of what is waiting on your person." ;;
               esac
             fi
             # kosmos#7180: say what it waits for, as the board recorded it.
