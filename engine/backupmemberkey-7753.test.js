@@ -145,8 +145,10 @@ test('#7753: the signed bytes are the layout on the card (built here by hand, fo
   assert.throws(() => mk.memberKeyRecordBytes('org1', 'acct1', 1, Buffer.alloc(31)));
 });
 
-/* The shared vector. The same values are in escrowd's Rust verifier (kosmos-relay, #5686 Part 2), so a drift in the
-   bytes or the signature goes red on both sides. Ed25519 is deterministic: this seed always gives this signature. */
+/* The shared vector. escrowd's Rust verifier (kosmos-relay, memberkeyrecord.rs) carries a hand-made copy of the same
+   values. Each copy pins today's layout against an accidental edit on its own side; it cannot catch a deliberate format
+   change made on one side together with that side's copy, so a format change is made on both sides on purpose.
+   Ed25519 is deterministic: this seed always gives this signature. */
 const VECTOR = {
   org: 'org1', member: 'acct1', epoch: 7,
   memberPublic: 'ab'.repeat(32),
