@@ -376,6 +376,12 @@ function chk(ok, label, extra) {
       const forYou = await page.evaluate(() => { const e = document.querySelector('#tsk-groups .tsk-for-you'); return e ? e.textContent.trim() : null; });
       chk(forYou === 'On hold until you answer: needs your yes on the price. Open it and take it off hold once you have.',
         `${tag} #7788 its row says what it waits on and how it clears`, forYou);
+      /* kosmos#7797: the project page's task card says it too; the plain hold earlier said "On hold: <reason>" there. */
+      await page.evaluate((pid) => tskGoToProject(pid), launch.id);
+      await page.waitForSelector('.tkcard-for-you', { state: 'attached', timeout: 6000 }).catch(() => {});
+      const card = await page.evaluate(() => { const e = document.querySelector('.tkcard-for-you'); return e ? e.textContent.trim() : null; });
+      chk(card === 'On hold until you answer: needs your yes on the price', `${tag} #7797 the project's task card says it waits on your answer`, card);
+      await page.evaluate(() => showTab('tasks'));
       /* Review 1: with the agents unreadable the row is still known, so the words never deny it. Through the page's own
          flag and painter, as render-tasks-view-3559 drives the empty case. */
       const unread = await page.evaluate(() => {
