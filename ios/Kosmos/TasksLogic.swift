@@ -61,6 +61,19 @@ extension Board {
     struct TasksRead: Equatable {
         let tasks: [TaskRow]
         let rosterUnknown: Bool
+        // kosmos#7797 item 1: agents' questions no task carries (the route's askingWithoutTask), listed first in Needs
+        // Your Decision. Empty from an older board, which never sent them.
+        var asking: [Asking] = []
+    }
+
+    // One question no task carries: who asks, about which project (named as a task row's is), since when.
+    struct Asking: Equatable, Identifiable {
+        let who: String
+        let projectId: String?
+        let projectName: String?
+        let projectPath: [String]
+        let waitingSince: String?
+        var id: String { "ask:" + who }
     }
 
     static func parseTasks(_ data: Data) -> TasksRead? {
@@ -121,7 +134,13 @@ extension Board {
             t.told = reading(row["told"])
             return t
         }
-        return TasksRead(tasks: tasks, rosterUnknown: (obj["rosterUnreadable"] as? Bool) == true)
+        let asking: [Asking] = (obj["askingWithoutTask"] as? [[String: Any]])?.compactMap { a in
+            guard let who = str(a, "who") else { return nil }
+            return Asking(who: who, projectId: str(a, "projectId"), projectName: str(a, "projectName"),
+                          projectPath: (a["projectPath"] as? [Any])?.compactMap { $0 as? String } ?? [],
+                          waitingSince: str(a, "waitingSince"))
+        } ?? []
+        return TasksRead(tasks: tasks, rosterUnknown: (obj["rosterUnreadable"] as? Bool) == true, asking: asking)
     }
 }
 
@@ -158,7 +177,8 @@ enum Tasks {
     // tile says it cannot tell rather than 0. Display only: a tile does not filter.
     struct Tile: Equatable { let key: String; let label: String; let count: Int? }
     static func tiles(_ shown: [Section], rosterUnknown: Bool) -> [Tile] {
-        func n(_ key: String) -> Int { shown.filter { $0.group.key == key }.reduce(0) { $0 + $1.rows.count } }
+        // kosmos#7797 item 1: Needs you counts the questions no task carries too (they sit in its group); Open stays tasks.
+        func n(_ key: String) -> Int { shown.filter { $0.group.key == key }.reduce(0) { $0 + $1.rows.count + $1.asking.count } }
         let open = shown.filter { $0.group.key != "closed" }.reduce(0) { $0 + $1.rows.count }
         return [
             Tile(key: "open", label: "Open", count: open),
@@ -173,6 +193,24 @@ enum Tasks {
         let group: Group
         let rows: [Board.TaskRow]
         let unknown: Bool
+        // kosmos#7797 item 1: the decision group's questions no task carries, drawn before its rows.
+        var asking: [Board.Asking] = []
+    }
+
+    // tskAskingShown: the questions in view; with a project picked, only those about it (the phone has no search).
+    static func askingShown(_ read: Board.TasksRead, project: String?) -> [Board.Asking] {
+        guard let project else { return read.asking }
+        return read.asking.filter { $0.projectId == project }
+    }
+
+    // tskAskRow's words: "Max asks about Spring launch" (or "asks you something"), and the wait line when a start is known.
+    static func askTitle(_ a: Board.Asking, name: (String) -> String) -> String {
+        name(a.who) + ((a.projectName ?? "").isEmpty ? " asks you something" : " asks about " + chainText(a.projectPath + [a.projectName ?? ""]))
+    }
+    static func askWait(_ a: Board.Asking, now: Date) -> String {
+        let wait = ago(a.waitingSince, now: now)
+        if wait.isEmpty { return "" }
+        return wait == "just now" ? "Just started waiting for your answer." : "Waiting for your answer for " + wait.replacingOccurrences(of: " ago", with: "") + "."
     }
 
     // The groups the list draws, in order, each hidden when empty (#3949: the tiles' zeros are not repeated), except
@@ -184,8 +222,9 @@ enum Tasks {
         return groups.compactMap { g in
             let ts = sorted.filter { $0.state == g.key }
             let unknown = g.key == "decision" && read.rosterUnknown
-            if ts.isEmpty && !unknown { return nil }
-            return Section(group: g, rows: ts, unknown: unknown)
+            let ask = g.key == "decision" ? askingShown(read, project: project) : []
+            if ts.isEmpty && ask.isEmpty && !unknown { return nil }
+            return Section(group: g, rows: ts, unknown: unknown, asking: ask)
         }
     }
 
@@ -211,8 +250,10 @@ enum Tasks {
         return groups.compactMap { g in
             let ts = kept[g.key] ?? []
             let unknown = g.key == "decision" && fresh.rosterUnknown
-            if ts.isEmpty && !unknown { return nil }
-            return Section(group: g, rows: ts, unknown: unknown)
+            // A question is not a place in the list: the fresh read's, as asked now.
+            let ask = g.key == "decision" ? askingShown(fresh, project: project) : []
+            if ts.isEmpty && ask.isEmpty && !unknown { return nil }
+            return Section(group: g, rows: ts, unknown: unknown, asking: ask)
         }
     }
 
