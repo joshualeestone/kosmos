@@ -27,6 +27,18 @@ test('a slow call is logged with its program and caller, and the secret argument
   assert.doesNotMatch(lines[0], /secret|send-keys|\/opt/);
 });
 
+test('a deep caller is still named, and the stack limit is left as it was', () => {
+  const { cp } = fake('out');
+  const lines = [];
+  s.install(cp, { log: (l) => lines.push(l), now: clock(1500) });
+  const before = Error.stackTraceLimit;
+  const f9 = () => cp.execFileSync('tmux', []); const f8 = () => f9(); const f7 = () => f8(); const f6 = () => f7(); const f5 = () => f6();
+  const f4 = () => f5(); const f3 = () => f4(); const f2 = () => f3(); const f1 = () => f2(); const f0 = () => f1();
+  f0();
+  assert.equal(lines[0].split(' < ').length, s.MAX_FRAMES);
+  assert.equal(Error.stackTraceLimit, before);
+});
+
 test('control: a quick call logs nothing', () => {
   const { cp } = fake('out');
   const lines = [];

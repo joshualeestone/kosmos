@@ -21,6 +21,7 @@ const path = require('node:path');
 const NAMES = ['execFileSync', 'execSync', 'spawnSync'];
 const SLOW_MS = 1000;
 const MAX_PER_MINUTE = 20;
+const MAX_FRAMES = 14;   // six stopped inside snapshot() on the live board, short of the timer that called it (#7693, 11-01)
 
 // The program's name only. A shell's first argument is a whole command line (execSync, or any call with the shell
 // option), which can open with a secret or a quoted path, so none of it is logged.
@@ -34,7 +35,14 @@ function framesOf(stack) {
   return String(stack).split('\n').slice(1)
     .filter((l) => !l.includes('slowspawn.js') && !l.includes('node:'))
     .map((l) => { const m = /([^/\\(\s]+:\d+):\d+\)?$/.exec(l.trim()); return m ? m[1] : null; })
-    .filter(Boolean).slice(0, 6).join(' < ');
+    .filter(Boolean).slice(0, MAX_FRAMES).join(' < ');
+}
+
+// A stack deep enough to reach the caller: V8 keeps ten frames unless told otherwise, and the wrapper and node take some of them.
+function deepStack() {
+  const limit = Error.stackTraceLimit;
+  Error.stackTraceLimit = MAX_FRAMES + 10;
+  try { return new Error().stack; } finally { Error.stackTraceLimit = limit; }
 }
 
 function install(cp, opts = {}) {
@@ -55,7 +63,7 @@ function install(cp, opts = {}) {
           if (took >= SLOW_MS) {
             const at = now();
             if (at - windowAt >= 60000) { windowAt = at; inWindow = 0; }
-            if (inWindow++ < MAX_PER_MINUTE) log(`[slow-spawn] ${took} ms ${name} ${programOf(name, args[0], args.slice(1))} from ${framesOf(new Error().stack)}`);
+            if (inWindow++ < MAX_PER_MINUTE) log(`[slow-spawn] ${took} ms ${name} ${programOf(name, args[0], args.slice(1))} from ${framesOf(deepStack())}`);
           }
         } catch { /* watching never breaks the call it watches */ }
       }
@@ -65,4 +73,4 @@ function install(cp, opts = {}) {
   }
 }
 
-module.exports = { install, programOf, framesOf, SLOW_MS, MAX_PER_MINUTE };
+module.exports = { install, programOf, framesOf, SLOW_MS, MAX_PER_MINUTE, MAX_FRAMES };
