@@ -407,8 +407,7 @@ function tellStalls(cards, { now = Date.now(), file, send, ownBound = null }) {
     if (Number.isFinite(lastStallPushAt) && lastStallPushAt <= now && now - lastStallPushAt < STALL_PUSH_EVERY_MS) return;
     const sessions = due.map((d) => d.session);
     const ev = { ...due[0], agent: withMore(due[0].agent, due.length - 1), onResult: (ok) => { if (ok === false) untold(sessions, now, file); } };
-    /* kosmos#7794: a retry of a push whose answer was a failure carries the same id, and the coordinator keeps the first
-       one it stored, so the retry joins the open entry (its time and the agents already seen to recover are kept). */
+    /* kosmos#7794: when a retry has the same id it joins the open entry, keeping the agents already seen to recover. */
     const open = pushOpen.get(ev.id);
     if (open) { for (const s of sessions) if (!open.all.includes(s)) { open.all.push(s); open.open.add(s); } }
     else pushOpen.set(ev.id, { at: now, all: sessions.slice(), open: new Set(sessions) });
@@ -416,6 +415,7 @@ function tellStalls(cards, { now = Date.now(), file, send, ownBound = null }) {
     try { took = send(ev) === true; } catch { took = false; }
     if (took) {
       lastStallPushAt = now;
+      if (open) open.at = now;   // kosmos#7794: the coordinator may have stored only this one, so its clock starts here
       for (const s of sessions) pushTold(s, now, file);
       /* kosmos#7212 item 2: the streak itself keeps that its stall push went out (not a stuck step's push), for endsToSay. */
       for (const d of due) { const st = streaks.get(d.session); if (st && d.id.startsWith('stall:')) st.pushedAt = now; }

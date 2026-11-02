@@ -104,7 +104,7 @@ test('a push whose answer was a failure is still acked once it is over (the coor
   assert.deepEqual(ds.acksDue(recover('x1', said, PUSH + 5 * MIN), DUE), [ev.id]);
 });
 
-test('a retry of a failed push joins it: the first push\'s time counts, as the coordinator keeps the first', () => {
+test('a retry of a failed push joins it, and its clock starts at the retry (the coordinator may hold only the retry)', () => {
   const { said, ev } = pushedStalls(['r1']);
   ev.onResult(false);   // taken back, so r1 is due again
   const again = [];
@@ -112,7 +112,26 @@ test('a retry of a failed push joins it: the first push\'s time counts, as the c
   assert.equal(again.length, 1, 'precondition: the push was retried');
   assert.equal(again[0].id, ev.id, 'precondition: the retry carries the same id');
   const ends = recover('r1', said, PUSH + 20 * MIN);
-  assert.deepEqual(ds.acksDue(ends, DUE), [ev.id], 'the retry moved the ack past the coordinator\'s decision');
+  assert.deepEqual(ds.acksDue(ends, DUE), [], 'acked 25 minutes after the first push, though the coordinator may hold only the retry');
+  assert.deepEqual(ds.acksDue([], PUSH + 16 * MIN + 25 * MIN), [ev.id], 'not acked 25 minutes after the retry');
+});
+
+test('a retry that leaves out an agent the push covered keeps waiting for that agent', () => {
+  const said = new Map();
+  for (const n of ['j1', 'j2']) for (let i = 0; i < 4; i += 1) ds.note(n, FAIL, T0 + i * MIN);
+  ds.stallsToSay(['j1', 'j2'], said, { now: PUSH });
+  const pushes = [];
+  const fail = (e) => { pushes.push(e); return true; };
+  ds.tellStalls([stalledCard('j2')], { now: PUSH, send: fail });   // j2 alone first, and that answer fails
+  pushes[0].onResult(false);                                      // j2 is taken back (its one take-back today)
+  ds.tellStalls([stalledCard('j1'), stalledCard('j2')], { now: PUSH + 16 * MIN, send: fail });   // j1 and j2, under j1's id
+  pushes[1].onResult(false);                                      // j1 taken back; j2 is not (already taken back today)
+  ds.tellStalls([stalledCard('j1'), stalledCard('j2')], { now: PUSH + 32 * MIN, send: fail });   // j1 only now
+  assert.equal(pushes.length, 3, 'precondition: three pushes');
+  assert.equal(pushes[2].id, pushes[1].id, 'precondition: the retry carries the same id');
+  assert.equal(pushes[2].agent, pushes[1].agent.replace(/ and 1 more$/, ''), 'precondition: the retry left j2 out');
+  const ends = recover('j1', said, PUSH + 40 * MIN);
+  assert.deepEqual(ds.acksDue(ends, PUSH + 32 * MIN + 25 * MIN), [], 'acked while j2, which the push named, was still stalled');
 });
 
 test('an end clears an agent only from pushes made before it ended', () => {
