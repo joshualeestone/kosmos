@@ -951,8 +951,7 @@ function joinTaskClaims(tasks, all, memberOf, roster, project) {
    case keeps its own reason. */
 function aboutWho(who, cards, row) {
   if (!row || !row.claim) return row;
-  const card = row.claim.neverReported === true && Array.isArray(cards)
-    ? cards.find((a) => a && a.sessionName === who && a.isNamedOurs === true) : null;
+  const card = row.claim.neverReported === true ? module.exports.ourCard(who, cards) : null;
   return { ...row, claim: { ...row.claim, about: who, ...(card && card.neverTurned === true ? { neverTurned: true } : {}) } };
 }
 
