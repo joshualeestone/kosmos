@@ -184,7 +184,9 @@ async function register(macRequest, company, epoch, key, readDeviceKey, signedAl
 /* What an answer to a registration that carried `sentSig` says Kosmos+ keeps for the epoch: null (no echo: nothing kept
    yet), 'mine' (it echoes this computer's signature, compared as bytes) or 'other' (another signature, 64 bytes). The
    coordinator checks a signature against the registering computer's key before keeping it and never replaces one (agreed
-   with its owner on #7753), so either echo ends the re-sending: 'other' means this computer's can never be kept. Kept is
+   with its owner on #7753), so either echo ends the re-sending: 'other' means this computer's can never be kept. 'other'
+   also covers this computer's own signature made with an earlier device key (a re-created one): harmless, since the kept
+   one is never replaced either way. Kept is
    not trusted here: escrowd checks the signature itself. */
 function keptSig(r, sentSig) {
   if (!sentSig || !r || !r.ok || !r.data || typeof r.data.member_key_sig !== 'string') return null;
@@ -212,14 +214,16 @@ async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, a
   const k = keys[epoch];
   if (!k || !k.registered || k.sigKept) return;   // `registered` is defensive: the caller passes its newest registered epoch
   const id = `${company.org}\u0000${company.member}\u0000${epoch}`;
-  const recent = (at) => Number.isSafeInteger(at) && at > 0 && nowMs - at >= 0 && nowMs - at < RESIGN_EVERY_MS;
+  const recent = (when) => Number.isSafeInteger(when) && when > 0 && nowMs - when >= 0 && nowMs - when < RESIGN_EVERY_MS;
   if (recent(k.sigAskedAt) || recent(lastTry.get(id))) return;
   lastTry.set(id, nowMs);
   const signed = signRecord(readDeviceKey, company, epoch, k.pk);
   if (!signed.sig) return;
   let got;
   try { got = await register(macRequest, company, epoch, k, readDeviceKey, signed); } catch { got = null; }
-  k.sigAskedAt = nowMs;
+  // Kept in the file only when Kosmos+ answered: a re-send that never reached it (offline) waits in this process only
+  // (lastTry), so it is tried again after the next start rather than a week later.
+  if (got && got.r && (got.r.ok || got.r.refusal)) k.sigAskedAt = nowMs;
   // Only an answer that names this epoch and this key, as the first registration requires, can say what Kosmos+ keeps.
   // A refusal (another key holds the epoch, a later epoch is current) is ignored here on purpose: the answer stays the
   // key from disk, and the backup job's grant-epoch check is what notices a member who moved on.
