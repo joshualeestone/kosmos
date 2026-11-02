@@ -801,35 +801,41 @@ test('#7746 item 3: a measured stop names its listing; a later run no smaller st
     const st2 = store();
     const r = await take(k, w.root, st2, { deps });
     assert.equal(r.tooLarge, true, r.because); assert.ok(st2.batches.length > 0, 'premise: the first stop spent');
-    assert.deepEqual(r.measuredStop, { files: 1, bytes: 16 * 1024 * 1024, budget, at: r.measuredStop.at, roots: r.measuredStop.roots });
+    assert.deepEqual(r.measuredStop, { files: 1, bytes: 16 * 1024 * 1024, budget, at: r.measuredStop.at, roots: r.measuredStop.roots, period: PERIOD });
     assert.match(r.measuredStop.roots, /^[0-9a-f]{16}$/);
+    // In the stop's own week the repeat goes on (the index makes it cheap, and it may fit): no early stop.
+    const stSame = store();
+    const same = await take(k, w.root, stSame, { deps, input: { priorStop: r.measuredStop } });
+    assert.equal(same.stoppedBefore, undefined); assert.ok(stSame.batches.length > 0);
+    // The rest are a later week: the stop was measured the week before.
+    const earlier = Object.assign({}, r.measuredStop, { period: '2026-W40' });
     assert.ok(Number.isSafeInteger(r.measuredStop.at) && r.measuredStop.at > 0);
     // The same listing again: stopped before any batch, and said as not tried again.
     const st3 = store();
-    const again = await take(k, w.root, st3, { deps, input: { priorStop: r.measuredStop } });
+    const again = await take(k, w.root, st3, { deps, input: { priorStop: earlier } });
     assert.equal(again.ok, false); assert.equal(again.personActs, true); assert.equal(again.stoppedBefore, true);
     assert.equal(st3.batches.length, 0, 'nothing uploaded');
     assert.match(again.because, /did not try again/);
     assert.equal(again.measuredStop, undefined, 'an early stop measured nothing, so it names no stop to keep');
     // Measured under another manifest budget: the run tries.
     const st5 = store();
-    const other = await take(k, w.root, st5, { deps, input: { priorStop: Object.assign({}, r.measuredStop, { budget: budget + 1 }) } });
+    const other = await take(k, w.root, st5, { deps, input: { priorStop: Object.assign({}, earlier, { budget: budget + 1 }) } });
     assert.equal(other.stoppedBefore, undefined); assert.ok(st5.batches.length > 0);
     // Measured on other folders: the run tries.
     const st6 = store();
-    const moved = await take(k, w.root, st6, { deps, input: { priorStop: Object.assign({}, r.measuredStop, { roots: '0'.repeat(16) }) } });
+    const moved = await take(k, w.root, st6, { deps, input: { priorStop: Object.assign({}, earlier, { roots: '0'.repeat(16) }) } });
     assert.equal(moved.stoppedBefore, undefined); assert.ok(st6.batches.length > 0);
     // A person moved files out (the stop was larger than this listing): the run tries.
     const st4 = store();
-    const tried = await take(k, w.root, st4, { deps, input: { priorStop: Object.assign({}, r.measuredStop, { files: 2 }) } });
+    const tried = await take(k, w.root, st4, { deps, input: { priorStop: Object.assign({}, earlier, { files: 2 }) } });
     assert.equal(tried.stoppedBefore, undefined); assert.ok(st4.batches.length > 0);
     // More bytes in the stop than in this listing (the same file count): the run tries.
     const st7 = store();
-    const fewerBytes = await take(k, w.root, st7, { deps, input: { priorStop: Object.assign({}, r.measuredStop, { bytes: r.measuredStop.bytes + 1 }) } });
+    const fewerBytes = await take(k, w.root, st7, { deps, input: { priorStop: Object.assign({}, earlier, { bytes: r.measuredStop.bytes + 1 }) } });
     assert.equal(fewerBytes.stoppedBefore, undefined); assert.ok(st7.batches.length > 0);
     // A plan's own refusal comes first, with its more useful sentence: the expectation (not skipped this time) refuses.
     const st8 = store();
-    const plan = await take(k, w.root, st8, { deps: { planGb: 25, maxManifestJson: budget, batchBytes: 1 }, input: { priorStop: r.measuredStop } });
+    const plan = await take(k, w.root, st8, { deps: { planGb: 25, maxManifestJson: budget, batchBytes: 1 }, input: { priorStop: earlier } });
     assert.equal(plan.overPlan, true, plan.because); assert.equal(plan.stoppedBefore, undefined); assert.equal(st8.batches.length, 0);
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });

@@ -360,7 +360,7 @@ test('#7746 item 2: a company run keeps at most its allowance (200000) in the in
   assert.equal(r.ok, true, r.because);
   assert.equal(r.leftOut, 5, 'the rows past the allowance are said, not kept');
   assert.equal(backupstate.readState(A.org, A.member).state.periods[0].index.size, 200000);
-  // withRun never goes above the module's own cap, whatever it is asked.
+  // withRun takes the cap it is given (and a larger one than the rows needs keeps them all).
   const p = { label: WEEK, namingKey: crypto.randomBytes(32), bucket: 'b1', index: new Map() };
   const out = backupstate.withRun({ job: {}, periods: [] }, p, { added: added(WEEK, 3), bucket: 'b1' }, { maxIndex: 2 });
   assert.equal(out.periods[0].index.size, 2); assert.equal(out.leftOut, 1);
@@ -369,7 +369,7 @@ test('#7746 item 2: a company run keeps at most its allowance (200000) in the in
 });
 
 test('#7746 item 3: a measured stop is kept in the state and handed to the next run; a run that finishes forgets it', async () => {
-  const stopShape = { files: 3, bytes: 900, budget: 5000, at: NOW, roots: 'ab'.repeat(8) };
+  const stopShape = { files: 3, bytes: 900, budget: 5000, at: NOW, roots: 'ab'.repeat(8), period: WEEK };
   const take = taker({ ok: false, tooLarge: true, personActs: true, because: 'too many pieces', measuredStop: stopShape, added: new Map(), bucket: null },
     { ok: false, tooLarge: true, personActs: true, stoppedBefore: true, because: 'did not try again', added: new Map(), bucket: null },
     { ok: true, added: added(WEEK, 2), bucket: 'b1' });
@@ -384,7 +384,7 @@ test('#7746 item 3: a measured stop is kept in the state and handed to the next 
 });
 
 test('#7746 item 3: a kept stop older than 28 days is not handed on, so one real attempt is made', async () => {
-  const base = { files: 3, bytes: 900, budget: 5000, roots: 'ab'.repeat(8) };
+  const base = { files: 3, bytes: 900, budget: 5000, roots: 'ab'.repeat(8), period: WEEK };
   const old = { ...base, at: NOW - 29 * 24 * 3600 * 1000 };
   const fresh = { ...base, at: NOW - 27 * 24 * 3600 * 1000 };
   const ahead = { ...base, at: NOW + 3600 * 1000 };   // measured by a clock that was ahead

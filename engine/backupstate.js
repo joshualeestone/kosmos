@@ -133,12 +133,12 @@ const isPosInt = (n) => Number.isSafeInteger(n) && n > 0;
 const goodKey = (k) => typeof k === 'string' && k.length <= 1024 && k.split('/').length === 5 && k.split('/').every((s) => KEY_SEG_RE.test(s) && s !== '.' && s !== '..');
 
 /* kosmos#7746 item 3: where a plan's run last stopped on the measured manifest size: { files, bytes } of its listing, the
-   manifest budget it was measured under, when (ms), and which folders (a hash), or undefined. Kept beside the job so a later run whose listing is
+   manifest budget it was measured under, when (ms), which folders (a hash) and which week, or undefined. Kept beside the job so a later run whose listing is
    no smaller stops before it spends anything (backuprun and backupsnapshot say when it no longer applies). */
 function cleanStop(s) {
   if (!s || typeof s !== 'object' || !isPosInt(s.files) || !Number.isSafeInteger(s.bytes) || s.bytes < 0 || !isPosInt(s.budget) || !isPosInt(s.at)
-    || typeof s.roots !== 'string' || !/^[0-9a-f]{16}$/.test(s.roots)) return undefined;
-  return { files: s.files, bytes: s.bytes, budget: s.budget, at: s.at, roots: s.roots };
+    || typeof s.roots !== 'string' || !/^[0-9a-f]{16}$/.test(s.roots) || typeof s.period !== 'string' || !PERIOD_RE.test(s.period)) return undefined;
+  return { files: s.files, bytes: s.bytes, budget: s.budget, at: s.at, roots: s.roots, period: s.period };
 }
 function cleanJob(j) {
   const out = {};

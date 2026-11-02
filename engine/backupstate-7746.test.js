@@ -52,11 +52,11 @@ test('#7746: the async read and write answer exactly as the sync ones do', async
 
 test('#7746 item 3: a measured stop round-trips through the file; a malformed one is dropped, not refused', async () => {
   const [org, member] = ids();
-  const good = { files: 4, bytes: 10, budget: 99, at: 1800000000000, roots: 'cd'.repeat(8) };
+  const good = { files: 4, bytes: 10, budget: 99, at: 1800000000000, roots: 'cd'.repeat(8), period: '2026-W41' };
   bs.writeState(org, member, Object.assign(stateOf(2), { stop: good }));
   assert.deepEqual(bs.readState(org, member).state.stop, good);
   const f = bs.fileFor(org, member);
-  for (const bad of [{ files: 0 }, { bytes: -1 }, { budget: 0 }, { at: 1.5 }, { roots: 'xyz' }, { roots: undefined }]) {
+  for (const bad of [{ files: 0 }, { bytes: -1 }, { budget: 0 }, { at: 1.5 }, { roots: 'xyz' }, { roots: undefined }, { period: '2026-W99' }]) {
     const stop = Object.assign({}, good, bad);
     // Written: a malformed stop never reaches the file.
     bs.writeState(org, member, Object.assign(stateOf(2), { stop }));
