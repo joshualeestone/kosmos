@@ -34,3 +34,9 @@ Projects "need you" tile counts a project holding one, also when the agents cann
 projectWord mirrors it. Rejected: adding these tasks to summary.needsYou, which counts MEMBERS and names each in the
 Issue list; a task is not a member. Weakest premise: that Question (calm) is the right weight for a hold; it is the
 weight of the agent question it stands for.
+
+## Item 6, unmarking from the CLI (2026-11-02 15:0x)
+
+`kosmos task hold <p> <n> --not-for-you` sends forPerson false: the task stays on hold and leaves the person's list.
+Both switches together are refused (exit 2); as the value of --because it is words. An older board that keeps the mark
+gets an honest sentence and exit 1, as --for-you does. Mac and Windows, help lines on both.

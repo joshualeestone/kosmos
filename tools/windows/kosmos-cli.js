@@ -130,6 +130,7 @@ const USAGE = {
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '      [--until-task <n> | --until <date or time>]                 ...and say what it waits for; Kosmos tells its owner once it has happened',
     '      [--for-you]                                                 ...and it waits on your person: it joins what is waiting on them',
+    '      [--not-for-you]                                             ...or it no longer waits on them: it stays on hold, off their list',
     '  kosmos task unhold <project-id> <task-number>                 take it off hold',
     '  kosmos task repeat <project-id> <task-number> <hourly|daily|weekly|30m>  a job you run on a schedule: the board shows when it runs',
     '      --at <HH:MM>  (several a day: --at 09:00,21:00; hourly: --at :MM)   --on <mon|tue|...> (weekly)   --clear  stop it repeating',
@@ -1619,12 +1620,13 @@ function holdUntilWords(x) {
   return '';
 }
 
-const HOLD_USAGE = 'Usage: kosmos task hold <project-id> <task-number> [--because "<why>"] [--for-you] [--until-task <task-number> | --until <a date (midnight UTC) or a time with its zone, like 2026-11-02 or 2026-11-02T09:00-05:00>]';
+const HOLD_USAGE = 'Usage: kosmos task hold <project-id> <task-number> [--because "<why>"] [--for-you | --not-for-you] [--until-task <task-number> | --until <a date (midnight UTC) or a time with its zone, like 2026-11-02 or 2026-11-02T09:00-05:00>]';
 /* #4771, as install/kosmos cmd_task hold|unhold: put a task on hold, or take it off. A board write, like close. */
 function taskHoldAs(want) {
   return async function taskHold(ctx, args) {
     /* kosmos#7788, as install/kosmos: --for-you, anywhere after the task number: this hold waits on the person. */
     let forPerson = false;
+    let notForPerson = false;   // kosmos#7797: --not-for-you takes the mark off and keeps the hold
     // Review 2: never the value of an option that takes one (--because --for-you is a reason, not the switch).
     const TAKES = new Set(['--because', '--until-task', '--until']);
     if (want) {
@@ -1632,11 +1634,14 @@ function taskHoldAs(want) {
       let prev = '';
       for (let i = 0; i < args.length; i++) {
         const isValue = TAKES.has(prev);   // as install/kosmos: a value is never itself an option
-        if (i >= 2 && args[i] === '--for-you' && !isValue) forPerson = true; else kept.push(args[i]);
+        if (i >= 2 && args[i] === '--for-you' && !isValue) forPerson = true;
+        else if (i >= 2 && args[i] === '--not-for-you' && !isValue) notForPerson = true;   // kosmos#7797
+        else kept.push(args[i]);
         prev = isValue ? '' : args[i];
       }
       args = kept;
     }
+    if (forPerson && notForPerson) { ctx.err('Give --for-you or --not-for-you, not both, so nothing was done.'); ctx.err(HOLD_USAGE); return 2; }
     /* kosmos#7749: why it is parked, right after the task number or after a condition, as install/kosmos. */
     let because = null;
     const at = want ? args.indexOf('--because') : -1;
@@ -1662,7 +1667,7 @@ function taskHoldAs(want) {
         until = { at: value };
       }
     } else if (tooManyWords(ctx, 'task ' + (want ? 'hold' : 'unhold'), 2, usage, args)) return 2;   // kosmos#4889 review 6
-    const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/hold', { onHold: want, ...(until ? { until } : {}), ...(because ? { because } : {}), ...(forPerson ? { forPerson: true } : {}) }, { agent: false });
+    const r = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/hold', { onHold: want, ...(until ? { until } : {}), ...(because ? { because } : {}), ...(forPerson ? { forPerson: true } : notForPerson ? { forPerson: false } : {}) }, { agent: false });
     if (!r.reached) {
       return r.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
         : ctx.unreachable('change that task');
@@ -1671,9 +1676,12 @@ function taskHoldAs(want) {
       ctx.out(want ? 'Put task ' + num + ' on ' + project + ' on hold. Kosmos will not nudge anyone about it or hand it out.'
         : 'Took task ' + num + ' on ' + project + ' off hold.');
       // kosmos#7788: only when the board's answer carries the mark; an older board ignores forPerson and still holds it.
-      const forOlder = forPerson && r.json.task.onHoldForPerson !== true;
+      const forOlder = (forPerson && r.json.task.onHoldForPerson !== true) || (notForPerson && r.json.task.onHoldForPerson === true);
       if (forPerson) ctx.out(forOlder ? 'This Kosmos is older than --for-you, so it is on hold but not on the list of what is waiting on your person. Ask them in their room yourself.'
         : 'It is on the list of what is waiting on your person.');
+      // kosmos#7797, as install/kosmos: unmarked, it stays on hold and leaves the person's list.
+      if (notForPerson) ctx.out(forOlder ? 'This Kosmos is older than --not-for-you, so it still waits on your person. Take it off hold and put it back to change that.'
+        : 'It is no longer on the list of what is waiting on your person.');
       // kosmos#7407, as install/kosmos: who has it now, as the board says; none from an older board.
       const next = !want && typeof r.json.next === 'string' ? r.json.next.trim() : '';
       if (next) ctx.out(next);

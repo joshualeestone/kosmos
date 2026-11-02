@@ -993,3 +993,15 @@ test('#7788 review 2 Windows: --for-you as the value of --because is the reason,
   const b = await run(['task', 'hold', 'p1', '3', '--because', 'legal', '--for-you'], () => ({ body: { task: { number: 3, onHold: true, onHoldForPerson: true } } }));
   assert.deepEqual(b.calls[0].body, { onHold: true, because: 'legal', forPerson: true }, 'CONTROL: the switch after a reason');
 });
+
+test('#7797 Windows task hold --not-for-you sends forPerson false and says it left the list; both refused; an older board exits 1', async () => {
+  const a = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(a.code, 0, a.err);
+  assert.deepEqual(a.calls[0].body, { onHold: true, forPerson: false });
+  assert.match(a.out, /no longer on the list of what is waiting on your person/);
+  const both = await run(['task', 'hold', 'p1', '3', '--for-you', '--not-for-you']);
+  assert.equal(both.code, 2);
+  const old = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ body: { task: { number: 3, onHold: true, onHoldForPerson: true } } }));
+  assert.equal(old.code, 1);
+  assert.match(old.out, /older than --not-for-you, so it still waits on your person/);
+});
