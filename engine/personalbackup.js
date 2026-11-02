@@ -96,8 +96,29 @@ function cleanPreview(d) {
    paths that never reach a person. */
 function priceOf(d) {
   const { PRICE_SHAPE } = require('./remote');
+  // #7404 plan screen: a Kosmos+ that sells plans confirms the smallest plan's price, the "from" figure the screen shows.
+  const plans = cleanPlans(d && d.plans);
+  if (plans && plans.length) return plans[0].price;
   const p = d && typeof d.price === 'string' ? d.price.trim() : '';
   return p && PRICE_SHAPE.test(p) ? p : null;
+}
+/* #7404 plan screen: the plans Kosmos+ sells (relay backup_plans.rs, `plans: [{ gb, price }]`), smallest first. [] when it
+   sends none or an empty list (nothing on sale); null when a row is not a whole positive number of GB with a price in
+   Stripe's shape, or a size repeats: a list read wrong would offer what is not sold. */
+const PLANS_MAX = 20;
+function cleanPlans(v) {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.length > PLANS_MAX) return null;
+  const { PRICE_SHAPE } = require('./remote');
+  const out = [];
+  for (const row of v) {
+    const gb = row && row.gb;
+    const price = row && typeof row.price === 'string' ? row.price.trim() : '';
+    if (!Number.isSafeInteger(gb) || gb <= 0 || !PRICE_SHAPE.test(price)) return null;
+    if (out.some((x) => x.gb === gb)) return null;
+    out.push({ gb, price });
+  }
+  return out.sort((a, b) => a.gb - b.gb);
 }
 function shownPrice(opts) {
   if (Object.prototype.hasOwnProperty.call(opts, 'shownPrice')) return opts.shownPrice;
@@ -197,7 +218,8 @@ async function preview(opts = {}) {
     return { ok: false, because: r && r.refusal ? 'Kosmos+ refused this just now. Nothing was turned on; try again in a minute.' : UNREACHED };
   }
   const served = cleanPreview(r.data);
-  if (!served) return { ok: false, because: 'Kosmos+ answered in a form this Kosmos does not read. Nothing was turned on.' };
+  const plans = cleanPlans(r.data && r.data.plans);
+  if (!served || !plans) return { ok: false, because: 'Kosmos+ answered in a form this Kosmos does not read. Nothing was turned on.' };
   // #7681 item 1: the ticket carries the price Kosmos+ confirmed, so switchOn can refuse one the screen no longer shows.
   // Review: the request above already made the (unbound) membership, so a price_unconfirmed press leaves one, as a
   // decline does; #7658 ends it at a later join. While Kosmos+ sends no price, every press on a priced board does this.
@@ -207,7 +229,7 @@ async function preview(opts = {}) {
   const now = (opts.now || Date.now)();
   // Review: the confirmed price goes to the screen too, so the words screen shows what the ticket holds, never an
   // earlier read of this board's setting (a tab left open across a restart that changed it).
-  return { ok: true, ticket: issue(served, now), words: served.words, price: shown };
+  return { ok: true, ticket: issue(served, now), words: served.words, price: shown, plans };
 }
 
 /** Step 2: the person accepted the words on `ticket`. Binds this computer, then makes the key and the recovery code.
