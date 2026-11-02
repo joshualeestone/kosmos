@@ -235,3 +235,33 @@ test('kosmos#7797 review 1: --not-for-you on a hold that was not for the person 
   tasks.setOnHold(id, n, true, { forPerson: false, out });
   assert.equal(out.forPersonCleared, false);
 });
+
+test('kosmos#7797 review 2: marking or unmarking a hold is recorded as mark-only, so the stale-hold clock keeps the hold\'s own start', () => {
+  const hs = require('./holdstale');
+  const { id, n } = fresh('hfp clock');
+  tasks.setOnHold(id, n, true);
+  const first = taskchat.read(id, n).filter((e) => e.kind === 'hold-set');
+  assert.equal(first.length, 1);
+  assert.equal('markOnly' in first[0], false, 'a new hold is not mark-only');
+  const start = hs.holdSet(id, n, taskchat.read);
+  tasks.setOnHold(id, n, true, { forPerson: true });
+  tasks.setOnHold(id, n, true, { forPerson: false });
+  const evs = taskchat.read(id, n).filter((e) => e.kind === 'hold-set');
+  assert.equal(evs.length, 3, 'the mark changes are still in the history');
+  assert.deepEqual(evs.slice(1).map((e) => e.markOnly), [true, true]);
+  assert.deepEqual(hs.holdSet(id, n, taskchat.read), start, 'the clock restarted on a mark change');
+  // CONTROL: a changed condition IS a new hold, and the clock moves to it.
+  const other = tasks.create(id, { sentence: 'later', made: { via: 'screen' } }, []);
+  tasks.setOnHold(id, n, true, { until: { task: other.number }, forPerson: true });
+  const last = taskchat.read(id, n).filter((e) => e.kind === 'hold-set').pop();
+  assert.equal('markOnly' in last, false, 'a new condition with the mark is a new hold');
+});
+
+test('kosmos#7797 review 2: an archived project counts no hold for the person, so it wears no Question pill', () => {
+  const a = fresh('hfp archived');
+  tasks.setOnHold(a.id, a.n, true, { forPerson: true });
+  const row = (id) => projects.list([]).find((p) => p.id === id);
+  assert.equal(row(a.id).summary.heldForYou, 1, 'CONTROL: before archiving');
+  projects.edit(a.id, { archived: true });
+  assert.equal(row(a.id).summary.heldForYou, 0);
+});
