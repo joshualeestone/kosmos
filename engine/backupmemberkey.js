@@ -198,9 +198,10 @@ function keptSig(r, sentSig) {
 /* kosmos#7753: a key registered before Kosmos+ kept the signed record (any key whose answer did not echo it) is sent
    again, as the repeat registration the route answers without change, at most once per RESIGN_EVERY_MS, until an answer
    echoes it. Only when this computer can sign; never changes the answer the caller gets, whatever happens. */
-// A week: each re-send costs Kosmos+ a pass through the member's registration limiter and, for a company member, an
-// escrow open of the wrap (coordinator/src/memberkey.rs) before it is answered as a repeat, for every computer, until a
-// coordinator that keeps the record ships. A week bounds that; the record reaches Kosmos+ within a week of it shipping.
+// A week: each re-send costs Kosmos+ a pass through the member's registration limiter and, until kosmos#7768 (which
+// answers a repeat before the escrow open) ships, an escrow open of the wrap for a company member (coordinator/src/
+// memberkey.rs), for every computer, until a coordinator that keeps the record ships. A week bounds that; the record
+// reaches Kosmos+ within a week of it shipping.
 const RESIGN_EVERY_MS = 7 * 24 * 3600 * 1000;
 /* The last attempt per (org, member, epoch) in this process as well as in the key file, so neither a key file that cannot
    be written nor a computer that cannot sign makes it try (a POST, or a read of the device key) on every call. */
