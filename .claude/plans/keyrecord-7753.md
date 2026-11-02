@@ -11,6 +11,9 @@ Decided (the open questions, written on #7753):
 - Check at release only, for now. The live coordinator's MemberKeyReq has no deny_unknown_fields, so it ignores the new field: no live behaviour changes. Rejected: checking at upload first, which changes the live path while the Cloud sale is live.
 - An epoch with no signed record falls back to the first-seen pin, with the reviewer told. Rejected: refusing, which would strand every existing epoch.
 - A device key revoked later counts if it was enrolled when escrowd first pinned the epoch (escrowd's own clock).
+- The record does not bind the `wrap`: escrowd opens the wrap and requires it to open to the pinned member_public (kosmos-relay coordinator/src/escrowcore.rs, open_member_wrap with member_public), so a swapped wrap fails there, not here.
+- A registration that went out unsigned says so in ensureMemberKey's answer (`unsignedBecause`, one fixed sentence per cause), the early warning for escrowd's ratchet (agreed with Renet: her refusal names this cause first).
+- The remaining work (coordinator storing the field, the re-send, escrowd's ratchet and cutover) stays on #7753, which stays open until a release has checked a real record.
 - No verifier is exported here: the check belongs to escrowd, and engine.reachable refuses a test-only export.
 Not done here, and needed before the signature protects anything (on #7753):
 - The coordinator must store `member_key_sig` and serve it to escrowd. Until then it drops the field.

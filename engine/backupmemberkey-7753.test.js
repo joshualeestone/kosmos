@@ -70,18 +70,44 @@ test('#7753: the signature binds every field and the device key (each changed on
   assert.equal(verifies(d.publicKey, ORG, MEMBER, 2, pk, sig), false, 'another epoch');
   assert.equal(verifies(d.publicKey, ORG, MEMBER, 1, backupkeys.newMemberKey().pk, sig), false, 'a planted key');
   assert.equal(Buffer.from(sig, 'base64url').length, 64, 'an Ed25519 signature');
+  const flipped = Buffer.from(sig, 'base64url'); flipped[10] ^= 1;
+  assert.equal(verifies(d.publicKey, ORG, MEMBER, 1, pk, flipped.toString('base64url')), false, 'one bit of the signature');
 });
 
-test('#7753: no readable device key registers exactly as before, with no signature', async () => {
-  for (const read of [() => ({ ok: false, because: 'no device identity' }), () => { throw new Error('boom'); },
-    () => ({ ok: true, privateKey: crypto.generateKeyPairSync('x25519').privateKey }),
-    () => ({ ok: true, privateKey: crypto.generateKeyPairSync('ed25519').publicKey })]) {
+test('#7753: no usable device key registers exactly as before, with no signature, and the answer says why', async () => {
+  const cases = [
+    [() => ({ ok: false, because: 'no device identity' }), 'the device key could not be read'],
+    [() => { throw new Error('boom'); }, 'the device key could not be read'],
+    [() => ({ ok: true, privateKey: crypto.generateKeyPairSync('x25519').privateKey }), 'the device key is not an Ed25519 private key'],
+    [() => ({ ok: true, privateKey: crypto.generateKeyPairSync('ed25519').publicKey }), 'the device key is not an Ed25519 private key'],
+  ];
+  for (const [read, why] of cases) {
     fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
     const c = fakeCoordinator();
     const r = await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: read });
     assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.unsignedBecause, why);
     assert.deepEqual(Object.keys(c.registration().body).sort(), ['epoch', 'member_public', 'wrap']);
   }
+});
+
+test('#7753: a signed registration says nothing about signing, and a key answered from disk says nothing either', async () => {
+  const c = fakeCoordinator(), d = device();
+  const first = await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read });
+  assert.equal(first.ok, true);
+  assert.equal('unsignedBecause' in first, false);
+  const again = await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: () => ({ ok: false }) });
+  assert.equal(again.ok, true);
+  assert.equal('unsignedBecause' in again, false, 'answered from disk: nothing was registered on this call');
+});
+
+test('#7753: a device key read asking for a retry is read once more, and then signs', async () => {
+  const c = fakeCoordinator(), d = device();
+  let reads = 0;
+  const r = await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: () => (++reads === 1 ? { ok: false, retry: true } : d.read()) });
+  assert.equal(r.ok, true);
+  assert.equal(reads, 2);
+  assert.equal(typeof c.registration().body.member_key_sig, 'string');
 });
 
 test('#7753: with no deviceKey option, the connector\'s mac_key in this data root\'s state folder signs the record', async () => {

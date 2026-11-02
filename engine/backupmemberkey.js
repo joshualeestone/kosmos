@@ -40,7 +40,8 @@
  * (a key Kosmos+ holds at an epoch this file never recorded was never answered ok here).
  * Every call asks backup-key first, so with Kosmos+ unreachable it answers ok: false even with a key on disk; a backup
  * needs a grant from Kosmos+ anyway.
- * Never throws: answers { ok, epoch, publicKey } or { ok: false, because, ... }. Every answer given after Kosmos+ named
+ * Never throws: answers { ok, epoch, publicKey } (with unsignedBecause when that call registered the key without its
+ * signed record, kosmos#7753) or { ok: false, because, ... }. Every answer given after Kosmos+ named
  * the company also carries its { org, member }, ok or not (kosmos#5535); an answer before that (no answer, an unreadable
  * one) carries neither.
  */
@@ -129,27 +130,39 @@ function memberKeyRecordBytes(org, member, epoch, memberPublic) {
   if (typeof org !== 'string' || !ID.test(org) || typeof member !== 'string' || !ID.test(member)) throw new Error('backupmemberkey: a record needs a valid org and member');
   if (!Number.isSafeInteger(epoch) || epoch < 1) throw new Error('backupmemberkey: a record needs an epoch of 1 or more');
   if (!Buffer.isBuffer(memberPublic) || memberPublic.length !== 32) throw new Error('backupmemberkey: a record needs a 32-byte member public key');
-  const field = (s) => { const b = Buffer.from(s, 'utf8'); const n = Buffer.alloc(2); n.writeUInt16BE(b.length); return Buffer.concat([n, b]); };
+  // A u16 length: ID_RE bounds an id far below 65,535 bytes. The shared vector (and escrowd's verifier) fix this layout,
+  // so a longer id is refused here rather than written in another shape.
+  const field = (s) => {
+    const b = Buffer.from(s, 'utf8');
+    if (b.length > 0xffff) throw new Error('backupmemberkey: an id in a record is at most 65535 bytes');
+    const n = Buffer.alloc(2); n.writeUInt16BE(b.length); return Buffer.concat([n, b]);
+  };
   const e = Buffer.alloc(8); e.writeBigUInt64BE(BigInt(epoch));
   return Buffer.concat([RECORD_DOMAIN, field(org), field(member), e, memberPublic]);
 }
-/* The record's signature, base64url, or null when the device key cannot be read: the registration is then sent as it
-   was before #7753, and a release of that epoch falls back to escrowd's first-seen pin (decided on #7753). */
+/* { sig } (base64url), or { because } when this computer cannot sign: the registration is then sent as it was before
+   #7753, and escrowd treats that epoch as unsigned (decided on #7753). `because` is a fixed sentence per cause, so the
+   answer can say which: a key not read is not a record that could not be built. A read asking for a retry (the
+   connector mid-write) is read once more. */
 function signRecord(readDeviceKey, company, epoch, pk) {
+  let dk;
   try {
-    const dk = readDeviceKey();
-    const key = dk && dk.ok ? dk.privateKey : null;
-    if (!key || key.type !== 'private' || key.asymmetricKeyType !== 'ed25519') return null;
-    return b64(crypto.sign(null, memberKeyRecordBytes(company.org, company.member, epoch, pk), key));
-  } catch { return null; }
+    dk = readDeviceKey();
+    if (dk && !dk.ok && dk.retry) dk = readDeviceKey();
+  } catch { return { because: 'the device key could not be read' }; }
+  const key = dk && dk.ok ? dk.privateKey : null;
+  if (!key) return { because: 'the device key could not be read' };
+  if (key.type !== 'private' || key.asymmetricKeyType !== 'ed25519') return { because: 'the device key is not an Ed25519 private key' };
+  try { return { sig: b64(crypto.sign(null, memberKeyRecordBytes(company.org, company.member, epoch, pk), key)) }; }
+  catch { return { because: 'the backup key record could not be signed' }; }
 }
 
 async function register(macRequest, company, epoch, key, readDeviceKey) {
   const wrap = backupkeys.wrapMemberKey(key.sk, company.orgPublic, { org: company.org, member: company.member, epoch: String(epoch) });
   const body = { epoch, member_public: b64(key.pk), wrap: b64(wrap) };
-  const sig = signRecord(readDeviceKey, company, epoch, key.pk);
-  if (sig) body.member_key_sig = sig;
-  return macRequest('POST', MEMBER_KEY_ROUTE, body);
+  const signed = signRecord(readDeviceKey, company, epoch, key.pk);
+  if (signed.sig) body.member_key_sig = signed.sig;
+  return { r: await macRequest('POST', MEMBER_KEY_ROUTE, body), unsignedBecause: signed.because };
 }
 
 /* One at a time, in this process only (the header assumes one board process per data root). Today reading the file
@@ -221,7 +234,7 @@ async function ensureNow(opts, seen) {
     // At most one move to a next epoch and one fresh key: each new epoch is audited and limited to one a day.
     let moved = false, refreshed = false;
     for (;;) {
-      const r = await register(macRequest, company, epoch, keys[epoch], readDeviceKey);
+      const { r, unsignedBecause } = await register(macRequest, company, epoch, keys[epoch], readDeviceKey);
       // The answer must name what was sent, so a changed coordinator or tunnel shape is not taken as registered.
       // Compared as bytes (a lenient decode: padding, and characters Node's decoder skips), so only a different key
       // refuses.
@@ -235,7 +248,9 @@ async function ensureNow(opts, seen) {
           // Kosmos+ has it; the next call sends the same kept key and gets a repeat.
           return { ok: false, because: 'Kosmos+ took the backup key, but this computer could not note that; it will confirm it next time' };
         }
-        return { ok: true, epoch, publicKey: keys[epoch].pk };
+        // kosmos#7753: a key registered without its signed record says why, so the backup screen can flag it before a
+        // release is refused for it. Only on the registration itself: a key answered from disk was registered earlier.
+        return unsignedBecause ? { ok: true, epoch, publicKey: keys[epoch].pk, unsignedBecause } : { ok: true, epoch, publicKey: keys[epoch].pk };
       }
       const code = r && r.refusal && r.refusal.code;
       if (code === 'member_key_rotation_wait') {
