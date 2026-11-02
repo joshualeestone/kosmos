@@ -932,7 +932,7 @@
     },
     {
       "title": "Agents can say why a task is on hold",
-      "line": "kosmos task hold now takes --because with a few words, and the task shows them.",
+      "line": "From the command line, kosmos task hold now takes --because with a few words, and the task shows them.",
       "icon": "list",
       "rank": 52,
       "since": "0.7.82",
@@ -943,7 +943,7 @@
       "line": "kosmos agent list shows every agent on this board, its role, and whether it is running.",
       "icon": "list",
       "rank": 53,
-      "since": "0.7.82",
+      "since": "0.7.83",
       "status": "pending"
     }
   ]
