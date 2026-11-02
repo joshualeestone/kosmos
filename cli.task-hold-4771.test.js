@@ -201,3 +201,14 @@ test('#7788 Mac CLI: a board that ignores --for-you (older) holds it, says it is
     assert.doesNotMatch(a.stdout, /It is on the list of what is waiting on your person/, 'claimed a mark the board did not record');
   });
 });
+
+test('#7788 review 2 Mac CLI: --for-you as the value of --because is the reason, not the switch', async () => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson ? { onHoldForPerson: true } : {}) } }], async (env, writes) => {
+    const a = await runCli(['task', 'hold', 'p1', '3', '--because', '--for-you'], env);
+    assert.equal(a.code, 0, a.stdout + a.stderr);
+    const b = await runCli(['task', 'hold', 'p1', '3', '--because', 'legal', '--for-you'], env);
+    assert.equal(b.code, 0, b.stdout + b.stderr);
+    assert.deepEqual(writes.map((x) => x.body), [{ onHold: true, because: '--for-you' }, { onHold: true, because: 'legal', forPerson: true }],
+      'the first is a reason; the second (control) is the switch after a reason');
+  });
+});

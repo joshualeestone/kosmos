@@ -72364,6 +72364,11 @@ function tkPaintHoldUntil(p, t) {
   const held = t.onHold === true && TK_ACT !== 'reopen';
   for (const id of ['tk-hold-for-row', 'tk-hold-why-row', 'tk-hold-for-actions']) document.getElementById(id).hidden = !held;
   document.getElementById('tk-hold-takeover').hidden = !held || t.onHoldByPerson === true;
+  /* kosmos#7788 review 2: saving takes over an agent's hold for you too, which takes the task out of Needs Your
+     Decision (the person's own hold waits on nobody), so the line says so before they press it. */
+  document.getElementById('tk-hold-takeover').textContent = held && t.onHoldForPerson === true
+    ? 'Saving makes this hold yours, so only you can take it off, and the task leaves Needs Your Decision.'
+    : 'Saving makes this hold yours, so only you can take it off.';
   const line = document.getElementById('tk-hold-until');
   const u = held ? t.holdUntil : null;
   const m = u && typeof u.words === 'string' ? /^task #(\d+) is closed$/.exec(u.words) : null;

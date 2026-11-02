@@ -6006,7 +6006,12 @@ cmd_task() {
       local _hold_until="" _hold_because="" _hb1 _hb2
       # kosmos#7788: --for-you, anywhere after the task number: this hold waits on the person, so it is on their list.
       local _hold_for="" _hn=$# _hi=0 _ha
-      while [ "$_hi" -lt "$_hn" ]; do _ha="$1"; shift; _hi=$((_hi + 1)); if [ "$_ha" = --for-you ] && [ "$_hi" -gt 2 ]; then _hold_for=1; else set -- "$@" "$_ha"; fi; done
+      # Review 2: never the value of an option that takes one (--because --for-you is a reason, not the switch).
+      local _hprev="" _hvalue=""
+      while [ "$_hi" -lt "$_hn" ]; do _ha="$1"; shift; _hi=$((_hi + 1))
+        case "$_hprev" in --because|--until-task|--until) _hvalue=1 ;; *) _hvalue="" ;; esac
+        if [ "$_ha" = --for-you ] && [ "$_hi" -gt 2 ] && [ -z "$_hvalue" ]; then _hold_for=1; else set -- "$@" "$_ha"; fi
+        if [ -n "$_hvalue" ]; then _hprev=""; else _hprev="$_ha"; fi; done
       # kosmos#7749: why it is parked, in a few words, anywhere after the task number.
       if [ $# -ge 3 ] && [ "$3" = --because ]; then
         { [ $# -ge 4 ] && [ -n "$4" ]; } || { say "--because needs a few words, so nothing was done."; say "$_holdusage"; exit 2; }

@@ -1625,7 +1625,18 @@ function taskHoldAs(want) {
   return async function taskHold(ctx, args) {
     /* kosmos#7788, as install/kosmos: --for-you, anywhere after the task number: this hold waits on the person. */
     let forPerson = false;
-    if (want) args = args.filter((x, i) => { if (i >= 2 && x === '--for-you') { forPerson = true; return false; } return true; });
+    // Review 2: never the value of an option that takes one (--because --for-you is a reason, not the switch).
+    const TAKES = new Set(['--because', '--until-task', '--until']);
+    if (want) {
+      const kept = [];
+      let prev = '';
+      for (let i = 0; i < args.length; i++) {
+        const isValue = TAKES.has(prev);   // as install/kosmos: a value is never itself an option
+        if (i >= 2 && args[i] === '--for-you' && !isValue) forPerson = true; else kept.push(args[i]);
+        prev = isValue ? '' : args[i];
+      }
+      args = kept;
+    }
     /* kosmos#7749: why it is parked, right after the task number or after a condition, as install/kosmos. */
     let because = null;
     const at = want ? args.indexOf('--because') : -1;
