@@ -12,15 +12,16 @@ Three rough edges around paused projects, each checked live on 0.7.84 (10ce35b96
    shows its question, and the Needs you count (counts.needsYou), which counts agents, still includes it: deliberate,
    since Josh's 10-16 words were that such things show "only on the agent".
 2. **A resume tells the members.** `engine/messages.js` `tellResumed` types each member one `[from Kosmos]` line naming
-   the project, that its tasks not on hold can be worked on again, and `kosmos task list <id>`. Like nudgeOwnComputerPost:
+   the project, that its tasks not on hold can be worked on again, and `kosmos task list <id>`. As in nudgeOwnComputerPost (but with no roomHeld valve, since the line asks for no
+   reply in the room):
    members pass `_roomMembers` (a removed agent is never typed to; an unreadable list types nobody), a member switched
    off in the project is skipped, only an addressable card is typed to, and an archived or still-paused project tells
    nobody. `told` leaves out a held or could-not delivery (nothing is kept for later). `server.js`'s project edit route calls it when `paused` goes from true to false, from either side, after the
    members' instructions are re-synced, in `setImmediate` on a fresh roster, so the answer to the Resume press goes out first (the typing still runs on the
    event loop afterwards, as the own-computer nudge does). One line per member per two minutes, so a person's
    quick resume, pause and resume on the screen types one line; a member whose line was held is tried again; and an
-   agent's pause clears the project's gap (`forgetResumeTold`, from the edit route), since those members were told
-   "paused" and the next resume must reach them. Only the project's current members are typed to.
+   agent's pause clears the project's gap (`forgetResumeTold`, from the edit route), a person's pause on the screen does
+   not. Decided: a person flapping the switch on the screen is the case the gap is for. At worst one resume line in two minutes is missed; the idle check still comes. Only the project's current members are typed to.
    Not recorded in the room log: a nudge row needs a post.
 3. **The role help states its limit.** `install/kosmos` and `tools/windows/kosmos-cli.js`: "60 characters at most", in
    the help overview and in the role command's own usage line.

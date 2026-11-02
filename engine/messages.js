@@ -4515,7 +4515,7 @@ function nudgeOwnComputerPost(projectId, projectName, postId, members, roster, n
 function resetOwnPostNudgesForTests() { ownPostNudgedAt.clear(); }
 
 /* kosmos#7812: a project that was paused is resumed. Its agents were otherwise told nothing until their next idle check,
-   so each member is typed one line now, the way nudgeOwnComputerPost types its line: only an addressable card, never one
+   so each member is typed one line now: only an addressable card, never one
    switched off in this project, one failing pane not skipping the rest, a removed agent never typed to, and nobody
    told for an archived, still-paused or deleted project; a member is typed at most once in two minutes (an agent's
    pause in between clears that). Only a line actually typed counts in `told`. Not recorded in the room log (a nudge row
@@ -4527,9 +4527,8 @@ function resumedLine(projectId, projectName) {
 }
 /* Review 2 and 3: one resume line per member per RESUME_TELL_GAP_MS, keyed per member as the own-computer nudge is, so a
    person's quick resume, pause and resume on the screen types one line, while a member whose line was held is tried
-   again. An agent's pause in between (forgetResumeTold, from the edit route) clears the project's gap: those members
-   were told "paused", so the next resume must reach them. A person's own pause on the screen leaves the gap standing:
-   nothing was typed to anyone for it, so a quick resume, pause and resume by the person still types one line. */
+   again. An agent's pause in between (forgetResumeTold, from the edit route) clears the project's gap; a person's pause on
+   the screen does not. */
 const RESUME_TELL_GAP_MS = 2 * 60 * 1000;
 const resumeToldAt = new Map();   // projectId + '\n' + member -> when its line was typed
 function forgetResumeTold(projectId) {
