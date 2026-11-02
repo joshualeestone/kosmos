@@ -35,7 +35,8 @@ test('a deep caller is still named, and the stack limit is left as it was', () =
   const f9 = () => cp.execFileSync('tmux', []); const f8 = () => f9(); const f7 = () => f8(); const f6 = () => f7(); const f5 = () => f6();
   const f4 = () => f5(); const f3 = () => f4(); const f2 = () => f3(); const f1 = () => f2(); const f0 = () => f1();
   f0();
-  assert.equal(lines[0].split(' < ').length, s.MAX_FRAMES);
+  // Ten named callers and the test itself: all of them, past the six that stopped short on the live board.
+  assert.equal(lines[0].split(' < ').length, 11, lines[0]);
   assert.equal(Error.stackTraceLimit, before);
 });
 
