@@ -1895,3 +1895,21 @@ test('kosmos#7156: an index entry stored under another key epoch is a stale inde
     assert.ok(sink.committed.size > 0, 'the epoch-1 snapshot restored nothing');
   } finally { fs.rmSync(w.base, { recursive: true, force: true }); }
 });
+
+test('#7746: the manifest sealed in a worker opens to the same manifest; a worker that cannot start seals here; a seal error is the same', async () => {
+  const k = keys();
+  const objects = {}, files = [];
+  for (let i = 0; i < 3000; i++) { const n = crypto.createHash('sha256').update('c' + i).digest('hex'); objects[n] = `o1/acct1/1/${k.ctx.period}/${n}`; files.push({ path: `D/f${i}.txt`, size: 10 + i, chunks: [n] }); }
+  const manifest = { format: 1, takenAt: new Date(NOW).toISOString(), files, objects, redacted: [], skipped: [], skippedNotListed: 0 };
+  const pub = crypto.createPublicKey(k.dev.privateKey);
+  const here = bf.openManifest(k.member.sk, pub, k.ctx, bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, manifest));
+  const there = bf.openManifest(k.member.sk, pub, k.ctx, await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest));
+  assert.ok(here && there);
+  assert.deepStrictEqual(there, here);
+  // A worker that cannot start (its file is missing): sealed here instead, and it still opens.
+  const fallback = await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { workerFile: path.join(os.tmpdir(), 'no-such-backupseal-worker.js') });
+  assert.deepStrictEqual(bf.openManifest(k.member.sk, pub, k.ctx, fallback), here);
+  // A manifest the seal refuses: the worker's refusal carries the same message as a seal here.
+  let mine; try { bf.sealManifest(k.member.pk, k.dev.privateKey, k.ctx, [1]); } catch (err) { mine = err.message; }
+  await assert.rejects(snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, [1]), (err) => err.message === mine);
+});

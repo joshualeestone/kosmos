@@ -944,7 +944,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   // Cannot throw on this content: file and redacted paths passed pathProblem, skipped ones are walk paths, every other value is a fixed sentence, a number,
   // hex or a key of plain segments, and the context and keys were checked before anything was read. If it ever did,
   // takeSnapshot's catch returns `added` intact.
-  const sealed = sealManifest(memberPk, deviceKey, ctx, manifest);
+  const sealed = await (deps.sealManifest || sealOffThread)(memberPk, deviceKey, ctx, manifest);
   // kosmos#7118: with the snapshot id the manifest is sealed under, so a restore (or the console) can open it.
   const m = await putManifest(deps, sealed, { bucket: state.bucket, chunks, epoch: ctx.epoch, snapshot: ctx.snapshot });
   if (!m || !m.ok) {
@@ -975,6 +975,31 @@ async function snapshotInner(input, deps, added, state, fail) {
   return { ok: true, manifestKey: m.key, files: files.length, skipped: skipped.length + skippedExtra, uploaded, reused, added, bucket: state.bucket };
 }
 
+/* kosmos#7746: the manifest sealed in a worker thread (engine/backupseal-worker.js), so the board is not frozen for the
+   seal (one block of about 2.5 s at the top plan). The main thread keeps one JSON.stringify of the manifest. The worker
+   parses it and seals it as sealManifest would here; a seal error comes back as a throw, as it would here. A worker that
+   cannot start, or ends without answering, seals here instead: never no seal. */
+function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
+  const json = JSON.stringify(manifest);
+  const file = opts.workerFile || require('node:path').join(__dirname, 'backupseal-worker.js');   // workerFile: tests only
+  return new Promise((resolve, reject) => {
+    let w;
+    try { w = new (require('node:worker_threads').Worker)(file); }
+    catch { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); return; }
+    let answered = false;
+    const here = () => { try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); } };
+    w.once('message', (m) => {
+      answered = true;
+      w.terminate().catch(() => {});
+      if (m && m.ok) resolve(Buffer.from(m.sealed.buffer, m.sealed.byteOffset, m.sealed.byteLength));
+      else reject(new Error((m && m.message) || 'the manifest could not be sealed'));
+    });
+    w.once('error', () => { if (!answered) { answered = true; here(); } });
+    w.once('exit', () => { if (!answered) { answered = true; here(); } });
+    w.postMessage({ memberPk: new Uint8Array(memberPk), deviceKey, ctx, json });
+  });
+}
+
 /** The most chunk objects one period can hold for this run: a company's allowance, or a personal plan's (kosmos#7746: the
  *  state's index is capped at the same number, so the two limits cannot differ by accident). */
 function indexCapFor(planGb) {
@@ -982,4 +1007,4 @@ function indexCapFor(planGb) {
 }
 
 module.exports = {
-  indexCapFor, MANIFEST_JSON_BUDGET, PLAN_MANIFEST_JSON_BUDGET, periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };
+  indexCapFor, sealOffThread, MANIFEST_JSON_BUDGET, PLAN_MANIFEST_JSON_BUDGET, periodOf, memberKeyIdOf, listFiles, takeSnapshot, rootNameProblem, MAX_FILE, BATCH_BYTES, MAX_FILES };
