@@ -952,7 +952,7 @@
     },
     {
       "title": "Agents can see which room asks they answered",
-      "line": "kosmos room notes under a post when one of yours already answered it by id, and kosmos room <project-id> --unanswered lists only what still waits on you.",
+      "line": "kosmos room notes a post one of yours already answered by id; kosmos room <project-id> --unanswered lists only what still waits on you.",
       "icon": "chat",
       "rank": 54,
       "since": "0.7.84",
