@@ -12,29 +12,49 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const projects = require('./projects');
 const commitments = require('./commitments');
+const selfreport = require('./selfreport');
+const fleet = require('../test-support/fleet');
 
-function claimOf(card, who = 'ava') {
+/* Real cards from the real producer (test-support/fleet), each with the self-report record behind its neverTurned:
+   ava launched and never took a turn; bo launched and took one. */
+let recorded = false;
+function board() {
+  if (!recorded) {   // the records first: install reads the cards, and a card's neverTurned reads the record
+    selfreport.record('ava', { state: 'started', auto: true });
+    selfreport.record('bo', { state: 'started', auto: true });
+    selfreport.record('bo', { state: 'working', auto: true, text: 'answering a prompt' });
+    selfreport.record('bo', { state: 'idle', auto: true, text: 'finished responding' });   // a turn ends with its Stop row
+    recorded = true;
+  }
+  return fleet.install([fleet.agent('ava', { state: 'idle' }), fleet.agent('bo', { state: 'idle' })]);
+}
+function claimOf(roster, who) {
   const tasks = [{ number: 1, sentence: 'write the brief', who }];
   const all = [{ id: 'p', name: 'P', tasks, agents: [who] }];
-  const out = projects.joinTaskClaims(tasks, all, [who], card ? [card] : [], { name: 'P', id: 'p' });
-  return out[0].claim;
+  return projects.joinTaskClaims(tasks, all, [who], roster, { name: 'P', id: 'p' })[0].claim;
 }
 
-test('a never-reported claim carries neverTurned from the agent card, and only then', () => {
-  const c = claimOf({ sessionName: 'ava', isNamedOurs: true, neverTurned: true, state: 'idle' });
+test('a never-reported claim carries neverTurned from the agent card, and only then', (t) => {
+  const b = board(); t.after(() => b.restore());
+  const roster = b.agents;
+  const ava = roster.find((a) => a.name === 'ava'); const bo = roster.find((a) => a.name === 'bo');
+  assert.equal(ava && ava.neverTurned, true, 'CONTROL: the real card says ava never took a turn');
+  assert.equal(bo && bo.neverTurned, false, 'CONTROL: and bo did');
+  const c = claimOf(roster, ava.sessionName);
   assert.equal(c.neverReported, true, 'CONTROL: ava has written no report on this board');
-  assert.equal(c.about, 'ava');
+  assert.equal(c.about, ava.sessionName);
   assert.equal(c.neverTurned, true);
-  assert.equal(claimOf({ sessionName: 'ava', isNamedOurs: true, neverTurned: false, state: 'idle' }).neverTurned, undefined, 'a card that has turned');
-  assert.equal(claimOf({ sessionName: 'ava', isNamedOurs: true, state: 'idle' }).neverTurned, undefined, 'no field on the card');
-  assert.equal(claimOf(null).neverTurned, undefined, 'not on the roster');
+  assert.equal(claimOf(roster, bo.sessionName).neverTurned, undefined, 'an agent that has worked keeps the old line');
+  assert.equal(claimOf([], ava.sessionName).neverTurned, undefined, 'not on the roster');
 });
 
-test('the engine stamps neverTurned only beside neverReported: an agent that has reported keeps its own claim', () => {
-  commitments.report('bo', []);
-  const c = claimOf({ sessionName: 'bo', isNamedOurs: true, neverTurned: true, state: 'idle' }, 'bo');
-  assert.equal(c.claimed, false, 'CONTROL: bo has a report on this board, which does not name task 1');
-  assert.notEqual(c.neverReported, true, 'CONTROL');
+test('the engine stamps neverTurned only beside neverReported: an agent that has reported keeps its own claim', (t) => {
+  const b = board(); t.after(() => b.restore());
+  const roster = b.agents;
+  const ava = roster.find((a) => a.name === 'ava');
+  commitments.report(ava.sessionName, []);
+  const c = claimOf(roster, ava.sessionName);
+  assert.equal(c.claimed, false, 'CONTROL: ava has a report on this board, which does not name task 1');
   assert.equal(c.neverTurned, undefined, 'a card that says never turned does not override a report');
 });
 
