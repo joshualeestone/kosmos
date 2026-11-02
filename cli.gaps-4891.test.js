@@ -55,7 +55,9 @@ function withBoard(fn) {
       if (!req.url.startsWith('/api/')) { res.writeHead(200, { 'content-type': 'text/html' }); res.end(HEALTH); return; }
       hits.push({ method: req.method, url: req.url, body });
       if (/^\/api\/project\/[^/]+\/room\?/.test(req.url) && req.method === 'GET') {
-        res.writeHead(200, { 'content-type': 'text/plain' }); res.end('the room\n'); return;
+        // #4926: project "newboard" answers as a board that applied ?unanswered=1; every other room as an older board.
+        const filtered = req.url.startsWith('/api/project/newboard/') && /[?&]unanswered=1(&|$)/.test(req.url);
+        res.writeHead(200, { 'content-type': 'text/plain' }); res.end(filtered ? 'Waiting on an answer from you: nothing in this room.\n' : 'the room\n'); return;
       }
       if (/^\/api\/tasks\?project=nosuch(&|$)/.test(req.url)) {   // #5705: the list now asks &order=state too
         res.writeHead(404, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: 'there is no project by that name' })); return;
@@ -208,4 +210,18 @@ test('#4926: --unanswered reaches the board as &unanswered=1, either side of the
       assert.equal(out.code, 0, args.join(' ') + ': ' + out.stderr);
       assert.deepEqual(roomReads(hits), [want], args.join(' '));
     }
+  }));
+
+test('#4926: --unanswered on a board that ignored it says the answer is the whole room; on one that applied it, nothing extra', () =>
+  withBoard(async (port) => {
+    const WARN = /does not know --unanswered yet/;
+    const old = await runCli(['room', 'proj', '--unanswered'], envFor(port));
+    assert.equal(old.code, 0, old.stderr);
+    assert.match(old.stdout + old.stderr, WARN, 'an older board\'s whole room read as the filtered view');
+    const now = await runCli(['room', 'newboard', '--unanswered'], envFor(port));
+    assert.match(now.stdout, /^Waiting on an answer from you: nothing in this room\./m, 'fixture: the stub did not answer as a new board');
+    assert.doesNotMatch(now.stdout + now.stderr, WARN, 'a board that applied the flag was called an older one');
+    // CONTROL: without the flag nothing is said about it.
+    const plain = await runCli(['room', 'proj'], envFor(port));
+    assert.doesNotMatch(plain.stdout + plain.stderr, WARN);
   }));

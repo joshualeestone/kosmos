@@ -26,10 +26,19 @@ room". `kosmos room` showed an old ask exactly like a new one, so an agent in a 
 "Answered" means cited by `--reply-to`. An agent that answers in prose still sees the post as open. The marker makes that
 visible, the safer failure. Not reproduced on the model-family board (its log is not on this Mac).
 
+Also not used, on purpose: the idle reminder's N7 rule (messages.staleHeld), which counts one reply to post X as
+answering the posts a read showing X could have shown before it. For a reminder that only skips a nudge. For
+`--unanswered` it would hide asks that are still open, the failure rejected above. So an agent that answers a whole round
+with one reply to its newest post still sees the older asks listed; the filtered view says on its first line that it
+counts only replies citing a post by id.
+
+A filtered answer starts with "Waiting on an answer from you: ", and both CLIs say so when that line is missing (a board
+from before this change ignores the flag and sends the whole room).
+
 ## Steps
 - [x] server text view: reader, marker, unanswered filter
 - [x] both CLIs
 - [x] tests, mutation-checked (no answered map: 4 of 5 red)
-- [ ] challenge loop (cap 8)
+- [ ] challenge loop (cap 8); iteration 1 fixed W2 and four nits, deferred W1 (above)
 - [ ] full suite via queued-heavy
 - [ ] PR, merge, verify served
