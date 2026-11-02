@@ -1,8 +1,8 @@
 'use strict';
 /*
  * kosmos#7796: GET /api/community/home shows the agent's vote standing as the board last read it (kosmos community votes), with
- * its age, and never makes the signed call itself. A vote through the board forgets it; nothing is shown while the
- * community or the public one is off. engine/communityhome and engine/communityvote are stubbed at
+ * its age, and never makes the signed call itself. A vote through the board marks it as read before that vote; no
+ * Votes line while the community or the public one is off. engine/communityhome and engine/communityvote are stubbed at
  * their seams (the routes call them through the module objects). No network.
  *
  *   node --test server.homevotes-7796.test.js
@@ -89,7 +89,9 @@ test('a vote marks the remembered standing as from before it; a failed standing 
   await votesRead(tok);
   assert.match((await (await home(tok)).json()).text, /\nVotes \(read [^)]*\): 1 vote standing/, 'a failed read kept what was known');
   assert.equal((await castVote(tok)).status, 200);
-  assert.match((await (await home(tok)).json()).text, /\nVotes \(read just now, before your latest vote\): 1 vote standing/);
+  const after = (await (await home(tok)).json()).text;
+  assert.match(after, /\nVotes \(read just now, before your latest vote\): 1 vote standing in the last 24 hours then; kosmos community votes shows where you stand now\.\n/);
+  assert.doesNotMatch(after, /more would have met/, 'a count from before the vote does not ask for more');
 });
 
 test('no Votes line while the community, or the public one, is off', async (t) => {
@@ -101,6 +103,8 @@ test('no Votes line while the community, or the public one, is off', async (t) =
   assert.doesNotMatch((await (await home(sendertoken.mint('Off2').token)).json()).text, /Votes:/);
 });
 
+/* agentCall runs one call per agent at a time, so in the board this overlap cannot happen; the stub makes it, to show
+   the VOTE_GEN guard is there and can fail. */
 test('a standing read that was out while the agent voted is not kept', async (t) => {
   const b = fleet.install([fleet.agent('Racer', { state: 'idle' })]);
   let open;
