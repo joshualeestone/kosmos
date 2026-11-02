@@ -123,7 +123,7 @@ test('#7404: from the screen, a decline turns nothing on; a bad code restores no
 });
 
 test('#7404: every step needs a step-up (preview makes a membership; saved deletes what may be the only copy of the code)', () => {
-  for (const k of ['preview', 'on', 'key', 'restore', 'off', 'saved', 'backups', 'files']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), true, k);
+  for (const k of ['preview', 'on', 'key', 'restore', 'off', 'saved', 'backups', 'files', 'stop']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), true, k);
   assert.equal(needsRemoteStepUp('/api/personal-backup', 'GET'), false);
 });
 
@@ -202,10 +202,22 @@ test('#7404: GET files hides the names from a remote session, and shows them at 
   assert.deepEqual(asked, [false, true]);
 });
 
-test('#7404: stop needs no step-up and answers when nothing runs', async (t) => {
+test('#7404: stop answers when nothing runs', async (t) => {
   offerOn(t, '$5/month');
-  assert.equal(needsRemoteStepUp('/api/personal-backup/stop', 'POST'), false);
   const r = await call('/api/personal-backup/stop', { body: {}, headers: SCREEN });
   assert.equal(r.json.ok, false);
   assert.equal(r.json.code, 'not_running');
+});
+
+test('#7404: off stops a restore of files before it turns personal backup off', async (t) => {
+  offerOn(t, '$5/month');
+  const job = require('./engine/personalrestorejob');
+  const pb = require('./engine/personalbackup');
+  const was = { stop: job.stop, switchOff: pb.switchOff };
+  t.after(() => { job.stop = was.stop; pb.switchOff = was.switchOff; });
+  const order = [];
+  job.stop = () => { order.push('stop'); return { ok: true }; };
+  pb.switchOff = async () => { order.push('off'); return { ok: true }; };
+  await call('/api/personal-backup/off', { body: {}, headers: SCREEN });
+  assert.deepEqual(order, ['stop', 'off']);
 });

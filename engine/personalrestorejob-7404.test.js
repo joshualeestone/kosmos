@@ -150,12 +150,13 @@ test('a restore cut off part way is recorded as stopped, and the next may start'
   const { fork, made } = fakeFork();
   job.start('k1', { fork });
   await tick();
-  made[0].emit('close', null);
+  made[0].emit('close', null, 'SIGKILL');
   await tick(); await tick();
   const s = job.status();
   assert.equal(s.running, false);
   assert.equal(s.last.ok, false);
-  assert.match(s.last.because, /stopped on this computer before it finished/);
+  assert.match(s.last.because, /stopped on this computer before it finished \(it was ended by SIGKILL\)/);
+  assert.equal(s.last.stoppedByPerson, undefined);
 });
 
 test('a key that is not a string never starts a child', () => {
@@ -270,6 +271,7 @@ test('the child restores into the base the board names', async () => {
     const base = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-prjob-base-'));
     child.onMessage({ run: { op: 'restore', key: 'k9', base } });
     for (let i = 0; i < 50 && !sent.some((m) => 'done' in m); i++) await tick();
+    assert.ok(sent.some((m) => 'done' in m), 'the child answered');
     assert.deepEqual(got, { pick: { key: 'k9' }, base });
   } finally { pr.restoreFiles = was; process.exit = exit; if (had) process.send = had; else delete process.send; }
 });
@@ -317,4 +319,13 @@ test('with names hidden, a failed restore\'s own reason is replaced by one fixed
   await tick(); await tick();
   assert.equal(job.status({ namesHidden: true }).last.because, 'This restore did not finish. Open Kosmos on this computer to see why.');
   assert.match(job.status().last.because, /secret\/plans\.txt/);   // control: at the computer, the reason itself
+});
+
+test('a child\'s own answer cannot pass as the person\'s stop to a remote session', async () => {
+  const { fork, made } = fakeFork();
+  job.start('k1', { fork, base: SANDBOX });
+  await tick();
+  made[0].emit('message', { done: { ok: false, code: 'stopped', because: 'raw (secret/plans.txt)' } });
+  await tick(); await tick();
+  assert.equal(job.status({ namesHidden: true }).last.because, 'This restore did not finish. Open Kosmos on this computer to see why.');
 });
