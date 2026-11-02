@@ -6,10 +6,13 @@
  *   list()        the person's backups, newest first (personalrestore.listBackups, in a child). One at a time:
  *                 an ask while one runs shares its answer.
  *   start(key)    restore one backup into a new Kosmos (personalrestore.restoreFiles, in a child). One at a time on
- *                 this board; answers at once, { ok: true } once the child is started, and status() says the rest.
+ *                 this board; answers at once with { ok: true }, and status() says the rest (a child that
+ *                 could not start shows there too).
  *   status()      { running, startedAt, last }: last is the most recent restore's answer, by named fields. With
  *                 { namesHidden }, the counts of moved, kept, held back and failed files and not their names.
  *   stop()        ends the restore that is running; what it had already written stays in its new Kosmos.
+ *   untilIdle(ms) resolves true once no restore runs, or false after ms.
+ *   forget()      drops the last restore's answer (personal backup was turned off).
  * A child also exits by itself when the board goes, because its IPC channel closes.
  *
  * Known limits, on #7404 for the screen slice:
@@ -20,7 +23,8 @@
  *   new Kosmos, and restoreworld's list has its own lock);
  * - the child reads the member keys outside personalbackupkey's serial() queue, which is this process's (a read only,
  *   of files written whole);
- * - a list while a restore runs spends the same hourly Kosmos+ allowance.
+ * - a list while a restore runs spends the same hourly Kosmos+ allowance;
+ * - a request the board was already signing when stop() came still goes to Kosmos+ (no new one is signed after).
  *
  * The child signs nothing. Its Kosmos+ requests come back here and only ROUTES are signed, through remote.macRequest,
  * so the busy() guard around a register or a Forget holds for a restore as for anything else. Any other route is
@@ -205,7 +209,18 @@ function endChildren() {
   for (const c of children) { try { c.kill(); } catch { /* gone */ } }
 }
 
+function untilIdle(ms) {
+  if (!restoring) return Promise.resolve(true);
+  const end = Date.now() + ms;
+  return new Promise((resolve) => {
+    const look = () => { if (!restoring) resolve(true); else if (Date.now() >= end) resolve(false); else { const t = setTimeout(look, 25); if (t.unref) t.unref(); } };
+    look();
+  });
+}
+
+function forget() { last = null; }
+
 /* Tests: forget the last answer and anything in flight. */
 function resetForTests() { endChildren(); children.clear(); listing = null; restoring = null; last = null; }
 
-module.exports = { list, start, status, stop, ROUTES, shapeList, shapeRestore, _resetForTests: resetForTests };
+module.exports = { list, start, status, stop, untilIdle, forget, ROUTES, shapeList, shapeRestore, _resetForTests: resetForTests };

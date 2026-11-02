@@ -12856,8 +12856,13 @@ const server = http.createServer(async (req, res) => {
         else if (kind === 'key') r = await pb.setUpKey();
         else if (kind === 'saved') r = await pk.confirmRecoveryCodeSaved({ org: body.org, member: body.member });
         else if (kind === 'restore') r = typeof body.code === 'string' && body.code.length <= 64 ? await pb.restore(body.code) : { ok: false, code: 'not_a_code', because: 'That is not a recovery code (26 letters and digits).' };
-        /* Off stops a restore of files first: the person said Off, and the child holds the member keys in memory. */
-        else if (kind === 'off') { try { require('./engine/personalrestorejob').stop(); } catch { /* nothing running */ } r = await pb.switchOff(); }
+        /* Off stops a restore of files first, and waits a moment for it to end: the person said Off, and the child holds
+           the member keys in memory. The last restore's file names go with it. */
+        else if (kind === 'off') {
+          const rj = require('./engine/personalrestorejob');
+          try { rj.stop(); await rj.untilIdle(5000); rj.forget(); } catch { /* nothing was running */ }
+          r = await pb.switchOff();
+        }
         /* kosmos#7404: the list and a restore of files, each in a child process off this event loop. The job shapes
            both answers by name, and a restore answers as soon as it has started: GET /api/personal-backup/files says
            how it went. Only the key goes to the job, never the body. */
