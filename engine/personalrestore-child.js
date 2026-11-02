@@ -5,7 +5,7 @@
  * forks it with an IPC channel and sends ONE ask:
  *
  *   { run: { op: 'list' } }               engine/personalrestore.js listBackups()
- *   { run: { op: 'restore', key } }       engine/personalrestore.js restoreFiles({ key })
+ *   { run: { op: 'restore', key, base } } engine/personalrestore.js restoreFiles({ key }), into the board's worlds' base
  *
  * and gets ONE answer back, { done: <the answer> }, then this process exits.
  *
@@ -18,6 +18,8 @@
  * (engine/personalrestorejob-7404.test.js forks it and checks). A restore cut off that way stops where it was: its
  * Kosmos and the files already written stay, and nothing tidies them.
  */
+const path = require('node:path');
+
 const pending = new Map();
 let nextId = 1;
 let started = false;
@@ -44,7 +46,10 @@ async function run(ask) {
   const pr = require('./personalrestore');
   // opts are built here by hand, never from the ask: they replace personalrestore's own calls.
   if (ask.op === 'list') return pr.listBackups({ macRequest });
-  if (ask.op === 'restore' && typeof ask.key === 'string') return pr.restoreFiles({ key: ask.key }, { macRequest });
+  // base is the board's own worlds' base (personalrestorejob), never from a request.
+  if (ask.op === 'restore' && typeof ask.key === 'string' && typeof ask.base === 'string' && path.isAbsolute(ask.base)) {
+    return pr.restoreFiles({ key: ask.key }, { macRequest, base: ask.base });
+  }
   return { ok: false, because: 'this Kosmos could not read that restore' };
 }
 

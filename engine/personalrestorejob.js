@@ -76,7 +76,7 @@ function shapeRestore(r) {
   if (r.world && typeof r.world.id === 'string') out.world = { id: r.world.id, name: typeof r.world.name === 'string' ? r.world.name : r.world.id };
   if (Number.isSafeInteger(r.restored)) out.restored = r.restored;
   if (Number.isSafeInteger(r.failed)) out.failed = r.failed;
-  for (const k of ['moved', 'kept', 'heldBack']) if (k in r) out[k] = names(r[k]);
+  for (const k of ['moved', 'kept', 'heldBack']) if (k in r) out[k] = names(r[k]).slice(0, FAILED_KEPT).map((x) => x.slice(0, PATH_CHARS));
   if ('fetchProblems' in r) out.fetchProblems = reasons(r.fetchProblems);
   const d = r.details;
   if (d && typeof d === 'object') {
@@ -110,8 +110,9 @@ function runChild(ask, deps = {}) {
     children.add(child);
     if (deps.timeoutMs) { timer = setTimeout(() => done(null), deps.timeoutMs); if (timer.unref) timer.unref(); }
     child.on('error', () => done(null));
-    // A child that exits without its answer. Settled a turn later, so an answer already on its way is read first.
-    child.on('exit', () => setImmediate(() => done(null)));
+    // A child gone without its answer. On close, not exit: close comes after the channel is read to its end, so an
+    // answer sent just before the child exited is always read first.
+    child.on('close', () => done(null));
     child.on('message', (m) => {
       if (settled || !m || typeof m !== 'object') return;
       if ('done' in m) { done(m.done); return; }
@@ -140,12 +141,23 @@ function list(deps = {}) {
   return p;
 }
 
+/* As personalrestore's own baseOf, but from the board, where bootedBaseDir is known. */
+function baseOfBoard() {
+  const worlds = require('./worlds');
+  return require('./worldenv').bootedBaseDir() || worlds.baseRoot(worlds.preWorldEnv(process.env));
+}
+
 function start(key, deps = {}) {
   if (typeof key !== 'string' || !key || key.length > 1024) return refused('That backup is not on Kosmos+ any more.', 'no_such_backup');
   if (restoring) return refused('A restore is already running on this computer.', 'restore_running');
   const mine = { startedAt: Date.now() };
   restoring = mine;
-  runChild({ op: 'restore', key }, deps).then((r) => r, () => null).then((r) => {
+  /* The worlds' base is the board's, read here: the child cannot see which world this board booted into
+     (worldenv.bootedBaseDir is this process's own), and a world made under another base never reaches the switcher. */
+  let base = null;
+  try { base = deps.base || baseOfBoard(); } catch { base = null; }
+  if (typeof base !== 'string' || !path.isAbsolute(base)) { restoring = null; return refused('this Kosmos could not tell where to put the restore, so nothing was restored'); }
+  runChild({ op: 'restore', key, base }, deps).then((r) => r, () => null).then((r) => {
     last = Object.assign({ finishedAt: Date.now() }, shapeRestore(r || { ok: false, because: 'the restore stopped on this computer before it finished' }));
     if (restoring === mine) restoring = null;
   });

@@ -111,7 +111,7 @@ test('a child that exits without answering reads as a refusal, not a hang', asyn
   const { fork, made } = fakeFork();
   const p = job.list({ fork });
   await tick();
-  made[0].emit('exit', 1);
+  made[0].emit('close', 1);
   const r = await p;
   assert.equal(r.ok, false);
   assert.match(r.because, /could not be listed/);
@@ -126,7 +126,12 @@ test('one restore at a time, and status says where it is', async () => {
   assert.deepEqual(second, { ok: false, because: 'A restore is already running on this computer.', code: 'restore_running' });
   await tick();
   assert.equal(made.length, 1);
-  assert.deepEqual(made[0].sent[0], { run: { op: 'restore', key: 'k1' } });
+  // The worlds' base is the board's own (worldenv/worlds here), never the page's.
+  const sent = made[0].sent[0].run;
+  assert.equal(sent.op, 'restore'); assert.equal(sent.key, 'k1');
+  const worlds = require('./worlds');
+  assert.equal(sent.base, require('./worldenv').bootedBaseDir() || worlds.baseRoot(worlds.preWorldEnv(process.env)));
+  assert.ok(path.isAbsolute(sent.base));
   made[0].emit('message', { done: { ok: true, world: { id: 'w1', name: 'Personal backup, Nov 2', dir: '/secret/path' }, restored: 3, failed: 0,
     moved: ['a'], kept: [], heldBack: [], fetchProblems: [], details: { failed: [], leftOutAtBackup: 2, fetchProblems: [] } } });
   await tick(); await tick();
@@ -145,7 +150,7 @@ test('a restore cut off part way is recorded as stopped, and the next may start'
   const { fork, made } = fakeFork();
   job.start('k1', { fork });
   await tick();
-  made[0].emit('exit', null);
+  made[0].emit('close', null);
   await tick(); await tick();
   const s = job.status();
   assert.equal(s.running, false);
@@ -220,12 +225,13 @@ test('a list that never answers is ended at its time limit, and the child killed
   assert.equal(made[0].killed, true);
 });
 
-test('an answer that arrives just before the child exits is still read', async () => {
+test('an answer read after the child\'s exit event is still read', async () => {
   const { fork, made } = fakeFork();
   const p = job.list({ fork });
   await tick();
-  made[0].emit('exit', 0);   // the exit event first, then the answer in the same turn
+  made[0].emit('exit', 0);   // exit can come before the last message is read; only close settles a silent child
   made[0].emit('message', { done: { ok: true, backups: [] } });
+  made[0].emit('close', 0);
   assert.equal((await p).ok, true);
 });
 
@@ -247,4 +253,24 @@ c.on('spawn', () => { process.stdout.write(String(c.pid) + '\\n'); setTimeout(()
   for (let i = 0; i < 100 && !gone; i++) { if (!alive()) gone = true; else await new Promise((r) => setTimeout(r, 50)); }
   if (!gone) { try { process.kill(pid); } catch { /* gone */ } }
   assert.equal(gone, true, 'the child outlived its parent');
+});
+
+test('the child restores into the base the board names', async () => {
+  const child = require('./personalrestore-child');
+  // No base: refused before personalrestore is asked anything.
+  const pr = require('./personalrestore');
+  const was = pr.restoreFiles;
+  let got = null;
+  pr.restoreFiles = async (pick, opts) => { got = { pick, base: opts.base }; return { ok: true }; };
+  const sent = [];
+  const had = process.send;
+  process.send = (m, cb) => { sent.push(m); if (cb) cb(); };
+  const exit = process.exit;
+  process.exit = () => {};
+  try {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-prjob-base-'));
+    child.onMessage({ run: { op: 'restore', key: 'k9', base } });
+    for (let i = 0; i < 50 && !sent.some((m) => 'done' in m); i++) await tick();
+    assert.deepEqual(got, { pick: { key: 'k9' }, base });
+  } finally { pr.restoreFiles = was; process.exit = exit; if (had) process.send = had; else delete process.send; }
 });
