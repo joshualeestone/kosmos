@@ -228,9 +228,19 @@ async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, a
   const sameKey = Boolean(r && r.ok && r.data && r.data.epoch === epoch && echoedPk && echoedPk.equals(k.pk));
   const kept = sameKey ? keptSig(r, got.sentSig) : null;
   if (kept) { k.sigKept = true; if (kept === 'other') k.sigOther = true; }
-  // `keys` was read before the awaited POST; writing it back is safe under the one-board-process-per-data-root rule and
-  // this module's chain (one call at a time), the same rule every other write here rests on.
-  try { writeKeys(company.org, company.member, keys); } catch { /* this process still waits the interval (lastTry); a restart may ask once more */ }
+  // `keys` was read before the awaited POST, and another writer of this file in this process (personalbackupkey.js, on its
+  // own chain) may have written meanwhile: the file is read again and only this epoch's three fields are merged into it,
+  // and only while it still holds this key.
+  try {
+    const fresh = readKeys(company.org, company.member);
+    const e = fresh.ok ? fresh.keys[epoch] : null;
+    if (e && e.pk.equals(k.pk)) {
+      e.sigAskedAt = k.sigAskedAt;
+      if (k.sigKept) e.sigKept = true;
+      if (k.sigOther) e.sigOther = true;
+      writeKeys(company.org, company.member, fresh.keys);
+    }
+  } catch { /* this process still waits the interval (lastTry); a restart may ask once more */ }
 }
 
 /* One at a time, in this process only (the header assumes one board process per data root). Today reading the file

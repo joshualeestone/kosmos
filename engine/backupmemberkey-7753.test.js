@@ -379,3 +379,25 @@ test('#7753 re-send: an echo in an answer for another epoch is not this epoch ke
   const back = mk.readKeys(ORG, MEMBER).keys[1];
   assert.equal(back.sigKept, true); assert.equal(back.sigOther, true);
 });
+
+test('#7753 re-send: a write of the key file during the re-send is kept; only this epoch\'s fields are merged in', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  const real = c.macRequest;
+  const other = backupkeys.newMemberKey();
+  const during = async (m, route, body) => {
+    if (route === mk.MEMBER_KEY_ROUTE) {
+      // Another writer adds a registered epoch 2 while the re-send is in the air.
+      const now = mk.readKeys(ORG, MEMBER).keys;
+      now[2] = { sk: other.sk, pk: other.pk, registered: true };
+      mk.writeKeys(ORG, MEMBER, now);
+    }
+    return real(m, route, body);
+  };
+  // Answered from disk as epoch 2 now? No: the call read the file before the POST, so it answers epoch 1 and re-sends it.
+  await mk.ensureMemberKey({ macRequest: during, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  const after = mk.readKeys(ORG, MEMBER).keys;
+  assert.ok(after[2] && after[2].pk.equals(other.pk), 'the other writer\'s epoch survives');
+  assert.ok(Number.isSafeInteger(after[1].sigAskedAt) && after[1].sigAskedAt === T0 + (7 * 24 + 1) * H, 'and this epoch\'s re-send is recorded');
+});
