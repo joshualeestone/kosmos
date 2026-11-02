@@ -641,9 +641,8 @@ async function snapshotInner(input, deps, added, state, fail) {
   const plannedChunks = (f) => (f.size > maxFile ? 0 : Math.floor(f.size / CDC.avg) + 1);
   const keyCharge = planGb ? PLAN_KEY_LEN : MAX_KEY_LEN;
   // A run that stopped on the measured size repeats hourly within its week and reuses its index, so what a person moves is
-  // seen next hour; in a later week a listing no smaller stops before anything is spent (priorStop, below).
-  // kosmos#7746 item 3: the stop names the listing it was measured on, so the run can keep it and a later run that is no
-  // smaller stops before it spends anything (see priorStop below).
+  // seen next hour. kosmos#7746 item 3: the stop names the listing it was measured on (measuredOn), so the caller can keep
+  // it, and in a later week a listing no smaller stops before anything is spent (priorStop, below).
   let measuredOn = null;
   const tooManyPieces = () => fail('your files are split into more pieces than one backup can list, so this backup did not finish. Move some small files out of your agents\' folders and projects', Object.assign({ tooLarge: true, personActs: true }, measuredOn ? { measuredStop: measuredOn } : {}));
   const roots = rootsOf(input);

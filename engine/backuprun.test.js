@@ -360,7 +360,8 @@ test('#7746 item 2: a company run keeps at most its allowance (200000) in the in
   assert.equal(r.ok, true, r.because);
   assert.equal(r.leftOut, 5, 'the rows past the allowance are said, not kept');
   assert.equal(backupstate.readState(A.org, A.member).state.periods[0].index.size, 200000);
-  // withRun takes the cap it is given (and a larger one than the rows needs keeps them all).
+  // withRun takes the cap it is given (and a larger one than the rows need keeps them all). Its clamp at MAX_INDEX
+  // (600000) is not exercised here: that would take more than 600000 rows.
   const p = { label: WEEK, namingKey: crypto.randomBytes(32), bucket: 'b1', index: new Map() };
   const out = backupstate.withRun({ job: {}, periods: [] }, p, { added: added(WEEK, 3), bucket: 'b1' }, { maxIndex: 2 });
   assert.equal(out.periods[0].index.size, 2); assert.equal(out.leftOut, 1);
@@ -384,6 +385,8 @@ test('#7746 item 3: a measured stop is kept in the state and handed to the next 
 });
 
 test('#7746 item 3: a second pass in a granted week is never handed the stop its first pass just measured', async () => {
+  // A synthetic first answer: takeSnapshot never gives newPeriod and measuredStop together (the measured stop comes after
+  // the grant). It stands for any first pass that measured a stop and then moved to a granted week.
   const stopShape = { files: 3, bytes: 900, budget: 5000, at: NOW, roots: 'ab'.repeat(8), period: WEEK };
   const take = taker({ ok: false, newPeriod: true, grantedPeriod: NEXT, tooLarge: true, personActs: true, because: 'x', measuredStop: stopShape, added: new Map(), bucket: null },
     { ok: false, tooLarge: true, personActs: true, because: 'y', added: new Map(), bucket: null });
