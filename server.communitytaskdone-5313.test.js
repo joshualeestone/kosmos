@@ -32,6 +32,9 @@ test('the server helper is wrapped so a prompt never fails a mark, uses the swee
   assert.match(fn, /prompterOn:\s*\(\)\s*=>\s*heartbeatSetting\.read\(\)\.on === true/, 'Prompter switch gate missing');
   assert.match(fn, /inCommunity:\s*agentInCommunity/, 'the helper is not wired to the shared membership check');
   assert.match(fn, /deliver:\s*\(s, text\)\s*=>\s*chat\.deliverAutomaticAsync\(s, text, roster\(\)\)/, 'not delivered through the gated automatic sender');
+  // kosmos#6593 F7a: the sweep's asks count toward this path's gap and cap, and the line carries the Sent stamp
+  assert.match(fn, /turnTries:\s*\(s\)\s*=>\s*communityturn\.readBook\(\)\.get\(s\) \|\| \[\]/, 'the sweep\'s asks are not counted');
+  assert.match(fn, /stamp:\s*true/, 'the task-done line is not stamped');
   // kosmos#7649: the synchronous sender holds the event loop after the 200
   assert.doesNotMatch(fn, /chat\.deliverAutomatic\(/, 'kosmos#7649: the synchronous sender is back');
   assert.match(fn, /await communitytaskdone\.promptOnTaskDoneAsync\(\{/, 'kosmos#7649: the delivery is not awaited');

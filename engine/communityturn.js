@@ -154,9 +154,13 @@ function triesOf(book, s) {
   const v = book instanceof Map ? book.get(s) : undefined;
   return Array.isArray(v) ? v : [];
 }
+function othersOf(f, s) {
+  if (typeof f !== 'function') return [];
+  try { const v = f(s); return Array.isArray(v) ? v.filter(Number.isFinite) : []; } catch { return []; }
+}
 
 /* Which idle agents are due a turn now, longest silent first, at most MAX_PER_PASS. */
-function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle, history, kosmosLines, only }) {
+function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, quotaHeld, seenIdle, history, kosmosLines, only, otherTries }) {
   const nudgeable = require('./agentnudge').nudgeableCard;
   const { stoodDown, IDLE_FIRST_MS } = require('./replynudge');
   const out = [];
@@ -166,7 +170,9 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (typeof only === 'string' && s !== only) continue;   // kosmos#7649 review 3: one agent, judged against the whole roster
     if (stoodDown(s, projects)) continue;
     if (seenIdle instanceof Set && !seenIdle.has(s)) continue;   // review 4: idle at the previous pass too (as replynudge)
-    const tries = triesOf(book, s);
+    // kosmos#6593 F7a: the task-done prompts (engine/communitytaskdone.js) are asks to post too, so they count toward the gap and the daily cap.
+    const own = triesOf(book, s);
+    const tries = own.concat(othersOf(otherTries, s));
     if (tries.some((t) => now - t < TURN_GAP_MS)) continue;
     if (tries.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;
     let since = null;
@@ -185,7 +191,8 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     /* #5636 F7 (0.7.33 report: a seat still prompted "every few hours"): an agent that has not posted in the last day
        was prompted up to PROMPTS_PER_DAY times, every TURN_GAP_MS. A prompt it has not answered with a post now waits a
        day: one floor prompt a day until it posts, the same "one prompt per post" the met-floor path below keeps. */
-    if (!(at.length && now - last < DAY_MS) && tries.some((t) => t > last && now - t < DAY_MS)) continue;
+    // Its own floor prompts only (#6593): a task-done prompt has an opt-out, so it never stands in for the floor line.
+    if (!(at.length && now - last < DAY_MS) && own.some((t) => t > last && now - t < DAY_MS)) continue;
     // #5296: floor met today, so a further prompt needs new work since that post (an unknown history prompts nobody).
     if (at.length && now - last < DAY_MS) {
       /* #5636 F7 (0.7.27 model feedback: a seat "still gets 'your last post was 3 hours ago' every few hours"): with the
@@ -283,7 +290,7 @@ function begin(o, results) {
     const nudgeable = require('./agentnudge').nudgeableCard;
     for (const c of roster) if (c && c.sessionName && nudgeable(c)) o.idleSeen.add(String(c.sessionName));
   }
-  const dues = due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines });
+  const dues = due({ roster, projects, now, book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: seen, history: o.history, kosmosLines: o.kosmosLines, otherTries: o.otherTries });
   const p = { o, results, roster, now, book, sent, cap, D, keep, dues, seen, projects };
   return p;
 }
@@ -407,7 +414,7 @@ async function tickOnceAsync(o) {
           if (Array.isArray(r)) card = r.find((c) => c && c.sessionName === d.session) || null;
           if (Array.isArray(r) && pr) {
             roster = r;
-            again = due({ roster: r, projects: pr, now: p.now, book: p.book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: p.seen, history: o.history, kosmosLines: o.kosmosLines, only: d.session });
+            again = due({ roster: r, projects: pr, now: p.now, book: p.book, inCommunity: o.inCommunity, postTimes: o.postTimes, idleSince: o.idleSince, quotaHeld: o.quotaHeld, seenIdle: p.seen, history: o.history, kosmosLines: o.kosmosLines, otherTries: o.otherTries, only: d.session });
           }
         } catch { again = []; }
         if (!again.length) {   // not booked: due again at a later pass

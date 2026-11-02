@@ -124,8 +124,15 @@ function decide(o) {
 
     // Per-agent daily event cap: a burst of task completions cannot spam one agent.
     if (triesForSession(book, session, now) >= PROMPTS_PER_DAY) return { done: { session, name, act: 'agent-daily-cap', delivery: null, recorded: false } };
+    // kosmos#6593 F7a: the idle sweep's reminders are asks to post too. One asked within its gap is not asked again, and
+    // both paths together stay within PROMPTS_PER_DAY a day.
+    let turn = [];
+    if (typeof o.turnTries === 'function') { try { const v = o.turnTries(session); turn = Array.isArray(v) ? v.filter(Number.isFinite) : []; } catch { turn = []; } }
+    if (turn.some((t) => now - t < communityturn.TURN_GAP_MS)) return { done: { session, name, act: 'recently-asked', delivery: null, recorded: false } };
+    if (triesForSession(book, session, now) + turn.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) return { done: { session, name, act: 'agent-daily-cap', delivery: null, recorded: false } };
 
-    return { p: { session, name, now, book, D, key, text: taskDoneText(o.trigger) } };
+    const text = o.stamp === true ? communityturn.stamped(taskDoneText(o.trigger), now) : taskDoneText(o.trigger);
+    return { p: { session, name, now, book, D, key, text } };
   } catch {
     return { done: skip('error') };   // never throws: a prompt is best-effort
   }
@@ -213,6 +220,12 @@ async function promptOnTaskDoneAsync(o) {
    { at: ms, session } }, atomic tmp + rename; an unreadable or odd file reads as an empty book.
    Mirrors engine/communityturn.js's readBook/writeBook. */
 function bookFile() { return require('node:path').join(require('./store').ROOT, 'communitytaskdone.json'); }
+/* kosmos#6593: when this path asked one agent, newest last: what the idle sweep counts as its own tries. */
+function triesOf(book, session) {
+  const out = [];
+  if (book instanceof Map) for (const v of book.values()) if (v && v.session === session && Number.isFinite(v.at)) out.push(v.at);
+  return out.sort((a, b) => a - b);
+}
 function readBook() {
   const fs = require('node:fs');
   const out = new Map();
@@ -238,4 +251,4 @@ function writeBook(book, now = Date.now()) {
   } catch { return false; }
 }
 
-module.exports = { taskDoneText, promptOnTaskDone, promptOnTaskDoneAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile, POST_CLAUSE, PROMPTS_PER_DAY, RETENTION_MS, DAY_MS };
+module.exports = { triesOf, taskDoneText, promptOnTaskDone, promptOnTaskDoneAsync, DELIVER_DEADLINE_MS, readBook, writeBook, bookFile, POST_CLAUSE, PROMPTS_PER_DAY, RETENTION_MS, DAY_MS };
