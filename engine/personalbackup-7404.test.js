@@ -122,6 +122,26 @@ test('pb tiers: the plan reaches the run; no plan runs nothing and is no pause; 
   }
 });
 
+test('#7746 item 4: a plan sent in a shape this computer cannot read waits for the next try, never runs under the company bound', async (t) => {
+  for (const gb of ['25', 2.5, -1, 0, {}, true]) {
+    const root = fresh(t);
+    const consent = { ...WORDS, backsUp: ['your project folders'] };
+    const c = coordinator({ preexisting: true, preview: { ok: true, data: { org: ORG, role: 'member', consent, consentHash: HASH, computerSalt: SALT } } });
+    const p = await pb.preview({ root, remote: c });
+    assert.equal((await pb.switchOn(p.ticket, true, { root, remote: c, personalbackupkey: KEY_OK })).ok, true);
+    const remote = { ...c, macRequest: async (m, route, body) => {
+      const a = await c.macRequest(m, route, body);
+      if (route === oe.ROUTES.status && a.ok) a.data.backupWeeklyGb = gb;
+      return a;
+    } };
+    let ran = 0;
+    const r = await pb.runJob({ roots: [] }, { root, remote, runBackup: async () => { ran++; return { ok: true }; } });
+    assert.equal(ran, 0, JSON.stringify(gb));
+    assert.equal(r.ok, false); assert.equal(r.personActs, undefined); assert.equal(r.overAllowance, undefined);
+    assert.match(r.because, /could not read, so this backup waits/);
+  }
+});
+
 test('pb tiers: a status read that was never sent lets the run say remote access is not set up', async (t) => {
   const root = fresh(t);
   const consent = { ...WORDS, backsUp: ['your project folders'] };

@@ -457,7 +457,9 @@ function jobKey(opts = {}) {
 const JOB_POINTER = 'current-personal.json';
 const NO_PLAN = 'there is no backup plan on this account, so nothing new is backed up. What is already backed up stays yours to restore';
 /* The plan in GB of files, null with none, undefined from a Kosmos+ that does not send it yet, 'unread' when Kosmos+ did
-   not answer: that run waits, because the company bound would pause a person's backup to Monday over one failed read. */
+   not answer: that run waits, because the company bound would pause a person's backup to Monday over one failed read.
+   'malformed' (kosmos#7746) when it sent the field but not as null or a positive whole number of GB: that run waits too,
+   rather than running under the company bound as though no plan had been sent. */
 async function planOf(opts) {
   const remote = remoteOf(opts);
   if (!remote || typeof remote.macRequest !== 'function') return 'unread';
@@ -470,8 +472,9 @@ async function planOf(opts) {
   // Status answers for the account's current membership: a plan is only this personal backup's if the org is its own.
   const rec = record(opts);
   if (!rec || !st.data.org || st.data.org.id !== rec.org.id) return undefined;
+  if (!Object.prototype.hasOwnProperty.call(st.data, 'backupWeeklyGb') || st.data.backupWeeklyGb === undefined) return undefined;
   const gb = st.data.backupWeeklyGb;
-  return gb === null || (Number.isSafeInteger(gb) && gb > 0) ? gb : undefined;
+  return gb === null || (Number.isSafeInteger(gb) && gb > 0) ? gb : 'malformed';
 }
 /* One run under this backup's key. Kosmos+ refusing the words: the hash the run started under goes (read before the run,
    so words accepted during it stay), mayBackUp turns false, and no later run walks every file to be refused the same way. */
@@ -483,6 +486,7 @@ async function runJob(input, opts = {}) {
   // Before anything is listed, and not a pause to Monday: paying takes effect on the next hourly run.
   if (planGb === null) { const out = { ok: false, personActs: true, because: NO_PLAN }; noteRun(out, opts, before); return out; }
   if (planGb === 'unread') { const out = { ok: false, because: 'Kosmos+ could not be reached just now, so this backup waits for the next try' }; noteRun(out, opts, before); return out; }
+  if (planGb === 'malformed') { const out = { ok: false, because: 'Kosmos+ sent a backup plan this computer could not read, so this backup waits for the next try' }; noteRun(out, opts, before); return out; }
   const r = await run(input, Object.assign({ ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER, requireProof: true }, planGb ? { planGb } : {}));
   if (!(r && !r.ok && typeof r.because === 'string' && /\bcode org_consent_changed\b/.test(r.because))) { noteRun(r, opts, before); return r; }
   const oe = opts.orgenroll || require('./orgenroll');
