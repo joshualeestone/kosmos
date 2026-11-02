@@ -213,7 +213,7 @@ test('#7791: a card shows the word that computer\'s own card shows; an older Kos
   assert.equal(sub({ name: 'Ann', state: 'working', cardWord: '   ' }), c.name + ' · Working', 'a blank word is no word');
   assert.equal(api.oaCard(card('a', { name: 'Ann', state: 'working', cardWord: '<b>x</b>' }), c, false).querySelector('b'), null, 'the word is text, never markup');
   // The read keeps the word, short, through to the card (the browser check caught it being dropped here).
-  const kept = api.oaAgentsOf({ agents: [{ sessionName: 'k', name: 'K', state: 'working', cardWord: 'Messages stuck' }, { sessionName: 'o', state: 'idle' }, { sessionName: 'l', state: 'idle', cardWord: 'x'.repeat(90) }] });
+  const kept = api.oaAgentsOf({ agents: [card('k', { name: 'K', state: 'working', cardWord: 'Messages stuck' }), card('o', { state: 'idle' }), card('l', { state: 'idle', cardWord: 'x'.repeat(90) })] });
   assert.equal(kept[0].cardWord, 'Messages stuck');
   assert.equal(kept[1].cardWord, '', 'CONTROL: an older Kosmos sends none');
   assert.equal(kept[2].cardWord.length, 40);

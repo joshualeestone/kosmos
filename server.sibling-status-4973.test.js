@@ -74,7 +74,7 @@ test('#4973: a sibling read (same-site, cross-site) gets the agents and (#6178) 
       // An account's exact fields are pinned in server.accountsweekly-6178.test.js: this sandbox has no account to check.
       const mara = r.body.agents.find((a) => a.sessionName === 'mara');
       const fullMara = full.body.agents.find((a) => a.sessionName === 'mara');
-      assert.deepEqual(Object.keys(mara).sort(), sameSite ? ['acct', 'name', 'runner', 'sessionName', 'state'] : ['name', 'sessionName', 'state'], site + ': not the fields the Agents view and AI Models use');
+      assert.deepEqual(Object.keys(mara).sort(), sameSite ? ['acct', 'cardWord', 'name', 'runner', 'sessionName', 'state'] : ['cardWord', 'name', 'sessionName', 'state'], site + ': not the fields the Agents view and AI Models use');
       assert.equal(mara.name, fullMara.name, site);
       assert.equal(mara.state, fullMara.state, site);
       assert.ok(full.body.agents.some((a) => a.sessionName === 'guidebot'), 'CONTROL: the guide is in the full answer');

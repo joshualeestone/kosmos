@@ -157,7 +157,7 @@ test('#6178 two accounts on one folder: the sibling answer sends one, with that 
   const sib = JSON.parse(statusForSibling(full, 'same-site'));
   assert.deepEqual(Object.keys(JSON.parse(statusForSibling(full, 'cross-site'))), ['agents'], 'CONTROL: a cross-site read got the accounts');
   // kosmos#7791 review 1: the cross-site answer carries the card word, but never a model name from the restart word.
-  const words = (w) => JSON.parse(statusForSibling(JSON.stringify({ agents: [{ sessionName: 'x', name: 'X', state: 'restarting', cardWord: w }] }), 'cross-site')).agents[0].cardWord;
+  const words = require('./server').siblingWord;   // the cross-site arm's one rule, on the word alone
   assert.equal(words('Switching to qwen-local-7b'), 'Switching model');
   assert.equal(words('Switching to qwen-local-7b, not back yet'), 'Switching model, not back yet');
   assert.equal(words('Messages stuck'), 'Messages stuck', 'CONTROL: a fixed word passes as it is');

@@ -29130,7 +29130,7 @@ module.exports = { _resetRoomRunSaidForTest, _ageRoomRunSaidForTest,
   nameCheckFleet, // #5957: the name check's fleet, so its Windows arm is tested on any computer
   claudeObservationsFor, overlayStuckCards, // #7212 slice 3 reviews 6-7: the badge's evidence and the route's step, for their test
   safeRoster, // #5811: its rows carry no geminiSeen, for its test
-  statusForSibling, // #6178: the sibling cut's account keys, for its test
+  statusForSibling, siblingWord, // #6178: the sibling cut's account keys, for its test
   orgEnrollRefresh, // #5670: the company refresh, so its live-execution gate is tested by behaviour
   orgRefreshIfDue, // #6232: the hourly ask, measured on the clock
   orgMemberCheckIfDue, // kosmos#6560: the cheap membership check while enrolled
