@@ -12167,9 +12167,9 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
    0x0 frame printed the parent page in some browsers (Safari, some Firefox), so the person got Settings with no code. */
 #pb-printout { display: none; }
 /* kosmos#7404: the list of what a backup left out. A long path wraps rather than widening the panel. */
-#pb-skipped summary { cursor: pointer; min-height: 44px; display: list-item; margin-bottom: 0; padding: 12px 0; }
+#pb-skipped summary { cursor: pointer; min-height: 44px; display: list-item; margin-bottom: 0; padding: 12px 0; color: var(--label-2); }
 #pb-skipped summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
-#pb-skipped-list { margin: 0 0 var(--space-4); padding-left: 20px; font: var(--text-callout) var(--font-ui); color: var(--label-2); overflow-wrap: anywhere; }
+#pb-skipped-list { max-height: 40vh; overflow-y: auto; margin: 0 0 var(--space-4); padding-left: 20px; font: var(--text-callout) var(--font-ui); color: var(--label-2); overflow-wrap: anywhere; }
 #pb-skipped-list li { margin: 2px 0; }
 /* Design review 2: the "more" line closes the list with the list's own gap, so it does not read as Turn off's caption. */
 #pb-skipped { margin-bottom: var(--space-7); }
@@ -55700,21 +55700,25 @@ function pbPaint() {
   }
 }
 /* kosmos#7404: what the last good backup left out, from `job.skippedFiles` { count, files: [{ path, why }] }. The panel
-   repaints every 5 seconds, so the list is rebuilt only when it changes: an open list stays open and keeps its scroll. */
+   repaints every 5 seconds, so the list is rebuilt only when it changes: an open list stays open. It scrolls inside itself
+   past a few dozen lines, so Turn off is never 200 lines away on a phone. */
 /* Design review (Mona Lisa, 6575487941): the scanner's reasons are written for engineers ("UTF-16 text of odd length"),
    so the panel says one of a few fixed plain phrases. First match wins, so a credential reason beats a generic "could not
    be checked"; anything unmatched gets the fallback, never the raw text. */
 const PB_WHY = [
   // Design review 2: the masking reasons ("already holds the masking placeholder", "redacted copy ...") mean the masking
   // could not be checked, not that a key was found, so they take the fallback.
-  [/credential|ssh key|environment file|secret|sign-in|auth folder|browser profile/i, 'may hold a password or key'],
+  [/undo copies/i, 'an undo copy (the file itself is backed up)'],
+  [/backup's settings/i, 'left out by your backup settings'],
+  [/credential|ssh key|environment file|secret|sign-in|auth folder|browser profile|API key|account key|^Kosmos\+? .*(key|token|state)/i, 'may hold a password or key'],
   [/git internals/i, 'part of a Git history'],
   [/compressed|archive/i, 'compressed, so Kosmos cannot look inside'],
   [/temp (or backup )?copy/i, 'a temporary copy'],
   [/larger than|too large/i, 'too large'],
-  [/link|more than one name|another volume|not a regular file/i, 'a link or shortcut'],
-  [/replaced while|grew while|changed while/i, 'changed while it was being backed up'],
-  [/restore|colliding|also named by/i, 'its name clashes with another file'],
+  [/replaced while|grew while|changed while|gone, or replaced/i, 'changed while it was being backed up'],
+  [/^a link \(|hard link|another volume|not a regular file/i, 'a link or shortcut'],
+  [/colliding|beside .* \(names|also named by/i, 'its name clashes with another file'],
+  [/restore (cannot write|would refuse)/i, 'its name cannot be restored on every computer'],
   [/outside the work Kosmos/i, 'outside your Kosmos folders'],
 ];
 function pbWhyWords(why) {
@@ -55728,7 +55732,8 @@ function pbSkippedWords(sk) {
   const count = o && Number.isSafeInteger(o.count) && o.count >= files.length ? o.count : files.length;
   if (!count) return null;
   return {
-    sum: count === 1 ? '1 file was left out of the last backup' : count + ' files were left out of the last backup',
+    // Review 1: the walk counts folders it skipped too.
+    sum: count === 1 ? '1 file or folder was left out of the last backup' : count + ' files and folders were left out of the last backup',
     items: files.map((f) => f.path + ': ' + pbWhyWords(f.why)),
     more: count > files.length ? (count - files.length) + ' more ' + (count - files.length === 1 ? 'is' : 'are') + ' not named here.' : '',
   };
