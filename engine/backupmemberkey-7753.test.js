@@ -181,7 +181,8 @@ function storingCoordinator() {
     if (state.fail) return { ok: false, because: 'unreachable' };
     if (kept.has(body.epoch) && kept.get(body.epoch) !== body.member_public) return { ok: false, refusal: { status: 409, code: 'member_key_exists' } };
     kept.set(body.epoch, body.member_public);
-    return { ok: true, data: Object.assign({ epoch: body.epoch, member_public: body.member_public }, state.echo && body.member_key_sig ? { member_key_sig: body.member_key_sig } : {}) };
+    const echo = state.echo === 'other' ? Buffer.alloc(64, 7).toString('base64url') : state.echo === 'padded' && body.member_key_sig ? body.member_key_sig + '==' : body.member_key_sig;
+    return { ok: true, data: Object.assign({ epoch: body.epoch, member_public: body.member_public }, state.echo && body.member_key_sig ? { member_key_sig: echo } : {}) };
   };
   return { macRequest, posts, state };
 }
@@ -208,6 +209,21 @@ test('#7753 re-send: a key registered before Kosmos+ kept its record is sent aga
   await call(T0 + 100 * H);
   await call(T0 + 1000 * H);
   assert.equal(c.posts.length, 3, 'kept: never sent again');
+});
+
+test('#7753 re-send: an echo of another signature is not kept (sent again a day later); the same bytes spelled otherwise are', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  c.state.echo = 'other';   // the coordinator kept another of the member's computers' signature
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 });
+  await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => T0 + 25 * H });
+  assert.equal(c.posts.length, 2, 'not kept: sent again');
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  const p = storingCoordinator();
+  p.state.echo = 'padded';   // the same 64 bytes, with padding
+  await mk.ensureMemberKey({ macRequest: p.macRequest, deviceKey: d.read, now: () => T0 });
+  await mk.ensureMemberKey({ macRequest: p.macRequest, deviceKey: d.read, now: () => T0 + 25 * H });
+  assert.equal(p.posts.length, 1, 'the same bytes: kept');
 });
 
 test('#7753 re-send: an echoed first registration is never re-sent; a failed re-send or no device key changes nothing for the caller', async () => {

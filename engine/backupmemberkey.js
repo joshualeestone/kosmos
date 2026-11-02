@@ -175,9 +175,16 @@ async function register(macRequest, company, epoch, key, readDeviceKey) {
   if (signed.sig) body.member_key_sig = signed.sig;
   return { r: await macRequest('POST', MEMBER_KEY_ROUTE, body), unsignedBecause: signed.because, sentSig: signed.sig };
 }
-/* Whether an answer to a registration that carried `sentSig` says Kosmos+ kept it: it echoes member_key_sig (agreed with
-   escrowd's owner on #7753). An echo means kept, never checked: escrowd checks the signature itself. */
-const keptSig = (r, sentSig) => Boolean(sentSig && r && r.ok && r.data && r.data.member_key_sig === sentSig);
+/* Whether an answer to a registration that carried `sentSig` says Kosmos+ kept THIS signature: it echoes member_key_sig
+   (agreed with the coordinator's owner on #7753), compared as bytes with what was sent, since the one kept could be
+   another of the member's computers'. Kept is not trusted: escrowd checks the signature itself. */
+function keptSig(r, sentSig) {
+  if (!sentSig || !r || !r.ok || !r.data || typeof r.data.member_key_sig !== 'string') return false;
+  try {
+    const echoed = Buffer.from(r.data.member_key_sig, 'base64url'), sent = Buffer.from(sentSig, 'base64url');
+    return sent.length === 64 && echoed.length === sent.length && crypto.timingSafeEqual(echoed, sent);
+  } catch { return false; }
+}
 
 /* kosmos#7753: a key registered before Kosmos+ kept the signed record (any key whose answer did not echo it) is sent
    again, as the repeat registration the route answers without change, at most once per RESIGN_EVERY_MS, until an answer

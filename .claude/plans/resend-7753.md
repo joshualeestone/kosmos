@@ -6,6 +6,8 @@ Finished means: a member key registered before Kosmos+ stored `member_key_sig` g
 
 Agreed with Renet Tilley (coordinator and escrowd, Fleet Builders 21:04 to 21:05 CST): the coordinator stores the signature as sent, unchecked, and echoes it as `member_key_sig` in the member-key answer when it keeps it ("kept", never "valid"; escrowd checks it against devkeyhist). A re-send for an already-registered epoch fills the signature only if none is stored; it never replaces one.
 
+Changed by the coordinator's owner at 21:16: the coordinator now checks the signature against the registering computer's own key before keeping it; one that does not check is not kept and not echoed (the registration still succeeds), so a garbage first signature cannot pin an epoch. The Mac compares the echoed member_key_sig with what it sent as bytes, since the kept one could be another of the member's computers': an echo of another signature is not kept, and the key is sent again a day later.
+
 Decided:
 - The key file records per epoch `sigKept` (an answer echoed the record) and `sigAskedAt` (when it was last sent).
 - A registered key answered from disk, not sigKept, and last sent a day or more ago (or at a time after now, a clock that was ahead) is sent again as the repeat registration the live route answers without change (kosmos-relay coordinator/src/memberkey.rs, "the same key is a repeat"). Only when this computer can sign. Whatever happens, the caller's answer is the same.
