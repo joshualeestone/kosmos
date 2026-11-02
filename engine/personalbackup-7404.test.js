@@ -166,9 +166,13 @@ test('pb tiers: the panel can name what the last good backup left out, and a fai
   const opts = { root, remote: c, offer: () => ({ shown: true }), personalbackupkey: { ...KEY_OK, hasPendingCode: () => false } };
   const skippedList = [{ path: 'workers/a/film.mp4', why: 'larger than 64 MB, too large to scan' }];
   await pb.runJob({ roots: [] }, { ...opts, runBackup: async () => ({ ok: true, skipped: 3, skippedList }) });
-  assert.deepEqual(pb.report(opts).leftOut, { count: 3, files: skippedList });
+  assert.deepEqual(pb.report(opts).skippedFiles, { count: 3, files: skippedList });
   await pb.runJob({ roots: [] }, { ...opts, runBackup: async () => ({ ok: false, because: 'x' }) });
-  assert.deepEqual(pb.report(opts).leftOut, { count: 3, files: skippedList });
+  assert.deepEqual(pb.report(opts).skippedFiles, { count: 3, files: skippedList }, 'a passing failure keeps the list');
+  await pb.runJob({ roots: [] }, { ...opts, runBackup: async () => ({ ok: false, personActs: true, because: 'a stop' }) });
+  assert.equal(pb.report(opts).skippedFiles, undefined, 'a stop is what the person needs then');
+  await pb.runJob({ roots: [] }, { ...opts, runBackup: async () => ({ ok: true }) });
+  assert.equal(pb.report(opts).skippedFiles, undefined, 'a good run with no list says nothing of an older one');
 });
 
 test('pb tiers: a plan for another org does not size this backup', async (t) => {
