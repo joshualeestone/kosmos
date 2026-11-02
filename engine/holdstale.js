@@ -89,6 +89,10 @@ function owed(projects, log, now = Date.now(), o = {}) {
         // kosmos#7180: a met condition is told once (holdMetTold); after that, the posts rule applies as to any hold.
         const metNow = Boolean(until) && Date.parse(metTold[owner]) !== hold.at;
         if (!metNow && (now - hold.at < MIN_AGE_MS || Date.parse(told[owner]) === hold.at)) continue;
+        /* kosmos#7788: a hold for the person (`--for-you`) waits on their answer, and the owner talking with them in the
+           room is that wait, not work going on past the hold. Asking it to lift the hold would take the task out of
+           Needs Your Decision unanswered, so the posts rule never tells about it. A met condition still does. */
+        if (!metNow && t.onHoldForPerson === true) continue;
         const posts = (posted.get(p.id + '\u0000' + owner) || []).filter((at) => at > hold.at).length;
         if (!metNow && posts < MIN_POSTS) continue;
         out.push({
