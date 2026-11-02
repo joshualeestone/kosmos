@@ -22,7 +22,8 @@ agent jams. That is the 0.7.70 report on #6249, a version that already had #6780
 
 ## Change (engine/chat.js only, plus tests)
 
-- `isChipBox` means "the box shows a chip anywhere", not "the box is one chip". Everything that already defers to an
+- `isChipBox` means "the box is one chip, or shows a chip that is not words of our own line", not only "the box is one
+  chip". A message that merely mentions `[Pasted text #2]` is still compared word for word. Everything that already defers to an
   exact kept chip for a chip box (`rememberedShows`, the after-Enter watch) then covers every folded shape.
 - `composerHolds`, for a chip box: ours when `chip === true` (box read empty before our paste, under the delivery
   lock, and our line long enough to fold) and the box is only one-line chips with, between them, pieces of our own line
@@ -41,8 +42,8 @@ agent jams. That is the 0.7.70 report on #6249, a version that already had #6780
 ## Weakest part
 
 The batching under load is inferred, not reproduced: the shapes come from single large pastes, not from a loaded
-board coalescing 256-byte chunks. If a loaded box produces a shape not covered here (a chip that splits a word so the
-piece is not a run of ours, say), it is still refused, as today: the change only widens what is accepted, and never
+board coalescing 256-byte chunks. If a loaded box produces a shape not covered here (the box read while Claude Code
+is still drawing the fold, with a part-drawn chip, say), it is still refused, as today: the change only widens what is accepted, and never
 in a way that sends a person's text.
 
 ## Not done

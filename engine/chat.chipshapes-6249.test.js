@@ -186,3 +186,18 @@ test('#6249: which folded boxes count as ours', () => {
   assert.equal(h('[Pasted text #2][Pasted text #3]', w, '[Pastedtext#2][Pastedtext#3]'), 'ours', 'the exact form we left');
   assert.equal(h('[Pasted text #2][Pasted text #3]', w, '[Pastedtext#2]'), 'other', 'more than the form we left');
 });
+
+test('#6249: a short message that only MENTIONS a chip in its words is compared word for word and pressed', () => withAgent((roster) => {
+  const msg = 'Claude Code showed [Pasted text #2][Pasted text #3] for one paste';
+  const p = pane();   // no folding: the box shows our words
+  const v = chat.deliver('al', msg, roster);
+  assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
+  assert.notEqual(v.unsubmitted, true);
+  assert.equal(p.state.enters, 1, 'pressed: those chips are our own words');
+  const h = chat.composerHolds;
+  assert.equal(h(msg, msg), 'ours', 'the whole line, chip-like words and all');
+  // CONTROLS
+  assert.equal(h('[Pasted text #2][Pasted text #3] for one paste', 'a line with no chips in its words at all'), 'other', 'the same text is not ours when our line does not say it');
+  assert.equal(h(msg + '[Pasted text #9]', msg), 'other', 'a real chip after our words (not words of ours) is someone else\'s');
+  assert.equal(h('[Pasted text #2]', msg, null), 'other', 'a box that is one chip and nothing else is still a chip box, as before');
+}));
