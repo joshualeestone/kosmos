@@ -497,7 +497,7 @@ async function runJob(input, opts = {}) {
 }
 
 /* pbjob-7404 slice C: what the panel says about the job. The note holds the last good run, the last try, what that good
-   run left out (paths, masked by the walk, and the scanner's fixed reasons, so it is the one part with a person's file
+   run left out (paths, masked by the walk, and short reasons, so it is the one part with a person's file
    names, kept unencrypted at mode 600), and a stop as
    this module's own sentence: a run's `because` is passed on only for personActs, which the key step, runJob and a
    plan's stops in backupsnapshot write, all fixed sentences.
