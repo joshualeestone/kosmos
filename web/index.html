@@ -22386,6 +22386,10 @@ function stateCopyOf(a) {
   /* #7212 slice 2 (Mona Lisa's design): no message has reached it for half an hour. The engine sets deliveryStall only
      on an idle or working card, so the pill says what is wrong in place of a word that would read as fine. */
   if (a && a.deliveryStall) return { label: 'Messages stuck', attn: true };
+  /* #7786: an idle agent that launched and has never taken a turn (engine/status.js neverTurnedOf, Claude Code and Grok
+     only). "Idle" there reads as resting after work, so "started and stuck" and "never started" looked the same. Calm,
+     like Idle: a new agent waiting for its first message is not a problem by itself. */
+  if (a && a.state === 'idle' && a.neverTurned === true) return { label: 'Not started yet', attn: false };
   if (a && a.state === 'restarting') return { label: restartingLabel(a), attn: false };
   // #2808 class 2: a deliberate agent question reads "Question", attn:false (calm), not
   // the red "Issue". The predicate is byte-identical to cardStOf's above (inlined, not

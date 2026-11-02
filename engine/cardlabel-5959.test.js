@@ -42,6 +42,8 @@ test('#5959: the special cases agree (question, permission prompt, crash loop, r
     { state: 'idle', deliveryStall: { since: '2026-10-27T12:00:00.000Z', count: 3, lastWhy: 'menu', words: 'w' } },   // #7212 slice 2
     { state: 'working', deliveryStall: { since: '2026-10-27T12:00:00.000Z', count: 3, lastWhy: 'menu', words: 'w' } },
     { state: 'idle', deliveryStall: null },   // #7212 control
+    { state: 'idle', neverTurned: true },   // #7786
+    { state: 'working', neverTurned: true },   // #7786 control: only on idle
     { state: 'restarting', disruption: { cause: 'model' }, modelName: 'Opus' },
     { state: 'restarting', disruption: { cause: 'model' } },
     { state: 'restarting', disruption: { cause: 'provider', timedOut: true } },

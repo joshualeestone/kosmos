@@ -649,6 +649,27 @@ function history(sessionName, tailBytes) {
 }
 
 
+/* #7786: has this agent ever taken a turn? true, false, or null when the record cannot say. False ONLY when its record
+   exists and every row in it is a start or a stop that the hook wrote: it launched (its hook is wired, or there would
+   be no `started`) and nothing it did since was a turn. Any working, idle, needs_you or blocked row is a turn (the hook
+   writes one on every prompt and every finished answer, and an agent's own report comes from a turn); a person's clear
+   (`by: 'operator'`) is not, since it only acts on a report already there. No record is null, not false: a provider
+   whose hook never writes, or a hook that was never wired, leaves none (register.hasRun's weakest premise, review 21).
+   A record longer than the tail is null too: older rows exist that this read did not see. The rows survive a restart
+   and a board restart (append-only, never trimmed), so an agent that worked yesterday is true today. */
+const TURN_STATES = Object.freeze(['working', 'idle', 'needs_you', 'blocked']);
+function turnTakenOf(sessionName) {
+  const rows = history(sessionName);
+  if (!rows || rows.truncated) return null;
+  let started = false;
+  for (const row of rows) {
+    if (row.by === 'operator') continue;
+    if (TURN_STATES.includes(row.state)) return true;
+    if (row.state === 'started') started = true;
+  }
+  return started ? false : null;
+}
+
 /* #5318: blocked and needs_you are not two tones of one state. blocked is a wait nobody chases (heartbeat.js leaves it
    alone, recommender.js acts only on needs_you), so a person put in --owner sends person-blocked work where it goes
    inert (0.7.22, a real install: --owner "Josh"). The report is still RECORDED as sent; this only returns a note the
@@ -681,5 +702,5 @@ function blockedOwnerNote(state, owner, opts) {
   return isPerson ? BLOCKED_PERSON_NOTE : '';
 }
 
-module.exports = { STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, untilTimeOf, untilDefers /* kosmos#6683 */, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
+module.exports = { turnTakenOf, TURN_STATES /* #7786 */, STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, untilTimeOf, untilDefers /* kosmos#6683 */, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
   blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE };
