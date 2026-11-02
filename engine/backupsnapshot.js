@@ -1033,6 +1033,8 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
     if (typeof opts.onWorker === 'function') { try { opts.onWorker(w); } catch { here('worker-ended'); return; } }   // tests only
     w.once('message', (m) => {
       if (settled) return;
+      // The worker failed without the seal refusing (its copy or its post): sealed here, and said so.
+      if (!(m && (m.ok || m.refused))) { here('worker-ended'); return; }
       let sealed = null;
       if (m && m.ok) {
         try { sealed = Buffer.from(m.sealed.buffer, m.sealed.byteOffset, m.sealed.byteLength); } catch { sealed = null; }
@@ -1041,10 +1043,8 @@ function sealOffThread(memberPk, deviceKey, ctx, manifest, opts = {}) {
       done();
       w.terminate().catch(() => {});
       report('worker');
-      if (sealed) { resolve(sealed); return; }
-      if (m && m.refused) { reject(new Error(m.message || 'the manifest could not be sealed')); return; }
-      // The worker failed without the seal refusing (its copy or post): sealed here instead, never no seal.
-      try { resolve(sealManifest(memberPk, deviceKey, ctx, manifest)); } catch (err) { reject(err); }
+      if (sealed) resolve(sealed);
+      else reject(new Error(m.message || 'the manifest could not be sealed'));   // the seal itself refused
     });
     // An answer that cannot be read arrives as messageerror, with no message, error or exit after it.
     w.once('messageerror', () => { if (!settled) here('worker-ended'); });

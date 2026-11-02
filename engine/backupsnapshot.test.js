@@ -1956,6 +1956,14 @@ test('#7746: the manifest sealed in a worker opens to the same manifest; a worke
   const b3 = paths.length;
   await assert.rejects(snap.sealOffThread('not-bytes', k.dev.privateKey, k.ctx, manifest, { report }));
   assert.deepEqual(paths.slice(b3), ['here not-sent']);
+  // A worker that answers a failure that is not the seal refusing: sealed here, and reported as here.
+  const failing = path.join(os.tmpdir(), `failing-seal-worker-${process.pid}.js`);
+  fs.writeFileSync(failing, "require('node:worker_threads').parentPort.once('message', () => require('node:worker_threads').parentPort.postMessage({ ok: false }));\n");
+  try {
+    const out = await snap.sealOffThread(k.member.pk, k.dev.privateKey, k.ctx, manifest, { report, workerFile: failing });
+    assert.deepStrictEqual(bf.openManifest(k.member.sk, pub, k.ctx, out), here);
+    assert.equal(paths[paths.length - 1], 'here worker-ended');
+  } finally { fs.rmSync(failing, { force: true }); }
   // A worker that ends without answering (exits on its message): sealed here at once, well inside the wait.
   const quits = path.join(os.tmpdir(), `quitting-seal-worker-${process.pid}.js`);
   fs.writeFileSync(quits, "require('node:worker_threads').parentPort.once('message', () => process.exit(0));\n");
