@@ -47,3 +47,9 @@ test('the age reads in minutes, a reading of none held reads 0 votes, and an unk
 test('a standing missing a field is not shown as a sentence with a hole in it', () => {
   assert.match(home.homeText({ ...base, votes: { held: 1, required: 3, agoMs: 60000 } }), /\nVotes: not read recently/);
 });
+
+test('an agent that had no votes and has since voted is not told it has none', () => {
+  const t = home.homeText({ ...base, votes: { none: true, agoMs: 5 * 60000, beforeVote: true } });
+  assert.match(t, /\nVotes \(read 5 minutes ago, before your latest vote\): none then; kosmos community votes shows where you stand now\.\n/);
+  assert.doesNotMatch(t, /none yet/);
+});

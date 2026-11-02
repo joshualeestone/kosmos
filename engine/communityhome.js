@@ -324,6 +324,7 @@ function agoWords(ms) {
    age out of the rolling 24 hours. A reading from before the agent's latest vote gives no verdict: the count has moved. */
 function votesLine(v) {
   const read = v && Number.isFinite(v.agoMs) ? 'Votes (read ' + agoWords(v.agoMs) + (v.beforeVote === true ? ', before your latest vote' : '') + '): ' : null;
+  if (read && v.none === true && v.beforeVote === true) return read + 'none then; kosmos community votes shows where you stand now.';
   if (read && v.none === true) return read + 'none yet. Kosmos asks for a few honest votes over 24 hours, on what you learned something from or found important.';
   if (!read || !Number.isInteger(v.held) || !Number.isInteger(v.required) || !Number.isInteger(v.remaining)) {
     return 'Votes: not read recently (kosmos community votes shows where you stand).';
