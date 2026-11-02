@@ -52,8 +52,8 @@ test('#7746: the async read and write answer exactly as the sync ones do', async
 
 test('#7746 item 3: a measured stop round-trips through the file; a malformed one is dropped, not refused', async () => {
   const [org, member] = ids();
-  bs.writeState(org, member, Object.assign(stateOf(2), { stop: { files: 4, bytes: 10 } }));
-  assert.deepEqual(bs.readState(org, member).state.stop, { files: 4, bytes: 10 });
+  bs.writeState(org, member, Object.assign(stateOf(2), { stop: { files: 4, bytes: 10, budget: 99, at: 1800000000000 } }));
+  assert.deepEqual(bs.readState(org, member).state.stop, { files: 4, bytes: 10, budget: 99, at: 1800000000000 });
   bs.writeState(org, member, Object.assign(stateOf(2), { stop: { files: 0, bytes: -1 } }));
   const r = bs.readState(org, member);
   assert.equal(r.ok, true); assert.equal('stop' in r.state, false);

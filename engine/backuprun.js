@@ -190,6 +190,7 @@ function snapshotDeps(deps, checkpoint) {
 
 /* The snapshot under an ok key for `pair`: this clock's week, and once more in a granted week. ref.state is kept
    current, so the job's state is written over the latest periods. */
+const STOP_KEPT_MS = 28 * 24 * 3600 * 1000;
 async function snapshotStep(pair, k, ref, input, deps, now) {
   const snapshotsMod = require('./backupsnapshot');
   const take = deps.takeSnapshot || snapshotsMod.takeSnapshot;
@@ -215,7 +216,9 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
     result = await take({
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
       deviceKey: dk.privateKey, index: p.index, bucket: p.bucket, ...(k.proofKey ? { proofKey: k.proofKey } : {}),
-      ...(ref.state.stop ? { priorStop: ref.state.stop } : {}),
+      // kosmos#7746 item 3: a kept stop is handed on for STOP_KEPT_MS, then one real attempt is made again, so a stop that
+      // was wrong (a borderline estimate) costs at most one try in that time.
+      ...(ref.state.stop && now() - ref.state.stop.at < STOP_KEPT_MS ? { priorStop: ref.state.stop } : {}),
       ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },
     }, snapshotDeps(deps, async (added, bucket) => {
       // Never stops the run: a checkpoint that cannot be kept only loses what a kill would have lost anyway.

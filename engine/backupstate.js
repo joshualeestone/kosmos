@@ -74,8 +74,9 @@
  *   carried but unused after the coordinator's Monday; accepted (it is dropped by the next week's first run).
  * withPeriod(state, period) -> state: `period` in the first slot, replacing its label's slot; at most SLOTS kept, the
  *   least recently used dropped. For writing a fresh period before its snapshot.
- * withRun(state, period, result, { maxIndex? }) -> state: (maxIndex, kosmos#7746: the run's own cap, at most MAX_INDEX) withPeriod with the period after a takeSnapshot result, plus `leftOut` (how
- *   many `added` rows it did not keep: malformed, another period's, past the cap, or with no bucket; not persisted), so
+ * withRun(state, period, result, { maxIndex? }) -> state: withPeriod with the period after a takeSnapshot result, plus `leftOut` (how
+ *   many `added` rows it did not keep: malformed, another period's, past the cap, or with no bucket; not persisted; the cap
+ *   is maxIndex, the run's own (kosmos#7746), never above MAX_INDEX), so
  *   a caller bug shows. The index is dropped ONLY when the
  *   result says so: staleIndex, or chunks stored under a DIFFERENT non-null bucket. A null bucket is not "another
  *   bucket": takeSnapshot returns null on every failure before it reads the index (a bad root, the clock, a key), and
@@ -130,11 +131,12 @@ const isEpoch = (e) => Number.isSafeInteger(e) && e >= 1;
 const isPosInt = (n) => Number.isSafeInteger(n) && n > 0;
 const goodKey = (k) => typeof k === 'string' && k.length <= 1024 && k.split('/').length === 5 && k.split('/').every((s) => KEY_SEG_RE.test(s) && s !== '.' && s !== '..');
 
-/* kosmos#7746 item 3: where a plan's run last stopped on the measured manifest size, { files, bytes } of its listing, or
-   undefined. Kept beside the job so a later run whose listing is no smaller stops before it spends anything. */
+/* kosmos#7746 item 3: where a plan's run last stopped on the measured manifest size: { files, bytes } of its listing, the
+   manifest budget it was measured under, and when (ms), or undefined. Kept beside the job so a later run whose listing is
+   no smaller stops before it spends anything (backuprun and backupsnapshot say when it no longer applies). */
 function cleanStop(s) {
-  if (!s || typeof s !== 'object' || !isPosInt(s.files) || !Number.isSafeInteger(s.bytes) || s.bytes < 0) return undefined;
-  return { files: s.files, bytes: s.bytes };
+  if (!s || typeof s !== 'object' || !isPosInt(s.files) || !Number.isSafeInteger(s.bytes) || s.bytes < 0 || !isPosInt(s.budget) || !isPosInt(s.at)) return undefined;
+  return { files: s.files, bytes: s.bytes, budget: s.budget, at: s.at };
 }
 function cleanJob(j) {
   const out = {};
