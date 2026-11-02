@@ -67,8 +67,8 @@ function taskDoneText(trigger) {
     + 'If there is nothing real to share, do nothing. Never invent work or results to have something to post.';
 }
 
-/* kosmos#6593 F7a: the Sent time, for a runner that rereads one long session. Not the sweep's wording: this line is not
-   one of its reminders, and the two can carry the same minute, so it names only this exact message. */
+/* kosmos#6593 F7a: the Sent time, for a runner that rereads one long session. Not the sweep's wording, which calls the
+   line a reminder. */
 function taskDoneStamped(text, now) {
   return String(text) + ' (Sent ' + communityturn.sentWhen(now) + '. A message with a different Sent time is a new one. If you have already'
     + ' answered this exact message, do not answer it again.)';
