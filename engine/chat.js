@@ -940,9 +940,10 @@ function panePidOf(target) {
    decided by the chip rules below, never by comparing words. */
 const ANY_CHIP = /\[Pastedtext#\d+(?:\+\d+lines)?\]/g;
 const ONE_LINE_CHIP_ANY = /\[Pastedtext#\d+\]/g;
+const isLoneChip = (text) => /^\[Pastedtext#\d+(?:\+\d+lines)?\]$/.test(squash(text));
 function isChipBox(text, wire = '') {
   const t = squash(text);
-  if (/^\[Pastedtext#\d+(?:\+\d+lines)?\]$/.test(t)) return true;
+  if (isLoneChip(t)) return true;
   const w = squash(wire);
   return (t.match(ANY_CHIP) || []).some((c) => !w.includes(c));
 }
@@ -1053,6 +1054,7 @@ function inputBoxReads(card) {
    up to about a second for the first line after start on 2.1.296), and how often it is looked at. */
 const SUBMIT_SETTLE_MS = 1500;
 const EARLIER_SETTLE_MS = 300;   // round 8: the watch after the Enter on the board's own earlier line
+const FOLD_STABLE_LOOKS = 5;   // #6249: looks a SUBMIT_LOOK_MS apart for a folded paste to stop changing before it is pinned
 const SUBMIT_LOOK_MS = 60;   // round 4, measured on 2.1.300: the box reads empty 25 to 93 ms after the Enter
 /* #6256 item 3: says what happens next, so nobody types it again by hand (the retries are UNSENT_RETRY_MS). */
 const UNSENT_BECAUSE = 'it went into its input box and was not sent; it is still sitting there, and Kosmos presses Enter on it again on its own over the next few minutes, then every ten minutes while it sits there, and before the next thing it types to this agent, while the box shows only that line';
@@ -1084,7 +1086,10 @@ function* submitConfirmSteps(card, target, wire, mayRetry, settleMs = SUBMIT_SET
     /* Round 9: other text, but none of our ending in it: ours went and someone has started typing since. kosmos#6717:
        not for a chip, whose words are hidden: one that is not tied to our paste is someone else's, said as 'other'. */
     if (holds === 'other') {
-      if (isChipBox(box.text, wire)) return { outcome: 'other', retried };   // kosmos#6717: its words are hidden; never "ours went"
+      /* #6249: a chip pinned as ours still in the box means ours did not go, whatever else is there now. Otherwise a box
+         that is only a chip hides its words, as before; text with someone's chip in it is judged by our end. */
+      const pinned = pin ? pin.match(ANY_CHIP) || [] : [];
+      if (isLoneChip(box.text) || pinned.some((c) => squash(box.text).includes(c))) return { outcome: 'other', retried };
       return { outcome: stillHoldsOurEnd(box.text, wire) ? 'other' : 'sent', retried };
     }
     if (waited < settleMs) {
@@ -2687,8 +2692,27 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
        delivery lock, within the gap (chip: true). A person's paste in that same second is the one case it cannot
        tell from ours; a multi-line chip never is ours (our line is one line). #6249: so are several one-line chips,
        with runs of ours between them, and the whole folded form is what is pinned. */
-    if (before.ok && chipTie && isChipBox(before.text, wire) && foldedFromOurs(squash(before.text), wire)) ourChip = squash(before.text);   // #6249: the whole folded form
-    if (before.ok && composerHolds(before.text, wire, ourChip || chipTie) === 'other') {
+    let box = before;
+    if (box.ok && chipTie && isChipBox(box.text, wire) && foldedFromOurs(squash(box.text), wire)) {
+      /* #6249: a fold can still be drawing (one chip showing of several), so the form is pinned only once two reads a
+         look apart agree; one still changing after FOLD_STABLE_LOOKS is not pressed. */
+      let looks = 0;
+      for (;;) {
+        submitGap(SUBMIT_LOOK_MS);
+        const again = readComposer(target);
+        if (again.ok && squash(again.text) === squash(box.text)) {
+          if (isChipBox(box.text, wire) && foldedFromOurs(squash(box.text), wire)) ourChip = squash(box.text);   // settled, and still ours
+          break;
+        }
+        box = again;
+        looks += 1;
+        if (!box.ok || looks >= FOLD_STABLE_LOOKS) break;
+      }
+      if (!ourChip) {
+        return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, because: UNSENT_NOT_PRESSED_BECAUSE, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };
+      }
+    }
+    if (box.ok && composerHolds(box.text, wire, ourChip || chipTie) === 'other') {
       return { state: DELIVERY.UNCONFIRMED, unsubmitted: true, because: UNSENT_NOT_PRESSED_BECAUSE, at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };
     }
   }
@@ -2731,7 +2755,8 @@ function deliverWithGap(sessionName, raw, roster, envelope, trailer, asynchronou
       unsentSeq += 1;
       seq = unsentSeq;
       /* kosmos#6717: left there as a chip: its exact text (the number) is what a later look must find to press it. */
-      const chipSeen = isChipBox(result.text, wire) ? squash(result.text) : '';   // #6249: 'unsent' here means it matched the pinned form
+      /* #6249: a chip box is 'ours' in submitConfirmSteps only as the exact pinned form, so a chip box here is that form. */
+      const chipSeen = isChipBox(result.text, wire) ? squash(result.text) : '';
       rememberUnsent(target, { wire, at: Date.now(), seq, seen: chipSeen ? '' : endSeen(result.text),
         ...(chipSeen ? { chip: chipSeen, chipPid: panePidOf(target) } : {}) });
       scheduleUnsentRetries(target, allowed.card);
