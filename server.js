@@ -6542,8 +6542,8 @@ function processCaller(req, body, roster, viaScreen, notDone) {
    let a caller into a project that has members. */
 /* kosmos#5752 slice 2: a refusal for not being on the project names its fix (engine/messages.js says where). */
 const NOT_ON_PROJECT_FIX = messages.NOT_ON_PROJECT_FIX;
-/* #4926: the first line of `kosmos room <id> --unanswered`'s answer. Both CLIs look for it at the start of a line to
-   tell a board that ignored the flag (an older one, which sends the whole room) from one that applied it. */
+/* #4926: a line of `kosmos room <id> --unanswered`'s answer starts with this. Both CLIs look for a line starting with it
+   to tell a board that ignored the flag (an older one, which sends the whole room) from one that applied it. */
 const UNANSWERED_HEAD = 'Waiting on an answer from you: ';
 /* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it without the agent
    having to say so, and can add the agent from that row. `doing` is what the agent tried, in the row's words. */
@@ -23202,12 +23202,15 @@ const server = http.createServer(async (req, res) => {
             answeredBy.set(m.replyTo, list);
           }
         }
-        /* Asked of the reader: it was named (@name, recorded when sent), or the person posted and it reached the reader.
-           A colleague's post that only reached it is not counted: an FYI is not an ask, and listing it would invite the
-           re-answers this exists to stop. Never the reader's own post. */
+        /* Asked of the reader: it named the reader (an @name, or an agent's `Sender -> Name:` header; messages.namedIn,
+           the claim guard's own reading), or the person posted and it reached the reader. A colleague's post that only
+           reached it is not counted: an FYI is not an ask, and listing it would invite the re-answers this exists to
+           stop. Never the reader's own post. The rows above drop `addressed`, so it is read from the stored rows. */
+        const namedReader = new Set();
+        if (readerName) for (const m of roomRows) if (m && m.kind === 'post' && messages.namedIn(m).includes(readerName)) namedReader.add(String(m.id));
         const askedOfReader = (m) => !!readerName && m && m.kind === 'post'
           && (m.operator === true || m.from !== readerName)
-          && ((Array.isArray(m.mentioned) && m.mentioned.includes(readerName))
+          && (namedReader.has(String(m.id))
             || (m.operator === true && Array.isArray(m.to) && m.to.includes(readerName)
               && !(m.outcomes && (m.outcomes[readerName] === 'quiet' || m.outcomes[readerName] === 'could_not'))));
         if (onlyUnanswered && !readerName) {
@@ -23224,11 +23227,15 @@ const server = http.createServer(async (req, res) => {
            local one, or "nothing has been said" in a room where something was (#4891 review 1). */
         const outsideCap = Math.max(1, Math.floor(textRows / 2));
         // kosmos#7365 slice 3: agents read the live room only, so the walk stops at the archive.
-        for (let i = rows.length - 1; i >= archivedCount && tail.length < textRows; i--) {
+        let openAsks = 0;   // #4926: every open ask in the live room, listed or not
+        for (let i = rows.length - 1; i >= archivedCount && (onlyUnanswered || tail.length < textRows); i--) {
           /* #4926: --unanswered walks the whole live room, not just the last N rows, so an ask further back that is still
-             open is found; N then caps how many are listed (the newest). */
+             open is found; N then caps how many are listed (the newest), and the count says how many there are. */
           if (onlyUnanswered) {
-            if (askedOfReader(rows[i]) && !answeredBy.has(String(rows[i].id))) tail.unshift(rows[i]);
+            if (askedOfReader(rows[i]) && !answeredBy.has(String(rows[i].id))) {
+              openAsks += 1;
+              if (tail.length < textRows) tail.unshift(rows[i]);
+            }
             continue;
           }
           if (rows[i] && rows[i].kind === 'external') { if (outside >= outsideCap) continue; outside += 1; }
@@ -23385,8 +23392,9 @@ const server = http.createServer(async (req, res) => {
         /* #4926: a filtered view says it is one, so it never reads as the whole room, and a CLI can tell a board that
            ignored ?unanswered=1 (an older one) by this line being absent. */
         const filtered = !onlyUnanswered ? ''
-          : lines.length ? UNANSWERED_HEAD + tail.length + (tail.length === 1 ? ' post' : ' posts')
-            + ' in this room (each asked you something, and no post of yours cites it by id with --reply-to):\n'
+          : lines.length ? UNANSWERED_HEAD + openAsks + (openAsks === 1 ? ' post' : ' posts')
+            + ' in this room (each asked you something, and no post of yours cites it by id with --reply-to)'
+            + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'
           : rec.ok === false ? UNANSWERED_HEAD + 'none found, but this room could not be read, so that may be wrong.\n'
           : UNANSWERED_HEAD + 'nothing in this room.\n';
         res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : ''));

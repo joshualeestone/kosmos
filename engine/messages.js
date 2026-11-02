@@ -4577,6 +4577,7 @@ async function deletePostAsync({ projectId, id, roster } = {}) {
 }
 
 module.exports = {
+  namedIn,   // #4926: server.js asks it who a room post asked by name
   lastPostAt, recommenderNoted,   // #6341
   spillLimit,   // #6065: the longest line typed whole
   spillLine, requestIn, fitOrBare,   // #6065 N1: the shortened line, its request, and the re-measure (tests)

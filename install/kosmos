@@ -5352,7 +5352,7 @@ cmd_room() {
   case "$_code" in
     4??|5??) exit 1 ;;
   esac
-  # #4926: the board starts a filtered answer with this line; without it, this board does not know --unanswered and
+  # #4926: a filtered answer has a line starting with this; without one, this board does not know --unanswered and
   # what printed is the whole room.
   if [ -n "$_unans" ] && ! printf '%s\n' "$_body" | grep -q '^Waiting on an answer from you: '; then
     say "This Kosmos does not know --unanswered yet, so what is above is the whole room, not only what is waiting on you. Update Kosmos to use it." >&2

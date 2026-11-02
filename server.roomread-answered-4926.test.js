@@ -125,8 +125,11 @@ test('?unanswered=1 finds an open ask older than the last N rows; N caps how man
   assert.ok(!plain.text.includes('[' + old + ']'), 'fixture: -n 2 still shows the old ask');
   const both = await room(pid, tokenFor(WHO), '&n=2&unanswered=1');
   assert.ok(both.text.includes('[' + old + ']') && both.text.includes('[' + newer + ']'), both.text);
+  assert.match(both.text, /^Waiting on an answer from you: 2 posts in this room \(.*\):$/m, 'n=2 with two open asks miscounts:\n' + both.text);
   const one = await room(pid, tokenFor(WHO), '&n=1&unanswered=1');
   assert.ok(one.text.includes('[' + newer + ']') && !one.text.includes('[' + old + ']'), 'n=1 did not keep only the newest:\n' + one.text);
+  assert.match(one.text, /^Waiting on an answer from you: 2 posts in this room .*; the newest is below:$/m,
+    'n=1 reports only the listed post, so an agent reads one open ask where there are two:\n' + one.text);
 });
 
 test('?unanswered=1 with nothing open says so; with no agent token it refuses rather than listing someone else\'s', async () => {
@@ -179,4 +182,16 @@ test('?unanswered=1 on a room log that cannot be read still answers as a board t
   assert.match(r.text, /^Waiting on an answer from you: none found, but this room could not be read/m,
     'a current board left out its filtered-view line, so a CLI calls it an older board:\n' + r.text);
   assert.doesNotMatch(r.text, /nothing in this room\./, 'an unreadable room claims nothing is waiting');
+});
+
+test('?unanswered=1 counts an agent\'s `Sender -> Name:` header ask as an ask, as the claim guard does', async () => {
+  const pid = newRoom('Answered4926i');
+  const header = post(pid, { text: 'Poster -> Grokseat: can you take the lease?', mentioned: [], addressed: [WHO] });
+  const other = post(pid, { text: 'Poster -> Somebody: not you', mentioned: [], addressed: ['somebody'] });
+  const r = await room(pid, tokenFor(WHO), '&unanswered=1');
+  assert.ok(r.text.includes('[' + header + ']'), 'an open ask addressed by header is not listed:\n' + r.text);
+  assert.ok(!r.text.includes('[' + other + ']'), 'CONTROL: a header ask to someone else is listed for the reader:\n' + r.text);
+  const answer = post(pid, { from: WHO, to: [OTHER], text: 'yes', replyTo: header });
+  assert.match((await room(pid, tokenFor(WHO), '&unanswered=1')).text, /^Waiting on an answer from you: nothing in this room\.$/m,
+    'answering the header ask by id (' + answer + ') did not take it off the list');
 });
