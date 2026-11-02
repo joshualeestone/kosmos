@@ -819,6 +819,7 @@ test('#6593 due: a task-done prompt within the gap holds the reminder; one past 
 });
 test('#6593 due: with the floor met, a task-done prompt since the last post is that post\'s one ask', () => {
   assert.deepEqual(ct.due(args({ otherTries: (s) => (s === 'ann' ? [NOW - 4 * H] : []) })).map((d) => d.session), ['bea']);
+  assert.deepEqual(ct.due(args({ otherTries: (s) => (s === 'ann' ? [NOW - 9 * H] : []) })).map((d) => d.session), ['ann', 'bea'], 'CONTROL: a try before the post is not this post\'s ask');
 });
 test('#6593 due: with no post in a day, a task-done prompt never stands in for the floor line', () => {
   const postTimes = (s) => (s === 'ann' ? [ago(30 * H)] : [ago(1 * H)]);
