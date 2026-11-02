@@ -176,6 +176,15 @@ test('#7812 a member whose line was held is tried again within the gap; one alre
   } finally { chat.resetForTests(); w.board.restore(); }
 });
 
+test('#7812 an agent taken off the project after the press is not told, though the route passed its name', () => {
+  const w = resumedWorld(['casey', 'dana']);
+  try {
+    arm();
+    projects.removeAgent(w.pid, 'dana');   // between the Resume press and the deferred tell
+    assert.deepEqual(messages.tellResumed(w.pid, w.name, ['casey', 'dana'], w.board.agents).told.map((t) => t.to), ['casey']);
+  } finally { chat.resetForTests(); w.board.restore(); }
+});
+
 test('#7812 a line held off the pane (a menu on screen) is not counted as told', () => {
   const w = resumedWorld(['casey']);
   try {
