@@ -32,7 +32,7 @@ const FRESH_MS = 2 * 60 * 60 * 1000;
 const SPEAKS_FOR_ITSELF = new Set(['stopped', 'restarting', 'needs_you', 'needs_trust', 'rate_limited', 'auth_failed',
   'connection_lost', 'blocked']);
 
-/* name -> { since: ms, count, lastWhy, lastAt: ms, kinds: Set<string> } */
+/* name -> { since: ms, count, lastWhy, lastAt: ms, kinds: Set<string>, said?: true (stallsToSay said it) } */
 const streaks = new Map();
 /* kosmos#7212 item 2: name -> { since, count, endedAt }, a streak a PLACED verdict ended, kept until the minute sweep asks
    (endsToSay) so a stall that was said can be said to have ended. Only a landed line writes it: a streak cleared because
@@ -189,8 +189,8 @@ function spanWords(ms) {
 
 /* The board log's line for one stall that ended (kosmos#7212 item 2). */
 function endedLine(e) {
-  return 'delivery-stall-ended: a message reached ' + e.name + ' at ' + e.endedAt + ', ending the stall said since ' + e.since
-    + ' (' + spanWords(e.ms) + ', ' + e.count + ' tries that did not land' + (e.pushed ? '; the phone was told of the stall' : '') + ').\n';
+  return 'delivery-stall-ended: a message reached ' + e.name + ' at ' + e.endedAt + ', ending the stall that began ' + e.since
+    + ' (' + spanWords(e.ms) + ', ' + e.count + ' tries not seen to land' + (e.pushed ? '; the phone was told of the stall' : '') + ').\n';
 }
 
 /* Why the last one did not land, as the middle sentence of the card's line (Mona Lisa's design, #7212): no full stop,
