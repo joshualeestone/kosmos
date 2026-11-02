@@ -212,3 +212,22 @@ test('#7788 review 2 Mac CLI: --for-you as the value of --because is the reason,
       'the first is a reason; the second (control) is the switch after a reason');
   });
 });
+
+test('#7797 Mac CLI: --not-for-you sends forPerson false, keeps the hold, and says it left the list; both switches refused', async () => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, ...(w.body && w.body.forPerson === true ? { onHoldForPerson: true } : {}) } }], async (env, writes) => {
+    const a = await runCli(['task', 'hold', 'p1', '3', '--not-for-you'], env);
+    assert.equal(a.code, 0, a.stdout + a.stderr);
+    assert.match(a.stdout, /no longer on the list of what is waiting on your person/);
+    const both = await runCli(['task', 'hold', 'p1', '3', '--for-you', '--not-for-you'], env);
+    assert.equal(both.code, 2, 'both switches are refused');
+    const c = await runCli(['task', 'hold', 'p1', '3', '--because', '--not-for-you'], env);
+    assert.equal(c.code, 0, c.stdout + c.stderr);
+    assert.deepEqual(writes.map((x) => x.body), [{ onHold: true, forPerson: false }, { onHold: true, because: '--not-for-you' }],
+      'unmarked; nothing sent for both; and as a reason it is words (control)');
+  });
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true, onHoldForPerson: true } }], async (env) => {
+    const old = await runCli(['task', 'hold', 'p1', '3', '--not-for-you'], env);
+    assert.equal(old.code, 1, 'an older board that kept the mark exits 1');
+    assert.match(old.stdout, /older than --not-for-you, so it still waits on your person/);
+  });
+});
