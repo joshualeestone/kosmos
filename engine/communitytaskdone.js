@@ -31,10 +31,10 @@
  * it counts real posts in the last 24h -- both paths see the same posts), and a per-agent daily event
  * cap (PROMPTS_PER_DAY) so a burst of completions cannot spam one agent.
  *
- * NOTE (weakest point, see the plan): two caps are per-path, NOT shared with the sweep. (1) The
- * per-agent daily event cap counts only THIS module's own book, not the sweep's COMMUNITY_TURN_BOOK,
- * so across both paths an agent could get up to PROMPTS_PER_DAY sweep prompts AND PROMPTS_PER_DAY
- * task-done prompts in a day. (2) This path does NOT count into the board-wide per-HOUR log the sweep
+ * kosmos#6593: the sweep's reminders count here (o.turnTries, the sweep's book as last written to disk): one
+ * within the sweep's TURN_GAP_MS stops this prompt, and both paths share PROMPTS_PER_DAY. The sweep books a
+ * try that did not reach the agent too, and so holds this prompt off for its gap; this book holds only
+ * prompts that reached. NOTE: this path does NOT count into the board-wide per-HOUR log the sweep
  * shares (AGENT_NUDGE_SENT), because that array lives in the boot block and the request handler cannot
  * see it without lifting it to module scope and threading it through the hot nudge path. Bounded
  * instead by the per-task dedup (one per task ever) + this per-agent daily cap + the daily-post-max gate.
@@ -122,8 +122,7 @@ function decide(o) {
     const at = times.map((t) => Date.parse(t)).filter(Number.isFinite);
     if (at.filter((t) => now - t < DAY_MS).length >= POSTS_PER_DAY_MAX) return { done: { session, name, act: 'daily-max', delivery: null, recorded: false } };
 
-    // Per-agent daily event cap: a burst of task completions cannot spam one agent.
-    if (triesForSession(book, session, now) >= PROMPTS_PER_DAY) return { done: { session, name, act: 'agent-daily-cap', delivery: null, recorded: false } };
+    // Per-agent daily event cap, both paths together: a burst of task completions cannot spam one agent.
     // kosmos#6593 F7a: the idle sweep's reminders are asks to post too. One asked within its gap is not asked again, and
     // both paths together stay within PROMPTS_PER_DAY a day.
     let turn = [];
@@ -173,6 +172,8 @@ function settle(p, v) {
  *   inCommunity,                                      // (session) => bool  (its instructions carry the block)
  *   postTimes,                                        // (session) => [ISO string] | null  (null = unreadable)
  *   deliver, DELIVERY,                                // (session, text) => verdict ; chat.DELIVERY
+ *   turnTries,                                        // (session) => [ms], the sweep's asks (#6593); optional
+ *   stamp,                                            // true: the line carries the sweep's Sent stamp (#6593)
  * }
  * kosmos#7649: a test seam now. The board calls promptOnTaskDoneAsync; this synchronous sender is kept as the
  * reference engine/communitytaskdone.test.js compares the async path against (both go through decide and settle).

@@ -28277,7 +28277,7 @@ function start(port = PORT) {
           history: (session) => selfreport.history(session),   // #5296: has it worked since its last post
           kosmosLines: (session) => require('./engine/instructionreread').sentTimes(session),   // #5297: turns a re-read line woke
           postTimes: (session) => { const all = allPosts(); return all === null ? null : (all.get(String(session).trim().toLowerCase()) || []); },
-          beforeRecheck: () => { postsNow = undefined; taskDoneTries = undefined; },   // #6593: and a task-done ask made meanwhile   // kosmos#7649 review 4: a post made while the agent before was typed into is seen
+          beforeRecheck: () => { postsNow = undefined; taskDoneTries = undefined; },   // kosmos#7649 review 4 and #6593: a post, or a task-done ask, made while the agent before was typed into is seen
           book: COMMUNITY_TURN_BOOK, idleSeen: COMMUNITY_TURN_IDLE_SEEN,
           saveBook: (b) => communityturn.writeBook(b),   // kosmos#7649 review 1: after each booking, so a stop mid-pass keeps it
           lineFor: (session) => communityHomeLine(session),   // #5212: what is waiting, read ahead (below)

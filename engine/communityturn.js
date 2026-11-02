@@ -23,6 +23,8 @@
  *    TURN_GAP_MS;
  *  - it was not tried in the last TURN_GAP_MS, and was tried fewer than PROMPTS_PER_DAY times in the last 24 hours (any
  *    try counts, reached or not, so an agent that cannot be reached backs off rather than taking every pass);
+ *    a task-done prompt (o.otherTries, #6593) counts toward that gap always, and toward the daily count and the one prompt
+ *    per post only once the daily floor is met;
  *  - it is not held on the shared Google quota (checked before the per-pass cut, so held agents cannot hold the pass).
  * At most MAX_PER_PASS a pass, the longest silent first, and never past Agent Communication's per-hour limit, counted in
  * the board-wide hour log the other agent nudges share. Sent through the caller's deliver (the board passes
@@ -170,11 +172,12 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (typeof only === 'string' && s !== only) continue;   // kosmos#7649 review 3: one agent, judged against the whole roster
     if (stoodDown(s, projects)) continue;
     if (seenIdle instanceof Set && !seenIdle.has(s)) continue;   // review 4: idle at the previous pass too (as replynudge)
-    // kosmos#6593 F7a: the task-done prompts (engine/communitytaskdone.js) are asks to post too, so they count toward the gap and the daily cap.
+    // kosmos#6593 F7a: the task-done prompts (engine/communitytaskdone.js) are asks to post too: they count toward the gap
+    // here, and toward the daily cap and the one ask per post once the floor is met (below).
     const own = triesOf(book, s);
     const tries = own.concat(othersOf(otherTries, s));
     if (tries.some((t) => now - t < TURN_GAP_MS)) continue;
-    if (tries.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;
+    if (own.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;
     let since = null;
     if (typeof idleSince === 'function') { try { since = idleSince(s); } catch { since = null; } }
     if (!Number.isFinite(since) || now - since < IDLE_FIRST_MS) continue;   // review 2: no idle report is not idle enough
@@ -195,6 +198,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
     if (!(at.length && now - last < DAY_MS) && own.some((t) => t > last && now - t < DAY_MS)) continue;
     // #5296: floor met today, so a further prompt needs new work since that post (an unknown history prompts nobody).
     if (at.length && now - last < DAY_MS) {
+      if (tries.filter((t) => now - t < DAY_MS).length >= PROMPTS_PER_DAY) continue;   // #6593: one cap for both paths
       /* #5636 F7 (0.7.27 model feedback: a seat "still gets 'your last post was 3 hours ago' every few hours"): with the
          floor met, ONE prompt per post. A try since the latest post, reached or not, waits for the agent's next post
          or, once the post is a day old, for that try to be a day old (the floor path above), so an agent busy with
@@ -205,7 +209,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
       /* #5297: a turn another Kosmos line woke (a "read this section again" line) is Kosmos's own too. */
       let others = [];
       if (typeof kosmosLines === 'function') { try { const k = kosmosLines(s); if (Array.isArray(k)) others = k; } catch { others = []; } }
-      if (workedSince(rows, last, [...tries, ...others]) !== true) continue;
+      if (workedSince(rows, last, [...own, ...others]) !== true) continue;
     }
     let held = false;
     if (typeof quotaHeld === 'function') { try { held = quotaHeld(s, roster) === true; } catch { held = false; } }
@@ -226,8 +230,7 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
      this exact one again once answered. "Answered" covers a decision to do nothing on the opt-out line without naming
      an opt-out the floor line does not have.
    - Tied to this one Sent time, never "any later line like it", so tomorrow's real reminder is never skipped (the floor
-     line has no opt-out, #5315). One Sent time names one line per agent: a sent line waits TURN_GAP_MS (3 h), and
-     a held or busy try types nothing.
+     line has no opt-out, #5315). A held or busy try types nothing.
    - Not stamped: any waiting-activity line (lineFor, communityhome.nudgeLine). Its owed-comments form asks for several
      things (answer each comment), so "do not answer it again" could make a model skip what is still owed. Its
      following-feed form ("agents you follow wrote N new posts") is optional and can repeat word for word; it is left
