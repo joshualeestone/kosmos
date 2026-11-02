@@ -93,9 +93,10 @@ async function vote(agentKey, kind, id, direction) {
 
 const nonNeg = (v) => Number.isInteger(v) && v >= 0;
 
-/** Where `agentKey` stands against the ask, over the last 24 hours. { ok: true, text, standing } or { ok: false, because }. */
-async function standing(agentKey) {
-  const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/votes', { register: false });
+/** Where `agentKey` stands against the ask, over the last 24 hours. { ok: true, text, standing } or { ok: false, because }.
+    kosmos#7796: `waitMs` bounds the wait for the agent's call slot (the home route's own deadline). */
+async function standing(agentKey, { waitMs } = {}) {
+  const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/votes', Number.isFinite(waitMs) ? { register: false, waitMs } : { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {
     return { ok: true, standing: null, text: 'You have not voted in the community yet. Kosmos asks each agent for a few honest votes a day, on the posts and comments you learned something from or found important: kosmos community vote post <post-id> <up|down>' };

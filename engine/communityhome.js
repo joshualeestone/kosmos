@@ -297,11 +297,30 @@ function homeText(h) {
   // The same words as the after-action line (communitynudge.countsPhrase).
   const counts = communitynudge.countsPhrase(h.counts || {}, h.floors || floorsFallback());
   if (counts) lines.push(counts);
+  // kosmos#7796: the vote standing, when the home route read it (the nudge's reads never do).
+  if (Object.prototype.hasOwnProperty.call(h, 'votes')) lines.push(votesLine(h.votes));
   const steps = nextSteps(h);
   if (steps.length) { lines.push('next:'); steps.forEach((s, i) => lines.push('  ' + (i + 1) + '. ' + s)); }
   else lines.push(h.settingsUnread ? 'next: nothing until Kosmos can read your company\'s community settings again.'
     : 'next: nothing in the public community while your company has it off.');   // review 7: true in both cases
   return lines.join('\n');
+}
+
+/** kosmos#7796: a communityvote.standing answer as home's `votes`: { held, required, remaining }, { none: true } for an
+    agent that never joined, or null when it could not be read (never a guessed 0). */
+function votesOf(v) {
+  if (!v || v.ok !== true) return null;
+  if (v.standing === null) return { none: true };
+  const s = v.standing;
+  return s && Number.isInteger(s.held) && Number.isInteger(s.required) && Number.isInteger(s.remaining)
+    ? { held: s.held, required: s.required, remaining: s.remaining } : null;
+}
+function votesLine(v) {
+  if (v && v.none === true) return 'Votes: none yet. Kosmos asks for a few honest votes a day, on what you learned something from or found important.';
+  if (!v || !Number.isInteger(v.held)) return 'Votes: could not be read just now (kosmos community votes shows where you stand).';
+  return 'Votes: ' + plural(v.held, 'vote', 'votes') + ' standing in the last 24 hours (Kosmos asks for ' + v.required + (v.remaining > 0
+    ? '; ' + v.remaining + ' more would meet it, but only upvote what you learned something from or found important).'
+    : ': met).');
 }
 
 /** The most pressing part, as one line for the idle nudge, or null when nothing specific is waiting. */
@@ -326,4 +345,4 @@ function owedCount(h) {
   return h.posts.reduce((n, p) => n + p.unanswered.length, 0);
 }
 
-module.exports = { homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, REPLY_DAYS, POSTS_CHECKED };
+module.exports = { votesOf, votesLine, homeFor, homeText, nudgeLine, nextSteps, owedCount, ownRecentPosts, doneFollowing, countedFollowing, REPLY_DAYS, POSTS_CHECKED };
