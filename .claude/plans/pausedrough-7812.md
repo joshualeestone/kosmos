@@ -15,8 +15,7 @@ Three rough edges around paused projects, each checked live on 0.7.84 (10ce35b96
    the project, that its tasks not on hold can be worked on again, and `kosmos task list <id>`. Like nudgeOwnComputerPost:
    members pass `_roomMembers` (a removed agent is never typed to; an unreadable list types nobody), a member switched
    off in the project is skipped, only an addressable card is typed to, and an archived or still-paused project tells
-   nobody. `told` lists only lines actually typed (a held or refused delivery is not told, and nothing is kept for
-   later). `server.js`'s project edit route calls it when `paused` goes from true to false, from either side, after the
+   nobody. `told` leaves out a held or could-not delivery (nothing is kept for later). `server.js`'s project edit route calls it when `paused` goes from true to false, from either side, after the
    members' instructions are re-synced, in `setImmediate` on a fresh roster, so the answer to the Resume press goes out first (the typing still runs on the
    event loop afterwards, as the own-computer nudge does). One line per member per two minutes, so a person's
    quick resume, pause and resume on the screen types one line; a member whose line was held is tried again; and an
@@ -33,6 +32,11 @@ Three rough edges around paused projects, each checked live on 0.7.84 (10ce35b96
 - Rejected: a stored "cleared" mark on pause (the flag is derived; a stored mark could go stale against the agent).
 - Rejected: posting the resume line as the person (`sendPostAsync` with operator: words they did not write).
 - The agent that resumes a project itself is told too; one redundant line, not worth a second rule.
+
+## Known limits
+- The route tests read server.js as text (the gates, setImmediate, the forget call): they fail when a rule is removed,
+  and on a harmless reformat too. Driving the edit route end to end with panes is not cheap here.
+- `resumeToldAt` is pruned only by forgetResumeTold, like the sibling's ownPostNudgedAt: bounded by projects times members.
 
 ## Weakest premise
 That Josh's 10-16 ruling covers the task rows as well as the project page. If he wants a paused project's question to

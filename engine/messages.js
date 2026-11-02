@@ -4528,7 +4528,8 @@ function resumedLine(projectId, projectName) {
 /* Review 2 and 3: one resume line per member per RESUME_TELL_GAP_MS, keyed per member as the own-computer nudge is, so a
    person's quick resume, pause and resume on the screen types one line, while a member whose line was held is tried
    again. An agent's pause in between (forgetResumeTold, from the edit route) clears the project's gap: those members
-   were told "paused", so the next resume must reach them. */
+   were told "paused", so the next resume must reach them. A person's own pause on the screen leaves the gap standing:
+   nothing was typed to anyone for it, so a quick resume, pause and resume by the person still types one line. */
 const RESUME_TELL_GAP_MS = 2 * 60 * 1000;
 const resumeToldAt = new Map();   // projectId + '\n' + member -> when its line was typed
 function forgetResumeTold(projectId) {
