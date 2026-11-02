@@ -55710,19 +55710,31 @@ const PB_WHY = [
   // could not be checked, not that a key was found, so they take the fallback.
   [/undo copies/i, 'an undo copy (the file itself is backed up)'],
   [/backup's settings/i, 'left out by your backup settings'],
-  [/credential|ssh key|environment file|secret|sign-in|auth folder|browser profile|API key|account key|^Kosmos\+? .*(key|token|state)/i, 'may hold a password or key'],
+  // Review 2: Git first, so a .git folder (whose reason mentions secrets) reads as Git, not as a key.
   [/git internals/i, 'part of a Git history'],
+  [/credential|ssh key|environment file|secret|sign-in|auth folder|browser profile|API key|account key|^Kosmos\+? .*(key|token|state)/i, 'may hold a password or key'],
   [/compressed|archive/i, 'compressed, so Kosmos cannot look inside'],
   [/temp (or backup )?copy/i, 'a temporary copy'],
   [/larger than|too large/i, 'too large'],
-  [/replaced while|grew while|changed while|gone, or replaced/i, 'changed while it was being backed up'],
-  [/^a link \(|hard link|another volume|not a regular file/i, 'a link or shortcut'],
-  [/colliding|beside .* \(names|also named by/i, 'its name clashes with another file'],
-  [/restore (cannot write|would refuse)/i, 'its name cannot be restored on every computer'],
+  [/than one snapshot (can list|takes)/i, 'more than one backup can hold'],
+  [/replaced while|grew while|changed while|changed after|gone, or replaced/i, 'changed while it was being backed up'],
+  [/^a link \(|that is a link|hard link/i, 'a link or shortcut'],
+  [/another volume/i, 'on another disk'],
+  [/not a regular file/i, 'not an ordinary file'],
+  [/more than one agent worked in/i, 'worked on by more than one agent'],
   [/outside the work Kosmos/i, 'outside your Kosmos folders'],
+];
+/* Review 2: some reasons carry a person's own path or a root name (`... beside <path> ...`, `... the root <name>`). Their
+   fixed opening decides, before any rule can match a word inside the path ("archive", "secret"). */
+const PB_WHY_OPENING = [
+  [/^restore would refuse it beside /, 'its name clashes with another file'],
+  [/^restore would refuse it as colliding/, 'its name clashes with another file'],
+  [/^restore would refuse it: |: restore cannot write it$/, 'its name cannot be restored'],
+  [/^names a file also named by the root |^is inside the root |^is the same folder as the root /, 'already backed up from another folder'],
 ];
 function pbWhyWords(why) {
   const s = typeof why === 'string' ? why : '';
+  for (const [re, words] of PB_WHY_OPENING) if (re.test(s)) return words;
   for (const [re, words] of PB_WHY) if (re.test(s)) return words;
   return 'Kosmos could not check it';
 }
