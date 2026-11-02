@@ -70003,7 +70003,7 @@ function tskRow(t, at) {
   /* kosmos#7788: an agent held this task for the person (`kosmos task hold --for-you`), so it sits in Needs Your
      Decision (tasks.taskState). The row says what it waits on, in the agent's words, and how it clears. */
   const forYouLine = t.state === 'decision' && t.onHold === true && t.onHoldForPerson === true
-    ? '<div class="why tsk-waiting tsk-for-you" style="overflow-wrap:anywhere;">'
+    ? '<div class="why tsk-for-you" style="overflow-wrap:anywhere;">'
       + (typeof t.onHoldBecause === 'string' && t.onHoldBecause ? 'On hold until you answer: ' + esc(t.onHoldBecause) + '.' : 'On hold until you answer.')
       + ' Open it and take it off hold once you have.</div>'
     : '';

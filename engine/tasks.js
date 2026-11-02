@@ -2216,26 +2216,27 @@ function taskState(task) {
  * A trust wait is counted by the same rule, but today it never reaches the roster this is given (the
  * status route builds those rows offline, after snapshot), as projects.js says of the project page.
  */
+function waitingOnPerson(task, roster, members) {
+  if (!task || progressOf(task).closed || !Array.isArray(roster)) return false;
+  return cardsNeedingPerson(task, roster, members).length > 0;
+}
+
 /* kosmos#7788 review 5: how many open tasks, in projects not archived, an agent held for the person, for the app icon's
-   count (status.waitingTotal). Review 6: a task one of whose open holders is in `asking` (session names the icon already
-   counts as needing the person) is left out, so one agent's question is not counted twice. */
+   count (status.waitingTotal). Review 6 and 7: a task is left out when one of its open holders is already counted as
+   needing the person for it, by the rule cardsNeedingPerson uses: `asking` maps a session name to the project its
+   question is about, or to '*' for a reason about the agent itself (a trust wait, a connection given up on). */
 function heldForPersonCount(projectList, asking) {
-  const counted = asking instanceof Set ? asking : new Set();
+  const counted = asking instanceof Map ? asking : new Map();
   let n = 0;
   for (const p of Array.isArray(projectList) ? projectList : []) {
     if (!p || p.archived === true) continue;
     for (const t of Array.isArray(p.tasks) ? p.tasks : []) {
       if (!t || !isOnHold(t) || t.onHoldForPerson !== true || progressOf(t).closed) continue;
-      if (partsOf(t).some((x) => x && x.who && !x.closedAt && counted.has(x.who))) continue;
+      if (partsOf(t).some((x) => x && x.who && !x.closedAt && (counted.get(x.who) === '*' || counted.get(x.who) === p.id))) continue;
       n += 1;
     }
   }
   return n;
-}
-
-function waitingOnPerson(task, roster, members) {
-  if (!task || progressOf(task).closed || !Array.isArray(roster)) return false;
-  return cardsNeedingPerson(task, roster, members).length > 0;
 }
 
 /* The one rule for which cards make a task wait on the person (kosmos#5942), shared by waitingOnPerson (any) and
