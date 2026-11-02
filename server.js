@@ -5807,6 +5807,12 @@ function isSiblingRead(req) {
   const site = req && req.headers && req.headers['sec-fetch-site'];
   return typeof site === 'string' && site !== '' && site !== 'same-origin' && site !== 'none';
 }
+/* kosmos#7791 review 1: the cross-site answer stays to fixed words (#4973). labelOf's one word with outside text in it is the
+   model restart ("Switching to <model>", which can be a raw model id), so that one is said without the name. */
+function siblingWord(w) {
+  if (!w) return null;
+  return /^Switching to /.test(w) ? 'Switching model' + (/, not back yet$/.test(w) ? ', not back yet' : '') : w;
+}
 function statusForSibling(json, site) {
   let full = null;
   try { full = JSON.parse(json); } catch { full = null; }
@@ -5823,7 +5829,7 @@ function statusForSibling(json, site) {
      "could not read"); the page reads a field that is absent as "an older Kosmos". */
   if (site !== 'same-site') {
     return JSON.stringify({ agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
-      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state), cardWord: str(a.cardWord) || null })) });   // kosmos#7791
+      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state), cardWord: siblingWord(str(a.cardWord)) })) });   // kosmos#7791
   }
   const weekly = full && Array.isArray(full.accountsWeekly) ? full.accountsWeekly : null;
   const keyOf = new Map();
@@ -5848,7 +5854,8 @@ function statusForSibling(json, site) {
       .map((a) => ({
         sessionName: str(a.sessionName), name: str(a.name), state: str(a.state),
         /* kosmos#7791: the card's own word (cardlabel.labelOf, as the phone gets it, #7004), so the other computer's list
-           says "Messages stuck" or "Question" where the bare state would say Working or Issue. A word from a fixed list. */
+           says "Messages stuck" or "Question" where the bare state would say Working or Issue. A fixed word, except the
+           restart word, which can name a model ("Switching to <model>"); the same-site answer already carries more. */
         cardWord: str(a.cardWord) || null,
         runner: str(a.runner) || null,
         acct: (a.account && typeof a.account === 'object' && keyOf.get(a.account.dir)) || null,   // null: not on a listed account
