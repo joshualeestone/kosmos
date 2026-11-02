@@ -173,6 +173,10 @@ test('pb tiers: the panel can name what the last good backup left out, and a fai
   assert.equal(pb.report(opts).skippedFiles, undefined, 'a stop is what the person needs then');
   await pb.runJob({ roots: [] }, { ...opts, runBackup: async () => ({ ok: true }) });
   assert.equal(pb.report(opts).skippedFiles, undefined, 'a good run with no list says nothing of an older one');
+  // Another enrollment's list is not carried over by a run that failed here.
+  fs.writeFileSync(path.join(root, 'personal-job.json'), JSON.stringify({ org: 'another', world: 'w9', lastOk: 'x', skippedFiles: { count: 1, files: skippedList } }));
+  await pb.runJob({ roots: [] }, { ...opts, runBackup: async () => ({ ok: false, because: 'x' }) });
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'personal-job.json'), 'utf8')).skippedFiles, undefined);
 });
 
 test('pb tiers: a plan for another org does not size this backup', async (t) => {
