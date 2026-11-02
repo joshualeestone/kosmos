@@ -40,7 +40,7 @@ email goes as before. Safe, but the ack may fire less often than it could; if th
 - A board asleep past the 30-minute mark acks late: the email has gone. The coordinator still stamps the row and answers
   `matched: true` (it checks only `acked_at`), so `matched` does not mean the email was stopped. A minute whose roster
   is empty asks nothing, and an entry past an hour is dropped.
-- A retry whose first push WAS stored acks about 16 minutes after the email decision, so that email goes.
+- A retry whose first push WAS stored acks at least 10 minutes after the email decision (retries are 15 minutes apart at least), so that email goes.
 - An ack is one attempt: the entry is gone once handed to the sender, and a refused or failed ack is not retried.
 
 ## Tests
