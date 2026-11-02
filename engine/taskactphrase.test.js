@@ -35,6 +35,7 @@ const EVENTS = [
   { kind: 'hold-set', via: 'agent' }, { kind: 'hold-set' },
   // kosmos#7184: #7180's held-for words, which the page did not know (the parity held only because no fixture had them).
   { kind: 'hold-set', until: 'task #5' }, { kind: 'hold-set', via: 'agent', until: '2026-11-02T15:00:00.000Z' }, { kind: 'hold-set', untilCleared: true },
+  { kind: 'hold-set', via: 'agent', forPerson: true }, { kind: 'hold-set', via: 'agent', forPersonCleared: true },   // kosmos#7788
   { kind: 'hold-stale', told: 'mara-discord', reached: true, met: 'task #5 is closed' }, { kind: 'hold-stale', told: 'leo-discord', reached: false, met: '2026-11-02T15:00:00.000Z' }, { kind: 'hold-cleared', via: 'agent' }, { kind: 'hold-cleared', via: 'close' }, { kind: 'hold-cleared' },
   { kind: 'parent-set', parent: 7 }, { kind: 'parent-set' }, { kind: 'parent-cleared' },
   { kind: 'repeat-set', words: 'daily at 09:00' }, { kind: 'repeat-set' }, { kind: 'repeat-cleared' },

@@ -1240,6 +1240,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
   let didChange = false;
   let tookOver = false;
   let hadUntil = false;   // kosmos#7180: the hold had a condition before this call
+  let forCleared = false;   // kosmos#7788: the hold waited on the person before this call and no longer does
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
@@ -1299,6 +1300,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       if (viaScreen !== true && (forPerson === true || keepFor)) changed.onHoldForPerson = true; else delete changed.onHoldForPerson;
       // kosmos#7788 review 1: marking or unmarking it moves the task between groups, so the history records it.
       if (isOnHold(t) && (t.onHoldForPerson === true) !== (changed.onHoldForPerson === true)) didChange = true;
+      forCleared = isOnHold(t) && t.onHoldForPerson === true && changed.onHoldForPerson !== true;
       /* The person's hold on the screen is theirs even over an agent's earlier hold (else the agent could still lift it);
          an agent's hold never takes the person's away. */
       if (viaScreen === true) changed.onHoldByPerson = true;
@@ -1310,7 +1312,7 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
     };
   });
   // via: whether the person did it on the screen or a process (an agent) did, so an agent's hold never reads as the person's.
-  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent', ...(onHold && changed.onHoldForPerson === true ? { forPerson: true } : {}), ...(onHold && changed.onHoldUntil ? { until: Number.isInteger(changed.onHoldUntil.task) ? 'task #' + changed.onHoldUntil.task : changed.onHoldUntil.at }
+  if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent', ...(onHold && changed.onHoldForPerson === true ? { forPerson: true } : onHold && forCleared ? { forPersonCleared: true } : {}), ...(onHold && changed.onHoldUntil ? { until: Number.isInteger(changed.onHoldUntil.task) ? 'task #' + changed.onHoldUntil.task : changed.onHoldUntil.at }
     : onHold && hadUntil ? { untilCleared: true } : {}) });
   else if (tookOver) taskchat.record(projectId, changed.number, { kind: 'hold-set', via: 'screen' });   // the person made an agent's hold theirs
   return changed;
@@ -2170,7 +2172,8 @@ function retireOffers(rows, records, getRoster, historyOf) {
  *              and the screen says why it cannot tell, never "not started" as
  *              a fact
  *   'decision' (#3949) open, and the agent holding it needs the person right now
- *              (`waitingOnPerson`, set by the Tasks route from the roster); it
+ *              (`waitingOnPerson`, set by the Tasks route from the roster), or an agent held it for the person
+ *              (kosmos#7788: `onHoldForPerson`, ahead of held; engine/holdforperson-7788.test.js); it
  *              wins over working and assigned, so each open task is in one group
  *   'held'     (#4771, #5864) the task's own hold (before built), or a paused project (after built, so a built task in a
  *              paused project reads built)

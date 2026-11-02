@@ -55,6 +55,7 @@ extension Board {
         let dueDate: String?
         let onHold: Bool
         let onHoldByPerson: Bool
+        var onHoldForPerson = false   // kosmos#7788
         let builtAt: String?
         let builtBy: String?
         let builtByPerson: Bool
@@ -135,6 +136,7 @@ extension Board {
             partsTotal: integer(progress?["total"]) ?? 1,
             replacedBy: integer(t["replacedBy"]), dueDate: text(t["dueDate"]),
             onHold: t["onHold"] as? Bool == true, onHoldByPerson: t["onHoldByPerson"] as? Bool == true,
+            onHoldForPerson: t["onHold"] as? Bool == true && t["onHoldForPerson"] as? Bool == true,
             builtAt: text(t["builtAt"]), builtBy: text(t["builtBy"]), builtByPerson: t["builtByPerson"] as? Bool == true,
             builtNote: text(t["builtNote"]), parts: parts, claim: claim, legacyWho: text(t["who"]),
             parentNumber: parent == nil ? nil : parentNumber, parentSentence: parent.flatMap { text($0["sentence"]) },
@@ -235,6 +237,10 @@ extension Board.TaskPage {
         guard !closed else { return nil }
         if projectPaused { return "This project is paused, so Kosmos does not nudge anyone about its tasks or hand them out." }
         guard onHold else { return nil }
+        // kosmos#7788: an agent's hold that waits on the person, in the board's words (tk-hold-hint) bar the place.
+        if onHoldForPerson && !onHoldByPerson {
+            return "An agent put this on hold because it waits on you. Once you have answered, take it off hold on your computer's board, or tell the agent. Kosmos does not nudge anyone about it or hand it out."
+        }
         return onHoldByPerson
             ? "You put this on hold, so only you can take it off, on your computer's board. Kosmos does not nudge anyone about it or hand it out."
             : "This was put on hold outside this screen (by an agent, or with kosmos task hold), so an agent or you can take it off. Kosmos does not nudge anyone about it or hand it out."

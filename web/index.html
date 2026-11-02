@@ -69619,7 +69619,7 @@ document.getElementById('pj-alltasks').addEventListener('click', () => openProje
    Decision, from the roster; #3951 Built but waiting, from a task's builtAt); categories wait for evidence no
    task stores yet (Mona's weakest-premise note on #3559), so they are not drawn at all rather than guessed. */
 /* #3949 (Josh, 2026-09-26): one label per group, no byline, in his order. Needs Your Decision is red, the
-   only group the person acts on; the engine's `decision` state (tasks.waitingOnPerson) fills it. "Built but
+   only group the person acts on; the engine's `decision` state (tasks.waitingOnPerson, or kosmos#7788 a hold for the person) fills it. "Built but
    waiting" is the engine's `built` state (#3951: tasks.setBuilt, from `kosmos task built`). */
 const TSK_GROUPS = [
   { k: 'decision', l: 'Needs Your Decision', c: 'var(--tsk-decision)',
@@ -70714,7 +70714,7 @@ function paintTaskPage() {
       ? 'While a task is on hold, Kosmos does not nudge anyone about it or hand it out.'
       /* kosmos#7788: an agent's hold that waits on the person says so, and what clears it. */
       : t.onHoldForPerson === true
-        ? 'An agent put this on hold until you answer its question. Once you have, take it off hold here, or tell the agent. Kosmos does not nudge anyone about it or hand it out.'
+        ? 'An agent put this on hold because it waits on you. Once you have answered, take it off hold here, or tell the agent. Kosmos does not nudge anyone about it or hand it out.'
       : t.onHoldByPerson === true
         ? 'You put this on hold, so only you can take it off, here. Kosmos does not nudge anyone about it or hand it out.'
         : 'This was put on hold outside this screen (by an agent, or with kosmos task hold), so an agent or you can take it off. Kosmos does not nudge anyone about it or hand it out.';
@@ -70882,7 +70882,9 @@ function tkActPhrase(ev, p) {
     // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
     case 'hold-set': return (ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold')
       + (typeof ev.until === 'string' && ev.until ? ' until ' + (/^task #\d+$/.test(ev.until) ? ev.until + ' is closed' : when(ev.until))
-        : ev.untilCleared === true ? ', no longer waiting for anything' : '');
+        : ev.untilCleared === true ? ', no longer waiting for anything' : '')
+      // kosmos#7788: an agent's hold that waits on the person, or one that stopped waiting on them.
+      + (ev.forPerson === true ? ', waiting on you' : ev.forPersonCleared === true ? ', no longer waiting on you' : '');
     case 'hold-cleared': return ev.via === 'agent' ? 'Taken off hold by an agent' : ev.via === 'close' ? 'Taken off hold, as it was closed' : 'Taken off hold';
     // #3861: a task put under another task on its project, or taken out from under one.
     case 'parent-set': return ev.parent ? 'Put under task ' + ev.parent : 'Put under another task';

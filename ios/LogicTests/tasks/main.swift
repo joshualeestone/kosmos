@@ -197,6 +197,17 @@ let justAsked = row(1, "decision") { $0.waitingOn = [.init(who: "cleo-discord", 
 check(Tasks.rowLine(justAsked, now: now, name: name) == "Cleo: Just started waiting for your answer.", "just asked")
 let other = row(1, "decision") { $0.waitingOn = [.init(who: "rex-discord", reason: "crash_loop")]; $0.waitingSince = iso(7200) }
 check(Tasks.rowLine(other, now: now, name: name) == "Waiting on you for 2 hours\nRex: Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.", "another reason: the wait, then each agent's reason")
+// kosmos#7788: a task an agent held for the person: the board's forYouLine, with and without a reason.
+let forYou = row(1, "decision") { $0.holdForYou = true; $0.holdBecause = "needs your yes on the price" }
+check(Tasks.rowLine(forYou, now: now, name: name) == "On hold until you answer: needs your yes on the price. Open it and take it off hold once you have.", "a hold for you: its reason and how it clears")
+check(Tasks.rowLine(row(1, "decision") { $0.holdForYou = true }, now: now, name: name) == "On hold until you answer. Open it and take it off hold once you have.", "a hold for you with no reason")
+check(Tasks.rowLine(row(1, "held") { $0.holdBecause = "waiting on the build" }, now: now, name: name) == "", "control: a plain hold row carries no such line")
+check(page.contains("'On hold until you answer: ' + esc(t.onHoldBecause) + '.' : 'On hold until you answer.')") && page.contains("+ ' Open it and take it off hold once you have.</div>'"),
+      "premise: the board's row says the same words")
+check(Board.parseTasks(Data(#"{"tasks":[{"projectId":"p","number":1,"state":"decision","onHold":true,"onHoldForPerson":true,"onHoldBecause":"why"}]}"#.utf8))?.tasks.first.map { $0.holdForYou && $0.holdBecause == "why" } == true,
+      "the read carries a hold for you and its reason")
+check(Board.parseTasks(Data(#"{"tasks":[{"projectId":"p","number":1,"state":"held","onHoldForPerson":true}]}"#.utf8))?.tasks.first?.holdForYou == false,
+      "control: the mark without a hold is no hold for you")
 let noStart = row(1, "decision") { $0.waitingOn = [.init(who: "rex-discord", reason: "trust")] }
 check(Tasks.rowLine(noStart, now: now, name: name) == "Rex: Waiting for you to approve it before it can start.", "no known start: the who line alone")
 let working = row(1, "working") { $0.whoNames = ["rex-discord", "cleo-discord", "rex-discord"] }

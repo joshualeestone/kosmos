@@ -354,3 +354,18 @@ test('kosmos#7788 review 2: a hold for you with a condition is told once when it
   assert.deepEqual(hs.owed(only(), posts, Date.now(), { read: () => [{ kind: 'hold-set', at: oldHold, via: 'agent', forPerson: true }] }), [],
     'the posts rule told the owner to lift a hold that waits on the person');
 });
+
+test('kosmos#7788 review 3: unmarking a hold for you starts the stale-hold clock again (a different hold now), by the real history', () => {
+  const f = fixture();
+  const only = () => projects.readAll().filter((x) => x.id === f.id);
+  tasks.setOnHold(f.id, f.a, true, { forPerson: true });
+  tasks.setOnHold(f.id, f.a, true, { forPerson: false });
+  const now = Date.now();
+  const posts = Array.from({ length: 5 }, (_, i) => ({ kind: 'post', id: 'u' + i, project: f.id, from: REX, to: [ADA], text: 'working', at: iso(now + (i + 1) * 1000) }));
+  // Just unmarked: a fresh hold, so not yet owed, whatever the posts.
+  assert.deepEqual(hs.owed(only(), posts, now + 10000), [], 'a hold unmarked just now was owed a stale line');
+  // CONTROL: three hours on, the same plain hold and posts are owed one.
+  const later = now + 3 * HOUR;
+  const latePosts = posts.map((r, i) => ({ ...r, at: iso(now + HOUR + i * 1000) }));
+  assert.equal(hs.owed(only(), latePosts, later).length, 1, 'CONTROL: the unmarked hold was never owed a line');
+});

@@ -127,3 +127,18 @@ test('review 1: marking or unmarking an existing hold records a hold-set event, 
   assert.equal(after.length, 3, 'unmarking it was not recorded');
   assert.equal('forPerson' in after[2], false);
 });
+
+test('review 3: the history says a hold waits on you, and when it stopped waiting on you', () => {
+  const phrase = require('../engine/taskactphrase').phrase;
+  const { id, n } = fresh('hfp fourteen');
+  tasks.setOnHold(id, n, true, { forPerson: true });
+  tasks.setOnHold(id, n, true, { forPerson: false });
+  const evs = taskchat.read(id, n).filter((e) => e.kind === 'hold-set');
+  assert.equal(evs.length, 2);
+  assert.equal(phrase(evs[0]), 'Put on hold by an agent, waiting on you');
+  assert.equal(phrase(evs[1]), 'Put on hold by an agent, no longer waiting on you');
+  assert.equal(phrase(evs[0], null, { forAgent: true }), 'Put on hold by an agent, waiting on the person');
+  const plain = fresh('hfp fifteen');
+  tasks.setOnHold(plain.id, plain.n, true);
+  assert.equal(phrase(taskchat.read(plain.id, plain.n).find((e) => e.kind === 'hold-set')), 'Put on hold by an agent', 'CONTROL: a plain hold');
+});
