@@ -167,3 +167,71 @@ test('#7753: the shared vector: seed, device public key, record bytes and signat
   assert.equal(crypto.sign(null, bytes, priv).toString('hex'), VECTOR.sig);
   assert.equal(crypto.verify(null, bytes, pub, Buffer.from(VECTOR.sig, 'hex')), true);
 });
+
+/* A coordinator that keeps keys, answers a repeat of the same key as a repeat, and echoes member_key_sig only once it
+   "stores" signatures (echo true): today's live one has echo false. */
+function storingCoordinator() {
+  const company = backupkeys.newMemberKey();
+  const posts = [];
+  const state = { echo: false, fail: false };
+  const kept = new Map();
+  const macRequest = async (method, route, body) => {
+    if (route === mk.BACKUP_KEY_ROUTE) return { ok: true, data: { org: ORG, member: MEMBER, epoch: 1, public_key: company.pk.toString('base64url') } };
+    posts.push(body);
+    if (state.fail) return { ok: false, because: 'unreachable' };
+    if (kept.has(body.epoch) && kept.get(body.epoch) !== body.member_public) return { ok: false, refusal: { status: 409, code: 'member_key_exists' } };
+    kept.set(body.epoch, body.member_public);
+    return { ok: true, data: Object.assign({ epoch: body.epoch, member_public: body.member_public }, state.echo && body.member_key_sig ? { member_key_sig: body.member_key_sig } : {}) };
+  };
+  return { macRequest, posts, state };
+}
+
+test('#7753 re-send: a key registered before Kosmos+ kept its record is sent again once a day until an answer echoes it', async () => {
+  const c = storingCoordinator(), d = device();
+  const T0 = 1800000000000, H = 3600 * 1000;
+  const call = (t) => mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => t });
+  const first = await call(T0);
+  assert.equal(first.ok, true);
+  assert.equal(c.posts.length, 1, 'the registration, unechoed (today\'s coordinator)');
+  assert.equal((await call(T0 + 23 * H)).ok, true);
+  assert.equal(c.posts.length, 1, 'not again within a day');
+  const again = await call(T0 + 25 * H);
+  assert.equal(c.posts.length, 2, 'sent again after a day');
+  assert.equal(again.ok, true); assert.equal(again.epoch, first.epoch); assert.ok(again.publicKey.equals(first.publicKey), 'the answer is the same key');
+  const resent = c.posts[1];
+  assert.equal(resent.member_public, c.posts[0].member_public, 'the same key, a repeat');
+  assert.equal(verifies(d.publicKey, ORG, MEMBER, resent.epoch, Buffer.from(resent.member_public, 'base64url'), resent.member_key_sig), true);
+  // The coordinator starts keeping signatures: the next due re-send is echoed, and then nothing is sent again.
+  c.state.echo = true;
+  await call(T0 + 50 * H);
+  assert.equal(c.posts.length, 3);
+  await call(T0 + 100 * H);
+  await call(T0 + 1000 * H);
+  assert.equal(c.posts.length, 3, 'kept: never sent again');
+});
+
+test('#7753 re-send: an echoed first registration is never re-sent; a failed re-send or no device key changes nothing for the caller', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000;
+  // Echoed straight away: kept.
+  const c1 = storingCoordinator(), d = device();
+  c1.state.echo = true;
+  await mk.ensureMemberKey({ macRequest: c1.macRequest, deviceKey: d.read, now: () => T0 });
+  await mk.ensureMemberKey({ macRequest: c1.macRequest, deviceKey: d.read, now: () => T0 + 100 * H });
+  assert.equal(c1.posts.length, 1);
+  // A re-send that fails: the answer is still the registered key, and it is asked again a day later.
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  const c2 = storingCoordinator();
+  const first = await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 });
+  c2.state.fail = true;
+  const during = await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 + 25 * H });
+  assert.equal(during.ok, true); assert.ok(during.publicKey.equals(first.publicKey));
+  assert.equal(c2.posts.length, 2);
+  await mk.ensureMemberKey({ macRequest: c2.macRequest, deviceKey: d.read, now: () => T0 + 26 * H });
+  assert.equal(c2.posts.length, 2, 'a failed re-send still waits a day');
+  // No device key: nothing to re-send, so nothing is sent.
+  fs.rmSync(path.join(store.ROOT, 'backupkeys'), { recursive: true, force: true });
+  const c3 = storingCoordinator();
+  await mk.ensureMemberKey({ macRequest: c3.macRequest, deviceKey: () => ({ ok: false }), now: () => T0 });
+  await mk.ensureMemberKey({ macRequest: c3.macRequest, deviceKey: () => ({ ok: false }), now: () => T0 + 100 * H });
+  assert.equal(c3.posts.length, 1);
+});
