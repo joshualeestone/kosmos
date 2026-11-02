@@ -383,6 +383,15 @@ test('#7746 item 3: a measured stop is kept in the state and handed to the next 
   assert.equal('stop' in backupstate.readState(A.org, A.member).state, false, 'forgotten once a run finished');
 });
 
+test('#7746 item 3: a second pass in a granted week is never handed the stop its first pass just measured', async () => {
+  const stopShape = { files: 3, bytes: 900, budget: 5000, at: NOW, roots: 'ab'.repeat(8), period: WEEK };
+  const take = taker({ ok: false, newPeriod: true, grantedPeriod: NEXT, tooLarge: true, personActs: true, because: 'x', measuredStop: stopShape, added: new Map(), bucket: null },
+    { ok: false, tooLarge: true, personActs: true, because: 'y', added: new Map(), bucket: null });
+  await run.runBackup({ roots: [] }, deps({ ensureMemberKey: ensurer(okKey(A)), takeSnapshot: take, planGb: 25 }));
+  assert.equal(take.calls.length, 2, 'premise: two passes');
+  assert.equal('priorStop' in take.calls[1].input, false);
+});
+
 test('#7746 item 3: a kept stop older than 28 days is not handed on, so one real attempt is made', async () => {
   const base = { files: 3, bytes: 900, budget: 5000, roots: 'ab'.repeat(8), period: WEEK };
   const old = { ...base, at: NOW - 29 * 24 * 3600 * 1000 };

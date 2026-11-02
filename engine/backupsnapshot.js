@@ -777,7 +777,9 @@ async function snapshotInner(input, deps, added, state, fail) {
   // their real key length it may fit. Smaller in either, other folders or another budget, it tries. No measuredStop rides
   // this answer: the stop kept is the one measured.
   const prior = input.priorStop;
-  if (measuredOn && prior && prior.period !== ctx.period && prior.budget === measuredOn.budget && prior.roots === measuredOn.roots && Number.isSafeInteger(prior.files)
+  // ISO week labels (2026-W09) sort as their weeks do, so `>` is later, never merely different (a clock gone back, or
+  // an earlier granted week, is not a later week).
+  if (measuredOn && prior && typeof prior.period === 'string' && ctx.period > prior.period && prior.budget === measuredOn.budget && prior.roots === measuredOn.roots && Number.isSafeInteger(prior.files)
     && Number.isSafeInteger(prior.bytes) && measuredOn.files >= prior.files && measuredOn.bytes >= prior.bytes) {
     return fail('your files are still split into more pieces than one backup can list, so this backup did not try again. Move some small files out of your agents\' folders and projects, and it tries at the next backup; otherwise it tries again within four weeks', { tooLarge: true, personActs: true, stoppedBefore: true });
   }

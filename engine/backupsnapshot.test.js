@@ -807,6 +807,10 @@ test('#7746 item 3: a measured stop names its listing; a later run no smaller st
     const stSame = store();
     const same = await take(k, w.root, stSame, { deps, input: { priorStop: r.measuredStop } });
     assert.equal(same.stoppedBefore, undefined); assert.ok(stSame.batches.length > 0);
+    // A stop from a LATER week than this run's (a clock gone back, an earlier granted week) is not a later week: it tries.
+    const stBack = store();
+    const back = await take(k, w.root, stBack, { deps, input: { priorStop: Object.assign({}, r.measuredStop, { period: '2026-W42' }) } });
+    assert.equal(back.stoppedBefore, undefined); assert.ok(stBack.batches.length > 0);
     // The rest are a later week: the stop was measured the week before.
     const earlier = Object.assign({}, r.measuredStop, { period: '2026-W40' });
     assert.ok(Number.isSafeInteger(r.measuredStop.at) && r.measuredStop.at > 0);
