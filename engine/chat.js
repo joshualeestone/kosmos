@@ -1014,7 +1014,8 @@ const SCROLLED_MIN = 200;
    shows all it holds, so the wider end rule does not apply to it. */
 const SCROLLED_ROWS = 4;
 /* `exact`: only all of the line, or exactly what the box showed when it was left (the unattended retries use this;
-   the wider SCROLLED_MIN end, on a box that has scrolled, is left to a delivery). `seen` counts only at the length
+   the wider SCROLLED_MIN end, on a box that has scrolled, is left to a delivery and to the #6717 sweep on a box over
+   STUCK_ROWS_MAX). `seen` counts only at the length
    composerHolds asks of a piece of ours. */
 function rememberedShows(text, kept, exact = false, rows = 0) {
   if (!kept) return false;
@@ -1140,7 +1141,8 @@ function confirmedVerdict(placed, result) {
    Enter, or the watch did not see it go; remembered, and its day starts again only when the box still shows it).
    The waits do not hold the board; its tmux reads are synchronous, as a delivery's are. */
 /* `wide` (kosmos#6717, the stuck-input sweep only): a box that has scrolled may also be decided by the wider end rule
-   (any end of our line at least SCROLLED_MIN long), as a delivery decides it. A pane resized since the line was left
+   (any end of our line at least SCROLLED_MIN long), as a delivery decides it; the sweep asks for it only on a box over
+   STUCK_ROWS_MAX. A pane resized since the line was left
    wraps the same end to a different length, and the delivery that would then press it never comes: posts are held
    while the box holds text (#6256), so the agent stayed deaf behind its own line. The #6436 retries stay exact. */
 async function pressRememberedNow(target, card, wide = false) {
@@ -1163,7 +1165,7 @@ async function pressRememberedNow(target, card, wide = false) {
     if (still && still.id === kept.id) forgetUnsent(target);
     return 'empty';
   }
-  if (!rememberedShows(box.text, kept, !wide, box.rows)) return 'changed';   // other text, or (not wide) a resized pane
+  if (!rememberedShows(box.text, kept, !wide, box.rows)) return 'changed';
   /* Every hold an automatic sender passes (a menu up, a usage limit or sign-out, a quota) and every gate a delivery
      passes before a keystroke (a question being answered, the trust dialog, a paused swarm, quiet hours, the usage
      cap, Claude Code's menus and prompts read fresh: an Enter on a permission prompt would approve it), on the roster
@@ -1265,7 +1267,8 @@ function scheduleUnsentTail(target, card, id, chain, since, schedule) {
 
 /* kosmos#6717: text that has sat unsent in an idle Claude Code agent's input box for STUCK_INPUT_MS (the board's minute
    sweep in server.js decides that from the card's unsentInput) is cleared by Kosmos, so the agent hears again:
-     - the board's own remembered line, and nothing else in the box (rememberedShows, exact): pressed, as a #6436 retry
+     - the board's own remembered line, and nothing else in the box (rememberedShows; exact unless the box is over
+       STUCK_ROWS_MAX): pressed, as a #6436 retry
        presses it. This also covers a line remembered across a board restart, which gets no retries;
      - anything else (the person's typing, another tool's paste, our line with anything added): saved as a draft for
        the person FIRST (the draft saver, engine/unsentdrafts.js), and only once that is written, cleared. Never sent.
@@ -1326,7 +1329,10 @@ async function recoverStuckInput(card, since) {
     if (!box.ok) return { outcome: 'waiting', because: 'unread' };
     if (!box.text) return { outcome: 'waiting', because: 'empty' };
     const kept = recallUnsent(target);
-    if (kept && rememberedShows(box.text, kept, false, box.rows)) {
+    /* Only a box over STUCK_ROWS_MAX may be hiding the start of our line, so only there is it decided by the wider end
+       rule; a shorter box showing part of it is someone's cut and goes to the draft path below. */
+    const wide = (box.rows || 0) > STUCK_ROWS_MAX;
+    if (kept && rememberedShows(box.text, kept, !wide, box.rows)) {
       /* Idle on the roster as it is now, not only as the sweep read it: an Enter on a busy agent would queue the line.
          pressRememberedNow then passes every gate a #6436 retry passes (menu, account and quota holds, typingGate,
          verifyAtSend). Not the open-terminal check of the draft path: this is Kosmos's own message, which a #6436 retry
@@ -1334,7 +1340,7 @@ async function recoverStuckInput(card, since) {
       let fresh = null;
       try { const r = rosterSource ? rosterSource() : null; fresh = Array.isArray(r) ? resolveCard(r, card.sessionName) : null; } catch { fresh = null; }
       if (!fresh || fresh.state !== status.STATE.IDLE) return { outcome: 'waiting', because: 'not idle' };
-      const answer = await pressRememberedNow(target, card, true);
+      const answer = await pressRememberedNow(target, card, wide);
       if (answer === 'sent') return { outcome: 'pressed' };
       /* Enter went and the box still holds the line (Enter rebound, say): said once in the log and not pressed again by
          this sweep for the same text (`giveUp`), so #6436's own retries, and their one-day bound, are all that press it. */

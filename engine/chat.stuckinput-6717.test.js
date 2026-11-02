@@ -216,6 +216,18 @@ test('kosmos#6717: the board\'s own long line, scrolled in a pane resized since,
   assert.equal(saved.length, 0, 'the board\'s own line is not a draft');
   assert.equal(p.clears(), 0);
 }));
+test('kosmos#6717: a short box showing only part of the board\'s long line is a person\'s cut: drafted, never pressed', () => withAgent(async (roster, card) => {
+  leaveLong(roster, 76);
+  const CUT = LONG.slice(-300).replace(/^\S*\s/, '');   // 4 to 6 rows at this width, all of it drawn
+  const p = pane(CUT, { width: 76 });
+  assert.ok(wrap(CUT, 76).length >= 4 && wrap(CUT, 76).length <= 6, 'PRECONDITION: a 4 to 6 row box, rows: ' + wrap(CUT, 76).length);
+  saveInto(p);
+  const r = await chat.recoverStuckInput(card, SINCE);
+  assert.equal(r.outcome, 'drafted', JSON.stringify(r));
+  assert.equal(p.enters(), 0, 'nothing pressed');
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].text.replace(/\s+/g, ' ').trim(), CUT);
+}));
 test('kosmos#6717: a long text that only ends like the board\'s line, with words of a person\'s after it, is left', () => withAgent(async (roster, card) => {
   leaveLong(roster, 76);
   const p = pane(LONG + ' and ' + PERSON, { keep: 7, width: 60 });
