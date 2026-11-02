@@ -4563,6 +4563,17 @@ select.tsk-sel { font: 600 .8125rem var(--font-ui); height: 32px; padding: 0 2re
   #panel-tasks :is(.tsk-row .meta button.tsk-chip, .tsk-who)::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 44px; margin-top: -22px; }
 }
 .tsk-row .t { min-width: 0; }
+/* kosmos#7797 item 1: a question no task carries, in Needs Your Decision: who and about what, and Answer. */
+/* Not a .tsk-row: it is not a task (no key, no checkbox), so nothing that reads task rows reads it. The same grid. */
+.tsk-ask { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--k-rule); align-items: start; }
+.tsk-ask:first-child { border-top: 0; }
+.tsk-ask .t { min-width: 0; }
+.tsk-ask .why { font-size: .8125rem; color: var(--k-ink-2); margin-top: 4px; }
+.tsk-ask .tsk-ask-l { font: 400 .9375rem var(--font-ui); color: var(--k-ink); }
+.tsk-ask .tsk-ask-l b { font-weight: 600; }
+.tsk-ask .tsk-answer { align-self: center; min-height: 32px; padding: 0 14px; border: 1px solid var(--k-rule); border-radius: 999px; background: none; font: 600 .8125rem var(--font-ui); color: var(--k-ink); cursor: pointer; }
+.tsk-ask .tsk-answer:hover { border-color: var(--gold); }
+@media (pointer: coarse) { #panel-tasks .tsk-ask .tsk-answer { min-height: 44px; } }
 .tsk-row .tl { border: 0; background: none; padding: 0; font: 600 .9375rem var(--font-ui); color: var(--k-ink); cursor: pointer; text-align: left; }
 .tsk-row .tl:hover { text-decoration: underline; text-decoration-color: var(--gold); }
 .tsk-row .n { font: 500 .8125rem var(--font-mono); color: var(--k-ink-2); margin-right: 6px; }
@@ -69937,7 +69948,7 @@ const TSK_DECISION_UNKNOWN_SOME = 'Kosmos could not read your agents just now, s
 function tskDot(g, n) {
   return g.k === 'decision' && (!n || TSK.rosterUnknown) ? 'var(--tsk-nobody)' : g.c;
 }
-const TSK = { data: null, error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', needs: null, rosterUnknown: false, closedOpen: false, fold: new Set(), oneProjectInView: false };
+const TSK = { data: null, asking: [], error: null, proj: null, projHint: null, q: '', win: 0, by: 'status', sort: 'new', tile: null, sel: new Set(), gen: 0, busy: false, names: '', needs: null, rosterUnknown: false, closedOpen: false, fold: new Set(), oneProjectInView: false };
 TSK_READY = true;
 const tskKey = (t) => String(t.projectId) + '#' + Number(t.number);
 /* The name the board prints for an agent (its roster card's `name`; a card has no `displayName`
@@ -70175,6 +70186,8 @@ async function tskLoad(arrival) {
          projects away too), except the one a project door scoped us to (#3703; tskVisible). */
       TSK.data = body.tasks;
       TSK.rosterUnknown = body.rosterUnreadable === true;
+      /* kosmos#7797 item 1: agents' questions no task carries (tasks.askingWithoutTask), listed first in Needs Your Decision. */
+      TSK.asking = Array.isArray(body.askingWithoutTask) ? body.askingWithoutTask : [];
       /* A ticked task that has since closed or gone cannot stay ticked. */
       const open = new Set(TSK.data.filter((t) => t.state !== 'closed').map(tskKey));
       TSK.sel.forEach((k) => { if (!open.has(k)) TSK.sel.delete(k); });
@@ -70335,6 +70348,27 @@ function tskRow(t, at) {
     + (g && TSK.by === 'project' ? '<span class="tsk-state" style="--tsk-c:' + g.c + '"><span class="tsk-dot"></span>' + esc(g.l) + '</span>' : '') + '</div>'
     + '</div>';
 }
+/* kosmos#7797 item 1: the questions shown with this view's filters. Scoped to a project, only questions about it; a search
+   or a Created window is about tasks, so with either set they are left out (they are not tasks and match neither). Pure. */
+function tskAskingShown(asking, st) {
+  if (String(st.q || '').trim() || st.win) return [];
+  return (Array.isArray(asking) ? asking : []).filter((a) => a && a.who && (!st.proj || a.projectId === st.proj));
+}
+/* One row per question: who asks, about what, for how long, and Answer, which opens the agent (its conversation is there).
+   No checkbox and no number: a question is not a task, so it cannot be closed or held here. */
+function tskAskRow(a, now) {
+  const p = a.projectId ? pjById(a.projectId) : null;
+  const about = p ? ' asks about ' + pjChainText(pjChainOf(p)) : ' asks you something';
+  const ago = typeof a.waitingSince === 'string' ? agoWords(now - Date.parse(a.waitingSince)) : '';
+  const wait = !ago ? '' : ago === 'just now' ? 'Just started waiting for your answer.' : 'Waiting for your answer for ' + ago.replace(/ ago$/, '') + '.';
+  return '<div class="tsk-ask" data-ask="' + esc(a.who) + '"><span aria-hidden="true"></span><div class="t">'
+    + '<span class="tsk-ask-l"><b>' + esc(tskAgentName(a.who)) + '</b>' + esc(about) + '</span>'
+    + (wait ? '<div class="why tsk-waiting">' + esc(wait) + '</div>' : '')
+    + '</div><button type="button" class="tsk-answer" data-agent="' + esc(a.who) + '" aria-label="' + esc('Answer ' + tskAgentName(a.who)) + '">Answer</button></div>';
+}
+function tskAskList(asking, now) {
+  return asking.length ? '<div class="tsk-list tsk-asking">' + asking.map((a) => tskAskRow(a, now)).join('') + '</div>' : '';
+}
 function tskList(rows) {
   const parentKey = (t) => (t.parent == null ? null : String(t.projectId) + '#' + Number(t.parent));
   /* #3949 (Josh, 09-26 18:16): no "Nothing here." box. Every caller skips an empty group (its tile shows the 0), so
@@ -70447,6 +70481,7 @@ function tskPaint() {
      Project filter, search and Created window and before the tile, so they always agree and a tile changes neither. */
   document.getElementById('tsk-title').textContent = tskTitle(TSK.data, picked, scoped);
   TSK.oneProjectInView = tskLeaveOutProjectLine(scoped, picked);
+  const asking = tskAskingShown(TSK.asking, TSK);   // kosmos#7797 item 1
   tskSearchOpen();   // the compact search's open state follows TSK.q on every paint, whoever changed it
   /* #3949: Created: and Group by are dropdowns (they were button rows). */
   tskOptions(document.getElementById('tsk-win'), TSK_WINDOWS.map(([l, d]) => '<option value="' + d + '"' + (TSK.win === d ? ' selected' : '') + '>' + esc(l) + '</option>').join(''), String(TSK.win));
@@ -70455,7 +70490,7 @@ function tskPaint() {
   /* Tiles: the proven groups only, counted before the tile filter so every tile keeps its number.
      #3949 (Josh): one label each, no byline, and Completed is a tile again (it was only the fold). */
   document.getElementById('tsk-tiles').innerHTML = !TSK.data ? '' : TSK_GROUPS.map((g) => {
-    const n = scoped.filter((t) => t.state === g.k).length;
+    const n = scoped.filter((t) => t.state === g.k).length + (g.k === 'decision' ? asking.length : 0);
     /* A zero Needs Your Decision takes a neutral dot too: nothing to act on, nothing red (post-rebase review). */
     const dot = tskDot(g, n);
     /* Review round 9: when the server could not read the agents, a 0 here would say nobody needs the person
@@ -70497,7 +70532,11 @@ function tskPaint() {
     for (const t of sorted) { if (!byP.has(t.projectId)) byP.set(t.projectId, []); byP.get(t.projectId).push(t); }
     /* #3029: a group is named and ordered by its project's chain, so a subproject's group follows its parent's. */
     const chainOfGroup = new Map([...byP.entries()].map(([id, ts]) => [id, tskChainOf(ts[0])]));   // built once, as pjSortByChain does
-    groups.innerHTML = [...byP.entries()].sort((a, b) => pjChainCompare(chainOfGroup.get(a[0]), chainOfGroup.get(b[0])))
+    /* kosmos#7797 item 1: questions no task carries lead, under the decision group's own name, so the tile's count is on screen. */
+    const dg = TSK_GROUPS[0];
+    const askHead = !asking.length || (TSK.tile && TSK.tile !== 'decision') ? ''
+      : '<section class="tsk-grp"><h3><span class="tsk-dot" style="--tsk-c:' + dg.c + '"></span>' + esc(dg.l) + '<span class="count">' + asking.length + '</span></h3>' + tskAskList(asking, now) + '</section>';
+    groups.innerHTML = askHead + [...byP.entries()].sort((a, b) => pjChainCompare(chainOfGroup.get(a[0]), chainOfGroup.get(b[0])))
       .map(([, ts]) => {
         const n = ts.filter((t) => t.state !== 'closed').length;
         return '<section class="tsk-grp"><h3>' + esc(pjChainText(chainOfGroup.get(ts[0].projectId))) + '<span class="count">' + n + ' open</span></h3>' + tskList(ts) + '</section>';
@@ -70505,29 +70544,30 @@ function tskPaint() {
   } else {
     groups.innerHTML = TSK_GROUPS.filter((g) => !TSK.tile || TSK.tile === g.k).map((g) => {
       const ts = sorted.filter((t) => t.state === g.k);
+      const ask = g.k === 'decision' ? asking : [];   // kosmos#7797 item 1: listed first
       /* Review round 10: the heading says what its tile says. A zero decision group takes the neutral dot, and
          with the agents unreadable it says it cannot tell, never "0" and never "Nothing here". */
       const unknown = g.k === 'decision' && TSK.rosterUnknown;
       /* #3949 (Josh, 09-26 18:16: "We already show those in the tiles up top so we don't really need those in there"):
          a status group with no tasks is the duplicate of its tile's 0, so it is not drawn. The one exception is the
          decision group that cannot tell (the agents are unreadable): that is a warning, not a zero. */
-      if (!ts.length && !unknown) return '';
+      if (!ts.length && !ask.length && !unknown) return '';
       /* #6482 (Josh's clean-up theme, #3949: less text we can do without): an ordinary group is its heading and
          count only. Its explanation is the same on every visit, so it is the heading's hover text and, for a screen
          reader, a hidden description, not a visible paragraph. The cannot-tell decision group keeps its line in view:
          that one is a warning about now, not an explanation. */
-      const dot = '<span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length) + '"></span>';
+      const dot = '<span class="tsk-dot" style="--tsk-c:' + tskDot(g, ts.length + ask.length) + '"></span>';
       const head = unknown
-        ? '<h3>' + dot + esc(g.l) + '<span class="count">?</span></h3><p class="why">' + esc(ts.length ? TSK_DECISION_UNKNOWN_SOME : TSK_DECISION_UNKNOWN) + '</p>'
-        : '<h3 title="' + esc(g.why) + '" aria-describedby="tsk-why-' + g.k + '">' + dot + esc(g.l) + '<span class="count">' + ts.length + '</span></h3>'
+        ? '<h3>' + dot + esc(g.l) + '<span class="count">?</span></h3><p class="why">' + esc(ts.length + ask.length ? TSK_DECISION_UNKNOWN_SOME : TSK_DECISION_UNKNOWN) + '</p>'
+        : '<h3 title="' + esc(g.why) + '" aria-describedby="tsk-why-' + g.k + '">' + dot + esc(g.l) + '<span class="count">' + (ts.length + ask.length) + '</span></h3>'
           + '<span class="vh" id="tsk-why-' + g.k + '">' + esc(g.why) + '</span>';
-      if (unknown && !ts.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
+      if (unknown && !ts.length && !ask.length) return '<section class="tsk-grp" data-unknown="1">' + head + '</section>';
       /* Completed is always the fold: finished work is reachable, not in the way. */
       if (g.k === 'closed') {
         /* #3949: picked from its tile, Completed opens: the person asked to see exactly these. */
         return '<section class="tsk-grp" style="--tsk-c:' + g.c + '"><details class="tsk-fold"' + (TSK.closedOpen || TSK.tile === 'closed' ? ' open' : '') + '><summary>' + esc(g.l) + ' (' + ts.length + ')</summary>' + tskList(ts) + '</details></section>';
       }
-      return '<section class="tsk-grp">' + head + tskList(ts) + '</section>';
+      return '<section class="tsk-grp">' + head + tskAskList(ask, now) + tskList(ts) + '</section>';
     }).join('')
       /* Every group empty: one line, not a column of empty sections. */
       || '<p class="tsk-empty">' + (TSK.tile || TSK.proj || TSK.win || String(TSK.q).trim() ? 'No tasks match.' : 'No tasks yet.') + '</p>';
