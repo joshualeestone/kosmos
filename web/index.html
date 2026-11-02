@@ -32950,6 +32950,8 @@ function oaAgentsOf(body) {
       sessionName: a.sessionName,
       name: typeof a.name === 'string' ? a.name : '',
       state: typeof a.state === 'string' ? a.state : '',
+      // kosmos#7791: that computer's own card word, kept short (an untrusted answer); none from an older Kosmos.
+      cardWord: typeof a.cardWord === 'string' ? a.cardWord.slice(0, 40) : '',
     }));
 }
 function oaAgentHref(address, sessionName) {
@@ -33026,7 +33028,10 @@ function oaCard(a, c, off) {
   const sub = document.createElement('span');
   sub.className = 'oa-sub';
   const copy = typeof STATE_COPY !== 'undefined' && typeof a.state === 'string' && Object.prototype.hasOwnProperty.call(STATE_COPY, a.state) ? STATE_COPY[a.state] : null;
-  sub.textContent = c.name + (copy && copy.label && !off ? ' · ' + copy.label : '');
+  /* kosmos#7791: the word that computer's own card shows (its cardWord), so "Messages stuck" or "Question" reads the same
+     here; an older Kosmos sends none, and then the bare state's word, as before. */
+  const word = typeof a.cardWord === 'string' && a.cardWord.trim() ? a.cardWord.trim() : (copy && copy.label) || '';
+  sub.textContent = c.name + (word && !off ? ' · ' + word : '');
   el.append(nm, sub);
   return el;
 }

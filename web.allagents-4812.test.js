@@ -82,7 +82,7 @@ function load(fetchImpl, win) {
     const AGENT_SORT = 'name';
     function sortAgents(list, mode, projects) { calls.sort.push([mode, projects]); return list.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))); }
     ${SRC}
-    return { oaEligible, oaOthers, oaClassify, oaRemember, oaAgentHref, oaReadOne, oaNote, oaCard, oaGroup, oaGridShown, oaHost, oaGroupKey, oaStale, OA_SEEN };
+    return { oaEligible, oaOthers, oaClassify, oaRemember, oaAgentsOf, oaAgentHref, oaReadOne, oaNote, oaCard, oaGroup, oaGridShown, oaHost, oaGroupKey, oaStale, OA_SEEN };
   `)(t.document, fetchImpl || (async () => { throw new Error('no fetch in this test'); }), calls, LIST, win || {});
   return { api, calls, d: t };
 }
@@ -172,16 +172,16 @@ test('read: asks that computer with this browser\'s credentials and keeps only r
   assert.deepEqual(Object.keys(o).sort(), ['cache', 'credentials', 'mode', 'signal'], 'nothing else rides along');
 });
 
-test('read: rows keep only three string fields, so a malformed one cannot reach this board\'s sort', async () => {
+test('read: rows keep only four string fields (#7791 adds the card word), so a malformed one cannot reach this board\'s sort', async () => {
   const { api } = load(async () => ({ status: 200, json: async () => ({ agents: [
     card('a', { name: 'Ann', state: 'idle', role: 42, runner: { x: 1 }, profile: null }),
-    card('b', { name: { not: 'text' }, state: 7 }),
+    card('b', { name: { not: 'text' }, state: 7, cardWord: { not: 'text' } }),
   ] }) }));
   const r = await api.oaReadOne(LIST.computers[1]);
-  /* The output is this page's own three-field row, not a card: exactly these keys, each a string. */
-  assert.deepEqual(r.agents.map((a) => Object.keys(a).sort()), [['name', 'sessionName', 'state'], ['name', 'sessionName', 'state']],
-    'a row kept a field other than the three this board sorts and paints');
-  assert.deepEqual(r.agents.map((a) => [a.sessionName, a.name, a.state]), [['a', 'Ann', 'idle'], ['b', '', '']]);
+  /* The output is this page's own four-field row, not a card: exactly these keys, each a string. */
+  assert.deepEqual(r.agents.map((a) => Object.keys(a).sort()), [['cardWord', 'name', 'sessionName', 'state'], ['cardWord', 'name', 'sessionName', 'state']],
+    'a row kept a field other than the four this board sorts and paints');
+  assert.deepEqual(r.agents.map((a) => [a.sessionName, a.name, a.state, a.cardWord]), [['a', 'Ann', 'idle', ''], ['b', '', '', '']]);
 });
 
 test('read: no readable answer is blocked from an online computer, out from an offline one', async () => {
@@ -202,6 +202,21 @@ test('note: says which of the four it is, with this page\'s own last read for on
   assert.equal(api.oaNote(c, { state: 'out', agents: null, at: null }, now), 'Not connected.', 'the coordinator\'s lastSeen (refreshed daily) is never shown as a time');
   assert.equal(api.oaNote({ ...c, lastSeen: null }, { state: 'out', agents: null }, now), 'Not connected.', 'never a made-up time');
   assert.match(api.oaNote(LIST.computers[1], { state: 'blocked', agents: null }, now), /online, but its agents cannot be read from here yet\. It may need the latest Kosmos\./);
+});
+
+test('#7791: a card shows the word that computer\'s own card shows; an older Kosmos with none shows the state\'s word', () => {
+  const c = LIST.computers[1];
+  const { api } = load(null, {});
+  const sub = (row) => api.oaCard(card('a', row), c, false).querySelector('.oa-sub').textContent;
+  assert.equal(sub({ name: 'Ann', state: 'working', cardWord: 'Messages stuck' }), c.name + ' · Messages stuck');
+  assert.equal(sub({ name: 'Ann', state: 'working' }), c.name + ' · Working', 'CONTROL: no card word, the state\'s word as before');
+  assert.equal(sub({ name: 'Ann', state: 'working', cardWord: '   ' }), c.name + ' · Working', 'a blank word is no word');
+  assert.equal(api.oaCard(card('a', { name: 'Ann', state: 'working', cardWord: '<b>x</b>' }), c, false).querySelector('b'), null, 'the word is text, never markup');
+  // The read keeps the word, short, through to the card (the browser check caught it being dropped here).
+  const kept = api.oaAgentsOf({ agents: [{ sessionName: 'k', name: 'K', state: 'working', cardWord: 'Messages stuck' }, { sessionName: 'o', state: 'idle' }, { sessionName: 'l', state: 'idle', cardWord: 'x'.repeat(90) }] });
+  assert.equal(kept[0].cardWord, 'Messages stuck');
+  assert.equal(kept[1].cardWord, '', 'CONTROL: an older Kosmos sends none');
+  assert.equal(kept[2].cardWord.length, 40);
 });
 
 test('#6406: in the Kosmos app an agent card and the group\'s Open link open in this window; in a browser, a new tab', () => {

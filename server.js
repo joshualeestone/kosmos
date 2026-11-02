@@ -5823,7 +5823,7 @@ function statusForSibling(json, site) {
      "could not read"); the page reads a field that is absent as "an older Kosmos". */
   if (site !== 'same-site') {
     return JSON.stringify({ agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
-      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state) })) });
+      .map((a) => ({ sessionName: str(a.sessionName), name: str(a.name), state: str(a.state), cardWord: str(a.cardWord) || null })) });   // kosmos#7791
   }
   const weekly = full && Array.isArray(full.accountsWeekly) ? full.accountsWeekly : null;
   const keyOf = new Map();
@@ -5847,6 +5847,9 @@ function statusForSibling(json, site) {
     agents: agents.filter((a) => a && typeof a === 'object' && a.isGuide !== true)
       .map((a) => ({
         sessionName: str(a.sessionName), name: str(a.name), state: str(a.state),
+        /* kosmos#7791: the card's own word (cardlabel.labelOf, as the phone gets it, #7004), so the other computer's list
+           says "Messages stuck" or "Question" where the bare state would say Working or Issue. A word from a fixed list. */
+        cardWord: str(a.cardWord) || null,
         runner: str(a.runner) || null,
         acct: (a.account && typeof a.account === 'object' && keyOf.get(a.account.dir)) || null,   // null: not on a listed account
       })),
