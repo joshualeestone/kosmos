@@ -354,3 +354,28 @@ test('#7753 re-send: a clock that gives no usable time never re-sends', async ()
   for (let i = 0; i < 3; i++) await mk.ensureMemberKey({ macRequest: c.macRequest, deviceKey: d.read, now: () => NaN });
   assert.equal(c.posts.length, 1);
 });
+
+test('#7753 re-send: an echo in an answer for another epoch is not this epoch kept; sigOther survives a read and a write', async () => {
+  const T0 = 1800000000000, H = 3600 * 1000, d = device();
+  const c = storingCoordinator();
+  const real = c.macRequest;
+  let otherEpoch = false;
+  const odd = async (m, route, body) => {
+    const a = await real(m, route, body);
+    if (otherEpoch && route === mk.MEMBER_KEY_ROUTE && a.ok) return { ok: true, data: { epoch: body.epoch + 1, member_public: body.member_public, member_key_sig: body.member_key_sig } };
+    return a;
+  };
+  await mk.ensureMemberKey({ macRequest: odd, deviceKey: d.read, now: () => T0 });
+  otherEpoch = true;
+  await mk.ensureMemberKey({ macRequest: odd, deviceKey: d.read, now: () => T0 + (7 * 24 + 1) * H });
+  assert.equal(c.posts.length, 2, 'premise: re-sent');
+  assert.equal(mk.readKeys(ORG, MEMBER).keys[1].sigKept, undefined, 'another epoch\'s answer says nothing about this one');
+  await mk.ensureMemberKey({ macRequest: odd, deviceKey: d.read, now: () => T0 + (14 * 24 + 2) * H });
+  assert.equal(c.posts.length, 3, 'asked again a week later');
+  // sigOther round-trips through the file.
+  const k = mk.readKeys(ORG, MEMBER).keys;
+  k[1].sigKept = true; k[1].sigOther = true;
+  mk.writeKeys(ORG, MEMBER, k);
+  const back = mk.readKeys(ORG, MEMBER).keys[1];
+  assert.equal(back.sigKept, true); assert.equal(back.sigOther, true);
+});

@@ -228,6 +228,8 @@ async function resignIfNeeded(macRequest, company, epoch, keys, readDeviceKey, a
   const sameKey = Boolean(r && r.ok && r.data && r.data.epoch === epoch && echoedPk && echoedPk.equals(k.pk));
   const kept = sameKey ? keptSig(r, got.sentSig) : null;
   if (kept) { k.sigKept = true; if (kept === 'other') k.sigOther = true; }
+  // `keys` was read before the awaited POST; writing it back is safe under the one-board-process-per-data-root rule and
+  // this module's chain (one call at a time), the same rule every other write here rests on.
   try { writeKeys(company.org, company.member, keys); } catch { /* this process still waits the interval (lastTry); a restart may ask once more */ }
 }
 
