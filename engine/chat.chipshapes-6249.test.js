@@ -201,3 +201,63 @@ test('#6249: a short message that only MENTIONS a chip in its words is compared 
   assert.equal(h(msg + '[Pasted text #9]', msg), 'other', 'a real chip after our words (not words of ours) is someone else\'s');
   assert.equal(h('[Pasted text #2]', msg, null), 'other', 'a box that is one chip and nothing else is still a chip box, as before');
 }));
+
+/* Reads of the box after our paste and before our Enter: `frames` are what each successive read shows (the last one
+   repeats). Only reads after the paste and before the first Enter are rewritten. */
+function drawing(p, frames) {
+  let n = 0;
+  chat.setRunner((args) => {
+    if (args[0] === 'capture-pane' && args.includes('-e') && pastedCount(p) > 0 && p.state.enters === 0) {
+      p.state.shown = frames[Math.min(n, frames.length - 1)];
+      n += 1;
+    }
+    return p(args);
+  });
+  return () => n;
+}
+
+test('#6249: a fold still drawing (one chip, then all three) is pinned only once it settles, as the whole form', () => withAgent((roster) => {
+  const p = pane({ shape: THREE_CHIPS, enterTakes: false });
+  const reads = drawing(p, ['[Pasted text #1]', '[Pasted text #1][Pasted text #2][Pasted text #3]']);
+  const v = chat.deliver('al', LONG, roster);
+  assert.ok(reads() >= 3, 'PRECONDITION: it read again while the fold drew: ' + reads());
+  assert.equal(p.state.enters, 1, 'pressed once the form stopped changing');
+  assert.equal(v.unsubmitted, true, 'PRECONDITION: Enter did not take');
+  const entry = Object.values(keptLines())[0];
+  assert.equal(entry && entry.chip, '[Pastedtext#1][Pastedtext#2][Pastedtext#3]', 'the settled whole form is what was pinned and kept');
+}));
+
+test('#6249 CONTROL: a folded box that never stops changing before our Enter is not pressed', () => withAgent((roster) => {
+  const p = pane({ shape: THREE_CHIPS });
+  const frames = Array.from({ length: 20 }, (_, i) => Array.from({ length: i + 1 }, (_, j) => `[Pasted text #${j + 1}]`).join(''));
+  drawing(p, frames);
+  const v = chat.deliver('al', LONG, roster);
+  assert.equal(p.state.enters, 0, 'never pressed: it never settled');
+  assert.equal(v.unsubmitted, true);
+}));
+
+test('#6249: after ours went, a person typing their own chip with words is not read as ours still there', () => withAgent((roster) => {
+  const p = pane({ shape: THREE_CHIPS, enterTakes: false });
+  chat.setRunner((args) => {
+    const out = p(args);
+    // Our Enter takes our folded paste out; the person then types words with a chip of their own.
+    if (args[0] === 'send-keys' && args[args.length - 1] === 'Enter') { p.state.chipNo += 1; p.state.shown = `see [Pasted text #${p.state.chipNo}]`; }
+    return out;
+  });
+  const v = chat.deliver('al', LONG, roster);
+  assert.equal(p.state.enters, 1);
+  assert.equal(v.state, chat.DELIVERY.PLACED, 'said as sent: ours is gone, what is there is theirs: ' + v.because);
+  assert.notEqual(v.unsubmitted, true);
+}));
+
+test('#6249 CONTROL: after our Enter, our pinned chips still there with a person\'s words is never said as sent', () => withAgent((roster) => {
+  const p = pane({ shape: THREE_CHIPS, enterTakes: false });
+  chat.setRunner((args) => {
+    const out = p(args);
+    if (args[0] === 'send-keys' && args[args.length - 1] === 'Enter') p.state.shown = '[Pasted text #1][Pasted text #2][Pasted text #3] wait';
+    return out;
+  });
+  const v = chat.deliver('al', LONG, roster);
+  assert.equal(p.state.enters, 1, 'only our own Enter');
+  assert.notEqual(v.state, chat.DELIVERY.PLACED, 'not said as sent: our chips are still in the box');
+}));

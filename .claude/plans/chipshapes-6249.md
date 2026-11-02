@@ -30,6 +30,10 @@ agent jams. That is the 0.7.70 report on #6249, a version that already had #6780
   in order; or when it is exactly the pinned/kept folded form. Otherwise 'other', as today. A several-lines chip is
   still never ours (our line is one line).
 - The pre-Enter pin (`ourChip`) and the kept `chip` record the whole squashed folded form, not only a single chip.
+- The pin is taken only once two reads a look apart agree (a fold can still be drawing); a box still changing after
+  `FOLD_STABLE_LOOKS` is not pressed.
+- After our Enter, a box holding any of our pinned chips is still ours (not sent). Otherwise a lone chip is someone
+  else's as before, and text with someone's chip in it is judged by our end (`stillHoldsOurEnd`), as on main.
 
 ## Decided
 
@@ -38,6 +42,12 @@ agent jams. That is the 0.7.70 report on #6249, a version that already had #6780
   at least `CHIP_MIN_CHARS`.
 - Text pieces must each be a run of our line, in order. Rejected: accepting any text next to a chip (a person typing
   after our paste would be sent with it).
+- No minimum length for a text piece next to our chips. A person typing exactly an end of our line (a lone `.`, say)
+  in the moment between our empty-box read and our Enter would be sent with it. That is the same window main already
+  accepts for a lone chip (a person's paste in that second), and a floor would refuse genuine short remainders of a
+  fold, which is the jam this card is about. Rejected: a 20-character floor like the plain-text rule's.
+- A line of ours that itself contains `[Pasted text #N]` and also folds into a chip with that same number reads as
+  words, not as a chip. Both at once is the one case that cannot be told apart; it falls to the word comparison.
 
 ## Weakest part
 
