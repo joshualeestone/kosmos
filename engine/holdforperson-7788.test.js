@@ -142,3 +142,21 @@ test('review 3: the history says a hold waits on you, and when it stopped waitin
   tasks.setOnHold(plain.id, plain.n, true);
   assert.equal(phrase(taskchat.read(plain.id, plain.n).find((e) => e.kind === 'hold-set')), 'Put on hold by an agent', 'CONTROL: a plain hold');
 });
+
+test('review 4: an agent restating the person\'s hold with forPerson false is no change, not a refusal; true is still refused', () => {
+  const p = fresh('hfp sixteen');
+  tasks.setOnHold(p.id, p.n, true, { viaScreen: true });
+  assert.equal('onHoldForPerson' in tasks.setOnHold(p.id, p.n, true, { forPerson: false }), false);
+  assert.equal(read(p.id, p.n).onHoldByPerson, true, 'the person\'s hold stayed theirs');
+  assert.throws(() => tasks.setOnHold(p.id, p.n, true, { forPerson: true }), (e) => e.status === 403, 'CONTROL: marking it is still refused');
+});
+
+test('review 4: the agent\'s own list says a hold waits on its person; a plain hold keeps its mark (control)', () => {
+  const task = (number, extra) => Object.assign({ number, sentence: 'task ' + number, who: 'ada' }, extra);
+  const body = projects.blockBody([
+    { id: 'w', name: 'Waits', folder: '/tmp/waits', tasks: [task(1, { onHold: true, onHoldForPerson: true }), task(2, { onHold: true })] },
+  ], 'ada');
+  const line = (n) => body.split('\n').find((l) => l.includes('task ' + n + ' of Waits:')) || '';
+  assert.match(line(1), /\[on hold, waiting on your person: do not start it until they answer and it is taken off hold\]/, body);
+  assert.match(line(2), /\[on hold: do not start it until it is taken off hold\]/, 'CONTROL: a plain hold');
+});

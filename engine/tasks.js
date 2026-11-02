@@ -1281,7 +1281,8 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       throw refused;
     }
     // kosmos#7788: and so is whether it waits on anyone: an agent cannot mark the person's hold.
-    if (forPerson !== undefined && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true) {
+    // Review 4: false is no change on the person's hold (it never waits on them), so only true is refused.
+    if (forPerson === true && isOnHold(t) && t.onHoldByPerson === true && viaScreen !== true) {
       const refused = new Error('the person put this task on hold, so it is theirs');
       refused.status = 403;
       throw refused;
