@@ -25,9 +25,17 @@ the push (POST /v1/mac/notify-ack, #3540) once it is over. No coordinator change
 - Ack at 25 minutes, not at the recovery (review 1): acking early gains nothing and cannot be undone.
 
 ## Weakest premise
-An agent covered by the push that has no streak (a stuck turn reported by the card, not the streak map) never reports an
-end, so its push is never acked. That is the safe direction (the email goes as before), and it means the ack fires less
-often than it could.
+That most recoveries end with a landed line. Only those report an end (`note(name, placed)` then `endsToSay`). A streak
+cleared by `reset` or `settleFor` (a card whose state speaks for itself) or by `sweep` (the agent left the board), and a
+stuck turn reported by the card rather than the streak map, never report one, so their push is never acked and the
+email goes as before. Safe, but the ack may fire less often than it could; if that matters, those paths need an end.
+
+## Residuals (all fail toward the email, or narrow)
+- The window between the ack (25 minutes, board clock) and the coordinator's decision (30 minutes after it received the
+  push, its own clock): an agent that stalls again in it has already been acked. Narrow: a new stall needs STALL_MS and
+  STALL_MIN_FAILS before it is one.
+- A board asleep past the 30-minute mark acks late; the coordinator answers `matched: false` and the email has gone.
+- An ack is one attempt: the entry is gone once handed to the sender, and a refused or failed ack is not retried.
 
 ## Tests
 `engine/stallack-7794.test.js` (10). Each rule was mutated and its test went red: wait-for-all (caught by the reset

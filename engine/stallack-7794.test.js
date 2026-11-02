@@ -92,7 +92,7 @@ test('an agent that recovers and stalls again before the ack is due keeps its em
   const { said, ev } = pushedStalls(['f1']);
   const ends = recover('f1', said, PUSH + 5 * MIN);
   assert.deepEqual(ds.acksDue(ends, PUSH + 5 * MIN), [], 'acked before it was due');
-  ds.note('f1', FAIL, PUSH + 8 * MIN);   // stalled again: the old push's email is its only warning (no new push for a day)
+  ds.note('f1', FAIL, PUSH + 8 * MIN);   // stalled again: the old push's email is its only warning
   assert.deepEqual(ds.acksDue([], DUE), [], 'acked while the agent was failing again');
   ds.note('f1', PLACED, DUE + 2 * MIN);   // that streak ends (never said, so it reports no end)
   assert.deepEqual(ds.acksDue([], DUE + 3 * MIN), [ev.id], 'not acked once it stopped failing');
