@@ -123,7 +123,7 @@ function newestRegistered(keys) {
 /* kosmos#7753: the member key record this computer signs with its device key (the connector's mac_key, the key Kosmos+
    knows this computer by), so escrowd can refuse a release whose key no device of the member signed. The bytes:
    the fixed tag, then org and member each as a u16-BE length and its UTF-8, the epoch as u64-BE, then the 32-byte
-   member public key. The tag keeps the signature apart from a manifest's and a mac-request's (backupdevicekey.js).
+   member public key. The tag keeps the signature apart from the device key's other uses (backupdevicekey.js).
    escrowd's verifier must build the same bytes; the format is on #7753. */
 const RECORD_DOMAIN = Buffer.from('kosmos-backup v1 member-key-record\0');
 function memberKeyRecordBytes(org, member, epoch, memberPublic) {
@@ -248,8 +248,8 @@ async function ensureNow(opts, seen) {
           // Kosmos+ has it; the next call sends the same kept key and gets a repeat.
           return { ok: false, because: 'Kosmos+ took the backup key, but this computer could not note that; it will confirm it next time' };
         }
-        // kosmos#7753: a key registered without its signed record says why, so the backup screen can flag it before a
-        // release is refused for it. Only on the registration itself: a key answered from disk was registered earlier.
+        // kosmos#7753: a key registered without its signed record says why, on this answer only (a key answered from
+        // disk was registered earlier).
         return unsignedBecause ? { ok: true, epoch, publicKey: keys[epoch].pk, unsignedBecause } : { ok: true, epoch, publicKey: keys[epoch].pk };
       }
       const code = r && r.refusal && r.refusal.code;

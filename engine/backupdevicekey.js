@@ -8,7 +8,8 @@
  * Why the same key is safe for both: a manifest signature covers bytes that start with the fixed tag
  * `kosmos-backup v1 manifest-signature\0` (engine/backupformat.js), while a mac-request signs `{ts}\n{METHOD}\n...`
  * (kosmos-relay crates/tunnel/src/coordinator.rs signed_string, and assistant.rs), which starts with a digit. Neither
- * can stand for the other. (The connector's only other use of the seed is not a signature: pairing.rs hashes it, under
+ * can stand for the other. A member key record (kosmos#7753, engine/backupmemberkey.js) is signed under its own tag,
+ * `kosmos-backup v1 member-key-record\0`. (The connector's only other use of the seed is not a signature: pairing.rs hashes it, under
  * its own prefix, into a nonce.)
  *
  * The key alone, never paired with an identity here. The connector replaces `mac_key` and `mac_id` together on every

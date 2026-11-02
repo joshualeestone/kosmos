@@ -3,7 +3,7 @@
 Finished means (this branch, the Mac side only): every company member-key registration this computer sends (ensureMemberKey) carries `member_key_sig`, an Ed25519 signature by its device key (the connector's mac_key) over the record bytes on #7753, so escrowd can later check a release's key against the member's enrolled device keys. A computer whose device key cannot be read, or that cannot sign with it, registers exactly as before, with no signature. A personal backup's key (personalbackupkey.js, the same route) is left unsigned on purpose: it has no escrow release to protect. escrowd's check and the coordinator storing the field are not here: escrowd is #5686 Part 2's (Renet Tilley), and the coordinator's live path changes only through Kitty.
 
 Measured, both arms:
-- engine/backupmemberkey-7753.test.js: the signature verifies over the true record, and fails for another device, org, member, epoch or planted key. With the code changed on purpose to sign epoch + 1, 2 of its 4 tests fail. The bytes match a vector built by hand from the card's layout, not from the code.
+- engine/backupmemberkey-7753.test.js: the signature verifies over the true record, and fails for another device, org, member, epoch or planted key. With the code changed on purpose to sign epoch + 1, the tests that check a signature fail (re-measured each round). The bytes match a vector built by hand from the card's layout, not from the code.
 - engine/backupmemberkey-5744.test.js green (38), now pointed at an empty device-key folder in its sandbox so it never reads a real key.
 - The default wiring (no deviceKey option) signs with the connector's mac_key from the data root's own state folder, laid out as the connector writes it. Red when the require path is broken on purpose; the public-key case is red when the sign is moved out of its try.
 
@@ -12,7 +12,7 @@ Decided (the open questions, written on #7753):
 - An epoch with no signed record falls back to the first-seen pin, with the reviewer told. Rejected: refusing, which would strand every existing epoch.
 - A device key revoked later counts if it was enrolled when escrowd first pinned the epoch (escrowd's own clock).
 - The record does not bind the `wrap`: escrowd opens the wrap and requires it to open to the pinned member_public (kosmos-relay coordinator/src/escrowcore.rs, open_member_wrap with member_public), so a swapped wrap fails there, not here.
-- A registration that went out unsigned says so in ensureMemberKey's answer (`unsignedBecause`, one fixed sentence per cause), the early warning for escrowd's ratchet (agreed with Renet: her refusal names this cause first).
+- A registration that went out unsigned says so in ensureMemberKey's answer (`unsignedBecause`, one fixed sentence per cause), on that one answer only. Nothing reads it yet: backupjob.fromAnswer drops it, and it is not kept. Carrying it to the backup screen (and keeping it, since it is said once) is follow-up work on #7753, with the screen. escrowd's refusal names this cause on its own (agreed with Renet).
 - The remaining work (coordinator storing the field, the re-send, escrowd's ratchet and cutover) stays on #7753, which stays open until a release has checked a real record.
 - No verifier is exported here: the check belongs to escrowd, and engine.reachable refuses a test-only export.
 Not done here, and needed before the signature protects anything (on #7753):
