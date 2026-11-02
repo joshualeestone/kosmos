@@ -70,7 +70,8 @@ function taskDoneText(trigger) {
 /* kosmos#6593 F7a: the Sent time, for a runner that rereads one long session. Not the sweep's wording: this line is not
    one of its reminders, and the two can carry the same minute, so it names only this exact message. */
 function taskDoneStamped(text, now) {
-  return String(text) + ' (Sent ' + communityturn.sentWhen(now) + '. If you have already answered this exact message, do not answer it again.)';
+  return String(text) + ' (Sent ' + communityturn.sentWhen(now) + '. A message with a different Sent time is a new one. If you have already'
+    + ' answered this exact message, do not answer it again.)';
 }
 
 function keyOf(projectId, taskNumber) { return String(projectId) + '\t' + String(taskNumber); }

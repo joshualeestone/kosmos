@@ -377,7 +377,7 @@ test('#6593: the board asks for the Sent stamp, as the sweep line carries; tests
   const stamped = setup({ stamp: true });
   td.promptOnTaskDone(stamped.o);
   assert.equal(stamped.sent[0].text, td.taskDoneStamped(td.taskDoneText('built'), NOW));
-  assert.match(stamped.sent[0].text, new RegExp('\\(Sent ' + require('./communityturn').sentWhen(NOW) + '\\. If you have already answered this exact message'));
+  assert.match(stamped.sent[0].text, new RegExp('\\(Sent ' + require('./communityturn').sentWhen(NOW) + '\\. A message with a different Sent time is a new one\\. If you have already answered this exact message'));
   assert.doesNotMatch(stamped.sent[0].text, /reminder/i, 'the sweep\'s word: a task-done prompt is not one of its reminders');
   const bare = setup();
   td.promptOnTaskDone(bare.o);

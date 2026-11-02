@@ -209,7 +209,6 @@ function due({ roster, projects, now, book, inCommunity, postTimes, idleSince, q
       /* #5297: a turn another Kosmos line woke (a "read this section again" line) is Kosmos's own too. */
       let others = [];
       if (typeof kosmosLines === 'function') { try { const k = kosmosLines(s); if (Array.isArray(k)) others = k; } catch { others = []; } }
-      // Its own tries only: a task-done prompt reaches an agent already at work, so the turn it lands in is not one Kosmos woke.
       if (workedSince(rows, last, [...own, ...others]) !== true) continue;
     }
     let held = false;
