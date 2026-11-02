@@ -656,22 +656,17 @@ function history(sessionName, tailBytes) {
    (`by: 'operator'`) is not, since it only acts on a report already there. No record is null, not false: a provider
    whose hook never writes, or a hook that was never wired, leaves none (engine/register.js hasRun says the same).
    A record longer than the tail with no turn row in the tail is null too: older rows exist that this read did not
-   see. A true is kept per name with the record file's inode (the status poll asks for every idle card), so the same
-   file is not read again, and a file that was replaced is. */
+   see. A true is kept per name, so the status poll does not read the record again for an agent that has worked. */
 const TURN_STATES = Object.freeze(['working', 'idle', 'needs_you', 'blocked']);
-const TURNED = new Map();   // name -> inode of the record that held a turn
-function inodeOf(sessionName) {
-  try { return fs.statSync(fileFor(sessionName)).ino; } catch { return null; }
-}
+const TURNED = new Set();
 function turnTakenOf(sessionName) {
-  const ino = inodeOf(sessionName);
-  if (ino !== null && TURNED.get(sessionName) === ino) return true;
+  if (TURNED.has(sessionName)) return true;
   const rows = history(sessionName);
   if (!rows) return null;
   let started = false;
   for (const row of rows) {
     if (row.by === 'operator') continue;
-    if (TURN_STATES.includes(row.state)) { if (ino !== null) TURNED.set(sessionName, ino); return true; }
+    if (TURN_STATES.includes(row.state)) { TURNED.add(sessionName); return true; }
     if (row.state === 'started') started = true;
   }
   if (rows.truncated) return null;

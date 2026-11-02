@@ -16,8 +16,8 @@ const cardlabel = require('./cardlabel');
 
 const IDLE = { state: 'idle' };
 const pane = (name, extra) => ({ name, session: name, claim: name, runner: 'claude', ...extra });
-/* Each test uses its own agent names: turnTakenOf keeps a true per name and file, and rows() rewrites the file in
-   place, so a name reused across tests could read a kept answer. */
+/* Each test uses its own agent names: turnTakenOf keeps a true per name, so a name reused across tests could read a
+   kept answer. */
 function rows(name, list) {
   fs.mkdirSync(selfreport.DIR, { recursive: true });
   fs.writeFileSync(selfreport.fileFor(name), list.map((r, i) =>
@@ -53,11 +53,8 @@ test('turnTakenOf: a long record with a turn in its tail is true; once true it i
   assert.equal(selfreport.turnTakenOf('long-turned'), true);
   rows('cached', [{ state: 'started', by: 'auto' }, { state: 'working', by: 'auto' }]);
   assert.equal(selfreport.turnTakenOf('cached'), true);
-  rows('cached', [{ state: 'started', by: 'auto' }]);   // rewritten in place: the same file, so the kept answer stands
+  rows('cached', [{ state: 'started', by: 'auto' }]);
   assert.equal(selfreport.turnTakenOf('cached'), true, 'kept, not read again');
-  fs.unlinkSync(selfreport.fileFor('cached'));
-  rows('cached', [{ state: 'started', by: 'auto' }]);   // a new file under the same name is read again
-  assert.equal(selfreport.turnTakenOf('cached'), false, 'a replaced record is not answered from the old one');
 });
 
 test('turnTakenOf: a record longer than the tail is null (older rows were not read)', () => {
