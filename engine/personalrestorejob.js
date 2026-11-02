@@ -10,6 +10,11 @@
  *   status()      { running, startedAt, last }: last is the most recent restore's answer, by named fields.
  *   (no stop: a child exits by itself when the board goes, because its IPC channel closes.)
  *
+ * Known limits, on #7404 for the screen slice: a restore has no time limit and no Stop, so a child that wedges holds the
+ * slot until the board restarts; the slot and the last answer live in this process, so after a restart the screen
+ * cannot say a restore was cut off; and an old board's child may still be finishing a write when a new board starts
+ * another restore (each makes its own new Kosmos, and restoreworld's list has its own lock).
+ *
  * The child signs nothing. Its Kosmos+ requests come back here and only ROUTES are signed, through remote.macRequest,
  * so the busy() guard around a register or a Forget holds for a restore as for anything else. Any other route is
  * answered as a refusal that was never sent.
@@ -45,12 +50,23 @@ function shapeList(r) {
     return out;
   }
   const backups = (Array.isArray(r.backups) ? r.backups : []).filter((b) => b && typeof b.key === 'string').map((b) => ({
-    key: b.key, epoch: b.epoch, takenAt: Number.isFinite(b.takenAt) ? b.takenAt : null, problem: typeof b.problem === 'string' ? b.problem : null,
+    key: b.key, epoch: Number.isSafeInteger(b.epoch) ? b.epoch : null, takenAt: Number.isFinite(b.takenAt) ? b.takenAt : null, problem: typeof b.problem === 'string' ? b.problem : null,
   }));
   return { ok: true, more: r.more === true, keyMissing: r.keyMissing === true, backups };
 }
 
 const names = (a) => (Array.isArray(a) ? a.filter((x) => typeof x === 'string') : []);
+// A list of reasons for the screen: at most 20, each cut to 300 characters, as restoreworld's own fetchProblems.
+const REASONS_KEPT = 20;
+const REASON_CHARS = 300;
+const reasons = (a) => {
+  const all = names(a);
+  const kept = all.slice(0, REASONS_KEPT).map((x) => x.slice(0, REASON_CHARS));
+  if (all.length > REASONS_KEPT) kept.push('(more not listed)');
+  return kept;
+};
+const FAILED_KEPT = 200;   // as personalrestore's FILES_NAMED
+const PATH_CHARS = 1024;
 function shapeRestore(r) {
   const out = { ok: !!(r && r.ok === true) };
   if (!r || typeof r !== 'object') return Object.assign(out, { because: 'the restore failed on this computer' });
@@ -61,13 +77,14 @@ function shapeRestore(r) {
   if (Number.isSafeInteger(r.restored)) out.restored = r.restored;
   if (Number.isSafeInteger(r.failed)) out.failed = r.failed;
   for (const k of ['moved', 'kept', 'heldBack']) if (k in r) out[k] = names(r[k]);
+  if ('fetchProblems' in r) out.fetchProblems = reasons(r.fetchProblems);
   const d = r.details;
   if (d && typeof d === 'object') {
     out.details = {
-      failed: (Array.isArray(d.failed) ? d.failed : []).filter((f) => f && typeof f.path === 'string')
-        .map((f) => ({ path: f.path, why: typeof f.why === 'string' ? f.why : '' })),
+      failed: (Array.isArray(d.failed) ? d.failed : []).filter((f) => f && typeof f.path === 'string').slice(0, FAILED_KEPT)
+        .map((f) => ({ path: f.path.slice(0, PATH_CHARS), why: typeof f.why === 'string' ? f.why.slice(0, REASON_CHARS) : '' })),
       leftOutAtBackup: Number.isSafeInteger(d.leftOutAtBackup) ? d.leftOutAtBackup : 0,
-      fetchProblems: names(d.fetchProblems),
+      fetchProblems: reasons(d.fetchProblems),
     };
   }
   if (!out.ok && !out.because) out.because = 'the restore failed on this computer';
@@ -93,7 +110,8 @@ function runChild(ask, deps = {}) {
     children.add(child);
     if (deps.timeoutMs) { timer = setTimeout(() => done(null), deps.timeoutMs); if (timer.unref) timer.unref(); }
     child.on('error', () => done(null));
-    child.on('exit', () => done(null));   // a child that exits without its answer: settled is set first when it answered
+    // A child that exits without its answer. Settled a turn later, so an answer already on its way is read first.
+    child.on('exit', () => setImmediate(() => done(null)));
     child.on('message', (m) => {
       if (settled || !m || typeof m !== 'object') return;
       if ('done' in m) { done(m.done); return; }
@@ -113,6 +131,7 @@ function runChild(ask, deps = {}) {
   });
 }
 
+/* An ask while a list runs gets that list's answer (its deps too: tests ask one at a time). */
 function list(deps = {}) {
   if (listing) return listing;
   const p = runChild({ op: 'list' }, Object.assign({ timeoutMs: LIST_TIMEOUT_MS }, deps)).then(shapeList, () => shapeList(null));

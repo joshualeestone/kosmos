@@ -231,7 +231,8 @@ connector_verbs_check "$T/no-such-tunnel" "$OPEN" 2>"$T/err" && bad "a missing c
 # the status read it sends first only reads. Nothing calls it yet (the screens are a later slice, behind
 # KOSMOS_PERSONAL_BACKUP, off), so nothing that works today breaks.
 # kosmos#7404 decided for engine/personalrestorejob.js and engine/personalrestore-child.js (the restore routes): the
-# child's macRequest is a stand-in that asks the board over IPC and signs nothing; the job signs, through
+# child's macRequest is a stand-in that asks the board over IPC and signs nothing (it is on the list below only because
+# its own function is named macRequest); the job signs, through
 # remote.macRequest, only the three routes personalrestore and personalbackupkey already call (member-key/mine,
 # mine/manifests, mine/read, decided above) and refuses any other unsent. An older connector refuses them as decided
 # above, so the list or the restore stops before a Kosmos is made. Personal backup is off (KOSMOS_PERSONAL_BACKUP), so

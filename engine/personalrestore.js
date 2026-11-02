@@ -12,11 +12,11 @@
  * can hide a snapshot from the list and cannot supply one. `trust: 'member-proof'` is set here and only here, for the
  * org personalbackup.js holds; a company's manifest given this trust carries no proof and is refused.
  *
- * One restore at a time in this process. Restored agents stay stopped: nothing here enables one, and restoreworld's
+ * One restore at a time in this process; across a board, engine/personalrestorejob.js holds the slot. Restored agents stay stopped: nothing here enables one, and restoreworld's
  * review is what offers them. Never throws: { ok: true, ... } or { ok: false, because, code? }.
  *
- * Not here: a screen and its routes; running this off the board's event loop, which the route must do (the sink's writes
- * and restoreworld's finish are synchronous, so restoreFiles belongs in a child process); carrying on a restore that
+ * The routes (server.js /api/personal-backup/backups and /files) run this in engine/personalrestore-child.js, off the
+ * board's event loop. Not here: a screen; carrying on a restore that
  * stopped part way (the sink keeps its record, so a later slice can); and a snapshot sealed under another epoch's key for
  * some of its chunks (refused by restorefetch).
  */
