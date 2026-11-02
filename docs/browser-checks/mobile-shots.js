@@ -713,8 +713,12 @@ function holdForYou7788(where) {
       await page.evaluate(() => document.getElementById('tk-hold-row').scrollIntoView({ block: 'center' }));
     }
     await page.waitForTimeout(300);
-  }, verify: async (page) => {
-    if (where === 'pill') return;   // the pill is read in the shot; its words are pinned by render-onhold-4771
+  }, verify: async (page, data) => {
+    if (where === 'pill') {   // final review: the shot can fail when the project's card wears no Question pill
+      const pill = await page.evaluate((id) => ((document.querySelector(`#pj-list .pj-row[data-project="${id}"]`) || {}).textContent || ''), data.projectId);
+      if (!/Question/.test(pill)) throw new Error('holdforyou-7797: the project card says ' + JSON.stringify(pill.slice(0, 120)));
+      return;
+    }
     const t = await page.evaluate((w) => ((w === 'list' ? document.querySelector('#tsk-groups .tsk-for-you') : w === 'card' ? document.querySelector('#pj-one-view .tkcard-for-you') : document.getElementById('tk-hold-hint')) || {}).textContent || '', where);
     if (!/until you answer/.test(t)) throw new Error('holdforyou-7788: the line says ' + JSON.stringify(t));
   }, after: async (page, data) => {

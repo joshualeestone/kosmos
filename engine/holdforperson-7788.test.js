@@ -284,3 +284,20 @@ test('kosmos#7797 review 3: the person taking over an agent\'s hold for them on 
   tasks.setOnHold(c.id, c.n, true, { viaScreen: true });
   assert.equal(hs.holdSet(c.id, c.n, taskchat.read).byPerson, true);
 });
+
+test('kosmos#7797 final review: --for-you on an existing hold keeps its condition, as --not-for-you does; a bare re-hold still does not', () => {
+  const { id, n } = fresh('hfp for keeps');
+  const other = tasks.create(id, { sentence: 'the thing it waits for', made: { via: 'screen' } }, []);
+  tasks.setOnHold(id, n, true, { until: { task: other.number } });
+  const t = tasks.setOnHold(id, n, true, { forPerson: true, until: null });
+  assert.deepEqual(t.onHoldUntil, { task: other.number }, '--for-you dropped the condition');
+  assert.equal(t.onHoldForPerson, true);
+  const last = taskchat.read(id, n).filter((e) => e.kind === 'hold-set').pop();
+  assert.equal(last.markOnly, true, 'marking it is not a new hold');
+  assert.equal('untilCleared' in last, false);
+  // CONTROL: a bare re-hold sets exactly what it is given (no condition), as before.
+  assert.equal('onHoldUntil' in tasks.setOnHold(id, n, true, { until: null }), false);
+  // CONTROL: --for-you that puts a NEW hold on starts with no condition.
+  const fresh2 = fresh('hfp for new');
+  assert.equal('onHoldUntil' in tasks.setOnHold(fresh2.id, fresh2.n, true, { forPerson: true }), false);
+});
