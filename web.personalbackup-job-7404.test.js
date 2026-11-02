@@ -31,12 +31,15 @@ test('the panel paints only an on view', () => {
 /* kosmos#7404 (pbleftout-7404): what the last good backup left out. */
 const sw = page.match(/function pbSkippedWords\(sk\) \{[\s\S]*?\n\}\n/);
 assert.ok(sw, 'pbSkippedWords is in the page');
-const pbSkippedWords = Function(sw[0] + 'return pbSkippedWords;')();
+const pw = page.match(/const PB_WHY = \[[\s\S]*?\n\];\nfunction pbWhyWords\(why\) \{[\s\S]*?\n\}\n/);
+assert.ok(pw, 'PB_WHY and pbWhyWords are in the page');
+const pbWhyWords = Function(pw[0] + 'return pbWhyWords;')();
+const pbSkippedWords = Function(pw[0] + sw[0] + 'return pbSkippedWords;')();
 
 test('a list of what was left out: the count, each path with its reason, and how many are not named', () => {
-  const w = pbSkippedWords({ count: 3, files: [{ path: 'agents/a/film.mov', why: 'over 64 MB' }, { path: 'notes.zip', why: '' }] });
+  const w = pbSkippedWords({ count: 3, files: [{ path: 'agents/a/film.mov', why: 'larger than 64 MB, too large to scan' }, { path: 'notes.zip', why: '' }] });
   assert.equal(w.sum, '3 files were left out of the last backup');
-  assert.deepEqual(w.items, ['agents/a/film.mov: over 64 MB', 'notes.zip']);
+  assert.deepEqual(w.items, ['agents/a/film.mov: too large', 'notes.zip: Kosmos could not check it']);
   assert.equal(w.more, '1 more is not named here.');
   assert.equal(pbSkippedWords({ count: 1, files: [{ path: 'a.pdf', why: 'x' }] }).sum, '1 file was left out of the last backup');
   assert.equal(pbSkippedWords({ count: 1, files: [{ path: 'a.pdf', why: 'x' }] }).more, '');
@@ -49,4 +52,28 @@ test('a count smaller than the list cannot hide named files', () => {
 });
 test('the list shows only beside a plain on view, never with a stop', () => {
   assert.match(page, /pbSkippedShow\(v === 'on' && !lines\.stopped \? st\.job : null\);/);
+});
+
+test('every reason the scanner and walker give reads as plain words, never as the raw text', () => {
+  const cases = {
+    'text that already holds the masking placeholder': 'may hold a password or key',
+    'binary file holding something shaped like a credential, or that could not be checked': 'may hold a password or key',
+    'environment file': 'may hold a password or key',
+    'git internals (objects and packs carry every committed secret; config carries remote tokens)': 'may hold a password or key',
+    'git internals': 'part of a Git history',
+    'compressed content (cannot be scanned)': 'compressed, so Kosmos cannot look inside',
+    'a temp or backup copy with a name too long to check': 'a temporary copy',
+    'larger than 64 MB, too large to scan': 'too large',
+    'text larger than 4 MB, too large to scan safely': 'too large',
+    'a link (links are not followed)': 'a link or shortcut',
+    'stored under more than one name (a hard link; another name may be outside the work Kosmos)': 'a link or shortcut',
+    'replaced while the snapshot was taken': 'changed while it was being backed up',
+    'it grew while the snapshot was taken': 'changed while it was being backed up',
+    'restore would refuse it as colliding with another name': 'its name clashes with another file',
+    'path outside the work Kosmos': 'outside your Kosmos folders',
+    'UTF-16 text of odd length': 'Kosmos could not check it',
+    'could not be checked': 'Kosmos could not check it',
+  };
+  for (const [why, words] of Object.entries(cases)) assert.equal(pbWhyWords(why), words, why);
+  for (const odd of [undefined, null, 5, '']) assert.equal(pbWhyWords(odd), 'Kosmos could not check it');
 });
