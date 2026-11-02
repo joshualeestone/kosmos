@@ -149,7 +149,8 @@ async function runPaired(input, deps, seen) {
       }
       // The snapshot step could not write the state, so no snapshot was taken: its own answer says why, and writing
       // again would only fail again under a sentence claiming the backup ran.
-      if (ref.unwritable) return stripState(r.result);
+      // A second pass in a granted week can fail its write after the first pass's checkpoints: their count rides along.
+      if (ref.unwritable) return Object.assign(stripState(r.result), ref.checkpointsLost ? { checkpointsLost: ref.checkpointsLost } : {});
       ref.state = Object.assign({}, ref.state, { job: r.state });
       try { await backupstate.writeStateAsync(known.org, known.member, ref.state); } catch (err) {
         // The run's own answer stands, flags and all; the write failure rides beside it (review 1). "Ran" only when a
@@ -188,9 +189,9 @@ function snapshotDeps(deps, checkpoint) {
   return out;
 }
 
+const STOP_KEPT_MS = 28 * 24 * 3600 * 1000;   // kosmos#7746 item 3: how long a kept stop is handed on
 /* The snapshot under an ok key for `pair`: this clock's week, and once more in a granted week. ref.state is kept
    current, so the job's state is written over the latest periods. */
-const STOP_KEPT_MS = 28 * 24 * 3600 * 1000;
 async function snapshotStep(pair, k, ref, input, deps, now) {
   const snapshotsMod = require('./backupsnapshot');
   const take = deps.takeSnapshot || snapshotsMod.takeSnapshot;

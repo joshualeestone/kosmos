@@ -776,7 +776,7 @@ async function snapshotInner(input, deps, added, state, fail) {
   const prior = input.priorStop;
   if (measuredOn && prior && prior.budget === measuredOn.budget && prior.roots === measuredOn.roots && Number.isSafeInteger(prior.files)
     && Number.isSafeInteger(prior.bytes) && measuredOn.files >= prior.files && measuredOn.bytes >= prior.bytes) {
-    return fail('your files are still split into more pieces than one backup can list, so this backup did not try again. Move some small files out of your agents\' folders and projects', { tooLarge: true, personActs: true, stoppedBefore: true });
+    return fail('your files are still split into more pieces than one backup can list, so this backup did not try again. Move some small files out of your agents\' folders and projects, and it tries at the next backup; otherwise it tries again within four weeks', { tooLarge: true, personActs: true, stoppedBefore: true });
   }
   // The manifest counts too: the 64 GiB is chunks and manifests together.
   const byteBound = listed.files.reduce((n, f) => n + (f.size > maxFile ? 0 : sealedMax(2 * f.size) + chunksMax(f, maxFile) * 4148), 0) + sealedMax(budget);
