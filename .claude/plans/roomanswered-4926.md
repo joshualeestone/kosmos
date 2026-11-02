@@ -11,7 +11,7 @@ room". `kosmos room` showed an old ask exactly like a new one, so an agent in a 
 1. server.js room route, text view, for a reader identified by its own agent token:
    - under a post that the reader answered by id (`--reply-to`), a line
      `[kosmos] you already answered [mX] in [mY].`
-   - `?unanswered=1`: only posts asked of the reader (it is @named, or the person's post reached it) that no post of
+   - `?unanswered=1`: only posts asked of the reader (it is named by @name or a `Sender -> Name:` header, or the person's post reached it) that no post of
      the reader cites. Walks the whole live room (not just the last N rows); N caps how many are listed (newest).
    - `?unanswered=1` with no identified reader: 400 with a sentence, never someone else's list.
 2. install/kosmos `cmd_room` and tools/windows/kosmos-cli.js `verbRoom`: `--unanswered` passes `&unanswered=1`.
@@ -40,6 +40,6 @@ way (a board from before this change ignores the flag and sends the whole room).
 - [x] server text view: reader, marker, unanswered filter
 - [x] both CLIs
 - [x] tests, mutation-checked (no answered map: 4 of 5 red)
-- [ ] challenge loop (cap 8); iteration 1 fixed W2 and four nits, deferred W1 (above); iteration 2 fixed the partial-read head line and moved the Mac notice to stderr, deferred the hold-drop point (staleHeld already treats a post answered by id as handled, engine/messages.js) and the outcome allowlist (askedOfReader uses the post line's own reached test)
+- [ ] challenge loop (cap 8); iteration 1 fixed W2 and four nits, deferred W1 (above); iteration 2 fixed the partial-read head line and moved the Mac notice to stderr, deferred the hold-drop point (staleHeld already treats a post answered by id as handled, engine/messages.js) and the outcome allowlist (askedOfReader uses the post line's own reached test); iteration 3 counts a `Sender -> Name:` header ask as an ask (messages.namedIn, now exported, the claim guard's own reading; it was missed because the room rows carry only `mentioned`), and the filtered line counts every open ask, saying when -n listed fewer
 - [ ] full suite via queued-heavy
 - [ ] PR, merge, verify served
