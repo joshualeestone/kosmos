@@ -112,6 +112,21 @@ test('#7749 Mac CLI: task hold --because sends the reason in either order; none 
   });
 });
 
+test('#7788 Mac CLI: task hold --for-you sends forPerson anywhere after the number, and says so; never on unhold', async () => {
+  await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env, writes) => {
+    const a = await runCli(['task', 'hold', 'p1', '3', '--for-you', '--because', 'needs your yes'], env);
+    assert.equal(a.code, 0, a.stdout + a.stderr);
+    assert.match(a.stdout, /waiting on your person/);
+    const b = await runCli(['task', 'hold', 'p1', '3', '--until-task', '5', '--for-you'], env);
+    assert.equal(b.code, 0, b.stdout + b.stderr);
+    const c = await runCli(['task', 'hold', 'p1', '3'], env);
+    assert.doesNotMatch(c.stdout, /waiting on your person/, 'control: no flag, no line');
+    const off = await runCli(['task', 'unhold', 'p1', '3', '--for-you'], env);
+    assert.equal(off.code, 2, 'unhold takes no --for-you');
+    assert.deepEqual(writes.map((x) => x.body), [{ onHold: true, because: 'needs your yes', forPerson: true }, { onHold: true, until: { task: 5 }, forPerson: true }, { onHold: true }]);
+  });
+});
+
 test('#7180 Mac CLI: task hold --until-task / --until send the condition and say what it waits for; bad values are sent nowhere', async () => {
   await withBoard((w) => [200, { task: { number: Number(w.n), onHold: true } }], async (env, writes) => {
     const t = await runCli(['task', 'hold', 'p1', '3', '--until-task', '5'], env);

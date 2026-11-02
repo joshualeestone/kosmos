@@ -611,6 +611,21 @@ test('#7180 Windows task hold --until-task / --until send the condition; bad val
   assert.match(list.out, /\[3\] \[on hold\] a bare hold/, 'CONTROL: a bare hold');
 });
 
+test('#7788 Windows task hold --for-you sends forPerson anywhere after the number, and says so; never on unhold', async () => {
+  const a = await run(['task', 'hold', 'p1', '3', '--for-you', '--because', 'needs your yes'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(a.code, 0, a.err);
+  assert.deepEqual(a.calls[0].body, { onHold: true, because: 'needs your yes', forPerson: true });
+  assert.match(a.out, /waiting on your person/);
+  const b = await run(['task', 'hold', 'p1', '3', '--until-task', '5', '--for-you'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.equal(b.code, 0, b.err);
+  assert.deepEqual(b.calls[0].body, { onHold: true, until: { task: 5 }, forPerson: true });
+  const c = await run(['task', 'hold', 'p1', '3'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.doesNotMatch(c.out, /waiting on your person/, 'control: no flag, no line');
+  const off = await run(['task', 'unhold', 'p1', '3', '--for-you']);
+  assert.equal(off.code, 2, 'unhold takes no --for-you');
+  assert.equal(off.calls.length, 0);
+});
+
 test('#4771 task hold / unhold: POST .../task/<n>/hold with {onHold} and the board token; a non-number is a usage error sent nowhere', async () => {
   const on = await run(['task', 'hold', 'p1', '3'], () => ({ body: { task: { number: 3, onHold: true } } }));
   assert.equal(on.code, 0, on.err);
