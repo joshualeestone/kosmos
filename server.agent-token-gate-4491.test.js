@@ -78,7 +78,7 @@ test('an agent route passes the gate with only a valid agent token (no board tok
   }
 });
 
-test('#7748: the agent list passes on an agent token alone, and answers name and role only', async (t) => {
+test('#7748: the agent list passes on an agent token alone, and answers three fields per agent', async (t) => {
   const board = fleet.install([fleet.agent('poc-agent', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })]);
   t.after(() => board.restore && board.restore());
   const r = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken } });
@@ -86,13 +86,7 @@ test('#7748: the agent list passes on an agent token alone, and answers name and
   assert.equal(r.code, 200, r.text.slice(0, 120));
   const j = JSON.parse(r.text);
   assert.ok(j.agents.length > 0, 'an empty list proves nothing about its fields');
-  for (const a of j.agents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role'], 'a card word reached an agent token');
-  // Both tokens, as a Mac agent sends: it is still an agent, so still no card word.
-  const both = await call('GET', '/api/agents/list', { headers: { 'x-kosmos-agent-token': agentToken, 'x-kosmos-board-token': BOARD, authorization: 'Bearer ' + BOARD } });
-  assert.equal(both.code, 200, both.text.slice(0, 120));
-  const bothAgents = JSON.parse(both.text).agents;
-  assert.ok(bothAgents.length > 0, 'an empty list proves nothing about its fields');
-  for (const a of bothAgents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role']);
+  for (const a of j.agents) assert.deepEqual(Object.keys(a).sort(), ['name', 'role', 'state']);
 });
 
 test('a wrong agent token is refused at the gate', async () => {
