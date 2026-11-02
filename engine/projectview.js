@@ -21,7 +21,11 @@ const SUMMARY_RHYTHM_HOURS = 4;
 /* kosmos#5635 (Josh's 0.7.83 model-family report, 11-02): two seats working at the check read current on two-day-old
    summaries, because little of their work was reported. Counting only reported work (Josh, 0.7.48) still holds under this:
    a member the board reads WORKING now whose summary is older than this by the clock reads stale, whatever was counted.
-   24 hours, so the 0.7.48 case (woken after a quiet night or afternoon) still reads current. */
+   24 hours, so the 0.7.48 case (woken after a quiet night or afternoon) still reads current. Known cost (review 1): a
+   seat woken after more than a day of no work reads stale at its first minute, which 0.7.48 had read current; the
+   0.7.83 report asks for clock age while working, and a summary that old is not current. The working read here is the
+   board's (report or screen), so the screen now gates this cap, though it still adds no work. A turn-ends runner is
+   already stale (untimed) past TURN_ENDS_CAP_MS, also 24 hours, so this applies to the timed runners. */
 const WORKING_WALL_CAP_HOURS = 24;
 function wallClockStale(summary, member) {
   return Boolean(member && member.state === 'working' && Number.isFinite(summary.ageMinutes) && summary.ageMinutes > WORKING_WALL_CAP_HOURS * 60);
@@ -313,7 +317,6 @@ function workExcused(summary, member, readHistory, nowMs) {
     // #6329: when it stays stale, the count that decided it travels with it, so the line can say why.
     // turnsEnded counts the turn that wrote the summary, so the later turns are one fewer (it inherits the caveat above:
     // if the writing turn's idle landed before the summary's time, this is one too many).
-    if (turnsEnded <= 1 && wallClockStale(summary, member)) return { ...summary, wallClock: true };   // #5635 (0.7.83 report)
     return turnsEnded <= 1 ? { ...summary, state: 'worked', workMinutes: 0, turnsOnly: true } : { ...summary, turnsSince: turnsEnded - 1 };
   }
   let state = null;   // what the member was doing at wroteAt: its last report at or before it; none known reads as busy
