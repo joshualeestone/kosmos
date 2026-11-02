@@ -24998,13 +24998,15 @@ const server = http.createServer(async (req, res) => {
       if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
       try {
         // kosmos#7180: body.until, when present, is the hold's checkable reopening condition (tasks.holdUntilOf checks it).
-        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body), until: body.until === undefined ? null : body.until, because: body.because, forPerson: body.forPerson });
+        const holdOut = {};   // kosmos#7797 review 1: whether a --not-for-you took the mark off, so the CLI can say so
+        const t = tasks.setOnHold(id, taskHold[2], body.onHold, { viaScreen: isViaScreen(req, body), until: body.until === undefined ? null : body.until, because: body.because, forPerson: body.forPerson, out: holdOut });
         // The assignees' instructions mark a held task (projects.blockBody), so the block follows the record, as close does.
         // #7407 review 6: one roster read, shared by the re-tell and the unhold answer, and taken only if either needs it.
         let heldRoster;
         const rosterOnce = () => (heldRoster === undefined ? (heldRoster = safeRoster()) : heldRoster);
         try { if (tasks.whoOf(t).length) tellEveryoneOn(t, rosterOnce()); } catch { /* the hold happened; a failed re-tell is reported by the row's told verdict */ }
-        sendJson(res, 200, { task: t, ...(body.onHold === false ? { next: unholdNext(id, t, rosterOnce) } : {}) });
+        sendJson(res, 200, { task: t, ...(body.onHold === false ? { next: unholdNext(id, t, rosterOnce) } : {}),
+          ...(body.onHold === true && body.forPerson === false ? { forPersonCleared: holdOut.forPersonCleared === true } : {}) });
       } catch (err) {
         const msg = String((err && err.message) || '');
         sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : err && err.code === 'UNREADABLE' ? 500 : (err && err.status) || 400,

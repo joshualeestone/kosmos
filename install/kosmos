@@ -6249,7 +6249,16 @@ cmd_task() {
       [ "$rc" -eq 0 ] || { say_unreached "change that task" "$rc" write; exit 1; }
       case "$body" in
         '{"task":'*)
-          if [ "$want" = true ]; then say "Put task $num on ${project:-the project} on hold. Kosmos will not nudge anyone about it or hand it out."
+          if [ "$want" = true ]; then
+            # kosmos#7797 review 1: --not-for-you only takes the mark off, so it never says it put the task on hold.
+            if [ -n "$_hold_notfor" ]; then
+              case "$body" in
+                *'"forPersonCleared":true'*) say "Task $num on ${project:-the project} stays on hold." ;;
+                *'"forPersonCleared":false'*) say "Task $num on ${project:-the project} stays on hold as it was. It was not on the list of what is waiting on your person." ;;
+                *) say "Task $num on ${project:-the project} is on hold." ;;
+              esac
+            else say "Put task $num on ${project:-the project} on hold. Kosmos will not nudge anyone about it or hand it out."
+            fi
             [ -z "$_hold_because" ] || say "Why, as shown on the task: $_hold_because"
             # kosmos#7788: only when the board's answer carries the mark; an older board ignores forPerson and still holds it.
             local _hold_for_older=""
@@ -6263,6 +6272,7 @@ cmd_task() {
             if [ -n "$_hold_notfor" ]; then
               case "$body" in
                 *'"onHoldForPerson":true'*) say "This Kosmos is older than --not-for-you, so it still waits on your person. Take it off hold and put it back to change that."; _hold_for_older=1 ;;
+                *'"forPersonCleared":false'*) ;;
                 *) say "It is no longer on the list of what is waiting on your person." ;;
               esac
             fi

@@ -1228,7 +1228,7 @@ function holdBecauseOf(because, onHold) {
  * agent's bare re-hold of the person's hold keeps it whole. Restating the stored condition changes nothing, even once it
  * is met. A changed condition is recorded as a new hold.
  */
-function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, because, forPerson } = {}) {
+function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, because, forPerson, out } = {}) {
   if (typeof onHold !== 'boolean') throw new Error('onHold must be true or false');
   /* kosmos#7788: an agent's hold can say it waits on the person, so it joins what is waiting on them. undefined keeps what
      is stored; the person's own hold never waits on them. */
@@ -1287,8 +1287,17 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
       refused.status = 403;
       throw refused;
     }
+    /* kosmos#7797 review 1: `kosmos task hold --not-for-you` takes the mark off a hold; it never puts a task on hold (an
+       agent asking for that on a task that is not held is refused, so it hears nothing was done), and with no condition
+       given it keeps the one the hold has, so its owner is still told when it is met. */
+    const unmarkOnly = onHold && forPerson === false && viaScreen !== true;
+    if (unmarkOnly && !isOnHold(t)) {
+      const notHeld = new Error('this task is not on hold, so there is no mark to take off');
+      notHeld.status = 409;
+      throw notHeld;
+    }
     const wantBecause = !onHold ? null : reason !== undefined ? reason : isOnHold(t) ? (t.onHoldBecause || null) : null;
-    const want = keepPersons || (onHold && restates) ? (u1 || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
+    const want = keepPersons || (onHold && restates) || (unmarkOnly && until == null) ? (u1 || null) : onHold && until != null ? holdUntilOf(until, p, t.number) : null;
     const sameUntil = JSON.stringify(t.onHoldUntil || null) === JSON.stringify(want);
     // Review 1: a changed reason alone is no new hold, so it records nothing: the stale-hold clock reads hold-set.
     didChange = isOnHold(t) !== onHold || (onHold && !sameUntil);
@@ -1316,6 +1325,8 @@ function setOnHold(projectId, n, onHold, { viaScreen = false, until = null, beca
   if (didChange) taskchat.record(projectId, changed.number, { kind: onHold ? 'hold-set' : 'hold-cleared', via: viaScreen === true ? 'screen' : 'agent', ...(onHold && changed.onHoldForPerson === true ? { forPerson: true } : onHold && forCleared ? { forPersonCleared: true } : {}), ...(onHold && changed.onHoldUntil ? { until: Number.isInteger(changed.onHoldUntil.task) ? 'task #' + changed.onHoldUntil.task : changed.onHoldUntil.at }
     : onHold && hadUntil ? { untilCleared: true } : {}) });
   else if (tookOver) taskchat.record(projectId, changed.number, { kind: 'hold-set', via: 'screen' });   // the person made an agent's hold theirs
+  // kosmos#7797 review 1: whether the mark came off, for a caller that asked to take it off (the CLI says which).
+  if (out && typeof out === 'object') out.forPersonCleared = forCleared;
   return changed;
 }
 

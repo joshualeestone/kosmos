@@ -85,7 +85,9 @@ test('closing the task drops it with the hold', () => {
 
 test('the wiring: the hold route passes forPerson from the body', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /tasks\.setOnHold\(id, taskHold\[2\], body\.onHold, \{[^}]*forPerson: body\.forPerson \}/);
+  assert.match(src, /tasks\.setOnHold\(id, taskHold\[2\], body\.onHold, \{[^}]*forPerson: body\.forPerson[,\s}]/);
+  // kosmos#7797 review 1: and it says whether a --not-for-you took the mark off.
+  assert.match(src, /forPersonCleared: holdOut\.forPersonCleared === true/);
 });
 
 test('step 4: a hold for the person reads decision, so the red tile counts it', () => {
@@ -201,4 +203,35 @@ test('kosmos#7797: the project summary counts its open holds for the person (no 
   assert.equal(row(b.id).summary.heldForYou, 0, 'CONTROL: a plain hold');
   assert.ok(tasks.close(a.id, a.n), 'fixture: close refused');
   assert.equal(row(a.id).summary.heldForYou, 0, 'a closed task is not waiting');
+});
+
+test('kosmos#7797 review 1: --not-for-you keeps the hold\'s condition and reason, and the history does not say its condition was cleared', () => {
+  const { id, n } = fresh('hfp nfy one');
+  const other = tasks.create(id, { sentence: 'the thing it waits for', made: { via: 'screen' } }, []);
+  tasks.setOnHold(id, n, true, { forPerson: true, until: { task: other.number }, because: 'price?' });
+  const out = {};
+  const t = tasks.setOnHold(id, n, true, { forPerson: false, until: null, out });
+  assert.deepEqual(t.onHoldUntil, { task: other.number }, 'the condition went with the mark');
+  assert.equal(t.onHoldBecause, 'price?');
+  assert.equal('onHoldForPerson' in t, false);
+  assert.equal(out.forPersonCleared, true);
+  const last = taskchat.read(id, n).filter((e) => e.kind === 'hold-set').pop();
+  assert.equal('untilCleared' in last, false, 'the history says the condition was cleared');
+  // CONTROL: an agent's ordinary re-hold with no condition still sets exactly what it is given (no condition).
+  assert.equal('onHoldUntil' in tasks.setOnHold(id, n, true, { until: null }), false);
+});
+
+test('kosmos#7797 review 1: --not-for-you on a task that is not on hold is refused, and the task stays as it was', () => {
+  const { id, n } = fresh('hfp nfy two');
+  assert.throws(() => tasks.setOnHold(id, n, true, { forPerson: false }), (e) => e.status === 409 && /not on hold/.test(e.message));
+  assert.equal(tasks.isOnHold(read(id, n)), false);
+  assert.equal(tasks.isOnHold(tasks.setOnHold(id, n, true)), true, 'CONTROL: an ordinary hold still holds it');
+});
+
+test('kosmos#7797 review 1: --not-for-you on a hold that was not for the person reports nothing cleared', () => {
+  const { id, n } = fresh('hfp nfy three');
+  tasks.setOnHold(id, n, true);
+  const out = {};
+  tasks.setOnHold(id, n, true, { forPerson: false, out });
+  assert.equal(out.forPersonCleared, false);
 });

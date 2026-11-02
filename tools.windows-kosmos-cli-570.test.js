@@ -994,6 +994,21 @@ test('#7788 review 2 Windows: --for-you as the value of --because is the reason,
   assert.deepEqual(b.calls[0].body, { onHold: true, because: 'legal', forPerson: true }, 'CONTROL: the switch after a reason');
 });
 
+test('#7797 review 1 Windows: --not-for-you says the task stays on hold, never that it put it on hold; a refusal exits 1', async () => {
+  const a = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ body: { task: { number: 3, onHold: true }, forPersonCleared: true } }));
+  assert.equal(a.code, 0, a.err);
+  assert.match(a.out, /Task 3 on p1 stays on hold\./);
+  assert.doesNotMatch(a.out, /Put task 3/);
+  const b = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ body: { task: { number: 3, onHold: true }, forPersonCleared: false } }));
+  assert.match(b.out, /stays on hold as it was\. It was not on the list/);
+  assert.doesNotMatch(b.out, /no longer on the list/);
+  const c = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ status: 409, body: { error: 'this task is not on hold, so there is no mark to take off' } }));
+  assert.equal(c.code, 1);
+  assert.match(c.err, /not on hold, so there is no mark to take off/);
+  const d = await run(['task', 'hold', 'p1', '3'], () => ({ body: { task: { number: 3, onHold: true } } }));
+  assert.match(d.out, /Put task 3 on p1 on hold/, 'CONTROL: an ordinary hold');
+});
+
 test('#7797 Windows task hold --not-for-you sends forPerson false and says it left the list; both refused; an older board exits 1', async () => {
   const a = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ body: { task: { number: 3, onHold: true } } }));
   assert.equal(a.code, 0, a.err);
