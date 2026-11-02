@@ -827,7 +827,9 @@ async function snapshotInner(input, deps, added, state, fail) {
     pending.clear(); pendingBytes = 0;
     if (planGb && deps.checkpoint && ++batchesSinceCheckpoint >= pos(deps.checkpointBatches, CHECKPOINT_BATCHES)) {
       batchesSinceCheckpoint = 0;
-      deps.checkpoint(added, state.bucket);
+      // Awaited (kosmos#7746): backuprun's checkpoint writes the state with turns for the event loop, and two writes of
+      // one file must never overlap.
+      await deps.checkpoint(added, state.bucket);
     }
     return null;
   };

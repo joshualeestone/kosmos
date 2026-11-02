@@ -106,7 +106,7 @@ async function runPaired(input, deps, seen) {
     for (let attempt = 0; attempt < 2; attempt++) {
       let state;
       if (pair) {
-        const read = backupstate.readState(pair.org, pair.member);
+        const read = await backupstate.readStateAsync(pair.org, pair.member);
         if (!read.ok) return Object.assign({ ok: false, because: read.because }, read.retry ? { retry: true } : { refusedState: true });
         state = read.state;
       } else {
@@ -135,9 +135,9 @@ async function runPaired(input, deps, seen) {
         // and the run stops: starting again would send the same request again, a registration inside a rotation wait
         // among them (review 1). The job state goes into the pair's file only when that file holds none of its own (a
         // lost pointer over a live file keeps the file's); a file that does not read is left for the next run to report.
-        const read = backupstate.readState(r.pair.org, r.pair.member);
+        const read = await backupstate.readStateAsync(r.pair.org, r.pair.member);
         if (read.ok && !Object.keys(read.state.job || {}).length && Object.keys(r.state || {}).length) {
-          try { backupstate.writeState(r.pair.org, r.pair.member, Object.assign({}, read.state, { job: r.state })); } catch { /* kept next time */ }
+          try { await backupstate.writeStateAsync(r.pair.org, r.pair.member, Object.assign({}, read.state, { job: r.state })); } catch { /* kept next time */ }
         }
         return stripState(r.result);
       }
@@ -151,7 +151,7 @@ async function runPaired(input, deps, seen) {
       // again would only fail again under a sentence claiming the backup ran.
       if (ref.unwritable) return stripState(r.result);
       ref.state = Object.assign({}, ref.state, { job: r.state });
-      try { backupstate.writeState(known.org, known.member, ref.state); } catch (err) {
+      try { await backupstate.writeStateAsync(known.org, known.member, ref.state); } catch (err) {
         // The run's own answer stands, flags and all; the write failure rides beside it (review 1). "Ran" only when a
         // snapshot was taken.
         return Object.assign(stripState(r.result), keyFlags(r), ref.leftOut ? { leftOut: ref.leftOut } : {}, { stateNotKept: true,
@@ -204,7 +204,7 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
       throw new Error('backuprun: periodOf gave a period backupstate does not read');
     }
     ref.state = backupstate.withPeriod(ref.state, p);
-    try { backupstate.writeState(pair.org, pair.member, ref.state); } catch (err) {
+    try { await backupstate.writeStateAsync(pair.org, pair.member, ref.state); } catch (err) {
       ref.unwritable = true;
       return Object.assign({ ok: false, because: 'this computer could not keep the backup state, so no backup was taken' + fixed(err) }, err && err.retry ? { retry: true } : {}, err && err.code === 'refused' && !err.retry ? { refusedState: true } : {});
     }
@@ -216,11 +216,11 @@ async function snapshotStep(pair, k, ref, input, deps, now) {
       roots: input.roots, memberPk: k.memberPk, namingKey: p.namingKey, namingKeyId: backupkeys.namingKeyId(p.namingKey),
       deviceKey: dk.privateKey, index: p.index, bucket: p.bucket, ...(k.proofKey ? { proofKey: k.proofKey } : {}),
       ctx: { org: pair.org, member: pair.member, epoch: k.epoch, period: label, snapshot: (deps.snapshotId || newSnapshotId)(now()) },
-    }, snapshotDeps(deps, (added, bucket) => {
+    }, snapshotDeps(deps, async (added, bucket) => {
       // Never stops the run: a checkpoint that cannot be kept only loses what a kill would have lost anyway.
       try {
         const { leftOut, ...kept } = backupstate.withRun(ref.state, p, { added, bucket });
-        backupstate.writeState(pair.org, pair.member, kept);
+        await backupstate.writeStateAsync(pair.org, pair.member, kept);
       } catch { /* the run's own write comes after */ }
     }));
     if (!result || typeof result !== 'object') result = { ok: false, because: 'the snapshot failed unexpectedly' };
