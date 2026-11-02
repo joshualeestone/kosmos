@@ -1001,3 +1001,34 @@ test('#7681 price: the screen\'s price changed after the preview, so switchOn bi
   const p2 = await pb.preview({ root: root2, remote: c2, shownPrice: null });
   assert.equal((await pb.switchOn(p2.ticket, true, { root: root2, remote: c2, personalbackupkey: KEY_OK, shownPrice: null })).ok, true);
 });
+
+/* #7404 plan screen: a Kosmos+ that sells plans sends `plans: [{ gb, price }]` and no single price. The screen's "from"
+   price must be the smallest plan's, or nothing goes past the preview; the plans go to the screen, smallest first. */
+test('#7404 plans: the smallest plan confirms the screen\'s price, and the plans reach the screen sorted', async (t) => {
+  const answer = (plans) => ({ ok: true, data: { org: ORG, role: 'member', consent: WORDS, consentHash: HASH, computerSalt: SALT, plans } });
+  const sold = [{ gb: 100, price: '$20/month' }, { gb: 25, price: '$5/month' }, { gb: 50, price: '$10/month' }];
+  const ok = await pb.preview({ root: fresh(t), remote: coordinator({ preview: answer(sold) }), shownPrice: '$5/month' });
+  assert.equal(ok.ok, true, JSON.stringify(ok));
+  assert.deepEqual(ok.plans, [{ gb: 25, price: '$5/month' }, { gb: 50, price: '$10/month' }, { gb: 100, price: '$20/month' }]);
+  // The screen showed a different "from" price: refused, as #7681 refuses a single price that differs.
+  const off = await pb.preview({ root: fresh(t), remote: coordinator({ preview: answer(sold) }), shownPrice: '$10/month' });
+  assert.deepEqual([off.ok, off.code], [false, 'price_unconfirmed'], JSON.stringify(off));
+  // Nothing on sale (an empty list): no confirmed price, so a priced screen goes no further.
+  const none = await pb.preview({ root: fresh(t), remote: coordinator({ preview: answer([]) }), shownPrice: '$5/month' });
+  assert.deepEqual([none.ok, none.code], [false, 'price_unconfirmed'], JSON.stringify(none));
+});
+
+test('#7404 plans: a list read wrong offers nothing (not a whole positive GB, a price in no Stripe shape, a size twice)', async (t) => {
+  const answer = (plans) => ({ ok: true, data: { org: ORG, role: 'member', consent: WORDS, consentHash: HASH, computerSalt: SALT, plans } });
+  for (const [label, plans] of [
+    ['a fractional size', [{ gb: 2.5, price: '$5/month' }]],
+    ['a size of zero', [{ gb: 0, price: '$5/month' }]],
+    ['a price in no shape', [{ gb: 25, price: 'five dollars' }]],
+    ['a size twice', [{ gb: 25, price: '$5/month' }, { gb: 25, price: '$6/month' }]],
+    ['not a list', { gb: 25, price: '$5/month' }],
+  ]) {
+    const r = await pb.preview({ root: fresh(t), remote: coordinator({ preview: answer(plans) }), shownPrice: '$5/month' });
+    assert.equal(r.ok, false, label + ': ' + JSON.stringify(r));
+    assert.equal(r.ticket, undefined, label + ': a ticket was issued');
+  }
+});
