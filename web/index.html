@@ -55735,7 +55735,8 @@ function pbPaint() {
   const lastEl = document.getElementById('pb-job-last');
   lastEl.textContent = lines.plain; lastEl.hidden = !lines.plain;
   pbSkippedShow(v === 'on' && !lines.stopped ? st.job : null);
-  // typeof: the panel's functions are lifted alone by tests. Its state drops only when personal backup is off here.
+  // typeof: the panel's functions are lifted alone by tests. Here the state drops when personal backup is off (the hidden
+  // branch above drops it too).
   if (typeof pbfShow === 'function') pbfShow(v === 'on', st.state === 'off');
   // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
   const ask = document.getElementById('pb-off-ask');
@@ -56003,7 +56004,7 @@ document.getElementById('pb-on').addEventListener('click', pbOpen);
    asked (it spends the hourly Kosmos+ allowance); where a restore is (GET /api/personal-backup/files) is read every 5
    seconds while one runs and once a minute otherwise, only while the panel shows it. The copy is a Kosmos of its own in the
    switcher (restoreworld.prepareRestoreWorld), so "Open the copy" is the switcher's own restart-to-switch confirm. */
-var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, gen: 0, busy: false, stopAsk: false, stopping: false, stopSent: false };
+var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, gen: 0, busy: false, stopAsk: false, stopping: false, stopSent: false, reading: false };
 function pbfWhen(ms) { return Number.isFinite(ms) ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''; }
 /* Mona Lisa's review 2: a restore that started today says the time alone; the list's backups keep the full date. */
 function pbfStartedWhen(ms, now = Date.now()) {
@@ -56049,17 +56050,23 @@ function pbfShow(on, drop) {
   if (!on && !drop) return;
   if (!on) {
     PBF.asked = null; PBF.stopAsk = false; PBF.stopSent = false; PBF.list = null; PBF.more = false; PBF.keyMissing = false; PBF.status = null; PBF.startedFor = null; PBF.at = 0;
-    PBF.seq++; PBF.gen++;   // a read, a list, a start or a stop already in flight answers nothing
+    PBF.seq++; PBF.gen++; PBF.reading = false;   // a read, a list, a start or a stop already in flight answers nothing
     return;
   }
   // 4500, not 5000: the panel repaints every 5 seconds, and a repaint a moment early would skip a read.
   if (Date.now() - PBF.at > (PBF.status && PBF.status.running ? 4500 : 60000)) pbfRead();
   pbfPaint();
 }
-function pbfRead() {
+/* One read at a time: a repaint while one is out waits for it, so a slow answer (a remote session over the relay) is not
+   thrown away by the next one. `force` (after a start or a stop) reads anyway, and the older answer is then dropped. */
+function pbfRead(force) {
+  if (PBF.reading && !force) return;
   PBF.at = Date.now();
+  PBF.reading = true;
   const seq = ++PBF.seq;
+  const done = () => { if (seq === PBF.seq) PBF.reading = false; };
   fetch('/api/personal-backup/files').then((res) => (res.ok ? res.json() : null)).then((j) => {
+    done();
     if (seq !== PBF.seq || !j || typeof j !== 'object') return;
     const wasRunning = !!(PBF.status && PBF.status.running);
     PBF.status = j;
@@ -56068,9 +56075,12 @@ function pbfRead() {
     // The control in focus (Stop, or the running line) goes with the restore, so the end takes it.
     const inside = ended && document.activeElement && document.activeElement !== document.body
       && document.getElementById('pb-files').contains(document.activeElement);
+    // A refused start (another restore was already running) left focus on the confirm, which this read hides.
+    const onAsk = document.activeElement && (document.activeElement === document.getElementById('pb-files-no') || document.activeElement === document.getElementById('pb-files-yes'));
     pbfPaint();
     if (inside) pbfFocus(!document.getElementById('pb-files-open').hidden ? document.getElementById('pb-files-open') : document.getElementById('pb-files-last'));
-  }).catch(() => { /* the next read tries again */ });
+    else if (onAsk && document.getElementById('pb-files-ask').hidden) pbfFocus(document.getElementById('pb-files-run'));
+  }).catch(() => { done(); /* the next read tries again */ });
 }
 function pbfPaint() {
   const st = PBF.status || {};
@@ -56123,7 +56133,10 @@ function pbfPaint() {
   document.getElementById('pb-files-stop-yes').disabled = PBF.stopping;
   const w = running ? null : pbfLastWords(st.last);
   const lastEl = document.getElementById('pb-files-last');
-  lastEl.textContent = w ? w.line : ''; lastEl.hidden = !w;
+  // A live region: written only when it changes, or the 5-second repaint would have it read out again each time.
+  const lastText = w ? w.line : '';
+  if (lastEl.textContent !== lastText) lastEl.textContent = lastText;
+  lastEl.hidden = !w;
   const fd = document.getElementById('pb-files-failed');
   fd.hidden = !(w && w.failedSum);
   if (w && w.failedSum) {
@@ -56172,7 +56185,7 @@ async function pbfStart() {
     PBF.status = { running: true, startedAt: at, last: PBF.status && PBF.status.last };
     pbfMsg('');
   } else pbfMsg((r && r.because) || 'The restore did not start. Nothing was restored.');
-  pbfRead();
+  pbfRead(true);
   pbfPaint();
   pbfFocus(started ? document.getElementById('pb-files-stop') : document.getElementById('pb-files-no'));
 }
@@ -56186,7 +56199,7 @@ async function pbfStop() {
   PBF.stopAsk = false;
   if (r && r.ok === true) PBF.stopSent = true;
   pbfMsg(r && r.ok === true ? '' : ((r && r.because) || 'The restore could not be stopped just now.'));
-  pbfRead();
+  pbfRead(true);
   pbfPaint();
   pbfFocus(document.getElementById(PBF.stopSent ? 'pb-files-run' : 'pb-files-stop'));   // a refused stop: Stop is back
 }

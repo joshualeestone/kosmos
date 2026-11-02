@@ -105,8 +105,8 @@ function fakeDoc() {
   };
   const doc = { focused: null, body: { id: 'body' }, getElementById(id) { return els[id] || (els[id] = make(id)); }, createElement(tag) { const e = make(''); e.tag = tag; return e; },
     get activeElement() { return this.focused || this.body; } };
-  // Every stand-in element is inside the section for contains(); the body is not.
-  doc.getElementById('pb-files').contains = (x) => !!x && x !== doc.body;
+  // Every stand-in element is inside the section for contains(), except the body and an element named 'outside'.
+  doc.getElementById('pb-files').contains = (x) => !!x && x !== doc.body && x.id !== 'outside';
   return doc;
 }
 function pbfState() {
@@ -257,9 +257,10 @@ test('a restore that ends while the person is elsewhere does not move their focu
   const p = painter(doc, answer({ running: false, startedAt: null, last: { ok: true, restored: 4, world: WORLD } }));
   p.PBF.status = { running: true, startedAt: Date.now(), last: null }; p.PBF.at = Date.now();
   p.pbfShow(true);
-  doc.focused = null;   // nothing in the section has focus
+  const outside = doc.getElementById('outside');
+  outside.focus();   // a control elsewhere on the page
   p.pbfRead(); await tick(); await tick();
-  assert.equal(doc.focused, null);
+  assert.equal(doc.focused, outside, 'the end of a restore took focus from a control outside the section');
 });
 
 test('a list where no backup can be restored keeps See your backups, and focus lands on it', async () => {
@@ -336,4 +337,41 @@ test('a refused Stop puts focus back on Stop', async () => {
   p.pbfShow(true); p.PBF.stopAsk = true; p.pbfPaint();
   await p.pbfStop();
   assert.equal(doc.focused && doc.focused.id, 'pb-files-stop');
+});
+
+test('a read still out is not thrown away by the next repaint: a slow board still shows the end', async () => {
+  const doc = fakeDoc();
+  let release; let calls = 0;
+  const p = painter(doc, () => { calls++; return new Promise((r) => { release = () => r({ ok: true, json: () => Promise.resolve({ running: false, last: { ok: true, restored: 2, world: WORLD } }) }); }); });
+  p.PBF.status = { running: true, startedAt: 5, last: null }; p.PBF.at = 0;
+  p.pbfShow(true);                      // the first read goes out
+  p.PBF.at = 0; p.pbfShow(true);        // a repaint 5 s later, the first still out
+  assert.equal(calls, 1, 'a second read went out over the first');
+  release(); await tick(); await tick();
+  assert.ok(vis(doc, 'pb-files-last'), 'the slow answer was dropped and the end never showed');
+});
+
+test('the end line, a live region, is written only when it changes', () => {
+  const doc = fakeDoc();
+  const p = painter(doc);
+  p.PBF.status = { running: false, last: { ok: true, restored: 3, world: WORLD } }; p.PBF.at = Date.now();
+  p.pbfShow(true);
+  const el = doc.getElementById('pb-files-last');
+  let writes = 0; let t = el.textContent;
+  Object.defineProperty(el, 'textContent', { get() { return t; }, set(v) { writes++; t = v; } });
+  p.pbfPaint(); p.pbfPaint();
+  assert.equal(writes, 0, 'the repaint rewrote an unchanged live region');
+});
+
+test('a start refused because another restore runs: focus leaves the hidden confirm for the running line', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, (url, init) => Promise.resolve({ ok: true, json: () => Promise.resolve(init && init.method === 'POST'
+    ? { ok: false, code: 'restore_running', because: 'A restore is already running on this computer.' }
+    : { running: true, startedAt: 9, last: null }) }));
+  p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
+  p.PBF.list = [{ key: 'k1', takenAt: 1e9, problem: null }]; p.PBF.asked = p.PBF.list[0];
+  p.pbfShow(true);
+  await p.pbfStart(); await tick(); await tick();
+  assert.ok(!vis(doc, 'pb-files-ask') && vis(doc, 'pb-files-run'), 'CONTROL: the read showed the other restore');
+  assert.equal(doc.focused && doc.focused.id, 'pb-files-run');
 });
