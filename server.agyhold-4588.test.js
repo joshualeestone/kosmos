@@ -261,9 +261,9 @@ function windowAfter(anchor) {
 const AUTOMATIC = [
   ['autohandoff', 'lastBand: autohandoffBands,', /deliver:\s*\(session, textToSend\)\s*=>\s*\{\s*try\s*\{\s*return chat\.deliverAutomatic\(session, textToSend, roster,/],
   ['firstreply-nudge', 'book: FIRSTREPLY_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],
-  ['account-notify', 'accountNotify.sweepOnce({', /deliver:\s*\(session, text\)\s*=>\s*chat\.deliverAutomatic\(session, text, cards,/],
+  ['account-notify', 'accountNotify.sweepOnce({', /deliver:\s*\(session, text\)\s*=>\s*chat\.deliverAutomatic\(session, text, safeRoster\(\),/],   // #7693: fresh at the send
   ['recommender', 'recommender.runOnce({', /deliver:\s*\(session, text\)\s*=>\s*chat\.deliverAutomatic\(session, text, roster,/],
-  ['assigner ask', 'give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster, from }),', /ask:\s*\(session, text, roster\)\s*=>\s*chat\.deliverAutomatic\(session, text, roster\)/],
+  ['assigner ask', 'give: (projectId, n, partId, who, roster, from) => givePart(projectId, n, partId, who, { assigner: true, roster: safeRoster() || roster, from }),', /ask:\s*\(session, text, roster\)\s*=>\s*chat\.deliverAutomatic\(session, text, safeRoster\(\) \|\| roster\)/],
   ['agent-nudge', 'book: AGENT_NUDGE_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],
   ['stalereport-nudge', 'book: STALEREPORT_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],   // #5959 slice 3
   ['summarydue-nudge', 'book: SUMMARYDUE_BOOK,', /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliverAutomatic\(session, text, r,/],   // #6209 part 2
@@ -285,7 +285,7 @@ test('#4588 B pin: the connlost-heal timer stays on chat.deliver (it counts a tr
 
 test('#4588 B pin: the agy-quota-resume sweep stays on chat.deliver (it is the line that ends the hold)', () => {
   const w = windowAfter('book: AGY_QUOTA_BOOK,');
-  assert.match(w, /deliver:\s*\(session, text, r\)\s*=>\s*chat\.deliver\(session, text, r,/);
+  assert.match(w, /deliver:\s*\(session, text\)\s*=>\s*chat\.deliver\(session, text, safeRoster\(\),/);   // #7693: fresh at the send
   assert.equal(/deliverAutomatic/.test(w), false, 'the resume sweep would be held by the very pause it resumes from');
   // And the window is really the makeTick call of agyQuota.
   const at = CODE.indexOf('book: AGY_QUOTA_BOOK,');
