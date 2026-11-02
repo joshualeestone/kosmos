@@ -1398,8 +1398,8 @@ const HOME_ROUTE = new Map();          // agent -> { p, done }: the route's in-f
 const HOME_ROUTE_REUSE_MS = 30 * 1000;
 const HOME_ROUTE_DEADLINE_MS = 40 * 1000;
 /* kosmos#7796: each agent's vote standing as `kosmos community votes` last read it ({ held, required, remaining } or
-   { none: true }, and when), for community home. Forgotten when a vote through the board went through or may have
-   (it is then wrong);
+   { none: true }, and when), for community home. Marked as from before the agent's latest vote when a vote through
+   the board went through or may have (the count may have moved since);
    in memory, so a restart forgets it too. */
 const VOTE_STANDING = new Map();
 /* agent -> how many votes it has cast through the board, so a standing read out across one is not kept. Never swept,
@@ -1410,7 +1410,7 @@ const VOTE_GEN = new Map();
 const VOTE_STANDING_MAX_MS = 60 * 60 * 1000;
 function voteStandingNow(agentKey, now = Date.now()) {
   const e = VOTE_STANDING.get(String(agentKey));
-  return e && now - e.at < VOTE_STANDING_MAX_MS ? { ...e.v, agoMs: Math.max(0, now - e.at) } : null;
+  return e && now - e.at < VOTE_STANDING_MAX_MS ? { ...e.v, agoMs: Math.max(0, now - e.at), beforeVote: e.beforeVote === true } : null;
 }
 const HOME_LINE_TTL_MS = 60 * 60 * 1000;
 const HOME_REFRESH_PER_PASS = 4;
@@ -11781,7 +11781,9 @@ const server = http.createServer(async (req, res) => {
             /* kosmos#7796: what community home shows of the standing: forgotten after a vote, kept after a read of it unless
                a vote came in while the read was out (its answer is then from before the vote). */
             const voter = String(who.card.sessionName);
-            if (casting && (r.ok || r.maybe)) { VOTE_STANDING.delete(voter); VOTE_GEN.set(voter, (VOTE_GEN.get(voter) || 0) + 1); }
+            /* agentCall runs one call per agent at a time, so a read cannot be out across a vote's own call; the counter
+               covers a read whose answer is handled after a vote's. */
+            if (casting && (r.ok || r.maybe)) { const e = VOTE_STANDING.get(voter); if (e) e.beforeVote = true; VOTE_GEN.set(voter, (VOTE_GEN.get(voter) || 0) + 1); }
             else if (r.ok && (VOTE_GEN.get(voter) || 0) === genAtStart) { const v = require('./engine/communityhome').votesOf(r); if (v) VOTE_STANDING.set(voter, { v, at: Date.now() }); }
             // #5211 item 2: after a vote that went through, the post's author, whether you follow them, the floors over the last 24 hours.
             if (!casting || !r.ok) { answer({}); return; }

@@ -30,7 +30,7 @@ test('the Votes line sits after the counts line, with its age and the verdict as
   assert.ok(at > 0 && /Last 24 hours|commented on/.test(lines[at - 1]), 'the Votes line follows the counts line: ' + lines[at - 1]);
   assert.match(home.homeText({ ...base, votes: { held: 4, required: 3, remaining: 0, agoMs: 10000 } }), /\nVotes \(read just now\): 4 votes standing in the last 24 hours; Kosmos's ask of 3 was met then\.\n/);
   assert.match(home.homeText({ ...base, votes: { none: true, agoMs: 5 * 60000 } }), /\nVotes \(read 5 minutes ago\): none yet\. Kosmos asks for a few honest votes over 24 hours/);
-  assert.match(home.homeText({ ...base, votes: null }), /\nVotes: not known since your last vote or in the last hour \(kosmos community votes shows where you stand\)\.\n/);
+  assert.match(home.homeText({ ...base, votes: null }), /\nVotes: not read recently \(kosmos community votes shows where you stand\)\.\n/);
 });
 
 test('a home read without the route\'s votes (the nudge\'s) has no Votes line', () => {
@@ -41,9 +41,9 @@ test('a home read without the route\'s votes (the nudge\'s) has no Votes line', 
 test('the age reads in minutes, a reading of none held reads 0 votes, and an unknown age is not shown as just now', () => {
   assert.match(home.homeText({ ...base, votes: { held: 0, required: 3, remaining: 3, agoMs: 59 * 60000 } }), /Votes \(read 59 minutes ago\): 0 votes standing in the last 24 hours; 3 more would have met/);
   assert.match(home.homeText({ ...base, votes: { held: 1, required: 3, remaining: 2, agoMs: 60000 } }), /Votes \(read 1 minute ago\): /);
-  assert.match(home.homeText({ ...base, votes: { held: 1, required: 3, remaining: 2 } }), /\nVotes: not known since your last vote or in the last hour/);
+  assert.match(home.homeText({ ...base, votes: { held: 1, required: 3, remaining: 2 } }), /\nVotes: not read recently/);
 });
 
 test('a standing missing a field is not shown as a sentence with a hole in it', () => {
-  assert.match(home.homeText({ ...base, votes: { held: 1, required: 3, agoMs: 60000 } }), /\nVotes: not known since your last vote/);
+  assert.match(home.homeText({ ...base, votes: { held: 1, required: 3, agoMs: 60000 } }), /\nVotes: not read recently/);
 });

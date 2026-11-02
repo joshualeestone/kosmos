@@ -58,7 +58,7 @@ test('home never reads the standing itself; before any read of it, it says so', 
   t.after(() => b.restore());
   standings = []; homeAs = {};
   const j = await (await home(sendertoken.mint('Fresh').token)).json();
-  assert.match(j.text, /\nVotes: not known since your last vote or in the last hour/);
+  assert.match(j.text, /\nVotes: not read recently/);
   assert.deepEqual(standings, [], 'home made the signed call');
 });
 
@@ -72,13 +72,14 @@ test('after kosmos community votes, home shows that standing and its age, from t
   const j = await (await home(tok)).json();
   assert.match(j.text, /\nVotes \(read just now\): 1 vote standing in the last 24 hours; 2 more would have met Kosmos's ask of 3 then/);
   assert.deepEqual(homes, ['Reader'], 'CONTROL: the second home reused the first read, and still shows the new standing');
-  const { agoMs, ...shown } = j.home.votes;
+  const { agoMs, beforeVote, ...shown } = j.home.votes;
+  assert.equal(beforeVote, false);
   assert.deepEqual(shown, { held: 1, required: 3, remaining: 2 }, 'the home data carries the standing as read');
   assert.ok(Number.isFinite(agoMs) && agoMs >= 0 && agoMs < 60000, 'and its age: ' + agoMs);
   assert.deepEqual(standings.map((s) => s.agentKey), ['Reader'], 'only the votes command read it');
 });
 
-test('a vote forgets the remembered standing; a failed standing read does not replace it', async (t) => {
+test('a vote marks the remembered standing as from before it; a failed standing read does not replace it', async (t) => {
   const b = fleet.install([fleet.agent('Caster', { state: 'idle' })]);
   t.after(() => { b.restore(); standingAnswer = { ok: true, standing: { held: 1, required: 3, remaining: 2, cast: 1, limit: 50 } }; });
   homeAs = {};
@@ -88,7 +89,7 @@ test('a vote forgets the remembered standing; a failed standing read does not re
   await votesRead(tok);
   assert.match((await (await home(tok)).json()).text, /\nVotes \(read [^)]*\): 1 vote standing/, 'a failed read kept what was known');
   assert.equal((await castVote(tok)).status, 200);
-  assert.match((await (await home(tok)).json()).text, /\nVotes: not known since your last vote or in the last hour/);
+  assert.match((await (await home(tok)).json()).text, /\nVotes \(read just now, before your latest vote\): 1 vote standing/);
 });
 
 test('no Votes line while the community, or the public one, is off', async (t) => {
@@ -113,7 +114,7 @@ test('a standing read that was out while the agent voted is not kept', async (t)
   assert.equal((await castVote(tok)).status, 200);
   open();
   assert.equal((await reading).status, 200);
-  assert.match((await (await home(tok)).json()).text, /\nVotes: not known since your last vote or in the last hour/);
+  assert.match((await (await home(tok)).json()).text, /\nVotes: not read recently/);
   gate = null;
   await votesRead(tok);
   assert.match((await (await home(tok)).json()).text, /\nVotes \(read [^)]*\): 1 vote standing/, 'CONTROL: a read with no vote across it is kept');
@@ -127,16 +128,16 @@ test('each agent sees only its own standing, and a reading an hour old reads as 
   const ann = sendertoken.mint('Ann').token;
   const bob = sendertoken.mint('Bob').token;
   await votesRead(ann);
-  assert.match((await (await home(bob)).json()).text, /\nVotes: not known/, 'Bob was shown Ann\'s standing');
+  assert.match((await (await home(bob)).json()).text, /\nVotes: not read recently/, 'Bob was shown Ann\'s standing');
   assert.match((await (await home(ann)).json()).text, /\nVotes \(read [^)]*\): 1 vote standing/);
   const t0 = realNow();
   Date.now = () => t0 + 59 * 60000;
   assert.match((await (await home(ann)).json()).text, /Votes \(read 59 minutes ago\): /, 'CONTROL: under an hour it is shown');
   Date.now = () => t0 + 61 * 60000;
-  assert.match((await (await home(ann)).json()).text, /\nVotes: not known since your last vote or in the last hour/);
+  assert.match((await (await home(ann)).json()).text, /\nVotes: not read recently/);
 });
 
-test('a vote refused before it was sent forgets nothing', async (t) => {
+test('a vote refused before it was sent marks nothing', async (t) => {
   const b = fleet.install([fleet.agent('Refused', { state: 'idle' })]);
   t.after(() => { b.restore(); communityvote.vote = async () => ({ ok: true, text: 'You voted that post up.' }); });
   homeAs = {};
@@ -144,8 +145,8 @@ test('a vote refused before it was sent forgets nothing', async (t) => {
   await votesRead(tok);
   communityvote.vote = async () => ({ ok: false, because: 'that is your own post' });
   assert.equal((await castVote(tok)).status, 400);
-  assert.match((await (await home(tok)).json()).text, /\nVotes \(read [^)]*\): 1 vote standing/);
+  assert.match((await (await home(tok)).json()).text, /\nVotes \(read just now\): 1 vote standing/, 'a refused vote marks nothing');
   communityvote.vote = async () => ({ ok: false, maybe: true, because: 'sent, not confirmed' });
   assert.equal((await castVote(tok)).status, 202);
-  assert.match((await (await home(tok)).json()).text, /\nVotes: not known since your last vote or in the last hour/, 'CONTROL: a vote that may have landed forgets it');
+  assert.match((await (await home(tok)).json()).text, /\nVotes \(read just now, before your latest vote\): /, 'CONTROL: a vote that may have landed marks it');
 });
