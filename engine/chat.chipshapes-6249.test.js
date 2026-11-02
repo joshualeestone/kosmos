@@ -341,3 +341,35 @@ test('#6249: on the async path the looks while a fold settles are awaited, not b
   assert.equal(p.state.enters, 1, 'pressed once it settled');
   assert.equal(v.state, chat.DELIVERY.PLACED, v.because);
 }));
+
+test('#6249 CONTROL: a pane that falls back to a shell while a fold settles is never sent an Enter', () => withAgent((roster) => {
+  const p = pane({ shape: THREE_CHIPS });
+  const frames = ['[Pasted text #1]', '[Pasted text #1][Pasted text #2][Pasted text #3]'];
+  let n = 0;
+  let shell = false;
+  chat.setRunner((args) => {
+    if (args[0] === 'capture-pane' && args.includes('-e') && pastedCount(p) > 0 && p.state.enters === 0) {
+      p.state.shown = frames[Math.min(n, frames.length - 1)];
+      n += 1;
+      if (n >= 2) shell = true;   // Claude Code exits during the looks: the pane is a shell from here on
+    }
+    if (shell && args[0] === 'display-message' && !args.includes('#{session_attached}') && !args.includes('#{pane_pid}')) return ok('zsh\t\t0\n');
+    return p(args);
+  });
+  const v = chat.deliver('al', LONG, roster);
+  assert.ok(n >= 2, 'PRECONDITION: it looked again while the fold drew');
+  assert.equal(p.state.enters, 0, 'no Enter into a pane that is no longer an agent\'s');
+  assert.equal(v.state, chat.DELIVERY.UNCONFIRMED);
+}));
+
+test('#6249: pinned, then our chips gone and someone else\'s chips only: ours went, said as sent', () => withAgent((roster) => {
+  const p = pane({ shape: THREE_CHIPS, enterTakes: false });
+  chat.setRunner((args) => {
+    const out = p(args);
+    if (args[0] === 'send-keys' && args[args.length - 1] === 'Enter') p.state.shown = '[Pasted text #9][Pasted text #10]';
+    return out;
+  });
+  const v = chat.deliver('al', LONG, roster);
+  assert.equal(p.state.enters, 1);
+  assert.equal(v.state, chat.DELIVERY.PLACED, 'none of our pinned chips is there, so ours went: ' + v.because);
+}));
