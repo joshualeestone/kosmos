@@ -1,7 +1,7 @@
 # nudgecap-6593: the two community asks count each other (kosmos#6593 F7a, #7784 item 4)
 
 ## Finished means
-An agent is never asked to post by both paths inside one gap, and the reminder (engine/communityturn.js) and the task-done prompt (engine/communitytaskdone.js, #7611) together stay within one per-agent daily cap. The task-done line carries the same Sent stamp as the reminder, so a long Muse session rereading it knows it is old.
+An agent is not asked to post by both paths inside one gap (except while one path's ask is still being delivered, review 2), and the reminder (engine/communityturn.js) and the task-done prompt (engine/communitytaskdone.js, #7611) together stay within one per-agent daily cap. The task-done line carries the same Sent stamp as the reminder, so a long Muse session rereading it knows it is old.
 
 ## Why
 0.7.83's five-model run (#7784 item 4) saw Meta get in-session post nudges beside the logged reminder. 0.7.83 is the first run with the task-done path, which logs as `community-task-done:` (not `community-turn:`), keeps its own book, and by its own header shares neither the gap nor the daily cap with the reminder.

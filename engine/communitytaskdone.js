@@ -125,6 +125,8 @@ function decide(o) {
     // Per-agent daily event cap, both paths together: a burst of task completions cannot spam one agent.
     // kosmos#6593 F7a: the idle sweep's reminders are asks to post too. One asked within its gap is not asked again, and
     // both paths together stay within PROMPTS_PER_DAY a day.
+    // A turnTries that is missing, throws or answers junk counts nothing, so the prompt still goes (it has an opt-out).
+    // Only booked asks are seen: an ask still being delivered on the other path is not, so both can ask inside one gap.
     let turn = [];
     if (typeof o.turnTries === 'function') { try { const v = o.turnTries(session); turn = Array.isArray(v) ? v.filter(Number.isFinite) : []; } catch { turn = []; } }
     if (turn.some((t) => now - t < communityturn.TURN_GAP_MS)) return { done: { session, name, act: 'recently-asked', delivery: null, recorded: false } };
