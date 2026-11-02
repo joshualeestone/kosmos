@@ -9,7 +9,7 @@
  *    "Zoe asks you something"; the tile counts them with the one task an agent's question does carry (Ada's),
  *  - CONTROL: Ada asks about Spring launch and holds a task there, so her question is on her task row and NOT
  *    listed again (one question, one place),
- *  - Answer opens the agent (its conversation is there),
+ *  - Answer opens the agent (its conversation is there); grouped by project the questions lead, once,
  *  - scoped to Newsletter, neither Spring launch question shows; a search leaves them out (they are not tasks),
  *  - light, dark and a 390-wide phone, with no sideways scroll; the Answer button is 44px tall on a touch screen.
  *
@@ -131,6 +131,18 @@ function chk(ok, label, extra) {
         const searched = await page.evaluate(read);
         chk(searched.allAsks === 0, `${tag} a search leaves the questions out`, JSON.stringify(searched));
         await page.evaluate(() => { TSK.q = ''; tskPaint(); });
+        /* Review 2: grouped by project, the questions lead under the decision group's name, so the tile's 3 is on screen. */
+        await page.selectOption('#tsk-by', 'project');
+        await page.waitForTimeout(200);
+        const byProj = await page.evaluate(() => {
+          const first = document.querySelector('#tsk-groups .tsk-grp');
+          return { head: first ? first.querySelector('h3').textContent : '', asks: first ? first.querySelectorAll('.tsk-ask').length : 0,
+            all: document.querySelectorAll('#tsk-groups .tsk-ask').length };
+        });
+        chk(/^Needs Your Decision2$/.test(byProj.head) && byProj.asks === 2 && byProj.all === 2, `${tag} grouped by project, the two questions lead, once`, JSON.stringify(byProj));
+        if (SHOTS) await page.screenshot({ path: path.join(SHOTS, 'asknotask-by-project.png'), fullPage: false });
+        await page.selectOption('#tsk-by', 'status');
+        await page.waitForTimeout(200);
         /* Answer opens the agent. */
         await page.click('#tsk-groups .tsk-ask[data-ask="max"] .tsk-answer');
         await page.waitForTimeout(400);
