@@ -17,7 +17,7 @@ second command (`kosmos community votes`) to see where it stands. Show the vote 
   its age is current). homeText shows one `Votes:` line after the counts line: the standing, how long ago it was read,
   and, as of that reading, how many more would have met the ask (with the honest-vote words) or that it was met; "none
   yet" for an agent never joined;
-  "not read in the last hour" when nothing current is known. Never a guessed 0.
+  "not known since your last vote or in the last hour" when nothing current is known. Never a guessed 0.
 - A vote through the board forgets the remembered standing (it is then wrong), and a read that was out while a vote
   went through is not kept (VOTE_GEN, the HOME_GEN shape); a vote refused before it was sent forgets nothing. A failed
   standing read keeps what was known. A reading an hour old or more reads as not read (votes age out of the service's
