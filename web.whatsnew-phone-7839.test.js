@@ -40,7 +40,7 @@ test('#7839: CONTROL: the board on the computer shows the window and records it'
 
 test('#7839: inside the iPhone app (html.kapptabs, every page it loads) no window, nothing recorded, nothing read', async () => {
   for (const phoneWidth of [true, false]) {   // the app marks the page whatever its width (an iPad, a rotated phone)
-    const r = await load({ classes: ['kapptabs', 'kremote'], phoneWidth });
+    const r = await load({ classes: ['kapptabs'], phoneWidth });   // at load the app's mark is all there is
     assert.deepEqual(r.opened, [], 'the desktop update window showed inside the phone app');
     assert.deepEqual(r.posts, [], 'the phone recorded the version as seen, so the computer would never show it');
     assert.deepEqual(r.reads, [], 'the phone still asked for What\'s New');

@@ -89,6 +89,7 @@ const STUB = (news) => {
         });
         say(!again.shown && again.seen === 0, tag + ' asked again with nothing holding it: still no window, nothing recorded', JSON.stringify(again));
       } else {
+        say(base.shown && base.seen === 1, tag + ' CONTROL: the load itself opened the window and recorded it once', JSON.stringify(base));
         // CONTROL: the load's own call can wait behind the first-run tour or the boot cover; clear them and ask again.
         const r = await page.evaluate(async () => {
           for (const id of ['firstrun', 'boot-cover']) { const e = document.getElementById(id); if (e) e.hidden = true; }
