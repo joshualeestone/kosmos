@@ -2275,7 +2275,10 @@ function listDir(folder, rel, where, opts) {
   }
   if (!before.isDirectory()) return { ok: false, because: 'that is not a folder in ' + where };
   let dir;
-  try { dir = fs.opendirSync(got.real); } catch (err) { return unreadFolder(err); }   // #7850
+  try { dir = fs.opendirSync(got.real); } catch (err) {
+    if (err instanceof TypeError || err instanceof ReferenceError) throw err;
+    return unreadFolder(err);   // #7850
+  }
   try {
     for (let ent = dir.readSync(); ent !== null; ent = dir.readSync()) {
       // Iteration 3: the read budget and the shown cap are told apart, so the page can say which one stopped it.
@@ -2298,7 +2301,7 @@ function listDir(folder, rel, where, opts) {
     if (err instanceof TypeError || err instanceof ReferenceError) throw err;
     return unreadFolder(err);   // #7850
   }
-  if (!after.isDirectory()) return { ok: false, because: 'that folder is not there any more, or it was moved' };
+  if (!after.isDirectory()) return { ok: false, because: 'that is not a folder in ' + where };
   if (after.ino !== before.ino || after.dev !== before.dev) {
     return { ok: false, because: 'that folder changed while it was being read', passing: true };   // #7850
   }

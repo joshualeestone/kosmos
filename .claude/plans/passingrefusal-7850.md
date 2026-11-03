@@ -12,7 +12,9 @@ Card: kosmos#7850 (follow-up to #7842). Owner: Ice Cream Kitty.
   there".
 - Behaviour change, stated: a top-level ENOENT in listFiles used to say "we could not read what is in that folder"; it
   now says "that folder is not there any more, or it was moved". No client matches on either sentence (web, ios and
-  engine checked in review round 2).
+  engine checked in review round 2). listDir's identity read before the listing used to call any lstat error "not there";
+  it now says "not there" only for ENOENT/ENOTDIR and "we could not read what is in that folder" otherwise. After the
+  listing, a folder turned into a file says "that is not a folder in ...", as the read before it does.
 - listFiles' top-level read now rethrows TypeError/ReferenceError, as listDir and its own subfolder reads already did,
   so a programming error is not shipped as a passing refusal.
 - server.js: unchanged. The agent Files list (200), agent browse (409 at the top, 404 below) and project documents
@@ -42,8 +44,10 @@ Card: kosmos#7850 (follow-up to #7842). Owner: Ice Cream Kitty.
   this branch; it is recorded on #7850 for the phone half, which will decide whether to keep a list that shrank.
 
 ## Verified
-- 13/13 new tests. Mutation A (every mark removed): exactly the 5 passing arms go red (round 1). Mutation B (EIO added
+- 14/14 new tests. Mutation A (every mark removed): exactly the 5 passing arms go red (round 1). Mutation B (EIO added
   to the passing codes): exactly the EIO control goes red. Mutation C (the after-read lstat back to "any error is gone"):
-  exactly the after-read EMFILE arm goes red (round 2).
+  exactly the after-read EMFILE arm goes red (round 2). Round 3: the after-read arm fails the first lstat after the
+  listing opened the folder (not the Nth call, which a Windows host's extra lstat would shift); a swapped-for-a-file
+  control added.
 - The existing test files that touch these listings (a grep for listFiles, listDir, files/browse, /documents): 0 fail at
   each round; the full suite is the validation helper's, recorded in the proof.

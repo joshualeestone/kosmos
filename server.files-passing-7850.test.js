@@ -1,8 +1,8 @@
 'use strict';
 /*
- * kosmos#7850: a listing refusal says whether it is PASSING. The engine's two passing reasons ("we could not read what is
- * in that folder", "that folder changed while it was being read") carry `passing: true` on every route that lists a
- * folder: an agent's flat Files list, its browse (the top, 409, and below it, 404) and a project's documents. A
+ * kosmos#7850: a listing refusal says whether it is PASSING. "we could not read what is in that folder" when the read
+ * failed with a passing code, and "that folder changed while it was being read", carry `passing: true` on every route
+ * that lists a folder: an agent's flat Files list, its browse (the top, 409, and below it, 404) and a project's documents. A
  * phone keeps the list it shows through a passing refusal and lets a lasting one replace it, so each route also has a
  * lasting refusal as its control, which must NOT carry the mark.
  *
@@ -158,6 +158,24 @@ test('#7850 agent browse CONTROL: a folder removed while it was read is a lastin
   }
 });
 
+test('#7850 agent browse CONTROL: a folder swapped for a file while it was read is a lasting 404 with no mark', async () => {
+  const sub = path.join(FILES, 'sub');
+  try {
+    const { got, hits } = await failingRead('opendirSync', sub, () => getJson('/api/agent/ava/files/browse?dir=sub'), (was, p, rest) => {
+      const h = was.call(fs, p, ...rest);
+      fs.renameSync(sub, sub + '-old');
+      fs.writeFileSync(sub, 'now a file');
+      return h;
+    });
+    assert.ok(hits > 0, 'the read never reached the seam');
+    assert.equal(got.status, 404);
+    assert.equal(got.body.because, 'that is not a folder in this agent\u2019s Files folder');
+    assert.equal('passing' in got.body, false, JSON.stringify(got.body));
+  } finally {
+    if (fs.existsSync(sub + '-old')) { fs.rmSync(sub, { recursive: true, force: true }); fs.renameSync(sub + '-old', sub); }
+  }
+});
+
 test('#7850 agent browse, below the top: an entry read that fails with EINTR is a 404 marked passing', async () => {
   const sub = path.join(FILES, 'sub');
   const { got, hits } = await failingRead('opendirSync', sub, () => getJson('/api/agent/ava/files/browse?dir=sub'), (was, p, rest) => {
@@ -173,13 +191,21 @@ test('#7850 agent browse, below the top: an entry read that fails with EINTR is 
 
 test('#7850 agent browse, below the top: the identity read after the listing failing with EMFILE is a 404 marked passing', async () => {
   const sub = path.join(FILES, 'sub');
-  let bigintReads = 0;
-  // The before and after identity reads are the two bigint lstats of the folder; fail only the second.
-  const { got, hits } = await failingRead('lstatSync', sub, () => getJson('/api/agent/ava/files/browse?dir=sub'), (was, p, rest) => {
-    if (rest[0] && rest[0].bigint && ++bigintReads === 2) throw fsError('EMFILE');
-    return was.call(fs, p, ...rest);
-  });
-  assert.ok(hits > 0 && bigintReads === 2, 'the after read never reached the seam (bigint reads: ' + bigintReads + ')');
+  // Fail the first lstat of the folder made AFTER the listing opened it, whatever other reads came before.
+  const real = fs.realpathSync(sub);
+  const wasOpen = fs.opendirSync;
+  let opened = false;
+  let failedAfter = false;
+  fs.opendirSync = function (p, ...rest) { if (String(p) === real) opened = true; return wasOpen.call(fs, p, ...rest); };
+  let res;
+  try {
+    res = await failingRead('lstatSync', sub, () => getJson('/api/agent/ava/files/browse?dir=sub'), (was, p, rest) => {
+      if (opened && !failedAfter) { failedAfter = true; throw fsError('EMFILE'); }
+      return was.call(fs, p, ...rest);
+    });
+  } finally { fs.opendirSync = wasOpen; }
+  const { got, hits } = res;
+  assert.ok(hits > 0 && failedAfter, 'the read after the listing never reached the seam');
   assert.equal(got.status, 404);
   assert.equal(got.body.because, 'we could not read what is in that folder');
   assert.equal(got.body.passing, true, JSON.stringify(got.body));
