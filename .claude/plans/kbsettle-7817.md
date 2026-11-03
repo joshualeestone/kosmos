@@ -37,3 +37,7 @@ Release and Debug typecheck; room 774/774; mutants red; CI ui tests (KeyboardSli
 - The place: the 09:27 diagnostic itself printed "past the end" after its one try, so the put-back's condition is the
   recorded one. personScrolling true there is not explained by the app's own scroll (PersonScroll does not count
   .animating); if a deceleration set it, underFinger reads the same, and the put-back acts only once it has ended (0.6 s).
+- Review round 2: the carry-over is kept only while a settled scroll is still waiting (kbSettlePending), not for as
+  long as the keyboard is up, so a reader who scrolls up with the keyboard open is not pulled down by a later
+  will-show; and any will-hide (on screen or not) cancels a waiting scroll and its put-back. diagKeyboard is no longer
+  read for it.
