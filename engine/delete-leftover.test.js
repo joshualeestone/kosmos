@@ -782,7 +782,7 @@ test('#7819: a profile another agent shares (same stored name, other case) is ke
   status.setPaneSource(() => fleet.line({ session: 'Miles7819', claim: 'Miles7819', title: '✳ Claude Code' }));
   // On Linux names are case-sensitive, so the running Miles7819 does not hold miles7819's leftover.
   const r = leftover.del(name, { platform: 'linux' });
-  assert.ok(r.outcome === leftover.OUTCOME.DELETED || r.outcome === leftover.OUTCOME.PARTIAL, `${r.outcome}: ${r.because}`);
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
   assert.equal(fs.existsSync(store.profilePath(name)), true, 'the delete took a profile the running Miles7819 also reads');
   assert.ok(r.steps.some((s) => s.step === 'its settings and picture' && /kept: Miles7819 uses the same stored name/.test(s.because || '')), JSON.stringify(r.steps));
 });
@@ -860,9 +860,10 @@ test('#7819: settings kept for another agent are said in the plan and in the res
   store.writeProfile(name, { displayName: 'kim' });
   status.setPaneSource(() => fleet.line({ session: 'Kim7819', claim: 'Kim7819', title: '✳ Claude Code' }));
   const p = leftover.plan(name, { platform: 'linux' });
-  assert.ok(p.loses.includes('Its settings and picture stay: Kim7819 uses the same stored name, and a new agent with this name shares them'), JSON.stringify(p.loses));
+  assert.ok(p.loses.includes('Its settings stay: Kim7819 uses the same stored name, and a new agent with this name shares them'), JSON.stringify(p.loses));
   const r = leftover.del(name, { platform: 'linux' });
-  if (r.outcome === leftover.OUTCOME.DELETED) assert.match(r.said, /Its settings and picture stay \(Kim7819 uses the same stored name\), so a new agent with this name shares them\.$/);
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.match(r.said, /Its settings stay \(Kim7819 uses the same stored name\), so a new agent with this name shares them\.$/);
   assert.equal(fs.existsSync(store.profilePath(name)), true);
 });
 
@@ -876,4 +877,33 @@ test('#7819: with nothing stored, a shared stored name says nothing about settin
   assert.ok(!p.loses.some((l) => /stay/.test(l)), 'the plan says settings stay that do not exist: ' + JSON.stringify(p.loses));
   const r = leftover.del(name, { platform: 'linux' });
   assert.doesNotMatch(String(r.said || r.because), /stay/, 'the result says settings stayed that do not exist');
+});
+
+
+test('#7819: a pictures folder that cannot be read refuses the plan, never promises a clean name', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a folder whatever its mode' : false }, () => {
+  const name = leftoverAgent('blind7819');
+  fs.mkdirSync(store.AVATARS, { recursive: true });
+  fs.writeFileSync(nodePath.join(store.AVATARS, 'blind7819.png'), 'png');
+  fs.chmodSync(store.AVATARS, 0o000);
+  let p;
+  try { p = mac.plan(name); } finally { fs.chmodSync(store.AVATARS, 0o755); }
+  assert.equal(p.ok, false, 'the plan promised a clean name over a picture it could not see');
+  assert.match(p.because, /could not check what Kosmos has stored for blind7819/);
+  // CONTROL: readable again, the same leftover is offered and its picture named.
+  assert.ok(mac.plan(name).loses.some((l) => /^Its picture: to the Trash/.test(l)));
+});
+
+test('#7819: a workers folder that cannot be read refuses the plan (it could hide a folder sharing the stored name)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a folder whatever its mode' : false }, () => {
+  const name = 'wblind7819';
+  fs.mkdirSync(nodePath.dirname(create.plistPath(name)), { recursive: true });
+  fs.writeFileSync(create.plistPath(name), '<plist/>');   // the job keeps it a leftover while the folder cannot be seen
+  store.writeProfile(name, { displayName: 'Wblind' });
+  fs.mkdirSync(create.WORKERS_DIR, { recursive: true });
+  fs.chmodSync(create.WORKERS_DIR, 0o000);
+  let p;
+  try { p = mac.plan(name); } finally { fs.chmodSync(create.WORKERS_DIR, 0o755); }
+  assert.equal(p.ok, false, 'the plan offered a delete without being able to see the workers folder');
+  assert.match(p.because, /could not check what Kosmos has stored for Wblind/);
+  assert.equal(mac.plan(name).ok, true, 'CONTROL: readable again, the same leftover is offered');
+  fs.rmSync(create.plistPath(name), { force: true });
 });
