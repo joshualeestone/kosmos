@@ -287,7 +287,7 @@ test('#7820 a dry run never promises the Recycle Bin, so it never reaches the mo
 });
 
 test('#7820 a fixed drive set to delete at once, or a policy that turns the Recycle Bin off, keeps "for good" and the typed name', () => {
-  for (const setting of [{ nuke: 1 }, { policy: true }]) {
+  for (const setting of [{ nuke: 1 }, { policy: true }, { globalNuke: 1 }]) {
     bin = setting;
     leftover.setRunner(stub);
     leftoverFolder('rb7820n');

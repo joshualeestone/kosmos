@@ -203,7 +203,8 @@ const DRIVE_SCRIPT = [
   "$ErrorActionPreference='Stop'",
   '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8',
   String.raw`try { $r=[System.IO.Path]::GetPathRoot($env:KOSMOS_RECYCLE_PATH); if (-not $r -or $r.StartsWith('\\')) { 'UNKNOWN'; exit 0 }`
-    + String.raw`; $d=New-Object System.IO.DriveInfo $r; $o=[ordered]@{ type=[string]$d.DriveType; total=[int64]$d.TotalSize; policy=$false; nuke=$null; maxMB=$null }`
+    + String.raw`; $d=New-Object System.IO.DriveInfo $r; $o=[ordered]@{ type=[string]$d.DriveType; total=[int64]$d.TotalSize; policy=$false; nuke=$null; maxMB=$null; globalNuke=$null }`
+    + String.raw`; $g=Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket' -ErrorAction SilentlyContinue; if ($g) { $o.globalNuke=$g.NukeOnDelete }`
     + String.raw`; foreach ($k in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer','HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer') { $v=(Get-ItemProperty -LiteralPath $k -Name NoRecycleFiles -ErrorAction SilentlyContinue).NoRecycleFiles; if ($v -eq 1) { $o.policy=$true } }`
     + String.raw`; try { $vol=(Get-CimInstance Win32_Volume -Filter ('DriveLetter=''' + $r.Substring(0,2) + '''')).DeviceID; if ($vol -match '\{[0-9A-Fa-f-]+\}') { $bb=Get-ItemProperty -LiteralPath ('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\' + $Matches[0]) -ErrorAction SilentlyContinue; if ($bb) { $o.nuke=$bb.NukeOnDelete; $o.maxMB=$bb.MaxCapacity } } } catch { }`
     + String.raw`; $o | ConvertTo-Json -Compress } catch { 'UNKNOWN' }`,
@@ -214,7 +215,8 @@ const BIN_ROOM = 0.9;
 const BIN_DEFAULT_SHARE = 0.05;
 /** win32: from the drive probe's answer and the folder's measure, whether the Recycle Bin will really keep it. */
 function binVerdict(info, m) {
-  if (!info || info.type !== 'Fixed' || info.policy === true || Number(info.nuke) === 1) return false;
+  // globalNuke: Windows' "one setting for all drives" switch, read whether or not that mode is on (a yes there is a no).
+  if (!info || info.type !== 'Fixed' || info.policy === true || Number(info.nuke) === 1 || Number(info.globalNuke) === 1) return false;
   if (m && m.capped) return false;   // its size is not known, so it cannot be said to fit
   const maxBytes = info.maxMB !== null && info.maxMB !== undefined && Number.isFinite(Number(info.maxMB))
     ? Number(info.maxMB) * 1024 * 1024
