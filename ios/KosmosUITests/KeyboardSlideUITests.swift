@@ -254,16 +254,21 @@ final class KeyboardSlideUITests: XCTestCase {
         }
     }
 
-    static func keyboardUp(_ app: XCUIApplication, _ box: XCUIElement, _ watch: XCUIElement, shot: String, test: XCTestCase) throws {
+    static func keyboardUp(_ app: XCUIApplication, _ box: XCUIElement, _ watch: XCUIElement, shot: String, test: XCTestCase,
+                           file: StaticString = #filePath, line: UInt = #line) throws {
         box.tap()
         /* kosmos#7872: on a loaded CI runner (iPhone 17e, iOS 26.5) the keyboard was once not up within 10 s and the
            test read it as a hardware keyboard. It gets 20 s. No second tap: one landing while the box slides up would
            move what the "stays where it was" tests measure, or open a message's actions. When it still does not come
            up, a screenshot and the box's state go with the failure, so the next red says a missed tap (not hittable,
            or framed off screen) from a keyboard that is connected or hidden. */
-        if !app.keyboards.firstMatch.waitForExistence(timeout: 20) {
+        let wait: TimeInterval = 20
+        if !app.keyboards.firstMatch.waitForExistence(timeout: wait) {
             let shotNoKb = XCTAttachment(screenshot: app.screenshot()); shotNoKb.name = shot + "-no-keyboard"; shotNoKb.lifetime = .keepAlways; test.add(shotNoKb)
-            XCTFail("no on-screen keyboard 20 s after tapping the box (box hittable: \(box.isHittable), frame \(box.frame); a hardware keyboard, or a tap that did not land)")
+            // Review 2: read the box only if it is there, so a query on a gone box cannot replace this message.
+            let state = box.exists ? "box hittable \(box.isHittable), frame \(box.frame)" : "box gone"
+            XCTFail("no on-screen keyboard \(Int(wait)) s after tapping the box (\(state)); a hardware keyboard, a tap that did not land, or a keyboard slower than that",
+                    file: file, line: line)
             return
         }
         settle(app.keyboards.firstMatch)

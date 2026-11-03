@@ -25,3 +25,11 @@ next step is the per-device preference.
 
 ## Tests
 A UI-test helper change only; the sample-board CI job on this PR runs it. Local: swiftc -parse of the file.
+
+## Review rounds
+- Round 1 (sonnet): a second tap could move what the tests measure; hasKeyboardFocus is a private key that could crash
+  every UI test; a silent retry hides a defect. All three taken: no retry, no private key, a longer wait plus a
+  screenshot and the box's public state on failure.
+- Round 2 (opus): no BLOCKER. The box state is read only if the box exists (a query on a gone box would replace the
+  message); the failure is reported at the caller's line (file/line parameters, as assertRebuiltOnce does); the wait
+  is one constant; the message names a slow keyboard too. Converged.
