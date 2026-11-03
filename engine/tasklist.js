@@ -90,9 +90,10 @@ function quietWords(at, now) {
 }
 /* kosmos#7875 item 3: on a built row, whether the person has viewed the task since it was built (the board sends
    seenByPerson only on the built list, from engine/taskseen.js). No field, an older board: nothing is said. A view
-   before the build is not one of the built work. */
+   before the build is not one of the built work. A task the person marked built themselves says so instead. */
 function seenWords(x) {
   if (!x || !Object.prototype.hasOwnProperty.call(x, 'seenByPerson')) return '';
+  if (x.builtByPerson === true) return '  (marked built by the person)';   // they marked it, wherever: no need to raise it
   const seen = typeof x.seenByPerson === 'string' ? Date.parse(x.seenByPerson) : NaN;
   const built = typeof x.builtAt === 'string' ? Date.parse(x.builtAt) : NaN;
   if (Number.isFinite(seen) && (!Number.isFinite(built) || seen >= built)) return '  (seen by the person since built)';
