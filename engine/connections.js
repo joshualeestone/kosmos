@@ -55,7 +55,33 @@ const WROTE_WHY = 'Kosmos told it how connecting a provider works';
  * The block. Constant by design: see the note above about why this takes no
  * argument and must not grow one.
  */
+/**
+ * kosmos#7875 item 2 (agent feedback, 11-03: the standing instructions are long, and much of them covers what rarely
+ * applies): the agent's instructions carry only the short block below, which says WHEN this applies and how to read the
+ * whole of it; the whole (guideText) is printed by `kosmos connections --how`, so an agent pays for these 10 KB of
+ * words only when the person asks for help connecting something.
+ */
 function blockBody() {
+  return [
+    '## Connecting providers, plugins and services',
+    '',
+    'When the person asks you to help connect an AI provider (Claude, OpenAI or',
+    'GPT, Gemini, Grok, Meta Muse, Qwen and others), asks about a plugin or',
+    'connector they added in their own Claude or Codex app, or asks about the',
+    'Connections tab (GitHub, Vercel, web search and other services), first run',
+    '`kosmos connections --how` and follow what it prints: how connecting works',
+    'here, what you can and cannot see, and the commands to use. It is not',
+    'repeated here because it rarely applies, and it is long.',
+    '',
+    'Two things always hold: run `kosmos accounts` to see which AI providers are',
+    'set up (never ask the person), and `kosmos connections` to see which',
+    'services are connected (never read `GET /api/connections` yourself: it',
+    'checks every service live, and the search services bill the person).',
+  ].join('\n');
+}
+
+/** The whole of what an agent needs to help connect a provider, a plugin or a service, for `kosmos connections --how`. */
+function guideText() {
   return [
     '## How connecting a provider works',
     '',
@@ -297,4 +323,4 @@ function syncEveryone(roster) {
   return told;
 }
 
-module.exports = { START, END, blockBody, tellAgent, syncEveryone };
+module.exports = { START, END, blockBody, guideText, tellAgent, syncEveryone };
