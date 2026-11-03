@@ -795,7 +795,7 @@ test('#7819: settings that will not move after the files went: PARTIAL, and it s
   let r;
   try { r = mac.del(name); } finally { fs.chmodSync(dir, 0o755); }
   assert.equal(r.outcome, leftover.OUTCOME.PARTIAL, r.because);
-  assert.match(r.because, /Its settings are still on this computer, so a new agent with this name would start with them\.$/);
+  assert.match(r.because, /Its settings are still on this computer, so a new agent with this name would start with them\. Deleting what is left again clears them\.$/);
   assert.doesNotMatch(r.because, /name is free/);
   assert.equal(fs.existsSync(create.workerDir(name)), false, 'CONTROL: the folder did go');
 });
@@ -906,4 +906,136 @@ test('#7819: a workers folder that cannot be read refuses the plan (it could hid
   assert.match(p.because, /could not check what Kosmos has stored for Wblind/);
   assert.equal(mac.plan(name).ok, true, 'CONTROL: readable again, the same leftover is offered');
   fs.rmSync(create.plistPath(name), { force: true });
+});
+
+/* kosmos#7825: settings or a picture left with no folder and no job (a delete from before #7819, or a #7819 PARTIAL). */
+function strandedProfile(name, fields) {
+  store.writeProfile(name, { displayName: name, ...(fields || {}) });
+  return name;
+}
+function withWorldStarts(entries, fn) {
+  const ws = require('./worldstarts');
+  const had = fs.existsSync(ws.RECORD_FILE) ? fs.readFileSync(ws.RECORD_FILE) : null;
+  fs.mkdirSync(nodePath.dirname(ws.RECORD_FILE), { recursive: true });
+  fs.writeFileSync(ws.RECORD_FILE, typeof entries === 'string' ? entries : JSON.stringify({ entries }));
+  try { return fn(); } finally { if (had === null) fs.rmSync(ws.RECORD_FILE, { force: true }); else fs.writeFileSync(ws.RECORD_FILE, had); }
+}
+
+test('kosmos#7825: a stranded profile and picture are offered, cleared to the Trash, and a new agent under the name gets a new id', () => {
+  const name = strandedProfile('lone7825', { provider: 'openai', vendorAccount: '/old/acct' });
+  fs.mkdirSync(store.AVATARS, { recursive: true });
+  fs.writeFileSync(nodePath.join(store.AVATARS, 'lone7825.png'), 'png');
+  const old = store.readProfile(name);
+  assert.ok(old.id, 'fixture: no id was minted');
+  assert.equal(fs.existsSync(create.workerDir(name)), false, 'fixture: a folder exists');
+  const p = mac.plan(name);
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.folder, null);
+  assert.equal(p.job, null);
+  assert.deepEqual(p.loses, ['Its settings and picture: to the Trash, and a new agent with this name starts without them']);
+  assert.equal(p.verb, 'Move its settings and picture to the Trash');
+  assert.equal(p.reassurance, 'Its settings and picture go to the Trash, where you can get them back until you empty it. After this, the name lone7825 is free for a new agent.');
+  assert.match(p.hint, /^Kosmos still has its settings and picture for lone7825, though nothing else of it is left/);
+  assert.equal(p.typeToConfirm, null, 'nothing goes for good, yet the name was asked for');
+  const r = mac.del(name);
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.equal(r.said, "lone7825's settings and picture are in the Trash. The name is free.");
+  assert.equal(fs.existsSync(store.profilePath(name)), false, 'the stranded profile outlived the delete');
+  assert.equal(store.avatarPath(name), null, 'the stranded picture outlived the delete');
+  assert.ok(trashHas('lone7825.json') && trashHas('lone7825.png'), 'they did not go to the Trash');
+  const made = createAgain(name);
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  const now = store.readProfile(name);
+  assert.ok(now.id && now.id !== old.id, 'the new agent inherited the stranded id');
+  assert.equal(now.vendorAccount, undefined, 'the new agent inherited a stranded field');
+});
+
+test('kosmos#7825: CONTROL: a name with nothing stored is still "nothing left"', () => {
+  const p = mac.plan('nobody7825');
+  assert.equal(p.ok, false);
+  assert.match(p.because, /^nothing of nobody7825 is left on this computer/);
+});
+
+test('kosmos#7825: a pending world start\'s profile is never offered, and a delete leaves it', () => {
+  const name = strandedProfile('ws7825', { provider: 'openai' });
+  withWorldStarts([{ name, why: 'paused', because: 'held for a retry' }], () => {
+    const p = mac.plan(name);
+    assert.equal(p.ok, false, 'a waiting world start was offered for deleting');
+    assert.match(p.because, /^ws7825 is waiting to start on this computer, so its settings are not left over\.$/);
+    assert.equal(mac.del(name).outcome, leftover.OUTCOME.REFUSED);
+  });
+  assert.equal(fs.existsSync(store.profilePath(name)), true, 'the delete took a waiting world start\'s profile');
+  // CONTROL: the same profile with the record gone is a leftover.
+  assert.equal(mac.plan(name).ok, true, 'CONTROL: the same profile without a world start is not offered');
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a world start recorded in another case shares the stored name and holds it too', () => {
+  const name = strandedProfile('case7825');
+  withWorldStarts([{ name: 'Case7825', why: 'import' }], () => {
+    assert.match(mac.plan(name).because || '', /waiting to start/);
+  });
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a profile marked held by a policy is never offered', () => {
+  const name = strandedProfile('held7825', { policyHeld: true, provider: 'openai' });
+  const p = mac.plan(name);
+  assert.equal(p.ok, false);
+  assert.match(p.because, /^held7825 is waiting to start, held until it is allowed to run/);
+  store.writeProfile(name, { policyHeld: false });
+  assert.equal(mac.plan(name).ok, true, 'CONTROL: the same profile unheld is not offered');
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a world-start record that cannot be read refuses, never offers', () => {
+  const name = strandedProfile('unread7825');
+  withWorldStarts('{not json', () => {
+    const p = mac.plan(name);
+    assert.equal(p.ok, false);
+    assert.match(p.because, /could not check whether unread7825 is waiting to start/);
+  });
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a connected agent whose folder is out of reach (outside the workers folder) is never offered', () => {
+  const name = strandedProfile('away7825', { dir: nodePath.join(SANDBOX, 'unplugged-disk', 'away7825') });
+  const p = mac.plan(name);
+  assert.equal(p.ok, false, 'an agent on a disconnected disk was offered for deleting');
+  assert.match(p.because, /folder is somewhere this computer cannot reach right now/);
+  // CONTROL: a recorded folder inside the workers folder that is gone is a leftover.
+  store.writeProfile(name, { dir: nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, 'away7825') });
+  assert.equal(mac.plan(name).ok, true, 'CONTROL: a gone folder inside the workers folder is not offered');
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: without a Trash a stranded profile is deleted for good, and the name must be typed', () => {
+  const trash = process.env.AGENT_WORKFORCE_TRASH;
+  const name = strandedProfile('nobin7825');
+  fs.rmSync(trash, { recursive: true, force: true });
+  let p; let refused; let r;
+  try {
+    p = mac.plan(name);
+    assert.equal(p.typeToConfirm, 'nobin7825');
+    assert.equal(p.verb, 'Delete its settings for good');
+    assert.equal(p.reassurance, 'This cannot be undone: the Trash cannot take its settings, so they are deleted for good. After this, the name nobin7825 is free for a new agent.');
+    refused = mac.del(name);
+    r = mac.del(name, { typed: 'nobin7825' });
+  } finally { fs.mkdirSync(trash, { recursive: true }); }
+  assert.equal(refused.outcome, leftover.OUTCOME.REFUSED, 'deleted for good without the name typed');
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.equal(r.said, "nobin7825's settings are deleted. The name is free.");
+  assert.equal(fs.existsSync(store.profilePath(name)), false);
+});
+
+test('kosmos#7825: a stranded profile a running agent shares by stored name is not offered', () => {
+  const name = strandedProfile('share7825');
+  status.setPaneSource(() => fleet.line({ session: 'Share7825', claim: 'Share7825', title: '✳ Claude Code' }));
+  // Linux, so the running Share7825 is not the same name and the stored-name rule is what refuses.
+  const p = leftover.plan(name, { platform: 'linux' });
+  assert.equal(p.ok, false);
+  assert.match(p.because, /^nothing of share7825 is left/);
+  assert.equal(fs.existsSync(store.profilePath(name)), true);
+  status.setPaneSource(null);
+  fs.rmSync(store.profilePath(name), { force: true });
 });
