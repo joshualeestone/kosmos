@@ -405,8 +405,8 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
-            positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuilds = []
-            stripSeen = 0   // kosmos#7817: the next conversation's first strip measure is not a change to follow   // kosmos#7265 review: a fresh chat's anchor
+            positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuilds = []   // kosmos#7265 review: a fresh chat's anchor
+            stripSeen = stripHeight   // kosmos#7817: the strip is not measured again, so the next wrap is the next change
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             replying = nil
