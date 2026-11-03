@@ -4924,6 +4924,32 @@ test('the confirmation asks by name, defaults to keeping, and never writes its o
 });
 
 
+test('kosmos#7825 PR 2: the removed list carries names with only settings left, name and shownAs only, and a delete clears them', async () => {
+  const status = require('./engine/status');
+  const name = 'settings-only-7825';
+  store.writeProfile(name, { displayName: 'Stray', provider: 'openai' });
+  status.setPaneSource(() => '');
+  const del = () => req(`/api/agent/${name}/leftover`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ typed: 'Stray' }) });   // no Trash in this sandbox, so the name is asked for
+  try {
+    await req('/api/agent/no-such-7825/leftover', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' });   // forgets the remembered list
+    const body = JSON.parse((await req('/api/removed')).body);
+    assert.ok(Array.isArray(body.leftovers), 'the removed list carries no leftovers field: ' + JSON.stringify(body).slice(0, 200));
+    const row = body.leftovers.find((x) => x.name === name);
+    assert.ok(row, 'a name with only settings left is not listed');
+    assert.deepEqual(Object.keys(row).sort(), ['name', 'shownAs'], 'the leftovers rows ship fields the screen does not draw');
+    assert.equal(row.shownAs, 'Stray');
+    await req('/api/status');   // the board poll takes a survey (with the name in it) that the list may reuse
+    const gone = await del();
+    assert.equal(gone.status, 200, gone.body);
+    const after = JSON.parse((await req('/api/removed')).body);
+    assert.ok(!(after.leftovers || []).some((x) => x.name === name), 'the deleted name is still listed (the remembered list was not forgotten)');
+    assert.equal(fs.existsSync(store.profilePath(name)), false);
+  } finally {
+    status.setPaneSource(null);
+    fs.rmSync(store.profilePath(name), { force: true });
+  }
+});
+
 /**
  * Every `var(--x)` with no fallback names a property `:root` actually defines.
  *
@@ -4964,32 +4990,6 @@ test('the confirmation asks by name, defaults to keeping, and never writes its o
  * This one builds a REAL plist naming a REAL account dir, deletes the dir, and
  * asserts the route ships `true`.
  */
-test('kosmos#7825 PR 2: the removed list carries names with only settings left, name and shownAs only, and a delete clears them', async () => {
-  const status = require('./engine/status');
-  const name = 'settings-only-7825';
-  store.writeProfile(name, { displayName: 'Stray', provider: 'openai' });
-  status.setPaneSource(() => '');
-  const del = () => req(`/api/agent/${name}/leftover`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ typed: 'Stray' }) });   // no Trash in this sandbox, so the name is asked for
-  try {
-    await req('/api/agent/no-such-7825/leftover', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: '{}' });   // forgets the remembered list
-    const body = JSON.parse((await req('/api/removed')).body);
-    assert.ok(Array.isArray(body.leftovers), 'the removed list carries no leftovers field: ' + JSON.stringify(body).slice(0, 200));
-    const row = body.leftovers.find((x) => x.name === name);
-    assert.ok(row, 'a name with only settings left is not listed');
-    assert.deepEqual(Object.keys(row).sort(), ['name', 'shownAs'], 'the leftovers rows ship fields the screen does not draw');
-    assert.equal(row.shownAs, 'Stray');
-    await req('/api/status');   // the board poll takes a survey (with the name in it) that the list may reuse
-    const gone = await del();
-    assert.equal(gone.status, 200, gone.body);
-    const after = JSON.parse((await req('/api/removed')).body);
-    assert.ok(!(after.leftovers || []).some((x) => x.name === name), 'the deleted name is still listed (the remembered list was not forgotten)');
-    assert.equal(fs.existsSync(store.profilePath(name)), false);
-  } finally {
-    status.setPaneSource(null);
-    fs.rmSync(store.profilePath(name), { force: true });
-  }
-});
-
 test('#2615 the removed list reports a gone account folder as gone', async () => {
   const removal = require('./engine/remove');
   const create = require('./engine/create');

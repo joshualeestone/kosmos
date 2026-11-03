@@ -1321,12 +1321,17 @@ test('kosmos#7825 PR 2 review 1: settingsLeftovers leaves out a running agent an
   const run = strandedProfile('runs7825');
   const away = strandedProfile('away27825', { dir: nodePath.join(SANDBOX, 'share-gone', 'away27825') });
   const inside = strandedProfile('in7825', { dir: nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, 'in7825') });
+  fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
+  const realW = fs.realpathSync.native(process.env.AGENT_WORKFORCE_WORKERS);
+  // review 3: the same workers folder spelled through its links (/private/var for /var on a Mac).
+  const spelled = strandedProfile('in27825', { dir: nodePath.join(realW, 'in27825') });
   try {
     status.setPaneSource(() => fleet.line({ session: 'Runs7825', claim: 'Runs7825', title: '✳ Claude Code' }));
     let names = leftover.settingsLeftovers({ platform: 'darwin' }).names.map((x) => x.name);
     assert.ok(!names.includes(run), 'a running agent (another case on a case-blind disk) was listed as settings only');
     assert.ok(!names.includes(away), 'a folder recorded outside the workers folder was listed as settings only');
     assert.ok(names.includes(inside), 'CONTROL: a gone folder recorded inside the workers folder is settings only');
+    assert.ok(names.includes(spelled), 'a folder recorded under the workers folder\'s resolved spelling read as outside');
     quiet();
     names = leftover.settingsLeftovers({ platform: 'darwin' }).names.map((x) => x.name);
     assert.ok(names.includes(run), 'CONTROL: stopped, it is settings only');
@@ -1338,6 +1343,6 @@ test('kosmos#7825 PR 2 review 1: settingsLeftovers leaves out a running agent an
     assert.deepEqual(leftover.settingsLeftovers({ platform: 'darwin', survey: given }).names, [{ name: 'handed7825', shownAs: 'Handed' }]);
   } finally {
     quiet();
-    for (const n of [run, away, inside]) fs.rmSync(store.profilePath(n), { force: true });
+    for (const n of [run, away, inside, spelled]) fs.rmSync(store.profilePath(n), { force: true });
   }
 });

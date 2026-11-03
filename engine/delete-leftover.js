@@ -872,13 +872,16 @@ function settingsLeftovers(opts) {
   const fold = (n) => (caseBlind ? String(n).toLowerCase() : String(n));
   let running;
   try { running = new Set(status.paneRoster().map((c) => fold(c.sessionName))); } catch { return { ok: false, names: [] }; }
-  const workers = path.resolve(create.WORKERS_DIR);
+  // Both spellings of the workers folder (review 3: /var is /private/var on a Mac); the workers folder exists, so
+  // resolving it cannot block on a share that is gone. The recorded folder itself is never looked at.
+  const workers = [path.resolve(create.WORKERS_DIR)];
+  try { workers.push(fs.realpathSync.native(create.WORKERS_DIR)); } catch { /* the written spelling only */ }
   const outside = (name) => {
     let dir = null;
     try { dir = require('./store').readProfile(name).dir; } catch { dir = null; }
     if (typeof dir !== 'string' || !dir || !path.isAbsolute(dir)) return false;
     const d = path.resolve(dir);
-    return !(fold(d) === fold(workers) || insideDir(fold(d), fold(workers)));
+    return !workers.some((w) => fold(d) === fold(w) || insideDir(fold(d), fold(w)));
   };
   const pending = require('./worldstarts').pendingNames();
   if (pending === null) return { ok: false, names: [] };
