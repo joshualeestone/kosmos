@@ -230,7 +230,7 @@ const RECYCLE_SCRIPT = [
   '$p=$env:KOSMOS_RECYCLE_PATH',
   '$dir=[System.IO.Path]::GetDirectoryName($p); $leaf=[System.IO.Path]::GetFileName($p); $stem=[System.IO.Path]::GetFileNameWithoutExtension($p)',
   // Each count stops after 15 s, so a large Recycle Bin cannot eat the move's own time; a stopped count reads UNVERIFIED.
-  "function Get-KosmosBinCount { $sw=[System.Diagnostics.Stopwatch]::StartNew(); $n=0; foreach ($i in (New-Object -ComObject Shell.Application).Namespace(10).Items()) { if ($sw.Elapsed.TotalSeconds -gt 15) { throw 'slow' }; if (($i.Name -eq $leaf -or $i.Name -eq $stem) -and [string]$i.ExtendedProperty('System.Recycle.DeletedFrom') -eq $dir) { $n++ } }; $n }",
+  "function Get-KosmosBinCount { $sw=[System.Diagnostics.Stopwatch]::StartNew(); $n=0; foreach ($i in (New-Object -ComObject Shell.Application).Namespace(10).Items()) { if ($sw.Elapsed.TotalSeconds -gt 15) { throw 'slow' }; if (($i.Name -eq $leaf -or $i.Name -eq $stem) -and ([string]$i.ExtendedProperty('System.Recycle.DeletedFrom')).TrimEnd([char]92) -eq $dir.TrimEnd([char]92)) { $n++ } }; $n }",
   '$before=$null; try { $before=Get-KosmosBinCount } catch { }',
   // A single file (an agent's settings or picture) goes through DeleteFile, a folder through DeleteDirectory.
   "try { Add-Type -AssemblyName Microsoft.VisualBasic; if (Test-Path -LiteralPath $p -PathType Leaf) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } } catch { $e=$_.Exception; if ($e.InnerException) { $e=$e.InnerException }; 'FAILED ' + $e.Message; exit 0 }",
