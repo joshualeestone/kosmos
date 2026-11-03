@@ -105,3 +105,6 @@ Leftover tests 154 pass; create tests 545 pass; web.delete-leftover's route pin 
 - Review round 5: a warm pins its drive only when it stored an answer itself (an older kept answer is not this warm's;
   a dry run or a refusal stores none); test red on the has()-based form. The delete route sends no second answer when
   something throws after the first went out.
+- Review round 6: no new code finding. Kept: Windows' own words for a late failure ("note") reach the step in the
+  answer but the page does not show them yet; the automatic update waiting for a running delete is asserted by the
+  moveHoldsBoard source checks, not by a route test.
