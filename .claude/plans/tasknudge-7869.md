@@ -29,6 +29,9 @@ it was, this change is still right but does not close the report.
 **Known limit.** The refusal needs the caller identified as an agent (`by`, from its agent token or pane). Both give
 routes pass it (task/assign and part/:id/who). A give the board cannot tie to an agent is treated as the person's and
 reopens the task, as before. There is no route-level test: this harness's fake tmux has no agent to identify.
+Two route changes follow, both intended: part/:id/who now answers a refused or uncheckable agent token with 403/503 as
+task/assign does (it used to give the part anyway), and a give it can tie to an agent records `movedBy` and the
+`assigned` row's `by` (#6103), as task/assign's gives already did.
 
 ## Item 2: reacting to a colleague's direct note
 
