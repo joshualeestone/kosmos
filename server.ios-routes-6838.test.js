@@ -73,9 +73,11 @@ const SITES = [
     routes: ['GET /api/agent/x/thread', 'GET /api/agent/x/thread?tail=30'],
     pins: ['URLComponents(url: URL(string: "/api/agent/\\(session)/thread"', 'URLQueryItem(name: "tail"'] },
   // A chat file and its thumbnail: the path comes from the board, accepted only as /api/attachment/<24 hex>[/preview].
+  // kosmos#7864: and a link preview's picture, the same request, accepted only as the board's /api/unfurl/image?url= path.
   { file: 'ios/Kosmos/BoardLogic.swift', text: 'var r = URLRequest(url: url)', method: 'GET',
-    routes: ['GET /api/attachment/000000000000000000000000', 'GET /api/attachment/000000000000000000000000/preview'],
-    pins: ['let prefix = "/api/attachment/"', '$0 == url + "/preview"'],
+    routes: ['GET /api/attachment/000000000000000000000000', 'GET /api/attachment/000000000000000000000000/preview',
+      'GET /api/unfurl/image'],
+    pins: ['let prefix = "/api/attachment/"', '$0 == url + "/preview"', '$0.hasPrefix("/api/unfurl/image?url=")'],
     callers: { pattern: /\battachmentRequest\(mac:[^,]+,\s*path:\s*([^)]+)\)/g, every: /\battachmentRequest\(/g,
       skip: /\bfunc\s+attachmentRequest\(/, expect: ['a.url', 'path'], scope: 'app' } },
   // The phone's notification switches: read with GET, written with PUT, through request(_:method:).
