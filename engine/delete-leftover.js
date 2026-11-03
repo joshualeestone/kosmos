@@ -506,7 +506,31 @@ function strandedRefusal(name, shown) {
     const w = path.resolve(create.WORKERS_DIR);
     const wReal = real(create.WORKERS_DIR);
     const inside = (a) => a === w || a === wReal || insideDir(a, w) || insideDir(a, wReal);
-    if (!inside(path.resolve(dir)) && !inside(real(dir))) {
+    /* Inside by its spelling is trusted only when no part below the workers folder is a link (review 6): <W>/ext/agent
+       with ext a link to a disk that is not mounted is out of sight, not gone. A live link is judged by where it goes;
+       a dangling one is out of reach. */
+    const plain = path.resolve(dir);
+    let linked = false;
+    if (inside(plain)) {
+      const base = (plain === w || insideDir(plain, w)) ? w : wReal;
+      let at = base;
+      for (const seg of path.relative(base, plain).split(path.sep).filter(Boolean)) {
+        at = path.join(at, seg);
+        let st;
+        try { st = fs.lstatSync(at); } catch (e) {
+          if (e && e.code === 'ENOENT') break;   // the gone rest
+          return { because: `we could not check where ${shown}'s folder was, so we have not offered to delete anything. Try again in a moment.` };
+        }
+        if (st.isSymbolicLink()) {
+          try { fs.statSync(at); } catch {
+            return { because: `${shown}'s folder is somewhere this computer cannot reach right now, perhaps a disk or a shared folder that is not connected, so Kosmos will not delete its settings.` };
+          }
+          linked = true;
+          break;
+        }
+      }
+    }
+    if (linked ? !inside(real(dir)) : (!inside(plain) && !inside(real(dir)))) {
       /* Something is there (a link, a file), so the sentence must not send the person to check a cable (review 5). A
          real folder there never reaches this: workerDir follows it and plan()'s folder rule refuses first. */
       let there = false;
