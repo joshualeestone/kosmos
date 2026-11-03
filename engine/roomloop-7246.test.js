@@ -197,7 +197,7 @@ test('round 1: quiet posts count as missed when a member is next woken, and cost
   withFleet(room(), (board) => {
     post(board, 'angel', 'an fyi nobody is asked about');
     const ask = post(board, 'angel', '@monalisa one question');
-    assert.match(typedTo(ask.tmux, 'monalisa').join(''), /This room has been talking without you: 1 earlier post/, 'a quiet post was not counted as missed');
+    assert.match(typedTo(ask.tmux, 'monalisa').join(''), /This room has been talking without you: you have not seen 1 earlier post/, 'a quiet post was not counted as missed');
     const row = messages.record().rows.find((x) => x.kind === 'post' && /fyi nobody/.test(x.text));
     assert.equal(messages.reachedCount(row), 0, 'a post that woke no one was charged to the valve');
   });
@@ -386,7 +386,7 @@ test('round 6: an author woken by an answer is told what it missed while quiet',
     const ask = post(board, 'angel', 'Angel -> Mona Lisa: can you build #7346?');
     post(board, 'pigeonpete', 'an fyi angel never saw');
     const answer = post(board, 'monalisa', 'yes, after #7265', { replyTo: ask.sent.id });
-    assert.match(typedTo(answer.tmux, 'angel').join(''), /This room has been talking without you: 1 earlier post/);
+    assert.match(typedTo(answer.tmux, 'angel').join(''), /This room has been talking without you: you have not seen 1 earlier post/);
   });
 });
 test('round 6: a person\'s post that reached nobody does not end the pause', () => {
