@@ -262,7 +262,7 @@ test('kosmos#7875 item 2: both CLIs print the guide with connections --how', asy
   assert.equal(out.join('\n'), connections.guideText());
   const extra = await cli.main(['connections', '--how', 'more'], { env: {}, out: () => {}, err: () => {} });
   assert.equal(extra, 2);
-  const winHelp = []; 
+  const winHelp = [];
   assert.equal(await cli.main(['connections', '--how', '--help'], { env: {}, out: (x) => winHelp.push(x), err: (x) => winHelp.push(x) }), 0);
   assert.match(winHelp.join('\n'), /kosmos connections --how/);
   assert.ok(!winHelp.join('\n').includes('## How connecting a provider works'), 'Windows connections --how --help printed the guide');
