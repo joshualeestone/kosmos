@@ -27,7 +27,7 @@ me="$(basename "$0")"; printf '%s %s\n' "$me" "$*" >> "$CALL_LOG"; S="$(dirname 
 case "$me" in
   id) case "$*" in
         "-u") echo "${FX_EUID:-0}" ;; "-un") echo "${FX_WHO:-root}" ;;
-        "-u kosmos-ci") echo "${FX_CIUID:-502}" ;; "-gn kosmos-ci") echo "${FX_GROUP:-staff}" ;; *) /usr/bin/id "$@" ;; esac ;;
+        "-u kosmos-ci") echo "${FX_CIUID:-502}" ;; "-gn kosmos-ci") echo "${FX_GROUP:-staff}" ;; "-Gn kosmos-ci") echo "${FX_GROUPS:-staff everyone}" ;; *) /usr/bin/id "$@" ;; esac ;;
   launchctl) case "$1 $2" in
       "print system/"*) [ -f "$S/daemon-loaded" ] || exit 113; printf 'system/x = {\n\tstate = running\n\tpid = 7000\n}\n' ;;
       "print gui/"*) if [ "${FX_GUI_LATE:-0}" = 1 ] && [ ! -f "$S/gui-seen" ]; then touch "$S/gui-seen"; exit 113; fi
@@ -40,6 +40,7 @@ case "$me" in
   pgrep) u=""; pat=""; while [ $# -gt 0 ]; do case "$1" in -u) u="$2"; shift ;; -f) pat="$2"; shift ;; esac; shift; done
     [ "${FX_PGREP_FAIL:-0}" = 1 ] && exit 3
     [ "${FX_PGREP_FAIL_LOADED:-0}" = 1 ] && [ -f "$S/daemon-loaded" ] && exit 3
+    [ "${FX_PGREP_FAIL_PARKED:-0}" = 1 ] && ls "$S"/retired/*.retired-* >/dev/null 2>&1 && exit 3
     out="$(while read -r pu pp ppp argv; do [ -z "$u" ] || [ "$pu" = "$u" ] || continue
              printf '%s\n' "$argv" | grep -E -e "$pat" >/dev/null && echo "$pp"; done < "$S/procs")"
     [ -n "$out" ] || exit 1; printf '%s\n' "$out" ;;
@@ -49,12 +50,14 @@ case "$me" in
     [ "${FX_MV_PLIST_FAIL:-0}" = 1 ] && case "${*: -1}" in "$S/daemons/"*.plist) exit 1 ;; esac
     /bin/mv "$@" || exit $?
     [ "${FX_LOGIN_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) touch "$S/agent-loaded" ;; esac;
+    [ "${FX_LINK_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) /bin/mv "$FX_H/Library/LaunchAgents" "$FX_H/LA.real"; ln -s "$FX_H/LA.real" "$FX_H/Library/LaunchAgents" ;; esac
     [ "${FX_LISTENER_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) echo "502 5300 1 $FX_R/bin/Runner.Listener run" >> "$S/procs" ;; esac; exit 0 ;;
   date) echo 20261103T000000Z ;;
+  sudo) [ "$1" = -u ] && shift 2; exec "$@" ;;
   chown|sleep) : ;;
 esac
 STUB
-chmod 755 "$BIN/_stub"; for c in id launchctl pgrep ps stat mv date chown sleep; do ln -s _stub "$BIN/$c"; done
+chmod 755 "$BIN/_stub"; for c in id launchctl pgrep ps stat mv date sudo chown sleep; do ln -s _stub "$BIN/$c"; done
 fixture() {   # a runner as svc.sh install leaves it: .service names its LaunchAgent, WorkingDirectory the runner dir
   rm -rf "$T/home" "$T/daemons" "$T/retired" "$T/daemon-loaded" "$T/agent-loaded" "$T/gui-seen"; H="$T/home/kosmos-ci"; R="$H/actions-runner"
   mkdir -p "$R" "$H/Library/LaunchAgents" "$T/daemons"; AG="$H/Library/LaunchAgents/$LABEL.plist"
@@ -80,7 +83,7 @@ run() {   # run <name> <env...> -- <args...>
   local n="$1"; shift; local e=(); while [ "$1" != -- ]; do e+=("$1"); shift; done; shift
   : > "$LOG"
   env -i PATH="$BIN:/usr/bin:/bin" HOME="$T/home/kosmos-ci" CALL_LOG="$LOG" KOSMOS_CI_HOME="$T/home/kosmos-ci" \
-    KOSMOS_CI_DAEMON_DIR="$T/daemons" KOSMOS_CI_RETIRED_DIR="$T/retired" KOSMOS_CI_START_WAIT_S=2 FX_R="$R" FX_LABEL="$LABEL" ${e[@]+"${e[@]}"} \
+    KOSMOS_CI_DAEMON_DIR="$T/daemons" KOSMOS_CI_RETIRED_DIR="$T/retired" KOSMOS_CI_START_WAIT_S=2 FX_R="$R" FX_H="$H" FX_LABEL="$LABEL" ${e[@]+"${e[@]}"} \
     bash "$SCRIPT" "$@" > "$T/$n.out" 2>&1
   echo $? > "$T/$n.rc"
 }
@@ -146,7 +149,7 @@ cp "$(ls "$RA".retired-*)" "$AG"; run agentback -- daemon
 rm -f "$AG"; grep -v ' 7001 ' "$T/procs" > "$T/procs.x"; mv "$T/procs.x" "$T/procs"; run restarting -- daemon
 [ "$(rc restarting)" = 1 ] && has restarting "run this again in a minute" && ! has restarting bootout && pass "loaded with no Listener: restarting or updating, run again" || fail "restarting: rc $(rc restarting) $(cat "$T/restarting.out")"
 RET="$(ls "$RA".retired-*)"; rm -f "$T/daemon-loaded"; run loadonly -- --apply daemon
-[ "$(rc loadonly)" = 0 ] && grep -q "^launchctl bootstrap system" "$LOG" && ! grep -q "^chown" "$LOG" && has loadonly "sudo mv $RET $AG" \
+[ "$(rc loadonly)" = 0 ] && grep -q "^launchctl bootstrap system" "$LOG" && ! grep -q "^chown" "$LOG" && has loadonly "sudo cat $RET | sudo -u kosmos-ci tee $AG" \
   && pass "a daemon plist with the agent already retired is only loaded, naming the retired file" || fail "loadonly: rc $(rc loadonly) $(cat "$T/loadonly.out")"
 rm -f "$T/daemon-loaded"; grep -v ' 7001 ' "$T/procs" > "$T/procs.x"; mv "$T/procs.x" "$T/procs"; chmod 664 "$D"; run mode -- --apply daemon
 [ "$(rc mode)" = 1 ] && has mode "not exactly what this stage writes" && ! grep -q '^launchctl bootstrap' "$LOG" && pass "a daemon plist mode 0664 is not this stage's" || fail "mode: rc $(rc mode) $(cat "$T/mode.out")"
@@ -162,7 +165,7 @@ fixture; run login FX_LOGIN_ON_MV=1 -- --apply daemon
 [ "$(rc login)" = 1 ] && has login "put everything back" && [ -e "$AG" ] && [ ! -e "$(DP)" ] && ! ls "$RA".retired-* >/dev/null 2>&1 && ! grep -q '^launchctl bootstrap' "$LOG" \
   && pass "a login between the write and the bootstrap puts everything back" || fail "login: rc $(rc login) $(cat "$T/login.out")"
 fixture; run bsfail FX_BOOTSTRAP_FAIL=1 -- --apply daemon
-[ "$(rc bsfail)" = 1 ] && has bsfail "launchd tries" && has bsfail "sudo mv $RA.retired-" && ! has bsfail 'retired-*' \
+[ "$(rc bsfail)" = 1 ] && has bsfail "launchd tries" && has bsfail "sudo cat $RA.retired-" && ! has bsfail 'retired-*' \
   && pass "a failed bootstrap names the exact retired file and the next boot" || fail "bsfail: rc $(rc bsfail) $(cat "$T/bsfail.out")"
 fixture; run nolistener FX_NO_LISTENER=1 -- --apply daemon
 [ "$(rc nolistener)" = 1 ] && has nolistener "no Runner.Listener of" && has nolistener "sudo launchctl bootout system/$LABEL" \
@@ -186,7 +189,7 @@ run ka FX_EUID=502 FX_WHO=kosmos-ci -- keepalive
 fixture; run plant0 -- --apply daemon; grep -v ' 7001 ' "$T/procs" > "$T/procs.x"; /bin/mv "$T/procs.x" "$T/procs"; rm -f "$T/daemon-loaded"
 REAL="$(ls "$RA".retired-*)"; : > "$RA.retired-Zz;id;#"; mkdir "$RA.retired-29991231T000000Z"; ln -s /etc/hosts "$RA.retired-29991231T000001Z"
 run plant -- --apply daemon
-[ "$(rc plant)" = 0 ] && ! has plant ';id;' && ! has plant 29991231 && has plant "sudo mv $REAL $AG" \
+[ "$(rc plant)" = 0 ] && ! has plant ';id;' && ! has plant 29991231 && has plant "sudo cat $REAL | sudo -u kosmos-ci tee $AG" \
   && pass "a planted name, a directory or a symlink in the retired dir is never printed; the real retired file is" || fail "plant: rc $(rc plant) $(cat "$T/plant.out")"
 fixture; mkdir -m 755 "$T/retired"; run rdmode -- --apply daemon
 [ "$(rc rdmode)" = 1 ] && has rdmode "is not a root:wheel 0700 directory" && untouched && pass "a retired dir that is not root:wheel 0700 refuses" || fail "rdmode: rc $(rc rdmode) $(cat "$T/rdmode.out")"
@@ -209,6 +212,26 @@ fixture; run plistmv FX_MV_PLIST_FAIL=1 -- --apply daemon
 [ "$(rc plistmv)" = 1 ] && has plistmv "the LaunchAgent is back where it was" && [ -f "$AG" ] && [ ! -e "$(DP)" ] && [ ! -e "$(DP).new" ] && ! ls "$RA".retired-* >/dev/null 2>&1 \
   && pass "a failed write of the daemon plist puts the agent back" || fail "plistmv: rc $(rc plistmv) $(cat "$T/plistmv.out")"
 fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; run halfway -- --apply daemon
-[ "$(rc halfway)" = 1 ] && has halfway "parked at $RA.retired-20261103T000000Z" && has halfway "sudo mv $RA.retired-20261103T000000Z $AG" && ! has halfway "register the runner first" \
+[ "$(rc halfway)" = 1 ] && has halfway "parked at $RA.retired-20261103T000000Z" && has halfway "sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG" && ! has halfway "register the runner first" \
   && pass "a run stopped after parking the agent says to put it back, not to register again" || fail "halfway: rc $(rc halfway) $(cat "$T/halfway.out")"
+# Round 5: "the agent is back" through a symlink to the daemon dir must print no move of the daemon plist.
+fixture; run lk0 -- --apply daemon; /bin/mv "$H/Library/LaunchAgents" "$H/LA.gone"; ln -s "$T/daemons" "$H/Library/LaunchAgents"; run linkback -- daemon
+[ "$(rc linkback)" = 1 ] && has linkback "no command is printed" && ! has linkback "sudo mv" && [ -f "$(DP)" ] \
+  && pass "an agent path that is a symlink onto the daemon plist prints no move" || fail "linkback: rc $(rc linkback) $(cat "$T/linkback.out")"
+fixture; run pgpark FX_PGREP_FAIL_PARKED=1 -- --apply daemon
+[ "$(rc pgpark)" = 1 ] && has pgpark "could not list processes" && has pgpark "is written and the LaunchAgent is parked at $RA.retired-" && has pgpark "run this stage again" \
+  && pass "a pgrep failure just before the bootstrap says what is written and parked, and how to go on or back" || fail "pgpark: rc $(rc pgpark) $(cat "$T/pgpark.out")"
+fixture; run suppadmin FX_GROUPS="staff everyone admin" -- --apply daemon
+[ "$(rc suppadmin)" = 1 ] && has suppadmin "is in the admin group" && untouched && pass "a CI user in admin (not as primary group) refuses" || fail "suppadmin: rc $(rc suppadmin) $(cat "$T/suppadmin.out")"
+fixture; run linkput FX_MV_PLIST_FAIL=1 FX_LINK_ON_MV=1 -- --apply daemon
+[ "$(rc linkput)" = 1 ] && has linkput "could not put $AG back: sudo cat $RA.retired-" && [ ! -e "$H/LA.real/$LABEL.plist" ] && ls "$RA".retired-* >/dev/null 2>&1 \
+  && pass "a LaunchAgents dir swapped for a symlink mid-run: root does not write the agent back through it" || fail "linkput: rc $(rc linkput) $(cat "$T/linkput.out")"
+fixture; printf 'x\n' > "$(DP)"; run replace -- --apply daemon
+[ "$(rc replace)" = 0 ] && has replace "note:   replacing $(DP)" && pass "an unloaded wrong daemon plist is replaced, and said" || fail "replace: rc $(rc replace) $(cat "$T/replace.out")"
+fixture; run plistmv2 FX_MV_PLIST_FAIL=1 -- --apply daemon
+[ "$(rc plistmv2)" = 1 ] && [ -f "$AG" ] && [ "$(plutil -extract Label raw -o - "$AG")" = "$LABEL" ] && grep -q "^sudo -u kosmos-ci tee $AG" "$LOG" \
+  && pass "the stage's own put-back writes the agent as the CI user (tee), with its content" || fail "plistmv2: rc $(rc plistmv2) $(cat "$T/plistmv2.out")"
+fixture; run hl0 -- --apply daemon; ln "$(DP)" "$AG"; run hardlink -- daemon
+[ "$(rc hardlink)" = 1 ] && has hardlink "no command is printed" && ! has hardlink "sudo mv" \
+  && pass "an agent that is a hard link to the daemon plist (same file, no symlink) prints no move" || fail "hardlink: rc $(rc hardlink) $(cat "$T/hardlink.out")"
 [ "$fails" = 0 ] && echo "test-ci-runner-daemon-7001: all passed" || { echo "test-ci-runner-daemon-7001: $fails failed"; exit 1; }

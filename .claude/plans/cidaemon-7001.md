@@ -137,3 +137,24 @@ credential in the secrets map gives. It is one command for whoever has root:
   each red.
 - Not changed: daemon_xml and daemon_content_ok read label and cigroup from daemon's scope, as their comment says;
   daemon is their only caller.
+
+## Challenge round 5 (opus), fixed in the next commit
+- BLOCKER: the "agent is back" branch checked only that the agent path exists. A job that points
+  ~/Library/LaunchAgents at /Library/LaunchDaemons made "the agent" the daemon plist, and the printed sudo mv would
+  have moved the daemon away. Now agent_file_ok (no symlink on the path, a regular file, and not the daemon plist by
+  `-ef`, which also catches a hard link) gates every printed and performed move of the agent; otherwise no command is
+  printed.
+- BLOCKER: a pgrep failure just before the bootstrap said only "refused", while the daemon plist was written and the
+  agent parked. It now says so and how to go on (run again) or back.
+- Root never writes the agent back into the CI home: the stage's own put-back, and every printed rollback line, is
+  `sudo cat <retired> | sudo -u <ci> tee <agent>`, so the CI user writes its own file, and the stage's put-back first
+  refuses a symlink on the path.
+- The comment on the check-then-mv race now says that relay jobs and leftover processes can run in that window, and
+  why the race is accepted.
+- A CI user in admin as a supplementary group refuses (a daemon gets every group its user is in), via is_admin.
+- Notes: an unloaded wrong daemon plist that gets replaced is said; verify says "has a LaunchDaemon plist", not
+  "runs".
+- New arms: a symlink onto the daemon dir, a hard link to the daemon plist, a pgrep failure while parked,
+  supplementary admin, LaunchAgents swapped for a symlink mid-run, the put-back as the CI user, the replace note.
+  Eight perturbations, each red; `-ef` was green until the hard-link arm, because in the symlink arm the path check
+  refuses first.
