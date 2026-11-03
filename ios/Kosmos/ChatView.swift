@@ -801,7 +801,7 @@ struct ChatView: View {
                         // Not animated under the anchor, as goNewest is (the side lock, #7574, relies on that).
                         if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy, animated: true) }
                         // kosmos#7817: a scroll that still lands past the end is put back, unless a finger is on the list. Not
-                        // personScrolling: in Josh's 09:27 record it read true from the app's own scroll and held the recovery off.
+                        // personScrolling: in Josh's 09:27 record it read true and held the recovery off.
                         DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {
                             guard tick == kbSettleTick, visible, !scrollBox.underFinger, scrollBox.reading()?.place == "past the end" else { return }
                             if scrollBox.backInside() { Self.trace("keyboard shown: past the end, put back at its end") }
