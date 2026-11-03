@@ -347,8 +347,12 @@ function plan(name, opts) {
   }
   /* #7819: its settings and picture go with the files. To the Trash only when the folder goes there AND the Trash can
      take them (the data root can be on another volume); otherwise deleted for good, and the plan says which. */
-  let recs = { records: [], kept: null };
-  try { recs = namedRecords(clean); } catch { recs = { records: [], kept: null }; }
+  /* A look that failed refuses, as the running check above does: read as "nothing stored", the plan would promise a
+     free name and leave the profile behind. */
+  let recs;
+  try { recs = namedRecords(clean); } catch {
+    return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
+  }
   const recordsTrash = toTrash && recs.records.every((r) => trashCanTake(r.file, platform));
   const recordsLost = recs.records.length > 0 && !recordsTrash;
   if (recs.records.length) {
@@ -419,8 +423,9 @@ function plan(name, opts) {
 /* #7819: the stored records keyed by this name, its profile and its picture files, as [{ what, file }]. Keyed the way
    store keys them (safeKey: lower-cased, punctuation dropped), by the name asked for ONLY: a folder's basename can be
    another agent's name (a connected agent records another's freed folder, discover.connect), and a case variant
-   already shares the key. Never a file another agent may own: a live session or an existing folder whose name maps
-   to the same key keeps them (Miles and miles share one profile). { records, kept } with kept the other name or null. */
+   already shares the key. A live session or a folder in the workers folder whose name maps to the same key keeps them
+   (Miles and miles share one profile). Not seen: a stopped agent connected to a folder outside the workers folder
+   under a colliding spelling. { records, kept } with kept the other name or null. */
 const PICTURE_EXTS = () => new Set([...Object.values(require('./store').ALLOWED_IMAGES), '.jpeg']);
 function namedRecords(name) {
   const store = require('./store');
