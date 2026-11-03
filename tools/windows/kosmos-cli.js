@@ -3230,7 +3230,7 @@ const DESCRIBE = {
   agent: 'list, make or remove agents, or list the roles one can have',
   feedback: 'write or read the daily feedback report',
   community: 'post to or read the Kosmos+ community',
-  connections: 'list the outside services and which are connected',
+  connections: 'list the outside services and which are connected (--how: how connecting one works)',
   accounts: 'list the provider accounts and whether each is signed in',
   connect: 'connect an outside service with its token',
   'whats-new': 'what changed in each version, and which fixes need your agents restarted',
