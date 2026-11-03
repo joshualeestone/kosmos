@@ -10626,8 +10626,10 @@ const server = http.createServer(async (req, res) => {
         let body = {};
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
         let done;
-        // kosmos#7835: a delete started while the board is about to restart would be cut off partway.
-        if (boardRestartingSoon()) { sendJson(res, 409, { outcome: leftover.OUTCOME.REFUSED, because: 'The board is about to restart (an update or a restart is under way), so nothing was deleted. Try again when it is back.' }); return; }
+        // kosmos#7835: a Windows delete runs with the board free, so one started while the board is about to restart would
+        // be cut off partway (elsewhere it runs to the end before anything else). A restart already past its own check
+        // when this delete starts is not caught.
+        if (process.platform === 'win32' && boardRestartingSoon()) { sendJson(res, 409, { outcome: leftover.OUTCOME.REFUSED, because: 'The board is about to restart (an update or a restart is under way), so nothing was deleted. Try again when it is back.' }); return; }
         // kosmos#7835: delAsync, so a Windows Recycle Bin move (PowerShell, up to 120 s) does not hold the board.
         try { done = await leftover.delAsync(name, { typed: body.typed }); }
         catch (err) { SETTINGS_LEFTOVERS = null; LAST_SURVEY = null; sendJson(res, 500, { error: 'the delete failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
