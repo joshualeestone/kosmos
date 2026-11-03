@@ -2965,9 +2965,18 @@ struct KeyboardHold: UIViewRepresentable {
                 ChatView.trace("keyboard hold: \(rowsNow.count) of \(rowsAll) rows agree with the list")
                 // kosmos#7690: a jump just before will-show is the keyboard's, not the reader's: read the rows where they were before it.
                 let back = self.keyboardUp ? 0 : jump.map { Board.jumpBack(from: Double($0.from), to: Double($0.to), now: Double(sv.contentOffset.y), age: Date().timeIntervalSince($0.at), within: Self.jumpWindow, settle: Double(Self.jumpSettle)) } ?? 0
-                let rowsBefore = rowsNow.mapValues { $0 + back }
-                guard let rows = self.rows, let r = Board.readerRow(rowsBefore, below: Double(top), above: Double(bottom)), let reading = rows.y[r.id] else {
-                    ChatView.trace("keyboard hold: no row on the screen to hold"); return
+                var back = back
+                // kosmos#7645 (CI, iOS 26.5, run 41691914906): a move just before will-show that came with the list's height
+                // estimate changing (13038 to 17566 pt) was read as the keyboard's, and reading every row that far back put
+                // all of them below the screen: no row was held and iOS moved the room 2181 pt. When the jump-back leaves no
+                // row to hold, the rows are read where they are now: a held place, rather than none.
+                var r = Board.readerRow(rowsNow.mapValues { $0 + back }, below: Double(top), above: Double(bottom))
+                if r == nil, back != 0, let now = Board.readerRow(rowsNow, below: Double(top), above: Double(bottom)) {
+                    ChatView.trace("keyboard hold: a jump of \(Int(back)) left no row to hold, read where they are now")
+                    r = now; back = 0
+                }
+                guard let rows = self.rows, let r, let reading = rows.y[r.id] else {
+                    ChatView.trace("keyboard hold: no row on the screen to hold (jump back \(Int(back)))"); return
                 }
                 if back != 0 { ChatView.trace("keyboard hold: read before a jump of \(Int(back))") }
                 self.saved = (r.id, CGFloat(reading.content), sv.contentOffset.y - CGFloat(back), self.above, sv.bounds.width, Date()); self.keptScreenTop = CGFloat(r.top)
