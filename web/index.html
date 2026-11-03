@@ -50214,7 +50214,9 @@ function deleteNoAnswerShow(plan, name, onScreen) {
     document.getElementById('del-keep').focus();
   } else {
     const typed = document.getElementById('del-typed').value.trim();
-    document.getElementById('del-go').disabled = !!(onScreen && onScreen.typeToConfirm && typed !== onScreen.typeToConfirm);
+    const go = document.getElementById('del-go');
+    go.disabled = !!(onScreen && onScreen.typeToConfirm && typed !== onScreen.typeToConfirm);
+    document.getElementById(go.disabled ? 'del-keep' : 'del-go').focus();
   }
   document.getElementById('del-msg').textContent = say;
 }
@@ -50319,11 +50321,13 @@ document.getElementById('del-go').addEventListener('click', async () => {
     });
     body = await res.json().catch(() => null);
   } catch { res = null; }
-  // A non-2xx JSON that is not the route's own (no outcome, no error: a gateway's page) is no answer either.
-  if (!res || !body || (!res.ok && body.outcome === undefined && body.error === undefined)) {
-    if (opened !== DEL_OPENED) return;   // the person left this dialog while the delete ran; nothing to say in it
+  // JSON that is not the route's own (it always says an outcome, or an error: a gateway's page, a proxy's {}) is no
+  // answer either, whatever its status.
+  if (!res || !body || (body.outcome === undefined && body.error === undefined)) {
     const plan = await fetchLeftoverPlan(name);
-    if (opened !== DEL_OPENED) return;
+    // The person left this dialog while the delete ran: nothing is said in a dialog that is not this one's, but a plan
+    // that no longer offers a delete still takes that agent's delete box and plan away.
+    if (opened !== DEL_OPENED) { if (plan && !plan.ok) deleteForgetPlan(name); return; }
     deleteNoAnswerShow(plan, name, onScreen);
     return;
   }

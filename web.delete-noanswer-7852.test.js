@@ -181,18 +181,31 @@ test('the handler, run: a gateway\'s JSON (no outcome, no error) is no answer, s
   assert.equal(own.calls.length, 1, 'CONTROL: the route\'s own refusal is an answer, no second read');
 });
 
-test('the handler, run: Keep pressed while the delete hangs, then no answer: nothing is asked and nothing is written', async () => {
-  const d = dialog(offered);
-  let fail;
-  d.replies.push(() => new Promise((_, rej) => { fail = rej; }));
-  const done = d.ctx.click();
-  d.ctx.close();
-  d.els['d-delete-msg'].textContent = '';
-  fail(new TypeError('Failed to fetch'));
-  await done;
-  assert.equal(d.calls.length, 1, 'no second read, and never for a null name');
-  assert.equal(d.els['d-delete-msg'].textContent, '');
-  assert.equal(d.els['d-delete-leftover'].hidden, false);
+test('the handler, run: Keep pressed while the delete hangs, then no answer: the plan is asked for the same agent, no dialog is written', async () => {
+  for (const [second, boxHidden] of [[{ ok: true, name: 'Miles' }, false], [{ ok: false, because: 'nothing of Miles is left.' }, true]]) {
+    const d = dialog(offered, 'Miles');
+    let fail;
+    d.replies.push(() => new Promise((_, rej) => { fail = rej; }), json(200, second));
+    const done = d.ctx.click();
+    d.ctx.close();
+    fail(new TypeError('Failed to fetch'));
+    await done;
+    assert.deepEqual(d.calls.map((c) => c.method + ' ' + c.url), ['DELETE /api/agent/Miles/leftover', 'GET /api/agent/Miles/leftover'],
+      'the second read names the agent, never null');
+    assert.equal(d.els['del-msg'].textContent, '', 'nothing is said in a dialog that is closed');
+    assert.equal(d.els['d-delete-msg'].textContent, '');
+    assert.equal(d.els['d-delete-leftover'].hidden, boxHidden, second.ok ? 'CONTROL: still offered, the box stays' : 'a refusal takes the box away');
+  }
+});
+
+test('the handler, run: a 200 that is not the route\'s own answer (a proxy\'s {}) is no answer, not a delete', async () => {
+  const d = dialog(offered, 'Miles');
+  d.replies.push(json(200, {}), json(200, { ok: true, name: 'Miles' }));
+  await d.ctx.click();
+  assert.equal(d.calls.length, 2, 'the plan was asked again');
+  assert.equal(d.els['del-modal'].hidden, false, 'the dialog is not closed as if deleted');
+  assert.equal(d.ctx.state().kept, 'Miles,Ada', 'nothing was dropped from the kept leftovers');
+  assert.match(d.els['del-msg'].textContent, /still here/);
 });
 
 test('the handler, run: reopened for another agent while the delete hangs, its success does not close that dialog', async () => {
