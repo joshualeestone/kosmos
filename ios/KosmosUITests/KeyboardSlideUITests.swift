@@ -189,7 +189,7 @@ final class KeyboardSlideUITests: XCTestCase {
     }
 
     // kosmos#7817: a reader higher up is not pulled to the newest message as the box grows (only one at the newest is).
-    // A regression guard for the follow's own condition: it passes on main too, which never followed the box.
+    // A regression guard for the follow's own condition (it passes with the follow off too).
     func testReadHigherUpStaysWhileTheBoxGrows() throws {
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_BOXFOLLOW": "1"])
         let box = Self.box(app)

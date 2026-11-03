@@ -34,7 +34,7 @@ struct ChatView: View {
     @State private var loop: Task<Void, Never>?
     @State private var atBottom = true
     // kosmos#7817: the height of the strip under the list (the message box and its line), which grows a line at a time as
-    // a long message is typed. A reader at the newest message is kept there as it changes.
+    // a long message is typed. Only the Debug switch follows it (followsBox).
     @State private var stripHeight: CGFloat = 0
     // kosmos#7265 (measured on the simulator, 10-27): the end marker leaving the screen was read as the person scrolling
     // up, but new rows push it off too, and a re-pin can land a row short, so a reader at the newest message was left
