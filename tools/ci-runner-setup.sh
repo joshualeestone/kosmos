@@ -195,7 +195,8 @@ mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN
 # session-conflict retries, ends in exit 5 and a stop. The 10-23 restart came back in about 2 minutes; the liveness
 # page is the backstop.
 #
-# This runner's LaunchAgent, as svc.sh install recorded it in $RUNNER_DIR/.service, or nothing; never fails (set -e and
+# This runner's LaunchAgent, as svc.sh install recorded it in $RUNNER_DIR/.service, if it is a regular file and not a
+# symlink (svc.sh writes a regular file), or nothing; never fails (set -e and
 # pipefail are on). Not a glob: the kosmos-relay runner (#6245) can live under the same user, and its
 # actions.runner.joshualeestone-kosmos-relay.* plist sorts before this repo's.
 runner_plist() {
@@ -1075,13 +1076,14 @@ agent_path_safe() { [ ! -L "$CI_HOME/Library" ] && [ ! -L "$CI_HOME/Library/Laun
 # agent_file_ok: the agent is a regular file on a safe path, and not the daemon plist itself by another name.
 agent_file_ok() { agent_path_safe && [ -f "$agent" ] && ! [ "$agent" -ef "$dplist" ]; }
 # put_back_cmd <retired>: the command an operator pastes to put the agent back. The CI user writes the file in its own
-# home (tee as $CI_USER), so root never writes into a directory a job controls. An operator's shell has no pipefail, so a
-# cat that fails still lets tee succeed: the retired copy is removed only when the agent is byte for byte the same.
-put_back_cmd() { printf "sudo test -s %s && sudo cat %s | sudo -u %s tee %s >/dev/null && sudo cmp -s %s %s && sudo rm %s" "$1" "$1" "$CI_USER" "$agent" "$1" "$agent" "$1"; }
+# home (tee as $CI_USER), so root never writes into, or opens, a path a job controls. An operator's shell has no
+# pipefail, so a cat that fails still lets tee succeed: the retired copy is removed only when the agent is not empty and
+# the CI user finds it byte for byte the same. The last words say which way it went.
+put_back_cmd() { printf "sudo test -s %s && sudo cat %s | sudo -u %s tee %s >/dev/null && sudo -u %s test -s %s && sudo cat %s | sudo -u %s cmp -s - %s && sudo rm %s && echo 'put back' || echo 'NOT put back; %s is kept'" "$1" "$1" "$CI_USER" "$agent" "$CI_USER" "$agent" "$1" "$CI_USER" "$agent" "$1" "$1"; }
 # put_back <retired>: the same, done by the stage (as root).
 put_back() {
   agent_path_safe && [ ! -e "$agent" ] && [ -f "$1" ] && [ -s "$1" ] || return 1
-  cat "$1" | sudo -u "$CI_USER" tee "$agent" >/dev/null && cmp -s "$1" "$agent" && rm -f "$1"
+  cat "$1" | sudo -u "$CI_USER" tee "$agent" >/dev/null && cat "$1" | sudo -u "$CI_USER" cmp -s - "$agent" && rm -f "$1"
 }
 # ppid_chain_has <pid> <ancestor>: <ancestor> is <pid> or one of its parents.
 ppid_chain_has() {
@@ -1101,7 +1103,7 @@ daemon_listeners() {
   dloaded=0; dpid=""; foreign=""
   djob="$(launchctl print "system/$label" 2>/dev/null)" && dloaded=1
   [ "$dloaded" = 0 ] || dpid="$(printf '%s\n' "$djob" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
-  # Loaded with no pid (between a crash and the restart): no Listener can be placed, so none is called foreign.
+  # Loaded with no pid (restarting, or exited cleanly and not restarted): no Listener can be placed, so none is foreign.
   [ "$dloaded" = 1 ] && [ -z "$dpid" ] && return 0
   for l in $listeners; do
     { [ -n "$dpid" ] && ppid_chain_has "$l" "$dpid"; } || foreign="${foreign:+$foreign }$l"
@@ -1140,7 +1142,8 @@ daemon() {
     [ ! -L "$0" ] && [ ! -L "$self" ] || { echo "refused: $0 is a symlink, and --apply daemon runs as root; run the file itself, from the owner's checkout or a root-owned copy" >&2; exit 2; }
     case "${sm%% *}" in 0|"${SUDO_UID:-0}") ;; *) sm="";; esac   # owned by root or by whoever ran sudo, nobody else
     case "$sm" in "$ciuid "*|*" "?[2367]?|*" "??[2367]|"") echo "refused: $self is not owned by root or by the sudo caller, is owned by $CI_USER, is writable by others, or is unreadable (stat: ${sm:-none}), and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
-    # And its directory: whoever can write that can rename another file over this one between the check and the run.
+    # And its directory, the parent only: a file there can be swapped by a rename. This run already has the file open, so
+    # it refuses a location that is unsafe to run from as root, not a swap during this run.
     local pd pm; pd="$(dirname "$self")"; pm="$(stat -f '%u %Lp' "$pd" 2>/dev/null || true)"
     case "${pm%% *}" in 0|"${SUDO_UID:-0}") ;; *) pm="";; esac
     case "$pm" in "$ciuid "*|*" "?[2367]?|*" "??[2367]|"") echo "refused: $pd, the directory of $self, is not owned by root or by the sudo caller, or is writable by others (stat: ${pm:-none}), so the file could be replaced by a rename, and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
@@ -1183,7 +1186,7 @@ daemon() {
   [ -n "$why" ] || [ -z "$foreign" ] || why="this runner's Listener runs outside the daemon (pid $foreign: a manual runsvc.sh start or its LaunchAgent), and a daemon would start a second one for the same runner; stop it between jobs first (kill its runsvc.sh and Runner.Listener)"
   if [ -z "$why" ] && [ "$dloaded" = 1 ]; then
     if [ "$dok" = 1 ]; then
-      if [ -z "$dpid" ]; then why="system/$label is loaded and has no pid right now: it is restarting; run this again in a minute"
+      if [ -z "$dpid" ]; then why="system/$label is loaded and has no pid right now: it is restarting, or it exited cleanly, which KeepAlive {SuccessfulExit: false} does not restart; run this again in a minute, and if it says this again: sudo launchctl kickstart system/$label"
       else why="system/$label is loaded and runs no Listener right now: it is restarting, or the runner is updating itself; run this again in a minute"; fi
     else
       why="system/$label is loaded but $dplist is not what this stage writes; to load it again: sudo launchctl bootout system/$label"
