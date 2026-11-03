@@ -177,9 +177,12 @@ final class KeyboardSlideUITests: XCTestCase {
         // And back down: deleting the last four pieces (54 characters each) takes the box under its line limit and lines off it.
         let grown = box.frame.height
         box.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4 * 54))
-        // The box stays at its line limit through most of the deleting, so settle() can stop before the deletes have all
-        // landed (CI, 11-02: 130 to 130 pt): wait for the shrink itself, up to 10 s, before measuring.
-        for _ in 0..<20 where box.frame.height >= grown - 15 { Thread.sleep(forTimeInterval: 0.5) }
+        // CI, 11-02: the box had not shrunk when it was measured (130 to 130 pt). Wait, up to 10 s, until the box holds
+        // only the first piece (54 characters), so every delete has landed, then let it settle and measure.
+        var waited = 0
+        while ((box.value as? String) ?? "").count != 54 && waited < 20 { Thread.sleep(forTimeInterval: 0.5); waited += 1 }
+        XCTAssertEqual(((box.value as? String) ?? "").count, 54, "the deletes did not all land in 10 s")
+        Self.settle(box)
         XCTAssertLessThan(box.frame.height, grown - 15, "the box did not shrink by a line (\(Int(grown)) to \(Int(box.frame.height)) pt)")
         checkGap("after deleting four pieces")
     }
