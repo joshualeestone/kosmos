@@ -416,12 +416,15 @@ function bareSplit(tok) {
     room message split at quote offsets inside a word. Each needs a host-shaped name or a cut inside a word.
     `opts.bare === false` turns the bare scan off (the server does, for a row carrying files: the page hides a text that
     is only the file names, and a file can be named like a host). */
-const MD_LINK_RE = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
+// Bounded label and target, and no bare scan past BARE_SCAN_MAX characters: this runs on every poll for every row, and
+// an unbounded pattern backtracks quadratically on a line of "[" (review round 6: 20000 of them took 270 ms).
+const MD_LINK_RE = /\[([^\]\n]{1,500})\]\(([^)\n]{1,2048})\)/g;
+const BARE_SCAN_MAX = 8000;
 function firstLinkInfo(text, opts) {
   const raw = String(text || '');
   const m = raw.match(LINK_RE);
   const explicit = m ? { url: m[0].replace(/[.,;:!?]+$/, ''), bare: false, at: m.index } : null;
-  if ((opts && opts.bare === false) || raw.indexOf('`') !== -1 || raw.indexOf('|') !== -1) return explicit ? { url: explicit.url, bare: false } : null;
+  if ((opts && opts.bare === false) || raw.length > BARE_SCAN_MAX || raw.indexOf('`') !== -1 || raw.indexOf('|') !== -1) return explicit ? { url: explicit.url, bare: false } : null;
   const links = [...raw.matchAll(MD_LINK_RE)].map((l) => ({ from: l.index, to: l.index + l[0].length, target: l[2] }));
   const words = /\S+/g;
   let w;
@@ -433,7 +436,8 @@ function firstLinkInfo(text, opts) {
     const touching = links.filter((l) => l.from < to && l.to > from);
     let cand = w[0];
     if (touching.length) {
-      // Only a link that IS this whole word offers its target; anything else touching a link is skipped.
+      // Only a link that IS this whole word offers its target (its label is text on the page, so it is never scanned);
+      // anything else touching a link is skipped.
       if (touching.length !== 1 || touching[0].from !== from || touching[0].to !== to) continue;
       cand = touching[0].target;
     }
@@ -472,12 +476,13 @@ async function previewBare(httpsUrl) {
      typed-link key ('p:'), which is right: that IS what https://x answered. */
   const second = await preview('http://' + httpsUrl.slice('https://'.length));
   if (!second.ok) return remember(key, first);
-  // A plain-http page that sent us to another host's plain-http page is not this address's preview (www. counts as the
-  // same host, the commonest redirect an old site makes).
+  // A page the http address sent us to on ANOTHER host, over http or https, is not this address's preview (review round
+  // 6: a network that can answer plain http could otherwise point the card at a host of its choosing). www. counts as
+  // the same host, the commonest redirect an old site makes.
   const bareHost = (u) => new URL(u).hostname.toLowerCase().replace(/^www\./, '');
   let sameHost = false;
   try { sameHost = bareHost(second.url) === bareHost(httpsUrl); } catch { sameHost = false; }
-  if (!/^https:\/\//.test(second.url) && !sameHost) return remember(key, first);
+  if (!sameHost) return remember(key, first);
   return remember(key, { ...second, url: /^https:\/\//.test(second.url) ? second.url : httpsUrl });
 }
 /** kosmos#7861: what the cache holds for a bare address (see previewBare), as peek does for a typed link. */

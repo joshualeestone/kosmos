@@ -206,11 +206,8 @@ test('#7861: the address gate is never sidestepped: a private address is refused
 });
 
 test('#7861: an http page that sends us to ANOTHER host over plain http is not this address\'s preview', async () => {
-  const calls = world({ pages: {
-    'https://hop.example.com/': 'unreachable',
-    'http://hop.example.com/': { status: 302, body: '', type: 'text/html' },
-    'http://elsewhere.example.net/': { body: '<title>Someone else</title>' },
-  } });
+  const calls = [];
+  unfurl.setResolver(async () => [{ address: '93.184.216.34', family: 4 }]);
   unfurl.setFetcher(async (url) => {
     calls.push(url);
     if (url === 'https://hop.example.com/') throw new TypeError('fetch failed');
@@ -221,6 +218,33 @@ test('#7861: an http page that sends us to ANOTHER host over plain http is not t
   const got = await unfurl.previewBare('https://hop.example.com/');
   assert.deepEqual(calls, ['https://hop.example.com/', 'http://hop.example.com/', 'http://elsewhere.example.net/'], 'CONTROL: the redirect was followed');
   assert.equal(got.ok, false, 'another host\'s page was kept as this address\'s preview: ' + JSON.stringify(got));
+});
+
+test('#7861: an http page that sends us to ANOTHER host over https is not this address\'s preview either', async () => {
+  const calls = [];
+  unfurl.setResolver(async () => [{ address: '93.184.216.34', family: 4 }]);
+  unfurl.setFetcher(async (url) => {
+    calls.push(url);
+    if (url === 'https://hop2.example.com/') throw new TypeError('fetch failed');
+    if (url === 'http://hop2.example.com/') return { status: 302, ok: false, headers: { get: (k) => (k.toLowerCase() === 'location' ? 'https://evil.example.net/' : null) }, body: { cancel: async () => {} } };
+    if (url === 'https://evil.example.net/') return fakeResponse({ body: '<title>Someone else</title>' });
+    throw new Error('unexpected ' + url);
+  });
+  const got = await unfurl.previewBare('https://hop2.example.com/');
+  assert.deepEqual(calls, ['https://hop2.example.com/', 'http://hop2.example.com/', 'https://evil.example.net/'], 'CONTROL: the redirect was followed');
+  assert.equal(got.ok, false, 'another host\'s https page was kept as this address\'s preview: ' + JSON.stringify(got));
+});
+
+test('#7861: a hostile message (a run of "[" or "[a](") is scanned quickly, and a long message is not scanned for bare addresses', () => {
+  for (const text of ['['.repeat(50000) + ' example.com', '[a]('.repeat(20000) + ' example.com', 'x '.repeat(4000) + 'example.com']) {
+    const t0 = process.hrtime.bigint();
+    unfurl.firstLinkInfo(text);
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.ok(ms < 150, 'firstLinkInfo took ' + ms.toFixed(0) + ' ms on a ' + text.length + '-character message');
+  }
+  assert.equal(unfurl.firstLinkInfo('x '.repeat(4000) + 'example.com'), null, 'a message past the cap was scanned for a bare address');
+  assert.deepEqual(unfurl.firstLinkInfo('x '.repeat(4000) + 'https://e.example.org'), { url: 'https://e.example.org', bare: false }, 'CONTROL: the explicit scan still runs');
+  assert.deepEqual(unfurl.firstLinkInfo('x '.repeat(100) + 'example.com'), { url: 'https://example.com', bare: true }, 'CONTROL: a short one is scanned');
 });
 
 test('#7861: https that takes too long falls back to http too', async () => {
