@@ -350,16 +350,17 @@ function plan(name, opts) {
   /* A look that failed refuses, as the running check above does: read as "nothing stored", the plan would promise a
      free name and leave the profile behind. */
   let recs;
-  try { recs = namedRecords(clean); } catch {
+  try { recs = namedRecords(clean, folder ? folder.path : null); } catch {
     return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
   }
   const recordsTrash = toTrash && recs.records.every((r) => trashCanTake(r.file, platform));
   const recordsLost = recs.records.length > 0 && !recordsTrash;
   if (recs.records.length) {
-    const what = recordsWords(recs.records);
-    const what1 = what.charAt(0).toUpperCase() + what.slice(1);
-    loses.push(`${what1}: ${recordsTrash ? 'to the Trash with the files' : 'deleted for good'}, and a new agent with this name starts without ${what === 'its settings and picture' ? 'them' : 'it'}`);
+    const w = recordsWords(recs.records);
+    loses.push(`${w.cap}: ${recordsTrash ? 'to the Trash with the files' : 'deleted for good'}, and a new agent with this name starts without ${w.plural ? 'them' : 'it'}`);
   }
+  // Kept, and said before the click: a new agent under the name will share them.
+  if (recs.kept) loses.push(`Its settings and picture stay: ${recs.kept}, and a new agent with this name shares them`);
   /* #4994: the delete retires the name's community account, which no Trash brings back, so the confirmation says so
      rather than promising everything can be got back. */
   let community = false;
@@ -386,8 +387,8 @@ function plan(name, opts) {
       : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
   /* #7819: a sentence promising the Trash, or "nothing you can lose", is false once settings or a picture go for good. */
   if (recordsLost && (toTrash || jobOnlyTask)) {
-    const what = recordsWords(recs.records);
-    reassurance = `${toTrash ? 'Its files go to the Trash, where you can get them back until you empty it, but ' : ''}${toTrash ? what : what.charAt(0).toUpperCase() + what.slice(1)} cannot go to the Trash, so ${what === 'its settings and picture' ? 'they are' : 'it is'} deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
+    const w = recordsWords(recs.records);
+    reassurance = `${toTrash ? `Its files go to the Trash, where you can get them back until you empty it${job && job.unit ? ', and its startup job is removed' : ''}, but ` : ''}${toTrash ? w.words : w.cap} cannot go to the Trash, so ${w.plural ? 'they are' : 'it is'} deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
   }
   const verb = folder
     ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
@@ -420,44 +421,53 @@ function plan(name, opts) {
   };
 }
 
-/* #7819: the stored records keyed by this name, its profile and its picture files, as [{ what, file }]. Keyed the way
-   store keys them (safeKey: lower-cased, punctuation dropped), by the name asked for ONLY: a folder's basename can be
-   another agent's name (a connected agent records another's freed folder, discover.connect), and a case variant
-   already shares the key. A live session or a folder in the workers folder whose name maps to the same key keeps them
-   (Miles and miles share one profile). Not seen: a stopped agent connected to a folder outside the workers folder
-   under a colliding spelling. { records, kept } with kept the other name or null. */
-const PICTURE_EXTS = () => new Set([...Object.values(require('./store').ALLOWED_IMAGES), '.jpeg']);
-function namedRecords(name) {
+/* #7819: the stored records keyed by this name: its profile, its picture files and the picture's kept originals, as
+   [{ what, file }]. Keyed the way store keys them (safeKey: lower-cased, punctuation dropped), by the name asked for
+   ONLY: a folder's basename can be another agent's name (a connected agent records another's freed folder,
+   discover.connect), and a case variant already shares the key. Kept when a live session, or a folder in the workers
+   folder that is not this leftover's own folder, has a name that maps to the same key (Miles and miles share one
+   profile). Not seen: a stopped agent connected to a folder outside the workers folder under a colliding spelling.
+   { records, kept } with kept a sentence about who holds them, or null. `folderPath` is the plan's folder, or null. */
+function namedRecords(name, folderPath) {
   const store = require('./store');
   let key;
   try { key = store.safeKey(name); } catch { return { records: [], kept: null }; }
+  const real = (f) => { try { return fs.realpathSync.native(f); } catch { return null; } };
+  const own = folderPath ? real(folderPath) : null;
   let kept = null;
-  const note = (n) => { if (kept || n === name) return; try { if (store.safeKey(n) === key) kept = n; } catch { /* not a name */ } };
-  for (const c of status.paneRoster()) note(c.sessionName);
-  try { for (const e of fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true })) if (e.isDirectory()) note(e.name); } catch { /* no workers folder */ }
+  const note = (n, dir) => {
+    if (kept || n === name) return;
+    if (dir && own && real(dir) === own) return;   // this leftover's own folder, under its own spelling
+    try { if (store.safeKey(n) === key) kept = `${n} uses the same stored name`; } catch { /* not a name */ }
+  };
+  for (const c of status.paneRoster()) note(c.sessionName, null);
+  try {
+    for (const e of fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true })) if (e.isDirectory()) note(e.name, path.join(create.WORKERS_DIR, e.name));
+  } catch { /* no workers folder */ }
   if (kept) return { records: [], kept };
   const records = [];
   if (fs.existsSync(store.profilePath(name))) records.push({ what: 'its settings', file: store.profilePath(name) });
-  // Every picture file for the key (store keeps one, but a crashed save can leave a second extension beside it).
-  const exts = PICTURE_EXTS();
-  let pics = [];
-  try { pics = fs.readdirSync(store.AVATARS).filter((f) => f.startsWith(key + '.') && exts.has(f.slice(key.length).toLowerCase())); } catch { /* no pictures */ }
-  for (const f of pics) records.push({ what: 'its picture', file: path.join(store.AVATARS, f) });
+  const pics = store.pictureFiles(name);
+  for (const f of pics.pictures) records.push({ what: 'its picture', file: f });
+  for (const f of pics.originals) records.push({ what: 'its picture', file: f });
   return { records, kept };
 }
-/* "its settings", "its picture" or "its settings and picture", for the sentences. */
+/* The words for what is stored, and whether they take a plural verb: "its settings" (plural), "its picture",
+   "its settings and picture". */
 function recordsWords(records) {
   const has = (w) => records.some((r) => r.what === w);
-  return has('its settings') && has('its picture') ? 'its settings and picture' : has('its settings') ? 'its settings' : 'its picture';
+  const words = has('its settings') && has('its picture') ? 'its settings and picture' : has('its settings') ? 'its settings' : 'its picture';
+  return { words, plural: words !== 'its picture', cap: words.charAt(0).toUpperCase() + words.slice(1) };
 }
 
-/* Moves the plan's records where the plan said: the Trash when p.records.trash, else deleted for good. Each record a
-   step. The kept originals of a picture (store.removeAvatar) are deleted, not moved: they are its uncropped copies,
-   never shown. */
+/* Moves the plan's records where the plan said: the Trash when p.records.trash, else deleted for good. One step per
+   kind (settings, picture), failed if any file of it would not go. A dead writer's temps beside the picture
+   (store.removeAvatar) are deleted after: they are copies a save never finished. */
 function moveRecords(p, platform) {
   const steps = [];
-  if (p.records.kept) steps.push({ step: 'its settings', ok: true, because: `kept: ${p.records.kept} uses the same stored name` });
-  let pictureGone = false;
+  if (p.records.kept) steps.push({ step: 'its settings and picture', ok: true, because: `kept: ${p.records.kept}` });
+  const failed = new Map();
+  const moved = new Set();
   for (const r of p.records.files) {
     try {
       if (p.records.trash) {
@@ -469,13 +479,16 @@ function moveRecords(p, platform) {
         fs.rmSync(r.file, { force: true });
       }
       if (fs.existsSync(r.file)) throw new Error('still there');
-      if (r.what === 'its picture') pictureGone = true;
-      steps.push({ step: r.what, ok: true });
+      moved.add(r.what);
     } catch (err) {
-      steps.push({ step: r.what, ok: false, because: String((err && err.message) || err) });
+      if (!failed.has(r.what)) failed.set(r.what, String((err && err.message) || err));
     }
   }
-  if (pictureGone) { try { require('./store').removeAvatar(p.name); } catch { /* the picture itself is gone */ } }
+  for (const what of ['its settings', 'its picture']) {
+    if (failed.has(what)) steps.push({ step: what, ok: false, because: failed.get(what) });
+    else if (moved.has(what)) steps.push({ step: what, ok: true });
+  }
+  if (moved.has('its picture') && !failed.has('its picture')) { try { require('./store').removeAvatar(p.name); } catch { /* the picture itself is gone */ } }
   return steps;
 }
 
@@ -642,7 +655,7 @@ function del(name, opts) {
   if (!stuck.some((s) => s !== 'its sender tokens')) {
     for (const st of moveRecords(p, platform)) {
       steps.push(st);
-      if (st.ok) { if (!st.because && !gone.includes(st.step)) gone.push(st.step); } else if (!stuck.includes(st.step)) stuck.push(st.step);
+      if (st.ok) { if (!st.because) gone.push(st.step); } else stuck.push(st.step);
     }
   }
   /* #4994: the name's community account. NOT best-effort, for the same reason as the tokens above: a new agent
@@ -664,7 +677,10 @@ function del(name, opts) {
     /* #7819: a record that would not move is the one leftover a retry cannot reach (with the folder and job gone the
        plan finds nothing), so the sentence says what it means rather than inviting a retry. */
     const left = stuck.filter((x) => x === 'its settings' || x === 'its picture');
-    const tail = left.length ? ` ${left.length === 2 ? 'Its settings and picture are' : left[0] === 'its settings' ? 'Its settings are' : 'Its picture is'} still on this computer, so a new agent with this name would start with ${left.length === 2 ? 'them' : 'it'}.` : '';
+    const lw = recordsWords(left.map((what) => ({ what })));
+    const tail = left.length ? ` ${lw.cap} ${lw.plural ? 'are' : 'is'} still on this computer, so a new agent with this name would start with ${lw.plural ? 'them' : 'it'}.` : '';
+    // The verb for what could not go: a record follows the records' own mode, which can differ from the folder's.
+    const verbFor = (x) => ((x === 'its settings' || x === 'its picture') ? (p.records.trash ? 'move' : 'delete') : (p.toTrash ? 'move' : 'delete'));
     return {
       outcome: gone.length ? OUTCOME.PARTIAL : OUTCOME.REFUSED,
       /* #4994: the community account is retired, not moved or deleted, and only once everything else is gone, so a
@@ -673,7 +689,7 @@ function del(name, opts) {
       because: (stuck.length === 1 && stuck[0] === 'its community account' && gone.length)
         ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone, but we could not retire its community account yet. Making a new agent with this name retires it first, or refuses.`
         : (stuck.some((x) => x !== 'its community account')
-          ? `we could not ${p.toTrash ? 'move' : 'delete'} ${stuck.filter((x) => x !== 'its community account').join(' or ')}`
+          ? `we could not ${verbFor(stuck.find((x) => x !== 'its community account'))} ${stuck.filter((x) => x !== 'its community account').join(' or ')}`
             + (stuck.includes('its community account') ? ', or retire its community account yet' : '')
           : 'we could not retire its community account yet. Making a new agent with this name retires it first, or refuses')
           + '. ' + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : `None of its files were ${p.toTrash ? 'moved' : 'deleted'}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`) + tail,
@@ -688,11 +704,13 @@ function del(name, opts) {
        can be a startup job and NOTHING else, and "their files are deleted" about
        an agent that had none is a false sentence in the one line that reports
        the act. */
-    said: !p.folder && p.job && (p.job.task || p.job.unit)   // review 32: a unit-only leftover moved nothing either
+    said: (!p.folder && p.job && (p.job.task || p.job.unit)   // review 32: a unit-only leftover moved nothing either
       ? `Nothing starts ${p.shown} any more. The name is free.`
       : p.toTrash
         ? `${p.shown}'s files are in the Trash. The name is free.`
-        : `${p.shown}'s files are deleted. The name is free.`,
+        : `${p.shown}'s files are deleted. The name is free.`)
+      // #7819: settings kept because another agent may own them are said, so "free" is not read as "fresh".
+      + (p.records && p.records.kept ? ` Its settings and picture stay (${p.records.kept}), so a new agent with this name shares them.` : ''),
     steps,
   };
 }

@@ -537,6 +537,17 @@ function avatarLookup(name) {
    never costs the person a picture. Written through securewrite (flushed, then renamed; #5434), so a copy that
    dies part way never stands as an original. It takes the umask default mode, not the picture's. Throws when it cannot be kept; saveRefitAvatar then writes nothing. */
 function originalsDir() { return path.join(path.dirname(avatarsDir()), 'avatar-originals'); }
+/* kosmos#7819: every stored picture file of `name`, for a caller that moves them rather than deleting them (delete what
+   is left sends them to the Trash): `pictures`, the files the avatar lookup reads (one, unless a crashed save left a
+   second extension), and `originals`, the kept copies in avatar-originals/ (never a writer's temp). Absolute paths. */
+function pictureFiles(name) {
+  const key = safeKey(name);
+  let pictures = [];
+  try { pictures = fs.readdirSync(avatarsDir()).filter((f) => f.startsWith(key + '.') && AVATAR_EXTS.has(f.slice(key.length).toLowerCase())).map((f) => path.join(avatarsDir(), f)); } catch { /* none */ }
+  let originals = [];
+  try { originals = fs.readdirSync(originalsDir()).filter((f) => f.startsWith(key + '.') && securewrite().tempWriterGone(f) === null).map((f) => path.join(originalsDir(), f)); } catch { /* none kept */ }
+  return { pictures, originals };
+}
 function keepAvatarOriginal(name) {
   const file = avatarPath(name);
   if (!file) throw new Error('there is no picture to keep');
@@ -907,7 +918,7 @@ function writeSettings(patch) {
  * that names a gone pid on this host). Its test and test-support/data-root-sandbox.js are the
  * callers; nothing in the product calls it but the store itself.
  */
-module.exports = { secureRoot /* #1760 */, saveFlushed /* #5434 slice 17 */, isTestProcess /* #6726: replyfile's test seam gates on it */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
+module.exports = { secureRoot /* #1760 */, saveFlushed /* #5434 slice 17 */, isTestProcess /* #6726: replyfile's test seam gates on it */, APP, LEGACY_APP, dataRootFor, resolveDataRoot, TEST_HOME_PREFIX, TEST_HOME_MARK, sweepDeadTestHomes, realDefaultRoot, realish, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, avatarLookup, avatarPathIn, pictureFiles /* kosmos#7819 */, avatarVersion, keepAvatarOriginal, saveRefitAvatar, saveAvatar, removeAvatar, readProfile, writeProfile, profilePath /* kosmos#5635: a strict read */, stripIdentity, agentId, readSettings, writeSettings, writeSettingsIfReadable, settingsPath, PROFILES_DIRNAME, AVATARS_DIRNAME, workersRootFor, profileFileName, IMPORTED_FROM_KEY };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers
