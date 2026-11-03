@@ -89,9 +89,10 @@ test('#7852 an agent page whose delete is running says so, with no button, and k
   for (const id of ['d-delete-leftover', 'd-delete-hint', 'd-delete-start']) els[id] = { id, hidden: true, textContent: '' };
   let answer = null;
   let readable = true;
+  let failing = false;   // the route's 500, with its error words
   const ctx = vm.createContext({ String, Promise, encodeURIComponent, document: { getElementById: (id) => els[id] || null },
     // the route answers 200 with any plan; an unreadable answer is a proxy's page
-    fetch: async () => ({ ok: true, json: async () => (readable ? answer : Promise.reject(new Error('not json'))) }) });
+    fetch: async () => ({ ok: !failing, json: async () => (readable ? answer : Promise.reject(new Error('not json'))) }) });
   vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_FOR = null; let DEL_RUNNING_FOR = null; let CURRENT = { sessionName: "miles" };',
     liftAll(scriptOf(PAGE), ['fetchLeftoverPlan', 'paintLeftoverRunning', 'loadLeftover']),
     'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_RUNNING_FOR }); this.view = (n) => { CURRENT = { sessionName: n }; }; this.dialog = (n, p) => { DEL_FOR = n; DEL_PLAN = p; };'].join('\n'), ctx);
@@ -107,6 +108,12 @@ test('#7852 an agent page whose delete is running says so, with no button, and k
   assert.equal(els['d-delete-leftover'].hidden, false, 'an unreadable answer must not end the running block');
   assert.equal(ctx.state().DEL_RUNNING_FOR, 'miles', 'an unreadable answer must not stop the poll asking');
   readable = true;
+  failing = true;
+  answer = { error: 'the board could not work out what is left of this agent' };
+  await ctx.load('miles');
+  assert.equal(els['d-delete-leftover'].hidden, false, 'a failed request must not end the running block');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, 'miles', 'a failed request must not stop the poll asking');
+  failing = false;
   answer = { ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' };
   await ctx.load('miles');
   assert.equal(els['d-delete-leftover'].hidden, true, 'the block must leave once the delete has ended');
