@@ -87,6 +87,7 @@ struct ChatView: View {
     @State private var lastPendingCount = 0
     @State private var keepNewestInView = true
     @State private var kbSettleTick = 0   // kosmos#7817: the latest keyboard did-show; an older one's scroll stands down
+    @State private var kbSettlePending = false   // kosmos#7817: a settled keyboard scroll is waiting to run
     // kosmos#7016: a lasting choice pressed once (armed until a second press, another press, 15 s, or leaving the chat),
     // the line a press left for its question (not sure it went, or the Mac's refusal), and the line over the composer
     // when a typed send waits for a press in the air.
@@ -764,12 +765,11 @@ struct ChatView: View {
                     // kosmos#7609: a chat kept alive under another tab records nothing to keep, so the flag can only ever
                     // say "keep" for the chat on screen, as the handler below that acts on it requires.
                     guard visible else { keepNewestInView = false; return }
-                    // kosmos#7817: a will-show while the keyboard is already up (its height passing 608 on the way to 380) keeps
-                    // the first one's answer: the shrunk list can have hidden the end before the settled scroll runs.
-                    let alreadyUp = diagKeyboard > 0
                     diagKeyboard = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? 0
                     Self.trace("keyboard up \(Int(diagKeyboard)) (atBottom \(atBottom))")
-                    keepNewestInView = (alreadyUp && keepNewestInView) || atBottom || (searchOpen && openedAtNewest && !searching)
+                    // kosmos#7817: a will-show while a settled scroll is still waiting (the height passing 608 on the way to 380)
+                    // keeps the answer that scroll was asked for: the shrunk list can have hidden the end meanwhile.
+                    keepNewestInView = (kbSettlePending && keepNewestInView) || atBottom || (searchOpen && openedAtNewest && !searching)
                 }
                 // kosmos#7817 (Josh 11-02): the box growing or shrinking a line as he typed moved the conversation elsewhere.
                 // Anything in the strip counts (a wrap, the line above the box, the emoji panel, a reply or file row). A
@@ -793,9 +793,12 @@ struct ChatView: View {
                     // 380; each scroll aimed at the view the passing height left, and the list sat past its end, blank. So the
                     // scroll waits until did-show has been quiet for keyboardSettle, and runs once.
                     kbSettleTick &+= 1
+                    kbSettlePending = true
                     let tick = kbSettleTick
                     DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {
-                        guard tick == kbSettleTick, keepNewestInView, visible, !scrollBox.underFinger else { return }
+                        guard tick == kbSettleTick else { return }
+                        kbSettlePending = false
+                        guard keepNewestInView, visible, !scrollBox.underFinger else { return }
                         Self.trace("keyboard shown, to the newest")
                         // kosmos#7344: re-setting an anchor that already reads "end" does not move the thread, so scroll to it.
                         // Not animated under the anchor, as goNewest is (the side lock, #7574, relies on that).
@@ -811,6 +814,9 @@ struct ChatView: View {
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    // kosmos#7817: a keyboard going down (on screen or not) cancels a settled scroll still waiting.
+                    kbSettleTick &+= 1
+                    kbSettlePending = false
                     if visible { diagKeyboard = 0; Self.trace("keyboard down") }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
