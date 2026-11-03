@@ -1,0 +1,31 @@
+# passingphone-7850: the phone lets a lasting listing refusal replace a stale Files list
+
+Card: kosmos#7850, items 2 and 3 (item 1, the board's `passing: true`, merged as #7855). Owner: Ice Cream Kitty.
+
+## The problem the card left open
+After #7842 the iPhone keeps a shown Files list through EVERY refusal, so a real change (Files becomes a link, a
+subfolder is removed) leaves a stale list on screen. #7855 marked passing refusals, but a LASTING one carries no field,
+which is exactly what an older board's refusals look like. The phone could not tell "lasting" from "older board".
+
+## The change
+- server.js `listingAnswer`: on the three listing routes (agent Files list, agent browse, project documents) a refusal
+  not marked passing is sent with `passing: false`. The "Files is a link" refusal says so too (list and browse). The
+  engine's shape is unchanged; a list is unchanged.
+- ios/Kosmos/FilesLogic.swift `filesLastingRefusal`: true only for an explicit `passing: false` on an ok:false body.
+  `filesScreenKeepsShown` returns false for it (the list is replaced), and `filesSection` makes it a `.message` (which
+  replaces rows) instead of `.forNow` (which keeps them). No field (an older board): today's behaviour, kept.
+
+## Decided
+- Item 3 (a quiet "could not be refreshed" line under kept rows) is NOT in this branch: it is new interface needing its
+  own design review, and the card marks it optional. Recorded on the card.
+- Rejected: telling an old board by its version (refusals carry none), and a status code for lasting refusals (would
+  move the browse route's 409/404 split the phone reads).
+- Weakest premise: that every refusal on these routes not marked passing is lasting. True of the engine's today (only
+  its passing ones are marked, #7855), and of the route's own (Files is a link).
+
+## Verified
+- server.files-passing-7850.test.js: every lasting control now asserts `passing === false` (7), and a Files-is-a-link
+  case for list and browse; 15/15. Mutation: listingAnswer passing refusals through unchanged turns 7 red.
+- ios/LogicTests/files (run-files.sh): 119/119 with the new cases (lasting replaces on the screen and the agent page,
+  passing keeps, unmarked keeps). Mutation: filesLastingRefusal always false turns exactly the 7 lasting cases red.
+- 15 test files touching the listing routes plus engine.reachable: 845 pass, 0 fail.

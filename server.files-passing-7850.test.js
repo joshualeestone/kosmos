@@ -99,7 +99,7 @@ test('#7850 agent Files list CONTROL: a read that fails with EIO (a dead mount) 
   assert.ok(hits > 0, 'the read never reached the seam');
   assert.equal(got.status, 200);
   assert.equal(got.body.because, 'we could not read what is in that folder');
-  assert.equal('passing' in got.body, false, JSON.stringify(got.body));
+  assert.strictEqual(got.body.passing, false, JSON.stringify(got.body));
 });
 
 test('#7850 agent Files list CONTROL: a lasting refusal (Files is a file) carries no mark', async () => {
@@ -110,7 +110,7 @@ test('#7850 agent Files list CONTROL: a lasting refusal (Files is a file) carrie
   assert.equal(status, 200);
   assert.equal(body.ok, false, JSON.stringify(body));
   assert.equal(body.because, 'this is a file, not a folder');
-  assert.equal('passing' in body, false, JSON.stringify(body));
+  assert.strictEqual(body.passing, false, JSON.stringify(body));
 });
 
 test('#7850 agent browse, top: an open that fails with EAGAIN is a 409 marked passing', async () => {
@@ -152,7 +152,7 @@ test('#7850 agent browse CONTROL: a folder removed while it was read is a lastin
     assert.ok(hits > 0, 'the read never reached the seam');
     assert.equal(got.status, 404);
     assert.equal(got.body.because, 'that folder is not there any more, or it was moved');
-    assert.equal('passing' in got.body, false, JSON.stringify(got.body));
+    assert.strictEqual(got.body.passing, false, JSON.stringify(got.body));
   } finally {
     if (fs.existsSync(sub + '-old')) { fs.rmSync(sub, { recursive: true, force: true }); fs.renameSync(sub + '-old', sub); }
   }
@@ -170,7 +170,7 @@ test('#7850 agent browse CONTROL: a folder swapped for a file while it was read 
     assert.ok(hits > 0, 'the read never reached the seam');
     assert.equal(got.status, 404);
     assert.equal(got.body.because, 'that is not a folder in this agent\u2019s Files folder');
-    assert.equal('passing' in got.body, false, JSON.stringify(got.body));
+    assert.strictEqual(got.body.passing, false, JSON.stringify(got.body));
   } finally {
     if (fs.existsSync(sub + '-old')) { fs.rmSync(sub, { recursive: true, force: true }); fs.renameSync(sub + '-old', sub); }
   }
@@ -216,7 +216,7 @@ test('#7850 agent Files list CONTROL: a read that finds the folder gone (ENOENT)
   assert.ok(hits > 0, 'the read never reached the seam');
   assert.equal(got.status, 200);
   assert.equal(got.body.because, 'that folder is not there any more, or it was moved');
-  assert.equal('passing' in got.body, false, JSON.stringify(got.body));
+  assert.strictEqual(got.body.passing, false, JSON.stringify(got.body));
 });
 
 test('#7850 agent browse CONTROL: a folder that is not there is a lasting 404 with no mark', async () => {
@@ -224,7 +224,7 @@ test('#7850 agent browse CONTROL: a folder that is not there is a lasting 404 wi
   assert.equal(status, 404);
   assert.equal(body.ok, false);
   assert.equal(body.because, 'that folder is not there any more, or it was moved');
-  assert.equal('passing' in body, false, JSON.stringify(body));
+  assert.strictEqual(body.passing, false, JSON.stringify(body));
 });
 
 test('#7850 project documents: a read that fails with EBUSY is a 200 refusal marked passing', async () => {
@@ -244,5 +244,20 @@ test('#7850 project documents CONTROL: a folder that is gone is a lasting refusa
   assert.equal(status, 200);
   assert.equal(body.ok, false, JSON.stringify(body));
   assert.equal(body.because, 'this folder is not there any more, or it was moved');
-  assert.equal('passing' in body, false, JSON.stringify(body));
+  assert.strictEqual(body.passing, false, JSON.stringify(body));
+});
+
+test('#7850 phone half: Files being a link is a lasting refusal, said so on the list and on browse', async () => {
+  const other = dmfiles.filesDir('cyd');
+  fs.mkdirSync(path.dirname(other), { recursive: true });
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-files-passing-linked-'));
+  fs.symlinkSync(target, other);
+  const list = await getJson('/api/agent/cyd/files');
+  assert.equal(list.status, 200);
+  assert.equal(list.body.ok, false, JSON.stringify(list.body));
+  assert.strictEqual(list.body.passing, false, JSON.stringify(list.body));
+  const top = await getJson('/api/agent/cyd/files/browse');
+  assert.equal(top.status, 409);
+  assert.strictEqual(top.body.passing, false, JSON.stringify(top.body));
+  assert.match(top.body.because, /is a link to somewhere else/, 'CONTROL: refused as a link, not for another reason');
 });

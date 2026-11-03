@@ -215,6 +215,15 @@ extension Board {
         if case .page = r { return false }
         return true
     }
+    /* kosmos#7850: a refusal the board marks as lasting (`passing: false`; a board since #7850 marks every listing
+       refusal one way or the other). It replaces a list shown. A refusal with no mark is from an older board, and keeps
+       the list as filesKeepsShown always has. */
+    static func filesLastingRefusal(status: Int, body: Data?) -> Bool {
+        guard status != 0 else { return false }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        guard let obj, obj["ok"] as? Bool == false, let passing = obj["passing"] as? Bool else { return false }
+        return passing == false
+    }
     /* A 404 carrying the board's own words (a `because` or `error`): on the reads where server.js sends a 404 only for
        "no agent" or "no project", it says the owner is gone. A 404 with no words (a proxy's page) says nothing. This
        trusts the board to send a 404 that way (server.js today); a route that 404s with words for another reason would
@@ -234,6 +243,7 @@ extension Board {
             case .agent: if dir.isEmpty { return false }
             }
         }
+        if filesLastingRefusal(status: status, body: body) { return false }   // kosmos#7850
         return filesKeepsShown(r)
     }
     /* The agent page's section, the same rule in its own states: a list is rows (or hidden when empty); the owner being
@@ -248,7 +258,8 @@ extension Board {
         case .refused(let why):
             let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             let line = (obj?["because"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why)
-            return .forNow(line)
+            // kosmos#7850: a refusal the board says is lasting replaces the rows; any other keeps them.
+            return filesLastingRefusal(status: status, body: body) ? .message(line) : .forNow(line)
         case .noAnswer: return .noAnswer
         }
     }
