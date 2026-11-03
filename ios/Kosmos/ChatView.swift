@@ -1201,6 +1201,11 @@ struct ChatView: View {
         .padding(.top, 60)
     }
 
+    // kosmos#7864: the picture's load runs again when its picture is gone (dropped for room while the card is on screen).
+    private func previewTaskKey(_ row: Board.ChatRow) -> String? {
+        row.preview?.image.map { $0 + (client.previewImages[$0] == nil ? "#missing" : "#kept") }
+    }
+
     @ViewBuilder private func itemView(_ item: Board.ChatItem) -> some View {
         switch item.kind {
         case .day(let label):
@@ -1272,7 +1277,7 @@ struct ChatView: View {
                                    reply: row.answerable(by: agent.session) ? { startReply(row) } : nil,
                                    delete: Board.canDelete(row) ? { deleteMine(row) } : nil,
                                    previewImage: row.preview?.image.flatMap { client.previewImages[$0] })
-                            .task(id: row.preview?.image) { if let p = row.preview { await client.loadPreviewImage(p) } }
+                            .task(id: previewTaskKey(row)) { if let p = row.preview { await client.loadPreviewImage(p) } }
                     }
                     WayThroughRow(text: wayText(way), action: openOnBoard)
                 }
@@ -1294,7 +1299,7 @@ struct ChatView: View {
                            delete: Board.canDelete(row) ? { deleteMine(row) } : nil,
                            previewImage: row.preview?.image.flatMap { client.previewImages[$0] })
                     .padding(.top, first ? 10 : 2)
-                    .task(id: row.preview?.image) { if let p = row.preview { await client.loadPreviewImage(p) } }
+                    .task(id: previewTaskKey(row)) { if let p = row.preview { await client.loadPreviewImage(p) } }
             }
         }
     }
@@ -2264,6 +2269,7 @@ struct ChatBubble: View {
                 .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text, delete: delete)
             if let preview = row.preview {
                 LinkPreviewCard(preview: preview, image: previewImage, width: UIScreen.main.bounds.width * widthShare)
+                    .padding(.top, 2)   // clear of the bubble's tail
             }
             if !row.reactions.isEmpty { ReactionPills(pills: row.reactions, toggle: react, trailing: mine) }
             if let failed {
@@ -2326,7 +2332,8 @@ struct ChatBubble: View {
         let links = Board.messageLinks(row.text)
         // kosmos#7864: the preview card is inside this one element, so its address is an action here too, named from the
         // card, unless one of the message's own links already opens that site.
-        let card = row.preview.flatMap { p in links.contains { $0.host?.lowercased() == p.url.host?.lowercased() } ? nil : p }
+        let site = { (u: URL) in (u.host ?? "").lowercased().replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression) }
+        let card = row.preview.flatMap { p in links.contains { site($0) == site(p.url) } ? nil : p }
         return Group {
             ForEach(Array(links.enumerated()), id: \.offset) { i, url in
                 let number = links.count > 1 ? "\(i + 1) " : ""

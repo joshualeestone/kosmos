@@ -2159,7 +2159,7 @@ func boardLoopTests() async {
                                                     return body.map { (Data($0.utf8), HTTPURLResponse(url: r.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!) }
                                                 }
                                                 else if r.url?.path == "/api/status" { world.statusStarted += 1; if !world.statusYields.isEmpty { for _ in 0..<world.statusYields.removeFirst() { await Task.yield() } } }
-                                                else if r.url?.path.hasPrefix("/api/attachment/") == true { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
+                                                else if r.url?.path.hasPrefix("/api/attachment/") == true || r.url?.path == "/api/unfurl/image" { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
                                                 return world.send(r)
                                             },
                                             sleep: { world.clock += $0; await Task.yield() },
@@ -3859,6 +3859,18 @@ section("native board loop: connecting")
         c.accountChanged()
         await picTask.value
         check(c.thumbnails[latePic.id] == nil, "a picture fetched across a sign-out is not kept for the next account")
+        _ = await settle { isLive(c) }
+        // kosmos#7864: the same for a link preview's picture on its way.
+        w.attachmentYields = 50
+        w.attachmentAnswer = (200, "image/png", big)
+        let latePreview = Board.LinkPreview(url: URL(string: "https://late.example.com/")!, site: "late.example.com", title: "Late", description: nil,
+                                            image: "/api/unfurl/image?url=https%3A%2F%2Flate.example.com%2Fog.png")
+        let previewTask = Task { await c.loadPreviewImage(latePreview) }
+        _ = await settle { w.attachmentStarted.last?.hasPrefix("/api/unfurl/image") == true }
+        c.accountChanged()
+        await previewTask.value
+        check(c.previewImages[latePreview.image!] == nil, "preview: a picture fetched across a sign-out is not kept for the next account")
+        w.attachmentYields = 0
         _ = await settle { isLive(c) }
         // A sign-out while a file is on its way: nothing is written afterwards.
         w.attachmentYields = 50
