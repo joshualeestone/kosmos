@@ -3053,11 +3053,13 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const wrap = (b) => (operator === true
       ? (mentioned.has(name)
         ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
-        /* kosmos#7886 item 2: five agents answered one fresh whole-room question within a minute; later ones were
-           claimed cleanly. The arm for the whole room says, beside its answer command, to claim first when one agent
-           should do the work. Conditional, because many whole-room posts are questions everyone may answer. */
+        /* kosmos#7886 item 2: five agents answered one fresh whole-room question within a minute. A post that names
+           nobody says, beside its answer command, to claim first when one agent should do the work. Not on a post that
+           names someone (react's claim guard refuses everyone else for it), not in a room shared with another computer
+           (a claim there is this computer's alone), and not when no reply is wanted. */
         : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer
-          + (replyExpected === false ? '' : ' \u00b7 if it asks for work one of you should do, claim it first: kosmos claim ' + projectId + ' ' + id)
+          + (replyExpected === false || mentioned.size > 0 || federated ? ''
+            : ' \u00b7 if it asks for work one of you should do, claim it first: kosmos claim ' + projectId + ' ' + id)
           + ']')
       : (askedHere
         ? '[message from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
