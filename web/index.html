@@ -56024,7 +56024,7 @@ document.getElementById('pb-on').addEventListener('click', pbOpen);
    asked (it spends the hourly Kosmos+ allowance); where a restore is (GET /api/personal-backup/files) is read every 5
    seconds while one runs and once a minute otherwise, only while the panel shows it. The copy is a Kosmos of its own in the
    switcher (restoreworld.prepareRestoreWorld), so "Open the copy" is the switcher's own restart-to-switch confirm. */
-var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, gen: 0, busy: false, stopAsk: false, stopping: false, stopSent: false, reading: false, msgRunning: false, liveReady: false };
+var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, gen: 0, busy: false, stopAsk: false, stopping: false, stopSent: false, reading: false, msgRunning: false, live: false, liveSoon: false };
 function pbfWhen(ms) { return Number.isFinite(ms) ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''; }
 /* Mona Lisa's review 2: a restore that started today says the time alone; the list's backups keep the full date. */
 function pbfStartedWhen(ms, now = Date.now()) {
@@ -56073,6 +56073,9 @@ function pbfShow(on, drop) {
     PBF.asked = null; PBF.stopAsk = false; PBF.stopSent = false; PBF.list = null; PBF.more = false; PBF.keyMissing = false; PBF.status = null; PBF.startedFor = null; PBF.at = 0;
     PBF.seq++; PBF.gen++; PBF.reading = false;   // a read, a list, a start or a stop already in flight answers nothing
     pbfMsg('');   // kosmos#7801: and its refusal, with the flag that kept it
+    // kosmos#7816: and the end line, quiet again, so the next first fill is quiet on purpose and not by a later paint.
+    PBF.live = false;
+    const lastEl = document.getElementById('pb-files-last'); lastEl.setAttribute('aria-live', 'off'); lastEl.textContent = '';
     return;
   }
   // 4500, not 5000: the panel repaints every 5 seconds, and a repaint a moment early would skip a read.
@@ -56165,9 +56168,20 @@ function pbfPaint() {
   const lastText = w ? w.line : '';
   // kosmos#7801: only the text changes; the region stays shown. It is quiet until a paint has shown the board's answer,
   // so the first read after a show fills it with an old end silently, and a later end is read out.
-  lastEl.setAttribute('aria-live', PBF.liveReady ? 'polite' : 'off');
+  // kosmos#7816: it turns polite in a callback of its own, never in the task that writes it: a region switched to polite
+  // and written in one task is not announced by many screen readers. A drop (gen) cancels a switch still waiting.
+  if (!PBF.live) lastEl.setAttribute('aria-live', 'off');
   if (lastEl.textContent !== lastText) lastEl.textContent = lastText;
-  PBF.liveReady = !!PBF.status;
+  if (PBF.status && !PBF.live && !PBF.liveSoon) {
+    PBF.liveSoon = true;
+    const gen = PBF.gen;
+    setTimeout(() => {
+      PBF.liveSoon = false;
+      if (gen !== PBF.gen || !PBF.status) return;
+      PBF.live = true;
+      document.getElementById('pb-files-last').setAttribute('aria-live', 'polite');
+    }, 0);
+  }
   const fd = document.getElementById('pb-files-failed');
   fd.hidden = !(w && w.failedSum);
   if (w && w.failedSum) {

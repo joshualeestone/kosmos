@@ -550,34 +550,69 @@ function liveAtWrite(doc) {
   Object.defineProperty(el, 'textContent', { configurable: true, get() { return t; }, set(v) { if (v !== t) writes.push({ text: v, live: el.attrs['aria-live'] }); t = v; } });
   return writes;
 }
+/* kosmos#7816: the switch to polite waits for a timer of its own; these tests hold the timers and run them by hand. */
+function timers() {
+  const q = [];
+  return { setTimeout: (fn) => { q.push(fn); return q.length; }, run: () => { const now = q.splice(0); for (const fn of now) fn(); return now.length; }, get size() { return q.length; } };
+}
 test('the first read after a show fills the end line with an old end quietly; an end seen later is read out', async () => {
   const doc = fakeDoc();
+  const tm = timers();
   let answer = { running: false, last: { ok: true, restored: 3, world: WORLD } };
-  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve(answer) }));
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve(answer) }), { setTimeout: tm.setTimeout });
   const writes = liveAtWrite(doc);
   p.pbfShow(true); await tick(); await tick();
   assert.deepEqual(writes, [{ text: 'Restored 3 files into Restored: Josh, 2 Nov.', live: 'off' }], 'an end from before the page opened was announced');
-  p.PBF.at = 0; p.pbfShow(true);                      // the 5-second repaint
-  assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'polite', 'CONTROL: live after a paint has shown the answer');
+  assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'off', 'polite in the same task as the quiet fill');
+  assert.equal(tm.run(), 1, 'CONTROL: one switch was waiting');
+  assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'polite', 'live after its own callback');
   answer = { running: true, startedAt: 9, last: null };
-  await tick(); await tick();
+  p.PBF.at = 0; p.pbfShow(true); await tick(); await tick();
   answer = { running: false, last: { ok: true, restored: 7, world: WORLD } };
   p.PBF.at = 0; p.pbfShow(true); await tick(); await tick();
   assert.equal(writes[writes.length - 1].text, 'Restored 7 files into Restored: Josh, 2 Nov.', 'CONTROL: the new end was written');
   assert.equal(writes[writes.length - 1].live, 'polite', 'an end this tab saw happen was not announced');
+  assert.equal(tm.size, 0, 'once live, no further switch is queued');
 });
 
-test('turning personal backup off makes the end line quiet again for the next first fill', async () => {
+test('two reads with no paint between never switch to polite in the task of a write', async () => {
   const doc = fakeDoc();
-  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve({ running: false, last: { ok: true, restored: 3, world: WORLD } }) }));
-  p.pbfShow(true); await tick(); await tick();
-  p.PBF.at = 0; p.pbfShow(true); await tick(); await tick();
+  const tm = timers();
+  let answer = { running: true, startedAt: 9, last: null };
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve(answer) }), { setTimeout: tm.setTimeout });
+  const writes = liveAtWrite(doc);
+  p.pbfRead(); await tick(); await tick();
+  answer = { running: false, last: { ok: true, restored: 7, world: WORLD } };
+  p.pbfRead(true); await tick(); await tick();
+  assert.equal(writes.length, 1, 'CONTROL: the second read wrote the end');
+  assert.deepEqual(writes.map((x) => x.live), ['off'], 'the end was written into a region switched to polite in the same task');
+  assert.equal(tm.run(), 1, 'CONTROL: the switch was waiting, once');
+  assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'polite');
+});
+
+test('turning personal backup off makes the end line quiet and empty again for the next first fill', async () => {
+  const doc = fakeDoc();
+  const tm = timers();
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve({ running: false, last: { ok: true, restored: 3, world: WORLD } }) }), { setTimeout: tm.setTimeout });
+  p.pbfShow(true); await tick(); await tick(); tm.run();
   assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'polite', 'CONTROL: live before Off');
   p.pbfShow(false, true);
-  doc.getElementById('pb-files-last').textContent = '';
+  assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'off', 'Off left the end line live');
+  assert.equal(doc.getElementById('pb-files-last').textContent, '', 'Off left the old end in the line');
   const writes = liveAtWrite(doc);
   p.pbfShow(true); await tick(); await tick();
   assert.deepEqual(writes.map((x) => x.live), ['off']);
+});
+
+test('a switch still waiting when personal backup goes off is dropped', async () => {
+  const doc = fakeDoc();
+  const tm = timers();
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve({ running: false, last: { ok: true, restored: 3, world: WORLD } }) }), { setTimeout: tm.setTimeout });
+  p.pbfShow(true); await tick(); await tick();
+  assert.equal(tm.size, 1, 'CONTROL: a switch is waiting');
+  p.pbfShow(false, true);
+  tm.run();
+  assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'off', 'a switch from before Off made the line live');
 });
 
 test('the end line starts quiet in the markup', () => {
