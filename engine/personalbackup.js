@@ -672,7 +672,8 @@ async function plansNow(opts = {}) {
   try { r = await remote.macRequest('POST', ROUTE, {}); } catch { return { ok: false, because: PLANS_UNREAD }; }
   if (!r || !r.ok) {
     const c = codeOf(r);
-    return c ? { ok: false, final: true, because: PLANS_SAY[c] || PLANS_UNSAID } : { ok: false, because: PLANS_UNREAD };
+    // Final only for a code known not to clear; any other (a rate limit, a busy relay) is tried again in a minute.
+    return c && PLANS_SAY[c] ? { ok: false, final: true, because: PLANS_SAY[c] } : { ok: false, because: PLANS_UNREAD };
   }
   const d = r.data;
   if (!d || !d.org || d.org.id !== rec.org.id) return { ok: false, because: 'Kosmos+ answered about another backup, so the plans cannot be shown here.' };
