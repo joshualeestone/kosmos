@@ -62,7 +62,7 @@ test.after(() => {
 const WANT = {
   open: () => ['#' + N.open2 + '  open  nobody  Task open2', '#' + N.open1 + '  open  mara  Task open1 with a second line', '2 open tasks in ' + projectId + '.'],
   blocked: () => ['#' + N.held + '  blocked  otto  Task held', '1 blocked task in ' + projectId + '.'],
-  built: () => ['#' + N.built + '  built  mara  Task built', '1 built task in ' + projectId + '.'],
+  built: () => ['#' + N.built + '  built  mara  Task built  (not seen by the person since built)', '1 built task in ' + projectId + '.'],
 };
 
 // ── the renderer, on its own ────────────────────────────────────────────────
