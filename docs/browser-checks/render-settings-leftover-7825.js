@@ -69,7 +69,9 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
         del: (row.querySelector('[data-delete-leftover]') || { dataset: {} }).dataset.deleteLeftover || null,
         delText: ((row.querySelector('[data-delete-leftover]') || {}).textContent || '').trim(),
       }));
-      return { wrapHidden: wrap.hidden, label: toggle.textContent, rows, hint: !!list.querySelector('.removed-hint'),
+      const hints = [...list.querySelectorAll('.removed-hint')].map((h) => h.textContent);
+      return { wrapHidden: wrap.hidden, label: toggle.textContent, rows, hint: hints.some((t) => /^Nothing was deleted/.test(t)),
+        stale: hints.some((t) => /could not check again just now/.test(t)),
         hintAfterRemoved: (() => { const h = list.querySelector('.removed-hint'); const kids = [...list.children]; return h ? kids.indexOf(h) : -1; })() };
     };
     const out = {};
@@ -95,7 +97,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     body = { agents: [{ name: 'gone-7825', shownAs: 'Gone', removedAt: '2026-11-02T00:00:00Z', stopped: true, accountFolderGone: false }] };
     await paintRemoved();
     out.failed = snap();
-    // 3b. kept rows expire: a board that keeps answering without the field for over a minute
+    // 3b. a board that keeps answering without the field for over a minute: rows kept, and the list says so
     LEFTOVERS_AT = Date.now() - 61000;
     await paintRemoved();
     out.expired = snap();
@@ -141,7 +143,8 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   check(m.hint === true && m.hintAfterRemoved === 1, 'mixed: the folder hint stays with the removed rows, before the leftovers', String(m.hintAfterRemoved));
 
   check(r.failed.rows.some((x) => x.who === 'Stray') && r.failed.rows.some((x) => x.who === 'Gone'), 'a failed leftovers read keeps the leftover rows last drawn', JSON.stringify(r.failed.rows));
-  check(!r.expired.rows.some((x) => x.who === 'Stray') && r.expired.rows.some((x) => x.who === 'Gone'), 'kept leftover rows expire after a minute without the field', JSON.stringify(r.expired.rows));
+  check(r.failed.stale === false, 'a fresh failed read keeps the rows without a stale line');
+  check(r.expired.rows.some((x) => x.who === 'Stray') && r.expired.stale === true, 'a minute without the field keeps the rows and says they may be out of date (never reads as none)', JSON.stringify(r.expired));
   check(!r.afterDelete.rows.some((x) => x.who === 'Stray'), 'a name just deleted is not drawn again from the kept rows', JSON.stringify(r.afterDelete.rows));
   check(r.none.wrapHidden === true, 'NEGATIVE: nothing removed and nothing left over hides the section', JSON.stringify(r.none));
 
