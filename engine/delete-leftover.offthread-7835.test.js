@@ -317,3 +317,47 @@ test('#7835 a delete whose probe gave no answer does not probe again on the boar
     fs.rmSync(create.workerDir('ot7835p'), { recursive: true, force: true });
   }
 });
+
+test('#7835 the pin is the delete\'s own: another plan on the same drive keeps the ordinary minute keep', async () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    leftoverFolder('ot7835r');
+    leftoverFolder('ot7835s');
+    let asked = 0;
+    let release = null;
+    leftover.setRunner((file, args, opts) => {
+      if (args.includes(leftover.DRIVE_SCRIPT)) asked += 1;
+      // The move waits until the test lets it go, so the delete is running while the other plan is made.
+      if (args.includes(leftover.RECYCLE_SCRIPT)) return new Promise((resolve) => { release = () => resolve(stub(file, args, opts)); });
+      return Promise.resolve(stub(file, args, opts));
+    });
+    const going = asyncWin.del('ot7835r');
+    for (let i = 0; i < 50 && !release; i += 1) await new Promise((r) => setTimeout(r, 10));
+    assert.ok(release, 'the delete never reached its move');
+    assert.equal(asked, 1);
+    now += 61000;
+    win.plan('ot7835s');
+    assert.equal(asked, 2, 'another agent\'s plan read the running delete\'s pinned answer past its minute keep');
+    release();
+    assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
+  } finally {
+    Date.now = realNow;
+    fs.rmSync(create.workerDir('ot7835s'), { recursive: true, force: true });
+  }
+});
+
+test('#7835 connecting a folder under the name of an agent whose delete runs is refused', async () => {
+  const discover = require('./discover');
+  leftoverFolder('ot7835t');
+  const outside = fs.mkdtempSync(nodePath.join(SANDBOX, 'outside-'));
+  fs.writeFileSync(nodePath.join(outside, 'CLAUDE.md'), 'You are Ot7835t, a worker.\n');
+  leftover.setRunner(later(300));
+  const going = asyncWin.del('ot7835t');
+  await new Promise((r) => setTimeout(r, 50));
+  const joined = discover.connect(outside, { name: 'ot7835t' });
+  assert.equal(joined.ok, false, JSON.stringify(joined));
+  assert.match(joined.because, /still being deleted/);
+  assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
+});

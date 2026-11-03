@@ -22,13 +22,15 @@ folder was already gone reaches the step instead of being dropped.
   name runs it answers "a delete is running" (ok false) instead of reading files half-moved. Off win32 it is `plan`.
 - `del`'s body is `delSteps`, a generator that hands out only the Windows moves (`yield { recycle }`: the folder's and,
   through `moveRecords`, now also a generator, each record's); `del` performs them in place (unchanged behaviour),
-  `delAsync` awaits `recycleAsync`. The drives a delete warmed are pinned (kept as fresh) until it ends, so its own
-  re-plan never starts the probe again on the board's thread when a short keep runs out in between. Every other step (community standing first, the job,
+  `delAsync` awaits `recycleAsync`. The drives a delete warmed are passed to its own re-plan (`pinned`), which reads
+  their kept answers whatever their age, so it never starts the probe again on the board's thread when a short keep runs
+  out in between. Only that plan: every other plan keeps the ordinary keeps. Every other step (community standing first, the job,
   the records, tokens, community account) runs in the board's own thread in the same order, so in-memory state each
   module keeps (sender tokens, liveness, crash history) is cleared where the board reads it.
 - `delAsync` refuses a second delete of the same agent while one runs (its steps would interleave now that the move
-  does not hold the board), and `deletingName` says so to engine/create.js and to remove.js (restore, remove, restart
-  and restartAsync, so Start too), which refuse that agent meanwhile: otherwise the delete's last steps (tokens,
+  does not hold the board), and `deletingName` says so to engine/create.js, to remove.js (restore, remove, restart and
+  restartAsync, so Start too) and to engine/discover.js (connect and its register-only path), which refuse that agent
+  meanwhile: otherwise the delete's last steps (tokens,
   records, history) would land on a live one. Not in remove.js's busyRefusal, which delete-leftover asks itself. The hold is keyed as create folds a name (slugFor), so every spelling of the agent meets it.
 - Item 2: `DRIVE_FAIL_KEEP_MS` 5 s for a probe with no answer; a good answer is still kept a minute.
 - Item 4: a `FAILED` line with the folder already gone is the step's `note` ("Windows said: ..."), outcome unverified.
@@ -60,12 +62,13 @@ Not run on Windows: the async path is driven from a Mac through the run() seam, 
 `execFile` of PowerShell with a timeout is assumed to behave as execFileSync's does for the answers recycleOutcome reads.
 
 ## Tests
-engine/delete-leftover.offthread-7835.test.js (13): a 20 ms timer keeps ticking while a late probe and a late move run;
+engine/delete-leftover.offthread-7835.test.js (15): a 20 ms timer keeps ticking while a late probe and a late move run;
 the async delete says what del says; a second delete refused; failed probe kept 5 s, good one 60 s; late error kept; off
 win32 the async forms are plan and del; while a delete runs the plan says so and create refuses the name; a move that
 throws lets go of the name; the live runner closes stdin and answers at its limit with no exit code; every spelling of
 the agent meets the hold and a restore is refused; its settings move off the board with the same answer as del; Start,
 Restart and Remove are refused while it runs; a no-answer probe whose keep runs out mid-delete is not asked again
-on the board, and the pin ends with the delete. Mutants (stdin
+on the board, and the pin ends with the delete; the pin is the delete's own (another plan keeps the minute keep);
+connecting a folder under the name is refused. Mutants (stdin
 open, create not refused, plan mid-delete, lock not released, sync move, a minute's keep, note dropped) each fail it.
 Leftover tests 154 pass; create tests 545 pass; web.delete-leftover's route pin updated to the async calls.

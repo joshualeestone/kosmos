@@ -91,10 +91,10 @@ const driveTypes = new Map();
    remove dry-runs while this executes live. Read at load (the board reads env at
    startup); a test controls it through resetForTests. */
 let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
-function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; if (!runner) DRY_RUN = true; driveTypes.clear(); probing.clear(); pinned.clear(); }
+function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; if (!runner) DRY_RUN = true; driveTypes.clear(); probing.clear(); }
 /* Test seam (#1598): back to fail-closed (no runner, dry-run flag off) so a test
    can exercise the live-execution gate directly. */
-function resetForTests() { runner = null; DRY_RUN = false; driveTypes.clear(); probing.clear(); pinned.clear(); }
+function resetForTests() { runner = null; DRY_RUN = false; driveTypes.clear(); probing.clear(); }
 function run(file, args, opts) {
   if (runner) return runner(file, args, opts);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
@@ -317,22 +317,23 @@ function keepDrive(root, out) {
   if (root && !(out && out.dryRun)) driveTypes.set(root, { info, at: Date.now() });
   return info;
 }
-/* kosmos#7835: drive roots a running delete warmed, kept as fresh until it ends: its re-plan comes after the warm, and a
-   short keep running out in between would start the probe again on the board's thread. */
-const pinned = new Map();
-function freshDrive(root) {
+/* `pinned` (kosmos#7835): drive roots a running delete warmed. Its own re-plan reads their kept answers whatever their
+   age (a short keep could run out between the warm and the re-plan and start the probe again on the board's thread);
+   every other plan keeps the ordinary 5 s / 60 s keeps. */
+function freshDrive(root, pinned) {
   const kept = root ? driveTypes.get(root) : null;
-  if (kept && pinned.has(root)) return kept;
+  if (kept && pinned && pinned.includes(root)) return kept;
   return kept && Date.now() - kept.at < keptFor(kept) ? kept : null;
 }
 /** win32: whether the Recycle Bin can take `p`, whose measure (bytes, capped) is `m`. See `binVerdict`; any answer
-    we cannot read is false. `probe` false (kosmos#7835): answer from a kept probe only, never start PowerShell. */
-function recycleBinCanTake(p, m, probe = true) {
+    we cannot read is false. kosmos#7835: `how.probe` false answers from a kept probe only, never starting PowerShell;
+    `how.pinned` names drive roots whose kept answer stands whatever its age. */
+function recycleBinCanTake(p, m, how) {
   const d = driveOf(p);
   if (!d) return false;
-  const kept = freshDrive(d.root);
+  const kept = freshDrive(d.root, how && how.pinned);
   if (kept) return binVerdict(kept.info, m);
-  if (!probe) return false;
+  if (how && how.probe === false) return false;
   let out;
   try { out = psRun(DRIVE_SCRIPT, d.real, DRIVE_TIMEOUT_MS); } catch (err) {
     if (err && err.code === 'LIVE_EXECUTION_REFUSED') throw err;   // live-execution.js: let the refusal through
@@ -391,8 +392,10 @@ function binWords(platform) { return platform === 'win32' ? 'the Recycle Bin' : 
 
 /** Whether the Trash can take a path: it exists, and it is on the same
     volume, so a rename works and nothing is copied-then-deleted. */
-function trashCanTake(p, platform, m, probe = true) {
-  if ((platform || process.platform) === 'win32') return recycleBinCanTake(p, m, probe);
+/* kosmos#7835: what a plan's options say about probing the drive (see recycleBinCanTake). */
+function probeHow(opts) { return { probe: !(opts && opts.probe === false), pinned: (opts && opts.pinned) || null }; }
+function trashCanTake(p, platform, m, how) {
+  if ((platform || process.platform) === 'win32') return recycleBinCanTake(p, m, how);
   try {
     let t;
     try { t = fs.statSync(TRASH(platform)); } catch (e) {
@@ -507,7 +510,7 @@ function plan(name, opts) {
       return { ok: false, because: `${shown}'s folder is not where Kosmos keeps agents, so Kosmos will not delete it.` };
     }
     const m = measure(folderPath);
-    folder = { path: folderPath, ...m, trash: trashCanTake(folderPath, platform, m, !(opts && opts.probe === false)) };
+    folder = { path: folderPath, ...m, trash: trashCanTake(folderPath, platform, m, probeHow(opts)) };
   }
   let job = null;
   if (platform === 'win32') {
@@ -592,7 +595,7 @@ function plan(name, opts) {
     return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
   }
   const bin = binWords(platform);   // kosmos#7820
-  const recordsTrash = toTrash && recs.records.every((r) => trashCanTake(r.file, platform, undefined, !(opts && opts.probe === false)));
+  const recordsTrash = toTrash && recs.records.every((r) => trashCanTake(r.file, platform, undefined, probeHow(opts)));
   const recordsLost = recs.records.length > 0 && !recordsTrash;
   if (recs.records.length) {
     const w = recordsWords(recs.records);
@@ -874,7 +877,9 @@ function* delSteps(name, opts) {
   if (held) return { outcome: OUTCOME.REFUSED, because: held.because };
   /* The re-plan must ask the SAME platform the caller planned against, or a
      test (and a Mac driving the win32 arm) plans one act and performs another. */
-  const p = plan(name, opts && opts.platform ? { platform: opts.platform } : undefined);
+  // kosmos#7835: and the drives delAsync warmed, whose answers this re-plan reads whatever their age.
+  const p = plan(name, opts && (opts.platform || opts.pinned)
+    ? { ...(opts.platform ? { platform: opts.platform } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}) } : undefined);
   if (!p.ok) return { outcome: OUTCOME.REFUSED, because: p.because };
   const platform = (opts && opts.platform) || process.platform;
   if (p.typeToConfirm && String((opts && opts.typed) || '').trim() !== p.typeToConfirm) {
@@ -1212,11 +1217,9 @@ async function delAsync(name, opts) {
   const key = askedKey(name);
   if (deleting.has(key)) return { outcome: OUTCOME.REFUSED, because: DELETING_BECAUSE };
   deleting.add(key);
-  let roots = [];
   try {
-    roots = await warmFor(name, opts);
-    for (const r of roots) pinned.set(r, (pinned.get(r) || 0) + 1);
-    const steps = delSteps(name, opts);
+    const roots = await warmFor(name, opts);
+    const steps = delSteps(name, { ...(opts || {}), pinned: roots });
     let r = steps.next();
     while (!r.done) {
       let got;
@@ -1227,7 +1230,6 @@ async function delAsync(name, opts) {
     return r.value;
   } finally {
     deleting.delete(key);
-    for (const r of roots) { const n = (pinned.get(r) || 1) - 1; if (n > 0) pinned.set(r, n); else pinned.delete(r); }
   }
 }
 
