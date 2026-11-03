@@ -250,7 +250,7 @@ else fail "#7883 promote without a staged script: rc=$rc $(grep '^PUT setup' "$F
 mv "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; mv "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
 # Josh's go is logged with the installer it will publish.
 # (The promotes above with a staged script logged its sha; the last one, staged without a script, logged none.)
-if [ "$(grep -c "approval=given.* setup_sha256=$SETUP_SHA " "$ALOG")" -ge 1 ] && grep 'approval=given' "$ALOG" | tail -1 | grep -qF ' setup_sha256=none '; then pass "#7883 the approval line names the installer's sha, or none"
+if [ "$(grep -c "setup_sha256=$SETUP_SHA approval=given " "$ALOG")" -ge 1 ] && grep 'approval=given' "$ALOG" | tail -1 | grep -qF ' setup_sha256=none '; then pass "#7883 the approval line names the installer's sha, or none"
 else fail "#7883 approval line: $(grep 'approval=given' "$ALOG" | tail -2)"; fi
 # setup-<v>.ps1 is immutable like the zip: other bytes already up under the name are refused without -ReplaceVersioned.
 cp "$FAKE/latest-win-staging.json" "$TMP/stg7883.keep"   # the block below stages other versions; later tests expect 9.9.1 staged

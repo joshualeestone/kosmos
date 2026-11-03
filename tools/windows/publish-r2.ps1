@@ -658,29 +658,48 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   }
 
   # kosmos#7883: the one-line installer (installkosmos.com/setup.ps1) travels with the build it was cut with. Staging
-  # puts THIS tree's tools/windows/setup.ps1 up as setup-<v>.ps1 (and its sidecar); -Promote copies it to setup.ps1.
-  # Its bytes must be exactly the committed blob: an uncommitted edit, or a checkout that converts line endings,
-  # would publish a script main never had (and the site's drift alarm compares against main's bytes).
+  # puts the build's tools/windows/setup.ps1 up as setup-<v>.ps1 (and its sidecar); -Promote copies it to setup.ps1.
+  # The bytes are the committed blob, never a working file that could carry an uncommitted edit or converted line
+  # endings (the site's drift alarm compares against main's bytes).
+  #   - A zip that records the commit it was built from (manifest.json source_sha) gets that commit's blob, read from
+  #     git, wherever this script runs (review 2): the zip's sha then pins the installer, so Josh's go covers it.
+  #   - A zip that records none (an old or hand-made one) gets this tree's HEAD, and only if the working file is
+  #     exactly HEAD's blob; that is said.
   if (-not $ForSigning) {
-    $SetupPath = Join-Path $PSScriptRoot 'setup.ps1'
-    if (-not (Test-Path -LiteralPath $SetupPath -PathType Leaf)) { Refuse "the installer script $SetupPath is missing. Nothing was written." }
     $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $git) { Refuse "git is needed to check that $SetupPath is exactly the committed script. Nothing was written." }
-    $blobHead = (& $git.Source -C $PSScriptRoot rev-parse 'HEAD:./setup.ps1' 2>$null | Select-Object -First 1)
-    $blobFile = (& $git.Source -C $PSScriptRoot hash-object --no-filters -- 'setup.ps1' 2>$null | Select-Object -First 1)
-    if (-not $blobHead -or -not $blobFile -or "$blobHead".Trim() -cne "$blobFile".Trim()) { Refuse "$SetupPath is not byte for byte the script committed at this tree's HEAD (an uncommitted edit, or line endings converted on checkout). Stage from a clean checkout of the cut. Nothing was written." }
-    # The tree must be the one the zip was built from (review 1): a stage run from another checkout would put that
-    # checkout's installer up beside a build it never shipped with. A zip that records no source commit (an old or
-    # hand-made one) is staged with HEAD's script, and that is said.
-    $head = "$(& $git.Source -C $PSScriptRoot rev-parse HEAD 2>$null | Select-Object -First 1)".Trim()
+    if (-not $git) { Refuse "git is needed to read the committed installer script. Nothing was written." }
+    # One line of git's output, '' on any failure. Stop would turn git's stderr into a terminating error on 5.1.
+    function Get-GitLine([string[]] $GitArgs) {
+      $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+      try { $o = @(& $git.Source -C $PSScriptRoot @GitArgs 2>$null); if ($LASTEXITCODE -ne 0 -or $o.Count -eq 0) { return '' }; return "$($o[0])".Trim() }
+      finally { $ErrorActionPreference = $prev }
+    }
     if ($BuiltFrom) {
-      if ($head -cne $BuiltFrom) { Refuse "$ZipPath was built from $BuiltFrom, but this tree's HEAD is '$head', so its setup.ps1 is not the one that ships with the build. Stage from the cut's own checkout. Nothing was written." }
-    } else { Say "NOTICE (#7883): $ZipPath records no source commit (manifest.json source_sha), so the installer staged with it is this tree's HEAD ($head)." }
-    $SetupBytes = [IO.File]::ReadAllBytes($SetupPath)
-    if ($SetupBytes.Length -eq 0) { Refuse "$SetupPath is empty. Nothing was written." }
+      # The raw bytes of the blob, through a process stream (PowerShell's pipeline would decode and re-encode them).
+      $psi = New-Object Diagnostics.ProcessStartInfo $git.Source
+      $psi.Arguments = '-C "' + $PSScriptRoot + '" cat-file blob ' + $BuiltFrom + ':tools/windows/setup.ps1'
+      $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
+      $proc = [Diagnostics.Process]::Start($psi)
+      $errTask = $proc.StandardError.ReadToEndAsync()
+      $ms = New-Object IO.MemoryStream
+      try { $proc.StandardOutput.BaseStream.CopyTo($ms); $proc.WaitForExit(); $SetupBytes = $ms.ToArray() } finally { $ms.Dispose() }
+      if ($proc.ExitCode -ne 0) { Refuse "$ZipPath was built from $BuiltFrom, and this repository cannot read tools/windows/setup.ps1 at that commit ($($errTask.Result.Trim())). Fetch it (git fetch origin), then stage again. Nothing was written." }
+      $SetupFrom = "the build's commit $BuiltFrom"
+    } else {
+      $SetupPath = Join-Path $PSScriptRoot 'setup.ps1'
+      if (-not (Test-Path -LiteralPath $SetupPath -PathType Leaf)) { Refuse "the installer script $SetupPath is missing. Nothing was written." }
+      $head = Get-GitLine @('rev-parse', 'HEAD')
+      $blobHead = Get-GitLine @('rev-parse', 'HEAD:./setup.ps1')
+      $blobFile = Get-GitLine @('hash-object', '--no-filters', '--', 'setup.ps1')
+      if (-not $blobHead -or -not $blobFile -or $blobHead -cne $blobFile) { Refuse "$SetupPath is not byte for byte the script committed at this tree's HEAD (an uncommitted edit, or line endings converted by an older checkout: re-check it out with git rm --cached tools/windows/setup.ps1 and git checkout -- tools/windows/setup.ps1). Nothing was written." }
+      Say "NOTICE (#7883): $ZipPath records no source commit (manifest.json source_sha), so the installer staged with it is this tree's HEAD ($head)."
+      $SetupBytes = [IO.File]::ReadAllBytes($SetupPath)
+      $SetupFrom = "this tree's HEAD $head"
+    }
+    if ($SetupBytes.Length -eq 0) { Refuse "the installer script from $SetupFrom is empty. Nothing was written." }
     $SetupSha = Sha256-Bytes $SetupBytes
     $SetupVersioned = "setup-$Version.ps1"
-    Say "installer: tools/windows/setup.ps1 at $head ($SetupSha), staged as $SetupVersioned"
+    Say "installer: tools/windows/setup.ps1 from $SetupFrom ($SetupSha), staged as $SetupVersioned"
   }
 
   # The versioned name is IMMUTABLE once published (the same promise publish-kosmos-windows.sh
@@ -730,9 +749,10 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     # Not there when read, so create it only if it is STILL not there when the PUT lands.
     $putExtra = @{ 'if-none-match' = '*' }
   }
-  # kosmos#7883 (review 1): setup-<v>.ps1 keeps the zip's promise. Created only if absent; the same bytes again are
-  # pinned to what is there; different bytes need -ReplaceVersioned, and never for the version prod names, whose
-  # re-promote would otherwise publish an installer nobody staged with it.
+  # kosmos#7883 (reviews 1-2): setup-<v>.ps1 keeps the zip's promise. Created only if absent; the same bytes again
+  # are pinned to what is there; different bytes only together with a replaced zip (-ReplaceVersioned, which never
+  # touches the version prod names). The zip's sha is what Josh's go names, so an installer that changed under an
+  # unchanged zip would reach prod with nobody having approved or verified it.
   $setupPutExtra = $null
   if (-not $ForSigning) {
     $setupExisting = Get-Object $SetupVersioned
@@ -741,11 +761,8 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       if (-not $setupExisting.ETag) { Refuse "the bucket gave no ETag for $SetupVersioned, so its write cannot be pinned. Nothing was written." }
       $setupExistingSha = Sha256-Bytes $setupExisting.Bytes
       if ($setupExistingSha -cne $SetupSha) {
-        if (-not $ReplaceVersioned) { Refuse "$SetupVersioned is already in the bucket with DIFFERENT bytes ($setupExistingSha; this tree's are $SetupSha). Bump the version, or pass -ReplaceVersioned if this version was never promoted. Nothing was written." }
-        if ($prodNamed) {
-          $ps = Read-PointerFields $prodNamed.Bytes
-          if (-not $ps -or $ps.versioned -ceq $Versioned) { Refuse "$SetupVersioned belongs to the version PROD's latest-win.json names (or prod cannot be read); replacing it would change what a re-promote publishes as setup.ps1. Bump the version. Nothing was written." }
-        }
+        $zipChanging = [bool]($existing -and (Sha256-Bytes $existing.Bytes) -cne $Sha)
+        if (-not $zipChanging) { Refuse "$SetupVersioned is already in the bucket with DIFFERENT bytes ($setupExistingSha; these are $SetupSha), and its zip is not being replaced. The installer changes only with its build: bump the version, or replace the zip itself (-ReplaceVersioned) if this version was never promoted. Nothing was written." }
         Say "NOTICE -ReplaceVersioned: $SetupVersioned changes from $setupExistingSha to $SetupSha"
       }
       $setupPutExtra = @{ 'cache-control' = 'no-cache'; 'if-match' = $setupExisting.ETag }

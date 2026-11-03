@@ -56,3 +56,12 @@ via tools/lib/win-staging-record.js):
   promoted=yes log line. NIT1 explicit null checks and empty-script refusals; NIT2 the NOTICE says a rollback keeps
   the newer installer; NIT3 the BucketBase comment. NIT4 (harness precheck for a dirty local setup.ps1) not taken:
   CI checkouts are clean, and the refusal text already names the cause.
+- Round 2 (blind reviewer): 1 BLOCKER, 3 WARNING, 3 NIT. Fixed: BLOCKER the harness grep had setup_sha256 and
+  approval=given in the wrong order (would red Mac CI). W1 a zip that records source_sha gets that commit's blob read
+  from git through a process stream (no working-tree or HEAD coupling, no line-ending risk); measured on-box with
+  an older commit whose setup.ps1 differs: the staged bytes equal that blob's sha256 exactly. W2 the installer under
+  a staged version changes only together with a replaced zip, so the zip sha Josh approves pins it (source_sha is
+  inside the zip). W3 is covered by that: a setup change implies a zip replace, whose existing post-upload prod
+  re-read runs before the setup PUT. NIT1 git calls run with ErrorAction Continue and check exit codes. NIT2 the
+  refusal names the re-checkout commands. NIT3 not taken (a dry run reads every gate a real run reads before writing).
+  Known gap, for a follow-up card: on-box V2 does not yet run the staged setup-<v>.ps1 itself.
