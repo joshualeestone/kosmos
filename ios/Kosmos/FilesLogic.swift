@@ -56,6 +56,9 @@ extension Board {
     static let filesTitle = "Files"
     static let filesAll = "View All"
     static let filesAgentUnread = "We could not read this agent\u{2019}s files just now."
+    // kosmos#7679 review 1: the board's 404 line (paintAgentFiles), with "your computer" where the board names its own
+    // machine (the phone is not on it).
+    static let filesAgentNoFolder = "This agent has no folder of its own on your computer, so there is no Files list."
     // Review 2: a file is read whole into memory to open it, so one past this is not fetched (a 3 GB recording would get
     // the app killed, or run for minutes over cellular). It stays in Files on the computer.
     static let filesMaxOpenBytes = 100 * 1024 * 1024
@@ -195,12 +198,13 @@ extension Board {
     }
 
     // Review 4: the agent page's section, as the board's paintAgentFiles decides it (#3757, Josh 0.6.94: an agent with no
-    // files shows no Files section at all). Hidden while it loads, on a 404 (no folder of its own), or with no files;
+    // files shows no Files section at all). Hidden while it loads or with no files; a 404 (no folder of its own) says so, as
+    // the board does (kosmos#7679 review 1, now that Files is a segment of its own);
     // a refusal says the route's reason, or the board's line; otherwise the rows, and View All (#3994: whenever there is
     // a file, even one).
     enum FilesSectionState: Equatable { case hidden, message(String), rows([ListedFile]) }
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
-        if status == 404 { return .hidden }
+        if status == 404 { return .message(filesAgentNoFolder) }
         switch filesResult(status: status, body: body) {
         case .page(let p): return p.files.isEmpty ? .hidden : .rows(p.files)
         case .refused(let why):

@@ -80,7 +80,9 @@ check(Board.filesTooBig(.project("p")) == "This file is too big to open on the p
 section("the agent page's section (the board's paintAgentFiles, #3757 and #3994)")
 func sec(_ s: String, _ st: Int = 200) -> Board.FilesSectionState { Board.filesSection(status: st, body: Data(s.utf8)) }
 check(sec(#"{"ok":true,"missing":true,"total":0,"files":[]}"#) == .hidden && sec(#"{"ok":true,"total":0,"files":[]}"#) == .hidden, "no files, no section")
-check(sec(#"{"ok":false,"because":"no agent by that name"}"#, 404) == .hidden, "a 404, no section")
+check(sec(#"{"ok":false,"because":"no agent by that name"}"#, 404) == .message(Board.filesAgentNoFolder), "a 404 says the agent has no folder of its own (review 1: as the board does, not \"no files yet\")")
+check(boardPage.contains("'This agent has no folder of its own on ' + (typeof thisMachine") && boardPage.contains("', so there is no Files list.'"), "the board still says the no-folder line in these two halves")
+check(Board.filesAgentNoFolder.hasPrefix("This agent has no folder of its own on ") && Board.filesAgentNoFolder.hasSuffix(", so there is no Files list."), "the phone's line is the board's, with your computer for its machine")
 check(sec(#"{"ok":false,"because":"its Files is a link, so it is not listed","files":[]}"#) == .message("Its Files is a link, so it is not listed."), "a refusal says the route's reason")
 check(sec(#"{"ok":false,"because":""}"#) == .message("We could not read this agent\u{2019}s files just now."), "an empty reason falls back to the board's line (review 5)")
 check(Board.filesSection(status: 0, body: nil) == .message("We could not read this agent\u{2019}s files just now.") && sec("<html>sign in</html>") == .message("We could not read this agent\u{2019}s files just now."), "no answer, or the gate's page: the board's line")

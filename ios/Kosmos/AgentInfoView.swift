@@ -1,7 +1,7 @@
 import SwiftUI
 
-// kosmos#7267: the agent's own page, opened by the chat's info button. Profile and AI Settings under a segmented
-// control (Josh: "a hybrid of the agent's Profile and its AI Settings, using a segmented control to switch between the
+// kosmos#7267: the agent's own page, opened by the chat's info button. Profile and AI Settings, and since kosmos#7679
+// Files, under a segmented control (Josh: "a hybrid of the agent's Profile and its AI Settings, using a segmented control to switch between the
 // two sections"), never the conversation again. Words are the board's (web/index.html d-sec-profile, d-sec-model,
 // d-sec-memory); the decisions are in AgentInfoLogic.swift (tested).
 struct AgentInfoView: View {
@@ -82,7 +82,7 @@ struct AgentInfoView: View {
         }
     }
 
-    // The face, name and role, then the two parts' switch.
+    // The face, name and role, then the switch between the parts.
     private var header: some View {
         VStack(spacing: 10) {
             AgentAvatar(name: live.name, picture: client.pictures[live.session].flatMap { UIImage(data: $0) }, tone: nil, size: 72)
@@ -302,7 +302,9 @@ struct AgentInfoView: View {
         #if DEBUG
         if AgentInfoView.sample { applySample(); filesRead = await FilesSection.read(client: client, session: session); filesLoaded = true; return }
         #endif
-        async let files = FilesSection.read(client: client, session: session)   // kosmos#7679
+        // kosmos#7679 review 1: Files is applied as soon as its own read is back, not after the slowest of the others,
+        // since it is a segment of its own now.
+        async let filesDone: Void = loadFiles(session)
         async let status = client.throughMac { Board.statusRequest(mac: $0) }
         async let instr = client.throughMac { Board.instructionsRequest(mac: $0, session: session) }
         async let sk = client.throughMac { Board.skillsRequest(mac: $0, session: session) }
@@ -318,10 +320,14 @@ struct AgentInfoView: View {
         instructions = i.flatMap { $0.1.statusCode == 200 ? Board.parseInstructions($0.0) : nil } ?? instructions
         skills = k.flatMap { $0.1.statusCode == 200 ? Board.parseSkills($0.0) : nil } ?? skills
         readFailed = d == nil || instructions == nil || skills == nil
+        await filesDone
+    }
+
+    private func loadFiles(_ session: String) async {
+        let newFiles = await FilesSection.read(client: client, session: session)
         // Review 2: a refresh that gets no answer keeps the list it had, as instructions and skills keep theirs; a
         // refusal or a new list replaces it. (A deliberate difference from the board, which says it could not read: a
         // phone loses its connection far more than a desk page does, and the rows it had are still the agent's.)
-        let newFiles = await files
         if newFiles == .message(Board.filesAgentUnread), case .rows = filesRead {} else { filesRead = newFiles }
         filesLoaded = true
     }

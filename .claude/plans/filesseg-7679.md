@@ -14,7 +14,10 @@ and AI Settings, instead of a section at the foot of Profile.
 
 ## Decided
 - Files last, after the two segments the board's page has, so Profile stays the page's first view.
-- A 404 (the agent has no folder of its own) reads as "no files yet" in the segment, as on the board's panel.
+- A 404 (the agent has no folder of its own: a long-running fleet agent, or a board too old for the route) says the
+  board's own line, "This agent has no folder of its own on your computer, so there is no Files list." (review 1; the
+  board names its machine where the phone says "your computer"). Before, at the foot of Profile, a 404 hid the section.
+- The Files result is applied as soon as its own read is back (review 1), not after the slowest of the page's reads.
 - Rejected: hiding the Files segment for an agent with no files (a control that comes and goes moves the other two).
 
 ## Not in this branch
@@ -23,5 +26,5 @@ and AI Settings, instead of a section at the foot of Profile.
 - Instructions and Skills reading "We cannot read this right now" on Josh's phone: a separate read failure, reported on
   the card; this branch does not touch it.
 
-## Shots (simulator, sample data)
+## Shots (simulator, sample data; under Files on Ice Cream Kitty's page, named on the #7679 card)
 7679-seg-files (two files and View All), 7679-seg-files-empty (the empty line), 7679-seg-profile, 7679-seg-ai.
