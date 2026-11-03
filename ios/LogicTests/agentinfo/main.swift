@@ -145,6 +145,8 @@ check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(4
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(500, #"{"error":"those instructions could not be read"}"#))) == ("Old text", nil), "a 500 with words keeps the instructions shown")
 check(Board.profileNext(shown: nil as String?, read: Board.instructionsRead(answer(500, #"{"error":"those instructions could not be read"}"#))) == (nil, "Those instructions could not be read."), "a 500 with nothing shown gives the board's words")
 check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(answer(403, "{}"))) == ([Board.Skill(key: "a", name: "A")], nil), "a 403 keeps the skills shown")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(429, #"{"error":"too many requests"}"#))) == ("Old text", nil), "a 429 is not now: it keeps what was shown")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(200, #"{"exists":false,"editable":false}"#))) == ("Old text", nil), "a 200 that is not the thing and gives no words keeps what was shown")
 check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(answer(404, #"{"ok":false,"because":"it was removed"}"#))) == (nil, "It was removed."), "a refusal replaces the skills shown")
 
 section("fresh start")

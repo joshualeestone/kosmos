@@ -252,7 +252,9 @@ extension Board {
     static func notTheValue<T: Equatable>(_ data: Data, status: Int) -> ProfileRead<T> {
         if status == 401 || status == 403 { return .unanswered(profileShutOut) }
         guard let words = boardReason(data) else { return .unanswered(profileCannotRead) }
-        return status >= 500 ? .unanswered(words) : .refused(words)
+        // 408 and 429 are "not now" as much as a 5xx; any other answer with words is the board's reason for this agent
+        // as it stands, so it replaces a value shown (a list from before that reason is no longer what the board says).
+        return status >= 500 || status == 408 || status == 429 ? .unanswered(words) : .refused(words)
     }
     // The board's own words for why not: its `because`, else its `error`, as a sentence; nil when it gave none.
     static func boardReason(_ data: Data) -> String? {
