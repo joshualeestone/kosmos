@@ -75,10 +75,11 @@ test('#7875: tasks this agent changed today, by number and kinds, never a title;
     'launch.task-1': [{ at: at(9, 0, 2), kind: 'created', addedBy: 'Dana', addedVia: 'process' }],
     'launch.task-2': [{ at: at(9, 0), kind: 'created', addedBy: 'Dana', addedVia: 'process' }],
     'launch.task-4': [{ at: at(9, 0), kind: 'created', by: 'Dana' }, { at: at(9, 5), kind: 'said', text: 'x' }],
+    'launch.task-5': [{ at: at(9, 0), kind: 'created', addedBy: 'Dana', addedVia: 'webhook' }],
   };
   const out = run({
     readThread: () => [],
-    listTaskFiles: () => ['launch.task-2.jsonl', 'catalog.task-3.jsonl', 'catalog.task-7.jsonl', 'launch.task-1.jsonl', 'launch.task-4.jsonl', 'notes.txt'],
+    listTaskFiles: () => ['launch.task-2.jsonl', 'catalog.task-3.jsonl', 'catalog.task-7.jsonl', 'launch.task-1.jsonl', 'launch.task-4.jsonl', 'launch.task-5.jsonl', 'notes.txt'],
     readTask: (p, n) => rows[p + '.task-' + n] || [],
   });
   const text = out.join('\n');
@@ -86,6 +87,7 @@ test('#7875: tasks this agent changed today, by number and kinds, never a title;
   assert.ok(text.includes('  launch #2: created'), text);
   assert.ok(!text.includes('catalog #7'), 'another agent\'s change is not listed');
   assert.ok(!text.includes('launch #1'), 'yesterday\'s change is not listed');
+  assert.ok(!text.includes('launch #5'), 'a webhook labelled like the agent did not create it as the agent');
   assert.ok(!text.includes('launch #4'), 'a created row is the agent\'s by addedBy, never by a `by` it does not carry; a said row names nobody');
   assert.ok(!text.includes('SECRET TITLE'), 'no title');
   assert.ok(text.indexOf('catalog #3') < text.indexOf('launch #2'), 'by project');
@@ -117,6 +119,9 @@ test('#7875: the task folder: absent is none, unreadable throws (so the digest s
     fs.utimesSync(path.join(dir, 'p.task-2.jsonl'), old, old);
     const today = fb.dateKey(new Date());
     assert.deepEqual(day.listTaskFilesIn(dir, today, fb.dateKey), ['p.task-1.jsonl']);
+    fs.chmodSync(path.join(dir, 'p.task-1.jsonl'), 0o000);   // one transcript it cannot open: an error, never "no change"
+    if (process.platform !== 'win32' && process.getuid && process.getuid() !== 0) assert.throws(() => day.listTaskFilesIn(dir, today, fb.dateKey));
+    fs.chmodSync(path.join(dir, 'p.task-1.jsonl'), 0o600);
     const bad = day.digest({ name: 'Dana', date: DATE, readThread: () => [], listTaskFiles: () => day.listTaskFilesIn(notDir, DATE, fb.dateKey) }).join('\n');
     assert.ok(bad.includes('Kosmos could not read them on this computer'), bad);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
@@ -129,6 +134,19 @@ test('#7875: the record name is the token\'s KEY (where the board files its reco
   assert.equal(day.recordName(env, { agentToken: () => 't', resolveName: () => ({ ok: false }) }), null);
   assert.equal(day.recordName(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: true, name: 'angel' }) }), 'angel');
   assert.equal(day.recordName(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: false }) }), null);
+});
+
+test('#7875: a name Kosmos keeps no conversation under says so; a file with no words reads as a file', () => {
+  const bad = Object.assign(new Error('that is not an agent name we can keep a thread under'), { code: 'BAD_THREAD' });
+  const out = run({ readThread: () => { throw bad; } }).join('\n');
+  assert.ok(out.includes('Kosmos keeps no conversation under this agent\'s name.'), out);
+  assert.ok(!out.includes('could not read it'), out);
+  const file = run({ readThread: () => [{ at: at(9, 0), text: '', from: null }] }).join('\n');
+  assert.ok(file.includes('09:00 them: (a file, no words)'), file);
+});
+
+test('#7875: the digest reminds the agent not to copy names or words into the report', () => {
+  assert.match(run({ readThread: () => [] })[1], /Do not copy names, project names, task numbers or your person's words/);
 });
 
 test('#7875: no tasks today and unreadable tasks read differently', () => {

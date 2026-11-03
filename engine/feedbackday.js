@@ -43,7 +43,7 @@ function conversation(messages, name, date, dateKey) {
     if (m.kosmos === true || m.wire != null) continue;   // Kosmos's own line in the agent's name, or a menu keystroke
     const d = onDay(m.at, date, dateKey);
     if (!d) continue;
-    out.push({ d, mine: m.from === name, text: firstLine(m.text) });
+    out.push({ d, mine: m.from === name, text: firstLine(m.text) || '(a file, no words)' });
   }
   return out.sort((a, b) => a.d - b.d);
 }
@@ -54,7 +54,7 @@ const TASK_FILE = /^(.+)\.task-(\d+)\.jsonl$/;
 /* Whether a transcript row names this agent as its author. Most rows name nobody (said, closed, hold-set, ...), so only
    these can count: a task it created through the CLI (`addedBy`), and a mark, run or move it made (`by`). */
 function byAgent(r, name) {
-  if (r.kind === 'created') return r.addedBy === name;
+  if (r.kind === 'created') return r.addedVia === 'process' && r.addedBy === name;   // as tasks.js AGENT_ROW.created
   return r.by === name;
 }
 /* The tasks this agent changed on `date`: [{ project, number, kinds }], by project then number. */
@@ -87,6 +87,10 @@ function listTaskFilesIn(dir, date, dateKey) {
   return names.filter((n) => {
     if (!TASK_FILE.test(n)) return false;
     try { return dateKey(fs.statSync(path.join(dir, n)).mtime) === date; } catch { return false; }
+  }).map((n) => {
+    // taskchat.read answers [] for a file it cannot open, which would read as "no change": check it can be read here.
+    fs.accessSync(path.join(dir, n), fs.constants.R_OK);
+    return n;
   });
 }
 
@@ -122,10 +126,14 @@ function digest(o) {
   const listTaskFiles = o.listTaskFiles || (() => listTaskFilesIn(require('./taskchat').taskChatsDir(), date, dateKey));
   const readTask = o.readTask || ((p, n) => require('./taskchat').read(p, n));
 
-  const lines = ['Your day on this computer, ' + date + ' (for your feedback report; nothing here is sent anywhere).', ''];
+  const lines = ['Your day on this computer, ' + date + ' (for your feedback report; nothing here is sent anywhere).',
+    'Do not copy names, project names, task numbers or your person\'s words into the report: describe what happened.', ''];
   let talk = null;
-  try { talk = conversation(readThread(name), name, date, dateKey); } catch { talk = null; }
-  if (talk == null) {
+  let unfilable = false;
+  try { talk = conversation(readThread(name), name, date, dateKey); } catch (err) { talk = null; unfilable = Boolean(err && err.code === 'BAD_THREAD'); }
+  if (talk == null && unfilable) {
+    lines.push('Your conversation with your person: Kosmos keeps no conversation under this agent\'s name.');
+  } else if (talk == null) {
     lines.push('Your conversation with your person: Kosmos could not read it on this computer.');
   } else if (talk.length === 0) {
     lines.push('Your conversation with your person: nothing today.');
