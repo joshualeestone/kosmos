@@ -55731,7 +55731,7 @@ function pbMaybe() {
 }
 function pbPrice(st, from) {
   const said = typeof plusSiAddPrice === 'function' && st && st.price ? plusSiAddPrice(st.price) : '';
-  // kosmos#7404: the off view's price is the smallest plan's, so it says "from" (Mona Lisa m2544).
+  // kosmos#7404: the price shown is the smallest plan's, so the off view and the words say "from" (Mona Lisa m2544).
   return said ? 'Personal backup is ' + (from ? 'from ' : '') + said + ', billed to your Kosmos+ account.' : '';   // review 1: never a "to be set" line
 }
 function pbList(id, items) {
@@ -55758,7 +55758,7 @@ function pbPaint() {
   document.getElementById('pb-price').textContent = pbPrice(st, true); document.getElementById('pb-price').hidden = !price;
   document.getElementById('pb-on-row').hidden = !price;   // no price, nothing to agree to (the server refuses preview too)
   document.getElementById('pb-restore-hint').hidden = !price;   // Mona Lisa 1: the hint points at Turn on, so it goes with it
-  document.getElementById('pb-words-price').textContent = PB.view === 'words' ? pbPrice({ price: PB.wordsPrice }) : price;
+  document.getElementById('pb-words-price').textContent = PB.view === 'words' ? pbPrice({ price: PB.wordsPrice }, true) : pbPrice(st, true);
   const say = document.getElementById('pb-on-say');
   const lines = pbJobLines(v === 'on' ? st.job : null);
   say.textContent = v === 'pending' ? 'Kosmos is checking with Kosmos+ whether personal backup is on for this computer. This takes a few minutes.'
@@ -56040,9 +56040,10 @@ async function pbRestore() {
 }
 document.getElementById('pb-on').addEventListener('click', pbOpen);
 /* kosmos#7404 plan screen. The plans are read (POST /api/personal-backup/plans: the sizes on sale and the current plan, by
-   GB or null) when the on view shows, then once a minute only until a read works or while a payment page is open;
-   with a plan, nothing more is read. */
+   GB or null) when the on view shows, then once a minute until a read works and for half an hour after Choose, and
+   once an hour otherwise; with a plan, nothing more is read. */
 var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, gb: null, since: 0, reading: false, msgFrom: null };
+const PBP_WAIT_MS = 30 * 60000;
 const PBP_RECHECK_MS = 60 * 60000;   // the backup runs hourly, so its no-plan stop is at most an hour behind a payment
 const PBP_CONFIRMING_MS = 3 * 60000;   // Kitty m2543: a late webhook can take hours, so after a few minutes say so
 function pbpMsg(t, from) { document.getElementById('pb-plans-msg').textContent = t ? asSentence(t) : ''; PBP.msgFrom = t ? from || null : null; }
@@ -56064,7 +56065,10 @@ function pbpOnView(on, lines, drop) {
 function pbpShow(on, drop) {
   if (drop) { PBP.plans = null; PBP.planGb = undefined; PBP.url = null; PBP.gb = null; PBP.since = 0; PBP.at = 0; PBP.seq++; PBP.gen++; PBP.reading = false; pbpMsg(''); }
   const hasPlan = Number.isSafeInteger(PBP.planGb);
-  if (on && !hasPlan && Date.now() - PBP.at > 60000 && (PBP.plans === null || PBP.url)) pbpRead();
+  const since = Date.now() - PBP.at;
+  // Each minute until a read works, and for half an hour after Choose; otherwise each hour (a plan paid for elsewhere,
+  // or a payment page left open and never paid).
+  if (on && !hasPlan && ((since > 60000 && (PBP.plans === null || (PBP.url && Date.now() - PBP.since < PBP_WAIT_MS))) || since > PBP_RECHECK_MS)) pbpRead();
   pbpPaint(on);
 }
 function pbpRead() {
@@ -56105,7 +56109,7 @@ function pbpPaint(on) {
   for (const b of list.querySelectorAll('button')) b.disabled = PBP.busy;
   const wait = document.getElementById('pb-plans-wait');
   const waiting = show && !!PBP.url;
-  const words = !waiting ? '' : Date.now() - PBP.since > PBP_CONFIRMING_MS ? 'Your payment is being confirmed. This updates when your plan arrives.'
+  const words = !waiting ? '' : Date.now() - PBP.since > PBP_CONFIRMING_MS ? 'If you paid, your payment is being confirmed. This updates when your plan arrives.'
     // Mona Lisa's review: every row still reads Choose, so the line names the plan that is waiting for payment.
     : 'Finish the ' + Number(PBP.gb).toLocaleString() + ' GB plan on the payment page. This updates when it arrives.';
   if (wait.textContent !== words) wait.textContent = words;

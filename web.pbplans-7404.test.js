@@ -28,7 +28,7 @@ function fakeDoc() {
 function pbpState() {
   const m = SCRIPT.match(/\nvar PBP = \{[^\n]*\};\n/);
   assert.ok(m, 'CONTROL: var PBP was not found in the page');
-  return m[0] + SCRIPT.match(/\nconst PBP_RECHECK_MS = [^\n]*\n/)[0] + SCRIPT.match(/\nconst PBP_CONFIRMING_MS = [^\n]*\n/)[0];
+  return m[0] + SCRIPT.match(/\nconst PBP_WAIT_MS = [^\n]*\n/)[0] + SCRIPT.match(/\nconst PBP_RECHECK_MS = [^\n]*\n/)[0] + SCRIPT.match(/\nconst PBP_CONFIRMING_MS = [^\n]*\n/)[0];
 }
 function screen(doc, fetchImpl) {
   const src = page.liftAll(SCRIPT, ['asSentence', 'plusSiAddPrice', 'pbPost', 'pbpMsg', 'pbpRows', 'pbpOnView', 'pbpShow', 'pbpRead', 'pbpPaint', 'pbpChoose']) + '\n' + pbpState();
@@ -135,7 +135,7 @@ test('after a few minutes with no plan, the line says the payment is being confi
   s.pbpShow(true, false); await tick(); await tick();
   await s.pbpChoose(25);
   s.PBP.since = Date.now() - 4 * 60000; s.pbpPaint(true);
-  assert.equal(doc.getElementById('pb-plans-wait').textContent, 'Your payment is being confirmed. This updates when your plan arrives.');
+  assert.equal(doc.getElementById('pb-plans-wait').textContent, 'If you paid, your payment is being confirmed. This updates when your plan arrives.');
   assert.ok(vis(doc, 'pb-plans-open-row'), 'the link stays, to open the page again');
 });
 
@@ -175,9 +175,9 @@ test('with rows and no payment page open, nothing more is read each minute; a fa
   let calls = 0, fail = true;
   const s = screen(doc, () => { calls++; return fail ? answer({ ok: false, because: 'x' })() : answer({ ok: true, plans: PLANS, planGb: null })(); });
   s.pbpShow(true, false); await tick(); await tick();
-  fail = false; s.PBP.at = 0; s.pbpShow(true, false); await tick(); await tick();
+  fail = false; s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
   assert.equal(calls, 2, 'CONTROL: a failed first read is tried again');
-  s.PBP.at = 0; s.pbpShow(true, false); await tick(); await tick();
+  s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
   assert.equal(calls, 2, 'the plans were read again with nothing to wait for');
 });
 
@@ -228,10 +228,11 @@ test('the no-plan stop line stays while the plans cannot be read, so the person 
 });
 
 
-test('the off view says "from" the smallest plan\'s price; the words view keeps the plain price', () => {
+test('the off view and the words say "from" the smallest plan\'s price', () => {
   const f = new Function(page.liftAll(SCRIPT, ['plusSiAddPrice', 'pbPrice']) + '\nreturn pbPrice;')();
   assert.equal(f({ price: '$5/month' }, true), 'Personal backup is from $5 a month, billed to your Kosmos+ account.');
-  assert.equal(f({ price: '$5/month' }), 'Personal backup is $5 a month, billed to your Kosmos+ account.');
+  assert.equal(f({ price: '$5/month' }), 'Personal backup is $5 a month, billed to your Kosmos+ account.', 'CONTROL: without from');
+  assert.match(SCRIPT, /'pb-words-price'\)\.textContent = PB\.view === 'words' \? pbPrice\(\{ price: PB\.wordsPrice \}, true\) : pbPrice\(st, true\)/, 'the words, where the person agrees, said one flat price');
   assert.equal(f({ price: null }, true), '', 'a line with no price');
 });
 
@@ -261,4 +262,28 @@ test('a no-plan stop against a plan read an hour ago reads the plan again; a lap
   s.pbpOnView(true, NO_PLAN_LINES, false);
   assert.ok(vis(doc, 'pb-plans'), 'the lapsed plan left no way to choose one');
   assert.ok(!vis(doc, 'pb-job'));
+});
+
+test('no plan and no page open: the plan is read again each hour, so one paid for elsewhere replaces the rows', async () => {
+  const doc = fakeDoc();
+  let planGb = null, reads = 0;
+  const s = screen(doc, () => { reads++; return answer({ ok: true, plans: PLANS, planGb })(); });
+  s.pbpShow(true, false); await tick(); await tick();
+  s.PBP.at = Date.now() - 30 * 60000; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(reads, 1, 'CONTROL: not every minute');
+  planGb = 25; s.PBP.at = Date.now() - 61 * 60000; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(reads, 2, 'a plan paid for elsewhere was never read');
+  assert.ok(!vis(doc, 'pb-plans'));
+});
+
+test('a payment page left open half an hour is read each hour, not each minute', async () => {
+  const doc = fakeDoc();
+  let reads = 0;
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: true, url: STRIPE })() : (reads++, answer({ ok: true, plans: PLANS, planGb: null })())));
+  s.pbpShow(true, false); await tick(); await tick();
+  await s.pbpChoose(25);
+  s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(reads, 2, 'CONTROL: each minute just after Choose');
+  s.PBP.since = Date.now() - 31 * 60000; s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(reads, 2, 'an abandoned payment page kept a read every minute');
 });

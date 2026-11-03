@@ -1030,6 +1030,7 @@ test('#7404 plans: a list read wrong offers nothing (not a whole positive GB, a 
     const r = await pb.preview({ root: fresh(t), remote: coordinator({ preview: answer(plans) }), shownPrice: '$5/month' });
     assert.equal(r.ok, false, label + ': ' + JSON.stringify(r));
     assert.equal(r.ticket, undefined, label + ': a ticket was issued');
+    assert.notEqual(r.code, 'price_unconfirmed', label + ': refused for the price, not for the list');
   }
 });
 
