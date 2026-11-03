@@ -1614,6 +1614,10 @@ function scan(opts) {
  * they do there. Doing less work is not the same as doing less checking, and a
  * shorter path that skipped the guards would be the actual danger.
  */
+/* kosmos#7835: whether a delete of what is left under this name is running (delete-leftover's hold). */
+function deletingUnder(name) {
+  try { return require('./delete-leftover').deletingName(name); } catch { return false; }
+}
 function registerOnly(given, name, { create, store }) {
   if (!create.nameUsable(name)) {
     return { ok: false, because: 'that name cannot be used as an agent name' };
@@ -1621,6 +1625,9 @@ function registerOnly(given, name, { create, store }) {
   if (create.hasJob(name)) {
     return { ok: false, because: 'Kosmos already looks after an agent by that name' };
   }
+  /* kosmos#7835: a delete of what is left under this name may be waiting on the Windows Recycle Bin with the board free;
+     its last steps (the name's tokens, records, history) would land on an agent connected meanwhile. */
+  if (deletingUnder(name)) return { ok: false, because: 'what is left of an agent by that name is still being deleted; try again when that has finished' };
   const running = runningUnderName(name);
   if (running === undefined) {
     return { ok: false, because: 'we could not check what is running on this computer, so we did not add it' };
@@ -1950,6 +1957,9 @@ function connect(dir, opts) {
   if (create.hasJob(name)) {
     return { ok: false, because: 'Kosmos already looks after an agent by that name' };
   }
+  /* kosmos#7835: a delete of what is left under this name may be waiting on the Windows Recycle Bin with the board free;
+     its last steps (the name's tokens, records, history) would land on an agent connected meanwhile. */
+  if (deletingUnder(name)) return { ok: false, because: 'what is left of an agent by that name is still being deleted; try again when that has finished' };
   /* 🛑 AND NOT WHEN SOMETHING IS ALREADY RUNNING UNDER THAT NAME (#362). The
      add installs a job and starts it; on a folder whose agent is already up,
      started some other way, that is a second Claude in the same worker folder.
