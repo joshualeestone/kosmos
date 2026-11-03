@@ -1159,7 +1159,7 @@ test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in 
   // Mona Lisa's review: a refusal that may pass gives the next step, in her words.
   const RETRY = 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.';
   const down = await onWith(t, { checkout: () => null });
-  assert.deepEqual(await pb.checkout(25, { root: down.root, remote: down.remote }), { ok: false, code: 'backup_checkout_unsure', because: 'Kosmos+ did not answer just now. If you already paid, your plan shows here shortly; if not, choose your plan again in a minute.' }, 'Kosmos+ unreached');
+  assert.deepEqual(await pb.checkout(25, { root: down.root, remote: down.remote }), { ok: false, code: 'backup_checkout_unsure', because: 'Kosmos+ could not finish that just now. If you already paid, your plan shows here shortly; if not, choose your plan again in a minute.' }, 'Kosmos+ unreached');
   const odd = await onWith(t, { checkout: () => ({ ok: true, data: { url: 'https://evil.example/x' } }) });
   assert.deepEqual(await pb.checkout(25, { root: odd.root, remote: odd.remote }), { ok: false, because: RETRY }, 'a page this Kosmos does not open');
   const opening = await onWith(t, { checkout: () => ({ ok: false, because: '409', refusal: { status: 409 } }) });
