@@ -45,3 +45,13 @@ which hides a real leftover rather than offering a wrong one.
   REASONED, not measured: the server not remembering a failed read (no route-level way to fail the read in the test).
 - Declined: "settings and picture" wording (a picture reads as part of its settings); clearing the memo on connect and
   world-start writes (a stale row lives at most 15 s and its click refuses with a true sentence).
+
+## Review round 2 (sonnet)
+- BLOCKER, fixed: a delete cleared the remembered list but not the poll's survey, which was taken before the delete and
+  reused, so the deleted name was listed again for 15 s. The delete now clears both. The route test polls the board
+  first, and reds without the fix.
+- Fixed: the page drops a just-deleted name from the kept rows, and kept rows expire after a minute without the field.
+  Browser-check arms for both, each mutation-checked; README controls re-measured.
+- Declined: clearing the memo on create, restore and remove (a stale row lives at most about 25 s and its click
+  refuses with a true sentence; create writes the profile last, create.js:7205, so a half-made agent is not listed);
+  a failure cache (a failed read costs one survey per poll, as the board's offline rows already pay).

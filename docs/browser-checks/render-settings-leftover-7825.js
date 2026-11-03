@@ -49,6 +49,9 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     window.fetch = (u, opts) => {
       const url = String(u);
       if (url.indexOf('/api/removed') !== -1) return Promise.resolve({ ok: true, json: async () => body });
+      if (url.indexOf('/leftover') !== -1 && opts && opts.method === 'DELETE') {
+        return Promise.resolve({ ok: true, json: async () => ({ outcome: 'deleted', said: 'Stray\'s settings are in the Trash. The name is free.' }) });
+      }
       if (url.indexOf('/leftover') !== -1) {
         planAsked = url;
         return Promise.resolve({ ok: true, json: async () => ({ ok: false, because: 'stray-7825 is waiting to start on this computer, so its settings are not left over.' }) });
@@ -92,6 +95,20 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     body = { agents: [{ name: 'gone-7825', shownAs: 'Gone', removedAt: '2026-11-02T00:00:00Z', stopped: true, accountFolderGone: false }] };
     await paintRemoved();
     out.failed = snap();
+    // 3b. kept rows expire: a board that keeps answering without the field for over a minute
+    LEFTOVERS_AT = Date.now() - 61000;
+    await paintRemoved();
+    out.expired = snap();
+    // 3c. a name just deleted is not drawn again from the kept rows
+    body = { agents: [], leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }] };
+    await paintRemoved();
+    openDeleteModal({ ok: true, name: 'stray-7825', shown: 'Stray', question: 'Delete what is left of Stray?', reassurance: '', loses: [], verb: 'Move its settings to the Trash', typeToConfirm: null });
+    // After the delete the board's next leftovers read fails (field absent): the repaint the handler does, and the next.
+    body = { agents: [{ name: 'gone-7825', shownAs: 'Gone', removedAt: '2026-11-02T00:00:00Z', stopped: true, accountFolderGone: false }] };
+    document.getElementById('del-go').click();
+    await new Promise((res) => setTimeout(res, 80));
+    await paintRemoved();
+    out.afterDelete = snap();
     // 4. NEGATIVE: nothing removed and nothing left over
     body = { agents: [], leftovers: [] };
     await paintRemoved();
@@ -124,6 +141,8 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   check(m.hint === true && m.hintAfterRemoved === 1, 'mixed: the folder hint stays with the removed rows, before the leftovers', String(m.hintAfterRemoved));
 
   check(r.failed.rows.some((x) => x.who === 'Stray') && r.failed.rows.some((x) => x.who === 'Gone'), 'a failed leftovers read keeps the leftover rows last drawn', JSON.stringify(r.failed.rows));
+  check(!r.expired.rows.some((x) => x.who === 'Stray') && r.expired.rows.some((x) => x.who === 'Gone'), 'kept leftover rows expire after a minute without the field', JSON.stringify(r.expired.rows));
+  check(!r.afterDelete.rows.some((x) => x.who === 'Stray'), 'a name just deleted is not drawn again from the kept rows', JSON.stringify(r.afterDelete.rows));
   check(r.none.wrapHidden === true, 'NEGATIVE: nothing removed and nothing left over hides the section', JSON.stringify(r.none));
 
   await browser.close();
