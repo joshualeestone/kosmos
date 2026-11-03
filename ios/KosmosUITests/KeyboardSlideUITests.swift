@@ -146,6 +146,39 @@ final class KeyboardSlideUITests: XCTestCase {
         XCTAssertFalse(newest.exists && newest.isHittable, "the reader was pulled down to the newest message")
     }
 
+    // kosmos#7817 (Josh 11-02, his phone): typing a long message at the newest message, every new line of the box moved
+    // the conversation behind it somewhere else (3 lines: the newest message above the box; 6 lines: it behind the box and
+    // older messages in view). The newest message must stay the same distance above the box as it grows a line at a time,
+    // and again as it shrinks. Measured to the box itself (its top moves up a line at a time), within 4 pt.
+    func testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks() throws {
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_TRACE": "1"])
+        let box = Self.box(app)
+        let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
+        XCTAssertTrue(newest.waitForExistence(timeout: 15), "the long chat did not open at its newest message")
+        Self.settle(newest)
+        try Self.keyboardUp(app, box, newest, shot: "grow-keyboard-up", test: self)
+        Self.assertAbove(newest, box, app.keyboards.firstMatch)
+        let gap0 = box.frame.minY - newest.frame.maxY
+        let h0 = box.frame.height
+        func checkGap(_ when: String) {
+            Self.settle(box)
+            Self.settle(newest)
+            XCTAssertTrue(newest.exists, "\(when): the newest message is no longer drawn")
+            let gap = box.frame.minY - newest.frame.maxY
+            XCTAssertEqual(gap, gap0, accuracy: 4, "\(when) (box \(Int(box.frame.height)) pt tall): the newest message ends \(Int(gap)) pt above the box, not \(Int(gap0))")
+        }
+        // A line or so at a time, as a person types.
+        for i in 1...5 {
+            box.typeText("the catalogue pages need the new photos before Monday ")
+            checkGap("after piece \(i)")
+        }
+        XCTAssertGreaterThan(box.frame.height, h0 + 60, "the box did not grow by at least three lines")
+        let a = XCTAttachment(screenshot: app.screenshot()); a.name = "grown"; a.lifetime = .keepAlways; add(a)
+        // And back down: deleting the last two pieces takes lines off the box.
+        box.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 110))
+        checkGap("after deleting two pieces")
+    }
+
     private static func launch(_ env: [String: String]) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchEnvironment["KOSMOS_SAMPLE_AGENTS"] = "1"
