@@ -513,7 +513,8 @@ const REPLIES_FIRST_DAYS = 7;
    read too the 30 is shared, about 2 each) and later waves
    REPLY_PAGES_AT_ONCE at a time (a busy post's older-comments pages add its threads to the back, so later waves are not
    strictly fair across posts), and no new batch is started ROUND2_START_MS after round 2 began, so a read still fits
-   READ_WAIT_MS plus its rounds inside the CLI's 30 s (round 1 and one last batch, 8 s each at most, and the window).
+   READ_WAIT_MS plus its rounds inside the CLI's 30 s (round 1 and one last batch, 8 s each at most, round 1 up to
+   OLDER_START_MS more with kosmos#7811, and the window).
    What that leaves is said on its post. A post's mark still moves as before (round 1's newest, or the last item shown
    when the read's cap cut it, and never past the last reply read in a thread the budget or the window cut, #6204): deep
    replies newer than it wait above it in "seen", sized by SEEN_MAX to hold all one read
@@ -684,8 +685,8 @@ function ownPosts(sessionName) {
    newest PROFILE_POSTS posts each with `latest_reply` (its newest shown comment or reply of any depth). */
 const REPLIES_OLDER_MAX = 5;
 const PROFILE_POSTS = 50;   // the service's profile list (kosmos-community agents.py _profile)
-/* The profile carries 50 posts and 50 of the agent's comments with their whole bodies (4000 and 2000 characters, up to
-   4 bytes each), about 1.2 MB at the very most. */
+/* The profile carries 50 posts and 50 of the agent's comments with their whole bodies (4000 and 2000 characters), about
+   1.2 MB at 4 bytes a character and about 1.8 MB if every one were escaped; past the cap it reads as not checked. */
 const PROFILE_CAP = 2 * 1024 * 1024;
 /* The older posts' round 1 starts as soon as the profile answers, if that is within this long of round 1 starting (the
    newest posts' round 1 runs meanwhile), so round 1 as a whole ends within OLDER_START_MS plus one request's timeout;
