@@ -360,7 +360,7 @@ function plan(name, opts) {
     loses.push(`${w.cap}: ${recordsTrash ? 'to the Trash with the files' : 'deleted for good'}, and a new agent with this name starts without ${w.plural ? 'them' : 'it'}`);
   }
   // Kept, and said before the click: a new agent under the name will share them.
-  if (recs.kept) loses.push(`Its settings and picture stay: ${recs.kept}, and a new agent with this name shares them`);
+  if (recs.kept) loses.push(`${recs.keptWords.cap} stay${recs.keptWords.plural ? '' : 's'}: ${recs.kept}, and a new agent with this name shares ${recs.keptWords.plural ? 'them' : 'it'}`);
   /* #4994: the delete retires the name's community account, which no Trash brings back, so the confirmation says so
      rather than promising everything can be got back. */
   let community = false;
@@ -381,7 +381,7 @@ function plan(name, opts) {
     : toTrash
     ? (community || waiting
       ? `Its files go to the Trash, where you can get them back until you empty it. ${community ? 'Its community account does not come back' : 'Anything it wrote for the community that has not gone out stays unsent'}. After this, the name ${shown} is free for a new agent.`
-      : `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`)
+      : `${recs.kept ? 'Its files go to the Trash, where you can get them back until you empty it' : 'Everything goes to the Trash, where you can get it back until you empty it'}. After this, the name ${shown} is free for a new agent.`)
     : jobOnlyTask
       ? `Nothing you can lose is stored in it${community ? ', but its community account does not come back' : waiting ? ', but anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
       : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
@@ -409,7 +409,7 @@ function plan(name, opts) {
        ceremony rather than protection. The Mac's cases are untouched. */
     typeToConfirm: ((toTrash || jobOnlyTask) && !recordsLost) ? null : shown,   // #7819: settings lost for good ask too
     folder: folder && { path: folder.path, files: folder.files, bytes: folder.bytes, newest: folder.newest, capped: folder.capped, git: folder.git },
-    records: { files: recs.records, trash: recordsTrash, kept: recs.kept },   // #7819
+    records: { files: recs.records, trash: recordsTrash, kept: recs.kept, keptWords: recs.keptWords || null },   // #7819
     /* `task` travels so `del` knows whether to move a file or unregister a job;
        `path` is null on win32 and every reader of it must check. */
     job: job && { path: job.path, label: job.label, ...(jobIsTask ? { task: true } : {}), ...(job.unit ? { unit: true } : {}) },
@@ -441,16 +441,20 @@ function namedRecords(name, folderPath) {
     try { if (store.safeKey(n) === key) kept = `${n} uses the same stored name`; } catch { /* not a name */ }
   };
   for (const c of status.paneRoster()) note(c.sessionName, null);
-  try {
-    for (const e of fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true })) if (e.isDirectory()) note(e.name, path.join(create.WORKERS_DIR, e.name));
-  } catch { /* no workers folder */ }
+  // A workers folder that cannot be read throws (plan() refuses): read as empty it would hide a folder sharing the key.
+  let entries = [];
+  try { entries = fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true }); } catch (e) { if (!(e && e.code === 'ENOENT')) throw e; }
+  for (const e of entries) if (e.isDirectory()) note(e.name, path.join(create.WORKERS_DIR, e.name));
   const records = [];
-  if (fs.existsSync(store.profilePath(name))) records.push({ what: 'its settings', file: store.profilePath(name) });
+  // Not fs.existsSync: it answers false for a file it cannot see, which would read "could not look" as "none".
+  let hasProfile = true;
+  try { fs.statSync(store.profilePath(name)); } catch (e) { if (e && e.code === 'ENOENT') hasProfile = false; else throw e; }
+  if (hasProfile) records.push({ what: 'its settings', file: store.profilePath(name) });
   const pics = store.pictureFiles(name);
   for (const f of pics.pictures) records.push({ what: 'its picture', file: f });
   for (const f of pics.originals) records.push({ what: 'its picture', file: f });
   // Kept only when there is something to keep: with nothing stored, there is nothing to say stays.
-  if (kept) return { records: [], kept: records.length ? kept : null };
+  if (kept) return { records: [], kept: records.length ? kept : null, keptWords: records.length ? recordsWords(records) : null };
   return { records, kept: null };
 }
 /* The words for what is stored, and whether they take a plural verb: "its settings" (plural), "its picture",
@@ -711,7 +715,7 @@ function del(name, opts) {
         ? `${p.shown}'s files are in the Trash. The name is free.`
         : `${p.shown}'s files are deleted. The name is free.`)
       // #7819: settings kept because another agent may own them are said, so "free" is not read as "fresh".
-      + (p.records && p.records.kept ? ` Its settings and picture stay (${p.records.kept}), so a new agent with this name shares them.` : ''),
+      + (p.records && p.records.kept ? ` ${p.records.keptWords.cap} stay${p.records.keptWords.plural ? '' : 's'} (${p.records.kept}), so a new agent with this name shares ${p.records.keptWords.plural ? 'them' : 'it'}.` : ''),
     steps,
   };
 }

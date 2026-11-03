@@ -542,10 +542,11 @@ function originalsDir() { return path.join(path.dirname(avatarsDir()), 'avatar-o
    second extension), and `originals`, the kept copies in avatar-originals/ (never a writer's temp). Absolute paths. */
 function pictureFiles(name) {
   const key = safeKey(name);
-  let pictures = [];
-  try { pictures = fs.readdirSync(avatarsDir()).filter((f) => f.startsWith(key + '.') && AVATAR_EXTS.has(f.slice(key.length).toLowerCase())).map((f) => path.join(avatarsDir(), f)); } catch { /* none */ }
-  let originals = [];
-  try { originals = fs.readdirSync(originalsDir()).filter((f) => f.startsWith(key + '.') && securewrite().tempWriterGone(f) === null).map((f) => path.join(originalsDir(), f)); } catch { /* none kept */ }
+  /* A folder that is not there holds nothing; one that cannot be read THROWS, so a caller that promises a name is
+     clear (delete what is left) refuses rather than reading "could not look" as "nothing there" (as avatarLookup). */
+  const list = (dir) => { try { return fs.readdirSync(dir); } catch (e) { if (e && e.code === 'ENOENT') return []; throw e; } };
+  const pictures = list(avatarsDir()).filter((f) => f.startsWith(key + '.') && AVATAR_EXTS.has(f.slice(key.length).toLowerCase())).map((f) => path.join(avatarsDir(), f));
+  const originals = list(originalsDir()).filter((f) => f.startsWith(key + '.') && securewrite().tempWriterGone(f) === null).map((f) => path.join(originalsDir(), f));
   return { pictures, originals };
 }
 function keepAvatarOriginal(name) {

@@ -32,8 +32,10 @@ name with nothing but a profile. Not built here: filed as kosmos#7825 (it needs 
 profiles alone).
 
 ## Tests
-engine/delete-leftover.test.js, fifteen #7819 tests (the card's done-when: create, remove, delete, create again; new id, no
-old field; the picture; a shared stored name kept; an unmovable profile refuses the whole delete and can be retried).
+engine/delete-leftover.test.js, seventeen #7819 tests: the card's done-when (create, remove, delete, create again; new id,
+no old field); every picture file and its kept originals; a shared stored name kept and said; a folder recorded under
+another name never taken; the for-good path asking for the name; a stuck job keeping the settings; settings stuck after
+the files went (PARTIAL, saying a new agent would start with them); unreadable folders refusing the plan.
 Mutation: no move reds three; no shared-name guard reds the fourth. All 13 test files that use delete-leftover: 570 pass.
 
 ## Review round 1 (fixed)
@@ -59,3 +61,8 @@ card: a profile shared by key can make the plan treat another agent's recorded f
 ## Review round 4 (fixed)
 "Settings and picture stay" is said only when something is stored to keep. Deferred: a PARTIAL with stuck records after
 the community retire (the known gap, #7825); Trash stamps to the second (pre-existing, as for the folder).
+
+## Review round 5 (fixed)
+An unreadable pictures folder, workers folder or profile now throws, so plan() refuses instead of reading "could not look"
+as "nothing there" (the workers case would hide a folder sharing the key). Outcomes pinned in the shared-key tests. The
+kept sentence names only what is kept, and the reassurance no longer says "Everything goes" when settings stay.
