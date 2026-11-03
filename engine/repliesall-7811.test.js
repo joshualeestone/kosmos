@@ -182,10 +182,12 @@ test('an older post with no mark and its newest reply before the first look is n
 test('a slow profile leaves the older posts to the next read, and says so', async () => {
   clearSeen();
   writeSendState('Slow7811', 12);
-  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, slowProfileMs: 150 });
+  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, slowProfileMs: 3000 });
+  const t0 = Date.now();
   const r = await cr.readReplies('Slow7811', { now: NOW, olderStartMs: 50 });
+  assert.ok(Date.now() - t0 < 1500, 'the read waited for the slow profile: ' + (Date.now() - t0) + ' ms');
   assert.deepEqual(threadReads(urls), range(2, 12));
-  assert.match(r.text, /\(1 more of your older posts has something new to look at: the community was slow to say which, so they wait for a read where it answers in time\)/);
+  assert.match(r.text, /only your newest 10 of 12 posts were looked at: the community was slow to say which of your older posts have new comments, so they wait for a read where it answers in time\)/);
   /* CONTROL: the same slow profile inside the limit, and the older post is read. */
   clearSeen();
   const ok = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, slowProfileMs: 150 });
@@ -261,10 +263,12 @@ test('a hold that has reached MARK_HOLD_MAX no longer takes an older slot', asyn
 
 test('an older post with something new but not read this time gets its first-look floor', async () => {
   clearSeen();
-  writeSendState('Flo7811', 12);
-  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, slowProfileMs: 150 });
-  await cr.readReplies('Flo7811', { now: NOW, olderStartMs: 50 });
-  assert.ok(!threadReads(urls).includes(0), 'the precondition: the slow profile left post 0 for later');
+  writeSendState('Flo7811', 18);   // newest 10 are 8..17; older 0..7 all active, so 3 of them wait
+  const latest = {};
+  for (let i = 0; i < 8; i += 1) latest[i] = { id: CID(i + 1), created_at: at(i, 30) };
+  const urls = serve({ listed: range(0, 18), latest });
+  await cr.readReplies('Flo7811', { now: NOW });
+  assert.ok(!threadReads(urls).includes(0), 'the precondition: post 0 waited');
   const j = JSON.parse(fs.readFileSync(markFile('Flo7811'), 'utf8'));
   assert.ok(j.posts[PID(0)], 'the waiting older post got no floor');
   assert.equal(j.posts[PID(0)].at, NOW - 7 * 24 * 3600 * 1000);
