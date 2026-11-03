@@ -71,7 +71,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
       }));
       const hints = [...list.querySelectorAll('.removed-hint')].map((h) => h.textContent);
       return { wrapHidden: wrap.hidden, label: toggle.textContent, rows, hint: hints.some((t) => /^Nothing was deleted/.test(t)),
-        stale: hints.some((t) => /could not check again just now/.test(t)),
+        stale: hints.some((t) => /has not been able to check for a while/.test(t)),
         hintAfterRemoved: (() => { const h = list.querySelector('.removed-hint'); const kids = [...list.children]; return h ? kids.indexOf(h) : -1; })() };
     };
     const out = {};

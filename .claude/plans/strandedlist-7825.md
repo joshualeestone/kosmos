@@ -76,3 +76,12 @@ which hides a real leftover rather than offering a wrong one.
 - Answered, no change: "the route test may not reach the survey reset". Measured in round 2: removing the reset reds it.
 - Declined: dropping data-shown-as (the sibling rows carry it; one shape for both), a sub-heading for leftover rows
   (each row says what it is), clearing #removed-msg (existing behaviour of the shared region).
+
+## Review round 5 (opus, fixed)
+- The kept leftovers are updated only after the paint knows its answer is the current one, so an older answer that a
+  newer paint replaced cannot put back a name the delete just dropped. REASONED, not measured (a race the check does
+  not stage).
+- The route test asserts the read after the delete succeeded before asserting the name is gone (it could pass on a
+  failed read). The stale line says "has not been able to check for a while". The route comment names the 5 s keep.
+- Declined: case-exact delete filter on Linux (the next good read redraws a wrongly dropped row); filtering only on
+  "deleted" (a partial's sentence already names what stayed); the negative arm's hidden-list contents (pre-existing).
