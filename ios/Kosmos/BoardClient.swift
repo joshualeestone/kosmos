@@ -637,8 +637,8 @@ final class BoardClient: ObservableObject {
         #if DEBUG
         if sampleThreads[session] != nil {
             // kosmos#7420, KOSMOS_SAMPLE_FIRSTPAGE=1: the small first page as the Mac answers it (#7810: the newest `tail`,
-            // olderCount counting the rest), and the whole window a second later as a phone's next read lands, to reproduce
-            // a list that lays out 30 rows and then the whole window.
+            // olderCount counting the rest), and every whole-window read (each later poll too) a second late, as a phone's
+            // next read lands later, to reproduce a list that lays out 30 rows and then the whole window.
             let firstPage = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FIRSTPAGE"] == "1"
             if firstPage, tail == nil { try? await Task.sleep(nanoseconds: 1_000_000_000) }
             let read = await thread(for: session)   // one read: KOSMOS_SAMPLE_GROW grows the chat once per read
