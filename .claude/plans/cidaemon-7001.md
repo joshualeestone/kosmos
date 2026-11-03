@@ -31,10 +31,16 @@ A new stage in `tools/ci-runner-setup.sh`, `daemon`, dry run by default like eve
   - a `Runner.Listener` of that user runs that is not the daemon's own (a manual `runsvc.sh` start, as on 11-03, or a
     loaded LaunchAgent): a second listener for the same runner would fight it for the session. It names the pids;
   - the LaunchAgent is loaded in `gui/<uid>`;
-  - the runner dir or its LaunchAgent plist is not what `svc.sh install` left (the same checks `runner_plist` makes).
-- **Apply, in order:** write the daemon plist beside its place and rename it in; move the LaunchAgent plist aside to
-  `<plist>.retired-<UTC stamp>` (KEPT, not deleted, so the next login cannot start a second listener and a rollback
-  is one `mv`); `launchctl bootstrap system <plist>`; wait for the daemon's job to run a Listener of that user.
+  - the runner dir or its LaunchAgent plist is not what `svc.sh install` left (the same checks `runner_plist` makes);
+  - the label is disabled in the system domain, or print-disabled cannot be read;
+  - the retired dir exists and is not root:wheel 0700, or a symlink sits on the agent's path;
+  - the CI user is root, or its primary group is wheel or admin.
+- **Apply, in order:** write the daemon plist beside its place (`<plist>.new`, root:wheel 0644); move the LaunchAgent
+  plist into `/var/db/kosmos-ci-retired/<label>.plist.retired-<UTC stamp>` (a root:wheel 0700 dir the stage makes;
+  KEPT, not deleted, so the next login cannot start a second listener and a rollback is one `mv`); only then rename
+  the daemon plist in; read the agent and the Listeners again; `launchctl bootstrap system <plist>`; wait for a
+  Listener under the daemon's pid that is still there 3 s later. Signals are ignored from the first write to the
+  bootstrap.
 - **Rollback, printed by the stage:** `launchctl bootout system/<label>`, remove the daemon plist, move the retired
   LaunchAgent back.
 
@@ -111,3 +117,23 @@ credential in the secrets map gives. It is one command for whoever has root:
   group 0, so the group half of that check has no arm of its own.
 - Not changed: no StandardOutPath. A log in a root-owned dir depends on whether launchd opens it as root or as the
   user, which is unmeasured; the failure message now says where to look instead (_diag, and launchctl print).
+
+## Challenge round 4 (sonnet), fixed in the next commit
+- BLOCKER: the new test called a bare `mktemp -d`, which tools/test-mktemp-template-4298.sh refuses (macOS mktemp
+  ignores TMPDIR). Templated now; that guard reads 0 failures. I should have run the source-scanning tests before
+  pushing a test change.
+- The "agent is back" refusal printed a mv beside the agent, in the job-writable dir; it now prints a mv into the
+  root-owned retired dir.
+- A run stopped after parking the agent (no agent, no daemon plist) said "register the runner first"; it now names
+  the parked file and says to put it back and run again.
+- A dry run as the CI user cannot look inside the root-only retired dir and now says so instead of "none found".
+  Measured as a non-root user on this Mac (2026-11-03): launchctl print system/<label> shows state and pid, so the
+  CI user's dry run does see a running daemon.
+- verify reports a problem when the daemon plist and the LaunchAgent are both there (no arm: verify is owner-run and
+  needs gh; the line is one -e test).
+- Header: run the stage as root from the owner's checkout or a root-owned copy, never from a copy in the CI user's
+  home; KOSMOS_CI_RETIRED_DIR named as a seam. A failed bootstrap also says that running the stage again only loads.
+- New arms: a failed write of the daemon plist puts the agent back; the stopped-half-way state. Three perturbations,
+  each red.
+- Not changed: daemon_xml and daemon_content_ok read label and cigroup from daemon's scope, as their comment says;
+  daemon is their only caller.

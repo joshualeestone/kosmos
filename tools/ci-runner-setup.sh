@@ -41,7 +41,10 @@
 #                             daemon plist is written whole by this stage, never copied from the job-writable LaunchAgent,
 #                             which is moved aside (kept). Refuses while a job runs, while a Listener of this runner runs
 #                             outside the daemon, while the agent is loaded, or while the label is disabled in system.
-#                             KOSMOS_CI_USER and KOSMOS_CI_RUNNER_NAME as for keepalive; KOSMOS_CI_DAEMON_DIR is a test seam.
+#                             The agent goes to /var/db/kosmos-ci-retired (root:wheel 0700). Run it as root from the
+#                             owner's checkout or a root-owned copy, NEVER from a copy in $CI_USER's home, which a job can
+#                             rewrite. KOSMOS_CI_USER and KOSMOS_CI_RUNNER_NAME as for keepalive; KOSMOS_CI_DAEMON_DIR
+#                             and KOSMOS_CI_RETIRED_DIR are test seams.
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
 #                             Exit 0 clear, 1 a problem, 3 a check it could not make (neither pass nor fail).
@@ -1125,7 +1128,7 @@ daemon() {
       return 0
     fi
     # Only the agent plist came back (a svc.sh install, a restore): the daemon is fine, nothing to stop.
-    local back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside: sudo mv $agent $agent.retired-$stamp"
+    local back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir: sudo mkdir -p -m 700 $RETIRED_DIR; sudo mv $agent $RETIRED_DIR/$label.plist.retired-$stamp"
     if [ "$APPLY" = 1 ]; then echo "refused: $back" >&2; else echo "refused: --apply would refuse now: $back" >&2; fi
     exit 1
   fi
@@ -1153,7 +1156,8 @@ daemon() {
     from="$(runner_plist)"   # svc.sh's .service must name THIS runner's plist, WorkingDirectory the runner dir
     [ -n "$why" ] || [ "$from" = "$agent" ] || why="$RUNNER_DIR/.service does not name $agent (the plist svc.sh wrote for this runner, WorkingDirectory $RUNNER_DIR); nothing was changed"
     [ -n "$why" ] || [ "$(plutil -extract Label raw -o - "$agent" 2>/dev/null || true)" = "$label" ] || why="$agent has another Label; nothing was changed"
-    # Root moves the agent out of a directory a job can write: no symlink anywhere on that path.
+    # Root moves the agent out of a directory a job can write: refuse a symlink on that path now. A job could still swap
+    # one in before the mv (no job runs then: a Worker refuses), and the file moved has a fixed name.
     [ -n "$why" ] || { [ ! -L "$CI_HOME/Library" ] && [ ! -L "$CI_HOME/Library/LaunchAgents" ] && [ ! -L "$agent" ] && [ -f "$agent" ]; } \
       || why="$agent, or a directory above it in $CI_HOME, is a symlink or not a regular file; root does not move it. Nothing was changed"
     [ -n "$why" ] || [ ! -e "$RETIRED_DIR" ] || retired_dir_ok || why="$RETIRED_DIR exists but is not a root:wheel 0700 directory; nothing was changed"
@@ -1164,7 +1168,13 @@ daemon() {
   elif [ -f "$dplist" ]; then
     [ -n "$why" ] || why="$dplist is not exactly what this stage writes (or not root:wheel 0644), and there is no LaunchAgent at $agent to build it from; nothing was changed"
   else
-    [ -n "$why" ] || why="no LaunchAgent at $agent and no daemon plist at $dplist to load; install and register the runner first"
+    local stuck; stuck="$(newest_retired)"
+    if [ -n "$stuck" ]; then
+      # A stop between moving the agent aside and writing the daemon plist: the agent is only parked.
+      [ -n "$why" ] || why="no LaunchAgent at $agent and no daemon plist at $dplist, but the agent is parked at $stuck (a run that stopped half way); put it back and run this again: sudo mv $stuck $agent"
+    else
+      [ -n "$why" ] || why="no LaunchAgent at $agent and no daemon plist at $dplist to load; install and register the runner first"
+    fi
   fi
   if [ -n "$why" ]; then
     if [ "$APPLY" = 1 ]; then echo "refused: $why" >&2; else echo "refused: --apply would refuse now: $why" >&2; fi
@@ -1175,7 +1185,7 @@ daemon() {
   if [ "$APPLY" != 1 ]; then
     [ -z "$from" ] || echo "WOULD: write $dplist (written here, not copied: UserName $CI_USER, GroupName $cigroup, HOME and USER, KeepAlive {SuccessfulExit: false}, ThrottleInterval 10, ExitTimeOut 35), root:wheel 0644; the agent to $RETIRED_DIR (root:wheel 0700)"
     [ -z "$from" ] || echo "WOULD: move $agent aside to $retired (kept, so a login cannot start a second Listener)"
-    [ -n "$from" ] || echo "note:   $dplist is already written; the LaunchAgent is retired at ${retired:-(no .retired-* file found)}"
+    [ -n "$from" ] || echo "note:   $dplist is already written; the LaunchAgent is retired at ${retired:-(none found$( [ "$(id -u)" = 0 ] || printf ", but %s cannot look inside %s (root only)" "$(id -un)" "$RETIRED_DIR"))}"
     echo "WOULD: launchctl bootstrap system $dplist, then wait for a Runner.Listener of $RUNNER_DIR under it"
     return 0
   fi
@@ -1210,7 +1220,7 @@ daemon() {
     exit 1
   fi
   launchctl bootstrap system "$dplist" \
-    || { echo "FAILED: launchctl bootstrap system $dplist. The runner stays down: its LaunchAgent is moved aside, so a login does not start it, and launchd tries $dplist again at the next boot. To go back (then log in as $CI_USER): $back_cmd" >&2; exit 1; }
+    || { echo "FAILED: launchctl bootstrap system $dplist. The runner stays down: its LaunchAgent is moved aside, so a login does not start it, and launchd tries $dplist again at the next boot. To try again: run this stage again (it only loads). To go back (then log in as $CI_USER): $back_cmd" >&2; exit 1; }
   trap - HUP INT TERM PIPE
   # A Listener under the daemon's own pid, still alive a few seconds later (one that dies at once is not a start).
   local w=0 lim="${KOSMOS_CI_START_WAIT_S:-30}" mine="" undo
@@ -1312,7 +1322,9 @@ EOF
   local plist sf dpl; plist="$(runner_plist)"; dpl="$DAEMON_DIR/$(runner_label).plist"
   if [ -f "$dpl" ]; then
     # After the daemon stage (kosmos#7001) the runner has no LaunchAgent; its plist is world-readable.
-    if keepalive_set "$dpl"; then ok "the runner runs as a LaunchDaemon ($dpl) with KeepAlive SuccessfulExit false (whether it is loaded and running: tools/ci-runner-setup.sh daemon, a dry run, as root or $CI_USER)"
+    if [ -e "$CI_HOME/Library/LaunchAgents/$(runner_label).plist" ]; then
+      problem "$dpl is there AND its LaunchAgent is back in $CI_HOME/Library/LaunchAgents: a login would start a second Listener; as root: tools/ci-runner-setup.sh daemon (a dry run) says how to move it aside"
+    elif keepalive_set "$dpl"; then ok "the runner runs as a LaunchDaemon ($dpl) with KeepAlive SuccessfulExit false (whether it is loaded and running: tools/ci-runner-setup.sh daemon, a dry run, as root or $CI_USER)"
     else problem "$dpl lacks $(keepalive_missing "$dpl"): it is not the daemon plist the daemon stage writes; as root: tools/ci-runner-setup.sh daemon (a dry run) says what is wrong"; fi
   elif [ "$hidden" = 1 ]; then
     echo "note:   cannot look inside $RUNNER_DIR as $(id -un); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether KeepAlive is set and loaded"
