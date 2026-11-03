@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: profilewhy-7840
-diff_hash: 6aecbd3348da9e9c22c4a9b76c86366f06cdc4df7a865be9c93a8b793fca9d90
+diff_hash: 3fffd0e85eaf3076e2ecda3b230b6d4ff62ecfeef276e671201bcd4cb12bf82a
 validation: iOS-only change; every iOS logic suite passed and the simulator build succeeded (node suite not run: it does not compile Swift; GitHub CI's ios workflow is the gate)
 subdir_audit: not run (no CLAUDE.md changed)
-timestamp: 2026-11-03T11:34:39Z
+timestamp: 2026-11-03T12:14:07Z
 iterations: 8
 converged: true
 ---
@@ -63,3 +63,8 @@ Disclosure: this change touches only iOS Swift and a plan. The node suite compil
 ### Strengths
 - One sentence for a shut-out across Settings, Profile and Files; gate words never reach a person (iterations 5 to 8)
 - Every board shape both routes send reaches a defined branch, measured against server.js (iterations 7, 8)
+
+### Merge with main after convergence (2026-11-03, kosmos#7679 / PR #7841 landed first)
+- The PR conflicted (no CI run fired). Merged origin/main rather than rebasing 20 commits. Resolution: main's loadFiles and filesSectionAfter kept; this branch's shut-out keep moved INTO filesSectionAfter (rows survive .noAnswer or .message(phoneShutOut)), so filesSectionKeepsShown is gone; 401/403 still map to phoneShutOut before main's 404 line.
+- Measured on the merge: agentinfo 112/112, files 62/62 (one new CONTROL: no rows yet, a shut-out says so), settings 42/42, run.sh 1871/1871, simulator build SUCCEEDED. Perturbation on a scratchpad copy (shut-out keep removed) failed exactly "the agent page keeps its Files rows on a shut-out".
+- Weakest premise: the resolution was not put through another blind round (the loop was at its 8-round cap); CI's ios workflow and the measurements above are the gate for it.
