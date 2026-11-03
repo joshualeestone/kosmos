@@ -24,3 +24,11 @@ Validation: the first local full run went red on one test, the #1720 browser-che
 Browser-check trailer). Fixed by amending the commit with the same trailer as 0.7.84 and 0.7.85; that file then passed
 alone (24/24). The second local run was stopped at 09:33 for Splinter's load hold on Agent1s; the full suite then ran
 on Mortals, clean.
+
+### Per-Iteration Breakdown
+
+#### Iteration 1
+**Reviewer model:** opus
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 0 NITs
+No issues found.
+- [STRENGTH] the built file equals a fresh build from the pool byte for byte, and the cut's own What's New check passes for both platforms.
