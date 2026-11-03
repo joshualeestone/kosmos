@@ -12199,6 +12199,8 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #pb-files-list li .pb-files-problem { color: var(--label-3); }
 #pb-plans-list { list-style: none; margin: 0 0 var(--space-4); padding: 0; }   /* kosmos#7404: rows as the restore list's */
 #pb-plans-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; border-bottom: 1px solid var(--separator); font: var(--text-callout) var(--font-ui); color: var(--label-2); }
+#pb-plans-open { text-decoration: none; }   /* a link dressed as the screen's button, as the other a.btn rules do */
+#pb-plans-msg:not(:empty) { margin-bottom: var(--space-4); }   /* a refusal keeps its space from Restore below it */
 #pb-files-failed summary { cursor: pointer; min-height: 44px; display: list-item; padding: 12px 0; color: var(--label-2); }
 #pb-files-failed summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 #pb-files-last { margin-bottom: var(--space-2); }
