@@ -1224,7 +1224,6 @@ async function planAsync(name, opts) {
   const warm = win ? await warmFor(name, opts) : null;
   // Asked again: a delete of the name can have started while the probe ran.
   if (win && deletingName(name)) return { ok: false, because: DELETING_BECAUSE };
-  // Every drive already answered: the plan that found the paths is the answer (no second walk of the folder).
   if (warm && warm.first && !warm.probed) return warm.first;
   return plan(name, opts);
 }

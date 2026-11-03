@@ -96,3 +96,9 @@ Leftover tests 154 pass; create tests 545 pass; web.delete-leftover's route pin 
   host; shown red with the old needle, green with the new). An account move (bulk, automatic or one agent) is now
   refused while a Windows delete runs, with its own sentence (reverses round 2's keep: two reviewers raised it and the
   fix is one check at the shared start). A refused warm no longer pins a drive it kept no answer for.
+- Review round 4, residuals kept and stated: (a) planAsync returns the plan that found the paths when no drive had to
+  be asked; a kept answer can age out while the warm awaits, which only affects a page's read, never a delete (it
+  re-plans pinned). (b) A PowerShell (or a grandchild holding a dialog) still alive after execAsync's hard timer can
+  finish its move after the name is released; SIGKILL at the limit narrows it. (c) A restart from outside the board
+  (the kosmos CLI, the OS) is not held by moveHoldsBoard; a delete cut that way leaves records and tokens, which the
+  next delete offers again.
