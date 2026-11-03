@@ -529,7 +529,10 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "Int(f * 100)",   // kosmos#7609: where on the screen a reader's message is placed again (a percentage)
     "rebuilds.count",   // kosmos#7420: how many times this chat open rebuilt its list (a count)
     "Board.anchorKind(positionId)",   // kosmos#7645: the anchor's kind (none, end, top, a message), never its id
-    "Self.numbers(sv)"]   // kosmos#7645 round 4: the scroll's offset, content height and showing height, in points
+    "Self.numbers(sv)",   // kosmos#7645 round 4: the scroll's offset, content height and showing height, in points
+    "Self.heightLine(v, rows: r)"]   // kosmos#7420: content height, offset and the drawn rows' places, in points and a count
+// kosmos#7420: Self.heightLine is admitted by name, so its body is pinned: Int(...) point values, a count and fixed words.
+check(chatSource.contains("\"content \\(Int(size)), y \\(Int(sv.contentOffset.y)), drawn \\(at.count), from \\(Int(first)) to \\(Int(last)), past last \\(Int(size - last))\""), "kosmos#7420: the height line in the record is points and a count and nothing else")
 // kosmos#7645: Self.numbers(sv) is admitted by name, so its body is pinned here: three Int(...) point values and fixed words. Change
 // this line with that function.
 check(chatSource.contains("\"y \\(Int(sv.contentOffset.y)), content \\(Int(sv.contentSize.height)), showing \\(Int(sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom))\""), "kosmos#7645: the hold's numbers in the record are three point values and nothing else")
