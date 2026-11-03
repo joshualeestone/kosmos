@@ -5822,7 +5822,9 @@ function withPreviews(rows) {
     // row never draws a preview anyway.
     if (r.kind === 'external') continue;
     // kosmos#7861: a bare address (example.com) the chat links gets a preview too, fetched https first.
-    const found = unfurl.firstLinkInfo(r.text);
+    // A row carrying files gets no bare scan: the page hides a text that is only the file names (pjWords).
+    const files = (Array.isArray(r.attachments) && r.attachments.length) || (r.attachment && typeof r.attachment === 'object');
+    const found = unfurl.firstLinkInfo(r.text, { bare: !files });
     if (!found) continue;
     const link = found.url;
     const hit = found.bare ? unfurl.peekBare(link) : unfurl.peek(link);

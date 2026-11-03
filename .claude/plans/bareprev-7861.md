@@ -20,7 +20,13 @@ with no preview, and http://joshualeestone.com had one.
   the error this rules out. Review round 3: also no bare scan in a message with any | (the page reads | as a table,
   which drops cells past the header's count and splits a link whose label holds a |; both were previewed). Known misses:
   any bare address in a message with a backtick or a |, and one after a quote marker with no space (>example.com).
-- What is guaranteed, and tested: a bare address previewed is always a link the page draws. NOT guaranteed: that it is
+- Review round 4: a row carrying files gets no bare scan (the page hides a text that is only the file names, and a
+  file can be named like a host); a host followed by a colon or a port ("example.com: here", example.com:8080) is no
+  longer mistaken for a scheme of its own; and an http page that redirects to another host over plain http is not kept.
+- What is guaranteed, and tested: a bare address previewed is always a link the page's pjRich draws for that text.
+  Stated exceptions, outside pjRich, not tested: an agent whose display name is itself host-shaped (the page drops a
+  "Name:" prefix, pjDropSelfName); a room message the server splits at quote offsets mid-word; a word the room draws as
+  a project-file chip. Each needs a host-shaped name or a cut inside a word. NOT guaranteed: that it is
   the FIRST link the page draws (>x.com then https://e.org previews e.org), and the explicit scan's old behaviour (it can
   preview an http link the page shows as text, e.g. in quotes) is unchanged by this card.
 - previewBare: https first; http only when https was not reached (no connection, too slow, or a 5xx). A 4xx is the
@@ -49,12 +55,14 @@ a missing feature, not this bug, so it is its own card, #7864, which I take afte
   residual is a file named like a multi-label host.
 
 ## Verified
-- engine/unfurl.bare-7861.test.js (11 tests), including whole-message parity against the page's own pjRich (lifted with
+- engine/unfurl.bare-7861.test.js (12 tests), including whole-message parity against the page's own pjRich (lifted with
   its 8 helpers): a fixed list of 40 messages and 20000 generated ones (fixed seed); a bare address previewed is always
-  a link the page draws. server.unfurl-bare-7861.test.js (4, through GET /api/messages).
+  a link the page draws. server.unfurl-bare-7861.test.js (5, through GET /api/messages).
 - Mutation G (round 2): the round-1 unfurl.js put back in place turns both parity tests red, each naming a message.
 - Mutation H (round 3): the | rule removed turns both parity tests red; the generator (now with table pieces) found a
   second table shape on its own. The generator's floor is 1000 bare cases (1429 measured with | pieces in).
+- Mutations J and K (round 4): the server ignoring a row's files turns the file-named-host route test red; the
+  cross-host check removed turns the redirect test red.
 - server.fedmsg-3311.test.js: a bare address in words from outside is not fetched either (its mutation, the external
   skip removed, goes red, though the test's existing http case would too).
 - Mutations, each restored after: no backtick rule (E) and no label blanking (F) each turn the parity test red; the

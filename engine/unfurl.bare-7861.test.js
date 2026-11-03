@@ -91,7 +91,8 @@ const MESSAGES = [
   'evil.example.com[x](y.org)', 'see evil.example.com[x](https://y.example.org)', 'evil.example.com[x](notalink)',
   '**example.com**[z.com](q.com)', '[l](t)x.example.com', '[docs](example.com).', '>example.com', '|a.example.com|b.org|',
   '| a |\n|---|\n| x | evil.example.com |', 'a | b\n--|--\nx | y | evil.example.com', '| [a|b](c.example.com) |\n|---|---|',
-  '| h |\n|---|\n[a|b](c.example.com)',
+  '| h |\n|---|\n[a|b](c.example.com)', 'see example.com: it works', 'x.example.com:', 'example.com:8080/x',
+  'example.com:x', 'javascript:alert(1) and mailto:a@b.co',
 ];
 
 test('#7861: on a fixed list of whole messages, a bare address previewed is always a link the page itself draws', () => {
@@ -115,7 +116,7 @@ function rng(seed) { let x = seed >>> 0; return () => { x ^= x << 13; x >>>= 0; 
 const PIECES = ['example.com', 'x.example.org', 'docs.example.dev/a', 'claude.ai', 'notes.md', 'https://e.example.net',
   'mailto:a@b.co', '[', ']', '(', ')', '[l](t.example.com)', '[a b](https://f.example.io)', '*', '**', '_', '~', '>', '#', '-',
   '|', '.', ',', '"', '\'', '\n', ' ', ' ', ' ', '1.', '---', 'word', 'www.example.uk/x?y=1',
-  '\n|---|', '\n---|---', '\n| x | y |', '[a|b](c.example.com)', '| ', ' |'];
+  '\n|---|', '\n---|---', '\n| x | y |', '[a|b](c.example.com)', '| ', ' |', ':', ':8080', ': ', 'x:'];
 
 test('#7861: on generated messages (no code), a bare address previewed is always a link the page itself draws', () => {
   const next = rng(7861);
@@ -147,12 +148,18 @@ test('#7861: which link in a message is previewed: the first, bare or explicit; 
     ['a `x`example.com', null],
     ['[docs](example.com)', { url: 'https://example.com', bare: true }],
     ['[a example.com b](https://e.example.org)', { url: 'https://e.example.org', bare: false }],
+    ['see joshualeestone.com: here it is', { url: 'https://joshualeestone.com', bare: true }],
+    ['example.com:8080/x', { url: 'https://example.com:8080/x', bare: true }],
+    ['mailto:a@b.co', null],
     ['ftp://files.example.com and notes.md', null],
     ['mail x@example.com', null],
     ['claude.ai alone', null],
     ['no link here', null],
   ];
   for (const [text, want] of cases) assert.deepEqual(unfurl.firstLinkInfo(text), want, JSON.stringify(text));
+  // bare:false (a row carrying files) turns the bare scan off and leaves the explicit one.
+  assert.equal(unfurl.firstLinkInfo('report.com', { bare: false }), null);
+  assert.deepEqual(unfurl.firstLinkInfo('report.com https://e.example.org', { bare: false }), { url: 'https://e.example.org', bare: false });
 });
 
 test('#7861: a bare address is fetched over https first, and http is never asked when https answers', async () => {
@@ -191,6 +198,24 @@ test('#7861: the address gate is never sidestepped: a private address is refused
   assert.equal(got.ok, false);
   assert.equal(got.because, 'links to this computer or this network are not fetched');
   assert.deepEqual(calls, [], 'a byte moved to a private address');
+});
+
+test('#7861: an http page that sends us to ANOTHER host over plain http is not this address\'s preview', async () => {
+  const calls = world({ pages: {
+    'https://hop.example.com/': 'unreachable',
+    'http://hop.example.com/': { status: 302, body: '', type: 'text/html' },
+    'http://elsewhere.example.net/': { body: '<title>Someone else</title>' },
+  } });
+  unfurl.setFetcher(async (url) => {
+    calls.push(url);
+    if (url === 'https://hop.example.com/') throw new TypeError('fetch failed');
+    if (url === 'http://hop.example.com/') return { status: 302, ok: false, headers: { get: (k) => (k.toLowerCase() === 'location' ? 'http://elsewhere.example.net/' : null) }, body: { cancel: async () => {} } };
+    if (url === 'http://elsewhere.example.net/') return fakeResponse({ body: '<title>Someone else</title>' });
+    throw new Error('unexpected ' + url);
+  });
+  const got = await unfurl.previewBare('https://hop.example.com/');
+  assert.deepEqual(calls, ['https://hop.example.com/', 'http://hop.example.com/', 'http://elsewhere.example.net/'], 'CONTROL: the redirect was followed');
+  assert.equal(got.ok, false, 'another host\'s page was kept as this address\'s preview: ' + JSON.stringify(got));
 });
 
 test('#7861: when both fail, the https refusal is what is kept', async () => {

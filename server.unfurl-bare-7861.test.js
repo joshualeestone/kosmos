@@ -56,10 +56,10 @@ test.beforeEach(() => {
 /* A message the person sent an agent, written to the record the way the board records one; then read back through
    the route until a read carries a preview (the first read starts the fetch), for up to two seconds, so a loaded
    machine is not a red. A row that never gets one is read once more and returned as it is. */
-async function postAndRead(text) {
+async function postAndRead(text, extra) {
   seq += 1;
   fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
-  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'message', id: 'm7861-' + seq, from: 'you', to: 'ava', text, at: new Date().toISOString(), state: 'delivered' }) + '\n');
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'message', id: 'm7861-' + seq, from: 'you', to: 'ava', text, at: new Date().toISOString(), state: 'delivered', ...(extra || {}) }) + '\n');
   const read = async () => (await (await fetch(base() + '/api/messages')).json()).messages.find((x) => x.text === text);
   const first = await read();
   assert.ok(first, 'CONTROL: the message is in the record the route reads');
@@ -88,6 +88,12 @@ test('#7861 CONTROL: the same kind of post with http:// typed in front previewed
   const row = await postAndRead('see http://typed7861.com today');
   assert.equal(row.preview && row.preview.title, 'Typed with http', JSON.stringify(row));
   assert.deepEqual(callsFor('typed7861.com'), ['http://typed7861.com/']);
+});
+
+test('#7861 a message carrying a file named like a host (its text is the file name, which the page hides) is not fetched', async () => {
+  const row = await postAndRead('files7861.com', { attachment: { id: 'a7861', name: 'files7861.com', size: 3, type: 'text/plain' } });
+  assert.equal(row.preview, undefined);
+  assert.deepEqual(callsFor('files7861.com'), []);
 });
 
 test('#7861 CONTROL: a file name and a code span are not fetched', async () => {
