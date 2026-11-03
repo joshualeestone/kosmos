@@ -259,3 +259,16 @@ test('#7404: off stops a restore of files before it turns personal backup off', 
   await call('/api/personal-backup/off', { body: {}, headers: SCREEN });
   assert.deepEqual(order, ['starting', 'stop', 'idle', 'forget', 'off', 'done']);
 });
+
+test('#7827: the shared plans read keeps only a good answer; a failure or a throw lets the next caller ask again', async (t) => {
+  offerOn(t, '$5/month');
+  const pb = require('./engine/personalbackup');
+  const was = pb.plansNow;
+  t.after(() => { pb.plansNow = was; });
+  await call('/api/personal-backup/off', { body: {}, headers: SCREEN }).catch(() => {});   // a step clears any read left by another test
+  let n = 0;
+  const answers = [() => ({ ok: false, because: 'unreached' }), () => { throw new Error('boom'); }, () => ({ ok: true, plans: [], planGb: null }), () => ({ ok: true, plans: [], planGb: 5 })];
+  pb.plansNow = async () => answers[n++]();
+  for (let i = 0; i < 4; i++) await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
+  assert.equal(n, 3, 'a failed or thrown read was shared, or a good one was not');
+});

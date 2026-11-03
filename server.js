@@ -12962,7 +12962,10 @@ const server = http.createServer(async (req, res) => {
           // One read for every tab and remote session at once, and its answer for 30 seconds: each is two Kosmos+ requests.
           const now = Date.now();
           if (!PB_PLANS_READ.p || now - PB_PLANS_READ.at > 30000) PB_PLANS_READ = { at: now, p: pb.plansNow() };
-          r = await PB_PLANS_READ.p;
+          const mine = PB_PLANS_READ.p;
+          try { r = await mine; } catch { r = null; }
+          // #7827: only an answer worth keeping is shared; a failure (or a read that threw) lets the next caller ask again.
+          if (!(r && (r.ok === true || r.final === true)) && PB_PLANS_READ.p === mine) PB_PLANS_READ = { at: 0, p: null };
         }
         else if (kind === 'checkout') r = await pb.checkout(Number.isSafeInteger(body.gb) ? body.gb : null);
         else r = null;   // unreachable: kind was checked above; answers the generic refusal below
