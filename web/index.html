@@ -56179,7 +56179,8 @@ function pbpPaint(on) {
 async function pbpChoose(gb) {
   if (PBP.busy) return;
   const gen = PBP.gen;
-  PBP.busy = true; PBP.awaitPlan = false; PBP.awaitCode = null; PBP.awaitSay = ''; pbpMsg(''); pbPaint();   // a new Choose starts its own watch, or none
+  // A new Choose starts its own watch, or none; and no plans read starts while its answer is out (PBP.at).
+  PBP.busy = true; PBP.awaitPlan = false; PBP.awaitCode = null; PBP.awaitSay = ''; PBP.at = Date.now(); pbpMsg(''); pbPaint();
   const r = await pbPost('checkout', { gb });
   PBP.busy = false;
   if (gen !== PBP.gen) { pbPaint(); return; }
