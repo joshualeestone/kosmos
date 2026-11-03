@@ -155,6 +155,7 @@ case "$me" in
     case "$1" in
       -un) echo "${FX_WHO:-agent1}" ;;
       -Gn) [ "${FX_GROUPS_FAIL:-0}" = 1 ] && exit 1; echo "${FX_GROUPS:-staff everyone}" ;;
+      -gn) echo "${FX_GROUP:-staff}" ;;
       -u)   # per user: agent1 501, kosmos-ci 777 once it exists (or 501 with FX_SAME_UID), anyone else 900
         u="${2:-${FX_WHO:-agent1}}"
         case "$u" in
@@ -198,6 +199,8 @@ case "$me" in
     esac; fi ;;
   sudo) case "$*" in *"sysadminctl -addUser"*) [ "${FX_SYSADMIN_NOOP:-0}" = 1 ] || : > "$(dirname "$CALL_LOG")/user-created" ;; esac ;;
   tar) [ "${FX_TAR_FAIL:-0}" = 1 ] && exit 1 ;;
+  stat)   # kosmos#7001: a file under FX_ROOTOWN reads as root:wheel (the daemon plist verify checks); all else is real
+    case "${*: -1}" in "${FX_ROOTOWN:-/nonexistent}"/*) echo "0 0 $(/usr/bin/stat -f %Lp "${*: -1}")" ;; *) exec /usr/bin/stat "$@" ;; esac ;;
   config.sh)   # as actions/runner: refuses once configured (.runner), else configures and writes .path from env.sh
     [ -f "$(dirname "$0")/.runner" ] && { echo "Cannot configure the runner because it is already configured." >&2; exit 1; }
     printf 'token-in-env=%s\n' "${ACTIONS_RUNNER_INPUT_TOKEN:-}" >> "$CALL_LOG"
@@ -231,7 +234,7 @@ esac
 exit 0
 STUB
 chmod +x "$BIN/_stub"
-for c in launchctl crontab pgrep df fdesetup pmset id ps gh curl sudo sysadminctl tar xcode-select pkill defaults; do ln -s _stub "$BIN/$c"; done
+for c in launchctl crontab pgrep df fdesetup pmset id ps gh curl sudo sysadminctl tar xcode-select pkill defaults stat; do ln -s _stub "$BIN/$c"; done
 mkdir -p "$T/ownerhome"; chmod 700 "$T/ownerhome"
 mkdir -p "$T/sysagents"; : > "$T/sysagents/com.openssh.ssh-agent.plist"   # Apple ships it under /System/Library
 BREWD="$T/brew"; mkdir -p "$BREWD/bin"
@@ -1124,6 +1127,42 @@ chmod 000 "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos
 vcase ka-plist-unreadable 0 "KeepAlive NOT checked: $VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist cannot be read"
 chmod 644 "$VCI/Library/LaunchAgents/actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s.plist"
 chmod 000 "$VCI/actions-runner/.service"; vcase ka-service-unreadable 3 "cannot read $VCI/actions-runner/.service as agent1, so KeepAlive is not checked here"; chmod 644 "$VCI/actions-runner/.service"
+# kosmos#7001: after the daemon stage. The daemon plist below is the one the stage writes for this runner, root-owned
+# through FX_ROOTOWN; verify holds it to the stage's own exact check.
+VD="$T/vdaemons"; mkdir -p "$VD"; VL=actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s
+cat > "$VD/$VL.plist" <<VEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>$VL</string>
+<key>ProgramArguments</key><array><string>$VCI/actions-runner/runsvc.sh</string></array>
+<key>WorkingDirectory</key><string>$VCI/actions-runner</string>
+<key>UserName</key><string>kosmos-ci</string>
+<key>GroupName</key><string>staff</string>
+<key>SessionCreate</key><true/>
+<key>ProcessType</key><string>Interactive</string>
+<key>Nice</key><integer>15</integer>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+<key>ThrottleInterval</key><integer>10</integer>
+<key>ExitTimeOut</key><integer>35</integer>
+<key>EnvironmentVariables</key><dict>
+<key>ACTIONS_RUNNER_SVC</key><string>1</string>
+<key>HOME</key><string>$VCI</string>
+<key>USER</key><string>kosmos-ci</string>
+</dict>
+</dict></plist>
+VEOF
+chmod 644 "$VD/$VL.plist"
+vcase daemon-agentback 1 "is there AND its LaunchAgent is back" KOSMOS_CI_DAEMON_DIR="$VD" FX_ROOTOWN="$VD"
+mv "$VCI/Library/LaunchAgents/$VL.plist" "$T/vci.plist.daemon-aside"
+vcase daemon-ok 0 "is the daemon stage's plist, and no LaunchAgent is beside it" KOSMOS_CI_DAEMON_DIR="$VD" FX_ROOTOWN="$VD"
+chmod 000 "$VCI/Library/LaunchAgents"; vcase daemon-closed 0 "whether its LaunchAgent is back in $VCI/Library/LaunchAgents is NOT checked" KOSMOS_CI_DAEMON_DIR="$VD" FX_ROOTOWN="$VD"; chmod 755 "$VCI/Library/LaunchAgents"
+! has v-daemon-closed "no LaunchAgent is beside it" && pass "verify: a closed LaunchAgents is a note, never ok" || fail "verify daemon-closed read as ok"
+vcase daemon-notroot 1 "is not exactly the plist the daemon stage writes" KOSMOS_CI_DAEMON_DIR="$VD"
+plutil -insert Sockets -xml '<dict/>' "$VD/$VL.plist"
+vcase daemon-extrakey 1 "is not exactly the plist the daemon stage writes" KOSMOS_CI_DAEMON_DIR="$VD" FX_ROOTOWN="$VD"
+mv "$T/vci.plist.daemon-aside" "$VCI/Library/LaunchAgents/$VL.plist"
 rm -rf "$VCI/Library" "$VCI/actions-runner/.service"
 grep -q 'no tmux or node left' "$T/v-clear.out" && pass "verify: an idle runner's own node (RunnerService.js) is not a leftover" || fail "verify idle runner: $(grep -E 'REFUSE|ok' "$T/v-clear.out" | tail -2)"
 cp "$VCI/actions-runner/.env" "$T/vci.env"

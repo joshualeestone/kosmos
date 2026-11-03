@@ -158,3 +158,21 @@ credential in the secrets map gives. It is one command for whoever has root:
   supplementary admin, LaunchAgents swapped for a symlink mid-run, the put-back as the CI user, the replace note.
   Eight perturbations, each red; `-ef` was green until the hard-link arm, because in the symlink arm the path check
   refuses first.
+
+## Challenge round 6 (sonnet), fixed in the next commit
+- verify's daemon branch was weak and untested: as the owner the LaunchAgents dir is closed, so its "agent is back"
+  check could never fire and it printed ok; and ok needed only KeepAlive keys. Now it holds the plist to daemon_set
+  (the stage's exact check), says the agent check is NOT made when it cannot look, and has five arms in
+  test-ci-runner-setup-4601 (agent back, ok, closed, not root-owned, an extra key), with stat and `id -gn` stand-ins
+  added there.
+- The header's "never run it from the CI home" is now enforced for --apply: refused from a copy under the CI home
+  (compared by physical path: /var is /private/var, which the first arm caught), owned by the CI user, or group or
+  world writable. A dry run from any copy still reads.
+- A dry run as the CI user that finds no agent and no daemon plist says it cannot look in the root-only retired dir,
+  instead of "register the runner first".
+- A loaded daemon with no pid yet (restarting) no longer calls its Listener foreign; daemon_child needs a pid.
+- A dangling symlink at the agent's path is not "done".
+- Not changed: KOSMOS_CI_*_DIR are printed unquoted (operator-set seams, not reachable by a job); only admin and wheel
+  are refused as groups (the two that grant root-equivalent rights on macOS).
+- New arms: copy in the CI home, group-writable copy, dry run from a copy, no pid, CI-user halfway, dangling.
+  Five perturbations, each red.
