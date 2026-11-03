@@ -1079,10 +1079,13 @@ final class BoardClient: ObservableObject {
     private var previewImageAsked: Set<String> = []
     private var previewImageOrder: [String] = []
     static let previewImageCap = 12
+    // Bumped by every drop, so a picture already on its way when the pictures were dropped is not kept after it.
+    private var previewGeneration = 0
     func dropPreviewImages() {
         previewImages = [:]
         previewImageAsked = []
         previewImageOrder = []
+        previewGeneration += 1
     }
     private func keepPreviewImage(_ image: CGImage, at path: String) {
         previewImages[path] = image
@@ -1098,6 +1101,7 @@ final class BoardClient: ObservableObject {
     func loadPreviewImage(_ p: Board.LinkPreview) async {
         guard let path = p.image, !previewImageAsked.contains(path) else { return }
         previewImageAsked.insert(path)
+        let generation = previewGeneration
         #if DEBUG && canImport(UIKit)
         if let sample = samplePreviewImage(path).flatMap({ Self.picture($0, maxPixels: 900) }) { keepPreviewImage(sample, at: path); return }
         #endif
@@ -1111,7 +1115,7 @@ final class BoardClient: ObservableObject {
         if ok, isImage {
             // Decoded off the main actor (a page's picture is often a large JPEG), then kept only for the same chat.
             let pic = await Task.detached(priority: .utility) { Self.picture(data, maxPixels: 900) }.value
-            guard epoch == chatEpoch else { return }
+            guard epoch == chatEpoch, generation == previewGeneration else { return }
             if let pic { keepPreviewImage(pic, at: path) }
         }
         // As the thumbnails: a passing failure is asked again on the next draw, a 404 or a picture the phone cannot draw is not.

@@ -31,13 +31,17 @@ Rooms have their own row model (BoardRoom.swift RoomRow) and renderer (RoomView.
 - Differences from the board, deliberate: a picture whose address holds ".." is dropped (isBoardPath), and a preview
   whose only content was such a picture draws no card (the board would title it with the address). The card does not
   take the long-press sheet; it is a link, and its message's bubble keeps the sheet.
+- Review round 4: a memory-warning drop also bumps a generation the loader checks before keeping, so a picture on its
+  way across a drop is not kept (tested). Accepted, stated: a list holding more than 12 preview cards at once could
+  evict and refetch in turn (the chat's LazyVStack keeps a screen's worth alive, well under 12); a card scrolled away
+  mid-fetch relies on env.send answering nil when its task is cancelled, as the thumbnail loader does.
 - Weakest premise: that the picture fits a 0.52 aspect at the bubble's width (capped 220 pt); a tall picture is cropped,
   as the board's own card crops with object-fit.
 
 ## Verified
 - ios/LogicTests (run.sh): 1901/1901 (a sign-out while a picture is on its way, and a memory-warning drop with its
   refetch, added in rounds 2 and 3), with the loader cases mirroring the thumbnail loader's (not a picture, 900 px,
-  the unfurl route, 5xx again, 404 not, the sign-in page again, once only, no picture no request, the cap of 40 and
+  the unfurl route, 5xx again, 404 not, the sign-in page again, once only, no picture no request, the cap (12) and
   its refetch, a sign-out clears them; the test Mac now answers the unfurl route) and the parsing cases (a full preview read; none on a plain row; non-http(s)
   refused; no title/words/picture is no card; title and site fallbacks; a picture from anywhere but the unfurl route
   dropped, another Mac route dropped, .. dropped; blank title; the spoken line).

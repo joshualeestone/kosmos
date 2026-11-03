@@ -3806,7 +3806,8 @@ section("native board loop: connecting")
         let doc = Board.Attachment(id: "222222222222222222222222", name: "b.docx", type: "", size: nil, kind: "other", url: "/api/attachment/222222222222222222222222", preview: nil)
         await c.loadThumbnail(doc)
         check(w.attachmentAsks.count == asks && c.thumbnails["222222222222222222222222"] == nil, "no preview: no request")
-        // kosmos#7864: a link preview's picture, by the thumbnail loader's rules, decoded at most 900 px, the newest 40 kept.
+        // kosmos#7864: a link preview's picture, by the thumbnail loader's rules, decoded at most 900 px, the newest
+        // BoardClient.previewImageCap kept.
         func lp(_ n: String) -> Board.LinkPreview {
             Board.LinkPreview(url: URL(string: "https://p\(n).example.com/")!, site: "p\(n).example.com", title: "P\(n)", description: nil,
                               image: "/api/unfurl/image?url=https%3A%2F%2Fp\(n).example.com%2Fog.png")
@@ -3854,6 +3855,14 @@ section("native board loop: connecting")
         let dropAsks = w.attachmentAsks.count
         await c.loadPreviewImage(lp("cap0"))
         check(w.attachmentAsks.count == dropAsks + 1 && c.previewImages[lp("cap0").image!] != nil, "preview: and a card drawn after it fetches its picture again")
+        // A picture on its way when the pictures are dropped is not kept after the drop.
+        w.attachmentYields = 50
+        let inFlight = Task { await c.loadPreviewImage(lp("inflight")) }
+        _ = await settle { w.attachmentStarted.last == "/api/unfurl/image" && w.attachmentAsks.last == lp("inflight").image! }
+        c.dropPreviewImages()
+        await inFlight.value
+        w.attachmentYields = 0
+        check(c.previewImages[lp("inflight").image!] == nil, "preview: a picture on its way across a memory-warning drop is not kept")
         // A sign-out while a picture is on its way: it lands in nobody's chat.
         w.attachmentYields = 50
         w.attachmentAnswer = (200, "image/png", big)
