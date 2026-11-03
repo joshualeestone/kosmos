@@ -705,8 +705,9 @@ const CHECKOUT_SAY = {
   // #7827 item 6: the earlier page could be neither closed nor read (relay checkout Open|Err, a 503): it may be paid.
   backup_checkout_unclosed: 'An earlier payment for this backup may still be going through. If you paid, your plan shows here shortly; if not, try again in a minute.',   // Mona Lisa m2591
 };
-// A relay that does not name its conflict yet sends either of those two with no code: a sentence true of both.
+// An answer that may have come mid-way (a timeout, a 5xx, a line this board cannot read): it claims nothing about payment.
 const CHECKOUT_UNSURE = 'Kosmos+ did not answer just now. If you already paid, your plan shows here shortly; if not, choose your plan again in a minute.';   // Mona Lisa m2593
+// A relay that does not name its conflict yet sends a 409 with no code: a sentence true of every conflict.
 const CHECKOUT_CONFLICT = 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.';   // Mona Lisa m2568
 /* Mona Lisa's review (#7404 comment 6593277093): a refusal that may pass says what to do next. Used for every one that
    is not the person's own account (unreached, or a page this Kosmos does not open), so the words are hers verbatim. */
@@ -733,8 +734,11 @@ async function checkout(gb, opts = {}) {
     const st = statusOf(r);
     if (st === 409) return { ok: false, code: 'backup_checkout_conflict', because: CHECKOUT_CONFLICT };
     // "Nothing was charged" only when that is known: the request never left this computer, or Kosmos+ refused it outright
-    // (a 4xx). A timeout, a 5xx or an answer this board cannot read may have come mid-way through closing an earlier page
-    // that was paid, so it claims nothing about payment and the page watches for the plan (review 1 on nocharge-7827).
+    // (a 4xx). That holds because every 4xx in kosmos-relay coordinator/src/backup_plans.rs `checkout` is raised before a
+    // page is made or after the earlier one is closed; a relay change that returned a 4xx after a paid page would make it
+    // false, so it is named here. A timeout, a 5xx or an answer this board cannot read may have come mid-way through
+    // closing an earlier page that was paid, so it claims nothing about payment and the page watches for the plan.
+    // Accepted: a tunnel that could not start (setupRun, no notSent) also lands there, the safe direction.
     if ((r && r.notSent) || (Number.isSafeInteger(st) && st >= 400 && st < 500)) return { ok: false, because: CHECKOUT_RETRY };
     return { ok: false, code: 'backup_checkout_unsure', because: CHECKOUT_UNSURE };
   }
