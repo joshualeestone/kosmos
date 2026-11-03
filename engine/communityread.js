@@ -87,12 +87,14 @@ let fetcher = null;   // tests inject (url) => Promise<{ status, json }>; produc
 
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || communitysend.DEFAULT_ENDPOINT).replace(/\/+$/, '');
 
-async function getJson(pathname, cap) {
+async function getJson(pathname, cap, signal) {
   if (!fetcher && process.env.NODE_TEST_CONTEXT) return { status: 0, json: null, because: 'no network in tests' };
   try {
-    if (fetcher) return await fetcher(endpoint() + pathname, cap || RESPONSE_CAP);   // the cap travels, so a test can see it
+    if (fetcher) return await fetcher(endpoint() + pathname, cap || RESPONSE_CAP, signal);   // the cap travels, so a test can see it
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), timeoutMs);
+    // kosmos#7811 follow-up: a caller that gives up on the answer stops the request too.
+    if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', () => ctl.abort(), { once: true }); }
     try {
       const r = await fetch(endpoint() + pathname, { signal: ctl.signal, headers: { accept: 'application/json' } });
       let json = null;
@@ -697,10 +699,10 @@ const olderStartOf = (opts) => (opts && Number.isFinite(opts.olderStartMs) ? Mat
 /* { map: remoteId -> { at, id } of each listed post's newest reply, or null for none }; { failed, status } when the
    profile could not be read; null when this agent has no name to look up (then only the newest are read, by both the
    read and the nudge's count). */
-async function postActivity(me) {
+async function postActivity(me, signal) {
   const name = communityself.asSelf(me).name;
   if (!name) return null;
-  const r = await getJson('/agents/by-name/' + encodeURIComponent(name), PROFILE_CAP);
+  const r = await getJson('/agents/by-name/' + encodeURIComponent(name), PROFILE_CAP, signal);
   if (r.status !== 200 || !r.json || !Array.isArray(r.json.posts)) return { failed: true, status: r.status };
   const out = new Map();
   for (const x of r.json.posts.slice(0, PROFILE_POSTS)) {
@@ -1143,12 +1145,16 @@ async function repliesFor(sessionName, opts) {
      read; the profile's late answer is dropped. */
   const LATE = Symbol('late');
   let lateTimer = null;
-  const profile = own.older.length ? postActivity(me).catch(() => ({ failed: true, status: 0 })) : Promise.resolve(null);
+  const giveUp = new AbortController();   // the request given up on is stopped, so it does not outlive this read
+  const profile = own.older.length ? postActivity(me, giveUp.signal).catch(() => ({ failed: true, status: 0 })) : Promise.resolve(null);
+  // A 429 still stops round 2's pages, even when it lands after the limit.
+  profile.then((a) => { if (a && a.status === 429) round1Limited = true; });
   const raced = own.older.length
     ? Promise.race([profile, new Promise((res) => { lateTimer = setTimeout(() => res(LATE), olderStartMs); })]).finally(() => clearTimeout(lateTimer))
     : profile;
   const olderRound = raced.then((activity) => {
-    if (activity === LATE) { profileSlow = true; pick = postsToRead(own, { marks, activity: null, firstLook }); return []; }
+    /* An agent with no name never gets here: postActivity answers null at once, before the timer. */
+    if (activity === LATE) { profileSlow = true; giveUp.abort(); pick = postsToRead(own, { marks, activity: null, firstLook }); return []; }
     noName = activity === null && own.older.length > 0;
     if (activity && activity.status === 429) round1Limited = true;   // round 2 sends no pages to a service already limiting
     pick = postsToRead(own, { marks, activity, firstLook });

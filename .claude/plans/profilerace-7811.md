@@ -7,7 +7,9 @@ and the older posts would not be read.
 
 ## Change
 engine/communityread.js repliesFor: the profile races OLDER_START_MS. If the limit wins, the older posts are left for
-the next read (`profileSlow`), the late answer is dropped, and the read goes on with the newest posts. The line says
+the next read (`profileSlow`), the request is stopped (an abort signal through getJson, so it does not outlive the
+read and compete with the next one), and the read goes on with the newest posts. A 429 that lands after the limit
+still stops round 2's pages. The line says
 the community was slow to say which older posts have new comments. A profile that answers in time behaves as before.
 
 ## Decided, rejected
