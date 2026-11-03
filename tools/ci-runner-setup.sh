@@ -1170,7 +1170,7 @@ daemon() {
     # Only the agent plist came back (a svc.sh install, a restore): the daemon is fine, nothing to stop.
     local back
     if agent_file_ok; then
-      back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir: sudo mkdir -p -m 700 $RETIRED_DIR && sudo -u $CI_USER cat $agent | sudo tee $RETIRED_DIR/$label.plist.retired-$stamp >/dev/null && sudo test -s $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER cat $agent | sudo cmp -s - $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER rm $agent && echo 'moved aside' || echo 'NOT finished; $agent is kept' (the CI user reads the agent, so root never opens a path a job controls; the copy is checked not empty and the same before the remove; the CI user removes it, so a path swapped for a symlink cannot make root remove the daemon plist)"
+      back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir (the CI user reads the agent, so root never opens a path a job controls; the copy is checked not empty and the same before the remove; the CI user removes it, so a path swapped for a symlink cannot make root remove the daemon plist): sudo mkdir -p -m 700 $RETIRED_DIR && sudo -u $CI_USER cat $agent | sudo tee $RETIRED_DIR/$label.plist.retired-$stamp >/dev/null && sudo test -s $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER cat $agent | sudo cmp -s - $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER rm $agent && echo 'moved aside' || echo 'NOT finished; $agent is kept (if $RETIRED_DIR/$label.plist.retired-$stamp is there and not the same: sudo rm $RETIRED_DIR/$label.plist.retired-$stamp)'"
     else
       # A symlink on the path (a job can make one) could make "the agent" the daemon plist itself: print no move.
       back="the daemon runs, but $agent exists and is not a plain file on a plain path in $CI_HOME (a symlink, or the daemon plist itself by another name); no command is printed for it: look at it as root before moving anything"
@@ -1248,7 +1248,8 @@ daemon() {
     return 0
   fi
   # From the first write to the bootstrap, a hangup or ^C must not leave the plist written and the agent moved with
-  # nothing loaded: each step's failure is handled below instead.
+  # nothing loaded: each step's failure is handled below instead. Children inherit the ignored signals, so a child that
+  # hangs here (a launchctl bootstrap, say) is not ended by ^C either: end it by its pid from another shell.
   trap '' HUP INT TERM PIPE
   if [ -n "$from" ]; then
     [ ! -e "$dplist" ] || [ "$dok" = 1 ] || echo "note:   replacing $dplist, which is not what this stage writes (it is not loaded)"
@@ -1301,7 +1302,7 @@ daemon() {
   done
   ok "$label loaded as a LaunchDaemon (system domain, UserName $CI_USER), Listener pid $mine under pid $dpid"
   [ -z "$retired" ] || echo "note:   keep $retired until one job has passed under the daemon (kosmos#7001: a daemon has no login session, so it cannot read the login keychain)"
-  echo "note:   to go back: sudo launchctl bootout system/$label; $back_cmd; then log in as $CI_USER"
+  echo "note:   to go back, then log in as $CI_USER: sudo launchctl bootout system/$label; $back_cmd"
 }
 
 verify() {
