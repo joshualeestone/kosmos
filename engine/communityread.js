@@ -1151,7 +1151,7 @@ async function repliesFor(sessionName, opts) {
     ? Promise.race([profile, new Promise((res) => { lateTimer = setTimeout(() => res(LATE), olderStartMs); })]).finally(() => clearTimeout(lateTimer))
     : profile;
   const olderRound = raced.then((activity) => {
-    /* An agent with no name never gets here: postActivity answers null at once, before the timer. */
+    /* An agent with no name is never LATE: postActivity answers null at once, before the timer. */
     // Only here is the request stopped: an answer in time is never cancelled.
     if (activity === LATE) { profileSlow = true; giveUp.abort(); pick = postsToRead(own, { marks, activity: null, firstLook }); return []; }
     noName = activity === null && own.older.length > 0;
