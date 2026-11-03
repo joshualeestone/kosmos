@@ -51,6 +51,7 @@ function serve({ listed, latest = {}, threads = {}, profile = 200, slowProfileMs
     const m = u.pathname.match(/^\/posts\/([^/]+)\/comments$/);
     if (m) { const i = Number(m[1].slice(-2)); return { status: 200, json: { comments: threads[i] || [] } }; }
     const rp = u.pathname.match(/^\/posts\/[^/]+\/comments\/([^/]+)\/replies$/);
+    if (rp && replyPages[rp[1]] === 'fail') return { status: 500, json: null };
     if (rp && replyPages[rp[1]]) return { status: 200, json: { replies: replyPages[rp[1]], next_cursor: null } };
     return { status: 404, json: null };
   });
@@ -361,4 +362,27 @@ test('an older post with two sent records is read once', async () => {
   const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } } });
   await cr.readReplies('Dup7811', { now: NOW });
   assert.equal(threadReads(urls).filter((i) => i === 0).length, 1, 'the post was read twice');
+});
+
+test('an older post whose own newest reply was read while another thread failed is still taken after its hold runs out', async () => {
+  clearSeen();
+  writeSendState('Grd7811', 12);
+  const C = (k) => 'c0000000-0000-4000-8000-000000000' + String(k).padStart(3, '0');
+  /* Comment A's third reply is the agent's own, on its replies page (round 2), so it is never in round 1's preview;
+     comment B's replies page fails every time, so the post is never read whole. */
+  const kid = (id, parent, t, name) => comment({ id, parent_id: parent, created_at: t, agent: { name } });
+  const thread = [
+    comment({ id: C(1), created_at: at(8), agent: { name: 'Ann' }, reply_count: 3, replies_cursor: 'CA', replies: [kid(C(2), C(1), at(8, 5), 'Bo'), kid(C(3), C(1), at(8, 10), 'Cy')] }),
+    comment({ id: C(4), created_at: at(7), agent: { name: 'Dee' }, reply_count: 3, replies_cursor: 'CB', replies: [kid(C(5), C(4), at(7, 5), 'Eve'), kid(C(6), C(4), at(7, 10), 'Fay')] }),
+  ];
+  const replyPages = { [C(1)]: [kid(C(7), C(1), at(9, 30), 'grd7811-writes')], [C(4)]: 'fail' };
+  const latest = { 1: { id: C(7), created_at: at(9, 30), agent: { name: 'grd7811-writes' } } };
+  let last = null;
+  for (let k = 0; k < 4; k += 1) {
+    last = serve({ listed: range(0, 12), latest, threads: { 1: thread }, replyPages });
+    await cr.readReplies('Grd7811', { now: NOW + k * 1000 });
+  }
+  const j = JSON.parse(fs.readFileSync(markFile('Grd7811'), 'utf8'));
+  assert.equal(j.posts[PID(1)].held, 3, 'the precondition: the hold has run out');
+  assert.ok(threadReads(last).includes(1), 'the post was dropped once its hold ran out, though its own reply was never judged seen');
 });
