@@ -376,7 +376,7 @@ function plan(name, opts) {
     const w = recordsWords(recs.records);
     loses.push(`${w.cap}: ${recordsTrash ? (recordsOnly ? 'to the Trash' : 'to the Trash with the files') : 'deleted for good'}, and a new agent with this name starts without ${w.plural ? 'them' : 'it'}`);
   }
-  if (damagedSettings) loses.push('Its settings file could not be read, so Kosmos could not check what it recorded before offering it');
+  if (damagedSettings) loses.push('Its settings file is not in a form Kosmos can read, so Kosmos could not check what it recorded before offering it');
   // Kept, and said before the click: a new agent under the name will share them.
   if (recs.kept) loses.push(`${recs.keptWords.cap} stay${recs.keptWords.plural ? '' : 's'}: ${recs.kept}, and a new agent with this name shares ${recs.keptWords.plural ? 'them' : 'it'}`);
   /* #4994: the delete retires the name's community account, which no Trash brings back, so the confirmation says so
@@ -499,11 +499,21 @@ function strandedRefusal(name, shown) {
       }
     }
   };
+  /* The plain spelling is tried first, against the workers folder as written and as the disk spells it, so a recorded
+     folder on a share that is gone is resolved only when that fails (review 5: a dead share can block a resolve). Not a
+     new exposure: plan() already looked at it through create.workerDir before reaching here. */
   if (dir) {
-    const a = real(dir);
-    const b = real(create.WORKERS_DIR);
-    if (a !== b && !insideDir(a, b)) {
-      return { because: `${shown}'s folder is somewhere this computer cannot reach right now, perhaps a disk or a shared folder that is not connected, so Kosmos will not delete its settings.` };
+    const w = path.resolve(create.WORKERS_DIR);
+    const wReal = real(create.WORKERS_DIR);
+    const inside = (a) => a === w || a === wReal || insideDir(a, w) || insideDir(a, wReal);
+    if (!inside(path.resolve(dir)) && !inside(real(dir))) {
+      /* Something is there (a link, a file), so the sentence must not send the person to check a cable (review 5). A
+         real folder there never reaches this: workerDir follows it and plan()'s folder rule refuses first. */
+      let there = false;
+      try { fs.lstatSync(dir); there = true; } catch { there = false; }
+      return { because: there
+        ? `${shown}'s folder is not where Kosmos keeps agents, so Kosmos will not delete its settings.`
+        : `${shown}'s folder is somewhere this computer cannot reach right now, perhaps a disk or a shared folder that is not connected, so Kosmos will not delete its settings.` };
     }
   }
   return { damaged };

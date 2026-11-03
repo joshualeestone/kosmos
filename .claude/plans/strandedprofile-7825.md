@@ -93,3 +93,15 @@ never offering at all.
   has a folder and never reaches this path); a win32 records-only test (the records-only arm adds no platform branch: on
   win32 it is reached only after win32job.presence answers known and not registered, an arm the existing #570 tests
   pin; after that the records path is the same on every platform).
+
+## Review round 5 (opus, fixed)
+- A recorded folder outside the workers folder that IS there (a link or a file; a real folder never gets here, since
+  workerDir follows it and the folder rule refuses first, measured) no longer gets "cannot reach, perhaps a disk": it
+  gets the folder rule's own wording.
+- The plain spelling is compared first (against the workers folder as written and as resolved), so a folder on a gone
+  share is resolved only when that fails. Not a new exposure: workerDir already lstat'ed it in the same plan().
+- The damaged-file line says "not in a form Kosmos can read" (it was read; it is not settings).
+- Weakest premise, added: on a case-sensitive disk a damaged profile shared by key with a stopped agent connected outside
+  the workers folder (Miles vs miles) is offered under the other spelling. Accepted: the file is already empty to every
+  reader, and it goes to the Trash.
+- Each fix mutation-checked (link resolve, "there" sentence, plain-only compare).
