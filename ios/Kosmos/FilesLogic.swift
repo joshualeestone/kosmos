@@ -210,14 +210,16 @@ extension Board {
     /* kosmos#7842: whether a read keeps the list already shown, for the Files screen and the agent page's section alike:
        only a list replaces it. The base rule, for a refusal with no `passing` mark (an older board, whose listing
        refusals mix lasting reasons with passing ones and give nothing to tell them apart). A board since kosmos#7850
-       marks each one; filesLastingRefusal reads a lasting mark, which the two callers let replace the list. */
+       marks each refusal the listing makes; filesLastingRefusal reads a lasting mark, which the two callers let replace
+       the list. */
     static func filesKeepsShown(_ r: FilesRead) -> Bool {
         if case .page = r { return false }
         return true
     }
-    /* kosmos#7850: a refusal the board marks as lasting (`passing: false`; a board since #7850 marks every listing
-       refusal one way or the other). It replaces a list shown. A refusal with no mark is from an older board, and keeps
-       the list as filesKeepsShown always has. */
+    /* kosmos#7850: a refusal the board marks as lasting (`passing: false`). A board since #7850 marks every refusal the
+       LISTING itself makes, one way or the other; a refusal sent before the listing runs (a name it cannot read, the
+       agent or project being gone) and every refusal from an older board carry no mark, and keep the list as
+       filesKeepsShown always has (the owner being gone is handled by filesOwnerGone). */
     static func filesLastingRefusal(status: Int, body: Data?) -> Bool {
         guard status != 0 else { return false }
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }

@@ -606,6 +606,9 @@ function lstatOfFolderPath(p) {
 }
 function accessOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.access ? fsWorldForTests.access(p) : fs.accessSync(p, fs.constants.R_OK); }
 
+/* kosmos#7850: the read errors a read moments later may not repeat (too many open files, busy, interrupted). Declared
+   here, before the first function that reads it, so no caller can meet it before it exists. */
+const PASSING_READ_CODES = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY', 'EINTR']);
 /* kosmos#7850: { passing: true } for an error a read moments later may not repeat (PASSING_READ_CODES), else {}. */
 function passingOf(err) { return err && PASSING_READ_CODES.has(err.code) ? { passing: true } : {}; }
 
@@ -1377,7 +1380,8 @@ function describe(project, roster, all) {
     needsDismissed: undefined,
     needsDismissGone: undefined,
     folder: project.folder,
-    folderState: folderState(project.folder),
+    // kosmos#7850: the listing's passing mark is for the listing routes, not this answer.
+    folderState: (({ passing: _passing, ...state }) => state)(folderState(project.folder)),
     // Normalized here rather than trusted from the record: a legacy project
     // has no field at all, and "read as ''" has to hold for API readers too,
     // not only the two web renderers with their own || '' fallbacks.
@@ -2246,7 +2250,6 @@ const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true
 
 /* #7850: a failed read of a folder, as a refusal. ENOENT and ENOTDIR say it is not there; only a code in
    PASSING_READ_CODES is marked passing, and every other code (EIO, EACCES, EPERM, ESTALE, ETIMEDOUT...) is not. */
-const PASSING_READ_CODES = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY', 'EINTR']);
 function unreadFolder(err) {
   const code = err && err.code;
   if (code === 'ENOENT' || code === 'ENOTDIR') return { ok: false, because: 'that folder is not there any more, or it was moved' };

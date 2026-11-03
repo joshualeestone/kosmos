@@ -26,6 +26,10 @@ which is exactly what an older board's refusals look like. The phone could not t
   PASSING_READ_CODES passing: folderState carries it (listFiles and resolveListedDir pass it on), and resolveListedDir's
   two catches go through unreadFolder (ENOENT/ENOTDIR stay "not there"; any other code now says "we could not read what
   is in that folder" rather than "not there").
+- Review round 2: folderState's `passing` is stripped from the project status answer (it is for the listing routes);
+  PASSING_READ_CODES is declared before its first reader. Stated, for the PR: resolveListedDir's other callers (the
+  folder download and zip) now say "we could not read what is in that folder" for a non-ENOENT error where they said
+  "not there"; no test or page matches the old sentence for those cases.
 - Weakest premise now: that the listing routes have no OTHER unmarked brief refusal (the route-level ones are the link
   and the no-agent/no-project 404s, both lasting). Accepted, not changed: `passing` read with `as? Bool` also accepts a
   JSON number; the board only sends booleans.
