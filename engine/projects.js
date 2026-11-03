@@ -1895,6 +1895,7 @@ function fingerprintStampPart(rows) {
  * Returns a REASON rather than an empty array when it cannot read, because
  * "this project has no documents" and "we could not look" are different
  * sentences and only one of them is about the project.
+ * #7850: a refusal a read moments later may not repeat carries `passing: true`, as listDir's do.
  */
 function listFiles(folder, limit, opts) {
   /* #2245 round 7: a caller that promises a flat list (the agent page's Files, #3614: its
@@ -1946,7 +1947,7 @@ function listFiles(folder, limit, opts) {
       try {
         ents = fs.readdirSync(abs, { withFileTypes: true });
       } catch (err) {
-        return { ok: false, because: 'we could not read what is in that folder', files: [] };
+        return { ok: false, because: 'we could not read what is in that folder', passing: true, files: [] };   // #7850
       }
       for (const ent of ents) take(ent, abs, rel, depth);
       continue;
@@ -2238,7 +2239,10 @@ const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true
  * `folder` (the names resolveListedFile takes, so a listed file can be previewed and downloaded as it is). Folders
  * first, then files, each by name. At most BROWSE_MAX_ENTRIES entries read (`truncated` past that). A `stamp` changes
  * whenever the answer would, as listFiles' does.
- * Returns { ok: true, dir, dirs, files, stamp, truncated? } or { ok: false, because }.
+ * Returns { ok: true, dir, dirs, files, stamp, truncated? } or { ok: false, because, passing? }.
+ * #7850: `passing: true` marks a refusal a read moments later may not repeat (the folder could not be read, or it changed
+ * while it was read: an agent saving a file is enough), so a client may keep a list it already shows. Every other
+ * refusal (not a folder, not there, a link) is lasting and carries no mark.
  */
 function listDir(folder, rel, where, opts) {
   const maxDepth = opts && Number.isInteger(opts.maxDepth) && opts.maxDepth >= 0 ? opts.maxDepth : LIST_MAX_DEPTH;
@@ -2257,7 +2261,7 @@ function listDir(folder, rel, where, opts) {
   try { before = fs.lstatSync(got.real, { bigint: true }); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
   if (!before.isDirectory()) return { ok: false, because: 'that is not a folder in ' + where };
   let dir;
-  try { dir = fs.opendirSync(got.real); } catch { return { ok: false, because: 'we could not read what is in that folder' }; }
+  try { dir = fs.opendirSync(got.real); } catch { return { ok: false, because: 'we could not read what is in that folder', passing: true }; }   // #7850
   try {
     for (let ent = dir.readSync(); ent !== null; ent = dir.readSync()) {
       // Iteration 3: the read budget and the shown cap are told apart, so the page can say which one stopped it.
@@ -2271,14 +2275,14 @@ function listDir(folder, rel, where, opts) {
     }
   } catch (err) {
     if (err instanceof TypeError || err instanceof ReferenceError) throw err;
-    return { ok: false, because: 'we could not read what is in that folder' };
+    return { ok: false, because: 'we could not read what is in that folder', passing: true };   // #7850
   } finally {
     try { dir.closeSync(); } catch { /* already closed */ }
   }
   let after = null;
   try { after = fs.lstatSync(got.real, { bigint: true }); } catch { after = null; }
   if (!after || !after.isDirectory() || after.ino !== before.ino || after.dev !== before.dev) {
-    return { ok: false, because: 'that folder changed while it was being read' };
+    return { ok: false, because: 'that folder changed while it was being read', passing: true };   // #7850
   }
   dirs.sort(byName);
   files.sort(byName);
