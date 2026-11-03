@@ -18,6 +18,9 @@ an agent scans for its built work: it showed no sign at all. So this item adds t
 - engine/tasklist.js (`seenWords`, the one module both CLIs print through): seen at or after `builtAt` is "seen since
   built"; null, or a view before the build, is "not seen since built"; no `builtAt` with a view counts as seen. No
   `seenByPerson` field at all (an older board): nothing printed.
+- "Since built" is since the latest built mark: builtAt moves on every new mark (tasks.js setBuilt), another agent's
+  re-mark included, so a seen task reads "not seen" again after one. Chosen: the agent asks whether the person has
+  seen the work as it now stands, and a new mark is new work to look at.
 - What "seen" means is taskseen's own definition (the task's conversation drawn on the person's screen in Kosmos);
   a built task read about elsewhere (the room, a notification) does not count. Stated, not widened here.
 

@@ -91,7 +91,8 @@ function quietWords(at, now) {
 }
 /* kosmos#7875 item 3: on a built row, whether the person has viewed the task since it was built (the board sends
    seenByPerson only on the built list, from engine/taskseen.js). No field, an older board: nothing is said. A view
-   before the build is not one of the built work. A task the person marked built themselves says so instead. */
+   before the build is not one of the built work. A task the person marked built themselves says so instead. "Since
+   built" is since the LATEST mark (builtAt moves on every new mark, another agent's included): new work to look at. */
 function seenWords(x) {
   // No seenByPerson field (an older board): nothing at all, the person's own mark included.
   if (!x || !Object.prototype.hasOwnProperty.call(x, 'seenByPerson')) return '';

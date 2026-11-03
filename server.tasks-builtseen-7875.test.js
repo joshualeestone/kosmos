@@ -96,6 +96,7 @@ test('#7875: the built list carries when the person last viewed each task; other
 
 test('#7875: the built list across every project carries it too', async (t) => {
   withProjects(t);
+  assert.ok(taskseen.markSeen('seen7875', 1), 'could not record the view of #1');   // its own view: runs alone too
   const r = await call('/api/tasks?all=1&order=state&state=built');
   assert.equal(r.code, 200, r.text.slice(0, 200));
   assert.equal(r.json.all, true);
