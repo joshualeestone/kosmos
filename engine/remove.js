@@ -2241,6 +2241,11 @@ function remove(name, opts) {
   return markDryRun(removeInner(name, opts));
 }
 function restore(name, opts) {
+  /* kosmos#7835: a delete of what is left under this name may be waiting on the Windows Recycle Bin with the board free;
+     putting the agent back now would let the delete's last steps (its tokens, records) land on the restored agent. */
+  let deletingNow = false;
+  try { deletingNow = require('./delete-leftover').deletingName(name); } catch { deletingNow = false; }
+  if (deletingNow) return { outcome: OUTCOME.REFUSED, steps: [], because: 'what is left of this agent is still being deleted, so it was not put back' };
   /* kosmos#6239 (round 2): putting a removed agent back starts it, so a restore the person asked for (`quiet: true`)
      is refused in the policy's quiet hours, as Start is (restart above). */
   if (opts && opts.quiet === true) {
