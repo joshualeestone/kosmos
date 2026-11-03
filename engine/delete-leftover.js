@@ -859,17 +859,35 @@ function del(name, opts) {
    already), and no world start waiting under the stored name. Built on register.survey, the reader Repair and the
    board's offline rows use, so "no folder, no job" means one thing everywhere. Not filtered by the recorded-folder rule:
    that look can block on a share that is gone, and this is polled; the click asks plan(), which refuses with the true
-   sentence. { ok, names: [{ name, shownAs }] }; ok false lists none. */
+   sentence. Two cheap exclusions instead (review 1): a running agent (its folder can go while it runs), and a profile
+   recording a folder outside the workers folder (read from the profile, never looked at, so a share that is gone
+   cannot block the poll; such a folder may only be out of sight). `opts.survey` is a survey the caller already took
+   (the board's 5 s poll takes one), so the list does not read every job twice.
+   { ok, names: [{ name, shownAs }] }; ok false lists none. */
 function settingsLeftovers(opts) {
-  const s = require('./register').survey(opts);
+  const s = (opts && opts.survey) || require('./register').survey(opts);
   if (!s || !s.ok) return { ok: false, names: [] };
+  const platform = (opts && opts.platform) || process.platform;
+  const caseBlind = platform === 'darwin' || platform === 'win32';
+  const fold = (n) => (caseBlind ? String(n).toLowerCase() : String(n));
+  let running;
+  try { running = new Set(status.paneRoster().map((c) => fold(c.sessionName))); } catch { return { ok: false, names: [] }; }
+  const workers = path.resolve(create.WORKERS_DIR);
+  const outside = (name) => {
+    let dir = null;
+    try { dir = require('./store').readProfile(name).dir; } catch { dir = null; }
+    if (typeof dir !== 'string' || !dir || !path.isAbsolute(dir)) return false;
+    const d = path.resolve(dir);
+    return !(fold(d) === fold(workers) || insideDir(fold(d), fold(workers)));
+  };
   const pending = require('./worldstarts').pendingNames();
   if (pending === null) return { ok: false, names: [] };
   const store = require('./store');
   const keyOf = (n) => { try { return store.safeKey(n); } catch { return null; } };
   const waiting = new Set(pending.map(keyOf).filter(Boolean));
   const names = s.agents
-    .filter((a) => a.profile === true && a.folder === false && a.job === false && !a.removed && !waiting.has(keyOf(a.name)))
+    .filter((a) => a.profile === true && a.folder === false && a.job === false && !a.removed && !waiting.has(keyOf(a.name))
+      && !running.has(fold(a.name)) && !outside(a.name))
     .map((a) => ({ name: a.name, shownAs: a.shownAs || a.name }));
   return { ok: true, names };
 }

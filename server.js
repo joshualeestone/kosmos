@@ -256,8 +256,11 @@ function trustDialogHold(card, seen, capture) {
   return held;
 }
 const leftover = require('./engine/delete-leftover');
-/* kosmos#7825 PR 2: the last settingsLeftovers read, { at, r }, for /api/removed; null after any delete. */
+/* kosmos#7825 PR 2: the last settingsLeftovers read, { at, r }, for /api/removed; null after any delete. Only a good
+   read is kept: a failed one is not remembered, so one bad read does not hide the rows for 15 s (review 1). And the
+   board poll's last survey, { at, s }, so the list does not read every job a second time. */
 let SETTINGS_LEFTOVERS = null;
+let LAST_SURVEY = null;
 const firstrun = require('./engine/firstrun');
 const platformGate = require('./engine/platform');
 const cloudMachine = require('./engine/cloudmachine');   // kosmos#4903 S5
@@ -7905,6 +7908,7 @@ const server = http.createServer(async (req, res) => {
           if (snap.counts && snap.counts.unreadableLines > 0) return [];
           const seen = new Set(agents.map((a) => a.sessionName));
           const known = register.survey();
+          LAST_SURVEY = { at: Date.now(), s: known };   // kosmos#7825 PR 2: /api/removed's leftovers read this one
           if (!known.ok) return [];
           /* One launchd probe per poll, for #310's sentence below. Empty on
              any failure: could-not-look must never read as switched-off. */
@@ -17899,11 +17903,12 @@ const server = http.createServer(async (req, res) => {
        every 5 s on the Agents tab and the read looks at every job. Only name and shownAs, for the reason below. */
     const now = Date.now();
     if (!SETTINGS_LEFTOVERS || now - SETTINGS_LEFTOVERS.at > 15000) {
+      const fresh = LAST_SURVEY && now - LAST_SURVEY.at < 10000 ? LAST_SURVEY.s : null;
       let r;
-      try { r = leftover.settingsLeftovers(); } catch { r = { ok: false, names: [] }; }
-      SETTINGS_LEFTOVERS = { at: now, r };
+      try { r = leftover.settingsLeftovers(fresh ? { survey: fresh } : undefined); } catch { r = { ok: false, names: [] }; }
+      SETTINGS_LEFTOVERS = r.ok ? { at: now, r } : null;
     }
-    const lr = SETTINGS_LEFTOVERS.r;
+    const lr = SETTINGS_LEFTOVERS ? SETTINGS_LEFTOVERS.r : { ok: false, names: [] };
     sendJson(res, 200, {
       ...(lr.ok ? { leftovers: lr.names.map((x) => ({ name: x.name, shownAs: x.shownAs || x.name })) } : {}),
       agents: agents.map((a) => ({
