@@ -377,7 +377,11 @@ let worldSwitchRestarting = false;   // #6173: a Kosmos switch is about to resta
 /* #6173: the board is about to restart (an update, the restart button, a Kosmos switch): no account move may start. */
 function boardRestartingSoon() { return updates.alreadyInstalling() || engineRestartAsked || worldSwitchRestarting; }
 /* #6173: a board restart now would cut an account move, or a restart it gave up on whose last command is still running. */
-function moveHoldsBoard() { return accountmove.busy() || removal.restartingNow(); }
+function moveHoldsBoard() { return accountmove.busy() || removal.restartingNow() || leftover.deletingNow(); }
+/* kosmos#7835: the refusal names what holds the board; a Windows delete of an agent's files holds it too. */
+function boardHoldBecause() {
+  return !accountmove.busy() && !removal.restartingNow() && leftover.deletingNow() ? leftover.DELETING_BOARD_BECAUSE : accountmove.boardBusyBecause();
+}
 /* #6214: the refusal says so when a running move is what holds the board, so the page can offer to stop it from where the
    person met the refusal (not only from the Settings tab that started the move). */
 function moveStoppableNote() { return accountmove.busy() ? { moveStoppable: true } : {}; }
@@ -7514,7 +7518,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/engine/restart' && req.method === 'POST') {
     const fresh = engineFreshness();
     if (!fresh.staleSince) { sendJson(res, 409, { ok: false, current: true, because: 'the board is already running the code on disk' }); return; }
-    if (moveHoldsBoard()) { sendJson(res, 409, { ok: false, because: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173
+    if (moveHoldsBoard()) { sendJson(res, 409, { ok: false, because: boardHoldBecause(), ...moveStoppableNote() }); return; }   // #6173
     /* One restart at a time: every open page shows the button, and a second detached `kosmos restart`
        racing the first can leave a board no `kosmos stop` can name. Later presses get the same answer,
        before the (blocking, on Windows) restart check below. */
@@ -8827,7 +8831,7 @@ const server = http.createServer(async (req, res) => {
         const isNoop = bootedId != null && bootedId === id;
         /* #6173: a real switch restarts the board, and an account move's restart cut between bootout and bootstrap
            leaves that agent unloaded. Refused before anything is paused. */
-        if (!isNoop && moveHoldsBoard()) { sendJson(res, 409, { ok: false, because: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }
+        if (!isNoop && moveHoldsBoard()) { sendJson(res, 409, { ok: false, because: boardHoldBecause(), ...moveStoppableNote() }); return; }
         let pause = { paused: [], notPaused: [], stoppedNow: [] };
         if (!isNoop && agentsChoice === worldstarts.AGENT_CHOICES.PAUSE) {
           /* Refuse a pause for a world that does not exist rather than stop agents
@@ -10603,7 +10607,7 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(lo[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     let plan;
-    // kosmos#7835: planAsync, so a Windows drive probe (PowerShell, up to 5 s) does not hold every other request.
+    // kosmos#7835: planAsync, so a Windows drive probe (PowerShell, up to 20 s cold) does not hold every other request.
     try { plan = await leftover.planAsync(name); }
     catch (err) { sendJson(res, 500, { error: 'we could not work out what is left of this agent', detail: String(err && err.message || err) }); return; }
     /* 200 whatever the plan says: every agent page asks this question, and
@@ -10622,6 +10626,8 @@ const server = http.createServer(async (req, res) => {
         let body = {};
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
         let done;
+        // kosmos#7835: a delete started while the board is about to restart would be cut off partway.
+        if (boardRestartingSoon()) { sendJson(res, 409, { outcome: leftover.OUTCOME.REFUSED, because: 'The board is about to restart (an update or a restart is under way), so nothing was deleted. Try again when it is back.' }); return; }
         // kosmos#7835: delAsync, so a Windows Recycle Bin move (PowerShell, up to 120 s) does not hold the board.
         try { done = await leftover.delAsync(name, { typed: body.typed }); }
         catch (err) { SETTINGS_LEFTOVERS = null; LAST_SURVEY = null; sendJson(res, 500, { error: 'the delete failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
@@ -17582,7 +17588,7 @@ const server = http.createServer(async (req, res) => {
          and points at git. Two true things beat one, and the truer one goes first. */
       const platRefusal = updates.selfInstallRefusal();
       if (platRefusal) { say(409, { error: platRefusal }); return; }
-      if (moveHoldsBoard()) { say(409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173: the install restarts the board
+      if (moveHoldsBoard()) { say(409, { error: boardHoldBecause(), ...moveStoppableNote() }); return; }   // #6173: the install restarts the board
       if (!updates.installedRoot()) {
         say(409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
         return;
@@ -17645,7 +17651,7 @@ const server = http.createServer(async (req, res) => {
     try {
       const rollback = updates.rollbackOffer();
       if (!rollback) { say(409, { error: 'there is no earlier Kosmos kept to roll back to right now' }); return; }
-      if (moveHoldsBoard()) { say(409, { error: accountmove.boardBusyBecause(), ...moveStoppableNote() }); return; }   // #6173 review 4: a rollback restarts the board too
+      if (moveHoldsBoard()) { say(409, { error: boardHoldBecause(), ...moveStoppableNote() }); return; }   // #6173 review 4: a rollback restarts the board too
       if (!updates.installedRoot()) {
         say(409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
         return;

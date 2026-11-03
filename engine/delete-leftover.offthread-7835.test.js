@@ -285,8 +285,10 @@ test('#7835 while a delete runs, Start, Restart and Remove of that agent are ref
   assert.match(started.because, /being deleted now/);
   const startedAsync = await remove.restartAsync('ot7835n', 'restart', { startIfDead: true });
   assert.equal(startedAsync.outcome, remove.OUTCOME.REFUSED, JSON.stringify(startedAsync));
+  assert.match(startedAsync.because, /being deleted now/);   // refused BY the delete, not for want of a job
   const removed = remove.remove('ot7835n');
   assert.equal(removed.outcome, remove.OUTCOME.REFUSED, JSON.stringify(removed));
+  assert.match(removed.because, /being deleted now/);
   assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
 });
 
@@ -378,4 +380,53 @@ test('#7835 item 5: the warm off the board waits for a cold PowerShell start; a 
   const onBoard = calls.filter((c) => c.args.includes(leftover.DRIVE_SCRIPT));
   assert.equal(onBoard.length, 1, 'the plan on the board did not probe once');
   assert.equal(onBoard[0].opts.timeout, leftover.DRIVE_TIMEOUT_MS);
+});
+
+test('#7835 adding a folder with no instructions under the name of an agent whose delete runs is refused', async () => {
+  const discover = require('./discover');
+  leftoverFolder('ot7835u');
+  const outside = fs.mkdtempSync(nodePath.join(SANDBOX, 'outside-'));
+  fs.writeFileSync(nodePath.join(outside, 'notes.md'), 'no instructions here\n');
+  leftover.setRunner(later(300));
+  const going = asyncWin.del('ot7835u');
+  await new Promise((r) => setTimeout(r, 50));
+  const joined = discover.connect(outside, { name: 'ot7835u' });
+  assert.equal(joined.ok, false, JSON.stringify(joined));
+  assert.match(joined.because, /still being deleted/);
+  assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
+});
+
+test('#7835 a running delete holds the board: its restarts wait, with their own sentence, and a delete under a restart is refused', async () => {
+  leftoverFolder('ot7835v');
+  leftover.setRunner(later(300));
+  assert.equal(leftover.deletingNow(), false, 'a delete is said to run before one started');
+  const going = asyncWin.del('ot7835v');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(leftover.deletingNow(), true, 'the running delete is not seen, so a board restart could cut it off');
+  assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
+  assert.equal(leftover.deletingNow(), false, 'the delete is still said to run after it finished');
+  const server = fs.readFileSync(nodePath.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /function moveHoldsBoard\(\) \{ return [^}]*\|\| leftover\.deletingNow\(\); \}/);
+  assert.equal((server.match(/moveHoldsBoard\(\)\) \{ (?:sendJson\(res, 409, \{ ok: false, because|say\(409, \{ error): accountmove\.boardBusyBecause\(\)/g) || []).length, 0,
+    'a restart refused for a running delete would say an account move holds it');
+  assert.equal((server.match(/moveHoldsBoard\(\)\) \{ (?:sendJson\(res, 409, \{ ok: false, because|say\(409, \{ error): boardHoldBecause\(\)/g) || []).length, 4);
+  const route = server.slice(server.indexOf("if (lo && req.method === 'DELETE') {"));
+  const guard = route.indexOf('if (boardRestartingSoon()) {'), act = route.indexOf('leftover.delAsync(');
+  assert.ok(guard > 0 && act > guard, 'a delete can start under a board restart, which would cut it off');
+});
+
+test('#7835 planAsync with every drive already answered plans once, and says what a second plan would', async () => {
+  leftoverFolder('ot7835x');
+  leftover.setRunner(stub);
+  const warmed = await asyncWin.plan('ot7835x');   // asks the drive, so the next one has nothing to ask
+  assert.equal(warmed.ok, true, warmed.because);
+  let asked = 0;
+  status.setPaneSource(() => { asked += 1; return ''; });
+  const again = await asyncWin.plan('ot7835x');
+  const plansRun = asked;
+  assert.ok(plansRun >= 1, 'the plan did not read the running panes, so this count proves nothing');
+  asked = 0;
+  const direct = win.plan('ot7835x');
+  assert.equal(plansRun, asked, 'planAsync planned twice with nothing left to ask the drive');
+  assert.deepEqual(again, direct);
 });

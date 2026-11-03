@@ -1195,24 +1195,33 @@ function askedKey(name) {
 }
 /** Whether a delete of what is left under this name is running now (create and restore refuse the name meanwhile). */
 function deletingName(name) { return deleting.size > 0 && name != null && deleting.has(askedKey(name)); }
+/* kosmos#7835: any delete running. A board restart (an update, the restart button, a Kosmos switch) would end it partway,
+   after the folder moved and before its records, so the board's restarts wait for it (server.js moveHoldsBoard). */
+function deletingNow() { return deleting.size > 0; }
+const DELETING_BOARD_BECAUSE = "An agent's files are being moved to the Recycle Bin now, and this would restart the board in the middle of it. Try again in a minute.";
 const DELETING_BECAUSE = 'a delete of what is left of this agent is running now; try again when it has finished';
-/* The drive roots warmed (for delAsync to pin). */
+/* The drive roots warmed (`roots`, for delAsync to pin), and the plan made to find the paths (`first`) with whether any
+   drive still had to be asked (`probed`): when none did, `first` already read every answer the plan needs. */
 async function warmFor(name, opts) {
   let first = null;
-  try { first = plan(name, { ...(opts || {}), probe: false }); } catch { return []; }
-  if (!first || first.ok !== true) return [];
+  try { first = plan(name, { ...(opts || {}), probe: false }); } catch { return { roots: [], first: null, probed: true }; }
+  if (!first || first.ok !== true) return { roots: [], first: null, probed: true };
   const paths = [first.folder && first.folder.path, ...((first.records && first.records.files) || []).map((r) => r.file)].filter(Boolean);
+  const probed = paths.some((p) => { const d = driveOf(p); return !!(d && d.root && !freshDrive(d.root)); });
   // Together: one after another, a failed probe's short keep could end while the next drive is still being asked.
-  return (await Promise.all(paths.map((p) => warmDrive(p)))).filter(Boolean);
+  const roots = (await Promise.all(paths.map((p) => warmDrive(p)))).filter(Boolean);
+  return { roots, first, probed };
 }
 /** plan, with the Windows drive probe run first without holding the board. While a delete of the name runs, its files
     are on their way out, so the plan says that rather than reading them half-moved. */
 async function planAsync(name, opts) {
   const win = ((opts && opts.platform) || process.platform) === 'win32';
   if (win && deletingName(name)) return { ok: false, because: DELETING_BECAUSE };
-  if (win) await warmFor(name, opts);
+  const warm = win ? await warmFor(name, opts) : null;
   // Asked again: a delete of the name can have started while the probe ran.
   if (win && deletingName(name)) return { ok: false, because: DELETING_BECAUSE };
+  // Every drive already answered: the plan that found the paths is the answer (no second walk of the folder).
+  if (warm && warm.first && !warm.probed) return warm.first;
   return plan(name, opts);
 }
 /** del, with the Windows drive probe and Recycle Bin moves run without holding the board. One at a time per name: a
@@ -1223,7 +1232,7 @@ async function delAsync(name, opts) {
   if (deleting.has(key)) return { outcome: OUTCOME.REFUSED, because: DELETING_BECAUSE };
   deleting.add(key);
   try {
-    const roots = await warmFor(name, opts);
+    const { roots } = await warmFor(name, opts);
     const steps = delSteps(name, { ...(opts || {}), pinned: roots });
     let r = steps.next();
     while (!r.done) {
@@ -1238,4 +1247,4 @@ async function delAsync(name, opts) {
   }
 }
 
-module.exports = { OUTCOME, plan, del, planAsync, delAsync, deletingName, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict };   // RECYCLE_SCRIPT on, and execAsync, for tests (#5445, kosmos#7820, kosmos#7835)
+module.exports = { OUTCOME, plan, del, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835)

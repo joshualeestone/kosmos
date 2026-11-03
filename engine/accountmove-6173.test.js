@@ -175,7 +175,7 @@ test('#6173 review 2: the board wires the move to the engine\'s hold, and the cl
     'the one-agent Move can start under a board restart');
   /* Everything that restarts the board refuses while a move (or a restart it gave up on) holds it, and the refusal
      comes BEFORE the act in its own route (review 4: a text match alone would pass a check moved after the act). */
-  assert.match(server, /function moveHoldsBoard\(\) \{ return accountmove\.busy\(\) \|\| removal\.restartingNow\(\); \}/);
+  assert.match(server, /function moveHoldsBoard\(\) \{ return accountmove\.busy\(\) \|\| removal\.restartingNow\(\) \|\| leftover\.deletingNow\(\); \}/);   // kosmos#7835: a running Windows delete holds it too
   const guardThenAct = (routeHead, guard, act, what) => {
     const at = server.indexOf(routeHead);
     assert.ok(at > 0, `${what}: its route is not in server.js`);
