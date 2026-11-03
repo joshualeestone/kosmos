@@ -14,11 +14,11 @@ a proxy's page), the dialog asks for the plan again (GET .../leftover) and says 
 What the screen does with it (`deleteNoAnswerShow`):
 - still offered: the dialog repaints with THAT plan (a delete that got partway can leave less, or ask for the name),
   so the list and the typed-name gate are current, and the line is shown.
-- refused: the board's words in the dialog, the button off, and the detail page's delete box hidden (the page's rule
-  for any refusal, as loadLeftover). The kept leftovers are NOT cleared: a refusal can be passing ("try again in a
+- refused: the board's words in the dialog, the button off, Keep focused, and that agent's delete box hidden (the
+  page's rule for any refusal, as loadLeftover), only when the detail page is that agent's (review 5). The kept leftovers are NOT cleared: a refusal can be passing ("try again in a
   moment") or mean the agent is back ("is running"), so the next read decides the removed list (review 2).
 - no plan (no answer, or a GET that is not the route's own 200: fetchLeftoverPlan now refuses those): the line, and
-  the button as the plan on screen gates it, so a retry is open (the board re-plans before it acts) (review 3).
+  the button as the dialog's own plan (taken when the delete was sent) gates it, so a retry is open (the board re-plans before it acts) (review 3).
 The name and a dialog token (`DEL_OPENED`, moved on every open and close) are taken BEFORE the DELETE is sent (review
 2: taken after it, Keep pressed during a hanging delete re-asked for a null name). If the person left the dialog
 while the delete ran: no answer says nothing; a refusal says nothing; a success still settles the screen for the
@@ -26,6 +26,7 @@ name that was deleted (`deleteSettled`, shared with the plain success path) but 
 longer its own, unless that dialog is open again for the same (now deleted) agent, which closes (review 4). deleteSettled touches the detail page's box and line only when the detail page is the deleted
 agent's, and the shared DEL_PLAN only when it is that agent's plan (review 3; before, a delete started from the
 removed list wrote its line into whichever agent's page was open).
+A non-2xx JSON that is not the route's own (no outcome, no error: a gateway) counts as no answer (review 5).
 A refusal WITH an answer is unchanged, except that it is dropped once the person has left the dialog.
 
 A side effect, accepted: the removed list's own Delete button also uses fetchLeftoverPlan, so its GET 400 (a name

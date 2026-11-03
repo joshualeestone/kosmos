@@ -65,9 +65,10 @@ function dialog(planOnScreen, detailFor = null) {
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
     'function paintRemoved() { paints += 1; }',
     liftConst(SCRIPT, 'DEL_UNKNOWN_LINE'), liftConst(SCRIPT, 'DEL_REFUSED_LINE'),
-    liftAll(SCRIPT, ['fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteSettled', 'openDeleteModal', 'closeDeleteModal']),
+    liftAll(SCRIPT, ['fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteForgetPlan', 'deleteSettled', 'openDeleteModal', 'closeDeleteModal']),
     'this.click = ' + liftHandler() + ';',
-    'this.show = deleteNoAnswerShow; this.open = openDeleteModal; this.close = closeDeleteModal;',
+    'this.show = (p, onScreen) => deleteNoAnswerShow(p, DEL_FOR, onScreen === undefined ? DEL_PLAN : onScreen);',
+    'this.open = openDeleteModal; this.close = closeDeleteModal; this.setPlan = (x) => { DEL_PLAN = x; };',
     'this.state = () => ({ DEL_FOR, DEL_PLAN, DEL_OPENED, kept: LEFTOVERS_LAST.map((x) => x.name).join(",") });'].join('\n'), ctx);
   ctx.open(planOnScreen);
   return { els, ctx, calls, replies };
@@ -88,19 +89,31 @@ test('still offered: the dialog repaints with the new plan, says what is left, a
   assert.equal(typed.els['del-type-row'].hidden, false);
 });
 
-test('refused: the board\'s words in the dialog, the button off, the delete box hidden, the kept leftovers left alone', () => {
+test('refused: the board\'s words in the dialog, the button off, Keep focused, the kept leftovers left alone', () => {
   for (const because of ['nothing of Miles is left on this computer, so there is nothing to delete.',
     'we could not check whether Miles is running right now, so we have not offered to delete anything. Try again in a moment.']) {
-    const d = dialog(offered);
+    const d = dialog(offered, 'Miles');
     d.els['del-go'].disabled = true;
+    let focused = null;
+    d.els['del-keep'].focus = () => { focused = 'del-keep'; };
     d.ctx.show({ ok: false, because });
     assert.equal(d.els['del-modal'].hidden, false, 'the dialog stays to say it');
     assert.equal(d.els['del-msg'].textContent, because);
     assert.equal(d.els['del-go'].disabled, true);
-    assert.equal(d.els['d-delete-leftover'].hidden, true, 'the detail page drops its delete box, as for any refusal');
+    assert.equal(focused, 'del-keep', 'focus is not left on a button that is off');
+    assert.equal(d.els['d-delete-leftover'].hidden, true, 'Miles\'s detail page drops its delete box, as for any refusal');
     assert.equal(d.ctx.state().DEL_PLAN, null);
     assert.equal(d.ctx.state().kept, 'Miles,Ada', 'a refusal can be passing, so the next read decides the list');
   }
+});
+
+test('refused, while the detail page shows another agent: that page and its plan are not touched', () => {
+  const d = dialog(offered, 'Ada');
+  const adas = { ...offered, name: 'Ada' };
+  d.ctx.setPlan(adas);   // the detail page loaded Ada while the delete ran
+  d.ctx.show({ ok: false, because: 'nothing of Miles is left on this computer.' }, offered);
+  assert.equal(d.els['d-delete-leftover'].hidden, false, 'Ada\'s delete box stays');
+  assert.equal(d.ctx.state().DEL_PLAN && d.ctx.state().DEL_PLAN.name, 'Ada', 'and her plan, so her Delete still opens');
 });
 
 test('no plan either: the line, the dialog stays, and the button follows the plan on screen so the person can retry', () => {
@@ -117,6 +130,11 @@ test('no plan either: the line, the dialog stays, and the button follows the pla
   typed.els['del-typed'].value = 'Miles';
   typed.ctx.show(null);
   assert.equal(typed.els['del-go'].disabled, false, 'CONTROL: the name typed, the retry is open');
+  const swapped = dialog({ ...offered, typeToConfirm: 'Miles' });
+  const asked = { ...offered, typeToConfirm: 'Miles' };
+  swapped.ctx.setPlan({ ...offered, name: 'Ada' });   // a detail page for Ada loaded while the delete hung
+  swapped.ctx.show(null, asked);
+  assert.equal(swapped.els['del-go'].disabled, true, 'the gate is the dialog\'s own plan, not whatever DEL_PLAN now holds');
   assert.equal(d.ctx.state().kept, 'Miles,Ada', 'CONTROL: nothing is cleared on not knowing');
 });
 
@@ -149,6 +167,18 @@ test('the handler, run: a proxy page is no answer too, and a GET that fails with
   assert.equal(d.els['del-msg'].textContent, UNKNOWN);
   assert.equal(d.els['del-modal'].hidden, false);
   assert.equal(d.els['d-delete-leftover'].hidden, false, 'CONTROL: no plan is not a refusal, the box stays');
+});
+
+test('the handler, run: a gateway\'s JSON (no outcome, no error) is no answer, so the plan is asked again', async () => {
+  const d = dialog(offered);
+  d.replies.push(json(504, { message: 'Gateway Timeout' }), json(200, { ok: false, because: 'a delete of what is left of this agent is running now; try again when it has finished' }));
+  await d.ctx.click();
+  assert.equal(d.calls.length, 2, 'the plan was asked again');
+  assert.match(d.els['del-msg'].textContent, /running now/);
+  const own = dialog(offered);
+  own.replies.push(json(400, { outcome: 'refused', because: 'type Miles to confirm; nothing was deleted' }));
+  await own.ctx.click();
+  assert.equal(own.calls.length, 1, 'CONTROL: the route\'s own refusal is an answer, no second read');
 });
 
 test('the handler, run: Keep pressed while the delete hangs, then no answer: nothing is asked and nothing is written', async () => {

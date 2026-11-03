@@ -50194,12 +50194,13 @@ function deleteNoAnswerLine(plan) {
   if (plan.ok) return 'We could not reach the board just now, and what is left of this agent is still here. Try again.';
   return plan.because || DEL_UNKNOWN_LINE;
 }
-/* What the open dialog shows once the plan has been asked again. Still offered: it repaints with that plan (a delete
-   that got partway can leave less, or ask for the name; the typed name is cleared, as any repaint does), and says so. Refused: the board's words, with the button off;
-   the detail page's delete box hides, as it does for any refusal (loadLeftover). The kept leftovers are left to the
-   next read: a refusal can be "try again in a moment" or "is running", not only "nothing is left". No plan: the line,
-   and the button as the plan on screen gates it, so the person can try again (the board re-plans before it acts). */
-function deleteNoAnswerShow(plan) {
+/* What the open dialog for `name` shows once its plan has been asked again (`onScreen`: the plan it was showing when
+   the delete was sent). Still offered: it repaints with the new plan (a delete that got partway can leave less, or
+   ask for the name; the typed name is cleared, as any repaint does), and says so. Refused: the board's words, the
+   button off and Keep focused; this agent's delete box hides, as for any refusal (loadLeftover). The kept leftovers
+   are left to the next read: a refusal can be "try again in a moment" or "is running", not only "nothing is left".
+   No plan: the line, and the button as `onScreen` gates it, so the person can try again (the board re-plans first). */
+function deleteNoAnswerShow(plan, name, onScreen) {
   const say = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(deleteNoAnswerLine(plan));
   if (plan && plan.ok) {
     const back = DEL_RETURN;
@@ -50209,31 +50210,37 @@ function deleteNoAnswerShow(plan) {
     return;
   }
   if (plan) {
-    const box = document.getElementById('d-delete-leftover');
-    if (box) box.hidden = true;
-    DEL_PLAN = null;
+    deleteForgetPlan(name);
+    document.getElementById('del-keep').focus();
   } else {
     const typed = document.getElementById('del-typed').value.trim();
-    document.getElementById('del-go').disabled = !!(DEL_PLAN && DEL_PLAN.typeToConfirm && typed !== DEL_PLAN.typeToConfirm);
+    document.getElementById('del-go').disabled = !!(onScreen && onScreen.typeToConfirm && typed !== onScreen.typeToConfirm);
   }
   document.getElementById('del-msg').textContent = say;
 }
-// After a delete of `name`: the name leaves the kept leftovers, and the detail page and the removed list say `say`.
-// `closeDialog` is false when the dialog was closed or opened again while the delete ran: it is not this delete's.
-function deleteSettled(name, say, closeDialog) {
-  /* kosmos#7825 review 2: a name just deleted is never drawn again from the kept leftovers. */
-  { const deleted = String(name).toLowerCase(); LEFTOVERS_LAST = LEFTOVERS_LAST.filter((x) => String(x.name).toLowerCase() !== deleted); }
-  if (closeDialog) closeDeleteModal();
-  const deleted = String(name).toLowerCase();
-  // The detail page's box and line, and the shared plan, only when they are the deleted agent's (the dialog may have
-  // been opened for another agent meanwhile, or the delete started from the removed list).
-  if (typeof CURRENT !== 'undefined' && CURRENT && String(CURRENT.sessionName).toLowerCase() === deleted) {
-    const dmsg = document.getElementById('d-delete-msg');
-    if (dmsg) dmsg.textContent = say;
+// The detail page's delete box and line, and the shared plan, only when they are `name`'s: the detail page may show
+// another agent (the delete started from the removed list, or the person moved on while it ran). Returns whether the
+// detail page is `name`'s.
+function deleteForgetPlan(name, say) {
+  const lower = String(name).toLowerCase();
+  const mine = typeof CURRENT !== 'undefined' && !!CURRENT && String(CURRENT.sessionName).toLowerCase() === lower;
+  if (mine) {
     const box = document.getElementById('d-delete-leftover');
     if (box) box.hidden = true;
+    const dmsg = document.getElementById('d-delete-msg');
+    if (dmsg && say !== undefined) dmsg.textContent = say;
   }
-  if (DEL_PLAN && String(DEL_PLAN.name).toLowerCase() === deleted) DEL_PLAN = null;
+  if (DEL_PLAN && String(DEL_PLAN.name).toLowerCase() === lower) DEL_PLAN = null;
+  return mine;
+}
+// After a delete of `name`: the name leaves the kept leftovers, and its detail page and the removed list say `say`.
+// `closeDialog` is false when the dialog is no longer this delete's.
+function deleteSettled(name, say, closeDialog) {
+  /* kosmos#7825 review 2: a name just deleted is never drawn again from the kept leftovers. */
+  const deleted = String(name).toLowerCase();
+  LEFTOVERS_LAST = LEFTOVERS_LAST.filter((x) => String(x.name).toLowerCase() !== deleted);
+  if (closeDialog) closeDeleteModal();
+  deleteForgetPlan(name, say);
   const rmsg = document.getElementById('removed-msg');
   const wrap = document.getElementById('removed-wrap');
   if (rmsg && wrap && !wrap.hidden) rmsg.textContent = say;
@@ -50300,6 +50307,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
   if (!DEL_FOR) return;
   const name = DEL_FOR;
   const opened = DEL_OPENED;   // this dialog; closing or opening it again moves the token
+  const onScreen = DEL_PLAN;   // the plan this dialog shows; a detail page loaded meanwhile can replace DEL_PLAN
   go.disabled = true;
   msg.textContent = '';
   let res = null;
@@ -50311,11 +50319,12 @@ document.getElementById('del-go').addEventListener('click', async () => {
     });
     body = await res.json().catch(() => null);
   } catch { res = null; }
-  if (!res || !body) {
+  // A non-2xx JSON that is not the route's own (no outcome, no error: a gateway's page) is no answer either.
+  if (!res || !body || (!res.ok && body.outcome === undefined && body.error === undefined)) {
     if (opened !== DEL_OPENED) return;   // the person left this dialog while the delete ran; nothing to say in it
     const plan = await fetchLeftoverPlan(name);
     if (opened !== DEL_OPENED) return;
-    deleteNoAnswerShow(plan);
+    deleteNoAnswerShow(plan, name, onScreen);
     return;
   }
   if (!res.ok && body.outcome !== 'partial') {
