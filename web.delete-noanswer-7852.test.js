@@ -64,7 +64,7 @@ function dialog(planOnScreen, detailFor = null) {
     'let CURRENT = ' + JSON.stringify(detailFor ? { sessionName: detailFor } : null) + ';',
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
     'function paintRemoved() { paints += 1; }',
-    liftConst(SCRIPT, 'DEL_UNKNOWN_LINE'),
+    liftConst(SCRIPT, 'DEL_UNKNOWN_LINE'), liftConst(SCRIPT, 'DEL_REFUSED_LINE'),
     liftAll(SCRIPT, ['fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteSettled', 'openDeleteModal', 'closeDeleteModal']),
     'this.click = ' + liftHandler() + ';',
     'this.show = deleteNoAnswerShow; this.open = openDeleteModal; this.close = closeDeleteModal;',
@@ -179,6 +179,29 @@ test('the handler, run: reopened for another agent while the delete hangs, its s
   assert.equal(d.ctx.state().kept, 'Ada', 'Miles, the one deleted, leaves the kept leftovers');
   assert.equal(d.els['d-delete-msg'].textContent, '', 'Ada\'s detail page is not told about Miles');
   assert.equal(d.els['d-delete-leftover'].hidden, false, 'nor loses her delete box');
+});
+
+test('the handler, run: reopened for the SAME agent while the delete hangs, its success closes that dialog', async () => {
+  const d = dialog(offered, 'Miles');
+  let ok;
+  d.replies.push(() => new Promise((res) => { ok = res; }));
+  const done = d.ctx.click();
+  d.ctx.close();
+  d.ctx.open({ ...offered, typeToConfirm: 'Miles' });
+  ok({ ok: true, status: 200, json: () => Promise.resolve({ outcome: 'deleted', said: 'Miles is gone.' }) });
+  await done;
+  assert.equal(d.els['del-modal'].hidden, true, 'a dialog for an agent that is gone does not stay up');
+  assert.equal(d.els['d-delete-msg'].textContent, 'Miles is gone.');
+});
+
+test('the handler, run: a refusal with no words says the board gave no reason, not that it could not be reached', async () => {
+  const d = dialog(offered);
+  d.replies.push(json(400, { outcome: 'refused' }));
+  await d.ctx.click();
+  const REFUSED = vm.runInNewContext(liftConst(SCRIPT, 'DEL_REFUSED_LINE') + '; DEL_REFUSED_LINE', {});
+  assert.equal(d.els['del-msg'].textContent, REFUSED);
+  assert.doesNotMatch(REFUSED, /could not reach/);
+  assert.equal(d.els['del-go'].disabled, false, 'CONTROL: the refusal path still gives the button back');
 });
 
 test('the handler, run: a delete from the deleted agent\'s own detail page settles that page', async () => {

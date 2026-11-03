@@ -23,13 +23,14 @@ The name and a dialog token (`DEL_OPENED`, moved on every open and close) are ta
 2: taken after it, Keep pressed during a hanging delete re-asked for a null name). If the person left the dialog
 while the delete ran: no answer says nothing; a refusal says nothing; a success still settles the screen for the
 name that was deleted (`deleteSettled`, shared with the plain success path) but does not close a dialog that is no
-longer its own. deleteSettled touches the detail page's box and line only when the detail page is the deleted
+longer its own, unless that dialog is open again for the same (now deleted) agent, which closes (review 4). deleteSettled touches the detail page's box and line only when the detail page is the deleted
 agent's, and the shared DEL_PLAN only when it is that agent's plan (review 3; before, a delete started from the
 removed list wrote its line into whichever agent's page was open).
 A refusal WITH an answer is unchanged, except that it is dropped once the person has left the dialog.
 
 A side effect, accepted: the removed list's own Delete button also uses fetchLeftoverPlan, so its GET 400 (a name
-the board cannot read, which a listed name never is) now says the board could not be reached.
+the board cannot read, which a listed name never is) and its GET 500 (the plan could not be worked out) now say the
+board could not be reached. A refusal with an answer but no words says the board gave no reason (review 4).
 
 ## Why it helps on main as well
 On main the delete runs on the board's own thread, so the second GET waits for it and answers with the state after
