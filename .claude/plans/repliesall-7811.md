@@ -18,8 +18,9 @@ at"), so a comment on an older post is owed an answer but never listed. Cover ev
   up to REPLIES_OLDER_MAX (5) older posts with something new, newest activity first. Something new: the profile's
   `latest_reply` is after the post's mark as the read compares it (afterMark: (time, id) order, not an id already seen;
   the agent's own items read above the mark are kept as seen, so its own reply makes the post read once, not forever,
-  and anything owed before it is listed); or the post's
-  last read held its mark or saved a thread's place, since that read promised to look again.
+  and anything owed before it is listed; not when the read's cap held the post's items back, so those are taken next
+  time); or the post's last read held its mark or saved a thread's place, bounded by MARK_HOLD_MAX as the read's own
+  promises are, since that read promised to look again.
 - The profile is read once per read, alongside the newest posts' round 1. The older posts' round 1 starts the moment
   the profile answers, if that is within OLDER_START_MS (1 s) of round 1 starting, so the read's rounds still fit the
   CLI's 30 s (29 s in the worst case); a slower profile leaves them for the next read, said as such. A profile 429 is
@@ -28,7 +29,10 @@ at"), so a comment on an older post is owed an answer but never listed. Cover ev
   is partial, as for an unreadable post, and after FRESH_DOWN_PASSES failures in a row it counts the newest only, so a
   profile that never answers cannot hold the agent's nudges forever. An agent with no stored name reads the newest only
   on both sides.
-- Older posts not on the profile (past its 50, or not public) are said as not checked.
+- An older post with something new that was not read this time still gets its first-look floor, so its reply cannot
+  slide out of the window meanwhile.
+- Older posts not on the profile (past its 50, or not public) are said as not checked. An older post with something new
+  that was not read this time still gets its first-look floor, so its reply cannot slide out of the window meanwhile.
 
 ## Rejected
 - Reading every post's thread each time: 24 posts is about 2.4 times the requests the read is sized for.
