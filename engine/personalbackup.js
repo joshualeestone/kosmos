@@ -716,7 +716,8 @@ async function checkout(gb, opts = {}) {
   if (!r || !r.ok) {
     const c = codeOf(r);
     if (c && CHECKOUT_SAY[c]) return { ok: false, code: c, because: CHECKOUT_SAY[c] };
-    // A conflict with no code: an earlier page is still being opened (backup_plans.rs Opening).
+    // A 409 with no code, from a relay that does not name its conflicts yet: an earlier page being opened, or one just
+    // paid (backup_plans.rs Opening and Complete), so CHECKOUT_CONFLICT is written to be true of both.
     return r && r.refusal && !c && r.refusal.status === 409 ? { ok: false, code: 'backup_checkout_conflict', because: CHECKOUT_CONFLICT } : { ok: false, because: CHECKOUT_RETRY };
   }
   const url = stripeCheckoutUrl(r.data && r.data.url);

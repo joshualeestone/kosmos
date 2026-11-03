@@ -1100,7 +1100,7 @@ test('#7404 plansNow: the plan is read first; an unread or unreadable plan is a 
     if (route === oe.ROUTES.status && a && a.ok) a.data = Object.assign({}, a.data, { org: { id: 'org_' + 'c'.repeat(24), kind: 'personal' } });
     return a;
   } };
-  assert.equal((await pb.plansNow({ root: foreign.root, remote: otherOrg })).ok, false);
+  assert.deepEqual(await pb.plansNow({ root: foreign.root, remote: otherOrg }), { ok: false, final: true, because: 'Kosmos+ did not send the plans for this backup, so they cannot be shown here. Nothing on your account has changed. View account shows your Kosmos+ plan.' });
   assert.ok(!foreign.remote.sent.includes(PREVIEW), '#7827: a status naming another org still reached the preview route');
   const good = await onWith(t, { planGb: null });
   good.remote.sent.length = 0;

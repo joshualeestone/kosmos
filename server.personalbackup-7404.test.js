@@ -272,3 +272,22 @@ test('#7827: the shared plans read keeps only a good answer; a failure or a thro
   for (let i = 0; i < 4; i++) await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
   assert.equal(n, 3, 'a failed or thrown read was shared, or a good one was not');
 });
+
+test('#7827: a failed read that finishes after a newer good read was shared does not wipe it', async (t) => {
+  offerOn(t, '$5/month');
+  const pb = require('./engine/personalbackup');
+  const was = { plansNow: pb.plansNow, switchOff: pb.switchOff };
+  t.after(() => { pb.plansNow = was.plansNow; pb.switchOff = was.switchOff; });
+  pb.switchOff = async () => ({ ok: true });
+  await call('/api/personal-backup/off', { body: {}, headers: SCREEN });   // clears any read left by another test
+  let reads = 0, failSlow;
+  pb.plansNow = () => { reads++; return reads === 1 ? new Promise((r) => { failSlow = () => r({ ok: false, because: 'unreached' }); }) : Promise.resolve({ ok: true, plans: [], planGb: null }); };
+  const slow = call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
+  for (let i = 0; i < 50 && !failSlow; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.ok(failSlow, 'CONTROL: the slow read started');
+  await call('/api/personal-backup/off', { body: {}, headers: SCREEN });   // a step clears the shared read
+  await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });   // a newer, good read is shared
+  failSlow(); await slow;
+  await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
+  assert.equal(reads, 2, 'the late failure wiped the newer good read');
+});
