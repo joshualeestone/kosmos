@@ -281,5 +281,5 @@ test('feedback triage --dir prints the engine digest; a bad flag or --since exit
   assert.equal(feedbackCli(['feedback', 'triage', '--dir', dir, '--since', 'not-a-date']).code, 2);
   const unknown = feedbackCli(['feedback', 'publish']);
   assert.equal(unknown.code, 2);
-  assert.equal(unknown.err, 'Unknown: kosmos feedback publish. Try: write | show | list | pull | triage');
+  assert.equal(unknown.err, 'Unknown: kosmos feedback publish. Try: write | show | list | day | pull | triage');
 });

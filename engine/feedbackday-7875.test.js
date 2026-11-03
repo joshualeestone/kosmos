@@ -108,6 +108,7 @@ test('#7875: Kosmos\'s own line is not a message; the person\'s menu answer is',
 });
 
 test('#7875: the task folder: absent is none, unreadable throws (so the digest says so), today\'s files only', () => {
+  const today = fb.dateKey(new Date());   // taken before the files are written, so a run across midnight cannot split
   const tmp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'fday-'));
   try {
     assert.deepEqual(day.listTaskFilesIn(path.join(tmp, 'absent'), DATE, fb.dateKey), []);
@@ -121,7 +122,6 @@ test('#7875: the task folder: absent is none, unreadable throws (so the digest s
     fs.writeFileSync(path.join(dir, 'other.txt'), '');
     const old = new Date(2026, 10, 1, 12, 0);
     fs.utimesSync(path.join(dir, 'p.task-2.jsonl'), old, old);
-    const today = fb.dateKey(new Date());
     assert.deepEqual(day.listTaskFilesIn(dir, today, fb.dateKey), ['p.task-1.jsonl']);
     fs.chmodSync(path.join(dir, 'p.task-1.jsonl'), 0o000);   // one transcript it cannot open: an error, never "no change"
     if (process.platform !== 'win32' && process.getuid && process.getuid() !== 0) assert.throws(() => day.listTaskFilesIn(dir, today, fb.dateKey));
@@ -138,17 +138,10 @@ test('#7875: who is asking: a token\'s KEY reads the thread and its own spelling
   assert.equal(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara', twins: true }) }), null);
   assert.equal(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: false }) }), null);
   assert.deepEqual(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: true, name: 'angel' }) }), { name: 'angel', also: [] });
-  assert.deepEqual(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: true, name: 'Angel' }) }), { name: 'angel', also: ['Angel'] });
+  // A window name that is not its own key is read exactly (no thread can exist under it), never under the key form,
+  // which may be another agent's thread.
+  assert.deepEqual(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: true, name: 'Angel' }) }), { name: 'Angel', also: [] });
   assert.equal(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: false }) }), null);
-});
-
-test('#7875: a window agent named with capitals reads its thread under the key and its own messages count as its own', () => {
-  let asked = null;
-  const out = day.digest({ name: 'angel', also: ['Angel'], date: DATE, listTaskFiles: () => [], readTask: () => [],
-    readThread: (n) => { asked = n; return [{ at: at(9, 0), text: 'Mine', from: 'Angel' }, { at: at(9, 1), text: 'Theirs', from: null }]; } }).join('\n');
-  assert.equal(asked, 'angel');
-  assert.ok(out.includes('09:00 you: Mine'), out);
-  assert.ok(out.includes('1 from them, 1 from you'), out);
 });
 
 test('#7875: a task row under the token\'s own spelling counts for the asking agent (a pane row carries it)', () => {
@@ -179,8 +172,25 @@ test('#7875: no tasks today and unreadable tasks read differently', () => {
 });
 
 test('#7875: the default day is the report\'s own day (feedback.today)', () => {
+  const today = fb.today();
   const out = day.digest({ name: 'Dana', readThread: () => [], listTaskFiles: () => [], readTask: () => [] });
-  assert.ok(out[0].includes(fb.today()), out[0]);
+  assert.ok(out[0].includes(today), out[0]);
+});
+
+test('#7875: the real resolver (no seams): no token and no window is nobody', () => {
+  assert.equal(day.recordWho({ PATH: process.env.PATH }), null);
+});
+
+test('#7875: the Mac/Linux CLI\'s own day script runs: with nobody identified it refuses with exit 1 and prints nothing', () => {
+  const sh = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
+  const arm = sh.slice(sh.indexOf('\n    day)\n'));
+  const body = arm.slice(arm.indexOf('"$NODE" -e \'') + '"$NODE" -e \''.length, arm.indexOf('\' "$KOSMOS_HOME/app"'));
+  assert.match(body, /recordWho/);
+  const r = require('node:child_process').spawnSync(process.execPath, ['-e', body, path.join(__dirname, '..')],
+    { env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 30000 });
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /cannot tell which agent is asking, so it prints nobody's day/);
+  assert.equal(r.stdout, '');
 });
 
 test('#7875: the daily ask and the Project Manager\'s instructions both name kosmos feedback day', () => {

@@ -107,8 +107,9 @@ function listTaskFilesIn(dir, date, dateKey) {
  * rows too (server.js files them under the paneless card's sessionName, the key). With a running pane, the board takes
  * the pane row whose name is the token's own spelling, so task rows can carry that spelling: `also` holds it, and a
  * task row counts under either. Both names are this one agent's; a token shared by two names (twins) is refused. A pane
- * agent with no token is its window's agent name, read under its key form with the spelling in `also`. `seams` are for
- * tests.
+ * agent with no token is its window's agent name, exactly. The window is the one TMUX_PANE names, the same reach
+ * outbox.resolveKeepSender accepts for a kept send (any process of this user can already read the chats folder).
+ * `seams` are for tests.
  */
 function recordWho(env, seams) {
   const e = env || process.env;
@@ -121,12 +122,10 @@ function recordWho(env, seams) {
     return { name: found.key, also: spelled };
   }
   const r = (s.resolveKeepSender || ((x) => require('./outbox').resolveKeepSender(x)))(e);
-  if (!(r && r.ok)) return null;
-  // A window's agent name may carry capitals or a dot ("Angel", "my.bot"); chat.threadFile keeps a thread only under its
-  // key form, so read it there, and count rows under either spelling.
-  let key = null;
-  try { key = require('./store').safeKey(r.name); } catch { key = null; }
-  return key && key !== r.name ? { name: key, also: [r.name] } : { name: r.name, also: [] };
+  // Read under the exact window name. A name that is not its own key ("Angel", "my.bot") has no thread at all (the board
+  // cannot file one, chat.threadFile), and its key form may be ANOTHER agent's thread, so it is never read there: the
+  // digest says no conversation is kept under this name.
+  return r && r.ok ? { name: r.name, also: [] } : null;
 }
 
 /**
