@@ -648,6 +648,8 @@ extension Board {
         var needsYouHere: String? = nil
         var needsYouKey: String? = nil
         var because: String? = nil
+        // kosmos#7838: what this agent says it does on THIS project (`kosmos project role`, describe's roleHere).
+        var roleHere: String? = nil
     }
 
     struct ProjectRow: Equatable, Identifiable {
@@ -825,7 +827,8 @@ extension Board {
                                      hasAvatar: isTrue(a["hasAvatar"]), provider: a["provider"] as? String,
                                      needsYouHere: (a["needsYouHere"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                                      needsYouKey: (a["needsYouKey"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                                     because: a["because"] as? String)
+                                     because: a["because"] as? String,
+                                     roleHere: (a["roleHere"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 })
             }
             let folder = p["folderState"] as? [String: Any]
             // The board's pjFolderLine: any state but readable (an absent one included) has a line, its own reason or
@@ -1206,4 +1209,29 @@ enum NewProject {
         // kosmos#7489 (Mona, 10-28): "Create", on every size, so the title fits beside Cancel on the smallest phone.
         static let create = "Create"
     }
+}
+
+
+// MARK: kosmos#7838, the project's own page (ProjectInfoView.swift): its words and choices, here so they are tested.
+
+extension Board {
+    // The segments, in the agent page's shape (AgentInfoView's Part). Settings follows as the third (#7838 slice B).
+    enum ProjectPart: String, CaseIterable { case about = "About", files = "Files" }
+
+    // A member's line under their name: what they said they do on THIS project, else their own role, else none.
+    static func projectMemberLine(_ m: ProjectMember, agentRole: String?) -> String? {
+        if let here = m.roleHere { return here }
+        guard let r = agentRole?.trimmingCharacters(in: .whitespaces), !r.isEmpty else { return nil }
+        return r
+    }
+
+    // What the project is for: its description, or the line that says there is none (never an empty section).
+    static let projectNoDescription = "No description yet."
+    static func projectAbout(_ p: ProjectRow) -> String {
+        let d = p.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        return d.isEmpty ? projectNoDescription : d
+    }
+
+    static let projectMoreOnBoard = "Open on your computer\u{2019}s board"
+    static let projectMoreOnBoardWhy = "Its settings, pause, members and webhooks are there for now."
 }

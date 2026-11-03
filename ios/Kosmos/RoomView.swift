@@ -109,7 +109,7 @@ struct RoomView: View {
     // come back or the search goes.
     @State private var spokeEmpty = false
     // kosmos#7679: the project's Files screen is open.
-    @State private var filesOpen = false
+    @State private var infoOpen = false   // kosmos#7838: the project's own page
     private var searching: Bool { Board.chatSearching(query) }
     // The row open or words in it: no older pages (the chat's rule, #7089, from the board's earlierNearTop).
     private var searchMode: Bool { searchOpen || searching }
@@ -220,17 +220,14 @@ struct RoomView: View {
                 }
                 .accessibilityLabel("Search this conversation")
             }
-            // kosmos#7679: the project's Files (FilesView.swift), as the board's Documents view lists them.
+            // kosmos#7838: the project's own page (ProjectInfoView), native, in place of the board in a sheet. Its Files
+            // segment is the room's Files (kosmos#7679), so the room no longer has a separate folder button.
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button { filesOpen = true } label: {
-                    Image(systemName: "folder").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
+                Button { infoOpen = true } label: {
+                    Image(systemName: "info.circle").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle())
                 }
-                .accessibilityLabel(Board.filesTitle)
-                .accessibilityIdentifier("room-files")
-            }
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button { openBoardPage() } label: { Image(systemName: "info.circle") }
-                    .accessibilityLabel("Members and tasks, on your computer's board")   // kosmos#7679: files are on the phone now
+                .accessibilityLabel("Project info")
+                .accessibilityIdentifier("room-info")
             }
         }
         .background(
@@ -243,8 +240,9 @@ struct RoomView: View {
             } label: { EmptyView() }.hidden()
         )
         .background(
-            NavigationLink(isActive: $filesOpen) {
-                FilesView(client: client, owner: .project(project.id), openOnBoard: { openBoardPage() })
+            NavigationLink(isActive: $infoOpen) {
+                ProjectInfoView(client: client, project: project, openOnBoard: { openBoardPage() },
+                                openAgent: { a in infoOpen = false; chatAgent = a }, openPage: openPage)
             } label: { EmptyView() }.hidden()
         )
         .onAppear {

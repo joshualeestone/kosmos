@@ -596,3 +596,23 @@ enum Tasks {
         return parts.url
     }
 }
+
+// kosmos#7838: the project page's open tasks (ProjectInfoView), here beside the Tasks tab's own rules (sortNewest, groups).
+extension Board {
+    // This project's open tasks from the Tasks tab's read, newest first, and how many there are in all; nil when the
+    // tasks have not been read (unknown is never "no tasks"). At most `shown` are listed; the count says the rest.
+    static let projectTasksShown = 5
+    static func projectOpenTasks(_ read: TasksRead?, project: String) -> (rows: [TaskRow], total: Int)? {
+        guard let read else { return nil }
+        let open = Tasks.sortNewest(read.tasks.filter { $0.projectId == project && $0.state != "closed" })
+        return (Array(open.prefix(projectTasksShown)), open.count)
+    }
+    static func projectTasksFooter(total: Int, shown: Int) -> String? {
+        if total == 0 { return "No open tasks." }
+        return total > shown ? "\(total - shown) more on the Tasks tab." : nil
+    }
+    // A task's state, in the Tasks tab's own words (Tasks.groups).
+    static func projectTaskState(_ t: TaskRow) -> String {
+        Tasks.groups.first { $0.key == t.state }?.label ?? ""
+    }
+}
