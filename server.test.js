@@ -4942,7 +4942,8 @@ test('kosmos#7825 PR 2: the removed list carries names with only settings left, 
     const gone = await del();
     assert.equal(gone.status, 200, gone.body);
     const after = JSON.parse((await req('/api/removed')).body);
-    assert.ok(!(after.leftovers || []).some((x) => x.name === name), 'the deleted name is still listed (the remembered list was not forgotten)');
+    assert.ok(Array.isArray(after.leftovers), 'the read after the delete failed, so the next arm would pass for the wrong reason');
+    assert.ok(!after.leftovers.some((x) => x.name === name), 'the deleted name is still listed (the remembered list was not forgotten)');
     assert.equal(fs.existsSync(store.profilePath(name)), false);
   } finally {
     status.setPaneSource(null);

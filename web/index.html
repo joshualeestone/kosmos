@@ -51186,6 +51186,7 @@ async function paintRemoved() {
      this list is the one screen that can draw their way to "Delete". Absent when the board could not read them. */
   let left = [];
   let leftStale = false;
+  let freshLeft = null;
   try {
     const res = await fetch('/api/removed', { cache: 'no-store' });
     /**
@@ -51202,13 +51203,8 @@ async function paintRemoved() {
     const body = await res.json().catch(() => null);
     if (!body || !Array.isArray(body.agents)) return removedUnreadable();
     gone = body.agents;
-    /* Absent only when the board could not read them: keep what was last drawn rather than dropping rows a person may
-       be reaching for (review 1). */
-    if (Array.isArray(body.leftovers)) { LEFTOVERS_LAST = body.leftovers; LEFTOVERS_AT = Date.now(); }
-    /* Absent means the board could not look, never "none" (review 4). The rows are kept, and once that has lasted a
-       minute the list says it may be out of date (review 2: kept rows must not pass for current for ever). */
-    leftStale = !Array.isArray(body.leftovers) && LEFTOVERS_LAST.length > 0 && Date.now() - LEFTOVERS_AT > 60000;
-    left = LEFTOVERS_LAST;
+    // Read here, kept below only once this answer is known to be the current one (review 5).
+    freshLeft = Array.isArray(body.leftovers) ? body.leftovers : null;
     REMOVED_EVER_READ = true;
     /* ⚠️ AND TAKE THE SENTENCE DOWN. Written on a first-load failure, it was
        never retracted: one transient /api/removed failure left "we could not
@@ -51234,6 +51230,13 @@ async function paintRemoved() {
   // ⚠️ A newer paint has started since this one asked. Its answer is the
   // current one; ours is not, and painting it would also cache it.
   if (mine !== REMOVED_TOKEN) return;
+  /* Absent only when the board could not read them, never "none" (review 4): keep what was last drawn rather than
+     dropping rows a person may be reaching for, and once that has lasted a minute say they may be out of date (review
+     2: kept rows must not pass for current for ever). After the token check, so an answer a newer paint replaced
+     cannot put back a name the delete just dropped (review 5). */
+  if (freshLeft) { LEFTOVERS_LAST = freshLeft; LEFTOVERS_AT = Date.now(); }
+  leftStale = !freshLeft && LEFTOVERS_LAST.length > 0 && Date.now() - LEFTOVERS_AT > 60000;
+  left = LEFTOVERS_LAST;
 
   // ⚠️ AND WE MAY NO LONGER BE ON THE AGENTS TAB. `tick()` fires this
   // unawaited, so switching tabs (or opening a card) while /api/removed is in
@@ -51363,7 +51366,7 @@ async function paintRemoved() {
       + ' aria-label="Delete what is left of ' + esc(x.shownAs || x.name) + '"'
       + ' data-shown-as="' + esc(x.shownAs || x.name) + '">Delete what is left…</button></div>'
       + '</div>').join('')
-    + (leftStale ? '<p class="removed-hint">Kosmos could not check again just now for agents with only settings left, so these may be out of date.</p>' : '');
+    + (leftStale ? '<p class="removed-hint">Kosmos has not been able to check for a while for agents with only settings left, so these may be out of date.</p>' : '');
 
   /**
    * ⚠️ ONLY REWRITE WHEN THE ANSWER ACTUALLY CHANGED, and this is not an

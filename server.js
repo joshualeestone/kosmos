@@ -17920,7 +17920,7 @@ const server = http.createServer(async (req, res) => {
      */
     /* kosmos#7825 PR 2: names with only settings left (no folder, no job, never or no longer removed). The removed list
        is the one screen listing agents with no card, so their way to "Delete" is drawn there. Omitted when the read
-       failed, so the screen draws nothing rather than a false empty list. Remembered for 15 s: the list repaints
+       failed, so the screen draws nothing rather than a false empty list. Remembered for 15 s (a failed read, 5 s): the list repaints
        every 5 s on the Agents tab and the read looks at every job. Only name and shownAs, for the reason below. */
     const now = Date.now();
     if (!SETTINGS_LEFTOVERS || now - SETTINGS_LEFTOVERS.at > 15000) {
