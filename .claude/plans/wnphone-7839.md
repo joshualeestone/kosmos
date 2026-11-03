@@ -25,6 +25,11 @@ web.whatsnew-phone-7839.test.js (the real whatsNewCheck: marked, phone-width rem
 app's mark script still present); docs/browser-checks/render-whatsnew-phone-7839.js loads the page with the app's own
 mark script at document start, Chromium and WebKit, with an unmarked CONTROL.
 
+## Known gap (on the card)
+The Android app opens the board in a Custom Tab, which cannot mark the page, so it is covered by width only: an Android
+tablet or an unfolded foldable past 40rem still gets the window. A marker the Android launcher carries in the address
+it opens (read at load) would close it; that is an Android launcher change, not this card's.
+
 ## Weakest premise
 That a desktop-width Kosmos+ session (a laptop browser) should still show the window. It is about the host computer's
 app, so it may be noise there too; left as it was, since only the phone was asked about.
