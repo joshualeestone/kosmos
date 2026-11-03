@@ -29,8 +29,6 @@ at"), so a comment on an older post is owed an answer but never listed. Cover ev
   is partial, as for an unreadable post, and after FRESH_DOWN_PASSES failures in a row it counts the newest only, so a
   profile that never answers cannot hold the agent's nudges forever. An agent with no stored name reads the newest only
   on both sides.
-- An older post with something new that was not read this time still gets its first-look floor, so its reply cannot
-  slide out of the window meanwhile.
 - Older posts not on the profile (past its 50, or not public) are said as not checked. An older post with something new
   that was not read this time still gets its first-look floor, so its reply cannot slide out of the window meanwhile.
 
@@ -44,4 +42,5 @@ That `latest_reply` moves for every new comment or reply the read would show. It
 depth by created_at; a comment hidden then restored, or one committed with an earlier stamp, would not move it (the
 read already names both as rare misses). Second: the count and the read can take different older posts (each reads
 the profile itself, and only the read leaves them for later on a slow profile); the count is then stale, as for any
-change between the two.
+change between the two. Third: a link where the profile takes over a second every time never reads the older posts
+(each read says they wait); the agent's own replies on older posts can take the older slots for one read each.

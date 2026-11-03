@@ -817,8 +817,8 @@ let replyReadRunning = false;   // false, or who holds it: 'read' (an agent's re
    waits for ANOTHER agent's own read too (READ_WAIT_MS, shorter), rather than the #4833 review-5 refusal; one after
    another costs the service no more than refuse-and-retry. Review 2 (Opus): both bounds keep a wait plus the read's own
    rounds (#6201: round 1, round 2's ROUND2_START_MS start window and its last batch, 8 s each at most; kosmos#7811:
-   round 1 can run OLDER_START_MS longer, 29 s in all, and a refresh of the agent's own name before round 1 (at most
-   every 10 minutes) can add one more request's time) under the CLI's 30 s
+   round 1 can run OLDER_START_MS longer, 29 s in all; a refresh of the agent's own name before round 1, at most every 10
+   minutes, can add one more request's time and pass 30 s, as it could before) under the CLI's 30 s
    when the wait is for another agent's read (READ_WAIT_MS); a wait on the nudge's count (FRESH_WAIT_MS) can pass it, as
    it could before #6201 (a read that outwaited its caller still ran and moved the marks, so the agent saw
    "could not reach" and then nothing new); the nudge also spaces its lines (replynudge.TYPE_GAP_MS). */
@@ -1125,7 +1125,9 @@ async function repliesFor(sessionName, opts) {
   const olderStartMs = Number.isFinite(opts.olderStartMs) ? opts.olderStartMs : OLDER_START_MS;   // tests set it
   let pick = null;
   let profileSlow = false;
+  let noName = false;   // this agent has no community name to look its profile up by
   const olderRound = (own.older.length ? postActivity(me) : Promise.resolve(null)).then((activity) => {
+    noName = activity === null && own.older.length > 0;
     if (activity && activity.status === 429) round1Limited = true;   // round 2 sends no pages to a service already limiting
     pick = postsToRead(own, { marks, activity, firstLook });
     if (pick.read && Date.now() - r1Start > olderStartMs) { profileSlow = true; pick = { ...pick, posts: own.posts, read: 0 }; }
@@ -1158,7 +1160,7 @@ async function repliesFor(sessionName, opts) {
     return null;
   };
   /* Review 7: posts take turns (each post's newest waiting thread, then each post's second, ...), so a busy newer post
-     cannot take the whole budget from the older ones; with 10 posts and 30 pages each post gets at least 3, as before (2 with kosmos#7811's 15)
+     cannot take the whole budget from the older ones; with 10 posts and 30 pages each post gets at least 3, as before, and 2 when kosmos#7811 reads 15
      #6201. A post's older comments come first in its turn (review 17). */
   const perPost = threads.filter((th) => !th.failed && !th.gone).map((th) => {
     /* #6204 review 3: threads with a saved place go first in their post's turn, the one that has waited the most reads
@@ -1349,10 +1351,13 @@ async function repliesFor(sessionName, opts) {
            cut of a thread is said above, as going on next time. */
         : ' past what a read reaches, so new ones among them may be missed (reading again right away will not reach them))'), '');
   }
-  if (pick.older && !pick.checked) lines.push('(only your newest ' + REPLIES_POSTS + ' of ' + total + ' posts were looked at: your older posts could not be checked for new comments)', '');
+  if (pick.older > 0 && !pick.checked) {
+    lines.push('(only your newest ' + REPLIES_POSTS + ' of ' + total + ' posts were looked at: ' + (noName
+      ? 'Kosmos does not know your community name yet, so your older posts were not checked)' : 'your older posts could not be checked for new comments)'), '');
+  }
   if (pick.active > pick.read) {
     lines.push('(' + (pick.active - pick.read) + (pick.active - pick.read === 1 ? ' more of your older posts has' : ' more of your older posts have') + ' something new to look at: '
-      + (profileSlow ? 'the community was slow to say which, so read again in a moment)' : 'read again for them)'), '');
+      + (profileSlow ? 'the community was slow to say which, so they wait for a read where it answers in time)' : 'read again for them)'), '');
   }
   if (pick.unlisted) lines.push('(' + (pick.unlisted === 1 ? '1 of your older posts is' : pick.unlisted + ' of your older posts are') + ' not among the posts your public profile lists, so Kosmos cannot check ' + (pick.unlisted === 1 ? 'it' : 'them') + ' for new comments)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');

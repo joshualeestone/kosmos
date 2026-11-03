@@ -178,13 +178,14 @@ test('an older post with no mark and its newest reply before the first look is n
   assert.deepEqual(threadReads(ctl), range(0, 11), 'CONTROL: inside the first look it is read');
 });
 
+/* Timing-dependent by construction (a real 150 ms profile against a 50 ms and a 5000 ms limit); the margins are wide. */
 test('a slow profile leaves the older posts to the next read, and says so', async () => {
   clearSeen();
   writeSendState('Slow7811', 12);
   const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, slowProfileMs: 150 });
   const r = await cr.readReplies('Slow7811', { now: NOW, olderStartMs: 50 });
   assert.deepEqual(threadReads(urls), range(2, 12));
-  assert.match(r.text, /\(1 more of your older posts has something new to look at: the community was slow to say which, so read again in a moment\)/);
+  assert.match(r.text, /\(1 more of your older posts has something new to look at: the community was slow to say which, so they wait for a read where it answers in time\)/);
   /* CONTROL: the same slow profile inside the limit, and the older post is read. */
   clearSeen();
   const ok = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, slowProfileMs: 150 });
@@ -293,7 +294,7 @@ test('an agent with no stored name reads and counts its newest only', async () =
   const r = await cr.readReplies('Nam7811', { now: NOW });
   assert.equal(urls.filter((u) => u.includes('/agents/by-name/')).length, 0);
   assert.deepEqual(threadReads(urls), range(2, 12));
-  assert.match(r.text, /could not be checked for new comments/);
+  assert.match(r.text, /Kosmos does not know your community name yet, so your older posts were not checked\)/);
   const f = await cr.freshReplies('Nam7811', { now: NOW, paceMs: 0 });
   assert.equal(f.ok, true, f.because);
 });
