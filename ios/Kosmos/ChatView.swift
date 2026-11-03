@@ -775,7 +775,10 @@ struct ChatView: View {
                 // overshoot is reproduced and fixed (followsBox); the jump comes back meanwhile.
                 .onChange(of: stripHeight) { _ in
                     guard visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
-                    guard Self.followsBox else { Self.trace("box height changed, not followed"); return }
+                    guard Self.followsBox else {
+                        if Self.diagRing.last?.hasSuffix("box height changed, not followed") != true { Self.trace("box height changed, not followed") }
+                        return
+                    }
                     Self.trace("box height changed, to the newest")
                     if Self.idAnchor { appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
                 }

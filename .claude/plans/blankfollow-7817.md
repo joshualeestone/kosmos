@@ -21,7 +21,8 @@ recovered 0 rows. A blank list is worse than the jump #7828 fixed.
   stripHeight handler, which does not look at the keyboard, so both blanks' path is covered.
 - KeyboardSlideUITests: the grow test and the reader-higher-up test launch with KOSMOS_SAMPLE_BOXFOLLOW=1.
 - A release build still records "box height changed, not followed" in the chat diagnostic's events, so a build 30
-  report of the jump can be tied to the box growing.
+  report of the jump can be tied to the box growing. Once per run of changes (the ring keeps 80 lines; one line per
+  wrap would push out the keyboard and recovery lines).
 - LogicTests room: two source checks (release value false; the guard asks followsBox first), each red on its mutant.
 
 ## Rejected
