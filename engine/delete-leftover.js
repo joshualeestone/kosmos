@@ -325,6 +325,8 @@ function keepDrive(root, out) {
    every other plan keeps the ordinary 5 s / 60 s keeps. */
 function freshDrive(root, pinned) {
   const kept = root ? driveTypes.get(root) : null;
+  // A pinned answer can be a failed one (no answer, so "for good"): the re-plan then asks for the typed name, and a
+  // delete confirmed without it is refused with that plan, so the person confirms the stronger loss.
   if (kept && pinned && pinned.includes(root)) return kept;
   return kept && Date.now() - kept.at < keptFor(kept) ? kept : null;
 }

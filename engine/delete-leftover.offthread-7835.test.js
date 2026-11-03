@@ -411,7 +411,7 @@ test('#7835 a running delete holds the board: its restarts wait, with their own 
     'a restart refused for a running delete would say an account move holds it');
   assert.equal((server.match(/moveHoldsBoard\(\)\) \{ (?:sendJson\(res, 409, \{ ok: false, because|say\(409, \{ error): boardHoldBecause\(\)/g) || []).length, 4);
   const route = server.slice(server.indexOf("if (lo && req.method === 'DELETE') {"));
-  const guard = route.indexOf('if (boardRestartingSoon()) {'), act = route.indexOf('leftover.delAsync(');
+  const guard = route.indexOf("if (process.platform === 'win32' && boardRestartingSoon()) {"), act = route.indexOf('leftover.delAsync(');
   assert.ok(guard > 0 && act > guard, 'a delete can start under a board restart, which would cut it off');
 });
 

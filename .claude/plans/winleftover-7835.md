@@ -87,3 +87,8 @@ Leftover tests 154 pass; create tests 545 pass; web.delete-leftover's route pin 
   about to restart is refused. planAsync plans once when every drive already answered (it planned twice on every page
   open). The async runner gets a win32-only test against the real PowerShell (exit code, kill at the limit), which
   the Windows CI job runs. Restart and Remove refusals during a delete are asserted by their sentence.
+- Review round 2: the restart refusal on a delete is Windows only (elsewhere a delete runs to its end first), and a
+  restart already past its own check is not caught (said in the comment). Kept as decided: an account move starting
+  while a delete waits on the Recycle Bin (moveRefusal is asked once; a leftover has no running agent and a move
+  restarts only agents with jobs); during a delete an agent page hides its delete box (planAsync's refusal), which
+  is true, and the removed list says a delete is running.
