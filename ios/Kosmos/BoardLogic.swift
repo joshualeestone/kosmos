@@ -2025,6 +2025,10 @@ enum Board {
         return first.uppercased() + tail + (".!?".contains(said.last!) ? "" : ".")
     }
 
+    /* kosmos#7842: for an answer that is not the value (AgentInfoLogic.notTheValue), whether its words replace a
+       Profile value already shown: on a 200 or a 404. Every other status keeps the value. (Files has its own rule: filesKeepsShown.) */
+    static func answerStands(_ status: Int) -> Bool { status == 200 || status == 404 }
+
     // kosmos#7840: a 401 or 403 is the phone not being let in (a gate, or the seconds after the computer restarts). One
     // sentence for every screen that reads through the Mac, never the gate's own words (they are for a terminal).
     static let phoneShutOut = "Your computer did not let this phone in just now. Try again in a moment, or open the Agents tab to connect again."

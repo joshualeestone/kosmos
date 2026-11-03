@@ -84,13 +84,13 @@ check(sec(#"{"ok":false,"because":"no agent by that name"}"#, 404) == .message(B
 check(boardPage.contains("'This agent has no folder of its own on ' + (typeof thisMachine") && boardPage.contains("', so there is no Files list.'"), "the board still says the no-folder line in these two halves")
 check(Board.filesAgentNoFolder.hasPrefix("This agent has no folder of its own on ") && Board.filesAgentNoFolder.hasSuffix(", so there is no Files list."), "the phone's line is the board's, with your computer for its machine")
 let rowsBefore: Board.FilesSectionState = .rows([Board.ListedFile(name: "a.txt", size: 1, modified: nil, changedBy: nil)])
-check(Board.filesSectionAfter(rowsBefore, .noAnswer) == rowsBefore, "review 2: a refresh with no answer keeps the rows it had")
-check(Board.filesSectionAfter(rowsBefore, .message(Board.filesAgentNoFolder)) == .message(Board.filesAgentNoFolder), "a refusal replaces them")
-check(Board.filesSectionAfter(rowsBefore, .hidden) == .hidden, "an answer with no files replaces them")
-check(Board.filesSectionAfter(.hidden, .noAnswer) == .noAnswer, "with no rows yet, no answer says so"); check(Board.filesSectionAfter(rowsBefore, .message(Board.filesAgentUnread)) == .message(Board.filesAgentUnread), "review 3: a refusal with no reason (the same words) replaces them")
-check(sec(#"{"ok":false,"because":"its Files is a link, so it is not listed","files":[]}"#) == .message("Its Files is a link, so it is not listed."), "a refusal says the route's reason")
-check(sec(#"{"ok":false,"because":""}"#) == .message("We could not read this agent\u{2019}s files just now."), "an empty reason falls back to the board's line (review 5)")
-check(Board.filesSection(status: 0, body: nil) == .noAnswer && sec("<html>sign in</html>") == .message("We could not read this agent\u{2019}s files just now."), "no answer is its own state (review 3); the gate's page is a refusal in the board's line")
+check(Board.filesSectionAfter(rowsBefore, .noAnswer, loaded: false) == rowsBefore, "review 2: a refresh with no answer keeps the rows it had")
+check(Board.filesSectionAfter(rowsBefore, .message(Board.filesAgentNoFolder), loaded: false) == .message(Board.filesAgentNoFolder), "a refusal replaces them")
+check(Board.filesSectionAfter(rowsBefore, .hidden, loaded: false) == .hidden, "an answer with no files replaces them")
+check(Board.filesSectionAfter(.hidden, .noAnswer, loaded: false) == .noAnswer, "with no rows yet, no answer says so"); check(Board.filesSectionAfter(rowsBefore, .message(Board.filesAgentUnread), loaded: false) == .message(Board.filesAgentUnread), "a message state replaces them (only the agent page's 404 makes one)")
+check(sec(#"{"ok":false,"because":"its Files is a link, so it is not listed","files":[]}"#) == .forNow("Its Files is a link, so it is not listed."), "a refusal says the route's reason")
+check(sec(#"{"ok":false,"because":""}"#) == .forNow("We could not read this agent\u{2019}s files just now."), "an empty reason falls back to the board's line (review 5)")
+check(Board.filesSection(status: 0, body: nil) == .noAnswer && sec("<html>sign in</html>") == .forNow("We could not read this agent\u{2019}s files just now."), "no answer is its own state (review 3); the gate's page is a refusal in the board's line")
 if case .rows(let r) = sec(#"{"ok":true,"total":1,"files":[{"name":"a.pdf","size":1}]}"#) { check(r.map(\.name) == ["a.pdf"], "a file: the rows") } else { check(false, "a file: the rows") }
 check(boardPage.contains("if ((ok && !files.length) || status === 404) {") && boardPage.contains("'We could not read this agent\u{2019}s files just now.'")
       && boardPage.contains(">View All</button>") && Board.filesAll == "View All", "the board's SIDEBAR section rule (it hides on a 404; the phone's segment follows the Files screen, paintAgentFilesAll, instead) and words still")
@@ -100,12 +100,47 @@ check(crumbs.map(\.name) == ["Files", "Covers", "Spring"] && crumbs.map(\.path) 
 
 // kosmos#7840: a 401 or 403 is the phone not being let in, said in one sentence on every screen, never the gate's words.
 check(Board.filesResult(status: 403, body: Data(#"{"error":"this board belongs to the account that started it; open it with `kosmos open`"}"#.utf8)) == .refused(Board.phoneShutOut), "a 403 is not the gate's words")
-check(Board.filesSection(status: 401, body: Data("{}".utf8)) == .message(Board.phoneShutOut), "the agent page's Files section says the same on a 401")
+check(Board.filesSection(status: 401, body: Data("{}".utf8)) == .forNow(Board.phoneShutOut), "the agent page's Files section says the same on a 401")
 check(Board.filesKeepsShown(Board.filesResult(status: 403, body: Data("{}".utf8))), "a shut-out keeps the Files list shown")
-check(Board.filesKeepsShown(Board.filesResult(status: 0, body: nil)), "CONTROL: no answer keeps it, as before")
-check(!Board.filesKeepsShown(Board.filesResult(status: 200, body: Data(#"{"ok":false,"because":"the folder was removed"}"#.utf8))), "a refusal with the board's reason replaces it")
-check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 401, body: Data("{}".utf8))) == rowsBefore, "the agent page keeps its Files rows on a shut-out")
+check(Board.filesKeepsShown(.noAnswer), "CONTROL: no answer keeps it, as before")
+check(!Board.filesKeepsShown(Board.filesResult(status: 200, body: Data(#"{"ok":true,"files":[]}"#.utf8))), "CONTROL: a new list, even an empty one, replaces it")
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 401, body: Data("{}".utf8)), loaded: false) == rowsBefore, "the agent page keeps its Files rows on a shut-out")
 
-check(Board.filesSectionAfter(.hidden, .message(Board.phoneShutOut)) == .message(Board.phoneShutOut), "CONTROL: with no rows yet, a shut-out says so")
+check(Board.filesSectionAfter(.hidden, .forNow(Board.phoneShutOut), loaded: false) == .forNow(Board.phoneShutOut), "CONTROL: with no rows yet, a shut-out says so")
+// kosmos#7842: only a list replaces a shown list (the engine's refusals mix lasting and passing reasons).
+let busy = Data(#"{"error":"the board is busy"}"#.utf8)
+for st in [500, 502, 503, 408, 429, 400] {
+    check(Board.filesKeepsShown(Board.filesResult(status: st, body: busy)), "the Files screen keeps its list on a \(st)")
+    check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: st, body: busy), loaded: false) == rowsBefore, "the agent page keeps its Files rows on a \(st)")
+}
+check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 503, body: busy), loaded: false) == .forNow("The board is busy."), "CONTROL: with no rows yet, a 503 says the board's words")
+// Review 3: the engine's passing refusal arrives as a 200 (the flat list), a 409 (browse at the top) or a 404 (below it).
+let racing = Data(#"{"ok":false,"because":"that folder changed while it was being read"}"#.utf8)
+for st in [200, 404, 409] { check(Board.filesKeepsShown(Board.filesResult(status: st, body: racing)), "the Files screen keeps its list on a \(st) refusal") }
+for st in [200, 409] { check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: st, body: racing), loaded: false) == rowsBefore, "the agent page keeps its rows on a \(st) refusal") }
+check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 200, body: racing), loaded: false) == .forNow("That folder changed while it was being read."), "CONTROL: with no rows yet, the refusal says the board's words")
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 404, body: racing), loaded: false) == .message(Board.filesAgentNoFolder), "CONTROL: the agent page's 404 (no folder of its own) replaces the rows")
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: Data(#"{"ok":true,"total":0,"files":[]}"#.utf8)), loaded: false) == .hidden, "CONTROL: a new empty list replaces the rows")
+// Review 2: a 200 the phone cannot read keeps the list on both screens.
+for body in [Data("<html>proxy</html>".utf8), Data(#"{"ok":true}"#.utf8)] {
+    check(Board.filesKeepsShown(Board.filesResult(status: 200, body: body)), "the Files screen keeps its list on an unreadable 200")
+    check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: body), loaded: false) == rowsBefore, "the agent page keeps its rows on an unreadable 200")
+}
+check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 200, body: Data("<html>proxy</html>".utf8)), loaded: false) == .forNow(Board.filesAgentUnread), "CONTROL: with no rows yet, an unreadable 200 says the phone cannot read it")
+// Review 5: a 404 that can only mean the owner is gone replaces the Files screen's list; below the top it keeps it.
+let noAgentBody = Data(#"{"ok":false,"because":"there is no agent by that name on this computer"}"#.utf8)
+let noAgent = Board.filesResult(status: 404, body: noAgentBody)
+check(!Board.filesScreenKeepsShown(noAgent, status: 404, body: noAgentBody, owner: .agent("pete"), dir: ""), "the top of an agent's Files: a 404 (no agent) replaces the list")
+check(Board.filesScreenKeepsShown(Board.filesResult(status: 404, body: racing), status: 404, body: racing, owner: .agent("pete"), dir: "sub"), "CONTROL: below the top, a 404 refusal keeps it")
+check(!Board.filesScreenKeepsShown(Board.filesResult(status: 404, body: Data(#"{"error":"there is no project by that name"}"#.utf8)), status: 404, body: Data(#"{"error":"there is no project by that name"}"#.utf8), owner: .project("p1"), dir: ""), "a project's 404 (no project) replaces the list")
+check(Board.filesScreenKeepsShown(Board.filesResult(status: 200, body: racing), status: 200, body: racing, owner: .project("p1"), dir: ""), "CONTROL: a project's 200 refusal keeps it")
+check(Board.filesScreenKeepsShown(Board.filesResult(status: 409, body: racing), status: 409, body: racing, owner: .agent("pete"), dir: ""), "CONTROL: the top's 409 refusal keeps it")
+check(Board.filesScreenKeepsShown(Board.filesResult(status: 404, body: Data("<html>not found</html>".utf8)), status: 404, body: Data("<html>not found</html>".utf8), owner: .project("p1"), dir: ""), "review 6: a 404 page with no words of its own (a proxy) keeps the list")
+// Review 7: the agent page applies the same words test to its 404, and an empty list it showed is a list too.
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 404, body: Data("<html>not found</html>".utf8)), loaded: false) == rowsBefore, "the agent page keeps its rows on a 404 page with no words")
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 404, body: noAgentBody), loaded: false) == .message(Board.filesAgentNoFolder), "CONTROL: a worded 404 (no agent) replaces them")
+check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 200, body: racing), loaded: true) == .hidden, "an empty list shown keeps through a passing refusal")
+check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 200, body: racing), loaded: false) == .forNow("That folder changed while it was being read."), "CONTROL: before any list, the refusal is said")
+check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 404, body: noAgentBody), loaded: true) == .message(Board.filesAgentNoFolder), "CONTROL: an empty list shown is replaced by the agent being gone")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

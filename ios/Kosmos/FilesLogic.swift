@@ -204,32 +204,71 @@ extension Board {
     // that Files is a segment of its own). No answer is its own state (review 3);
     // a refusal says the route's reason, or the board's line; otherwise the rows, and View All (#3994: whenever there is
     // a file, even one).
-    // kosmos#7679 review 3: noAnswer is its own state (shown as filesAgentUnread), so a refresh can tell a read that never
-    // came back from a refusal that happens to use the same words.
-    enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), rows([ListedFile]) }
-    /* kosmos#7840: whether a refresh keeps the list already shown. No answer keeps it (review 3), and so does the phone not
-       being let in (a gate, or the seconds after the computer restarts): neither says anything about the files. */
+    // noAnswer is its own state, shown as filesAgentUnread when there are no rows.
+    // kosmos#7842: forNow is a refusal's line that a list already shown outlasts (filesSectionAfter keeps the rows).
+    enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), forNow(String), rows([ListedFile]) }
+    /* kosmos#7842: whether a read keeps the list already shown, for the Files screen and the agent page's section alike:
+       only a list replaces it. Stricter than the Profile on purpose: the engine's listing refusals (engine/projects.js
+       listFiles, listDir) mix lasting reasons with passing ones (the folder changed while it was being read), under the
+       same statuses and with nothing to tell them apart, and a passing one comes during any save by the agent. */
     static func filesKeepsShown(_ r: FilesRead) -> Bool {
-        if case .noAnswer = r { return true }
-        return r == .refused(phoneShutOut)
+        if case .page = r { return false }
+        return true
     }
+    /* A 404 carrying the board's own words (a `because` or `error`): on the reads where server.js sends a 404 only for
+       "no agent" or "no project", it says the owner is gone. A 404 with no words (a proxy's page) says nothing. This
+       trusts the board to send a 404 that way (server.js today); a route that 404s with words for another reason would
+       read as the owner gone. */
+    static func filesOwnerGone(status: Int, body: Data?) -> Bool {
+        guard status == 404 else { return false }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        return [obj?["because"] as? String, obj?["error"] as? String].contains { !($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+    /* The Files screen: filesKeepsShown, except that the owner being gone replaces the list on a project's documents and
+       at the top of an agent's browse. Below the top a 404 is also a listing refusal (and the agent being removed while
+       a subfolder is open is not told apart from one), so it keeps the list. */
+    static func filesScreenKeepsShown(_ r: FilesRead, status: Int, body: Data?, owner: FilesOwner, dir: String) -> Bool {
+        if filesOwnerGone(status: status, body: body) {
+            switch owner {
+            case .project: return false
+            case .agent: if dir.isEmpty { return false }
+            }
+        }
+        return filesKeepsShown(r)
+    }
+    /* The agent page's section, the same rule in its own states: a list is rows (or hidden when empty); the owner being
+       gone (the flat list sends a 404 only for "no agent") is a message, which replaces rows; everything else is forNow
+       or noAnswer, which keep them (filesSectionAfter). The Files screen's filesScreenKeepsShown is tested beside it. */
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
-        if status == 401 || status == 403 { return .message(phoneShutOut) }   // kosmos#7840: never the gate's words
-        if status == 404 { return .message(filesAgentNoFolder) }
-        switch filesResult(status: status, body: body) {
+        if status == 401 || status == 403 { return .forNow(phoneShutOut) }   // kosmos#7840: never the gate's words
+        if filesOwnerGone(status: status, body: body) { return .message(filesAgentNoFolder) }
+        let read = filesResult(status: status, body: body)
+        switch read {
         case .page(let p): return p.files.isEmpty ? .hidden : .rows(p.files)
         case .refused(let why):
             let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-            return .message((obj?["because"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why))
+            let line = (obj?["because"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why)
+            return .forNow(line)
         case .noAnswer: return .noAnswer
         }
     }
 
     // kosmos#7679 review 2: what the agent page keeps after a refresh. An answer that never came keeps the rows it had (a
-    // phone loses its connection far more than a desk page does); a refusal or a new list replaces them.
-    static func filesSectionAfter(_ old: FilesSectionState, _ new: FilesSectionState) -> FilesSectionState {
-        if new == .noAnswer || new == .message(phoneShutOut), case .rows = old { return old }   // kosmos#7840: a shut-out too
-        return new
+    // phone loses its connection far more than a desk page does), and so does a forNow (kosmos#7842); a new list, or
+    // the agent having no folder, replaces them. `loaded`: whether `old` was read (an empty list shown as hidden is a
+    // list too), as against the hidden it starts in.
+    static func filesSectionAfter(_ old: FilesSectionState, _ new: FilesSectionState, loaded: Bool) -> FilesSectionState {
+        let shownList: Bool
+        switch old {
+        case .rows: shownList = true
+        case .hidden: shownList = loaded
+        default: shownList = false
+        }
+        guard shownList else { return new }
+        switch new {
+        case .noAnswer, .forNow: return old
+        default: return new
+        }
     }
 
     // The empty line, as the board's: a folder inside, the agent's top, or the project's list.

@@ -237,10 +237,10 @@ extension Board {
     // kosmos#7840: what the Profile says when it has no instructions or skills to show, so the person learns why
     // instead of one fixed sentence. The board's own reason is its `because`, else its `error` (as the Files section
     // reads it; the desktop's skills read uses `because` only).
-    // got: the value. refused: the board answered this agent with its own words for why not (a 200 that is not the
-    // thing, or a 4xx such as 404). unanswered: nothing came back, the phone was not let in (401, 403: a gate, or the
-    // seconds after the computer restarts), the board failed for now (5xx, 408, 429, or the skills route's 200
-    // {ok:false} folder read), or a body with no words of its own.
+    // got: the value. refused: the board's own words for why not, on a 200 or a 404 (Board.answerStands).
+    // unanswered: nothing came back, the phone was not let in (401, 403: a gate, or the seconds after the computer
+    // restarts), the board failed for now (5xx, 408, 429, any other 4xx, or the skills route's 200 {ok:false} folder
+    // read), or a body with no words of its own.
     enum ProfileRead<T: Equatable>: Equatable { case got(T), refused(String), unanswered(String) }
     // No answer at all: the page's own wording for its computer, with the way to try again.
     static let macNoAnswer = "We could not reach your computer just now. Pull down to try again."
@@ -251,9 +251,9 @@ extension Board {
     static func notTheValue<T: Equatable>(_ data: Data, status: Int) -> ProfileRead<T> {
         if status == 401 || status == 403 { return .unanswered(phoneShutOut) }
         guard let words = boardReason(data) else { return .unanswered(profileCannotRead) }
-        // 408 and 429 are "not now" as much as a 5xx; any other answer with words is the board's reason for this agent
-        // as it stands, so it replaces a value shown (a list from before that reason is no longer what the board says).
-        return status >= 500 || status == 408 || status == 429 ? .unanswered(words) : .refused(words)
+        // The board's words replace a value shown only when the answer says what the thing is now (Board.answerStands,
+        // kosmos#7842): a 5xx, 408, 429 or other 4xx keeps it, its words said only when nothing is shown.
+        return answerStands(status) ? .refused(words) : .unanswered(words)
     }
     // The board's own words for why not: its `because`, else its `error`, as a sentence; nil when it gave none.
     static func boardReason(_ data: Data) -> String? {
