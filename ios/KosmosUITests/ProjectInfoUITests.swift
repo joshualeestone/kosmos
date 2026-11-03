@@ -36,6 +36,22 @@ final class ProjectInfoUITests: XCTestCase {
         shot(app, "project-info-files")
     }
 
+    // kosmos#7847: a project's room has no tab bar (as a direct conversation has none); Back to the list brings it back.
+    func testTheRoomHasNoTabBar() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Add a file to this conversation"].waitForExistence(timeout: 20), "the sample room did not open")
+        sleep(1)
+        XCTAssertFalse(app.tabBars.buttons["Projects"].isHittable, "the tab bar shows inside the room")
+        shot(app, "room-no-tab-bar")
+        // CONTROL: back on the Projects list, the bar is there, so the check above can see one.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(app.tabBars.buttons["Projects"].waitForExistence(timeout: 10), "CONTROL: no tab bar on the Projects list")
+        XCTAssertTrue(app.tabBars.buttons["Projects"].isHittable, "CONTROL: the list's tab bar is not on screen")
+    }
+
     // Review 1: tapping a member opens their chat on top of the project page.
     func testAMemberOpensTheirChat() throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
