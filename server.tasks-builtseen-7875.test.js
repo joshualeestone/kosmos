@@ -94,6 +94,8 @@ test('#7875: the built list across every project carries it too', async (t) => {
   assert.equal(r.json.all, true);
   const lines = tasklist.acrossLines(r.json, 'built', { project: '' }).lines;
   assert.ok(lines.some((l) => l.includes('#2  built') && l.endsWith('(not seen by the person since built)')), lines.join('\n'));
+  // #1's view (recorded above) must reach the all-projects list too: a row keyed without its project would read "not seen".
+  assert.ok(lines.some((l) => l.includes('#1  built') && l.endsWith('(seen by the person since built)')), lines.join('\n'));
 });
 
 test('#7875: seenWords: since the build, before it, never, and an older board that sends nothing', () => {
@@ -103,4 +105,5 @@ test('#7875: seenWords: since the build, before it, never, and an older board th
   assert.equal(tasklist.seenWords({ builtAt: built, seenByPerson: null }), '  (not seen by the person since built)');
   assert.equal(tasklist.seenWords({ builtAt: built }), '', 'no field (an older board): nothing said');
   assert.equal(tasklist.seenWords({ seenByPerson: '2026-11-03T11:00:00.000Z' }), '  (seen by the person since built)', 'no build time: a view counts');
+  assert.equal(tasklist.seenWords({ builtAt: built, builtByPerson: true, seenByPerson: null }), '  (marked built by the person)', 'the person marked it: never "not seen"');
 });

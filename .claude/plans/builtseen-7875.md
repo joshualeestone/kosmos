@@ -3,8 +3,9 @@
 ## Finished looks like
 `kosmos task list <project> --built` and `kosmos task list --all --built` (Mac/Linux and Windows CLIs) end each built
 task's line with "(seen by the person since built)" or "(not seen by the person since built)", so an agent can tell
-whether to raise a built task again or wait. Other lists are unchanged. An older board that does not send the field
-gets no marker, never a wrong one.
+whether to raise a built task again or wait. A task the person marked built themselves says "(marked built by the person)".
+Other lists are unchanged, including the long form `kosmos task list <project> --state built`, which receives the
+field but prints its own layout. An older board that does not send the field gets no marker, never a wrong one.
 
 ## What already existed (measured before building)
 #6947 built the record: engine/taskseen.js keeps when the person last viewed a task's conversation in Kosmos, and
