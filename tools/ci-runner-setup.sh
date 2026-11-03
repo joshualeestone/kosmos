@@ -207,8 +207,9 @@ runner_plist() {
   # this home) to name the relay's plist, which matches the same pattern, is not followed.
   case "$f" in "$CI_HOME"/Library/LaunchAgents/actions.runner.*.plist)
     # A regular file, not a symlink, before plutil reads it (as root, in the daemon stage): a FIFO or a symlink at that
-    # name is refused here (the directories above it are not checked). A FIFO renamed in after this test still reaches plutil, which refuses one itself (measured
-    # 2026-11-03: rc 1 at once, no hang), so that window rests on plutil (#7877).
+    # name is refused here (the directories above it are not checked). A FIFO renamed in after this test still reaches
+    # plutil, which refuses one itself (measured 2026-11-03: rc 1 at once, no hang), so that window rests on plutil
+    # (#7877).
     [ -f "$f" ] && [ ! -L "$f" ] && [ "$(plutil -extract WorkingDirectory raw -o - "$f" 2>/dev/null || true)" = "$RUNNER_DIR" ] && printf '%s\n' "$f" ;; esac
   return 0
 }
@@ -1080,10 +1081,10 @@ agent_file_ok() { agent_path_safe && [ -f "$agent" ] && ! [ "$agent" -ef "$dplis
 # home (tee as $CI_USER), so root never writes into, or opens, a path a job controls. An operator's shell has no
 # pipefail, so a cat that fails still lets tee succeed: the retired copy is removed only when the agent is not empty and
 # the CI user finds it byte for byte the same. It refuses when an agent is already there (a second paste, or a svc.sh
-# install), so it never writes over one. The last words say which way it went. A copy that failed (empty, or cut short)
-# leaves an agent that is not the retired file; the failure line names it for removal only while the retired file is
-# still there to compare with and to paste again from, so it never advises removing the only good copy.
-put_back_cmd() { printf "sudo -u %s test ! -e %s && sudo test -s %s && sudo cat %s | sudo -u %s tee %s >/dev/null && sudo -u %s test -s %s && sudo cat %s | sudo -u %s cmp -s - %s && sudo rm %s && echo 'put back' || { sudo test -e %s && echo 'NOT finished; %s is kept. If %s is there and not the same as it (empty, or cut short): sudo -u %s rm %s, then paste this again' || echo 'NOT finished; %s is not there, so nothing was put back from it'; }" "$CI_USER" "$agent" "$1" "$1" "$CI_USER" "$agent" "$CI_USER" "$agent" "$1" "$CI_USER" "$agent" "$1" "$1" "$1" "$agent" "$CI_USER" "$agent" "$1"; }
+# install), so it never writes over one. The last words say which way it went. The failure line names the agent for
+# removal only while the retired file is still there to paste again from, so it never advises removing the only good
+# copy; with the retired file gone it says nothing was done.
+put_back_cmd() { printf "sudo -u %s test ! -e %s && sudo test -s %s && sudo cat %s | sudo -u %s tee %s >/dev/null && sudo -u %s test -s %s && sudo cat %s | sudo -u %s cmp -s - %s && sudo rm %s && echo 'put back' || { sudo test -e %s && echo 'NOT finished; %s is kept. %s is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put %s back anyway: sudo -u %s rm %s, then paste this again' || echo 'nothing done: %s is not there (already put back, or never parked)'; }" "$CI_USER" "$agent" "$1" "$1" "$CI_USER" "$agent" "$CI_USER" "$agent" "$1" "$CI_USER" "$agent" "$1" "$1" "$1" "$agent" "$1" "$CI_USER" "$agent" "$1"; }
 # put_back <retired>: the same, done by the stage (as root).
 put_back() {
   agent_path_safe && [ ! -e "$agent" ] && [ -f "$1" ] && [ -s "$1" ] || return 1
@@ -1178,7 +1179,7 @@ daemon() {
     # Only the agent plist came back (a svc.sh install, a restore): the daemon is fine, nothing to stop.
     local back
     if agent_file_ok; then
-      back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir (it refuses unless the agent is there and the retired name is free, so a second paste cannot empty the copy; the CI user reads the agent, so root never opens a path a job controls; the copy is checked not empty and the same before the remove; the CI user removes it, so a path swapped for a symlink cannot make root remove the daemon plist): sudo mkdir -p -m 700 $RETIRED_DIR && sudo test ! -e $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER test -f $agent && sudo -u $CI_USER cat $agent | sudo tee $RETIRED_DIR/$label.plist.retired-$stamp >/dev/null && sudo test -s $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER cat $agent | sudo cmp -s - $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER rm $agent && echo 'moved aside' || echo 'NOT finished; $agent is not removed (look at $RETIRED_DIR/$label.plist.retired-$stamp before running this again: it refuses while that name is taken; if it is empty, a copy that failed: sudo rm $RETIRED_DIR/$label.plist.retired-$stamp)'"
+      back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir (it refuses unless the agent is there and the retired name is free, so a second paste cannot empty the copy; the CI user reads the agent, so root never opens a path a job controls; the copy is checked not empty and the same before the remove; the CI user removes it, so a path swapped for a symlink cannot make root remove the daemon plist): sudo mkdir -p -m 700 $RETIRED_DIR && sudo test ! -e $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER test -f $agent && sudo -u $CI_USER cat $agent | sudo tee $RETIRED_DIR/$label.plist.retired-$stamp >/dev/null && sudo test -s $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER cat $agent | sudo cmp -s - $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER rm $agent && echo 'moved aside' || { sudo -u $CI_USER test -e $agent && echo 'NOT finished; $agent is not removed. If $RETIRED_DIR/$label.plist.retired-$stamp is there and not the same as it (empty, or cut short): sudo rm $RETIRED_DIR/$label.plist.retired-$stamp, then paste this again' || echo 'nothing done: $agent is not there (already moved aside)'; }"
     else
       # A symlink on the path (a job can make one) could make "the agent" the daemon plist itself: print no move.
       back="the daemon runs, but $agent exists and is not a plain file on a plain path in $CI_HOME (a symlink, or the daemon plist itself by another name); no command is printed for it: look at it as root before moving anything"

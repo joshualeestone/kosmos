@@ -10,6 +10,9 @@
 #     it), keeps the agent aside, bootstraps system, and waits for a Listener UNDER the daemon's pid
 #   - a second run says it is done; a daemon plist with the agent already retired only loads, naming the retired file
 #   - a daemon plist with any extra key, or not root-owned 0644, is not this stage's
+#   - #7877: the re-check right before the move (a symlink swapped in after planning), an empty or short retired copy,
+#     a FIFO or symlink at the plist .service names, signals while parked, the script's directory, no pid with and
+#     without a Listener, and the printed move-aside and put-back: parsed, and pasted twice or over an agent
 #   - a failed move, a login between the write and the bootstrap, a failed bootstrap and a Listener that never starts
 #     each fail loud and say how to go back
 set -u
@@ -162,13 +165,13 @@ else fail "apply: rc $(rc apply) $(cat "$T/apply.out"); $(cat "$D" 2>/dev/null)"
 run again -- daemon
 [ "$(rc again)" = 0 ] && has again "runs as a LaunchDaemon" && ! has again WOULD && pass "a second run says it is done" || fail "again: rc $(rc again) $(cat "$T/again.out")"
 R0="$(ls "$RA".retired-*)"; cp "$R0" "$AG"; run agentback FX_DATE=20261103T000009Z -- daemon
-[ "$(rc agentback)" = 1 ] && has agentback "is back" && has agentback "sudo -u kosmos-ci cat $AG | sudo tee $RA.retired-" && has agentback "&& sudo -u kosmos-ci cat $AG | sudo cmp -s - $RA.retired-" && has agentback "sudo -u kosmos-ci rm $AG && echo 'moved aside' || echo 'NOT finished; $AG is not removed (look at $RA.retired-" && [ "$(tail -c 3 "$T/agentback.out")" = ")'" ] && ! has agentback "sudo cat $AG |" && ! has agentback "sudo cp" && ! has agentback bootout && pass "only the agent plist back: says move it aside, never a bootout" || fail "agentback: rc $(rc agentback) $(cat "$T/agentback.out")"
+[ "$(rc agentback)" = 1 ] && has agentback "is back" && has agentback "sudo -u kosmos-ci cat $AG | sudo tee $RA.retired-" && has agentback "&& sudo -u kosmos-ci cat $AG | sudo cmp -s - $RA.retired-" && has agentback "sudo -u kosmos-ci rm $AG && echo 'moved aside' || { sudo -u kosmos-ci test -e $AG && echo 'NOT finished; $AG is not removed. If $RA.retired-" && [ "$(tail -c 4 "$T/agentback.out")" = "; }" ] && ! has agentback "sudo cat $AG |" && ! has agentback "sudo cp" && ! has agentback bootout && pass "only the agent plist back: says move it aside, never a bootout" || fail "agentback: rc $(rc agentback) $(cat "$T/agentback.out")"
 MV="$(sed -n 's/.*remove the daemon plist): //p' "$T/agentback.out")"
 [ -n "$MV" ] && sh -n -c "$MV" 2>/dev/null && pass "the printed move-aside is the whole rest of its line and parses as one command" || fail "agentback paste: [$MV]"
 # Pasted twice (sudo stripped): the first moves the agent aside, the second refuses and leaves the copy whole.
 MVS="$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')"; D9="$RA.retired-20261103T000009Z"
 O1="$(sh -c "$MVS" 2>&1)"; O2="$(sh -c "$MVS" 2>&1)"
-[ "$O1" = "moved aside" ] && [ ! -e "$AG" ] && cmp -s "$R0" "$D9" && case "$O2" in "NOT finished; $AG is not removed"*) true ;; *) false ;; esac && cmp -s "$R0" "$D9" \
+[ "$O1" = "moved aside" ] && [ ! -e "$AG" ] && cmp -s "$R0" "$D9" && [ "$O2" = "nothing done: $AG is not there (already moved aside)" ] && cmp -s "$R0" "$D9" \
   && pass "the printed move-aside pasted twice: moved once, and the second paste leaves the copy whole" || fail "mvtwice: [$O1] [$O2] $(ls -l "$D9" 2>&1)"
 rm -f "$D9" "$AG"
 rm -f "$AG"; grep -v ' 7001 ' "$T/procs" > "$T/procs.x"; mv "$T/procs.x" "$T/procs"; run restarting -- daemon
@@ -296,22 +299,22 @@ fixture; run mkdirlink FX_LINK_ON_MKDIR=1 -- --apply daemon
 # 2: an empty retired file (left by a printed move-aside whose copy failed) is never the one named or put back.
 fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; : > "$RA.retired-20261103T000001Z"; run emptyret -- --apply daemon
 [ "$(rc emptyret)" = 1 ] && has emptyret "parked at $RA.retired-20261103T000000Z" && ! has emptyret 20261103T000001Z \
-  && has emptyret "sudo -u kosmos-ci test ! -e $AG && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { sudo test -e $RA.retired-20261103T000000Z && echo" \
+  && has emptyret "sudo -u kosmos-ci test ! -e $AG && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { sudo test -e $RA.retired-20261103T000000Z && echo 'NOT finished; $RA.retired-20261103T000000Z is kept. $AG is there and not the same as it" \
   && pass "an empty retired file is skipped, and the printed put-back removes the retired copy only after a compare" || fail "emptyret: rc $(rc emptyret) $(cat "$T/emptyret.out")"
 # 2: the printed put-back, run in a shell with no pipefail, keeps the retired file when the copy fails. These arms run
 # the printed text with sudo stripped (or a sudo shim): they pin the && / || flow, not the privilege split.
 PB="$(sed -n 's/.*put it back and run this again: //p' "$T/emptyret.out")"; RF="$RA.retired-20261103T000000Z"
 mkdir -p "$T/pbbin"; printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = cat ] && exit 1\nexec "$@"\n' > "$T/pbbin/sudo"; chmod 755 "$T/pbbin/sudo"
 PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
-[ -n "$PB" ] && [ -s "$RF" ] && [ "$PBOUT" = "NOT finished; $RF is kept. If $AG is there and not the same as it (empty, or cut short): sudo -u kosmos-ci rm $AG, then paste this again" ] && [ -f "$AG" ] && [ ! -s "$AG" ] && pass "the printed put-back, with a cat that fails, keeps the retired file" || fail "pbfail: [$PB] retired $(ls -l "$RF" 2>&1)"
+[ -n "$PB" ] && [ -s "$RF" ] && [ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $RF back anyway: sudo -u kosmos-ci rm $AG, then paste this again" ] && [ -f "$AG" ] && [ ! -s "$AG" ] && pass "the printed put-back, with a cat that fails, keeps the retired file" || fail "pbfail: [$PB] retired $(ls -l "$RF" 2>&1)"
 rm -f "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 [ "$PBOUT" = "put back" ] && [ ! -e "$RF" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && pass "and with a copy that works, the agent is back and the retired file gone" || fail "pbok: [$PB] agent $(ls -l "$AG" 2>&1)"
 PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-[ "$PBOUT" = "NOT finished; $RF is not there, so nothing was put back from it" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] \
+[ "$PBOUT" = "nothing done: $RF is not there (already put back, or never parked)" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] \
   && pass "the printed put-back pasted again refuses and leaves the agent it put back" || fail "pbtwice: [$PBOUT] agent $(ls -l "$AG" 2>&1)"
 # An agent already there (a svc.sh install) with the retired copy still parked: the put-back never writes over it.
 cp "$AG" "$RF"; printf 'reinstalled\n' > "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-[ "$PBOUT" = "NOT finished; $RF is kept. If $AG is there and not the same as it (empty, or cut short): rm $AG, then paste this again" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
+[ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $RF back anyway: rm $AG, then paste this again" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
   && pass "the printed put-back refuses when an agent is already there, and keeps both files" || fail "pbover: [$PBOUT] agent $(cat "$AG" 2>&1)"
 # 2: the stage's own put-back, when the copy comes out short, keeps the retired file and prints how to put it back.
 fixture; run teeshort FX_MV_PLIST_FAIL=1 FX_TEE_SHORT=1 -- --apply daemon
