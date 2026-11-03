@@ -270,6 +270,8 @@ struct RoomView: View {
         }
         .onDisappear {
             visible = false; roomScrolling = false; loop?.cancel(); loop = nil   // kosmos#7654: no idle phase may come once off screen
+            // kosmos#7864 slice 2: no release of link preview pictures here. The room stays alive behind another tab, so a
+            // release would also drop pictures a chat on that tab is showing; the cap (12) and the memory-warning drop bound them.
             // A reading posture, not the room's state: coming back (from another tab, or a member's chat opened from here)
             // shows the whole room, as the chat's search goes when it leaves the screen. A search that filtered settles the
             // scroll again, as putting it away does.
@@ -300,6 +302,10 @@ struct RoomView: View {
         // kosmos#7072: a hold that appears while the room is on screen is said aloud, as the board's paint does.
         .onChange(of: store.held[project.id] != nil) { now in
             if now && visible { Self.say(Board.heldAnnouncement) }
+        }
+        // kosmos#7864 slice 2: on a memory warning the link preview pictures go; drawn cards fetch theirs again.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            client.dropPreviewImages()
         }
         // kosmos#7062: a post's file in the system's Quick Look; closed, it is removed from the phone (the chat's rule).
         .quickLookPreview($previewURL)
@@ -1104,10 +1110,15 @@ struct RoomView: View {
                            delete: { Task { _ = await store.delete(row, in: project.id) } },
                            flashing: flashed == row.id,
                            mentionNames: row.mentioned.compactMap { store.names[$0] },
-                           thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile)
+                           thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile,
+                           previewImage: row.preview?.image.flatMap { client.previewImages[$0] })
                     .modifier(ArchivedBubble(on: archiveShown != nil))
                     .padding(.top, first ? 6 : 0)
                     .task { for f in row.attachments { await client.loadThumbnail(f) } }
+                    // kosmos#7864 slice 2: the preview's picture; runs again when it is dropped (the chat's previewTaskKey).
+                    .task(id: client.previewTaskKey(row.preview)) {
+                        if let p = row.preview { await client.loadPreviewImage(p) }
+                    }
             }
         }
     }
@@ -1565,6 +1576,18 @@ struct RoomBubble: View {
             }
             VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                 bubble
+                // kosmos#7864 slice 2: the link's preview under the post, as in a chat (LinkPreviewCard).
+                if let preview = row.preview {
+                    // The post is one VoiceOver element: the card is read in it as the chat says it (never the page's own
+                    // site name first), and opened by the post's one "Open link" action. Wrapped in a container first, as
+                    // the file cards are: `.ignore` on the Button itself would keep its button trait and its action.
+                    VStack(spacing: 0) {
+                        LinkPreviewCard(preview: preview, image: previewImage, width: UIScreen.main.bounds.width * 0.78)
+                    }
+                    .padding(.top, 2)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Board.linkPreviewSpoken(preview))
+                }
                 if !row.reactions.isEmpty { reactions }
                 if !row.unanswered.isEmpty {
                     // Already shown names (parseRoom maps them), so never mapped a second time here.
@@ -1578,7 +1601,7 @@ struct RoomBubble: View {
         .accessibilityElement(children: .combine)
         // kosmos#7101 review 2: a reply's double-tap goes to the post it answers, as its label says. Only on a reply,
         // so every other post keeps the double-tap it had.
-        .modifier(ReplyJumpDefault(on: replied != nil, jump: jump))
+        .modifier(ReplyJumpDefault(on: replied != nil, jump: jump, hasPreview: row.preview != nil))
         .accessibilityActions {
             if answerable {
                 // React, Reply, Copy (the spec): each reaction pill is merged into the post, so each one is an action.
@@ -1601,6 +1624,9 @@ struct RoomBubble: View {
             ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
                 Button(fileActionName(f)) { openFile(f) }
             }
+            // kosmos#7864 slice 2: the preview card is merged into the post, so its address is an action, named from the
+            // address's own host (never the page's site name), as in a chat.
+            if let p = row.preview { Button("Open link to \(Board.linkHost(p.url))") { openURLHere(p.url) } }
         }
     }
 
@@ -1696,6 +1722,9 @@ struct RoomBubble: View {
     var thumbnails: [String: Data] = [:]
     var fileStates: [String: FileCardState] = [:]
     var openFile: (Board.Attachment) -> Void = { _ in }
+    // kosmos#7864 slice 2: the picture of the post's link preview, once the client has it through the Mac.
+    var previewImage: CGImage? = nil
+    @Environment(\.openURL) private var openURLHere
 
     // The VoiceOver action for one file, carrying the state its card shows (review 3).
     private func fileActionName(_ f: Board.Attachment) -> String {
@@ -1923,8 +1952,14 @@ struct LayerWaveDots: View {
 private struct ReplyJumpDefault: ViewModifier {
     let on: Bool
     let jump: () -> Void
+    // kosmos#7864 slice 2: a post with a preview card gets a do-nothing default, as the chat's bubble has (#7014): without
+    // one a double-tap falls through as a tap at the element's centre, which the card's picture now fills, and would open
+    // the site. The link stays the post's "Open link" action. Other posts keep exactly what they had.
+    var hasPreview = false
     func body(content: Content) -> some View {
-        if on { content.accessibilityAction(.default, jump) } else { content }
+        if on { content.accessibilityAction(.default, jump) }
+        else if hasPreview { content.accessibilityAction(.default) {} }
+        else { content }
     }
 }
 

@@ -1074,7 +1074,7 @@ final class BoardClient: ObservableObject {
     // kosmos#7864: a link preview's picture, by its path on the Mac (/api/unfurl/image, the Mac fetches the site, never
     // the phone), decoded once, off the main thread, at most 900 px on its longer side (the card's width at @3x), fetched
     // once per run, the newest `previewImageCap` kept in memory (a screen shows a few cards; a decoded picture can be
-    // 3 MB), all dropped on a memory warning (ChatView), nothing on disk. A dropped one is fetched again when drawn.
+    // 3 MB), all dropped on a memory warning (ChatView and RoomView), nothing on disk. A dropped one is fetched again when drawn.
     @Published private(set) var previewImages: [String: CGImage] = [:]
     private var previewImageAsked: Set<String> = []
     private var previewImageOrder: [String] = []
@@ -1082,6 +1082,11 @@ final class BoardClient: ObservableObject {
     // Bumped by a memory-warning drop, so a picture already on its way when the pictures were dropped is not kept after it.
     // Published: a card's load task id carries it, so a drop with nothing cached yet still redraws and reloads the cards.
     @Published private(set) var previewGeneration = 0
+    // The id of a card's picture-loading task, shared by the chat and the room: it changes when the picture goes (dropped
+    // for room) or a drop's generation moves, so a drawn card loads its picture again. nil: no picture to load.
+    func previewTaskKey(_ p: Board.LinkPreview?) -> String? {
+        p?.image.map { $0 + (previewImages[$0] == nil ? "#missing" : "#kept") + "#\(previewGeneration)" }
+    }
     func dropPreviewImages() {
         releasePreviewImages()
         previewGeneration += 1
@@ -1331,7 +1336,8 @@ final class BoardClient: ObservableObject {
     #if DEBUG && canImport(UIKit)
     // kosmos#7864: the sample link preview's picture (KOSMOS_SAMPLE_PREVIEW=1), drawn here: a soft studio scene.
     private func samplePreviewImage(_ path: String) -> Data? {
-        guard sampleThreads.values.contains(where: { $0.rows.contains { $0.preview?.image == path } }) else { return nil }
+        guard sampleThreads.values.contains(where: { $0.rows.contains { $0.preview?.image == path } })
+              || (RoomStore.sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PREVIEW"] == "1" && path.contains("northfieldstudio.com")) else { return nil }
         let size = CGSize(width: 900, height: 470)
         return UIGraphicsImageRenderer(size: size).pngData { ctx in
             UIColor(red: 0.93, green: 0.90, blue: 0.85, alpha: 1).setFill(); ctx.fill(CGRect(origin: .zero, size: size))

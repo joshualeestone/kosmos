@@ -3850,8 +3850,12 @@ section("native board loop: connecting")
         let capAsks = w.attachmentAsks.count
         await c.loadPreviewImage(lp("cap0"))
         check(w.attachmentAsks.count == capAsks + 1 && c.previewImages[lp("cap0").image!] != nil, "preview: one dropped for room is fetched again when drawn")
+        let keyKept = c.previewTaskKey(lp("cap0"))
+        check(keyKept?.hasSuffix("#kept#\(c.previewGeneration)") == true, "preview: a kept picture's task key says kept")
+        check(c.previewTaskKey(nil) == nil && c.previewTaskKey(Board.LinkPreview(url: URL(string: "https://n.example.com/")!, site: "n", title: "N", description: nil, image: nil)) == nil, "preview: no picture, no task key")
         c.dropPreviewImages()
         check(c.previewImages.isEmpty, "preview: a memory warning drops every picture")
+        check(c.previewTaskKey(lp("cap0")) != keyKept && c.previewTaskKey(lp("cap0"))?.contains("#missing#") == true, "preview: after a drop the key changes, so a drawn card loads again")
         let dropAsks = w.attachmentAsks.count
         await c.loadPreviewImage(lp("cap0"))
         check(w.attachmentAsks.count == dropAsks + 1 && c.previewImages[lp("cap0").image!] != nil, "preview: and a card drawn after it fetches its picture again")

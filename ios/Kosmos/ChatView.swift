@@ -1246,10 +1246,7 @@ struct ChatView: View {
 
     // kosmos#7864: the picture's load runs again when its picture is gone (dropped for room, or on a memory warning, while
     // the card is on screen).
-    private func previewTaskKey(_ row: Board.ChatRow) -> String? {
-        // The drop generation too: a picture thrown away because it arrived across a drop is fetched again.
-        row.preview?.image.map { $0 + (client.previewImages[$0] == nil ? "#missing" : "#kept") + "#\(client.previewGeneration)" }
-    }
+    private func previewTaskKey(_ row: Board.ChatRow) -> String? { client.previewTaskKey(row.preview) }
 
     @ViewBuilder private func itemView(_ item: Board.ChatItem) -> some View {
         switch item.kind {
