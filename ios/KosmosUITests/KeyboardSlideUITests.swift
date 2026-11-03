@@ -256,7 +256,16 @@ final class KeyboardSlideUITests: XCTestCase {
 
     static func keyboardUp(_ app: XCUIApplication, _ box: XCUIElement, _ watch: XCUIElement, shot: String, test: XCTestCase) throws {
         box.tap()
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "no on-screen keyboard (is a hardware keyboard connected?)")
+        /* kosmos#7872: on a loaded CI runner (iPhone 17e, iOS 26.5) one tap now and then lands while the room is still
+           settling and does not focus the box, so no keyboard comes up and the test read it as a hardware keyboard.
+           One more tap after 5 s; the failure then says whether the box ever had focus, which tells a missed tap
+           (focus false) from a keyboard that is connected or hidden (focus true). */
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) {
+            box.tap()
+        }
+        let focused = (box.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10),
+                      "no on-screen keyboard after two taps (box has keyboard focus: \(focused); true points at a hardware keyboard, false at a tap that did not land)")
         settle(app.keyboards.firstMatch)
         settle(watch)
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = shot; a.lifetime = .keepAlways; test.add(a)
