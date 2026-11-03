@@ -2942,6 +2942,26 @@ section("native board loop: connecting")
         let afterSwitch = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         check(afterSwitch.isEmpty, "a read landing after another computer was chosen keeps nothing: \(afterSwitch)")
         c4.stop()
+        // Two whole reads on their way: the one asked first lands last and is not kept over the newer one.
+        let (c6, w6, _, _) = make("kst1", threads: testThreads.appendingPathComponent("order-7810", isDirectory: true))
+        c6.start()
+        _ = await settle { isLive(c6) }
+        let older = #"{"messages":[{"at":"2026-11-02T20:00:01.000Z","text":"Older read","from":null}],"olderCount":0}"#
+        let newer = #"{"messages":[{"at":"2026-11-02T20:00:02.000Z","text":"Newer read","from":null}],"olderCount":0}"#
+        w6.threadAnswer = (200, older)
+        var second: Task<(read: Board.ThreadRead, tag: String?), Never>? = nil
+        w6.onThreadRead = {
+            w6.onThreadRead = nil
+            w6.threadAnswer = (200, newer)
+            second = Task { await c6.threadRead(for: "dana") }
+        }
+        w6.threadYields = 20
+        let firstAsked = Task { await c6.threadRead(for: "dana") }
+        _ = await settle { second != nil }
+        _ = await second?.value
+        _ = await firstAsked.value
+        check(c6.keptThread(for: "dana")?.rows.first?.text == "Newer read", "the read asked last is the one kept, whatever order they land in")
+        c6.stop()
         // Kept again for the account checks below.
         let (c5, w5, _, _) = make("kst1", threads: folder)
         c5.start()

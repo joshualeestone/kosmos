@@ -641,18 +641,25 @@ final class BoardClient: ObservableObject {
         let owner = chatsOwner
         let mac = held.url.absoluteString
         let epoch = chatEpoch
+        threadReadsAsked[session, default: 0] += 1
+        let asked = threadReadsAsked[session, default: 0]
         let result = await env.send(request)
         let read = Board.readThread(status: result?.1.statusCode ?? 0, data: result?.0)
         let etag = result?.1.value(forHTTPHeaderField: "ETag")
         // Not after a forgetting (another computer or account) while it was on its way: that read is the one before's.
+        // Nor a read asked before the one already kept (two can be on their way: the chat's poll and a read after a press).
         if tail == nil, case .thread = read, let data = result?.0, owner == chatsOwner, epoch == chatEpoch,
-           let file = threadFile(session, owner: owner, mac: mac) {
+           asked > threadReadKept[session, default: 0], let file = threadFile(session, owner: owner, mac: mac) {
+            threadReadKept[session] = asked
             try? FileManager.default.createDirectory(at: env.threads, withIntermediateDirectories: true)
             try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         }
         return (read, etag)
     }
 
+    // kosmos#7810: whole-window reads asked per agent, and the number of the one last kept.
+    private var threadReadsAsked: [String: Int] = [:]
+    private var threadReadKept: [String: Int] = [:]
     // kosmos#7810: the conversation this phone last read from this computer for this account, or nil. Its rows only
     // (a question's row included, as text): never its buttons (no thread read, no buttons: the question may have moved on).
     func keptThread(for session: String) -> Board.Thread? {
