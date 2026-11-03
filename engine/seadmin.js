@@ -29,6 +29,8 @@
  *   - the local signed-item log and the 4 h no-fresh-head alarm, and checking a signed roster head against this
  *     Mac's own challenge (the plan's head-read rules).
  *   - shipping kosmos-se in the app bundle and any caller. Nothing outside the test calls this file yet.
+ *   - choosing the helper. runHelper runs the path it is given; the bundle slice must resolve kosmos-se itself
+ *     (the signed app's own copy), never take the path from anything a page or the coordinator supplies.
  *   - an asynchronous call for the admin screen. runHelper blocks its caller, and a presence key's sign blocks on the
  *     person, so the screen must run it off the board's event loop; and the prompt should name the action (an
  *     LAContext reason string), which kosmos-se does not pass yet.
@@ -139,6 +141,8 @@ class Reader {
     if (b.length !== 1 || b[0] > 1) throw new Error('a flag is one byte, 0 or 1');
     return b[0] === 1;
   }
+  // Shape only, as the console page: whether the point is on the curve, and whether escrowd will take the flags, is
+  // escrowd's check (roster.rs), so a fingerprint shown here can describe a key escrowd then refuses.
   key() { return key(this.take()); }
   end() { if (this.at !== this.bytes.length) throw new Error('there are bytes left over'); }
 }

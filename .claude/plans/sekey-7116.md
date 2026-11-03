@@ -32,7 +32,8 @@ Swift fence removed; tag check removed; end() check removed; sign() skipping pre
 
 ## Not here (next slices)
 - kosmos-se in tools/build-kosmos-bundle.sh (signed with the app), and the admin screen that calls this. Its gate: a
-  presence key made from the app, signing called off the board's event loop, and the prompt naming the action.
+  presence key made from the app, signing called off the board's event loop, the prompt naming the action, and the
+  helper path resolved by the app itself.
 - devkeyhist rows once escrowd encodes them; the local signed-item log; head-read checks; the 4 h alarm.
 - The relay test pinning se-p256-apple-vectors.json (a relay PR).
 
@@ -48,4 +49,5 @@ file this user owns, refused otherwise) is what the tests use and is not accepta
 - [x] review round 1: presence policy at create (a key cannot gain one later), stated skips, key file mode/owner/symlink refusals, bounded stdin, sign checks its own result
 - [x] review round 2: build/key failure FAILS Part 2 (only no-swiftc and no-Enclave skip); key read O_NOFOLLOW + fstat on the descriptor; fchmod against umask; directory fsync; distinct helper timeout. Deferred to the admin screen as a gate: async calls, LAContext reason on the prompt.
 - [x] review round 3: sign() takes only prepare()'s own frozen result, so the signed bytes are the shown bytes; the vector test recomputes every high-S flag.
+- [x] review round 4: the stand-in records the bytes it was handed (shown = signed on every machine); xcrun's reason in the skip. Deferred to the bundle/screen gate: resolving the helper path itself.
 - [ ] challenge-loop, validation, PR

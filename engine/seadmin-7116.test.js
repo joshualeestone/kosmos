@@ -120,7 +120,7 @@ if (FAKE_DIR) {
   const other = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey;
   const badSig = crypto.sign('sha256', hex(V.bytes.cancel), { key: other, dsaEncoding: 'der' }).toString('hex');
   FAKE = path.join(FAKE_DIR, 'fake-se');
-  fs.writeFileSync(FAKE, `#!/bin/sh\necho "$@" >> "${FAKE_DIR}/argv"\ncat > /dev/null\n` +
+  fs.writeFileSync(FAKE, `#!/bin/sh\necho "$@" >> "${FAKE_DIR}/argv"\ncat > "${FAKE_DIR}/stdin"\n` +
     `case "$1" in sign) echo ${badSig} ;; *) echo ${APPLE.key} ;; esac\n`, { mode: 0o755 });
 }
 
@@ -139,7 +139,8 @@ test('#7116: sign refuses a signature that does not verify under the helper\'s o
 // Part 2: the real Enclave.
 const swiftc = spawnSync('/usr/bin/xcrun', ['--find', 'swiftc'], { encoding: 'utf8' });
 let HELPER = null, DIR = null, BROKEN = null;
-let SKIP = process.platform === 'darwin' && swiftc.status === 0 ? false : 'needs macOS and swiftc';
+let SKIP = process.platform !== 'darwin' ? 'needs macOS'
+  : swiftc.status !== 0 ? 'needs swiftc (xcrun said: ' + String(swiftc.stderr || '').trim().split('\n')[0] + ')' : false;
 const firstLine = (s) => String(s || '').trim().split('\n')[0];
 if (!SKIP) {
   DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-se-7116-'));
@@ -239,9 +240,11 @@ test('#7116: sign signs the bytes prepare was given, not bytes changed afterward
   assert.throws(() => { shown.challenge = 'x'; }, TypeError);
   assert.strictEqual(shown.challenge, crypto.createHash('sha256').update(hex(V.bytes.cancel)).digest('hex'));
   if (FAKE) {
-    // The stand-in's signature is made by another key, so the refusal here is "does not verify", reached only after
-    // the helper was asked: the prepared object itself was accepted.
+    // The stand-in records what it was handed: the bytes as shown, not the caller's changed buffer. (Its signature is
+    // another key's, so sign then refuses it, after the helper was asked.)
+    fs.rmSync(path.join(FAKE_DIR, 'stdin'), { force: true });
     assert.throws(() => se.sign(shown, { helper: FAKE, keyFile: '/k1' }), /does not verify/);
+    assert.ok(fs.readFileSync(path.join(FAKE_DIR, 'stdin')).equals(hex(V.bytes.cancel)), 'the helper got the shown bytes');
   }
   for (const notBytes of ['kosmos-escrowd-roster-cancel v1', [1, 2], new ArrayBuffer(4)]) {
     assert.throws(() => se.prepare('cancel', notBytes), /are bytes/);
