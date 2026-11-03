@@ -409,7 +409,8 @@ struct ChatView: View {
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
-            positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuilds = []   // kosmos#7265 review: a fresh chat's anchor
+            positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuilds = []
+            stripSeen = 0   // kosmos#7817: the next conversation's first strip measure is not a change to follow   // kosmos#7265 review: a fresh chat's anchor
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             fullRead = false; threadTag = nil   // kosmos#7810
@@ -772,12 +773,11 @@ struct ChatView: View {
                 // kosmos#7817 (Josh 11-02): the box growing or shrinking a line as he typed moved the conversation elsewhere.
                 // Anything in the strip counts (a wrap, the line above the box, the emoji panel, a reply or file row). A
                 // reader at the newest message stays there, as when the keyboard comes up; one higher up is left alone.
-                // Not the strip's first measure (0 to its height as the chat opens): the opening places the list itself. Not
-                // while the keyboard hold has let the anchor go for a reader it put back.
+                // Not the strip's first measure (0 to its height as the chat opens): the opening places the list itself.
                 .onChange(of: stripHeight) { now in
                     let was = stripSeen
                     stripSeen = now
-                    guard was > 0, visible, atBottom, !anchorLetGo, !searching, !personScrolling, !scrollBox.underFinger else { return }
+                    guard was > 0, visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
                     Self.trace("box height changed, to the newest")
                     if Self.idAnchor { appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
                 }

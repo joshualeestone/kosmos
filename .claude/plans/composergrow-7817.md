@@ -10,7 +10,7 @@ above the box (within 4 pt). A reader higher up is not moved by it.
 - Josh's screenshots (private): over three extra lines the box grew about 140 pt and the messages moved about 255 pt the
   other way (older messages into view).
 - New UI test on the iPhone 17e simulator, main's code: after one line the gap above the box went from 90 to 46 pt
-  (the box grew, the list did not follow). After the fix: passes, 5 lines up and two pieces deleted.
+  (the box grew, the list did not follow). After the fix (first version): passes, five pieces typed.
 - Josh's 18:50 #7420 diagnostic (posted on the card by Splinter): with the keyboard up, the viewport and the content
   height changed under the list between tries. Same family: the list's end is not re-placed as its viewport changes.
 
@@ -34,7 +34,9 @@ other way, which the simulator did not reproduce). On iOS 16 and 17 (followsScro
 can hide the end marker and clear atBottom before the follow runs; residual, not tested (the simulator runs iOS 26).
 Also residual: in KeyboardHold's window right after the keyboard shows, an iOS jump can briefly show the end marker for
 a reader higher up (atBottom true until the hold's re-read 0.1 s later); a strip change in that window (the emoji
-panel closing on focus) would take them to the newest. Not reproduced or tested.
+panel closing on focus) would take them to the newest. Not reproduced or tested. Not guarded by anchorLetGo (round 4's
+idea): that flag outlives a person's scroll back to the newest, so it would stop the follow for a reader who scrolled
+down and then typed (round 5).
 Josh's phone moved the list the other way (older messages into view); the simulator shows only the list not
 following. Not proven fixed for his symptom until seen on a TestFlight build.
 

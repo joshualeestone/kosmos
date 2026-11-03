@@ -151,7 +151,7 @@ final class KeyboardSlideUITests: XCTestCase {
     // older messages in view). The newest message must stay the same distance above the box as it grows a line at a time,
     // and again as it shrinks. Measured to the box itself (its top moves up a line at a time), within 4 pt.
     func testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_TRACE": "1"])
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1"])
         let box = Self.box(app)
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(newest.waitForExistence(timeout: 15), "the long chat did not open at its newest message")
@@ -184,7 +184,7 @@ final class KeyboardSlideUITests: XCTestCase {
     // kosmos#7817: a reader higher up is not pulled to the newest message as the box grows (only one at the newest is).
     // A regression guard for the follow's own condition: it passes on main too, which never followed the box.
     func testReadHigherUpStaysWhileTheBoxGrows() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_TRACE": "1"])
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40"])
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15), "no sample rows")
@@ -200,12 +200,14 @@ final class KeyboardSlideUITests: XCTestCase {
         try Self.keyboardUp(app, box, row, shot: "higher-grow-keyboard-up", test: self)
         let y0 = row.frame.minY
         let h0 = box.frame.height
-        for _ in 1...3 { box.typeText("the catalogue pages need the new photos before Monday ") }
-        Self.settle(box)
-        Self.settle(row)
+        for i in 1...3 {
+            box.typeText("the catalogue pages need the new photos before Monday ")
+            Self.settle(box)
+            Self.settle(row)
+            XCTAssertTrue(row.exists && row.isHittable, "after piece \(i): '\(top.label)', read higher up, left the screen as the box grew")
+            XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "after piece \(i): '\(top.label)' moved from \(y0) to \(row.frame.minY) as the box grew")
+        }
         XCTAssertGreaterThan(box.frame.height, h0 + 30, "the box did not grow")
-        XCTAssertTrue(row.exists && row.isHittable, "'\(top.label)', read higher up, left the screen as the box grew")
-        XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "'\(top.label)' moved from \(y0) to \(row.frame.minY) as the box grew")
         XCTAssertFalse(newest.exists && newest.isHittable, "the reader was pulled down to the newest message")
     }
 
