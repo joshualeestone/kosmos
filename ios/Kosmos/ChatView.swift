@@ -1007,12 +1007,14 @@ struct ChatView: View {
 
     // kosmos#7817: after the keyboard settles, a list read past its end is put back at its end, then at the newest message,
     // unless a search is open, another did-show or a will-hide came, or the chat or its list changed. Under a finger (or a
-    // fling) it looks once more a moment later, then stands down. Only an outside-the-content reading is recorded.
+    // fling) it looks once more a moment later, then stands down. A reading outside the content, or within it with nothing
+    // drawn, is recorded.
     private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int, retry: Bool) {
         guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching else { return }
         let place = scrollBox.reading()?.place ?? "unread"
         guard place == "past the end" else {
-            if place != "within" { Self.trace("keyboard settled: \(place)") }
+            // Within the content with no row drawn is the other blank (#7420's estimate); a drawn list says nothing.
+            if place != "within" { Self.trace("keyboard settled: \(place)") } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn") }
             return
         }
         if scrollBox.underFinger {
@@ -1020,8 +1022,11 @@ struct ChatView: View {
             if retry { DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, retry: false) } }
             return
         }
-        if scrollBox.backInside() { Self.trace("keyboard settled: past the end, put back at its end") }
+        let wrote = scrollBox.backInside()
+        if wrote { Self.trace("keyboard settled: past the end, put back at its end") }
         goNewest(proxy)
+        // As recoverEmpty: a direct offset write may have made SwiftUI name a row in the binding; put the end back after it.
+        if wrote, Self.idAnchor { DispatchQueue.main.async { if positionId != "end", !personScrolling, !scrollBox.underFinger { positionId = "end" } } }
     }
 
     // kosmos#7420: an empty list put right as Board.emptyRecovery decides.
