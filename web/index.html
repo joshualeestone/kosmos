@@ -51185,6 +51185,7 @@ async function paintRemoved() {
   /* kosmos#7825: names with only settings left (no folder, no job), which have no card and, unless removed, no row:
      this list is the one screen that can draw their way to "Delete". Absent when the board could not read them. */
   let left = [];
+  let leftStale = false;
   try {
     const res = await fetch('/api/removed', { cache: 'no-store' });
     /**
@@ -51204,8 +51205,9 @@ async function paintRemoved() {
     /* Absent only when the board could not read them: keep what was last drawn rather than dropping rows a person may
        be reaching for (review 1). */
     if (Array.isArray(body.leftovers)) { LEFTOVERS_LAST = body.leftovers; LEFTOVERS_AT = Date.now(); }
-    // Kept a minute, not for ever (review 2): a board that keeps answering without them is not "nothing changed".
-    else if (Date.now() - LEFTOVERS_AT > 60000) LEFTOVERS_LAST = [];
+    /* Absent means the board could not look, never "none" (review 4). The rows are kept, and once that has lasted a
+       minute the list says it may be out of date (review 2: kept rows must not pass for current for ever). */
+    leftStale = !Array.isArray(body.leftovers) && LEFTOVERS_LAST.length > 0 && Date.now() - LEFTOVERS_AT > 60000;
     left = LEFTOVERS_LAST;
     REMOVED_EVER_READ = true;
     /* ⚠️ AND TAKE THE SENTENCE DOWN. Written on a first-load failure, it was
@@ -51360,7 +51362,8 @@ async function paintRemoved() {
       + '<div class="acts"><button class="btn danger-btn" type="button" data-delete-leftover="' + esc(x.name) + '"'
       + ' aria-label="Delete what is left of ' + esc(x.shownAs || x.name) + '"'
       + ' data-shown-as="' + esc(x.shownAs || x.name) + '">Delete what is left…</button></div>'
-      + '</div>').join('');
+      + '</div>').join('')
+    + (leftStale ? '<p class="removed-hint">Kosmos could not check again just now for agents with only settings left, so these may be out of date.</p>' : '');
 
   /**
    * ⚠️ ONLY REWRITE WHEN THE ANSWER ACTUALLY CHANGED, and this is not an

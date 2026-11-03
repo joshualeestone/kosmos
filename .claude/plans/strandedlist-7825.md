@@ -66,3 +66,13 @@ which hides a real leftover rather than offering a wrong one.
   delete filter matches names case-blind.
 - Declined: a divider before the leftover rows (the hint names folders and removed agents; each leftover row says what
   it is).
+
+## Review round 4 (sonnet, fixed)
+- Rounds 2 and 4 pulled opposite ways (kept rows must not pass for current for ever; dropping them reads as "none").
+  The call: keep the rows while the board cannot look, and after a minute add a line saying they may be out of date.
+  Arms: no stale line on a fresh failure, stale line after a minute with the rows kept; three mutations each red one.
+- A failed server read is kept 5 s (was: not kept), so a lasting failure does not run every job on each poll.
+  REASONED, not measured.
+- Answered, no change: "the route test may not reach the survey reset". Measured in round 2: removing the reset reds it.
+- Declined: dropping data-shown-as (the sibling rows carry it; one shape for both), a sub-heading for leftover rows
+  (each row says what it is), clearing #removed-msg (existing behaviour of the shared region).

@@ -256,8 +256,8 @@ function trustDialogHold(card, seen, capture) {
   return held;
 }
 const leftover = require('./engine/delete-leftover');
-/* kosmos#7825 PR 2: the last settingsLeftovers read, { at, r }, for /api/removed; null after any delete. Only a good
-   read is kept: a failed one is not remembered, so one bad read does not hide the rows for 15 s (review 1). And the
+/* kosmos#7825 PR 2: the last settingsLeftovers read, { at, r }, for /api/removed; null after any delete. A failed
+   read is kept 5 s, not 15 (review 1 and 4): long enough not to run every job each poll, short enough to retry soon. And the
    board poll's last survey, { at, s }, so the list does not read every job a second time. */
 let SETTINGS_LEFTOVERS = null;
 let LAST_SURVEY = null;
@@ -17927,9 +17927,10 @@ const server = http.createServer(async (req, res) => {
       const fresh = LAST_SURVEY && now - LAST_SURVEY.at < 10000 ? LAST_SURVEY.s : null;
       let r;
       try { r = leftover.settingsLeftovers(fresh ? { survey: fresh } : undefined); } catch { r = { ok: false, names: [] }; }
-      SETTINGS_LEFTOVERS = r.ok ? { at: now, r } : null;
+      // A failed read is kept 5 s only (review 4), so a lasting failure does not run every job each poll.
+      SETTINGS_LEFTOVERS = { at: r.ok ? now : now - 10000, r };
     }
-    const lr = SETTINGS_LEFTOVERS ? SETTINGS_LEFTOVERS.r : { ok: false, names: [] };
+    const lr = SETTINGS_LEFTOVERS.r;
     sendJson(res, 200, {
       ...(lr.ok ? { leftovers: lr.names.map((x) => ({ name: x.name, shownAs: x.shownAs || x.name })) } : {}),
       agents: agents.map((a) => ({
