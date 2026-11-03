@@ -28,6 +28,9 @@
  *   - the local signed-item log and the 4 h no-fresh-head alarm, and checking a signed roster head against this
  *     Mac's own challenge (the plan's head-read rules).
  *   - shipping kosmos-se in the app bundle and any caller. Nothing outside the test calls this file yet.
+ *   - an asynchronous call for the admin screen. runHelper blocks its caller, and a presence key's sign blocks on the
+ *     person, so the screen must run it off the board's event loop; and the prompt should name the action (an
+ *     LAContext reason string), which kosmos-se does not pass yet.
  * A key's access control is fixed when the key is made, so createKey makes a `presence` key (Touch ID or password on
  * every signature) unless told otherwise; see native-se/main.swift for what is and is not measured about that.
  */
@@ -47,6 +50,7 @@ const TAGS = {
 const SIGNED = ['change', 'cancel', 'reviewerEnrol', 'reviewerRevoke'];
 const KEY_TYPES = ['se-p256', 'webauthn-p256'];
 const CANCEL_KINDS = ['roster-change', 'reviewer-enrol'];
+const HELPER_TIMEOUT_MS = 120000;
 
 function utf8(s) {
   if (typeof s !== 'string') throw new Error('a text field is a string');
@@ -213,8 +217,13 @@ function prepare(action, bytes) {
 
 function runHelper(helper, args, input) {
   if (typeof helper !== 'string' || !helper) throw new Error('no kosmos-se helper was named');
-  return execFileSync(helper, args, { input: input || Buffer.alloc(0), stdio: ['pipe', 'pipe', 'pipe'],
-    timeout: 30000 }).toString('utf8').trim();
+  try {
+    return execFileSync(helper, args, { input: input || Buffer.alloc(0), stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: HELPER_TIMEOUT_MS }).toString('utf8').trim();
+  } catch (e) {
+    if (e.code === 'ETIMEDOUT') throw new Error('kosmos-se did not finish in time (a presence key waits for the person)');
+    throw e;
+  }
 }
 function hexOf(out, what) {
   if (!/^([0-9a-f]{2})+$/.test(out)) throw new Error(`kosmos-se did not print a ${what}`);

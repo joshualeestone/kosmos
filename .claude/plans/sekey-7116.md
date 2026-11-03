@@ -31,7 +31,8 @@ action; show the decoded target and fingerprint; compute the challenge itself; n
 Swift fence removed; tag check removed; end() check removed; sign() skipping prepare(); encoder field order swapped.
 
 ## Not here (next slices)
-- kosmos-se in tools/build-kosmos-bundle.sh (signed with the app), and the admin screen that calls this.
+- kosmos-se in tools/build-kosmos-bundle.sh (signed with the app), and the admin screen that calls this. Its gate: a
+  presence key made from the app, signing called off the board's event loop, and the prompt naming the action.
 - devkeyhist rows once escrowd encodes them; the local signed-item log; head-read checks; the 4 h alarm.
 - The relay test pinning se-p256-apple-vectors.json (a relay PR).
 
@@ -45,4 +46,5 @@ file this user owns, refused otherwise) is what the tests use and is not accepta
 ## Status
 - [x] module, helper, tests (10/10, Enclave arms not skipped on this Mac), engine.reachable 8/8
 - [x] review round 1: presence policy at create (a key cannot gain one later), stated skips, key file mode/owner/symlink refusals, bounded stdin, sign checks its own result
+- [x] review round 2: build/key failure FAILS Part 2 (only no-swiftc and no-Enclave skip); key read O_NOFOLLOW + fstat on the descriptor; fchmod against umask; directory fsync; distinct helper timeout. Deferred to the admin screen as a gate: async calls, LAContext reason on the prompt.
 - [ ] challenge-loop, validation, PR

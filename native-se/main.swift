@@ -51,12 +51,16 @@ func fail(_ why: String, _ code: Int32 = 1) -> Never {
 func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
 
 func load(_ path: String) -> SecureEnclave.P256.Signing.PrivateKey {
+    // Opened once, never through a symlink, and every check is on the open descriptor, so what is checked is what is read.
+    let fd = open(path, O_RDONLY | O_NOFOLLOW)
+    guard fd >= 0 else { fail(errno == ELOOP ? "the key file is not a plain file" : "cannot read the key file") }
+    let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     var st = stat()
-    guard lstat(path, &st) == 0 else { fail("cannot read the key file") }
+    guard fstat(fd, &st) == 0 else { fail("cannot read the key file") }
     guard (st.st_mode & S_IFMT) == S_IFREG else { fail("the key file is not a plain file") }
     guard st.st_uid == getuid() else { fail("the key file belongs to someone else") }
     guard (st.st_mode & 0o777) == 0o600 else { fail("the key file is readable by others (it must be 0600)") }
-    guard let blob = FileManager.default.contents(atPath: path) else { fail("cannot read the key file") }
+    guard let blob = try? handle.readToEnd(), !blob.isEmpty else { fail("cannot read the key file") }
     do { return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob) }
     catch { fail("this Mac's Secure Enclave cannot open that key file") }
 }
@@ -95,13 +99,19 @@ case "create":
         }
     } catch { fail("the Secure Enclave refused to make a key (\(error.localizedDescription))") }
     // O_EXCL: never overwrite a key someone may already have enrolled; 0600 from the first byte.
-    let fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+    let fd = open(path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
     guard fd >= 0 else { fail(errno == EEXIST ? "the key file already exists" : "cannot create the key file") }
     let blob = key.dataRepresentation
+    // fchmod: open's mode is reduced by the umask, and load() accepts exactly 0600.
+    let moded = fchmod(fd, 0o600) == 0
     let wrote = blob.withUnsafeBytes { write(fd, $0.baseAddress, blob.count) }
     let synced = fsync(fd) == 0
     close(fd)
-    guard wrote == blob.count && synced else { unlink(path); fail("cannot write the key file") }
+    guard moded && wrote == blob.count && synced else { unlink(path); fail("cannot write the key file") }
+    // The public key printed below is about to be enrolled, so the directory entry must survive a crash too.
+    let dir = open((path as NSString).deletingLastPathComponent.isEmpty ? "." : (path as NSString).deletingLastPathComponent, O_RDONLY)
+    guard dir >= 0, fsync(dir) == 0 else { if dir >= 0 { close(dir) }; unlink(path); fail("cannot write the key file") }
+    close(dir)
     print(hex(key.publicKey.x963Representation))
 case "pub":
     guard args.count == 3 else { fail(usage, 2) }

@@ -8,9 +8,10 @@
  * escrowd-roster-vectors.json, the same file kosmos-relay's Rust test and console page test check); prepare() refuses
  * another action's bytes, a bare hash, and short or trailing bytes; kosmos-se's tag list equals SIGNED; the committed
  * Apple vectors verify here; and, with a stand-in helper, what createKey asks for and what sign does with a bad answer.
- * Part 2 needs macOS, a working swiftc and a Secure Enclave, and is skipped with the reason (a failed build or key
- * included, with its first error line) without them: build kosmos-se, make a key, sign each pinned message, verify,
- * and check the helper's own refusals.
+ * Part 2 needs macOS, swiftc and a Secure Enclave, and is skipped (said so) without them: build kosmos-se, make a key,
+ * sign each pinned message, verify, and check the helper's own refusals. Where swiftc and an Enclave are there but the
+ * build or the first key fails, Part 2's tests FAIL with that reason (Part 1 still runs): a broken main.swift must
+ * never read as a skip.
  */
 
 const test = require('node:test');
@@ -133,26 +134,29 @@ test('#7116: sign refuses a signature that does not verify under the helper\'s o
 
 // Part 2: the real Enclave.
 const swiftc = spawnSync('/usr/bin/xcrun', ['--find', 'swiftc'], { encoding: 'utf8' });
-let HELPER = null, DIR = null;
+let HELPER = null, DIR = null, BROKEN = null;
 let SKIP = process.platform === 'darwin' && swiftc.status === 0 ? false : 'needs macOS and swiftc';
 const firstLine = (s) => String(s || '').trim().split('\n')[0];
 if (!SKIP) {
   DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-se-7116-'));
   HELPER = path.join(DIR, 'kosmos-se');
   const b = spawnSync('/usr/bin/xcrun', ['swiftc', '-O', path.join(ROOT, 'native-se/main.swift'), '-o', HELPER], { encoding: 'utf8' });
-  if (b.status !== 0) SKIP = 'kosmos-se did not build here: ' + firstLine(b.stderr);
+  if (b.status !== 0) BROKEN = 'kosmos-se did not build: ' + firstLine(b.stderr);
 }
-if (!SKIP) {
+if (!SKIP && !BROKEN) {
   const probe = spawnSync(HELPER, ['create', path.join(DIR, 'probe'), 'none'], { encoding: 'utf8' });
   if (probe.status === 3) SKIP = 'this Mac has no Secure Enclave';
-  else if (probe.status !== 0) SKIP = 'this Mac\'s Secure Enclave would not make a key: ' + firstLine(probe.stderr);
+  else if (probe.status !== 0) BROKEN = 'kosmos-se create failed: ' + firstLine(probe.stderr);
 }
+// Run first in every Part 2 test, so a broken build or key fails each one by name rather than the whole file.
+const whole = () => { if (BROKEN) assert.fail(BROKEN); };
 test.after(() => {
   if (DIR) fs.rmSync(DIR, { recursive: true, force: true });
   if (FAKE_DIR) fs.rmSync(FAKE_DIR, { recursive: true, force: true });
 });
 
 test('#7116: a key made in the Enclave signs every pinned action, and the signature verifies under its own key only', { skip: SKIP }, () => {
+  whole();
   const keyFile = path.join(DIR, 'admin');
   const pub = se.createKey({ helper: HELPER, keyFile, presence: false });
   assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600, 'the key file is 0600');
@@ -167,6 +171,7 @@ test('#7116: a key made in the Enclave signs every pinned action, and the signat
 });
 
 test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are not an admin action even when called directly', { skip: SKIP }, () => {
+  whole();
   const keyFile = path.join(DIR, 'probe');
   const before = fs.readFileSync(keyFile);
   assert.throws(() => se.createKey({ helper: HELPER, keyFile, presence: false }), /already exists/);
@@ -190,6 +195,7 @@ test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are no
 });
 
 test('#7116: kosmos-se refuses a key file that is readable by others, or is a symlink, and makes no key without a policy', { skip: SKIP }, () => {
+  whole();
   const keyFile = path.join(DIR, 'probe');
   const loose = path.join(DIR, 'loose');
   fs.copyFileSync(keyFile, loose);
@@ -205,4 +211,13 @@ test('#7116: kosmos-se refuses a key file that is readable by others, or is a sy
   const bare = spawnSync(HELPER, ['create', path.join(DIR, 'nopolicy')]);
   assert.strictEqual(bare.status, 2);
   assert.ok(!fs.existsSync(path.join(DIR, 'nopolicy')), 'no key file was made');
+});
+
+test('#7116: a key made under a strict umask is still exactly 0600 and opens', { skip: SKIP }, () => {
+  whole();
+  const keyFile = path.join(DIR, 'umask');
+  const r = spawnSync('/bin/sh', ['-c', 'umask 277 && exec "$0" create "$1" none', HELPER, keyFile]);
+  assert.strictEqual(r.status, 0, r.stderr.toString());
+  assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600);
+  assert.strictEqual(spawnSync(HELPER, ['pub', keyFile]).status, 0);
 });
