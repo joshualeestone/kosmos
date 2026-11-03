@@ -68,6 +68,10 @@ the card parks needs-device after the PR.
 - A settings file or picture that is a link: the link goes to the Recycle Bin, never its target (only the folders
   above it are resolved).
 
+- The Recycle Bin size Group Policy (RecycleBinSize) is not read, so a policy-capped bin can be judged to fit; the
+  after-the-call count still says "could not find" if Windows then deleted outright.
+- Neither script contains a double quote (a test pins it), so Windows' command-line quoting cannot strip one.
+
 ## Windows-box check (needs-device)
 - The folder and the settings really land in the Recycle Bin, and Explorer's Restore brings them back.
 - The drive probe's cold-start time under the board's process (it must answer inside 5 s), and the CIM volume query.
