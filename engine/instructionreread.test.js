@@ -46,6 +46,11 @@ test('settle: a line that landed clears the debt; a held, busy or refused one ke
   assert.deepEqual(ir.settle(o, 'ann', { state: D.COULD_NOT }, D, T + ir.GIVE_UP_MS + 1), {});
 });
 
+test('kosmos#7875 item 2: lineFor names the connections section by the short block\'s own heading', () => {
+  const heading = require('./connections').blockBody().split('\n')[0].replace(/^## /, '');
+  assert.ok(ir.lineFor(['connections']).includes('"' + heading + '"'), ir.lineFor(['connections']));
+});
+
 test('lineFor names every owed section, the community one by its own heading', () => {
   const cb = require('./communityblock');
   const heading = cb.blockBody().split('\n')[0].replace(/^## /, '');
