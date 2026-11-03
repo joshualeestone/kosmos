@@ -3229,11 +3229,10 @@ const DESCRIBE = {
    verb is ever longer, so a verb is always followed by at least one space. */
 const COMMAND_COLUMN = Math.max(14, ...VERBS.map((v) => v.length + 1));
 const COMMAND_LIST = VERBS.map((v) => '  kosmos ' + v.padEnd(COMMAND_COLUMN) + DESCRIBE[v]).join('\n');
-/* kosmos#7886 item 1: what an exit status means, the Mac's words (install/kosmos help). 3 stays 3: maybe() and the
-   Mac share it, and `kosmos update` uses it for a refusal, so the line says read the message rather than "it happened". */
-const EXIT_STATUS_HELP = 'When a command ends, its exit status is 0 when it was done, 1 when it was not, 2 when the command was not '
+/* kosmos#7886 item 1: what an exit status means, in the Mac's words (install/kosmos help). */
+const EXIT_STATUS_HELP = 'Most commands end with exit status 0 when it was done, 1 when it was not, 2 when the command was not '
   + 'written right (its usage says how), and 3 when the answer is not a plain yes or no: usually it went through, or may have, '
-  + 'so read what it printed before you send it again.';
+  + 'so read what it printed before you send it again. A few use other numbers too.';
 
 /**
  * Run one command. `io` carries every seam: env, fetch, out/err writers, the
