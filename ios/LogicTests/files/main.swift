@@ -103,19 +103,19 @@ check(Board.filesResult(status: 403, body: Data(#"{"error":"this board belongs t
 check(Board.filesSection(status: 401, body: Data("{}".utf8)) == .forNow(Board.phoneShutOut), "the agent page's Files section says the same on a 401")
 check(Board.filesKeepsShown(status: 403), "a shut-out keeps the Files list shown")
 check(Board.filesKeepsShown(status: 0), "CONTROL: no answer keeps it, as before")
-check(!Board.filesKeepsShown(status: 200), "a refusal with the board's reason replaces it")
+check(!Board.filesKeepsShown(status: 200), "a 200 replaces it")
 check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 401, body: Data("{}".utf8))) == rowsBefore, "the agent page keeps its Files rows on a shut-out")
 
 check(Board.filesSectionAfter(.hidden, .forNow(Board.phoneShutOut)) == .forNow(Board.phoneShutOut), "CONTROL: with no rows yet, a shut-out says so")
 // kosmos#7842: Files keeps its list through the same answers as the Profile (Board.answerStands).
 let busy = Data(#"{"error":"the board is busy"}"#.utf8)
-for st in [500, 502, 503, 408, 429, 400, 409] {
+for st in [500, 502, 503, 408, 429, 400] {
     check(Board.filesKeepsShown(status: st), "the Files screen keeps its list on a \(st)")
     check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: st, body: busy)) == rowsBefore, "the agent page keeps its Files rows on a \(st)")
 }
 check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 503, body: busy)) == .forNow("The board is busy."), "CONTROL: with no rows yet, a 503 says the board's words")
-for st in [200, 404, 410] { check(!Board.filesKeepsShown(status: st), "CONTROL: a \(st) says what the folder is now, so it replaces the list") }
-check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 410, body: Data(#"{"because":"the agent was removed"}"#.utf8))) == .message("The agent was removed."), "CONTROL: a 410 with words replaces the rows")
+for st in [200, 404, 409] { check(!Board.filesKeepsShown(status: st), "CONTROL: a \(st) says what the folder is now, so it replaces the list") }
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 409, body: Data(#"{"because":"this agent\u2019s Files is a link to somewhere else"}"#.utf8))) == .message("This agent\u{2019}s Files is a link to somewhere else."), "CONTROL: a 409 with words replaces the rows")
 check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: Data(#"{"ok":false,"because":"the folder was removed"}"#.utf8))) == .message("The folder was removed."), "CONTROL: a 200 refusal replaces the rows")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

@@ -101,9 +101,9 @@ struct FilesView: View {
             }
         }
         guard epoch == client.chatEpoch else { return }   // the answer belongs to the account before
-        // Review 3: no answer (a cancelled read, a dropped connection) keeps a list already shown, as the agent page does.
+        // A list already shown is kept unless the answer stands (Board.filesKeepsShown, the Profile's rule).
         let got = Board.filesResult(status: res?.1.statusCode ?? 0, body: res?.0)
-        if Board.filesKeepsShown(status: res?.1.statusCode ?? 0), case .page = read { return }   // kosmos#7842: the Profile's rule
+        if Board.filesKeepsShown(status: res?.1.statusCode ?? 0), case .page = read { return }
         read = got
     }
 

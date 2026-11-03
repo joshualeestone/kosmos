@@ -2025,13 +2025,11 @@ enum Board {
         return first.uppercased() + tail + (".!?".contains(said.last!) ? "" : ".")
     }
 
+    /* kosmos#7842: whether an answer replaces a value already shown: a 200, a 404 or a 409 (Files browse's refusal).
+       Every other answer keeps what is shown and is said only when nothing is. Used by the Profile and by Files. */
+    static func answerStands(_ status: Int) -> Bool { status == 200 || status == 404 || status == 409 }
     // kosmos#7840: a 401 or 403 is the phone not being let in (a gate, or the seconds after the computer restarts). One
     // sentence for every screen that reads through the Mac, never the gate's own words (they are for a terminal).
-    /* kosmos#7842: whether an answer says what a thing is NOW, so it replaces a value already shown: a 200 (the thing,
-       or the board's word that it is not), a 404 or a 410 (it is not there). Everything else keeps what is shown and is
-       said only when nothing is: no answer, the phone not let in (401, 403), a failure for now (5xx, 408, 429), and any
-       other 4xx (about the request, not the thing). One rule for the Profile and Files on the agent page. */
-    static func answerStands(_ status: Int) -> Bool { status == 200 || status == 404 || status == 410 }
     static let phoneShutOut = "Your computer did not let this phone in just now. Try again in a moment, or open the Agents tab to connect again."
     static let choiceUnsure = "We could not confirm that it went (pressing again may answer twice)."
     static let choiceArmNote = "This one changes what the agent may do from now on. Press it again to choose it."
