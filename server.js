@@ -23379,11 +23379,16 @@ const server = http.createServer(async (req, res) => {
            reached it is not counted: an FYI is not an ask, and listing it would invite the re-answers this exists to
            stop. Never the reader's own post. The rows above drop `addressed`, so it is read from the stored rows. */
         const namedReader = new Set();
-        if (readerName) for (const m of roomRows) if (m && m.kind === 'post' && messages.namedIn(m).includes(readerName)) namedReader.add(String(m.id));
-        /* kosmos#7848: who each post asked, by name, for the claim rule below (the same reading as namedReader). Built
-           only for --unanswered. */
+        /* kosmos#7848: who each post asked, by name, for the claim rule below (the same reading), in the same pass. */
         const namedBy = new Map();
-        if (onlyUnanswered && readerName) for (const m of roomRows) if (m && m.kind === 'post') namedBy.set(String(m.id), messages.namedIn(m));
+        if (readerName) {
+          for (const m of roomRows) {
+            if (!m || m.kind !== 'post') continue;
+            const named = messages.namedIn(m);
+            if (named.includes(readerName)) namedReader.add(String(m.id));
+            if (onlyUnanswered) namedBy.set(String(m.id), named);
+          }
+        }
         /* kosmos#7848: an ask another agent it also asked has claimed (kosmos claim, the live 🙋 the shaped row carries)
            is handled for the reader: it is left out of --unanswered and named under the list, so the reader can still
            read it. A later post that names the reader again is its own ask and is listed as one. Only a claimant the
@@ -23450,9 +23455,6 @@ const server = http.createServer(async (req, res) => {
           try {
             const who = readerName;
             const shownIds = tail.filter((m) => m && m.kind === 'post' && typeof m.id === 'string').map((m) => m.id);
-            /* kosmos#7848 review 2: an ask named as claimed by another agent it asked has been told to this reader as
-               handled, so the idle reminder stops raising it too (only the ones the line names, at most -n). */
-            for (const x of claimedAsks.slice(-textRows)) shownIds.push(x.id);
             /* kosmos#7365 slice 3: a held post that is now archived is never shown here again, so it stops being held
                too, or its idle reminder would point at a post this view no longer has. That includes one that asked
                this agent something: archived messages leave what agents read here (the design's confirm copy). */
@@ -23596,16 +23598,17 @@ const server = http.createServer(async (req, res) => {
             + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'
           : rec.ok === false ? UNANSWERED_HEAD + 'none found, but this room could not be read, so that may be wrong.\n'
           : claimedAsks.length ? UNANSWERED_HEAD + 'nothing waiting on you in this room; '   // kosmos#7848
-            + (claimedAsks.length === 1 ? 'the ask named below was claimed by another agent it asked.\n' : 'the asks named below were claimed by other agents they asked.\n')
+            + (claimedAsks.length === 1 ? 'the ask below is claimed by another agent it also asked.\n' : 'the asks below are claimed by agents they also asked.\n')
           : UNANSWERED_HEAD + 'nothing in this room.\n';
         /* kosmos#7848: the asks left out because another agent they asked has claimed them, newest last, so the reader can
            still read them (kosmos room shows them in full). */
         /* One line, as every row here is (#314): the name flattened as the post line's claim is; at most -n of them, the
-           newest, with how many more. The ones named are dropped from the idle reminder's hold above, as shown posts are. */
+           newest, with how many more. Deliberately NOT dropped from the idle reminder's hold (review 3, reverting review 2):
+           the list entry comes back by itself if the claim goes, a dropped reminder never does. */
         const shownClaimed = claimedAsks.slice(-textRows);
         const moreClaimed = claimedAsks.length - shownClaimed.length;
         const claimedLine = claimedAsks.length
-          ? '[kosmos] Claimed by an agent the post also asked, so not counted as waiting on you: '
+          ? '[kosmos] Claimed by another agent each post also asked, so not counted as waiting on you: '
             + shownClaimed.map((x) => '[' + x.id + '] by ' + String(x.by).replace(/\s+/g, ' ') + (x.at ? ' (' + messages.claimAge(x.at, Date.now()) + ')' : '')).join(', ')
             + (moreClaimed ? ', and ' + moreClaimed + ' older' : '') + '.\n'
           : '';
