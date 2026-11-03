@@ -20,6 +20,8 @@ recovered 0 rows. A blank list is worse than the jump #7828 fixed.
 - ChatView.followsBox: false in release; Debug reads KOSMOS_SAMPLE_BOXFOLLOW=1. First condition of the one
   stripHeight handler, which does not look at the keyboard, so both blanks' path is covered.
 - KeyboardSlideUITests: the grow test and the reader-higher-up test launch with KOSMOS_SAMPLE_BOXFOLLOW=1.
+- A release build still records "box height changed, not followed" in the chat diagnostic's events, so a build 30
+  report of the jump can be tied to the box growing.
 - LogicTests room: two source checks (release value false; the guard asks followsBox first), each red on its mutant.
 
 ## Rejected
@@ -35,3 +37,7 @@ can still blank a long chat once per keyboard show, as before build 29. The 6x e
 ## Verify
 iOS LogicTests all suites green (room 757/757, run.sh 1871/1871); swiftc typecheck Release and Debug rc=0; mutants
 red; CI ui job runs the 9 KeyboardSlideUITests.
+
+## When the follow comes back
+No UI check covers "messages still drawn while the box grows with the follow on" on a long chat (the arm that blanked
+on the phone): testComposerGrowingKeepsMessagesDrawn now runs with it off. Whoever turns it back on adds that arm.
