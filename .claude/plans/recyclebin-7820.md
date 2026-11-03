@@ -57,5 +57,10 @@ the card parks needs-device after the PR.
   taken as Windows' default (off). The after-the-call count still reports a delete that did not land.
 - Each Recycle Bin count stops after 15 s and then reads "could not check".
 
+- Each record (settings, picture) is its own PowerShell call with its own two Recycle Bin counts, so the board's worst
+  case is several times the folder's 120 s, not one. Moving the calls off the board's thread is kosmos#7835.
+- The Recycle Bin count matches an item's name with or without its extension (Explorer hides known extensions by
+  default, so a settings file shows without `.json`).
+
 ## Tests
 `engine/delete-leftover.win32-recyclebin-7820.test.js`, platform-injected with a stubbed PowerShell runner.

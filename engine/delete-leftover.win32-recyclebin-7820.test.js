@@ -393,7 +393,7 @@ test('#7820 its settings go to the Recycle Bin with the folder, never to a home-
   assert.deepEqual(trashEntries().filter((e) => e.startsWith('rb7820r')), [], 'something went to a home-made Trash folder on Windows');
 });
 
-test('#7820 a settings record the Recycle Bin did not keep gets the same honest sentence as the folder', () => {
+test('#7820 a settings record the Recycle Bin did not keep is named in the outcome, not blamed on the folder', () => {
   const store = require('./store');
   leftoverFolder('rb7820s');
   fs.mkdirSync(nodePath.dirname(store.profilePath('rb7820s')), { recursive: true });
@@ -403,7 +403,35 @@ test('#7820 a settings record the Recycle Bin did not keep gets the same honest 
   const done = win.del('rb7820s');
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
   assert.equal(done.toTrash, false);
-  assert.match(done.said, /Kosmos could not find its files in the Recycle Bin afterwards, so Windows may have deleted them for good/);
+  assert.match(done.said, /Kosmos could not find its settings in the Recycle Bin afterwards, so Windows may have deleted them for good/);
+  assert.doesNotMatch(done.said, /could not find its files/, 'the folder, which WAS in the Recycle Bin, was blamed');
+});
+
+test('#7820 only settings left (no folder, no job): a record the Recycle Bin did not keep is never said to be there', () => {
+  const store = require('./store');
+  fs.mkdirSync(nodePath.dirname(store.profilePath('rb7820t')), { recursive: true });
+  fs.writeFileSync(store.profilePath('rb7820t'), '{}');
+  const p = win.plan('rb7820t');
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.folder, null, 'the fixture left a folder, so this is not the records-only case');
+  assert.equal(p.records.trash, true, 'the fixture did not offer the Recycle Bin');
+  for (const [word, says] of [['GONE', /could not find its settings in the Recycle Bin afterwards/], ['UNVERIFIED', /could not check that Windows put its settings in the Recycle Bin/]]) {
+    fs.writeFileSync(store.profilePath('rb7820t'), '{}');
+    recycle = (q) => { fs.rmSync(q, { force: true }); return word; };
+    const done = win.del('rb7820t');
+    assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+    assert.doesNotMatch(done.said, /are in the Recycle Bin/, `${word}: the records-only outcome promised the Recycle Bin`);
+    assert.match(done.said, says);
+  }
+  // CONTROL: a record that did land there says so, so the doesNotMatch above can fail.
+  fs.writeFileSync(store.profilePath('rb7820t'), '{}');
+  recycle = (q) => { fs.rmSync(q, { force: true }); return 'RECYCLED'; };
+  assert.equal(win.del('rb7820t').said, 'rb7820t\'s settings are in the Recycle Bin. The name is free.');
+});
+
+test('#7820 the Recycle Bin count also matches a file shown without its extension (Explorer hides known ones)', () => {
+  assert.match(leftover.RECYCLE_SCRIPT, /\$i\.Name -eq \$leaf -or \$i\.Name -eq \$stem/);
+  assert.match(leftover.RECYCLE_SCRIPT, /\$stem=\[System\.IO\.Path\]::GetFileNameWithoutExtension\(\$p\)/);
 });
 
 test('#7820 CONTROL: the Mac still says the Trash and never asks PowerShell', () => {
