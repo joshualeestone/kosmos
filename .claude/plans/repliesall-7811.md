@@ -27,8 +27,9 @@ at"), so a comment on an older post is owed an answer but never listed. Cover ev
   treated as round 1 limiting (no round 2 pages). With 10 posts or fewer nothing is asked.
 - A profile that cannot be read: the read keeps the newest 10 and says the older posts could not be checked; the count
   is partial, as for an unreadable post, and after FRESH_DOWN_PASSES failures in a row it counts the newest only, so a
-  profile that never answers cannot hold the agent's nudges forever. An agent with no stored name reads the newest only
-  on both sides.
+  profile that never answers cannot hold the agent's nudges forever. The count, like the read, leaves the older posts
+  for later when its profile answer took longer than OLDER_START_MS. An agent with no stored name reads the newest only
+  (the read can refresh the name first, so right after a refresh it may take older posts the count does not).
 - Older posts not on the profile (past its 50, or not public) are said as not checked. An older post with something new
   that was not read this time still gets its first-look floor, so its reply cannot slide out of the window meanwhile.
 

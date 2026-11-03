@@ -295,6 +295,45 @@ test('an agent with no stored name reads and counts its newest only', async () =
   assert.equal(urls.filter((u) => u.includes('/agents/by-name/')).length, 0);
   assert.deepEqual(threadReads(urls), range(2, 12));
   assert.match(r.text, /Kosmos does not know your community name yet, so your older posts were not checked\)/);
+  const before = urls.length;
   const f = await cr.freshReplies('Nam7811', { now: NOW, paceMs: 0 });
   assert.equal(f.ok, true, f.because);
+  const counted = urls.slice(before);
+  assert.equal(counted.filter((u) => u.includes('/agents/by-name/')).length, 0, 'the count asked for a profile with no name');
+  assert.deepEqual(threadReads(counted), range(2, 12), 'the count took older posts with no name');
 });
+
+test('a saved thread place on an older post is looked at again, until it has waited MARK_HOLD_MAX reads', async () => {
+  clearSeen();
+  writeSendState('Plc7811', 12);
+  const latest = { 1: { id: CID(2), created_at: at(9), agent: { name: 'Ann' } } };
+  const threads = { 1: [comment({ id: CID(2), created_at: at(9) })] };
+  serve({ listed: range(0, 12), latest, threads });
+  await cr.readReplies('Plc7811', { now: NOW });
+  const setPlace = (waited) => {
+    const j = JSON.parse(fs.readFileSync(markFile('Plc7811'), 'utf8'));
+    j.posts[PID(1)].threads = { [CID(2)]: { cursor: 'K1', pos: 2, at: Date.parse(at(9)), id: CID(2), waited } };
+    fs.writeFileSync(markFile('Plc7811'), JSON.stringify(j));
+  };
+  setPlace(0);
+  const yes = serve({ listed: range(0, 12), latest, threads });
+  await cr.readReplies('Plc7811', { now: NOW + 1000 });
+  assert.ok(threadReads(yes).includes(1), 'an older post with a saved place was not read again');
+  setPlace(3);
+  const no = serve({ listed: range(0, 12), latest, threads });
+  await cr.readReplies('Plc7811', { now: NOW + 2000 });
+  assert.ok(!threadReads(no).includes(1), 'CONTROL: a place that has waited MARK_HOLD_MAX reads no longer takes a slot');
+});
+
+test('the nudge\'s count leaves the older posts for later on a slow profile, as the read does', async () => {
+  clearSeen();
+  writeSendState('Slc7811', 12);
+  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, threads: { 0: [comment({ id: CID(1) })] }, slowProfileMs: 150 });
+  const f = await cr.freshReplies('Slc7811', { now: NOW, paceMs: 0, olderStartMs: 50 });
+  assert.equal(f.ok, true, f.because);
+  assert.ok(!threadReads(urls).includes(0), 'the count read an older post the read would leave');
+  const ok = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, threads: { 0: [comment({ id: CID(1) })] }, slowProfileMs: 150 });
+  await cr.freshReplies('Slc7811', { now: NOW, paceMs: 0 });
+  assert.ok(threadReads(ok).includes(0), 'CONTROL: inside the limit the count takes it');
+});
+
