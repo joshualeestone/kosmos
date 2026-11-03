@@ -1120,6 +1120,21 @@ test('#7404 a run with no plan stops with noPlan, so the panel offers the plans 
   assert.equal(pb.report({ root: a.root }).noPlan, true, 'a passing failure kept the stop but lost what kind it is');
 });
 
+test('#7827 item 7: a 409 from a tunnel that prints no refusal object is still the conflict, never "nothing was charged"', async (t) => {
+  const CONFLICT = 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.';
+  const RETRY = 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.';
+  const old = await onWith(t, { checkout: () => ({ ok: false, because: 'checkout refused (HTTP 409 on /v1/mac/personal-backup/checkout)' }) });
+  assert.deepEqual(await pb.checkout(25, { root: old.root, remote: old.remote }), { ok: false, code: 'backup_checkout_conflict', because: CONFLICT }, 'an older tunnel\'s 409 told a person who may have paid that nothing was charged');
+  const named = await onWith(t, { checkout: () => ({ ok: false, because: 'checkout refused (HTTP 409 on /v1/mac/personal-backup/checkout, code backup_checkout_finished)' }) });
+  assert.equal((await pb.checkout(25, { root: named.root, remote: named.remote })).code, 'backup_checkout_finished', 'the code in an older tunnel\'s line was not read');
+  const other = await onWith(t, { checkout: () => ({ ok: false, because: 'checkout refused (HTTP 503 on /v1/mac/personal-backup/checkout)' }) });
+  assert.equal((await pb.checkout(25, { root: other.root, remote: other.remote })).because, RETRY, 'CONTROL: a 503 line is not a conflict');
+  const proto = await onWith(t, { checkout: () => ({ ok: false, because: '400', refusal: { status: 400, code: 'constructor' } }) });
+  const pr = await pb.checkout(25, { root: proto.root, remote: proto.remote });
+  assert.equal(typeof pr.because, 'string', 'a wire code named like an object property became a function');
+  assert.equal(pr.because, RETRY);
+});
+
 test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in plain words; nothing sent off', async (t) => {
   const page = 'https://checkout.stripe.com/c/pay/cs_test_sample';
   const ok = await onWith(t, { checkout: (body) => ({ ok: true, data: { url: page, gb: body.gb } }) });
@@ -1143,7 +1158,8 @@ test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in 
     because: 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.' }, 'the codeless 409, from a relay that does not name it');
   // #7827: the relay names its two conflicts; each gets its own sentence, and a person who just paid is never told to try again.
   for (const [code, say] of [['backup_checkout_opening', 'Kosmos+ is opening a payment page for this already. Try again in a moment.'],
-    ['backup_checkout_finished', 'The payment page has just finished. If you paid, your plan shows here in a moment.']]) {
+    ['backup_checkout_finished', 'The payment page has just finished. If you paid, your plan shows here in a moment.'],
+    ['backup_checkout_unclosed', 'Kosmos+ could not close your earlier payment page just now. If you paid on it, your plan shows here shortly; if not, try again in a minute.']]) {
     const a = await onWith(t, { checkout: () => ({ ok: false, because: '409 {"code":"' + code + '"}', refusal: { status: 409, code } }) });
     assert.deepEqual(await pb.checkout(25, { root: a.root, remote: a.remote }), { ok: false, code, because: say }, code);
   }
