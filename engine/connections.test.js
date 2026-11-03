@@ -249,9 +249,11 @@ test('kosmos#7875 item 2: both CLIs print the guide with connections --how', asy
     // --help names --how first; --how --help still prints the guide (the help guard used to drop --how).
     const help = spawnSync(path.join(root, 'install', 'kosmos'), ['connections', '--help'], { env, encoding: 'utf8', timeout: 30000 });
     assert.match(help.stdout, /Usage: kosmos connections \[--how\]/);
+    // --how --help says what --how does and acts no further, on both CLIs.
     const howHelp = spawnSync(path.join(root, 'install', 'kosmos'), ['connections', '--how', '--help'], { env, encoding: 'utf8', timeout: 30000 });
     assert.equal(howHelp.status, 0, howHelp.stderr);
-    assert.ok(howHelp.stdout.includes(connections.guideText()), 'connections --how --help did not print the guide');
+    assert.match(howHelp.stdout, /Usage: kosmos connections \[--how\]/);
+    assert.ok(!howHelp.stdout.includes('## How connecting a provider works'), 'connections --how --help printed the guide');
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   const cli = require('../tools/windows/kosmos-cli');
   const out = []; const err = [];
@@ -260,4 +262,10 @@ test('kosmos#7875 item 2: both CLIs print the guide with connections --how', asy
   assert.equal(out.join('\n'), connections.guideText());
   const extra = await cli.main(['connections', '--how', 'more'], { env: {}, out: () => {}, err: () => {} });
   assert.equal(extra, 2);
+  const winHelp = []; 
+  assert.equal(await cli.main(['connections', '--how', '--help'], { env: {}, out: (x) => winHelp.push(x), err: (x) => winHelp.push(x) }), 0);
+  assert.match(winHelp.join('\n'), /kosmos connections --how/);
+  assert.ok(!winHelp.join('\n').includes('## How connecting a provider works'), 'Windows connections --how --help printed the guide');
+  // The guide comes from a module that requires nothing (engine/connectionsguide.js).
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, 'connectionsguide.js'), 'utf8'), /require\(/);
 });
