@@ -30,14 +30,17 @@ test('#7875: today\'s conversation both ways, oldest first, as time, who and the
   assert.equal(out[i + 2], '  14:05 them: Second from them');
 });
 
-test('#7875: only today counts; another agent\'s message is not "you"', () => {
+test('#7875: only today counts; another agent\'s row is neither you nor your person', () => {
   const out = run({ readThread: () => [
     { at: at(23, 50, 2), text: 'Yesterday', from: null },
-    { at: at(10, 0), text: 'Today', from: 'Eli' },
+    { at: at(10, 0), text: 'From Eli', from: 'Eli' },
+    { at: at(10, 1), text: 'Today', from: null },
   ] });
   const text = out.join('\n');
   assert.ok(!text.includes('Yesterday'), text);
-  assert.ok(text.includes('10:00 them: Today'), text);   // CONTROL: today's row is shown
+  assert.ok(!text.includes('From Eli'), text);
+  assert.ok(text.includes('10:01 them: Today'), text);   // CONTROL: today's row from the person is shown
+  assert.ok(text.includes('1 from them, 0 from you'), text);
 });
 
 test('#7875: an unreadable conversation says so, never "nothing today"', () => {
@@ -135,7 +138,17 @@ test('#7875: who is asking: a token\'s KEY reads the thread and its own spelling
   assert.equal(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara', twins: true }) }), null);
   assert.equal(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: false }) }), null);
   assert.deepEqual(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: true, name: 'angel' }) }), { name: 'angel', also: [] });
+  assert.deepEqual(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: true, name: 'Angel' }) }), { name: 'angel', also: ['Angel'] });
   assert.equal(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: false }) }), null);
+});
+
+test('#7875: a window agent named with capitals reads its thread under the key and its own messages count as its own', () => {
+  let asked = null;
+  const out = day.digest({ name: 'angel', also: ['Angel'], date: DATE, listTaskFiles: () => [], readTask: () => [],
+    readThread: (n) => { asked = n; return [{ at: at(9, 0), text: 'Mine', from: 'Angel' }, { at: at(9, 1), text: 'Theirs', from: null }]; } }).join('\n');
+  assert.equal(asked, 'angel');
+  assert.ok(out.includes('09:00 you: Mine'), out);
+  assert.ok(out.includes('1 from them, 1 from you'), out);
 });
 
 test('#7875: a task row under the token\'s own spelling counts for the asking agent (a pane row carries it)', () => {
