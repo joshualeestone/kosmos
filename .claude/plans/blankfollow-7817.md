@@ -2,8 +2,13 @@
 
 ## Finished looks like
 A release build (TestFlight build 30) never runs the #7828 follow ("box height changed, to the newest"), with the
-keyboard up or down, so a long chat cannot be scrolled past every drawn row by the message box growing a line. The
-two UI checks that guard the follow still run it (Debug switch), and a source check fails if release turns it on.
+keyboard up or down, so the box growing a line is no longer one of the ways a long chat ends up past every drawn row.
+It does not remove the keyboard-shown path (see Weakest premise). The two UI checks that guard the follow still run it
+(Debug switch), and a source check fails if release turns it on.
+
+## What it costs
+Build 30 brings back what Josh reported on 11-02 for #7817: as a long message wraps, the conversation behind the box
+moves (the newest message can end up behind the box). #7817 stays open for that; this is a mitigation, not its fix.
 
 ## Why
 Josh's phone, build 29, 11-03 04:12 (keyboard up) and 04:16 (keyboard down): each blank followed "box height
