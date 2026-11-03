@@ -726,13 +726,12 @@ function assignPart(projectId, n, partId, who, made) {
       }
       const hookNo = moved ? webhookGiveProblem(t, whoKey, made) : null;
       if (hookNo) throw new Error(hookNo);
-      /* kosmos#7869: an agent's give (process) of an open part on a built task is refused, so one agent never silently
-         undoes another's built mark and the work is not handed (and then nudged) as if it were still to do. New work goes
-         in as a new part, which reopens the task with its own record. The person's give from the screen still reopens it
-         (#3951 review 5), and taking an agent off a part (who null) is not new work. */
-      // After the membership check, so a give to an agent not on the project is told that first.
+      /* kosmos#7869: a named agent's give (process, with `by`) of an open part on a built task is refused, so one agent
+         never silently undoes another's built mark. The person's give (the screen, or the CLI with no agent card) still
+         reopens it (#3951 review 5), and taking an agent off a part (who null) is not new work. */
+      // After the membership and webhook checks, so a give that would fail for those reasons is told that first.
       // Nothing moves, so nothing may read as given: givenOpen would otherwise drop the built mark (dropBuilt below).
-      if (made && made.via === 'process' && moved && whoKey && t.builtAt && !x.closedAt) { builtRefused = { n: t.number, project: p.id }; moved = false; givenOpen = false; return x; }
+      if (made && made.via === 'process' && movedByOf(made) && moved && whoKey && t.builtAt && !x.closedAt) { builtRefused = { n: t.number, project: p.id }; moved = false; givenOpen = false; return x; }
       if (!moved) return x;
       const y = { ...x, who: whoKey, movedVia: viaOf(made), movedAt: new Date().toISOString() };
       /* #6103: `movedBy` (movedByOf). Any move clears the last one, so it never names an agent that did not make this move. */
@@ -756,7 +755,7 @@ function assignPart(projectId, n, partId, who, made) {
   if (stopped) return { ok: false, because: 'that part was finished, closed, built or put on hold since it was picked' };
   if (builtRefused !== null) {
     // No double quote: the Mac CLI reads this answer with sed, which stops at the first one (as server.js's #6157 notes).
-    return { ok: false, builtRefused: true, because: `task ${builtRefused.n} is marked built, so ${whoKey} was not put on it. If there is more to do on it, add that as new work (kosmos task add ${builtRefused.project} 'what is left' --parent ${builtRefused.n})` };
+    return { ok: false, builtRefused: true, because: `task ${builtRefused.n} is marked built, so ${whoKey} was not put on it. If there is more to do on it, add it as a task under it (kosmos task add ${builtRefused.project} 'what is left' --parent ${builtRefused.n})` };
   }
   if (taken) return { ok: false, because: made && typeof made.onlyIfWho === 'string' ? 'that part is no longer on ' + made.onlyIfWho : 'somebody is already on that part' };
   // Only a real move is recorded: a resubmit of the current assignee (moved
