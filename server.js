@@ -7911,7 +7911,7 @@ const server = http.createServer(async (req, res) => {
           if (snap.counts && snap.counts.unreadableLines > 0) return [];
           const seen = new Set(agents.map((a) => a.sessionName));
           const known = register.survey();
-          LAST_SURVEY = { at: Date.now(), s: known };   // kosmos#7825 PR 2: /api/removed's leftovers read this one
+          if (known && known.ok) LAST_SURVEY = { at: Date.now(), s: known };   // kosmos#7825 PR 2: reused by /api/removed; a failed one never (review 3)
           if (!known.ok) return [];
           /* One launchd probe per poll, for #310's sentence below. Empty on
              any failure: could-not-look must never read as switched-off. */

@@ -55,3 +55,14 @@ which hides a real leftover rather than offering a wrong one.
 - Declined: clearing the memo on create, restore and remove (a stale row lives at most about 25 s and its click
   refuses with a true sentence; create writes the profile last, create.js:7205, so a half-made agent is not listed);
   a failure cache (a failed read costs one survey per poll, as the board's offline rows already pay).
+
+## Review round 3 (opus, fixed)
+- The poll stores its survey for reuse only when it read cleanly (a failed one stopped /api/removed trying its own for
+  10 s). REASONED, not measured: no test fails the poll's survey.
+- The outside-folder exclusion compares against both spellings of the workers folder (as written and resolved), so a
+  real leftover recorded under /private/var for /var is not hidden. Arm added; mutation reds it.
+- The route test moved above the #2615 comment it had split from its test.
+- README says what the page does (same door, its own label); each leftover button is named for its agent; the page's
+  delete filter matches names case-blind.
+- Declined: a divider before the leftover rows (the hint names folders and removed agents; each leftover row says what
+  it is).

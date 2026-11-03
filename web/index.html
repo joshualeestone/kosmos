@@ -50243,7 +50243,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
     return;
   }
   /* kosmos#7825 review 2: a name just deleted is never drawn again from the kept leftovers. */
-  { const deleted = DEL_FOR; LEFTOVERS_LAST = LEFTOVERS_LAST.filter((x) => x.name !== deleted); }
+  { const deleted = String(DEL_FOR).toLowerCase(); LEFTOVERS_LAST = LEFTOVERS_LAST.filter((x) => String(x.name).toLowerCase() !== deleted); }
   closeDeleteModal();
   const say = body.said || body.because || '';
   const dmsg = document.getElementById('d-delete-msg');
@@ -51358,6 +51358,7 @@ async function paintRemoved() {
       + '<div><span class="who">' + esc(x.shownAs || x.name) + '</span>'
       + '<span class="when">Only its settings are left</span></div>'
       + '<div class="acts"><button class="btn danger-btn" type="button" data-delete-leftover="' + esc(x.name) + '"'
+      + ' aria-label="Delete what is left of ' + esc(x.shownAs || x.name) + '"'
       + ' data-shown-as="' + esc(x.shownAs || x.name) + '">Delete what is left…</button></div>'
       + '</div>').join('');
 
