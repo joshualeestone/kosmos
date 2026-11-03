@@ -79,6 +79,15 @@ const STUB = (news) => {
       if (!arm.show) {
         say(!base.shown, tag + ' the load shows no "Kosmos has been updated" window', JSON.stringify(base));
         say(base.seen === 0, tag + ' the load records nothing, so the computer still shows it', JSON.stringify(base));
+        // And with nothing holding it back (the same clearing the CONTROL arms do), asked again: still nothing, so the
+        // guard is what kept it away, not the first-run tour or the boot cover.
+        const again = await page.evaluate(async () => {
+          for (const id of ['firstrun', 'boot-cover']) { const e = document.getElementById(id); if (e) e.hidden = true; }
+          await whatsNewCheck(); await new Promise((res) => setTimeout(res, 50));
+          const w = document.getElementById('whatsnew');
+          return { shown: !!w && !w.hidden, seen: window.__wnSeen };
+        });
+        say(!again.shown && again.seen === 0, tag + ' asked again with nothing holding it: still no window, nothing recorded', JSON.stringify(again));
       } else {
         // CONTROL: the load's own call can wait behind the first-run tour or the boot cover; clear them and ask again.
         const r = await page.evaluate(async () => {
