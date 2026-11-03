@@ -11,6 +11,8 @@
  *  - while a restore runs, the end line is shown, empty, display block, no height (no band);
  *  - at the end, the same element, still shown, carries the end words;
  *  - a refusal on screen is cleared by the read that sees the restore end;
+ *  - kosmos#7816: aria-live is off in the markup and still off in the task of the first fill, polite only after a
+ *    callback of its own, and polite when the end is written (a switch and a write in one task go unannounced);
  *  - no page error.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-pbrestore-end-7801.js
@@ -40,17 +42,23 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       const el = document.getElementById('pb-files-last');
       if (!el) return { error: 'no #pb-files-last' };
       for (let a = el; a && a !== document.body; a = a.parentElement) a.hidden = false;
+      const liveMarkup = el.getAttribute('aria-live');
       const ctl = document.createElement('p'); ctl.className = 'fhint'; el.parentElement.appendChild(ctl);
       PBF.status = { running: true, startedAt: Date.now(), last: null }; PBF.at = Date.now(); pbfPaint();
       const cs = getComputedStyle(el);
       const empty = { hidden: el.hidden, display: cs.display, h: el.getBoundingClientRect().height, text: el.textContent, ctl: getComputedStyle(ctl).display };
+      const liveFill = el.getAttribute('aria-live');
+      await new Promise((res) => setTimeout(res, 20));
+      const liveAfter = el.getAttribute('aria-live');
+      let liveAtEnd = null;
+      new MutationObserver(() => { if (el.textContent && liveAtEnd === null) liveAtEnd = el.getAttribute('aria-live'); }).observe(el, { childList: true, characterData: true, subtree: true });
       document.getElementById('pb-files-msg').textContent = 'Confirm it is you on this device first.';
       window.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ running: false, last: { ok: true, restored: 3, world: { id: 'w', name: 'Copy' } } }) });
       pbfRead();
       for (let i = 0; i < 20 && !el.textContent; i++) await new Promise((res) => setTimeout(res, 25));
       const filled = { same: document.getElementById('pb-files-last') === el, hidden: el.hidden, display: getComputedStyle(el).display, text: el.textContent,
         msg: document.getElementById('pb-files-msg').textContent };
-      return { empty, filled };
+      return { empty, filled, live: { markup: liveMarkup, fill: liveFill, after: liveAfter, end: liveAtEnd } };
     });
     if (r.error) { say(false, tag + ' ' + r.error); await browser.close(); continue; }
     const d = JSON.stringify(r);
@@ -59,6 +67,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     say(r.empty.h === 0, tag + ' running: the empty end line leaves no band', d);
     say(r.filled.same && !r.filled.hidden && r.filled.display === 'block' && /^Restored 3 files/.test(r.filled.text), tag + ' ended: the same line, shown, says the end', d);
     say(r.filled.msg === '', tag + ' ended: the old refusal is gone', d);
+    say(r.live.markup === 'off', tag + ' aria-live: off in the markup', d);
+    say(r.live.fill === 'off', tag + ' aria-live: still off in the task of the first fill', d);
+    say(r.live.after === 'polite', tag + ' aria-live: polite after its own callback', d);
+    say(r.live.end === 'polite', tag + ' aria-live: polite when the end is written', d);
     say(errs.length === 0, tag + ' no page error', errs.join(' | '));
     await browser.close();
   }
