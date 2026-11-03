@@ -205,7 +205,7 @@ extension Board {
     // a refusal says the route's reason, or the board's line; otherwise the rows, and View All (#3994: whenever there is
     // a file, even one).
     // kosmos#7679 review 3: noAnswer is its own state, shown as filesAgentUnread when there are no rows.
-    // kosmos#7842: forNow is a message from a read that keeps a list already shown (filesKeepsShown).
+    // kosmos#7842: forNow is a refusal's line that a list already shown outlasts (filesSectionAfter keeps the rows).
     enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), forNow(String), rows([ListedFile]) }
     /* kosmos#7842: whether a read keeps the list already shown, for the Files screen and the agent page's section alike:
        only a list replaces it. Stricter than the Profile on purpose: the engine's listing refusals (engine/projects.js
@@ -217,9 +217,10 @@ extension Board {
     }
     /* The Files screen's own reads add one answer that is never passing: a 404 from a project's documents (no project by
        that name) or from the top of an agent's browse (no agent by that name; below the top a 404 is a listing refusal).
-       server.js sends every listing refusal on those two reads some other way, so that 404 replaces the list. */
+       server.js sends every listing refusal on those two reads some other way, so that 404 replaces the list when it
+       carries words of its own (a proxy's page, which has none, keeps it). */
     static func filesScreenKeepsShown(_ r: FilesRead, status: Int, owner: FilesOwner, dir: String) -> Bool {
-        if status == 404 {
+        if status == 404, case .refused(let why) = r, why != filesCannotRead {
             switch owner {
             case .project: return false
             case .agent: if dir.isEmpty { return false }

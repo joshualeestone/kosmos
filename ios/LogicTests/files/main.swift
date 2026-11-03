@@ -134,5 +134,6 @@ check(Board.filesScreenKeepsShown(Board.filesResult(status: 404, body: racing), 
 check(!Board.filesScreenKeepsShown(Board.filesResult(status: 404, body: Data(#"{"error":"there is no project by that name"}"#.utf8)), status: 404, owner: .project("p1"), dir: ""), "a project's 404 (no project) replaces the list")
 check(Board.filesScreenKeepsShown(Board.filesResult(status: 200, body: racing), status: 200, owner: .project("p1"), dir: ""), "CONTROL: a project's 200 refusal keeps it")
 check(Board.filesScreenKeepsShown(Board.filesResult(status: 409, body: racing), status: 409, owner: .agent("pete"), dir: ""), "CONTROL: the top's 409 refusal keeps it")
+check(Board.filesScreenKeepsShown(Board.filesResult(status: 404, body: Data("<html>not found</html>".utf8)), status: 404, owner: .project("p1"), dir: ""), "review 6: a 404 page with no words of its own (a proxy) keeps the list")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
