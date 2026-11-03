@@ -50181,6 +50181,15 @@ async function fetchLeftoverPlan(name) {
     return await res.json().catch(() => null);
   } catch { return null; }
 }
+/* kosmos#7852: a delete whose request got no answer (a reload, a sleep, a proxy) may still be running on the board, so
+   "nothing was deleted" is not known. The plan, asked again, says what is so: its refusal is the board's words (the delete
+   finished, or is still running), an offer means something is still here, and no plan at all means nobody knows. */
+const DEL_UNKNOWN_LINE = 'We could not reach the board just now, so we cannot tell whether anything was deleted. Look again in a moment.';
+function deleteNoAnswerLine(plan) {
+  if (!plan) return DEL_UNKNOWN_LINE;
+  if (plan.ok) return 'We could not reach the board just now, and what is left of this agent is still here. Try again.';
+  return plan.because || DEL_UNKNOWN_LINE;
+}
 async function loadLeftover(sessionName) {
   const box = document.getElementById('d-delete-leftover');
   if (!box) return;
@@ -50249,7 +50258,15 @@ document.getElementById('del-go').addEventListener('click', async () => {
     });
     body = await res.json().catch(() => null);
   } catch { res = null; }
-  if (!res || !body || (!res.ok && body.outcome !== 'partial')) {
+  if (!res || !body) {
+    const asked = DEL_FOR;
+    const plan = await fetchLeftoverPlan(asked);
+    if (DEL_FOR !== asked) return;   // the dialog was closed or moved on meanwhile
+    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(deleteNoAnswerLine(plan));
+    go.disabled = !(plan && plan.ok);
+    return;
+  }
+  if (!res.ok && body.outcome !== 'partial') {
     /* kosmos#7820: the engine re-plans before acting, and its answer can now ask for the name where the one on screen
        did not. It sends that plan back, so the dialog shows it (with the box to type in) rather than refusing again. */
     // Only when the new plan asks for a name the one on screen does not (or spells it differently): a plain typo keeps
@@ -50262,7 +50279,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
       DEL_RETURN = back;
       repainted = true;
     }
-    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((body && (body.because || body.error)) || 'We could not reach the board just now. Nothing was deleted.');
+    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(body.because || body.error || DEL_UNKNOWN_LINE);
     if (!repainted) go.disabled = false;
     return;
   }
