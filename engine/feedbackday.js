@@ -40,7 +40,8 @@ function conversation(messages, names, date, dateKey) {
   const out = [];
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || typeof m !== 'object') continue;
-    if (m.kosmos === true) continue;   // Kosmos's own line in the agent's name (a menu answer, `wire`, is the person's and stays)
+    if (m.kosmos === true) continue;
+    if (m.delivery && m.delivery.duplicateOf) continue;   // a resend recorded as a copy of one already counted   // Kosmos's own line in the agent's name (a menu answer, `wire`, is the person's and stays)
     const d = onDay(m.at, date, dateKey);
     if (!d) continue;
     const mine = names.includes(m.from);
@@ -118,8 +119,11 @@ function recordWho(env, seams) {
   if (token) {
     const found = (s.resolveName || ((t) => require('./sendertoken').resolveName(t)))(token);
     if (!(found && found.ok && found.twins !== true && typeof found.key === 'string' && found.key)) return null;
-    const spelled = typeof found.name === 'string' && found.name && found.name !== found.key ? [found.name] : [];
-    return { name: found.key, also: spelled };
+    // A token whose own spelling is not its key ("Mara" for "mara") is read under that exact spelling, as a window is:
+    // the key may also be another agent's (a pane "mara", an older unnamed token), and its thread and rows must never
+    // count as this agent's. Cost, chosen: a paneless "Mara" (whose records the board keeps under the key) reads empty.
+    const spelled = typeof found.name === 'string' && found.name ? found.name : found.key;
+    return { name: spelled, also: [] };
   }
   const r = (s.resolveKeepSender || ((x) => require('./outbox').resolveKeepSender(x)))(e);
   // Read under the exact window name. A name that is not its own key ("Angel", "my.bot") has no thread at all (the board
@@ -141,13 +145,22 @@ function digest(o) {
   const readThread = o.readThread || ((n) => { const chat = require('./chat'); return chat.readThread(chat.DIRECT, n).messages; });
   const listTaskFiles = o.listTaskFiles || (() => listTaskFilesIn(require('./taskchat').taskChatsDir(), date, dateKey));
   const readTask = o.readTask || ((p, n) => require('./taskchat').read(p, n));
+  // The setup guide's thread holds what the person pasted to it, keys included, which the board never shows back
+  // (server.js guideMaskedRows): its conversation is not printed here. A check that cannot tell counts as the guide.
+  const isGuide = o.isGuide || ((n) => require('./setup-assistant').isGuideFolderStrict(n));
+  let guide;
+  try { guide = isGuide(name) === true; } catch { guide = true; }
 
   const lines = ['Your day on this computer, ' + date + ' (for your feedback report; nothing here is sent anywhere).',
     'Do not copy names, project names, task numbers or your person\'s words into the report: describe what happened.', ''];
   let talk = null;
   let unfilable = false;
-  try { talk = conversation(readThread(name), names, date, dateKey); } catch (err) { talk = null; unfilable = Boolean(err && err.code === 'BAD_THREAD'); }
-  if (talk == null && unfilable) {
+  if (!guide) {
+    try { talk = conversation(readThread(name), names, date, dateKey); } catch (err) { talk = null; unfilable = Boolean(err && err.code === 'BAD_THREAD'); }
+  }
+  if (guide) {
+    lines.push('Your conversation with your person: not shown for the setup guide (what the person pasted stays hidden).');
+  } else if (talk == null && unfilable) {
     lines.push('Your conversation with your person: Kosmos keeps no conversation under this agent\'s name.');
   } else if (talk == null) {
     lines.push('Your conversation with your person: Kosmos could not read it on this computer.');

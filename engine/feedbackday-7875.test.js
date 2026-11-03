@@ -14,7 +14,7 @@ const DATE = '2026-11-03';
 const at = (h, m, d = 3) => new Date(2026, 10, d, h, m).toISOString();
 
 function run(o) {
-  return day.digest({ name: 'Dana', date: DATE, listTaskFiles: () => [], readTask: () => [], ...o });
+  return day.digest({ name: 'Dana', date: DATE, listTaskFiles: () => [], readTask: () => [], isGuide: () => false, ...o });
 }
 
 test('#7875: today\'s conversation both ways, oldest first, as time, who and the first line', () => {
@@ -133,7 +133,9 @@ test('#7875: the task folder: absent is none, unreadable throws (so the digest s
 
 test('#7875: who is asking: a token\'s KEY reads the thread and its own spelling also counts on tasks; the window without one', () => {
   const env = { X: 1 };
-  assert.deepEqual(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara' }) }), { name: 'mara', also: ['Mara'] });
+  // A token whose own spelling is not its key is read under that spelling, never the key (which may be another agent's).
+  assert.deepEqual(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara' }) }), { name: 'Mara', also: [] });
+  assert.deepEqual(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: true, key: 'mara' }) }), { name: 'mara', also: [] });
   assert.deepEqual(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'mara', key: 'mara' }) }), { name: 'mara', also: [] });
   assert.equal(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara', twins: true }) }), null);
   assert.equal(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: false }) }), null);
@@ -142,14 +144,6 @@ test('#7875: who is asking: a token\'s KEY reads the thread and its own spelling
   // which may be another agent's thread.
   assert.deepEqual(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: true, name: 'Angel' }) }), { name: 'Angel', also: [] });
   assert.equal(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: false }) }), null);
-});
-
-test('#7875: a task row under the token\'s own spelling counts for the asking agent (a pane row carries it)', () => {
-  const out = day.digest({ name: 'mara', also: ['Mara'], date: DATE, readThread: () => [],
-    listTaskFiles: () => ['p.task-1.jsonl', 'p.task-2.jsonl'],
-    readTask: (pr, n) => (n === 1 ? [{ at: at(10, 0), kind: 'built', by: 'Mara' }] : [{ at: at(10, 0), kind: 'built', by: 'other' }]) }).join('\n');
-  assert.ok(out.includes('  p #1: built'), out);
-  assert.ok(!out.includes('p #2'), out);   // CONTROL: someone else's row still does not count
 });
 
 test('#7875: a name Kosmos keeps no conversation under says so; a file with no words reads as a file', () => {
@@ -165,6 +159,25 @@ test('#7875: the digest reminds the agent not to copy names or words into the re
   assert.match(run({ readThread: () => [] })[1], /Do not copy names, project names, task numbers or your person's words/);
 });
 
+test('#7875: the setup guide\'s conversation is never read or printed (what the person pasted stays hidden)', () => {
+  let read = false;
+  const out = run({ isGuide: () => true, readThread: () => { read = true; return [{ at: at(9, 0), text: 'sk-SECRETKEY', from: null }]; } }).join('\n');
+  assert.equal(read, false);
+  assert.ok(out.includes('not shown for the setup guide'), out);
+  assert.ok(!out.includes('SECRETKEY'), out);
+  assert.ok(!out.includes('could not read it'), out);
+  const unsure = run({ isGuide: () => { throw new Error('cannot tell'); }, readThread: () => [{ at: at(9, 0), text: 'sk-SECRETKEY', from: null }] }).join('\n');
+  assert.ok(!unsure.includes('SECRETKEY'), 'a guide check that cannot tell counts as the guide');
+});
+
+test('#7875: a resend recorded as a copy is not counted twice', () => {
+  const out = run({ readThread: () => [
+    { at: at(9, 0), text: 'Once', from: null },
+    { at: at(9, 1), text: 'Once', from: null, delivery: { state: 'placed', duplicateOf: 'x' } },
+  ] }).join('\n');
+  assert.ok(out.includes('1 from them, 0 from you'), out);
+});
+
 test('#7875: no tasks today and unreadable tasks read differently', () => {
   assert.ok(run({ readThread: () => [] }).includes('Tasks you changed today: none.'));
   const bad = run({ readThread: () => [], listTaskFiles: () => { throw new Error('no'); } }).join('\n');
@@ -173,7 +186,7 @@ test('#7875: no tasks today and unreadable tasks read differently', () => {
 
 test('#7875: the default day is the report\'s own day (feedback.today)', () => {
   const today = fb.today();
-  const out = day.digest({ name: 'Dana', readThread: () => [], listTaskFiles: () => [], readTask: () => [] });
+  const out = day.digest({ name: 'Dana', readThread: () => [], listTaskFiles: () => [], readTask: () => [], isGuide: () => false });
   assert.ok(out[0].includes(today), out[0]);
 });
 
@@ -187,7 +200,7 @@ test('#7875: the Mac/Linux CLI\'s own day script runs: with nobody identified it
   const body = arm.slice(arm.indexOf('"$NODE" -e \'') + '"$NODE" -e \''.length, arm.indexOf('\' "$KOSMOS_HOME/app"'));
   assert.match(body, /recordWho/);
   const r = require('node:child_process').spawnSync(process.execPath, ['-e', body, path.join(__dirname, '..')],
-    { env: { PATH: process.env.PATH }, encoding: 'utf8', timeout: 30000 });
+    { env: { PATH: process.env.PATH, ...(process.env.SystemRoot ? { SystemRoot: process.env.SystemRoot } : {}) }, encoding: 'utf8', timeout: 30000 });
   assert.equal(r.status, 1, r.stderr);
   assert.match(r.stderr, /cannot tell which agent is asking, so it prints nobody's day/);
   assert.equal(r.stdout, '');

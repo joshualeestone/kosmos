@@ -8,10 +8,11 @@ the same from the Mac/Linux CLI (install/kosmos) and the Windows CLI (tools/wind
 leaves the computer: the digest is printed locally, and the report the agent writes is scrubbed and sent as before.
 
 ## Shape (decided)
-- `kosmos feedback day` prints the digest for the agent asking (feedbackday.recordWho). A token agent's direct
-  thread is under its KEY (chat.threadFile accepts only a key), and so are a paneless token agent's task rows; with a
-  running pane the board can file task rows under the token's own spelling ("Mara" for "mara"), so a task row counts
-  under either. A token shared by two names is refused. No token: its window's agent name, exactly. A name that is not
+- `kosmos feedback day` prints the digest for the agent asking (feedbackday.recordWho), read under the token's own
+  spelling (an older token with no spelling: its key), never under a key that differs from it: the key may be another
+  agent's (a pane "mara", an older unnamed token), and wrong-empty is the safe failure, wrong-agent is not. Cost, chosen:
+  a paneless token agent whose spelling is not its key ("Mara") reads empty, since the board keeps its records under
+  the key. A token shared by two names is refused. No token: its window's agent name, exactly. A name that is not
   its own key ("Angel", "my.bot") has no thread at all (the board cannot file one), and its key form may be another
   agent's thread, so it is never read there: the digest says no conversation is kept under this name. A row from any
   other agent is neither "you" nor "them", so it is left out. No agent identified: it says so and exits 1, rather than printing someone else's day. Extra words: usage, 2.
@@ -21,11 +22,17 @@ leaves the computer: the digest is printed locally, and the report the agent wri
   person's local day (feedback.dateKey, the same day the report is filed under). Counts both ways, then each
   message as time, who (you / the person) and its first line cut to 160 characters, newest last, at most 40.
   Kosmos's own lines in the agent's name (`kosmos: true`) are not messages, so skipped; a menu answer (`wire`) is the
-  person's own message and is kept.
+  person's own message and is kept; a resend recorded as a copy (`delivery.duplicateOf`) is not counted twice.
+  The setup guide's conversation is never read or printed: what the person pasted to it (keys) is never shown back
+  (server.js guideMaskedRows), and a guide check that cannot tell counts as the guide.
+- The window identity is TMUX_PANE with no token, as outbox.resolveKeepSender accepts. `kosmos inbox` refuses that on a
+  board that enforces auth; this reads the local store directly, which any process of this user can already read, so
+  the difference is deliberate.
   A name Kosmos keeps no conversation under (chat.threadFile refuses it) says exactly that, not "could not read".
   The digest's header asks the agent not to copy names, project names, task numbers or the person's words.
 - Tasks: tasks whose history today (taskchat.read) has a row naming this agent as its author: a task it created
-  through the CLI (`addedBy`, with `addedVia: 'process'`, as tasks.js AGENT_ROW does), and a mark, run or move it made (`by`). Most rows name nobody (said, closed, holds),
+  through the CLI (`addedBy`, with `addedVia: 'process'`, as tasks.js AGENT_ROW does), and a mark, run, reopen or move it
+  made (`by`). Most rows name nobody (said, closed, holds),
   so those cannot count. Number, project id and the kinds of change, no titles. An absent task folder is "none"; an
   unreadable folder, or a transcript in it that cannot be inspected or opened, says so. The report's own rules forbid task titles and
   contents, so the digest does not hand them over; the agent can look a task up itself.
