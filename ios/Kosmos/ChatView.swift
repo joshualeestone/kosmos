@@ -29,6 +29,9 @@ struct ChatView: View {
     @State private var refusal: String?
     @State private var loop: Task<Void, Never>?
     @State private var atBottom = true
+    // kosmos#7817: the height of the strip under the list (the message box and its line), which grows a line at a time as
+    // a long message is typed. A reader at the newest message is kept there as it changes.
+    @State private var stripHeight: CGFloat = 0
     // kosmos#7265 (measured on the simulator, 10-27): the end marker leaving the screen was read as the person scrolling
     // up, but new rows push it off too, and a re-pin can land a row short, so a reader at the newest message was left
     // behind and never followed again. On iOS 18 only the person's own scroll (scroll phase interacting or decelerating)
@@ -221,6 +224,10 @@ struct ChatView: View {
                 // kosmos#7346 (Josh 10-27 19:59): solid behind and below the box, down to the home indicator, as Discord: no
                 // message shows through or under it. The inset already ends the list above this strip.
                 .background(Palette.chatGround.ignoresSafeArea(edges: .bottom))
+                // kosmos#7817: its height, read for the list (stripHeight).
+                .background(GeometryReader { g in
+                    Color.clear.onAppear { stripHeight = g.size.height }.onChange(of: g.size.height) { stripHeight = $0 }
+                })
                 // Josh 10-27: "with a slide fade into it so it looks smooth": messages fade into the strip over fadeHeight above it,
                 // never a hard edge. Drawn over the list, so it takes no room and no touches.
                 .overlay(alignment: .top) {
@@ -754,6 +761,13 @@ struct ChatView: View {
                     diagKeyboard = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? 0
                     Self.trace("keyboard up \(Int(diagKeyboard)) (atBottom \(atBottom))")
                     keepNewestInView = atBottom || (searchOpen && openedAtNewest && !searching)
+                }
+                // kosmos#7817 (Josh 11-02): the box growing or shrinking a line as he typed moved the conversation elsewhere.
+                // A reader at the newest message stays there, as when the keyboard comes up; one higher up is left alone.
+                .onChange(of: stripHeight) { _ in
+                    guard visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
+                    Self.trace("box height changed, to the newest")
+                    if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                     // Only the chat on screen: another tab can keep a chat alive under it.
