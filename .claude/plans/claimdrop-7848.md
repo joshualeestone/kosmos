@@ -63,3 +63,11 @@ no skip (3), any claimant (1), own claim counted (1), no person-post branch (1),
 - Copy: "Claimed by another agent each post also asked"; the all-claimed head line "the ask below is claimed by another
   agent it also asked" / "the asks below are claimed by agents they also asked".
 - namedReader and namedBy are built in one pass.
+
+## Review round 4 (sonnet, no defects)
+- Answered, no change: "the idle reminder repeats while an ask stays claimed". It does not: flushOnIdle takes the held
+  ids, which clears them (engine/roomhold.js:557), and restores them only if the line could not be typed. So a claimed
+  ask is raised once by the reminder, then lives only in --unanswered's claimed line.
+- Copy: the trailing line is "Claimed, each by an agent the post also asked"; the plural head line names "the asks named
+  below" (true when -n names fewer). Plural head line tested.
+- Declined: a comment on claimOf's earliest-claimant rule (react() refuses a second claim on a held post, #6946).
