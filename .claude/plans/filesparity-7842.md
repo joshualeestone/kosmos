@@ -24,8 +24,7 @@ browse, 404 below it. Nothing in the answer tells them apart, and a passing one 
 
 ## Weakest premise
 That keeping a stale list through a LASTING refusal (Files became a link, a subfolder was removed) is the lesser
-harm. Opening a stale row gets its own refusal from the board, and Pull to refresh shows the reason once the list
-goes, but the list itself will not say it changed.
+harm. The list itself will not say it changed.
 
 ## Not changed
 The 200 the phone cannot read is now kept on both screens (review 2), as on the Profile.
