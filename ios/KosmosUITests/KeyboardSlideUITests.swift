@@ -151,7 +151,8 @@ final class KeyboardSlideUITests: XCTestCase {
     // older messages in view). The newest message must stay the same distance above the box as it grows a line at a time,
     // and again as it shrinks. Measured to the box itself (its top moves up a line at a time), within 4 pt.
     func testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1"])
+        // kosmos#7817 (11-03): the follow is off in release builds (ChatView.followsBox); this turns it on to keep checking it.
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_BOXFOLLOW": "1"])
         let box = Self.box(app)
         let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(newest.waitForExistence(timeout: 15), "the long chat did not open at its newest message")
@@ -190,7 +191,7 @@ final class KeyboardSlideUITests: XCTestCase {
     // kosmos#7817: a reader higher up is not pulled to the newest message as the box grows (only one at the newest is).
     // A regression guard for the follow's own condition: it passes on main too, which never followed the box.
     func testReadHigherUpStaysWhileTheBoxGrows() throws {
-        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40"])
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_BOXFOLLOW": "1"])
         let box = Self.box(app)
         let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
         XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15), "no sample rows")
