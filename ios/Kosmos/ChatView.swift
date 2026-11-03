@@ -2218,7 +2218,9 @@ struct LinkPreviewCard: View {
         Button { openURL(preview.url) } label: {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(preview.site).font(.caption).foregroundColor(Palette.secondary).lineLimit(1)
+                    // The page's own site name, and the address's real host beside it when they differ: the page names
+                    // itself, but where the card goes is the address (it can differ after a redirect).
+                    Text(Board.linkPreviewSiteLine(preview)).font(.caption).foregroundColor(Palette.secondary).lineLimit(1)
                     Text(preview.title).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(2)
                     if let words = preview.description {
                         Text(words).font(.footnote).foregroundColor(Palette.secondary).lineLimit(3)
@@ -2339,15 +2341,15 @@ struct ChatBubble: View {
         let links = Board.messageLinks(row.text)
         // kosmos#7864: the preview card is inside this one element, so its address is an action here too, named from the
         // card, unless one of the message's own links already opens that site.
-        let site = { (u: URL) in (u.host ?? "").lowercased().replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression) }
-        let card = row.preview.flatMap { p in links.contains { site($0) == site(p.url) } ? nil : p }
+        let hostKey = { (u: URL) in (u.host ?? "").lowercased().replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression) }
+        let card = row.preview.flatMap { p in links.contains { hostKey($0) == hostKey(p.url) } ? nil : p }
         return Group {
             ForEach(Array(links.enumerated()), id: \.offset) { i, url in
                 let number = links.count > 1 ? "\(i + 1) " : ""
                 Button("Open link \(number)to \(url.host ?? url.absoluteString)") { openURL(url) }
             }
             // Named from the address it opens, never from the page's own site name, which a page can make up.
-            if let card { Button("Open link to \(site(card.url))") { openURL(card.url) } }
+            if let card { Button("Open link to \(Board.linkHost(card.url))") { openURL(card.url) } }
         }
     }
 

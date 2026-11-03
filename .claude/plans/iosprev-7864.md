@@ -11,6 +11,7 @@ row's `preview`, which the board attaches in withPreviews (#357) on the thread r
   host; at least a title, words or a picture; the title falls back to the address and the site to the host. The
   picture is kept only as the Mac's own `/api/unfurl/image?url=` path (isBoardPath), never another address, so the
   phone never talks to the site. `ChatRow.preview`; `linkPreviewSpoken` for VoiceOver.
+- ChatView.swift card top line: `linkPreviewSiteLine` (site, and the real host when it differs).
 - BoardClient.swift: `loadPreviewImage`, the thumbnail loader's rules (through the phone's own session, once per run,
   a passing failure asked again, a 404 or an undrawable picture not), decoded once to a CGImage at most 900 px (review
   round 1: not a PNG decoded again on every draw), decoded off the main actor (round 3), the newest 12 kept and all
@@ -36,6 +37,11 @@ Rooms have their own row model (BoardRoom.swift RoomRow) and renderer (RoomView.
   way across a drop is not kept (tested). Accepted, stated: a list holding more than 12 preview cards at once could
   evict and refetch in turn (the chat's LazyVStack keeps a screen's worth alive, well under 12); a card scrolled away
   mid-fetch relies on env.send answering nil when its task is cancelled, as the thumbnail loader does.
+- Review round 7: the drop generation is published (a drop with nothing cached yet still redraws and reloads the
+  cards); the card's top line shows the address's real host beside the page's site name when they differ, as VoiceOver
+  already said; VoiceOver keeps a port. Stated, not fenced: a load of a closing chat still on its way can land after the
+  release; it is one of the capped 12 and goes at the next close or memory warning. The sample rows use bare addresses,
+  which the board previews since #7861 (merged 11-03).
 - Review round 6: a chat closing RELEASES its pictures without the drop generation (a quick switch kept discarding the
   next chat's pictures on their way, tested); only a memory warning bumps it. A cancelled load leaves the asked set alone
   across a drop. Before round 6: the pictures are dropped when the chat closes (not when its info page is pushed over it), so they do
@@ -45,7 +51,7 @@ Rooms have their own row model (BoardRoom.swift RoomRow) and renderer (RoomView.
   as the board's own card crops with object-fit.
 
 ## Verified
-- ios/LogicTests (run.sh): 1905/1905 (a sign-out while a picture is on its way, and a memory-warning drop with its
+- ios/LogicTests (run.sh): 1908/1908 (a sign-out while a picture is on its way, and a memory-warning drop with its
   refetch, added in rounds 2 and 3), with the loader cases mirroring the thumbnail loader's (not a picture, 900 px,
   the unfurl route, 5xx again, 404 not, the sign-in page again, once only, no picture no request, the cap (12) and
   its refetch, a sign-out clears them; the test Mac now answers the unfurl route) and the parsing cases (a full preview read; none on a plain row; non-http(s)

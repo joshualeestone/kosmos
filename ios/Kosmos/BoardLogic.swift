@@ -1338,8 +1338,19 @@ enum Board {
     // kosmos#7864: what VoiceOver says for a link preview inside a message: the title and the address's own host (never
     // the page's site name, which a page can make up: by ear there is no address to check it against).
     static func linkPreviewSpoken(_ p: LinkPreview) -> String {
-        let host = p.url.host ?? p.site
+        let host = linkHost(p.url)
         return p.title == host ? "Link: " + p.title : "Link: " + p.title + ", " + host
+    }
+    // An address's own host, with its port when it has one.
+    static func linkHost(_ url: URL) -> String {
+        let host = url.host ?? url.absoluteString
+        return url.port.map { host + ":\($0)" } ?? host
+    }
+    // The card's top line: the page's site name, and the real host after it when the two differ (case and www. aside).
+    static func linkPreviewSiteLine(_ p: LinkPreview) -> String {
+        let host = linkHost(p.url)
+        let key = { (s: String) in s.lowercased().replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression) }
+        return key(p.site) == key(host) ? p.site : p.site + " \u{00B7} " + host
     }
 
     // A reaction pill on a chat message: the room's Board.Reaction shape (BoardRoom.swift), kept here because not every

@@ -1080,12 +1080,15 @@ final class BoardClient: ObservableObject {
     private var previewImageOrder: [String] = []
     static let previewImageCap = 12
     // Bumped by a memory-warning drop, so a picture already on its way when the pictures were dropped is not kept after it.
-    private(set) var previewGeneration = 0
+    // Published: a card's load task id carries it, so a drop with nothing cached yet still redraws and reloads the cards.
+    @Published private(set) var previewGeneration = 0
     func dropPreviewImages() {
         releasePreviewImages()
         previewGeneration += 1
     }
-    // A chat closing: its pictures go, without the generation, so the next chat's pictures already on their way are kept.
+    // A chat closing: the pictures kept so far go, without the generation, so the next chat's pictures already on their way
+    // are kept. A load of the closing chat's still on its way can land after this; it is one of the capped 12, and goes
+    // at the next close or memory warning.
     func releasePreviewImages() {
         if !previewImages.isEmpty { previewImages = [:] }   // no redraw for nothing
         previewImageAsked = []

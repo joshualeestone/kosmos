@@ -5683,6 +5683,9 @@ do {
     check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T"}"#)!) == "Link: T, x.example.com", "VoiceOver hears the title and the site")
     check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"x.example.com","site":"x.example.com"}"#)!) == "Link: x.example.com", "and once when they are the same")
     check(Board.linkPreviewSpoken(lp(#"{"url":"https://evil.example.net/","title":"Sign in","site":"apple.com"}"#)!) == "Link: Sign in, evil.example.net", "VoiceOver hears the address's host, not a site name the page made up")
+    check(Board.linkPreviewSiteLine(lp(#"{"url":"https://evil.example.net/","title":"Sign in","site":"apple.com"}"#)!) == "apple.com \u{00B7} evil.example.net", "the card shows the real host beside a site name that differs")
+    check(Board.linkPreviewSiteLine(lp(#"{"url":"https://www.northfield.example.com/","title":"N","site":"northfield.example.com"}"#)!) == "northfield.example.com", "CONTROL: the same site (www. aside) is said once")
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com:8443/","title":"T"}"#)!) == "Link: T, x.example.com:8443", "VoiceOver keeps the port")
 }
 
 print("")
