@@ -56,3 +56,9 @@ a blank "within" the content (#7420's estimate) is not covered by this.
   so a blank "within" the content shows on the next report (the row count is not an allowed diagnostic value, #7420
   check); a list rebuilt during the wait (listEpoch) is left alone. Kept: the check reads keepNewestInView, not atBottom
   (it acts only past the end, where moving to the newest is right).
+- Review round 5: the settled put-back (settledPutBack) is asked on every did-show of the chat on screen, before the
+  keep-the-newest guard, and no longer reads keepNewestInView: a later will-show could clear it once the list had slid
+  past its end, switching the fix off. Past the end is nobody's place. Under a finger it looks once more 0.3 s later,
+  and records that it stood down. "keyboard settled: <place>" is recorded only for a place other than "within".
+  Gap, stated: no UI test drives a list past its end after the keyboard (a Debug switch for it would); only source
+  checks and the existing keyboard UI tests cover this.
