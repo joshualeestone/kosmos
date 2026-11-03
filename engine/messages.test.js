@@ -2287,11 +2287,9 @@ test('an operator post fans to every member with the operator markers, flagged o
     assert.equal(addressed.length, 1);
     assert.ok(addressed[0].target.startsWith('=leo-discord:'), 'the request went to someone other than the mentioned member');
     assert.equal(roomwide.length, 2, 'a member received an operator post without the room-wide marking');
-    assert.match(roomwide[0].text, /for the whole room · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease · if it asks for work one of you should do, claim it first: kosmos claim henderson-lease m\d+\] /);
-    // kosmos#7886 item 2: the claim line rides the whole-room arm only, and names the same post as the answer command.
-    const ids = roomwide[0].text.match(/--in-reply-to (m\d+) henderson-lease · .*kosmos claim henderson-lease (m\d+)\]/);
-    assert.ok(ids && ids[1] === ids[2], 'the claim command names a different post from the answer command');
-    assert.doesNotMatch(addressed[0].text, /claim it first/, 'the member the person named was told to claim, as if the room were asked');
+    assert.match(roomwide[0].text, /for the whole room · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease\] /);
+    // kosmos#7886 item 2: this post names leo, so it is leo's to take: nobody is told to claim it.
+    for (const s of typed) assert.doesNotMatch(s.text, /claim it first/, 'a post that names leo told someone to claim it');
     const row = messages.record().rows.find((m) => m.kind === 'post');
     assert.equal(row.operator, true, 'the row does not carry the operator flag the screens key on');
     assert.equal(row.from, 'you');
@@ -4989,5 +4987,20 @@ test('#6420: in a six-member room the clear time is read at the scaled budget', 
     // take 25 posts leaving, the last of them 5 minutes old: 55 minutes away instead of 10.
     assert.equal(Date.parse(sent.clearsAt), oldest + 60 * 60000, 'the clear time was not read at the room\'s own budget');
     assert.equal(sent.clearsAt, messages.roomHeld('henderson-lease', Date.now(), 5).until, 'the refusal and the room at its size disagree');
+  });
+});
+
+test('kosmos#7886 item 2: a person\'s post that names nobody tells every member to claim it first when one should do the work', () => {
+  withFleet(room3(), (board) => {
+    const tmux = arm([]);
+    const sent = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'can someone renew the lease?' }, board.agents, MEMBERS);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+    const roomwide = tmux.pastedSends().filter((s) => s.text.startsWith('[from your operator in project henderson-lease ·'));
+    assert.equal(roomwide.length, 3, 'every member gets the whole-room arm');
+    for (const s of roomwide) {
+      const ids = s.text.match(/for the whole room · to answer, run: kosmos post --in-reply-to (m\d+) henderson-lease · if it asks for work one of you should do, claim it first: kosmos claim henderson-lease (m\d+)\] /);
+      assert.ok(ids, 'no claim line on the whole-room arm: ' + s.text.slice(0, 220));
+      assert.equal(ids[1], ids[2], 'the claim command names a different post from the answer command');
+    }
   });
 });
