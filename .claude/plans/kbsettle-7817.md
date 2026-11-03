@@ -62,3 +62,8 @@ a blank "within" the content (#7420's estimate) is not covered by this.
   and records that it stood down. "keyboard settled: <place>" is recorded only for a place other than "within".
   Gap, stated: no UI test drives a list past its end after the keyboard (a Debug switch for it would); only source
   checks and the existing keyboard UI tests cover this.
+- Review round 6 (after build 32 was cut from db354c668f): the put-back ends as recoverEmpty does, putting "end" back
+  in the anchor after its direct offset write; and within the content with nothing drawn is recorded ("keyboard
+  settled: within, nothing drawn"), the other blank (#7420), which round 5 had stopped recording. Noted on the card: a
+  reader who is not at the newest but whose list reads past its end is moved to the newest (past the end is nobody's
+  place).
