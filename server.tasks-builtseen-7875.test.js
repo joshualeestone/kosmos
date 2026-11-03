@@ -62,6 +62,9 @@ function withProjects(t) {
       { number: 1, sentence: 'built, viewed since', state: 'open', createdAt: ago(10), builtAt: ago(2), builtBy: 'dana' },
       { number: 2, sentence: 'built, never viewed', state: 'open', createdAt: ago(10), builtAt: ago(2), builtBy: 'dana' },
       { number: 3, sentence: 'still open', state: 'open', createdAt: ago(10) },
+      /* Viewed, then built AFTER the view (builtAt in the future of the view recorded in the test): not seen since. */
+      { number: 4, sentence: 'viewed before it was built', state: 'open', createdAt: ago(10), builtAt: new Date(Date.now() + DAY).toISOString(), builtBy: 'dana' },
+      { number: 5, sentence: 'marked built by the person', state: 'open', createdAt: ago(10), builtAt: ago(1), builtByPerson: true },
     ] },
   ];
   t.after(() => { projectsEngine.readAll = realAll; });
@@ -71,6 +74,7 @@ const row = (r, n) => r.json.tasks.find((x) => x.number === n);
 test('#7875: the built list carries when the person last viewed each task; other lists do not', async (t) => {
   withProjects(t);
   assert.ok(taskseen.markSeen('seen7875', 1), 'could not record the view of #1');
+  assert.ok(taskseen.markSeen('seen7875', 4), 'could not record the view of #4');
   const r = await call('/api/tasks?project=seen7875&order=state&state=built');
   assert.equal(r.code, 200, r.text.slice(0, 200));
   assert.equal(r.json.listState, 'built');
@@ -81,6 +85,9 @@ test('#7875: the built list carries when the person last viewed each task; other
   const lines = tasklist.compactLines(r.json, 'built', 'seen7875').lines;
   assert.ok(lines.some((l) => l.startsWith('#1  built') && l.endsWith('(seen by the person since built)')), lines.join('\n'));
   assert.ok(lines.some((l) => l.startsWith('#2  built') && l.endsWith('(not seen by the person since built)')), lines.join('\n'));
+  // Through the real board: a view before the build reads "not seen", and the person's own mark says so.
+  assert.ok(lines.some((l) => l.startsWith('#4  built') && l.endsWith('(not seen by the person since built)')), lines.join('\n'));
+  assert.ok(lines.some((l) => l.startsWith('#5  built') && l.endsWith('(marked built by the person)')), lines.join('\n'));
   /* CONTROL: the open list is unchanged (no field, so nothing printed). */
   const open = await call('/api/tasks?project=seen7875&order=state&state=open');
   assert.equal(open.code, 200);
