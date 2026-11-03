@@ -1705,10 +1705,12 @@ let infoOpen = Board.projectOpenTasks(Board.TasksRead(tasks: infoTasks, rosterUn
 check(infoOpen?.total == 6, "open tasks of this project only, closed left out: \(String(describing: infoOpen?.total))")
 check(infoOpen?.rows.map(\.number) == [6, 5, 4, 3, 2], "newest first, at most five shown")
 check(Board.projectOpenTasks(nil, project: "p1") == nil, "unread tasks are unknown, never none")
-check(Board.projectTasksFooter(total: 6, shown: 5) == "1 more on the Tasks tab.", "the rest are counted")
+check(Board.projectTasksFooter(total: 6, shown: 5) == "1 more on the Tasks tab, which can show just this project.", "the rest are counted")
 check(Board.projectTasksFooter(total: 3, shown: 3) == nil, "all shown: no footer")
 check(Board.projectTasksFooter(total: 0, shown: 0) == nil && Board.projectNoOpenTasks == "No open tasks.", "none: a row says so, no footer")
 check(Board.projectTaskState(infoTasks[0]) == "In progress", "a task's state in the Tasks tab's words")
+var decisionT = infoTasks[0]; decisionT = Board.TaskRow(projectId: "p1", projectName: "Launch", number: 9, sentence: "x", state: "decision")
+check(Board.projectTaskState(decisionT) == "Needs your decision", "in sentence case beside the page's other lines")
 check(Board.ProjectPart.allCases.map(\.rawValue) == ["About", "Files"], "the segments, Files last as on the agent page")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }

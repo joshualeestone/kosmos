@@ -108,7 +108,6 @@ struct RoomView: View {
     // not again while it stays empty, whatever is typed or whichever sentence a read shows. Forgotten when results
     // come back or the search goes.
     @State private var spokeEmpty = false
-    // kosmos#7679: the project's Files screen is open.
     @State private var infoOpen = false   // kosmos#7838: the project's own page
     private var searching: Bool { Board.chatSearching(query) }
     // The row open or words in it: no older pages (the chat's rule, #7089, from the board's earlierNearTop).
