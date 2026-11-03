@@ -1126,7 +1126,8 @@ final class BoardClient: ObservableObject {
             guard epoch == chatEpoch, generation == previewGeneration else { return }
             if let pic { keepPreviewImage(pic, at: path) }
         }
-        // As the thumbnails: a passing failure is asked again on the next draw, a 404 or a picture the phone cannot draw is not.
+        // As the thumbnails: a passing failure is asked again when its card is next drawn (scrolled back, or a drop), a
+        // 404 or a picture the phone cannot draw is not.
         else if response.statusCode >= 500 || (ok && !isImage) { previewImageAsked.remove(path) }
     }
 

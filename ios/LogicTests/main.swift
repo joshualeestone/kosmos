@@ -5686,6 +5686,9 @@ do {
     check(Board.linkPreviewSiteLine(lp(#"{"url":"https://evil.example.net/","title":"Sign in","site":"apple.com"}"#)!) == "apple.com \u{00B7} evil.example.net", "the card shows the real host beside a site name that differs")
     check(Board.linkPreviewSiteLine(lp(#"{"url":"https://www.northfield.example.com/","title":"N","site":"northfield.example.com"}"#)!) == "northfield.example.com", "CONTROL: the same site (www. aside) is said once")
     check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com:8443/","title":"T"}"#)!) == "Link: T, x.example.com:8443", "VoiceOver keeps the port")
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T","description":"Words here"}"#)!) == "Link: T, x.example.com. Words here", "VoiceOver hears the page's words too")
+    let longWords = String(repeating: "a", count: 200)
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T","description":""# + longWords + #""}"#)!) == "Link: T, x.example.com. " + String(repeating: "a", count: 160) + "\u{2026}", "shortened as the card's lines are")
 }
 
 print("")

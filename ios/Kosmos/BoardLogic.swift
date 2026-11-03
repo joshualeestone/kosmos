@@ -1339,7 +1339,10 @@ enum Board {
     // the page's site name, which a page can make up: by ear there is no address to check it against).
     static func linkPreviewSpoken(_ p: LinkPreview) -> String {
         let host = linkHost(p.url)
-        return p.title == host ? "Link: " + p.title : "Link: " + p.title + ", " + host
+        let head = p.title == host ? "Link: " + p.title : "Link: " + p.title + ", " + host
+        // The page's words too, as a sighted person reads them under the title, shortened as the card's three lines are.
+        guard let words = p.description else { return head }
+        return head + ". " + (words.count > 160 ? String(words.prefix(160)) + "\u{2026}" : words)
     }
     // An address's own host, with its port when it has one.
     static func linkHost(_ url: URL) -> String {

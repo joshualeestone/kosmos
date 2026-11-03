@@ -37,6 +37,10 @@ Rooms have their own row model (BoardRoom.swift RoomRow) and renderer (RoomView.
   way across a drop is not kept (tested). Accepted, stated: a list holding more than 12 preview cards at once could
   evict and refetch in turn (the chat's LazyVStack keeps a screen's worth alive, well under 12); a card scrolled away
   mid-fetch relies on env.send answering nil when its task is cancelled, as the thumbnail loader does.
+- Review round 8 (the last under the 8-round cap, whole branch, no blocker): VoiceOver hears the page's words too, up to
+  160 characters, as a sighted person reads them; a failed picture is retried when its card is next drawn, as now
+  documented. The picture's size is capped by the Mac before the phone sees it (engine/unfurl.js IMAGE_MAX, 5 MB, via
+  readCapped), so the phone adds no cap of its own.
 - Review round 7: the drop generation is published (a drop with nothing cached yet still redraws and reloads the
   cards); the card's top line shows the address's real host beside the page's site name when they differ, as VoiceOver
   already said; VoiceOver keeps a port. Stated, not fenced: a load of a closing chat still on its way can land after the
@@ -51,7 +55,7 @@ Rooms have their own row model (BoardRoom.swift RoomRow) and renderer (RoomView.
   as the board's own card crops with object-fit.
 
 ## Verified
-- ios/LogicTests (run.sh): 1908/1908 (a sign-out while a picture is on its way, and a memory-warning drop with its
+- ios/LogicTests (run.sh): 1910/1910 (a sign-out while a picture is on its way, and a memory-warning drop with its
   refetch, added in rounds 2 and 3), with the loader cases mirroring the thumbnail loader's (not a picture, 900 px,
   the unfurl route, 5xx again, 404 not, the sign-in page again, once only, no picture no request, the cap (12) and
   its refetch, a sign-out clears them; the test Mac now answers the unfurl route) and the parsing cases (a full preview read; none on a plain row; non-http(s)
