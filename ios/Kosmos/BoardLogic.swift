@@ -1299,11 +1299,43 @@ enum Board {
         // kosmos#7614 (Mona Lisa's routes, review 5): a row from a rolled-over, earlier part of the conversation, which
         // is kept as it was, so it cannot be deleted (the route answers 409); Delete is not offered on it, as on the board.
         var earlierPart = false
+        // kosmos#7864: the link preview the Mac attached to the row (its withPreviews), drawn under the bubble.
+        var preview: LinkPreview? = nil
         // Reply and reactions only on this agent's own messages, not a question (server.js: a reply_to must be the
         // agent's or the person's, never a question; chat.reactDirect: only `from === name`), as the board's hover bar.
         func answerable(by session: String) -> Bool {
             who == .agent && from == session && atRaw != nil && wayThrough != .question && wayThrough != .permission
         }
+    }
+
+    /* kosmos#7864: a link's preview as the Mac sends it on a row (server.js withPreviews, #357): the page's site, title and
+       words, and its picture as the Mac's own /api/unfurl/image path, so the phone never talks to the site. The board's
+       pjPreviewCard's rules: an http(s) address; at least a title, words or a picture; the title falls back to the
+       address and the site to its host. */
+    struct LinkPreview: Equatable {
+        let url: URL
+        let site: String
+        let title: String
+        let description: String?
+        let image: String?
+    }
+    static func parseLinkPreview(_ raw: Any?) -> LinkPreview? {
+        guard let o = raw as? [String: Any], let s = o["url"] as? String, s.range(of: #"^https?://"#, options: .regularExpression) != nil,
+              let url = URL(string: s), let host = url.host, !host.isEmpty else { return nil }
+        func words(_ key: String, _ cap: Int) -> String? {
+            guard let w = (o[key] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !w.isEmpty else { return nil }
+            return String(w.prefix(cap))
+        }
+        let title = words("title", 300)
+        let description = words("description", 500)
+        let image = (o["image"] as? String).flatMap { $0.hasPrefix("/api/unfurl/image?url=") && isBoardPath($0) ? $0 : nil }
+        guard title != nil || description != nil || image != nil else { return nil }
+        return LinkPreview(url: url, site: words("site", 120) ?? host, title: title ?? s, description: description, image: image)
+    }
+
+    // kosmos#7864: what VoiceOver says for a link preview inside a message: the title and the site.
+    static func linkPreviewSpoken(_ p: LinkPreview) -> String {
+        p.title == p.site ? "Link: " + p.title : "Link: " + p.title + ", " + p.site
     }
 
     // A reaction pill on a chat message: the room's Board.Reaction shape (BoardRoom.swift), kept here because not every
@@ -2189,7 +2221,8 @@ enum Board {
                            because: because, resendable: resendable, retryable: retryable, retrying: retrying,
                            permission: permission, reported: isTrue(row["reported"]), attachments: parseAttachments(row),
                            replyTo: (row["replyTo"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-                           reactions: parseReactions(row["reactions"]), from: from, earlierPart: isTrue(row["earlierPart"]))
+                           reactions: parseReactions(row["reactions"]), from: from, earlierPart: isTrue(row["earlierPart"]),
+                           preview: parseLinkPreview(row["preview"]))
         }
     }
 

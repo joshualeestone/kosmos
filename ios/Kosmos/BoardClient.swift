@@ -1071,11 +1071,35 @@ final class BoardClient: ObservableObject {
         else if response.statusCode >= 500 || (ok && !isImage) { thumbnailAsked.remove(a.id) }
     }
 
-    // A picture drawn at most 192 px on its longer side (a 64 pt square at @3x), as PNG; nil for bytes that are not a picture.
-    static func smallPicture(_ data: Data) -> Data? {
+    // kosmos#7864: a link preview's picture, by its path on the Mac (/api/unfurl/image, the Mac fetches the site, never
+    // the phone), drawn at most 900 px on its longer side, fetched once per run, nothing kept on disk.
+    @Published private(set) var previewImages: [String: Data] = [:]
+    private var previewImageAsked: Set<String> = []
+
+    func loadPreviewImage(_ p: Board.LinkPreview) async {
+        guard let path = p.image, !previewImageAsked.contains(path) else { return }
+        previewImageAsked.insert(path)
+        #if DEBUG && canImport(UIKit)
+        if let sample = samplePreviewImage(path) { previewImages[path] = sample; return }
+        #endif
+        let epoch = chatEpoch
+        guard let held = admitted, let request = Board.attachmentRequest(mac: held.url, path: path) else { previewImageAsked.remove(path); return }
+        let answer = await env.send(request)
+        guard epoch == chatEpoch else { return }
+        guard let (data, response) = answer else { previewImageAsked.remove(path); return }
+        let isImage = (response.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
+        let ok = (200...299).contains(response.statusCode)
+        if ok, isImage { if let pic = Self.smallPicture(data, maxPixels: 900) { previewImages[path] = pic } }
+        // As the thumbnails: a passing failure is asked again on the next draw, a 404 or a picture the phone cannot draw is not.
+        else if response.statusCode >= 500 || (ok && !isImage) { previewImageAsked.remove(path) }
+    }
+
+    // A picture drawn at most `maxPixels` on its longer side (192: a 64 pt square at @3x), as PNG; nil for bytes that are
+    // not a picture.
+    static func smallPicture(_ data: Data, maxPixels: Int = 192) -> Data? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 192,
+                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: maxPixels,
                 kCGImageSourceCreateThumbnailWithTransform: true,
               ] as CFDictionary) else { return nil }
         let out = NSMutableData()
@@ -1161,6 +1185,8 @@ final class BoardClient: ObservableObject {
         answered = [:]
         thumbnails = [:]
         thumbnailAsked = []
+        previewImages = [:]
+        previewImageAsked = []
         // Files opened under the account or Mac before are not left on the phone.
         try? FileManager.default.removeItem(at: env.files)
         drafts = [:]
@@ -1258,6 +1284,17 @@ final class BoardClient: ObservableObject {
     }
     #if DEBUG && canImport(UIKit)
     // The sample chats' files, drawn here so no real file is ever in a picture.
+    // kosmos#7864: the sample link preview's picture (KOSMOS_SAMPLE_PREVIEW=1), drawn here: a soft studio scene.
+    private func samplePreviewImage(_ path: String) -> Data? {
+        guard sampleThreads.values.contains(where: { $0.rows.contains { $0.preview?.image == path } }) else { return nil }
+        let size = CGSize(width: 900, height: 470)
+        return UIGraphicsImageRenderer(size: size).pngData { ctx in
+            UIColor(red: 0.93, green: 0.90, blue: 0.85, alpha: 1).setFill(); ctx.fill(CGRect(origin: .zero, size: size))
+            UIColor(red: 0.82, green: 0.77, blue: 0.70, alpha: 1).setFill(); ctx.fill(CGRect(x: 0, y: 330, width: 900, height: 140))
+            UIColor(red: 0.36, green: 0.42, blue: 0.38, alpha: 1).setFill(); ctx.cgContext.fillEllipse(in: CGRect(x: 360, y: 150, width: 180, height: 220))
+            UIColor(red: 0.95, green: 0.95, blue: 0.93, alpha: 1).setFill(); ctx.fill(CGRect(x: 600, y: 210, width: 120, height: 160))
+        }
+    }
     private func sampleThumbnail(_ a: Board.Attachment) -> Data? {
         guard sampleThreads.values.contains(where: { $0.rows.contains { $0.attachments.contains(a) } }) else { return nil }
         let size = CGSize(width: 128, height: 128)
@@ -1321,6 +1358,13 @@ final class BoardClient: ObservableObject {
                     rows[p].reactions = many.prefix(9).enumerated().map { Board.ChatReaction(emoji: $1, count: 1, mine: false) }
                 }
                 t = Board.Thread(rows: rows, olderCount: t.olderCount, choices: t.choices)
+            }
+            // kosmos#7864, KOSMOS_SAMPLE_PREVIEW=1: a link preview with a picture under the person's message, and one with
+            // words only under Dana's, as the Mac attaches them (withPreviews), for the design shots.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PREVIEW"] == "1" {
+                let more = #"{"messages":[{"at":"2026-10-23T13:36:00Z","text":"Here is the studio site for the captions: northfieldstudio.com","from":null,"delivery":{"state":"placed"},"preview":{"url":"https://northfieldstudio.com","site":"northfieldstudio.com","title":"Northfield Studio, product photography","description":"Catalogue and product photography for small brands, shot in natural light.","image":"/api/unfurl/image?url=https%3A%2F%2Fnorthfieldstudio.com%2Fog.jpg"}},{"at":"2026-10-23T13:37:00Z","text":"Got it. I will match their style guide: docs.northfieldstudio.com/style","from":"dana","preview":{"url":"https://docs.northfieldstudio.com/style","site":"docs.northfieldstudio.com","title":"Style guide","description":"How we light, frame and caption a product photograph."}}]}"#
+                let extra = Board.parseThread(Data(more.utf8))?.rows ?? []
+                t = Board.Thread(rows: t.rows + extra, olderCount: t.olderCount, choices: t.choices)
             }
             sampleThreads["dana"] = t
         }

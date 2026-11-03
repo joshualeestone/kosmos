@@ -1270,7 +1270,9 @@ struct ChatView: View {
                                    head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                                    react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                                    reply: row.answerable(by: agent.session) ? { startReply(row) } : nil,
-                                   delete: Board.canDelete(row) ? { deleteMine(row) } : nil)
+                                   delete: Board.canDelete(row) ? { deleteMine(row) } : nil,
+                                   previewImage: row.preview?.image.flatMap { client.previewImages[$0] })
+                            .task(id: row.preview?.image) { if let p = row.preview { await client.loadPreviewImage(p) } }
                     }
                     WayThroughRow(text: wayText(way), action: openOnBoard)
                 }
@@ -1289,8 +1291,10 @@ struct ChatView: View {
                            head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                            react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                            reply: row.answerable(by: agent.session) ? { startReply(row) } : nil,
-                           delete: Board.canDelete(row) ? { deleteMine(row) } : nil)
+                           delete: Board.canDelete(row) ? { deleteMine(row) } : nil,
+                           previewImage: row.preview?.image.flatMap { client.previewImages[$0] })
                     .padding(.top, first ? 10 : 2)
+                    .task(id: row.preview?.image) { if let p = row.preview { await client.loadPreviewImage(p) } }
             }
         }
     }
@@ -2189,6 +2193,45 @@ extension Notification.Name {
 
 // One message as a bubble: the person's on the right, the agent's on the left, in the board's colours; the time (and a
 // tail) on the last bubble of a run. A message the Mac could not deliver gets the board's failed line (kosmos#7136).
+/* kosmos#7864: a link's preview under its message, laid out as the board's pjPreviewCard (#357; #761, Josh: the words
+   first, then a much larger picture under them at the card's own width): the site, the title, the page's words, then its
+   picture. The picture came through the Mac; tapping the card opens the address, as the link in the message does. */
+struct LinkPreviewCard: View {
+    let preview: Board.LinkPreview
+    let image: Data?
+    let width: CGFloat
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Button { openURL(preview.url) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(preview.site).font(.caption).foregroundColor(Palette.secondary).lineLimit(1)
+                    Text(preview.title).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(2)
+                    if let words = preview.description {
+                        Text(words).font(.footnote).foregroundColor(Palette.secondary).lineLimit(3)
+                    }
+                }
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                if let image, let picture = UIImage(data: image) {
+                    Image(uiImage: picture).resizable().scaledToFill()
+                        .frame(width: width, height: min(width * 0.52, 220))
+                        .clipped()
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(width: width, alignment: .leading)
+            .background(Palette.card)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.separator, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct ChatBubble: View {
     let row: Board.ChatRow
     let firstOfRun: Bool
@@ -2206,6 +2249,8 @@ struct ChatBubble: View {
     var react: ((String) -> Void)? = nil
     var reply: (() -> Void)? = nil
     var delete: (() -> Void)? = nil   // kosmos#7614: the person's own sent message only
+    // kosmos#7864: the picture of the row's link preview, once the client has it through the Mac.
+    var previewImage: Data? = nil
     @Environment(\.openURL) private var openURL
 
     private var mine: Bool { row.who == .person }
@@ -2217,6 +2262,9 @@ struct ChatBubble: View {
                 // One long-press per bubble, set here (on the shared bubble it would hide the pending one's Delete).
                 // kosmos#7419: the sheet (quick reactions, More, Reply, Copy text) in place of the menu.
                 .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text, delete: delete)
+            if let preview = row.preview {
+                LinkPreviewCard(preview: preview, image: previewImage, width: UIScreen.main.bounds.width * widthShare)
+            }
             if !row.reactions.isEmpty { ReactionPills(pills: row.reactions, toggle: react, trailing: mine) }
             if let failed {
                 if lastOfRun, let at = row.at {
@@ -2238,6 +2286,8 @@ struct ChatBubble: View {
         .messageActionsAccessibility(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text,
                                      delete: delete)   // kosmos#7614 review 1: VoiceOver's sheet has Delete too
         .accessibilityLabel(spokenLabel)
+        // kosmos#7864: the card is inside this one element, so its link is an action of the bubble.
+        .accessibilityAction(named: Text("Open link")) { if let p = row.preview { openURL(p.url) } }
         // Always present, doing nothing where there is no retry: without a default action VoiceOver's double-tap would
         // fall through as a tap at the bubble's centre, which can land on a link (#7014).
         .accessibilityAction { if failed?.canRetry == true { sendAgain() } }
@@ -2264,6 +2314,7 @@ struct ChatBubble: View {
     private var spokenLabel: String {
         var said = Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
         if let head { said = ReplyHeadLine.words(head) + " " + said }
+        if let p = row.preview { said += ". " + Board.linkPreviewSpoken(p) }
         if !row.reactions.isEmpty { said += ". Reactions: " + row.reactions.map { $0.emoji + ($0.count > 1 ? " \($0.count)" : "") }.joined(separator: ", ") }
         if let failed {
             return said + ", " + Board.failedWords.lowercased()

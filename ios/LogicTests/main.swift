@@ -5572,6 +5572,30 @@ do {
     check(otherSends == 0, "review 1: a count dropped on a computer switch is never sent")
 }
 
+// kosmos#7864: the link preview the Mac attaches to a row, read by the board's pjPreviewCard rules.
+do {
+    let rowJSON = #"{"messages":[{"at":"T1","text":"see joshualeestone.com","from":"dana","preview":{"url":"https://joshualeestone.com/","title":"Josh Stone","description":"Founder","site":"joshualeestone.com","image":"/api/unfurl/image?url=https%3A%2F%2Fjoshualeestone.com%2Fog.png"}},{"at":"T2","text":"plain","from":"dana"}]}"#
+    let rows = Board.parseThread(Data(rowJSON.utf8))?.rows ?? []
+    check(rows.count == 2, "CONTROL: both rows read")
+    let p = rows.first?.preview
+    check(p?.url.absoluteString == "https://joshualeestone.com/" && p?.title == "Josh Stone" && p?.description == "Founder"
+          && p?.site == "joshualeestone.com" && p?.image == "/api/unfurl/image?url=https%3A%2F%2Fjoshualeestone.com%2Fog.png",
+          "a row's preview is read whole")
+    check(rows.last?.preview == nil, "CONTROL: a row with no preview has none")
+    func lp(_ json: String) -> Board.LinkPreview? { Board.parseLinkPreview(try? JSONSerialization.jsonObject(with: Data(json.utf8))) }
+    check(lp(#"{"url":"javascript:alert(1)","title":"x"}"#) == nil, "an address that is not http(s) is no preview")
+    check(lp(#"{"url":"ftp://x.example.com/","title":"x"}"#) == nil, "nor ftp")
+    check(lp(#"{"url":"https://x.example.com/"}"#) == nil, "no title, words or picture: no card (the board's rule)")
+    check(lp(#"{"url":"https://x.example.com/","description":"words"}"#)?.title == "https://x.example.com/", "no title: the address stands in")
+    check(lp(#"{"url":"https://x.example.com/a","title":"T"}"#)?.site == "x.example.com", "no site: the host stands in")
+    check(lp(#"{"url":"https://x.example.com/","title":"T","image":"https://evil.example.net/p.png"}"#)?.image == nil, "a picture from anywhere but the Mac's unfurl route is dropped")
+    check(lp(#"{"url":"https://x.example.com/","title":"T","image":"/api/agent/x/files/download"}"#)?.image == nil, "another Mac route is not a preview picture")
+    check(lp(#"{"url":"https://x.example.com/","title":"T","image":"/api/unfurl/image?url=a/../../b"}"#)?.image == nil, "a path with .. is dropped")
+    check(lp(#"{"url":"https://x.example.com/","title":"   "}"#) == nil, "a blank title is no title")
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T"}"#)!) == "Link: T, x.example.com", "VoiceOver hears the title and the site")
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"x.example.com","site":"x.example.com"}"#)!) == "Link: x.example.com", "and once when they are the same")
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
