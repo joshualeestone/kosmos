@@ -51199,7 +51199,10 @@ async function paintRemoved() {
     const body = await res.json().catch(() => null);
     if (!body || !Array.isArray(body.agents)) return removedUnreadable();
     gone = body.agents;
-    left = Array.isArray(body.leftovers) ? body.leftovers : [];
+    /* Absent only when the board could not read them: keep what was last drawn rather than dropping rows a person may
+       be reaching for (review 1). */
+    if (Array.isArray(body.leftovers)) LEFTOVERS_LAST = body.leftovers;
+    left = LEFTOVERS_LAST;
     REMOVED_EVER_READ = true;
     /* ⚠️ AND TAKE THE SENTENCE DOWN. Written on a first-load failure, it was
        never retracted: one transient /api/removed failure left "we could not
@@ -51259,7 +51262,10 @@ async function paintRemoved() {
      the direction; aria-expanded and the list itself carry open/closed.
      A flipping Show/Hide made the five-second repaint move the word under
      the pointer. */
-  toggle.textContent = 'Show removed agents (' + (gone.length + left.length) + ')';
+  /* kosmos#7825 review 1: a name with only settings left was never necessarily removed, so the label names both. */
+  toggle.textContent = (left.length === 0 ? 'Show removed agents'
+    : gone.length === 0 ? 'Show what is left of past agents'
+      : 'Show removed agents and what is left of others') + ' (' + (gone.length + left.length) + ')';
   toggle.setAttribute('aria-expanded', String(REMOVED_OPEN));
   list.hidden = !REMOVED_OPEN;
   /**
@@ -51375,6 +51381,8 @@ async function paintRemoved() {
   }
 }
 
+/* kosmos#7825: the last leftovers list the board could read, kept when a later read fails. */
+let LEFTOVERS_LAST = [];
 // The last markup `paintRemoved` produced. See the note in that function for
 // why the comparison is against this rather than against `list.innerHTML`.
 let REMOVED_HTML = null;

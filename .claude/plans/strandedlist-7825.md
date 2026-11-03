@@ -30,3 +30,18 @@ Rejected:
 ## Weakest premise
 That `job === false` from survey's jobReader is reliable on every platform; where it answers null the name is left out,
 which hides a real leftover rather than offering a wrong one.
+
+## Review round 1 (opus, fixed)
+- A running agent (its folder can go while it runs, #127) is left out, case-blind where the disk is; a failed roster
+  read lists none.
+- A profile recording a folder outside the workers folder is left out, read from the profile and never looked at (so
+  a share that is gone cannot block the poll).
+- The list reuses the board poll's survey when it is under 10 s old, so jobs are not read twice per poll.
+- A failed read is not remembered on the server, and the page keeps the leftover rows it last drew when the field is
+  absent (one bad read no longer hides a row a person is reaching for).
+- The toggle no longer calls these removed: "Show what is left of past agents (N)", or "Show removed agents and what
+  is left of others (N)" with both.
+- Engine and page fixes mutation-checked (running, outside, case fold, roster failure, survey reuse, keep-last, label).
+  REASONED, not measured: the server not remembering a failed read (no route-level way to fail the read in the test).
+- Declined: "settings and picture" wording (a picture reads as part of its settings); clearing the memo on connect and
+  world-start writes (a stale row lives at most 15 s and its click refuses with a true sentence).

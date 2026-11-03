@@ -9,8 +9,9 @@
  * This drives the real paintRemoved() against a stubbed /api/removed (no board) and reads the rendered rows.
  *
  * Arms: leftovers alone show the section with no Restore and no folder hint; mixed with a removed row the count is
- * both and the hint stays with the removed rows; the field absent (the board could not read it) with no removed rows
- * hides the section (NEGATIVE); the door fetches the plan and paints a refusal under the list.
+ * both and the hint stays with the removed rows; the field absent (the board could not read it)
+ * keeps the rows last drawn; nothing removed and nothing left over hides the section (NEGATIVE); the door fetches the
+ * plan and paints a refusal under the list.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-settings-leftover-7825.js
@@ -87,8 +88,12 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
       leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }] };
     await paintRemoved();
     out.mixed = snap();
-    // 3. NEGATIVE: field absent and no removed rows
-    body = { agents: [] };
+    // 3. a failed leftovers read (field absent) keeps the rows last drawn
+    body = { agents: [{ name: 'gone-7825', shownAs: 'Gone', removedAt: '2026-11-02T00:00:00Z', stopped: true, accountFolderGone: false }] };
+    await paintRemoved();
+    out.failed = snap();
+    // 4. NEGATIVE: nothing removed and nothing left over
+    body = { agents: [], leftovers: [] };
     await paintRemoved();
     out.none = snap();
     return out;
@@ -100,7 +105,7 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
 
   const a = r.alone;
   check(!a.wrapHidden && !r.aloneListHidden, 'leftovers alone: the removed section shows and opens', JSON.stringify({ wrap: a.wrapHidden, list: r.aloneListHidden }));
-  check(a.label === 'Show removed agents (1)', 'leftovers alone: the count includes it', a.label);
+  check(a.label === 'Show what is left of past agents (1)', 'leftovers alone: the label does not call it removed, and counts it', a.label);
   const row = a.rows[0] || {};
   check(a.rows.length === 1 && row.who === 'Stray', 'leftovers alone: one row, by its shown name', JSON.stringify(a.rows));
   check(row.when === 'Only its settings are left', 'leftovers alone: the row says only its settings are left', row.when);
@@ -112,13 +117,14 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   check(/waiting to start/.test(r.msg) && !r.modalOpen, 'a refused plan is painted as a sentence under the list, not a modal', JSON.stringify({ msg: r.msg, modal: r.modalOpen }));
 
   const m = r.mixed;
-  check(m.label === 'Show removed agents (2)', 'mixed: the count is both', m.label);
+  check(m.label === 'Show removed agents and what is left of others (2)', 'mixed: the label names both and counts both', m.label);
   const gone = m.rows.find((x) => x.who === 'Gone') || {};
   const stray = m.rows.find((x) => x.who === 'Stray') || {};
   check(gone.restore === true && stray.restore === false, 'mixed: Restore on the removed row only', JSON.stringify(m.rows));
   check(m.hint === true && m.hintAfterRemoved === 1, 'mixed: the folder hint stays with the removed rows, before the leftovers', String(m.hintAfterRemoved));
 
-  check(r.none.wrapHidden === true, 'NEGATIVE: no removed rows and no leftovers field hides the section', JSON.stringify(r.none));
+  check(r.failed.rows.some((x) => x.who === 'Stray') && r.failed.rows.some((x) => x.who === 'Gone'), 'a failed leftovers read keeps the leftover rows last drawn', JSON.stringify(r.failed.rows));
+  check(r.none.wrapHidden === true, 'NEGATIVE: nothing removed and nothing left over hides the section', JSON.stringify(r.none));
 
   await browser.close();
   console.log(bad ? `render-settings-leftover-7825: ${bad} problem(s)` : 'render-settings-leftover-7825: all clear');
