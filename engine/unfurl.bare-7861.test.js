@@ -6,10 +6,10 @@
  * Four things are checked here:
  *   1. the engine finds a bare address by the SAME rule the page links one by (web/index.html pjBareWeb and
  *      pjBareSplit are lifted and run beside the engine's copies on one list of words);
- *   2. on WHOLE messages, the link the engine previews is always one the page's own renderer (pjRich, lifted) draws:
- *      the board never fetches a word the chat shows as text;
+ *   2. on whole messages, a fixed list and generated ones, a bare address the engine previews is always a link the
+ *      page's own renderer (pjRich, lifted) draws: the board never fetches a word the chat shows as text;
  *   3. which link in a message is the one previewed;
- *   3. the https-then-http order, and that a refusal from the address gate never falls back.
+ *   4. the https-then-http order, and that a refusal from the address gate never falls back.
  * Nothing touches the network: the fetcher and the resolver are the module's own seams.
  */
 const test = require('node:test');
@@ -24,7 +24,8 @@ const pageFns = new Function(page.lift(SCRIPT, 'pjBareWeb') + '\n' + page.lift(S
 const RICH = ['esc', 'pjRich', 'pjRichSpans', 'pjListDepth', 'pjBareWeb', 'pjBareSplit', 'pjTableAligns', 'pjTableCells', 'pjTableHtml'];
 const pjRich = new Function(RICH.map((n) => page.lift(SCRIPT, n)).join('\n') + '\nreturn pjRich;')();
 /* The addresses the page links in a message, in order. */
-const pageLinks = (text) => [...pjRich(text).matchAll(/<a class="xlink" href="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, '&'));
+const unesc = (h) => h.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+const pageLinks = (text) => [...pjRich(text).matchAll(/<a class="xlink" href="([^"]*)"/g)].map((m) => unesc(m[1]));
 /* Until `ready()` holds or two seconds pass, so a loaded machine is not a red. */
 async function until(ready) {
   for (let i = 0; i < 200 && !ready(); i += 1) await new Promise((r) => setTimeout(r, 10));
@@ -86,23 +87,46 @@ const MESSAGES = [
   'claude.ai/settings', 'mail x@example.com', 'ftp://files.example.com then example.org', 'v0.7.70 is out',
   'first example.org then https://b.example.com', 'https://a.example.com/x, then b.org', 'store.ROOT and logger.info',
   'example.com\'s page', '"example.com"', 'line one\nline two example.dev/docs', 'see http://typed.example.com',
+  'evil.example.com[x](y.org)', 'see evil.example.com[x](https://y.example.org)', 'evil.example.com[x](notalink)',
+  '**example.com**[z.com](q.com)', '[l](t)x.example.com', '[docs](example.com).', '>example.com', '|a.example.com|b.org|',
 ];
 
-test('#7861: on whole messages, the link previewed is always a link the page itself draws (pjRich, lifted)', () => {
+test('#7861: on a fixed list of whole messages, a bare address previewed is always a link the page itself draws', () => {
   let bare = 0;
+  let missed = 0;
   for (const text of MESSAGES) {
     const got = unfurl.firstLinkInfo(text);
     const drawn = pageLinks(text);
-    if (got) {
-      assert.equal(got.url, drawn[0], 'previewed ' + got.url + ' but the page draws ' + JSON.stringify(drawn) + ' for ' + JSON.stringify(text));
-      if (got.bare) bare += 1;
-    } else if (text.indexOf('`') === -1) {
-      // Outside code, nothing the page links goes unpreviewed.
-      assert.deepEqual(drawn, [], 'the page links ' + JSON.stringify(drawn) + ' but nothing is previewed for ' + JSON.stringify(text));
+    if (got && got.bare) {
+      assert.ok(drawn.includes(got.url), 'previewed ' + got.url + ' but the page draws ' + JSON.stringify(drawn) + ' for ' + JSON.stringify(text));
+      bare += 1;
     }
+    if (!got && drawn.length) missed += 1;
   }
   assert.ok(bare >= 10, 'CONTROL: the list holds bare addresses the engine previews, got ' + bare);
-  assert.ok(MESSAGES.some((t) => t.indexOf('`') !== -1 && pageLinks(t).length), 'CONTROL: a message with code the page still links (the conservative miss)');
+  assert.ok(missed >= 1, 'CONTROL: the list holds a link the page draws that the conservative scan skips');
+});
+
+/* A small fixed-seed generator, so a red names a message that reproduces. */
+function rng(seed) { let x = seed >>> 0; return () => { x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; }; }
+const PIECES = ['example.com', 'x.example.org', 'docs.example.dev/a', 'claude.ai', 'notes.md', 'https://e.example.net',
+  'mailto:a@b.co', '[', ']', '(', ')', '[l](t.example.com)', '[a b](https://f.example.io)', '*', '**', '_', '~', '>', '#', '-',
+  '|', '.', ',', '"', '\'', '\n', ' ', ' ', ' ', '1.', '---', 'word', 'www.example.uk/x?y=1'];
+
+test('#7861: on generated messages (no code), a bare address previewed is always a link the page itself draws', () => {
+  const next = rng(7861);
+  let checked = 0;
+  for (let n = 0; n < 20000; n += 1) {
+    let text = '';
+    const len = 1 + Math.floor(next() * 9);
+    for (let k = 0; k < len; k += 1) text += PIECES[Math.floor(next() * PIECES.length)];
+    const got = unfurl.firstLinkInfo(text);
+    if (!got || !got.bare) continue;
+    checked += 1;
+    const drawn = pageLinks(text);
+    assert.ok(drawn.includes(got.url), 'previewed ' + got.url + ' but the page draws ' + JSON.stringify(drawn) + ' for ' + JSON.stringify(text));
+  }
+  assert.ok(checked >= 2000, 'CONTROL: enough generated messages had a bare address, got ' + checked);
 });
 
 test('#7861: which link in a message is previewed: the first, bare or explicit; code and other schemes are not', () => {

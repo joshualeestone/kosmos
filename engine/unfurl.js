@@ -403,26 +403,37 @@ function bareSplit(tok) {
 /** kosmos#7861: the first link in a message's text, explicit (http/https) or bare, whichever comes first, as
     { url, bare } or null. A bare one is its https:// address.
     The bare scan is CONSERVATIVE, because the page decides what is a link (web/index.html pjRich) and a word the page
-    shows as text must never be fetched: a message with any backtick (code, fenced or inline) gets no bare scan at all,
-    and a markdown link [label](target) offers only its target, as the page links only that. A bare address the page
-    links but this skips simply gets no preview, which is how every bare address was before. The explicit scan is
-    unchanged. engine/unfurl.bare-7861.test.js renders whole messages with the page's own pjRich and checks that the
-    link found here is always one the page draws. */
+    shows as text must never be fetched. It looks only at whole words between whitespace, and skips: every word in a
+    message with any backtick (code), every word that overlaps a markdown link [label](target) (a label is text on the
+    page, and text glued to a link is not a separate word there), except the target of a link that stands alone between
+    whitespace. A bare address the page links but this skips (a quote marker or table cell with no space after it, say)
+    gets no preview, which is how every bare address was before. The explicit scan is unchanged.
+    engine/unfurl.bare-7861.test.js checks against the page's own pjRich that a bare address found here is always one
+    the page draws, on a fixed list and on generated messages. */
+const MD_LINK_RE = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
 function firstLinkInfo(text) {
   const raw = String(text || '');
   const m = raw.match(LINK_RE);
   const explicit = m ? { url: m[0].replace(/[.,;:!?]+$/, ''), bare: false, at: m.index } : null;
   if (raw.indexOf('`') !== -1) return explicit ? { url: explicit.url, bare: false } : null;
-  // A markdown link keeps its target in place and blanks its label (same length, so positions still compare).
-  const scan = raw.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (all, label, target) => ' '.repeat(label.length + 3) + target + ' ');
+  const links = [...raw.matchAll(MD_LINK_RE)].map((l) => ({ from: l.index, to: l.index + l[0].length, target: l[2] }));
   const words = /\S+/g;
   let w;
   let bare = null;
-  while ((w = words.exec(scan)) !== null) {
+  while ((w = words.exec(raw)) !== null) {
     if (explicit && w.index >= explicit.at) break;
-    if (/^[a-z][a-z0-9+.-]*:/i.test(w[0])) continue;   // a scheme of its own (http:, mailto:, ftp:): never a bare address
-    const got = bareSplit(w[0]);
-    if (got) { bare = { url: got.web, bare: true }; break; }
+    const from = w.index;
+    const to = w.index + w[0].length;
+    const touching = links.filter((l) => l.from < to && l.to > from);
+    let cand = w[0];
+    if (touching.length) {
+      // Only a link that IS this whole word offers its target; anything else touching a link is skipped.
+      if (touching.length !== 1 || touching[0].from !== from || touching[0].to !== to) continue;
+      cand = touching[0].target;
+    }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(cand)) continue;   // a scheme of its own (http:, mailto:, ftp:): never a bare address
+    const got = bareSplit(cand);
+    if (got && !(touching.length && (got.lead || got.tail))) { bare = { url: got.web, bare: true }; break; }
   }
   if (bare) return bare;
   return explicit ? { url: explicit.url, bare: false } : null;

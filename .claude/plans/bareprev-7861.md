@@ -13,9 +13,14 @@ with no preview, and http://joshualeestone.com had one.
   the server was its only caller.
 - The bare scan is CONSERVATIVE (review round 1): the page's renderer (pjRich) does more before it links a word (fences,
   inline code, code touching a word, markdown links), and porting all of it would be a second renderer to keep in step.
-  So a message with any backtick gets no bare scan (the explicit scan is unchanged there), and a markdown link offers
-  only its target. Missing a bare preview is today's behaviour; previewing a word the chat shows as text is the error
-  this rules out.
+  So the bare scan looks only at whole words between whitespace: a message with any backtick gets none (the explicit
+  scan is unchanged there), a word overlapping a markdown link is skipped, and only a link that is a whole word on its
+  own offers its target (review round 2: text glued to a link, evil.com[x](y.org), was split off and previewed though
+  the page shows it as text). Missing a bare preview is today's behaviour; previewing a word the chat shows as text is
+  the error this rules out. Known misses: a quote marker or table cell with no space (>example.com, |a.com|).
+- What is guaranteed, and tested: a bare address previewed is always a link the page draws. NOT guaranteed: that it is
+  the FIRST link the page draws (>x.com then https://e.org previews e.org), and the explicit scan's old behaviour (it can
+  preview an http link the page shows as text, e.g. in quotes) is unchanged by this card.
 - previewBare: https first; http only when https was not reached (no connection, too slow, or a 5xx). A 4xx is the
   site's answer, an answer with nothing to show stays an answer, and the address gate is never sidestepped (a private
   address is refused before any fetch, over either scheme). Its result is kept under its OWN key ('b:'), read by
@@ -40,9 +45,10 @@ a missing feature, not this bug, so it is its own card, #7864, which I take afte
   residual is a file named like a multi-label host.
 
 ## Verified
-- engine/unfurl.bare-7861.test.js (10 tests), including WHOLE-MESSAGE parity: 32 messages rendered by the page's own
-  pjRich (lifted with its 8 helpers); the link previewed is always the first link the page draws, and outside code
-  nothing the page links goes unpreviewed. server.unfurl-bare-7861.test.js (4, through GET /api/messages).
+- engine/unfurl.bare-7861.test.js (11 tests), including whole-message parity against the page's own pjRich (lifted with
+  its 8 helpers): a fixed list of 40 messages and 20000 generated ones (fixed seed); a bare address previewed is always
+  a link the page draws. server.unfurl-bare-7861.test.js (4, through GET /api/messages).
+- Mutation G (round 2): the round-1 unfurl.js put back in place turns both parity tests red, each naming a message.
 - Mutations, each restored after: no backtick rule (E) and no label blanking (F) each turn the parity test red; the
   server back to explicit-only links turns both bare route tests red, controls green; the bare flag dropped from warm
   turns both bare route tests red (the bare key is never filled).
