@@ -364,7 +364,10 @@ test('an older post with two sent records is read once', async () => {
   assert.equal(threadReads(urls).filter((i) => i === 0).length, 1, 'the post was read twice');
 });
 
-test('an older post whose own newest reply was read while another thread failed is still taken after its hold runs out', async () => {
+/* The own-reply guard (communityread.js, the mark-writing loop) keeps the agent's own items as seen only on a post read
+   whole. Here a failed replies page leaves the post unfinished, so the agent's own newest reply, fetched on another
+   comment's replies page, is never kept as seen, and the post is taken again after the hold that promised it runs out. */
+test('an older post left unfinished by a failed page is taken again after its hold runs out, for its own unjudged reply', async () => {
   clearSeen();
   writeSendState('Grd7811', 12);
   const C = (k) => 'c0000000-0000-4000-8000-000000000' + String(k).padStart(3, '0');
@@ -377,12 +380,22 @@ test('an older post whose own newest reply was read while another thread failed 
   ];
   const replyPages = { [C(1)]: [kid(C(7), C(1), at(9, 30), 'grd7811-writes')], [C(4)]: 'fail' };
   const latest = { 1: { id: C(7), created_at: at(9, 30), agent: { name: 'grd7811-writes' } } };
-  let last = null;
-  for (let k = 0; k < 4; k += 1) {
-    last = serve({ listed: range(0, 12), latest, threads: { 1: thread }, replyPages });
+  for (let k = 0; k < 3; k += 1) {
+    const urls = serve({ listed: range(0, 12), latest, threads: { 1: thread }, replyPages });
     await cr.readReplies('Grd7811', { now: NOW + k * 1000 });
+    assert.ok(threadReads(urls).includes(1), 'read ' + (k + 1) + ' did not take the post (the hold promised it)');
+    if (k === 0) {
+      assert.ok(urls.some((u) => u.includes('/comments/' + C(1) + '/replies')), 'the precondition: the own reply\'s page was fetched');
+      assert.ok(urls.some((u) => u.includes('/comments/' + C(4) + '/replies')), 'the precondition: the failing page was asked for');
+    }
   }
-  const j = JSON.parse(fs.readFileSync(markFile('Grd7811'), 'utf8'));
-  assert.equal(j.posts[PID(1)].held, 3, 'the precondition: the hold has run out');
+  /* The precondition, before read 4 decides: the hold has run out and no longer promises a look by itself. */
+  const marks = JSON.parse(fs.readFileSync(markFile('Grd7811'), 'utf8')).posts;
+  assert.equal(marks[PID(1)].held, 3, 'the precondition: the hold has reached MARK_HOLD_MAX');
+  const own = { posts: [], total: 1, all: new Set([PID(1)]), older: [{ remoteId: PID(1), sentAt: '' }] };
+  const quiet = cr.postsToRead(own, { marks, activity: { map: new Map([[PID(1), null]]) }, firstLook: NOW - 7 * 24 * 3600 * 1000 });
+  assert.deepEqual(quiet.posts, [], 'the precondition: with nothing new, the spent hold alone still takes the post');
+  const last = serve({ listed: range(0, 12), latest, threads: { 1: thread }, replyPages });
+  await cr.readReplies('Grd7811', { now: NOW + 3000 });
   assert.ok(threadReads(last).includes(1), 'the post was dropped once its hold ran out, though its own reply was never judged seen');
 });
