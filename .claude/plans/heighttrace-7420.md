@@ -8,8 +8,8 @@ builds are unchanged, and the room logic tests (including the trace allow-list) 
 
 ## What it adds (all Debug only, all off unless the environment switch is set)
 1. `KOSMOS_SAMPLE_FIRSTPAGE=1` (BoardClient.threadRead, sample path): a read with `tail` gets the newest `tail` rows,
-   with olderCount counting the rest, as server.js answers it since #7810; a whole-window read waits 1 s first, as
-   a phone's second read lands later. One `thread(for:)` call per read, so KOSMOS_SAMPLE_GROW grows once per read.
+   with olderCount counting the rest, as server.js answers it since #7810; every whole-window read waits 1 s first
+   (each later poll too, not only the read after the small page), as a phone's second read lands later. One `thread(for:)` call per read, so KOSMOS_SAMPLE_GROW grows once per read.
 2. `KOSMOS_SAMPLE_HEIGHT=1` with `KOSMOS_SAMPLE_TRACE=1` (KeyboardHold.Probe): every 0.5 s a trace line of points and a
    count: content height, offset, rows drawn, the first and last drawn row's place, the content past the last.
    The timer stops itself when the chat leaves the window. `heightLine` is admitted to the trace allow-list by name,
@@ -20,6 +20,8 @@ builds are unchanged, and the room logic tests (including the trace allow-list) 
    newest message as the New messages capsule does.
 
 ## Decided
+- HEIGHT and WALK live in KeyboardHold.Probe, so they are silent below iOS 26 and with KOSMOS_SAMPLE_NOKBHOLD=1
+  (the Probe is off there, and RowTop readings exist only on iOS 26 and later).
 - Debug only, behind environment switches, like the KOSMOS_SAMPLE_* switches beside them. Nothing in a Release build.
 - The height line carries no ids: per-row ids would need an allow-list judgement and the counts answer the question.
 - Not a UI test: these are measurement tools for a person reading the trace; a test asserting the numbers would pin

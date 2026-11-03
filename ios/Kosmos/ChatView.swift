@@ -819,7 +819,10 @@ struct ChatView: View {
                 #if DEBUG
                 // kosmos#7420, KOSMOS_SAMPLE_WALK=1: the walk's steps count as a reader's scroll, as a drag's do.
                 .onReceive(NotificationCenter.default.publisher(for: .sampleWalking)) { n in
-                    personScrolling = (n.object as? Bool) ?? false
+                    let walking = (n.object as? Bool) ?? false
+                    // The start only for the chat on screen (another tab can keep a chat alive under it); the end for any.
+                    guard visible || !walking else { return }
+                    personScrolling = walking
                     // A scroll by code leaves the id anchor naming "end", and SwiftUI puts the list back there on its next
                     // update (measured: from 5166 to 28435 on the poll); a finger's scroll moves the anchor, so let it go.
                     if personScrolling { atBottom = false; positionId = nil; anchorLetGo = true }
@@ -2858,8 +2861,11 @@ struct KeyboardHold: UIViewRepresentable {
         #if DEBUG
         private var jumpWatch: NSKeyValueObservation?
         private var heightTimer: Timer?   // kosmos#7420, KOSMOS_SAMPLE_HEIGHT=1
+        private var walkTimer: Timer?   // kosmos#7420, KOSMOS_SAMPLE_WALK=1: the walk under way, ended on re-entry
+        private var walkStart: DispatchWorkItem?   // its start, 4 s after opening, cancelled on re-entry
         // kosmos#7420: points and counts only (the allow-list test pins this line): the reported content height, the offset,
-        // how many rows are drawn, the first and last drawn row's place in the content, and the content left past the last.
+        // how many rows have a reading in RowTops, the first and last of those rows' tops in the content, and the content
+        // past the last row's top (its own height included).
         static func heightLine(_ sv: UIScrollView, rows: RowTops) -> String {
             let at = rows.y.values.map(\.content), first = at.min() ?? 0, last = at.max() ?? 0, size = sv.contentSize.height
             return "content \(Int(size)), y \(Int(sv.contentOffset.y)), drawn \(at.count), from \(Int(first)) to \(Int(last)), past last \(Int(size - last))"
@@ -2954,25 +2960,32 @@ struct KeyboardHold: UIViewRepresentable {
             // reports against where its drawn rows sit in that content, to see the lazy list's estimate (124690 pt for about
             // 19498 measured on Josh's phone) grow as the window lands.
             heightTimer?.invalidate(); heightTimer = nil
+            walkStart?.cancel(); walkStart = nil
+            if walkTimer != nil { walkTimer?.invalidate(); walkTimer = nil; NotificationCenter.default.post(name: .sampleWalking, object: false) }
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HEIGHT"] == "1" {
-                heightTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] t in
+                let height = Timer(timeInterval: 0.5, repeats: true) { [weak self] t in
                     guard let self, self.window != nil else { t.invalidate(); return }   // the chat left: no more lines
                     guard let v = self.scroll, let r = self.rows else { return }
                     ChatView.trace("height: \(Self.heightLine(v, rows: r))")
                 }
+                RunLoop.main.add(height, forMode: .common)   // .common: lines keep coming while a finger scrolls too
+                heightTimer = height
                 // KOSMOS_SAMPLE_WALK=1: 4 s after opening, a screen up every 0.3 s to the top, so every row is drawn and
-                // measured once; the height lines after it are the true content height to set against the estimates.
+                // measured once; 2 s after the top it asks for the newest message as the New messages capsule does.
                 if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WALK"] == "1" {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                    let start = DispatchWorkItem { [weak self] in
+                        guard let self, self.window != nil else { return }   // a rebuilt or closed list: no walk, no notice
                         NotificationCenter.default.post(name: .sampleWalking, object: true)
-                        Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { t in
-                            guard let self, self.window != nil, let v = self.scroll else { t.invalidate(); return }
+                        self.walkTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] t in
+                            guard let self, self.window != nil, let v = self.scroll else {
+                                t.invalidate(); NotificationCenter.default.post(name: .sampleWalking, object: false); return
+                            }
                             let top = -v.adjustedContentInset.top
                             if v.contentOffset.y <= top + 1 {
-                                t.invalidate(); ChatView.trace("height: walk at the top")
+                                t.invalidate(); self.walkTimer = nil; ChatView.trace("height: walk at the top")
                                 NotificationCenter.default.post(name: .sampleWalking, object: false)
-                                // As the New messages capsule does from far up (the jump across the unmeasured stretch).
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                                    guard let self, self.window != nil else { return }
                                     ChatView.trace("height: walk asks for the newest")
                                     NotificationCenter.default.post(name: .chatScrollToEnd, object: nil)
                                 }
@@ -2981,6 +2994,8 @@ struct KeyboardHold: UIViewRepresentable {
                             v.setContentOffset(CGPoint(x: 0, y: max(top, v.contentOffset.y - v.bounds.height)), animated: false)
                         }
                     }
+                    walkStart = start
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4, execute: start)
                 }
             }
             // kosmos#7690: a Debug sample run with a trace: every jump of the list and what made it (the tap on the box moves a room by
