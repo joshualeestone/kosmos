@@ -90,5 +90,6 @@ never offering at all.
   stayed green), so it was an unarmed guard.
 - Picture-only wording pinned end to end. Each fix mutation-checked.
 - Declined: a create-in-flight guard (create writes the profile after the folder, create.js:7205, so a name mid-create
-  has a folder and never reaches this path); win32 records-only test (the records-only arm has no platform branch: no
-  job, so win32job is never asked).
+  has a folder and never reaches this path); a win32 records-only test (the records-only arm adds no platform branch: on
+  win32 it is reached only after win32job.presence answers known and not registered, an arm the existing #570 tests
+  pin; after that the records path is the same on every platform).
