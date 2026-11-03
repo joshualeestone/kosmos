@@ -95,7 +95,7 @@ final class KeyboardSlideUITests: XCTestCase {
     // shown height 412 -> 390 -> 368 -> 346, no keyboard event). No debug hook: the box grows to about four lines at the
     // newest message of the long chat, and a message must still be drawn, whether it never went empty or the chat's own
     // recovery (the empty check and its rebuild) brought it back. (Measured 10-31: the newest message itself can end up
-    // behind the grown box; that is the box's growth not followed, noted on #7420, not this check's empty list.)
+    // behind the grown box; that is the box's growth not followed, #7817, checked by testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks.)
     // kosmos#7688 (5): a REGRESSION GUARD ONLY. It passes with or without the rebuild (the simulator does not reproduce the
     // empty list), and it counts message rows the accessibility tree holds, so the newest can be behind the box and it
     // still passes. Never cite it as evidence that the composer-growth report is fixed.
@@ -174,9 +174,38 @@ final class KeyboardSlideUITests: XCTestCase {
         }
         XCTAssertGreaterThan(box.frame.height, h0 + 60, "the box did not grow by at least three lines")
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = "grown"; a.lifetime = .keepAlways; add(a)
-        // And back down: deleting the last two pieces takes lines off the box.
-        box.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 110))
-        checkGap("after deleting two pieces")
+        // And back down: deleting the last four pieces takes the box under its line limit and lines off it.
+        let grown = box.frame.height
+        box.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 220))
+        checkGap("after deleting four pieces")
+        XCTAssertLessThan(box.frame.height, grown - 15, "the box did not shrink by a line (\(Int(grown)) to \(Int(box.frame.height)) pt)")
+    }
+
+    // kosmos#7817: a reader higher up is not pulled to the newest message as the box grows (only one at the newest is).
+    func testReadHigherUpStaysWhileTheBoxGrows() throws {
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_TRACE": "1"])
+        let box = Self.box(app)
+        let rows = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message ' AND label ENDSWITH ' of 260.'"))
+        XCTAssertTrue(rows.firstMatch.waitForExistence(timeout: 15), "no sample rows")
+        let rested = app.descendants(matching: .any).matching(identifier: "sample-scroll-rested").firstMatch
+        XCTAssertTrue(rested.waitForExistence(timeout: 30), "the sample scroll-up never came to rest")
+        Self.settle(rows.firstMatch)
+        let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
+        let header = app.navigationBars.firstMatch.frame.maxY
+        guard let top = rows.allElementsBoundByIndex.filter({ $0.isHittable && $0.frame.minY > header }).min(by: { $0.frame.minY < $1.frame.minY }) else {
+            XCTFail("no row on screen after the scroll up"); return
+        }
+        let row = app.staticTexts[top.label]
+        try Self.keyboardUp(app, box, row, shot: "higher-grow-keyboard-up", test: self)
+        let y0 = row.frame.minY
+        let h0 = box.frame.height
+        for _ in 1...3 { box.typeText("the catalogue pages need the new photos before Monday ") }
+        Self.settle(box)
+        Self.settle(row)
+        XCTAssertGreaterThan(box.frame.height, h0 + 30, "the box did not grow")
+        XCTAssertTrue(row.exists && row.isHittable, "'\(top.label)', read higher up, left the screen as the box grew")
+        XCTAssertEqual(row.frame.minY, y0, accuracy: 4, "'\(top.label)' moved from \(y0) to \(row.frame.minY) as the box grew")
+        XCTAssertFalse(newest.exists && newest.isHittable, "the reader was pulled down to the newest message")
     }
 
     private static func launch(_ env: [String: String]) -> XCUIApplication {

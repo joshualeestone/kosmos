@@ -17,7 +17,9 @@ above the box (within 4 pt). A reader higher up is not moved by it.
 ## Change
 - ChatView: `stripHeight`, the height of the strip under the list (the box and its line), read by a GeometryReader on
   the strip. When it changes and the reader is at the newest message (`atBottom`, not searching, no finger on the
-  list), the list is put at its end, as keyboardDidShow already does.
+  list), the list is put at its end, as keyboardDidShow already does. Under the id anchor (iOS 17+), an anchor still on
+  "end" counts as at the newest too, since a jump of several lines can hide the end marker and clear atBottom first.
+- ios/tools/ui-sample.sh: KeyboardSlideUITests count 9; ui-keyboard.sh's stale count 3 raised to 9.
 
 ## Rejected
 - Scrolling on every draftText change: a wrap is what moves the list, not a letter.
@@ -26,8 +28,11 @@ above the box (within 4 pt). A reader higher up is not moved by it.
 ## Weakest premise
 `atBottom` must still be true after the box has covered the end marker. It clears only under a person's scroll
 (ChatView end-disappear), which the test's pass supports but a device may differ (Josh's phone moved the list the
-other way, which the simulator did not reproduce).
+other way, which the simulator did not reproduce). On iOS 16 (no id anchor) a paste of several lines can still clear
+atBottom before the follow runs; residual, not tested (the simulator runs iOS 26).
 
 ## Tests
 - KosmosUITests/KeyboardSlideUITests.testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks: fails on main (90 to 46 pt
-  after one line), passes with the fix. Run by ios/tools/ui-keyboard.sh and CI's ui-sample job.
+  after one line), passes with the fix; the shrink arm asserts the box lost a line.
+- testReadHigherUpStaysWhileTheBoxGrows: a reader 40 rows up stays within 4 pt while the box grows three pieces.
+- Run by ios/tools/ui-keyboard.sh and CI's ui-sample job.
