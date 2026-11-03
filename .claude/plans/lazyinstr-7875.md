@@ -2,7 +2,7 @@
 
 ## Finished looks like
 Every agent's standing instructions no longer carry the long "how connecting works" text (171 lines, 10,499
-characters, about 2,600 tokens on every turn of every agent). They carry a short block (about 830 characters) that
+characters, about 2,600 tokens on every turn of every agent). They carry a short block (about 930 characters) that
 says WHEN it applies (the person asks to connect an AI provider, asks about a plugin in their own Claude or Codex app,
 or about the Connections tab) and to run `kosmos connections --how` first, which prints the whole text, unchanged,
 on Mac/Linux and Windows. The next instruction sync replaces the long block in every agent's file.
