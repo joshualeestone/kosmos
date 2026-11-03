@@ -4,10 +4,11 @@
 # b, kept outside the repo, history only), with the same install plus the checks and the user the runbook adds.
 #
 # 🛑 DRY RUN IS THE DEFAULT. Nothing changes unless --apply is given: a change either goes through act(), which
-# otherwise prints "WOULD: <command>", or sits after a stage's own dry-run return (install, register, keepalive).
-# Reads always run, dry or not: launchctl print, crontab -l, pgrep, ps, id, df, stat, shasum, fdesetup, pmset,
-# xcode-select, plutil -extract, gh api GETs, and install's unauthenticated compare GET to api.github.com (with
-# --apply, also launchctl managername and manageruid). A temp file for gh's stderr comes and goes in TMPDIR.
+# otherwise prints "WOULD: <command>", or sits after a stage's own dry-run return (install, register, keepalive, daemon).
+# Reads always run, dry or not: launchctl print and print-disabled, crontab -l, pgrep, ps (with -o ppid=), id, df, stat,
+# shasum, fdesetup, pmset, xcode-select, plutil -extract and -convert to stdout, gh api GETs, and install's
+# unauthenticated compare GET to api.github.com (with --apply, also launchctl managername and manageruid).
+# A temp file for gh's stderr comes and goes in TMPDIR.
 #
 # Usage: tools/ci-runner-setup.sh [--apply] <stage> [args]
 #   preflight                 as the machine owner. Reads only. Refuses while the agents' launchd jobs, crontab
@@ -1042,12 +1043,24 @@ daemon_content_ok() {
 }
 # daemon_set <plist>: the right content, and root-owned 0644 (launchd refuses a system plist anyone else can write).
 daemon_set() {
-  daemon_content_ok "$1" && [ "$(stat -f '%u %Lp' "$1" 2>/dev/null || true)" = "0 644" ]
+  daemon_content_ok "$1" && [ "$(stat -f '%u %g %Lp' "$1" 2>/dev/null || true)" = "0 0 644" ]
 }
-# newest_retired: the newest <agent>.retired-<UTC stamp> (the stamps sort as text), or nothing.
+# The retired LaunchAgent goes to a directory root owns, not beside the agent: there a job could plant a name that the
+# rollback lines would print into a sudo command, and whether launchd skips a .plist.retired-* at login is unmeasured.
+RETIRED_DIR="${KOSMOS_CI_RETIRED_DIR:-/var/db/kosmos-ci-retired}"   # a test seam, like DAEMON_DIR
+# retired_dir_ok: RETIRED_DIR is a real directory (no symlink), root:wheel, mode 700.
+retired_dir_ok() {
+  [ -d "$RETIRED_DIR" ] && [ ! -L "$RETIRED_DIR" ] && [ "$(stat -f '%u %g %Lp' "$RETIRED_DIR" 2>/dev/null || true)" = "0 0 700" ]
+}
+# newest_retired: the newest $RETIRED_DIR/<label>.plist.retired-<UTC stamp> that is a regular file with exactly a
+# stamp for a suffix (the stamps sort as text), or nothing. Any other name is skipped, never printed.
 newest_retired() {
   local f n=""
-  for f in "$agent".retired-*; do [ -e "$f" ] && n="$f"; done
+  retired_dir_ok || return 0
+  for f in "$RETIRED_DIR/$label.plist.retired-"*; do
+    case "${f##*.retired-}" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;; *) continue ;; esac
+    [ -f "$f" ] && [ ! -L "$f" ] && n="$f"
+  done
   printf '%s' "$n"
 }
 # ppid_chain_has <pid> <ancestor>: <ancestor> is <pid> or one of its parents.
@@ -1064,7 +1077,7 @@ ppid_chain_has() {
 daemon_listeners() {
   local prc=0 djob l
   listeners="$(pgrep -u "$ciuid" -f "$own_re")" || prc=$?
-  [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc)" >&2; exit 1; }
+  [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc)${1:+; $1}" >&2; exit 1; }
   dloaded=0; dpid=""; foreign=""
   djob="$(launchctl print "system/$label" 2>/dev/null)" && dloaded=1
   [ "$dloaded" = 0 ] || dpid="$(printf '%s\n' "$djob" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
@@ -1140,7 +1153,12 @@ daemon() {
     from="$(runner_plist)"   # svc.sh's .service must name THIS runner's plist, WorkingDirectory the runner dir
     [ -n "$why" ] || [ "$from" = "$agent" ] || why="$RUNNER_DIR/.service does not name $agent (the plist svc.sh wrote for this runner, WorkingDirectory $RUNNER_DIR); nothing was changed"
     [ -n "$why" ] || [ "$(plutil -extract Label raw -o - "$agent" 2>/dev/null || true)" = "$label" ] || why="$agent has another Label; nothing was changed"
-    retired="$agent.retired-$stamp"
+    # Root moves the agent out of a directory a job can write: no symlink anywhere on that path.
+    [ -n "$why" ] || { [ ! -L "$CI_HOME/Library" ] && [ ! -L "$CI_HOME/Library/LaunchAgents" ] && [ ! -L "$agent" ] && [ -f "$agent" ]; } \
+      || why="$agent, or a directory above it in $CI_HOME, is a symlink or not a regular file; root does not move it. Nothing was changed"
+    [ -n "$why" ] || [ ! -e "$RETIRED_DIR" ] || retired_dir_ok || why="$RETIRED_DIR exists but is not a root:wheel 0700 directory; nothing was changed"
+    case "$stamp" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;; *) [ -n "$why" ] || why="date gave '$stamp', not a UTC stamp" ;; esac
+    retired="$RETIRED_DIR/$label.plist.retired-$stamp"
   elif [ "$dok" = 1 ]; then
     retired="$(newest_retired)"   # retired already, by an earlier run: only the load is left
   elif [ -f "$dplist" ]; then
@@ -1155,7 +1173,7 @@ daemon() {
   local back_cmd="sudo rm $dplist"
   [ -z "$retired" ] || back_cmd="$back_cmd; sudo mv $retired $agent"
   if [ "$APPLY" != 1 ]; then
-    [ -z "$from" ] || echo "WOULD: write $dplist (written here, not copied: UserName $CI_USER, GroupName $cigroup, HOME and USER, KeepAlive {SuccessfulExit: false}, ThrottleInterval 10, ExitTimeOut 35), root:wheel 0644"
+    [ -z "$from" ] || echo "WOULD: write $dplist (written here, not copied: UserName $CI_USER, GroupName $cigroup, HOME and USER, KeepAlive {SuccessfulExit: false}, ThrottleInterval 10, ExitTimeOut 35), root:wheel 0644; the agent to $RETIRED_DIR (root:wheel 0700)"
     [ -z "$from" ] || echo "WOULD: move $agent aside to $retired (kept, so a login cannot start a second Listener)"
     [ -n "$from" ] || echo "note:   $dplist is already written; the LaunchAgent is retired at ${retired:-(no .retired-* file found)}"
     echo "WOULD: launchctl bootstrap system $dplist, then wait for a Runner.Listener of $RUNNER_DIR under it"
@@ -1170,8 +1188,9 @@ daemon() {
     { daemon_xml > "$dplist.new" && daemon_content_ok "$dplist.new" \
       && chown root:wheel "$dplist.new" && chmod 0644 "$dplist.new"; } \
       || { rm -f "$dplist.new"; echo "FAILED: could not write $dplist.new; nothing else was changed" >&2; exit 1; }
-    # The retired name sits in a directory a job can write: a file or directory already there would swallow the agent.
-    { [ ! -e "$retired" ] && [ ! -L "$retired" ] && mv "$agent" "$retired"; } \
+    # Into RETIRED_DIR, made root:wheel 0700 here if it is not there: a file or directory already at the name refuses.
+    { { [ -d "$RETIRED_DIR" ] || { mkdir -m 700 "$RETIRED_DIR" && chown root:wheel "$RETIRED_DIR"; }; } && retired_dir_ok \
+      && [ ! -e "$retired" ] && [ ! -L "$retired" ] && mv "$agent" "$retired"; } \
       || { rm -f "$dplist.new"; echo "FAILED: could not move $agent aside to $retired (is something already there?); nothing was loaded and $dplist was not written" >&2; exit 1; }
     mv -f "$dplist.new" "$dplist" \
       || { rm -f "$dplist.new"; mv "$retired" "$agent" || echo "FAILED: could not put $agent back: sudo mv $retired $agent" >&2
@@ -1191,17 +1210,18 @@ daemon() {
     exit 1
   fi
   launchctl bootstrap system "$dplist" \
-    || { echo "FAILED: launchctl bootstrap system $dplist. The runner stays down until $CI_USER logs in at the console (a LaunchAgent loads only at login). To go back: $back_cmd" >&2; exit 1; }
+    || { echo "FAILED: launchctl bootstrap system $dplist. The runner stays down: its LaunchAgent is moved aside, so a login does not start it, and launchd tries $dplist again at the next boot. To go back (then log in as $CI_USER): $back_cmd" >&2; exit 1; }
   trap - HUP INT TERM PIPE
   # A Listener under the daemon's own pid, still alive a few seconds later (one that dies at once is not a start).
-  local w=0 lim="${KOSMOS_CI_START_WAIT_S:-30}" mine=""
+  local w=0 lim="${KOSMOS_CI_START_WAIT_S:-30}" mine="" undo
+  undo="the daemon is loaded; to go back: sudo launchctl bootout system/$label; $back_cmd"
   while :; do
-    daemon_listeners; mine="$(daemon_child)"
+    daemon_listeners "$undo"; mine="$(daemon_child)"
     if [ -n "$mine" ]; then
-      sleep 3; daemon_listeners
+      sleep 3; w=$((w + 3)); daemon_listeners "$undo"
       [ "$(daemon_child)" = "$mine" ] && break
     fi
-    [ "$w" -lt "$lim" ] || { echo "FAILED: system/$label is loaded but no Runner.Listener of $RUNNER_DIR runs under it after ${w}s; see $RUNNER_DIR/_diag. To go back: sudo launchctl bootout system/$label; $back_cmd" >&2; exit 1; }
+    [ "$w" -lt "$lim" ] || { echo "FAILED: system/$label is loaded but no Runner.Listener of $RUNNER_DIR runs under it after about ${w}s; see $RUNNER_DIR/_diag (the Listener's own logs; a runsvc.sh that fails before it starts leaves none, and launchctl print system/$label shows its last exit). To go back: sudo launchctl bootout system/$label; $back_cmd" >&2; exit 1; }
     sleep 1; w=$((w + 1))
   done
   ok "$label loaded as a LaunchDaemon (system domain, UserName $CI_USER), Listener pid $mine under pid $dpid"

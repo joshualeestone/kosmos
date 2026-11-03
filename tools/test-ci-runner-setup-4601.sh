@@ -244,7 +244,7 @@ run() {
   local envs=()
   while [ "$1" != -- ]; do envs+=("$1"); shift; done; shift
   : > "$LOG"; rm -f "$T/user-created" "$T/booted-out" "$T/bootstrapped"
-  env -i PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$home" CALL_LOG="$LOG" KOSMOS_CI_BREW="$BREWD" KOSMOS_CI_SYSTEM_AGENTS="$T/sysagents" KOSMOS_CI_OWNER_HOME="$T/ownerhome" \
+  env -i PATH="$BIN:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$home" CALL_LOG="$LOG" KOSMOS_CI_DAEMON_DIR="$T/no-daemons" KOSMOS_CI_BREW="$BREWD" KOSMOS_CI_SYSTEM_AGENTS="$T/sysagents" KOSMOS_CI_OWNER_HOME="$T/ownerhome" \
     ${envs[@]+"${envs[@]}"} bash "$S" "$@" > "$T/$name.out" 2>&1 < "${STDIN_FILE:-/dev/null}"
   echo $? > "$T/$name.rc"
   cp "$LOG" "$T/$name.calls"
