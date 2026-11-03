@@ -1093,6 +1093,15 @@ test('#7404 plansNow: the plan is read first; an unread or unreadable plan is a 
   const busy = await onWith(t, {});
   const notSent = { macRequest: async (m, route, body) => (route === oe.ROUTES.status ? { ok: false, notSent: true } : busy.remote.macRequest(m, route, body)) };
   assert.deepEqual(await pb.plansNow({ root: busy.root, remote: notSent }), { ok: false, because: 'Kosmos+ could not be reached just now, so the plans cannot be shown. Try again in a minute.' }, 'a status never sent was told as Kosmos+ answering');
+  const foreign = await onWith(t, { planGb: null });
+  foreign.remote.sent.length = 0;
+  const otherOrg = { sent: foreign.remote.sent, macRequest: async (m, route, body) => {
+    const a = await foreign.remote.macRequest(m, route, body);
+    if (route === oe.ROUTES.status && a && a.ok) a.data = Object.assign({}, a.data, { org: { id: 'org_' + 'c'.repeat(24), kind: 'personal' } });
+    return a;
+  } };
+  assert.equal((await pb.plansNow({ root: foreign.root, remote: otherOrg })).ok, false);
+  assert.ok(!foreign.remote.sent.includes(PREVIEW), '#7827: a status naming another org still reached the preview route');
   const good = await onWith(t, { planGb: null });
   good.remote.sent.length = 0;
   assert.equal((await pb.plansNow({ root: good.root, remote: good.remote })).ok, true);
@@ -1130,7 +1139,14 @@ test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in 
   const odd = await onWith(t, { checkout: () => ({ ok: true, data: { url: 'https://evil.example/x' } }) });
   assert.deepEqual(await pb.checkout(25, { root: odd.root, remote: odd.remote }), { ok: false, because: RETRY }, 'a page this Kosmos does not open');
   const opening = await onWith(t, { checkout: () => ({ ok: false, because: '409', refusal: { status: 409 } }) });
-  assert.match((await pb.checkout(25, { root: opening.root, remote: opening.remote })).because, /is opening a payment page for this already/, 'the codeless 409');
+  assert.deepEqual(await pb.checkout(25, { root: opening.root, remote: opening.remote }), { ok: false, code: 'backup_checkout_conflict',
+    because: 'Kosmos+ is already handling a payment page for this backup. If you just paid, your plan shows here in a moment; if not, try again in a moment.' }, 'the codeless 409, from a relay that does not name it');
+  // #7827: the relay names its two conflicts; each gets its own sentence, and a person who just paid is never told to try again.
+  for (const [code, say] of [['backup_checkout_opening', 'Kosmos+ is opening a payment page for this already. Try again in a moment.'],
+    ['backup_checkout_finished', 'The payment page has just finished. If you paid, your plan shows here in a moment.']]) {
+    const a = await onWith(t, { checkout: () => ({ ok: false, because: '409 {"code":"' + code + '"}', refusal: { status: 409, code } }) });
+    assert.deepEqual(await pb.checkout(25, { root: a.root, remote: a.remote }), { ok: false, code, because: say }, code);
+  }
   const unknown = await onWith(t, { checkout: () => ({ ok: false, because: '409 {"code":"something_new"}', refusal: { status: 409, code: 'something_new' } }) });
   const u = await pb.checkout(25, { root: unknown.root, remote: unknown.remote });
   assert.equal(u.because, 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.', 'a code this Kosmos does not know was told as an opening page');

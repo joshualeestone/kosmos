@@ -692,7 +692,12 @@ const CHECKOUT_SAY = {
   personal_backup_not_on: 'Personal backup is not on for this account on Kosmos+. Turn it on here first.',
   not_subscribed: 'Backup needs a Kosmos+ subscription first.',
   backup_plan_exists: 'This account already has a backup plan.',
+  // #7827: the relay's two conflicts, once it names them (coordinator backup_plans.rs checkout).
+  backup_checkout_opening: 'Kosmos+ is opening a payment page for this already. Try again in a moment.',
+  backup_checkout_finished: 'The payment page has just finished. If you paid, your plan shows here in a moment.',
 };
+// A relay that does not name its conflict yet sends either of those two with no code: a sentence true of both.
+const CHECKOUT_CONFLICT = 'Kosmos+ is already handling a payment page for this backup. If you just paid, your plan shows here in a moment; if not, try again in a moment.';
 /* Mona Lisa's review (#7404 comment 6593277093): a refusal that may pass says what to do next. Used for every one that
    is not the person's own account (unreached, or a page this Kosmos does not open), so the words are hers verbatim. */
 const CHECKOUT_RETRY = 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.';
@@ -712,7 +717,7 @@ async function checkout(gb, opts = {}) {
     const c = codeOf(r);
     if (c && CHECKOUT_SAY[c]) return { ok: false, code: c, because: CHECKOUT_SAY[c] };
     // A conflict with no code: an earlier page is still being opened (backup_plans.rs Opening).
-    return { ok: false, because: r && r.refusal && !c && r.refusal.status === 409 ? 'Kosmos+ is opening a payment page for this already. Try again in a moment.' : CHECKOUT_RETRY };
+    return r && r.refusal && !c && r.refusal.status === 409 ? { ok: false, code: 'backup_checkout_conflict', because: CHECKOUT_CONFLICT } : { ok: false, because: CHECKOUT_RETRY };
   }
   const url = stripeCheckoutUrl(r.data && r.data.url);
   if (!url) return { ok: false, because: CHECKOUT_RETRY };

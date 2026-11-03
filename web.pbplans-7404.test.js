@@ -320,3 +320,17 @@ test('a read that failed under rows is tried again each minute, not left for an 
   assert.equal(reads, 3, 'a failed read under rows waited an hour');
   assert.equal(doc.getElementById('pb-plans-msg').textContent, '');
 });
+
+test('#7827: a checkout that has just finished (or a conflict that may be one) watches for the plan each minute', async () => {
+  for (const code of ['backup_checkout_finished', 'backup_checkout_conflict']) {
+    const doc = fakeDoc();
+    let reads = 0;
+    const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: false, code, because: 'x' })() : (reads++, answer({ ok: true, plans: PLANS, planGb: null })())));
+    s.pbpShow(true, false); await tick(); await tick();
+    await s.pbpChoose(25);
+    s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
+    assert.equal(reads, 2, code + ': the plan was not watched for');
+    s.pbpShow(false, true);
+    assert.equal(s.PBP.awaitPlan, false, code + ': Off kept the watch');
+  }
+});
