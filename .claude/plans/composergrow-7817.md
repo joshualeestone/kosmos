@@ -17,8 +17,11 @@ above the box (within 4 pt). A reader higher up is not moved by it.
 ## Change
 - ChatView: `stripHeight`, the height of the strip under the list (the box and its line), read by a GeometryReader on
   the strip. When it changes and the reader is at the newest message (`atBottom`, not searching, no finger on the
-  list), the list is put at its end, as keyboardDidShow already does. Not on the strip's first measure (0 to its
-  height as the chat opens).
+  list), the list is put at its end, as keyboardDidShow already does. The strip is first measured while the chat
+  still shows its loading line (no list yet), so the list's handler sees only later changes; with a kept copy the list
+  can exist at the first measure, and the follow then takes the opening to its end, where the opening puts it anyway.
+  (Rounds 2 to 6 tried skipping that first measure with a seen height; round 7 showed it swallowed the first real wrap,
+  so it is gone.)
 - ios/tools/ui-sample.sh: KeyboardSlideUITests count 9; ui-keyboard.sh's stale count 3 raised to 9.
 
 ## Rejected

@@ -32,8 +32,6 @@ struct ChatView: View {
     // kosmos#7817: the height of the strip under the list (the message box and its line), which grows a line at a time as
     // a long message is typed. A reader at the newest message is kept there as it changes.
     @State private var stripHeight: CGFloat = 0
-    // The height the follow last saw (0 until the strip's first measure), kept here rather than read off a capture.
-    @State private var stripSeen: CGFloat = 0
     // kosmos#7265 (measured on the simulator, 10-27): the end marker leaving the screen was read as the person scrolling
     // up, but new rows push it off too, and a re-pin can land a row short, so a reader at the newest message was left
     // behind and never followed again. On iOS 18 only the person's own scroll (scroll phase interacting or decelerating)
@@ -406,7 +404,6 @@ struct ChatView: View {
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
             positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuilds = []   // kosmos#7265 review: a fresh chat's anchor
-            stripSeen = stripHeight   // kosmos#7817: the strip is not measured again, so the next wrap is the next change
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             replying = nil
@@ -768,11 +765,8 @@ struct ChatView: View {
                 // kosmos#7817 (Josh 11-02): the box growing or shrinking a line as he typed moved the conversation elsewhere.
                 // Anything in the strip counts (a wrap, the line above the box, the emoji panel, a reply or file row). A
                 // reader at the newest message stays there, as when the keyboard comes up; one higher up is left alone.
-                // Not the strip's first measure (0 to its height as the chat opens): the opening places the list itself.
-                .onChange(of: stripHeight) { now in
-                    let was = stripSeen
-                    stripSeen = now
-                    guard was > 0, visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
+                .onChange(of: stripHeight) { _ in
+                    guard visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
                     Self.trace("box height changed, to the newest")
                     if Self.idAnchor { appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
                 }
