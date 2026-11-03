@@ -313,6 +313,9 @@ test('#7820 the folder must fit in the Recycle Bin, with room to spare', () => {
   assert.equal(leftover.binVerdict({ ...noKey, total: 0 }, { bytes: 1 }), false, 'with no limit and no size known it guessed');
   assert.equal(leftover.binVerdict(null, { bytes: 0 }), false);
   assert.equal(leftover.binVerdict({ ...info, maxMB: 0 }, { bytes: 0 }), false, 'a Recycle Bin with no room was offered an empty folder');
+  // The smaller of the volume's limit and the all-drives one decides.
+  assert.equal(leftover.binVerdict({ ...info, maxMB: 100, globalMaxMB: 10 }, { bytes: 50 * MB }), false, 'the all-drives limit was ignored');
+  assert.equal(leftover.binVerdict({ ...info, maxMB: null, globalMaxMB: 100 }, { bytes: 50 * MB }), true);
   // Through the plan: a folder bigger than the volume's limit keeps "for good".
   bin = { maxMB: 0 };
   leftover.setRunner(stub);
@@ -368,8 +371,11 @@ test('#7820 the page repaints the dialog from a refusal that carries a plan', ()
   const at = html.indexOf("document.getElementById('del-go').addEventListener('click'");
   assert.ok(at > 0, 'the delete button handler moved; this test no longer reads it');
   const handler = html.slice(at, html.indexOf('closeDeleteModal();', at));
-  assert.match(handler, /body\.plan && body\.plan\.ok && body\.plan\.name === DEL_FOR && body\.plan\.typeToConfirm && !\(DEL_PLAN && DEL_PLAN\.typeToConfirm\)\) \{\s*const back = DEL_RETURN;\s*openDeleteModal\(body\.plan\);/,
+  assert.match(handler, /openDeleteModal\(body\.plan\);\s*DEL_RETURN = back;\s*repainted = true;/,
     'a refusal with a plan does not repaint the dialog, so a person shown no name box stays stuck');
+  assert.match(handler, /DEL_PLAN\.typeToConfirm === body\.plan\.typeToConfirm/, 'a differently spelled name on screen is not repainted');
+  assert.match(handler, /\.toLowerCase\(\) === String\(DEL_FOR\)\.toLowerCase\(\)/, 'a name that differs only in case is not repainted');
+  assert.match(handler, /if \(!repainted\) go\.disabled = false;/, 'the button can stay off with no box to type in');
 });
 
 test('#7820 its settings go to the Recycle Bin with the folder, never to a home-made Trash folder', () => {
@@ -438,13 +444,16 @@ test('#7820 the Recycle Bin count also matches a file shown without its extensio
   assert.match(leftover.RECYCLE_SCRIPT, /\.TrimEnd\(\[char\]92\) -eq \$dir\.TrimEnd\(\[char\]92\)/);
 });
 
-test('#7820 a settings file that is a link sends the LINK to the Recycle Bin, never the file it points at', () => {
+test('#7820 a settings file that is a link sends the LINK to the Recycle Bin, never the file it points at', (t) => {
   const store = require('./store');
   leftoverFolder('rb7820u');
   const outside = nodePath.join(SANDBOX, 'not-kosmos-data.json');
   fs.writeFileSync(outside, 'someone else\'s file');
   fs.mkdirSync(nodePath.dirname(store.profilePath('rb7820u')), { recursive: true });
-  fs.symlinkSync(outside, store.profilePath('rb7820u'));
+  try { fs.symlinkSync(outside, store.profilePath('rb7820u')); } catch (e) {
+    if (e && e.code === 'EPERM') { t.skip('this host does not let a test make a link (Windows without the privilege)'); fs.rmSync(create.workerDir('rb7820u'), { recursive: true, force: true }); return; }
+    throw e;
+  }
   const link = nodePath.join(fs.realpathSync.native(nodePath.dirname(store.profilePath('rb7820u'))), nodePath.basename(store.profilePath('rb7820u')));
   recycle = (q) => { fs.rmSync(q, { force: true, recursive: true }); return 'RECYCLED'; };   // rmSync on a link removes the link
   const done = win.del('rb7820u');
