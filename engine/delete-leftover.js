@@ -599,7 +599,7 @@ function del(name, opts) {
   /* #5000: the name's community moderation standing, FIRST. The board keys trust by the agent's name, so without
      this a new agent under the freed name would start with the deleted agent's standing. It goes before anything
      is moved because it is the one step a retry could never reach afterwards: once the folder and the job are
-     gone, plan() finds nothing left and refuses. Resetting a leftover's standing early costs nothing (it is not
+     gone and nothing is stored under the name, plan() finds nothing left and refuses. Resetting a leftover's standing early costs nothing (it is not
      running, and a standing only drops). If it fails, nothing has been touched yet, so the delete is refused
      whole and can simply be tried again. The folder's own name is reset too when the case differs from the one
      asked for (a Mac's disk does not tell Miles from miles; the board's trust key does). */
@@ -694,7 +694,7 @@ function del(name, opts) {
      (kosmos#7825): the removed list's row is how a person reaches "Delete its files" again, so settings that would not
      move keep it. */
   const forgetRemoval = () => { try { remove.forget(p.name); } catch { /* the record is inert without files */ } };
-  /* #1131. NOT best-effort, unlike `forget` above: a removal record with no
+  /* #1131. NOT best-effort, unlike `forgetRemoval` above: a removal record with no
      files is inert, but a TOKEN with no files is a live credential for a name
      we are about to advertise as free. A failure here belongs in `stuck`, so
      the outcome is PARTIAL and says so, rather than DELETED with a sentence
@@ -754,7 +754,11 @@ function del(name, opts) {
        says what it means and that deleting again clears it. */
     const left = stuck.filter((x) => x === 'its settings' || x === 'its picture');
     const lw = recordsWords(left.map((what) => ({ what })));
-    const tail = left.length ? ` ${lw.cap} ${lw.plural ? 'are' : 'is'} still on this computer, so a new agent with this name would start with ${lw.plural ? 'them' : 'it'}. Deleting what is left again clears ${lw.plural ? 'them' : 'it'}.` : '';
+    /* The retry is promised only where a person can reach it (review 3): the removed list's row, kept above. An agent
+       deleted from its own page that was never removed has no row, and with its folder gone no page either. */
+    let door = false;
+    try { door = left.length > 0 && remove.isRemoved(p.name); } catch { door = false; }
+    const tail = left.length ? ` ${lw.cap} ${lw.plural ? 'are' : 'is'} still on this computer, so a new agent with this name would start with ${lw.plural ? 'them' : 'it'}.${door ? ` Deleting what is left again from the removed agents list clears ${lw.plural ? 'them' : 'it'}.` : ''}` : '';
     // The verb for what could not go: a record follows the records' own mode, which can differ from the folder's.
     const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
     const verbFor = (x) => ((x === 'its settings' || x === 'its picture') ? (p.records.trash ? 'move' : 'delete') : (p.toTrash ? 'move' : 'delete'));
