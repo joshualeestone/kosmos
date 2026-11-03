@@ -30,8 +30,9 @@ which is exactly what an older board's refusals look like. The phone could not t
   PASSING_READ_CODES is declared before its first reader. Stated, for the PR: resolveListedDir's other callers (the
   folder download and zip) now say "we could not read what is in that folder" for a non-ENOENT error where they said
   "not there"; no test or page matches the old sentence for those cases.
-- Review round 3: the agent Files list answers the empty state ("missing") when listFiles refuses because the folder
-  went between the route's own check and the read (it was a lasting refusal for one poll). Accepted: ETIMEDOUT and
+- Review rounds 3 and 4: the agent Files list, and its browse at the top, answer the empty state ("missing") when the
+  listing refuses because the folder went between the route's own check and the read (it was a lasting refusal for
+  one poll). Accepted: ETIMEDOUT and
   ESTALE (a network mount) are not passing codes, so on a network-backed folder a timeout replaces a shown list on the
   phone, as any refusal did before #7842.
 - Weakest premise now: that the listing routes have no OTHER unmarked brief refusal (the route-level ones are the link
@@ -41,7 +42,8 @@ which is exactly what an older board's refusals look like. The phone could not t
 ## Verified
 - server.files-passing-7850.test.js: every lasting control now asserts `passing === false` (7), a Files-is-a-link case
   for list and browse, and three for round 1 (folderState EBUSY on the list and the documents, EACCES lasting, a
-  subfolder lstat EAGAIN passing and ENOENT lasting); 18/18. Mutations Q (passingOf never marks) and R (the old
+  subfolder lstat EAGAIN passing and ENOENT lasting), and the folder-gone-between-reads cases (list and browse top).
+  Counts: see the review record. Mutations Q (passingOf never marks) and R (the old
   resolveListedDir catch) each turn exactly their own test red. Mutation: listingAnswer passing refusals through unchanged turns 7 red.
 - ios/LogicTests/files (run-files.sh): 119/119 with the new cases (lasting replaces on the screen and the agent page,
   passing keeps, unmarked keeps). Mutation: filesLastingRefusal always false turns exactly the 7 lasting cases red.

@@ -9171,6 +9171,11 @@ const server = http.createServer(async (req, res) => {
       const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, fingerprint: true });   // #6761
       /* Iteration 1: 404 is kept for "no such agent" (the page says it has no folder of its own); a Files that is a file
          or cannot be read answers 409 with its reason, and a folder inside Files that is not there is 404 as a file is. */
+      // kosmos#7850: Files went between the check above and the read: the same empty state at the top, not a refusal.
+      if (!listed.ok && !dir && projects.folderState(folder).state === projects.FOLDER.MISSING) {
+        sendJson(res, 200, { ok: true, missing: true, dir: '', dirs: [], files: [], stamp: 'missing' });
+        return;
+      }
       sendJson(res, listed.ok ? 200 : (dir ? 404 : 409), listingAnswer(listed));
       return;
     }

@@ -333,3 +333,24 @@ test('#7850 phone half: a Files folder removed between the route\'s check and it
   assert.equal(got.status, 200);
   assert.deepEqual({ ok: got.body.ok, missing: got.body.missing, files: got.body.files }, { ok: true, missing: true, files: [] }, JSON.stringify(got.body));
 });
+
+test('#7850 phone half: Files removed between the browse route\'s check and its read is the empty state at the top, not a refusal', async () => {
+  const gone = dmfiles.filesDir('eve');
+  fs.mkdirSync(gone, { recursive: true });
+  const real = fs.realpathSync(gone);
+  const was = fs.realpathSync.native;
+  let calls = 0;
+  // The route's own check resolves the folder; on the next resolve (the listing's) it is gone.
+  fs.realpathSync.native = function (p, ...rest) {
+    if (String(p) === gone || String(p) === real) {
+      calls += 1;
+      if (calls === 2) { fs.rmSync(gone, { recursive: true, force: true }); const e = new Error('ENOENT: test'); e.code = 'ENOENT'; throw e; }
+    }
+    return was.call(fs, p, ...rest);
+  };
+  let got;
+  try { got = await getJson('/api/agent/eve/files/browse'); } finally { fs.realpathSync.native = was; }
+  assert.ok(calls >= 2, 'the listing never reached the seam (' + calls + ' resolves)');
+  assert.equal(got.status, 200, JSON.stringify(got.body));
+  assert.deepEqual({ ok: got.body.ok, missing: got.body.missing, dir: got.body.dir }, { ok: true, missing: true, dir: '' }, JSON.stringify(got.body));
+});
