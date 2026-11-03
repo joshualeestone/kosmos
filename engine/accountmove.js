@@ -137,12 +137,14 @@ function start(body, deps) {
   }
 }
 
+/* kosmos#7835: required when asked (delete-leftover requires create and remove, which this module is loaded beside). */
+function deletingNow() { try { return require('./delete-leftover').deletingNow(); } catch { return false; } }
 function startSteps(body, deps, step) {
   if (busy()) return { status: 409, body: { outcome: 'refused', because: BUSY } };
   if (typeof deps.boardRestarting === 'function' && deps.boardRestarting()) return { status: 409, body: { outcome: 'refused', because: BOARD_GOING } };
   // kosmos#7835: a Windows delete waiting on the Recycle Bin runs its last steps with the board free; a move's restarts
-  // would run under them. deletingBecause() says why, or nothing when no delete runs.
-  { const why = typeof deps.deletingBecause === 'function' ? deps.deletingBecause() : null; if (why) return { status: 409, body: { outcome: 'refused', because: why } }; }
+  // would run under them. Asked here, where every move starts, rather than handed in by each caller.
+  if (deletingNow()) return { status: 409, body: { outcome: 'refused', because: require('./delete-leftover').DELETING_MOVE_BECAUSE } };
   const dir = body && body.dir;
   const raw = body && body.names;
   if (typeof dir !== 'string' || !dir) return { status: 400, body: { outcome: 'refused', because: 'we need the account to move them to' } };
