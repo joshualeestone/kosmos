@@ -91,10 +91,10 @@ const driveTypes = new Map();
    remove dry-runs while this executes live. Read at load (the board reads env at
    startup); a test controls it through resetForTests. */
 let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
-function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; if (!runner) DRY_RUN = true; driveTypes.clear(); probing.clear(); }
+function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; if (!runner) DRY_RUN = true; driveTypes.clear(); probing.clear(); pinned.clear(); }
 /* Test seam (#1598): back to fail-closed (no runner, dry-run flag off) so a test
    can exercise the live-execution gate directly. */
-function resetForTests() { runner = null; DRY_RUN = false; driveTypes.clear(); probing.clear(); }
+function resetForTests() { runner = null; DRY_RUN = false; driveTypes.clear(); probing.clear(); pinned.clear(); }
 function run(file, args, opts) {
   if (runner) return runner(file, args, opts);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
@@ -317,8 +317,12 @@ function keepDrive(root, out) {
   if (root && !(out && out.dryRun)) driveTypes.set(root, { info, at: Date.now() });
   return info;
 }
+/* kosmos#7835: drive roots a running delete warmed, kept as fresh until it ends: its re-plan comes after the warm, and a
+   short keep running out in between would start the probe again on the board's thread. */
+const pinned = new Map();
 function freshDrive(root) {
   const kept = root ? driveTypes.get(root) : null;
+  if (kept && pinned.has(root)) return kept;
   return kept && Date.now() - kept.at < keptFor(kept) ? kept : null;
 }
 /** win32: whether the Recycle Bin can take `p`, whose measure (bytes, capped) is `m`. See `binVerdict`; any answer
@@ -341,8 +345,9 @@ function recycleBinCanTake(p, m, probe = true) {
 const probing = new Map();
 function warmDrive(p) {
   const d = driveOf(p);
-  if (!d || !d.root || freshDrive(d.root)) return Promise.resolve();
-  if (probing.has(d.root)) return probing.get(d.root);
+  if (!d || !d.root) return Promise.resolve(null);
+  if (freshDrive(d.root)) return Promise.resolve(d.root);
+  if (probing.has(d.root)) return probing.get(d.root).then(() => d.root);
   const go = (async () => {
     let out;
     try { out = await psRunAsync(DRIVE_SCRIPT, d.real, DRIVE_TIMEOUT_MS); } catch (err) {
@@ -352,7 +357,7 @@ function warmDrive(p) {
     keepDrive(d.root, out);
   })().finally(() => probing.delete(d.root));
   probing.set(d.root, go);
-  return go;
+  return go.then(() => d.root);
 }
 /** win32: send `p` to the Recycle Bin. 'recycled' (it is there), 'gone' (it is gone, and not found in the Recycle Bin),
     'unverified' (it is gone, and the Recycle Bin could not be read), or throws with what went wrong. The folder's
@@ -1183,13 +1188,14 @@ function askedKey(name) {
 /** Whether a delete of what is left under this name is running now (create and restore refuse the name meanwhile). */
 function deletingName(name) { return deleting.size > 0 && name != null && deleting.has(askedKey(name)); }
 const DELETING_BECAUSE = 'a delete of what is left of this agent is running now; try again when it has finished';
+/* The drive roots warmed (for delAsync to pin). */
 async function warmFor(name, opts) {
   let first = null;
-  try { first = plan(name, { ...(opts || {}), probe: false }); } catch { return; }
-  if (!first || first.ok !== true) return;
+  try { first = plan(name, { ...(opts || {}), probe: false }); } catch { return []; }
+  if (!first || first.ok !== true) return [];
   const paths = [first.folder && first.folder.path, ...((first.records && first.records.files) || []).map((r) => r.file)].filter(Boolean);
   // Together: one after another, a failed probe's short keep could end while the next drive is still being asked.
-  await Promise.all(paths.map((p) => warmDrive(p)));
+  return (await Promise.all(paths.map((p) => warmDrive(p)))).filter(Boolean);
 }
 /** plan, with the Windows drive probe run first without holding the board. While a delete of the name runs, its files
     are on their way out, so the plan says that rather than reading them half-moved. */
@@ -1206,8 +1212,10 @@ async function delAsync(name, opts) {
   const key = askedKey(name);
   if (deleting.has(key)) return { outcome: OUTCOME.REFUSED, because: DELETING_BECAUSE };
   deleting.add(key);
+  let roots = [];
   try {
-    await warmFor(name, opts);
+    roots = await warmFor(name, opts);
+    for (const r of roots) pinned.set(r, (pinned.get(r) || 0) + 1);
     const steps = delSteps(name, opts);
     let r = steps.next();
     while (!r.done) {
@@ -1219,6 +1227,7 @@ async function delAsync(name, opts) {
     return r.value;
   } finally {
     deleting.delete(key);
+    for (const r of roots) { const n = (pinned.get(r) || 1) - 1; if (n > 0) pinned.set(r, n); else pinned.delete(r); }
   }
 }
 

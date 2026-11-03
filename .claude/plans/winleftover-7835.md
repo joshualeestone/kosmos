@@ -22,7 +22,8 @@ folder was already gone reaches the step instead of being dropped.
   name runs it answers "a delete is running" (ok false) instead of reading files half-moved. Off win32 it is `plan`.
 - `del`'s body is `delSteps`, a generator that hands out only the Windows moves (`yield { recycle }`: the folder's and,
   through `moveRecords`, now also a generator, each record's); `del` performs them in place (unchanged behaviour),
-  `delAsync` awaits `recycleAsync`. Every other step (community standing first, the job,
+  `delAsync` awaits `recycleAsync`. The drives a delete warmed are pinned (kept as fresh) until it ends, so its own
+  re-plan never starts the probe again on the board's thread when a short keep runs out in between. Every other step (community standing first, the job,
   the records, tokens, community account) runs in the board's own thread in the same order, so in-memory state each
   module keeps (sender tokens, liveness, crash history) is cleared where the board reads it.
 - `delAsync` refuses a second delete of the same agent while one runs (its steps would interleave now that the move
@@ -59,11 +60,12 @@ Not run on Windows: the async path is driven from a Mac through the run() seam, 
 `execFile` of PowerShell with a timeout is assumed to behave as execFileSync's does for the answers recycleOutcome reads.
 
 ## Tests
-engine/delete-leftover.offthread-7835.test.js (12): a 20 ms timer keeps ticking while a late probe and a late move run;
+engine/delete-leftover.offthread-7835.test.js (13): a 20 ms timer keeps ticking while a late probe and a late move run;
 the async delete says what del says; a second delete refused; failed probe kept 5 s, good one 60 s; late error kept; off
 win32 the async forms are plan and del; while a delete runs the plan says so and create refuses the name; a move that
 throws lets go of the name; the live runner closes stdin and answers at its limit with no exit code; every spelling of
 the agent meets the hold and a restore is refused; its settings move off the board with the same answer as del; Start,
-Restart and Remove are refused while it runs. Mutants (stdin
+Restart and Remove are refused while it runs; a no-answer probe whose keep runs out mid-delete is not asked again
+on the board, and the pin ends with the delete. Mutants (stdin
 open, create not refused, plan mid-delete, lock not released, sync move, a minute's keep, note dropped) each fail it.
 Leftover tests 154 pass; create tests 545 pass; web.delete-leftover's route pin updated to the async calls.
