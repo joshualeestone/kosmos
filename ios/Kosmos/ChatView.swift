@@ -784,28 +784,20 @@ struct ChatView: View {
                     if Self.idAnchor { appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+                    // kosmos#7817 (Josh 11-03 09:27, build 30): did-show came three times in 0.3 s as the keyboard went 380, 608,
+                    // 380, and the chat was left past its end, blank. Once did-show has been quiet, a list past its end is put
+                    // back (settledPutBack); asked on every did-show of the chat on screen, since past the end is nobody's place.
+                    if visible {
+                        kbSettleTick &+= 1
+                        let tick = kbSettleTick, chatAt = epoch, listAt = listEpoch
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, retry: true) }
+                    }
                     // Only the chat on screen: another tab can keep a chat alive under it.
                     guard keepNewestInView, visible else { return }
                     Self.trace("keyboard shown, to the newest")
                     // kosmos#7344: re-setting an anchor that already reads "end" does not move the thread, so scroll to it.
                     // Not animated under the anchor, as goNewest is (the side lock, #7574, relies on that).
                     if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy, animated: true) }
-                    // kosmos#7817 (Josh 11-03 09:27, build 30): did-show came three times in 0.3 s as the keyboard went 380, 608,
-                    // 380, and the chat was left past its end, blank. Once did-show has been quiet for keyboardSettle, a reader
-                    // still kept at the newest whose list reads past its end is put back, unless a finger is on it or a search
-                    // is open, in this chat only.
-                    kbSettleTick &+= 1
-                    let tick = kbSettleTick, chatAt = epoch, listAt = listEpoch
-                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {
-                        guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, keepNewestInView, !searching,
-                              !scrollBox.underFinger else { return }
-                        // The place it found, in the diagnostic's record, so a blank that is not past the end shows which it was.
-                        let place = scrollBox.reading()?.place ?? "unread"
-                        Self.trace("keyboard settled: \(place)")
-                        guard place == "past the end" else { return }
-                        if scrollBox.backInside() { Self.trace("keyboard shown: past the end, put back at its end") }
-                        goNewest(proxy)
-                    }
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
@@ -1012,6 +1004,25 @@ struct ChatView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + after) { sampleRebuilds = rebuilds.count }
     }
     #endif
+
+    // kosmos#7817: after the keyboard settles, a list read past its end is put back at its end, then at the newest message,
+    // unless a search is open, another did-show or a will-hide came, or the chat or its list changed. Under a finger (or a
+    // fling) it looks once more a moment later, then stands down. Only an outside-the-content reading is recorded.
+    private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int, retry: Bool) {
+        guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching else { return }
+        let place = scrollBox.reading()?.place ?? "unread"
+        guard place == "past the end" else {
+            if place != "within" { Self.trace("keyboard settled: \(place)") }
+            return
+        }
+        if scrollBox.underFinger {
+            if retry { Self.trace("keyboard settled: past the end, under a finger, looking again") } else { Self.trace("keyboard settled: past the end, under a finger") }
+            if retry { DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, retry: false) } }
+            return
+        }
+        if scrollBox.backInside() { Self.trace("keyboard settled: past the end, put back at its end") }
+        goNewest(proxy)
+    }
 
     // kosmos#7420: an empty list put right as Board.emptyRecovery decides.
     private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false) {
