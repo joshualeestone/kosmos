@@ -133,7 +133,7 @@ test('#7116: createKey asks for a presence key unless a caller says presence: fa
 });
 
 test('#7116: sign refuses a signature that does not verify under the helper\'s own key', { skip: FAKE ? false : 'needs a POSIX shell' }, () => {
-  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: FAKE, keyFile: '/k1' }), /does not verify/);
+  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: FAKE, keyFile: '/k1', expectedKey: FAKE_PUB }), /does not verify/);
 });
 
 // Part 2: the real Enclave.
@@ -172,10 +172,15 @@ test('#7116: a key made in the Enclave signs every pinned action, and the signat
     const callers = Buffer.from(msg);
     const shown = se.prepare(action, callers);
     callers.fill(0);                       // changed after the screen: the signature must still be over what was shown
-    const der = se.sign(shown, { helper: HELPER, keyFile });
+    const der = se.sign(shown, { helper: HELPER, keyFile, expectedKey: pub });
     assert.ok(verifyDer(pub, msg, der), name);
     assert.ok(!verifyDer(otherPub, msg, der), `${name} under another key`);
   }
+  // The same key file, but the screen expects the other key: refused before anything is signed.
+  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: HELPER, keyFile, expectedKey: otherPub }),
+    /different key from the enrolled one/);
+  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: HELPER, keyFile }), /65 bytes/,
+    'no expected key is a refusal, not a pass');
 });
 
 test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are not an admin action even when called directly', { skip: SKIP }, () => {
@@ -251,7 +256,7 @@ test('#7116: sign signs the bytes prepare was given, not bytes changed afterward
     // The stand-in records what it was handed: the bytes as shown, not the caller's changed buffer. (Its signature is
     // another key's, so sign then refuses it, after the helper was asked.)
     fs.rmSync(path.join(FAKE_DIR, 'stdin'), { force: true });
-    assert.throws(() => se.sign(shown, { helper: FAKE, keyFile: '/k1' }), /does not verify/);
+    assert.throws(() => se.sign(shown, { helper: FAKE, keyFile: '/k1', expectedKey: FAKE_PUB }), /does not verify/);
     assert.ok(fs.readFileSync(path.join(FAKE_DIR, 'stdin')).equals(hex(V.bytes.cancel)), 'the helper got the shown bytes');
   }
   for (const notBytes of ['kosmos-escrowd-roster-cancel v1', [1, 2], new ArrayBuffer(4)]) {

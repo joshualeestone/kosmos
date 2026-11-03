@@ -256,12 +256,16 @@ function publicKey({ helper, keyFile }) {
   return key(hexOf(runHelper(helper, ['pub', keyFile]), 'public key'));
 }
 
-/** Sign what prepare() decoded and showed, with the Enclave key; returns the DER signature escrowd's verify_se takes. */
-function sign(prepared, { helper, keyFile }) {
+/**
+ * Sign what prepare() decoded and showed, with the Enclave key; returns the DER signature escrowd's verify_se takes.
+ * `expectedKey` is the 65-byte public key this Mac enrolled as its admin key; a key file holding any other refuses.
+ */
+function sign(prepared, { helper, keyFile, expectedKey }) {
   const message = PREPARED.get(prepared);
   if (!message) throw new Error('sign takes only what prepare returned');
-  // This checks the helper's two answers agree; it does not check the key is the enrolled admin key.
+  const expected = key(expectedKey);
   const pub = publicKey({ helper, keyFile });
+  if (!pub.equals(Buffer.from(expected))) throw new Error('the key file holds a different key from the enrolled one');
   const der = hexOf(runHelper(helper, ['sign', keyFile], message), 'signature');
   const jwk = { kty: 'EC', crv: 'P-256', x: pub.subarray(1, 33).toString('base64url'),
     y: pub.subarray(33, 65).toString('base64url') };

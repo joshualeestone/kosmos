@@ -51,4 +51,5 @@ file this user owns, refused otherwise) is what the tests use and is not accepta
 - [x] review round 3: sign() takes only prepare()'s own frozen result, so the signed bytes are the shown bytes; the vector test recomputes every high-S flag.
 - [x] review round 4: the stand-in records the bytes it was handed (shown = signed on every machine); xcrun's reason in the skip. Deferred to the bundle/screen gate: resolving the helper path itself.
 - [x] review round 5: deleted an overclaiming custody sentence (0600 keeps out other users only); prepared.decoded re-read fresh from the held bytes on every access.
+- [x] review round 6: sign() requires the enrolled public key and refuses a key file holding another. Deferred with reason: a structural decode inside kosmos-se (a same-user process can read the blob and sign with CryptoKit itself, so the helper's fence is a second line only; the presence prompt is the control).
 - [ ] challenge-loop, validation, PR
