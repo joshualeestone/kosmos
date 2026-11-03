@@ -790,7 +790,9 @@ struct ChatView: View {
                     if visible {
                         kbSettleTick &+= 1
                         let tick = kbSettleTick, chatAt = epoch, listAt = listEpoch
-                        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, retry: true) }
+                        for at in Self.keyboardSettleLooks {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + at) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt) }
+                        }
                     }
                     // Only the chat on screen: another tab can keep a chat alive under it.
                     guard keepNewestInView, visible else { return }
@@ -911,6 +913,9 @@ struct ChatView: View {
 
     // kosmos#7817 (11-03): how long the keyboard's did-show must be quiet before a list left past its end is put back.
     static let keyboardSettle: Double = 0.3
+    // When it looks, after the last did-show: once settled, and once more after iOS's later moves of the list (KeyboardHold
+    // guards 1.5 s for those) and a short fling.
+    static let keyboardSettleLooks: [Double] = [keyboardSettle, 1.2]
 
     // kosmos#7346: how far above the solid strip messages fade into it. The end marker and the New messages button
     // are both set from it, so changing it can never hide the newest message under the fade.
@@ -1006,10 +1011,9 @@ struct ChatView: View {
     #endif
 
     // kosmos#7817: after the keyboard settles, a list read past its end is put back at its end, then at the newest message,
-    // unless a search is open, another did-show or a will-hide came, or the chat or its list changed. Under a finger (or a
-    // fling) it looks once more a moment later, then stands down. A reading outside the content, or within it with nothing
-    // drawn, is recorded.
-    private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int, retry: Bool) {
+    // unless a search is typed, another did-show or a will-hide came, the chat or its list changed, or a finger (or a fling)
+    // is on it at that look. A reading outside the content, or within it with nothing drawn, is recorded.
+    private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int) {
         guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching else { return }
         let place = scrollBox.reading()?.place ?? "unread"
         guard place == "past the end" else {
@@ -1017,11 +1021,7 @@ struct ChatView: View {
             if place != "within" { Self.trace("keyboard settled: \(place)") } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn") }
             return
         }
-        if scrollBox.underFinger {
-            if retry { Self.trace("keyboard settled: past the end, under a finger, looking again") } else { Self.trace("keyboard settled: past the end, under a finger") }
-            if retry { DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, retry: false) } }
-            return
-        }
+        if scrollBox.underFinger { Self.trace("keyboard settled: past the end, under a finger"); return }
         let wrote = scrollBox.backInside()
         if wrote { Self.trace("keyboard settled: past the end, put back at its end") }
         goNewest(proxy)
