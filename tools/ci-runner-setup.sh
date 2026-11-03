@@ -716,6 +716,9 @@ keepalive() {
   # its ~/Library: any answer past here would be about the wrong account. Say so, not "register first" or "not logged in".
   if [ "$(id -un)" != "$CI_USER" ]; then echo "note:   cannot read $CI_USER's runner as $(id -un) (its launchd jobs and processes are its own); run this as $CI_USER"; exit 3; fi
   local plist label dom; plist="$(runner_plist)"
+  if [ -z "$plist" ] && [ -f "$DAEMON_DIR/$(runner_label).plist" ]; then
+    echo "refused: this runner runs as a LaunchDaemon ($DAEMON_DIR/$(runner_label).plist, which has KeepAlive already); this stage is for its LaunchAgent. tools/ci-runner-setup.sh daemon (a dry run) says whether the daemon runs" >&2; exit 1
+  fi
   if [ -z "$plist" ]; then
     echo "refused: $RUNNER_DIR/.service names no LaunchAgent of this runner (actions.runner.*.plist directly under $CI_HOME/Library/LaunchAgents, WorkingDirectory $RUNNER_DIR); register first" >&2; exit 1
   fi
@@ -1000,6 +1003,8 @@ keepalive() {
 # The LaunchAgent is moved aside, not deleted, so a later login cannot start a second Listener and a rollback is one mv.
 # A dry run reads only, as root or as the CI user (another user cannot read the CI user's home or its processes' argv).
 DAEMON_DIR="${KOSMOS_CI_DAEMON_DIR:-/Library/LaunchDaemons}"   # a test seam; launchd reads only the real one
+# runner_label: svc.sh's label for this runner, which the daemon keeps.
+runner_label() { printf 'actions.runner.%s.%s' "$(printf '%s' "$REPO" | tr '/' '-')" "$NAME"; }
 # daemon_xml: the one daemon plist this stage writes. Uses label and cigroup from daemon (dynamic scope); every value is
 # checked to need no XML escaping before this runs (NAME, CI_HOME at the top, CI_USER and cigroup in daemon).
 daemon_xml() {
@@ -1087,7 +1092,7 @@ daemon() {
   [ "$ciuid" != 0 ] || { echo "refused: $CI_USER is root; a runner never runs as root" >&2; exit 1; }
   cigroup="$(id -gn "$CI_USER" 2>/dev/null)" || { echo "refused: could not read $CI_USER's primary group" >&2; exit 1; }
   case "$cigroup" in ''|*[!A-Za-z0-9._-]*|wheel|admin) echo "refused: $CI_USER's primary group is '$cigroup'; a runner runs in its own unprivileged group (staff)" >&2; exit 1 ;; esac
-  local label; label="actions.runner.$(printf '%s' "$REPO" | tr '/' '-').$NAME"
+  local label; label="$(runner_label)"
   local dplist="$DAEMON_DIR/$label.plist" agent="$CI_HOME/Library/LaunchAgents/$label.plist"
   local own_re worker_re; own_re="$(own_listener_re)"
   # Anchored at this runner's absolute path, as own_listener_re is: a Worker of the relay's runner (same user) is not this one.
@@ -1160,11 +1165,17 @@ daemon() {
   # nothing loaded: each step's failure is handled below instead.
   trap '' HUP INT TERM PIPE
   if [ -n "$from" ]; then
+    # The agent is moved aside BEFORE the daemon plist appears at its final path: a power cut between the two steps then
+    # leaves no plist for both launchd domains to load at the next boot and login.
     { daemon_xml > "$dplist.new" && daemon_content_ok "$dplist.new" \
-      && chown root:wheel "$dplist.new" && chmod 0644 "$dplist.new" && mv -f "$dplist.new" "$dplist"; } \
-      || { rm -f "$dplist.new"; echo "FAILED: could not write $dplist; nothing else was changed" >&2; exit 1; }
-    mv "$agent" "$retired" \
-      || { echo "FAILED: wrote $dplist but could not move $agent aside; not loading it (a login would start a second Listener). To go back: sudo rm $dplist" >&2; exit 1; }
+      && chown root:wheel "$dplist.new" && chmod 0644 "$dplist.new"; } \
+      || { rm -f "$dplist.new"; echo "FAILED: could not write $dplist.new; nothing else was changed" >&2; exit 1; }
+    # The retired name sits in a directory a job can write: a file or directory already there would swallow the agent.
+    { [ ! -e "$retired" ] && [ ! -L "$retired" ] && mv "$agent" "$retired"; } \
+      || { rm -f "$dplist.new"; echo "FAILED: could not move $agent aside to $retired (is something already there?); nothing was loaded and $dplist was not written" >&2; exit 1; }
+    mv -f "$dplist.new" "$dplist" \
+      || { rm -f "$dplist.new"; mv "$retired" "$agent" || echo "FAILED: could not put $agent back: sudo mv $retired $agent" >&2
+           echo "FAILED: could not write $dplist; the LaunchAgent is back where it was, nothing was loaded" >&2; exit 1; }
   fi
   # Again, right before the bootstrap: a console login in the window above loads the agent, and its Listener with it.
   local aload2=0; launchctl print "gui/$ciuid/$label" >/dev/null 2>&1 && aload2=1
@@ -1173,8 +1184,10 @@ daemon() {
     if [ -n "$from" ]; then
       rm -f "$dplist"
       mv "$retired" "$agent" || { echo "FAILED: a Listener or the LaunchAgent started while the daemon was being written; removed $dplist but could not put $agent back: sudo mv $retired $agent" >&2; exit 1; }
+      echo "refused: this runner's LaunchAgent or a Listener (pid ${listeners:-none}) started while the daemon was being written (a login?); put everything back as it was, nothing is loaded in the system domain" >&2
+    else
+      echo "refused: this runner's LaunchAgent or a Listener (pid ${listeners:-none}) started before the load; nothing was changed, but $dplist stays and launchd loads it at the next boot, beside whatever started. Stop that Listener between jobs and run this again, or keep the agent: sudo rm $dplist" >&2
     fi
-    echo "refused: this runner's LaunchAgent or a Listener (pid ${listeners:-none}) started while the daemon was being written (a login?); put everything back as it was, nothing is loaded in the system domain" >&2
     exit 1
   fi
   launchctl bootstrap system "$dplist" \
@@ -1276,8 +1289,12 @@ EOF
     echo "note:   $RUNNER_DIR/_work/_temp is not empty while idle: the job-completed sweep may not be running"
   fi
   say "the runner's LaunchAgent (a killed runner must come back by itself: kosmos#7001)"
-  local plist sf; plist="$(runner_plist)"
-  if [ "$hidden" = 1 ]; then
+  local plist sf dpl; plist="$(runner_plist)"; dpl="$DAEMON_DIR/$(runner_label).plist"
+  if [ -f "$dpl" ]; then
+    # After the daemon stage (kosmos#7001) the runner has no LaunchAgent; its plist is world-readable.
+    if keepalive_set "$dpl"; then ok "the runner runs as a LaunchDaemon ($dpl) with KeepAlive SuccessfulExit false (whether it is loaded and running: tools/ci-runner-setup.sh daemon, a dry run, as root or $CI_USER)"
+    else problem "$dpl lacks $(keepalive_missing "$dpl"): it is not the daemon plist the daemon stage writes; as root: tools/ci-runner-setup.sh daemon (a dry run) says what is wrong"; fi
+  elif [ "$hidden" = 1 ]; then
     echo "note:   cannot look inside $RUNNER_DIR as $(id -un); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether KeepAlive is set and loaded"
   elif [ -n "$plist" ] && [ -r "$plist" ]; then
     if keepalive_set "$plist"; then ok "$plist has KeepAlive SuccessfulExit false (whether the LOADED runner has it: as $CI_USER, tools/ci-runner-setup.sh keepalive)"
