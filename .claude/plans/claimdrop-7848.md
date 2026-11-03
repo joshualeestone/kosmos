@@ -71,3 +71,15 @@ no skip (3), any claimant (1), own claim counted (1), no person-post branch (1),
 - Copy: the trailing line is "Claimed, each by an agent the post also asked"; the plural head line names "the asks named
   below" (true when -n names fewer). Plural head line tested.
 - Declined: a comment on claimOf's earliest-claimant rule (react() refuses a second claim on a held post, #6946).
+
+## Review round 5 (opus, fixed)
+- Both CLIs' --unanswered help now says "and that no other agent they asked has claimed".
+- A claim covers the whole post for everyone it asked, which is what the card asks for; the all-claimed head line reads
+  "nothing else waiting on you" so it claims no more than that. A post that asks two agents for two different things is
+  the weakest case: the claimed line names it, and kosmos room shows it in full.
+- When the project's members cannot be read, the claim rule is not applied (the ask stays listed): claimMembers fails
+  toward "held", right for the page, wrong here. REASONED, not measured (no test makes the registry unreadable).
+  Not covered: a removed-list read that fails inside claimMembers keeps removed agents as members.
+- The claimed line says kosmos room shows them in full and an ask comes back if its claim is given up.
+- Tests: an ask I answered and another agent claimed is on neither line; the hold test asserts the exact addressed form.
+- Related and CLI test files: 2582 tests, 0 fail.
