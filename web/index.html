@@ -51239,10 +51239,12 @@ async function paintRemoved() {
   left = LEFTOVERS_LAST;
   /* review 6: with nothing ever read and nothing kept, the rows have no place to say they could not be looked for, so
      the shared line says it. Written only into an empty line (it has other writers), and taken down on a good read
-     only if it is still ours. */
+     only if it is still ours. Written on the Agents tab only (review 7): the line sits outside every panel, so a paint
+     run from the agent page or Settings would leave it under a screen with no removed list, as removedUnreadable
+     guards too. While another writer's sentence stands, the failure goes unsaid until that line is empty again. */
   {
     const m = document.getElementById('removed-msg');
-    if (m && !freshLeft && LEFTOVERS_LAST.length === 0 && !m.textContent) m.textContent = LEFTOVERS_UNREADABLE_SAY;
+    if (m && !freshLeft && LEFTOVERS_LAST.length === 0 && !m.textContent && onAgentsTab()) m.textContent = LEFTOVERS_UNREADABLE_SAY;
     else if (m && freshLeft && m.textContent === LEFTOVERS_UNREADABLE_SAY) m.textContent = '';
   }
 
@@ -51402,7 +51404,7 @@ async function paintRemoved() {
 
 /* kosmos#7825: the last leftovers list the board could read, kept when a later read fails. */
 let LEFTOVERS_LAST = [];
-const LEFTOVERS_UNREADABLE_SAY = 'Kosmos could not check for agents with only settings left, so any there are not shown yet.';
+const LEFTOVERS_UNREADABLE_SAY = 'Kosmos could not check for agents with only their settings left, so this list may be missing some.';
 let LEFTOVERS_AT = 0;
 // The last markup `paintRemoved` produced. See the note in that function for
 // why the comparison is against this rather than against `list.innerHTML`.
