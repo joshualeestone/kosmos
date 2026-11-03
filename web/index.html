@@ -50180,8 +50180,11 @@ async function fetchLeftoverPlan(name) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
     const plan = await res.json().catch(() => null);
-    // kosmos#7852: only the route's own 200 answer is a plan; a 500's {error} (or a proxy's JSON) is no plan at all.
-    return res.ok && plan && typeof plan.ok === 'boolean' ? plan : null;
+    // kosmos#7852: the route's own 200 is a plan. Its 400 or 500 says why in `error`, which is the board refusing in its
+    // own words. Anything else (a proxy's page or JSON) is no plan: only then has the board not been heard.
+    if (res.ok && plan && typeof plan.ok === 'boolean') return plan;
+    if (!res.ok && plan && typeof plan.error === 'string' && plan.error.trim()) return { ok: false, because: plan.error };
+    return null;
   } catch { return null; }
 }
 /* kosmos#7852: a delete whose request got no answer (a reload, a sleep, a proxy) may still be running on the board, so
@@ -50321,9 +50324,9 @@ document.getElementById('del-go').addEventListener('click', async () => {
     });
     body = await res.json().catch(() => null);
   } catch { res = null; }
-  // JSON that is not the route's own (it always says an outcome, or an error: a gateway's page, a proxy's {}) is no
-  // answer either, whatever its status.
-  if (!res || !body || (body.outcome === undefined && body.error === undefined)) {
+  // JSON that is not the route's own is no answer either: a success always says its outcome, a refusal its outcome or
+  // an error (a gateway's page, a proxy's {} or {error} on a 200, are none of these).
+  if (!res || !body || (body.outcome === undefined && (res.ok || body.error === undefined))) {
     const plan = await fetchLeftoverPlan(name);
     // The person left this dialog while the delete ran: nothing is said in a dialog that is not this one's, but a plan
     // that no longer offers a delete still takes that agent's delete box and plan away.
