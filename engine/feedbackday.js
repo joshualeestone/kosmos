@@ -36,14 +36,16 @@ function onDay(at, date, dateKey) {
 
 /* The direct thread's messages from `date`, oldest first, as { d, mine, text }. A message from the agent carries its
    name in `from`; the person's carries none. */
-function conversation(messages, name, date, dateKey) {
+function conversation(messages, names, date, dateKey) {
   const out = [];
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || typeof m !== 'object') continue;
     if (m.kosmos === true) continue;   // Kosmos's own line in the agent's name (a menu answer, `wire`, is the person's and stays)
     const d = onDay(m.at, date, dateKey);
     if (!d) continue;
-    out.push({ d, mine: m.from === name, text: firstLine(m.text) || '(a file, no words)' });
+    const mine = names.includes(m.from);
+    if (!mine && m.from != null && m.from !== '') continue;   // another agent's row: neither you nor your person
+    out.push({ d, mine, text: firstLine(m.text) || '(a file, no words)' });
   }
   return out.sort((a, b) => a.d - b.d);
 }
@@ -105,7 +107,8 @@ function listTaskFilesIn(dir, date, dateKey) {
  * rows too (server.js files them under the paneless card's sessionName, the key). With a running pane, the board takes
  * the pane row whose name is the token's own spelling, so task rows can carry that spelling: `also` holds it, and a
  * task row counts under either. Both names are this one agent's; a token shared by two names (twins) is refused. A pane
- * agent with no token is its window's agent name, which the resolver gives. `seams` are for tests.
+ * agent with no token is its window's agent name, read under its key form with the spelling in `also`. `seams` are for
+ * tests.
  */
 function recordWho(env, seams) {
   const e = env || process.env;
@@ -118,7 +121,12 @@ function recordWho(env, seams) {
     return { name: found.key, also: spelled };
   }
   const r = (s.resolveKeepSender || ((x) => require('./outbox').resolveKeepSender(x)))(e);
-  return r && r.ok ? { name: r.name, also: [] } : null;
+  if (!(r && r.ok)) return null;
+  // A window's agent name may carry capitals or a dot ("Angel", "my.bot"); chat.threadFile keeps a thread only under its
+  // key form, so read it there, and count rows under either spelling.
+  let key = null;
+  try { key = require('./store').safeKey(r.name); } catch { key = null; }
+  return key && key !== r.name ? { name: key, also: [r.name] } : { name: r.name, also: [] };
 }
 
 /**
@@ -139,7 +147,7 @@ function digest(o) {
     'Do not copy names, project names, task numbers or your person\'s words into the report: describe what happened.', ''];
   let talk = null;
   let unfilable = false;
-  try { talk = conversation(readThread(name), name, date, dateKey); } catch (err) { talk = null; unfilable = Boolean(err && err.code === 'BAD_THREAD'); }
+  try { talk = conversation(readThread(name), names, date, dateKey); } catch (err) { talk = null; unfilable = Boolean(err && err.code === 'BAD_THREAD'); }
   if (talk == null && unfilable) {
     lines.push('Your conversation with your person: Kosmos keeps no conversation under this agent\'s name.');
   } else if (talk == null) {

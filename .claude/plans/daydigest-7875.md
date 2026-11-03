@@ -11,7 +11,9 @@ leaves the computer: the digest is printed locally, and the report the agent wri
 - `kosmos feedback day` prints the digest for the agent asking (feedbackday.recordWho). A token agent's direct
   thread is under its KEY (chat.threadFile accepts only a key), and so are a paneless token agent's task rows; with a
   running pane the board can file task rows under the token's own spelling ("Mara" for "mara"), so a task row counts
-  under either. A token shared by two names is refused. No token: its window's agent name. No agent identified: it says so and exits 1, rather than printing someone else's day. Extra words: usage, 2.
+  under either. A token shared by two names is refused. No token: its window's agent name, read under its key form
+  (chat.threadFile keeps a thread only there) with the spelling kept too, so "Angel" reads `angel` and a row from
+  "Angel" is still its own. A row from any other agent is neither "you" nor "them", so it is left out. No agent identified: it says so and exits 1, rather than printing someone else's day. Extra words: usage, 2.
 - `engine/feedbackday.js`, pure where it can be: `digest({ name, date, readThread, listTaskFiles, readTask })` returns lines;
   the CLIs only print. Readers injected so tests use inline fixtures, not the live store.
 - Conversation: the direct thread (chat.readThread(chat.DIRECT, name)), messages whose `at` falls on `date` in the
@@ -41,7 +43,8 @@ leaves the computer: the digest is printed locally, and the report the agent wri
 ## Known limits
 - A thread that rolled over today (chat.js keeps 1000 rows, then continues a new file) is read from the current file
   only, so a very busy day's counts can understate. Rare; left for the reports to show whether it matters.
-- The Mac/Linux CLI arm is tested by its source only (running it needs a staged runtime); the Windows handler runs.
+- The Mac/Linux CLI arm is tested by its source only (running it needs a staged runtime); the Windows handler runs,
+  and the test file is in tools/windows-tests.js ALSO, so it runs on a Windows host too.
 
 ## Weakest premise
 That "its day" is mostly in the direct thread and the task history. An agent that worked only in project rooms gets
