@@ -192,6 +192,8 @@ test('a slow profile leaves the older posts to the next read, and says so', asyn
   const r = await cr.readReplies('Slow7811', { now: NOW, olderStartMs: 50 });
   assert.ok(Date.now() - t0 < 900, 'the read waited for the slow profile: ' + (Date.now() - t0) + ' ms');
   assert.equal(aborted, 1, 'the profile request given up on was not stopped');
+  /* The accepted cost: with the profile dropped, the waiting older post gets no first-look floor on this read. */
+  assert.equal(JSON.parse(fs.readFileSync(markFile('Slow7811'), 'utf8')).posts[PID(0)], undefined, 'a slow read gave a floor it cannot know about');
   assert.deepEqual(threadReads(urls), range(2, 12));
   assert.match(r.text, /only your newest 10 of 12 posts were looked at: the community was slow to say which of your older posts have new comments, so they wait for a read where it answers in time\)/);
   /* CONTROL: the same slow profile inside the limit, and the older post is read. */

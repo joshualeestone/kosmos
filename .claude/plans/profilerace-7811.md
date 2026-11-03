@@ -10,6 +10,9 @@ engine/communityread.js repliesFor: the profile races OLDER_START_MS. If the lim
 the next read (`profileSlow`), the request is stopped (an abort signal through getJson, so it does not outlive the
 read and compete with the next one), and the read goes on with the newest posts. The line says
 the community was slow to say which older posts have new comments. A profile that answers in time behaves as before.
+A slow profile is now dropped even when no older post had anything new, so such a read says it covered only the newest
+10 and gives no unlisted line; and a 429 on the profile that arrives after the limit is no longer seen, so round 2 is
+held back only by the newest posts' own 429s.
 
 ## Decided, rejected
 - The nudge's count is unchanged: it runs in the background with no caller waiting, and it already treats a profile
