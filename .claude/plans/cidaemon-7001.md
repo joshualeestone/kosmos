@@ -89,3 +89,25 @@ credential in the secrets map gives. It is one command for whoever has root:
   purpose, and the seam only redirects where root writes a plist it built itself; refusing it would need the real uid,
   which the test stubs. launchctl print system/<label> and print-disabled system were measured to work as a non-root
   user (rc 0, 2026-11-03), so a dry run as the CI user can read them.
+
+## Challenge round 3 (opus), fixed in the next commit
+- BLOCKER: on the load-only path the retired file's name came from a glob in ~/Library/LaunchAgents, which a job can
+  write, and was printed unescaped into the sudo rollback lines (a planted `...retired-Zz;id;#` sorted last and was
+  printed; pasting it runs the planted command). The retired agent now goes to RETIRED_DIR, /var/db/kosmos-ci-retired,
+  made root:wheel 0700 by the stage and refused when it is anything else, and only a regular, non-symlink file whose
+  suffix is exactly a UTC stamp is ever named. This also settles the round-3 warning that launchd's login scan might
+  still load a `.plist.retired-*` left in LaunchAgents: nothing is left there.
+- Root no longer moves through a symlink: the stage refuses when ~/Library, ~/Library/LaunchAgents or the agent is one.
+  A race between that check and the mv remains; jobs are not running then (the stage refuses on a Worker) and the
+  file moved has a fixed name, so it is accepted.
+- A failed bootstrap no longer says a login restarts the runner (the agent is moved aside); it says launchd tries
+  the daemon plist at the next boot. A pgrep failure after the bootstrap prints the rollback. The wait counts the 3 s
+  re-check. daemon_set checks the group too (root:wheel, as the messages say).
+- test-ci-runner-setup-4601 sets KOSMOS_CI_DAEMON_DIR to an empty temp dir, so its verify and keepalive arms never
+  read the host's /Library/LaunchDaemons.
+- New arms: planted names, a directory and a symlink in the retired dir; a retired dir of the wrong mode; a
+  symlinked LaunchAgents; a Listener not under a running daemon; a loaded daemon with a foreign plist; primary group
+  admin; uid 0; pgrep failing after the bootstrap. Nine perturbations, each red. The stat stand-in always reports
+  group 0, so the group half of that check has no arm of its own.
+- Not changed: no StandardOutPath. A log in a root-owned dir depends on whether launchd opens it as root or as the
+  user, which is unmeasured; the failure message now says where to look instead (_diag, and launchctl print).
