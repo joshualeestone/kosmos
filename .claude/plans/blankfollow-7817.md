@@ -17,8 +17,9 @@ estimated at 124690 pt against 19498 rebuilt, it lands past every row (the #7420
 recovered 0 rows. A blank list is worse than the jump #7828 fixed.
 
 ## Change
-- ChatView.followsBox: false in release; Debug reads KOSMOS_SAMPLE_BOXFOLLOW=1. First condition of the one
-  stripHeight handler, which does not look at the keyboard, so both blanks' path is covered.
+- ChatView.followsBox: false in release; Debug reads KOSMOS_SAMPLE_BOXFOLLOW=1. Asked in the one stripHeight
+  handler right after its reader-at-the-newest conditions and before anything moves; the handler does not look at the
+  keyboard, so both blanks' path is covered.
 - KeyboardSlideUITests: the grow test and the reader-higher-up test launch with KOSMOS_SAMPLE_BOXFOLLOW=1.
 - A release build still records "box height changed, not followed" in the chat diagnostic's events, so a build 30
   report of the jump can be tied to the box growing. Once per run of changes (the ring keeps 80 lines; one line per
@@ -41,4 +42,4 @@ red; CI ui job runs the 9 KeyboardSlideUITests.
 
 ## When the follow comes back
 No UI check covers "messages still drawn while the box grows with the follow on" on a long chat (the arm that blanked
-on the phone): testComposerGrowingKeepsMessagesDrawn now runs with it off. Whoever turns it back on adds that arm.
+on the phone): testComposerGrowingKeepsMessagesDrawn now runs with it off. The followsBox comment says to add it first.

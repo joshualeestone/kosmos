@@ -888,6 +888,8 @@ struct ChatView: View {
 
     // kosmos#7817 (11-03): the message box's growth is not followed in a release build (the follow blanked a long chat on
     // Josh's phone, build 29). Debug: KOSMOS_SAMPLE_BOXFOLLOW=1 turns it on, so the UI checks keep exercising it.
+    // Before turning it back on: no UI check yet asks that a long chat's rows are still drawn while the box grows with
+    // the follow on (the case that blanked); add that one first.
     static let followsBox: Bool = {
         #if DEBUG
         return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_BOXFOLLOW"] == "1"
