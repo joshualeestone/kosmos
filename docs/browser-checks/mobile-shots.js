@@ -465,6 +465,16 @@ async function pbFilesShot(page, files, open) {
   await page.evaluate(() => document.getElementById('pb-files').scrollIntoView({ block: 'start' }));
 }
 const PB_IDLE = { running: false, startedAt: null, last: null };
+/* kosmos#7404 plan screen: personal backup is on and there is no plan yet, so the sizes on sale show with Choose. The
+   checkout answer is a sample Stripe address (the screen accepts only checkout.stripe.com), or a refusal when `refuse`. */
+async function pbPlansShot(page, refuse) {
+  const json = (body) => (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  await page.route('**/api/personal-backup/plans', json({ ok: true, planGb: null, plans: [{ gb: 25, price: '$5/month' }, { gb: 100, price: '$12/month' }, { gb: 500, price: '$40/month' }] }));
+  await page.route('**/api/personal-backup/checkout', json(refuse ? { ok: false, because: 'The payment page could not be opened just now. Nothing was charged.' }
+    : { ok: true, url: 'https://checkout.stripe.com/c/pay/cs_test_sample' }));
+  await pbShot(page, 'on', '$5/month', { lastOk: null, stopped: null });
+  await page.waitForSelector('#pb-plans-list li button', { state: 'visible', timeout: 10000 });
+}
 /* #5359: a restart note made seven minutes ago, on this page's own route (engine/restartnote.js makes the real one). */
 async function stubRebootNote(page) {
   const now = Date.now();
@@ -1842,6 +1852,11 @@ const SCREENS = [
   { name: 'pb-files-running', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
     await pbFilesShot(page, { running: true, startedAt: Date.now() - 4 * 60000, last: null }, async () => {
       await page.waitForSelector('#pb-files-run', { state: 'visible', timeout: 10000 }); }); } },
+  { name: 'pb-plans', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbPlansShot(page, false); await pbTop(page); } },
+  { name: 'pb-plans-wait', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbPlansShot(page, false);
+    await page.click('#pb-plans-list li button'); await page.waitForSelector('#pb-plans-open', { state: 'visible', timeout: 10000 }); await pbTop(page); } },
+  { name: 'pb-plans-refused', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => { await pbPlansShot(page, true);
+    await page.click('#pb-plans-list li button'); await page.waitForFunction(() => document.getElementById('pb-plans-msg').textContent !== '', null, { timeout: 10000 }); await pbTop(page); } },
   { name: 'pb-files-done', owner: 'Baron Draxum', noServiceWorker: true, go: async (page) => {
     await pbFilesShot(page, { running: false, startedAt: null, last: { finishedAt: Date.now(), ok: true, restored: 1204, failed: 2, world: PB_COPY,
       details: { failed: [{ path: 'projects/site/assets/hero.png', why: 'sample' }, { path: 'workers/sam/notes/old.md', why: 'sample' }], leftOutAtBackup: 12, fetchProblems: [] } } },
