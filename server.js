@@ -5821,10 +5821,12 @@ function withPreviews(rows) {
     // would tell them this Mac's address and when the room was read; the external
     // row never draws a preview anyway.
     if (r.kind === 'external') continue;
-    const link = unfurl.firstLink(r.text);
-    if (!link) continue;
+    // kosmos#7861: a bare address (example.com) the chat links gets a preview too, fetched https first.
+    const found = unfurl.firstLinkInfo(r.text);
+    if (!found) continue;
+    const link = found.url;
     const hit = unfurl.peek(link);
-    if (hit === null) { unfurl.warm(link); continue; }
+    if (hit === null) { unfurl.warm(link, { bare: found.bare }); continue; }
     if (!hit.ok) continue;
     r.preview = {
       url: hit.url, title: hit.title, description: hit.description, site: hit.site, fetchedAt: hit.fetchedAt,
