@@ -10603,7 +10603,8 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(lo[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     let plan;
-    try { plan = leftover.plan(name); }
+    // kosmos#7835: planAsync, so a Windows drive probe (PowerShell, up to 5 s) does not hold every other request.
+    try { plan = await leftover.planAsync(name); }
     catch (err) { sendJson(res, 500, { error: 'we could not work out what is left of this agent', detail: String(err && err.message || err) }); return; }
     /* 200 whatever the plan says: every agent page asks this question, and
        "not a leftover" is a true answer to it, not a failed request. A 400
@@ -10617,11 +10618,12 @@ const server = http.createServer(async (req, res) => {
     const name = decodeSegment(lo[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     readBody(req)
-      .then((buf) => {
+      .then(async (buf) => {
         let body = {};
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
         let done;
-        try { done = leftover.del(name, { typed: body.typed }); }
+        // kosmos#7835: delAsync, so a Windows Recycle Bin move (PowerShell, up to 120 s) does not hold the board.
+        try { done = await leftover.delAsync(name, { typed: body.typed }); }
         catch (err) { SETTINGS_LEFTOVERS = null; LAST_SURVEY = null; sendJson(res, 500, { error: 'the delete failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
         // kosmos#7825 PR 2: the removed list redraws from a fresh read. The poll's survey too, taken before the delete
         // (review 2: reused, it listed the name the delete had just cleared).

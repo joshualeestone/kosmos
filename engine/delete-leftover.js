@@ -52,7 +52,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, execFile } = require('node:child_process');
 const create = require('./create');
 const remove = require('./remove');
 const liveExec = require('./live-execution');
@@ -112,6 +112,44 @@ function run(file, args, opts) {
   } catch (err) {
     return { ok: false, code: err && err.status, stderr: String(err && err.stderr || '') };
   }
+}
+/* kosmos#7835: run() without holding the board, for the Windows PowerShell calls that can take seconds (the drive probe)
+   or minutes (a Recycle Bin move behind a hidden error dialog). The same seams and gate as run(): a test runner (whose
+   answer may be a promise), the dry-run flag, the live-execution gate. */
+async function runAsync(file, args, opts) {
+  if (runner) return runner(file, args, opts);
+  if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
+  if (!liveExec.liveExecutionAllowed()) {
+    liveExec.refuseOrWarn('engine/delete-leftover.js', file, args);
+    return { ok: true, stdout: '', dryRun: true };
+  }
+  return execAsync(file, args, opts);
+}
+/* The live half, the shape of remove.js's execAsync (#6173), with this module's env and windowsHide: it ALWAYS answers.
+   SIGKILL at the limit (a SIGTERM can be ignored); a last timer answers even when the pipes never close (a grandchild,
+   such as a hidden dialog's, holding them), so a delete's hold on its name always ends; stdin closed, as run()'s
+   'ignore'; a process killed at its limit has no exit code (Windows reports it as exit 1, which would read as a real
+   answer). */
+const EXEC_HARD_GRACE_MS = 5000;
+function execAsync(file, args, opts) {
+  return new Promise((resolve) => {
+    const text = (v) => (v == null ? '' : String(v)).slice(0, 2000);
+    const limit = (opts && opts.timeout) || 20000;
+    let answered = false;
+    let hard = null;
+    const answer = (v) => { if (answered) return; answered = true; clearTimeout(hard); resolve(v); };
+    let child;
+    try {
+      child = execFile(file, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL', windowsHide: true, ...(opts && opts.env ? { env: opts.env } : {}) },
+        (err, stdout, stderr) => {
+          if (!err) { answer({ ok: true, stdout: String(stdout || '') }); return; }
+          answer({ ok: false, code: !err.killed && typeof err.code === 'number' ? err.code : null, stdout: text(stdout), stderr: text(stderr) });
+        });
+    } catch (err) { answer({ ok: false, code: null, stdout: '', stderr: text(err && err.message) }); return; }
+    hard = setTimeout(() => answer({ ok: false, code: null, stdout: '', stderr: 'it did not answer within its time limit' }), limit + EXEC_HARD_GRACE_MS);
+    if (hard.unref) hard.unref();
+    if (child && child.stdin) child.stdin.end();
+  });
 }
 
 function insideDir(child, parent) {
@@ -244,10 +282,17 @@ const RECYCLE_SCRIPT = [
   "if ($after -gt $before) { 'RECYCLED' } else { 'GONE' }",
 ].join('; ');
 const DRIVE_KEEP_MS = 60000;
+/* kosmos#7835 item 2: a probe that gave no answer (timed out on a busy machine) is kept only this long, so one slow
+   start does not make every plan on that drive say "for good" for a whole minute. */
+const DRIVE_FAIL_KEEP_MS = 5000;
+const keptFor = (kept) => (kept && kept.info ? DRIVE_KEEP_MS : DRIVE_FAIL_KEEP_MS);
 const DRIVE_TIMEOUT_MS = 5000;
 const RECYCLE_TIMEOUT_MS = 120000;
 function psRun(script, p, timeout) {
   return run(powershell(), ['-NoProfile', '-NonInteractive', '-Command', script], { env: { ...process.env, [RECYCLE_PATH_VAR]: p }, timeout });
+}
+function psRunAsync(script, p, timeout) {
+  return runAsync(powershell(), ['-NoProfile', '-NonInteractive', '-Command', script], { env: { ...process.env, [RECYCLE_PATH_VAR]: p }, timeout });
 }
 /* The real path of the folder that HOLDS `p`, joined with `p`'s own name: a link on the way is judged by the volume
    the files are on, and a link AT `p` (a settings file or picture can be one) is what goes to the Recycle Bin, never
@@ -256,31 +301,71 @@ function realPath(p) {
   const P = /^[A-Za-z]:[\\/]|^\\\\/.test(p) ? path.win32 : path;   // a Windows path is split by Windows rules on any host
   return P.join(fs.realpathSync.native(P.dirname(p)), P.basename(p));
 }
-/** win32: whether the Recycle Bin can take `p`, whose measure (bytes, capped) is `m`. See `binVerdict`; any answer
-    we cannot read is false. */
-function recycleBinCanTake(p, m) {
-  if (typeof p !== 'string' || p.startsWith('\\\\')) return false;
+/* The path the probe asks about and its drive root, or null when the Recycle Bin is ruled out before any probe (a path
+   that cannot be read, a network share). */
+function driveOf(p) {
+  if (typeof p !== 'string' || p.startsWith('\\\\')) return null;
   let real = p;
-  try { real = realPath(p); } catch (err) { if (!(err && err.code === 'ENOENT')) return false; }
-  if (real.startsWith('\\\\')) return false;
-  const root = path.win32.parse(real).root.toLowerCase();
-  const kept = root ? driveTypes.get(root) : null;
-  if (kept && Date.now() - kept.at < DRIVE_KEEP_MS) return binVerdict(kept.info, m);
-  let out;
-  try { out = psRun(DRIVE_SCRIPT, real, DRIVE_TIMEOUT_MS); } catch (err) {
-    if (err && err.code === 'LIVE_EXECUTION_REFUSED') throw err;   // live-execution.js: let the refusal through
-    out = { ok: false };
-  }
+  try { real = realPath(p); } catch (err) { if (!(err && err.code === 'ENOENT')) return null; }
+  if (real.startsWith('\\\\')) return null;
+  return { real, root: path.win32.parse(real).root.toLowerCase() };
+}
+function keepDrive(root, out) {
   let info = null;
   if (out && out.ok) { try { info = JSON.parse(String(out.stdout || '').trim()); } catch { info = null; } }
   if (root && !(out && out.dryRun)) driveTypes.set(root, { info, at: Date.now() });
-  return binVerdict(info, m);
+  return info;
+}
+function freshDrive(root) {
+  const kept = root ? driveTypes.get(root) : null;
+  return kept && Date.now() - kept.at < keptFor(kept) ? kept : null;
+}
+/** win32: whether the Recycle Bin can take `p`, whose measure (bytes, capped) is `m`. See `binVerdict`; any answer
+    we cannot read is false. `probe` false (kosmos#7835): answer from a kept probe only, never start PowerShell. */
+function recycleBinCanTake(p, m, probe = true) {
+  const d = driveOf(p);
+  if (!d) return false;
+  const kept = freshDrive(d.root);
+  if (kept) return binVerdict(kept.info, m);
+  if (!probe) return false;
+  let out;
+  try { out = psRun(DRIVE_SCRIPT, d.real, DRIVE_TIMEOUT_MS); } catch (err) {
+    if (err && err.code === 'LIVE_EXECUTION_REFUSED') throw err;   // live-execution.js: let the refusal through
+    out = { ok: false };
+  }
+  return binVerdict(keepDrive(d.root, out), m);
+}
+/* kosmos#7835: the same probe without holding the board, kept for the synchronous plan that follows. One probe per
+   drive at a time: two agent pages opening together share it. */
+const probing = new Map();
+function warmDrive(p) {
+  const d = driveOf(p);
+  if (!d || !d.root || freshDrive(d.root)) return Promise.resolve();
+  if (probing.has(d.root)) return probing.get(d.root);
+  const go = (async () => {
+    let out;
+    try { out = await psRunAsync(DRIVE_SCRIPT, d.real, DRIVE_TIMEOUT_MS); } catch (err) {
+      if (err && err.code === 'LIVE_EXECUTION_REFUSED') return;   // the synchronous plan meets the refusal itself
+      out = { ok: false };
+    }
+    keepDrive(d.root, out);
+  })().finally(() => probing.delete(d.root));
+  probing.set(d.root, go);
+  return go;
 }
 /** win32: send `p` to the Recycle Bin. 'recycled' (it is there), 'gone' (it is gone, and not found in the Recycle Bin),
     'unverified' (it is gone, and the Recycle Bin could not be read), or throws with what went wrong. The folder's
     absence is checked here too: the script's word alone is not trusted. */
 function recycle(p) {
-  const out = psRun(RECYCLE_SCRIPT, realPath(p), RECYCLE_TIMEOUT_MS);
+  return recycleOutcome(p, psRun(RECYCLE_SCRIPT, realPath(p), RECYCLE_TIMEOUT_MS));
+}
+/* kosmos#7835: the same move without holding the board. */
+async function recycleAsync(p) {
+  return recycleOutcome(p, await psRunAsync(RECYCLE_SCRIPT, realPath(p), RECYCLE_TIMEOUT_MS));
+}
+/* What the move's answer means: { where, note? }, or throws while it is still there. kosmos#7835 item 4: an error
+   Windows raised after it was already gone is kept as the step's note, not dropped. */
+function recycleOutcome(p, out) {
   const said = String((out && out.stdout) || '').trim();
   if (fs.existsSync(p)) {
     if (said.startsWith('FAILED ')) throw new Error(said.slice(7));
@@ -292,15 +377,16 @@ function recycle(p) {
     }
     throw new Error('still there');
   }
-  return said === 'RECYCLED' ? 'recycled' : (said === 'GONE' ? 'gone' : 'unverified');
+  if (said.startsWith('FAILED ')) return { where: 'unverified', note: 'Windows said: ' + said.slice(7) };
+  return { where: said === 'RECYCLED' ? 'recycled' : (said === 'GONE' ? 'gone' : 'unverified') };
 }
 /* The words for where the files go: a Windows person looks for the Recycle Bin, not the Trash. */
 function binWords(platform) { return platform === 'win32' ? 'the Recycle Bin' : 'the Trash'; }
 
 /** Whether the Trash can take a path: it exists, and it is on the same
     volume, so a rename works and nothing is copied-then-deleted. */
-function trashCanTake(p, platform, m) {
-  if ((platform || process.platform) === 'win32') return recycleBinCanTake(p, m);
+function trashCanTake(p, platform, m, probe = true) {
+  if ((platform || process.platform) === 'win32') return recycleBinCanTake(p, m, probe);
   try {
     let t;
     try { t = fs.statSync(TRASH(platform)); } catch (e) {
@@ -415,7 +501,7 @@ function plan(name, opts) {
       return { ok: false, because: `${shown}'s folder is not where Kosmos keeps agents, so Kosmos will not delete it.` };
     }
     const m = measure(folderPath);
-    folder = { path: folderPath, ...m, trash: trashCanTake(folderPath, platform, m) };
+    folder = { path: folderPath, ...m, trash: trashCanTake(folderPath, platform, m, !(opts && opts.probe === false)) };
   }
   let job = null;
   if (platform === 'win32') {
@@ -500,7 +586,7 @@ function plan(name, opts) {
     return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
   }
   const bin = binWords(platform);   // kosmos#7820
-  const recordsTrash = toTrash && recs.records.every((r) => trashCanTake(r.file, platform));
+  const recordsTrash = toTrash && recs.records.every((r) => trashCanTake(r.file, platform, undefined, !(opts && opts.probe === false)));
   const recordsLost = recs.records.length > 0 && !recordsTrash;
   if (recs.records.length) {
     const w = recordsWords(recs.records);
@@ -718,7 +804,7 @@ function recordsWords(records) {
 /* Moves the plan's records where the plan said: the Trash when p.records.trash, else deleted for good. One step per
    kind (settings, picture), failed if any file of it would not go. A dead writer's temps beside the picture
    (store.removeAvatar) are deleted after: they are copies a save never finished. */
-function moveRecords(p, platform) {
+function* moveRecords(p, platform) {
   const steps = [];
   if (p.records.kept) steps.push({ step: 'its settings and picture', ok: true, because: `kept: ${p.records.kept}` });
   const failed = new Map();
@@ -727,9 +813,12 @@ function moveRecords(p, platform) {
     try {
       if (p.records.trash && platform === 'win32') {
         // kosmos#7820: the Recycle Bin, as the folder; a record it did not keep is reported like the folder.
-        const where = recycle(r.file);
+        // kosmos#7835: handed to whoever drives the delete, as the folder's move is.
+        const got = yield { recycle: r.file };
+        const where = got && got.where;
         if (where === 'gone') steps.binMissed = [...(steps.binMissed || []), r.what];
         else if (where === 'unverified') steps.binUnsure = [...(steps.binUnsure || []), r.what];
+        if (got && got.note) steps.notes = { ...(steps.notes || {}), [r.what]: got.note };
       } else if (p.records.trash) {
         fs.mkdirSync(TRASH(platform), { recursive: true });
         const to = trashName(r.file, platform);
@@ -746,7 +835,7 @@ function moveRecords(p, platform) {
   }
   for (const what of ['its settings', 'its picture']) {
     if (failed.has(what)) steps.push({ step: what, ok: false, because: failed.get(what) });
-    else if (moved.has(what)) steps.push({ step: what, ok: true });
+    else if (moved.has(what)) steps.push({ step: what, ok: true, ...(steps.notes && steps.notes[what] ? { note: steps.notes[what] } : {}) });
   }
   if (moved.has('its picture') && !failed.has('its picture')) { try { require('./store').removeAvatar(p.name); } catch { /* the picture itself is gone */ } }
   return steps;
@@ -772,7 +861,7 @@ function writeTrashInfo(from, to) {
 
 /** The act. Re-plans first, so nothing is deleted that the plan would not
     have offered a moment ago. `typed` must match when the plan asks for it. */
-function del(name, opts) {
+function* delSteps(name, opts) {
   /* #6173: asked again here, not only through the re-plan below: the person sees the plan and confirms it in a separate
      request, and a move can start in between. */
   const held = remove.moveRefusal(realCaseName(create.cleanName(name), (opts && opts.platform) || process.platform));
@@ -815,10 +904,15 @@ function del(name, opts) {
      sentence names the folder's files or the settings and picture, whichever it was. */
   const missed = [];
   const unsure = [];
-  const move = (from, what) => {
+  /* kosmos#7835: a generator, so the Windows move is handed to whoever drives the delete (del in place, delAsync
+     without holding the board); every other step runs here, in order, either way. */
+  const move = function* (from, what) {
+    let note = '';
     try {
       if (p.toTrash && platform === 'win32') {
-        const where = recycle(from);
+        const got = yield { recycle: from };
+        const where = got && got.where;
+        if (got && got.note) note = got.note;
         if (where === 'gone') missed.push('its files');
         else if (where === 'unverified') unsure.push('its files');
       } else if (p.toTrash) {
@@ -831,7 +925,7 @@ function del(name, opts) {
       }
       if (fs.existsSync(from)) throw new Error('still there');
       gone.push(what);
-      steps.push({ step: what, ok: true });
+      steps.push({ step: what, ok: true, ...(note ? { note } : {}) });
     } catch (err) {
       stuck.push(what);
       steps.push({ step: what, ok: false, because: String(err && err.message || err) });
@@ -869,7 +963,7 @@ function del(name, opts) {
        gone. Best effort: a job that was never loaded answers "not found",
        which is the state we want. */
     run('launchctl', ['bootout', `gui/${process.getuid ? process.getuid() : 501}/${p.job.label}`]);
-    move(p.job.path, 'its auto-start file');
+    yield* move(p.job.path, 'its auto-start file');
   }
   /* #4918 review 31: a startup job systemd would not remove (the user bus unreachable) keeps the folder when the folder
      would be deleted for good: losing the files while the unit stays is the worst of both. Into the Trash it can go. */
@@ -889,7 +983,7 @@ function del(name, opts) {
       because: `systemd would not remove ${p.shown}'s startup job${p.folder ? ', so its folder was kept too' : ''}. The name stays taken; try again once this computer's user services are reachable. Its standing in the community was reset, so if it comes back it starts at the beginning.`,
       steps,
     };
-  } else if (p.folder) move(p.folder.path, 'its folder');
+  } else if (p.folder) yield* move(p.folder.path, 'its folder');
   /* The removed-list record, if any, is what keeps a name hidden on the
      board; with the files gone it has nothing to point at. Forgotten after the records below, and only once they went
      (kosmos#7825): the removed list's row is how a person reaches "Delete its files" again, so settings that would not
@@ -926,7 +1020,7 @@ function del(name, opts) {
      gone. NOT best-effort: left behind they make a new agent under the name the old one (writeProfile keeps a stored
      `id`, #170, and every field a create does not write; the picture is the old one's). */
   if (!stuck.some((s) => s !== 'its sender tokens')) {
-    const recStepsOut = moveRecords(p, platform);
+    const recStepsOut = yield* moveRecords(p, platform);
     for (const x of recStepsOut.binMissed || []) if (!missed.includes(x)) missed.push(x);   // kosmos#7820
     for (const x of recStepsOut.binUnsure || []) if (!unsure.includes(x)) unsure.push(x);
     for (const st of recStepsOut) {
@@ -1062,4 +1156,64 @@ function settingsLeftovers(opts) {
   return { ok: true, names };
 }
 
-module.exports = { OUTCOME, plan, del, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, recycleBinCanTake, binVerdict };   // the last five for tests (#5445, kosmos#7820)
+/** Delete what is left of an agent, in place: a Windows move runs here and holds the caller until it ends. */
+function del(name, opts) {
+  const steps = delSteps(name, opts);
+  let r = steps.next();
+  while (!r.done) {
+    let got;
+    let err = null;
+    try { got = recycle(r.value.recycle); } catch (e) { err = e; }
+    r = err ? steps.throw(err) : steps.next(got);
+  }
+  return r.value;
+}
+
+/* kosmos#7835: the drive probe and the Recycle Bin moves (Windows PowerShell) held the whole board, every page, request
+   and health check, while they ran: the probe up to 5 s on an agent page, a move up to 120 s behind a hidden error
+   dialog. planAsync and delAsync give the same answers as plan and del with those waits off the board. Still in the
+   board's own time: the plan itself (folder measure, roster), and Task Scheduler's removal of a startup job. */
+const deleting = new Set();
+function askedKey(name) { try { return String(create.cleanName(name) || name).toLowerCase(); } catch { return String(name).toLowerCase(); } }
+/** Whether a delete of what is left under this name is running now (create refuses the name meanwhile). */
+function deletingName(name) { return deleting.size > 0 && name != null && deleting.has(askedKey(name)); }
+const DELETING_BECAUSE = 'a delete of what is left of this agent is running now; try again when it has finished';
+async function warmFor(name, opts) {
+  let first = null;
+  try { first = plan(name, { ...(opts || {}), probe: false }); } catch { return; }
+  if (!first || first.ok !== true) return;
+  const paths = [first.folder && first.folder.path, ...((first.records && first.records.files) || []).map((r) => r.file)].filter(Boolean);
+  for (const p of paths) await warmDrive(p);
+}
+/** plan, with the Windows drive probe run first without holding the board. While a delete of the name runs, its files
+    are on their way out, so the plan says that rather than reading them half-moved. */
+async function planAsync(name, opts) {
+  const win = ((opts && opts.platform) || process.platform) === 'win32';
+  if (win && deletingName(name)) return { ok: false, because: DELETING_BECAUSE };
+  if (win) await warmFor(name, opts);
+  return plan(name, opts);
+}
+/** del, with the Windows drive probe and Recycle Bin moves run without holding the board. One at a time per name: a
+    second delete of the same agent while one runs is refused, since its steps would interleave. */
+async function delAsync(name, opts) {
+  if (((opts && opts.platform) || process.platform) !== 'win32') return del(name, opts);
+  const key = askedKey(name);
+  if (deleting.has(key)) return { outcome: OUTCOME.REFUSED, because: DELETING_BECAUSE };
+  deleting.add(key);
+  try {
+    await warmFor(name, opts);
+    const steps = delSteps(name, opts);
+    let r = steps.next();
+    while (!r.done) {
+      let got;
+      let err = null;
+      try { got = await recycleAsync(r.value.recycle); } catch (e) { err = e; }
+      r = err ? steps.throw(err) : steps.next(got);
+    }
+    return r.value;
+  } finally {
+    deleting.delete(key);
+  }
+}
+
+module.exports = { OUTCOME, plan, del, planAsync, delAsync, deletingName, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, recycleBinCanTake, binVerdict };   // the last five for tests (#5445, kosmos#7820)

@@ -59,8 +59,9 @@ test('the routes: GET plans, DELETE acts with the typed name, and neither touche
   const b = SERVER.indexOf("const rs = pathname.match(", a);
   assert.ok(a > -1 && b > a, 'the leftover routes moved; re-anchor');
   const r = SERVER.slice(a, b);
-  assert.match(r, /leftover\.plan\(name\)/);
-  assert.match(r, /leftover\.del\(name, \{ typed: body\.typed \}\)/);
+  // kosmos#7835: the async forms, which run the Windows PowerShell waits off the board.
+  assert.match(r, /await leftover\.planAsync\(name\)/);
+  assert.match(r, /await leftover\.delAsync\(name, \{ typed: body\.typed \}\)/);
   assert.doesNotMatch(r, /removal\./);
 });
 

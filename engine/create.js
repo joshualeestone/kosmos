@@ -5335,6 +5335,11 @@ function createAgentInner(opts) {
    */
   const shown = cleanName(opts && opts.name);
   const name = slugFor(opts && opts.name);
+  /* kosmos#7835: on Windows a delete of what is left under this name can be waiting on the Recycle Bin with the board
+     free; its last steps (the name's tokens, records and history) would then land on a new agent made meanwhile. */
+  let deletingNow = false;
+  try { const dl = require('./delete-leftover'); deletingNow = dl.deletingName(name) || dl.deletingName(shown); } catch { deletingNow = false; }
+  if (deletingNow) return { outcome: OUTCOME.REFUSED, because: 'what is left of an agent by this name is still being deleted; try again when that has finished', steps: [] };
   const roleKey = roleKeyOf(opts);
   const wantAccountDir = opts && opts.account;
   /* Trimmed and self-refused at the door, the same posture as `who` on a task:
