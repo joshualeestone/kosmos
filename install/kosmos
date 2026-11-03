@@ -5291,6 +5291,7 @@ cmd_room() {
   # #4891 N8: `-n N` / `--limit N` (or `--limit=N`) reads only the last N rows (1 to 200; 40 without it). Before
   # this, -n was ignored and the whole tail printed. Either side of the project id.
   # #4926: --unanswered lists only the posts that asked you something and that no post of yours answers by id.
+  # #7848: and that no other agent they asked has claimed (the board decides; this only passes the flag).
   local _n="" _ngiven=0 _arg _unans=""
   project=""
   while [ $# -gt 0 ]; do

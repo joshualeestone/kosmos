@@ -83,3 +83,10 @@ no skip (3), any claimant (1), own claim counted (1), no person-post branch (1),
 - The claimed line says kosmos room shows them in full and an ask comes back if its claim is given up.
 - Tests: an ask I answered and another agent claimed is on neither line; the hold test asserts the exact addressed form.
 - Related and CLI test files: 2582 tests, 0 fail.
+
+## Review round 6 (sonnet, fixed)
+- The membersKnown guard was untested. Measured that it is reachable on a token-authenticated --unanswered read (a
+  project record with no member list answers 200), then added a test with a CONTROL (members known: the claim takes it
+  off); deleting the guard reds it. Round 5's REASONED note is now MEASURED.
+- install/kosmos's comment beside the usage names the claim rule.
+- Declined: dropping "else" from the all-claimed head line (round 5 chose it so the line claims no more than it knows).

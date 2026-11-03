@@ -190,3 +190,19 @@ test('kosmos#7848 review 5: an ask I answered and another agent claimed is on ne
   assert.ok(!r.text.includes(CLAIMED), 'an ask I answered is reported as claimed by another:\n' + r.text);
   assert.match(r.text, /^Waiting on an answer from you: nothing in this room\.$/m, r.text);
 });
+
+test('kosmos#7848 review 6: with the project\'s member list unreadable, a claim does not take the ask off my list', async () => {
+  const pid = newRoom('Claimed7848k');
+  const ask = post(pid, { text: '@readerseat @claimseat the keys?', mentioned: [ME, CLAIMER] });
+  claim(pid, ask, CLAIMER);
+  let r = await room(pid, ME, '&unanswered=1');
+  assert.ok(!listed(r.text, ask) && r.text.includes(CLAIMED), 'CONTROL: with members known the claim should take it off:\n' + r.text);
+  const before = projects.readAll();
+  projects.writeAll(before.map((q) => { if (q.id !== pid) return q; const c = { ...q }; delete c.agents; return c; }));
+  try {
+    r = await room(pid, ME, '&unanswered=1');
+    assert.equal(r.status, 200, r.text);
+    assert.ok(listed(r.text, ask), 'with no member list, a claim (perhaps a departed agent\'s) hid the ask:\n' + r.text);
+    assert.ok(!r.text.includes(CLAIMED), 'with no member list, the ask was reported as claimed:\n' + r.text);
+  } finally { projects.writeAll(before); }
+});
