@@ -2028,6 +2028,7 @@ enum Board {
     /* kosmos#7842: whether an answer replaces a value already shown: a 200, a 404 or a 409 (Files browse's refusal).
        Every other answer keeps what is shown and is said only when nothing is. Used by the Profile and by Files. */
     static func answerStands(_ status: Int) -> Bool { status == 200 || status == 404 || status == 409 }
+
     // kosmos#7840: a 401 or 403 is the phone not being let in (a gate, or the seconds after the computer restarts). One
     // sentence for every screen that reads through the Mac, never the gate's own words (they are for a terminal).
     static let phoneShutOut = "Your computer did not let this phone in just now. Try again in a moment, or open the Agents tab to connect again."

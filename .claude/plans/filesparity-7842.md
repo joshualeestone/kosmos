@@ -19,10 +19,11 @@ files browse (what the Files screen reads, review 1) 200, 404, 403 (a cross-site
 make), and 409 when Files is a link, a file, or cannot be read: those 409s say what the folder is now, so 409 stands.
 No route sends 410, so it is not in the rule (review 1).
 
-## Not changed
-A 200 the phone cannot read with no words: the Profile keeps (profileCannotRead), the Files screen replaces with
-filesCannotRead. Predates this card; noted on it.
+## Review 2
+Files now uses the Profile's whole rule, not only its statuses: a refusal replaces a shown list only when its status
+stands AND it carries the board's words. So an unreadable 200 (a proxy page, a reply with no files) keeps the list on
+both Files screens, as the Profile keeps its value. One function, filesKeepsShown(read, status), decides for the Files
+screen and for the agent page's section, so the two cannot drift.
 
 ## Verified
-agentinfo 117/117, files 82/82, settings 42/42, run.sh 1871/1871, simulator build SUCCEEDED. Perturbations on a
-scratchpad copy (before review 1): old 4xx rule fails 2 + 4 checks; dropping the forNow keep fails 8.
+See the latest commit message for the measured counts (they move with every round).

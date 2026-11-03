@@ -89,8 +89,8 @@ check(Board.filesSectionAfter(rowsBefore, .message(Board.filesAgentNoFolder)) ==
 check(Board.filesSectionAfter(rowsBefore, .hidden) == .hidden, "an answer with no files replaces them")
 check(Board.filesSectionAfter(.hidden, .noAnswer) == .noAnswer, "with no rows yet, no answer says so"); check(Board.filesSectionAfter(rowsBefore, .message(Board.filesAgentUnread)) == .message(Board.filesAgentUnread), "review 3: a refusal with no reason (the same words) replaces them")
 check(sec(#"{"ok":false,"because":"its Files is a link, so it is not listed","files":[]}"#) == .message("Its Files is a link, so it is not listed."), "a refusal says the route's reason")
-check(sec(#"{"ok":false,"because":""}"#) == .message("We could not read this agent\u{2019}s files just now."), "an empty reason falls back to the board's line (review 5)")
-check(Board.filesSection(status: 0, body: nil) == .noAnswer && sec("<html>sign in</html>") == .message("We could not read this agent\u{2019}s files just now."), "no answer is its own state (review 3); the gate's page is a refusal in the board's line")
+check(sec(#"{"ok":false,"because":""}"#) == .forNow("We could not read this agent\u{2019}s files just now."), "an empty reason falls back to the board's line (review 5)")
+check(Board.filesSection(status: 0, body: nil) == .noAnswer && sec("<html>sign in</html>") == .forNow("We could not read this agent\u{2019}s files just now."), "no answer is its own state (review 3); the gate's page is a refusal in the board's line")
 if case .rows(let r) = sec(#"{"ok":true,"total":1,"files":[{"name":"a.pdf","size":1}]}"#) { check(r.map(\.name) == ["a.pdf"], "a file: the rows") } else { check(false, "a file: the rows") }
 check(boardPage.contains("if ((ok && !files.length) || status === 404) {") && boardPage.contains("'We could not read this agent\u{2019}s files just now.'")
       && boardPage.contains(">View All</button>") && Board.filesAll == "View All", "the board's SIDEBAR section rule (it hides on a 404; the phone's segment follows the Files screen, paintAgentFilesAll, instead) and words still")
@@ -101,20 +101,27 @@ check(crumbs.map(\.name) == ["Files", "Covers", "Spring"] && crumbs.map(\.path) 
 // kosmos#7840: a 401 or 403 is the phone not being let in, said in one sentence on every screen, never the gate's words.
 check(Board.filesResult(status: 403, body: Data(#"{"error":"this board belongs to the account that started it; open it with `kosmos open`"}"#.utf8)) == .refused(Board.phoneShutOut), "a 403 is not the gate's words")
 check(Board.filesSection(status: 401, body: Data("{}".utf8)) == .forNow(Board.phoneShutOut), "the agent page's Files section says the same on a 401")
-check(Board.filesKeepsShown(status: 403), "a shut-out keeps the Files list shown")
-check(Board.filesKeepsShown(status: 0), "CONTROL: no answer keeps it, as before")
-check(!Board.filesKeepsShown(status: 200), "a 200 replaces it")
+check(Board.filesKeepsShown(Board.filesResult(status: 403, body: Data("{}".utf8)), status: 403), "a shut-out keeps the Files list shown")
+check(Board.filesKeepsShown(.noAnswer, status: 0), "CONTROL: no answer keeps it, as before")
+check(!Board.filesKeepsShown(Board.filesResult(status: 200, body: Data(#"{"ok":false,"because":"the folder was removed"}"#.utf8)), status: 200), "a 200 refusal with the board's reason replaces it")
 check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 401, body: Data("{}".utf8))) == rowsBefore, "the agent page keeps its Files rows on a shut-out")
 
 check(Board.filesSectionAfter(.hidden, .forNow(Board.phoneShutOut)) == .forNow(Board.phoneShutOut), "CONTROL: with no rows yet, a shut-out says so")
 // kosmos#7842: Files keeps its list through the same answers as the Profile (Board.answerStands).
 let busy = Data(#"{"error":"the board is busy"}"#.utf8)
 for st in [500, 502, 503, 408, 429, 400] {
-    check(Board.filesKeepsShown(status: st), "the Files screen keeps its list on a \(st)")
+    check(Board.filesKeepsShown(Board.filesResult(status: st, body: busy), status: st), "the Files screen keeps its list on a \(st)")
     check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: st, body: busy)) == rowsBefore, "the agent page keeps its Files rows on a \(st)")
 }
 check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 503, body: busy)) == .forNow("The board is busy."), "CONTROL: with no rows yet, a 503 says the board's words")
-for st in [200, 404, 409] { check(!Board.filesKeepsShown(status: st), "CONTROL: a \(st) says what the folder is now, so it replaces the list") }
+let gone = Data(#"{"ok":false,"because":"this agent\u2019s Files is a link to somewhere else"}"#.utf8)
+for st in [200, 404, 409] { check(!Board.filesKeepsShown(Board.filesResult(status: st, body: gone), status: st), "CONTROL: a \(st) with words says what the folder is now, so it replaces the list") }
+// Review 2: a 200 the phone cannot read (no words of its own) keeps the list on both screens, as the Profile keeps its value.
+for body in [Data("<html>proxy</html>".utf8), Data(#"{"ok":true}"#.utf8)] {
+    check(Board.filesKeepsShown(Board.filesResult(status: 200, body: body), status: 200), "the Files screen keeps its list on an unreadable 200")
+    check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: body)) == rowsBefore, "the agent page keeps its rows on an unreadable 200")
+}
+check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 200, body: Data("<html>proxy</html>".utf8))) == .forNow(Board.filesAgentUnread), "CONTROL: with no rows yet, an unreadable 200 says the phone cannot read it")
 check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 409, body: Data(#"{"because":"this agent\u2019s Files is a link to somewhere else"}"#.utf8))) == .message("This agent\u{2019}s Files is a link to somewhere else."), "CONTROL: a 409 with words replaces the rows")
 check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: Data(#"{"ok":false,"because":"the folder was removed"}"#.utf8))) == .message("The folder was removed."), "CONTROL: a 200 refusal replaces the rows")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")

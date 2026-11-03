@@ -103,7 +103,7 @@ struct FilesView: View {
         guard epoch == client.chatEpoch else { return }   // the answer belongs to the account before
         // A list already shown is kept unless the answer stands (Board.filesKeepsShown, the Profile's rule).
         let got = Board.filesResult(status: res?.1.statusCode ?? 0, body: res?.0)
-        if Board.filesKeepsShown(status: res?.1.statusCode ?? 0), case .page = read { return }
+        if Board.filesKeepsShown(got, status: res?.1.statusCode ?? 0), case .page = read { return }
         read = got
     }
 

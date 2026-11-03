@@ -206,22 +206,28 @@ extension Board {
     // a file, even one).
     // kosmos#7679 review 3: noAnswer is its own state (shown as filesAgentUnread), so a refresh can tell a read that never
     // came back from a refusal that happens to use the same words.
-    // kosmos#7842: forNow is a message from an answer that does not say what the files are now (Board.answerStands: a
-    // shut-out, a 5xx, 408, 429 or other 4xx), so a refresh keeps the rows it had, as the Profile keeps its values.
+    // kosmos#7842: forNow is a message from a read that keeps a list already shown (filesKeepsShown).
     enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), forNow(String), rows([ListedFile]) }
-    /* Whether a refresh of the Files screen keeps the list already shown: the Profile's rule (Board.answerStands,
-       kosmos#7842). No answer, a shut-out, a failure for now or another 4xx keep it; only an answer that says what the
-       folder is now replaces it. */
-    static func filesKeepsShown(status: Int) -> Bool { !answerStands(status) }
+    /* kosmos#7842: whether a read keeps the list already shown, for the Files screen and the agent page's section alike.
+       The Profile's rule (AgentInfoLogic.notTheValue): a list replaces it, and a refusal does only when its status
+       stands (Board.answerStands) and it carries words of its own (not filesCannotRead). */
+    static func filesKeepsShown(_ r: FilesRead, status: Int) -> Bool {
+        switch r {
+        case .page: return false
+        case .noAnswer: return true
+        case .refused(let why): return !answerStands(status) || why == filesCannotRead
+        }
+    }
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
         if status == 401 || status == 403 { return .forNow(phoneShutOut) }   // kosmos#7840: never the gate's words
         if status == 404 { return .message(filesAgentNoFolder) }
-        switch filesResult(status: status, body: body) {
+        let read = filesResult(status: status, body: body)
+        switch read {
         case .page(let p): return p.files.isEmpty ? .hidden : .rows(p.files)
         case .refused(let why):
             let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             let line = (obj?["because"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why)
-            return answerStands(status) ? .message(line) : .forNow(line)
+            return filesKeepsShown(read, status: status) ? .forNow(line) : .message(line)
         case .noAnswer: return .noAnswer
         }
     }
