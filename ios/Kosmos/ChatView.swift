@@ -2014,7 +2014,8 @@ struct ChatView: View {
         readShown = mine
         switch result {
         case .unchanged:
-            // Only a read that named the shown window's tag can be answered so: nothing changed, the Mac is answering.
+            // Only a read that named the shown window's tag can be answered so: the body is the one already read and
+            // settled, so nothing below is run again; the Mac is answering.
             lastRead = Date()
             failedReads = 0
             refusal = nil
@@ -2053,7 +2054,8 @@ struct ChatView: View {
             return small
         case .refused(let why):
             // The Mac answered, with a reason: said as it is, never as "not answering".
-            // kosmos#7810: a kept copy is not left over the reason (the chat draws the reason only with no thread).
+            // kosmos#7810: a kept copy or small page is not left over the reason (the chat draws the reason only with no
+            // thread). A whole window read in this open stays, as before.
             if !fullRead { thread = nil }
             refusal = why
             dropChoices()
