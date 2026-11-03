@@ -33,7 +33,7 @@ a missing feature, not this bug, so it is its own card, #7864, which I take afte
   residual is a file named like a multi-label host.
 
 ## Verified
-- engine/unfurl.bare-7861.test.js (8 tests) and server.unfurl-bare-7861.test.js (4, through GET /api/messages).
+- engine/unfurl.bare-7861.test.js (9 tests) and server.unfurl-bare-7861.test.js (4, through GET /api/messages).
 - Mutations: the server back to explicit-only links turns both bare route tests red, controls green; the bare flag
   dropped from warm turns only the http-fallback route test red.
 - engine.reachable, unfurl.test.js, web.links-everywhere, server.fedmsg-3311, win32-separator-guard: green.
