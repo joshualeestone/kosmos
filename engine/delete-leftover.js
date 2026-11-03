@@ -16,9 +16,11 @@
  * this does whenever it can: the folder and the job file are MOVED into
  * `~/.Trash` under a dated name, where Finder shows them and the person can
  * drag them back (on Linux the desktop Trash, `~/.local/share/Trash`, with the
- * record a file manager needs to put them back; #5445). Only when the Trash cannot take them (a different volume,
- * or no Trash directory) are they deleted for good, and the plan says which
- * BEFORE the click, so the confirmation is never lighter than the act.
+ * record a file manager needs to put them back; #5445; on Windows the Recycle
+ * Bin, kosmos#7820). Only when the Trash cannot take them (a different volume,
+ * no Trash directory, or on Windows anything that rules the Recycle Bin out)
+ * are they deleted for good, and the plan says which BEFORE the click, so the
+ * confirmation is never lighter than the act.
  *
  * What it touches, and nothing else: `<WORKERS_DIR>/<name>`,
  * `<AGENTS_DIR>/<label>.plist` (both resolved by `create.js`, one definition
@@ -80,17 +82,21 @@ const WALK_CAP = 20000;
 /* Test seam for the one thing this runs: `launchctl bootout` before the job
    file goes, so launchd does not keep a job whose file has vanished. */
 let runner = null;
+/* Drive root -> { info, at }: the drive probe's answer, kept a minute (the agent page asks on every visit, and each ask
+   is a PowerShell start; a minute is short enough that a changed Recycle Bin setting is seen). Cleared by
+   setRunner/resetForTests (below) so a test's new answer is heard. */
+const driveTypes = new Map();
 /* #1598: honor AGENT_WORKFORCE_DRY_RUN, symmetric with remove.js. Without this,
    an operator who set the env on the opted-in board got asymmetric behaviour,
    remove dry-runs while this executes live. Read at load (the board reads env at
    startup); a test controls it through resetForTests. */
 let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
-function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; if (!runner) DRY_RUN = true; }
+function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; if (!runner) DRY_RUN = true; driveTypes.clear(); }
 /* Test seam (#1598): back to fail-closed (no runner, dry-run flag off) so a test
    can exercise the live-execution gate directly. */
-function resetForTests() { runner = null; DRY_RUN = false; }
-function run(file, args) {
-  if (runner) return runner(file, args);
+function resetForTests() { runner = null; DRY_RUN = false; driveTypes.clear(); }
+function run(file, args, opts) {
+  if (runner) return runner(file, args, opts);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
   /* #1598: fail closed, the same gate as remove.js. This module had NO dry-run
      default of its own, so before the fix a fresh require went straight to live
@@ -102,7 +108,7 @@ function run(file, args) {
     return { ok: true, stdout: '', dryRun: true };
   }
   try {
-    return { ok: true, stdout: execFileSync(file, args, { encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'] }) };
+    return { ok: true, stdout: execFileSync(file, args, { encoding: 'utf8', timeout: (opts && opts.timeout) || 20000, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, ...(opts && opts.env ? { env: opts.env } : {}) }) };
   } catch (err) {
     return { ok: false, code: err && err.status, stderr: String(err && err.stderr || '') };
   }
@@ -171,9 +177,121 @@ function filesWords(m) {
   return n + (m.files === 1 && !m.capped ? ' file' : ' files');
 }
 
+/* kosmos#7820: ON WINDOWS THE TRASH IS THE RECYCLE BIN, which is not a folder Kosmos can rename into: `%USERPROFILE%\.Trash`
+   does not exist there and no Windows person would look in it, so before this every Windows folder was deleted for good.
+   The move goes through Windows PowerShell's VisualBasic FileSystem.DeleteDirectory(..., SendToRecycleBin), the one call
+   that puts a folder where Explorer's Restore can bring it back, with no new binary. The path reaches PowerShell in an
+   environment variable, never inside the script text, so no character in a folder name can become code.
+   🛑 THE RECYCLE BIN CAN SAY YES AND DELETE ANYWAY. With 'OnlyErrorDialogs' nothing is asked, so Windows deletes outright
+   when the drive has no Recycle Bin (removable, network), when the drive is set to remove files immediately (the
+   volume's NukeOnDelete, or the NoRecycleFiles policy), or when the folder is bigger than the Recycle Bin may hold. So
+   the plan offers the Recycle Bin only when the drive probe rules all of those out (`binVerdict`); anything it cannot
+   read answers no and keeps the honest "for good" sentence and the typed name. After the move the script counts the
+   folder IN the Recycle Bin: only then does the outcome say the files are there.
+   ⚠️ 'OnlyErrorDialogs' still shows ERROR dialogs (there is no option that recycles and hides them). A file held open can
+   raise one from the hidden PowerShell, which nobody may see; the call then waits until the timeout ends it, and the
+   folder can be left partly in the Recycle Bin. Both calls are synchronous, like the fs.rmSync they replace, so the
+   whole board waits with them (every page and request), which is accepted here and named in the plan; the drive answer
+   is kept a minute per drive so a plan and its delete ask once. */
+function powershell() {
+  return path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+}
+const RECYCLE_PATH_VAR = 'KOSMOS_RECYCLE_PATH';
+/* Prints one line of JSON, or UNKNOWN: the drive's type and size, the NoRecycleFiles policy, and the volume's own
+   Recycle Bin settings (NukeOnDelete, MaxCapacity in MB), which are null when they could not be read. */
+const DRIVE_SCRIPT = [
+  "$ErrorActionPreference='Stop'",
+  '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8',
+  String.raw`try { $r=[System.IO.Path]::GetPathRoot($env:KOSMOS_RECYCLE_PATH); if (-not $r -or $r.StartsWith('\\')) { 'UNKNOWN'; exit 0 }`
+    + String.raw`; $d=New-Object System.IO.DriveInfo $r; $o=[ordered]@{ type=[string]$d.DriveType; total=[int64]$d.TotalSize; policy=$false; nuke=$null; maxMB=$null }`
+    + String.raw`; foreach ($k in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer','HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer') { $v=(Get-ItemProperty -LiteralPath $k -Name NoRecycleFiles -ErrorAction SilentlyContinue).NoRecycleFiles; if ($v -eq 1) { $o.policy=$true } }`
+    + String.raw`; try { $vol=(Get-CimInstance Win32_Volume -Filter ("DriveLetter='" + $r.Substring(0,2) + "'")).DeviceID; if ($vol -match '\{[0-9A-Fa-f-]+\}') { $bb=Get-ItemProperty -LiteralPath ('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\' + $Matches[0]) -ErrorAction SilentlyContinue; if ($bb) { $o.nuke=$bb.NukeOnDelete; $o.maxMB=$bb.MaxCapacity } } } catch { }`
+    + String.raw`; $o | ConvertTo-Json -Compress } catch { 'UNKNOWN' }`,
+].join('; ');
+/* The Recycle Bin is offered only with room to spare: 90% of its limit. With no limit recorded for the volume, 5% of
+   the drive stands in for it, the low end of what Windows sets by default. */
+const BIN_ROOM = 0.9;
+const BIN_DEFAULT_SHARE = 0.05;
+/** win32: from the drive probe's answer and the folder's measure, whether the Recycle Bin will really keep it. */
+function binVerdict(info, m) {
+  if (!info || info.type !== 'Fixed' || info.policy === true || Number(info.nuke) === 1) return false;
+  if (m && m.capped) return false;   // its size is not known, so it cannot be said to fit
+  const maxBytes = Number.isFinite(Number(info.maxMB)) && info.maxMB !== null
+    ? Number(info.maxMB) * 1024 * 1024
+    : (Number.isFinite(Number(info.total)) && Number(info.total) > 0 ? Number(info.total) * BIN_DEFAULT_SHARE : 0);
+  return ((m && m.bytes) || 0) <= maxBytes * BIN_ROOM;
+}
+/* Whether the folder landed in the Recycle Bin is read by COUNTING the items there with its name and original folder,
+   before and after the call: a new one means it is there. No delete time is compared (the Recycle Bin's own time and
+   PowerShell's clock need not agree on a time zone), and an older item with the same name cannot pass for this one. */
+const RECYCLE_SCRIPT = [
+  "$ErrorActionPreference='Stop'",
+  '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8',
+  '$p=$env:KOSMOS_RECYCLE_PATH',
+  '$dir=[System.IO.Path]::GetDirectoryName($p); $leaf=[System.IO.Path]::GetFileName($p)',
+  // Each count stops after 15 s, so a large Recycle Bin cannot eat the move's own time; a stopped count reads UNVERIFIED.
+  "function Get-KosmosBinCount { $sw=[System.Diagnostics.Stopwatch]::StartNew(); $n=0; foreach ($i in (New-Object -ComObject Shell.Application).Namespace(10).Items()) { if ($sw.Elapsed.TotalSeconds -gt 15) { throw 'slow' }; if ($i.Name -eq $leaf -and [string]$i.ExtendedProperty('System.Recycle.DeletedFrom') -eq $dir) { $n++ } }; $n }",
+  '$before=$null; try { $before=Get-KosmosBinCount } catch { }',
+  // A single file (an agent's settings or picture) goes through DeleteFile, a folder through DeleteDirectory.
+  "try { Add-Type -AssemblyName Microsoft.VisualBasic; if (Test-Path -LiteralPath $p -PathType Leaf) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } } catch { $e=$_.Exception; if ($e.InnerException) { $e=$e.InnerException }; 'FAILED ' + $e.Message; exit 0 }",
+  "if (Test-Path -LiteralPath $p) { 'STILL'; exit 0 }",
+  "if ($null -eq $before) { 'UNVERIFIED'; exit 0 }",
+  "$after=$null; try { $after=Get-KosmosBinCount } catch { 'UNVERIFIED'; exit 0 }",
+  "if ($after -gt $before) { 'RECYCLED' } else { 'GONE' }",
+].join('; ');
+const DRIVE_KEEP_MS = 60000;
+const DRIVE_TIMEOUT_MS = 5000;
+const RECYCLE_TIMEOUT_MS = 120000;
+function psRun(script, p, timeout) {
+  return run(powershell(), ['-NoProfile', '-NonInteractive', '-Command', script], { env: { ...process.env, [RECYCLE_PATH_VAR]: p }, timeout });
+}
+/* The folder's real path, so a link on the way to it is judged by the volume the files are on. */
+function realPath(p) { return fs.realpathSync.native(p); }
+/** win32: whether the Recycle Bin can take `p`, whose measure (bytes, capped) is `m`. See `binVerdict`; any answer
+    we cannot read is false. */
+function recycleBinCanTake(p, m) {
+  if (typeof p !== 'string') return false;
+  let real = p;
+  try { real = realPath(p); } catch (err) { if (!(err && err.code === 'ENOENT')) return false; }
+  if (real.startsWith('\\\\')) return false;
+  const root = path.win32.parse(real).root.toLowerCase();
+  const kept = root ? driveTypes.get(root) : null;
+  if (kept && Date.now() - kept.at < DRIVE_KEEP_MS) return binVerdict(kept.info, m);
+  let out;
+  try { out = psRun(DRIVE_SCRIPT, real, DRIVE_TIMEOUT_MS); } catch (err) {
+    if (err && err.code === 'LIVE_EXECUTION_REFUSED') throw err;   // live-execution.js: let the refusal through
+    out = { ok: false };
+  }
+  let info = null;
+  if (out && out.ok) { try { info = JSON.parse(String(out.stdout || '').trim()); } catch { info = null; } }
+  if (root && !(out && out.dryRun)) driveTypes.set(root, { info, at: Date.now() });
+  return binVerdict(info, m);
+}
+/** win32: send `p` to the Recycle Bin. 'recycled' (it is there), 'gone' (it is gone, and not found in the Recycle Bin),
+    'unverified' (it is gone, and the Recycle Bin could not be read), or throws with what went wrong. The folder's
+    absence is checked here too: the script's word alone is not trusted. */
+function recycle(p) {
+  const out = psRun(RECYCLE_SCRIPT, realPath(p), RECYCLE_TIMEOUT_MS);
+  const said = String((out && out.stdout) || '').trim();
+  if (fs.existsSync(p)) {
+    if (said.startsWith('FAILED ')) throw new Error(said.slice(7));
+    if (said === 'STILL') throw new Error('Windows left it where it was');
+    // PowerShell that timed out or did not start: say which, for whoever reads the step.
+    if (out && out.ok === false) {
+      const why = String(out.stderr || '').trim().split(/\r?\n/)[0];
+      throw new Error('Windows PowerShell did not finish' + (out.code !== undefined && out.code !== null ? ` (exit ${out.code})` : '') + (why ? `: ${why}` : ''));
+    }
+    throw new Error('still there');
+  }
+  return said === 'RECYCLED' ? 'recycled' : (said === 'GONE' ? 'gone' : 'unverified');
+}
+/* The words for where the files go: a Windows person looks for the Recycle Bin, not the Trash. */
+function binWords(platform) { return platform === 'win32' ? 'the Recycle Bin' : 'the Trash'; }
+
 /** Whether the Trash can take a path: it exists, and it is on the same
     volume, so a rename works and nothing is copied-then-deleted. */
-function trashCanTake(p, platform) {
+function trashCanTake(p, platform, m) {
+  if ((platform || process.platform) === 'win32') return recycleBinCanTake(p, m);
   try {
     let t;
     try { t = fs.statSync(TRASH(platform)); } catch (e) {
@@ -288,7 +406,7 @@ function plan(name, opts) {
       return { ok: false, because: `${shown}'s folder is not where Kosmos keeps agents, so Kosmos will not delete it.` };
     }
     const m = measure(folderPath);
-    folder = { path: folderPath, ...m, trash: trashCanTake(folderPath, platform) };
+    folder = { path: folderPath, ...m, trash: trashCanTake(folderPath, platform, m) };
   }
   let job = null;
   if (platform === 'win32') {
@@ -341,9 +459,11 @@ function plan(name, opts) {
   /* One mode for the whole act, so the sentence is one sentence: to the
      Trash only if EVERYTHING can go there. */
   /* #4918 review 31: a systemd unit is removed by systemd whatever happens to the folder, so it does not decide whether
-     the folder can go to the Trash (a folder-only Linux leftover already does). A Scheduled Task is unchanged. */
+     the folder can go to the Trash (a folder-only Linux leftover already does). */
   // review 32: only with a folder; a unit-only leftover moves nothing, so it never promises the Trash.
-  const toTrash = (!folder || folder.trash) && (!job || job.trash || (Boolean(job.unit) && Boolean(folder)));
+  /* kosmos#7820: a Scheduled Task too. It is unregistered, never moved, so it does not decide whether the folder can go
+     to the Recycle Bin; without this a removed Windows agent (folder plus disabled task, the usual leftover) never could. */
+  const toTrash = (!folder || folder.trash) && (!job || job.trash || (Boolean(job.unit || job.task) && Boolean(folder)));
   const loses = [];
   if (folder) {
     const what = filesWords(folder) + (folder.files ? ', ' + sizeWords(folder.bytes) : '');
@@ -370,11 +490,12 @@ function plan(name, opts) {
   if (!recs) try { recs = namedRecords(clean, folder ? folder.path : null); } catch {
     return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
   }
+  const bin = binWords(platform);   // kosmos#7820
   const recordsTrash = toTrash && recs.records.every((r) => trashCanTake(r.file, platform));
   const recordsLost = recs.records.length > 0 && !recordsTrash;
   if (recs.records.length) {
     const w = recordsWords(recs.records);
-    loses.push(`${w.cap}: ${recordsTrash ? (recordsOnly ? 'to the Trash' : 'to the Trash with the files') : 'deleted for good'}, and a new agent with this name starts without ${w.plural ? 'them' : 'it'}`);
+    loses.push(`${w.cap}: ${recordsTrash ? (recordsOnly ? `to ${bin}` : `to ${bin} with the files`) : 'deleted for good'}, and a new agent with this name starts without ${w.plural ? 'them' : 'it'}`);
   }
   if (damagedSettings) loses.push('Its settings file is not in a form Kosmos can read, so Kosmos could not check what it recorded before offering it');
   // Kept, and said before the click: a new agent under the name will share them.
@@ -393,35 +514,35 @@ function plan(name, opts) {
   /* A Scheduled Task holds nothing a person can lose, so a job-only leftover is
      not the "gone for good" case the Trash sentence is written for. */
   const jobOnlyTask = jobIsService && !folder;
-  let reassurance = toTrash && job && job.unit && folder
+  let reassurance = toTrash && job && (job.unit || job.task) && folder
     // #4918 review 31: the folder goes to the Trash; the unit is removed, not moved, so "everything" would be false.
-    ? `Its files go to the Trash, where you can get them back until you empty it, and its startup job is removed${community ? '. Its community account does not come back' : waiting ? '. Anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
+    ? `Its files go to ${bin}, where you can get them back until you empty it, and its startup job is removed${community ? '. Its community account does not come back' : waiting ? '. Anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
     : toTrash
     ? (community || waiting
-      ? `Its files go to the Trash, where you can get them back until you empty it. ${community ? 'Its community account does not come back' : 'Anything it wrote for the community that has not gone out stays unsent'}. After this, the name ${shown} is free for a new agent.`
-      : `${recs.kept ? 'Its files go to the Trash, where you can get them back until you empty it' : 'Everything goes to the Trash, where you can get it back until you empty it'}. After this, the name ${shown} is free for a new agent.`)
+      ? `Its files go to ${bin}, where you can get them back until you empty it. ${community ? 'Its community account does not come back' : 'Anything it wrote for the community that has not gone out stays unsent'}. After this, the name ${shown} is free for a new agent.`
+      : `${recs.kept ? `Its files go to ${bin}, where you can get them back until you empty it` : `Everything goes to ${bin}, where you can get it back until you empty it`}. After this, the name ${shown} is free for a new agent.`)
     : jobOnlyTask
       ? `Nothing you can lose is stored in it${community ? ', but its community account does not come back' : waiting ? ', but anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`
-      : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
+      : `This cannot be undone: ${bin} cannot take these files, so they will be deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
   /* #7819: a sentence promising the Trash, or "nothing you can lose", is false once settings or a picture go for good. */
   if (recordsLost && (toTrash || jobOnlyTask)) {
     const w = recordsWords(recs.records);
-    reassurance = `${toTrash ? `Its files go to the Trash, where you can get them back until you empty it${job && job.unit ? ', and its startup job is removed' : ''}, but ` : ''}${toTrash ? w.words : w.cap} cannot go to the Trash, so ${w.plural ? 'they are' : 'it is'} deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
+    reassurance = `${toTrash ? `Its files go to ${bin}, where you can get them back until you empty it${job && (job.unit || job.task) ? ', and its startup job is removed' : ''}, but ` : ''}${toTrash ? w.words : w.cap} cannot go to ${bin}, so ${w.plural ? 'they are' : 'it is'} deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
   }
   // kosmos#7825: only stored records are left, so every sentence is about them; there are no files or job to name.
   const rw = recordsOnly ? recordsWords(recs.records) : null;
   if (recordsOnly) {
     const tail = `${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
     reassurance = recordsTrash
-      ? `${rw.cap} go${rw.plural ? '' : 'es'} to the Trash, where you can get ${rw.plural ? 'them' : 'it'} back until you empty it${tail}`
-      : `This cannot be undone: the Trash cannot take ${rw.words}, so ${rw.plural ? 'they are' : 'it is'} deleted for good${tail}`;
+      ? `${rw.cap} go${rw.plural ? '' : 'es'} to ${bin}, where you can get ${rw.plural ? 'them' : 'it'} back until you empty it${tail}`
+      : `This cannot be undone: ${bin} cannot take ${rw.words}, so ${rw.plural ? 'they are' : 'it is'} deleted for good${tail}`;
   }
   const verb = recordsOnly
-    ? (recordsTrash ? `Move ${rw.words} to the Trash` : `Delete ${rw.words} for good`)
+    ? (recordsTrash ? `Move ${rw.words} to ${bin}` : `Delete ${rw.words} for good`)
     : folder
-    ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
+    ? (toTrash ? `Move ${filesWords(folder)} to ${bin}` : `Delete ${filesWords(folder)} for good`)
     : jobIsService ? 'Remove its startup job'
-      : (toTrash ? 'Move the auto-start file to the Trash' : 'Delete the auto-start file for good');
+      : (toTrash ? `Move the auto-start file to ${bin}` : 'Delete the auto-start file for good');
   const hint = recordsOnly
     ? `Kosmos still has ${rw.words} for ${shown}, though nothing else of it is left, and a new agent with this name would start with ${rw.plural ? 'them' : 'it'}.`
     : folder
@@ -595,7 +716,12 @@ function moveRecords(p, platform) {
   const moved = new Set();
   for (const r of p.records.files) {
     try {
-      if (p.records.trash) {
+      if (p.records.trash && platform === 'win32') {
+        // kosmos#7820: the Recycle Bin, as the folder; a record it did not keep is reported like the folder.
+        const where = recycle(r.file);
+        if (where === 'gone') steps.binMissed = true;
+        else if (where === 'unverified') steps.binUnsure = true;
+      } else if (p.records.trash) {
         fs.mkdirSync(TRASH(platform), { recursive: true });
         const to = trashName(r.file, platform);
         fs.renameSync(r.file, to);
@@ -648,7 +774,10 @@ function del(name, opts) {
   if (!p.ok) return { outcome: OUTCOME.REFUSED, because: p.because };
   const platform = (opts && opts.platform) || process.platform;
   if (p.typeToConfirm && String((opts && opts.typed) || '').trim() !== p.typeToConfirm) {
-    return { outcome: OUTCOME.REFUSED, because: `type ${p.typeToConfirm} to confirm; nothing was deleted` };
+    /* kosmos#7820: the plan travels with this refusal. On Windows the Recycle Bin answer can change between the plan
+       the person read and this one (a minute-old drive answer, a probe that now times out), and a dialog that showed
+       no name to type has nowhere to type it; the page repaints from this plan instead of leaving them stuck. */
+    return { outcome: OUTCOME.REFUSED, because: `type ${p.typeToConfirm} to confirm; nothing was deleted`, plan: p };
   }
   const steps = [];
   /* #5000: the name's community moderation standing, FIRST. The board keys trust by the agent's name, so without
@@ -673,9 +802,16 @@ function del(name, opts) {
   }
   const gone = [];
   const stuck = [];
+  /* kosmos#7820: set when Windows deleted the folder but it is not in the Recycle Bin, so the last sentence says so. */
+  let binMissed = false;
+  let binUnsure = false;
   const move = (from, what) => {
     try {
-      if (p.toTrash) {
+      if (p.toTrash && platform === 'win32') {
+        const where = recycle(from);
+        if (where === 'gone') binMissed = true;
+        else if (where === 'unverified') binUnsure = true;
+      } else if (p.toTrash) {
         fs.mkdirSync(TRASH(platform), { recursive: true });
         const to = trashName(from, platform);
         fs.renameSync(from, to);
@@ -780,7 +916,10 @@ function del(name, opts) {
      gone. NOT best-effort: left behind they make a new agent under the name the old one (writeProfile keeps a stored
      `id`, #170, and every field a create does not write; the picture is the old one's). */
   if (!stuck.some((s) => s !== 'its sender tokens')) {
-    for (const st of moveRecords(p, platform)) {
+    const recStepsOut = moveRecords(p, platform);
+    if (recStepsOut.binMissed) binMissed = true;   // kosmos#7820
+    if (recStepsOut.binUnsure) binUnsure = true;
+    for (const st of recStepsOut) {
       steps.push(st);
       if (st.ok) { if (!st.because) gone.push(st.step); } else stuck.push(st.step);
     }
@@ -804,6 +943,12 @@ function del(name, opts) {
       steps.push({ step: 'its community account', ok: false, because: String((err && err.message) || err) });
     }
   }
+  /* kosmos#7820: what a Recycle Bin move that did not land there means, said on the partial path as on the full one.
+     "Could not find" rather than "deleted for good": the search matches the Recycle Bin's name for the item, which
+     Kosmos has not measured against every Windows setting. */
+  const binNote = binMissed
+    ? 'Kosmos could not find its files in the Recycle Bin afterwards, so Windows may have deleted them for good.'
+    : (binUnsure ? 'Kosmos could not check that Windows put its files in the Recycle Bin, so look there before you empty it.' : '');
   if (stuck.length) {
     /* #7819: a record that would not move is still a leftover; since kosmos#7825 plan() offers it alone, so the sentence
        says what it means and that deleting again clears it. */
@@ -816,36 +961,42 @@ function del(name, opts) {
     const tail = left.length ? ` ${lw.cap} ${lw.plural ? 'are' : 'is'} still on this computer, so a new agent with this name would start with ${lw.plural ? 'them' : 'it'}.${door ? ` Deleting what is left again from the removed agents list clears ${lw.plural ? 'them' : 'it'}.` : ''}` : '';
     // The verb for what could not go: a record follows the records' own mode, which can differ from the folder's.
     const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
-    const verbFor = (x) => ((x === 'its settings' || x === 'its picture') ? (p.records.trash ? 'move' : 'delete') : (p.toTrash ? 'move' : 'delete'));
+    const verbFor = (x) => (x === 'its startup job' ? 'remove' : (x === 'its settings' || x === 'its picture') ? (p.records.trash ? 'move' : 'delete') : (p.toTrash ? 'move' : 'delete'));
     return {
       outcome: gone.length ? OUTCOME.PARTIAL : OUTCOME.REFUSED,
       /* #4994: the community account is retired, not moved or deleted, and only once everything else is gone, so a
          failure there is its own sentence: the old account still answers to the name. #5000's standing reset has
          already run by here (it is unconditional and early-returns on failure), so the all-stuck tail says so. */
-      because: (stuck.length === 1 && stuck[0] === 'its community account' && gone.length)
+      because: ((stuck.length === 1 && stuck[0] === 'its community account' && gone.length)
         ? `${gone.join(' and ')} ${gone.length === 1 && gone[0] !== 'its settings' ? 'is' : 'are'} gone, but we could not retire its community account yet. Making a new agent with this name retires it first, or refuses.`
         : (stuck.some((x) => x !== 'its community account')
-          ? `we could not ${verbFor(stuck.find((x) => x !== 'its community account'))} ${stuck.filter((x) => x !== 'its community account').join(' or ')}`
+          // kosmos#7820: each item's own verb; a startup job is removed, never moved, whatever happens to the folder.
+          ? `we could not ${stuck.filter((x) => x !== 'its community account').map((x) => verbFor(x) + ' ' + x).join(' or ')}`
             + (stuck.includes('its community account') ? ', or retire its community account yet' : '')
           : 'we could not retire its community account yet. Making a new agent with this name retires it first, or refuses')
-          + '. ' + (gone.length ? `${cap(gone.join(' and '))} ${gone.length === 1 && gone[0] !== 'its settings' ? 'is' : 'are'} gone.` : `${recordsOnlyPlan ? `Nothing was ${p.records.trash ? 'moved' : 'deleted'}` : `None of its files were ${p.toTrash ? 'moved' : 'deleted'}`}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`) + tail,
+          + '. ' + (gone.length ? `${cap(gone.join(' and '))} ${gone.length === 1 && gone[0] !== 'its settings' ? 'is' : 'are'} gone.` : `${recordsOnlyPlan ? `Nothing was ${p.records.trash ? 'moved' : 'deleted'}` : `None of its files were ${p.toTrash ? 'moved' : 'deleted'}`}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`)
+          // kosmos#7820: a Recycle Bin move that stopped partway leaves some files there.
+          + (platform === 'win32' && p.toTrash && stuck.includes('its folder') ? ' Some of its files may already be in the Recycle Bin.' : '')) + tail
+        + (binNote ? ' ' + binNote : ''),
       steps,
     };
   }
   return {
     outcome: OUTCOME.DELETED,
-    toTrash: p.toTrash,
+    toTrash: p.toTrash && !binMissed && !binUnsure,
     shown: p.shown,
     /* The sentence has to match what was actually removed: a Windows leftover
        can be a startup job and NOTHING else, and "their files are deleted" about
        an agent that had none is a false sentence in the one line that reports
        the act. */
     said: (!p.folder && !p.job   // kosmos#7825: only stored records were left
-      ? (() => { const w = recordsWords(p.records.files); const n = w.words.replace(/^its /, ''); return `${p.shown}'s ${n} ${w.plural ? 'are' : 'is'} ${p.records.trash ? 'in the Trash' : 'deleted'}. The name is free.`; })()
+      ? (() => { const w = recordsWords(p.records.files); const n = w.words.replace(/^its /, ''); return `${p.shown}'s ${n} ${w.plural ? 'are' : 'is'} ${p.records.trash ? `in ${binWords(platform)}` : 'deleted'}. The name is free.`; })()
       : !p.folder && p.job && (p.job.task || p.job.unit)   // review 32: a unit-only leftover moved nothing either
       ? `Nothing starts ${p.shown} any more. The name is free.`
+      : p.toTrash && (binMissed || binUnsure)
+        ? `${p.shown}'s files are gone from its folder. ${binNote} The name is free.`
       : p.toTrash
-        ? `${p.shown}'s files are in the Trash. The name is free.`
+        ? `${p.shown}'s files are in ${binWords(platform)}. The name is free.`
         : `${p.shown}'s files are deleted. The name is free.`)
       // #7819: settings kept because another agent may own them are said, so "free" is not read as "fresh".
       + (p.records && p.records.kept ? ` ${p.records.keptWords.cap} stay${p.records.keptWords.plural ? '' : 's'} (${p.records.kept}), so a new agent with this name shares ${p.records.keptWords.plural ? 'them' : 'it'}.` : ''),
@@ -895,4 +1046,4 @@ function settingsLeftovers(opts) {
   return { ok: true, names };
 }
 
-module.exports = { OUTCOME, plan, del, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo };   // writeTrashInfo for its #5445 test
+module.exports = { OUTCOME, plan, del, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, recycleBinCanTake, binVerdict };   // the last five for tests (#5445, kosmos#7820)
