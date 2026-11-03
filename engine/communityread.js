@@ -691,6 +691,8 @@ const PROFILE_CAP = 2 * 1024 * 1024;
    newest posts' round 1 runs meanwhile), so round 1 as a whole ends within OLDER_START_MS plus one request's timeout;
    a profile slower than that leaves them for the next read, said as such. */
 const OLDER_START_MS = 1000;
+/* A test may set a shorter limit (opts.olderStartMs), never a longer one. */
+const olderStartOf = (opts) => (opts && Number.isFinite(opts.olderStartMs) ? Math.min(Math.max(0, opts.olderStartMs), OLDER_START_MS) : OLDER_START_MS);
 /* { map: remoteId -> { at, id, own } of each listed post's newest reply, or null for none }; { failed, status } when the
    profile could not be read; null when this agent has no name to look up (then only the newest are read, by both the
    read and the nudge's count). */
@@ -711,16 +713,19 @@ async function postActivity(me) {
 /* The posts both the read and the nudge's count take, by one rule: the newest REPLIES_POSTS, then up to
    REPLIES_OLDER_MAX older ones with something new, newest activity first. Something new: its newest reply is after the
    post's mark as the read compares (afterMark; the agent's own items read once are kept as seen), or the post's last
-   read held its mark or saved a thread's place (it promised to look again). The two can still take different older
-   posts: each reads the profile itself, so a comment landing between them changes it, and the read leaves the older
-   posts for next time when the profile is slow (OLDER_START_MS) or limited, which the count does not. `own` as ownPosts answers; `activity` as postActivity. Returns { posts, total, all, older, active,
-   read, unlisted, checked, waiting } (waiting: every older post with something new, read now or not). */
+   read held its mark or saved a thread's place (it promised to look again). Both leave the older posts for later when
+   their profile answer took longer than OLDER_START_MS. They can still take different older posts: each reads the
+   profile itself, so a comment landing between them changes it, and the read refreshes the agent's name while the count
+   uses the stored one. `own` as ownPosts answers; `activity` as postActivity. Returns { posts, total, all, olderCount,
+   active, read, unlisted, checked, waiting } (waiting: every older post with something new, read now or not). */
 function postsToRead(own, { marks, activity, firstLook }) {
-  const base = { posts: own.posts, total: own.total, all: own.all, older: own.older.length, active: 0, read: 0, unlisted: 0, checked: false };
+  const base = { posts: own.posts, total: own.total, all: own.all, olderCount: own.older.length, active: 0, read: 0, unlisted: 0, checked: false };
   if (!own.older.length || !activity || !activity.map) return base;
   const active = [];
   let unlisted = 0;
+  const newest = new Set(own.posts.map((p) => p.remoteId));
   for (const p of own.older) {
+    if (newest.has(p.remoteId)) continue;   // one post, one read
     const m = marks[p.remoteId];
     /* Bounded as the read's own promises are: a hold below MARK_HOLD_MAX, a saved place that has waited fewer reads. */
     const promised = Boolean(m) && ((m.held > 0 && m.held < MARK_HOLD_MAX) || Object.values(m.threads || {}).some((t) => t && t.cursor && t.waited < MARK_HOLD_MAX));
@@ -921,14 +926,18 @@ async function freshReplies(sessionName, opts) {
        cannot be read makes this count partial, as an unreadable post does: the read may take posts this count did not. */
     let activity = null;
     if (own.older.length) {
-      asked += 1;
+      const profileAt = Date.now();
       activity = await postActivity(me);
+      if (activity !== null) asked += 1;   // null: no name, so nothing was asked
       if (activity && activity.status === 429) return { ok: false, busy: true, stop: true, because: 'the community service is limiting requests' };
       /* As an unreadable post: partial, unless it has failed FRESH_DOWN_PASSES passes in a row; then the newest only, so a
          profile that never answers cannot hold the agent's nudges forever. */
       const profileKey = { remoteId: '\nprofile' };
       if (activity && activity.failed) { if (!downOnce(profileKey)) return unreadable(); activity = null; }
       else postDown.delete(downKey(profileKey));
+      /* The read leaves the older posts for later when the profile is slower than OLDER_START_MS, so the count does too,
+         or a link where the profile is always slow would tell the agent about comments its read never shows. */
+      if (activity && activity.map && Date.now() - profileAt > olderStartOf(opts)) activity = null;
     }
     const { posts } = postsToRead(own, { marks, activity, firstLook });
     const titles = postTitles(sessionName);
@@ -1122,7 +1131,7 @@ async function repliesFor(sessionName, opts) {
   /* kosmos#7811: the newest posts' round 1 and the profile (only when there are older posts) together; then the older
      posts with something new, if that was quick (OLDER_START_MS). */
   const r1Start = Date.now();
-  const olderStartMs = Number.isFinite(opts.olderStartMs) ? opts.olderStartMs : OLDER_START_MS;   // tests set it
+  const olderStartMs = olderStartOf(opts);
   let pick = null;
   let profileSlow = false;
   let noName = false;   // this agent has no community name to look its profile up by
@@ -1160,8 +1169,8 @@ async function repliesFor(sessionName, opts) {
     return null;
   };
   /* Review 7: posts take turns (each post's newest waiting thread, then each post's second, ...), so a busy newer post
-     cannot take the whole budget from the older ones; with 10 posts and 30 pages each post gets at least 3, as before, and 2 when kosmos#7811 reads 15
-     #6201. A post's older comments come first in its turn (review 17). */
+     cannot take the whole budget from the older ones; with 10 posts and 30 pages each post gets at least 3, as before
+     #6201 (2 each when kosmos#7811 reads 15). A post's older comments come first in its turn (review 17). */
   const perPost = threads.filter((th) => !th.failed && !th.gone).map((th) => {
     /* #6204 review 3: threads with a saved place go first in their post's turn, the one that has waited the most reads
        without a page first, so a thread the budget cut or never reached is not starved by threads that come first in
@@ -1351,7 +1360,7 @@ async function repliesFor(sessionName, opts) {
            cut of a thread is said above, as going on next time. */
         : ' past what a read reaches, so new ones among them may be missed (reading again right away will not reach them))'), '');
   }
-  if (pick.older > 0 && !pick.checked) {
+  if (pick.olderCount > 0 && !pick.checked) {
     lines.push('(only your newest ' + REPLIES_POSTS + ' of ' + total + ' posts were looked at: ' + (noName
       ? 'Kosmos does not know your community name yet, so your older posts were not checked)' : 'your older posts could not be checked for new comments)'), '');
   }
@@ -1428,9 +1437,9 @@ async function repliesFor(sessionName, opts) {
     for (const { x, post } of shownItems) if (post === pid && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
     /* kosmos#7811: the agent's own items read above the mark are never shown, so they are kept as seen too: an older post
        whose newest reply is the agent's own is then read once for it (anything owed before it is listed), not every time.
-       Not when the read's cap held this post's items back: its own newer reply would then be the profile's newest, seen,
-       and the post would not be taken again for what was held back. */
-    if (!unshownPosts.has(pid)) for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.ts && isMine(me, x) && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
+       Not when the read's cap held this post's items back, or its older comments were not all read: its own newer reply
+       would then be the profile's newest, seen, and the post would not be taken again for what was left. */
+    if (!unshownPosts.has(pid) && !th.olderUnread) for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.ts && isMine(me, x) && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
     /* #6201 review 5: an id this read saw at or below the mark is no longer needed; past SEEN_MAX, ids this read did not
        see go first (oldest first), so an id still readable above a mark that cannot move is the last to go. */
     const readNow = new Map();
