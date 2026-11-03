@@ -9,7 +9,8 @@ builds are unchanged, and the room logic tests (including the trace allow-list) 
 ## What it adds (all Debug only, all off unless the environment switch is set)
 1. `KOSMOS_SAMPLE_FIRSTPAGE=1` (BoardClient.threadRead, sample path): a read with `tail` gets the newest `tail` rows,
    with olderCount counting the rest, as server.js answers it since #7810; every whole-window read waits 1 s first
-   (each later poll too, not only the read after the small page), as a phone's second read lands later. One `thread(for:)` call per read, so KOSMOS_SAMPLE_GROW grows once per read.
+   (each later poll too, not only the read after the small page, so the poll cadence reads about 6 s in a trace), as
+   a phone's second read lands later. One `thread(for:)` call per read, so KOSMOS_SAMPLE_GROW grows once per read.
 2. `KOSMOS_SAMPLE_HEIGHT=1` with `KOSMOS_SAMPLE_TRACE=1` (KeyboardHold.Probe): every 0.5 s a trace line of points and a
    count: content height, offset, rows drawn, the first and last drawn row's place, the content past the last.
    The timer stops itself when the chat leaves the window. `heightLine` is admitted to the trace allow-list by name,
@@ -22,6 +23,9 @@ builds are unchanged, and the room logic tests (including the trace allow-list) 
    and traces "walk gave up", so a run whose offset keeps moving reads as that rather than as a hang.
 
 ## Decided
+- HEIGHT and WALK measure a chat's list only: ChatView marks its RowTops (`isChat`), and the room screen, which uses
+  the same KeyboardHold, is skipped. The walk runs only once the chat has taken its start (on screen, anchor let go);
+  otherwise it traces "walk not taken" and stops.
 - HEIGHT and WALK live in KeyboardHold.Probe, so they are silent below iOS 26 and with KOSMOS_SAMPLE_NOKBHOLD=1
   (the Probe is off there, and RowTop readings exist only on iOS 26 and later).
 - Debug only, behind environment switches, like the KOSMOS_SAMPLE_* switches beside them. Nothing in a Release build.
