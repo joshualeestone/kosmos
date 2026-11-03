@@ -34,3 +34,14 @@ long ago, so a stale claim is visible.
 server.roomread-claimed-7848.test.js: claimed by an asked agent (with a before-claim CONTROL; the claimer's own list
 keeps it); a bystander's claim; a claim taken back and a later naming post; the person's ask. Mutations, each red:
 no skip (3), any claimant (1), own claim counted (1), no person-post branch (1), no line (2). Related files 97/97.
+
+## Review round 1 (opus, fixed)
+- "Asked" now matches the reader's own reading on the person's post: an agent it went quiet for or could not reach was
+  not asked, so its claim does not answer. And a post that names agents (a person's @name too) asked only those it names.
+- The person's-ask test now asserts the ask left the list and the head line, not just that the claimed line appeared.
+- Tests: the person naming only me; an unreached claimant; a claimant no longer on the project; the -n cap (count leaves
+  claimed asks out, the claimed line is capped with how many older); every ask claimed (its own head line).
+- The claimant's name is flattened as the post line's is; the claimed line is capped at -n with "and N older"; the head
+  line when every ask is claimed says so; a comment says claimed asks are deliberately not dropped from the hold.
+- Each fix mutation-checked. Weakest premise, added: with the registry unreadable, nobody is filtered as a non-member,
+  so a removed claimant still takes the ask off; the trailing line keeps it visible.
