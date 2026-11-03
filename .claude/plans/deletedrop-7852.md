@@ -11,7 +11,15 @@ a proxy's page), the dialog asks for the plan again (GET .../leftover) and says 
 - the plan still offers a delete: "what is left of this agent is still here. Try again." (not "nothing was deleted",
   which a delete that got partway would make false).
 - no plan either: "we cannot tell whether anything was deleted. Look again in a moment."
-The button comes back only when the plan still offers a delete. A refusal WITH an answer is unchanged.
+What the screen does with it (`deleteNoAnswerShow`, review 1):
+- still offered: the dialog repaints with THAT plan (a delete that got partway can leave less, or ask for the name),
+  so the list and the typed-name gate are current, and the line is shown.
+- refused: nothing is offered any more, so the dialog closes and the screen is put right exactly as after a delete
+  (`deleteSettled`, shared with the success path: the name leaves the kept leftovers, the detail page's box hides,
+  the removed list redraws), with the board's words where the success line goes.
+- no plan: the line in the dialog, and the button stays off.
+A late answer is dropped if the dialog was closed or opened again meanwhile (`DEL_OPENED`, bumped on open and close).
+A refusal WITH an answer is unchanged.
 
 ## Why it helps on main as well
 On main the delete runs on the board's own thread, so the second GET waits for it and answers with the state after
