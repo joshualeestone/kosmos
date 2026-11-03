@@ -2996,15 +2996,15 @@ struct KeyboardHold: UIViewRepresentable {
                             }
                             steps += 1
                             if steps > Self.walkStepsMax {
-                                t.invalidate(); self.walkTimer = nil; ChatView.trace("height: walk gave up"); self.walkSay("end"); return
+                                t.invalidate(); self.walkTimer = nil; ChatView.trace("height: walk gave up", ring: false); self.walkSay("end"); return
                             }
                             let top = -v.adjustedContentInset.top
                             if v.contentOffset.y <= top + 1 {
-                                t.invalidate(); self.walkTimer = nil; ChatView.trace("height: walk at the top")
+                                t.invalidate(); self.walkTimer = nil; ChatView.trace("height: walk at the top", ring: false)
                                 self.walkSay("end")
                                 let newest = DispatchWorkItem { [weak self] in
                                     guard let self, self.window != nil else { return }
-                                    ChatView.trace("height: walk asks for the newest")
+                                    ChatView.trace("height: walk asks for the newest", ring: false)
                                     self.walkSay("newest")
                                 }
                                 self.walkNewest = newest
