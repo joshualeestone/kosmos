@@ -4056,8 +4056,8 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     /* kosmos#7869: a colleague's direct note has an id of the same shape but lives in no room, so "no post by that id"
        read like a wrong id. Said plainly to the two agents it is between; to anyone else it stays "no post", so a
        private note's existence is never shown. */
-    // Its recipient is told only of a note that reached them: typed (placed or unconfirmed), or held and typed later,
-    // which is a separate held-delivered row (logHeldDelivered).
+    // Its sender is told whatever became of it (it is their own note). Its recipient is told only of a note that reached
+    // them: typed (placed or unconfirmed), or held and typed later, which is a separate held-delivered row (logHeldDelivered).
     const typed = (s) => s === chat.DELIVERY.PLACED || s === chat.DELIVERY.UNCONFIRMED;
     const reached = (m) => typed(m.state)
       || (m.state === HELD_STATE && rows.some((r) => r && r.kind === 'held-delivered' && String(r.of) === String(m.id) && typed(r.state)));
