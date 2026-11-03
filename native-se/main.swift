@@ -4,7 +4,7 @@
 // ECDSA P-256 in Apple's MESSAGE mode: the message, not a digest, is what this helper is handed, and it is hashed
 // with SHA-256 on this side of the call. escrowd checks it with coordinator/src/roster.rs verify_se, which takes a DER
 // signature over the raw message. This helper is the only code that touches the key; engine/seadmin.js decides WHAT
-// may be signed and is the only caller.
+// may be signed and is the only production caller (the tests also call it directly, to test its own fence).
 //
 // The private key never leaves the Secure Enclave. What is stored is CryptoKit's dataRepresentation: a blob the
 // Enclave wrapped under a key of its own, usable only by THIS Mac's Enclave. So the file needs no keychain access

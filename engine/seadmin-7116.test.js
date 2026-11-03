@@ -99,7 +99,11 @@ test('#7116: kosmos-se\'s own tag fence is exactly the tags seadmin.js signs', (
 test('#7116: the committed Apple Secure Enclave signatures verify over their pinned messages, high-S ones included', () => {
   const pub = hex(APPLE.key);
   assert.ok(APPLE.signatures.length >= 2 && APPLE.signatures.some((s) => s.highS), 'the file carries a high-S signature');
+  const N = BigInt('0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551');
   for (const s of APPLE.signatures) {
+    const der = hex(s.der), rLen = der[3], sLen = der[5 + rLen];
+    const S = BigInt('0x' + der.subarray(6 + rLen, 6 + rLen + sLen).toString('hex'));
+    assert.strictEqual(S > N / 2n, s.highS, `the highS flag of ${s.der.slice(0, 12)} is what its S says`);
     const msg = hex(V.bytes[s.message]);
     assert.ok(verifyDer(pub, msg, hex(s.der)), `${s.message} ${s.der.slice(0, 12)}`);
     const other = hex(V.bytes[s.message === 'cancel' ? 'changeAdd' : 'cancel']);
@@ -129,7 +133,7 @@ test('#7116: createKey asks for a presence key unless a caller says presence: fa
 });
 
 test('#7116: sign refuses a signature that does not verify under the helper\'s own key', { skip: FAKE ? false : 'needs a POSIX shell' }, () => {
-  assert.throws(() => se.sign('cancel', hex(V.bytes.cancel), { helper: FAKE, keyFile: '/k1' }), /does not verify/);
+  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: FAKE, keyFile: '/k1' }), /does not verify/);
 });
 
 // Part 2: the real Enclave.
@@ -164,7 +168,10 @@ test('#7116: a key made in the Enclave signs every pinned action, and the signat
   const otherPub = se.publicKey({ helper: HELPER, keyFile: path.join(DIR, 'probe') });
   for (const [name, action] of Object.entries(ACTION_OF)) {
     const msg = hex(V.bytes[name]);
-    const der = se.sign(action, msg, { helper: HELPER, keyFile });
+    const callers = Buffer.from(msg);
+    const shown = se.prepare(action, callers);
+    callers.fill(0);                       // changed after the screen: the signature must still be over what was shown
+    const der = se.sign(shown, { helper: HELPER, keyFile });
     assert.ok(verifyDer(pub, msg, der), name);
     assert.ok(!verifyDer(otherPub, msg, der), `${name} under another key`);
   }
@@ -190,8 +197,10 @@ test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are no
   const over = spawnSync(HELPER, ['sign', keyFile], { input: Buffer.concat([at, Buffer.of(0)]) });
   assert.strictEqual(over.status, 1);
   assert.match(over.stderr.toString(), /too long/);
-  // And seadmin.sign stops another action's bytes before the helper is ever asked.
-  assert.throws(() => se.sign('reviewerRevoke', hex(V.bytes.cancel), { helper: '/nonexistent/kosmos-se', keyFile }), /different action/);
+  // And seadmin.sign signs nothing prepare() did not make, before the helper is ever asked.
+  const dead = { helper: '/nonexistent/kosmos-se', keyFile };
+  assert.throws(() => se.sign({ ...se.prepare('cancel', hex(V.bytes.cancel)) }, dead), /only what prepare returned/);
+  assert.throws(() => se.sign(hex(V.bytes.cancel), dead), /only what prepare returned/);
 });
 
 test('#7116: kosmos-se refuses a key file that is readable by others, or is a symlink, and makes no key without a policy', { skip: SKIP }, () => {
@@ -220,4 +229,21 @@ test('#7116: a key made under a strict umask is still exactly 0600 and opens', {
   assert.strictEqual(r.status, 0, r.stderr.toString());
   assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600);
   assert.strictEqual(spawnSync(HELPER, ['pub', keyFile]).status, 0);
+});
+
+test('#7116: sign signs the bytes prepare was given, not bytes changed afterwards, and prepare takes only bytes', () => {
+  const bytes = Buffer.from(hex(V.bytes.cancel));
+  const shown = se.prepare('cancel', bytes);
+  bytes[bytes.length - 1] ^= 1;          // the caller changes its buffer after the screen was shown
+  assert.ok(Object.isFrozen(shown));
+  assert.throws(() => { shown.challenge = 'x'; }, TypeError);
+  assert.strictEqual(shown.challenge, crypto.createHash('sha256').update(hex(V.bytes.cancel)).digest('hex'));
+  if (FAKE) {
+    // The stand-in's signature is made by another key, so the refusal here is "does not verify", reached only after
+    // the helper was asked: the prepared object itself was accepted.
+    assert.throws(() => se.sign(shown, { helper: FAKE, keyFile: '/k1' }), /does not verify/);
+  }
+  for (const notBytes of ['kosmos-escrowd-roster-cancel v1', [1, 2], new ArrayBuffer(4)]) {
+    assert.throws(() => se.prepare('cancel', notBytes), /are bytes/);
+  }
 });

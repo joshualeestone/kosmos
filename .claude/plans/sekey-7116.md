@@ -44,7 +44,8 @@ either, the admin screen slice has to find out why before any real admin key exi
 file this user owns, refused otherwise) is what the tests use and is not acceptable for a real admin.
 
 ## Status
-- [x] module, helper, tests (10/10, Enclave arms not skipped on this Mac), engine.reachable 8/8
+- [x] module, helper, tests (12/12 at round 3, Enclave arms not skipped on this Mac), engine.reachable 8/8
 - [x] review round 1: presence policy at create (a key cannot gain one later), stated skips, key file mode/owner/symlink refusals, bounded stdin, sign checks its own result
 - [x] review round 2: build/key failure FAILS Part 2 (only no-swiftc and no-Enclave skip); key read O_NOFOLLOW + fstat on the descriptor; fchmod against umask; directory fsync; distinct helper timeout. Deferred to the admin screen as a gate: async calls, LAContext reason on the prompt.
+- [x] review round 3: sign() takes only prepare()'s own frozen result, so the signed bytes are the shown bytes; the vector test recomputes every high-S flag.
 - [ ] challenge-loop, validation, PR

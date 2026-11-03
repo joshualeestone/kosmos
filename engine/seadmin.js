@@ -12,7 +12,8 @@
  *   - prepare(action, bytes) decodes under THAT action's tag only (another action's bytes refuse, as do short,
  *     malformed or trailing bytes) and returns what a screen must show: the decoded fields and, for an admin add or a
  *     reviewer enrolment, the fingerprint computed here from the decoded bytes;
- *   - sign(action, bytes, opts) decodes again, then hands the RAW message to kosmos-se (Apple's message mode, which
+ *   - sign(prepared, opts) takes ONLY an object prepare() returned, and signs the copy of the bytes it holds, so what
+ *     is signed is what the screen was shown. It hands that RAW message to kosmos-se (Apple's message mode, which
  *     is what verify_se checks). No digest ever crosses into the signer, and the signature is checked against the
  *     key before it is returned.
  * kosmos-se keeps its own tag list as a second fence; engine/seadmin-7116.test.js pins it to SIGNED below.
@@ -202,17 +203,24 @@ function fingerprintDisplay(fp) {
 const DECODERS = { change: decodeChange, cancel: decodeCancel, reviewerEnrol: decodeReviewerEnrol,
   reviewerRevoke: decodeReviewerRevoke };
 
+// The objects prepare() made. sign() takes nothing else, so a caller cannot show one payload and sign another.
+const PREPARED = new WeakMap();
+
 /** Decode `bytes` as `action` (refusing anything else) and say what a screen must show before the person signs. */
 function prepare(action, bytes) {
   if (!SIGNED.includes(action)) throw new Error('not an action an admin key signs');
-  const decoded = DECODERS[action](bytes);
+  if (!(bytes instanceof Uint8Array)) throw new Error('the bytes to sign are bytes');
+  const message = Buffer.from(bytes);
+  const decoded = DECODERS[action](message);
   let fingerprint = null;
   if (action === 'change' && decoded.change.kind === 'add') {
     fingerprint = fingerprintDisplay(adminFingerprint(decoded.org, decoded.change.admin));
   } else if (action === 'reviewerEnrol') {
     fingerprint = fingerprintDisplay(reviewerFingerprint(decoded.org, decoded));
   }
-  return { action, decoded, fingerprint, challenge: sha256(bytes).toString('hex') };
+  const prepared = Object.freeze({ action, decoded, fingerprint, challenge: sha256(message).toString('hex') });
+  PREPARED.set(prepared, message);
+  return prepared;
 }
 
 function runHelper(helper, args, input) {
@@ -241,10 +249,10 @@ function publicKey({ helper, keyFile }) {
   return key(hexOf(runHelper(helper, ['pub', keyFile]), 'public key'));
 }
 
-/** Sign `bytes` as `action` with the Enclave key. Decodes first; returns the DER signature escrowd's verify_se takes. */
-function sign(action, bytes, { helper, keyFile }) {
-  const message = Buffer.from(bytes);
-  prepare(action, message);
+/** Sign what prepare() decoded and showed, with the Enclave key; returns the DER signature escrowd's verify_se takes. */
+function sign(prepared, { helper, keyFile }) {
+  const message = PREPARED.get(prepared);
+  if (!message) throw new Error('sign takes only what prepare returned');
   const pub = publicKey({ helper, keyFile });
   const der = hexOf(runHelper(helper, ['sign', keyFile], message), 'signature');
   const jwk = { kty: 'EC', crv: 'P-256', x: pub.subarray(1, 33).toString('base64url'),
