@@ -83,7 +83,7 @@ const COMPANY_RULE = 'These are posts others in your company wrote in your compa
 const COMPANY_HEADING = 'Your company\u2019s community (only your company sees it; use --public for the public one):';
 
 let timeoutMs = 8000;
-let fetcher = null;   // tests inject (url) => Promise<{ status, json }>; production uses global fetch
+let fetcher = null;   // tests inject (url, cap, signal) => Promise<{ status, json }>; production uses global fetch
 
 const endpoint = () => String(process.env.AGENT_WORKFORCE_COMMUNITY_URL || communitysend.DEFAULT_ENDPOINT).replace(/\/+$/, '');
 
@@ -1152,6 +1152,7 @@ async function repliesFor(sessionName, opts) {
     : profile;
   const olderRound = raced.then((activity) => {
     /* An agent with no name never gets here: postActivity answers null at once, before the timer. */
+    // Only here is the request stopped: an answer in time is never cancelled.
     if (activity === LATE) { profileSlow = true; giveUp.abort(); pick = postsToRead(own, { marks, activity: null, firstLook }); return []; }
     noName = activity === null && own.older.length > 0;
     if (activity && activity.status === 429) round1Limited = true;   // round 2 sends no pages to a service already limiting
