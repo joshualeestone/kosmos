@@ -1,0 +1,235 @@
+'use strict';
+/**
+ * kosmos#7835: on Windows the drive probe and the Recycle Bin move (Windows PowerShell) held the whole board while they
+ * ran. planAsync and delAsync give the answers plan and del give, with those waits off the board. Driven from any
+ * platform like the #7820 tests: the win32 arm is injected and PowerShell is a stub behind the run() seam (here one that
+ * answers LATER, as a promise, so a held board shows as a timer that stops ticking). Sandboxed: this MOVES FOLDERS.
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'delete-leftover-7835-'));
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = nodePath.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'LaunchAgents');
+process.env.AGENT_WORKFORCE_SYSTEMD_DIR = nodePath.join(SANDBOX, 'LaunchAgents', 'systemd', 'user');
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'support');
+process.env.AGENT_WORKFORCE_TRASH = nodePath.join(SANDBOX, 'Trash');
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+const create = require('./create');
+const remove = require('./remove');
+const status = require('./status');
+const win32job = require('./win32job');
+const leftover = require('./delete-leftover');
+
+remove.setRunner(() => ({ ok: true, stdout: '' }));
+
+/* What the stubbed PowerShell was asked, and how it answers. `drive` is the DriveType it reports (UNKNOWN and '' are
+   printed raw, as the script does when it cannot look), `bin` the volume's Recycle Bin settings; `recycle` acts on the
+   folder (or not) and returns the script's word. */
+const calls = [];
+let drive = 'Fixed';
+let bin = {};
+const driveAnswer = () => (drive === 'UNKNOWN' || drive === ''
+  ? drive
+  : JSON.stringify({ type: drive, total: 500 * 1024 ** 3, policy: false, nuke: 0, maxMB: 20000, ...bin }));
+let recycle = (p) => { fs.rmSync(p, { recursive: true, force: true }); return 'RECYCLED'; };
+function stub(file, args, opts) {
+  calls.push({ file, args, env: (opts && opts.env) || {}, opts: opts || {} });
+  const script = args[args.length - 1];
+  const p = opts && opts.env && opts.env.KOSMOS_RECYCLE_PATH;
+  if (script === leftover.DRIVE_SCRIPT) return { ok: true, stdout: driveAnswer() + '\r\n' };
+  if (script === leftover.RECYCLE_SCRIPT) return { ok: true, stdout: recycle(p) + '\r\n' };
+  return { ok: true, stdout: '' };
+}
+leftover.setRunner(stub);
+
+function leftoverFolder(name) {
+  const dir = create.workerDir(name);
+  fs.mkdirSync(nodePath.join(dir, 'notes'), { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'work\n');
+  fs.writeFileSync(nodePath.join(dir, 'notes', '1.md'), 'more\n');
+  fs.writeFileSync(nodePath.join(dir, 'notes', '2.md'), 'more\n');
+  return dir;
+}
+const win = {
+  plan: (name) => leftover.plan(name, { platform: 'win32' }),
+  del: (name, o) => leftover.del(name, { platform: 'win32', ...(o || {}) }),
+};
+const trashEntries = () => { try { return fs.readdirSync(process.env.AGENT_WORKFORCE_TRASH); } catch { return []; } };
+
+test.beforeEach(() => {
+  leftover.setRunner(stub);   // also forgets the cached drive answers
+  calls.length = 0;
+  drive = 'Fixed';
+  bin = {};
+  recycle = (p) => { fs.rmSync(p, { recursive: true, force: true }); return 'RECYCLED'; };
+  status.setPaneSource(() => '');
+  /* Task Scheduler answers "no such task": a folder-only Windows leftover. */
+  win32job.setRunner(() => ({ ok: false, out: 'ERROR: The system cannot find the file specified.' }));
+});
+test.afterEach(() => { status.setPaneSource(null); win32job.setRunner(null); });
+
+
+/* A stub whose PowerShell answers after `ms`, as a promise. Called synchronously (plan, del), it returns that promise,
+   which run()'s callers read as no answer: so a plan that offers the Recycle Bin read a kept probe, and a move that
+   lands went through recycleAsync. */
+const later = (ms) => (file, args, opts) => new Promise((resolve) => setTimeout(() => resolve(stub(file, args, opts)), ms));
+/* Ticks of a 20 ms timer while `fn` runs: a board held by a synchronous wait shows none. */
+async function ticksDuring(fn) {
+  let ticks = 0;
+  const t = setInterval(() => { ticks += 1; }, 20);
+  try { return { value: await fn(), ticks }; } finally { clearInterval(t); }
+}
+const asyncWin = {
+  plan: (name) => leftover.planAsync(name, { platform: 'win32' }),
+  del: (name, o) => leftover.delAsync(name, { platform: 'win32', ...(o || {}) }),
+};
+const probes = () => calls.filter((c) => c.args.includes(leftover.DRIVE_SCRIPT)).length;
+const moves = () => calls.filter((c) => c.args.includes(leftover.RECYCLE_SCRIPT)).length;
+
+test('#7835 planAsync: the drive probe runs while the board keeps answering, and the plan offers the Recycle Bin from it', async () => {
+  leftoverFolder('ot7835a');
+  leftover.setRunner(later(200));
+  const { value: p, ticks } = await ticksDuring(() => asyncWin.plan('ot7835a'));
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.toTrash, true, 'the plan did not read the probe run before it');
+  assert.ok(ticks >= 5, `the board was held while the drive was probed (${ticks} ticks in 200 ms)`);
+  assert.equal(probes(), 1, 'the drive was probed again inside the plan, holding the board');
+  // CONTROL: the synchronous plan with the same late PowerShell cannot read it, so the Recycle Bin is not offered.
+  leftover.setRunner(later(200));
+  assert.equal(win.plan('ot7835a').toTrash, false, 'CONTROL: a synchronous plan read a late answer');
+  fs.rmSync(create.workerDir('ot7835a'), { recursive: true, force: true });
+});
+
+test('#7835 delAsync: the Recycle Bin move runs while the board keeps answering, and says what del says', async () => {
+  leftoverFolder('ot7835b');
+  leftover.setRunner(later(300));
+  const { value: done, ticks } = await ticksDuring(() => asyncWin.del('ot7835b'));
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+  assert.ok(ticks >= 10, `the board was held while the folder was moved (${ticks} ticks in at least 300 ms)`);
+  assert.equal(moves(), 1);
+  assert.equal(fs.existsSync(create.workerDir('ot7835b')), false, 'the folder is still there');
+  // The same answer as the synchronous delete of an identical leftover.
+  leftover.setRunner(stub);
+  leftoverFolder('ot7835b');
+  const same = win.del('ot7835b');
+  assert.equal(done.said, same.said);
+  assert.deepEqual(done.steps.map((s) => [s.step, s.ok]), same.steps.map((s) => [s.step, s.ok]));
+  assert.equal(done.toTrash, same.toTrash);
+});
+
+test('#7835 a second delete of the same agent while one runs is refused, and the first finishes', async () => {
+  leftoverFolder('ot7835c');
+  leftover.setRunner(later(200));
+  const first = asyncWin.del('ot7835c');
+  const second = await asyncWin.del('OT7835C');
+  assert.equal(second.outcome, leftover.OUTCOME.REFUSED);
+  assert.match(second.because, /is running now/);
+  assert.equal((await first).outcome, leftover.OUTCOME.DELETED);
+  assert.equal(moves(), 1, 'the second delete moved something too');
+  // After it ends, the name is not held: a new leftover of the same name can be deleted.
+  leftoverFolder('ot7835c');
+  assert.equal((await asyncWin.del('ot7835c')).outcome, leftover.OUTCOME.DELETED);
+});
+
+test('#7835 item 2: a probe with no answer is kept 5 s, a good answer a minute', () => {
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    leftoverFolder('ot7835d');
+    drive = 'UNKNOWN';
+    assert.equal(win.plan('ot7835d').toTrash, false);
+    assert.equal(probes(), 1);
+    drive = 'Fixed';
+    now += 3000;
+    assert.equal(win.plan('ot7835d').toTrash, false, 'a no-answer was not kept for its 5 s');
+    assert.equal(probes(), 1);
+    now += 3000;
+    assert.equal(win.plan('ot7835d').toTrash, true, 'a no-answer was kept past 5 s');
+    assert.equal(probes(), 2);
+    now += 30000;
+    assert.equal(win.plan('ot7835d').toTrash, true);
+    assert.equal(probes(), 2, 'a good answer was not kept for its minute');
+    now += 31000;
+    win.plan('ot7835d');
+    assert.equal(probes(), 3, 'a good answer was kept past a minute');
+  } finally {
+    Date.now = realNow;
+    fs.rmSync(create.workerDir('ot7835d'), { recursive: true, force: true });
+  }
+});
+
+test('#7835 item 4: an error Windows raised after the folder was gone is kept on the step, in del and delAsync', async () => {
+  for (const go of [(n) => win.del(n), (n) => asyncWin.del(n)]) {
+    leftover.setRunner(stub);
+    recycle = (p) => { fs.rmSync(p, { recursive: true, force: true }); return 'FAILED Access to the path is denied.'; };
+    leftoverFolder('ot7835e');
+    const done = await go('ot7835e');
+    assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+    assert.match(done.said, /could not check that Windows put its files in the Recycle Bin/);
+    const step = done.steps.find((s) => s.step === 'its folder');
+    assert.equal(step.note, 'Windows said: Access to the path is denied.', 'the late error was dropped');
+  }
+});
+
+test('#7835 off Windows, delAsync and planAsync are del and plan', async () => {
+  leftover.setRunner(stub);
+  const dir = leftoverFolder('ot7835f');
+  const p = await leftover.planAsync('ot7835f', { platform: 'darwin' });
+  assert.equal(p.ok, true, p.because);
+  assert.equal(probes(), 0, 'a Mac plan ran PowerShell');
+  const done = await leftover.delAsync('ot7835f', { platform: 'darwin', typed: p.typeToConfirm || undefined });
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+  assert.equal(moves(), 0);
+  assert.equal(fs.existsSync(dir), false);
+});
+
+test('#7835 while a delete runs: the agent page hears it is running, a new agent of that name is refused; after, both clear', async () => {
+  leftoverFolder('ot7835g');
+  leftover.setRunner(later(300));
+  const going = asyncWin.del('ot7835g');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(leftover.deletingName('ot7835g'), true);
+  assert.equal(leftover.deletingName('OT7835G'), true, 'the name is held whatever its case');
+  const midway = await asyncWin.plan('ot7835g');
+  assert.equal(midway.ok, false);
+  assert.match(midway.because, /is running now/);
+  const made = create.createAgent({ name: 'ot7835g', role: 'test', kind: 'agent' });
+  assert.equal(made.outcome, create.OUTCOME.REFUSED, JSON.stringify(made));
+  assert.match(made.because, /still being deleted/);
+  assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
+  assert.equal(leftover.deletingName('ot7835g'), false, 'the name stayed held after the delete ended');
+});
+
+test('#7835 a move that throws still lets go of the name', async () => {
+  leftoverFolder('ot7835h');
+  leftover.setRunner(async (file, args, opts) => {
+    if (args.includes(leftover.RECYCLE_SCRIPT)) throw new Error('PowerShell would not start');
+    return stub(file, args, opts);
+  });
+  const done = await asyncWin.del('ot7835h');
+  assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+  const step = done.steps.find((s) => s.step === 'its folder');
+  assert.equal(step.ok, false);
+  assert.equal(leftover.deletingName('ot7835h'), false, 'a failed move kept the name held');
+  leftover.setRunner(stub);
+  assert.equal((await asyncWin.del('ot7835h')).outcome, leftover.OUTCOME.DELETED, 'the retry was refused as running');
+});
+
+test('#7835 the live runner closes stdin, and answers at its limit with no exit code', async () => {
+  // A process that reads stdin to its end: with stdin closed it ends at once.
+  const cat = await leftover.execAsync('/bin/cat', [], { timeout: 3000 });
+  assert.equal(cat.ok, true, 'stdin was left open: ' + JSON.stringify(cat));
+  // A process past its limit is killed and answered, with no exit code to read as a real answer.
+  const t0 = Date.now();
+  const slow = await leftover.execAsync('/bin/sleep', ['5'], { timeout: 200 });
+  assert.equal(slow.ok, false);
+  assert.equal(slow.code, null, 'a process killed at its limit carried an exit code');
+  assert.ok(Date.now() - t0 < 3000, 'it was not killed at its limit');
+});
