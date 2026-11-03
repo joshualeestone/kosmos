@@ -5839,6 +5839,14 @@ function withPreviews(rows, opts) {
   return rows;
 }
 
+/* kosmos#7850: a listing refusal (an agent's Files list, its browse, a project's documents) says whether it is passing:
+   the engine marks the ones a read moments later may not repeat (passing: true); every other refusal is sent with
+   passing: false, so a client can tell a lasting refusal from an older board that says neither. A list is unchanged. */
+function listingAnswer(listed) {
+  if (!listed || listed.ok !== false || listed.passing === true) return listed;
+  return { ...listed, passing: false };
+}
+
 /* #4973: a read of /api/status that another of the person's computers' pages caused (#4812: the relay hands the board
    token to a `same-site` read from the account's listed sibling origins, and passes that read's Origin and
    Sec-Fetch-Site through unchanged; only this computer's OWN origin is rewritten to loopback, for the board's own
@@ -9124,7 +9132,9 @@ const server = http.createServer(async (req, res) => {
     try { isLink = fs.lstatSync(folder).isSymbolicLink(); } catch { isLink = false; }
     if (isLink) {
       const because = 'this agent\u2019s Files is a link to somewhere else, so Kosmos will not list or open it';
-      if (!verb && (req.method === 'GET' || req.method === 'HEAD')) sendJson(res, 200, { ok: false, because, files: [], folder });
+      // kosmos#7850: a lasting refusal, said so (listingAnswer).
+      if (!verb && (req.method === 'GET' || req.method === 'HEAD')) sendJson(res, 200, { ok: false, because, passing: false, files: [], folder });
+      else if (verb === 'browse' && (req.method === 'GET' || req.method === 'HEAD')) sendJson(res, 409, { ok: false, because, passing: false });
       else refuse(409, because);
       return;
     }
@@ -9140,7 +9150,12 @@ const server = http.createServer(async (req, res) => {
       // Flat on purpose (#2245 round 7): the agent's instructions (engine/dmfiles.js) tell it to save
       // directly in Files, and this page says so; only a PROJECT's list walks subfolders.
       const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0, fingerprint: true });   // #6761: each row's sha256
-      sendJson(res, 200, { ...listed, folder });
+      // kosmos#7850: the folder went between the check above and the read: the same empty state, not a refusal.
+      if (!listed.ok && projects.folderState(folder).state === projects.FOLDER.MISSING) {
+        sendJson(res, 200, { ok: true, missing: true, total: 0, files: [], stamp: 'missing', folder });
+        return;
+      }
+      sendJson(res, 200, { ...listingAnswer(listed), folder });
       return;
     }
     const browsing = verb === 'browse' || verb === 'download-folder';
@@ -9161,7 +9176,12 @@ const server = http.createServer(async (req, res) => {
       const listed = projects.listDir(folder, dir, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, fingerprint: true });   // #6761
       /* Iteration 1: 404 is kept for "no such agent" (the page says it has no folder of its own); a Files that is a file
          or cannot be read answers 409 with its reason, and a folder inside Files that is not there is 404 as a file is. */
-      sendJson(res, listed.ok ? 200 : (dir ? 404 : 409), listed);
+      // kosmos#7850: Files went between the check above and the read: the same empty state at the top, not a refusal.
+      if (!listed.ok && !dir && projects.folderState(folder).state === projects.FOLDER.MISSING) {
+        sendJson(res, 200, { ok: true, missing: true, dir: '', dirs: [], files: [], stamp: 'missing' });
+        return;
+      }
+      sendJson(res, listed.ok ? 200 : (dir ? 404 : 409), listingAnswer(listed));
       return;
     }
     // #6724: as deep as the browser goes, so any file it shows can be previewed and downloaded (it was flat, the list).
@@ -24031,7 +24051,7 @@ const server = http.createServer(async (req, res) => {
         listed.files = require('./engine/filewriters').annotate(record.id, listed.files, nameOf);
       } catch { /* the list stands without writers */ }
     }
-    sendJson(res, 200, listed);
+    sendJson(res, 200, listingAnswer(listed));
     return;
   }
 

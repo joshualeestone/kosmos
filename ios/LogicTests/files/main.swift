@@ -142,5 +142,26 @@ check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 404, body: 
 check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 200, body: racing), loaded: true) == .hidden, "an empty list shown keeps through a passing refusal")
 check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 200, body: racing), loaded: false) == .forNow("That folder changed while it was being read."), "CONTROL: before any list, the refusal is said")
 check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 404, body: noAgentBody), loaded: true) == .message(Board.filesAgentNoFolder), "CONTROL: an empty list shown is replaced by the agent being gone")
+// kosmos#7850: the board marks every listing refusal passing or lasting; a lasting one replaces a list shown, a passing one
+// keeps it, and one with no mark (an older board) keeps it as before.
+let lasting = Data(#"{"ok":false,"because":"that folder is not there any more, or it was moved","passing":false}"#.utf8)
+let passingOne = Data(#"{"ok":false,"because":"that folder changed while it was being read","passing":true}"#.utf8)
+let unmarked = Data(#"{"ok":false,"because":"that folder is not there any more, or it was moved"}"#.utf8)
+check(Board.filesLastingRefusal(status: 200, body: lasting), "a refusal marked passing:false is lasting")
+check(!Board.filesLastingRefusal(status: 200, body: passingOne), "CONTROL: one marked passing:true is not")
+check(!Board.filesLastingRefusal(status: 200, body: unmarked), "CONTROL: one with no mark (an older board) is not")
+check(!Board.filesLastingRefusal(status: 200, body: Data(#"{"ok":true,"files":[],"passing":false}"#.utf8)), "CONTROL: a list is never a refusal")
+check(!Board.filesLastingRefusal(status: 0, body: nil), "CONTROL: no answer is not")
+for (st, dir) in [(200, ""), (409, ""), (404, "sub")] {
+    check(!Board.filesScreenKeepsShown(Board.filesResult(status: st, body: lasting), status: st, body: lasting, owner: .agent("pete"), dir: dir), "the Files screen: a lasting \(st) replaces the list")
+    check(Board.filesScreenKeepsShown(Board.filesResult(status: st, body: passingOne), status: st, body: passingOne, owner: .agent("pete"), dir: dir), "the Files screen: a passing \(st) keeps it")
+    check(Board.filesScreenKeepsShown(Board.filesResult(status: st, body: unmarked), status: st, body: unmarked, owner: .agent("pete"), dir: dir), "the Files screen: an unmarked \(st) (an older board) keeps it, as before")
+}
+check(!Board.filesScreenKeepsShown(Board.filesResult(status: 200, body: lasting), status: 200, body: lasting, owner: .project("p1"), dir: ""), "a project's documents: a lasting refusal replaces the list")
+check(Board.filesSection(status: 200, body: lasting) == .message("That folder is not there any more, or it was moved."), "the agent page: a lasting refusal is a message")
+check(Board.filesSection(status: 200, body: unmarked) == .forNow("That folder is not there any more, or it was moved."), "CONTROL: an unmarked one stays forNow")
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: lasting), loaded: true) == .message("That folder is not there any more, or it was moved."), "the agent page: a lasting refusal replaces its rows")
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: passingOne), loaded: true) == rowsBefore, "the agent page: a passing refusal keeps its rows")
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: unmarked), loaded: true) == rowsBefore, "the agent page: an older board's refusal keeps its rows, as before")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

@@ -4,7 +4,8 @@
  * failed with a passing code, and "that folder changed while it was being read", carry `passing: true` on every route
  * that lists a folder: an agent's flat Files list, its browse (the top, 409, and below it, 404) and a project's documents. A
  * phone keeps the list it shows through a passing refusal and lets a lasting one replace it, so each route also has a
- * lasting refusal as its control, which must NOT carry the mark.
+ * lasting refusal as its control, which the route marks `passing: false` (the phone half of #7850; an older board said
+ * neither, and the phone keeps its list for that).
  *
  * A refusal is made by failing the one directory read for the one folder under test with a chosen error code (and, for
  * the change arm, by swapping the folder during that read), in this process, where the server runs.
@@ -94,15 +95,15 @@ test('#7850 agent Files list: a read that fails with too many open files is a 20
   assert.equal(got.body.passing, true, JSON.stringify(got.body));
 });
 
-test('#7850 agent Files list CONTROL: a read that fails with EIO (a dead mount) is the same refusal with no mark', async () => {
+test('#7850 agent Files list CONTROL: a read that fails with EIO (a dead mount) is the same refusal, marked lasting (passing: false)', async () => {
   const { got, hits } = await failingRead('readdirSync', FILES, () => getJson('/api/agent/ava/files'), 'EIO');
   assert.ok(hits > 0, 'the read never reached the seam');
   assert.equal(got.status, 200);
   assert.equal(got.body.because, 'we could not read what is in that folder');
-  assert.equal('passing' in got.body, false, JSON.stringify(got.body));
+  assert.strictEqual(got.body.passing, false, JSON.stringify(got.body));
 });
 
-test('#7850 agent Files list CONTROL: a lasting refusal (Files is a file) carries no mark', async () => {
+test('#7850 agent Files list CONTROL: a lasting refusal (Files is a file) is marked lasting (passing: false)', async () => {
   const other = dmfiles.filesDir('bea');
   fs.mkdirSync(path.dirname(other), { recursive: true });
   fs.writeFileSync(other, 'not a folder');
@@ -110,7 +111,7 @@ test('#7850 agent Files list CONTROL: a lasting refusal (Files is a file) carrie
   assert.equal(status, 200);
   assert.equal(body.ok, false, JSON.stringify(body));
   assert.equal(body.because, 'this is a file, not a folder');
-  assert.equal('passing' in body, false, JSON.stringify(body));
+  assert.strictEqual(body.passing, false, JSON.stringify(body));
 });
 
 test('#7850 agent browse, top: an open that fails with EAGAIN is a 409 marked passing', async () => {
@@ -141,7 +142,7 @@ test('#7850 agent browse, below the top: a folder that changed while it was read
   }
 });
 
-test('#7850 agent browse CONTROL: a folder removed while it was read is a lasting 404 with no mark', async () => {
+test('#7850 agent browse CONTROL: a folder removed while it was read is a 404 marked lasting (passing: false)', async () => {
   const sub = path.join(FILES, 'sub');
   try {
     const { got, hits } = await failingRead('opendirSync', sub, () => getJson('/api/agent/ava/files/browse?dir=sub'), (was, p, rest) => {
@@ -152,13 +153,13 @@ test('#7850 agent browse CONTROL: a folder removed while it was read is a lastin
     assert.ok(hits > 0, 'the read never reached the seam');
     assert.equal(got.status, 404);
     assert.equal(got.body.because, 'that folder is not there any more, or it was moved');
-    assert.equal('passing' in got.body, false, JSON.stringify(got.body));
+    assert.strictEqual(got.body.passing, false, JSON.stringify(got.body));
   } finally {
     if (fs.existsSync(sub + '-old')) { fs.rmSync(sub, { recursive: true, force: true }); fs.renameSync(sub + '-old', sub); }
   }
 });
 
-test('#7850 agent browse CONTROL: a folder swapped for a file while it was read is a lasting 404 with no mark', async () => {
+test('#7850 agent browse CONTROL: a folder swapped for a file while it was read is a 404 marked lasting (passing: false)', async () => {
   const sub = path.join(FILES, 'sub');
   try {
     const { got, hits } = await failingRead('opendirSync', sub, () => getJson('/api/agent/ava/files/browse?dir=sub'), (was, p, rest) => {
@@ -170,7 +171,7 @@ test('#7850 agent browse CONTROL: a folder swapped for a file while it was read 
     assert.ok(hits > 0, 'the read never reached the seam');
     assert.equal(got.status, 404);
     assert.equal(got.body.because, 'that is not a folder in this agent\u2019s Files folder');
-    assert.equal('passing' in got.body, false, JSON.stringify(got.body));
+    assert.strictEqual(got.body.passing, false, JSON.stringify(got.body));
   } finally {
     if (fs.existsSync(sub + '-old')) { fs.rmSync(sub, { recursive: true, force: true }); fs.renameSync(sub + '-old', sub); }
   }
@@ -211,20 +212,20 @@ test('#7850 agent browse, below the top: the identity read after the listing fai
   assert.equal(got.body.passing, true, JSON.stringify(got.body));
 });
 
-test('#7850 agent Files list CONTROL: a read that finds the folder gone (ENOENT) says it is not there, with no mark', async () => {
+test('#7850 agent Files list CONTROL: a read that finds the folder gone (ENOENT) says it is not there, marked lasting (passing: false)', async () => {
   const { got, hits } = await failingRead('readdirSync', FILES, () => getJson('/api/agent/ava/files'), 'ENOENT');
   assert.ok(hits > 0, 'the read never reached the seam');
   assert.equal(got.status, 200);
   assert.equal(got.body.because, 'that folder is not there any more, or it was moved');
-  assert.equal('passing' in got.body, false, JSON.stringify(got.body));
+  assert.strictEqual(got.body.passing, false, JSON.stringify(got.body));
 });
 
-test('#7850 agent browse CONTROL: a folder that is not there is a lasting 404 with no mark', async () => {
+test('#7850 agent browse CONTROL: a folder that is not there is a 404 marked lasting (passing: false)', async () => {
   const { status, body } = await getJson('/api/agent/ava/files/browse?dir=gone');
   assert.equal(status, 404);
   assert.equal(body.ok, false);
   assert.equal(body.because, 'that folder is not there any more, or it was moved');
-  assert.equal('passing' in body, false, JSON.stringify(body));
+  assert.strictEqual(body.passing, false, JSON.stringify(body));
 });
 
 test('#7850 project documents: a read that fails with EBUSY is a 200 refusal marked passing', async () => {
@@ -236,7 +237,7 @@ test('#7850 project documents: a read that fails with EBUSY is a 200 refusal mar
   assert.equal(got.body.passing, true, JSON.stringify(got.body));
 });
 
-test('#7850 project documents CONTROL: a folder that is gone is a lasting refusal with no mark', async () => {
+test('#7850 project documents CONTROL: a folder that is gone is a refusal marked lasting (passing: false)', async () => {
   const folder = fs.mkdtempSync(path.join(process.env.AGENT_WORKFORCE_PROJECTS, 'pg-'));
   const gone = projects.create({ name: 'Gone Room 7850', folder });
   fs.rmSync(folder, { recursive: true, force: true });
@@ -244,5 +245,112 @@ test('#7850 project documents CONTROL: a folder that is gone is a lasting refusa
   assert.equal(status, 200);
   assert.equal(body.ok, false, JSON.stringify(body));
   assert.equal(body.because, 'this folder is not there any more, or it was moved');
-  assert.equal('passing' in body, false, JSON.stringify(body));
+  assert.strictEqual(body.passing, false, JSON.stringify(body));
+});
+
+test('#7850 phone half: Files being a link is a lasting refusal, said so on the list and on browse', async (t) => {
+  const other = dmfiles.filesDir('cyd');
+  fs.mkdirSync(path.dirname(other), { recursive: true });
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-files-passing-linked-'));
+  fs.symlinkSync(target, other);
+  t.after(() => { try { fs.rmSync(other, { force: true }); fs.rmSync(target, { recursive: true, force: true }); } catch { /* best effort */ } });
+  const list = await getJson('/api/agent/cyd/files');
+  assert.equal(list.status, 200);
+  assert.equal(list.body.ok, false, JSON.stringify(list.body));
+  assert.strictEqual(list.body.passing, false, JSON.stringify(list.body));
+  assert.match(list.body.because, /is a link to somewhere else/, 'CONTROL: the list refused as a link, not for another reason');
+  const top = await getJson('/api/agent/cyd/files/browse');
+  assert.equal(top.status, 409);
+  assert.strictEqual(top.body.passing, false, JSON.stringify(top.body));
+  assert.match(top.body.because, /is a link to somewhere else/, 'CONTROL: refused as a link, not for another reason');
+});
+
+/* Fail fs.realpathSync.native (how folderState resolves a folder) for `dir`, given or real path, while `run` is awaited. */
+async function failingRealpath(dir, code, run) {
+  const real = fs.realpathSync(dir);
+  const was = fs.realpathSync.native;
+  let hits = 0;
+  fs.realpathSync.native = function (p, ...rest) {
+    if (String(p) === dir || String(p) === real) { hits += 1; const e = new Error(code + ': test'); e.code = code; throw e; }
+    return was.call(fs, p, ...rest);
+  };
+  try { return { got: await run(), hits }; } finally { fs.realpathSync.native = was; }
+}
+
+test('#7850 phone half: a folder whose own read (folderState) fails with EBUSY is a refusal marked passing, on the list and the documents', async () => {
+  const a = await failingRealpath(FILES, 'EBUSY', () => getJson('/api/agent/ava/files'));
+  assert.ok(a.hits > 0, 'the read never reached the seam');
+  assert.equal(a.got.body.ok, false, JSON.stringify(a.got.body));
+  assert.strictEqual(a.got.body.passing, true, JSON.stringify(a.got.body));
+  const d = await failingRealpath(PROJECT.folder, 'EBUSY', () => getJson('/api/project/' + encodeURIComponent(PROJECT.id) + '/documents'));
+  assert.ok(d.hits > 0, 'the documents read never reached the seam');
+  assert.strictEqual(d.got.body.passing, true, JSON.stringify(d.got.body));
+});
+
+test('#7850 phone half CONTROL: the same read failing with EACCES is marked lasting', async () => {
+  const a = await failingRealpath(FILES, 'EACCES', () => getJson('/api/agent/ava/files'));
+  assert.ok(a.hits > 0, 'the read never reached the seam');
+  assert.equal(a.got.body.because, 'we cannot read this folder');
+  assert.strictEqual(a.got.body.passing, false, JSON.stringify(a.got.body));
+});
+
+test('#7850 phone half: a subfolder whose lstat (resolveListedDir) fails with EAGAIN is a 404 marked passing; ENOENT stays lasting', async () => {
+  const sub = path.join(FILES, 'sub');
+  const real = fs.realpathSync(sub);
+  const was = fs.lstatSync;
+  let hits = 0;
+  let code = 'EAGAIN';
+  fs.lstatSync = function (p, ...rest) {
+    if ((String(p) === sub || String(p) === real) && !(rest[0] && rest[0].bigint)) { hits += 1; const e = new Error(code + ': test'); e.code = code; throw e; }
+    return was.call(fs, p, ...rest);
+  };
+  try {
+    const g = await getJson('/api/agent/ava/files/browse?dir=sub');
+    assert.ok(hits > 0, 'the walk never reached the seam');
+    assert.equal(g.status, 404);
+    assert.strictEqual(g.body.passing, true, JSON.stringify(g.body));
+    code = 'ENOENT';
+    const h = await getJson('/api/agent/ava/files/browse?dir=sub');
+    assert.equal(h.body.because, 'that folder is not there any more, or it was moved');
+    assert.strictEqual(h.body.passing, false, JSON.stringify(h.body));
+  } finally { fs.lstatSync = was; }
+});
+
+test('#7850 phone half: a Files folder removed between the route\'s check and its read is the empty state, not a refusal', async () => {
+  const gone = dmfiles.filesDir('dee');
+  fs.mkdirSync(gone, { recursive: true });
+  const real = fs.realpathSync(gone);
+  const was = fs.readdirSync;
+  let hits = 0;
+  // The route's own check finds the folder; then it goes, just as listFiles reads it.
+  fs.readdirSync = function (p, ...rest) {
+    if (String(p) === real) { hits += 1; fs.rmSync(gone, { recursive: true, force: true }); const e = new Error('ENOENT: test'); e.code = 'ENOENT'; throw e; }
+    return was.call(fs, p, ...rest);
+  };
+  let got;
+  try { got = await getJson('/api/agent/dee/files'); } finally { fs.readdirSync = was; }
+  assert.ok(hits > 0, 'the read never reached the seam');
+  assert.equal(got.status, 200);
+  assert.deepEqual({ ok: got.body.ok, missing: got.body.missing, files: got.body.files }, { ok: true, missing: true, files: [] }, JSON.stringify(got.body));
+});
+
+test('#7850 phone half: Files removed between the browse route\'s check and its read is the empty state at the top, not a refusal', async () => {
+  const gone = dmfiles.filesDir('eve');
+  fs.mkdirSync(gone, { recursive: true });
+  const real = fs.realpathSync(gone);
+  const was = fs.realpathSync.native;
+  let calls = 0;
+  // The route's own check resolves the folder; on the next resolve (the listing's) it is gone.
+  fs.realpathSync.native = function (p, ...rest) {
+    if (String(p) === gone || String(p) === real) {
+      calls += 1;
+      if (calls === 2) { fs.rmSync(gone, { recursive: true, force: true }); const e = new Error('ENOENT: test'); e.code = 'ENOENT'; throw e; }
+    }
+    return was.call(fs, p, ...rest);
+  };
+  let got;
+  try { got = await getJson('/api/agent/eve/files/browse'); } finally { fs.realpathSync.native = was; }
+  assert.ok(calls >= 2, 'the listing never reached the seam (' + calls + ' resolves)');
+  assert.equal(got.status, 200, JSON.stringify(got.body));
+  assert.deepEqual({ ok: got.body.ok, missing: got.body.missing, dir: got.body.dir }, { ok: true, missing: true, dir: '' }, JSON.stringify(got.body));
 });

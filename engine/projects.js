@@ -606,6 +606,12 @@ function lstatOfFolderPath(p) {
 }
 function accessOfFolderPath(p) { return fsWorldForTests && fsWorldForTests.access ? fsWorldForTests.access(p) : fs.accessSync(p, fs.constants.R_OK); }
 
+/* kosmos#7850: the read errors a read moments later may not repeat (too many open files, busy, interrupted). Declared
+   here, before the first function that reads it, so no caller can meet it before it exists. */
+const PASSING_READ_CODES = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY', 'EINTR']);
+/* kosmos#7850: { passing: true } for an error a read moments later may not repeat (PASSING_READ_CODES), else {}. */
+function passingOf(err) { return err && PASSING_READ_CODES.has(err.code) ? { passing: true } : {}; }
+
 function folderState(folder) {
   const given = String(folder || '');
   if (!given) return { state: FOLDER.MISSING, because: 'no folder was recorded for this project', real: null };
@@ -616,21 +622,21 @@ function folderState(folder) {
     if (err && err.code === 'ENOENT') {
       return { state: FOLDER.MISSING, because: 'this folder is not there any more, or it was moved', real: null };
     }
-    return { state: FOLDER.UNREADABLE, because: 'we cannot read this folder', real: null };
+    return { state: FOLDER.UNREADABLE, because: 'we cannot read this folder', real: null, ...passingOf(err) };
   }
   let st;
   try {
     st = statOfFolderPath(real);
-  } catch {
-    return { state: FOLDER.UNREADABLE, because: 'we cannot read this folder', real };
+  } catch (err) {
+    return { state: FOLDER.UNREADABLE, because: 'we cannot read this folder', real, ...passingOf(err) };
   }
   if (!st.isDirectory()) {
     return { state: FOLDER.NOT_A_FOLDER, because: 'this is a file, not a folder', real };
   }
   try {
     accessOfFolderPath(real);
-  } catch {
-    return { state: FOLDER.UNREADABLE, because: 'this folder is there, but we are not allowed to read it', real };
+  } catch (err) {
+    return { state: FOLDER.UNREADABLE, because: 'this folder is there, but we are not allowed to read it', real, ...passingOf(err) };
   }
   return { state: FOLDER.READABLE, because: null, real };
 }
@@ -1374,7 +1380,8 @@ function describe(project, roster, all) {
     needsDismissed: undefined,
     needsDismissGone: undefined,
     folder: project.folder,
-    folderState: folderState(project.folder),
+    // kosmos#7850: the listing's passing mark is for the listing routes, not this answer.
+    folderState: (({ passing: _passing, ...state }) => state)(folderState(project.folder)),
     // Normalized here rather than trusted from the record: a legacy project
     // has no field at all, and "read as ''" has to hold for API readers too,
     // not only the two web renderers with their own || '' fallbacks.
@@ -1903,7 +1910,7 @@ function listFiles(folder, limit, opts) {
   const maxDepth = opts && Number.isInteger(opts.maxDepth) && opts.maxDepth >= 0 ? opts.maxDepth : LIST_MAX_DEPTH;
   const state = folderState(folder);
   if (!state || state.state !== FOLDER.READABLE) {
-    return { ok: false, because: (state && state.because) || 'we cannot read that folder right now', files: [] };
+    return { ok: false, because: (state && state.because) || 'we cannot read that folder right now', ...(state && state.passing ? { passing: true } : {}), files: [] };
   }
   const cap = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 10;
   /* #2245: SUBFOLDERS ARE LISTED, BOUNDED. Josh's goal is to SEE what agents made, and
@@ -2174,7 +2181,8 @@ function sameOpenedFile(gated, opened, platform = process.platform) {
  * segment a REAL folder seen by lstat (never a link, never a skipped folder), no deeper than opts.maxDepth, the native
  * realpath equal to the walked path (refuses another case or normalisation, and a link swapped in after the walk) and
  * inside the resolved folder.
- * Returns { ok: true, real, rel, segs, root } or { ok: false, because }.
+ * Returns { ok: true, real, rel, segs, root } or { ok: false, because, passing? } (kosmos#7850: `passing: true` for a
+ * read error a read moments later may not repeat, as listDir's).
  */
 function resolveListedDir(folder, rel, where = 'this folder', opts = null) {
   const given = String(rel == null ? '' : rel);
@@ -2187,18 +2195,24 @@ function resolveListedDir(folder, rel, where = 'this folder', opts = null) {
   if (segs.length > maxDepth) return notHere;
   const state = folderState(folder);
   if (!state || state.state !== FOLDER.READABLE) {
-    return { ok: false, because: (state && state.because) || 'we cannot read that folder right now' };
+    return { ok: false, because: (state && state.because) || 'we cannot read that folder right now', ...(state && state.passing ? { passing: true } : {}) };
   }
   let at = state.real;
   for (const s of segs) {
     at = path.join(at, s);
     let lst;
-    try { lst = lstatOfFolderPath(at); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
+    try { lst = lstatOfFolderPath(at); } catch (err) {
+      if (err instanceof TypeError || err instanceof ReferenceError) throw err;
+      return unreadFolder(err);   // kosmos#7850: a passing code is marked; ENOENT/ENOTDIR stay "not there"
+    }
     if (lst.isSymbolicLink() || !lst.isDirectory()) return notHere;
   }
   if (!segs.length) return { ok: true, real: state.real, rel: '', segs, root: state.real };
   let real;
-  try { real = realpathOfFolderPath(at); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
+  try { real = realpathOfFolderPath(at); } catch (err) {
+    if (err instanceof TypeError || err instanceof ReferenceError) throw err;
+    return unreadFolder(err);   // kosmos#7850
+  }
   const root = state.real.endsWith(path.sep) ? state.real : state.real + path.sep;
   if (!real.startsWith(root) || !sameListedPath(real, at)) return notHere;
   // The on-disk spelling's folders, as resolveListedFile reads them (on Windows sameListedPath is case-blind).
@@ -2237,7 +2251,6 @@ const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true
 
 /* #7850: a failed read of a folder, as a refusal. ENOENT and ENOTDIR say it is not there; only a code in
    PASSING_READ_CODES is marked passing, and every other code (EIO, EACCES, EPERM, ESTALE, ETIMEDOUT...) is not. */
-const PASSING_READ_CODES = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY', 'EINTR']);
 function unreadFolder(err) {
   const code = err && err.code;
   if (code === 'ENOENT' || code === 'ENOTDIR') return { ok: false, because: 'that folder is not there any more, or it was moved' };

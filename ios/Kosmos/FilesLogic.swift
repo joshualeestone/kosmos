@@ -208,12 +208,24 @@ extension Board {
     // kosmos#7842: forNow is a refusal's line that a list already shown outlasts (filesSectionAfter keeps the rows).
     enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), forNow(String), rows([ListedFile]) }
     /* kosmos#7842: whether a read keeps the list already shown, for the Files screen and the agent page's section alike:
-       only a list replaces it. Stricter than the Profile on purpose: the engine's listing refusals (engine/projects.js
-       listFiles, listDir) mix lasting reasons with passing ones (the folder changed while it was being read), under the
-       same statuses and with nothing to tell them apart, and a passing one comes during any save by the agent. */
+       only a list replaces it. The base rule, for a refusal with no `passing` mark (an older board, whose listing
+       refusals mix lasting reasons with passing ones and give nothing to tell them apart). A board since kosmos#7850
+       marks each refusal the listing makes; filesLastingRefusal reads a lasting mark, which the two callers let replace
+       the list. */
     static func filesKeepsShown(_ r: FilesRead) -> Bool {
         if case .page = r { return false }
         return true
+    }
+    /* kosmos#7850: a refusal the board marks as lasting (`passing: false`). A board since #7850 marks every refusal the
+       LISTING itself makes, one way or the other, and the "Files is a link" refusal too (marked lasting); a refusal sent
+       before the listing runs (a name it cannot read, the agent or project being gone) and every refusal from an older
+       board carry no mark, and keep the list as filesKeepsShown always has (the owner being gone is handled by
+       filesOwnerGone). */
+    static func filesLastingRefusal(status: Int, body: Data?) -> Bool {
+        guard status != 0 else { return false }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        guard let obj, obj["ok"] as? Bool == false, let passing = obj["passing"] as? Bool else { return false }
+        return passing == false
     }
     /* A 404 carrying the board's own words (a `because` or `error`): on the reads where server.js sends a 404 only for
        "no agent" or "no project", it says the owner is gone. A 404 with no words (a proxy's page) says nothing. This
@@ -225,8 +237,9 @@ extension Board {
         return [obj?["because"] as? String, obj?["error"] as? String].contains { !($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
     /* The Files screen: filesKeepsShown, except that the owner being gone replaces the list on a project's documents and
-       at the top of an agent's browse. Below the top a 404 is also a listing refusal (and the agent being removed while
-       a subfolder is open is not told apart from one), so it keeps the list. */
+       at the top of an agent's browse, and a refusal the board marks lasting replaces it anywhere (kosmos#7850). Below
+       the top a 404 is also a listing refusal (and the agent being removed while a subfolder is open is not told apart
+       from one), so it keeps the list unless it is marked lasting. */
     static func filesScreenKeepsShown(_ r: FilesRead, status: Int, body: Data?, owner: FilesOwner, dir: String) -> Bool {
         if filesOwnerGone(status: status, body: body) {
             switch owner {
@@ -234,11 +247,12 @@ extension Board {
             case .agent: if dir.isEmpty { return false }
             }
         }
+        if filesLastingRefusal(status: status, body: body) { return false }   // kosmos#7850
         return filesKeepsShown(r)
     }
     /* The agent page's section, the same rule in its own states: a list is rows (or hidden when empty); the owner being
-       gone (the flat list sends a 404 only for "no agent") is a message, which replaces rows; everything else is forNow
-       or noAnswer, which keep them (filesSectionAfter). The Files screen's filesScreenKeepsShown is tested beside it. */
+       gone (the flat list sends a 404 only for "no agent") and a refusal marked lasting (kosmos#7850) are a message,
+       which replaces rows; everything else is forNow or noAnswer, which keep them (filesSectionAfter). The Files screen's filesScreenKeepsShown is tested beside it. */
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
         if status == 401 || status == 403 { return .forNow(phoneShutOut) }   // kosmos#7840: never the gate's words
         if filesOwnerGone(status: status, body: body) { return .message(filesAgentNoFolder) }
@@ -248,7 +262,8 @@ extension Board {
         case .refused(let why):
             let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             let line = (obj?["because"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why)
-            return .forNow(line)
+            // kosmos#7850: a refusal the board says is lasting replaces the rows; any other keeps them.
+            return filesLastingRefusal(status: status, body: body) ? .message(line) : .forNow(line)
         case .noAnswer: return .noAnswer
         }
     }
