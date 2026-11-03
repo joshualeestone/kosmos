@@ -704,21 +704,76 @@ test('#7819: after a delete, a new agent under the freed name gets a new id and 
   assert.notEqual(now.provider, 'openai', 'the new agent inherited the deleted one\'s provider');
 });
 
-test('#7819: the picture goes with it, and the plan says the settings and picture go', () => {
+test('#7819: the picture goes with it (every extension), and the plan says where they go', () => {
   const name = leftoverAgent('pic7819');
   store.writeProfile(name, { displayName: 'Pic' });
   fs.mkdirSync(store.AVATARS, { recursive: true });
   fs.writeFileSync(nodePath.join(store.AVATARS, 'pic7819.png'), 'png');
-  assert.ok(store.avatarPath(name), 'fixture: no picture');
+  fs.writeFileSync(nodePath.join(store.AVATARS, 'pic7819.jpg'), 'jpg');   // a crashed save's second extension
   const p = mac.plan(name);
-  assert.ok(p.loses.some((l) => /^Its settings and picture: a new agent with this name starts without them$/.test(l)), JSON.stringify(p.loses));
+  assert.ok(p.loses.includes('Its settings and picture: to the Trash with the files, and a new agent with this name starts without them'), JSON.stringify(p.loses));
+  assert.equal(p.typeToConfirm, null, 'nothing goes for good, yet the name must be typed');
   const r = mac.del(name);
   assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
-  assert.equal(store.avatarPath(name), null, 'the picture outlived the delete');
-  assert.ok(trashHas('pic7819.png'), 'the picture did not go to the Trash');
+  assert.equal(store.avatarPath(name), null, 'a picture outlived the delete');
+  assert.ok(trashHas('pic7819.png') && trashHas('pic7819.jpg'), 'both pictures did not go to the Trash');
   // CONTROL: a leftover with neither says nothing about them.
   const bare = leftoverAgent('bare7819');
-  assert.ok(!mac.plan(bare).loses.some((l) => /settings/.test(l)), 'a leftover with no settings is told they go');
+  assert.ok(!mac.plan(bare).loses.some((l) => /settings|picture/.test(l)), 'a leftover with no settings is told they go');
+});
+
+test('#7819: a picture alone is named as the picture', () => {
+  const name = leftoverAgent('onlypic7819');
+  fs.mkdirSync(store.AVATARS, { recursive: true });
+  fs.writeFileSync(nodePath.join(store.AVATARS, 'onlypic7819.png'), 'png');
+  assert.ok(mac.plan(name).loses.includes('Its picture: to the Trash with the files, and a new agent with this name starts without it'));
+});
+
+test('#7819: a folder recorded under another name never takes that other agent\'s profile or picture', () => {
+  // carl was removed and his folder freed; dave was connected to it (discover.connect records another's folder).
+  const carl = leftoverAgent('carl7819', { job: false });
+  store.writeProfile(carl, { displayName: 'Carl' });
+  fs.mkdirSync(store.AVATARS, { recursive: true });
+  fs.writeFileSync(nodePath.join(store.AVATARS, 'carl7819.png'), 'png');
+  const dave = 'dave7819';
+  fs.mkdirSync(nodePath.dirname(create.plistPath(dave)), { recursive: true });
+  fs.writeFileSync(create.plistPath(dave), '<plist/>');
+  store.writeProfile(dave, { displayName: 'Dave', dir: create.workerDir(carl) });
+  const r = mac.del(dave);
+  assert.notEqual(r.outcome, leftover.OUTCOME.REFUSED, r.because);
+  assert.equal(fs.existsSync(store.profilePath(carl)), true, 'deleting dave took carl\'s profile');
+  assert.ok(store.avatarPath(carl), 'deleting dave took carl\'s picture');
+  assert.equal(fs.existsSync(store.profilePath(dave)), false, 'CONTROL: dave\'s own profile did not go');
+});
+
+test('#7819: without a Trash the settings are deleted for good, and the plan says so', () => {
+  const trash = process.env.AGENT_WORKFORCE_TRASH;
+  const name = leftoverAgent('gone7819');
+  store.writeProfile(name, { displayName: 'Gone' });
+  fs.rmSync(trash, { recursive: true, force: true });
+  let p; let r;
+  try {
+    p = mac.plan(name);
+    assert.equal(p.toTrash, false, 'CONTROL: the plan really is the for-good path');
+    assert.ok(p.loses.includes('Its settings: deleted for good, and a new agent with this name starts without it'), JSON.stringify(p.loses));
+    assert.equal(p.typeToConfirm, 'Gone', 'the for-good path did not ask for the name');
+    r = mac.del(name, { typed: 'Gone' });
+  } finally { fs.mkdirSync(trash, { recursive: true }); }
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.equal(fs.existsSync(store.profilePath(name)), false);
+  assert.ok(!trashHas('gone7819.json'), 'the for-good path put the settings in a Trash');
+});
+
+test('#7819: a job that will not go keeps the settings (the agent can still start)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+  const name = leftoverAgent('job7819');
+  store.writeProfile(name, { displayName: 'Job', provider: 'openai' });
+  const dir = nodePath.dirname(create.plistPath(name));
+  fs.chmodSync(dir, 0o555);
+  let r;
+  try { r = mac.del(name); } finally { fs.chmodSync(dir, 0o755); }
+  assert.notEqual(r.outcome, leftover.OUTCOME.DELETED, 'CONTROL: the job really was stuck');
+  assert.equal(fs.existsSync(create.plistPath(name)), true, 'CONTROL: the job is still there');
+  assert.equal(store.readProfile(name).provider, 'openai', 'an agent that can still start lost its settings');
 });
 
 test('#7819: a profile another agent shares (same stored name, other case) is kept, and the step says why', () => {
@@ -732,19 +787,31 @@ test('#7819: a profile another agent shares (same stored name, other case) is ke
   assert.ok(r.steps.some((s) => s.step === 'its settings' && /kept: Miles7819/.test(s.because || '')), JSON.stringify(r.steps));
 });
 
-test('#7819: a profile that cannot be moved refuses the whole delete, so it can be tried again', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+test('#7819: settings that will not move after the files went: PARTIAL, and it says a new agent would start with them', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
   const name = leftoverAgent('stuck7819');
   store.writeProfile(name, { displayName: 'Stuck' });
   const dir = nodePath.dirname(store.profilePath(name));
   fs.chmodSync(dir, 0o555);
   let r;
   try { r = mac.del(name); } finally { fs.chmodSync(dir, 0o755); }
-  assert.equal(r.outcome, leftover.OUTCOME.REFUSED, r.because);
-  assert.match(r.because, /settings and picture, so nothing else was deleted/);
-  assert.equal(fs.existsSync(create.workerDir(name)), true, 'the folder went although the profile could not');
-  assert.equal(fs.existsSync(create.plistPath(name)), true, 'the job went although the profile could not');
-  // And it can be tried again: the plan still finds it, and with the folder writable the delete goes through.
-  assert.equal(mac.plan(name).ok, true);
-  assert.equal(mac.del(name).outcome, leftover.OUTCOME.DELETED);
-  assert.equal(fs.existsSync(store.profilePath(name)), false);
+  assert.equal(r.outcome, leftover.OUTCOME.PARTIAL, r.because);
+  assert.match(r.because, /Its settings are still on this computer, so a new agent with this name would start with it\.$/);
+  assert.doesNotMatch(r.because, /name is free/);
+  assert.equal(fs.existsSync(create.workerDir(name)), false, 'CONTROL: the folder did go');
+});
+
+test('#7819: a job-only leftover whose settings go for good asks for the name, and does not say nothing is lost', () => {
+  const name = 'unit7819';
+  const unit = require('./linuxjob').unitPath(name);
+  fs.mkdirSync(nodePath.dirname(unit), { recursive: true });
+  fs.writeFileSync(unit, '[Unit]\n');
+  const plain = leftover.plan(name, { platform: 'linux' });
+  assert.equal(plain.ok, true, plain.because);
+  assert.equal(plain.typeToConfirm, null, 'CONTROL: a job-only leftover with nothing stored asks for no typing');
+  store.writeProfile(name, { displayName: 'Unit' });
+  const p = leftover.plan(name, { platform: 'linux' });
+  assert.equal(p.typeToConfirm, 'Unit', 'settings deleted for good, yet no typing was asked');
+  assert.doesNotMatch(p.reassurance, /Nothing you can lose/);
+  assert.match(p.reassurance, /^Its settings cannot go to the Trash, so it is deleted for good\. After this, the name Unit is free for a new agent\.$/);
+  fs.rmSync(unit, { force: true });
 });

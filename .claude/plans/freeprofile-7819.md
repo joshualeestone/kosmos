@@ -14,8 +14,14 @@ Move the profile and the picture with the files: to the Trash where the folder g
   readers enumerate, so a retired copy left in `profiles/` keeps the agent half alive.
 - Rejected, clearing in `create`: worldstarts writes `policyHeld`/`provider` before a held create retries, so create
   cannot tell a stale profile from a deliberate one.
-- Order: second in `del`, after the standing reset and before the folder and job, because once those are gone `plan()`
-  refuses and a failed later step could never be retried. A failure refuses the whole delete.
+- Order: LAST of the files, after the folder and the job (review round 1 overturned "first"): `create.workerDir` finds
+  a recorded folder through the profile's `dir`, and an agent whose job could not be removed must keep its settings.
+  The cost, accepted: a record that will not move after the files went cannot be retried through `plan()` (it finds
+  nothing left), so that PARTIAL says a new agent would start with it instead of inviting a retry.
+- By the name asked for only (review round 1, BLOCKER): a folder's basename can be another agent's name (a connected
+  agent records another's freed folder), and a case variant already shares the key.
+- The plan says where they go: the Trash only if the folder goes there AND the Trash can take them (another volume),
+  otherwise deleted for good, and then the name must be typed, a job-only leftover included.
 - Never another agent's file: keyed by `store.safeKey`, so a live session or an existing folder with the same key keeps
   it, and the step says so.
 - `plan()` names it in `loses` ("Its settings[ and picture]: a new agent with this name starts without them").
@@ -25,6 +31,11 @@ Profiles already stranded with no folder or job (the Windows box's `b55-1.json`)
 name with nothing but a profile. Not built here.
 
 ## Tests
-engine/delete-leftover.test.js, four #7819 tests (the card's done-when: create, remove, delete, create again; new id, no
+engine/delete-leftover.test.js, ten #7819 tests (the card's done-when: create, remove, delete, create again; new id, no
 old field; the picture; a shared stored name kept; an unmovable profile refuses the whole delete and can be retried).
 Mutation: no move reds three; no shared-name guard reds the fourth. All 13 test files that use delete-leftover: 570 pass.
+
+## Review round 1 (fixed)
+BLOCKER: the folder basename could take another agent's profile; dropped. Records moved last (folder found through the
+profile; a stuck job keeps them). Trash asked of the records themselves. A job-only leftover losing settings asks for the
+name. Every picture extension. Each fix mutation-checked; the typing guard needed a job-only test to go red.
