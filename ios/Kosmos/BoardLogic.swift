@@ -480,6 +480,15 @@ enum Board {
     // kosmos#7645: the reader's row when the keyboard starts to show: the highest drawn row whose top is between the top of what
     // shows and its bottom (window points, with half a point of rounding at the top). With none (one long message fills the
     // screen), the row the reader is inside: the lowest whose top is above what shows. Rows laid out below the screen never count.
+    // kosmos#7645: the reader's row for the keyboard hold, read `back` points before a jump (#7690). When that read-back
+    // leaves no row to hold (every row then sits below the screen), the rows are read where they are now and the jump is
+    // not undone: a held place, rather than none. `fellBack` says which.
+    static func holdRow(_ tops: [String: Double], back: Double, below top: Double, above bottom: Double)
+        -> (row: (id: String, top: Double)?, back: Double, fellBack: Bool) {
+        if let r = readerRow(tops.mapValues { $0 + back }, below: top, above: bottom) { return (r, back, false) }
+        if back != 0, let r = readerRow(tops, below: top, above: bottom) { return (r, 0, true) }
+        return (nil, back, false)
+    }
     static func readerRow(_ tops: [String: Double], below top: Double, above bottom: Double) -> (id: String, top: Double)? {
         let order: ((key: String, value: Double), (key: String, value: Double)) -> Bool = { $0.value < $1.value || ($0.value == $1.value && $0.key < $1.key) }
         if let r = tops.filter({ $0.value >= top - 0.5 && $0.value < bottom }).min(by: order) { return (r.key, r.value) }

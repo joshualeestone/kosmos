@@ -2970,12 +2970,10 @@ struct KeyboardHold: UIViewRepresentable {
                 // estimate changing (13038 to 17566 pt) was read as the keyboard's, and reading every row that far back put
                 // all of them below the screen: no row was held and iOS moved the room 2181 pt. When the jump-back leaves no
                 // row to hold, the rows are read where they are now: a held place, rather than none.
-                var r = Board.readerRow(rowsNow.mapValues { $0 + back }, below: Double(top), above: Double(bottom))
-                if r == nil, back != 0, let now = Board.readerRow(rowsNow, below: Double(top), above: Double(bottom)) {
-                    ChatView.trace("keyboard hold: a jump of \(Int(back)) left no row to hold, read where they are now")
-                    r = now; back = 0
-                }
-                guard let rows = self.rows, let r, let reading = rows.y[r.id] else {
+                let held = Board.holdRow(rowsNow, back: back, below: Double(top), above: Double(bottom))
+                if held.fellBack { ChatView.trace("keyboard hold: a jump of \(Int(back)) left no row to hold, read where they are now") }
+                back = held.back
+                guard let rows = self.rows, let r = held.row, let reading = rows.y[r.id] else {
                     ChatView.trace("keyboard hold: no row on the screen to hold (jump back \(Int(back)))"); return
                 }
                 if back != 0 { ChatView.trace("keyboard hold: read before a jump of \(Int(back))") }
