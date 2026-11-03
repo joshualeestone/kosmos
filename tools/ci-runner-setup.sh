@@ -196,8 +196,7 @@ mode_line() { if [ "$APPLY" = 1 ]; then say "APPLYING $STAGE"; else say "DRY RUN
 # page is the backstop.
 #
 # This runner's LaunchAgent, as svc.sh install recorded it in $RUNNER_DIR/.service, if it is a regular file (svc.sh
-# writes one), or nothing; never fails (set -e and
-# pipefail are on). Not a glob: the kosmos-relay runner (#6245) can live under the same user, and its
+# writes one), or nothing; never fails (set -e and pipefail are on). Not a glob: the kosmos-relay runner (#6245) can live under the same user, and its
 # actions.runner.joshualeestone-kosmos-relay.* plist sorts before this repo's.
 runner_plist() {
   local f=""
@@ -1080,7 +1079,7 @@ agent_file_ok() { agent_path_safe && [ -f "$agent" ] && ! [ "$agent" -ef "$dplis
 # pipefail, so a cat that fails still lets tee succeed: the retired copy is removed only when the agent is not empty and
 # the CI user finds it byte for byte the same. The last words say which way it went; a cat that failed leaves an empty
 # agent behind (tee made it), which the failure line says how to clear.
-put_back_cmd() { printf "sudo test -s %s && sudo cat %s | sudo -u %s tee %s >/dev/null && sudo -u %s test -s %s && sudo cat %s | sudo -u %s cmp -s - %s && sudo rm %s && echo 'put back' || echo 'NOT finished; %s is kept (if %s is now empty: sudo -u %s rm %s)'" "$1" "$1" "$CI_USER" "$agent" "$CI_USER" "$agent" "$1" "$CI_USER" "$agent" "$1" "$1" "$agent" "$CI_USER" "$agent"; }
+put_back_cmd() { printf "sudo test -s %s && sudo cat %s | sudo -u %s tee %s >/dev/null && sudo -u %s test -s %s && sudo cat %s | sudo -u %s cmp -s - %s && sudo rm %s && echo 'put back' || echo 'NOT finished; %s is kept (if %s is now empty or not the same: sudo -u %s rm %s)'" "$1" "$1" "$CI_USER" "$agent" "$CI_USER" "$agent" "$1" "$CI_USER" "$agent" "$1" "$1" "$agent" "$CI_USER" "$agent"; }
 # put_back <retired>: the same, done by the stage (as root).
 put_back() {
   agent_path_safe && [ ! -e "$agent" ] && [ -f "$1" ] && [ -s "$1" ] || return 1
@@ -1171,7 +1170,7 @@ daemon() {
     # Only the agent plist came back (a svc.sh install, a restore): the daemon is fine, nothing to stop.
     local back
     if agent_file_ok; then
-      back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir: sudo mkdir -p -m 700 $RETIRED_DIR && sudo -u $CI_USER cat $agent | sudo tee $RETIRED_DIR/$label.plist.retired-$stamp >/dev/null && sudo test -s $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER cat $agent | sudo cmp -s - $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER rm $agent (the CI user reads the agent, so root never opens a path a job controls; the copy is checked not empty and the same before the remove; the CI user removes it, so a path swapped for a symlink cannot make root remove the daemon plist)"
+      back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir: sudo mkdir -p -m 700 $RETIRED_DIR && sudo -u $CI_USER cat $agent | sudo tee $RETIRED_DIR/$label.plist.retired-$stamp >/dev/null && sudo test -s $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER cat $agent | sudo cmp -s - $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER rm $agent && echo 'moved aside' || echo 'NOT finished; $agent is kept' (the CI user reads the agent, so root never opens a path a job controls; the copy is checked not empty and the same before the remove; the CI user removes it, so a path swapped for a symlink cannot make root remove the daemon plist)"
     else
       # A symlink on the path (a job can make one) could make "the agent" the daemon plist itself: print no move.
       back="the daemon runs, but $agent exists and is not a plain file on a plain path in $CI_HOME (a symlink, or the daemon plist itself by another name); no command is printed for it: look at it as root before moving anything"
@@ -1187,7 +1186,10 @@ daemon() {
   [ -n "$why" ] || [ -z "$foreign" ] || why="this runner's Listener runs outside the daemon (pid $foreign: a manual runsvc.sh start or its LaunchAgent), and a daemon would start a second one for the same runner; stop it between jobs first (kill its runsvc.sh and Runner.Listener)"
   if [ -z "$why" ] && [ "$dloaded" = 1 ]; then
     if [ "$dok" = 1 ]; then
-      if [ -z "$dpid" ]; then why="system/$label is loaded and has no pid right now: it is restarting, or it exited cleanly, which KeepAlive {SuccessfulExit: false} does not restart; run this again in a minute, and if it says this again: sudo launchctl kickstart system/$label"
+      if [ -z "$dpid" ] && [ -n "$listeners" ]; then
+        # No pid to place it under (daemon_listeners blames none then), but a kickstart now would start a second one.
+        why="system/$label is loaded and has no pid right now, and a Listener of this runner runs (pid $(printf '%s' "$listeners" | tr '\n' ' ')): the daemon is restarting it, or it was started by hand; run this again in a minute, and do not kickstart the daemon while that Listener runs"
+      elif [ -z "$dpid" ]; then why="system/$label is loaded and has no pid right now: it is restarting, or it exited cleanly, which KeepAlive {SuccessfulExit: false} does not restart; run this again in a minute, and if it says this again: sudo launchctl kickstart system/$label"
       else why="system/$label is loaded and runs no Listener right now: it is restarting, or the runner is updating itself; run this again in a minute"; fi
     else
       why="system/$label is loaded but $dplist is not what this stage writes; to load it again: sudo launchctl bootout system/$label"
