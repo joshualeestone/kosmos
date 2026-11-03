@@ -615,6 +615,20 @@ test('a switch still waiting when personal backup goes off is dropped', async ()
   assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'off', 'a switch from before Off made the line live');
 });
 
+test('a switch waiting across Off, then On and a new answer, still lands in a task of its own', async () => {
+  const doc = fakeDoc();
+  const tm = timers();
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve({ running: false, last: { ok: true, restored: 3, world: WORLD } }) }), { setTimeout: tm.setTimeout });
+  p.pbfShow(true); await tick(); await tick();
+  assert.equal(tm.size, 1, 'CONTROL: a switch is waiting');
+  p.pbfShow(false, true);
+  const writes = liveAtWrite(doc);
+  p.pbfShow(true); await tick(); await tick();
+  assert.deepEqual(writes.map((x) => x.live), ['off'], 'the first fill after On was written into a live region');
+  tm.run();
+  assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'polite', 'the line stayed quiet after the new answer');
+});
+
 test('the end line starts quiet in the markup', () => {
   assert.match(PAGE, /<p [^>]*id="pb-files-last"[^>]*aria-live="off"/);
 });

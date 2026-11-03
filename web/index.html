@@ -56169,8 +56169,7 @@ function pbfPaint() {
   // kosmos#7801: only the text changes; the region stays shown. It is quiet until a paint has shown the board's answer,
   // so the first read after a show fills it with an old end silently, and a later end is read out.
   // kosmos#7816: it turns polite in a callback of its own, never in the task that writes it: a region switched to polite
-  // and written in one task is not announced by many screen readers. A switch still waiting across Off finds no status (Off
-  // clears it) and does nothing.
+  // and written in one task is not announced by many screen readers.
   if (!PBF.live) lastEl.setAttribute('aria-live', 'off');
   if (lastEl.textContent !== lastText) lastEl.textContent = lastText;
   if (PBF.status && !PBF.live && !PBF.liveSoon) {
