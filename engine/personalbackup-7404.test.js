@@ -1084,9 +1084,9 @@ test('#7404 plansNow: the plan is read first; an unread or unreadable plan is a 
   assert.ok(!bad.remote.sent.includes(PREVIEW), 'the preview route was called after an unreadable plan');
   const absent = await onWith(t, {});
   const ab = await pb.plansNow({ root: absent.root, remote: absent.remote });
-  assert.deepEqual(ab, { ok: false, because: 'Kosmos+ did not say which plan this backup has, so the plans cannot be shown here.' }, 'a status with no plan field is not an outage');
+  assert.deepEqual(ab, { ok: false, final: true, because: 'Kosmos+ did not send the plans for this backup, so they cannot be shown here. Nothing on your account has changed. View account shows your Kosmos+ plan.' }, 'a status with no plan field is not an outage');
   const coded = await onWith(t, { planGb: null, preview: { ok: false, because: '403 {"code":"org_not_member"}', refusal: { status: 403, code: 'org_not_member' } } });
-  assert.equal((await pb.plansNow({ root: coded.root, remote: coded.remote })).because, 'Kosmos+ did not say which plan this backup has, so the plans cannot be shown here.', 'a coded refusal said try again in a minute');
+  assert.equal((await pb.plansNow({ root: coded.root, remote: coded.remote })).because, 'Kosmos+ did not send the plans for this backup, so they cannot be shown here. Nothing on your account has changed. View account shows your Kosmos+ plan.', 'a coded refusal said try again in a minute');
   const good = await onWith(t, { planGb: null });
   good.remote.sent.length = 0;
   assert.equal((await pb.plansNow({ root: good.root, remote: good.remote })).ok, true);

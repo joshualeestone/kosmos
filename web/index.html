@@ -56042,7 +56042,7 @@ document.getElementById('pb-on').addEventListener('click', pbOpen);
 /* kosmos#7404 plan screen. The plans are read (POST /api/personal-backup/plans: the sizes on sale and the current plan, by
    GB or null) when the on view shows, then once a minute until a read works and for half an hour after Choose, and
    once an hour otherwise; with a plan, nothing more is read. */
-var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, gb: null, since: 0, reading: false, msgFrom: null };
+var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, gb: null, since: 0, reading: false, msgFrom: null, noPlanStop: false };
 const PBP_WAIT_MS = 30 * 60000;
 const PBP_RECHECK_MS = 60 * 60000;   // the backup runs hourly, so its no-plan stop is at most an hour behind a payment
 const PBP_CONFIRMING_MS = 3 * 60000;   // Kitty m2543: a late webhook can take hours, so after a few minutes say so
@@ -56054,6 +56054,7 @@ function pbpRows() {
    the answer to that stop, so it stays open; once the plans or the plan are known, that stop's line gives way. */
 function pbpOnView(on, lines, drop) {
   const open = on && (!lines.stopped || lines.noPlan);
+  PBP.noPlanStop = !!lines.noPlan;
   // The job still says no plan, against a plan read here an hour or more ago: the plan may have lapsed, so read it again.
   if (open && lines.noPlan && Number.isSafeInteger(PBP.planGb) && Date.now() - PBP.at > PBP_RECHECK_MS) { PBP.planGb = undefined; PBP.plans = null; }
   pbpShow(open, drop);
@@ -56083,6 +56084,11 @@ function pbpRead() {
       PBP.planGb = Number.isSafeInteger(r.planGb) && r.planGb > 0 ? r.planGb : null;
       if (PBP.planGb !== null) { PBP.url = null; PBP.gb = null; PBP.since = 0; pbpMsg(''); }
       else if (PBP.msgFrom === 'read') pbpMsg('');   // a read that worked ends its own refusal, never Choose's
+    } else if (r && r.final === true) {
+      // It will not clear on a retry: read again hourly (plans no longer null), and say so only to a person the job told
+      // has no plan; one whose backups run has no use for it.
+      if (!Array.isArray(PBP.plans)) PBP.plans = [];
+      pbpMsg(PBP.noPlanStop ? r.because : '', 'read');
     } else pbpMsg((r && r.because) || 'Your backup plans could not be read just now.', 'read');
     pbPaint();
   });
@@ -56109,7 +56115,7 @@ function pbpPaint(on) {
   for (const b of list.querySelectorAll('button')) b.disabled = PBP.busy;
   const wait = document.getElementById('pb-plans-wait');
   const waiting = show && !!PBP.url;
-  const words = !waiting ? '' : Date.now() - PBP.since > PBP_CONFIRMING_MS ? 'If you paid, your payment is being confirmed. This updates when your plan arrives.'
+  const words = !waiting ? '' : Date.now() - PBP.since > PBP_CONFIRMING_MS ? 'If you paid, it is being confirmed, and this updates when your plan arrives. If not, open the payment page again.'
     // Mona Lisa's review: every row still reads Choose, so the line names the plan that is waiting for payment.
     : 'Finish the ' + Number(PBP.gb).toLocaleString() + ' GB plan on the payment page. This updates when it arrives.';
   if (wait.textContent !== words) wait.textContent = words;

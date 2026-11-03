@@ -135,7 +135,7 @@ test('after a few minutes with no plan, the line says the payment is being confi
   s.pbpShow(true, false); await tick(); await tick();
   await s.pbpChoose(25);
   s.PBP.since = Date.now() - 4 * 60000; s.pbpPaint(true);
-  assert.equal(doc.getElementById('pb-plans-wait').textContent, 'If you paid, your payment is being confirmed. This updates when your plan arrives.');
+  assert.equal(doc.getElementById('pb-plans-wait').textContent, 'If you paid, it is being confirmed, and this updates when your plan arrives. If not, open the payment page again.');
   assert.ok(vis(doc, 'pb-plans-open-row'), 'the link stays, to open the page again');
 });
 
@@ -286,4 +286,18 @@ test('a payment page left open half an hour is read each hour, not each minute',
   assert.equal(reads, 2, 'CONTROL: each minute just after Choose');
   s.PBP.since = Date.now() - 31 * 60000; s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
   assert.equal(reads, 2, 'an abandoned payment page kept a read every minute');
+});
+
+test('a refusal that a retry cannot clear is read again hourly, and shown only to a person the job told has no plan', async () => {
+  const UNSAID = 'Kosmos+ did not send the plans for this backup, so they cannot be shown here. Nothing on your account has changed. View account shows your Kosmos+ plan.';
+  for (const lines of [{ stopped: '', plain: '' }, NO_PLAN_LINES]) {
+    const doc = fakeDoc();
+    let reads = 0;
+    const s = screen(doc, () => { reads++; return answer({ ok: false, final: true, because: UNSAID })(); });
+    s.pbpOnView(true, lines, false); await tick(); await tick();
+    s.PBP.at = Date.now() - 2 * 60000; s.pbpOnView(true, lines, false); await tick(); await tick();
+    assert.equal(reads, 1, 'a refusal that cannot clear was asked again within the hour');
+    if (lines.noPlan) assert.equal(doc.getElementById('pb-plans-msg').textContent, UNSAID, 'the person with no plan was not told why');
+    else assert.ok(!vis(doc, 'pb-plans'), 'a person whose backups run was shown a plans refusal');
+  }
 });
