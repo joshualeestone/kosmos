@@ -21,12 +21,14 @@ What the screen does with it (`deleteNoAnswerShow`):
   the button as the dialog's own plan (taken when the delete was sent) gates it, so a retry is open (the board re-plans before it acts) (review 3).
 The name and a dialog token (`DEL_OPENED`, moved on every open and close) are taken BEFORE the DELETE is sent (review
 2: taken after it, Keep pressed during a hanging delete re-asked for a null name). If the person left the dialog
-while the delete ran: no answer says nothing; a refusal says nothing; a success still settles the screen for the
+while the delete ran: no answer says nothing in the dialog (see above); a refusal says nothing; a success still settles the screen for the
 name that was deleted (`deleteSettled`, shared with the plain success path) but does not close a dialog that is no
 longer its own, unless that dialog is open again for the same (now deleted) agent, which closes (review 4). deleteSettled touches the detail page's box and line only when the detail page is the deleted
 agent's, and the shared DEL_PLAN only when it is that agent's plan (review 3; before, a delete started from the
 removed list wrote its line into whichever agent's page was open).
-A non-2xx JSON that is not the route's own (no outcome, no error: a gateway) counts as no answer (review 5).
+JSON that is not the route's own (no outcome and no error, whatever the status: a gateway's page, a proxy's {})
+counts as no answer. If the person left the dialog meanwhile, the plan is still asked again, and a refusal takes
+that agent's delete box and plan away without touching any dialog.
 A refusal WITH an answer is unchanged, except that it is dropped once the person has left the dialog.
 
 A side effect, accepted: the removed list's own Delete button also uses fetchLeftoverPlan, so its GET 400 (a name
