@@ -17,7 +17,8 @@ Card: kosmos#7877 (follow-up to #7001, PR #7878 merged as 7a37ec1c3e). Per-item 
   4601 stat stand-in NIT closed: test-only, fails loud as root.
 
 ## Validation
-- tools/test-ci-runner-daemon-7001.sh: all passed (68 arms).
+- tools/test-ci-runner-daemon-7001.sh: all passed after every review round; each new arm reds under a mutation of
+  the code it guards (plfifo only with the blocking plutil stand-in, suid pins a measured fact).
 - tools/test-ci-runner-setup-4601.sh: all passed (268 ok, rc 0) on 46cfb3aae6, 2026-11-03 16:01. It does not read the
   daemon stage's printed commands; rerun at the end if runner_plist changes again.
 
