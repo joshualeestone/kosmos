@@ -219,7 +219,7 @@ function binVerdict(info, m) {
   const maxBytes = info.maxMB !== null && info.maxMB !== undefined && Number.isFinite(Number(info.maxMB))
     ? Number(info.maxMB) * 1024 * 1024
     : (Number.isFinite(Number(info.total)) && Number(info.total) > 0 ? Number(info.total) * BIN_DEFAULT_SHARE : 0);
-  return ((m && m.bytes) || 0) <= maxBytes * BIN_ROOM;
+  return maxBytes > 0 && ((m && m.bytes) || 0) <= maxBytes * BIN_ROOM;
 }
 /* Whether the folder landed in the Recycle Bin is read by COUNTING the items there with its name and original folder,
    before and after the call: a new one means it is there. No delete time is compared (the Recycle Bin's own time and
@@ -245,12 +245,17 @@ const RECYCLE_TIMEOUT_MS = 120000;
 function psRun(script, p, timeout) {
   return run(powershell(), ['-NoProfile', '-NonInteractive', '-Command', script], { env: { ...process.env, [RECYCLE_PATH_VAR]: p }, timeout });
 }
-/* The folder's real path, so a link on the way to it is judged by the volume the files are on. */
-function realPath(p) { return fs.realpathSync.native(p); }
+/* The real path of the folder that HOLDS `p`, joined with `p`'s own name: a link on the way is judged by the volume
+   the files are on, and a link AT `p` (a settings file or picture can be one) is what goes to the Recycle Bin, never
+   the file it points at, as renameSync and rmSync act on the link itself on the Mac and Linux. */
+function realPath(p) {
+  const P = /^[A-Za-z]:[\\/]|^\\\\/.test(p) ? path.win32 : path;   // a Windows path is split by Windows rules on any host
+  return P.join(fs.realpathSync.native(P.dirname(p)), P.basename(p));
+}
 /** win32: whether the Recycle Bin can take `p`, whose measure (bytes, capped) is `m`. See `binVerdict`; any answer
     we cannot read is false. */
 function recycleBinCanTake(p, m) {
-  if (typeof p !== 'string') return false;
+  if (typeof p !== 'string' || p.startsWith('\\\\')) return false;
   let real = p;
   try { real = realPath(p); } catch (err) { if (!(err && err.code === 'ENOENT')) return false; }
   if (real.startsWith('\\\\')) return false;
