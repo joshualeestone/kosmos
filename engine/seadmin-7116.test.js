@@ -217,7 +217,9 @@ test('#7116: kosmos-se refuses a key file that is readable by others, or is a sy
   assert.strictEqual(spawnSync(HELPER, ['pub', loose]).status, 0, 'the same file at 0600 opens');
   const link = path.join(DIR, 'link');
   fs.symlinkSync(keyFile, link);
-  assert.match(spawnSync(HELPER, ['pub', link]).stderr.toString(), /not a plain file/);
+  const viaLink = spawnSync(HELPER, ['pub', link]);
+  assert.strictEqual(viaLink.status, 1);
+  assert.match(viaLink.stderr.toString(), /not a plain file/);
   const bare = spawnSync(HELPER, ['create', path.join(DIR, 'nopolicy')]);
   assert.strictEqual(bare.status, 2);
   assert.ok(!fs.existsSync(path.join(DIR, 'nopolicy')), 'no key file was made');
@@ -238,6 +240,12 @@ test('#7116: sign signs the bytes prepare was given, not bytes changed afterward
   bytes[bytes.length - 1] ^= 1;          // the caller changes its buffer after the screen was shown
   assert.ok(Object.isFrozen(shown));
   assert.throws(() => { shown.challenge = 'x'; }, TypeError);
+  // What a screen reads is read again fresh: editing one read leaves the next, and the signed bytes, as prepared.
+  const first = shown.decoded;
+  first.org = 'someone else';
+  first.id[0] ^= 1;
+  assert.strictEqual(shown.decoded.org, V.org);
+  assert.strictEqual(shown.decoded.id.toString('hex'), V.id);
   assert.strictEqual(shown.challenge, crypto.createHash('sha256').update(hex(V.bytes.cancel)).digest('hex'));
   if (FAKE) {
     // The stand-in records what it was handed: the bytes as shown, not the caller's changed buffer. (Its signature is

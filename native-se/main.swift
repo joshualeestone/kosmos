@@ -4,14 +4,12 @@
 // ECDSA P-256 in Apple's MESSAGE mode: the message, not a digest, is what this helper is handed, and it is hashed
 // with SHA-256 on this side of the call. escrowd checks it with coordinator/src/roster.rs verify_se, which takes a DER
 // signature over the raw message. This helper is the only code that touches the key; engine/seadmin.js decides WHAT
-// may be signed and is the only production caller (the tests also call it directly, to test its own fence).
+// may be signed and is meant to be the only production caller (nothing calls either yet; the tests call this directly).
 //
 // The private key never leaves the Secure Enclave. What is stored is CryptoKit's dataRepresentation: a blob the
 // Enclave wrapped under a key of its own, usable only by THIS Mac's Enclave. So the file needs no keychain access
 // group and no signed app (measured 2026-11-03 on an unsigned swiftc build: create, reload from the blob, sign). The
 // Enclave stops the key being used on another computer; it does not stop another program running as this user here.
-// Two things cover that: the file is written 0600 and refused if it is ever anything else or someone else's, and a
-// `presence` key needs the person's Touch ID or password for every signature.
 //
 // A key's access control is fixed when it is made and can never be added later, so the policy is a required argument
 // of create rather than a default: `presence` for a real admin key, `none` only where no person is there to answer
@@ -28,7 +26,7 @@
 // (which decodes every byte and checks the tag is the action the person chose). engine/seadmin-7116.test.js fails if
 // this list and seadmin.js's SIGNED tags differ.
 //
-// Build: swiftc -O native-se/main.swift -o kosmos-se
+// Build: swiftc -O native-se/main.swift -o native-se/kosmos-se
 
 import CryptoKit
 import Foundation

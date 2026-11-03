@@ -207,7 +207,7 @@ function fingerprintDisplay(fp) {
 const DECODERS = { change: decodeChange, cancel: decodeCancel, reviewerEnrol: decodeReviewerEnrol,
   reviewerRevoke: decodeReviewerRevoke };
 
-// The objects prepare() made. sign() takes nothing else, so a caller cannot show one payload and sign another.
+// The objects prepare() made, each with its own copy of the bytes. sign() takes nothing else.
 const PREPARED = new WeakMap();
 
 /** Decode `bytes` as `action` (refusing anything else) and say what a screen must show before the person signs. */
@@ -222,7 +222,10 @@ function prepare(action, bytes) {
   } else if (action === 'reviewerEnrol') {
     fingerprint = fingerprintDisplay(reviewerFingerprint(decoded.org, decoded));
   }
-  const prepared = Object.freeze({ action, decoded, fingerprint, challenge: sha256(message).toString('hex') });
+  const prepared = Object.freeze(Object.defineProperties({ action, fingerprint, challenge: sha256(message).toString('hex') }, {
+    // Read fresh from the held copy every time, so nothing a caller does to one read changes the next.
+    decoded: { get: () => DECODERS[action](Buffer.from(message)), enumerable: true },
+  }));
   PREPARED.set(prepared, message);
   return prepared;
 }
@@ -257,6 +260,7 @@ function publicKey({ helper, keyFile }) {
 function sign(prepared, { helper, keyFile }) {
   const message = PREPARED.get(prepared);
   if (!message) throw new Error('sign takes only what prepare returned');
+  // This checks the helper's two answers agree; it does not check the key is the enrolled admin key.
   const pub = publicKey({ helper, keyFile });
   const der = hexOf(runHelper(helper, ['sign', keyFile], message), 'signature');
   const jwk = { kty: 'EC', crv: 'P-256', x: pub.subarray(1, 33).toString('base64url'),
