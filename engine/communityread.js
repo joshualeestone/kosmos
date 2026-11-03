@@ -693,7 +693,7 @@ const PROFILE_CAP = 2 * 1024 * 1024;
 const OLDER_START_MS = 1000;
 /* A test may set a shorter limit (opts.olderStartMs), never a longer one. */
 const olderStartOf = (opts) => (opts && Number.isFinite(opts.olderStartMs) ? Math.min(Math.max(0, opts.olderStartMs), OLDER_START_MS) : OLDER_START_MS);
-/* { map: remoteId -> { at, id, own } of each listed post's newest reply, or null for none }; { failed, status } when the
+/* { map: remoteId -> { at, id } of each listed post's newest reply, or null for none }; { failed, status } when the
    profile could not be read; null when this agent has no name to look up (then only the newest are read, by both the
    read and the nudge's count). */
 async function postActivity(me) {
@@ -934,11 +934,12 @@ async function freshReplies(sessionName, opts) {
       /* As an unreadable post: partial, unless it has failed FRESH_DOWN_PASSES passes in a row; then the newest only, so a
          profile that never answers cannot hold the agent's nudges forever. */
       const profileKey = { remoteId: '\nprofile' };
+      /* A profile slower than OLDER_START_MS counts as one that failed: the read leaves the older posts for later then, so
+         the count is partial (the read a minute later may take them) and, after FRESH_DOWN_PASSES in a row, counts the
+         newest only, so a link where the profile is always slow never tells the agent about comments its read never shows. */
+      if (activity && activity.map && Date.now() - profileAt > olderStartOf(opts)) activity = { failed: true, status: 0 };
       if (activity && activity.failed) { if (!downOnce(profileKey)) return unreadable(); activity = null; }
       else postDown.delete(downKey(profileKey));
-      /* The read leaves the older posts for later when the profile is slower than OLDER_START_MS, so the count does too,
-         or a link where the profile is always slow would tell the agent about comments its read never shows. */
-      if (activity && activity.map && Date.now() - profileAt > olderStartOf(opts)) activity = null;
     }
     const { posts } = postsToRead(own, { marks, activity, firstLook });
     const titles = postTitles(sessionName);
@@ -1373,7 +1374,7 @@ async function repliesFor(sessionName, opts) {
     lines.push('(' + (pick.active - pick.read) + (pick.active - pick.read === 1 ? ' more of your older posts has' : ' more of your older posts have') + ' something new to look at: '
       + (profileSlow ? 'the community was slow to say which, so they wait for a read where it answers in time)' : 'read again for them)'), '');
   }
-  if (pick.unlisted) lines.push('(' + (pick.unlisted === 1 ? '1 of your older posts is' : pick.unlisted + ' of your older posts are') + ' not among the posts your public profile lists, so Kosmos cannot check ' + (pick.unlisted === 1 ? 'it' : 'them') + ' for new comments)', '');
+  if (pick.unlisted) lines.push('(Kosmos looks for new comments on the older posts your public profile lists, its newest 50; ' + (pick.unlisted === 1 ? '1 of yours is' : pick.unlisted + ' of yours are') + ' not among them)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
   /* Each post's mark (service time), review 6: unchanged if it could not be reached or has gone. Otherwise the candidate
      is the newest item of its FIRST-round page, or, when the read's cap cut the post, the earlier of that and the last item
@@ -1394,7 +1395,8 @@ async function repliesFor(sessionName, opts) {
   const FLOOR_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
   for (const th of threads) if (!th.gone && !next[th.post.remoteId]) next[th.post.remoteId] = { at: firstLook, id: FLOOR_ID, seen: [] };
   // kosmos#7811: an older post with something new but not read this time gets its floor too, so its reply cannot slide out.
-  for (const pid of (pick && pick.waiting) || []) if (!next[pid]) next[pid] = { at: firstLook, id: FLOOR_ID, seen: [] };
+  const goneNow = new Set(threads.filter((th) => th.gone).map((th) => th.post.remoteId));
+  for (const pid of (pick && pick.waiting) || []) if (!next[pid] && !goneNow.has(pid)) next[pid] = { at: firstLook, id: FLOOR_ID, seen: [] };
   const unshownIds = new Set(fresh.slice(shownItems.length).map((f) => f.x.id));
   for (const th of threads) {
     const pid = th.post.remoteId;
