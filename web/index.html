@@ -26889,10 +26889,9 @@ async function tick() {
     // one small fetch, guarded by its own token, and `fromPoll` so it does not
     // blank a message or steal focus on every tick.
     loadRemoval(fresh.sessionName, { fromPoll: true });
-  } else if (CURRENT && DEL_RUNNING_FOR === String(CURRENT.sessionName).toLowerCase()) {
-    // kosmos#7852: a delete that took the folder and job takes the agent off the list, so loadRemoval is not reached;
-    // the block that says it is running asks once more, and the answer (nothing left) takes it away.
-    loadLeftover(CURRENT.sessionName);
+  } else {
+    // kosmos#7852: a delete that took the folder and job takes the agent off the list, so loadRemoval is not reached.
+    leftoverOffList();
   }
 
       // Not while a load is in flight or the file is one we refused: the note
@@ -49588,7 +49587,7 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
   /* #514: whether anything is left to delete. Not on the poll (the plan walks the folder to count it, and the answer
      only changes on an act), except while the block says a delete is running (kosmos#7852): then every poll asks
      again, cheaply (the board answers "running" before any walk), so the block changes when the delete ends. */
-  if (!fromPoll || DEL_RUNNING_FOR === String(sessionName).toLowerCase()) loadLeftover(sessionName);
+  if (leftoverOnPoll(sessionName, fromPoll)) loadLeftover(sessionName);
   const box = document.getElementById('d-remove-agent');
   const hint = document.getElementById('d-remove-hint');
   /**
@@ -50262,12 +50261,27 @@ function deleteSettled(name, say, closeDialog) {
 }
 /* kosmos#7852: the agent (lower case) whose page block shows "a delete is running", so its poll keeps asking; or null. */
 let DEL_RUNNING_FOR = null;
+/* kosmos#7852: whether a repaint of `sessionName`'s page asks for its plan: always, except on the poll, where only while its
+   block says a delete is running. */
+function leftoverOnPoll(sessionName, fromPoll) { return !fromPoll || DEL_RUNNING_FOR === String(sessionName).toLowerCase(); }
+/* kosmos#7852: the poll found no card for the page on screen: if its block says a delete is running, it asks once more,
+   and the answer (nothing left) takes the block away. */
+function leftoverOffList() {
+  if (typeof CURRENT !== 'undefined' && CURRENT && DEL_RUNNING_FOR === String(CURRENT.sessionName).toLowerCase()) loadLeftover(CURRENT.sessionName);
+}
 /* kosmos#7852: the agent page's block while a delete of its files runs: the board's words as a sentence, no button, no
    plan to open. Only for the agent on screen. */
 function paintLeftoverRunning(plan, name) {
   const lower = String(name).toLowerCase();
   // The name's plan goes whichever page is on screen (a dialog opened from the removed list must not offer it again).
   if (DEL_PLAN && String(DEL_PLAN.name).toLowerCase() === lower) DEL_PLAN = null;
+  // A dialog open for this agent offers nothing more: its Delete goes off, with the board's words.
+  if (DEL_FOR !== null && String(DEL_FOR).toLowerCase() === lower) {
+    const go = document.getElementById('del-go');
+    if (go) go.disabled = true;
+    const msg = document.getElementById('del-msg');
+    if (msg && !msg.textContent) msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(String(plan.because || ''));
+  }
   if (typeof CURRENT === 'undefined' || !CURRENT || String(CURRENT.sessionName).toLowerCase() !== lower) return;
   const box = document.getElementById('d-delete-leftover');
   if (!box) return;

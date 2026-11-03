@@ -65,3 +65,10 @@ Windows only (the flag is set where the hold is, which is Windows only).
   refusing in its words, by design; the `failed` mark now lets it tell the two apart if wanted.
 - Known limit: a board that never answers again keeps "running now" on screen (each failed or unreadable read leaves it).
 - (Round 1's DEL_SHOWS_RUNNING became DEL_RUNNING_FOR at round 2.)
+
+## Review round 6
+- A dialog open for the agent whose delete is running turns its Delete off and shows the board's words (it offered a
+  delete the board would refuse).
+- The poll's two decisions are named functions (leftoverOnPoll, leftoverOffList) that the web test runs on its stubbed
+  page: asking while running, not for another agent, and once more off the list until the block goes. Only the two
+  call sites are still read as text. Each red on its mutant.
