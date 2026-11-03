@@ -221,6 +221,7 @@ test('kosmos#7875 item 2: the block is short and points at the guide; the guide 
   assert.ok(block.length < 1200, 'the block is meant to be short; it is ' + block.length + ' characters');
   assert.ok(guide.length > 5 * block.length, 'the guide should carry the long text');
   assert.match(block, /`kosmos connections --how`/);
+  assert.doesNotMatch(block, /\u2014|&mdash;|&#8212;|&#x2014;/i, 'the short block is in every agent file: no em dash in any spelling');
   assert.match(block, /kosmos accounts/);   // what always holds stays in every file
   assert.match(block, /never read `GET \/api\/connections` yourself/);
   for (const h of ['## How connecting a provider works', '## A plugin the person installed in their own app', '## The Connections tab']) {

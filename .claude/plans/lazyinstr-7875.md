@@ -34,4 +34,5 @@ exactly guideText and refuses extra words; install/kosmos dispatches the args an
 ## Weakest premise
 That an agent asked to "connect GPT" recognises the short block's trigger and runs the command before answering. The
 block names the providers and the plugin/Connections cases explicitly for that reason; if agents still answer from
-memory, the trigger list is what to widen.
+memory, the trigger list is what to widen. Nothing tests that an agent runs `--how` before answering; only
+the block's wording carries the trigger, so the evidence will be the next feedback reports.
