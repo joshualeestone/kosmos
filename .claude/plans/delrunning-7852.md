@@ -80,3 +80,10 @@ Windows only (the flag is set where the hold is, which is Windows only).
   silent no-op after a removed-list dialog for another agent).
 - The off-list poll asks on each poll while the block says running (comment corrected).
 - Tests on the stubbed page: the dialog across the end of the delete (both endings) and the button; each red on its mutant.
+
+## Review round 8 (the cap)
+- Fixed (a false sentence from round 7's change): a dialog that was saying "running" and is still offered when the
+  delete ends is repainted from the new plan with no message; it had shown the no-answer path's "could not reach the
+  board" line, which was untrue there.
+- Left at the cap, on #7852: a dialog opened from the removed list for an agent that is not the page on screen is not
+  re-asked while it says running (only the agent page polls), so it keeps "running" with Delete off until closed.

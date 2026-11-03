@@ -387,6 +387,7 @@ test('kosmos#7852 a dialog left saying "running" says what is so once the delete
   assert.equal(d.els['del-modal'].hidden, false);
   assert.equal(d.els['del-go'].disabled, false, 'a dialog left saying running never offers what is still left');
   assert.equal(d.els['del-list'].kids.length, 1, 'the dialog shows the old list, not what is left now');
+  assert.doesNotMatch(d.els['del-msg'].textContent, /could not reach/, 'the dialog says the board was not reached when it was');
   const gone = dialog(offered, 'Miles');
   gone.ctx.show({ ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' });
   gone.replies.push(async () => ({ ok: true, json: async () => ({ ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' }) }));
