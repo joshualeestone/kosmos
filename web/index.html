@@ -51237,6 +51237,14 @@ async function paintRemoved() {
   if (freshLeft) { LEFTOVERS_LAST = freshLeft; LEFTOVERS_AT = Date.now(); }
   leftStale = !freshLeft && LEFTOVERS_LAST.length > 0 && Date.now() - LEFTOVERS_AT > 60000;
   left = LEFTOVERS_LAST;
+  /* review 6: with nothing ever read and nothing kept, the rows have no place to say they could not be looked for, so
+     the shared line says it. Written only into an empty line (it has other writers), and taken down on a good read
+     only if it is still ours. */
+  {
+    const m = document.getElementById('removed-msg');
+    if (m && !freshLeft && LEFTOVERS_LAST.length === 0 && !m.textContent) m.textContent = LEFTOVERS_UNREADABLE_SAY;
+    else if (m && freshLeft && m.textContent === LEFTOVERS_UNREADABLE_SAY) m.textContent = '';
+  }
 
   // ⚠️ AND WE MAY NO LONGER BE ON THE AGENTS TAB. `tick()` fires this
   // unawaited, so switching tabs (or opening a card) while /api/removed is in
@@ -51366,7 +51374,7 @@ async function paintRemoved() {
       + ' aria-label="Delete what is left of ' + esc(x.shownAs || x.name) + '"'
       + ' data-shown-as="' + esc(x.shownAs || x.name) + '">Delete what is left…</button></div>'
       + '</div>').join('')
-    + (leftStale ? '<p class="removed-hint">Kosmos has not been able to check for a while for agents with only settings left, so these may be out of date.</p>' : '');
+    + (leftStale ? '<p class="removed-hint">Kosmos has not been able to check for leftover settings in a while, so these may be out of date.</p>' : '');
 
   /**
    * ⚠️ ONLY REWRITE WHEN THE ANSWER ACTUALLY CHANGED, and this is not an
@@ -51394,6 +51402,7 @@ async function paintRemoved() {
 
 /* kosmos#7825: the last leftovers list the board could read, kept when a later read fails. */
 let LEFTOVERS_LAST = [];
+const LEFTOVERS_UNREADABLE_SAY = 'Kosmos could not check for agents with only settings left, so any there are not shown yet.';
 let LEFTOVERS_AT = 0;
 // The last markup `paintRemoved` produced. See the note in that function for
 // why the comparison is against this rather than against `list.innerHTML`.
