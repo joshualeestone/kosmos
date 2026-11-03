@@ -820,7 +820,9 @@ struct ChatView: View {
                 // kosmos#7420, KOSMOS_SAMPLE_WALK=1: the walk's steps count as a reader's scroll, as a drag's do.
                 .onReceive(NotificationCenter.default.publisher(for: .sampleWalking)) { n in
                     personScrolling = (n.object as? Bool) ?? false
-                    if personScrolling { atBottom = false }
+                    // A scroll by code leaves the id anchor naming "end", and SwiftUI puts the list back there on its next
+                    // update (measured: from 5166 to 28435 on the poll); a finger's scroll moves the anchor, so let it go.
+                    if personScrolling { atBottom = false; positionId = nil; anchorLetGo = true }
                 }
                 #endif
             }
