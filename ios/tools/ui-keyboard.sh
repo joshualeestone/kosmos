@@ -53,7 +53,7 @@ if [ "$rc" -eq 0 ] && [ "$ran" -eq 9 ] && ! grep -q -i -E "Test Case .-\[KosmosU
   exit 0
 fi
 why="$(sed -n 's/.*error: -\[KosmosUITests\.[A-Za-z]* \([A-Za-z]*\)\] : /\1: /p' "$log" | head -1)"
-echo "FAIL  ui-keyboard: ${why:-xcodebuild test exited $rc, $ran of 3 checks ran}"
+echo "FAIL  ui-keyboard: ${why:-xcodebuild test exited $rc, $ran of 9 checks ran}"
 # kosmos#7609: the read-higher-up check records the chat's scroll events; when that check failed, show the last of them
 # while the simulator still exists (it is deleted on exit, so --keep does not keep them).
 if grep -q -E "Test Case .-\[KosmosUITests\.KeyboardSlideUITests testReadHigherUpStaysWhereItWas\]. failed" "$log"; then
