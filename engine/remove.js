@@ -2236,16 +2236,21 @@ function restoreInner(name, platform) {
 /* #6173 review: refused while an account move holds the agent, as a sync restart is. A removal between the move's
    bootout and bootstrap would have its disabled job asked to load again; refusing is one sentence, measured or not. */
 function remove(name, opts) {
-  const busy = busyRefusal(name);
+  const busy = busyRefusal(name) || deletingRefusal(name, 'what is left of this agent is being deleted now, so there is nothing to remove');
   if (busy) return busy;
   return markDryRun(removeInner(name, opts));
 }
-function restore(name, opts) {
-  /* kosmos#7835: a delete of what is left under this name may be waiting on the Windows Recycle Bin with the board free;
-     putting the agent back now would let the delete's last steps (its tokens, records) land on the restored agent. */
+/* kosmos#7835: a delete of what is left under this name may be waiting on the Windows Recycle Bin with the board free.
+   Starting, restarting, removing or putting back that agent meanwhile would let the delete's last steps (its tokens,
+   records, history) land on a live agent, so each refuses. Not in busyRefusal: delete-leftover asks that one itself. */
+function deletingRefusal(name, because) {
   let deletingNow = false;
   try { deletingNow = require('./delete-leftover').deletingName(name); } catch { deletingNow = false; }
-  if (deletingNow) return { outcome: OUTCOME.REFUSED, steps: [], because: 'what is left of this agent is still being deleted, so it was not put back' };
+  return deletingNow ? { outcome: OUTCOME.REFUSED, steps: [], because } : null;
+}
+function restore(name, opts) {
+  const deleting = deletingRefusal(name, 'what is left of this agent is still being deleted, so it was not put back');
+  if (deleting) return deleting;
   /* kosmos#6239 (round 2): putting a removed agent back starts it, so a restore the person asked for (`quiet: true`)
      is refused in the policy's quiet hours, as Start is (restart above). */
   if (opts && opts.quiet === true) {
@@ -2620,7 +2625,7 @@ function busyRefusal(name, { held = true } = {}) {
 }
 
 function restart(name, cause, opts) {
-  const busy = busyRefusal(name);
+  const busy = busyRefusal(name) || deletingRefusal(name, 'what is left of this agent is being deleted now, so it was not started');
   if (busy) return busy;
   /* kosmos#6239: a start or restart the PERSON asked for (`quiet: true`, the Start and Restart routes) is refused in the
      policy's quiet hours, and reported to whoever set it. Restarts the board makes itself (a provider or model change,
@@ -2660,7 +2665,8 @@ function asyncRestartCapMs() {
 }
 
 async function restartAsync(name, cause, opts) {
-  const busy = busyRefusal(name, { held: false });   // the move that holds it is the one restarting it
+  const busy = busyRefusal(name, { held: false })   // the move that holds it is the one restarting it
+    || deletingRefusal(name, 'what is left of this agent is being deleted now, so it was not started');   // kosmos#7835
   if (busy) return busy;
   const clean = create.cleanName(name);
   const cap = asyncRestartCapMs();
