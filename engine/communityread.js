@@ -94,13 +94,14 @@ async function getJson(pathname, cap, signal) {
     const ctl = new AbortController();
     const t = setTimeout(() => ctl.abort(), timeoutMs);
     // kosmos#7811 follow-up: a caller that gives up on the answer stops the request too.
-    if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', () => ctl.abort(), { once: true }); }
+    const stop = () => ctl.abort();
+    if (signal) { if (signal.aborted) ctl.abort(); else signal.addEventListener('abort', stop, { once: true }); }
     try {
       const r = await fetch(endpoint() + pathname, { signal: ctl.signal, headers: { accept: 'application/json' } });
       let json = null;
       try { json = JSON.parse(await readCapped(r, cap || RESPONSE_CAP)); } catch { json = null; }
       return { status: r.status, json };
-    } finally { clearTimeout(t); }
+    } finally { clearTimeout(t); if (signal) signal.removeEventListener('abort', stop); }
   } catch (e) {
     return { status: 0, json: null, because: String((e && e.name === 'AbortError') ? 'the community did not answer in time' : 'the community could not be reached') };
   }
@@ -1135,7 +1136,6 @@ async function repliesFor(sessionName, opts) {
   };
   /* kosmos#7811: the newest posts' round 1 and the profile (only when there are older posts) together; then the older
      posts with something new, if that was quick (OLDER_START_MS). */
-  const r1Start = Date.now();
   const olderStartMs = olderStartOf(opts);
   let pick = null;
   let profileSlow = false;
@@ -1147,8 +1147,6 @@ async function repliesFor(sessionName, opts) {
   let lateTimer = null;
   const giveUp = new AbortController();   // the request given up on is stopped, so it does not outlive this read
   const profile = own.older.length ? postActivity(me, giveUp.signal).catch(() => ({ failed: true, status: 0 })) : Promise.resolve(null);
-  // A 429 still stops round 2's pages, even when it lands after the limit.
-  profile.then((a) => { if (a && a.status === 429) round1Limited = true; });
   const raced = own.older.length
     ? Promise.race([profile, new Promise((res) => { lateTimer = setTimeout(() => res(LATE), olderStartMs); })]).finally(() => clearTimeout(lateTimer))
     : profile;
