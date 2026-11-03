@@ -40,3 +40,12 @@ Windows only (the flag is set where the hold is, which is Windows only).
   clears the plan and hides the button at once (the no-answer paths had left the button live until the next poll).
 - An unreadable answer while the block shows running changes nothing; the next poll asks again.
 - Tests: the unreadable answer, the switch, and the dialog path's button and plan; each red on its mutant.
+
+## Review round 3
+- BLOCKER fixed: a delete that takes the folder and job takes the agent off the list, so the poll no longer reached
+  loadRemoval and "running" stayed for good after a successful delete. The poll's no-card arm now asks once more for
+  the agent whose block says running; the answer (nothing left) takes the block away.
+- paintLeftoverRunning bumps DEL_TOKEN as deleteForgetPlan does (an older read in flight cannot bring the button back),
+  and clears DEL_PLAN only when it is this agent's; loadLeftover leaves DEL_PLAN alone while a dialog is open for another
+  agent (the poll reads here now).
+- Weakest premise now: the no-card poll arm is checked by source text only (the poll function is not run in a test).
