@@ -102,7 +102,8 @@ struct ProjectInfoView: View {
 
     private func readTasks() async {
         await client.refreshTasks()
-        tasksTried = true
+        // Review 2: a read cut short (the segment switched away) has not answered, so it is not yet "cannot read".
+        if !Task.isCancelled { tasksTried = true }
     }
 
     @ViewBuilder private func memberRow(_ m: Board.ProjectMember) -> some View {
