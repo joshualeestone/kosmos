@@ -1140,7 +1140,7 @@ test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in 
   assert.deepEqual(await pb.checkout(25, { root: odd.root, remote: odd.remote }), { ok: false, because: RETRY }, 'a page this Kosmos does not open');
   const opening = await onWith(t, { checkout: () => ({ ok: false, because: '409', refusal: { status: 409 } }) });
   assert.deepEqual(await pb.checkout(25, { root: opening.root, remote: opening.remote }), { ok: false, code: 'backup_checkout_conflict',
-    because: 'Kosmos+ is already handling a payment page for this backup. If you just paid, your plan shows here in a moment; if not, try again in a moment.' }, 'the codeless 409, from a relay that does not name it');
+    because: 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.' }, 'the codeless 409, from a relay that does not name it');
   // #7827: the relay names its two conflicts; each gets its own sentence, and a person who just paid is never told to try again.
   for (const [code, say] of [['backup_checkout_opening', 'Kosmos+ is opening a payment page for this already. Try again in a moment.'],
     ['backup_checkout_finished', 'The payment page has just finished. If you paid, your plan shows here in a moment.']]) {
