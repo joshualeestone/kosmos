@@ -755,7 +755,7 @@ test('#7819: without a Trash the settings are deleted for good, and the plan say
   try {
     p = mac.plan(name);
     assert.equal(p.toTrash, false, 'CONTROL: the plan really is the for-good path');
-    assert.ok(p.loses.includes('Its settings: deleted for good, and a new agent with this name starts without it'), JSON.stringify(p.loses));
+    assert.ok(p.loses.includes('Its settings: deleted for good, and a new agent with this name starts without them'), JSON.stringify(p.loses));
     assert.equal(p.typeToConfirm, 'Gone', 'the for-good path did not ask for the name');
     r = mac.del(name, { typed: 'Gone' });
   } finally { fs.mkdirSync(trash, { recursive: true }); }
@@ -784,7 +784,7 @@ test('#7819: a profile another agent shares (same stored name, other case) is ke
   const r = leftover.del(name, { platform: 'linux' });
   assert.ok(r.outcome === leftover.OUTCOME.DELETED || r.outcome === leftover.OUTCOME.PARTIAL, `${r.outcome}: ${r.because}`);
   assert.equal(fs.existsSync(store.profilePath(name)), true, 'the delete took a profile the running Miles7819 also reads');
-  assert.ok(r.steps.some((s) => s.step === 'its settings' && /kept: Miles7819/.test(s.because || '')), JSON.stringify(r.steps));
+  assert.ok(r.steps.some((s) => s.step === 'its settings and picture' && /kept: Miles7819 uses the same stored name/.test(s.because || '')), JSON.stringify(r.steps));
 });
 
 test('#7819: settings that will not move after the files went: PARTIAL, and it says a new agent would start with them', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
@@ -795,7 +795,7 @@ test('#7819: settings that will not move after the files went: PARTIAL, and it s
   let r;
   try { r = mac.del(name); } finally { fs.chmodSync(dir, 0o755); }
   assert.equal(r.outcome, leftover.OUTCOME.PARTIAL, r.because);
-  assert.match(r.because, /Its settings are still on this computer, so a new agent with this name would start with it\.$/);
+  assert.match(r.because, /Its settings are still on this computer, so a new agent with this name would start with them\.$/);
   assert.doesNotMatch(r.because, /name is free/);
   assert.equal(fs.existsSync(create.workerDir(name)), false, 'CONTROL: the folder did go');
 });
@@ -812,7 +812,7 @@ test('#7819: a job-only leftover whose settings go for good asks for the name, a
   const p = leftover.plan(name, { platform: 'linux' });
   assert.equal(p.typeToConfirm, 'Unit', 'settings deleted for good, yet no typing was asked');
   assert.doesNotMatch(p.reassurance, /Nothing you can lose/);
-  assert.match(p.reassurance, /^Its settings cannot go to the Trash, so it is deleted for good\. After this, the name Unit is free for a new agent\.$/);
+  assert.match(p.reassurance, /^Its settings cannot go to the Trash, so they are deleted for good\. After this, the name Unit is free for a new agent\.$/);
   fs.rmSync(unit, { force: true });
 });
 
@@ -825,5 +825,43 @@ test('#7819: a failed look at what is stored refuses the plan, never promises a 
   assert.ok(reads > 1, 'fixture: the roster was not read a second time, so the failing look never happened');
   assert.equal(p.ok, false, 'the plan offered a delete after it could not see what is stored');
   assert.match(p.because, /could not check what Kosmos has stored for Look/);
+  assert.equal(fs.existsSync(store.profilePath(name)), true);
+});
+
+
+/* #7819 review 3. */
+test('#7819: a leftover whose own folder is spelled differently from the name asked is not mistaken for another agent', () => {
+  // The profile records WORKERS_DIR/Rowan7819; the delete is asked as rowan7819 (a Mac does not tell them apart).
+  const folder = nodePath.join(create.WORKERS_DIR, 'Rowan7819');
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(nodePath.join(folder, 'CLAUDE.md'), 'work\n');
+  store.writeProfile('rowan7819', { displayName: 'Rowan', dir: folder });
+  const r = mac.del('rowan7819');
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.equal(fs.existsSync(store.profilePath('rowan7819')), false, 'its own profile was kept as if another agent owned it');
+  assert.doesNotMatch(r.said, /stay/, 'the result says settings stayed');
+});
+
+test('#7819: the picture\'s kept originals go to the Trash with it, not deleted', () => {
+  const name = leftoverAgent('orig7819');
+  fs.mkdirSync(store.AVATARS, { recursive: true });
+  fs.writeFileSync(nodePath.join(store.AVATARS, 'orig7819.png'), 'fitted');
+  const origDir = nodePath.join(nodePath.dirname(store.AVATARS), 'avatar-originals');
+  fs.mkdirSync(origDir, { recursive: true });
+  fs.writeFileSync(nodePath.join(origDir, 'orig7819.1-6.png'), 'as set');
+  const r = mac.del(name);
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.equal(fs.existsSync(nodePath.join(origDir, 'orig7819.1-6.png')), false, 'CONTROL: the original is gone from its folder');
+  assert.ok(trashHas('orig7819.1-6.png'), 'the picture as the person set it was deleted, not moved to the Trash');
+});
+
+test('#7819: settings kept for another agent are said in the plan and in the result', () => {
+  const name = leftoverAgent('kim7819', { job: false });
+  store.writeProfile(name, { displayName: 'kim' });
+  status.setPaneSource(() => fleet.line({ session: 'Kim7819', claim: 'Kim7819', title: '✳ Claude Code' }));
+  const p = leftover.plan(name, { platform: 'linux' });
+  assert.ok(p.loses.includes('Its settings and picture stay: Kim7819 uses the same stored name, and a new agent with this name shares them'), JSON.stringify(p.loses));
+  const r = leftover.del(name, { platform: 'linux' });
+  if (r.outcome === leftover.OUTCOME.DELETED) assert.match(r.said, /Its settings and picture stay \(Kim7819 uses the same stored name\), so a new agent with this name shares them\.$/);
   assert.equal(fs.existsSync(store.profilePath(name)), true);
 });

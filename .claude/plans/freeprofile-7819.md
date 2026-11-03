@@ -32,7 +32,7 @@ name with nothing but a profile. Not built here: filed as kosmos#7825 (it needs 
 profiles alone).
 
 ## Tests
-engine/delete-leftover.test.js, eleven #7819 tests (the card's done-when: create, remove, delete, create again; new id, no
+engine/delete-leftover.test.js, fourteen #7819 tests (the card's done-when: create, remove, delete, create again; new id, no
 old field; the picture; a shared stored name kept; an unmovable profile refuses the whole delete and can be retried).
 Mutation: no move reds three; no shared-name guard reds the fourth. All 13 test files that use delete-leftover: 570 pass.
 
@@ -45,3 +45,13 @@ name. Every picture extension. Each fix mutation-checked; the typing guard neede
 A failed look at what is stored now refuses the plan (it read as "nothing stored" and promised a free name). The
 shared-name guard's comment now says what it does not see (a stopped agent connected outside the workers folder).
 Deferred: originals of a picture are deleted, not moved (never shown); profile-only leftovers (#7825).
+
+## Review round 3 (fixed)
+The shared-name guard skips this leftover's own folder by realpath (a Mac leftover recorded as Miles, asked as miles,
+was keeping its own profile and saying the name was free). The picture's kept originals (avatar-originals, the picture
+as the person set it) move with it instead of being deleted, through a new store.pictureFiles so the picture-file rule
+stays in one place. Settings kept for another agent are said in the plan and in the result. Plural wording; the stuck
+verb follows the records' own mode; a Linux unit keeps "its startup job is removed" in the rewritten sentence.
+Removed again: a check for "a profile recording another existing folder", which could not fire (workerDir makes the
+recorded folder the plan's folder), so it was an unarmed guard. That same fact is a pre-existing hazard outside this
+card: a profile shared by key can make the plan treat another agent's recorded folder as the leftover's own.
