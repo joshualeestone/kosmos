@@ -56067,9 +56067,9 @@ function pbpShow(on, drop) {
   if (drop) { PBP.plans = null; PBP.planGb = undefined; PBP.url = null; PBP.gb = null; PBP.since = 0; PBP.at = 0; PBP.seq++; PBP.gen++; PBP.reading = false; pbpMsg(''); }
   const hasPlan = Number.isSafeInteger(PBP.planGb);
   const since = Date.now() - PBP.at;
-  // Each minute until a read works, and for half an hour after Choose; otherwise each hour (a plan paid for elsewhere,
+  // Each minute until a read works (or after one failed), and for half an hour after Choose; otherwise each hour (a plan paid for elsewhere,
   // or a payment page left open and never paid).
-  if (on && !hasPlan && ((since > 60000 && (PBP.plans === null || (PBP.url && Date.now() - PBP.since < PBP_WAIT_MS))) || since > PBP_RECHECK_MS)) pbpRead();
+  if (on && !hasPlan && ((since > 60000 && (PBP.plans === null || PBP.msgFrom === 'read' || (PBP.url && Date.now() - PBP.since < PBP_WAIT_MS))) || since > PBP_RECHECK_MS)) pbpRead();
   pbpPaint(on);
 }
 function pbpRead() {
@@ -56083,12 +56083,12 @@ function pbpRead() {
       PBP.plans = r.plans;
       PBP.planGb = Number.isSafeInteger(r.planGb) && r.planGb > 0 ? r.planGb : null;
       if (PBP.planGb !== null) { PBP.url = null; PBP.gb = null; PBP.since = 0; pbpMsg(''); }
-      else if (PBP.msgFrom === 'read') pbpMsg('');   // a read that worked ends its own refusal, never Choose's
+      else if (PBP.msgFrom === 'read' || PBP.msgFrom === 'final') pbpMsg('');   // a read that worked ends its own refusal, never Choose's
     } else if (r && r.final === true) {
       // It will not clear on a retry: read again hourly (plans no longer null), and say so only to a person the job told
       // has no plan; one whose backups run has no use for it.
       if (!Array.isArray(PBP.plans)) PBP.plans = [];
-      pbpMsg(PBP.noPlanStop ? r.because : '', 'read');
+      pbpMsg(PBP.noPlanStop ? r.because : '', 'final');
     } else pbpMsg((r && r.because) || 'Your backup plans could not be read just now.', 'read');
     pbPaint();
   });

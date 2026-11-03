@@ -146,6 +146,8 @@ test('#7404 plan screen: plans and checkout pass only their own fields; checkout
   assert.deepEqual(c.json, { ok: true, url: 'https://checkout.stripe.com/c/pay/x' }, JSON.stringify(c.json));
   await call('/api/personal-backup/checkout', { body: { gb: '25' }, headers: SCREEN });
   assert.deepEqual(got, [25, null], 'a size that is not a whole number reached the engine as one');
+  await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
+  assert.equal(reads, 2, 'after a checkout the plans came from the old read (a plan found there would stay hidden)');
 });
 
 /* Challenge round 1: the answer the screen needs passes through the route's named-field list, and nothing else does.
