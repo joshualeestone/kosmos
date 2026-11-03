@@ -404,9 +404,8 @@ function bareSplit(tok) {
     { url, bare } or null. A bare one is its https:// address.
     The bare scan is CONSERVATIVE, because the page decides what is a link (web/index.html pjRich) and a word the page
     shows as text must never be fetched. It looks only at whole words between whitespace, and not at all in a message
-    holding any of ` [ ] | (code, markdown links and tables: each changes which words the page links, and matching the
-    page's rules for them one by one kept finding new edges, review rounds 1 to 7), nor in one past BARE_SCAN_MAX
-    characters. A bare address the page links but this skips gets no preview, which is how every bare address was
+    holding any of ` [ ] | (code, markdown links and tables each change which words the page links), nor in one past
+    BARE_SCAN_MAX characters. A bare address the page links but this skips gets no preview, which is how every bare address was
     before. The explicit scan is unchanged.
     engine/unfurl.bare-7861.test.js checks against the page's own renderers (pjRich, and pjBody for the project room)
     that a bare address found here is always one they draw, on a fixed list and on generated messages.
@@ -450,8 +449,9 @@ function unreached(because) {
 }
 /** kosmos#7861: a bare address's preview, kept under its OWN key ('b:'), so a preview fetched over http is never what
     an https:// link the person typed shows. https first; http only when https was not reached. A preview read over
-    http keeps the https:// address as its link (the one the word in the message opens), unless the http page itself
-    sent us to an https:// one, so the card never opens a plain-http page. */
+    the http FALLBACK keeps the https:// address as its link (the one the word in the message opens), unless the http
+    page itself sent us to an https:// one. (When https answers, the preview is whatever https answered, redirects
+    included, exactly as for a typed https:// link.) */
 async function previewBare(httpsUrl) {
   const key = 'b:' + String(httpsUrl);
   const hit = cached(key);
@@ -463,9 +463,9 @@ async function previewBare(httpsUrl) {
   /* Two fetches, each with its own timeout, when https does not answer. */
   const second = await preview('http://' + httpsUrl.slice('https://'.length));
   if (!second.ok) return remember(key, first);
-  // A page the http address sent us to on ANOTHER host, over http or https, is not this address's preview (review round
-  // 6: a network that can answer plain http could otherwise point the card at a host of its choosing). www. counts as
-  // the same host, the commonest redirect an old site makes.
+  // A page the http address sent us to on ANOTHER host, over http or https, is not this address's preview: a network
+  // that can answer plain http could otherwise point the card at a host of its choosing. www. counts as the same host,
+  // the commonest redirect an old site makes.
   const bareHost = (u) => new URL(u).hostname.toLowerCase().replace(/^www\./, '');
   let sameHost = false;
   try { sameHost = bareHost(second.url) === bareHost(httpsUrl); } catch { sameHost = false; }

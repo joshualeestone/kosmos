@@ -20,7 +20,8 @@ with no preview, and http://joshualeestone.com had one.
 - previewBare: https first; http only when https was not reached (no connection, too slow, or a 5xx). A 4xx is the
   site's answer, an answer with nothing to show stays an answer, and the address gate is never sidestepped (a private
   address is refused before any fetch, over either scheme). A page the http address redirects to on another host (www.
-  aside), over http or https, is not kept. The card opens the https:// address, never plain http.
+  aside), over http or https, is not kept. A preview read over the fallback opens the https:// address, never plain
+  http. When https itself answers, the preview is what https answered (redirects included), as for a typed link.
 - Cache: when https answers, the bare address reads the typed-link entry (one slot); only an http fallback's outcome is
   kept under its own key ('b:'), so a typed https:// link never shows a preview read over http.
 - server.js withPreviews: firstLinkInfo, then peekBare/warm(url, { bare: true }) for a bare link and peek/warm as before
@@ -46,13 +47,17 @@ feature, not this bug: its own card, #7864, which I take after this merges.
   unchanged by this card.
 - Accepted: a network that can break https can supply a card's title and image over http for the same host; the card
   still opens https and the address gate still applies. A typed https://x and a bare x on the same poll can fetch
-  https://x twice at once (separate in-flight keys). The page's own pjRich fast-path check uses an unbounded markdown
+  https://x twice at once (separate in-flight keys). A bare address https cannot reach holds up to three of the 200
+  cache slots (the https refusal, the http page, the outcome) and, while its row is served, is retried over https and
+  then http each time its one-minute refusal expires, up to five seconds per scheme; a typed link that fails is retried
+  every minute today too, without the http step. The page's own pjRich fast-path check uses an unbounded markdown
   pattern in the browser; that predates this card.
 
 ## Verified
 - engine/unfurl.bare-7861.test.js (17 tests): word parity with the lifted pjBareWeb/pjBareSplit; whole-message parity
   with the lifted pjRich (9 functions) and pjBody, on a fixed list of 51 messages and 20000 generated ones (fixed seed);
-  the https-then-http order and every fallback rule; a timing test on inputs just under the 8000-character cap.
+  the https-then-http order and every fallback rule; a timing test on inputs just under the 8000-character cap
+  (a loose 250 ms bound, so a loaded machine is not a red; the unbounded pattern it guards against took 1.7 s).
 - server.unfurl-bare-7861.test.js (6 tests) through GET /api/agent/<name>/thread, the route the agent page polls, and
   one on GET /api/messages; server.fedmsg-3311.test.js covers a bare address in words from outside.
 - Mutations, each run and the file restored after: the server back to explicit-only links (both bare route tests red);
