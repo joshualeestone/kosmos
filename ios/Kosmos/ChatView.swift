@@ -769,7 +769,7 @@ struct ChatView: View {
                 }
                 // kosmos#7817 (Josh 11-02): the box growing or shrinking a line as he typed moved the conversation elsewhere.
                 // Anything in the strip counts (a wrap, the line above the box, the emoji panel, a reply or file row). A
-                // reader at the newest message stays there, as when the keyboard comes up; one higher up is left alone.
+                // reader at the newest message is kept there (when followsBox is on); one higher up is left alone.
                 // kosmos#7817 (Josh 11-03, build 29): on his phone this follow landed past every drawn row of a long chat (content
                 // reported 124690 pt against 19498 rebuilt), a blank list, worse than the jump it fixed. Off until that
                 // overshoot is reproduced and fixed (followsBox); the jump comes back meanwhile.
