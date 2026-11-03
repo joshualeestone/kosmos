@@ -86,6 +86,7 @@ struct ChatView: View {
     @State private var epoch = 0
     @State private var lastPendingCount = 0
     @State private var keepNewestInView = true
+    @State private var kbSettleTick = 0   // kosmos#7817: the latest keyboard did-show; an older one's scroll stands down
     // kosmos#7016: a lasting choice pressed once (armed until a second press, another press, 15 s, or leaving the chat),
     // the line a press left for its question (not sure it went, or the Mac's refusal), and the line over the composer
     // when a typed send waits for a press in the air.
@@ -785,10 +786,25 @@ struct ChatView: View {
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                     // Only the chat on screen: another tab can keep a chat alive under it.
                     guard keepNewestInView, visible else { return }
-                    Self.trace("keyboard shown, to the newest")
-                    // kosmos#7344: re-setting an anchor that already reads "end" does not move the thread, so scroll to it.
-                    // Not animated under the anchor, as goNewest is (the side lock, #7574, relies on that).
-                    if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy, animated: true) }
+                    // kosmos#7817 (Josh 11-03 09:27, build 30): did-show came three times in 0.3 s as the keyboard went 380, 608,
+                    // 380; each scroll aimed at the view the passing height left, and the list sat past its end, blank. So the
+                    // scroll waits until did-show has been quiet for keyboardSettle, and runs once.
+                    kbSettleTick &+= 1
+                    let tick = kbSettleTick
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {
+                        guard tick == kbSettleTick, keepNewestInView, visible else { return }
+                        Self.trace("keyboard shown, to the newest")
+                        // kosmos#7344: re-setting an anchor that already reads "end" does not move the thread, so scroll to it.
+                        // Not animated under the anchor, as goNewest is (the side lock, #7574, relies on that).
+                        if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy, animated: true) }
+                        // kosmos#7817: a scroll that still lands past the end is put back, unless a finger is on the list. Not
+                        // personScrolling: in Josh's 09:27 record it read true from the app's own scroll and held the recovery off.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {
+                            guard tick == kbSettleTick, visible, !scrollBox.underFinger, scrollBox.reading()?.place == "past the end" else { return }
+                            if scrollBox.backInside() { Self.trace("keyboard shown: past the end, put back at its end") }
+                            goNewest(proxy)
+                        }
+                    }
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
@@ -897,6 +913,9 @@ struct ChatView: View {
         return false
         #endif
     }()
+
+    // kosmos#7817 (11-03): how long the keyboard's did-show must be quiet before the chat scrolls to the newest message.
+    static let keyboardSettle: Double = 0.3
 
     // kosmos#7346: how far above the solid strip messages fade into it. The end marker and the New messages button
     // are both set from it, so changing it can never hide the newest message under the fade.
