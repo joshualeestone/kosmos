@@ -607,8 +607,9 @@ extension Board {
         let open = Tasks.sortNewest(read.tasks.filter { $0.projectId == project && $0.state != "closed" })
         return (Array(open.prefix(projectTasksShown)), open.count)
     }
+    // None open is a row of its own (as the description's "No description yet."), never a footer under nothing.
+    static let projectNoOpenTasks = "No open tasks."
     static func projectTasksFooter(total: Int, shown: Int) -> String? {
-        if total == 0 { return "No open tasks." }
         return total > shown ? "\(total - shown) more on the Tasks tab." : nil
     }
     // A task's state, in the Tasks tab's own words (Tasks.groups).

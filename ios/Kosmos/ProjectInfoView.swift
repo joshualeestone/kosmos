@@ -40,17 +40,12 @@ struct ProjectInfoView: View {
         )
     }
 
-    // The name, Paused when it is, and the segments.
+    // Paused when it is, and the segments. The name is the top bar's (said once, not twice).
     private var header: some View {
         VStack(spacing: 8) {
-            VStack(spacing: 2) {
-                Text(project.name).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
-                    .multilineTextAlignment(.center)
-                if project.paused {
-                    Text("Paused").font(.subheadline).foregroundColor(Palette.secondary)
-                }
+            if project.paused {
+                Text("Paused").font(.subheadline).foregroundColor(Palette.secondary)
             }
-            .accessibilityElement(children: .combine)
             Picker("Section", selection: $part) {
                 ForEach(Board.ProjectPart.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
@@ -119,7 +114,9 @@ struct ProjectInfoView: View {
     @ViewBuilder private var tasksSection: some View {
         let open = Board.projectOpenTasks(client.tasksList, project: project.id)
         Section {
-            if let open {
+            if let open, open.total == 0 {
+                Text(Board.projectNoOpenTasks).foregroundColor(Palette.secondary)
+            } else if let open {
                 ForEach(open.rows) { t in
                     Button { openTask = TaskPageRef(project: t.projectId, number: t.number) } label: {
                         HStack(spacing: 12) {
