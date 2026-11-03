@@ -56043,7 +56043,7 @@ async function pbRestore() {
 document.getElementById('pb-on').addEventListener('click', pbOpen);
 /* kosmos#7404 plan screen. The plans are read (POST /api/personal-backup/plans: the sizes on sale and the current plan, by
    GB or null) when the on view shows and once a minute while there is no plan; with a plan, nothing more is read. */
-var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, since: 0, reading: false };
+var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, gb: null, since: 0, reading: false };
 const PBP_CONFIRMING_MS = 3 * 60000;   // Kitty m2543: a late webhook can take hours, so after a few minutes say so
 function pbpMsg(t) { document.getElementById('pb-plans-msg').textContent = t ? asSentence(t) : ''; }
 function pbpRows() {
@@ -56051,7 +56051,7 @@ function pbpRows() {
 }
 /* `drop`: personal backup is not on here, so nothing read for it is kept. */
 function pbpShow(on, drop) {
-  if (drop) { PBP.plans = null; PBP.planGb = undefined; PBP.url = null; PBP.since = 0; PBP.at = 0; PBP.seq++; PBP.gen++; PBP.reading = false; pbpMsg(''); }
+  if (drop) { PBP.plans = null; PBP.planGb = undefined; PBP.url = null; PBP.gb = null; PBP.since = 0; PBP.at = 0; PBP.seq++; PBP.gen++; PBP.reading = false; pbpMsg(''); }
   const hasPlan = Number.isSafeInteger(PBP.planGb);
   if (on && !hasPlan && Date.now() - PBP.at > 60000) pbpRead();
   pbpPaint(on);
@@ -56066,7 +56066,7 @@ function pbpRead() {
     if (r && r.ok === true && Array.isArray(r.plans)) {
       PBP.plans = r.plans;
       PBP.planGb = Number.isSafeInteger(r.planGb) && r.planGb > 0 ? r.planGb : null;
-      if (PBP.planGb !== null) { PBP.url = null; PBP.since = 0; pbpMsg(''); }
+      if (PBP.planGb !== null) { PBP.url = null; PBP.gb = null; PBP.since = 0; pbpMsg(''); }
     } else pbpMsg((r && r.because) || 'Your backup plans could not be read just now.');
     pbPaint();
   });
@@ -56094,7 +56094,8 @@ function pbpPaint(on) {
   const wait = document.getElementById('pb-plans-wait');
   const waiting = show && !!PBP.url;
   const words = !waiting ? '' : Date.now() - PBP.since > PBP_CONFIRMING_MS ? 'Your payment is being confirmed. This updates when your plan arrives.'
-    : 'Finish in the payment page. This updates when your plan arrives.';
+    // Mona Lisa's review: every row still reads Choose, so the line names the plan that is waiting for payment.
+    : 'Finish the ' + Number(PBP.gb).toLocaleString() + ' GB plan on the payment page. This updates when it arrives.';
   if (wait.textContent !== words) wait.textContent = words;
   wait.hidden = !waiting;
   document.getElementById('pb-plans-open-row').hidden = !waiting;
@@ -56108,8 +56109,8 @@ async function pbpChoose(gb) {
   PBP.busy = false;
   if (gen !== PBP.gen) { pbPaint(); return; }
   const url = r && r.ok === true && typeof r.url === 'string' && /^https:\/\/checkout\.stripe\.com\//.test(r.url) ? r.url : null;
-  if (url) { PBP.url = url; PBP.since = Date.now(); PBP.at = Date.now(); }
-  else pbpMsg((r && r.because) || 'The payment page could not be opened just now. Nothing was charged.');
+  if (url) { PBP.url = url; PBP.gb = gb; PBP.since = Date.now(); PBP.at = Date.now(); }
+  else pbpMsg((r && r.because) || 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.');
   pbPaint();
   if (url) { const a = document.getElementById('pb-plans-open'); try { a.focus(); } catch { /* gone */ } }
 }

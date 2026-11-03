@@ -72,8 +72,10 @@ test('Choose: Stripe\'s page becomes a link the person presses, and the screen w
   await s.pbpChoose(25);
   assert.equal(doc.getElementById('pb-plans-open').href, STRIPE);
   assert.ok(vis(doc, 'pb-plans-open-row') && vis(doc, 'pb-plans-list'), 'the link, and the rows stay');
-  assert.equal(doc.getElementById('pb-plans-wait').textContent, 'Finish in the payment page. This updates when your plan arrives.');
+  assert.equal(doc.getElementById('pb-plans-wait').textContent, 'Finish the 25 GB plan on the payment page. This updates when it arrives.');
   assert.equal(doc.focused && doc.focused.id, 'pb-plans-open');
+  await s.pbpChoose(100);
+  assert.equal(doc.getElementById('pb-plans-wait').textContent, 'Finish the 100 GB plan on the payment page. This updates when it arrives.', 'a second Choose names the plan chosen last');
 });
 
 test('Choose sends the size, never a price', async () => {
@@ -93,7 +95,7 @@ test('a page the board names anywhere but Stripe\'s checkout is never linked', a
     await s.pbpChoose(25);
     assert.ok(!vis(doc, 'pb-plans-open-row'), url);
     assert.equal(doc.getElementById('pb-plans-open').href, '#', url);
-    assert.match(doc.getElementById('pb-plans-msg').textContent, /Nothing was charged\.$/, url);
+    assert.equal(doc.getElementById('pb-plans-msg').textContent, 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.', url);
   }
 });
 
