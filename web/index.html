@@ -56121,6 +56121,8 @@ async function pbpChoose(gb) {
   if (url) { PBP.url = url; PBP.gb = gb; PBP.since = Date.now(); PBP.at = Date.now(); }
   else pbpMsg((r && r.because) || 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.', 'choose');
   pbPaint();
+  // The account has a plan already (another tab, or a payment confirmed late): read it, so the rows give way to it.
+  if (!url && r && r.code === 'backup_plan_exists') pbpRead();
   if (url) { const a = document.getElementById('pb-plans-open'); try { a.focus(); } catch { /* gone */ } }
 }
 /* ---- kosmos#7404: restore from a backup, into a separate copy (engine/personalrestorejob.js). The list is read only when
