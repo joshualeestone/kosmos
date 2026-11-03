@@ -123,7 +123,7 @@ test('the sender is derived from the pane, and the delivered envelope names them
     const sends = tmux.sends();
     // ⚠️ The envelope IS the attribution: WHO before WHAT, on one line,
     // pasted to the exact-match-pinned target (the submit Enter is pinned too).
-    assert.equal(tmux.pastedMessages()[0], '[message from your colleague leo · m1] have a look at the lease');
+    assert.equal(tmux.pastedMessages()[0], '[message from your colleague leo · m1 · to answer, run: kosmos msg --in-reply-to m1 leo] have a look at the lease');
     assert.ok(sends[0][2].startsWith('=mara-discord:'), 'the message left for somewhere other than the addressed pane');
     // The log carries the five ruled fields (the screens draw from this).
     const logged = messages.list('leo');
@@ -222,7 +222,7 @@ test('in_reply_to must be one of our ids: a real one rides the envelope and the 
     tmux = arm([ok(), ok()]);
     const reply = messages.send({ fromPane: '%9', to: 'leo', text: 'second', inReplyTo: 'm1' }, board.agents);
     assert.equal(reply.state, chat.DELIVERY.PLACED);
-    assert.match(tmux.pastedMessages()[0], /· answers m1\] second$/,
+    assert.match(tmux.pastedMessages()[0], /· answers m1 · to answer, run: kosmos msg --in-reply-to m2 mara\] second$/,
       'the recipient cannot see what this message responds to');
     assert.equal(messages.list('mara')[1].in_reply_to, 'm1');
 
@@ -765,7 +765,7 @@ test('in_reply_to must name a real message in the sender\'s own conversation, no
     const own = messages.send({ fromPane: '%5', to: 'mara', text: 'following up', inReplyTo: 'm1' }, board.agents);
     assert.equal(own.state, chat.DELIVERY.PLACED,
       'a genuine reply to your own message got refused');
-    assert.match(tmux2.pastedMessages()[0], /· answers m1\] following up$/);
+    assert.match(tmux2.pastedMessages()[0], /· answers m1 · to answer, run: kosmos msg --in-reply-to m2 rook\] following up$/);
   });
 });
 
@@ -2177,7 +2177,7 @@ test('a room post is citable by in_reply_to from anyone who was in it, and from 
     const tmux = arm([]);
     const reply = messages.send({ fromPane: '%9', to: 'leo', text: 'reading it now', inReplyTo: post.id }, board.agents);
     assert.equal(reply.state, chat.DELIVERY.PLACED, reply.because || '');
-    assert.match(tmux.pastedMessages()[0], new RegExp('· answers ' + post.id + '\\] '),
+    assert.match(tmux.pastedMessages()[0], new RegExp('· answers ' + post.id + ' · to answer, run: kosmos msg --in-reply-to m[0-9]+ [a-z]+\\] '),
       'the citation did not ride the envelope');
     chat.resetForTests();
     armSender('outsider-discord');

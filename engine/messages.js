@@ -1706,9 +1706,13 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   /* The envelope: one line (a newline in the pane is a submit), sender and
      reply pointer first so the recipient reads WHO before WHAT. #6065: the whole message is typed when the whole
      line fits what chat types (spillsAt); only a longer one gets the head and a path instead. */
+  /* #7886 item 3: the answer command, as a room post carries one (#3224), so an agent does not reach for
+     `kosmos post --in-reply-to`, which has no project to give for a direct message. `from` is the sender's session
+     name, which is what `kosmos msg` takes. */
   const prefix = '[message from your colleague ' + from
     + ' \u00b7 ' + id
     + (replyTo ? ' \u00b7 answers ' + replyTo : '')
+    + ' \u00b7 to answer, run: kosmos msg --in-reply-to ' + id + ' ' + from
     + '] ';
   let body = cleaned;
   let spillFile = null;

@@ -96,7 +96,7 @@ test('#2909: msg --stdin refusals send nothing (args too, trailing flag, empty p
   assert.match(empty.stdout, /nothing was piped in: kosmos msg --stdin <agent>/);
   const noAgent = await runCli(['msg', '--stdin'], envFor(port), 'x');
   assert.equal(noAgent.code, 2);
-  assert.match(noAgent.stdout, /Usage: kosmos msg \[--stdin\]/);
+  assert.match(noAgent.stdout, /Usage: kosmos msg \[--in-reply-to <id>\] \[--stdin\]/);
   assert.equal(seen.length, 0);
 }));
 
@@ -136,7 +136,7 @@ test('#2909: a 2 MB piped msg body reaches the board (curl on stdin, not argv)',
 }));
 
 test('#2909: the msg usage line is the same sentence in install/kosmos and the Windows CLI', () => {
-  const bash = fs.readFileSync(CLI, 'utf8').match(/say "(Usage: kosmos msg \[--stdin\][^"]*)"/);
+  const bash = fs.readFileSync(CLI, 'utf8').match(/say "(Usage: kosmos msg \[--in-reply-to <id>\] \[--stdin\][^"]*)"/);
   assert.ok(bash, 'install/kosmos must carry the msg usage line');
   assert.equal(bash[1].replace(/\\\$/g, '$'), require('./tools/windows/kosmos-cli').USAGE.msg);
 });
@@ -180,4 +180,31 @@ test('#2909: msg keeps its existing tab/CR flattening (#1927), so only backticks
   const out = await runCli(['msg', '--stdin', 'mara'], envFor(port), 'a\tb `c` $d\r\ne\r\n');
   assert.equal(out.code, 0, out.stdout + out.stderr);
   assert.equal(seen[0].text, 'a b `c` $d \ne');
+}));
+
+/* #7886 item 3: a direct message's envelope ends "to answer, run: kosmos msg --in-reply-to <id> <sender>"
+   (engine/messages.test.js pins that exact text for m1 from leo); this runs that command. */
+test('#7886: msg --in-reply-to <id> sends in_reply_to, before or after --stdin', () => withStubBoard(async (port, seen) => {
+  const plain = await runCli(['msg', '--in-reply-to', 'm1', 'leo', 'on', 'it'], envFor(port));
+  assert.equal(plain.code, 0, plain.stdout + plain.stderr);
+  assert.deepEqual([seen[0].to, seen[0].text, seen[0].in_reply_to], ['leo', 'on it', 'm1']);
+  const before = await runCli(['msg', '--in-reply-to', 'm2', '--stdin', 'leo'], envFor(port), 'piped\n');
+  assert.equal(before.code, 0, before.stdout + before.stderr);
+  assert.deepEqual([seen[1].text, seen[1].in_reply_to], ['piped', 'm2']);
+  const after = await runCli(['msg', '--stdin', '--in-reply-to=m3', 'leo'], envFor(port), 'piped too\n');
+  assert.equal(after.code, 0, after.stdout + after.stderr);
+  assert.deepEqual([seen[2].text, seen[2].in_reply_to], ['piped too', 'm3']);
+}));
+
+test('#7886 CONTROL: without --in-reply-to no in_reply_to is sent; a missing id refuses and sends nothing', () => withStubBoard(async (port, seen) => {
+  const none = await runCli(['msg', 'leo', 'hello'], envFor(port));
+  assert.equal(none.code, 0, none.stdout + none.stderr);
+  assert.equal('in_reply_to' in seen[0], false);
+  const bare = await runCli(['msg', '--in-reply-to'], envFor(port));
+  assert.equal(bare.code, 2);
+  assert.match(bare.stdout, /--in-reply-to needs a message id/);
+  const flag = await runCli(['msg', '--in-reply-to', '--stdin', 'leo'], envFor(port), 'x');
+  assert.equal(flag.code, 2);
+  assert.match(flag.stdout, /--in-reply-to needs a message id/);
+  assert.equal(seen.length, 1);
 }));
