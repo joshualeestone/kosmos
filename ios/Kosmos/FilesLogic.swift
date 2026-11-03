@@ -200,6 +200,15 @@ extension Board {
     // a refusal says the route's reason, or the board's line; otherwise the rows, and View All (#3994: whenever there is
     // a file, even one).
     enum FilesSectionState: Equatable { case hidden, message(String), rows([ListedFile]) }
+    /* kosmos#7840: whether a refresh keeps the list already shown. No answer keeps it (review 3), and so does the phone not
+       being let in (a gate, or the seconds after the computer restarts): neither says anything about the files. */
+    static func filesKeepsShown(_ r: FilesRead) -> Bool {
+        if case .noAnswer = r { return true }
+        return r == .refused(phoneShutOut)
+    }
+    static func filesSectionKeepsShown(_ s: FilesSectionState) -> Bool {
+        s == .message(filesAgentUnread) || s == .message(phoneShutOut)
+    }
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
         if status == 404 { return .hidden }
         if status == 401 || status == 403 { return .message(phoneShutOut) }   // kosmos#7840: never the gate's words

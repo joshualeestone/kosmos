@@ -245,12 +245,10 @@ extension Board {
     static let macNoAnswer = "We could not reach your computer just now. Pull down to try again."
     // A body with no words of its own, or one the phone cannot read: said as the phone, with no status number.
     static let profileCannotRead = "We cannot read this right now."
-    // 401 or 403: the phone was not let in, said as Settings says it (one sentence, Board.phoneShutOut).
-    static var profileShutOut: String { phoneShutOut }
     /* An answer that is not the value: the board's own words for this agent are a refusal, a gate or a failure for now
        is unanswered (so a value already shown is kept). */
     static func notTheValue<T: Equatable>(_ data: Data, status: Int) -> ProfileRead<T> {
-        if status == 401 || status == 403 { return .unanswered(profileShutOut) }
+        if status == 401 || status == 403 { return .unanswered(phoneShutOut) }
         guard let words = boardReason(data) else { return .unanswered(profileCannotRead) }
         // 408 and 429 are "not now" as much as a 5xx; any other answer with words is the board's reason for this agent
         // as it stands, so it replaces a value shown (a list from before that reason is no longer what the board says).
