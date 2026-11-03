@@ -253,11 +253,11 @@ fixture; run hl0 -- --apply daemon; ln "$(DP)" "$AG"; run hardlink -- daemon
 # Round 6: root never runs a copy a job can rewrite.
 fixture; cp "$SCRIPT" "$H/ci-runner-setup.sh"; RUN_SCRIPT="$H/ci-runner-setup.sh" run copyhome -- --apply daemon
 [ "$(rc copyhome)" = 2 ] && has copyhome "this is a copy in" && untouched && pass "--apply from a copy in the CI home refuses" || fail "copyhome: rc $(rc copyhome) $(cat "$T/copyhome.out")"
-fixture; mkdir -p "$T/gw"; cp "$SCRIPT" "$T/gw/ci-runner-setup.sh"; chmod 775 "$T/gw/ci-runner-setup.sh"; RUN_SCRIPT="$T/gw/ci-runner-setup.sh" run gw -- --apply daemon
-[ "$(rc gw)" = 2 ] && has gw "writable by others" && untouched && pass "--apply from a group-writable copy refuses" || fail "gw: rc $(rc gw) $(cat "$T/gw.out")"
+fixture; mkdir -p -m 755 "$T/gw"; cp "$SCRIPT" "$T/gw/ci-runner-setup.sh"; chmod 775 "$T/gw/ci-runner-setup.sh"; RUN_SCRIPT="$T/gw/ci-runner-setup.sh" run gw -- --apply daemon
+[ "$(rc gw)" = 2 ] && has gw "$T/gw/ci-runner-setup.sh is not owned by root" && ! has gw "the directory of" && untouched && pass "--apply from a group-writable copy refuses" || fail "gw: rc $(rc gw) $(cat "$T/gw.out")"
 fixture; cp "$SCRIPT" "$T/gw/ci-runner-setup.sh"; chmod 755 "$T/gw/ci-runner-setup.sh"; RUN_SCRIPT="$T/gw/ci-runner-setup.sh" run gwok -- daemon
 [ "$(rc gwok)" = 0 ] && pass "a dry run from any copy still reads (the check is for --apply)" || fail "gwok: rc $(rc gwok) $(cat "$T/gwok.out")"
-fixture; run np0 -- --apply daemon; run nopid FX_NO_DPID=1 -- daemon
+fixture; run np0 -- --apply daemon; grep -v ' 7001 ' "$T/procs" > "$T/procs.x"; /bin/mv "$T/procs.x" "$T/procs"; run nopid FX_NO_DPID=1 -- daemon
 [ "$(rc nopid)" = 1 ] && has nopid "run this again in a minute" && has nopid "has no pid right now" && has nopid "sudo launchctl kickstart system/$LABEL" && ! has nopid "outside the daemon" && pass "a loaded daemon with no pid yet: restarting, its Listener not blamed" || fail "nopid: rc $(rc nopid) $(cat "$T/nopid.out")"
 fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; chmod 000 "$T/retired"   # as the CI user sees the root-only dir
 run halfci FX_EUID=$CIU FX_WHO=kosmos-ci -- daemon; chmod 700 "$T/retired"
@@ -287,13 +287,13 @@ fixture; run mkdirlink FX_LINK_ON_MKDIR=1 -- --apply daemon
 # 2: an empty retired file (a put-back or a copy that failed half way) is never the one named or put back.
 fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; : > "$RA.retired-20261103T000001Z"; run emptyret -- --apply daemon
 [ "$(rc emptyret)" = 1 ] && has emptyret "parked at $RA.retired-20261103T000000Z" && ! has emptyret 20261103T000001Z \
-  && has emptyret "sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || echo 'NOT finished; $RA.retired-20261103T000000Z is kept (if $AG is now empty: sudo -u kosmos-ci rm $AG)'" \
+  && has emptyret "sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || echo 'NOT finished; $RA.retired-20261103T000000Z is kept (if $AG is now empty or not the same: sudo -u kosmos-ci rm $AG)'" \
   && pass "an empty retired file is skipped, and the printed put-back removes the retired copy only after a compare" || fail "emptyret: rc $(rc emptyret) $(cat "$T/emptyret.out")"
 # 2: the printed put-back, run in a shell with no pipefail, keeps the retired file when the copy fails.
 PB="$(sed -n 's/.*put it back and run this again: //p' "$T/emptyret.out")"; RF="$RA.retired-20261103T000000Z"
 mkdir -p "$T/pbbin"; printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = cat ] && exit 1\nexec "$@"\n' > "$T/pbbin/sudo"; chmod 755 "$T/pbbin/sudo"
 PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
-[ -n "$PB" ] && [ -s "$RF" ] && [ "$PBOUT" = "NOT finished; $RF is kept (if $AG is now empty: sudo -u kosmos-ci rm $AG)" ] && [ -f "$AG" ] && [ ! -s "$AG" ] && pass "the printed put-back, with a cat that fails, keeps the retired file" || fail "pbfail: [$PB] retired $(ls -l "$RF" 2>&1)"
+[ -n "$PB" ] && [ -s "$RF" ] && [ "$PBOUT" = "NOT finished; $RF is kept (if $AG is now empty or not the same: sudo -u kosmos-ci rm $AG)" ] && [ -f "$AG" ] && [ ! -s "$AG" ] && pass "the printed put-back, with a cat that fails, keeps the retired file" || fail "pbfail: [$PB] retired $(ls -l "$RF" 2>&1)"
 rm -f "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 [ "$PBOUT" = "put back" ] && [ ! -e "$RF" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && pass "and with a copy that works, the agent is back and the retired file gone" || fail "pbok: [$PB] agent $(ls -l "$AG" 2>&1)"
 # 2: the stage's own put-back, when the copy comes out short, keeps the retired file and prints how to put it back.
@@ -311,9 +311,13 @@ fixture; run sigs FX_TERM_ON_MV=1 -- --apply daemon
 [ "$(rc sigs)" = 0 ] && has sigs "Listener pid 7001 under pid 7000" && grep -q "^launchctl bootstrap system" "$LOG" \
   && pass "a TERM, ^C or hangup while the agent is parked does not stop the stage before the load" || fail "sigs: rc $(rc sigs) $(cat "$T/sigs.out")"
 # NIT: a setuid script that is group-writable is still refused (%Lp is the low bits only: 4775 reads 775, measured).
-fixture; mkdir -p "$T/suid"; cp "$SCRIPT" "$T/suid/ci-runner-setup.sh"; chmod 4775 "$T/suid/ci-runner-setup.sh"; RUN_SCRIPT="$T/suid/ci-runner-setup.sh" run suid -- --apply daemon
-[ "$(rc suid)" = 2 ] && has suid "writable by others" && untouched && pass "--apply from a setuid group-writable copy refuses" || fail "suid: rc $(rc suid) $(cat "$T/suid.out")"
+fixture; mkdir -p -m 755 "$T/suid"; cp "$SCRIPT" "$T/suid/ci-runner-setup.sh"; chmod 4775 "$T/suid/ci-runner-setup.sh"; RUN_SCRIPT="$T/suid/ci-runner-setup.sh" run suid -- --apply daemon
+[ "$(rc suid)" = 2 ] && has suid "$T/suid/ci-runner-setup.sh is not owned by root" && ! has suid "the directory of" && untouched && pass "--apply from a setuid group-writable copy refuses" || fail "suid: rc $(rc suid) $(cat "$T/suid.out")"
 # NIT: a script in a directory others can write refuses (a rename replaces it).
 fixture; mkdir -p "$T/gwdir"; chmod 775 "$T/gwdir"; cp "$SCRIPT" "$T/gwdir/ci-runner-setup.sh"; chmod 755 "$T/gwdir/ci-runner-setup.sh"; RUN_SCRIPT="$T/gwdir/ci-runner-setup.sh" run gwdir -- --apply daemon
 [ "$(rc gwdir)" = 2 ] && has gwdir "the directory of" && untouched && pass "--apply from a directory others can write refuses" || fail "gwdir: rc $(rc gwdir) $(cat "$T/gwdir.out")"
+# A loaded daemon with no pid while a Listener of this runner runs: name it, and never advise a kickstart (a second one).
+fixture; run npl0 -- --apply daemon; run nopidlst FX_NO_DPID=1 -- daemon
+[ "$(rc nopidlst)" = 1 ] && has nopidlst "a Listener of this runner runs (pid 7001" && ! has nopidlst "sudo launchctl kickstart" \
+  && pass "no pid but a Listener running: names it, no kickstart" || fail "nopidlst: rc $(rc nopidlst) $(cat "$T/nopidlst.out")"
 [ "$fails" = 0 ] && echo "test-ci-runner-daemon-7001: all passed" || { echo "test-ci-runner-daemon-7001: $fails failed"; exit 1; }
