@@ -12197,6 +12197,8 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #pb-files-list { list-style: none; margin: 0 0 var(--space-4); padding: 0; max-height: 40vh; overflow-y: auto; }
 #pb-files-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; border-bottom: 1px solid var(--separator); font: var(--text-callout) var(--font-ui); color: var(--label-2); }
 #pb-files-list li .pb-files-problem { color: var(--label-3); }
+#pb-plans-list { list-style: none; margin: 0 0 var(--space-4); padding: 0; }   /* kosmos#7404: rows as the restore list's */
+#pb-plans-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; border-bottom: 1px solid var(--separator); font: var(--text-callout) var(--font-ui); color: var(--label-2); }
 #pb-files-failed summary { cursor: pointer; min-height: 44px; display: list-item; padding: 12px 0; color: var(--label-2); }
 #pb-files-failed summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 #pb-files-last { margin-bottom: var(--space-2); }
@@ -20527,6 +20529,15 @@ window.kosmosMeasureScrollbarWidth();
         </div>
         <div id="pb-onview" hidden>
           <p class="fhint" id="pb-on-say">Personal backup is on for this computer.</p>
+          <!-- kosmos#7404 plan screen (Mona Lisa m2544, Ice Cream Kitty m2543): with no plan, one row per size and Choose.
+               Choose asks the board for Stripe's page and shows a link to it, which the person presses: a tab opened after
+               the answer is not opened by a press, and browsers block it. -->
+          <div id="pb-plans" role="group" aria-label="Choose a backup plan" hidden>
+            <ul id="pb-plans-list"></ul>
+            <p class="fhint" id="pb-plans-wait" tabindex="-1" hidden></p>
+            <div class="frow" id="pb-plans-open-row" hidden><a class="btn uprime" id="pb-plans-open" href="#" target="_blank" rel="noopener noreferrer">Open the payment page<span class="vh"> (opens in your browser)</span></a></div>
+            <p class="fmsg" id="pb-plans-msg" role="alert" aria-live="assertive"></p>
+          </div>
           <p class="fhint" id="pb-job" hidden></p>
           <p class="fhint" id="pb-job-last" hidden></p>
           <!-- kosmos#7404: what the last good backup left out (report().skippedFiles), named so the person is never surprised
@@ -55730,7 +55741,7 @@ function pbPaint() {
   const box = document.getElementById('pb');
   if (!box) return;
   box.hidden = st.shown !== true;
-  if (box.hidden) { if (typeof pbfShow === 'function') pbfShow(false, true); PB.code = null; PB.who = null; PB.view = null; document.getElementById('pb-code-text').textContent = ''; document.getElementById('pb-restore-code').value = ''; pbPrintClear(); return; }
+  if (box.hidden) { if (typeof pbfShow === 'function') pbfShow(false, true); if (typeof pbpShow === 'function') pbpShow(false, true); PB.code = null; PB.who = null; PB.view = null; document.getElementById('pb-code-text').textContent = ''; document.getElementById('pb-restore-code').value = ''; pbPrintClear(); return; }
   // The step the person opened wins over the engine's state, except that 'on' closes the words and restore.
   let v = PB.view;
   if (!v || (st.state === 'on' && (v === 'words' || v === 'restore'))) v = st.state === 'on' ? 'on' : st.state === 'needs-key' ? 'needs-key' : st.state === 'pending' ? 'pending' : 'off';
@@ -55758,6 +55769,10 @@ function pbPaint() {
   // typeof: the panel's functions are lifted alone by tests. Here the state drops when personal backup is off (the hidden
   // branch above drops it too).
   if (typeof pbfShow === 'function') pbfShow(v === 'on', st.state === 'off');
+  if (typeof pbpShow === 'function') {
+    pbpShow(v === 'on' && !lines.stopped, st.state !== 'on');
+    if (v === 'on' && !lines.stopped && PBP.planGb === null && pbpRows().length) say.textContent = 'Personal backup is on, but nothing is backed up until you choose a plan.';
+  }
   // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
   const ask = document.getElementById('pb-off-ask');
   if (!(v === 'on' || v === 'needs-key')) ask.hidden = true;
@@ -55853,7 +55868,10 @@ async function pbPost(kind, body) {
       // kosmos#7404: restore from a backup (the list, a start, a stop), so their refusals read as the panel's do.
       : kind === 'backups' ? await fetch('/api/personal-backup/backups', init)
       : kind === 'files' ? await fetch('/api/personal-backup/files', init)
-      : kind === 'stop' ? await fetch('/api/personal-backup/stop', init) : null;
+      : kind === 'stop' ? await fetch('/api/personal-backup/stop', init)
+      // kosmos#7404: the plan screen (the plans on sale and the current plan; Stripe's page for one size).
+      : kind === 'plans' ? await fetch('/api/personal-backup/plans', init)
+      : kind === 'checkout' ? await fetch('/api/personal-backup/checkout', init) : null;
   } catch { res = null; }
   if (!res) return { ok: false, because: 'This Kosmos could not be reached. Try again.' };
   let b = null;
@@ -56020,6 +56038,78 @@ async function pbRestore() {
   } finally { PB.busy = false; pbMaybe(); }
 }
 document.getElementById('pb-on').addEventListener('click', pbOpen);
+/* kosmos#7404 plan screen. The plans are read (POST /api/personal-backup/plans: the sizes on sale and the current plan, by
+   GB or null) when the on view shows and once a minute while there is no plan; with a plan, nothing more is read. */
+var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, since: 0, reading: false };
+const PBP_CONFIRMING_MS = 3 * 60000;   // Kitty m2543: a late webhook can take hours, so after a few minutes say so
+function pbpMsg(t) { document.getElementById('pb-plans-msg').textContent = t ? asSentence(t) : ''; }
+function pbpRows() {
+  return Array.isArray(PBP.plans) ? PBP.plans.filter((x) => x && Number.isSafeInteger(x.gb) && x.gb > 0 && typeof plusSiAddPrice === 'function' && plusSiAddPrice(x.price)) : [];
+}
+/* `drop`: personal backup is not on here, so nothing read for it is kept. */
+function pbpShow(on, drop) {
+  if (drop) { PBP.plans = null; PBP.planGb = undefined; PBP.url = null; PBP.since = 0; PBP.at = 0; PBP.seq++; PBP.gen++; PBP.reading = false; pbpMsg(''); }
+  const hasPlan = Number.isSafeInteger(PBP.planGb);
+  if (on && !hasPlan && Date.now() - PBP.at > 60000) pbpRead();
+  pbpPaint(on);
+}
+function pbpRead() {
+  if (PBP.reading) return;
+  PBP.at = Date.now(); PBP.reading = true;
+  const seq = ++PBP.seq;
+  pbPost('plans', {}).then((r) => {
+    if (seq !== PBP.seq) return;
+    PBP.reading = false;
+    if (r && r.ok === true && Array.isArray(r.plans)) {
+      PBP.plans = r.plans;
+      PBP.planGb = Number.isSafeInteger(r.planGb) && r.planGb > 0 ? r.planGb : null;
+      if (PBP.planGb !== null) { PBP.url = null; PBP.since = 0; pbpMsg(''); }
+    } else pbpMsg((r && r.because) || 'Your backup plans could not be read just now.');
+    pbPaint();
+  });
+}
+function pbpPaint(on) {
+  const box = document.getElementById('pb-plans');
+  const rows = pbpRows();
+  const show = !!on && PBP.planGb === null && rows.length > 0;
+  box.hidden = !show;
+  const list = document.getElementById('pb-plans-list');
+  const sig = JSON.stringify(rows.map((x) => [x.gb, x.price]));
+  if (list.dataset.sig !== sig) {
+    list.dataset.sig = sig; list.textContent = '';
+    for (const x of rows) {
+      const li = document.createElement('li');
+      const what = x.gb.toLocaleString() + ' GB, ' + plusSiAddPrice(x.price);
+      const say = document.createElement('span'); say.textContent = what; li.appendChild(say);
+      const go = document.createElement('button'); go.className = 'btn'; go.type = 'button'; go.textContent = 'Choose';
+      go.dataset.gb = String(x.gb); go.setAttribute('aria-label', 'Choose ' + what);
+      go.addEventListener('click', () => pbpChoose(x.gb));
+      li.appendChild(go); list.appendChild(li);
+    }
+  }
+  for (const b of list.querySelectorAll('button')) b.disabled = PBP.busy;
+  const wait = document.getElementById('pb-plans-wait');
+  const waiting = show && !!PBP.url;
+  const words = !waiting ? '' : Date.now() - PBP.since > PBP_CONFIRMING_MS ? 'Your payment is being confirmed. This updates when your plan arrives.'
+    : 'Finish in the payment page. This updates when your plan arrives.';
+  if (wait.textContent !== words) wait.textContent = words;
+  wait.hidden = !waiting;
+  document.getElementById('pb-plans-open-row').hidden = !waiting;
+  if (waiting) document.getElementById('pb-plans-open').href = PBP.url;
+}
+async function pbpChoose(gb) {
+  if (PBP.busy) return;
+  const gen = PBP.gen;
+  PBP.busy = true; pbpMsg(''); pbPaint();
+  const r = await pbPost('checkout', { gb });
+  PBP.busy = false;
+  if (gen !== PBP.gen) { pbPaint(); return; }
+  const url = r && r.ok === true && typeof r.url === 'string' && /^https:\/\/checkout\.stripe\.com\//.test(r.url) ? r.url : null;
+  if (url) { PBP.url = url; PBP.since = Date.now(); PBP.at = Date.now(); }
+  else pbpMsg((r && r.because) || 'The payment page could not be opened just now. Nothing was charged.');
+  pbPaint();
+  if (url) { const a = document.getElementById('pb-plans-open'); try { a.focus(); } catch { /* gone */ } }
+}
 /* ---- kosmos#7404: restore from a backup, into a separate copy (engine/personalrestorejob.js). The list is read only when
    asked (it spends the hourly Kosmos+ allowance); where a restore is (GET /api/personal-backup/files) is read every 5
    seconds while one runs and once a minute otherwise, only while the panel shows it. The copy is a Kosmos of its own in the
