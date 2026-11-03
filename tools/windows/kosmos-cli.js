@@ -167,6 +167,7 @@ const USAGE = {
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today)',
     '       kosmos feedback list',
+    '       kosmos feedback day                (your own day on this computer, for writing the report)',
     '       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)',
     '       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]',
     "       (triage with no --dir reads the pulled reports if any, else this computer's own; it says which)",
@@ -2418,6 +2419,15 @@ async function feedbackShow(ctx, args) {
   return 0;
 }
 
+/* kosmos#7875: the asking agent's own day on this computer, as install/kosmos's `feedback day` prints it. */
+async function feedbackDay(ctx) {
+  const fb = ctx.engine('feedback');
+  const name = typeof fb.writer === 'function' ? fb.writer(ctx.env) : null;
+  if (!name) { ctx.err("Kosmos cannot tell which agent is asking, so it prints nobody's day. Run this from your own agent session."); return 1; }
+  ctx.out(ctx.engine('feedbackday').digest({ name }).join('\n'));
+  return 0;
+}
+
 async function feedbackList(ctx) {
   for (const date of ctx.engine('feedback').list()) ctx.out(date);
   return 0;
@@ -3174,7 +3184,7 @@ const SUBCOMMAND_HANDLERS = {
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, remove: agentRemove },
-  feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, pull: feedbackPull, triage: feedbackTriage },
+  feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
     status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])),

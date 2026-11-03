@@ -5563,7 +5563,7 @@ cmd_feedback() {
   # install (missing runtime) refuse in the CLI's own voice rather than letting a
   # raw "node: No such file" surface, matching cmd_adopt's runtime guard.
   case "$sub" in
-    write|show|list|triage|pull)
+    write|show|list|day|triage|pull)
       if [ ! -f "$NODE" ] || [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
         say "Kosmos cannot find its own runtime, so it cannot save or read a report."
         exit 2
@@ -5618,6 +5618,18 @@ cmd_feedback() {
         const b = fb.readBody(d);
         if (b == null) { console.error("no product-feedback report for " + d); process.exit(1); }
         process.stdout.write(b);
+      ' "$KOSMOS_HOME/app"
+      exit $?
+      ;;
+    day)
+      # kosmos#7875: the asking agent's own day on this computer (its conversation with the person and the tasks it
+      # changed today), so a report written from a fresh session is not thin. Printed here only; nothing is sent.
+      # The agent is the one feedback write would file under (feedback.writer); none identified prints nobody's day.
+      "$NODE" -e '
+        const fb = require(process.argv[1] + "/engine/feedback");
+        const name = fb.writer(process.env);
+        if (!name) { console.error("Kosmos cannot tell which agent is asking, so it prints nobody\x27s day. Run this from your own agent session."); process.exit(1); }
+        process.stdout.write(require(process.argv[1] + "/engine/feedbackday").digest({ name }).join("\n") + "\n");
       ' "$KOSMOS_HOME/app"
       exit $?
       ;;
@@ -5697,6 +5709,7 @@ cmd_feedback() {
       say "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today)"
       say "       kosmos feedback list"
+      say "       kosmos feedback day                (your own day on this computer, for writing the report)"
       say "       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)"
       say "       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]"
       say "       (triage with no --dir reads the pulled reports if any, else this computer's own; it says which)"

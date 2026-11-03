@@ -102,7 +102,8 @@ function nudgeText() {
   return [
     'Kosmos here, once a day: please write today\'s product-feedback report about Kosmos itself. It takes one turn on',
     'your person\'s AI account, and it is sent to the Kosmos team (scrubbed) unless they switched sending off in',
-    'Settings, Automation. Answer these four questions and save it by piping the text to `kosmos feedback write` on',
+    'Settings, Automation. This session may be newer than your day, so first run `kosmos feedback day` to see what you',
+    'and your person said today and which tasks you changed. Answer these four questions and save it by piping the text to `kosmos feedback write` on',
     'stdin (in PowerShell, save it in a file and run `kosmos feedback write --body-file <file>`):',
     '1. What bugs did you hit today, or what did your user ask for that is not wired up yet?',
     '2. Is anything broken?',
