@@ -350,3 +350,15 @@ test('#7827: "opening" does not start the watch, and a watch after "finished" en
   s.PBP.since = Date.now() - 31 * 60000; s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
   assert.equal(reads, 2, 'the watch after "finished" never ended');
 });
+
+test('#7827: a new Choose drops the watch an earlier "finished" started', async () => {
+  const doc = fakeDoc();
+  let code = 'backup_checkout_finished';
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: false, code, because: 'x' })() : answer({ ok: true, plans: PLANS, planGb: null })()));
+  s.pbpShow(true, false); await tick(); await tick();
+  await s.pbpChoose(25);
+  assert.equal(s.PBP.awaitPlan, true, 'CONTROL');
+  code = 'backup_checkout_opening';
+  await s.pbpChoose(25);
+  assert.equal(s.PBP.awaitPlan, false, 'a watch from an earlier press outlived the next one');
+});

@@ -56172,7 +56172,7 @@ function pbpPaint(on) {
 async function pbpChoose(gb) {
   if (PBP.busy) return;
   const gen = PBP.gen;
-  PBP.busy = true; pbpMsg(''); pbPaint();
+  PBP.busy = true; PBP.awaitPlan = false; pbpMsg(''); pbPaint();   // a new Choose starts its own watch, or none
   const r = await pbPost('checkout', { gb });
   PBP.busy = false;
   if (gen !== PBP.gen) { pbPaint(); return; }

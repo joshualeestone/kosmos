@@ -13,5 +13,10 @@ Was stacked on planscreen-7404; rebased onto main after it merged (c0b8a273fb).
    maps each to its own sentence, and a codeless 409 from a relay without them gets a sentence true of both. After
    "finished" (or the codeless conflict) the page watches for the plan each minute for half an hour, as after Choose.
 
+## Transitional, remove later
+A codeless 409 also starts the half-hour watch, though from a relay without the codes it may mean "opening" (no payment
+pending): at most 30 extra plans reads. Once the relay with backup_checkout_opening/finished is deployed (Ice Cream
+Kitty, #3763), drop backup_checkout_conflict from the watch.
+
 ## Weakest premise
 That Stripe refuses to expire a page just paid (Kitty's read-back relies on it). Not measured live: no plan sold yet.
