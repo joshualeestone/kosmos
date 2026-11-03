@@ -1578,12 +1578,15 @@ struct RoomBubble: View {
                 bubble
                 // kosmos#7864 slice 2: the link's preview under the post, as in a chat (LinkPreviewCard).
                 if let preview = row.preview {
-                    LinkPreviewCard(preview: preview, image: previewImage, width: UIScreen.main.bounds.width * 0.78)
-                        .padding(.top, 2)
-                        // The post is one VoiceOver element: the card is read in it as the chat says it (never the page's
-                        // own site name first, never as a button), and opened by the post's one "Open link" action.
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel(Board.linkPreviewSpoken(preview))
+                    // The post is one VoiceOver element: the card is read in it as the chat says it (never the page's own
+                    // site name first), and opened by the post's one "Open link" action. Wrapped in a container first, as
+                    // the file cards are: `.ignore` on the Button itself would keep its button trait and its action.
+                    VStack(spacing: 0) {
+                        LinkPreviewCard(preview: preview, image: previewImage, width: UIScreen.main.bounds.width * 0.78)
+                    }
+                    .padding(.top, 2)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel(Board.linkPreviewSpoken(preview))
                 }
                 if !row.reactions.isEmpty { reactions }
                 if !row.unanswered.isEmpty {
@@ -1598,7 +1601,7 @@ struct RoomBubble: View {
         .accessibilityElement(children: .combine)
         // kosmos#7101 review 2: a reply's double-tap goes to the post it answers, as its label says. Only on a reply,
         // so every other post keeps the double-tap it had.
-        .modifier(ReplyJumpDefault(on: replied != nil, jump: jump))
+        .modifier(ReplyJumpDefault(on: replied != nil, jump: jump, hasPreview: row.preview != nil))
         .accessibilityActions {
             if answerable {
                 // React, Reply, Copy (the spec): each reaction pill is merged into the post, so each one is an action.
@@ -1949,8 +1952,14 @@ struct LayerWaveDots: View {
 private struct ReplyJumpDefault: ViewModifier {
     let on: Bool
     let jump: () -> Void
+    // kosmos#7864 slice 2: a post with a preview card gets a do-nothing default, as the chat's bubble has (#7014): without
+    // one a double-tap falls through as a tap at the element's centre, which the card's picture now fills, and would open
+    // the site. The link stays the post's "Open link" action. Other posts keep exactly what they had.
+    var hasPreview = false
     func body(content: Content) -> some View {
-        if on { content.accessibilityAction(.default, jump) } else { content }
+        if on { content.accessibilityAction(.default, jump) }
+        else if hasPreview { content.accessibilityAction(.default) {} }
+        else { content }
     }
 }
 
