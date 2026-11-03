@@ -37,7 +37,7 @@ struct TodayView: View {
             // kosmos#7074's screenshots (a Debug build only): KOSMOS_SAMPLE_TASK=<n> opens that sample task's page, once.
             if !Self.sampleTaskOpened, let n = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TASK"].flatMap(Int.init) {
                 Self.sampleTaskOpened = true
-                openTask = TaskPageRef(project: "p-cat", number: n)
+                openTask = TaskPageRef(project: "springcatalogue", number: n)
             }
             #endif
         }

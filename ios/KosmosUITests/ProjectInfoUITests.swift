@@ -29,4 +29,24 @@ final class ProjectInfoUITests: XCTestCase {
         sleep(2)
         shot(app, "project-info-files")
     }
+
+    // Review 1: tapping a member opens their chat on top of the project page.
+    func testAMemberOpensTheirChat() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Add a file to this conversation"].waitForExistence(timeout: 20), "the sample room did not open")
+        app.buttons["room-info"].tap()
+        XCTAssertTrue(app.staticTexts["What it is for"].waitForExistence(timeout: 10), "About did not open")
+        let dana = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Dana'")).firstMatch
+        XCTAssertTrue(dana.waitForExistence(timeout: 5), "no member row for Dana")
+        dana.tap()
+        // Only Dana's own chat has this composer (the room's reads "Message Spring catalogue", a name a post also shows).
+        let danaComposer = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
+        XCTAssertTrue(danaComposer.waitForExistence(timeout: 10), "Dana's chat did not open")
+        XCTAssertFalse(app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Spring catalogue'")).firstMatch.exists,
+                       "the room is on top, not Dana's chat")
+        shot(app, "project-info-member-chat")
+    }
 }
