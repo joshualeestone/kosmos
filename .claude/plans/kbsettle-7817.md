@@ -1,9 +1,10 @@
 # kbsettle-7817: the keyboard-shown scroll waits for the keyboard to settle
 
 ## Finished looks like
-On build 31, a keyboard that passes through another height on the way up (380, 608, 380 on Josh's phone) does not
-leave a long chat past its end and blank: the chat scrolls to the newest message once, after the keyboard is quiet,
-and a scroll that still lands past the end is put back.
+On build 33, a long chat whose list is left past its end after the keyboard comes up (Josh's 09:27: the keyboard passed
+380, 608, 380) is put back at its newest message within about a second, while the keyboard-shown scroll stays exactly
+as on main. A blank within the content with nothing drawn is recorded for the next report. (Build 31 shipped an earlier
+design, build 32 the round-5 one; the sections below record how it got here.)
 
 ## Why
 Build 30, 11-03 09:27 (Josh's DM, keyboard up): "keyboard shown, to the newest" fired three times in 0.3 s as the
@@ -67,3 +68,7 @@ a blank "within" the content (#7420's estimate) is not covered by this.
   settled: within, nothing drawn"), the other blank (#7420), which round 5 had stopped recording. Noted on the card: a
   reader who is not at the newest but whose list reads past its end is moved to the newest (past the end is nobody's
   place).
+- Review round 7: the put-back looks twice after the last did-show (keyboardSettleLooks: 0.3 s and 1.2 s), each look
+  skipped under a finger, in place of one look plus one retry under a finger: iOS moves the list again after did-show
+  (KeyboardHold guards 1.5 s) and a fling can outlast 0.6 s. The comment says "a search is typed" (it reads searching).
+  Verify for the final design: Release and Debug typecheck, room source checks (four, each red on its mutant), CI ui.
