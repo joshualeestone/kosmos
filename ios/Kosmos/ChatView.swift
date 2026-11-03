@@ -2948,6 +2948,18 @@ struct KeyboardHold: UIViewRepresentable {
                     guard let v = self.scroll, let r = self.rows else { return }
                     ChatView.trace("height: \(Self.heightLine(v, rows: r))")
                 }
+                // KOSMOS_SAMPLE_WALK=1: 4 s after opening, a screen up every 0.3 s to the top, so every row is drawn and
+                // measured once; the height lines after it are the true content height to set against the estimates.
+                if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WALK"] == "1" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                        Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { t in
+                            guard let self, self.window != nil, let v = self.scroll else { t.invalidate(); return }
+                            let top = -v.adjustedContentInset.top
+                            if v.contentOffset.y <= top + 1 { t.invalidate(); ChatView.trace("height: walk at the top"); return }
+                            v.setContentOffset(CGPoint(x: 0, y: max(top, v.contentOffset.y - v.bounds.height)), animated: false)
+                        }
+                    }
+                }
             }
             // kosmos#7690: a Debug sample run with a trace: every jump of the list and what made it (the tap on the box moves a room by
             // about 490 pt before will-show, measured on CI).
