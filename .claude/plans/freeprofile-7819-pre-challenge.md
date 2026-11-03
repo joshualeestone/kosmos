@@ -58,10 +58,9 @@ Per-round detail is in .claude/plans/freeprofile-7819.md (Review round 1 to 5 se
 #### Iteration 6
 **Reviewer model:** sonnet
 - No new findings to fix. Converged.
-- [WARNING] removeAvatar race --> DEFERRED (W3): rests on del() being synchronous in one process
 
 ### Final Ledger
 - Fixed: every BLOCKER and every WARNING above not marked DEFERRED, each mutation-checked.
 - Deferred: profile-only and post-retire stranded records (kosmos#7825); Trash second-resolution stamps (pre-existing);
-  removeAvatar race (reasoned, not measured).
+  removeAvatar race (W3, reasoned from del() being synchronous in one process, not measured).
 - Tests: engine/delete-leftover.test.js 54/54; 1345 pass across 22 related files; full validation passed.
