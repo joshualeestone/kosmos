@@ -116,6 +116,23 @@ check(Board.parseInstructions(Data("x".utf8)) == nil, "unreadable")
 check(Board.parseSkills(Data(#"{"ok":true,"skills":[{"name":"Minutes","key":"minutes"},{"name":"Minutes","key":"minutes-2"},{"name":""}]}"#.utf8))?.map(\.key) == ["minutes", "minutes-2"], "the skills, keyed (two may share a name)")
 check(Board.parseSkills(Data(#"{"ok":false,"because":"x"}"#.utf8)) == nil, "the route could not: unreadable, never \"none\"")
 
+// kosmos#7840: the Profile shows an ordinary agent's real instructions and skills, and otherwise says why, in the words
+// of whoever could not: the phone ("did not answer") or the board (its own because or error).
+func answer(_ code: Int, _ body: String) -> (Data, HTTPURLResponse) {
+    (Data(body.utf8), HTTPURLResponse(url: URL(string: "https://mac.example/x")!, statusCode: code, httpVersion: nil, headerFields: nil)!)
+}
+// The board's answers for an ordinary agent, in the shapes engine/instructions.read and the skills route send.
+check(Board.instructionsRead(answer(200, #"{"exists":true,"editable":true,"text":"You look after the catalogue.","path":"/x/CLAUDE.md"}"#)) == .got("You look after the catalogue."), "an ordinary agent's instructions are shown")
+check(Board.skillsRead(answer(200, #"{"ok":true,"skills":[{"key":"minutes","name":"Meeting minutes"}]}"#)) == .got([Board.Skill(key: "minutes", name: "Meeting minutes")]), "an ordinary agent's skills are shown")
+check(Board.skillsRead(answer(200, #"{"ok":true,"skills":[]}"#)) == .got([]), "no skills is none, not a failure")
+check(Board.instructionsRead(nil) == .reason(Board.macNoAnswer), "no answer: the phone says its Mac did not answer")
+check(Board.skillsRead(nil) == .reason(Board.macNoAnswer), "no answer for skills too")
+check(Board.instructionsRead(answer(200, #"{"exists":false,"editable":false,"because":"it has no folder of its own on this computer yet"}"#)) == .reason("It has no folder of its own on this computer yet."), "the board's own reason, as a sentence")
+check(Board.skillsRead(answer(404, #"{"ok":false,"because":"there is no agent by that name on this computer"}"#)) == .reason("There is no agent by that name on this computer."), "a refusal says the board's reason")
+check(Board.instructionsRead(answer(403, #"{"error":"no agent by that name"}"#)) == .reason("No agent by that name."), "an error word is used when there is no because")
+check(Board.instructionsRead(answer(502, "gateway")) == .reason("Your Mac could not read this (it answered 502)."), "an answer with no words says its status")
+check(Board.instructionsRead(answer(200, "x")) == .reason("Your Mac could not read this (it answered 200)."), "an unreadable 200 is not shown as instructions")
+
 section("fresh start")
 let compact = Board.freshConfirm(.compact, name: "Cleo")
 check(compact.title == "Compact Cleo\u{2019}s memory?" && compact.go == "Compact Cleo\u{2019}s memory", "the board's dialog words")

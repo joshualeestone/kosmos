@@ -15,6 +15,9 @@ struct AgentInfoView: View {
     @State private var readFailed = false
     @State private var instructions: String?
     @State private var skills: [Board.Skill]?
+    // kosmos#7840: why there is nothing to show, in the words of whoever could not (the phone or the board).
+    @State private var instructionsWhy: String?
+    @State private var skillsWhy: String?
     @State private var roleTitles: [String: String]?
     // Name and role as typed, and what was last read, so Save shows only for a change.
     @State private var nameText = ""
@@ -155,7 +158,7 @@ struct AgentInfoView: View {
                     Text(instructions).font(.footnote).foregroundColor(Palette.primary).lineLimit(12)
                 }
             } else {
-                unread
+                why(instructionsWhy)
             }
         } header: { label("Instructions") } footer: {
             Text("What this agent is for, in your words. Change them on your computer.")
@@ -168,7 +171,7 @@ struct AgentInfoView: View {
                     ForEach(skills) { Text($0.name).foregroundColor(Palette.primary) }
                 }
             } else {
-                unread
+                why(skillsWhy)
             }
         } header: { label("Skills") }
         // kosmos#7679: the agent's Files, the newest few and All files (FilesView.swift).
@@ -271,6 +274,13 @@ struct AgentInfoView: View {
         }
         .accessibilityElement(children: .combine)
     }
+    @ViewBuilder private func why(_ reason: String?) -> some View {
+        if let reason {
+            Text(reason).foregroundColor(Palette.secondary)
+        } else {
+            ProgressView()
+        }
+    }
     @ViewBuilder private var unread: some View {
         if readFailed {
             Text("We cannot read this right now.").foregroundColor(Palette.secondary)
@@ -300,8 +310,16 @@ struct AgentInfoView: View {
             if details == nil || !changed { fill(d) }
             details = d
         }
-        instructions = i.flatMap { $0.1.statusCode == 200 ? Board.parseInstructions($0.0) : nil } ?? instructions
-        skills = k.flatMap { $0.1.statusCode == 200 ? Board.parseSkills($0.0) : nil } ?? skills
+        /* kosmos#7840: an answer replaces what was shown and says why when it is not the thing; no answer keeps what was
+           shown (a phone loses its connection far more than a desk page does) and says so only when there is nothing. */
+        switch Board.instructionsRead(i) {
+        case .got(let t): instructions = t; instructionsWhy = nil
+        case .reason(let why): if i != nil || instructions == nil { instructions = nil; instructionsWhy = why }
+        }
+        switch Board.skillsRead(k) {
+        case .got(let l): skills = l; skillsWhy = nil
+        case .reason(let why): if k != nil || skills == nil { skills = nil; skillsWhy = why }
+        }
         readFailed = d == nil || instructions == nil || skills == nil
         // Review 2: a refresh that gets no answer keeps the list it had, as instructions and skills keep theirs; a
         // refusal or a new list replaces it. (A deliberate difference from the board, which says it could not read: a

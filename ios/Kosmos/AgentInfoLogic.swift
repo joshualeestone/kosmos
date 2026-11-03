@@ -234,6 +234,32 @@ extension Board {
         }
     }
 
+    // kosmos#7840: what the Profile says when it has no instructions or skills to show, so the person learns why
+    // instead of one fixed sentence. No answer at all is the phone's side; any answer carries the board's own reason
+    // (its `because`, else its `error`), as the board page shows it.
+    enum ProfileRead<T: Equatable>: Equatable { case got(T), reason(String) }
+    static let macNoAnswer = "Your Mac did not answer just now."
+    static func boardReason(_ data: Data, status: Int) -> String {
+        let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let said = ((obj?["because"] as? String) ?? (obj?["error"] as? String))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !said.isEmpty else { return "Your Mac could not read this (it answered \(status))." }
+        let words = String(said.prefix(300))
+        let first = words.prefix(1).uppercased() + words.dropFirst()
+        return first.hasSuffix(".") || first.hasSuffix("?") || first.hasSuffix("!") ? first : first + "."
+    }
+    static func instructionsRead(_ res: (Data, HTTPURLResponse)?) -> ProfileRead<String> {
+        guard let r = res else { return .reason(macNoAnswer) }
+        let (data, http) = r
+        if http.statusCode == 200, let text = parseInstructions(data) { return .got(text) }
+        return .reason(boardReason(data, status: http.statusCode))
+    }
+    static func skillsRead(_ res: (Data, HTTPURLResponse)?) -> ProfileRead<[Skill]> {
+        guard let r = res else { return .reason(macNoAnswer) }
+        let (data, http) = r
+        if http.statusCode == 200, let list = parseSkills(data) { return .got(list) }
+        return .reason(boardReason(data, status: http.statusCode))
+    }
+
     // MARK: Fresh start (POST .../compact or .../clear, the board's memoryCommand)
 
     enum FreshStart: String { case compact, clear }
