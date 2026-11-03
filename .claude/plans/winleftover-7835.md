@@ -102,3 +102,6 @@ Leftover tests 154 pass; create tests 545 pass; web.delete-leftover's route pin 
   finish its move after the name is released; SIGKILL at the limit narrows it. (c) A restart from outside the board
   (the kosmos CLI, the OS) is not held by moveHoldsBoard; a delete cut that way leaves records and tokens, which the
   next delete offers again.
+- Review round 5: a warm pins its drive only when it stored an answer itself (an older kept answer is not this warm's;
+  a dry run or a refusal stores none); test red on the has()-based form. The delete route sends no second answer when
+  something throws after the first went out.

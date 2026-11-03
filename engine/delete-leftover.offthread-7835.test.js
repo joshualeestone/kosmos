@@ -444,3 +444,30 @@ test('#7835 an account move does not start while a Windows delete runs, and says
   const one = server.slice(server.indexOf("if (boardRestartingSoon()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.boardGoingBecause() }); return; }"));
   assert.match(one.slice(0, 400), /if \(leftover\.deletingNow\(\)\) \{ sendJson\(res, 409, \{ outcome: 'refused', because: leftover\.DELETING_MOVE_BECAUSE \}\); return; \}/, 'the one-agent Move can start under a running delete');
 });
+
+test('#7835 a warm that stored no answer does not pin an older one: the delete re-plans from a fresh look', async () => {
+  const realNow = Date.now;
+  let now = realNow();
+  try {
+    leftoverFolder('ot7835y');
+    // One runner throughout (setRunner forgets every kept answer, and the old one must stay kept).
+    let dryDrive = false;
+    let dry = 0;
+    leftover.setRunner((file, args, opts) => {
+      if (dryDrive && args.includes(leftover.DRIVE_SCRIPT)) { dry += 1; return { ok: true, stdout: '', dryRun: true }; }
+      return stub(file, args, opts);
+    });
+    assert.equal((await asyncWin.plan('ot7835y')).toTrash, true, 'the first look did not offer the Recycle Bin');
+    // A minute later that answer is stale, and the next warm keeps nothing (a dry run is never kept).
+    Date.now = () => now + 61000;
+    dryDrive = true;
+    const done = await asyncWin.del('ot7835y');
+    assert.ok(dry >= 1, 'the stale answer was never looked past');
+    // Read pinned, the old answer would have moved it to the Recycle Bin with no name typed; from a fresh look with no
+    // answer the delete is for good, so it asks for the name.
+    assert.equal(done.outcome, leftover.OUTCOME.REFUSED, JSON.stringify(done));
+  } finally {
+    Date.now = realNow;
+    fs.rmSync(create.workerDir('ot7835y'), { recursive: true, force: true });
+  }
+});

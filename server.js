@@ -10640,7 +10640,8 @@ const server = http.createServer(async (req, res) => {
         LAST_SURVEY = null;
         sendJson(res, done.outcome === leftover.OUTCOME.REFUSED ? 400 : 200, done);
       })
-      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      // kosmos#7835: the delete can take minutes now; a throw after its answer went out sends nothing more.
+      .catch(() => { if (!res.headersSent) sendJson(res, 400, { error: 'we could not read that request' }); });
     return;
   }
 
