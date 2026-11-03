@@ -289,3 +289,31 @@ test('#7835 while a delete runs, Start, Restart and Remove of that agent are ref
   assert.equal(removed.outcome, remove.OUTCOME.REFUSED, JSON.stringify(removed));
   assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
 });
+
+test('#7835 a delete whose probe gave no answer does not probe again on the board when that short keep runs out', async () => {
+  const realNow = Date.now;
+  let now = realNow();
+  try {
+    leftoverFolder('ot7835p');
+    drive = 'UNKNOWN';
+    // Counted when asked, so a probe started synchronously is seen too.
+    let asked = 0;
+    leftover.setRunner((file, args, opts) => {
+      if (args.includes(leftover.DRIVE_SCRIPT)) asked += 1;
+      return new Promise((resolve) => setTimeout(() => resolve(stub(file, args, opts)), 50));
+    });
+    // A slow disk: every look at the clock is 3 s later, so a no-answer's 5 s keep runs out between the warm and the
+    // delete's own re-plan, as a long folder measure would make it.
+    Date.now = () => (now += 3000);
+    const done = await asyncWin.del('ot7835p', { typed: 'ot7835p' });
+    assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+    assert.equal(asked, 1, 'the drive was probed again inside the delete, on the board');
+    // After it, the keep is ordinary again: an expired no-answer is asked afresh.
+    leftoverFolder('ot7835p');
+    win.plan('ot7835p');
+    assert.equal(asked, 2, 'the delete left its drive pinned');
+  } finally {
+    Date.now = realNow;
+    fs.rmSync(create.workerDir('ot7835p'), { recursive: true, force: true });
+  }
+});
