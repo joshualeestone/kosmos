@@ -451,6 +451,38 @@ function plan(name, opts) {
   };
 }
 
+/* kosmos#7825 (review 7): where a recorded folder really is, as the disk spells it: { path } or { because }. Resolved one
+   part at a time from the root, so every link on the way is followed, wherever it sits (a check that trusted the
+   spelling, or stopped at the first link, let a folder behind a dangling link through, twice). The first part that is
+   not there (ENOENT, or ENOTDIR under a file) and everything after it are the gone rest, joined on as written. A link
+   that leads nowhere or loops is 'dangling'; any other failed look is 'unlookable'. The existing part is resolved once
+   more at the end so its case is the disk's own (.../Workers is .../workers on a case-blind disk). */
+function resolveRecordedFolder(dir) {
+  const abs = path.resolve(dir);
+  const root = path.parse(abs).root;
+  const parts = abs.slice(root.length).split(path.sep).filter(Boolean);
+  let at = root;
+  let i = 0;
+  for (; i < parts.length; i += 1) {
+    const next = path.join(at, parts[i]);
+    let st;
+    try { st = fs.lstatSync(next); } catch (e) {
+      if (e && (e.code === 'ENOENT' || e.code === 'ENOTDIR')) break;
+      return { because: 'unlookable' };
+    }
+    if (st.isSymbolicLink()) {
+      try { at = fs.realpathSync.native(next); } catch (e) {
+        return { because: e && (e.code === 'ENOENT' || e.code === 'ELOOP' || e.code === 'ENOTDIR') ? 'dangling' : 'unlookable' };
+      }
+    } else {
+      at = next;
+    }
+  }
+  let base;
+  try { base = fs.realpathSync.native(at); } catch { return { because: 'unlookable' }; }
+  return { path: path.join(base, ...parts.slice(i)) };
+}
+
 /* kosmos#7825: why a name with only stored settings or a picture left must NOT be offered for deleting, or null when they
    are a leftover. Settings are written on purpose before an agent has a folder in two places this answers:
    - a world start waiting to retry (engine/worldstarts.js writes provider and policyHeld before a held create retries),
@@ -483,61 +515,21 @@ function strandedRefusal(name, shown) {
   const sameKey = (n) => { try { return store.safeKey(n) === key; } catch { return false; } };
   if (pending.some((n) => n === name || (key && sameKey(n)))) return { because: `${shown} is waiting to start on this computer, so its settings are not left over.` };
   const dir = typeof prof.dir === 'string' && prof.dir && path.isAbsolute(prof.dir) ? prof.dir : null;
-  /* Compared as the disk spells them (review 4): the nearest part that exists is resolved through links and the disk's
-     own case (/var is /private/var on a Mac; .../Workers is .../workers on a case-blind disk), the gone rest joined on.
-     A separate case fold (review 2) was taken out again: the part that can differ in case always exists (the workers
-     folder does), so it changed no outcome. The workers folder itself counts as inside. */
-  const real = (x) => {
-    let at = path.resolve(x);
-    const rest = [];
-    for (;;) {
-      try { return path.join(fs.realpathSync.native(at), ...rest); } catch {
-        const up = path.dirname(at);
-        if (up === at) return path.resolve(x);
-        rest.unshift(path.basename(at));
-        at = up;
-      }
-    }
-  };
-  /* The plain spelling is tried first, against the workers folder as written and as the disk spells it, so a recorded
-     folder on a share that is gone is resolved only when that fails (review 5: a dead share can block a resolve). Not a
-     new exposure: plan() already looked at it through create.workerDir before reaching here. */
   if (dir) {
-    const w = path.resolve(create.WORKERS_DIR);
-    const wReal = real(create.WORKERS_DIR);
-    const inside = (a) => a === w || a === wReal || insideDir(a, w) || insideDir(a, wReal);
-    /* Inside by its spelling is trusted only when no part below the workers folder is a link (review 6): <W>/ext/agent
-       with ext a link to a disk that is not mounted is out of sight, not gone. A live link is judged by where it goes;
-       a dangling one is out of reach. */
-    const plain = path.resolve(dir);
-    let linked = false;
-    if (inside(plain)) {
-      const base = (plain === w || insideDir(plain, w)) ? w : wReal;
-      let at = base;
-      for (const seg of path.relative(base, plain).split(path.sep).filter(Boolean)) {
-        at = path.join(at, seg);
-        let st;
-        try { st = fs.lstatSync(at); } catch (e) {
-          if (e && e.code === 'ENOENT') break;   // the gone rest
-          return { because: `we could not check where ${shown}'s folder was, so we have not offered to delete anything. Try again in a moment.` };
-        }
-        if (st.isSymbolicLink()) {
-          try { fs.statSync(at); } catch {
-            return { because: `${shown}'s folder is somewhere this computer cannot reach right now, perhaps a disk or a shared folder that is not connected, so Kosmos will not delete its settings.` };
-          }
-          linked = true;
-          break;
-        }
-      }
-    }
-    if (linked ? !inside(real(dir)) : (!inside(plain) && !inside(real(dir)))) {
+    const where = resolveRecordedFolder(dir);
+    if (where.because === 'unlookable') return { because: `we could not check where ${shown}'s folder was, so we have not offered to delete anything. Try again in a moment.` };
+    if (where.because === 'dangling') return { because: `${shown}'s folder is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not delete its settings.` };
+    let w;
+    try { w = fs.realpathSync.native(create.WORKERS_DIR); } catch { w = path.resolve(create.WORKERS_DIR); }
+    if (where.path !== w && !insideDir(where.path, w)) {
       /* Something is there (a link, a file), so the sentence must not send the person to check a cable (review 5). A
          real folder there never reaches this: workerDir follows it and plan()'s folder rule refuses first. */
       let there = false;
       try { fs.lstatSync(dir); there = true; } catch { there = false; }
       return { because: there
         ? `${shown}'s folder is not where Kosmos keeps agents, so Kosmos will not delete its settings.`
-        : `${shown}'s folder is somewhere this computer cannot reach right now, perhaps a disk or a shared folder that is not connected, so Kosmos will not delete its settings.` };
+        // review 7: true whether its disk is unplugged or the folder is simply gone from a disk that is there.
+        : `${shown}'s folder is not there now and is not where Kosmos keeps agents. It may be on a disk or a shared folder that is not connected, so Kosmos will not delete its settings.` };
     }
   }
   return { damaged };

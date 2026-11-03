@@ -1027,7 +1027,7 @@ test('kosmos#7825: a connected agent whose folder is out of reach (outside the w
   const name = strandedProfile('away7825', { dir: nodePath.join(SANDBOX, 'unplugged-disk', 'away7825') });
   const p = mac.plan(name);
   assert.equal(p.ok, false, 'an agent on a disconnected disk was offered for deleting');
-  assert.match(p.because, /folder is somewhere this computer cannot reach right now/);
+  assert.match(p.because, /is not there now and is not where Kosmos keeps agents\. It may be on a disk or a shared folder that is not connected/);
   // CONTROL: a recorded folder inside the workers folder that is gone is a leftover.
   store.writeProfile(name, { dir: nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, 'away7825') });
   assert.equal(mac.plan(name).ok, true, 'CONTROL: a gone folder inside the workers folder is not offered');
@@ -1169,7 +1169,7 @@ test('kosmos#7825: a recorded folder spelled through a link to the workers folde
   // (A profile recording the workers folder itself has a folder that exists, so plan()'s folder rule answers first.)
   // CONTROL: a sibling folder of the workers folder is outside it.
   store.writeProfile(name, { dir: nodePath.join(SANDBOX, 'elsewhere', 'link7825') });
-  assert.match(mac.plan(name).because || '', /cannot reach right now/);
+  assert.match(mac.plan(name).because || '', /is not there now and is not where Kosmos keeps agents\. It may be on a disk or a shared folder that is not connected/);
   fs.rmSync(store.profilePath(name), { force: true });
 });
 
@@ -1200,7 +1200,7 @@ test('kosmos#7825: a recorded folder outside the workers folder that is there (a
   assert.equal(mac.plan(name).because, "there7825's folder is not where Kosmos keeps agents, so Kosmos will not delete it.");
   // CONTROL: nothing there is the disconnected-disk sentence.
   store.writeProfile(name, { dir: nodePath.join(out, 'gone') });
-  assert.match(mac.plan(name).because || '', /cannot reach right now/);
+  assert.match(mac.plan(name).because || '', /is not there now and is not where Kosmos keeps agents\. It may be on a disk or a shared folder that is not connected/);
   fs.rmSync(store.profilePath(name), { force: true });
 });
 
@@ -1211,13 +1211,13 @@ test('kosmos#7825: a recorded folder inside the workers folder behind a link is 
   try { fs.symlinkSync(nodePath.join(SANDBOX, 'unmounted7825'), dangling); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
   const name = strandedProfile('behind7825', { dir: nodePath.join(dangling, 'behind7825') });
   try {
-    assert.match(mac.plan(name).because || '', /^behind7825's folder is somewhere this computer cannot reach right now/, 'a folder behind a link to an unmounted disk was offered');
+    assert.match(mac.plan(name).because || '', /^behind7825's folder is behind a link that leads nowhere right now/, 'a folder behind a link to an unmounted disk was offered');
     // A live link out of the workers folder: judged by where it goes (outside, and its folder gone there).
     fs.mkdirSync(nodePath.join(SANDBOX, 'mounted7825'), { recursive: true });
     const live = nodePath.join(W, 'live7825');
     try { fs.symlinkSync(nodePath.join(SANDBOX, 'mounted7825'), live); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
     store.writeProfile(name, { dir: nodePath.join(live, 'behind7825') });
-    assert.match(mac.plan(name).because || '', /cannot reach right now/, 'a gone folder behind a link out of the workers folder was offered');
+    assert.match(mac.plan(name).because || '', /is not there now and is not where Kosmos keeps agents\. It may be on a disk or a shared folder that is not connected/, 'a gone folder behind a link out of the workers folder was offered');
     // CONTROL: the same gone folder spelled with no link is a leftover.
     store.writeProfile(name, { dir: nodePath.join(W, 'behind7825') });
     assert.equal(mac.plan(name).ok, true);
@@ -1238,4 +1238,37 @@ test('kosmos#7825: a look below the workers folder that fails refuses, never rea
   assert.equal(p.ok, false, 'a folder Kosmos could not look into was read as gone');
   assert.match(p.because, /^we could not check where peek7825's folder was/);
   fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a dangling link is found whatever the case of the spelling or the links before it, and a file on the way is a gone rest (review 7)', () => {
+  const W = process.env.AGENT_WORKFORCE_WORKERS;
+  fs.mkdirSync(W, { recursive: true });
+  const made = [];
+  const link = (from, to) => { try { fs.symlinkSync(to, from); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; } made.push(from); };
+  const name = strandedProfile('hop7825');
+  try {
+    link(nodePath.join(W, 'ext7825'), nodePath.join(SANDBOX, 'unmounted7825'));
+    // Two links: a live one in front of a dangling one.
+    fs.mkdirSync(nodePath.join(W, 'b7825'), { recursive: true }); made.push(nodePath.join(W, 'b7825'));
+    link(nodePath.join(W, 'b7825', 'ext'), nodePath.join(SANDBOX, 'unmounted7825'));
+    link(nodePath.join(W, 'a7825'), nodePath.join(W, 'b7825'));
+    store.writeProfile(name, { dir: nodePath.join(W, 'a7825', 'ext', 'hop7825') });
+    assert.match(mac.plan(name).because || '', /behind a link that leads nowhere/, 'a dangling link behind a live one was not seen');
+    // In another case (a case-blind disk only).
+    if (fs.existsSync(W.toUpperCase())) {
+      store.writeProfile(name, { dir: nodePath.join(W.toUpperCase(), 'ext7825', 'hop7825') });
+      assert.match(mac.plan(name).because || '', /behind a link that leads nowhere/, 'a dangling link spelled in another case was not seen');
+    }
+    // A link that loops.
+    link(nodePath.join(W, 'loop7825'), nodePath.join(W, 'loop7825'));
+    store.writeProfile(name, { dir: nodePath.join(W, 'loop7825', 'hop7825') });
+    assert.match(mac.plan(name).because || '', /behind a link that leads nowhere/);
+    // A file where a folder would be: the rest is gone, so it is a leftover (not a refusal that never clears).
+    fs.writeFileSync(nodePath.join(W, 'afile7825'), 'x'); made.push(nodePath.join(W, 'afile7825'));
+    store.writeProfile(name, { dir: nodePath.join(W, 'afile7825', 'hop7825') });
+    assert.equal(mac.plan(name).ok, true, mac.plan(name).because);
+  } finally {
+    for (const m of made.reverse()) fs.rmSync(m, { recursive: true, force: true });
+    fs.rmSync(store.profilePath(name), { force: true });
+  }
 });
