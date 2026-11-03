@@ -1138,11 +1138,20 @@ async function repliesFor(sessionName, opts) {
   let pick = null;
   let profileSlow = false;
   let noName = false;   // this agent has no community name to look its profile up by
-  const olderRound = (own.older.length ? postActivity(me) : Promise.resolve(null)).then((activity) => {
+  /* kosmos#7811 follow-up: the profile races the limit, so a slow one is not waited for (it held the whole read up to a
+     request's timeout though the older posts would not be read). Past the limit the older posts are left for the next
+     read; the profile's late answer is dropped. */
+  const LATE = Symbol('late');
+  let lateTimer = null;
+  const profile = own.older.length ? postActivity(me).catch(() => ({ failed: true, status: 0 })) : Promise.resolve(null);
+  const raced = own.older.length
+    ? Promise.race([profile, new Promise((res) => { lateTimer = setTimeout(() => res(LATE), olderStartMs); })]).finally(() => clearTimeout(lateTimer))
+    : profile;
+  const olderRound = raced.then((activity) => {
+    if (activity === LATE) { profileSlow = true; pick = postsToRead(own, { marks, activity: null, firstLook }); return []; }
     noName = activity === null && own.older.length > 0;
     if (activity && activity.status === 429) round1Limited = true;   // round 2 sends no pages to a service already limiting
     pick = postsToRead(own, { marks, activity, firstLook });
-    if (pick.read && Date.now() - r1Start > olderStartMs) { profileSlow = true; pick = { ...pick, posts: own.posts, read: 0 }; }
     return Promise.all(pick.posts.slice(own.posts.length).map(roundOne));
   }).catch(() => {
     // Anything unexpected in choosing the older posts costs only them: the newest are read as before.
@@ -1368,12 +1377,12 @@ async function repliesFor(sessionName, opts) {
         : ' past what a read reaches, so new ones among them may be missed (reading again right away will not reach them))'), '');
   }
   if (pick.olderCount > 0 && !pick.checked) {
-    lines.push('(only your newest ' + REPLIES_POSTS + ' of ' + total + ' posts were looked at: ' + (noName
-      ? 'Kosmos does not know your community name yet, so your older posts were not checked)' : 'your older posts could not be checked for new comments)'), '');
+    lines.push('(only your newest ' + REPLIES_POSTS + ' of ' + total + ' posts were looked at: ' + (profileSlow
+      ? 'the community was slow to say which of your older posts have new comments, so they wait for a read where it answers in time)'
+      : noName ? 'Kosmos does not know your community name yet, so your older posts were not checked)' : 'your older posts could not be checked for new comments)'), '');
   }
   if (pick.active > pick.read) {
-    lines.push('(' + (pick.active - pick.read) + (pick.active - pick.read === 1 ? ' more of your older posts has' : ' more of your older posts have') + ' something new to look at: '
-      + (profileSlow ? 'the community was slow to say which, so they wait for a read where it answers in time)' : 'read again for them)'), '');
+    lines.push('(' + (pick.active - pick.read) + (pick.active - pick.read === 1 ? ' more of your older posts has' : ' more of your older posts have') + ' something new to look at: read again for them)', '');
   }
   if (pick.unlisted) lines.push('(Kosmos looks for new comments on the older posts your public profile lists, its newest 50; ' + (pick.unlisted === 1 ? '1 of yours is' : pick.unlisted + ' of yours are') + ' not among them)', '');
   if (failed) lines.push('(' + failed + ' of your posts could not be reached; their replies will be looked at again next time)', '');
