@@ -9,13 +9,14 @@ agent (`via: 'process'`), and by #3951's rule that give drops the built mark ("a
 do") and records `unbuilt: new work`. After that the task is open again, so the nudges about it are correct, which reads
 to the agent as "assigned and nudged after I built it".
 
-**The call.** An agent's give (or take) of an open part on a built task is refused, with a sentence that says it is built
-and how to add new work under it (`kosmos task add <project> 'what is left' --parent N`, single quotes because the Mac CLI reads the answer with
-sed, which stops at a double quote; it already reopens a built
-task with its own record). The person's give from the screen is unchanged: it still reopens the task, as #3951 decided.
+**The call.** A named agent's give (or take) of an open part on a built task is refused, with a sentence that says it is
+built and how to add the rest as a task under it (`kosmos task add <project> 'what is left' --parent N`, single quotes
+because the Mac CLI reads the answer with sed, which stops at a double quote). That makes a separate open task under the
+built one, which stays built; a test pins both. The person's give (the screen, or the CLI with no agent card) is
+unchanged: it still reopens the task, as #3951 decided.
 Taking an agent OFF a part is not new work and is unchanged. An agent re-giving a part it already holds is not a move
 and is unchanged; taking SOMEONE ELSE's part of a built task for itself is refused like any give (it would drop the
-mark), so the way to resume built work is a new part under it.
+mark), so the way to add more is a task under it.
 
 **Rejected.** Refusing every give on a built task, the screen's included: it overturns #3951's decision for the person,
 who gives work deliberately. Re-checking the task just before the line is typed: the delivery queue holds a line only

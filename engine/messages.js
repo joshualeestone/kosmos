@@ -4058,9 +4058,9 @@ function react({ project, of, emoji, from, operator, members, claim }) {
        private note's existence is never shown. */
     // Its sender is told whatever became of it (it is their own note). Its recipient is told only of a note that reached
     // them: typed (placed or unconfirmed), or held and typed later, which is a separate held-delivered row (logHeldDelivered).
-    const typed = (s) => s === chat.DELIVERY.PLACED || s === chat.DELIVERY.UNCONFIRMED;
-    const reached = (m) => typed(m.state)
-      || (m.state === HELD_STATE && rows.some((r) => r && r.kind === 'held-delivered' && String(r.of) === String(m.id) && typed(r.state)));
+    const wasTyped = (s) => s === chat.DELIVERY.PLACED || s === chat.DELIVERY.UNCONFIRMED;
+    const reached = (m) => wasTyped(m.state)
+      || (m.state === HELD_STATE && rows.some((r) => r && r.kind === 'held-delivered' && String(r.of) === String(m.id) && wasTyped(r.state)));
     const direct = reactor !== 'you' && rows.find((m) => m && m.kind === 'message' && String(m.id) === postId
       && (m.from === reactor || (m.to === reactor && reached(m))));
     if (direct) {

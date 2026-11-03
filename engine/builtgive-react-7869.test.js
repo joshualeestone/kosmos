@@ -44,7 +44,7 @@ test('#7869: an agent giving an open part of a built task is refused, and the bu
   const out = tasks.assignPart(p.id, t.number, 1, 'mikey', { via: 'process', by: 'mara' });
   assert.equal(out.ok, false, 'an agent gave a built task to another agent');
   assert.equal(out.builtRefused, true);
-  assert.equal(out.because, `task ${t.number} is marked built, so mikey was not put on it. If there is more to do on it, add that as new work (kosmos task add ${p.id} 'what is left' --parent ${t.number})`);
+  assert.equal(out.because, `task ${t.number} is marked built, so mikey was not put on it. If there is more to do on it, add it as a task under it (kosmos task add ${p.id} 'what is left' --parent ${t.number})`);
   // The Mac CLI reads the answer with sed, which stops at the first double quote: none may be in it.
   assert.equal(out.because.includes('"'), false, 'a double quote would cut the sentence short in the Mac CLI');
   const after = stored(p, t.number);
@@ -71,6 +71,27 @@ test('#7869 CONTROL: the person giving it from the screen still reopens it (#395
 test('#7869: a give to an agent not on the project is told that first, not the built sentence', () => {
   const { p, t } = builtTask('Built outsider');
   assert.throws(() => tasks.assignPart(p.id, t.number, 1, 'stranger', { via: 'process', by: 'mara' }), /not on this project/);
+});
+
+test('#7869: the suggested command makes an open task under the built one, which stays built', () => {
+  const { p, t } = builtTask('Built follow');
+  const sub = tasks.create(p.id, { sentence: 'what is left', parent: t.number });
+  assert.ok(sub && typeof sub.number === 'number', 'the suggested command did not make a task: ' + JSON.stringify(sub));
+  const kid = stored(p, sub.number);
+  assert.equal(tasks.parentOf(projects.readAll().find((x) => x.id === p.id), kid), t.number, 'the new task is not under the built one');
+  assert.equal(kid.builtAt || null, null, 'the new work was born built');
+  assert.ok(stored(p, t.number).builtAt, 'adding a task under it changed the built one (the sentence would then be wrong)');
+});
+
+test('#7869 CONTROL: a person giving it from the CLI (no agent card) still reopens it, and an agent re-giving its own part is no move', () => {
+  const { p, t } = builtTask('Person cli give');
+  const same = tasks.assignPart(p.id, t.number, 1, 'april', { via: 'process', by: 'april' });
+  assert.equal(same.ok, true, same.because);
+  assert.equal(same.changed, false);
+  assert.ok(stored(p, t.number).builtAt, 'a re-give of the same agent dropped the built mark');
+  const person = tasks.assignPart(p.id, t.number, 1, 'mikey', { via: 'process', by: null });
+  assert.equal(person.ok, true, person.because);
+  assert.equal(stored(p, t.number).builtAt || null, null, "a person's give from the CLI no longer reopens it");
 });
 
 test('#7869 CONTROL: an agent taking someone OFF a built task, and an agent giving an unbuilt one, still work', () => {
