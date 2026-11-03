@@ -738,7 +738,8 @@ async function checkout(gb, opts = {}) {
     // come mid-way through closing an earlier page that was paid, and even an uncoded 4xx (a lapsed sign-in, a bad body;
     // kosmos-relay backup_plans.rs `checkout` raises those before it looks at the earlier page) can arrive while a page
     // paid in another tab waits for its plan (review 4). Coded refusals keep their own sentences above.
-    // Accepted: a tunnel that could not start (setupRun, no notSent) also lands on the uncertain sentence, the safe side.
+    // Accepted, both the safe side: a tunnel that could not start (setupRun, no notSent) and an uncoded 400 or 401 land on
+    // the uncertain sentence and the watch, so a person who was not charged can read "If you already paid".
     if (r && r.notSent) return { ok: false, because: CHECKOUT_RETRY };
     return { ok: false, code: 'backup_checkout_unsure', because: CHECKOUT_UNSURE };
   }
