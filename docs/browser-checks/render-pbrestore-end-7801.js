@@ -11,8 +11,9 @@
  *  - while a restore runs, the end line is shown, empty, display block, no height (no band);
  *  - at the end, the same element, still shown, carries the end words;
  *  - a refusal on screen is cleared by the read that sees the restore end;
- *  - kosmos#7816: aria-live is off in the markup and still off in the task of the first fill, polite only after a
- *    callback of its own, and polite when the end is written (a switch and a write in one task go unannounced);
+ *  - kosmos#7816: aria-live is off in the markup and still off in the task of the first paint with the board's answer,
+ *    polite only after a callback of its own, and polite when the end is written (a switch and a write in one task
+ *    go unannounced);
  *  - no page error.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-pbrestore-end-7801.js
@@ -71,7 +72,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
     say(r.filled.same && !r.filled.hidden && r.filled.display === 'block' && /^Restored 3 files/.test(r.filled.text), tag + ' ended: the same line, shown, says the end', d);
     say(r.filled.msg === '', tag + ' ended: the old refusal is gone', d);
     say(r.live.markup === 'off', tag + ' aria-live: off in the markup', d);
-    say(r.live.fill === 'off', tag + ' aria-live: still off in the task of the first fill', d);
+    say(r.live.fill === 'off', tag + ' aria-live: still off in the task of the first paint with the answer', d);
     say(r.live.after === 'polite', tag + ' aria-live: polite after its own callback', d);
     say(r.live.end === 'polite', tag + ' aria-live: polite when the end is written', d);
     say(errs.length === 0, tag + ' no page error', errs.join(' | '));
