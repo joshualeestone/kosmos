@@ -256,16 +256,16 @@ final class KeyboardSlideUITests: XCTestCase {
 
     static func keyboardUp(_ app: XCUIApplication, _ box: XCUIElement, _ watch: XCUIElement, shot: String, test: XCTestCase) throws {
         box.tap()
-        /* kosmos#7872: on a loaded CI runner (iPhone 17e, iOS 26.5) one tap now and then lands while the room is still
-           settling and does not focus the box, so no keyboard comes up and the test read it as a hardware keyboard.
-           One more tap after 5 s; the failure then says whether the box ever had focus, which tells a missed tap
-           (focus false) from a keyboard that is connected or hidden (focus true). */
-        if !app.keyboards.firstMatch.waitForExistence(timeout: 5) {
-            box.tap()
+        /* kosmos#7872: on a loaded CI runner (iPhone 17e, iOS 26.5) the keyboard was once not up within 10 s and the
+           test read it as a hardware keyboard. It gets 20 s. No second tap: one landing while the box slides up would
+           move what the "stays where it was" tests measure, or open a message's actions. When it still does not come
+           up, a screenshot and the box's state go with the failure, so the next red says a missed tap (not hittable,
+           or framed off screen) from a keyboard that is connected or hidden. */
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 20) {
+            let shotNoKb = XCTAttachment(screenshot: app.screenshot()); shotNoKb.name = shot + "-no-keyboard"; shotNoKb.lifetime = .keepAlways; test.add(shotNoKb)
+            XCTFail("no on-screen keyboard 20 s after tapping the box (box hittable: \(box.isHittable), frame \(box.frame); a hardware keyboard, or a tap that did not land)")
+            return
         }
-        let focused = (box.value(forKey: "hasKeyboardFocus") as? Bool) ?? false
-        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10),
-                      "no on-screen keyboard after two taps (box has keyboard focus: \(focused); true points at a hardware keyboard, false at a tap that did not land)")
         settle(app.keyboards.firstMatch)
         settle(watch)
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = shot; a.lifetime = .keepAlways; test.add(a)
