@@ -1947,7 +1947,8 @@ function listFiles(folder, limit, opts) {
       try {
         ents = fs.readdirSync(abs, { withFileTypes: true });
       } catch (err) {
-        return { ok: false, because: 'we could not read what is in that folder', passing: true, files: [] };   // #7850
+        if (err instanceof TypeError || err instanceof ReferenceError) throw err;
+        return { ...unreadFolder(err), files: [] };   // #7850
       }
       for (const ent of ents) take(ent, abs, rel, depth);
       continue;
@@ -2234,15 +2235,24 @@ const BROWSE_MAX_ENTRIES = 1000;   // shown (iteration 2: hidden and skipped nam
 const BROWSE_MAX_SCAN = 20000;     // read, so a folder of a million hidden files still answers
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
 
+/* #7850: a failed read of a folder's entries, as a refusal. Only a code in PASSING_READ_CODES is marked passing. */
+const PASSING_READ_CODES = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY', 'EINTR']);
+function unreadFolder(err) {
+  const code = err && err.code;
+  if (code === 'ENOENT' || code === 'ENOTDIR') return { ok: false, because: 'that folder is not there any more, or it was moved' };
+  const out = { ok: false, because: 'we could not read what is in that folder' };
+  if (PASSING_READ_CODES.has(code)) out.passing = true;
+  return out;
+}
+
 /**
  * #6724: ONE level of a folder for the in-app browser: its folders and its files, each named by its path relative to
  * `folder` (the names resolveListedFile takes, so a listed file can be previewed and downloaded as it is). Folders
  * first, then files, each by name. At most BROWSE_MAX_ENTRIES entries read (`truncated` past that). A `stamp` changes
  * whenever the answer would, as listFiles' does.
  * Returns { ok: true, dir, dirs, files, stamp, truncated? } or { ok: false, because, passing? }.
- * #7850: `passing: true` marks a refusal a read moments later may not repeat (the folder could not be read, or it changed
- * while it was read: an agent saving a file is enough), so a client may keep a list it already shows. Every other
- * refusal (not a folder, not there, a link) is lasting and carries no mark.
+ * #7850: `passing: true` marks a refusal a read moments later may not repeat, so a client may keep a list it already
+ * shows: the folder was swapped for another folder during the read, or the read failed with a code in PASSING_READ_CODES.
  */
 function listDir(folder, rel, where, opts) {
   const maxDepth = opts && Number.isInteger(opts.maxDepth) && opts.maxDepth >= 0 ? opts.maxDepth : LIST_MAX_DEPTH;
@@ -2261,7 +2271,7 @@ function listDir(folder, rel, where, opts) {
   try { before = fs.lstatSync(got.real, { bigint: true }); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
   if (!before.isDirectory()) return { ok: false, because: 'that is not a folder in ' + where };
   let dir;
-  try { dir = fs.opendirSync(got.real); } catch { return { ok: false, because: 'we could not read what is in that folder', passing: true }; }   // #7850
+  try { dir = fs.opendirSync(got.real); } catch (err) { return unreadFolder(err); }   // #7850
   try {
     for (let ent = dir.readSync(); ent !== null; ent = dir.readSync()) {
       // Iteration 3: the read budget and the shown cap are told apart, so the page can say which one stopped it.
@@ -2275,13 +2285,14 @@ function listDir(folder, rel, where, opts) {
     }
   } catch (err) {
     if (err instanceof TypeError || err instanceof ReferenceError) throw err;
-    return { ok: false, because: 'we could not read what is in that folder', passing: true };   // #7850
+    return unreadFolder(err);   // #7850
   } finally {
     try { dir.closeSync(); } catch { /* already closed */ }
   }
   let after = null;
   try { after = fs.lstatSync(got.real, { bigint: true }); } catch { after = null; }
-  if (!after || !after.isDirectory() || after.ino !== before.ino || after.dev !== before.dev) {
+  if (!after || !after.isDirectory()) return { ok: false, because: 'that folder is not there any more, or it was moved' };
+  if (after.ino !== before.ino || after.dev !== before.dev) {
     return { ok: false, because: 'that folder changed while it was being read', passing: true };   // #7850
   }
   dirs.sort(byName);
