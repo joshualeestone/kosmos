@@ -134,10 +134,14 @@ test('#7404 plan screen: plans and checkout pass only their own fields; checkout
   const was = { plansNow: pb.plansNow, checkout: pb.checkout };
   t.after(() => { pb.plansNow = was.plansNow; pb.checkout = was.checkout; });
   const got = [];
-  pb.plansNow = async () => ({ ok: true, plans: [{ gb: 25, price: '$5/month' }], planGb: null, ticket: 'never', org: 'never' });
+  let reads = 0;
+  pb.plansNow = async () => { reads++; return { ok: true, plans: [{ gb: 25, price: '$5/month' }], planGb: null, ticket: 'never', org: 'never' }; };
   pb.checkout = async (gb) => { got.push(gb); return { ok: true, url: 'https://checkout.stripe.com/c/pay/x', price: 'never', session: 'never' }; };
   const p = await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
   assert.deepEqual(p.json, { ok: true, plans: [{ gb: 25, price: '$5/month' }], planGb: null }, JSON.stringify(p.json));
+  const p2 = await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
+  assert.deepEqual(p2.json, p.json);
+  assert.equal(reads, 1, 'two reads within 30 seconds each asked Kosmos+');
   const c = await call('/api/personal-backup/checkout', { body: { gb: 25, price: '$0' }, headers: SCREEN });
   assert.deepEqual(c.json, { ok: true, url: 'https://checkout.stripe.com/c/pay/x' }, JSON.stringify(c.json));
   await call('/api/personal-backup/checkout', { body: { gb: '25' }, headers: SCREEN });

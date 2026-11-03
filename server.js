@@ -5261,6 +5261,8 @@ function remoteSessionFresh(headers, nowSecs) {
   // Bounded both sides: an issue time ahead of this clock is fresh only within a minute of drift.
   return age >= -60 && age <= REMOTE_STEP_UP_SECS;
 }
+/* kosmos#7404 plan screen: the plans read shared by every caller (see the plans route). */
+let PB_PLANS_READ = { at: 0, p: null };
 const REMOTE_STEP_UP_EXACT = new Set([
   // kosmos#7248: putting a kept copy back over one of Kosmos's own stores, from a remote session, asks for sign-in again.
   'POST /api/board/damaged-files/restore',
@@ -12952,7 +12954,12 @@ const server = http.createServer(async (req, res) => {
         else if (kind === 'stop') r = require('./engine/personalrestorejob').stop();
         /* #7404 plan screen: the plans on sale and the current plan (a read, only once on), and Stripe's page for one
            size (the page names a size, never a price; the engine opens only Stripe's own hosted checkout). */
-        else if (kind === 'plans') r = await pb.plansNow();
+        else if (kind === 'plans') {
+          // One read for every tab and remote session at once, and its answer for 30 seconds: each is two Kosmos+ requests.
+          const now = Date.now();
+          if (!PB_PLANS_READ.p || now - PB_PLANS_READ.at > 30000) PB_PLANS_READ = { at: now, p: pb.plansNow() };
+          r = await PB_PLANS_READ.p;
+        }
         else if (kind === 'checkout') r = await pb.checkout(Number.isSafeInteger(body.gb) ? body.gb : null);
         else r = null;   // unreachable: kind was checked above; answers the generic refusal below
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and
@@ -12960,7 +12967,7 @@ const server = http.createServer(async (req, res) => {
         // Named fields only, per step (challenge round 4): each step can send the page only what that step answers.
         const KEEP = { preview: ['ticket', 'words', 'price'], on: ['declined', 'unknown', 'org', 'member'], key: ['org', 'member'],
           saved: ['deleted'], restore: ['epochs'], off: ['pending'], backups: ['more', 'keyMissing', 'backups'], files: ['startedAt'], stop: [],
-          plans: ['plans', 'planGb'], checkout: ['url'] };
+          plans: ['plans', 'planGb', 'final'], checkout: ['url'] };
         const keep = ['ok', 'because', 'code'].concat(KEEP[kind] || []);
         const out = {};
         if (r && typeof r === 'object') for (const k of keep) if (k in r) out[k] = r[k];
