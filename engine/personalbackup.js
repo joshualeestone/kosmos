@@ -59,8 +59,15 @@ function remoteOf(opts) {
 }
 function codeOf(r) {
   if (r && r.refusal && typeof r.refusal.code === 'string') return r.refusal.code;
-  const m = r && typeof r.because === 'string' && r.because.match(/"code":"([a-z0-9_]+)"/);
+  // A tunnel that prints no refusal object says it in the line: a JSON body, or "(HTTP 409 on /path, code name)".
+  const m = r && typeof r.because === 'string' && (r.because.match(/"code":"([a-z0-9_]+)"/) || r.because.match(/\(HTTP \d{3} on [^,)]*, code ([a-z0-9_]+)\)/));
   return m ? m[1] : undefined;
+}
+/* kosmos#7827 item 7: the coordinator's HTTP status, from the refusal object or, from an older tunnel, its line. */
+function statusOf(r) {
+  if (r && r.refusal && Number.isSafeInteger(r.refusal.status)) return r.refusal.status;
+  const m = r && typeof r.because === 'string' && r.because.match(/\(HTTP (\d{3}) on /);
+  return m ? Number(m[1]) : undefined;
 }
 
 /* The words, kept to plain bounded lines; the hash is the coordinator's, echoed, never recomputed (orgenroll's rule). */
@@ -673,7 +680,7 @@ async function plansNow(opts = {}) {
   if (!r || !r.ok) {
     const c = codeOf(r);
     // Final only for a code known not to clear; any other (a rate limit, a busy relay) is tried again in a minute.
-    return c && PLANS_SAY[c] ? { ok: false, final: true, because: PLANS_SAY[c] } : { ok: false, because: PLANS_UNREAD };
+    return c && Object.hasOwn(PLANS_SAY, c) ? { ok: false, final: true, because: PLANS_SAY[c] } : { ok: false, because: PLANS_UNREAD };
   }
   const d = r.data;
   if (!d || !d.org || d.org.id !== rec.org.id) return { ok: false, because: 'Kosmos+ answered about another backup, so the plans cannot be shown here.' };
@@ -695,6 +702,8 @@ const CHECKOUT_SAY = {
   // #7827: the relay's two conflicts, once it names them (coordinator backup_plans.rs checkout).
   backup_checkout_opening: 'Kosmos+ is opening a payment page for this already. Try again in a moment.',
   backup_checkout_finished: 'The payment page has just finished. If you paid, your plan shows here in a moment.',
+  // #7827 item 6: the earlier page could be neither closed nor read (relay checkout Open|Err, a 503): it may be paid.
+  backup_checkout_unclosed: 'Kosmos+ could not close your earlier payment page just now. If you paid on it, your plan shows here shortly; if not, try again in a minute.',
 };
 // A relay that does not name its conflict yet sends either of those two with no code: a sentence true of both.
 const CHECKOUT_CONFLICT = 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.';   // Mona Lisa m2568
@@ -715,11 +724,12 @@ async function checkout(gb, opts = {}) {
   try { r = await remote.macRequest('POST', CHECKOUT_ROUTE, { gb }); } catch { r = null; }
   if (!r || !r.ok) {
     const c = codeOf(r);
-    if (c && CHECKOUT_SAY[c]) return { ok: false, code: c, because: CHECKOUT_SAY[c] };
+    if (c && Object.hasOwn(CHECKOUT_SAY, c)) return { ok: false, code: c, because: CHECKOUT_SAY[c] };   // a wire code like 'constructor' is not a sentence
     // A 409 with no code, from a relay that does not name its conflicts yet: an earlier page being opened, or one just
     // paid (backup_plans.rs Opening and Complete), so CHECKOUT_CONFLICT is written to be true of both.
     // Any other 409 (unnamed, or a code this board has no sentence for) may be a page just paid: never say nothing was charged.
-    return r && r.refusal && r.refusal.status === 409 ? { ok: false, code: 'backup_checkout_conflict', because: CHECKOUT_CONFLICT } : { ok: false, because: CHECKOUT_RETRY };
+    // The status from either kind of tunnel (item 7): an older one prints no refusal object, only the line.
+    return statusOf(r) === 409 ? { ok: false, code: 'backup_checkout_conflict', because: CHECKOUT_CONFLICT } : { ok: false, because: CHECKOUT_RETRY };
   }
   const url = stripeCheckoutUrl(r.data && r.data.url);
   if (!url) return { ok: false, because: CHECKOUT_RETRY };
