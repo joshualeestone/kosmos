@@ -65,7 +65,7 @@ const room = async (project, who, query) => {
   return { status: res.status, text: await res.text() };
 };
 const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + '] ' + POSTER));
-const CLAIMED = '[kosmos] Claimed by another agent each post also asked, so not counted as waiting on you: ';
+const CLAIMED = '[kosmos] Claimed, each by an agent the post also asked, so not counted as waiting on you: ';
 
 test('kosmos#7848: an ask claimed by another agent it asked leaves my --unanswered, and is named under it', async () => {
   const pid = newRoom('Claimed7848a');
@@ -171,4 +171,11 @@ test('kosmos#7848 review 3: a claimed ask stays held for my idle reminder (a cla
   const left = roomhold.heldIn(ME, pid).join(' ');
   assert.ok(left.includes(ask), 'a claimed ask was dropped from my idle reminder hold: ' + left);
   assert.ok(!left.includes(open), 'CONTROL: the listed (shown) ask should leave the hold as before: ' + left);
+});
+
+test('kosmos#7848 review 4: several asks, all claimed, get the plural head line', async () => {
+  const pid = newRoom('Claimed7848i');
+  for (let i = 0; i < 2; i++) { const id = post(pid, { text: '@readerseat @claimseat part ' + i, mentioned: [ME, CLAIMER] }); claim(pid, id, CLAIMER); }
+  const r = await room(pid, ME, '&unanswered=1');
+  assert.match(r.text, /^Waiting on an answer from you: nothing waiting on you in this room; the asks named below are claimed by agents they also asked\.$/m, r.text);
 });
