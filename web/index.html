@@ -56216,7 +56216,6 @@ async function pbpChoose(gb) {
   // once: the relay says finished only while no plan is recorded yet, and for the others a minute's wait is safe. backup_checkout_conflict is the board's own name
   // (engine checkout) for any 409 it cannot name: once the relay naming its two conflicts is deployed (Ice Cream Kitty,
   // #3763, #7827) an unnamed 409 no longer occurs, but a code this board does not know still lands here, so it stays.
-  // The earlier page is expired or paid either way, so its link goes.
   const paidMaybe = !url && r && ['backup_checkout_finished', 'backup_checkout_conflict', 'backup_checkout_unclosed', 'backup_checkout_unsure'].includes(r.code);
   if (url) { PBP.url = url; PBP.gb = gb; PBP.since = Date.now(); PBP.at = Date.now(); PBP.awaitPlan = false; PBP.awaitCode = null; PBP.awaitSay = ''; }
   else if (paidMaybe) {
