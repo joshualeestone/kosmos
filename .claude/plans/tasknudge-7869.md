@@ -26,6 +26,10 @@ seconds behind the previous one to the same agent, so it cannot explain a nudge 
 on this Mac (the card paraphrases it), and "the daily line" could be something outside Kosmos (a fleet's own clock). If
 it was, this change is still right but does not close the report.
 
+**Known limit.** The refusal needs the caller identified as an agent (`by`, from its agent token or pane). Both give
+routes pass it (task/assign and part/:id/who). A give the board cannot tie to an agent is treated as the person's and
+reopens the task, as before. There is no route-level test: this harness's fake tmux has no agent to identify.
+
 ## Item 2: reacting to a colleague's direct note
 
 `messages.react` answered "there is no post by that id in this room" for a direct note's id, which has the same shape as
