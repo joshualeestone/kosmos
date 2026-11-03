@@ -44,7 +44,9 @@ test('#7869: an agent giving an open part of a built task is refused, and the bu
   const out = tasks.assignPart(p.id, t.number, 1, 'mikey', { via: 'process', by: 'mara' });
   assert.equal(out.ok, false, 'an agent gave a built task to another agent');
   assert.equal(out.builtRefused, true);
-  assert.equal(out.because, `task ${t.number} is marked built, so its part was not given to mikey. If there is more to do on it, add that as new work: kosmos task add ${p.id} "what is left" --parent ${t.number}`);
+  assert.equal(out.because, `task ${t.number} is marked built, so mikey was not put on it. If there is more to do on it, add that as new work: kosmos task add ${p.id} <what is left> --parent ${t.number}`);
+  // The Mac CLI reads the answer with sed, which stops at the first double quote: none may be in it.
+  assert.equal(out.because.includes('"'), false, 'a double quote would cut the sentence short in the Mac CLI');
   const after = stored(p, t.number);
   assert.ok(after.builtAt, 'the refused give still dropped the built mark');
   assert.equal(tasks.partsOf(after)[0].who, 'april', 'the refused give still moved the part');
@@ -54,6 +56,7 @@ test('#7869: an agent taking a built task for itself is refused too (it would un
   const { p, t } = builtTask('Built take');
   const out = tasks.assignPart(p.id, t.number, 1, 'mara', { via: 'process', by: 'mara' });
   assert.equal(out.ok, false);
+  assert.match(out.because, /^task \d+ is marked built, so mara was not put on it\./);
   assert.ok(stored(p, t.number).builtAt);
 });
 
@@ -63,6 +66,17 @@ test('#7869 CONTROL: the person giving it from the screen still reopens it (#395
   assert.equal(out.ok, true, out.because);
   assert.equal(stored(p, t.number).builtAt || null, null, 'a person giving the work no longer reopens it');
   assert.equal(tasks.partsOf(stored(p, t.number))[0].who, 'mikey');
+});
+
+test('#7869: a give to an agent not on the project is told that first, not the built sentence', () => {
+  const { p, t } = builtTask('Built outsider');
+  assert.throws(() => tasks.assignPart(p.id, t.number, 1, 'stranger', { via: 'process', by: 'mara' }), /not on this project/);
+});
+
+test('#7869: a note still held (not yet delivered) is not shown to its recipient', () => {
+  seed({ kind: 'message', id: 'm9004', from: 'angel', to: 'april', text: 'held', in_reply_to: null, state: 'held', heldUntil: null });
+  const r = messages.react({ project: 'room7869', of: 'm9004', emoji: THUMB, from: 'april', members: ['april', 'angel'] });
+  assert.equal(r.because, 'there is no post by that id in this room');
 });
 
 test('#7869 CONTROL: an agent taking someone OFF a built task, and an agent giving an unbuilt one, still work', () => {
@@ -91,10 +105,11 @@ test('#7869: reacting to a direct note says it is not a room post, and how to an
   seed({ kind: 'post', id: 'm9002', project: 'room7869', from: 'angel', to: ['april'], text: 'a room post', outcomes: {} });
   const r = messages.react({ project: 'room7869', of: 'm9001', emoji: THUMB, from: 'april', members: ['april', 'angel'] });
   assert.equal(r.ok, false);
-  assert.equal(r.because, 'm9001 is a direct message, not a room post, and only room posts take a reaction. To answer it, write back: kosmos msg angel "..."');
+  assert.equal(r.because, 'm9001 is a direct message, not a room post, and only room posts take a reaction or a claim. To answer it, write back: kosmos msg angel <your answer>');
+  assert.equal(r.because.includes('"'), false, 'a double quote would cut the sentence short in the Mac CLI');
   // The sender of the note gets the same plain sentence, naming the other party.
   const s = messages.react({ project: 'room7869', of: 'm9001', emoji: THUMB, from: 'angel', members: ['april', 'angel'] });
-  assert.match(s.because, /^m9001 is a direct message, not a room post\b.*kosmos msg april "\.\.\."$/);
+  assert.match(s.because, /^m9001 is a direct message, not a room post\b.*kosmos msg april <your answer>$/);
   // CONTROL: a real room post still takes the reaction, so the refusal above is about the id's kind.
   assert.equal(messages.react({ project: 'room7869', of: 'm9002', emoji: THUMB, from: 'april', members: ['april', 'angel'] }).ok, true);
 });
