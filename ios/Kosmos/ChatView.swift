@@ -2011,11 +2011,16 @@ struct ChatView: View {
         // A read cut short (the chat closed, the app went away) says nothing about the Mac, and an older read than the
         // one shown changes nothing.
         guard !Task.isCancelled, mine > readShown, startedIn == client.chatEpoch else { return false }
+        // kosmos#7810: a small page asked before a whole window landed is older news than that window: not drawn over it.
+        if small, fullRead, case .thread = result { return false }
         readShown = mine
         switch result {
         case .unchanged:
             // Only a read that named the shown window's tag can be answered so: the body is the one already read and
-            // settled, so nothing below is run again; the Mac is answering.
+            // settled, so nothing below is run again; the Mac is answering. The retries every read makes still run: a gap
+            // fill or an earlier page that failed or waited is asked again here, as after a whole read.
+            if let t = thread { fillGap(t) }
+            loadEarlier()
             lastRead = Date()
             failedReads = 0
             refusal = nil

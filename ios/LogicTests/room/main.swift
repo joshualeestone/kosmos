@@ -1682,6 +1682,8 @@ check(chatSource.contains("guard fullRead, earlier.open, !earlier.filling"), "ko
 check(chatSource.contains("if !Self.sampleNoKeep, wasFull { earlier = Board.carryDropped("), "kosmos#7810: carryDropped only from a whole window")
 check(chatSource.contains("private func dropChoices() {\n        // kosmos#7810: the shown window no longer matches the Mac's body, so the next read asks for it whole.\n        threadTag = nil"), "kosmos#7810: a missed read clears the tag, so the buttons come back")
 check(chatSource.contains("thread = nil\n            fullRead = false; threadTag = nil"), "kosmos#7810: a fresh chat starts with no whole window and no tag")
+check(chatSource.contains("if let t = thread { fillGap(t) }\n            loadEarlier()\n            lastRead = Date()"), "kosmos#7810: an unchanged read still retries the gap fill and the earlier page")
+check(chatSource.contains("if small, fullRead, case .thread = result { return false }"), "kosmos#7810: a late small page is never drawn over a whole window")
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")
