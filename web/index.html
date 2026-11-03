@@ -50238,8 +50238,15 @@ document.getElementById('del-go').addEventListener('click', async () => {
     body = await res.json().catch(() => null);
   } catch { res = null; }
   if (!res || !body || (!res.ok && body.outcome !== 'partial')) {
+    /* kosmos#7820: the engine re-plans before acting, and its answer can now ask for the name where the one on screen
+       did not. It sends that plan back, so the dialog shows it (with the box to type in) rather than refusing again. */
+    if (body && body.plan && body.plan.ok && body.plan.name === DEL_FOR) {
+      const back = DEL_RETURN;
+      openDeleteModal(body.plan);
+      DEL_RETURN = back;
+    }
     msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((body && (body.because || body.error)) || 'We could not reach the board just now. Nothing was deleted.');
-    go.disabled = false;
+    if (!(body && body.plan && body.plan.ok && body.plan.typeToConfirm)) go.disabled = false;
     return;
   }
   /* kosmos#7825 review 2: a name just deleted is never drawn again from the kept leftovers. */
