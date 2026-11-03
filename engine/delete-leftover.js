@@ -316,9 +316,21 @@ function plan(name, opts) {
       ...(isLinux ? { unit: true } : {}),
     };
   }
+  /* kosmos#7825: with no folder and no job, the name's stored settings or picture can still be left over (a delete from
+     before #7819, or a #7819 PARTIAL), and a new agent under the name would start with them. Offered only when they are
+     not somebody's on purpose: see strandedRefusal. */
+  let recs = null;
   if (!folder && !job) {
-    return { ok: false, because: `nothing of ${shown} is left on this computer, so there is nothing to delete. If the name is still refused, something else holds it.` };
+    try { recs = namedRecords(clean, null); } catch {
+      return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
+    }
+    if (!recs.records.length) {
+      return { ok: false, because: `nothing of ${shown} is left on this computer, so there is nothing to delete. If the name is still refused, something else holds it.` };
+    }
+    const why = strandedRefusal(clean, shown);
+    if (why) return { ok: false, because: why };
   }
+  const recordsOnly = Boolean(recs);
 
   /* One mode for the whole act, so the sentence is one sentence: to the
      Trash only if EVERYTHING can go there. */
@@ -349,15 +361,14 @@ function plan(name, opts) {
      take them (the data root can be on another volume); otherwise deleted for good, and the plan says which. */
   /* A look that failed refuses, as the running check above does: read as "nothing stored", the plan would promise a
      free name and leave the profile behind. */
-  let recs;
-  try { recs = namedRecords(clean, folder ? folder.path : null); } catch {
+  if (!recs) try { recs = namedRecords(clean, folder ? folder.path : null); } catch {
     return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
   }
   const recordsTrash = toTrash && recs.records.every((r) => trashCanTake(r.file, platform));
   const recordsLost = recs.records.length > 0 && !recordsTrash;
   if (recs.records.length) {
     const w = recordsWords(recs.records);
-    loses.push(`${w.cap}: ${recordsTrash ? 'to the Trash with the files' : 'deleted for good'}, and a new agent with this name starts without ${w.plural ? 'them' : 'it'}`);
+    loses.push(`${w.cap}: ${recordsTrash ? (recordsOnly ? 'to the Trash' : 'to the Trash with the files') : 'deleted for good'}, and a new agent with this name starts without ${w.plural ? 'them' : 'it'}`);
   }
   // Kept, and said before the click: a new agent under the name will share them.
   if (recs.kept) loses.push(`${recs.keptWords.cap} stay${recs.keptWords.plural ? '' : 's'}: ${recs.kept}, and a new agent with this name shares ${recs.keptWords.plural ? 'them' : 'it'}`);
@@ -390,11 +401,23 @@ function plan(name, opts) {
     const w = recordsWords(recs.records);
     reassurance = `${toTrash ? `Its files go to the Trash, where you can get them back until you empty it${job && job.unit ? ', and its startup job is removed' : ''}, but ` : ''}${toTrash ? w.words : w.cap} cannot go to the Trash, so ${w.plural ? 'they are' : 'it is'} deleted for good${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
   }
-  const verb = folder
+  // kosmos#7825: only stored records are left, so every sentence is about them; there are no files or job to name.
+  const rw = recordsOnly ? recordsWords(recs.records) : null;
+  if (recordsOnly) {
+    const tail = `${community ? ', and its community account does not come back' : waiting ? ', and anything it wrote for the community that has not gone out stays unsent' : ''}. After this, the name ${shown} is free for a new agent.`;
+    reassurance = recordsTrash
+      ? `${rw.cap} go${rw.plural ? '' : 'es'} to the Trash, where you can get ${rw.plural ? 'them' : 'it'} back until you empty it${tail}`
+      : `This cannot be undone: the Trash cannot take ${rw.words}, so ${rw.plural ? 'they are' : 'it is'} deleted for good${tail}`;
+  }
+  const verb = recordsOnly
+    ? (recordsTrash ? `Move ${rw.words} to the Trash` : `Delete ${rw.words} for good`)
+    : folder
     ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
     : jobIsService ? 'Remove its startup job'
       : (toTrash ? 'Move the auto-start file to the Trash' : 'Delete the auto-start file for good');
-  const hint = folder
+  const hint = recordsOnly
+    ? `Kosmos still has ${rw.words} for ${shown}, though nothing else of it is left, and a new agent with this name would start with ${rw.plural ? 'them' : 'it'}.`
+    : folder
     ? `${shown}'s folder is still on this computer (${filesWords(folder)}${folder.newest ? ', last changed ' + agoWords(folder.newest, now) : ''}), and the name stays taken until it is gone.`
     : jobIsService
       ? `Something on this computer still starts ${shown} when you log in, and the name stays taken until it is gone.`
@@ -419,6 +442,33 @@ function plan(name, opts) {
     verb,
     hint,
   };
+}
+
+/* kosmos#7825: why a name with only stored settings or a picture left must NOT be offered for deleting, or null when they
+   are a leftover. Settings are written on purpose before an agent has a folder in two places this answers:
+   - a world start waiting to retry (engine/worldstarts.js writes provider and policyHeld before a held create retries),
+     read from its record AND from the profile's own policyHeld mark (register.js writes it too);
+   - a connected agent whose recorded folder is outside the workers folder and not reachable right now (a disk or share
+     that is not connected): its folder is not gone, only out of sight.
+   A record that cannot be read refuses, as every other failed look in plan() does. */
+function strandedRefusal(name, shown) {
+  const store = require('./store');
+  let prof;
+  try { prof = store.readProfile(name) || {}; } catch {
+    return `we could not read what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.`;
+  }
+  if (prof.policyHeld) return `${shown} is waiting to start, held until it is allowed to run, so its settings are not left over.`;
+  const pending = require('./worldstarts').pendingNames();
+  if (pending === null) return `we could not check whether ${shown} is waiting to start, so we have not offered to delete anything. Try again in a moment.`;
+  let key;
+  try { key = store.safeKey(name); } catch { key = null; }
+  const sameKey = (n) => { try { return store.safeKey(n) === key; } catch { return false; } };
+  if (pending.some((n) => n === name || (key && sameKey(n)))) return `${shown} is waiting to start on this computer, so its settings are not left over.`;
+  const dir = create.recordedDirSpelling(name);
+  if (dir && !insideDir(path.resolve(dir), path.resolve(create.WORKERS_DIR))) {
+    return `${shown}'s folder is somewhere this computer cannot reach right now, perhaps a disk or a shared folder that is not connected, so Kosmos will not delete its settings.`;
+  }
+  return null;
 }
 
 /* #7819: the stored records keyed by this name: its profile, its picture files and the picture's kept originals, as
@@ -679,11 +729,11 @@ function del(name, opts) {
     }
   }
   if (stuck.length) {
-    /* #7819: a record that would not move is the one leftover a retry cannot reach (with the folder and job gone the
-       plan finds nothing), so the sentence says what it means rather than inviting a retry. */
+    /* #7819: a record that would not move is still a leftover; since kosmos#7825 plan() offers it alone, so the sentence
+       says what it means and that deleting again clears it. */
     const left = stuck.filter((x) => x === 'its settings' || x === 'its picture');
     const lw = recordsWords(left.map((what) => ({ what })));
-    const tail = left.length ? ` ${lw.cap} ${lw.plural ? 'are' : 'is'} still on this computer, so a new agent with this name would start with ${lw.plural ? 'them' : 'it'}.` : '';
+    const tail = left.length ? ` ${lw.cap} ${lw.plural ? 'are' : 'is'} still on this computer, so a new agent with this name would start with ${lw.plural ? 'them' : 'it'}. Deleting what is left again clears ${lw.plural ? 'them' : 'it'}.` : '';
     // The verb for what could not go: a record follows the records' own mode, which can differ from the folder's.
     const verbFor = (x) => ((x === 'its settings' || x === 'its picture') ? (p.records.trash ? 'move' : 'delete') : (p.toTrash ? 'move' : 'delete'));
     return {
@@ -709,7 +759,9 @@ function del(name, opts) {
        can be a startup job and NOTHING else, and "their files are deleted" about
        an agent that had none is a false sentence in the one line that reports
        the act. */
-    said: (!p.folder && p.job && (p.job.task || p.job.unit)   // review 32: a unit-only leftover moved nothing either
+    said: (!p.folder && !p.job   // kosmos#7825: only stored records were left
+      ? (() => { const w = recordsWords(p.records.files); const n = w.words.replace(/^its /, ''); return `${p.shown}'s ${n} ${w.plural ? 'are' : 'is'} ${p.records.trash ? 'in the Trash' : 'deleted'}. The name is free.`; })()
+      : !p.folder && p.job && (p.job.task || p.job.unit)   // review 32: a unit-only leftover moved nothing either
       ? `Nothing starts ${p.shown} any more. The name is free.`
       : p.toTrash
         ? `${p.shown}'s files are in the Trash. The name is free.`

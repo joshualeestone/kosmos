@@ -130,6 +130,14 @@ function readRecordForWrite(file = RECORD_FILE) {
   }
 }
 
+/* kosmos#7825: every name in the record (paused by a switch or imported, waiting to start), or null when the record
+   cannot be read. delete-leftover asks it before offering to clear a name that has only stored settings: an entry here
+   may have written its profile (provider, policyHeld) before its folder exists. */
+function pendingNames(file = RECORD_FILE) {
+  const entries = readRecordForWrite(file);
+  return entries === UNREADABLE ? null : entries.map((e) => e.name);
+}
+
 /** Written beside and renamed, so a reader never sees half a record. */
 function writeRecord(entries, file = RECORD_FILE) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -725,6 +733,7 @@ module.exports = {
   recordImport,
   importsWaitingIn,
   forgetEntries,
+  pendingNames,   // kosmos#7825
   pauseForSwitch,
   stopWorldAgents,
   resumePaused,
