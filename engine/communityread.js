@@ -723,9 +723,10 @@ function postsToRead(own, { marks, activity, firstLook }) {
   if (!own.older.length || !activity || !activity.map) return base;
   const active = [];
   let unlisted = 0;
-  const newest = new Set(own.posts.map((p) => p.remoteId));
+  const taken = new Set(own.posts.map((p) => p.remoteId));
   for (const p of own.older) {
-    if (newest.has(p.remoteId)) continue;   // one post, one read
+    if (taken.has(p.remoteId)) continue;   // one post, one read: a second sent record of it is skipped
+    taken.add(p.remoteId);
     const m = marks[p.remoteId];
     /* Bounded as the read's own promises are: a hold below MARK_HOLD_MAX, a saved place that has waited fewer reads. */
     const promised = Boolean(m) && ((m.held > 0 && m.held < MARK_HOLD_MAX) || Object.values(m.threads || {}).some((t) => t && t.cursor && t.waited < MARK_HOLD_MAX));
@@ -1141,6 +1142,10 @@ async function repliesFor(sessionName, opts) {
     pick = postsToRead(own, { marks, activity, firstLook });
     if (pick.read && Date.now() - r1Start > olderStartMs) { profileSlow = true; pick = { ...pick, posts: own.posts, read: 0 }; }
     return Promise.all(pick.posts.slice(own.posts.length).map(roundOne));
+  }).catch(() => {
+    // Anything unexpected in choosing the older posts costs only them: the newest are read as before.
+    pick = postsToRead(own, { marks, activity: { failed: true }, firstLook });
+    return [];
   });
   const [newestThreads, olderThreads] = await Promise.all([Promise.all(own.posts.map(roundOne)), olderRound]);
   const threads = newestThreads.concat(olderThreads);
@@ -1437,9 +1442,10 @@ async function repliesFor(sessionName, opts) {
     for (const { x, post } of shownItems) if (post === pid && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
     /* kosmos#7811: the agent's own items read above the mark are never shown, so they are kept as seen too: an older post
        whose newest reply is the agent's own is then read once for it (anything owed before it is listed), not every time.
-       Not when the read's cap held this post's items back, or its older comments were not all read: its own newer reply
-       would then be the profile's newest, seen, and the post would not be taken again for what was left. */
-    if (!unshownPosts.has(pid) && !th.olderUnread) for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.ts && isMine(me, x) && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
+       Only when the post was read whole: not when the read's cap held its items back, nor when any of its comments or
+       replies were left unread, or its own newer reply would be the profile's newest, seen, and the post would not be
+       taken again for what was left. */
+    if (!unshownPosts.has(pid) && !th.olderUnread && !th.unreadReplies && !th.someUnreached && !th.partial) for (const c of th.comments) for (const x of [c, ...c.replies]) if (x.ts && isMine(me, x) && byPos(x, base) > 0 && !keep.includes(x.id)) keep.push(x.id);
     /* #6201 review 5: an id this read saw at or below the mark is no longer needed; past SEEN_MAX, ids this read did not
        see go first (oldest first), so an id still readable above a mark that cannot move is the last to go. */
     const readNow = new Map();
