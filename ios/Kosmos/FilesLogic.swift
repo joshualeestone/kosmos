@@ -208,9 +208,9 @@ extension Board {
     // kosmos#7842: forNow is a refusal's line that a list already shown outlasts (filesSectionAfter keeps the rows).
     enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), forNow(String), rows([ListedFile]) }
     /* kosmos#7842: whether a read keeps the list already shown, for the Files screen and the agent page's section alike:
-       only a list replaces it. Stricter than the Profile on purpose: the engine's listing refusals (engine/projects.js
-       listFiles, listDir) mix lasting reasons with passing ones (the folder changed while it was being read), under the
-       same statuses and with nothing to tell them apart, and a passing one comes during any save by the agent. */
+       only a list replaces it. The base rule, for a refusal with no `passing` mark (an older board, whose listing
+       refusals mix lasting reasons with passing ones and give nothing to tell them apart). A board since kosmos#7850
+       marks each one; filesLastingRefusal reads a lasting mark, which the two callers let replace the list. */
     static func filesKeepsShown(_ r: FilesRead) -> Bool {
         if case .page = r { return false }
         return true
@@ -247,8 +247,8 @@ extension Board {
         return filesKeepsShown(r)
     }
     /* The agent page's section, the same rule in its own states: a list is rows (or hidden when empty); the owner being
-       gone (the flat list sends a 404 only for "no agent") is a message, which replaces rows; everything else is forNow
-       or noAnswer, which keep them (filesSectionAfter). The Files screen's filesScreenKeepsShown is tested beside it. */
+       gone (the flat list sends a 404 only for "no agent") and a refusal marked lasting (kosmos#7850) are a message, which
+       replaces rows; everything else is forNow or noAnswer, which keep them (filesSectionAfter). The Files screen's filesScreenKeepsShown is tested beside it. */
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
         if status == 401 || status == 403 { return .forNow(phoneShutOut) }   // kosmos#7840: never the gate's words
         if filesOwnerGone(status: status, body: body) { return .message(filesAgentNoFolder) }

@@ -20,12 +20,21 @@ which is exactly what an older board's refusals look like. The phone could not t
   own design review, and the card marks it optional. Recorded on the card.
 - Rejected: telling an old board by its version (refusals carry none), and a status code for lasting refusals (would
   move the browse route's 409/404 split the phone reads).
-- Weakest premise: that every refusal on these routes not marked passing is lasting. True of the engine's today (only
-  its passing ones are marked, #7855), and of the route's own (Files is a link).
+- Review round 1 found the premise above was NOT true of the engine: folderState (realpath, stat, access) and
+  resolveListedDir (a subfolder's lstat and realpath) caught every error without its code, so a brief EBUSY there came
+  unmarked and would now read as lasting (one poll's flicker, the thing #7842 avoids). Both now mark a code in
+  PASSING_READ_CODES passing: folderState carries it (listFiles and resolveListedDir pass it on), and resolveListedDir's
+  two catches go through unreadFolder (ENOENT/ENOTDIR stay "not there"; any other code now says "we could not read what
+  is in that folder" rather than "not there").
+- Weakest premise now: that the listing routes have no OTHER unmarked brief refusal (the route-level ones are the link
+  and the no-agent/no-project 404s, both lasting). Accepted, not changed: `passing` read with `as? Bool` also accepts a
+  JSON number; the board only sends booleans.
 
 ## Verified
-- server.files-passing-7850.test.js: every lasting control now asserts `passing === false` (7), and a Files-is-a-link
-  case for list and browse; 15/15. Mutation: listingAnswer passing refusals through unchanged turns 7 red.
+- server.files-passing-7850.test.js: every lasting control now asserts `passing === false` (7), a Files-is-a-link case
+  for list and browse, and three for round 1 (folderState EBUSY on the list and the documents, EACCES lasting, a
+  subfolder lstat EAGAIN passing and ENOENT lasting); 18/18. Mutations Q (passingOf never marks) and R (the old
+  resolveListedDir catch) each turn exactly their own test red. Mutation: listingAnswer passing refusals through unchanged turns 7 red.
 - ios/LogicTests/files (run-files.sh): 119/119 with the new cases (lasting replaces on the screen and the agent page,
   passing keeps, unmarked keeps). Mutation: filesLastingRefusal always false turns exactly the 7 lasting cases red.
 - 15 test files touching the listing routes plus engine.reachable: 845 pass, 0 fail.

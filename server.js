@@ -5804,12 +5804,6 @@ const FORM_TYPES = new Set([
    from a host this board does not answer for means the same. Either is
    refused. A request with neither header (curl, an old browser) passes: the
    guard is against the drive-by, not against the person. */
-/* Attach a link preview to every row that carries text with a link (#357).
-   Read from the engine's cache while serving; a link never asked for starts
-   its fetch now and is carried on the next poll, so a payload is never held
-   for the internet. A refusal or "nothing to show" attaches nothing: absence
-   is how the page draws a link that stays a link. The image is this board's
-   own path, never the site's. */
 /* kosmos#7850: a listing refusal (an agent's Files list, its browse, a project's documents) says whether it is passing:
    the engine marks the ones a read moments later may not repeat (passing: true); every other refusal is sent with
    passing: false, so a client can tell a lasting refusal from an older board that says neither. A list is unchanged. */
@@ -5818,6 +5812,12 @@ function listingAnswer(listed) {
   return { ...listed, passing: false };
 }
 
+/* Attach a link preview to every row that carries text with a link (#357).
+   Read from the engine's cache while serving; a link never asked for starts
+   its fetch now and is carried on the next poll, so a payload is never held
+   for the internet. A refusal or "nothing to show" attaches nothing: absence
+   is how the page draws a link that stays a link. The image is this board's
+   own path, never the site's. */
 function withPreviews(rows) {
   if (!Array.isArray(rows)) return rows;
   for (const r of rows) {
