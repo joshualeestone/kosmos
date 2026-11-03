@@ -11,6 +11,12 @@ Card: kosmos#7827 items 6 and 7, and review 8's NITs. Owner: Baron Draxum.
 - NITs: CHECKOUT_SAY / PLANS_SAY indexed with Object.hasOwn (a wire code like 'constructor' is not a sentence); the page
   no longer keeps its own copy of the conflict sentence (the engine always sends it).
 
+## "Nothing was charged" (reviews 1 and 4)
+Only when the request never left this computer (notSent). Every other refusal without a code (a timeout, a 5xx, an
+unreadable answer, even an uncoded 4xx, which the relay raises before it looks at the earlier page) can arrive while a
+page paid in another tab waits for its plan, so it gets backup_checkout_unsure ("Kosmos+ could not finish that just
+now...", Mona Lisa m2596) and the page watches for the plan. Coded refusals keep their own sentences.
+
 ## Also changed by the wider codeOf (review 2)
 codeOf reading an older tunnel's coded line reaches every caller: preview and plansNow now say their named sentence
 (plansNow returns final) where they fell back to generic words, and switchOn's bindAndKey spends the ticket on that
