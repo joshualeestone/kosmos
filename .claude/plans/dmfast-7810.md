@@ -36,7 +36,9 @@ Phone:
 
 ## Weakest premise
 A kept copy is shown as if current until the first read lands; on a dead link the header only says so after 3 failed
-reads (about 45 s). 30 as the first page is a guess at "fills a screen"; it is one constant.
+reads (about 45 s). 30 as the first page is a guess at "fills a screen"; it is one constant. A reader who scrolls up
+within the second or two between the small page and the whole window can be moved when the whole window lands (the
+older rows arrive above them); kept as a known limit, not measured on a device.
 
 ## Tests
 - server.dmtail-7810.test.js: tail=30 newest and positions agree with /thread/older; short thread whole; ETag 304 then
