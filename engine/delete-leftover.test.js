@@ -795,7 +795,9 @@ test('#7819: settings that will not move after the files went: PARTIAL, and it s
   let r;
   try { r = mac.del(name); } finally { fs.chmodSync(dir, 0o755); }
   assert.equal(r.outcome, leftover.OUTCOME.PARTIAL, r.because);
-  assert.match(r.because, /Its settings are still on this computer, so a new agent with this name would start with them\. Deleting what is left again clears them\.$/);
+  assert.match(r.because, /Its settings are still on this computer, so a new agent with this name would start with them\.$/);
+  // Never removed, so no removed-list row: no retry is promised that a person could not reach (kosmos#7825 review 3).
+  assert.doesNotMatch(r.because, /Deleting what is left again/);
   assert.doesNotMatch(r.because, /name is free/);
   assert.equal(fs.existsSync(create.workerDir(name)), false, 'CONTROL: the folder did go');
 });
@@ -1084,7 +1086,7 @@ test('kosmos#7825: records-only settings that will not move: REFUSED, community 
   assert.equal(r.outcome, leftover.OUTCOME.REFUSED, r.because);
   assert.ok(!r.steps.some((x) => x.step === 'its community account'), 'the account was retired while nothing was deleted');
   assert.match(r.because, /^we could not move its settings\. Nothing was moved\./);
-  assert.match(r.because, /Deleting what is left again clears them\.$/);
+  assert.doesNotMatch(r.because, /Deleting what is left again/, 'a retry was promised with no removed-list row to reach it');
   assert.equal(mac.plan(name).ok, true, 'CONTROL: the retry the sentence promises is offered');
   fs.rmSync(store.profilePath(name), { force: true });
 });
@@ -1108,6 +1110,7 @@ test('kosmos#7825: settings stuck after the folder went keep the removed-list ro
   let first;
   try { first = mac.del(name); } finally { fs.chmodSync(dir, 0o755); }
   assert.equal(first.outcome, leftover.OUTCOME.PARTIAL, first.because);
+  assert.match(first.because, /Deleting what is left again from the removed agents list clears them\.$/);
   assert.equal(fs.existsSync(create.workerDir(name)), false, 'CONTROL: the folder did go');
   assert.equal(remove.isRemoved(name), true, 'the removed-list row (the way back to Delete) went while its settings stayed');
   const again = mac.del(name);
@@ -1129,4 +1132,23 @@ test('kosmos#7825: on a case-blind disk a folder recorded in the workers folder 
   // CONTROL: on Linux the two spellings are two folders, so it is outside and refused.
   assert.match(leftover.plan(name, { platform: 'linux' }).because || '', /cannot reach right now/);
   fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a folder or auto-start file that will not go still drops the removed-list record, so the card shows again (review 3)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+  quiet();
+  for (const [name, lockDir] of [['fstuck7825', () => process.env.AGENT_WORKFORCE_WORKERS], ['jstuck7825', () => nodePath.dirname(create.plistPath('jstuck7825'))]]) {
+    leftoverAgent(name);
+    store.writeProfile(name, { displayName: name });
+    const rec = remove.remove(name);
+    assert.notEqual(rec.outcome, remove.OUTCOME.REFUSED, rec.because);
+    assert.equal(remove.isRemoved(name), true, 'fixture: not on the removed list');
+    const dir = lockDir();
+    fs.chmodSync(dir, 0o555);
+    let r;
+    try { r = mac.del(name); } finally { fs.chmodSync(dir, 0o755); }
+    assert.notEqual(r.outcome, leftover.OUTCOME.DELETED, `${name}: fixture: nothing was stuck`);
+    assert.equal(fs.existsSync(store.profilePath(name)), true, `${name}: CONTROL: the records step did not run`);
+    assert.equal(remove.isRemoved(name), false, `${name}: the removed-list record was kept while a folder or job still shows the card`);
+    assert.equal(remove.isHidden(name), false, `${name}: the card stays hidden`);
+  }
 });

@@ -13,7 +13,7 @@ With no folder and no job, `plan()` now looks at the name's stored records (same
 for another agent under the same stored name: unchanged, "nothing left". Otherwise offered, unless `strandedRefusal` says
 they are somebody's on purpose:
 - a world start waiting to retry: the name (or a same-stored-name spelling) is in `world-starts.json`
-  (new `worldstarts.pendingNames()`), or the profile carries `policyHeld`;
+  (new `worldstarts.pendingNames()`). Not `policyHeld` alone (round 1);
 - a connected agent whose recorded folder is outside the workers folder and out of reach (an unplugged disk or share);
   a recorded folder inside the workers folder that is gone counts as left over;
 - a record that cannot be read refuses, as every failed look in plan() does.
@@ -29,7 +29,7 @@ Rejected:
   #7819-era leftover.
 
 ## Weakest premise
-That world starts and policy holds are the only places a profile is written on purpose before a folder exists. Swept:
+That world starts (including their policy holds) are the only places a profile is written on purpose before a folder exists. Swept:
 every `writeProfile(` caller in engine/ and server.js; the others write for an agent that already has a folder or is
 connected (discover writes `dir`, handled by the out-of-reach rule). A future writer of a pre-folder profile would be
 offered for deleting.
@@ -71,3 +71,12 @@ never offering at all.
   CONTROL. Each fix mutation-checked.
 - Weakest premise, added: a world start registered between del()'s re-plan and its move is not seen (the usual
   plan-then-act gap, narrowed by the re-plan).
+
+## Review round 3 (opus, fixed)
+- The retry sentence is promised only when the removed list's row exists (remove.isRemoved after the step): an agent
+  deleted from its own page that was never removed has no row and, with its folder gone, no page. That case is left to
+  PR 2, which lists every profile-only name, not only pre-#7819 ones.
+- Pinned: a folder or auto-start file that will not go still drops the removed-list record (the card is the way back).
+- Two comments the move made false (the standing reset's reason; "unlike forget above"). Plan lines on policyHeld.
+- Declined: capitalising the community-only `because` start; every `because` here starts lower case by convention.
+- Each fix mutation-checked (kept row, dropped row on folder/job stuck, door, no door).
