@@ -1284,3 +1284,35 @@ test('kosmos#7825: with the workers folder gone, a folder recorded inside it is 
   // The sandbox sits under /var, a link to /private/var on a Mac: resolved on one side only, it read as outside.
   assert.equal(p.ok, true, p.because);
 });
+
+/* kosmos#7825 PR 2: the removed list's source of names with only settings left. */
+test('kosmos#7825 PR 2: settingsLeftovers lists a profile with no folder and no job, and nothing that is still something else', () => {
+  quiet();
+  const lone = strandedProfile('list7825');
+  const live = leftoverAgent('hasdir7825', { job: false });   // a folder: not settings-only
+  store.writeProfile(live, { displayName: live });
+  const gone = leftoverAgent('removed7825', { job: false });
+  store.writeProfile(gone, { displayName: gone });
+  assert.notEqual(remove.remove(gone).outcome, remove.OUTCOME.REFUSED);
+  fs.rmSync(create.workerDir(gone), { recursive: true, force: true });   // removed, then its folder went by hand: drawn as a removed row already
+  const waiting = strandedProfile('wait7825');
+  const jobOnly = strandedProfile('jobonly7825');   // its startup job is still there: "Delete" already reaches it
+  fs.mkdirSync(nodePath.dirname(create.plistPath(jobOnly)), { recursive: true });
+  fs.writeFileSync(create.plistPath(jobOnly), '<plist/>');
+  try {
+    withWorldStarts([{ name: waiting, why: 'import' }], () => {
+      const r = leftover.settingsLeftovers({ platform: 'darwin' });
+      assert.equal(r.ok, true);
+      const names = r.names.map((x) => x.name);
+      assert.ok(names.includes(lone), 'a stranded profile was not listed: ' + JSON.stringify(names));
+      assert.deepEqual(r.names.find((x) => x.name === lone), { name: lone, shownAs: lone });
+      for (const n of [live, gone, waiting, jobOnly]) assert.ok(!names.includes(n), `${n} was listed as settings only`);
+    });
+    assert.ok(leftover.settingsLeftovers({ platform: 'darwin' }).names.some((x) => x.name === waiting), 'CONTROL: without its world start it is settings only');
+    withWorldStarts('{broken', () => assert.deepEqual(leftover.settingsLeftovers({ platform: 'darwin' }), { ok: false, names: [] }, 'an unreadable world-start record listed names'));
+  } finally {
+    for (const n of [lone, live, gone, waiting, jobOnly]) fs.rmSync(store.profilePath(n), { force: true });
+    fs.rmSync(create.plistPath(jobOnly), { force: true });
+    try { remove.forget(gone); } catch { /* best effort */ }
+  }
+});

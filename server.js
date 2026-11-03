@@ -256,6 +256,8 @@ function trustDialogHold(card, seen, capture) {
   return held;
 }
 const leftover = require('./engine/delete-leftover');
+/* kosmos#7825 PR 2: the last settingsLeftovers read, { at, r }, for /api/removed; null after any delete. */
+let SETTINGS_LEFTOVERS = null;
 const firstrun = require('./engine/firstrun');
 const platformGate = require('./engine/platform');
 const cloudMachine = require('./engine/cloudmachine');   // kosmos#4903 S5
@@ -10613,7 +10615,8 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
         let done;
         try { done = leftover.del(name, { typed: body.typed }); }
-        catch (err) { sendJson(res, 500, { error: 'the delete failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
+        catch (err) { SETTINGS_LEFTOVERS = null; sendJson(res, 500, { error: 'the delete failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
+        SETTINGS_LEFTOVERS = null;   // kosmos#7825 PR 2: the removed list redraws from a fresh read
         sendJson(res, done.outcome === leftover.OUTCOME.REFUSED ? 400 : 200, done);
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
@@ -17890,7 +17893,19 @@ const server = http.createServer(async (req, res) => {
      * none of which the browser reads, and all of which are machine detail this
      * product's whole vocabulary rule says a person is never shown.
      */
+    /* kosmos#7825 PR 2: names with only settings left (no folder, no job, never or no longer removed). The removed list
+       is the one screen listing agents with no card, so their way to "Delete" is drawn there. Omitted when the read
+       failed, so the screen draws nothing rather than a false empty list. Remembered for 15 s: the list repaints
+       every 5 s on the Agents tab and the read looks at every job. Only name and shownAs, for the reason below. */
+    const now = Date.now();
+    if (!SETTINGS_LEFTOVERS || now - SETTINGS_LEFTOVERS.at > 15000) {
+      let r;
+      try { r = leftover.settingsLeftovers(); } catch { r = { ok: false, names: [] }; }
+      SETTINGS_LEFTOVERS = { at: now, r };
+    }
+    const lr = SETTINGS_LEFTOVERS.r;
     sendJson(res, 200, {
+      ...(lr.ok ? { leftovers: lr.names.map((x) => ({ name: x.name, shownAs: x.shownAs || x.name })) } : {}),
       agents: agents.map((a) => ({
         name: a.name,
         shownAs: a.shownAs || a.name,

@@ -51166,6 +51166,9 @@ async function paintRemoved() {
   const toggle = document.getElementById('removed-toggle');
   const mine = ++REMOVED_TOKEN;
   let gone = null;
+  /* kosmos#7825: names with only settings left (no folder, no job), which have no card and, unless removed, no row:
+     this list is the one screen that can draw their way to "Delete". Absent when the board could not read them. */
+  let left = [];
   try {
     const res = await fetch('/api/removed', { cache: 'no-store' });
     /**
@@ -51182,6 +51185,7 @@ async function paintRemoved() {
     const body = await res.json().catch(() => null);
     if (!body || !Array.isArray(body.agents)) return removedUnreadable();
     gone = body.agents;
+    left = Array.isArray(body.leftovers) ? body.leftovers : [];
     REMOVED_EVER_READ = true;
     /* ⚠️ AND TAKE THE SENTENCE DOWN. Written on a first-load failure, it was
        never retracted: one transient /api/removed failure left "we could not
@@ -51216,7 +51220,7 @@ async function paintRemoved() {
   // (Tab, not grid: the grid hides in list layout while this screen is on.)
   if (!onAgentsTab()) return;
 
-  if (gone.length === 0) {
+  if (gone.length === 0 && left.length === 0) {
     wrap.hidden = true;
     /**
      * ⚠️ AND FORGET WHAT WAS DRAWN. The cache below is what stops the poll
@@ -51241,7 +51245,7 @@ async function paintRemoved() {
      the direction; aria-expanded and the list itself carry open/closed.
      A flipping Show/Hide made the five-second repaint move the word under
      the pointer. */
-  toggle.textContent = 'Show removed agents (' + gone.length + ')';
+  toggle.textContent = 'Show removed agents (' + (gone.length + left.length) + ')';
   toggle.setAttribute('aria-expanded', String(REMOVED_OPEN));
   list.hidden = !REMOVED_OPEN;
   /**
@@ -51267,7 +51271,7 @@ async function paintRemoved() {
    * explaining why. The split exists to make that legible; this is where it
    * becomes visible.
    */
-  const html = gone.map((a) => '<div class="removed-row">'
+  const html = (gone.length ? gone.map((a) => '<div class="removed-row">'
     + '<div><span class="who">' + esc(a.shownAs || a.name) + '</span>'
     + '<span class="when">' + esc(whenRemoved(a))
     + (a.stopped === false ? ' · <b>may still be running</b>' : '') + '</span></div>'
@@ -51322,7 +51326,16 @@ async function paintRemoved() {
     + '</div>').join('')
     /* the hint rides INSIDE the list so it shows exactly when the rows do;
        it restates what makes the light Remove confirmation honest */
-    + '<p class="removed-hint">Nothing was deleted. Their folders and everything you wrote for them are still on this computer, so restoring puts them back as they were. A name stays taken while its files stay; delete them to use it again.</p>';
+    + '<p class="removed-hint">Nothing was deleted. Their folders and everything you wrote for them are still on this computer, so restoring puts them back as they were. A name stays taken while its files stay; delete them to use it again.</p>' : '')
+    /* kosmos#7825: after the removed rows and their hint (which is about folders, and false for these). No Restore:
+       there is nothing to restore. The same door as a removed row: the plan is fetched on the click, and a refusal is
+       painted as a sentence under the list. */
+    + left.map((x) => '<div class="removed-row">'
+      + '<div><span class="who">' + esc(x.shownAs || x.name) + '</span>'
+      + '<span class="when">Only its settings are left</span></div>'
+      + '<div class="acts"><button class="btn danger-btn" type="button" data-delete-leftover="' + esc(x.name) + '"'
+      + ' data-shown-as="' + esc(x.shownAs || x.name) + '">Delete what is left…</button></div>'
+      + '</div>').join('');
 
   /**
    * ⚠️ ONLY REWRITE WHEN THE ANSWER ACTUALLY CHANGED, and this is not an

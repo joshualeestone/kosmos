@@ -853,4 +853,25 @@ function del(name, opts) {
   };
 }
 
-module.exports = { OUTCOME, plan, del, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo };   // writeTrashInfo for its #5445 test
+/* kosmos#7825 PR 2: the names whose only remains are stored settings, for the removed list, which is the one screen
+   that lists agents with no card. A profile with no folder, a job KNOWN to be absent (survey's null, "could not look",
+   is left out: hiding a real leftover beats offering a wrong one), not on the removed list (those rows are drawn
+   already), and no world start waiting under the stored name. Built on register.survey, the reader Repair and the
+   board's offline rows use, so "no folder, no job" means one thing everywhere. Not filtered by the recorded-folder rule:
+   that look can block on a share that is gone, and this is polled; the click asks plan(), which refuses with the true
+   sentence. { ok, names: [{ name, shownAs }] }; ok false lists none. */
+function settingsLeftovers(opts) {
+  const s = require('./register').survey(opts);
+  if (!s || !s.ok) return { ok: false, names: [] };
+  const pending = require('./worldstarts').pendingNames();
+  if (pending === null) return { ok: false, names: [] };
+  const store = require('./store');
+  const keyOf = (n) => { try { return store.safeKey(n); } catch { return null; } };
+  const waiting = new Set(pending.map(keyOf).filter(Boolean));
+  const names = s.agents
+    .filter((a) => a.profile === true && a.folder === false && a.job === false && !a.removed && !waiting.has(keyOf(a.name)))
+    .map((a) => ({ name: a.name, shownAs: a.shownAs || a.name }));
+  return { ok: true, names };
+}
+
+module.exports = { OUTCOME, plan, del, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo };   // writeTrashInfo for its #5445 test
