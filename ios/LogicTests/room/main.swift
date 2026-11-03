@@ -568,7 +568,8 @@ check(chatSource.contains("if recover, diagDone { recoverEmpty(proxy, later: tru
 // kosmos#7817 (11-03, build 29 blanked a long chat): a release build never follows the box's growth; only the Debug switch does.
 check(chatSource.contains("    static let followsBox: Bool = {\n        #if DEBUG\n        return ProcessInfo.processInfo.environment[\"KOSMOS_SAMPLE_BOXFOLLOW\"] == \"1\"\n        #else\n        return false\n        #endif\n    }()"),
       "kosmos#7817: the box follow is off in a release build")
-check(chatSource.contains(".onChange(of: stripHeight) { _ in\n                    guard Self.followsBox, "), "kosmos#7817: the box follow asks followsBox first")
+check(chatSource.contains(".onChange(of: stripHeight) { _ in\n                    guard visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }\n                    guard Self.followsBox else { Self.trace(\"box height changed, not followed\"); return }\n                    Self.trace(\"box height changed, to the newest\")"),
+      "kosmos#7817: the box follow asks followsBox before it moves anything, and records when it did not follow")
 // kosmos#7420 review 1: the rebuild's control switch is read by recoverEmpty in every build, so its Release value stands
 // outside the DEBUG-only sample block (nested inside it, its #else could never compile and Release would not build).
 check(chatSource.contains("    #endif\n    // kosmos#7420: KOSMOS_SAMPLE_NOREBUILD=1 (Debug) is the control: the recovery never rebuilds. Release reads false.\n    #if DEBUG\n    static let sampleNoRebuild = ProcessInfo.processInfo.environment[\"KOSMOS_SAMPLE_NOREBUILD\"] == \"1\"\n    #else\n    static let sampleNoRebuild = false\n    #endif"),
