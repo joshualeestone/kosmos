@@ -14,7 +14,9 @@ FilesSectionState.forNow plus filesSectionAfter on the agent page) both use it.
 
 ## Weakest premise
 That no board route answers a 4xx other than 404/410 to mean "this is gone now". Checked the routes the phone reads
-here (instructions, skills, files) only by reading their handlers' status lines, not every route.
+here (instructions, skills, files) by reading their GET handlers in server.js: they answer 200, 404, 500 and a 400
+for a name they cannot read (which a name already read once cannot newly hit), so nothing the phone reads uses another
+4xx to mean gone. 409 appears only on the files verbs and skills POST, which this rule does not read.
 
 ## Not changed
 A 200 the phone cannot read with no words: the Profile keeps (profileCannotRead), the Files screen replaces with
