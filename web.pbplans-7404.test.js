@@ -234,3 +234,15 @@ test('the off view says "from" the smallest plan\'s price; the words view keeps 
   assert.equal(f({ price: '$5/month' }), 'Personal backup is $5 a month, billed to your Kosmos+ account.');
   assert.equal(f({ price: null }, true), '', 'a line with no price');
 });
+
+test('Choose refused because the account already has a plan reads the plan, and the rows give way to it', async () => {
+  const doc = fakeDoc();
+  let planGb = null, reads = 0;
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: false, code: 'backup_plan_exists', because: 'This account already has a backup plan.' })()
+    : (reads++, answer({ ok: true, plans: PLANS, planGb })())));
+  s.pbpShow(true, false); await tick(); await tick();
+  planGb = 100;
+  await s.pbpChoose(25); await tick(); await tick();
+  assert.equal(reads, 2, 'the plan was not read again');
+  assert.ok(!vis(doc, 'pb-plans'), 'the rows stayed beside a plan the account already has');
+});
