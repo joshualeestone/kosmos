@@ -1140,6 +1140,12 @@ enum Board {
     }
     // kosmos#7810: the newest messages the first read of an open asks for (about two phone screens).
     static let threadFirstPage = 30
+    // kosmos#7810: what a chat's next read asks for. With nothing shown and no whole window read yet, the newest
+    // threadFirstPage; otherwise the whole window, naming the shown window's tag only once a whole window has landed.
+    static func threadAsk(fullRead: Bool, showing: Bool, tag: String?) -> (tail: Int?, tag: String?) {
+        if !fullRead && !showing { return (threadFirstPage, nil) }
+        return (nil, fullRead ? tag : nil)
+    }
 
     // A link in an agent's message is kept only when it opens a web page (http or https, with a host).
     static func isWebLink(_ url: URL) -> Bool {

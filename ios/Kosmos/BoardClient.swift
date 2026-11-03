@@ -640,10 +640,12 @@ final class BoardClient: ObservableObject {
         guard let held = admitted, let request = Board.threadRequest(mac: held.url, session: session, tail: tail, tag: tag) else { return (.noAnswer, nil) }
         let owner = chatsOwner
         let mac = held.url.absoluteString
+        let epoch = chatEpoch
         let result = await env.send(request)
         let read = Board.readThread(status: result?.1.statusCode ?? 0, data: result?.0)
         let etag = result?.1.value(forHTTPHeaderField: "ETag")
-        if tail == nil, case .thread = read, let data = result?.0, owner == chatsOwner,
+        // Not after a forgetting (another computer or account) while it was on its way: that read is the one before's.
+        if tail == nil, case .thread = read, let data = result?.0, owner == chatsOwner, epoch == chatEpoch,
            let file = threadFile(session, owner: owner, mac: mac) {
             try? FileManager.default.createDirectory(at: env.threads, withIntermediateDirectories: true)
             try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
@@ -651,11 +653,12 @@ final class BoardClient: ObservableObject {
         return (read, etag)
     }
 
-    // kosmos#7810: the conversation this phone last read from this computer for this account, or nil.
+    // kosmos#7810: the conversation this phone last read from this computer for this account, or nil. Its rows only:
+    // never a question's buttons (no thread read, no buttons: the question may have moved on).
     func keptThread(for session: String) -> Board.Thread? {
         guard let mac = admitted?.url.absoluteString, let file = threadFile(session, owner: chatsOwner, mac: mac),
-              let data = try? Data(contentsOf: file) else { return nil }
-        return Board.parseThread(data)
+              let data = try? Data(contentsOf: file), let t = Board.parseThread(data) else { return nil }
+        return Board.Thread(rows: t.rows, olderCount: t.olderCount)
     }
     // One file per account, computer and agent, named by a hash of the three, so no name or address is in a file name.
     private func threadFile(_ session: String, owner: String?, mac: String) -> URL? {
