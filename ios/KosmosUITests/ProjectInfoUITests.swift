@@ -52,6 +52,29 @@ final class ProjectInfoUITests: XCTestCase {
         XCTAssertTrue(app.tabBars.buttons["Projects"].isHittable, "CONTROL: the list's tab bar is not on screen")
     }
 
+    // kosmos#7847 final review: a task opened from the project page keeps the bar hidden too. Measured on iOS 27.0 and
+    // 26.5: the room's hidden bar carries down the stack to every screen pushed from it, so the task page needs no rule
+    // of its own (a per-screen flag was tried and changed nothing, both arms passing). This guards that behaviour: a
+    // screen pushed here that set the bar visible would fail it.
+    func testATaskOpenedFromTheProjectPageHasNoTabBar() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_TAB": "projects", "KOSMOS_SAMPLE_PROJECT": "springcatalogue"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Add a file to this conversation"].waitForExistence(timeout: 20), "the sample room did not open")
+        app.buttons["room-info"].tap()
+        XCTAssertTrue(app.staticTexts["What it is for"].waitForExistence(timeout: 10), "About did not open")
+        app.swipeUp()
+        let task = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Pages 9 to 12'")).firstMatch
+        XCTAssertTrue(task.waitForExistence(timeout: 10), "no open task row")
+        task.tap()
+        XCTAssertTrue(app.navigationBars.matching(NSPredicate(format: "identifier BEGINSWITH 'Task '")).firstMatch.waitForExistence(timeout: 10)
+                      || app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Task '")).firstMatch.waitForExistence(timeout: 2), "the task page did not open")
+        sleep(1)
+        XCTAssertFalse(app.tabBars.buttons["Projects"].isHittable, "the tab bar came back on a task opened from the project")
+        shot(app, "project-task-no-tab-bar")
+    }
+
     // Review 1: tapping a member opens their chat on top of the project page.
     func testAMemberOpensTheirChat() throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }

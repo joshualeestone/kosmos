@@ -1260,6 +1260,16 @@ extension Board {
     }
     // The board's notification choices (pjs-notify), in its order.
     static let projectNotifyLevels: [(key: String, label: String)] = [("all", "All"), ("mentions", "Mentions only"), ("muted", "Muted")]
+    // Final review: what each level means, the board's own lines (PJ_NOTIFY_HINT), word for word.
+    static func projectNotifyHint(_ level: String) -> String {
+        switch level {
+        case "mentions": return "Only what is addressed to you: an agent that needs you, a post that names you, and work waiting for your check. No new-message sound."
+        case "muted": return "Nothing from this project: no sound and no phone notifications. Its unread count still shows, so nothing is lost."
+        default: return "Everything from this project: phone notifications as you set them in Settings, and the new-message sound if it is on."
+        }
+    }
+    // Final review: a cleared name is never sent, so the box says why Save went.
+    static let projectNameNeeded = "A project needs a name."
 
     enum ProjectChange: Equatable {
         case text(name: String, description: String)
