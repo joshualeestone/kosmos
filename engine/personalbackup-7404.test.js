@@ -1081,6 +1081,11 @@ test('#7404 plansNow: the plan is read first; an unread or unreadable plan is a 
   assert.equal(m.ok, false);
   assert.match(m.because, /could not read.*Updating Kosmos may fix it\.$/);
   assert.ok(!bad.remote.sent.includes(PREVIEW), 'the preview route was called after an unreadable plan');
+  const absent = await onWith(t, {});
+  const ab = await pb.plansNow({ root: absent.root, remote: absent.remote });
+  assert.deepEqual(ab, { ok: false, because: 'Kosmos+ did not say which plan this backup has, so the plans cannot be shown here.' }, 'a status with no plan field is not an outage');
+  const coded = await onWith(t, { planGb: null, preview: { ok: false, because: '403 {"code":"org_not_member"}', refusal: { status: 403, code: 'org_not_member' } } });
+  assert.equal((await pb.plansNow({ root: coded.root, remote: coded.remote })).because, 'Kosmos+ did not say which plan this backup has, so the plans cannot be shown here.', 'a coded refusal said try again in a minute');
   const good = await onWith(t, { planGb: null });
   good.remote.sent.length = 0;
   assert.equal((await pb.plansNow({ root: good.root, remote: good.remote })).ok, true);
@@ -1117,6 +1122,11 @@ test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in 
   assert.deepEqual(await pb.checkout(25, { root: down.root, remote: down.remote }), { ok: false, because: RETRY }, 'Kosmos+ unreached');
   const odd = await onWith(t, { checkout: () => ({ ok: true, data: { url: 'https://evil.example/x' } }) });
   assert.deepEqual(await pb.checkout(25, { root: odd.root, remote: odd.remote }), { ok: false, because: RETRY }, 'a page this Kosmos does not open');
+  const opening = await onWith(t, { checkout: () => ({ ok: false, because: '409', refusal: { status: 409 } }) });
+  assert.match((await pb.checkout(25, { root: opening.root, remote: opening.remote })).because, /is opening a payment page for this already/, 'the codeless 409');
+  const unknown = await onWith(t, { checkout: () => ({ ok: false, because: '409 {"code":"something_new"}', refusal: { status: 409, code: 'something_new' } }) });
+  const u = await pb.checkout(25, { root: unknown.root, remote: unknown.remote });
+  assert.equal(u.because, 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.', 'a code this Kosmos does not know was told as an opening page');
   const sent = [];
   assert.equal((await pb.checkout(25, { root: fresh(t), remote: { macRequest: async (m, route) => { sent.push(route); return { ok: true, data: { url: page } }; } } })).ok, false, 'not on here');
   assert.deepEqual(sent, [], 'a checkout was asked for with personal backup off here');

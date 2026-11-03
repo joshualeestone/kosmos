@@ -654,6 +654,8 @@ function isOn(opts = {}) { return !!record(opts); }
    { ok: true, plans, planGb } (planGb: GB, or null with no plan) or { ok: false, because }. */
 const PLANS_UNREAD = 'Kosmos+ could not be reached just now, so the plans cannot be shown. Try again in a minute.';
 const PLANS_SAY = { personal_backup_off: 'Personal backup is not available on Kosmos+ yet.' };
+// Kosmos+ answered, but not with this backup's plan (another membership, or an older Kosmos+): a retry would not help.
+const PLANS_UNSAID = 'Kosmos+ did not say which plan this backup has, so the plans cannot be shown here.';
 async function plansNow(opts = {}) {
   const rec = record(opts);
   if (!rec) return { ok: false, code: 'not_on', because: 'Personal backup is not on for this computer.' };
@@ -661,12 +663,13 @@ async function plansNow(opts = {}) {
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: PLANS_UNREAD };
   const gb = await planOf(opts);
   if (gb === 'malformed') return { ok: false, because: STOP_SAY.find(([f]) => f === 'planUnreadable')[1] + '.' };
-  if (gb !== null && !Number.isSafeInteger(gb)) return { ok: false, because: PLANS_UNREAD };
+  if (gb === 'unread') return { ok: false, because: PLANS_UNREAD };
+  if (gb !== null && !Number.isSafeInteger(gb)) return { ok: false, because: PLANS_UNSAID };
   let r;
   try { r = await remote.macRequest('POST', ROUTE, {}); } catch { return { ok: false, because: PLANS_UNREAD }; }
   if (!r || !r.ok) {
     const c = codeOf(r);
-    return { ok: false, because: (c && PLANS_SAY[c]) || PLANS_UNREAD };
+    return { ok: false, because: c ? PLANS_SAY[c] || PLANS_UNSAID : PLANS_UNREAD };
   }
   const d = r.data;
   if (!d || !d.org || d.org.id !== rec.org.id) return { ok: false, because: 'Kosmos+ answered about another backup, so the plans cannot be shown here.' };
@@ -705,7 +708,7 @@ async function checkout(gb, opts = {}) {
     const c = codeOf(r);
     if (c && CHECKOUT_SAY[c]) return { ok: false, code: c, because: CHECKOUT_SAY[c] };
     // A conflict with no code: an earlier page is still being opened (backup_plans.rs Opening).
-    return { ok: false, because: r && r.refusal ? 'Kosmos+ is opening a payment page for this already. Try again in a moment.' : CHECKOUT_RETRY };
+    return { ok: false, because: r && r.refusal && !c && r.refusal.status === 409 ? 'Kosmos+ is opening a payment page for this already. Try again in a moment.' : CHECKOUT_RETRY };
   }
   const url = stripeCheckoutUrl(r.data && r.data.url);
   if (!url) return { ok: false, because: CHECKOUT_RETRY };

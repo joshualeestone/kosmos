@@ -56043,6 +56043,7 @@ document.getElementById('pb-on').addEventListener('click', pbOpen);
    GB or null) when the on view shows, then once a minute only until a read works or while a payment page is open;
    with a plan, nothing more is read. */
 var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, gb: null, since: 0, reading: false, msgFrom: null };
+const PBP_RECHECK_MS = 60 * 60000;   // the backup runs hourly, so its no-plan stop is at most an hour behind a payment
 const PBP_CONFIRMING_MS = 3 * 60000;   // Kitty m2543: a late webhook can take hours, so after a few minutes say so
 function pbpMsg(t, from) { document.getElementById('pb-plans-msg').textContent = t ? asSentence(t) : ''; PBP.msgFrom = t ? from || null : null; }
 function pbpRows() {
@@ -56052,6 +56053,8 @@ function pbpRows() {
    the answer to that stop, so it stays open; once the plans or the plan are known, that stop's line gives way. */
 function pbpOnView(on, lines, drop) {
   const open = on && (!lines.stopped || lines.noPlan);
+  // The job still says no plan, against a plan read here an hour or more ago: the plan may have lapsed, so read it again.
+  if (open && lines.noPlan && Number.isSafeInteger(PBP.planGb) && Date.now() - PBP.at > PBP_RECHECK_MS) { PBP.planGb = undefined; PBP.plans = null; }
   pbpShow(open, drop);
   const say = document.getElementById('pb-on-say');
   if (open && lines.noPlan && (Number.isSafeInteger(PBP.planGb) || pbpRows().length)) { document.getElementById('pb-job').hidden = true; say.textContent = 'Personal backup is on for this computer.'; }
