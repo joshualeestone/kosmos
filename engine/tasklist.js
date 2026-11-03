@@ -5,7 +5,8 @@
  * --built`. ONE copy, run by both CLIs (install/kosmos through `node tasklist.js compact`, the Windows CLI through
  * require), so the two can never print it differently.
  *
- * One line per task, `#<n>  <state>  <owner>  <title>`, then a count line. Nothing is cut: a title is printed whole
+ * One line per task, `#<n>  <state>  <owner>  <title>` (a built line then says whether the person has seen it, kosmos#7875),
+ * then a count line. Nothing is cut: a title is printed whole
  * (folded onto its one line, so its words can never print a line of their own), and when the board's own count differs
  * from the rows it sent, that is said rather than passed off as the whole group. A task a webhook added is marked and
  * its words quoted exactly as the long list does (#1307): they came from anyone holding the link, and the agent reading
@@ -92,6 +93,7 @@ function quietWords(at, now) {
    seenByPerson only on the built list, from engine/taskseen.js). No field, an older board: nothing is said. A view
    before the build is not one of the built work. A task the person marked built themselves says so instead. */
 function seenWords(x) {
+  // No seenByPerson field (an older board): nothing at all, the person's own mark included.
   if (!x || !Object.prototype.hasOwnProperty.call(x, 'seenByPerson')) return '';
   if (x.builtByPerson === true) return '  (marked built by the person)';   // they marked it, wherever: no need to raise it
   const seen = typeof x.seenByPerson === 'string' ? Date.parse(x.seenByPerson) : NaN;
