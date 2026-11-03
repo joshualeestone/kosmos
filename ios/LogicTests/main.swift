@@ -5507,6 +5507,16 @@ do {
     check(Board.readerRow(["a": 50, "edge": 600], below: 100, above: 600)! == ("a", 50) && Board.readerRow(["a": 50, "in": 599.5], below: 100, above: 600)! == ("in", 599.5),
           "a top exactly at the bottom of what shows is below the screen; one just above it counts")
     check(Board.readerRow(["next": 700], below: 100, above: 600) == nil && Board.readerRow([:], below: 100, above: 600) == nil, "only rows below the screen, or none drawn: nothing to hold")
+    // kosmos#7645 (CI run 41691914906): a read-back that puts every row below the screen falls back to the rows as they are.
+    let band: [String: Double] = ["p204": 114, "p205": 204, "p206": 293]
+    let kept = Board.holdRow(band, back: -100, below: 165, above: 427)
+    check(kept.row! == ("p206", 193) && kept.back == -100 && !kept.fellBack, "a read-back that leaves a row on the screen is used as before (#7690)")
+    let fell = Board.holdRow(band, back: 538, below: 165, above: 427)
+    check(fell.row! == ("p205", 204) && fell.back == 0 && fell.fellBack, "a read-back of 538 puts every row below the screen: the rows are read where they are, the jump not undone")
+    let none = Board.holdRow(["below": 700], back: 538, below: 165, above: 427)
+    check(none.row == nil && none.back == 538 && !none.fellBack, "no row on the screen either way: nothing to hold, the read-back kept for the trace")
+    let flat = Board.holdRow(["below": 700], back: 0, below: 165, above: 427)
+    check(flat.row == nil && !flat.fellBack, "no read-back and no row: nothing to hold, no fall-back")
     check(Board.readerRow(["m2": 140, "m1": 140], below: 100, above: 600)! == ("m1", 140), "a tie is broken the same way every time")
     // kosmos#7684: a sort saved before this build is forgotten once; a choice made after that is kept.
     do {
