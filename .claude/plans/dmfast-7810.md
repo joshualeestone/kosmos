@@ -30,6 +30,9 @@ Phone:
 - Compressing API answers (the BREACH rule stands).
 - `since=` diff reads: deliveries, reactions and deletions change old rows; an ETag sees any change.
 - Changing project rooms here: #7365 (Renet) shares the 5 s full poll; the same ETag helper can be applied there next.
+- Keeping the kept copy's ETag for its first poll: a 304 would then leave a waiting question's buttons undrawn (the
+  kept copy has none), so the first read after a kept copy is always whole. A follow-up could keep the tag when the
+  kept body asked nothing.
 
 ## Weakest premise
 A kept copy is shown as if current until the first read lands; on a dead link the header only says so after 3 failed
