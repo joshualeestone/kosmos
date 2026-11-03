@@ -765,14 +765,12 @@ struct ChatView: View {
                 // kosmos#7817 (Josh 11-02): the box growing or shrinking a line as he typed moved the conversation elsewhere.
                 // Anything in the strip counts (a wrap, the line above the box, the emoji panel, a reply or file row). A
                 // reader at the newest message stays there, as when the keyboard comes up; one higher up is left alone.
-                // Under the id anchor, an anchor still on the end also says so: a jump of several lines can hide the end
-                // marker, and clear atBottom, before this runs.
-                .onChange(of: stripHeight) { _ in
-                    guard visible, atBottom || (Self.idAnchor && positionId == "end"), !searching, !personScrolling,
-                          !scrollBox.underFinger else { return }
+                // Not the strip's first measure (0 to its height as the chat opens): the opening places the list itself.
+                .onChange(of: stripHeight) { [was = stripHeight] _ in
+                    guard was > 0, visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
                     Self.trace("box height changed, to the newest")
                     appMoves &+= 1
-                    if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end"; atBottom = true } else { goNewest(proxy) }
+                    if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                     // Only the chat on screen: another tab can keep a chat alive under it.

@@ -174,14 +174,15 @@ final class KeyboardSlideUITests: XCTestCase {
         }
         XCTAssertGreaterThan(box.frame.height, h0 + 60, "the box did not grow by at least three lines")
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = "grown"; a.lifetime = .keepAlways; add(a)
-        // And back down: deleting the last four pieces takes the box under its line limit and lines off it.
+        // And back down: deleting the last four pieces (54 characters each) takes the box under its line limit and lines off it.
         let grown = box.frame.height
-        box.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 220))
+        box.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 4 * 54))
         checkGap("after deleting four pieces")
         XCTAssertLessThan(box.frame.height, grown - 15, "the box did not shrink by a line (\(Int(grown)) to \(Int(box.frame.height)) pt)")
     }
 
     // kosmos#7817: a reader higher up is not pulled to the newest message as the box grows (only one at the newest is).
+    // A regression guard for the follow's own condition: it passes on main too, which never followed the box.
     func testReadHigherUpStaysWhileTheBoxGrows() throws {
         let app = Self.launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_SCROLLUP": "40", "KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
