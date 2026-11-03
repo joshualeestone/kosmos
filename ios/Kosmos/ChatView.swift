@@ -2845,6 +2845,13 @@ struct KeyboardHold: UIViewRepresentable {
         private func endGuard() { guarding = nil; rows?.watch = nil }
         #if DEBUG
         private var jumpWatch: NSKeyValueObservation?
+        private var heightTimer: Timer?   // kosmos#7420, KOSMOS_SAMPLE_HEIGHT=1
+        // kosmos#7420: points and counts only (the allow-list test pins this line): the reported content height, the offset,
+        // how many rows are drawn, the first and last drawn row's place in the content, and the content left past the last.
+        static func heightLine(_ sv: UIScrollView, rows: RowTops) -> String {
+            let at = rows.y.values.map(\.content), first = at.min() ?? 0, last = at.max() ?? 0, size = sv.contentSize.height
+            return "content \(Int(size)), y \(Int(sv.contentOffset.y)), drawn \(at.count), from \(Int(first)) to \(Int(last)), past last \(Int(size - last))"
+        }
         #endif
         // kosmos#7690: from, to and the app's own frames on the stack, Debug only.
         static func jumpLine(_ a: CGFloat, _ b: CGFloat) -> String {
@@ -2931,6 +2938,17 @@ struct KeyboardHold: UIViewRepresentable {
                 if abs(b - a) > Self.jumpSize { self.lastJump = (a, b, now) }
             }
             #if DEBUG
+            // kosmos#7420: a Debug sample run with KOSMOS_SAMPLE_HEIGHT=1 too: every half second, the content height the list
+            // reports against where its drawn rows sit in that content, to see the lazy list's estimate (124690 pt for about
+            // 19498 measured on Josh's phone) grow as the window lands.
+            heightTimer?.invalidate(); heightTimer = nil
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HEIGHT"] == "1" {
+                heightTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] t in
+                    guard let self, self.window != nil else { t.invalidate(); return }   // the chat left: no more lines
+                    guard let v = self.scroll, let r = self.rows else { return }
+                    ChatView.trace("height: \(Self.heightLine(v, rows: r))")
+                }
+            }
             // kosmos#7690: a Debug sample run with a trace: every jump of the list and what made it (the tap on the box moves a room by
             // about 490 pt before will-show, measured on CI).
             jumpWatch = nil

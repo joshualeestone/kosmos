@@ -635,7 +635,19 @@ final class BoardClient: ObservableObject {
     // .unchanged with no body.
     func threadRead(for session: String, tail: Int? = nil, tag: String? = nil) async -> (read: Board.ThreadRead, tag: String?) {
         #if DEBUG
-        if sampleThreads[session] != nil { return (await thread(for: session), nil) }
+        if sampleThreads[session] != nil {
+            // kosmos#7420, KOSMOS_SAMPLE_FIRSTPAGE=1: the small first page as the Mac answers it (#7810: the newest `tail`,
+            // olderCount counting the rest), and the whole window a second later as a phone's next read lands, to reproduce
+            // a list that lays out 30 rows and then the whole window.
+            let firstPage = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_FIRSTPAGE"] == "1"
+            if firstPage, tail == nil { try? await Task.sleep(nanoseconds: 1_000_000_000) }
+            let read = await thread(for: session)   // one read: KOSMOS_SAMPLE_GROW grows the chat once per read
+            if firstPage, let tail, case .thread(let t) = read, t.rows.count > tail {
+                return (.thread(Board.Thread(rows: Array(t.rows.suffix(tail)), olderCount: t.olderCount + t.rows.count - tail,
+                                             choices: t.choices)), nil)
+            }
+            return (read, nil)
+        }
         #endif
         guard let held = admitted, let request = Board.threadRequest(mac: held.url, session: session, tail: tail, tag: tag) else { return (.noAnswer, nil) }
         let owner = chatsOwner
