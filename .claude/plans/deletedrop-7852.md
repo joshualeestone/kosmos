@@ -51,3 +51,11 @@ plan a `running: true` field, and have loadLeftover show its `because` in the bo
 ## Weakest premise
 That the re-asked plan answers at all after a dropped request. If the board is unreachable for the second read too,
 the line says nobody knows, which is honest but not helpful.
+
+## Known and left
+- After a no-answer whose re-read refuses, the removed list keeps the name until its next read (the refusal may be
+  passing, so it is not cleared here). For a few seconds the list can show a Delete that the dialog has just said
+  there is nothing left for.
+- The del-typed input listener gates on DEL_PLAN; after a detail page loads another agent during a hanging delete,
+  the first gate follows the dialog's own plan and later keystrokes follow DEL_PLAN. The board re-plans and refuses a
+  wrong name, so nothing unsafe follows.

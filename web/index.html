@@ -50230,6 +50230,7 @@ function deleteForgetPlan(name, say) {
   const lower = String(name).toLowerCase();
   const mine = typeof CURRENT !== 'undefined' && !!CURRENT && String(CURRENT.sessionName).toLowerCase() === lower;
   if (mine) {
+    DEL_TOKEN += 1;   // a loadLeftover still in flight carries the plan from before; it must not bring the box back
     const box = document.getElementById('d-delete-leftover');
     if (box) box.hidden = true;
     const dmsg = document.getElementById('d-delete-msg');

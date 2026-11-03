@@ -60,7 +60,7 @@ function dialog(planOnScreen, detailFor = null) {
     paints: 0,
     fetch: (url, opts) => { calls.push({ url, method: (opts && opts.method) || 'GET' }); return replies.shift()(url, opts); },
   });
-  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0;',
+  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0;',
     'let CURRENT = ' + JSON.stringify(detailFor ? { sessionName: detailFor } : null) + ';',
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
     'function paintRemoved() { paints += 1; }',
@@ -69,7 +69,8 @@ function dialog(planOnScreen, detailFor = null) {
     'this.click = ' + liftHandler() + ';',
     'this.show = (p, onScreen) => deleteNoAnswerShow(p, DEL_FOR, onScreen === undefined ? DEL_PLAN : onScreen);',
     'this.open = openDeleteModal; this.close = closeDeleteModal; this.setPlan = (x) => { DEL_PLAN = x; };',
-    'this.state = () => ({ DEL_FOR, DEL_PLAN, DEL_OPENED, kept: LEFTOVERS_LAST.map((x) => x.name).join(",") });'].join('\n'), ctx);
+    'this.plan = fetchLeftoverPlan;',
+    'this.state = () => ({ DEL_FOR, DEL_PLAN, DEL_OPENED, DEL_TOKEN, kept: LEFTOVERS_LAST.map((x) => x.name).join(",") });'].join('\n'), ctx);
   ctx.open(planOnScreen);
   return { els, ctx, calls, replies };
 }
@@ -283,6 +284,30 @@ test('the handler, run: a delete from the deleted agent\'s own detail page settl
   assert.equal(d.els['d-delete-leftover'].hidden, true);
   assert.equal(d.ctx.state().DEL_PLAN, null);
   assert.equal(d.ctx.paints, 1, 'the removed list redraws');
+});
+
+test('fetchLeftoverPlan, the read the detail page and the removed list share: one answer per shape', async () => {
+  const d = dialog(offered);
+  const read = async (reply) => { d.replies.push(reply); return JSON.stringify(await d.ctx.plan('Miles')); };
+  assert.equal(await read(json(200, { ok: true, name: 'Miles' })), JSON.stringify({ ok: true, name: 'Miles' }), 'the plan');
+  assert.equal(await read(json(200, { ok: false, because: 'Miles is running' })), JSON.stringify({ ok: false, because: 'Miles is running' }), 'a refusal');
+  assert.equal(await read(json(500, { error: 'we could not work out what is left of this agent' })),
+    JSON.stringify({ ok: false, because: 'we could not work out what is left of this agent' }), 'a 500 says why: a refusal in the board\'s words');
+  assert.equal(await read(json(400, { error: 'that is not a name we can read' })), JSON.stringify({ ok: false, because: 'that is not a name we can read' }));
+  assert.equal(await read(json(200, { message: 'hi' })), 'null', 'a 200 that is not a plan is no plan');
+  assert.equal(await read(json(502, { message: 'Bad Gateway' })), 'null', 'a gateway\'s JSON is no plan');
+  assert.equal(await read(proxyPage), 'null', 'a page that is not JSON is no plan');
+  assert.equal(await read(dropped), 'null', 'no answer is no plan');
+});
+
+test('a refused re-read on the deleted agent\'s own page moves the token loadLeftover checks, so a late plan cannot bring the box back', () => {
+  const d = dialog(offered, 'Miles');
+  const before = d.ctx.state().DEL_TOKEN;
+  d.ctx.show({ ok: false, because: 'nothing of Miles is left.' });
+  assert.equal(d.ctx.state().DEL_TOKEN, before + 1);
+  const other = dialog(offered, 'Ada');
+  other.ctx.show({ ok: false, because: 'nothing of Miles is left.' });
+  assert.equal(other.ctx.state().DEL_TOKEN, 0, 'CONTROL: another agent\'s page keeps its load');
 });
 
 test('the click handler never says Nothing was deleted', () => {
