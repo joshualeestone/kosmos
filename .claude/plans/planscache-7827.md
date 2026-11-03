@@ -18,5 +18,10 @@ A codeless 409 also starts the half-hour watch, though from a relay without the 
 pending): at most 30 extra plans reads. Once the relay with backup_checkout_opening/finished is deployed (Ice Cream
 Kitty, #3763), drop backup_checkout_conflict from the watch.
 
+## Decided
+The wait line after "finished" (or the unnamed conflict) stays until a plan arrives or Off, as the payment-page wait
+line does: reads go from each minute to the hourly recheck after half an hour, so "this updates when your plan
+arrives" stays true. (Review 5 read it as "nothing checks any more"; the hourly recheck does.)
+
 ## Weakest premise
 That Stripe refuses to expire a page just paid (Kitty's read-back relies on it). Not measured live: no plan sold yet.

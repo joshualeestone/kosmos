@@ -56065,7 +56065,7 @@ function pbpOnView(on, lines, drop) {
 }
 /* `drop`: personal backup is not on here, so nothing read for it is kept. */
 function pbpShow(on, drop) {
-  if (drop) { PBP.plans = null; PBP.planGb = undefined; PBP.url = null; PBP.gb = null; PBP.awaitPlan = false; PBP.since = 0; PBP.at = 0; PBP.seq++; PBP.gen++; PBP.reading = false; pbpMsg(''); }
+  if (drop) { PBP.plans = null; PBP.planGb = undefined; PBP.url = null; PBP.gb = null; PBP.awaitPlan = false; PBP.awaitCode = null; PBP.awaitSay = ''; PBP.since = 0; PBP.at = 0; PBP.seq++; PBP.gen++; PBP.reading = false; pbpMsg(''); }
   const hasPlan = Number.isSafeInteger(PBP.planGb);
   const since = Date.now() - PBP.at;
   // Each minute until a read works (or after one failed), and for half an hour after Choose or a checkout that may just
@@ -56084,7 +56084,7 @@ function pbpRead() {
     if (r && r.ok === true && Array.isArray(r.plans)) {
       PBP.plans = r.plans;
       PBP.planGb = Number.isSafeInteger(r.planGb) && r.planGb > 0 ? r.planGb : null;
-      if (PBP.planGb !== null) { PBP.url = null; PBP.gb = null; PBP.awaitPlan = false; PBP.since = 0; pbpMsg(''); }
+      if (PBP.planGb !== null) { PBP.url = null; PBP.gb = null; PBP.awaitPlan = false; PBP.awaitCode = null; PBP.awaitSay = ''; PBP.since = 0; pbpMsg(''); }
       else if (PBP.msgFrom === 'read' || PBP.msgFrom === 'final') pbpMsg('');   // a read that worked ends its own refusal, never Choose's
     } else if (r && r.final === true) {
       // It will not clear on a retry: read again hourly (plans no longer null), and say so only to a person the job told
@@ -56135,7 +56135,7 @@ function pbpPaint(on) {
 async function pbpChoose(gb) {
   if (PBP.busy) return;
   const gen = PBP.gen;
-  PBP.busy = true; PBP.awaitPlan = false; pbpMsg(''); pbPaint();   // a new Choose starts its own watch, or none
+  PBP.busy = true; PBP.awaitPlan = false; PBP.awaitCode = null; PBP.awaitSay = ''; pbpMsg(''); pbPaint();   // a new Choose starts its own watch, or none
   const r = await pbPost('checkout', { gb });
   PBP.busy = false;
   if (gen !== PBP.gen) { pbPaint(); return; }
