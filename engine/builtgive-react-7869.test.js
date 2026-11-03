@@ -73,7 +73,7 @@ test('#7869: a give to an agent not on the project is told that first, not the b
   assert.throws(() => tasks.assignPart(p.id, t.number, 1, 'stranger', { via: 'process', by: 'mara' }), /not on this project/);
 });
 
-test('#7869: the suggested command makes an open task under the built one, which stays built', () => {
+test('#7869: what the suggested command does in the engine (tasks.create with parent): an open task under the built one, which stays built', () => {
   const { p, t } = builtTask('Built follow');
   const sub = tasks.create(p.id, { sentence: 'what is left', parent: t.number });
   assert.ok(sub && typeof sub.number === 'number', 'the suggested command did not make a task: ' + JSON.stringify(sub));
