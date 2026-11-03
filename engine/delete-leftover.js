@@ -1174,8 +1174,12 @@ function del(name, opts) {
    dialog. planAsync and delAsync give the same answers as plan and del with those waits off the board. Still in the
    board's own time: the plan itself (folder measure, roster), and Task Scheduler's removal of a startup job. */
 const deleting = new Set();
-function askedKey(name) { try { return String(create.cleanName(name) || name).toLowerCase(); } catch { return String(name).toLowerCase(); } }
-/** Whether a delete of what is left under this name is running now (create refuses the name meanwhile). */
+/* The name a delete holds, folded as create folds a name (slugFor: "Miles Davis" and "miles-davis" are one agent), so
+   any spelling of the same agent meets the hold. */
+function askedKey(name) {
+  try { return String(create.slugFor(name) || create.cleanName(name) || name).toLowerCase(); } catch { return String(name).toLowerCase(); }
+}
+/** Whether a delete of what is left under this name is running now (create and restore refuse the name meanwhile). */
 function deletingName(name) { return deleting.size > 0 && name != null && deleting.has(askedKey(name)); }
 const DELETING_BECAUSE = 'a delete of what is left of this agent is running now; try again when it has finished';
 async function warmFor(name, opts) {
@@ -1216,4 +1220,4 @@ async function delAsync(name, opts) {
   }
 }
 
-module.exports = { OUTCOME, plan, del, planAsync, delAsync, deletingName, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, recycleBinCanTake, binVerdict };   // the last five for tests (#5445, kosmos#7820)
+module.exports = { OUTCOME, plan, del, planAsync, delAsync, deletingName, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, recycleBinCanTake, binVerdict };   // RECYCLE_SCRIPT on, and execAsync, for tests (#5445, kosmos#7820, kosmos#7835)

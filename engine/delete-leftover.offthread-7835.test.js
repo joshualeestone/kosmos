@@ -233,3 +233,21 @@ test('#7835 the live runner closes stdin, and answers at its limit with no exit 
   assert.equal(slow.code, null, 'a process killed at its limit carried an exit code');
   assert.ok(Date.now() - t0 < 3000, 'it was not killed at its limit');
 });
+
+test('#7835 the hold meets any spelling of the same agent, and a restore of it is refused while the delete runs', async () => {
+  leftoverFolder('ot7835-k');
+  leftover.setRunner(later(300));
+  const going = asyncWin.del('ot7835-k');
+  await new Promise((r) => setTimeout(r, 50));
+  for (const spelled of ['ot7835-k', 'OT7835-K', 'Ot7835 K', '  ot7835 k  ']) {
+    assert.equal(leftover.deletingName(spelled), true, `"${spelled}" is the same agent but did not meet the hold`);
+  }
+  assert.equal(leftover.deletingName('ot7835-kk'), false, 'CONTROL: another name met the hold');
+  const second = await asyncWin.del('Ot7835 K');
+  assert.equal(second.outcome, leftover.OUTCOME.REFUSED, 'a second delete under another spelling ran');
+  const back = remove.restore('Ot7835 K');
+  assert.equal(back.outcome, remove.OUTCOME.REFUSED, JSON.stringify(back));
+  assert.match(back.because, /still being deleted/);
+  assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
+  assert.equal(leftover.deletingName('Ot7835 K'), false);
+});
