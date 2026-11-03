@@ -36,6 +36,8 @@ function world(remote) {
   const el = (id) => (els[id] ||= {
     id, textContent: '', innerHTML: '', hidden: false, disabled: false,
     listeners: {}, addEventListener(t, fn) { this.listeners[t] = fn; },
+    // kosmos#7816: turning personal backup off sets the end line's aria-live, as a real element allows.
+    attrs: {}, setAttribute(k, v) { this.attrs[k] = String(v); }, getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
   });
   const ctx = {
     document: { getElementById: el },
