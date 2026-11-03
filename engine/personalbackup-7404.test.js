@@ -1079,6 +1079,12 @@ test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in 
   }
   const refused = await onWith(t, { checkout: () => ({ ok: false, because: '402 {"code":"not_subscribed"}', refusal: { status: 402, code: 'not_subscribed' } }) });
   assert.deepEqual(await pb.checkout(25, { root: refused.root, remote: refused.remote }), { ok: false, code: 'not_subscribed', because: 'Backup needs a Kosmos+ subscription first.' });
+  // Mona Lisa's review: a refusal that may pass gives the next step, in her words.
+  const RETRY = 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.';
+  const down = await onWith(t, { checkout: () => null });
+  assert.deepEqual(await pb.checkout(25, { root: down.root, remote: down.remote }), { ok: false, because: RETRY }, 'Kosmos+ unreached');
+  const odd = await onWith(t, { checkout: () => ({ ok: true, data: { url: 'https://evil.example/x' } }) });
+  assert.deepEqual(await pb.checkout(25, { root: odd.root, remote: odd.remote }), { ok: false, because: RETRY }, 'a page this Kosmos does not open');
   const sent = [];
   assert.equal((await pb.checkout(25, { root: fresh(t), remote: { macRequest: async (m, route) => { sent.push(route); return { ok: true, data: { url: page } }; } } })).ok, false, 'not on here');
   assert.deepEqual(sent, [], 'a checkout was asked for with personal backup off here');

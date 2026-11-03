@@ -682,6 +682,9 @@ const CHECKOUT_SAY = {
   not_subscribed: 'Backup needs a Kosmos+ subscription first.',
   backup_plan_exists: 'This account already has a backup plan.',
 };
+/* Mona Lisa's review (#7404 comment 6593277093): a refusal that may pass says what to do next. Used for every one that
+   is not the person's own account (unreached, or a page this Kosmos does not open), so the words are hers verbatim. */
+const CHECKOUT_RETRY = 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.';
 function stripeCheckoutUrl(u) {
   let url;
   try { url = new URL(String(u)); } catch { return null; }
@@ -691,17 +694,17 @@ async function checkout(gb, opts = {}) {
   if (!Number.isSafeInteger(gb) || gb <= 0) return { ok: false, code: 'backup_plan_unknown', because: CHECKOUT_SAY.backup_plan_unknown };
   if (!record(opts)) return { ok: false, code: 'not_on', because: 'Personal backup is not on for this computer.' };
   const remote = remoteOf(opts);
-  if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: 'Kosmos+ could not be reached just now. Nothing was charged; try again in a minute.' };
+  if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: CHECKOUT_RETRY };
   let r;
   try { r = await remote.macRequest('POST', CHECKOUT_ROUTE, { gb }); } catch { r = null; }
   if (!r || !r.ok) {
     const c = codeOf(r);
     if (c && CHECKOUT_SAY[c]) return { ok: false, code: c, because: CHECKOUT_SAY[c] };
     // A conflict with no code: an earlier page is still being opened (backup_plans.rs Opening).
-    return { ok: false, because: r && r.refusal ? 'Kosmos+ is opening a payment page for this already. Try again in a moment.' : 'Kosmos+ could not be reached just now. Nothing was charged; try again in a minute.' };
+    return { ok: false, because: r && r.refusal ? 'Kosmos+ is opening a payment page for this already. Try again in a moment.' : CHECKOUT_RETRY };
   }
   const url = stripeCheckoutUrl(r.data && r.data.url);
-  if (!url) return { ok: false, because: 'Kosmos+ answered with a payment page this Kosmos does not open. Nothing was charged.' };
+  if (!url) return { ok: false, because: CHECKOUT_RETRY };
   return { ok: true, url };
 }
 function record(opts) {

@@ -470,7 +470,7 @@ const PB_IDLE = { running: false, startedAt: null, last: null };
 async function pbPlansShot(page, refuse) {
   const json = (body) => (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route('**/api/personal-backup/plans', json({ ok: true, planGb: null, plans: [{ gb: 25, price: '$5/month' }, { gb: 100, price: '$12/month' }, { gb: 500, price: '$40/month' }] }));
-  await page.route('**/api/personal-backup/checkout', json(refuse ? { ok: false, because: 'The payment page could not be opened just now. Nothing was charged.' }
+  await page.route('**/api/personal-backup/checkout', json(refuse ? { ok: false, because: 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.' }
     : { ok: true, url: 'https://checkout.stripe.com/c/pay/cs_test_sample' }));
   await pbShot(page, 'on', '$5/month', { lastOk: null, stopped: null });
   await page.waitForSelector('#pb-plans-list li button', { state: 'visible', timeout: 10000 });
