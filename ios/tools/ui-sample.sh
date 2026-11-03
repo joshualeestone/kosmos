@@ -33,7 +33,7 @@ classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpens
 # "Timed out while evaluating UI query" on both CI runs, iOS 26.5, while it passes here). Run it alone on a Mac:
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests
 # KeyboardSlideUITests' third check (read higher up) used to wait on a clock and flake under load; Mona Lisa's #7627
-# (kbrested-7609) replaced the wait with a marker, so all three run here again. It records the chat's scroll events
+# (kbrested-7609) replaced the wait with a marker, so the whole class runs here again. It records the chat's scroll events
 # (KOSMOS_SAMPLE_TRACE=1): when it fails, the last of them are printed below while the simulator still exists.
 # RoomKeyboardUITests' read-higher-up check (#7690) appends to the SAME file, so the dump below names which of the two
 # ran, and prints the whole file when the DM check failed and the room check ran after it.

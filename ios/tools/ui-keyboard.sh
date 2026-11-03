@@ -1,7 +1,7 @@
 #!/bin/bash
 # kosmos#7344: the chat's keyboard checks (KosmosUITests/KeyboardSlideUITests) on a fresh simulator, with taps, so the
 # newest message staying above the message box can be measured on a Mac with no Simulator window. CI runs them with the
-# other sample-board UI tests (ios/tools/ui-sample.sh, kosmos#7609); this runs these three alone. Prints PASS, or FAIL with
+# other sample-board UI tests (ios/tools/ui-sample.sh, kosmos#7609); this runs that class alone (9 checks). Prints PASS, or FAIL with
 # the failing check's own words.
 #
 #   ios/tools/ui-keyboard.sh [--keep]
