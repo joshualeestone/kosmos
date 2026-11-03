@@ -15,6 +15,9 @@ struct ProjectInfoView: View {
     let openPage: (URL) -> Void
     // Slice B: read the projects list again after a save, so the page (and the room) show what was saved.
     let reload: () async -> Void
+    // Review 2: the project's row as the store holds it NOW. A save runs in a Task holding a copy of this view made at
+    // the tap, so after its re-read `project` is still the old row; anything decided after the await reads this.
+    let live: () -> Board.ProjectRow?
 
     @State private var part: Board.ProjectPart = .about
     @State private var openTask: TaskPageRef?
@@ -197,23 +200,25 @@ struct ProjectInfoView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         // Review 1: on every appearance, not only the first (a rename on the computer while About was open), each box apart.
-        .onAppear { refillIfUntouched() }
-        .onChange(of: project.name) { _ in refillIfUntouched() }
-        .onChange(of: project.description) { _ in refillIfUntouched() }
+        .onAppear { refillIfUntouched(project) }
+        .onChange(of: project.name) { _ in refillIfUntouched(project) }
+        .onChange(of: project.description) { _ in refillIfUntouched(project) }
+        // Review 2: a stored value that changes while no save is running always wins (a change on the computer), so a
+        // choice can never stick on a value that is no longer stored; a result line from before goes with it.
         .onChange(of: project.notify) { stored in
-            if pendingNotify == stored { pendingNotify = nil } else if pendingNotify == nil { notifyLine = nil }
+            if pendingNotify == stored || !saving { if pendingNotify == nil { notifyLine = nil }; pendingNotify = nil }
         }
         .onChange(of: project.paused) { stored in
-            if pendingPaused == stored { pendingPaused = nil } else if pendingPaused == nil { pauseLine = nil }
+            if pendingPaused == stored || !saving { if pendingPaused == nil { pauseLine = nil }; pendingPaused = nil }
         }
     }
 
     // A change made on the computer shows in a box unless the person has typed something of their own in that box; each
     // box on its own (review 1), so typing a description never pins an old name.
-    private func refillIfUntouched() {
-        if !filled { filled = true; nameText = project.name; filledName = project.name; descText = project.description; filledDesc = project.description; return }
-        if nameText == filledName { nameText = project.name; filledName = project.name }
-        if descText == filledDesc { descText = project.description; filledDesc = project.description }
+    private func refillIfUntouched(_ row: Board.ProjectRow) {
+        if !filled { filled = true; nameText = row.name; filledName = row.name; descText = row.description; filledDesc = row.description; return }
+        if nameText == filledName { nameText = row.name; filledName = row.name }
+        if descText == filledDesc { descText = row.description; filledDesc = row.description }
     }
 
     private func save(_ change: Board.ProjectChange) async {
@@ -241,9 +246,13 @@ struct ProjectInfoView: View {
             case .paused(let on): pendingPaused = storedPaused ?? on
             }
             await reload()
-            refillIfUntouched()
-            if pendingNotify == project.notify { pendingNotify = nil }
-            if pendingPaused == project.paused { pendingPaused = nil }
+            // Review 2: the row the re-read left in the store, never this Task's copy of `project`. If the re-read did
+            // not land, the boxes keep what was sent and the controls keep the saved choice (a 200 means it saved).
+            if let now = live() {
+                refillIfUntouched(now)
+                if pendingNotify == now.notify { pendingNotify = nil }
+                if pendingPaused == now.paused { pendingPaused = nil }
+            }
         case .refused(let why):
             line = (why, false)
             if case .notify = change { pendingNotify = nil }
