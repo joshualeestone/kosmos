@@ -85,3 +85,12 @@ which hides a real leftover rather than offering a wrong one.
   failed read). The stale line says "has not been able to check for a while". The route comment names the 5 s keep.
 - Declined: case-exact delete filter on Linux (the next good read redraws a wrongly dropped row); filtering only on
   "deleted" (a partial's sentence already names what stayed); the negative arm's hidden-list contents (pre-existing).
+
+## Review round 6 (sonnet, fixed)
+- A first load whose leftovers read fails, with nothing removed and nothing kept, hid the section without a word. The
+  shared #removed-msg line now says Kosmos could not check, written only into an empty line and taken down by a good
+  read only if still ours. Two arms, each mutation-checked.
+- Stale-line copy: "has not been able to check for leftover settings in a while".
+- Answered, no change: the round-5 reorder (every return path checked by the reviewer, no read-before-set).
+- Declined: an off-tab arm (the update sits after the token check and before the tab gate, both read in one place);
+  dropping the cache on create and restore (a stale row's click refuses with a true sentence, as rounds 2 and 4 said).

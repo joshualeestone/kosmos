@@ -71,16 +71,21 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
       }));
       const hints = [...list.querySelectorAll('.removed-hint')].map((h) => h.textContent);
       return { wrapHidden: wrap.hidden, label: toggle.textContent, rows, hint: hints.some((t) => /^Nothing was deleted/.test(t)),
-        stale: hints.some((t) => /has not been able to check for a while/.test(t)),
+        stale: hints.some((t) => /has not been able to check for leftover settings in a while/.test(t)),
         hintAfterRemoved: (() => { const h = list.querySelector('.removed-hint'); const kids = [...list.children]; return h ? kids.indexOf(h) : -1; })() };
     };
     const out = {};
+    // 0. first load while the leftovers read fails, nothing removed: the shared line says so; a good read takes it down
+    body = { agents: [] };
+    await paintRemoved();
+    out.firstMsg = (document.getElementById('removed-msg') || {}).textContent || '';
     // 1. leftovers alone
     body = { agents: [], leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }] };
     await paintRemoved();
     if (list.hidden) toggle.click();
     await new Promise((res) => setTimeout(res, 30));
     out.alone = snap();
+    out.aloneMsg = (document.getElementById('removed-msg') || {}).textContent || '';
     out.aloneListHidden = list.hidden;
     // 4. the door (from the leftovers-alone state, list open)
     const btn = list.querySelector('[data-delete-leftover="stray-7825"]');
@@ -122,6 +127,8 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   const check = (ok, label, extra) => { say(ok, label, extra); if (!ok) bad += 1; };
   if (r.error) { check(false, 'render-settings-leftover-7825: ' + r.error); await browser.close(); process.exit(1); }
 
+  check(/could not check for agents with only settings left/.test(r.firstMsg), 'first load with the leftovers read failing says so, never reads as none', r.firstMsg);
+  check(!/could not check for agents with only settings left/.test(r.aloneMsg), 'a good read takes that sentence down', r.aloneMsg);
   const a = r.alone;
   check(!a.wrapHidden && !r.aloneListHidden, 'leftovers alone: the removed section shows and opens', JSON.stringify({ wrap: a.wrapHidden, list: r.aloneListHidden }));
   check(a.label === 'Show what is left of past agents (1)', 'leftovers alone: the label does not call it removed, and counts it', a.label);
