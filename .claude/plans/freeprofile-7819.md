@@ -32,7 +32,7 @@ name with nothing but a profile. Not built here: filed as kosmos#7825 (it needs 
 profiles alone).
 
 ## Tests
-engine/delete-leftover.test.js, fourteen #7819 tests (the card's done-when: create, remove, delete, create again; new id, no
+engine/delete-leftover.test.js, fifteen #7819 tests (the card's done-when: create, remove, delete, create again; new id, no
 old field; the picture; a shared stored name kept; an unmovable profile refuses the whole delete and can be retried).
 Mutation: no move reds three; no shared-name guard reds the fourth. All 13 test files that use delete-leftover: 570 pass.
 
@@ -55,3 +55,7 @@ verb follows the records' own mode; a Linux unit keeps "its startup job is remov
 Removed again: a check for "a profile recording another existing folder", which could not fire (workerDir makes the
 recorded folder the plan's folder), so it was an unarmed guard. That same fact is a pre-existing hazard outside this
 card: a profile shared by key can make the plan treat another agent's recorded folder as the leftover's own.
+
+## Review round 4 (fixed)
+"Settings and picture stay" is said only when something is stored to keep. Deferred: a PARTIAL with stuck records after
+the community retire (the known gap, #7825); Trash stamps to the second (pre-existing, as for the folder).

@@ -444,13 +444,14 @@ function namedRecords(name, folderPath) {
   try {
     for (const e of fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true })) if (e.isDirectory()) note(e.name, path.join(create.WORKERS_DIR, e.name));
   } catch { /* no workers folder */ }
-  if (kept) return { records: [], kept };
   const records = [];
   if (fs.existsSync(store.profilePath(name))) records.push({ what: 'its settings', file: store.profilePath(name) });
   const pics = store.pictureFiles(name);
   for (const f of pics.pictures) records.push({ what: 'its picture', file: f });
   for (const f of pics.originals) records.push({ what: 'its picture', file: f });
-  return { records, kept };
+  // Kept only when there is something to keep: with nothing stored, there is nothing to say stays.
+  if (kept) return { records: [], kept: records.length ? kept : null };
+  return { records, kept: null };
 }
 /* The words for what is stored, and whether they take a plural verb: "its settings" (plural), "its picture",
    "its settings and picture". */
