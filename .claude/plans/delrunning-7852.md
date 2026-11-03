@@ -56,3 +56,12 @@ Windows only (the flag is set where the hold is, which is Windows only).
 - fetchLeftoverPlan marks a plan it made from the route's 400 or 500 (`failed: true`); while the block says running, a
   failed request changes nothing, as an unreadable one does. #7856's shape test records the mark.
 - Still checked by source text only: the poll's two re-read sites (the poll function is not run in a test).
+
+## Review round 5
+- The agent page's "Delete its files" opens DEL_PLAN only when it is that agent's (loadLeftover can now leave a removed-
+  list dialog's plan in place; the hazard predates the branch, the branch widened it).
+- The running sentence gets a full stop only when the board's words lack one; the poll comment is one sentence.
+- Left for PigeonPete (on #7852): #7856's no-answer dialog treats a failed re-read (the route's 400 or 500) as the board
+  refusing in its words, by design; the `failed` mark now lets it tell the two apart if wanted.
+- Known limit: a board that never answers again keeps "running now" on screen (each failed or unreadable read leaves it).
+- (Round 1's DEL_SHOWS_RUNNING became DEL_RUNNING_FOR at round 2.)

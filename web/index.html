@@ -49585,9 +49585,9 @@ let REMOVE_ASK = null;
 let REMOVE_TOKEN = 0;
 
 async function loadRemoval(sessionName, { fromPoll = false } = {}) {
-  /* #514: whether anything is left to delete. Not on the poll: the plan
-     walks the folder to count it, and the answer only changes on an act. */
-  // kosmos#7852: while the block says a delete is running, every poll asks again, so it changes when the delete ends.
+  /* #514: whether anything is left to delete. Not on the poll (the plan walks the folder to count it, and the answer
+     only changes on an act), except while the block says a delete is running (kosmos#7852): then every poll asks
+     again, cheaply (the board answers "running" before any walk), so the block changes when the delete ends. */
   if (!fromPoll || DEL_RUNNING_FOR === String(sessionName).toLowerCase()) loadLeftover(sessionName);
   const box = document.getElementById('d-remove-agent');
   const hint = document.getElementById('d-remove-hint');
@@ -50275,7 +50275,7 @@ function paintLeftoverRunning(plan, name) {
   DEL_RUNNING_FOR = lower;
   const w = String(plan.because || '');
   const hint = document.getElementById('d-delete-hint');
-  if (hint) hint.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(w.charAt(0).toUpperCase() + w.slice(1) + '.');
+  if (hint) hint.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(w.charAt(0).toUpperCase() + w.slice(1) + (/[.!?]$/.test(w) ? '' : '.'));
   const start = document.getElementById('d-delete-start');
   if (start) start.hidden = true;
   box.hidden = false;
@@ -50344,7 +50344,9 @@ document.getElementById('del-typed').addEventListener('input', (e) => {
   document.getElementById('del-go').disabled = !(DEL_PLAN && DEL_PLAN.typeToConfirm && e.target.value.trim() === DEL_PLAN.typeToConfirm);
 });
 document.getElementById('d-delete-start').addEventListener('click', () => {
-  if (DEL_PLAN && DEL_PLAN.ok) openDeleteModal(DEL_PLAN);
+  // kosmos#7852: the agent page's button opens only that agent's plan (a dialog opened from the removed list can hold another's).
+  const mine = DEL_PLAN && typeof CURRENT !== 'undefined' && CURRENT && String(DEL_PLAN.name).toLowerCase() === String(CURRENT.sessionName).toLowerCase();
+  if (mine && DEL_PLAN.ok) openDeleteModal(DEL_PLAN);
 });
 document.getElementById('del-keep').addEventListener('click', closeDeleteModal);
 document.getElementById('del-modal').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDeleteModal(); });

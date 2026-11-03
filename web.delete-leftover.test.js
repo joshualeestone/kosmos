@@ -143,6 +143,8 @@ test('#7852 an agent page whose delete is running says so, with no button, and k
   // The poll asks again for an agent that has left the list (its folder and job gone), so the block can go.
   const offList = PAGE.indexOf('} else if (CURRENT && DEL_RUNNING_FOR === String(CURRENT.sessionName).toLowerCase()) {');
   assert.ok(offList > 0 && PAGE.slice(offList, offList + 400).includes('loadLeftover(CURRENT.sessionName);'), 'a delete that took the agent off the list leaves "running" on its page for good');
-  const poll = PAGE.slice(PAGE.indexOf('async function loadRemoval('), PAGE.indexOf('async function loadRemoval(') + 600);
+  const start = PAGE.slice(PAGE.indexOf("document.getElementById('d-delete-start').addEventListener('click'"));
+  assert.match(start.slice(0, 700), /String\(DEL_PLAN\.name\)\.toLowerCase\(\) === String\(CURRENT\.sessionName\)\.toLowerCase\(\);\n  if \(mine && DEL_PLAN\.ok\) openDeleteModal\(DEL_PLAN\);/, 'the page\'s button can open another agent\'s plan');
+  const poll = PAGE.slice(PAGE.indexOf('async function loadRemoval('), PAGE.indexOf('async function loadRemoval(') + 800);
   assert.match(poll, /if \(!fromPoll \|\| DEL_RUNNING_FOR === String\(sessionName\)\.toLowerCase\(\)\) loadLeftover\(sessionName\);/, 'the poll must ask again while this agent\'s delete runs');
 });
