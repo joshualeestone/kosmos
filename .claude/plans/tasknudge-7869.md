@@ -13,7 +13,9 @@ to the agent as "assigned and nudged after I built it".
 and how to add new work under it (`kosmos task add <project> 'what is left' --parent N`, single quotes because the Mac CLI reads the answer with
 sed, which stops at a double quote; it already reopens a built
 task with its own record). The person's give from the screen is unchanged: it still reopens the task, as #3951 decided.
-Taking an agent OFF a part is not new work and is unchanged.
+Taking an agent OFF a part is not new work and is unchanged. An agent re-giving a part it already holds is not a move
+and is unchanged; taking SOMEONE ELSE's part of a built task for itself is refused like any give (it would drop the
+mark), so the way to resume built work is a new part under it.
 
 **Rejected.** Refusing every give on a built task, the screen's included: it overturns #3951's decision for the person,
 who gives work deliberately. Re-checking the task just before the line is typed: the delivery queue holds a line only
