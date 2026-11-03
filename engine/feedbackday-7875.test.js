@@ -93,14 +93,15 @@ test('#7875: tasks this agent changed today, by number and kinds, never a title;
   assert.ok(text.indexOf('catalog #3') < text.indexOf('launch #2'), 'by project');
 });
 
-test('#7875: Kosmos\'s own line and a menu keystroke are not messages', () => {
+test('#7875: Kosmos\'s own line is not a message; the person\'s menu answer is', () => {
   const out = run({ readThread: () => [
     { at: at(9, 0), text: 'Paused for today\'s limit', from: 'Dana', kosmos: true },
-    { at: at(9, 1), text: '1', from: null, wire: '1' },
+    { at: at(9, 1), text: 'Yes, go ahead', from: null, wire: '1' },
     { at: at(9, 2), text: 'Real', from: null },
   ] }).join('\n');
-  assert.ok(out.includes('1 from them, 0 from you'), out);
+  assert.ok(out.includes('2 from them, 0 from you'), out);
   assert.ok(!out.includes('Paused'), out);
+  assert.ok(out.includes('09:01 them: Yes, go ahead'), out);
 });
 
 test('#7875: the task folder: absent is none, unreadable throws (so the digest says so), today\'s files only', () => {
@@ -127,13 +128,22 @@ test('#7875: the task folder: absent is none, unreadable throws (so the digest s
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test('#7875: the record name is the token\'s KEY (where the board files its records), the window\'s name without one', () => {
+test('#7875: who is asking: a token\'s KEY reads the thread and its own spelling also counts on tasks; the window without one', () => {
   const env = { X: 1 };
-  assert.equal(day.recordName(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara' }) }), 'mara');
-  assert.equal(day.recordName(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara', twins: true }) }), null);
-  assert.equal(day.recordName(env, { agentToken: () => 't', resolveName: () => ({ ok: false }) }), null);
-  assert.equal(day.recordName(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: true, name: 'angel' }) }), 'angel');
-  assert.equal(day.recordName(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: false }) }), null);
+  assert.deepEqual(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara' }) }), { name: 'mara', also: ['Mara'] });
+  assert.deepEqual(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'mara', key: 'mara' }) }), { name: 'mara', also: [] });
+  assert.equal(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara', twins: true }) }), null);
+  assert.equal(day.recordWho(env, { agentToken: () => 't', resolveName: () => ({ ok: false }) }), null);
+  assert.deepEqual(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: true, name: 'angel' }) }), { name: 'angel', also: [] });
+  assert.equal(day.recordWho(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: false }) }), null);
+});
+
+test('#7875: a task row under the token\'s own spelling counts for the asking agent (a pane row carries it)', () => {
+  const out = day.digest({ name: 'mara', also: ['Mara'], date: DATE, readThread: () => [],
+    listTaskFiles: () => ['p.task-1.jsonl', 'p.task-2.jsonl'],
+    readTask: (pr, n) => (n === 1 ? [{ at: at(10, 0), kind: 'built', by: 'Mara' }] : [{ at: at(10, 0), kind: 'built', by: 'other' }]) }).join('\n');
+  assert.ok(out.includes('  p #1: built'), out);
+  assert.ok(!out.includes('p #2'), out);   // CONTROL: someone else's row still does not count
 });
 
 test('#7875: a name Kosmos keeps no conversation under says so; a file with no words reads as a file', () => {
@@ -170,8 +180,10 @@ test('#7875: the Windows CLI runs feedback day: refuses nobody, extra words, and
   const cli = require('../tools/windows/kosmos-cli');
   async function win(argv, recordName) {
     const out = []; const err = [];
-    const stub = { recordName: () => recordName, digest: (o) => ['DAY OF ' + o.name] };
-    const code = await cli.main(argv, { env: {}, out: (x) => out.push(x), err: (x) => err.push(x), engine: { feedbackday: stub } });
+    const env = { MARK: 'this call' };
+    const stub = { recordWho: (e) => { assert.equal(e, env, 'the CLI asks with its own environment'); return recordName ? { name: recordName, also: [] } : null; },
+      digest: (o) => ['DAY OF ' + o.name] };
+    const code = await cli.main(argv, { env, out: (x) => out.push(x), err: (x) => err.push(x), engine: { feedbackday: stub } });
     return { code, out: out.join('\n'), err: err.join('\n') };
   }
   const nobody = await win(['feedback', 'day'], null);
@@ -190,8 +202,10 @@ test('#7875: both CLIs carry the day subcommand and list it in their usage', () 
   const sh = fs.readFileSync(path.join(root, 'install', 'kosmos'), 'utf8');
   const win = fs.readFileSync(path.join(root, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
   assert.match(sh, /\n {4}day\)\n/);
-  assert.match(sh, /day\.recordName\(process\.env\)/);
-  assert.match(sh, /day\.digest\(\{ name \}\)/);
+  // The Mac arm is checked by its source only: running it needs a staged Kosmos runtime ($NODE, $KOSMOS_HOME/app).
+  assert.match(sh, /day\.recordWho\(process\.env\)/);
+  assert.match(sh, /day\.digest\(who\)/);
+  assert.match(sh, /Try: write \| show \| list \| day \| pull/);
   assert.match(sh, /kosmos feedback day {16}\(your own day/);
   assert.match(win, /day: feedbackDay/);
   assert.match(win, /kosmos feedback day {16}\(your own day/);

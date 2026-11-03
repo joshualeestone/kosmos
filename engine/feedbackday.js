@@ -40,7 +40,7 @@ function conversation(messages, name, date, dateKey) {
   const out = [];
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || typeof m !== 'object') continue;
-    if (m.kosmos === true || m.wire != null) continue;   // Kosmos's own line in the agent's name, or a menu keystroke
+    if (m.kosmos === true) continue;   // Kosmos's own line in the agent's name (a menu answer, `wire`, is the person's and stays)
     const d = onDay(m.at, date, dateKey);
     if (!d) continue;
     out.push({ d, mine: m.from === name, text: firstLine(m.text) || '(a file, no words)' });
@@ -58,7 +58,7 @@ function byAgent(r, name) {
   return r.by === name;
 }
 /* The tasks this agent changed on `date`: [{ project, number, kinds }], by project then number. */
-function taskChanges(files, readTask, name, date, dateKey) {
+function taskChanges(files, readTask, names, date, dateKey) {
   const out = [];
   for (const f of files) {
     const m = TASK_FILE.exec(f);
@@ -69,7 +69,7 @@ function taskChanges(files, readTask, name, date, dateKey) {
     try { rows = readTask(project, number); } catch { rows = []; }
     const kinds = [];
     for (const r of Array.isArray(rows) ? rows : []) {
-      if (!r || !byAgent(r, name) || !onDay(r.at, date, dateKey)) continue;
+      if (!r || !names.some((n) => byAgent(r, n)) || !onDay(r.at, date, dateKey)) continue;
       if (typeof r.kind === 'string' && !kinds.includes(r.kind)) kinds.push(r.kind);
     }
     if (kinds.length) out.push({ project, number, kinds });
@@ -86,7 +86,12 @@ function listTaskFilesIn(dir, date, dateKey) {
   }
   return names.filter((n) => {
     if (!TASK_FILE.test(n)) return false;
-    try { return dateKey(fs.statSync(path.join(dir, n)).mtime) === date; } catch { return false; }
+    let st;
+    try { st = fs.statSync(path.join(dir, n)); } catch (err) {
+      if (err && err.code === 'ENOENT') return false;   // removed since the listing
+      throw err;   // cannot be inspected: the digest says so rather than "no change"
+    }
+    return dateKey(st.mtime) === date;
   }).map((n) => {
     // taskchat.read answers [] for a file it cannot open, which would read as "no change": check it can be read here.
     fs.accessSync(path.join(dir, n), fs.constants.R_OK);
@@ -95,26 +100,29 @@ function listTaskFilesIn(dir, date, dateKey) {
 }
 
 /**
- * The name this agent's records are kept under, or null. The board files a token agent's thread and task rows under
- * its KEY (server.js, the paneless card's sessionName), while feedback.writer gives the token's own spelling ("Mara"
- * for the key "mara"), which is right for labelling a report and wrong for finding its records. A pane agent's records
- * are under its window's agent name, which is what the resolver gives. A token shared by two names (twins) is refused,
- * as the resolver refuses it. `seams` are for tests.
+ * Who is asking, as the names its records can be kept under, or null: `{ name, also }`. `name` reads the direct thread.
+ * A token agent's thread is filed under its KEY (chat.threadFile accepts only a key), and a paneless token agent's task
+ * rows too (server.js files them under the paneless card's sessionName, the key). With a running pane, the board takes
+ * the pane row whose name is the token's own spelling, so task rows can carry that spelling: `also` holds it, and a
+ * task row counts under either. Both names are this one agent's; a token shared by two names (twins) is refused. A pane
+ * agent with no token is its window's agent name, which the resolver gives. `seams` are for tests.
  */
-function recordName(env, seams) {
+function recordWho(env, seams) {
   const e = env || process.env;
   const s = seams || {};
   const token = (s.agentToken || ((x) => require('./kosmos-report-hook').agentToken(x)))(e);
   if (token) {
     const found = (s.resolveName || ((t) => require('./sendertoken').resolveName(t)))(token);
-    return found && found.ok && found.twins !== true && typeof found.key === 'string' && found.key ? found.key : null;
+    if (!(found && found.ok && found.twins !== true && typeof found.key === 'string' && found.key)) return null;
+    const spelled = typeof found.name === 'string' && found.name && found.name !== found.key ? [found.name] : [];
+    return { name: found.key, also: spelled };
   }
   const r = (s.resolveKeepSender || ((x) => require('./outbox').resolveKeepSender(x)))(e);
-  return r && r.ok ? r.name : null;
+  return r && r.ok ? { name: r.name, also: [] } : null;
 }
 
 /**
- * The digest as lines. `o.name` is the agent's record name (recordName); `o.date` the person's local day (feedback.today()).
+ * The digest as lines. `o.name` and `o.also` are recordWho's; `o.date` the person's local day (feedback.today()).
  * A conversation that cannot be read says so, never "nothing today".
  */
 function digest(o) {
@@ -122,6 +130,7 @@ function digest(o) {
   const dateKey = o.dateKey || fb.dateKey;
   const date = o.date || fb.today();
   const name = o.name;
+  const names = [name, ...(Array.isArray(o.also) ? o.also : [])];
   const readThread = o.readThread || ((n) => { const chat = require('./chat'); return chat.readThread(chat.DIRECT, n).messages; });
   const listTaskFiles = o.listTaskFiles || (() => listTaskFilesIn(require('./taskchat').taskChatsDir(), date, dateKey));
   const readTask = o.readTask || ((p, n) => require('./taskchat').read(p, n));
@@ -146,7 +155,7 @@ function digest(o) {
   }
   lines.push('');
   let changes;
-  try { changes = taskChanges(listTaskFiles(), readTask, name, date, dateKey); } catch { changes = null; }
+  try { changes = taskChanges(listTaskFiles(), readTask, names, date, dateKey); } catch { changes = null; }
   if (changes == null) lines.push('Tasks you changed today: Kosmos could not read them on this computer.');
   else if (changes.length === 0) lines.push('Tasks you changed today: none.');
   else {
@@ -156,4 +165,4 @@ function digest(o) {
   return lines;
 }
 
-module.exports = { digest, recordName, listTaskFilesIn, conversation, taskChanges, firstLine, MAX_MESSAGES, LINE_MAX };
+module.exports = { digest, recordWho, listTaskFilesIn, conversation, taskChanges, firstLine, MAX_MESSAGES, LINE_MAX };
