@@ -236,8 +236,9 @@ extension Board {
         return [obj?["because"] as? String, obj?["error"] as? String].contains { !($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
     /* The Files screen: filesKeepsShown, except that the owner being gone replaces the list on a project's documents and
-       at the top of an agent's browse. Below the top a 404 is also a listing refusal (and the agent being removed while
-       a subfolder is open is not told apart from one), so it keeps the list. */
+       at the top of an agent's browse, and a refusal the board marks lasting replaces it anywhere (kosmos#7850). Below
+       the top a 404 is also a listing refusal (and the agent being removed while a subfolder is open is not told apart
+       from one), so it keeps the list unless it is marked lasting. */
     static func filesScreenKeepsShown(_ r: FilesRead, status: Int, body: Data?, owner: FilesOwner, dir: String) -> Bool {
         if filesOwnerGone(status: status, body: body) {
             switch owner {

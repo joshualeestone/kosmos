@@ -30,6 +30,10 @@ which is exactly what an older board's refusals look like. The phone could not t
   PASSING_READ_CODES is declared before its first reader. Stated, for the PR: resolveListedDir's other callers (the
   folder download and zip) now say "we could not read what is in that folder" for a non-ENOENT error where they said
   "not there"; no test or page matches the old sentence for those cases.
+- Review round 3: the agent Files list answers the empty state ("missing") when listFiles refuses because the folder
+  went between the route's own check and the read (it was a lasting refusal for one poll). Accepted: ETIMEDOUT and
+  ESTALE (a network mount) are not passing codes, so on a network-backed folder a timeout replaces a shown list on the
+  phone, as any refusal did before #7842.
 - Weakest premise now: that the listing routes have no OTHER unmarked brief refusal (the route-level ones are the link
   and the no-agent/no-project 404s, both lasting). Accepted, not changed: `passing` read with `as? Bool` also accepts a
   JSON number; the board only sends booleans.

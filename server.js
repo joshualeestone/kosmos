@@ -5804,14 +5804,6 @@ const FORM_TYPES = new Set([
    from a host this board does not answer for means the same. Either is
    refused. A request with neither header (curl, an old browser) passes: the
    guard is against the drive-by, not against the person. */
-/* kosmos#7850: a listing refusal (an agent's Files list, its browse, a project's documents) says whether it is passing:
-   the engine marks the ones a read moments later may not repeat (passing: true); every other refusal is sent with
-   passing: false, so a client can tell a lasting refusal from an older board that says neither. A list is unchanged. */
-function listingAnswer(listed) {
-  if (!listed || listed.ok !== false || listed.passing === true) return listed;
-  return { ...listed, passing: false };
-}
-
 /* Attach a link preview to every row that carries text with a link (#357).
    Read from the engine's cache while serving; a link never asked for starts
    its fetch now and is carried on the next poll, so a payload is never held
@@ -5840,6 +5832,14 @@ function withPreviews(rows) {
     };
   }
   return rows;
+}
+
+/* kosmos#7850: a listing refusal (an agent's Files list, its browse, a project's documents) says whether it is passing:
+   the engine marks the ones a read moments later may not repeat (passing: true); every other refusal is sent with
+   passing: false, so a client can tell a lasting refusal from an older board that says neither. A list is unchanged. */
+function listingAnswer(listed) {
+  if (!listed || listed.ok !== false || listed.passing === true) return listed;
+  return { ...listed, passing: false };
 }
 
 /* #4973: a read of /api/status that another of the person's computers' pages caused (#4812: the relay hands the board
@@ -9145,6 +9145,11 @@ const server = http.createServer(async (req, res) => {
       // Flat on purpose (#2245 round 7): the agent's instructions (engine/dmfiles.js) tell it to save
       // directly in Files, and this page says so; only a PROJECT's list walks subfolders.
       const { names: _allNames, ...listed } = projects.listFiles(folder, cap, { maxDepth: 0, fingerprint: true });   // #6761: each row's sha256
+      // kosmos#7850: the folder went between the check above and the read: the same empty state, not a refusal.
+      if (!listed.ok && projects.folderState(folder).state === projects.FOLDER.MISSING) {
+        sendJson(res, 200, { ok: true, missing: true, total: 0, files: [], stamp: 'missing', folder });
+        return;
+      }
       sendJson(res, 200, { ...listingAnswer(listed), folder });
       return;
     }

@@ -248,11 +248,12 @@ test('#7850 project documents CONTROL: a folder that is gone is a refusal marked
   assert.strictEqual(body.passing, false, JSON.stringify(body));
 });
 
-test('#7850 phone half: Files being a link is a lasting refusal, said so on the list and on browse', async () => {
+test('#7850 phone half: Files being a link is a lasting refusal, said so on the list and on browse', async (t) => {
   const other = dmfiles.filesDir('cyd');
   fs.mkdirSync(path.dirname(other), { recursive: true });
   const target = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-files-passing-linked-'));
   fs.symlinkSync(target, other);
+  t.after(() => { try { fs.rmSync(other, { force: true }); fs.rmSync(target, { recursive: true, force: true }); } catch { /* best effort */ } });
   const list = await getJson('/api/agent/cyd/files');
   assert.equal(list.status, 200);
   assert.equal(list.body.ok, false, JSON.stringify(list.body));
@@ -313,4 +314,22 @@ test('#7850 phone half: a subfolder whose lstat (resolveListedDir) fails with EA
     assert.equal(h.body.because, 'that folder is not there any more, or it was moved');
     assert.strictEqual(h.body.passing, false, JSON.stringify(h.body));
   } finally { fs.lstatSync = was; }
+});
+
+test('#7850 phone half: a Files folder removed between the route\'s check and its read is the empty state, not a refusal', async () => {
+  const gone = dmfiles.filesDir('dee');
+  fs.mkdirSync(gone, { recursive: true });
+  const real = fs.realpathSync(gone);
+  const was = fs.readdirSync;
+  let hits = 0;
+  // The route's own check finds the folder; then it goes, just as listFiles reads it.
+  fs.readdirSync = function (p, ...rest) {
+    if (String(p) === real) { hits += 1; fs.rmSync(gone, { recursive: true, force: true }); const e = new Error('ENOENT: test'); e.code = 'ENOENT'; throw e; }
+    return was.call(fs, p, ...rest);
+  };
+  let got;
+  try { got = await getJson('/api/agent/dee/files'); } finally { fs.readdirSync = was; }
+  assert.ok(hits > 0, 'the read never reached the seam');
+  assert.equal(got.status, 200);
+  assert.deepEqual({ ok: got.body.ok, missing: got.body.missing, files: got.body.files }, { ok: true, missing: true, files: [] }, JSON.stringify(got.body));
 });

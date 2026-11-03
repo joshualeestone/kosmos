@@ -2181,7 +2181,8 @@ function sameOpenedFile(gated, opened, platform = process.platform) {
  * segment a REAL folder seen by lstat (never a link, never a skipped folder), no deeper than opts.maxDepth, the native
  * realpath equal to the walked path (refuses another case or normalisation, and a link swapped in after the walk) and
  * inside the resolved folder.
- * Returns { ok: true, real, rel, segs, root } or { ok: false, because }.
+ * Returns { ok: true, real, rel, segs, root } or { ok: false, because, passing? } (kosmos#7850: `passing: true` for a
+ * read error a read moments later may not repeat, as listDir's).
  */
 function resolveListedDir(folder, rel, where = 'this folder', opts = null) {
   const given = String(rel == null ? '' : rel);
