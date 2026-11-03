@@ -764,9 +764,12 @@ struct ChatView: View {
                     // kosmos#7609: a chat kept alive under another tab records nothing to keep, so the flag can only ever
                     // say "keep" for the chat on screen, as the handler below that acts on it requires.
                     guard visible else { keepNewestInView = false; return }
+                    // kosmos#7817: a will-show while the keyboard is already up (its height passing 608 on the way to 380) keeps
+                    // the first one's answer: the shrunk list can have hidden the end before the settled scroll runs.
+                    let alreadyUp = diagKeyboard > 0
                     diagKeyboard = (n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? 0
                     Self.trace("keyboard up \(Int(diagKeyboard)) (atBottom \(atBottom))")
-                    keepNewestInView = atBottom || (searchOpen && openedAtNewest && !searching)
+                    keepNewestInView = (alreadyUp && keepNewestInView) || atBottom || (searchOpen && openedAtNewest && !searching)
                 }
                 // kosmos#7817 (Josh 11-02): the box growing or shrinking a line as he typed moved the conversation elsewhere.
                 // Anything in the strip counts (a wrap, the line above the box, the emoji panel, a reply or file row). A
@@ -792,7 +795,7 @@ struct ChatView: View {
                     kbSettleTick &+= 1
                     let tick = kbSettleTick
                     DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {
-                        guard tick == kbSettleTick, keepNewestInView, visible else { return }
+                        guard tick == kbSettleTick, keepNewestInView, visible, !scrollBox.underFinger else { return }
                         Self.trace("keyboard shown, to the newest")
                         // kosmos#7344: re-setting an anchor that already reads "end" does not move the thread, so scroll to it.
                         // Not animated under the anchor, as goNewest is (the side lock, #7574, relies on that).
