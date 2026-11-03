@@ -1005,11 +1005,11 @@ test('kosmos#7825: a profile that cannot be read refuses, never reads as "no rec
     fs.writeFileSync(file, body);
     const d = mac.plan(name);
     assert.equal(d.ok, true, `${body}: ${d.because}`);
-    assert.ok(d.loses.includes('Its settings file could not be read, so Kosmos could not check what it recorded before offering it'), JSON.stringify(d.loses));
+    assert.ok(d.loses.includes('Its settings file is not in a form Kosmos can read, so Kosmos could not check what it recorded before offering it'), JSON.stringify(d.loses));
     withWorldStarts([{ name, why: 'import' }], () => assert.match(mac.plan(name).because || '', /waiting to start/, `${body}: a damaged file was offered over a waiting world start`));
   }
   fs.writeFileSync(file, JSON.stringify({ displayName: 'x' }));
-  assert.ok(!mac.plan(name).loses.some((l) => /could not be read/.test(l)), 'CONTROL: readable settings were said to be unreadable');
+  assert.ok(!mac.plan(name).loses.some((l) => /not in a form/.test(l)), 'CONTROL: readable settings were said to be unreadable');
   fs.rmSync(file, { force: true });
 });
 
@@ -1186,4 +1186,20 @@ test('kosmos#7825: a picture alone left over is named in the singular, end to en
   assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
   assert.equal(r.said, "onlypic7825's picture is in the Trash. The name is free.");
   assert.equal(store.avatarPath(name), null);
+});
+
+test('kosmos#7825: a recorded folder outside the workers folder that is there (a link) is refused without blaming a disconnected disk (review 5)', () => {
+  const out = nodePath.join(SANDBOX, 'outside7825');
+  fs.mkdirSync(nodePath.join(out, 'real'), { recursive: true });
+  const link = nodePath.join(out, 'linked');
+  try { fs.symlinkSync(nodePath.join(out, 'real'), link); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
+  const name = strandedProfile('there7825', { dir: link });
+  assert.equal(mac.plan(name).because, "there7825's folder is not where Kosmos keeps agents, so Kosmos will not delete its settings.");
+  // A real folder there: plan()'s own folder rule answers first, with its own true sentence.
+  store.writeProfile(name, { dir: nodePath.join(out, 'real') });
+  assert.equal(mac.plan(name).because, "there7825's folder is not where Kosmos keeps agents, so Kosmos will not delete it.");
+  // CONTROL: nothing there is the disconnected-disk sentence.
+  store.writeProfile(name, { dir: nodePath.join(out, 'gone') });
+  assert.match(mac.plan(name).because || '', /cannot reach right now/);
+  fs.rmSync(store.profilePath(name), { force: true });
 });
