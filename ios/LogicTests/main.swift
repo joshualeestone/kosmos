@@ -1043,6 +1043,13 @@ do {
           "a read with no tag names none")
     let tagged = Board.threadRequest(mac: mac, session: "dana", tag: #""abc""#)
     check(tagged?.value(forHTTPHeaderField: "If-None-Match") == #""abc""# && tagged?.url?.query == nil, "a poll names the shown window's tag, whole window")
+    let firstAsk = Board.threadAsk(fullRead: false, showing: false, tag: #""t""#)
+    check(firstAsk.tail == 30 && firstAsk.tag == nil, "nothing shown yet: the newest 30, naming no tag")
+    let keptAsk = Board.threadAsk(fullRead: false, showing: true, tag: #""t""#)
+    check(keptAsk.tail == nil && keptAsk.tag == nil, "a kept copy or small page shown: the whole window, naming no tag (it is not that body)")
+    let pollAsk = Board.threadAsk(fullRead: true, showing: true, tag: #""t""#)
+    check(pollAsk.tail == nil && pollAsk.tag == #""t""#, "a whole window shown: the whole window, naming its tag")
+    check(Board.threadAsk(fullRead: true, showing: true, tag: nil).tag == nil, "a tag cleared (a missed read): the whole body again")
     check(Board.threadRequest(mac: mac, session: "dana", tail: 900)?.url?.query == "tail=200"
           && Board.threadRequest(mac: mac, session: "dana", tail: 0)?.url?.query == "tail=1", "a tail is kept to what the Mac accepts")
     let post = Board.sendRequest(mac: mac, session: "dana", text: "  Hello there \n")
@@ -2897,6 +2904,12 @@ section("native board loop: connecting")
         check(w.threadReads.last?.query == "tail=30" && w.threadReads.last?.tag == "", "the first read asks for 30, naming no tag")
         if case .thread = first.read { check(true, "the small page is a conversation") } else { check(false, "the small page is a conversation") }
         check(c.keptThread(for: "dana") == nil, "a small page is never kept (it is not the window the next open shows)")
+        // A question with its buttons: the read carries them, the kept copy never does.
+        w.threadAnswer = (200, #"{"messages":[{"at":"2026-11-02T20:00:01.000Z","text":"Morning Dana","from":null}],"olderCount":420,"asking":true,"asked":"Proceed?","presence":"on","options":[{"n":1,"label":"Yes"}]}"#)
+        if case .thread(let withButtons) = (await c.threadRead(for: "dana")).read { check(withButtons.choices != nil, "CONTROL: the read itself carries the buttons") }
+        else { check(false, "CONTROL: the read itself carries the buttons") }
+        check(c.keptThread(for: "dana") != nil && c.keptThread(for: "dana")?.choices == nil, "the kept copy never carries a question's buttons")
+        w.threadAnswer = (200, body)
         let full = await c.threadRead(for: "dana")
         check(full.tag == #""t1""#, "the whole window comes with its ETag")
         check(c.keptThread(for: "dana")?.rows.first?.text == "Morning Dana" && c.keptThread(for: "dana")?.olderCount == 420,

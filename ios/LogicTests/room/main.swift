@@ -1669,6 +1669,14 @@ check(attachSrc.contains(".accessibilityHidden(true)   // the name beside it say
 check(attachSrc.contains("context.coordinator.done = done") && attachSrc.contains("Text(note).font(.footnote).foregroundColor(Palette.secondary) }"),
       "kosmos#7596 review 4: the camera hands its photo to the screen as it is now, and a row's reason is never dimmed")
 
+// kosmos#7810 (wiring guards, not proof of the screen): the chat asks through the tested threadAsk; earlier pages, the gap
+// fill and carryDropped wait for a whole window read in this open; a missed read clears the tag.
+check(chatSource.contains("let ask = Board.threadAsk(fullRead: fullRead, showing: thread != nil, tag: threadTag)"), "kosmos#7810: the chat's read asks through threadAsk")
+check(chatSource.contains("guard fullRead, !searchMode, let t = thread, Board.shouldAsk("), "kosmos#7810: no earlier page from a kept copy or small page")
+check(chatSource.contains("guard fullRead, earlier.open, !earlier.filling"), "kosmos#7810: no gap fill from a kept copy or small page")
+check(chatSource.contains("if !Self.sampleNoKeep, wasFull { earlier = Board.carryDropped("), "kosmos#7810: carryDropped only from a whole window")
+check(chatSource.contains("private func dropChoices() {\n        // kosmos#7810: the shown window no longer matches the Mac's body, so the next read asks for it whole.\n        threadTag = nil"), "kosmos#7810: a missed read clears the tag, so the buttons come back")
+check(chatSource.contains("thread = nil\n            fullRead = false; threadTag = nil"), "kosmos#7810: a fresh chat starts with no whole window and no tag")
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

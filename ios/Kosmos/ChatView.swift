@@ -1535,6 +1535,8 @@ struct ChatView: View {
     // No thread read, no buttons (the board's rule): a question kept from an earlier read may have moved on to another
     // with the same words (every permission prompt asks "Do you want to proceed?"), so it cannot be pressed.
     private func dropChoices() {
+        // kosmos#7810: the shown window no longer matches the Mac's body, so the next read asks for it whole.
+        threadTag = nil
         guard let t = thread, t.choices != nil else { return }
         thread = Board.Thread(rows: t.rows, olderCount: t.olderCount)
     }
@@ -2003,9 +2005,9 @@ struct ChatView: View {
         let startedIn = client.chatEpoch
         // The first read of an open with nothing to show asks for a screenful; later reads ask for the whole window,
         // naming what is shown (its ETag) once a whole window is shown, so an unchanged one costs no body.
-        let small = !fullRead && thread == nil
-        let (result, tag) = await client.threadRead(for: agent.session, tail: small ? Board.threadFirstPage : nil,
-                                                    tag: fullRead ? threadTag : nil)
+        let ask = Board.threadAsk(fullRead: fullRead, showing: thread != nil, tag: threadTag)
+        let small = ask.tail != nil
+        let (result, tag) = await client.threadRead(for: agent.session, tail: ask.tail, tag: ask.tag)
         // A read cut short (the chat closed, the app went away) says nothing about the Mac, and an older read than the
         // one shown changes nothing.
         guard !Task.isCancelled, mine > readShown, startedIn == client.chatEpoch else { return false }
