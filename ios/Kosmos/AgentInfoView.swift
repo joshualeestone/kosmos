@@ -9,7 +9,9 @@ struct AgentInfoView: View {
     let agent: Board.Agent
     let openOnBoard: () -> Void
 
-    enum Part: String, CaseIterable { case profile = "Profile", ai = "AI Settings" }
+    // kosmos#7679 (Josh, iPhone build 29, 11-03 04:11: "We should add files to the segment controller"): Files is its own
+    // segment, after the two the board's page has.
+    enum Part: String, CaseIterable { case profile = "Profile", ai = "AI Settings", files = "Files" }
     @State private var part: Part = .profile
     @State private var details: Board.AgentDetails?
     @State private var readFailed = false
@@ -30,6 +32,8 @@ struct AgentInfoView: View {
     @State private var freshBusy = false
     // kosmos#7679: the Files section's read and its opener, owned here so they attach once, to the List (review 1).
     @State private var filesRead: Board.FilesSectionState = .hidden
+    // kosmos#7679: whether the first Files read has come back, so the Files segment can tell loading from empty.
+    @State private var filesLoaded = false
     @StateObject private var filesOpener = FileOpener()
 
     @ScaledMetric(relativeTo: .body) private var markSize: CGFloat = 22
@@ -52,6 +56,7 @@ struct AgentInfoView: View {
                 switch part {
                 case .profile: profile
                 case .ai: aiSettings
+                case .files: filesPart
                 }
             }
         }
@@ -171,8 +176,18 @@ struct AgentInfoView: View {
                 unread
             }
         } header: { label("Skills") }
-        // kosmos#7679: the agent's Files, the newest few and All files (FilesView.swift).
-        FilesSection(client: client, session: agent.session, state: filesRead, opener: filesOpener, openOnBoard: openOnBoard)
+    }
+
+    // kosmos#7679: the Files segment. The section hides itself when there is nothing to list (as it did at the foot of
+    // Profile, the board's #3757); as a segment of its own it says so instead, in the board's words, once the read is back.
+    @ViewBuilder private var filesPart: some View {
+        if filesRead == .hidden {
+            Section {
+                if filesLoaded { Text(Board.filesAgentEmpty).foregroundColor(Palette.secondary) } else { ProgressView() }
+            } header: { label(Board.filesTitle) }
+        } else {
+            FilesSection(client: client, session: agent.session, state: filesRead, opener: filesOpener, openOnBoard: openOnBoard)
+        }
     }
 
     private var changed: Bool {
@@ -285,7 +300,7 @@ struct AgentInfoView: View {
         let session = agent.session
         guard Board.isAgentSession(session) else { return }   // the page says where to change it instead
         #if DEBUG
-        if AgentInfoView.sample { applySample(); filesRead = await FilesSection.read(client: client, session: session); return }
+        if AgentInfoView.sample { applySample(); filesRead = await FilesSection.read(client: client, session: session); filesLoaded = true; return }
         #endif
         async let files = FilesSection.read(client: client, session: session)   // kosmos#7679
         async let status = client.throughMac { Board.statusRequest(mac: $0) }
@@ -308,6 +323,7 @@ struct AgentInfoView: View {
         // phone loses its connection far more than a desk page does, and the rows it had are still the agent's.)
         let newFiles = await files
         if newFiles == .message(Board.filesAgentUnread), case .rows = filesRead {} else { filesRead = newFiles }
+        filesLoaded = true
     }
 
     private func save() async {
@@ -345,7 +361,7 @@ struct AgentInfoView: View {
 
     #if DEBUG
     // KOSMOS_SAMPLE_AGENTS=1 (a Debug build): the sample agent's page without a Mac, for the design shots.
-    // KOSMOS_SAMPLE_INFO=ai opens on AI Settings.
+    // KOSMOS_SAMPLE_INFO=ai opens on AI Settings, =files on Files.
     static var sample: Bool { ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" }
     private func applySample() {
         let d = Board.AgentDetails(session: live.session, name: live.name, role: live.role, reportsTo: nil, runner: "",
@@ -355,7 +371,7 @@ struct AgentInfoView: View {
         fill(d)
         instructions = "You look after the spring catalogue: the cover, the order of the pages, and getting proofs to the printer on time.\n\nAsk before you spend money or send anything outside the team."
         skills = [Board.Skill(key: "meeting-minutes", name: "Meeting minutes"), Board.Skill(key: "proof-checklist", name: "Proof checklist")]
-        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_INFO"] == "ai" { part = .ai }
+        switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_INFO"] { case "ai": part = .ai; case "files": part = .files; default: break }
     }
     #endif
 }
