@@ -1163,7 +1163,7 @@ test('kosmos#7825: a recorded folder spelled through a link to the workers folde
   const W = process.env.AGENT_WORKFORCE_WORKERS;
   fs.mkdirSync(W, { recursive: true });
   const link = nodePath.join(SANDBOX, 'workers-link');
-  try { fs.symlinkSync(W, link); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
+  fs.rmSync(link, { force: true }); fs.symlinkSync(W, link);
   const name = strandedProfile('link7825', { dir: nodePath.join(link, 'link7825') });
   assert.equal(mac.plan(name).ok, true, 'a gone folder in the workers folder, spelled through a link, read as out of reach');
   // (A profile recording the workers folder itself has a folder that exists, so plan()'s folder rule answers first.)
@@ -1192,7 +1192,7 @@ test('kosmos#7825: a recorded folder outside the workers folder that is there (a
   const out = nodePath.join(SANDBOX, 'outside7825');
   fs.mkdirSync(nodePath.join(out, 'real'), { recursive: true });
   const link = nodePath.join(out, 'linked');
-  try { fs.symlinkSync(nodePath.join(out, 'real'), link); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
+  fs.rmSync(link, { force: true }); fs.symlinkSync(nodePath.join(out, 'real'), link);
   const name = strandedProfile('there7825', { dir: link });
   assert.equal(mac.plan(name).because, "there7825's folder is not where Kosmos keeps agents, so Kosmos will not delete its settings.");
   // A real folder there: plan()'s own folder rule answers first, with its own true sentence.
@@ -1208,14 +1208,14 @@ test('kosmos#7825: a recorded folder inside the workers folder behind a link is 
   const W = process.env.AGENT_WORKFORCE_WORKERS;
   fs.mkdirSync(W, { recursive: true });
   const dangling = nodePath.join(W, 'ext7825');
-  try { fs.symlinkSync(nodePath.join(SANDBOX, 'unmounted7825'), dangling); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
+  fs.rmSync(dangling, { force: true }); fs.symlinkSync(nodePath.join(SANDBOX, 'unmounted7825'), dangling);
   const name = strandedProfile('behind7825', { dir: nodePath.join(dangling, 'behind7825') });
   try {
     assert.match(mac.plan(name).because || '', /^behind7825's folder is behind a link that leads nowhere right now/, 'a folder behind a link to an unmounted disk was offered');
     // A live link out of the workers folder: judged by where it goes (outside, and its folder gone there).
     fs.mkdirSync(nodePath.join(SANDBOX, 'mounted7825'), { recursive: true });
     const live = nodePath.join(W, 'live7825');
-    try { fs.symlinkSync(nodePath.join(SANDBOX, 'mounted7825'), live); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
+    fs.rmSync(live, { force: true }); fs.symlinkSync(nodePath.join(SANDBOX, 'mounted7825'), live);
     store.writeProfile(name, { dir: nodePath.join(live, 'behind7825') });
     assert.match(mac.plan(name).because || '', /is not there now and is not where Kosmos keeps agents\. It may be on a disk or a shared folder that is not connected/, 'a gone folder behind a link out of the workers folder was offered');
     // CONTROL: the same gone folder spelled with no link is a leftover.
@@ -1244,7 +1244,7 @@ test('kosmos#7825: a dangling link is found whatever the case of the spelling or
   const W = process.env.AGENT_WORKFORCE_WORKERS;
   fs.mkdirSync(W, { recursive: true });
   const made = [];
-  const link = (from, to) => { try { fs.symlinkSync(to, from); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; } made.push(from); };
+  const link = (from, to) => { fs.rmSync(from, { force: true }); fs.symlinkSync(to, from); made.push(from); };
   const name = strandedProfile('hop7825');
   try {
     link(nodePath.join(W, 'ext7825'), nodePath.join(SANDBOX, 'unmounted7825'));
@@ -1271,4 +1271,16 @@ test('kosmos#7825: a dangling link is found whatever the case of the spelling or
     for (const m of made.reverse()) fs.rmSync(m, { recursive: true, force: true });
     fs.rmSync(store.profilePath(name), { force: true });
   }
+});
+
+test('kosmos#7825: with the workers folder gone, a folder recorded inside it is judged by the same walk (review 8)', () => {
+  const W = process.env.AGENT_WORKFORCE_WORKERS;
+  fs.mkdirSync(W, { recursive: true });
+  const away = W + '.away7825';
+  const name = strandedProfile('nowork7825', { dir: nodePath.join(W, 'nowork7825') });
+  fs.renameSync(W, away);
+  let p;
+  try { p = mac.plan(name); } finally { fs.renameSync(away, W); fs.rmSync(store.profilePath(name), { force: true }); }
+  // The sandbox sits under /var, a link to /private/var on a Mac: resolved on one side only, it read as outside.
+  assert.equal(p.ok, true, p.because);
 });

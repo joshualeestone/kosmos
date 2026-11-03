@@ -479,7 +479,11 @@ function resolveRecordedFolder(dir) {
     }
   }
   let base;
-  try { base = fs.realpathSync.native(at); } catch { return { because: 'unlookable' }; }
+  try { base = fs.realpathSync.native(at); } catch {
+    // A root that is not there (a Windows drive or share that is not connected, review 8) is a gone rest, not a passing fault.
+    if (at !== root) return { because: 'unlookable' };
+    base = root;
+  }
   return { path: path.join(base, ...parts.slice(i)) };
 }
 
@@ -519,8 +523,10 @@ function strandedRefusal(name, shown) {
     const where = resolveRecordedFolder(dir);
     if (where.because === 'unlookable') return { because: `we could not check where ${shown}'s folder was, so we have not offered to delete anything. Try again in a moment.` };
     if (where.because === 'dangling') return { because: `${shown}'s folder is behind a link that leads nowhere right now, perhaps to a disk or a shared folder that is not connected, so Kosmos will not delete its settings.` };
-    let w;
-    try { w = fs.realpathSync.native(create.WORKERS_DIR); } catch { w = path.resolve(create.WORKERS_DIR); }
+    // Both sides by the same walk (review 8): a workers folder that is gone with its last agent still resolves its parents.
+    const wAt = resolveRecordedFolder(create.WORKERS_DIR);
+    if (wAt.because) return { because: `we could not check where ${shown}'s folder was, so we have not offered to delete anything. Try again in a moment.` };
+    const w = wAt.path;
     if (where.path !== w && !insideDir(where.path, w)) {
       /* Something is there (a link, a file), so the sentence must not send the person to check a cable (review 5). A
          real folder there never reaches this: workerDir follows it and plan()'s folder rule refuses first. */
