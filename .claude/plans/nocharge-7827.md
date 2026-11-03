@@ -24,4 +24,9 @@ coded refusal, as it already did for the JSON form. plansNow on that line is tes
 
 ## Weakest premise
 That every tunnel line names the status as "(HTTP nnn on ...)". The engine's tests and the tunnel's own (coordinator.rs)
-use that form; a tunnel that printed neither the object nor that line would still fall to CHECKOUT_RETRY.
+use that form; a tunnel that printed neither the object nor that line falls to the uncertain sentence and the watch (the safe side).
+
+## Accepted (review 7)
+A tunnel older than the coded line form strips every code, so its 409 personal_backup_not_on and backup_plan_exists also
+show the conflict sentence and start the watch, which is not true of either. It needs a connector that old against
+this board; recorded rather than special-cased.
