@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: deletedrop-7852
-diff_hash: a60f271ddd4ff22a95da142f5ba356b9c469bc1f9215c5bc2a5295e034f9f2a5
+diff_hash: 23c65dca633f2c45efdf584fd23e4de53ebcc4626b596de3143ed525268140b1
 validation: page-only change (web/index.html) plus tests; every test that reads the delete code ran after each round (473/473 at the end, including server.test.js and the #7820 suite run from the worktree); the full node suite is left to GitHub CI, which runs it on the PR
 subdir_audit: not run (no CLAUDE.md changed)
-timestamp: 2026-11-03T14:43:15Z
+timestamp: 2026-11-03T15:14:35Z
 iterations: 8
 converged: false
 ---
@@ -122,3 +122,9 @@ converged: false
 - The real click handler runs in the tests against a scriptable fetch, covering every no-answer shape and each race, each with a control (iterations 2 to 8)
 - Every new rule had a perturbation on a scratchpad copy that went red (iterations 1 to 8)
 - The success path's cleanup lives in one shared deleteSettled, and stopped writing into another agent's detail page (iterations 3, 5, 8)
+
+### After the loop: CI's first run (PR #7856)
+- `fixture-discipline.test.js` flagged the test's hand-built `CURRENT` card. It now uses `test-support/fleet`'s real board cards, and the guard passes along with the card's 29 tests (42/42 across both).
+- The browser-check gates (#1720, #2518) refused the web/ change. Both were run locally under bash. A `Browser-check:` trailer covers the logic-only change. Per-check `Browser-check-surface:` trailers cover two checks: their token `msg` matched a JS variable and the del-msg ids, not the `.msg` bubble class they assert (read in each check). Both gates now pass.
+- `tools.shell-shard-4317.test.js` (#6791) failed in CI on the same gate message; it passes locally after the trailer, 24/24.
+- These are a test-harness change and commit trailers. No blind round reviewed them, because the loop was at its cap. CI is the gate for them.
