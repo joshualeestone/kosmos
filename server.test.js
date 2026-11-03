@@ -4978,6 +4978,7 @@ test('kosmos#7825 PR 2: the removed list carries names with only settings left, 
     assert.ok(row, 'a name with only settings left is not listed');
     assert.deepEqual(Object.keys(row).sort(), ['name', 'shownAs'], 'the leftovers rows ship fields the screen does not draw');
     assert.equal(row.shownAs, 'Stray');
+    await req('/api/status');   // the board poll takes a survey (with the name in it) that the list may reuse
     const gone = await del();
     assert.equal(gone.status, 200, gone.body);
     const after = JSON.parse((await req('/api/removed')).body);

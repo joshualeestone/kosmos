@@ -50228,6 +50228,8 @@ document.getElementById('del-go').addEventListener('click', async () => {
     go.disabled = false;
     return;
   }
+  /* kosmos#7825 review 2: a name just deleted is never drawn again from the kept leftovers. */
+  { const deleted = DEL_FOR; LEFTOVERS_LAST = LEFTOVERS_LAST.filter((x) => x.name !== deleted); }
   closeDeleteModal();
   const say = body.said || body.because || '';
   const dmsg = document.getElementById('d-delete-msg');
@@ -51187,7 +51189,9 @@ async function paintRemoved() {
     gone = body.agents;
     /* Absent only when the board could not read them: keep what was last drawn rather than dropping rows a person may
        be reaching for (review 1). */
-    if (Array.isArray(body.leftovers)) LEFTOVERS_LAST = body.leftovers;
+    if (Array.isArray(body.leftovers)) { LEFTOVERS_LAST = body.leftovers; LEFTOVERS_AT = Date.now(); }
+    // Kept a minute, not for ever (review 2): a board that keeps answering without them is not "nothing changed".
+    else if (Date.now() - LEFTOVERS_AT > 60000) LEFTOVERS_LAST = [];
     left = LEFTOVERS_LAST;
     REMOVED_EVER_READ = true;
     /* ⚠️ AND TAKE THE SENTENCE DOWN. Written on a first-load failure, it was
@@ -51369,6 +51373,7 @@ async function paintRemoved() {
 
 /* kosmos#7825: the last leftovers list the board could read, kept when a later read fails. */
 let LEFTOVERS_LAST = [];
+let LEFTOVERS_AT = 0;
 // The last markup `paintRemoved` produced. See the note in that function for
 // why the comparison is against this rather than against `list.innerHTML`.
 let REMOVED_HTML = null;

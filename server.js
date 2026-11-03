@@ -10619,8 +10619,11 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
         let done;
         try { done = leftover.del(name, { typed: body.typed }); }
-        catch (err) { SETTINGS_LEFTOVERS = null; sendJson(res, 500, { error: 'the delete failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
-        SETTINGS_LEFTOVERS = null;   // kosmos#7825 PR 2: the removed list redraws from a fresh read
+        catch (err) { SETTINGS_LEFTOVERS = null; LAST_SURVEY = null; sendJson(res, 500, { error: 'the delete failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
+        // kosmos#7825 PR 2: the removed list redraws from a fresh read. The poll's survey too, taken before the delete
+        // (review 2: reused, it listed the name the delete had just cleared).
+        SETTINGS_LEFTOVERS = null;
+        LAST_SURVEY = null;
         sendJson(res, done.outcome === leftover.OUTCOME.REFUSED ? 400 : 200, done);
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
