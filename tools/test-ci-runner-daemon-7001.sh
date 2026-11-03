@@ -1,6 +1,6 @@
 #!/bin/bash
 # kosmos#7001: tools/ci-runner-setup.sh's daemon stage, against stand-ins (launchctl, pgrep, ps, id, stat, chown, mv,
-# mkdir, date, sudo, sleep) and a throwaway runner home. It never touches launchd, /Library or a real runner. What it checks:
+# mkdir, tee, date, sudo, sleep) and a throwaway runner home. It never touches launchd, /Library or a real runner. What it checks:
 #   - --apply as non-root is refused (exit 2); a dry run as a third user reads nothing (exit 3)
 #   - a running job, a Listener outside the daemon (named by pid), a loaded LaunchAgent, a disabled label, a .service
 #     naming another plist and an agent with a foreign Label each refuse, dry or --apply
@@ -61,6 +61,7 @@ case "$me" in
     [ "${FX_LISTENER_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) echo "$FX_CIU 5300 1 $FX_R/bin/Runner.Listener run" >> "$S/procs" ;; esac
     # A hangup, ^C or TERM while the agent is parked and nothing is loaded: the stage must not die here.
     [ "${FX_TERM_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) kill -TERM "$PPID"; kill -INT "$PPID"; kill -HUP "$PPID" ;; esac; exit 0 ;;
+  tee) if [ "${FX_TEE_SHORT:-0}" = 1 ]; then head -c 20 | /usr/bin/tee "$@"; cat > /dev/null; else exec /usr/bin/tee "$@"; fi ;;
   mkdir) /bin/mkdir "$@" || exit $?
     # FX_LINK_ON_MKDIR: LaunchAgents becomes a symlink as the retired dir is made, AFTER the planning check and BEFORE
     # the re-check right before the move (#7877): only that second agent_file_ok can see it.
@@ -70,7 +71,7 @@ case "$me" in
   chown|sleep) : ;;
 esac
 STUB
-chmod 755 "$BIN/_stub"; for c in id launchctl pgrep ps stat mv mkdir date sudo chown sleep; do ln -s _stub "$BIN/$c"; done
+chmod 755 "$BIN/_stub"; for c in id launchctl pgrep ps stat mv mkdir tee date sudo chown sleep; do ln -s _stub "$BIN/$c"; done
 fixture() {   # a runner as svc.sh install leaves it: .service names its LaunchAgent, WorkingDirectory the runner dir
   rm -rf "$T/home" "$T/daemons" "$T/retired" "$T/daemon-loaded" "$T/agent-loaded" "$T/gui-seen"; H="$T/home/kosmos-ci"; R="$H/actions-runner"
   mkdir -p "$R" "$H/Library/LaunchAgents" "$T/daemons"; AG="$H/Library/LaunchAgents/$LABEL.plist"
@@ -95,6 +96,7 @@ listener() { echo "$CIU $1 ${2:-1} $R/bin/Runner.Listener run" >> "$T/procs"; }
 run() {   # run <name> <env...> -- <args...>
   local n="$1"; shift; local e=(); while [ "$1" != -- ]; do e+=("$1"); shift; done; shift
   : > "$LOG"
+  # alarm: a hang fails the arm instead of the suite. It ends the stage's bash only; a child blocked on a FIFO is left.
   perl -e 'alarm 60; exec @ARGV' env -i PATH="$BIN:/usr/bin:/bin" HOME="$T/home/kosmos-ci" CALL_LOG="$LOG" KOSMOS_CI_HOME="$T/home/kosmos-ci" \
     KOSMOS_CI_DAEMON_DIR="$T/daemons" KOSMOS_CI_RETIRED_DIR="$T/retired" KOSMOS_CI_START_WAIT_S=2 FX_R="$R" FX_H="$H" FX_CIU="$CIU" SUDO_UID="$ME" FX_LABEL="$LABEL" ${e[@]+"${e[@]}"} \
     bash "${RUN_SCRIPT:-$SCRIPT}" "$@" > "$T/$n.out" 2>&1
@@ -284,15 +286,19 @@ fixture; run mkdirlink FX_LINK_ON_MKDIR=1 -- --apply daemon
 # 2: an empty retired file (a put-back or a copy that failed half way) is never the one named or put back.
 fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; : > "$RA.retired-20261103T000001Z"; run emptyret -- --apply daemon
 [ "$(rc emptyret)" = 1 ] && has emptyret "parked at $RA.retired-20261103T000000Z" && ! has emptyret 20261103T000001Z \
-  && has emptyret "sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo cmp -s $RA.retired-20261103T000000Z $AG && sudo rm $RA.retired-20261103T000000Z" \
+  && has emptyret "sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || echo 'NOT put back; $RA.retired-20261103T000000Z is kept'" \
   && pass "an empty retired file is skipped, and the printed put-back removes the retired copy only after a compare" || fail "emptyret: rc $(rc emptyret) $(cat "$T/emptyret.out")"
 # 2: the printed put-back, run in a shell with no pipefail, keeps the retired file when the copy fails.
 PB="$(sed -n 's/.*put it back and run this again: //p' "$T/emptyret.out")"; RF="$RA.retired-20261103T000000Z"
 mkdir -p "$T/pbbin"; printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = cat ] && exit 1\nexec "$@"\n' > "$T/pbbin/sudo"; chmod 755 "$T/pbbin/sudo"
-PATH="$T/pbbin:$PATH" sh -c "$PB" >/dev/null 2>&1
-[ -n "$PB" ] && [ -s "$RF" ] && pass "the printed put-back, with a cat that fails, keeps the retired file" || fail "pbfail: [$PB] retired $(ls -l "$RF" 2>&1)"
-rm -f "$AG"; PATH="$T/pbbin0:$PATH" sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //; s/sudo //g')" >/dev/null 2>&1
-[ ! -e "$RF" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && pass "and with a copy that works, the agent is back and the retired file gone" || fail "pbok: [$PB] agent $(ls -l "$AG" 2>&1)"
+PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
+[ -n "$PB" ] && [ -s "$RF" ] && [ "$PBOUT" = "NOT put back; $RF is kept" ] && pass "the printed put-back, with a cat that fails, keeps the retired file" || fail "pbfail: [$PB] retired $(ls -l "$RF" 2>&1)"
+rm -f "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
+[ "$PBOUT" = "put back" ] && [ ! -e "$RF" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && pass "and with a copy that works, the agent is back and the retired file gone" || fail "pbok: [$PB] agent $(ls -l "$AG" 2>&1)"
+# 2: the stage's own put-back, when the copy comes out short, keeps the retired file and prints how to put it back.
+fixture; run teeshort FX_MV_PLIST_FAIL=1 FX_TEE_SHORT=1 -- --apply daemon
+[ "$(rc teeshort)" = 1 ] && has teeshort "could not put $AG back (nothing was loaded): sudo test -s $RA.retired-" && [ -s "$(ls "$RA".retired-* 2>/dev/null | head -n 1)" ] \
+  && [ "$(wc -c < "$(ls "$RA".retired-* | head -n 1)")" -gt 20 ] && pass "a short copy on the stage's own put-back keeps the retired file" || fail "teeshort: rc $(rc teeshort) $(cat "$T/teeshort.out")"
 # 3: a FIFO at the plist name .service gives refuses and does not hang (the alarm in run() fails a hang). This arm cannot
 # tell runner_plist's own -f check from plutil's refusal of a FIFO (measured: rc 1, no hang); it pins the outcome.
 fixture; RL="$H/Library/LaunchAgents/actions.runner.joshualeestone-kosmos-relay.x.plist"; mkfifo "$RL"; printf '%s\n' "$RL" > "$R/.service"
