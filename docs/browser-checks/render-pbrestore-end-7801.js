@@ -51,7 +51,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       await new Promise((res) => setTimeout(res, 20));
       const liveAfter = el.getAttribute('aria-live');
       let liveAtEnd = null;
-      new MutationObserver(() => { if (el.textContent && liveAtEnd === null) liveAtEnd = el.getAttribute('aria-live'); }).observe(el, { childList: true, characterData: true, subtree: true });
+      // Read at the write itself, inside its task: the element's own setter, wrapped (an observer runs after the task).
+      const tc = Object.getOwnPropertyDescriptor(Node.prototype, 'textContent');
+      Object.defineProperty(el, 'textContent', { configurable: true, get() { return tc.get.call(this); },
+        set(v) { if (v && liveAtEnd === null) liveAtEnd = this.getAttribute('aria-live'); tc.set.call(this, v); } });
       document.getElementById('pb-files-msg').textContent = 'Confirm it is you on this device first.';
       window.fetch = () => Promise.resolve({ ok: true, json: () => Promise.resolve({ running: false, last: { ok: true, restored: 3, world: { id: 'w', name: 'Copy' } } }) });
       pbfRead();
