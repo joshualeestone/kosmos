@@ -1057,7 +1057,7 @@ test('#7404 plansNow: the plans, smallest first, and the current plan, only for 
   assert.deepEqual(r, { ok: true, plans: [{ gb: 25, price: '$5/month' }, { gb: 50, price: '$10/month' }], planGb: null });
   const b = await onWith(t, { planGb: 50 });
   assert.equal((await pb.plansNow({ root: b.root, remote: b.remote })).planGb, 50, 'the plan Kosmos+ granted');
-  const other = await onWith(t, { preview: { ok: true, data: { org: { id: 'org_' + 'b'.repeat(24), kind: 'personal' }, plans: [] } } });
+  const other = await onWith(t, { planGb: null, preview: { ok: true, data: { org: { id: 'org_' + 'b'.repeat(24), kind: 'personal' }, plans: [] } } });
   const o = await pb.plansNow({ root: other.root, remote: other.remote });
   assert.equal(o.ok, false, 'an answer about another backup was used');
   // Not on here: the preview route (which MAKES a membership) is never called just to read prices.
@@ -1065,6 +1065,38 @@ test('#7404 plansNow: the plans, smallest first, and the current plan, only for 
   const off = await pb.plansNow({ root: fresh(t), remote: { macRequest: async (m, route) => { sent.push(route); return { ok: false }; } } });
   assert.equal(off.ok, false);
   assert.deepEqual(sent, [], 'a board that is not on asked Kosmos+ anyway');
+});
+
+test('#7404 plansNow: the plan is read first; an unread or unreadable plan is a refusal, never "choose a plan"', async (t) => {
+  const PREVIEW = '/v1/mac/personal-backup';
+  const unread = await onWith(t, {});
+  unread.remote.sent.length = 0;
+  const statusDown = { sent: unread.remote.sent, macRequest: async (m, route, body) => (route === oe.ROUTES.status ? (unread.remote.sent.push(route), { ok: false }) : unread.remote.macRequest(m, route, body)) };
+  const u = await pb.plansNow({ root: unread.root, remote: statusDown });
+  assert.deepEqual(u, { ok: false, because: 'Kosmos+ could not be reached just now, so the plans cannot be shown. Try again in a minute.' });
+  assert.ok(!unread.remote.sent.includes(PREVIEW), 'the preview route was called with no plan read');
+  const bad = await onWith(t, { planGb: 'lots' });
+  bad.remote.sent.length = 0;
+  const m = await pb.plansNow({ root: bad.root, remote: bad.remote });
+  assert.equal(m.ok, false);
+  assert.match(m.because, /could not read.*Updating Kosmos may fix it\.$/);
+  assert.ok(!bad.remote.sent.includes(PREVIEW), 'the preview route was called after an unreadable plan');
+  const good = await onWith(t, { planGb: null });
+  good.remote.sent.length = 0;
+  assert.equal((await pb.plansNow({ root: good.root, remote: good.remote })).ok, true);
+  assert.deepEqual(good.remote.sent, [oe.ROUTES.status, PREVIEW], 'CONTROL, and the order: status, then the preview');
+});
+
+test('#7404 a run with no plan stops with noPlan, so the panel offers the plans instead of a dead end', async (t) => {
+  const a = await onWith(t, { planGb: null });
+  let ran = 0;
+  const r = await pb.runJob({ roots: [] }, { root: a.root, remote: a.remote, runBackup: async () => { ran++; return { ok: true }; } });
+  assert.equal(ran, 0); assert.equal(r.noPlan, true);
+  const rep = pb.report({ root: a.root });
+  assert.match(rep.stopped || '', /no backup plan on this account/);
+  assert.equal(rep.noPlan, true, 'the panel cannot tell the no-plan stop from any other');
+  await pb.runJob({ roots: [] }, { root: a.root, remote: a.remote, runBackup: async () => ({ ok: false, because: 'x' }) });
+  assert.equal(pb.report({ root: a.root }).noPlan, true, 'a passing failure kept the stop but lost what kind it is');
 });
 
 test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in plain words; nothing sent off', async (t) => {

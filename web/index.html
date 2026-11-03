@@ -55729,9 +55729,10 @@ function pbMaybe() {
     PB.st = j; pbPaint();
   }).catch(() => { /* the next minute tries again */ });
 }
-function pbPrice(st) {
+function pbPrice(st, from) {
   const said = typeof plusSiAddPrice === 'function' && st && st.price ? plusSiAddPrice(st.price) : '';
-  return said ? 'Personal backup is ' + said + ', billed to your Kosmos+ account.' : '';   // review 1: never a "to be set" line
+  // kosmos#7404: the off view's price is the smallest plan's, so it says "from" (Mona Lisa m2544).
+  return said ? 'Personal backup is ' + (from ? 'from ' : '') + said + ', billed to your Kosmos+ account.' : '';   // review 1: never a "to be set" line
 }
 function pbList(id, items) {
   const ul = document.getElementById(id); ul.textContent = '';
@@ -55754,7 +55755,7 @@ function pbPaint() {
   document.getElementById('pb-onview').hidden = !(v === 'on' || v === 'pending' || v === 'needs-key');
   document.getElementById('pb-restore').hidden = v !== 'restore';
   const price = pbPrice(st);
-  document.getElementById('pb-price').textContent = price; document.getElementById('pb-price').hidden = !price;
+  document.getElementById('pb-price').textContent = pbPrice(st, true); document.getElementById('pb-price').hidden = !price;
   document.getElementById('pb-on-row').hidden = !price;   // no price, nothing to agree to (the server refuses preview too)
   document.getElementById('pb-restore-hint').hidden = !price;   // Mona Lisa 1: the hint points at Turn on, so it goes with it
   document.getElementById('pb-words-price').textContent = PB.view === 'words' ? pbPrice({ price: PB.wordsPrice }) : price;
@@ -55772,10 +55773,7 @@ function pbPaint() {
   // typeof: the panel's functions are lifted alone by tests. Here the state drops when personal backup is off (the hidden
   // branch above drops it too).
   if (typeof pbfShow === 'function') pbfShow(v === 'on', st.state === 'off');
-  if (typeof pbpShow === 'function') {
-    pbpShow(v === 'on' && !lines.stopped, st.state !== 'on');
-    if (v === 'on' && !lines.stopped && PBP.planGb === null && pbpRows().length) say.textContent = 'Personal backup is on, but nothing is backed up until you choose a plan.';
-  }
+  if (typeof pbpOnView === 'function') pbpOnView(v === 'on', lines, st.state !== 'on');
   // An open Turn off confirm survives the 5-second repaint; it closes when the view is no longer one it belongs to.
   const ask = document.getElementById('pb-off-ask');
   if (!(v === 'on' || v === 'needs-key')) ask.hidden = true;
@@ -55855,7 +55853,7 @@ function pbSkippedShow(job) {
 function pbJobLines(j) {
   const o = j && typeof j === 'object' ? j : {};
   const last = typeof o.lastOk === 'string' && !Number.isNaN(Date.parse(o.lastOk)) ? 'Last backed up ' + new Date(o.lastOk).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) + '.' : '';
-  return { stopped: typeof o.stopped === 'string' ? o.stopped : '', plain: [typeof o.note === 'string' ? o.note : '', last].filter(Boolean).join(' ') };
+  return { stopped: typeof o.stopped === 'string' ? o.stopped : '', ...(o.noPlan === true ? { noPlan: true } : {}), plain: [typeof o.note === 'string' ? o.note : '', last].filter(Boolean).join(' ') };
 }
 /* One literal fetch per step, as plusOrgPost does, so web.api-routes-3957 reads each path and checks it has a route. */
 async function pbPost(kind, body) {
@@ -56042,18 +56040,28 @@ async function pbRestore() {
 }
 document.getElementById('pb-on').addEventListener('click', pbOpen);
 /* kosmos#7404 plan screen. The plans are read (POST /api/personal-backup/plans: the sizes on sale and the current plan, by
-   GB or null) when the on view shows and once a minute while there is no plan; with a plan, nothing more is read. */
-var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, gb: null, since: 0, reading: false };
+   GB or null) when the on view shows, then once a minute only until a read works or while a payment page is open;
+   with a plan, nothing more is read. */
+var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, gb: null, since: 0, reading: false, msgFrom: null };
 const PBP_CONFIRMING_MS = 3 * 60000;   // Kitty m2543: a late webhook can take hours, so after a few minutes say so
-function pbpMsg(t) { document.getElementById('pb-plans-msg').textContent = t ? asSentence(t) : ''; }
+function pbpMsg(t, from) { document.getElementById('pb-plans-msg').textContent = t ? asSentence(t) : ''; PBP.msgFrom = t ? from || null : null; }
 function pbpRows() {
   return Array.isArray(PBP.plans) ? PBP.plans.filter((x) => x && Number.isSafeInteger(x.gb) && x.gb > 0 && typeof plusSiAddPrice === 'function' && plusSiAddPrice(x.price)) : [];
+}
+/* The on view's plan part, after pbPaint wrote its lines. A run with no plan stops (lines.noPlan), and the plan screen is
+   the answer to that stop, so it stays open; once the plans or the plan are known, that stop's line gives way. */
+function pbpOnView(on, lines, drop) {
+  const open = on && (!lines.stopped || lines.noPlan);
+  pbpShow(open, drop);
+  const say = document.getElementById('pb-on-say');
+  if (open && lines.noPlan && (Number.isSafeInteger(PBP.planGb) || pbpRows().length)) { document.getElementById('pb-job').hidden = true; say.textContent = 'Personal backup is on for this computer.'; }
+  if (open && PBP.planGb === null && pbpRows().length) say.textContent = 'Personal backup is on, but nothing is backed up until you choose a plan.';
 }
 /* `drop`: personal backup is not on here, so nothing read for it is kept. */
 function pbpShow(on, drop) {
   if (drop) { PBP.plans = null; PBP.planGb = undefined; PBP.url = null; PBP.gb = null; PBP.since = 0; PBP.at = 0; PBP.seq++; PBP.gen++; PBP.reading = false; pbpMsg(''); }
   const hasPlan = Number.isSafeInteger(PBP.planGb);
-  if (on && !hasPlan && Date.now() - PBP.at > 60000) pbpRead();
+  if (on && !hasPlan && Date.now() - PBP.at > 60000 && (PBP.plans === null || PBP.url)) pbpRead();
   pbpPaint(on);
 }
 function pbpRead() {
@@ -56067,14 +56075,15 @@ function pbpRead() {
       PBP.plans = r.plans;
       PBP.planGb = Number.isSafeInteger(r.planGb) && r.planGb > 0 ? r.planGb : null;
       if (PBP.planGb !== null) { PBP.url = null; PBP.gb = null; PBP.since = 0; pbpMsg(''); }
-    } else pbpMsg((r && r.because) || 'Your backup plans could not be read just now.');
+      else if (PBP.msgFrom === 'read') pbpMsg('');   // a read that worked ends its own refusal, never Choose's
+    } else pbpMsg((r && r.because) || 'Your backup plans could not be read just now.', 'read');
     pbPaint();
   });
 }
 function pbpPaint(on) {
   const box = document.getElementById('pb-plans');
   const rows = pbpRows();
-  const show = !!on && PBP.planGb === null && rows.length > 0;
+  const show = !!on && !Number.isSafeInteger(PBP.planGb) && (rows.length > 0 || !!PBP.msgFrom);   // a refusal shows with no rows
   box.hidden = !show;
   const list = document.getElementById('pb-plans-list');
   const sig = JSON.stringify(rows.map((x) => [x.gb, x.price]));
@@ -56110,7 +56119,7 @@ async function pbpChoose(gb) {
   if (gen !== PBP.gen) { pbPaint(); return; }
   const url = r && r.ok === true && typeof r.url === 'string' && /^https:\/\/checkout\.stripe\.com\//.test(r.url) ? r.url : null;
   if (url) { PBP.url = url; PBP.gb = gb; PBP.since = Date.now(); PBP.at = Date.now(); }
-  else pbpMsg((r && r.because) || 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.');
+  else pbpMsg((r && r.because) || 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.', 'choose');
   pbPaint();
   if (url) { const a = document.getElementById('pb-plans-open'); try { a.focus(); } catch { /* gone */ } }
 }
