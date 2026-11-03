@@ -102,7 +102,7 @@ enum Settings {
     // A 401 can also be the few seconds after the computer restarts, so it is not worded as final.
     static func refusal(status: Int, data: Data, writing: Bool) -> String {
         if status == 401 || status == 403 {
-            return "Your computer did not let this phone in just now. Try again in a moment, or open the Agents tab to connect again."
+            return Board.phoneShutOut
         }
         if let any = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let said = any["error"] as? String, !said.trimmingCharacters(in: .whitespaces).isEmpty {

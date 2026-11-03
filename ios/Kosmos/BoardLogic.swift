@@ -2025,6 +2025,9 @@ enum Board {
         return first.uppercased() + tail + (".!?".contains(said.last!) ? "" : ".")
     }
 
+    // kosmos#7840: a 401 or 403 is the phone not being let in (a gate, or the seconds after the computer restarts). One
+    // sentence for every screen that reads through the Mac, never the gate's own words (they are for a terminal).
+    static let phoneShutOut = "Your computer did not let this phone in just now. Try again in a moment, or open the Agents tab to connect again."
     static let choiceUnsure = "We could not confirm that it went (pressing again may answer twice)."
     static let choiceArmNote = "This one changes what the agent may do from now on. Press it again to choose it."
     static let choiceWaitLine = "Still sending your choice. Try again in a moment."

@@ -245,8 +245,8 @@ extension Board {
     static let macNoAnswer = "We could not reach your computer just now. Pull down to try again."
     // A body with no words of its own, or one the phone cannot read: said as the phone, with no status number.
     static let profileCannotRead = "We cannot read this right now."
-    // 401 or 403: the phone was not let in, said as Settings says it (SettingsLogic refusal), never the gate's words.
-    static let profileShutOut = "Your computer did not let this phone in just now. Try again in a moment, or open the Agents tab to connect again."
+    // 401 or 403: the phone was not let in, said as Settings says it (one sentence, Board.phoneShutOut).
+    static var profileShutOut: String { phoneShutOut }
     /* An answer that is not the value: the board's own words for this agent are a refusal, a gate or a failure for now
        is unanswered (so a value already shown is kept). */
     static func notTheValue<T: Equatable>(_ data: Data, status: Int) -> ProfileRead<T> {
@@ -259,7 +259,9 @@ extension Board {
     // The board's own words for why not: its `because`, else its `error`, as a sentence; nil when it gave none.
     static func boardReason(_ data: Data) -> String? {
         let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        let words = sentence((obj?["because"] as? String) ?? (obj?["error"] as? String))
+        let said = [obj?["because"] as? String, obj?["error"] as? String].compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let words = sentence(said)
         return words.isEmpty ? nil : words
     }
     static func instructionsRead(_ res: (Data, HTTPURLResponse)?) -> ProfileRead<String> {
@@ -272,6 +274,9 @@ extension Board {
         guard let r = res else { return .unanswered(macNoAnswer) }
         let (data, http) = r
         if http.statusCode == 200, let list = parseSkills(data) { return .got(list) }
+        /* The skills route's 200 {ok:false} is its folder read failing (engine/skills.js), a read error for now rather
+           than a decision about the agent: a list shown is kept. */
+        if http.statusCode == 200, let words = boardReason(data) { return .unanswered(words) }
         return notTheValue(data, status: http.statusCode)
     }
     /* What a section shows after a read: the board's value, or its own reason replacing what was shown; with no real

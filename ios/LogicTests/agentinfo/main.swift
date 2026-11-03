@@ -146,6 +146,10 @@ check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(5
 check(Board.profileNext(shown: nil as String?, read: Board.instructionsRead(answer(500, #"{"error":"those instructions could not be read"}"#))) == (nil, "Those instructions could not be read."), "a 500 with nothing shown gives the board's words")
 check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(answer(403, "{}"))) == ([Board.Skill(key: "a", name: "A")], nil), "a 403 keeps the skills shown")
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(429, #"{"error":"too many requests"}"#))) == ("Old text", nil), "a 429 is not now: it keeps what was shown")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(408, #"{"error":"timed out"}"#))) == ("Old text", nil), "a 408 is not now too")
+check(Board.instructionsRead(answer(404, #"{"because":"","error":"no agent by that name"}"#)) == .refused("No agent by that name."), "an empty because does not hide the error word")
+check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(answer(200, #"{"ok":false,"because":"we could not read the skills folder","skills":[]}"#))) == ([Board.Skill(key: "a", name: "A")], nil), "the skills folder read failing keeps the list shown")
+check(Board.profileNext(shown: nil as [Board.Skill]?, read: Board.skillsRead(answer(200, #"{"ok":false,"because":"we could not read the skills folder","skills":[]}"#))) == (nil, "We could not read the skills folder."), "with nothing shown it says why")
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(200, #"{"exists":false,"editable":false}"#))) == ("Old text", nil), "a 200 that is not the thing and gives no words keeps what was shown")
 check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(answer(404, #"{"ok":false,"because":"it was removed"}"#))) == (nil, "It was removed."), "a refusal replaces the skills shown")
 

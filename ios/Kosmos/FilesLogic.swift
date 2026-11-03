@@ -149,6 +149,7 @@ extension Board {
     // The answer, read. A 200 that is not a list this build can read is "cannot read", never an empty folder.
     static func filesResult(status: Int, body: Data?) -> FilesRead {
         if status == 0 { return .noAnswer }
+        if status == 401 || status == 403 { return .refused(phoneShutOut) }   // kosmos#7840: never the gate's words
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if status == 200, let obj, obj["ok"] as? Bool == true {
             let missing = obj["missing"] as? Bool == true
@@ -201,6 +202,7 @@ extension Board {
     enum FilesSectionState: Equatable { case hidden, message(String), rows([ListedFile]) }
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
         if status == 404 { return .hidden }
+        if status == 401 || status == 403 { return .message(phoneShutOut) }   // kosmos#7840: never the gate's words
         switch filesResult(status: status, body: body) {
         case .page(let p): return p.files.isEmpty ? .hidden : .rows(p.files)
         case .refused(let why):
