@@ -189,7 +189,8 @@ const USAGE = {
     '       kosmos community edit <post|comment> <id> [--topic <title>] <text>   (fix your own; or --body-file <file>, or pipe the new words in)',
     '       (--body-file reads the text from a file, the same in every shell; in PowerShell, text piped into kosmos does not reach it)',
   ].join('\n'),
-  connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)',
+  connections: 'Usage: kosmos connections   (what is connected in Settings > Connections, from what Kosmos has stored; it never checks with each service)\n'
+    + '       kosmos connections --how   (how connecting a provider, a plugin or a service works here)',
   'whats-new': 'Usage: kosmos whats-new [--since <version>] [--json]   (what changed in each version, and which fixes need your agents restarted)',
   accounts: 'Usage: kosmos accounts   (the provider accounts this board has, and whether each is signed in, as Settings > AI Models shows it; most are checked when you ask, so not for a loop)',
   connect: 'Usage: kosmos connect <service>   (the token on stdin, never as an argument, e.g. printf \'%s\' "$TOKEN" | kosmos connect brave-search; kosmos connections lists the services)\n       (in PowerShell, text piped into kosmos does not reach it: run it from Git Bash)',
@@ -2918,7 +2919,16 @@ async function communityUnendorse(ctx, args) {
 /* #4451, as install/kosmos cmd_connections: what is connected, read CHEAPLY. The board answers from
    its disk (is a token stored?), never by checking with each service: GET /api/connections checks every
    service live and Brave, Exa, Tavily and Serper bill the person for each check. Board token only. */
-async function verbConnections(ctx) {
+async function verbConnections(ctx, args) {
+  // kosmos#7875 item 2, as install/kosmos: --how prints the guide the agent's instructions point at (a local read).
+  if (args && args[0] === '--how') {
+    if (args.length > 1) { ctx.err('Usage: kosmos connections [--how]'); return 2; }
+    let guide;
+    try { guide = ctx.engine('connections').guideText(); } catch { ctx.err('Kosmos could not find its own runtime to print this.'); return 1; }
+    ctx.out(guide);
+    return 0;
+  }
+  if (args && args.length) { ctx.err('Usage: kosmos connections [--how]'); return 2; }
   const r = await ctx.call('GET', '/api/connections/held', undefined, { agent: false });
   if (!r.reached) return ctx.unreachable('read what is connected');
   if (ctx.refusedBy(r)) { ctx.err('Kosmos refused that request: ' + ctx.refusedBy(r) + '.'); return 1; }

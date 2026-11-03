@@ -3639,6 +3639,15 @@ cmd_reply_channel() {
 # live, and Brave, Exa, Tavily and Serper bill the person for every check, so an agent must never
 # poll that one. A stored token is reported as connected; the tab checks it when the person opens it.
 cmd_connections() {
+  # kosmos#7875 item 2: --how prints how connecting a provider, a plugin or a service works (engine/connections.js
+  # guideText), the long text an agent's instructions now point at. A local read: no board needed.
+  if [ "${1:-}" = --how ]; then
+    [ $# -eq 1 ] || { say "Usage: kosmos connections [--how]"; exit 2; }
+    local _gn; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    "$_gn" -e 'process.stdout.write(require(process.argv[1] + "/engine/connections").guideText() + "\n")' "$KOSMOS_HOME/app" || exit 1
+    exit 0
+  fi
+  [ $# -eq 0 ] || { say "Usage: kosmos connections [--how]"; exit 2; }
   if ! healthy; then
     say_not_up "it cannot say what is connected"
     exit 1
@@ -5461,7 +5470,7 @@ kosmos_command_list() {
   printf '  kosmos whoami        say which agent you are and which account you are on\n'
   printf '  kosmos handoff       print facts for your handoff: your live state, artifact fingerprints, instruction and git status\n'
   printf '  kosmos fingerprint   print the fingerprint of a file, or compare one with it, to check a handed-off copy (the dates and ID inside a PDF are left out)\n'
-  printf '  kosmos connections   list the outside services and which are connected\n'
+  printf '  kosmos connections   list the outside services and which are connected (--how: how connecting one works)\n'
   printf '  kosmos accounts      list the provider accounts and whether each is signed in\n'
   printf '  kosmos whats-new     what changed in each version, and which fixes need your agents restarted\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
@@ -7427,7 +7436,7 @@ case "${1:-}" in
   handoff) shift; cmd_handoff "$@" ;;   # kosmos#6506
   fingerprint) shift; cmd_fingerprint "$@" ;;   # kosmos#6849
   inbox)   shift; cmd_inbox "$@" ;;
-  connections) cmd_connections ;;
+  connections) shift; cmd_connections "$@" ;;
   accounts) cmd_accounts ;;
   whats-new) shift; cmd_whats_new "$@" ;;   # kosmos#7411
   connect) shift; cmd_connect "$@" ;;

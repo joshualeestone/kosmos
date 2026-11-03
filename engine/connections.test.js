@@ -28,8 +28,8 @@ function agentFile(name, text) {
 }
 const tied = (sessionName) => ({ sessionName, name: sessionName, isNamedOurs: true });
 
-test('#1034: the block tells the agent it cannot see the screen, which is the whole point', () => {
-  const body = connections.blockBody();
+test('#1034: the guide tells the agent it cannot see the screen, which is the whole point', () => {
+  const body = connections.guideText();
   assert.match(body, /You cannot see their screen/);
   assert.match(body, /Ask what they are looking at/);
   /* The failure this prevents is an agent describing a button it cannot see,
@@ -38,7 +38,7 @@ test('#1034: the block tells the agent it cannot see the screen, which is the wh
 });
 
 test('#1034/#3566: it names the providers that can be connected today and says the rest cannot', () => {
-  const body = connections.blockBody();
+  const body = connections.guideText();
   assert.match(body, /Claude Code/);
   assert.match(body, /Codex/);
   /* And it says plainly that the coming-soon ones cannot be chosen, because
@@ -69,7 +69,7 @@ test('#1034/#3566: it names the providers that can be connected today and says t
 });
 
 test('#5977: the Qwen buttons the guide names are the ones the page shows', () => {
-  const flat = connections.blockBody().replace(/\s+/g, ' ');
+  const flat = connections.guideText().replace(/\s+/g, ' ');
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   for (const label of ['Download Qwen', 'Set up Qwen']) {
     assert.ok(flat.includes(label), 'the guide no longer names ' + label);
@@ -92,6 +92,7 @@ test('#1034: it carries NO machine state, which is the line between part one and
      If someone later passes machine state into blockBody, this fails. */
   const body = connections.blockBody();
   assert.equal(connections.blockBody.length, 0, 'blockBody grew an argument; part two is being smuggled in');
+  assert.equal(connections.guideText.length, 0, 'guideText grew an argument; part two is being smuggled in');
   assert.doesNotMatch(body, /@/, 'an email address reached a block that must carry no machine state');
   assert.doesNotMatch(body, /sk-|key tail|is connected on this/i);
 });
@@ -102,7 +103,9 @@ test('#1034: the block lands in an agent file and is idempotent', () => {
   const first = connections.tellAgent('helper', roster);
   assert.equal(first.state, projects.TOLD.TOLD, first.because || '');
   const text = fs.readFileSync(path.join(process.env.AGENT_WORKFORCE_WORKERS, 'helper', 'CLAUDE.md'), 'utf8');
-  assert.match(text, /How connecting a provider works/);
+  assert.match(text, /Connecting providers, plugins and services/);
+  assert.match(text, /kosmos connections --how/);
+  assert.ok(!/How connecting a provider works/.test(text), 'kosmos#7875 item 2: the long guide is printed on demand, not written into every file');
   assert.match(text, /You are Helper\./, 'the agent\'s own prose was disturbed');
 
   const second = connections.tellAgent('helper', roster);
@@ -164,7 +167,7 @@ test('#1034: the marker pair is in the registry, so the neutralisers cover it', 
 });
 
 test('#4451: the block teaches the Connections tab, the cheap read, and connecting through the door', () => {
-  const flat = connections.blockBody().replace(/\s+/g, ' ');
+  const flat = connections.guideText().replace(/\s+/g, ' ');
   assert.match(flat, /Settings has a \*\*Connections\*\* tab/, 'the Connections tab is not named');
   assert.match(flat, /To see what is connected, run `kosmos connections`/, 'the cheap read is not the one taught');
   /* 🛑 THE COST TRAP: the block must forbid the metered sweep, not merely omit it. */
@@ -179,7 +182,7 @@ test('#4451: the block teaches the Connections tab, the cheap read, and connecti
 });
 
 test('#5309: it tells an agent where a plugin it cannot use may be (folder, account, app), and to say which', () => {
-  const flat = connections.blockBody().replace(/\s+/g, ' ');
+  const flat = connections.guideText().replace(/\s+/g, ' ');
   assert.match(flat, /your folder is the one in `CLAUDE_CONFIG_DIR`, or `\.claude` in the person's home folder when that is not set/);
   /* MCP servers are in .claude.json, which sits BESIDE .claude when CLAUDE_CONFIG_DIR is unset (review 5; measured). */
   assert.match(flat, /A server added with `claude mcp add` is a separate record from a plugin: it is kept in `\.claude\.json`, which sits next to `\.claude` in the home folder when `CLAUDE_CONFIG_DIR` is not set and inside that folder when it is/);
@@ -210,4 +213,32 @@ test('#5309: it tells an agent where a plugin it cannot use may be (folder, acco
   const at = flat.indexOf('## A plugin the person');
   assert.ok(at >= 0 && at < flat.indexOf('## The Connections tab'), 'the plugin section is missing or moved after the Connections tab section');
   assert.doesNotMatch(flat, /\u2014/, 'an em dash reached the agent block');
+});
+
+test('kosmos#7875 item 2: the block is short and points at the guide; the guide carries the whole', () => {
+  const block = connections.blockBody();
+  const guide = connections.guideText();
+  assert.ok(block.length < 1200, 'the block is meant to be short; it is ' + block.length + ' characters');
+  assert.ok(guide.length > 5 * block.length, 'the guide should carry the long text');
+  assert.match(block, /`kosmos connections --how`/);
+  assert.match(block, /kosmos accounts/);   // what always holds stays in every file
+  assert.match(block, /never read `GET \/api\/connections` yourself/);
+  for (const h of ['## How connecting a provider works', '## A plugin the person installed in their own app', '## The Connections tab']) {
+    assert.ok(guide.includes(h), 'the guide lost ' + h);
+    assert.ok(!block.includes(h), 'the block still carries ' + h);
+  }
+});
+
+test('kosmos#7875 item 2: both CLIs print the guide with connections --how', async () => {
+  const root = path.join(__dirname, '..');
+  const sh = fs.readFileSync(path.join(root, 'install', 'kosmos'), 'utf8');
+  assert.match(sh, /connections\) shift; cmd_connections "\$@" ;;/);
+  assert.match(sh, /require\(process\.argv\[1\] \+ "\/engine\/connections"\)\.guideText\(\)/);
+  const cli = require('../tools/windows/kosmos-cli');
+  const out = []; const err = [];
+  const code = await cli.main(['connections', '--how'], { env: {}, out: (x) => out.push(x), err: (x) => err.push(x) });
+  assert.equal(code, 0, err.join(' '));
+  assert.equal(out.join('\n'), connections.guideText());
+  const extra = await cli.main(['connections', '--how', 'more'], { env: {}, out: () => {}, err: () => {} });
+  assert.equal(extra, 2);
 });
