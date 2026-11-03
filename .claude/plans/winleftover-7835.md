@@ -14,8 +14,8 @@ folder was already gone reaches the step instead of being dropped.
   `execAsync`, has the shape of remove.js's (#6173): SIGKILL at the limit, a last timer that answers even when a
   grandchild holds the pipes (so a delete's hold on its name always ends), stdin closed, no exit code for a process
   killed at its limit; plus this module's env and windowsHide.
-- The probe's parts shared (`driveOf`, `keepDrive`, `freshDrive`); `recycleBinCanTake(p, m, probe)` with `probe` false
-  answers only from a kept probe; `warmDrive` runs the probe through `runAsync` and keeps it, one probe per drive at a
+- The probe's parts shared (`driveOf`, `keepDrive`, `freshDrive`); `recycleBinCanTake(p, m, how)` with `how.probe` false
+  answers only from a kept probe and `how.pinned` naming roots whose kept answer stands; `warmDrive` runs the probe through `runAsync` and keeps it, one probe per drive at a
   time.
 - `planAsync(name)`: on win32, a plan without probing finds the folder and the settings and picture records,
   `warmDrive` probes their drives off the board, then the ordinary plan reads the kept answers. While a delete of the
