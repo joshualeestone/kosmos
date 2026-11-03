@@ -6780,7 +6780,7 @@ cmd_project() {
       say "  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member's family and summary"
       say "  kosmos project create \"<name>\" <folder> [\"<description>\"]   make a new project (it shows on your board, tagged as made by you)"
       say "  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)"
-      say "  kosmos project role <project-id> \"<what you do here>\"         say what you do on this project; project show lists it beside you (\"\" clears it)"
+      say "  kosmos project role <project-id> \"<what you do here>\"         say what you do on this project, 60 characters at most; project show lists it beside you (\"\" clears it)"
       say "  kosmos project remove-member <project-id> \"<name>\" [--yes]   take a member off a project, after a confirm (--yes for scripts)"
       say "  <folder> is a path on this machine; the project's files live there."
       exit 2 ;;
@@ -6815,7 +6815,7 @@ cmd_project() {
     # #5300 (10-05 user diagnostic R10): every member showed its agent's one role. An agent says what it does on one
     # project, for itself only (the board names the caller from its token or pane). An empty role clears it.
     role)
-      { [ -n "${1:-}" ] && [ $# -eq 2 ]; } || { say "Usage: kosmos project role <project-id> \"<what you do here>\"   (quote it; \"\" clears it)"; exit 2; }
+      { [ -n "${1:-}" ] && [ $# -eq 2 ]; } || { say "Usage: kosmos project role <project-id> \"<what you do here>\"   (quote it, 60 characters at most; \"\" clears it)"; exit 2; }
       require_valid_project_id "$1"
       case "$1" in *[!.]*) ;; *) say "there is no project by that name"; exit 1 ;; esac
       case "$2" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "project role" "Usage: kosmos project role <project-id> \"<what you do here>\"" "$2" target ;; esac ;;

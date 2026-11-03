@@ -147,7 +147,7 @@ const USAGE = {
     '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
     '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
     '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)',
-    '  kosmos project role <project-id> "<what you do here>"         say what you do on this project; project show lists it beside you ("" clears it)',
+    '  kosmos project role <project-id> "<what you do here>"         say what you do on this project, 60 characters at most; project show lists it beside you ("" clears it)',
     '  kosmos project remove-member <project-id> "<name>" [--yes]   take a member off a project, after a confirm (--yes for scripts)',
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
@@ -2055,7 +2055,7 @@ async function verbReplyChannel(ctx, args) {
 /* #5300, as install/kosmos cmd_project role: an agent says what it does on one project, for itself only (the board
    names the caller from its token). An empty role clears it. */
 async function projectRole(ctx, args) {
-  const usage = 'Usage: kosmos project role <project-id> "<what you do here>"   (quote it; "" clears it)';
+  const usage = 'Usage: kosmos project role <project-id> "<what you do here>"   (quote it, 60 characters at most; "" clears it)';
   if (args.length !== 2 || !args[0]) { ctx.err(usage); return 2; }
   const project = args[0];
   const slug = projectSlug(project);
