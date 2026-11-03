@@ -1071,6 +1071,75 @@ final class BoardClient: ObservableObject {
         else if response.statusCode >= 500 || (ok && !isImage) { thumbnailAsked.remove(a.id) }
     }
 
+    // kosmos#7864: a link preview's picture, by its path on the Mac (/api/unfurl/image, the Mac fetches the site, never
+    // the phone), decoded once, off the main thread, at most 900 px on its longer side (the card's width at @3x), fetched
+    // once per run, the newest `previewImageCap` kept in memory (a screen shows a few cards; a decoded picture can be
+    // 3 MB), all dropped on a memory warning (ChatView), nothing on disk. A dropped one is fetched again when drawn.
+    @Published private(set) var previewImages: [String: CGImage] = [:]
+    private var previewImageAsked: Set<String> = []
+    private var previewImageOrder: [String] = []
+    static let previewImageCap = 12
+    // Bumped by a memory-warning drop, so a picture already on its way when the pictures were dropped is not kept after it.
+    // Published: a card's load task id carries it, so a drop with nothing cached yet still redraws and reloads the cards.
+    @Published private(set) var previewGeneration = 0
+    func dropPreviewImages() {
+        releasePreviewImages()
+        previewGeneration += 1
+    }
+    // A chat closing: the pictures kept so far go, without the generation, so the next chat's pictures already on their way
+    // are kept. A load of the closing chat's still on its way can land after this; it is one of the capped 12, and goes
+    // at the next close or memory warning.
+    func releasePreviewImages() {
+        if !previewImages.isEmpty { previewImages = [:] }   // no redraw for nothing
+        previewImageAsked = []
+        previewImageOrder = []
+    }
+    private func keepPreviewImage(_ image: CGImage, at path: String) {
+        previewImages[path] = image
+        previewImageOrder.removeAll { $0 == path }
+        previewImageOrder.append(path)
+        while previewImageOrder.count > Self.previewImageCap {
+            let oldest = previewImageOrder.removeFirst()
+            previewImages[oldest] = nil
+            previewImageAsked.remove(oldest)   // drawn again later, it is fetched again
+        }
+    }
+
+    func loadPreviewImage(_ p: Board.LinkPreview) async {
+        guard let path = p.image, !previewImageAsked.contains(path) else { return }
+        previewImageAsked.insert(path)
+        let generation = previewGeneration
+        #if DEBUG && canImport(UIKit)
+        if let sample = samplePreviewImage(path).flatMap({ Self.picture($0, maxPixels: 900) }) { keepPreviewImage(sample, at: path); return }
+        #endif
+        let epoch = chatEpoch
+        guard let held = admitted, let request = Board.attachmentRequest(mac: held.url, path: path) else { previewImageAsked.remove(path); return }
+        let answer = await env.send(request)
+        // Across a drop, the asked set is a later load's: leave it alone.
+        guard epoch == chatEpoch, generation == previewGeneration else { return }
+        guard let (data, response) = answer else { previewImageAsked.remove(path); return }
+        let isImage = (response.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
+        let ok = (200...299).contains(response.statusCode)
+        if ok, isImage {
+            // Decoded off the main actor (a page's picture is often a large JPEG), then kept only for the same chat.
+            let pic = await Task.detached(priority: .utility) { Self.picture(data, maxPixels: 900) }.value
+            guard epoch == chatEpoch, generation == previewGeneration else { return }
+            if let pic { keepPreviewImage(pic, at: path) }
+        }
+        // As the thumbnails: a passing failure is asked again when its card is next drawn (scrolled back, or a drop), a
+        // 404 or a picture the phone cannot draw is not.
+        else if response.statusCode >= 500 || (ok && !isImage) { previewImageAsked.remove(path) }
+    }
+
+    // kosmos#7864: a picture decoded at most `maxPixels` on its longer side; nil for bytes that are not a picture.
+    nonisolated static func picture(_ data: Data, maxPixels: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ] as CFDictionary)
+    }
+
     // A picture drawn at most 192 px on its longer side (a 64 pt square at @3x), as PNG; nil for bytes that are not a picture.
     static func smallPicture(_ data: Data) -> Data? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -1161,6 +1230,9 @@ final class BoardClient: ObservableObject {
         answered = [:]
         thumbnails = [:]
         thumbnailAsked = []
+        previewImages = [:]
+        previewImageAsked = []
+        previewImageOrder = []
         // Files opened under the account or Mac before are not left on the phone.
         try? FileManager.default.removeItem(at: env.files)
         drafts = [:]
@@ -1257,6 +1329,17 @@ final class BoardClient: ObservableObject {
         return .sent
     }
     #if DEBUG && canImport(UIKit)
+    // kosmos#7864: the sample link preview's picture (KOSMOS_SAMPLE_PREVIEW=1), drawn here: a soft studio scene.
+    private func samplePreviewImage(_ path: String) -> Data? {
+        guard sampleThreads.values.contains(where: { $0.rows.contains { $0.preview?.image == path } }) else { return nil }
+        let size = CGSize(width: 900, height: 470)
+        return UIGraphicsImageRenderer(size: size).pngData { ctx in
+            UIColor(red: 0.93, green: 0.90, blue: 0.85, alpha: 1).setFill(); ctx.fill(CGRect(origin: .zero, size: size))
+            UIColor(red: 0.82, green: 0.77, blue: 0.70, alpha: 1).setFill(); ctx.fill(CGRect(x: 0, y: 330, width: 900, height: 140))
+            UIColor(red: 0.36, green: 0.42, blue: 0.38, alpha: 1).setFill(); ctx.cgContext.fillEllipse(in: CGRect(x: 360, y: 150, width: 180, height: 220))
+            UIColor(red: 0.95, green: 0.95, blue: 0.93, alpha: 1).setFill(); ctx.fill(CGRect(x: 600, y: 210, width: 120, height: 160))
+        }
+    }
     // The sample chats' files, drawn here so no real file is ever in a picture.
     private func sampleThumbnail(_ a: Board.Attachment) -> Data? {
         guard sampleThreads.values.contains(where: { $0.rows.contains { $0.attachments.contains(a) } }) else { return nil }
@@ -1321,6 +1404,13 @@ final class BoardClient: ObservableObject {
                     rows[p].reactions = many.prefix(9).enumerated().map { Board.ChatReaction(emoji: $1, count: 1, mine: false) }
                 }
                 t = Board.Thread(rows: rows, olderCount: t.olderCount, choices: t.choices)
+            }
+            // kosmos#7864, KOSMOS_SAMPLE_PREVIEW=1: a link preview with a picture under the person's message, and one with
+            // words only under Dana's, as the Mac attaches them (withPreviews), for the design shots.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PREVIEW"] == "1" {
+                let more = #"{"messages":[{"at":"2026-10-23T13:36:00Z","text":"Here is the studio site for the captions: northfieldstudio.com","from":null,"delivery":{"state":"placed"},"preview":{"url":"https://northfieldstudio.com","site":"northfieldstudio.com","title":"Northfield Studio, product photography","description":"Catalogue and product photography for small brands, shot in natural light.","image":"/api/unfurl/image?url=https%3A%2F%2Fnorthfieldstudio.com%2Fog.jpg"}},{"at":"2026-10-23T13:37:00Z","text":"Got it. I will match their style guide: docs.northfieldstudio.com/style","from":"dana","preview":{"url":"https://docs.northfieldstudio.com/style","site":"docs.northfieldstudio.com","title":"Style guide","description":"How we light, frame and caption a product photograph."}}]}"#
+                let extra = Board.parseThread(Data(more.utf8))?.rows ?? []
+                t = Board.Thread(rows: t.rows + extra, olderCount: t.olderCount, choices: t.choices)
             }
             sampleThreads["dana"] = t
         }

@@ -2101,6 +2101,12 @@ final class FakeBoardWorld {
                 if let hook = onOlder { onOlder = nil; hook() }
                 return olderAnswer.map { answer($0.0, $0.1) }
             }
+            // kosmos#7864: a link preview's picture comes the same way, recorded with its query (the address it names).
+            if url.path == "/api/unfurl/image" {
+                attachmentAsks.append(url.path + "?" + (URLComponents(url: url, resolvingAgainstBaseURL: true)?.percentEncodedQuery ?? ""))
+                guard let (code, type, body) = attachmentAnswer else { return nil }
+                return (body, HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": type])!)
+            }
             if url.path.hasPrefix("/api/attachment/") {
                 attachmentAsks.append(url.path)
                 guard let (code, type, body) = attachmentAnswer else { return nil }
@@ -2153,7 +2159,7 @@ func boardLoopTests() async {
                                                     return body.map { (Data($0.utf8), HTTPURLResponse(url: r.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!) }
                                                 }
                                                 else if r.url?.path == "/api/status" { world.statusStarted += 1; if !world.statusYields.isEmpty { for _ in 0..<world.statusYields.removeFirst() { await Task.yield() } } }
-                                                else if r.url?.path.hasPrefix("/api/attachment/") == true { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
+                                                else if r.url?.path.hasPrefix("/api/attachment/") == true || r.url?.path == "/api/unfurl/image" { world.attachmentStarted.append(r.url!.path); for _ in 0..<world.attachmentYields { await Task.yield() } }
                                                 return world.send(r)
                                             },
                                             sleep: { world.clock += $0; await Task.yield() },
@@ -3800,6 +3806,71 @@ section("native board loop: connecting")
         let doc = Board.Attachment(id: "222222222222222222222222", name: "b.docx", type: "", size: nil, kind: "other", url: "/api/attachment/222222222222222222222222", preview: nil)
         await c.loadThumbnail(doc)
         check(w.attachmentAsks.count == asks && c.thumbnails["222222222222222222222222"] == nil, "no preview: no request")
+        // kosmos#7864: a link preview's picture, by the thumbnail loader's rules, decoded at most 900 px, the newest
+        // BoardClient.previewImageCap kept.
+        func lp(_ n: String) -> Board.LinkPreview {
+            Board.LinkPreview(url: URL(string: "https://p\(n).example.com/")!, site: "p\(n).example.com", title: "P\(n)", description: nil,
+                              image: "/api/unfurl/image?url=https%3A%2F%2Fp\(n).example.com%2Fog.png")
+        }
+        w.attachmentAnswer = (200, "image/png", Data([0x89, 0x50]))
+        await c.loadPreviewImage(lp("bad"))
+        check(c.previewImages[lp("bad").image!] == nil, "preview: bytes that are not a picture are no picture")
+        let badAsks = w.attachmentAsks.count
+        await c.loadPreviewImage(lp("bad"))
+        check(w.attachmentAsks.count == badAsks, "preview: a picture the phone cannot draw is not downloaded again")
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadPreviewImage(lp("ok"))
+        check(c.previewImages[lp("ok").image!].map { max($0.width, $0.height) } == 900, "preview: the 1200 px picture is kept at 900 px")
+        check(w.attachmentAsks.last == lp("ok").image!, "preview: the picture comes from the Mac's unfurl route")
+        w.attachmentAnswer = (503, "application/json", Data("{}".utf8))
+        await c.loadPreviewImage(lp("flaky"))
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadPreviewImage(lp("flaky"))
+        check(c.previewImages[lp("flaky").image!] != nil, "preview: a 5xx is asked again")
+        w.attachmentAnswer = (404, "application/json", Data("{}".utf8))
+        await c.loadPreviewImage(lp("gone"))
+        let goneAsks = w.attachmentAsks.count
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadPreviewImage(lp("gone"))
+        check(w.attachmentAsks.count == goneAsks && c.previewImages[lp("gone").image!] == nil, "preview: a 404 is not asked again")
+        w.attachmentAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        await c.loadPreviewImage(lp("gate"))
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadPreviewImage(lp("gate"))
+        check(c.previewImages[lp("gate").image!] != nil, "preview: the gate's sign-in page in place of a picture is asked again")
+        let onceAsks = w.attachmentAsks.count
+        await c.loadPreviewImage(lp("ok"))
+        check(w.attachmentAsks.count == onceAsks, "preview: a picture kept is asked for once")
+        let noPic = Board.LinkPreview(url: URL(string: "https://np.example.com/")!, site: "np.example.com", title: "NP", description: nil, image: nil)
+        await c.loadPreviewImage(noPic)
+        check(w.attachmentAsks.count == onceAsks, "preview: no picture, no request")
+        for i in 0..<(BoardClient.previewImageCap + 1) { await c.loadPreviewImage(lp("cap\(i)")) }
+        check(c.previewImages.count == BoardClient.previewImageCap, "preview: at most \(BoardClient.previewImageCap) pictures are kept")
+        check(c.previewImages[lp("cap0").image!] == nil && c.previewImages[lp("cap\(BoardClient.previewImageCap)").image!] != nil, "preview: the oldest goes first")
+        let capAsks = w.attachmentAsks.count
+        await c.loadPreviewImage(lp("cap0"))
+        check(w.attachmentAsks.count == capAsks + 1 && c.previewImages[lp("cap0").image!] != nil, "preview: one dropped for room is fetched again when drawn")
+        c.dropPreviewImages()
+        check(c.previewImages.isEmpty, "preview: a memory warning drops every picture")
+        let dropAsks = w.attachmentAsks.count
+        await c.loadPreviewImage(lp("cap0"))
+        check(w.attachmentAsks.count == dropAsks + 1 && c.previewImages[lp("cap0").image!] != nil, "preview: and a card drawn after it fetches its picture again")
+        // A picture on its way when the pictures are dropped is not kept after the drop.
+        w.attachmentYields = 50
+        let inFlight = Task { await c.loadPreviewImage(lp("inflight")) }
+        _ = await settle { w.attachmentStarted.last == "/api/unfurl/image" && w.attachmentAsks.last == lp("inflight").image! }
+        c.dropPreviewImages()
+        await inFlight.value
+        w.attachmentYields = 0
+        check(c.previewImages[lp("inflight").image!] == nil, "preview: a picture on its way across a memory-warning drop is not kept")
+        // A chat closing releases its pictures without the drop generation: a picture on its way for the next chat is kept.
+        w.attachmentYields = 50
+        let nextChat = Task { await c.loadPreviewImage(lp("nextchat")) }
+        _ = await settle { w.attachmentAsks.last == lp("nextchat").image! }
+        c.releasePreviewImages()
+        await nextChat.value
+        w.attachmentYields = 0
+        check(c.previewImages[lp("nextchat").image!] != nil, "preview: closing a chat keeps a picture on its way for the next one")
         // A sign-out while a picture is on its way: it lands in nobody's chat.
         w.attachmentYields = 50
         w.attachmentAnswer = (200, "image/png", big)
@@ -3810,6 +3881,18 @@ section("native board loop: connecting")
         c.accountChanged()
         await picTask.value
         check(c.thumbnails[latePic.id] == nil, "a picture fetched across a sign-out is not kept for the next account")
+        _ = await settle { isLive(c) }
+        // kosmos#7864: the same for a link preview's picture on its way.
+        w.attachmentYields = 50
+        w.attachmentAnswer = (200, "image/png", big)
+        let latePreview = Board.LinkPreview(url: URL(string: "https://late.example.com/")!, site: "late.example.com", title: "Late", description: nil,
+                                            image: "/api/unfurl/image?url=https%3A%2F%2Flate.example.com%2Fog.png")
+        let previewTask = Task { await c.loadPreviewImage(latePreview) }
+        _ = await settle { w.attachmentStarted.last?.hasPrefix("/api/unfurl/image") == true }
+        c.accountChanged()
+        await previewTask.value
+        check(c.previewImages[latePreview.image!] == nil, "preview: a picture fetched across a sign-out is not kept for the next account")
+        w.attachmentYields = 0
         _ = await settle { isLive(c) }
         // A sign-out while a file is on its way: nothing is written afterwards.
         w.attachmentYields = 50
@@ -3827,6 +3910,7 @@ section("native board loop: connecting")
         check(FileManager.default.fileExists(atPath: testFiles.path), "CONTROL: the opened file's folder exists")
         c.accountChanged()
         check(!FileManager.default.fileExists(atPath: testFiles.path) && c.thumbnails.isEmpty, "a sign-out removes opened files and pictures")
+        check(c.previewImages.isEmpty, "preview: a sign-out removes the link preview pictures too")
         c.stop()
     }
     do {
@@ -5570,6 +5654,41 @@ do {
     other.reset()                                                                  // another computer
     other.flush()
     check(otherSends == 0, "review 1: a count dropped on a computer switch is never sent")
+}
+
+// kosmos#7864: the link preview the Mac attaches to a row, read by the board's pjPreviewCard rules.
+do {
+    let rowJSON = #"{"messages":[{"at":"T1","text":"see joshualeestone.com","from":"dana","preview":{"url":"https://joshualeestone.com/","title":"Josh Stone","description":"Founder","site":"joshualeestone.com","image":"/api/unfurl/image?url=https%3A%2F%2Fjoshualeestone.com%2Fog.png"}},{"at":"T2","text":"plain","from":"dana"}]}"#
+    let rows = Board.parseThread(Data(rowJSON.utf8))?.rows ?? []
+    check(rows.count == 2, "CONTROL: both rows read")
+    let p = rows.first?.preview
+    check(p?.url.absoluteString == "https://joshualeestone.com/" && p?.title == "Josh Stone" && p?.description == "Founder"
+          && p?.site == "joshualeestone.com" && p?.image == "/api/unfurl/image?url=https%3A%2F%2Fjoshualeestone.com%2Fog.png",
+          "a row's preview is read whole")
+    check(rows.last?.preview == nil, "CONTROL: a row with no preview has none")
+    func lp(_ json: String) -> Board.LinkPreview? { Board.parseLinkPreview(try? JSONSerialization.jsonObject(with: Data(json.utf8))) }
+    check(lp(#"{"url":"javascript:alert(1)","title":"x"}"#) == nil, "an address that is not http(s) is no preview")
+    check(lp(#"{"url":"ftp://x.example.com/","title":"x"}"#) == nil, "nor ftp")
+    check(lp(#"{"url":"https://x.example.com/"}"#) == nil, "no title, words or picture: no card (the board's rule)")
+    check(lp(#"{"url":"https://x.example.com/","description":"words"}"#)?.title == "https://x.example.com/", "no title: the address stands in")
+    check(lp(#"{"url":"https://x.example.com/a","title":"T"}"#)?.site == "x.example.com", "no site: the host stands in")
+    check(lp(#"{"url":"https://x.example.com:8443/a","title":"T"}"#)?.site == "x.example.com:8443", "with its port, as the board's")
+    for (img, why) in [("https://evil.example.net/p.png", "a picture from anywhere but the Mac's unfurl route is dropped"),
+                       ("/api/agent/x/files/download", "another Mac route is not a preview picture"),
+                       ("/api/unfurl/image?url=a/../../b", "a path with .. is dropped")] {
+        let got = lp(#"{"url":"https://x.example.com/","title":"T","image":""# + img + #""}"#)
+        check(got?.title == "T" && got?.image == nil, why + ", and the card stays")
+    }
+    check(lp(#"{"url":"https://x.example.com/","title":"   "}"#) == nil, "a blank title is no title")
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T"}"#)!) == "Link: T, x.example.com", "VoiceOver hears the title and the site")
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"x.example.com","site":"x.example.com"}"#)!) == "Link: x.example.com", "and once when they are the same")
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://evil.example.net/","title":"Sign in","site":"apple.com"}"#)!) == "Link: Sign in, evil.example.net", "VoiceOver hears the address's host, not a site name the page made up")
+    check(Board.linkPreviewSiteLine(lp(#"{"url":"https://evil.example.net/","title":"Sign in","site":"apple.com"}"#)!) == "apple.com \u{00B7} evil.example.net", "the card shows the real host beside a site name that differs")
+    check(Board.linkPreviewSiteLine(lp(#"{"url":"https://www.northfield.example.com/","title":"N","site":"northfield.example.com"}"#)!) == "northfield.example.com", "CONTROL: the same site (www. aside) is said once")
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com:8443/","title":"T"}"#)!) == "Link: T, x.example.com:8443", "VoiceOver keeps the port")
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T","description":"Words here"}"#)!) == "Link: T, x.example.com. Words here", "VoiceOver hears the page's words too")
+    let longWords = String(repeating: "a", count: 200)
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T","description":""# + longWords + #""}"#)!) == "Link: T, x.example.com. " + String(repeating: "a", count: 160) + "\u{2026}", "shortened as the card's lines are")
 }
 
 print("")

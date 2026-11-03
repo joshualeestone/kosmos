@@ -250,6 +250,10 @@ struct ChatView: View {
         })
         // kosmos#7034 build 11 reviews 2 and 4: the header star's stars, asked again on a switch to another computer.
         .task(id: client.chatEpoch) { await client.readStarsIfUnknown() }
+        // kosmos#7864: link preview pictures are the large ones; on a memory warning they go, and drawn cards fetch theirs again.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            client.dropPreviewImages()
+        }
         .quickLookPreview($previewURL)
         // Closed: the file it showed is removed from the phone (#7016 review 1).
         .onChange(of: previewURL) { now in
@@ -353,6 +357,7 @@ struct ChatView: View {
         .onDisappear {
             visible = false
             if !infoOpen { sendShiftReport() }   // kosmos#7575 (review 1: the info page pushed over the chat is not a close)
+            if !infoOpen { client.releasePreviewImages() }   // kosmos#7864: the pictures do not outlive the chat
             if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }   // review 3: by session on purpose: a computer switch while open must never leave a stale value hiding banners; the cost is an extra banner
             armed = nil
             // A reading posture, not the chat's state: coming back shows the whole conversation (the board clears its
@@ -1239,6 +1244,13 @@ struct ChatView: View {
         .padding(.top, 60)
     }
 
+    // kosmos#7864: the picture's load runs again when its picture is gone (dropped for room, or on a memory warning, while
+    // the card is on screen).
+    private func previewTaskKey(_ row: Board.ChatRow) -> String? {
+        // The drop generation too: a picture thrown away because it arrived across a drop is fetched again.
+        row.preview?.image.map { $0 + (client.previewImages[$0] == nil ? "#missing" : "#kept") + "#\(client.previewGeneration)" }
+    }
+
     @ViewBuilder private func itemView(_ item: Board.ChatItem) -> some View {
         switch item.kind {
         case .day(let label):
@@ -1308,7 +1320,9 @@ struct ChatView: View {
                                    head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                                    react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                                    reply: row.answerable(by: agent.session) ? { startReply(row) } : nil,
-                                   delete: Board.canDelete(row) ? { deleteMine(row) } : nil)
+                                   delete: Board.canDelete(row) ? { deleteMine(row) } : nil,
+                                   previewImage: row.preview?.image.flatMap { client.previewImages[$0] })
+                            .task(id: previewTaskKey(row)) { if let p = row.preview { await client.loadPreviewImage(p) } }
                     }
                     WayThroughRow(text: wayText(way), action: openOnBoard)
                 }
@@ -1327,8 +1341,10 @@ struct ChatView: View {
                            head: headFor(replyTo: row.replyTo), headHidden: headsHidden.contains(row.id),
                            react: row.answerable(by: agent.session) ? { e in reactTo(e, row) } : nil,
                            reply: row.answerable(by: agent.session) ? { startReply(row) } : nil,
-                           delete: Board.canDelete(row) ? { deleteMine(row) } : nil)
+                           delete: Board.canDelete(row) ? { deleteMine(row) } : nil,
+                           previewImage: row.preview?.image.flatMap { client.previewImages[$0] })
                     .padding(.top, first ? 10 : 2)
+                    .task(id: previewTaskKey(row)) { if let p = row.preview { await client.loadPreviewImage(p) } }
             }
         }
     }
@@ -2227,6 +2243,47 @@ extension Notification.Name {
 
 // One message as a bubble: the person's on the right, the agent's on the left, in the board's colours; the time (and a
 // tail) on the last bubble of a run. A message the Mac could not deliver gets the board's failed line (kosmos#7136).
+/* kosmos#7864: a link's preview under its message, laid out as the board's pjPreviewCard (#357; #761, Josh: the words
+   first, then a much larger picture under them at the card's own width): the site, the title, the page's words, then its
+   picture. The picture came through the Mac; tapping the card opens the address, as the link in the message does. */
+struct LinkPreviewCard: View {
+    let preview: Board.LinkPreview
+    let image: CGImage?
+    let width: CGFloat
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        Button { openURL(preview.url) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 3) {
+                    // The page's own site name, and the address's real host beside it when they differ: the page names
+                    // itself, but where the card goes is the address (it can differ after a redirect).
+                    Text(Board.linkPreviewSiteLine(preview)).font(.caption).foregroundColor(Palette.secondary).lineLimit(1)
+                    Text(preview.title).font(.subheadline.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(2)
+                    if let words = preview.description {
+                        Text(words).font(.footnote).foregroundColor(Palette.secondary).lineLimit(3)
+                    }
+                }
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                if let image {
+                    Image(decorative: image, scale: 1).resizable().scaledToFill()
+                        .frame(width: width, height: min(width * 0.52, 220))
+                        .clipped()
+                        .accessibilityHidden(true)
+                }
+            }
+            .frame(width: width, alignment: .leading)
+            .background(Palette.card)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.separator, lineWidth: 1))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct ChatBubble: View {
     let row: Board.ChatRow
     let firstOfRun: Bool
@@ -2244,6 +2301,8 @@ struct ChatBubble: View {
     var react: ((String) -> Void)? = nil
     var reply: (() -> Void)? = nil
     var delete: (() -> Void)? = nil   // kosmos#7614: the person's own sent message only
+    // kosmos#7864: the picture of the row's link preview, once the client has it through the Mac.
+    var previewImage: CGImage? = nil
     @Environment(\.openURL) private var openURL
 
     private var mine: Bool { row.who == .person }
@@ -2255,6 +2314,10 @@ struct ChatBubble: View {
                 // One long-press per bubble, set here (on the shared bubble it would hide the pending one's Delete).
                 // kosmos#7419: the sheet (quick reactions, More, Reply, Copy text) in place of the menu.
                 .messageActions(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text, delete: delete)
+            if let preview = row.preview {
+                LinkPreviewCard(preview: preview, image: previewImage, width: UIScreen.main.bounds.width * widthShare)
+                    .padding(.top, 2)   // clear of the bubble's tail
+            }
             if !row.reactions.isEmpty { ReactionPills(pills: row.reactions, toggle: react, trailing: mine) }
             if let failed {
                 if lastOfRun, let at = row.at {
@@ -2302,6 +2365,7 @@ struct ChatBubble: View {
     private var spokenLabel: String {
         var said = Self.spoken(who: mine ? "You" : name, at: row.at, text: row.text)
         if let head { said = ReplyHeadLine.words(head) + " " + said }
+        if let p = row.preview { said += ". " + Board.linkPreviewSpoken(p) }
         if !row.reactions.isEmpty { said += ". Reactions: " + row.reactions.map { $0.emoji + ($0.count > 1 ? " \($0.count)" : "") }.joined(separator: ", ") }
         if let failed {
             return said + ", " + Board.failedWords.lowercased()
@@ -2313,9 +2377,17 @@ struct ChatBubble: View {
 
     private var linkActions: some View {
         let links = Board.messageLinks(row.text)
-        return ForEach(Array(links.enumerated()), id: \.offset) { i, url in
-            let number = links.count > 1 ? "\(i + 1) " : ""
-            Button("Open link \(number)to \(url.host ?? url.absoluteString)") { openURL(url) }
+        // kosmos#7864: the preview card is inside this one element, so its address is an action here too, named from the
+        // card, unless one of the message's own links already opens that site.
+        let hostKey = { (u: URL) in (u.host ?? "").lowercased().replacingOccurrences(of: #"^www\."#, with: "", options: .regularExpression) }
+        let card = row.preview.flatMap { p in links.contains { hostKey($0) == hostKey(p.url) } ? nil : p }
+        return Group {
+            ForEach(Array(links.enumerated()), id: \.offset) { i, url in
+                let number = links.count > 1 ? "\(i + 1) " : ""
+                Button("Open link \(number)to \(url.host ?? url.absoluteString)") { openURL(url) }
+            }
+            // Named from the address it opens, never from the page's own site name, which a page can make up.
+            if let card { Button("Open link to \(Board.linkHost(card.url))") { openURL(card.url) } }
         }
     }
 
