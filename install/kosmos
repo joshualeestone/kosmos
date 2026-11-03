@@ -3643,8 +3643,11 @@ cmd_connections() {
   # guideText), the long text an agent's instructions now point at. A local read: no board needed.
   if [ "${1:-}" = --how ]; then
     [ $# -eq 1 ] || { say "Usage: kosmos connections [--how]"; exit 2; }
-    local _gn; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
-    "$_gn" -e 'process.stdout.write(require(process.argv[1] + "/engine/connections").guideText() + "\n")' "$KOSMOS_HOME/app" || exit 1
+    local _gn _gm; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    _gm="$(kosmos_engine_module connections).js"
+    [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to print this."; exit 1; }
+    "$_gn" -e 'process.stdout.write(require(process.argv[1]).guideText() + "\n")' "$_gm" 2>/dev/null \
+      || { say "Kosmos could not find its own runtime to print this."; exit 1; }
     exit 0
   fi
   [ $# -eq 0 ] || { say "Usage: kosmos connections [--how]"; exit 2; }

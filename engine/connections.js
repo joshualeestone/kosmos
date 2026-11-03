@@ -18,6 +18,8 @@
  * #1034 removed, the one telling agents they could see NONE of the setup. They
  * can: it is on the machine and readable, so pointing there is the fix.)
  *
+ * (kosmos#7875 item 2: the notes below describe the guide, guideText; the block in each agent's file now points at it.)
+ *
  * ⭐ THE MODEL IS A PHONE CALL, BUT ONLY FOR THE SCREEN. A person helping
  * another connect something cannot see their live screen, and manages by asking
  * what they are looking at; an agent does the same for the screen. What it does
@@ -49,17 +51,14 @@ const START = projects.CONNECTIONS_START;
 const END = projects.CONNECTIONS_END;
 
 /* Why this module writes an agent's file, for the stale marker (#323). */
-const WROTE_WHY = 'Kosmos told it how connecting a provider works';
+const WROTE_WHY = 'Kosmos told it where to read how connecting a provider works';
 
 /**
- * The block. Constant by design: see the note above about why this takes no
- * argument and must not grow one.
- */
-/**
  * kosmos#7875 item 2 (agent feedback, 11-03: the standing instructions are long, and much of them covers what rarely
- * applies): the agent's instructions carry only the short block below, which says WHEN this applies and how to read the
- * whole of it; the whole (guideText) is printed by `kosmos connections --how`, so an agent pays for these 10 KB of
- * words only when the person asks for help connecting something.
+ * applies): the block written into every agent's instructions is the short one below, which says WHEN this applies and
+ * how to read the whole; the whole is guideText, printed by `kosmos connections --how`, so an agent pays for its 10 KB
+ * only when the person asks for help connecting something. Both are constant by design: see the note above about why
+ * neither takes an argument (no machine state baked in), which the test checks for both.
  */
 function blockBody() {
   return [

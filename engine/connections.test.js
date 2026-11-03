@@ -233,7 +233,17 @@ test('kosmos#7875 item 2: both CLIs print the guide with connections --how', asy
   const root = path.join(__dirname, '..');
   const sh = fs.readFileSync(path.join(root, 'install', 'kosmos'), 'utf8');
   assert.match(sh, /connections\) shift; cmd_connections "\$@" ;;/);
-  assert.match(sh, /require\(process\.argv\[1\] \+ "\/engine\/connections"\)\.guideText\(\)/);
+  /* The Mac script itself, run (no board needed for --how): its stdout is the guide, and an extra word is usage (2). */
+  const { spawnSync } = require('node:child_process');
+  const tmp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'conn-how-'));
+  const env = { PATH: process.env.PATH, HOME: tmp, TMPDIR: tmp, KOSMOS_HOME: root, AGENT_WORKFORCE_DATA: path.join(tmp, 'data'), KOSMOS_PORT: '9' };
+  try {
+    const how = spawnSync(path.join(root, 'install', 'kosmos'), ['connections', '--how'], { env, encoding: 'utf8', timeout: 30000 });
+    assert.equal(how.status, 0, how.stderr + how.stdout.slice(0, 300));
+    assert.equal(how.stdout, connections.guideText() + '\n');
+    const more = spawnSync(path.join(root, 'install', 'kosmos'), ['connections', '--how', 'more'], { env, encoding: 'utf8', timeout: 30000 });
+    assert.equal(more.status, 2, more.stdout + more.stderr);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   const cli = require('../tools/windows/kosmos-cli');
   const out = []; const err = [];
   const code = await cli.main(['connections', '--how'], { env: {}, out: (x) => out.push(x), err: (x) => err.push(x) });
