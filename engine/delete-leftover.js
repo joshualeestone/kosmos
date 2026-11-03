@@ -203,8 +203,8 @@ const DRIVE_SCRIPT = [
   "$ErrorActionPreference='Stop'",
   '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8',
   String.raw`try { $r=[System.IO.Path]::GetPathRoot($env:KOSMOS_RECYCLE_PATH); if (-not $r -or $r.StartsWith('\\')) { 'UNKNOWN'; exit 0 }`
-    + String.raw`; $d=New-Object System.IO.DriveInfo $r; $o=[ordered]@{ type=[string]$d.DriveType; total=[int64]$d.TotalSize; policy=$false; nuke=$null; maxMB=$null; globalNuke=$null }`
-    + String.raw`; $g=Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket' -ErrorAction SilentlyContinue; if ($g) { $o.globalNuke=$g.NukeOnDelete }`
+    + String.raw`; $d=New-Object System.IO.DriveInfo $r; $o=[ordered]@{ type=[string]$d.DriveType; total=[int64]$d.TotalSize; policy=$false; nuke=$null; maxMB=$null; globalNuke=$null; globalMaxMB=$null }`
+    + String.raw`; $g=Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket' -ErrorAction SilentlyContinue; if ($g) { $o.globalNuke=$g.NukeOnDelete; $o.globalMaxMB=$g.MaxCapacity }`
     + String.raw`; foreach ($k in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer','HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer') { $v=(Get-ItemProperty -LiteralPath $k -Name NoRecycleFiles -ErrorAction SilentlyContinue).NoRecycleFiles; if ($v -eq 1) { $o.policy=$true } }`
     + String.raw`; try { $vol=(Get-CimInstance Win32_Volume -Filter ('DriveLetter=''' + $r.Substring(0,2) + '''')).DeviceID; if ($vol -match '\{[0-9A-Fa-f-]+\}') { $bb=Get-ItemProperty -LiteralPath ('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\' + $Matches[0]) -ErrorAction SilentlyContinue; if ($bb) { $o.nuke=$bb.NukeOnDelete; $o.maxMB=$bb.MaxCapacity } } } catch { }`
     + String.raw`; $o | ConvertTo-Json -Compress } catch { 'UNKNOWN' }`,
@@ -218,8 +218,10 @@ function binVerdict(info, m) {
   // globalNuke: Windows' "one setting for all drives" switch, read whether or not that mode is on (a yes there is a no).
   if (!info || info.type !== 'Fixed' || info.policy === true || Number(info.nuke) === 1 || Number(info.globalNuke) === 1) return false;
   if (m && m.capped) return false;   // its size is not known, so it cannot be said to fit
-  const maxBytes = info.maxMB !== null && info.maxMB !== undefined && Number.isFinite(Number(info.maxMB))
-    ? Number(info.maxMB) * 1024 * 1024
+  // The smaller of the volume's own limit and the "one setting for all drives" one, whichever were read.
+  const limits = [info.maxMB, info.globalMaxMB].filter((v) => v !== null && v !== undefined && Number.isFinite(Number(v))).map(Number);
+  const maxBytes = limits.length
+    ? Math.min(...limits) * 1024 * 1024
     : (Number.isFinite(Number(info.total)) && Number(info.total) > 0 ? Number(info.total) * BIN_DEFAULT_SHARE : 0);
   return maxBytes > 0 && ((m && m.bytes) || 0) <= maxBytes * BIN_ROOM;
 }
