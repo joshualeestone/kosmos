@@ -139,6 +139,12 @@ check(Board.profileNext(shown: nil as String?, read: Board.instructionsRead(nil)
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(404, #"{"ok":false,"because":"it was removed"}"#))) == (nil, "It was removed."), "a refusal replaces what was shown with its reason")
 check(Board.profileNext(shown: nil as String?, read: Board.instructionsRead(answer(200, #"{"exists":true,"text":"New"}"#))) == ("New", nil), "a good read after a reason shows the value and drops the reason")
 check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(nil)) == ([Board.Skill(key: "a", name: "A")], nil), "no answer keeps the skills already shown")
+// A gate or a failure for now is not a decision about the agent: it keeps what was shown, and never shows a gate's words.
+check(Board.instructionsRead(answer(403, #"{"error":"this board belongs to the account that started it; open it with `kosmos open`"}"#)) == .unanswered(Board.profileShutOut), "a 403 from a gate says the phone was not let in, not the gate's words")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(401, "{}"))) == ("Old text", nil), "a 401 keeps the instructions shown")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(500, #"{"error":"those instructions could not be read"}"#))) == ("Old text", nil), "a 500 with words keeps the instructions shown")
+check(Board.profileNext(shown: nil as String?, read: Board.instructionsRead(answer(500, #"{"error":"those instructions could not be read"}"#))) == (nil, "Those instructions could not be read."), "a 500 with nothing shown gives the board's words")
+check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(answer(403, "{}"))) == ([Board.Skill(key: "a", name: "A")], nil), "a 403 keeps the skills shown")
 check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(answer(404, #"{"ok":false,"because":"it was removed"}"#))) == (nil, "It was removed."), "a refusal replaces the skills shown")
 
 section("fresh start")

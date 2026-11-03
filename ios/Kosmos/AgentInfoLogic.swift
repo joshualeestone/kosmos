@@ -235,15 +235,25 @@ extension Board {
     }
 
     // kosmos#7840: what the Profile says when it has no instructions or skills to show, so the person learns why
-    // instead of one fixed sentence. No answer at all is the phone's side; any answer carries the board's own reason
-    // (its `because`, else its `error`), as the board page shows it.
-    // got: the value. refused: the board answered with its own words for why not. unanswered: nothing came back, or a
-    // body with no words of its own (a relay's error page, an unreadable answer).
+    // instead of one fixed sentence. The board's own reason is its `because`, else its `error` (as the Files section
+    // reads it; the desktop's skills read uses `because` only).
+    // got: the value. refused: the board answered this agent with its own words for why not (a 200 that is not the
+    // thing, or a 4xx such as 404). unanswered: nothing came back, the phone was not let in (401, 403: a gate, or the
+    // seconds after the computer restarts), the board failed for now (5xx), or a body with no words of its own.
     enum ProfileRead<T: Equatable>: Equatable { case got(T), refused(String), unanswered(String) }
     // No answer at all: the page's own wording for its computer, with the way to try again.
     static let macNoAnswer = "We could not reach your computer just now. Pull down to try again."
     // A body with no words of its own, or one the phone cannot read: said as the phone, with no status number.
     static let profileCannotRead = "We cannot read this right now."
+    // 401 or 403: the phone was not let in, said as Settings says it (SettingsLogic refusal), never the gate's words.
+    static let profileShutOut = "Your computer did not let this phone in just now. Try again in a moment, or open the Agents tab to connect again."
+    /* An answer that is not the value: the board's own words for this agent are a refusal, a gate or a failure for now
+       is unanswered (so a value already shown is kept). */
+    static func notTheValue<T: Equatable>(_ data: Data, status: Int) -> ProfileRead<T> {
+        if status == 401 || status == 403 { return .unanswered(profileShutOut) }
+        guard let words = boardReason(data) else { return .unanswered(profileCannotRead) }
+        return status >= 500 ? .unanswered(words) : .refused(words)
+    }
     // The board's own words for why not: its `because`, else its `error`, as a sentence; nil when it gave none.
     static func boardReason(_ data: Data) -> String? {
         let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
@@ -254,13 +264,13 @@ extension Board {
         guard let r = res else { return .unanswered(macNoAnswer) }
         let (data, http) = r
         if http.statusCode == 200, let text = parseInstructions(data) { return .got(text) }
-        return boardReason(data).map { .refused($0) } ?? .unanswered(profileCannotRead)
+        return notTheValue(data, status: http.statusCode)
     }
     static func skillsRead(_ res: (Data, HTTPURLResponse)?) -> ProfileRead<[Skill]> {
         guard let r = res else { return .unanswered(macNoAnswer) }
         let (data, http) = r
         if http.statusCode == 200, let list = parseSkills(data) { return .got(list) }
-        return boardReason(data).map { .refused($0) } ?? .unanswered(profileCannotRead)
+        return notTheValue(data, status: http.statusCode)
     }
     /* What a section shows after a read: the board's value, or its own reason replacing what was shown; with no real
        answer, a value already shown is kept (a phone loses its connection, or meets a relay's error page, far more than

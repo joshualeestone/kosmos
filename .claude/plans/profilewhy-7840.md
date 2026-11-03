@@ -20,7 +20,8 @@ this right now.") for no answer, a refusal, an error and an unreadable body alik
 - ios/Kosmos/AgentInfoLogic.swift: `instructionsRead` / `skillsRead` answer `.got(value)`, `.refused(words)` (the
   board answered with its own `because`, else `error`, through `Board.sentence`), or `.unanswered(words)` (nothing
   came back: "We could not reach your computer just now. Pull down to try again."; or a body with no words of its own,
-  such as a relay's error page or an unreadable answer: "We cannot read this right now."). `profileNext` decides what a
+  such as a relay's error page or an unreadable answer: "We cannot read this right now."; or a 401 or 403, said as
+  Settings says it; or a 5xx, with the board's words). `profileNext` decides what a
   section shows: a value or a refusal replaces what was shown; an unanswered read keeps a value already shown and gives
   its reason only when there is nothing.
 - ios/Kosmos/AgentInfoView.swift: each section shows its value or its own reason, through `profileNext`.
@@ -31,5 +32,6 @@ this right now.") for no answer, a refusal, an error and an unreadable body alik
 - Changing the board to resolve a raw `-discord` session to the agent: the phone does not send it (measured).
 
 ## Weakest premise
-That the next failure, whatever its cause, will be explained by the board's own words. A failure at the relay before
-the board answers reads as "did not answer", which is true but does not say where.
+That the next failure will be told apart: no answer, the phone not let in (401 or 403, said as Settings says it,
+never the gate's words), the board failing for now (5xx, its words), or the board refusing this agent (its words).
+A relay's plain-text error page reads as "cannot read this right now", which is true but does not say where.
