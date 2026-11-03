@@ -133,3 +133,13 @@ never offering at all.
   the resolver mutation-checked (ENOTDIR, following links, final resolve, dangling vs unlookable, failed look).
 - Declined: naming the revoked tokens in a records-only REFUSED sentence (they are inert for a folderless name, and the
   person acts on what stays, which the sentence names).
+
+## Review round 8 (sonnet): no BLOCKER. CONVERGED at the cap (8).
+- Fixed: the workers folder is resolved by the same walk as the recorded folder (a gone workers folder under a link,
+  such as /var on a Mac, read the leftover as outside). Mutation-checked.
+- Fixed, REASONED NOT MEASURED: a root that is not there (a Windows drive or share that is not connected) is a gone rest
+  ("not there now") instead of an "unlookable" refusal that says try again. A Mac's root always exists, so no test here
+  can reach it.
+- Tests: symlinks are removed before they are made (a stale link from a crashed run is no longer silently reused).
+- Declined: insideDir's "..name" edge (pre-existing helper, refuses in the safe direction); win32 skips for symlink tests
+  (CI runs these on Mac and Linux); cleanup-in-finally for unique-name fixtures; lower-case starts (convention).
