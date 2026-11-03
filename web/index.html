@@ -56210,17 +56210,18 @@ async function pbpChoose(gb) {
   PBP.busy = false;
   if (gen !== PBP.gen) { pbPaint(); return; }
   const url = r && r.ok === true && typeof r.url === 'string' && /^https:\/\/checkout\.stripe\.com\//.test(r.url) ? r.url : null;
-  // #7827: a page that may just have been paid (relay "finished", or a 409 the board cannot name): the wait line says so,
+  // #7827: a page that may just have been paid (relay "finished", a 409 the board cannot name, an earlier page the relay
+  // could not close (unclosed, a 503), or an answer that may have come mid-way (unsure)): the wait line says so,
   // where no read reaches, and the plan is watched each minute as after Choose. Set before the paint, and no read at
   // once: the relay says finished only while no plan is recorded yet. backup_checkout_conflict is the board's own name
   // (engine checkout) for any 409 it cannot name: once the relay naming its two conflicts is deployed (Ice Cream Kitty,
   // #3763, #7827) an unnamed 409 no longer occurs, but a code this board does not know still lands here, so it stays.
   // The earlier page is expired or paid either way, so its link goes.
-  const paidMaybe = !url && r && (r.code === 'backup_checkout_finished' || r.code === 'backup_checkout_conflict' || r.code === 'backup_checkout_unclosed');
+  const paidMaybe = !url && r && ['backup_checkout_finished', 'backup_checkout_conflict', 'backup_checkout_unclosed', 'backup_checkout_unsure'].includes(r.code);
   if (url) { PBP.url = url; PBP.gb = gb; PBP.since = Date.now(); PBP.at = Date.now(); PBP.awaitPlan = false; PBP.awaitCode = null; PBP.awaitSay = ''; }
   else if (paidMaybe) {
     PBP.awaitPlan = true; PBP.awaitCode = r.code; PBP.url = null; PBP.gb = null; PBP.since = Date.now(); PBP.at = Date.now();
-    PBP.awaitSay = asSentence(r.because || '');   // the engine always sends its sentence for these codes
+    PBP.awaitSay = asSentence(r.because || 'If you paid, your plan shows here shortly.');   // the engine sends its own; this is the floor
   }
   else pbpMsg((r && r.because) || 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.', 'choose');
   pbPaint();

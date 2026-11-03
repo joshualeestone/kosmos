@@ -220,7 +220,7 @@ async function preview(opts = {}) {
   try { r = await remote.macRequest('POST', ROUTE, {}); } catch { return { ok: false, because: UNREACHED }; }
   if (!r || !r.ok) {
     const c = codeOf(r);
-    if (c && SAY[c]) return { ok: false, code: c, because: SAY[c] };
+    if (c && Object.hasOwn(SAY, c)) return { ok: false, code: c, because: SAY[c] };
     // Code review 7, NIT 5: an answer with no code is a refusal, not an unreachable Kosmos+.
     return { ok: false, because: r && r.refusal ? 'Kosmos+ refused this just now. Nothing was turned on; try again in a minute.' : UNREACHED };
   }
@@ -300,7 +300,7 @@ async function bindAndKey(ticket, t, opts) {
     if (r.declined) return { ok: false, declined: true, because: 'Not accepted, so nothing was sent.' };
     if (r.unknown) return { ok: false, unknown: true, because: 'It is not known yet whether this computer was bound. Kosmos asks Kosmos+ again in a few minutes.' };
     const c = r.code || codeOf(r);
-    if (c && SAY[c]) return { ok: false, code: c, because: SAY[c] };
+    if (c && Object.hasOwn(SAY, c)) return { ok: false, code: c, because: SAY[c] };
     /* Code review 2, warning 5: orgenroll's own refusals in this module's words, never the generic one. A personal enroll
        sends no code, so orgenroll reads it as a move: nothing is undone (a leave would end the membership). */
     if (r.reason === 'not_confirmed') return { ok: false, because: 'Kosmos+ did not confirm this computer, so nothing was turned on. Open personal backup again.' };
@@ -703,9 +703,10 @@ const CHECKOUT_SAY = {
   backup_checkout_opening: 'Kosmos+ is opening a payment page for this already. Try again in a moment.',
   backup_checkout_finished: 'The payment page has just finished. If you paid, your plan shows here in a moment.',
   // #7827 item 6: the earlier page could be neither closed nor read (relay checkout Open|Err, a 503): it may be paid.
-  backup_checkout_unclosed: 'Kosmos+ could not close your earlier payment page just now. If you paid on it, your plan shows here shortly; if not, try again in a minute.',
+  backup_checkout_unclosed: 'An earlier payment for this backup may still be going through. If you paid, your plan shows here shortly; if not, try again in a minute.',   // Mona Lisa m2591
 };
 // A relay that does not name its conflict yet sends either of those two with no code: a sentence true of both.
+const CHECKOUT_UNSURE = 'Kosmos+ did not answer about the payment page just now. If you paid on an earlier page, your plan shows here shortly; if not, choose your plan again in a minute.';
 const CHECKOUT_CONFLICT = 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.';   // Mona Lisa m2568
 /* Mona Lisa's review (#7404 comment 6593277093): a refusal that may pass says what to do next. Used for every one that
    is not the person's own account (unreached, or a page this Kosmos does not open), so the words are hers verbatim. */
@@ -729,7 +730,13 @@ async function checkout(gb, opts = {}) {
     // paid (backup_plans.rs Opening and Complete), so CHECKOUT_CONFLICT is written to be true of both.
     // Any other 409 (unnamed, or a code this board has no sentence for) may be a page just paid: never say nothing was charged.
     // The status from either kind of tunnel (item 7): an older one prints no refusal object, only the line.
-    return statusOf(r) === 409 ? { ok: false, code: 'backup_checkout_conflict', because: CHECKOUT_CONFLICT } : { ok: false, because: CHECKOUT_RETRY };
+    const st = statusOf(r);
+    if (st === 409) return { ok: false, code: 'backup_checkout_conflict', because: CHECKOUT_CONFLICT };
+    // "Nothing was charged" only when that is known: the request never left this computer, or Kosmos+ refused it outright
+    // (a 4xx). A timeout, a 5xx or an answer this board cannot read may have come mid-way through closing an earlier page
+    // that was paid, so it claims nothing about payment and the page watches for the plan (review 1 on nocharge-7827).
+    if ((r && r.notSent) || (Number.isSafeInteger(st) && st >= 400 && st < 500)) return { ok: false, because: CHECKOUT_RETRY };
+    return { ok: false, code: 'backup_checkout_unsure', because: CHECKOUT_UNSURE };
   }
   const url = stripeCheckoutUrl(r.data && r.data.url);
   if (!url) return { ok: false, because: CHECKOUT_RETRY };
