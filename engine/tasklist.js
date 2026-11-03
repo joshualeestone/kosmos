@@ -62,7 +62,8 @@ function compactLines(body, state, project) {
   if (body.listState !== group) {
     return { lines: ['This board is older than --' + state + ', so it listed every task. Update Kosmos, or list without --' + state + '.'], rc: 1 };
   }
-  const lines = tasks.map((x) => '#' + (x.number != null ? x.number : '?') + '  ' + state + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x));
+  const lines = tasks.map((x) => '#' + (x.number != null ? x.number : '?') + '  ' + state + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x)
+    + (group === 'built' ? seenWords(x) : ''));
   const n = tasks.length;
   lines.push(n + ' ' + state + ' task' + (n === 1 ? '' : 's') + ' in ' + one(project) + '.');
   if (Number.isInteger(body.count) && body.count !== n) {
@@ -87,6 +88,16 @@ function quietWords(at, now) {
   const d = Math.floor((now - ms) / DAY_MS);
   return 'quiet ' + d + ' day' + (d === 1 ? '' : 's');
 }
+/* kosmos#7875 item 3: on a built row, whether the person has viewed the task since it was built (the board sends
+   seenByPerson only on the built list, from engine/taskseen.js). No field, an older board: nothing is said. A view
+   before the build is not one of the built work. */
+function seenWords(x) {
+  if (!x || !Object.prototype.hasOwnProperty.call(x, 'seenByPerson')) return '';
+  const seen = typeof x.seenByPerson === 'string' ? Date.parse(x.seenByPerson) : NaN;
+  const built = typeof x.builtAt === 'string' ? Date.parse(x.builtAt) : NaN;
+  if (Number.isFinite(seen) && (!Number.isFinite(built) || seen >= built)) return '  (seen by the person since built)';
+  return '  (not seen by the person since built)';
+}
 /* kosmos#7151: ", left under closed task #N" for a task the board offers for retiring. */
 const leftWords = (x) => (Number.isSafeInteger(x.leftUnder) ? ', left under closed task #' + x.leftUnder : '');
 function acrossLines(body, flag, opts = {}) {
@@ -106,7 +117,8 @@ function acrossLines(body, flag, opts = {}) {
   if (body.listState !== group) return older('--' + flag);
   const label = stale ? 'open' : flag;
   const lines = tasks.map((x) => (every ? one(x.projectId || '?') + '  ' : '') + '#' + (x.number != null ? x.number : '?') + '  ' + label
-    + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + (stale ? '  (' + quietWords(x.lastActivityAt, now) + leftWords(x) + ')' : ''));
+    + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + (stale ? '  (' + quietWords(x.lastActivityAt, now) + leftWords(x) + ')' : '')
+    + (group === 'built' ? seenWords(x) : ''));
   const n = tasks.length;
   const what = n + ' ' + label + ' task' + (n === 1 ? '' : 's') + (stale ? ' quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more' : '');
   if (every) {
@@ -157,4 +169,4 @@ if (require.main === module) {
   process.exit(out.rc);
 }
 
-module.exports = { COMPACT, compactLines, acrossLines, STALE_DAYS_DEFAULT: 7 };
+module.exports = { COMPACT, compactLines, acrossLines, seenWords, STALE_DAYS_DEFAULT: 7 };

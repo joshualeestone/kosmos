@@ -66,7 +66,7 @@ test.after(() => {
 const WANT = {
   open: () => [A + '  #' + N['a-open'] + '  open  mara  Task a-open', B + '  #' + N['b-open'] + '  open  nobody  Task b-open', '2 open tasks across 2 projects.'],
   blocked: () => [B + '  #' + N['b-held'] + '  blocked  otto  Task b-held', '1 blocked task across 1 project.'],
-  built: () => [A + '  #' + N['a-built'] + '  built  mara  Task a-built', '1 built task across 1 project.'],
+  built: () => [A + '  #' + N['a-built'] + '  built  mara  Task a-built  (not seen by the person since built)', '1 built task across 1 project.'],
 };
 
 // ── the renderer, on its own ────────────────────────────────────────────────

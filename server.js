@@ -22322,7 +22322,16 @@ const server = http.createServer(async (req, res) => {
       const rows = listOrder || listOnly ? tasks.inListOrder(scoped, listOnly) : scoped;   // #5705
       /* #5705 review 1: say which group was kept, so a command can tell a filtered answer from an older board that
          ignored the filter and listed everything. kosmos#7057: and that every project was read (all). */
-      sendJson(res, 200, { tasks: rows.map(withRepeatWords), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}) });   // kosmos#4787
+      /* kosmos#7875 item 3: on the built list, when the person last viewed each task (engine/taskseen.js, #6947), so an
+         agent can tell a built task the person has not looked at since from one seen and not yet acted on. */
+      const seenOf = (t) => {
+        if (listOnly !== 'built' || !t) return t;
+        const pid = t.projectId || projectScope;
+        let at = null;
+        try { at = pid ? require('./engine/taskseen').seenAt(pid, t.number) : null; } catch { at = null; }
+        return Object.assign({}, t, { seenByPerson: at });
+      };
+      sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(seenOf), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}) });   // kosmos#4787
       return;
     }
     /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives
