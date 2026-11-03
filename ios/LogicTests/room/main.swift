@@ -547,6 +547,11 @@ let strayValues = tracedValues.filter { !allowedInTrace.contains($0) }
 check(traceLines.count >= 10 && !tracedValues.isEmpty && strayValues.isEmpty,
       "kosmos#7420: the diagnostic records only allowed numbers and flags (\(tracedValues.count) values; not allowed: \(strayValues))")
 check(!chatSource.contains("keepAnchor scrollTo \\(id)"), "review 1: no message id in the record")
+// kosmos#7645: the will-show handler picks the reader's row through Board.holdRow (tested in LogicTests) and saves the
+// offset with the read-back holdRow returns, so a fall-back saves the place as it is now. Wiring guard, not behaviour.
+check(chatSource.contains("let held = Board.holdRow(rowsNow, back: back, below: Double(top), above: Double(bottom))") && chatSource.contains("back = held.back")
+      && chatSource.contains("let r = held.row, let reading = rows.y[r.id]") && !chatSource.contains("Board.readerRow(rowsBefore"),
+      "kosmos#7645: the keyboard hold's row comes from Board.holdRow and its offset from the read-back it returns")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
 check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
