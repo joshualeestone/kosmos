@@ -12,16 +12,18 @@ leaves the computer: the digest is printed locally, and the report the agent wri
   (feedbackday.recordName): a token agent's KEY, which is where the board files its thread and task rows (the token's
   own spelling, "Mara" for "mara", would find nothing), else its window's agent name. A token shared by two names is
   refused. No agent identified: it says so and exits 1, rather than printing someone else's day. Extra words: usage, 2.
-- `engine/feedbackday.js`, pure where it can be: `digest({ name, date, readThread, readTasks })` returns lines;
+- `engine/feedbackday.js`, pure where it can be: `digest({ name, date, readThread, listTaskFiles, readTask })` returns lines;
   the CLIs only print. Readers injected so tests use inline fixtures, not the live store.
 - Conversation: the direct thread (chat.readThread(chat.DIRECT, name)), messages whose `at` falls on `date` in the
   person's local day (feedback.dateKey, the same day the report is filed under). Counts both ways, then each
   message as time, who (you / the person) and its first line cut to 160 characters, newest last, at most 40.
   Kosmos's own lines in the agent's name (`kosmos: true`) and menu keystrokes (`wire`) are not messages, so skipped.
+  A name Kosmos keeps no conversation under (chat.threadFile refuses it) says exactly that, not "could not read".
+  The digest's header asks the agent not to copy names, project names, task numbers or the person's words.
 - Tasks: tasks whose history today (taskchat.read) has a row naming this agent as its author: a task it created
-  through the CLI (`addedBy`), and a mark, run or move it made (`by`). Most rows name nobody (said, closed, holds),
+  through the CLI (`addedBy`, with `addedVia: 'process'`, as tasks.js AGENT_ROW does), and a mark, run or move it made (`by`). Most rows name nobody (said, closed, holds),
   so those cannot count. Number, project id and the kinds of change, no titles. An absent task folder is "none"; an
-  unreadable one says so. The report's own rules forbid task titles and
+  unreadable folder, or a transcript in it that cannot be opened, says so. The report's own rules forbid task titles and
   contents, so the digest does not hand them over; the agent can look a task up itself.
 - The nudge line gains one sentence: run `kosmos feedback day` first, since this session may be new. The Project
   Manager's own instructions (engine/roles.js), which carry the same four questions, say so too.
