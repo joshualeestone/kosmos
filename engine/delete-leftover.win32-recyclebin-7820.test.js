@@ -481,6 +481,23 @@ test('#7820 a failed token revoke beside a stuck folder reads "revoke", never "m
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('#7820 a startup task plus settings, no folder: the settings are never promised the Recycle Bin', () => {
+  /* So the outcome's "Nothing starts X any more" can never stand over a record that was promised the Recycle Bin and
+     not kept: a task is removed, not moved, so with no folder nothing goes to the Recycle Bin and the name is asked. */
+  const store = require('./store');
+  fs.mkdirSync(nodePath.dirname(store.profilePath('rb7820w')), { recursive: true });
+  fs.writeFileSync(store.profilePath('rb7820w'), '{}');
+  win32job.setRunner((args) => (args[0] === '/Query' ? { ok: true, out: 'Status: Disabled\r\n' } : { ok: true, out: 'SUCCESS' }));
+  const p = win.plan('rb7820w');
+  assert.equal(p.ok, true, p.because);
+  assert.ok(p.job && p.job.task && !p.folder && p.records.files.length === 1, 'the fixture is not a task plus settings with no folder');
+  assert.equal(p.records.trash, false, 'settings beside a task-only leftover were promised the Recycle Bin');
+  assert.equal(p.typeToConfirm, 'rb7820w');
+  const done = win.del('rb7820w', { typed: 'rb7820w' });
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  assert.equal(calls.filter((c) => c.args.includes(leftover.RECYCLE_SCRIPT)).length, 0, 'something was sent to the Recycle Bin');
+});
+
 test('#7820 CONTROL: the Mac still says the Trash and never asks PowerShell', () => {
   fs.mkdirSync(process.env.AGENT_WORKFORCE_TRASH, { recursive: true });
   leftoverFolder('rb7820g');
