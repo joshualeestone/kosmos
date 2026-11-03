@@ -42,6 +42,8 @@ extension Board {
         var mentioned: [String] = []
         var reactions: [Reaction] = []
         var attachments: [Attachment] = []
+        // kosmos#7864 slice 2: the link preview the Mac attached to a post (withPreviews; never on an outside row, #3311).
+        var preview: LinkPreview? = nil
         // Agents this post addressed that have not answered here yet (the route's `unanswered`).
         var unanswered: [String] = []
         // A refusal's parts, kept so consecutive refusals fold into one line when the room is drawn (roomItems), after
@@ -304,6 +306,7 @@ extension Board {
                     return Reaction(emoji: e, count: c, mine: isTrue(x["mine"]))
                 }
                 row.attachments = parseAttachments(r)
+                row.preview = parseLinkPreview(r["preview"])
                 row.unanswered = (silent[id] ?? []).map(shown)
                 rows.append(row)
             case "external":

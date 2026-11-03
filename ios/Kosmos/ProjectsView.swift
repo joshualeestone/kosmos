@@ -189,9 +189,14 @@ final class RoomStore: ObservableObject {
         #if DEBUG
         if Self.sample {
             // kosmos#7111: KOSMOS_SAMPLE_REFUSAL=1 adds an addable refusal by Farah (not a member), for the Add shots.
-            let room = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REFUSAL"] == "1"
+            var room = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REFUSAL"] == "1"
                 ? Self.sampleRoom.replacingOccurrences(of: #"{"kind":"post","id":"m5""#, with: Self.sampleRefusal + #",{"kind":"post","id":"m5""#)
                 : Self.sampleRoom
+            // kosmos#7864 slice 2, KOSMOS_SAMPLE_PREVIEW=1: Dana's post carries a link and the preview the Mac attaches.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PREVIEW"] == "1" {
+                room = room.replacingOccurrences(of: #""text":"Copy for pages 1 to 8 is done. Pages 9 to 12 wait for the new photos.","mentioned":[],"#,
+                    with: #""text":"Copy for pages 1 to 8 is done. Pages 9 to 12 wait for the new photos from northfieldstudio.com","mentioned":[],"preview":{"url":"https://northfieldstudio.com","site":"northfieldstudio.com","title":"Northfield Studio, product photography","description":"Catalogue and product photography for small brands, shot in natural light.","image":"/api/unfurl/image?url=https%3A%2F%2Fnorthfieldstudio.com%2Fog.jpg"},"#)
+            }
             rows[project] = Board.withoutDeleted(Board.parseRoom(Data((Self.sampleLongRoom ?? room).utf8), names: names)?.rows ?? [], deletedPosts[project] ?? [])
             // kosmos#7072: KOSMOS_SAMPLE_HELD=1 shows the sample room held, for its screenshots (a Debug build only).
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HELD"] == "1", !Self.sampleReopened.contains(project) {

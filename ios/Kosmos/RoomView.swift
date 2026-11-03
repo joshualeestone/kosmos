@@ -270,6 +270,7 @@ struct RoomView: View {
         }
         .onDisappear {
             visible = false; roomScrolling = false; loop?.cancel(); loop = nil   // kosmos#7654: no idle phase may come once off screen
+            client.releasePreviewImages()   // kosmos#7864 slice 2: link preview pictures do not outlive the room
             // A reading posture, not the room's state: coming back (from another tab, or a member's chat opened from here)
             // shows the whole room, as the chat's search goes when it leaves the screen. A search that filtered settles the
             // scroll again, as putting it away does.
@@ -302,6 +303,10 @@ struct RoomView: View {
             if now && visible { Self.say(Board.heldAnnouncement) }
         }
         // kosmos#7062: a post's file in the system's Quick Look; closed, it is removed from the phone (the chat's rule).
+        // kosmos#7864 slice 2: on a memory warning the link preview pictures go; drawn cards fetch theirs again.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            client.dropPreviewImages()
+        }
         .quickLookPreview($previewURL)
         .onChange(of: previewURL) { now in
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
@@ -1104,10 +1109,15 @@ struct RoomView: View {
                            delete: { Task { _ = await store.delete(row, in: project.id) } },
                            flashing: flashed == row.id,
                            mentionNames: row.mentioned.compactMap { store.names[$0] },
-                           thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile)
+                           thumbnails: client.thumbnails, fileStates: fileStates, openFile: openFile,
+                           previewImage: row.preview?.image.flatMap { client.previewImages[$0] })
                     .modifier(ArchivedBubble(on: archiveShown != nil))
                     .padding(.top, first ? 6 : 0)
                     .task { for f in row.attachments { await client.loadThumbnail(f) } }
+                    // kosmos#7864 slice 2: the preview's picture; runs again when it is dropped (the chat's previewTaskKey).
+                    .task(id: row.preview?.image.map { $0 + (client.previewImages[$0] == nil ? "#missing" : "#kept") + "#\(client.previewGeneration)" }) {
+                        if let p = row.preview { await client.loadPreviewImage(p) }
+                    }
             }
         }
     }
@@ -1565,6 +1575,11 @@ struct RoomBubble: View {
             }
             VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                 bubble
+                // kosmos#7864 slice 2: the link's preview under the post, as in a chat (LinkPreviewCard).
+                if let preview = row.preview {
+                    LinkPreviewCard(preview: preview, image: previewImage, width: UIScreen.main.bounds.width * 0.78)
+                        .padding(.top, 2)
+                }
                 if !row.reactions.isEmpty { reactions }
                 if !row.unanswered.isEmpty {
                     // Already shown names (parseRoom maps them), so never mapped a second time here.
@@ -1601,6 +1616,9 @@ struct RoomBubble: View {
             ForEach(Array(row.attachments.enumerated()), id: \.offset) { _, f in
                 Button(fileActionName(f)) { openFile(f) }
             }
+            // kosmos#7864 slice 2: the preview card is merged into the post, so its address is an action, named from the
+            // address's own host (never the page's site name), as in a chat.
+            if let p = row.preview { Button("Open link to \(Board.linkHost(p.url))") { openURLHere(p.url) } }
         }
     }
 
@@ -1696,6 +1714,9 @@ struct RoomBubble: View {
     var thumbnails: [String: Data] = [:]
     var fileStates: [String: FileCardState] = [:]
     var openFile: (Board.Attachment) -> Void = { _ in }
+    // kosmos#7864 slice 2: the picture of the post's link preview, once the client has it through the Mac.
+    var previewImage: CGImage? = nil
+    @Environment(\.openURL) private var openURLHere
 
     // The VoiceOver action for one file, carrying the state its card shows (review 3).
     private func fileActionName(_ f: Board.Attachment) -> String {

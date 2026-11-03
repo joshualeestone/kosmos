@@ -1762,6 +1762,17 @@ check(Board.projectNotifyHint("loud") == Board.projectNotifyHint("all"), "an unk
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
+// kosmos#7864 slice 2: a post's link preview, read as a chat's; an outside row never carries one.
+do {
+    let json = #"{"ok":true,"rows":[{"kind":"post","id":"p1","from":"dana","text":"see northfieldstudio.com","at":"2026-10-23T15:08:00.000Z","preview":{"url":"https://northfieldstudio.com","site":"northfieldstudio.com","title":"Northfield","image":"/api/unfurl/image?url=https%3A%2F%2Fnorthfieldstudio.com%2Fog.jpg"}},{"kind":"post","id":"p2","from":"dana","text":"plain","at":"2026-10-23T15:09:00.000Z"},{"kind":"external","id":"x1","from":"Maple","fromKind":"agent","text":"see evil.example.net","at":"2026-10-23T15:10:00.000Z","preview":{"url":"https://evil.example.net","title":"Evil"}}]}"#
+    let rows = Board.parseRoom(Data(json.utf8))?.rows ?? []
+    check(rows.count == 3, "CONTROL: all three rows read")
+    let p = rows.first { $0.id == "p1" }?.preview
+    check(p?.title == "Northfield" && p?.image == "/api/unfurl/image?url=https%3A%2F%2Fnorthfieldstudio.com%2Fog.jpg", "a room post's preview is read")
+    check(rows.first { $0.id == "p2" }?.preview == nil, "CONTROL: a post with none has none")
+    check(rows.first { $0.id == "x1" }?.preview == nil, "an outside row's preview is never read (the board never fetches for one, #3311)")
+}
+
 print("")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

@@ -1331,7 +1331,8 @@ final class BoardClient: ObservableObject {
     #if DEBUG && canImport(UIKit)
     // kosmos#7864: the sample link preview's picture (KOSMOS_SAMPLE_PREVIEW=1), drawn here: a soft studio scene.
     private func samplePreviewImage(_ path: String) -> Data? {
-        guard sampleThreads.values.contains(where: { $0.rows.contains { $0.preview?.image == path } }) else { return nil }
+        guard sampleThreads.values.contains(where: { $0.rows.contains { $0.preview?.image == path } })
+              || (ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PREVIEW"] == "1" && path.contains("northfieldstudio.com")) else { return nil }
         let size = CGSize(width: 900, height: 470)
         return UIGraphicsImageRenderer(size: size).pngData { ctx in
             UIColor(red: 0.93, green: 0.90, blue: 0.85, alpha: 1).setFill(); ctx.fill(CGRect(origin: .zero, size: size))
