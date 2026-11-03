@@ -53,3 +53,13 @@ no skip (3), any claimant (1), own claim counted (1), no person-post branch (1),
 - Copy: the all-claimed head line is "nothing waiting on you in this room; the ask named below was claimed by another
   agent it asked" (singular and plural); the claimed line reads "Claimed by an agent the post also asked". Test
   messages corrected.
+
+## Review round 3 (opus, fixed by reverting round 2's hold drop)
+- Rounds 2 and 3 pulled opposite ways on the idle-reminder hold. The call: claimed asks stay held. The list entry is
+  reversible (it comes back by itself if the claim goes: given back, freed, or the claimant leaves), a dropped reminder
+  is not, and the asks that are held are mostly the addressed holds that say "names you and asks for your answer". It
+  also removes the case where an unreadable registry (nobody filtered as a non-member) would have deleted a hold.
+  The test now holds the ask in its addressed form and asserts it stays held; putting the drop back reds it.
+- Copy: "Claimed by another agent each post also asked"; the all-claimed head line "the ask below is claimed by another
+  agent it also asked" / "the asks below are claimed by agents they also asked".
+- namedReader and namedBy are built in one pass.

@@ -65,7 +65,7 @@ const room = async (project, who, query) => {
   return { status: res.status, text: await res.text() };
 };
 const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + '] ' + POSTER));
-const CLAIMED = '[kosmos] Claimed by an agent the post also asked, so not counted as waiting on you: ';
+const CLAIMED = '[kosmos] Claimed by another agent each post also asked, so not counted as waiting on you: ';
 
 test('kosmos#7848: an ask claimed by another agent it asked leaves my --unanswered, and is named under it', async () => {
   const pid = newRoom('Claimed7848a');
@@ -120,7 +120,7 @@ test('kosmos#7848: the person\'s ask that reached both of us, claimed by the oth
   r = await room(pid, ME, '&unanswered=1');
   assert.ok(!r.text.split('\n').some((l) => / \[m\d+\] operator /.test(l) && l.includes('[' + ask + ']')), 'the person\'s claimed ask is still listed (review 1):\n' + r.text);
   assert.ok(r.text.includes(CLAIMED + '[' + ask + '] by ' + CLAIMER), 'the person\'s claimed ask is not named:\n' + r.text);
-  assert.match(r.text, /^Waiting on an answer from you: nothing waiting on you in this room; the ask named below was claimed by another agent it asked\.$/m, 'all claimed: the head line is wrong:\n' + r.text);
+  assert.match(r.text, /^Waiting on an answer from you: nothing waiting on you in this room; the ask below is claimed by another agent it also asked\.$/m, 'all claimed: the head line is wrong:\n' + r.text);
 });
 
 test('kosmos#7848 review 1: the person naming only me, or an agent the post could not reach, does not make another claim answer for me', async () => {
@@ -158,24 +158,17 @@ test('kosmos#7848 review 1: with -n, the count leaves claimed asks out and the c
   assert.ok(line.includes('[' + claimed[1] + ']') && line.includes('[' + claimed[2] + ']') && !line.includes('[' + claimed[0] + ']') && line.endsWith(', and 1 older.'), 'the claimed line is not capped at -n with how many more:\n' + r.text);
 });
 
-test('kosmos#7848 review 2: an ask named as claimed is dropped from my idle reminder hold, an open one stays held', async () => {
+test('kosmos#7848 review 3: a claimed ask stays held for my idle reminder (a claim can go; a dropped reminder cannot come back)', async () => {
   const roomhold = require('./engine/roomhold');
   const pid = newRoom('Claimed7848h');
   const ask = post(pid, { text: '@readerseat @claimseat the survey?', mentioned: [ME, CLAIMER] });
   const open = post(pid, { text: '@readerseat the map?', mentioned: [ME] });
   claim(pid, ask, CLAIMER);
-  roomhold.hold(ME, pid, ask);
+  roomhold.hold(ME, pid, roomhold.addressedId(ask));   // the form an ask is held in
   roomhold.hold(ME, pid, open);
-  const both = roomhold.heldIn(ME, pid).join(' ');
-  assert.ok(both.includes(ask) && both.includes(open), 'fixture: both posts should be held: ' + both);
-  await room(pid, ME, '&unanswered=1&n=1');   // -n 1: the open ask is listed, the claimed one named
+  const r = await room(pid, ME, '&unanswered=1');
+  assert.ok(r.text.includes(CLAIMED + '[' + ask + ']'), 'fixture: the claimed ask should be named:\n' + r.text);
   const left = roomhold.heldIn(ME, pid).join(' ');
-  assert.ok(!left.includes(ask), 'the claimed ask is still held for my idle reminder: ' + left);
-  // CONTROL: without the claim line naming it, a held ask that is not shown stays held.
-  const hidden = post(pid, { text: '@readerseat older one', mentioned: [ME] });
-  const newer = post(pid, { text: '@readerseat newer one', mentioned: [ME] });
-  roomhold.hold(ME, pid, hidden);
-  await room(pid, ME, '&unanswered=1&n=1');   // lists only `newer`
-  assert.ok(roomhold.heldIn(ME, pid).join(' ').includes(hidden), 'CONTROL: an open ask that was not shown left the hold');
-  assert.ok(!roomhold.heldIn(ME, pid).join(' ').includes(newer), 'the listed ask stayed held');
+  assert.ok(left.includes(ask), 'a claimed ask was dropped from my idle reminder hold: ' + left);
+  assert.ok(!left.includes(open), 'CONTROL: the listed (shown) ask should leave the hold as before: ' + left);
 });
