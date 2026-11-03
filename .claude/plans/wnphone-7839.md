@@ -16,6 +16,10 @@ Nothing is recorded on a phone, so the computer's own window still shows the upd
 - The update toast already speaks for a Kosmos+ view ("on your Kosmos computer", no restart offered).
 - The sign-in expiry banner Josh also saw is a separate question (the card says it may be wanted on the phone).
 
+## Not examined (follow-up on #7839)
+The first-run tour (.fr-back) and the other notices started beside whatsNewCheck at load (rebootNoteCheck,
+damagedFilesCheck, restartLineCheck) were not checked on the phone; each may be right to keep there. Listed on the card.
+
 ## Tests
 web.whatsnew-phone-7839.test.js (the real whatsNewCheck: marked, phone-width remote, desktop remote CONTROL, and the
 app's mark script still present); docs/browser-checks/render-whatsnew-phone-7839.js loads the page with the app's own
