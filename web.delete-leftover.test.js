@@ -82,29 +82,47 @@ test('#7835 item 6: a dialog repainted to ask for the name puts the cursor in th
   assert.match(open, /document\.getElementById\('del-keep'\)\.focus\(\);\n\}\s*$/, 'a fresh dialog no longer opens on the harmless answer');
 });
 
-test('#7852 an agent page whose delete is running says so, with no button, and keeps asking; any other answer ends that', async () => {
+test('#7852 an agent page whose delete is running says so, with no button, and keeps asking; another answer ends it', async () => {
   const vm = require('node:vm');
   const { scriptOf, liftAll } = require('./test-support/page');
   const els = {};
   for (const id of ['d-delete-leftover', 'd-delete-hint', 'd-delete-start']) els[id] = { id, hidden: true, textContent: '' };
   let answer = null;
+  let readable = true;
   const ctx = vm.createContext({ String, Promise, encodeURIComponent, document: { getElementById: (id) => els[id] || null },
-    fetch: async () => ({ ok: true, json: async () => answer }) });   // the route answers 200 with any plan
-  vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_SHOWS_RUNNING = false; let CURRENT = { sessionName: "miles" };',
-    liftAll(scriptOf(PAGE), ['fetchLeftoverPlan', 'loadLeftover']),
-    'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_SHOWS_RUNNING });'].join('\n'), ctx);
+    // the route answers 200 with any plan; an unreadable answer is a proxy's page
+    fetch: async () => ({ ok: true, json: async () => (readable ? answer : Promise.reject(new Error('not json'))) }) });
+  vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_RUNNING_FOR = null; let CURRENT = { sessionName: "miles" };',
+    liftAll(scriptOf(PAGE), ['fetchLeftoverPlan', 'paintLeftoverRunning', 'loadLeftover']),
+    'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_RUNNING_FOR }); this.view = (n) => { CURRENT = { sessionName: n }; };'].join('\n'), ctx);
   answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
   await ctx.load('miles');
-  assert.equal(els['d-delete-leftover'].hidden, false, 'a running delete hides the block as if nothing were left');
-  assert.equal(els['d-delete-start'].hidden, true, 'the delete button is offered while the delete runs');
-  assert.match(els['d-delete-hint'].textContent, /^A delete of what is left of this agent is running now; .*\.$/, 'not the board\'s words, as a sentence');
-  assert.equal(ctx.state().DEL_SHOWS_RUNNING, true, 'the poll is not told to keep asking');
+  assert.equal(els['d-delete-leftover'].hidden, false, 'a running delete must keep the block showing');
+  assert.equal(els['d-delete-start'].hidden, true, 'no delete button while the delete runs');
+  assert.match(els['d-delete-hint'].textContent, /^A delete of what is left of this agent is running now; .*\.$/, 'the board\'s words, as a sentence');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, 'miles', 'the poll must be told to keep asking for this agent');
   assert.equal(ctx.state().DEL_PLAN, null);
+  readable = false;
+  await ctx.load('miles');
+  assert.equal(els['d-delete-leftover'].hidden, false, 'an unreadable answer must not end the running block');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, 'miles', 'an unreadable answer must not stop the poll asking');
+  readable = true;
   answer = { ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' };
   await ctx.load('miles');
-  assert.equal(els['d-delete-leftover'].hidden, true, 'the block still says running after the delete ended');
-  assert.equal(ctx.state().DEL_SHOWS_RUNNING, false, 'the poll keeps asking after the delete ended');
-  assert.equal(els['d-delete-start'].hidden, false, 'the button stays hidden for the next plan');
-  const poll = PAGE.slice(PAGE.indexOf('// kosmos#7852: while the block says a delete is running, every poll asks again'));
-  assert.match(poll.slice(0, 300), /if \(!fromPoll \|\| DEL_SHOWS_RUNNING\) loadLeftover\(sessionName\);/, 'the poll does not ask again while it runs');
+  assert.equal(els['d-delete-leftover'].hidden, true, 'the block must leave once the delete has ended');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, null, 'the poll must stop asking once the delete has ended');
+  assert.equal(els['d-delete-start'].hidden, false, 'the button must come back for the next plan');
+  // Another agent: Miles's "running" goes before Ada's own answer comes.
+  answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
+  await ctx.load('miles');
+  ctx.view('ada');
+  let seenHidden = null;
+  answer = { then: undefined };   // read below, at the moment Ada's ask starts
+  const asking = ctx.load('ada');
+  seenHidden = els['d-delete-leftover'].hidden;
+  await asking;
+  assert.equal(seenHidden, true, 'another agent\'s running block must not show on this agent\'s page');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, null);
+  const poll = PAGE.slice(PAGE.indexOf('async function loadRemoval('), PAGE.indexOf('async function loadRemoval(') + 600);
+  assert.match(poll, /if \(!fromPoll \|\| DEL_RUNNING_FOR === String\(sessionName\)\.toLowerCase\(\)\) loadLeftover\(sessionName\);/, 'the poll must ask again while this agent\'s delete runs');
 });

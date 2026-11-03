@@ -63,7 +63,7 @@ function dialog(planOnScreen, detailFor = null) {
   const el = (id) => (els[id] = els[id] || { id, hidden: false, disabled: false, textContent: '', value: '', kids: [],
     set innerHTML(v) { this.kids = []; }, focus() {}, appendChild(c) { this.kids.push(c); } });
   for (const id of ['del-modal', 'del-title', 'del-small', 'del-list', 'del-type-row', 'del-typed', 'del-go', 'del-msg',
-    'del-keep', 'del-typed-label', 'd-delete-msg', 'removed-msg', 'removed-wrap', 'd-delete-leftover']) el(id);
+    'del-keep', 'del-typed-label', 'd-delete-msg', 'removed-msg', 'removed-wrap', 'd-delete-leftover', 'd-delete-hint', 'd-delete-start']) el(id);
   const calls = [];
   const replies = [];   // each: (url, opts) => a promise of a Response-like, or a rejection
   const ctx = vm.createContext({
@@ -72,17 +72,17 @@ function dialog(planOnScreen, detailFor = null) {
     paints: 0,
     fetch: (url, opts) => { calls.push({ url, method: (opts && opts.method) || 'GET' }); return replies.shift()(url, opts); },
   });
-  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0; let DEL_SHOWS_RUNNING = false;',
+  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0; let DEL_RUNNING_FOR = null;',
     'let CURRENT = ' + JSON.stringify(detailFor ? CARD[detailFor.toLowerCase()] : null) + ';',
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
     'function paintRemoved() { paints += 1; }',
     liftConst(SCRIPT, 'DEL_UNKNOWN_LINE'), liftConst(SCRIPT, 'DEL_REFUSED_LINE'),
-    liftAll(SCRIPT, ['fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteForgetPlan', 'deleteSettled', 'openDeleteModal', 'closeDeleteModal']),
+    liftAll(SCRIPT, ['fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteForgetPlan', 'deleteSettled', 'openDeleteModal', 'closeDeleteModal', 'paintLeftoverRunning']),
     'this.click = ' + liftHandler() + ';',
     'this.show = (p, onScreen) => deleteNoAnswerShow(p, DEL_FOR, onScreen === undefined ? DEL_PLAN : onScreen);',
     'this.open = openDeleteModal; this.close = closeDeleteModal; this.setPlan = (x) => { DEL_PLAN = x; };',
     'this.plan = fetchLeftoverPlan;',
-    'this.state = () => ({ DEL_FOR, DEL_PLAN, DEL_OPENED, DEL_TOKEN, DEL_SHOWS_RUNNING, kept: LEFTOVERS_LAST.map((x) => x.name).join(",") });'].join('\n'), ctx);
+    'this.state = () => ({ DEL_FOR, DEL_PLAN, DEL_OPENED, DEL_TOKEN, DEL_RUNNING_FOR, kept: LEFTOVERS_LAST.map((x) => x.name).join(",") });'].join('\n'), ctx);
   ctx.open(planOnScreen);
   return { els, ctx, calls, replies };
 }
@@ -326,14 +326,18 @@ test('the click handler never says Nothing was deleted', () => {
   assert.doesNotMatch(liftHandler(), /Nothing was deleted/);
 });
 
-test('kosmos#7852 a delete still running keeps the agent\'s block (the next poll shows it running), unlike any other refusal', () => {
+test('kosmos#7852 a delete still running shows the agent\'s block as running at once, unlike any other refusal', () => {
   const d = dialog(offered, 'Miles');
+  d.ctx.setPlan(offered);
   d.ctx.show({ ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' });
   assert.equal(d.els['d-delete-leftover'].hidden, false, 'a running delete hides the block as if nothing were left');
-  assert.equal(d.ctx.state().DEL_SHOWS_RUNNING, true, 'nothing asks the board again, so the block never shows it running');
+  assert.equal(d.els['d-delete-start'].hidden, true, 'the delete button stays live until the next poll');
+  assert.equal(d.ctx.state().DEL_PLAN, null, 'the old plan is still there for the button to open');
+  assert.equal(d.ctx.state().DEL_RUNNING_FOR, 'miles', 'nothing asks the board again, so the block never changes');
+  assert.match(d.els['d-delete-hint'].textContent, /^A delete of what is left of this agent is running now/);
   assert.match(d.els['del-msg'].textContent, /running now/);
   const control = dialog(offered, 'Miles');
   control.ctx.show({ ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' });
   assert.equal(control.els['d-delete-leftover'].hidden, true, 'CONTROL: another refusal still takes the block away');
-  assert.equal(control.ctx.state().DEL_SHOWS_RUNNING, false);
+  assert.equal(control.ctx.state().DEL_RUNNING_FOR, null);
 });
