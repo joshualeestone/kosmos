@@ -2930,6 +2930,26 @@ section("native board loop: connecting")
               "the next launch draws the kept conversation without asking the Mac")
         check(c2.keptThread(for: "../status") == nil, "a name the app does not accept reads nothing kept")
         c2.stop()
+        // Another computer chosen while a whole window is on its way: the switch removes what was kept, and the read
+        // that lands after it keeps nothing (it is the computer before's). Removing the epoch guard fails this.
+        let (c4, w4, _, _) = make("kst1", threads: folder)
+        c4.start()
+        _ = await settle { isLive(c4) }
+        w4.threadAnswer = (200, body)
+        w4.onThreadRead = { c4.showMac(address: "elsewhere.kosmosplus.com") }
+        if case .thread = (await c4.threadRead(for: "dana")).read { check(true, "CONTROL: the read in flight still answered") }
+        else { check(false, "CONTROL: the read in flight still answered") }
+        let afterSwitch = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        check(afterSwitch.isEmpty, "a read landing after another computer was chosen keeps nothing: \(afterSwitch)")
+        c4.stop()
+        // Kept again for the account checks below.
+        let (c5, w5, _, _) = make("kst1", threads: folder)
+        c5.start()
+        _ = await settle { isLive(c5) }
+        w5.threadAnswer = (200, body)
+        _ = await c5.threadRead(for: "dana")
+        check(c5.keptThread(for: "dana") != nil, "CONTROL: kept again with no switch")
+        c5.stop()
         // Another account on the same phone never sees it, and a sign-out removes it.
         let (c3, _, _, _) = make("kst-other", threads: folder)
         c3.start()

@@ -653,8 +653,8 @@ final class BoardClient: ObservableObject {
         return (read, etag)
     }
 
-    // kosmos#7810: the conversation this phone last read from this computer for this account, or nil. Its rows only:
-    // never a question's buttons (no thread read, no buttons: the question may have moved on).
+    // kosmos#7810: the conversation this phone last read from this computer for this account, or nil. Its rows only
+    // (a question's row included, as text): never its buttons (no thread read, no buttons: the question may have moved on).
     func keptThread(for session: String) -> Board.Thread? {
         guard let mac = admitted?.url.absoluteString, let file = threadFile(session, owner: chatsOwner, mac: mac),
               let data = try? Data(contentsOf: file), let t = Board.parseThread(data) else { return nil }
