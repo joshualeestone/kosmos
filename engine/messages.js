@@ -3053,7 +3053,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const wrap = (b) => (operator === true
       ? (mentioned.has(name)
         ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
-        : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer + ']')
+        /* kosmos#7886 item 2: five agents answered one fresh whole-room question within a minute; later ones were
+           claimed cleanly. The arm for the whole room says, beside its answer command, to claim first when one agent
+           should do the work. Conditional, because many whole-room posts are questions everyone may answer. */
+        : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer
+          + (replyExpected === false ? '' : ' \u00b7 if it asks for work one of you should do, claim it first: kosmos claim ' + projectId + ' ' + id)
+          + ']')
       : (askedHere
         ? '[message from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
         /* No answer line on background: it is explicitly not addressed to you,

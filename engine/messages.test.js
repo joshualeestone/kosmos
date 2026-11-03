@@ -2287,7 +2287,11 @@ test('an operator post fans to every member with the operator markers, flagged o
     assert.equal(addressed.length, 1);
     assert.ok(addressed[0].target.startsWith('=leo-discord:'), 'the request went to someone other than the mentioned member');
     assert.equal(roomwide.length, 2, 'a member received an operator post without the room-wide marking');
-    assert.match(roomwide[0].text, /for the whole room · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease\] /);
+    assert.match(roomwide[0].text, /for the whole room · to answer, run: kosmos post --in-reply-to m\d+ henderson-lease · if it asks for work one of you should do, claim it first: kosmos claim henderson-lease m\d+\] /);
+    // kosmos#7886 item 2: the claim line rides the whole-room arm only, and names the same post as the answer command.
+    const ids = roomwide[0].text.match(/--in-reply-to (m\d+) henderson-lease · .*kosmos claim henderson-lease (m\d+)\]/);
+    assert.ok(ids && ids[1] === ids[2], 'the claim command names a different post from the answer command');
+    assert.doesNotMatch(addressed[0].text, /claim it first/, 'the member the person named was told to claim, as if the room were asked');
     const row = messages.record().rows.find((m) => m.kind === 'post');
     assert.equal(row.operator, true, 'the row does not carry the operator flag the screens key on');
     assert.equal(row.from, 'you');
