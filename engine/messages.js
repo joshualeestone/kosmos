@@ -3077,10 +3077,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
       && Date.parse(m.at) >= windowFrom && m.from !== name
       && Array.isArray(m.to) && (!m.to.includes(name) || (m.outcomes && m.outcomes[name] === roomhold.QUIET))).length;   // #7246 slice 2: a quiet post did not reach it either
     const catchUp = asksMember(name) && missed > 0   // round 6: a member woken by rule B (an answer to its post) too
-      /* kosmos#7886 item 4: "did not reach you" read as a delivery failure, but most of these were never addressed to
-         the reader (and a quiet post was held on purpose). Say what is true of both: they have not seen them. */
-      ? ' [This room has been talking without you: you have not seen ' + missed + ' earlier post'
-        + (missed === 1 ? '' : 's') + ' from this hour.'
+      /* kosmos#7886 item 4: "did not reach you" read as a delivery failure. */
+      ? ' [This room has been talking without you: ' + missed + ' earlier post'
+        + (missed === 1 ? ' from this hour was' : 's from this hour were') + ' not sent to you.'
         + ' Read the room with: kosmos room ' + projectId + ']'
       : '';
     /* #4624: posts held for this member in this room while it was working ride on this arrival, as one
