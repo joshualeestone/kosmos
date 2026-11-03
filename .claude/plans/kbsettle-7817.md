@@ -28,3 +28,12 @@ reproduced on the simulator. The 6x height estimate (#7420) is still there; this
 
 ## Verify
 Release and Debug typecheck; room 774/774; mutants red; CI ui tests (KeyboardSlideUITests keep the newest above the box).
+
+## Review round 1 (build 31 shipped before it; these go in build 32)
+- A will-show while the keyboard is already up keeps the first will-show's keep-the-newest: during the wait the shrunk
+  list can hide the end, which made a second will-show drop it and leave the newest behind the keyboard (#7344).
+- The settled scroll also stands down under a finger, so a drag started in the 0.3 s is not pulled back.
+- The source checks also pin keyboardSettle (0.3) and the goNewest after the put-back.
+- The place: the 09:27 diagnostic itself printed "past the end" after its one try, so the put-back's condition is the
+  recorded one. personScrolling true there is not explained by the app's own scroll (PersonScroll does not count
+  .animating); if a deceleration set it, underFinger reads the same, and the put-back acts only once it has ended (0.6 s).
