@@ -353,7 +353,10 @@ function warmDrive(p) {
   const d = driveOf(p);
   if (!d || !d.root) return Promise.resolve(null);
   if (freshDrive(d.root)) return Promise.resolve(d.root);
-  if (probing.has(d.root)) return probing.get(d.root).then(() => (driveTypes.has(d.root) ? d.root : null));
+  // Pinned (handed back) only when this warm stored an answer: an older one kept from before is not this warm's.
+  const before = driveTypes.get(d.root);
+  const stored = () => (driveTypes.get(d.root) !== before ? d.root : null);
+  if (probing.has(d.root)) return probing.get(d.root).then(stored);
   const go = (async () => {
     let out;
     try { out = await psRunAsync(DRIVE_SCRIPT, d.real, DRIVE_WARM_TIMEOUT_MS); } catch (err) {
@@ -363,8 +366,7 @@ function warmDrive(p) {
     keepDrive(d.root, out);
   })().finally(() => probing.delete(d.root));
   probing.set(d.root, go);
-  // A root is handed back (to be pinned) only with an answer kept for it: a refused probe keeps none.
-  return go.then(() => (driveTypes.has(d.root) ? d.root : null));
+  return go.then(stored);
 }
 /** win32: send `p` to the Recycle Bin. 'recycled' (it is there), 'gone' (it is gone, and not found in the Recycle Bin),
     'unverified' (it is gone, and the Recycle Bin could not be read), or throws with what went wrong. The folder's
