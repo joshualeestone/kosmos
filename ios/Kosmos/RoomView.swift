@@ -270,7 +270,8 @@ struct RoomView: View {
         }
         .onDisappear {
             visible = false; roomScrolling = false; loop?.cancel(); loop = nil   // kosmos#7654: no idle phase may come once off screen
-            client.releasePreviewImages()   // kosmos#7864 slice 2: link preview pictures do not outlive the room
+            // kosmos#7864 slice 2: link preview pictures do not outlive the room; a member's chat opened from it is not a close.
+            if chatAgent == nil { client.releasePreviewImages() }
             // A reading posture, not the room's state: coming back (from another tab, or a member's chat opened from here)
             // shows the whole room, as the chat's search goes when it leaves the screen. A search that filtered settles the
             // scroll again, as putting it away does.
@@ -302,11 +303,11 @@ struct RoomView: View {
         .onChange(of: store.held[project.id] != nil) { now in
             if now && visible { Self.say(Board.heldAnnouncement) }
         }
-        // kosmos#7062: a post's file in the system's Quick Look; closed, it is removed from the phone (the chat's rule).
         // kosmos#7864 slice 2: on a memory warning the link preview pictures go; drawn cards fetch theirs again.
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
             client.dropPreviewImages()
         }
+        // kosmos#7062: a post's file in the system's Quick Look; closed, it is removed from the phone (the chat's rule).
         .quickLookPreview($previewURL)
         .onChange(of: previewURL) { now in
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
@@ -1115,7 +1116,7 @@ struct RoomView: View {
                     .padding(.top, first ? 6 : 0)
                     .task { for f in row.attachments { await client.loadThumbnail(f) } }
                     // kosmos#7864 slice 2: the preview's picture; runs again when it is dropped (the chat's previewTaskKey).
-                    .task(id: row.preview?.image.map { $0 + (client.previewImages[$0] == nil ? "#missing" : "#kept") + "#\(client.previewGeneration)" }) {
+                    .task(id: client.previewTaskKey(row.preview)) {
                         if let p = row.preview { await client.loadPreviewImage(p) }
                     }
             }
@@ -1579,6 +1580,10 @@ struct RoomBubble: View {
                 if let preview = row.preview {
                     LinkPreviewCard(preview: preview, image: previewImage, width: UIScreen.main.bounds.width * 0.78)
                         .padding(.top, 2)
+                        // The post is one VoiceOver element: the card is read in it as the chat says it (never the page's
+                        // own site name first, never as a button), and opened by the post's one "Open link" action.
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(Board.linkPreviewSpoken(preview))
                 }
                 if !row.reactions.isEmpty { reactions }
                 if !row.unanswered.isEmpty {

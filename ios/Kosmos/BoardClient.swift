@@ -1082,6 +1082,11 @@ final class BoardClient: ObservableObject {
     // Bumped by a memory-warning drop, so a picture already on its way when the pictures were dropped is not kept after it.
     // Published: a card's load task id carries it, so a drop with nothing cached yet still redraws and reloads the cards.
     @Published private(set) var previewGeneration = 0
+    // The id of a card's picture-loading task, shared by the chat and the room: it changes when the picture goes (dropped
+    // for room) or a drop's generation moves, so a drawn card loads its picture again. nil: no picture to load.
+    func previewTaskKey(_ p: Board.LinkPreview?) -> String? {
+        p?.image.map { $0 + (previewImages[$0] == nil ? "#missing" : "#kept") + "#\(previewGeneration)" }
+    }
     func dropPreviewImages() {
         releasePreviewImages()
         previewGeneration += 1

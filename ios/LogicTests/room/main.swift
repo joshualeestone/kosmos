@@ -1771,6 +1771,11 @@ do {
     check(p?.title == "Northfield" && p?.image == "/api/unfurl/image?url=https%3A%2F%2Fnorthfieldstudio.com%2Fog.jpg", "a room post's preview is read")
     check(rows.first { $0.id == "p2" }?.preview == nil, "CONTROL: a post with none has none")
     check(rows.first { $0.id == "x1" }?.preview == nil, "an outside row's preview is never read (the board never fetches for one, #3311)")
+    // The board attaches a preview on the poll after it starts the fetch: that later page replaces the row shown.
+    let before = Board.parseRoom(Data(#"{"ok":true,"rows":[{"kind":"post","id":"p1","from":"dana","text":"see northfieldstudio.com","at":"2026-10-23T15:08:00.000Z"}]}"#.utf8))?.rows ?? []
+    check(before.first?.preview == nil, "CONTROL: the first poll has no preview yet")
+    let merged = Board.mergeRoom(before, with: rows)
+    check(merged.first { $0.id == "p1" }?.preview?.title == "Northfield", "a preview arriving on a later poll replaces the row shown")
 }
 
 print("")
