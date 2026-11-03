@@ -32,3 +32,11 @@ Windows only (the flag is set where the hold is, which is Windows only).
   running answer instead of taking it away, so the two halves of #7852 agree.
 - Tests run loadLeftover and deleteNoAnswerShow on a stubbed DOM (state, not text): each red on its mutant (the
   missing return, the poll re-read, the running arm).
+
+## Review round 2
+- The flag is the agent's name (DEL_RUNNING_FOR), so a switch to another agent hides the first one's running block
+  before the new agent's answer comes, and the poll asks only for the agent whose delete runs.
+- One paint (paintLeftoverRunning) for every path: loadLeftover, the no-answer dialog and the dialog-gone arm; it
+  clears the plan and hides the button at once (the no-answer paths had left the button live until the next poll).
+- An unreadable answer while the block shows running changes nothing; the next poll asks again.
+- Tests: the unreadable answer, the switch, and the dialog path's button and plan; each red on its mutant.
