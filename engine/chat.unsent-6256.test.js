@@ -110,11 +110,11 @@ test('#6256 item 2: a message left unsent gets a follow-up row when the next mes
   const board = fleet.install([fleet.agent('leo', { state: 'idle' }), fleet.agent('al', { state: 'idle' })]);
   try {
     messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
-    const w1 = '[message from your colleague leo · m1] ' + MSG;
+    const w1 = '[message from your colleague leo · m1 · to answer, run: kosmos msg --in-reply-to m1 leo] ' + MSG;
     arm([EMPTY, box(w1)]);
     const first = messages.send({ fromPane: '%7', to: 'al', text: MSG }, board.agents);
     assert.equal(first.unsubmitted, true, 'PRECONDITION: m1 was left in the box: ' + JSON.stringify(first));
-    const w2 = '[message from your colleague leo · m2] ' + LATER;
+    const w2 = '[message from your colleague leo · m2 · to answer, run: kosmos msg --in-reply-to m2 leo] ' + LATER;
     arm([box(w1), EMPTY, EMPTY, box(w2), EMPTY]);
     const second = messages.send({ fromPane: '%7', to: 'al', text: LATER }, board.agents);
     assert.equal(second.state, chat.DELIVERY.PLACED, second.because);
@@ -135,7 +135,7 @@ test('#6256 item 2 CONTROL: a line some other sender left (no message row) write
     messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
     arm([EMPTY, box(MSG)]);
     assert.equal(chat.deliver('al', MSG, board.agents).unsubmitted, true, 'PRECONDITION: a nudge-like line left there');
-    const w1 = '[message from your colleague leo · m1] ' + LATER;
+    const w1 = '[message from your colleague leo · m1 · to answer, run: kosmos msg --in-reply-to m1 leo] ' + LATER;
     arm([box(MSG), EMPTY, EMPTY, box(w1), EMPTY]);
     assert.equal(messages.send({ fromPane: '%7', to: 'al', text: LATER }, board.agents).state, chat.DELIVERY.PLACED);
     assert.equal(messages.readLog().filter((r) => r.kind === 'unsent-submitted').length, 0);

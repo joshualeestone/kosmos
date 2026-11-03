@@ -107,7 +107,7 @@ test('#2909: msg --stdin sends the piped text as written; refusals send nothing;
   const noAgent = await run(['msg', '--stdin'], placed, undefined, async () => { throw new Error('stdin read with no agent'); });
   assert.equal(noAgent.code, 2, 'no agent refuses before reading stdin');
   assert.equal(noAgent.calls.length, 0);
-  assert.match(noAgent.err, /Usage: kosmos msg \[--stdin\]/);
+  assert.match(noAgent.err, /Usage: kosmos msg \[--in-reply-to <id>\] \[--stdin\]/);
   const huge = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: '"'.repeat(3.5 * 1024 * 1024), ended: true }));
   assert.equal(huge.code, 2, 'an encoded msg body over the board limit is refused before sending');
   assert.equal(huge.calls.length, 0);
@@ -1024,4 +1024,23 @@ test('#7797 Windows task hold --not-for-you sends forPerson false and says it le
   const old = await run(['task', 'hold', 'p1', '3', '--not-for-you'], () => ({ body: { task: { number: 3, onHold: true, onHoldForPerson: true } } }));
   assert.equal(old.code, 1);
   assert.match(old.out, /older than --not-for-you, so it still waits on your person/);
+});
+
+/* #7886 item 3: the Windows CLI's msg takes --in-reply-to as install/kosmos does. */
+test('#7886: Windows msg --in-reply-to sends in_reply_to, before or after --stdin; a missing id refuses', async () => {
+  const placed = () => ({ body: { delivery: { state: 'placed' } } });
+  const plain = await run(['msg', '--in-reply-to', 'm1', 'leo', 'on', 'it'], placed);
+  assert.equal(plain.code, 0, plain.err);
+  assert.deepEqual(plain.calls[0].body, { to: 'leo', text: 'on it', from_pane: '', in_reply_to: 'm1' });
+  const before = await run(['msg', '--in-reply-to', 'm2', '--stdin', 'leo'], placed, undefined, async () => ({ text: 'piped', ended: true }));
+  assert.equal(before.code, 0, before.err);
+  assert.equal(before.calls[0].body.in_reply_to, 'm2');
+  const after = await run(['msg', '--stdin', '--in-reply-to=m3', 'leo'], placed, undefined, async () => ({ text: 'piped', ended: true }));
+  assert.equal(after.code, 0, after.err);
+  assert.equal(after.calls[0].body.in_reply_to, 'm3');
+  const none = await run(['msg', 'leo', 'hello'], placed);
+  assert.equal('in_reply_to' in none.calls[0].body, false);
+  const bare = await run(['msg', '--in-reply-to', '--stdin', 'leo'], placed, undefined, async () => { throw new Error('stdin read after a refused flag'); });
+  assert.equal(bare.code, 2); assert.equal(bare.calls.length, 0);
+  assert.match(bare.err, /--in-reply-to needs a message id/);
 });

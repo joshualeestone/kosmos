@@ -89,7 +89,7 @@ const WRONG_WORLD_STATUS = 421;
 /* install/kosmos's own usage lines, verb for verb. Each verb's text names every
    subcommand it has (the parity test pins that against SUBCOMMANDS). */
 const USAGE = {
-  msg: 'Usage: kosmos msg [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and $ arrive as written)',
+  msg: 'Usage: kosmos msg [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and $ arrive as written)',
   'reply-channel': 'Usage: kosmos reply-channel <where you answer the person>   (for an agent whose instructions say to answer somewhere other than kosmos reply, Discord say: Kosmos then stops reminding you that nothing reached them, since it cannot see that channel; kosmos reply-channel --clear goes back to kosmos reply)',
   reply: 'Usage: kosmos reply [--stdin] <what you want to tell them>   (up to 2000 characters; longer is refused, not truncated; --stdin: read the reply from stdin, so backticks and $ arrive as written)',
   post: 'Usage: kosmos post [--no-reply] [--in-reply-to <id>] [--new] [--stdin] <project-id> <what you want to tell the room>  (--stdin: read the message from stdin, so backticks and $ arrive as written; text only, file attachments are not supported yet, kosmos#1955) @-name each member you need an answer from: a post that names nobody may not wake an idle colleague (kosmos#4624).',
@@ -491,8 +491,24 @@ function keepPipedCopy(ctx, text, maybe) {   // maybe (#4934): a first try may h
 async function verbMsg(ctx, args) {
   /* #2909: --stdin (leading) reads the message from standard input, shared with post via
      readPipedMessage, and every failure after the read keeps it in a private file. */
-  const fromStdin = args[0] === '--stdin';
-  if (fromStdin) args.shift();
+  /* #7886 item 3: --in-reply-to <id> (leading, in any order with --stdin) answers a direct message, as install/kosmos. */
+  let fromStdin = false;
+  let inReplyTo = '';
+  for (;;) {
+    if (args[0] === '--stdin') { fromStdin = true; args.shift(); continue; }
+    if (args[0] === '--in-reply-to') {
+      args.shift();
+      inReplyTo = args.shift() || '';
+      if (!inReplyTo || inReplyTo.startsWith('--')) { ctx.err('Usage: --in-reply-to needs a message id, like m12'); return 2; }
+      continue;
+    }
+    if (typeof args[0] === 'string' && args[0].startsWith('--in-reply-to=')) {
+      inReplyTo = args.shift().slice('--in-reply-to='.length);
+      if (!inReplyTo) { ctx.err('Usage: --in-reply-to needs a message id, like m12'); return 2; }
+      continue;
+    }
+    break;
+  }
   const to = args.shift();
   let text = args.join(' ');
   if (!fromStdin && args.includes('--stdin')) { ctx.err('--stdin must come before the agent name: kosmos msg --stdin <agent>, with the message piped in.'); return 2; }
@@ -509,6 +525,7 @@ async function verbMsg(ctx, args) {
   if (!to || !text) { ctx.err(USAGE.msg); return 2; }
   const keepPiped = () => { if (fromStdin) keepPipedCopy(ctx, text); };
   const body = { to, text, from_pane: '' };
+  if (inReplyTo) body.in_reply_to = inReplyTo;   // #7886 item 3
   if (Buffer.byteLength(JSON.stringify(body), 'utf8') > POST_BODY_MAX_BYTES) { ctx.err('Nothing was sent: that message is too large to send to the board at all. Send a summary, or split it.'); keepPiped(); return 2; }
   let r = await ctx.call('POST', '/api/msg', body);
   // #4580: a timeout or a cut reply may come AFTER the board delivered; the board keeps one copy of the same
