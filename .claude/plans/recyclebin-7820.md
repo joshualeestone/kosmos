@@ -65,5 +65,15 @@ the card parks needs-device after the PR.
 - A path Windows hands back in its long form (`\\?\C:\...`) starts with `\\` and is treated like a network path, so it
   keeps "for good". Safe, but it is a downgrade for a very deep folder.
 
+- A settings file or picture that is a link: the link goes to the Recycle Bin, never its target (only the folders
+  above it are resolved).
+
+## Windows-box check (needs-device)
+- The folder and the settings really land in the Recycle Bin, and Explorer's Restore brings them back.
+- The drive probe's cold-start time under the board's process (it must answer inside 5 s), and the CIM volume query.
+- Both scripts parse and run under Windows PowerShell 5.1 (the parse test here runs pwsh 7).
+- The Recycle Bin count finds the folder and a settings file (name with and without extension).
+- A browser run of the delete dialog's repaint when the plan changes between view and click.
+
 ## Tests
 `engine/delete-leftover.win32-recyclebin-7820.test.js`, platform-injected with a stubbed PowerShell runner.

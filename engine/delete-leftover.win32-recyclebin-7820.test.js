@@ -312,6 +312,7 @@ test('#7820 the folder must fit in the Recycle Bin, with room to spare', () => {
   assert.equal(leftover.binVerdict(noKey, { bytes: 46 * MB }), false);
   assert.equal(leftover.binVerdict({ ...noKey, total: 0 }, { bytes: 1 }), false, 'with no limit and no size known it guessed');
   assert.equal(leftover.binVerdict(null, { bytes: 0 }), false);
+  assert.equal(leftover.binVerdict({ ...info, maxMB: 0 }, { bytes: 0 }), false, 'a Recycle Bin with no room was offered an empty folder');
   // Through the plan: a folder bigger than the volume's limit keeps "for good".
   bin = { maxMB: 0 };
   leftover.setRunner(stub);
@@ -433,6 +434,23 @@ test('#7820 only settings left (no folder, no job): a record the Recycle Bin did
 test('#7820 the Recycle Bin count also matches a file shown without its extension (Explorer hides known ones)', () => {
   assert.match(leftover.RECYCLE_SCRIPT, /\$i\.Name -eq \$leaf -or \$i\.Name -eq \$stem/);
   assert.match(leftover.RECYCLE_SCRIPT, /\$stem=\[System\.IO\.Path\]::GetFileNameWithoutExtension\(\$p\)/);
+});
+
+test('#7820 a settings file that is a link sends the LINK to the Recycle Bin, never the file it points at', () => {
+  const store = require('./store');
+  leftoverFolder('rb7820u');
+  const outside = nodePath.join(SANDBOX, 'not-kosmos-data.json');
+  fs.writeFileSync(outside, 'someone else\'s file');
+  fs.mkdirSync(nodePath.dirname(store.profilePath('rb7820u')), { recursive: true });
+  fs.symlinkSync(outside, store.profilePath('rb7820u'));
+  const link = nodePath.join(fs.realpathSync.native(nodePath.dirname(store.profilePath('rb7820u'))), nodePath.basename(store.profilePath('rb7820u')));
+  recycle = (q) => { fs.rmSync(q, { force: true, recursive: true }); return 'RECYCLED'; };   // rmSync on a link removes the link
+  const done = win.del('rb7820u');
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
+  const sent = calls.filter((c) => c.args.includes(leftover.RECYCLE_SCRIPT)).map((c) => c.env.KOSMOS_RECYCLE_PATH);
+  assert.ok(sent.includes(link), 'the link itself was not what went to the Recycle Bin: ' + JSON.stringify(sent));
+  assert.ok(!sent.includes(fs.realpathSync.native(outside)), 'the file the link points at, outside Kosmos, was sent to the Recycle Bin');
+  assert.equal(fs.readFileSync(outside, 'utf8'), 'someone else\'s file', 'the file the link points at was touched');
 });
 
 test('#7820 CONTROL: the Mac still says the Trash and never asks PowerShell', () => {
