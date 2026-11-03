@@ -2607,7 +2607,7 @@ test('a member brought in later is told what the room said without them, and onl
     const typed = tmux.pastedMessages().filter((t) => typeof t === 'string' && t.startsWith('['));
     const toApril = typed.find((t) => t.includes('message from your colleague'));
     const toMara = typed.find((t) => t.includes('background from your colleague'));
-    assert.match(toApril, /This room has been talking without you: 2 earlier posts from this hour were not sent to you\. Read the room with: kosmos room saturday-plans\]$/,
+    assert.match(toApril, /This room has been talking without you: 2 earlier posts in the last hour were not sent to you\. Read the room with: kosmos room saturday-plans\]$/,
       'the mentioned late arrival was not told what she missed');
     // kosmos#7246 slice 2: an unaddressed member is quiet now: mara (the background recipient) is typed nothing at
     // all, so she can carry no missed count.
@@ -2619,7 +2619,7 @@ test('a member brought in later is told what the room said without them, and onl
     messages.sendPost({ fromPane: '%7', project: 'saturday-plans', text: '@mara same question' }, board.agents, ['leo', 'mara', 'april']);
     const toMara3 = tmux3.pastedMessages().find((t) => typeof t === 'string' && t.startsWith('[message'));
     // kosmos#7246 slice 2: mara was quiet for "@april are you there?", so she did miss one post, and is told so.
-    assert.match(toMara3, /talking without you: 1 earlier post from this hour was not sent to you/, 'a quiet post was not counted as missed');
+    assert.match(toMara3, /talking without you: 1 earlier post in the last hour was not sent to you/, 'a quiet post was not counted as missed');
   });
 });
 
@@ -3250,7 +3250,7 @@ test('#3564: a swarm switched OFF in a project is not woken by the room, unless 
       const row2 = messages.record().rows.filter((m) => m.kind === 'post').pop();
       assert.ok('april' in row2.outcomes, 'an @-named swarm that is switched off was not reached');
       const toApril = tmux.pastedMessages().find((t) => typeof t === 'string' && t.includes('message from your colleague'));
-      assert.match(toApril || '', /talking without you: 1 earlier post from this hour was not sent to you/,
+      assert.match(toApril || '', /talking without you: 1 earlier post in the last hour was not sent to you/,
         'an Off swarm brought in by name was not told the post it was skipped for');
     });
   } finally { projects.setSwarmOn(pid, 'april', true); }

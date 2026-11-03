@@ -18,12 +18,15 @@ help is for the script writer.
 
 ## Item 4: "did not reach you"
 `engine/messages.js` counts posts in the window that were not addressed to the reader, or that were quiet for them, and
-said "N earlier posts this hour did not reach you", which reads as a delivery failure. Now "N earlier posts from this hour were
+said "N earlier posts this hour did not reach you", which reads as a delivery failure. Now "N earlier posts in the last hour were
 not sent to you", true of both kinds. Rejected: "not addressed to you", false for a quiet post that was addressed; and
 "you have not seen", since the board cannot know whether the agent read the room since (review round 1).
 
 The help sentence opens "Most commands" and ends "A few use other numbers too": `kosmos status` and `open` exit 4 and 5 on
 the Mac, and some exit-2 sites are preparation failures, not usage (review round 1).
+
+The Mac help adds one line Windows does not need (it has no update verb): `kosmos update` also ends with 3 when it refuses
+(review round 3). The window is rolling, so "in the last hour", not "this hour".
 
 ## Tests
 - cli.exit-status-help-7886.test.js: the sentence in both CLIs' help, word for word; the unconfirmed post branch still

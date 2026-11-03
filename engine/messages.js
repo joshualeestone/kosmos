@@ -3079,7 +3079,7 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const catchUp = asksMember(name) && missed > 0   // round 6: a member woken by rule B (an answer to its post) too
       /* kosmos#7886 item 4: "did not reach you" read as a delivery failure. */
       ? ' [This room has been talking without you: ' + missed + ' earlier post'
-        + (missed === 1 ? ' from this hour was' : 's from this hour were') + ' not sent to you.'
+        + (missed === 1 ? ' in the last hour was' : 's in the last hour were') + ' not sent to you.'
         + ' Read the room with: kosmos room ' + projectId + ']'
       : '';
     /* #4624: posts held for this member in this room while it was working ride on this arrival, as one

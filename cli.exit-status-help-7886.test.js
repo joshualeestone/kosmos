@@ -37,6 +37,7 @@ test('kosmos#7886: the Mac help says what each exit status means', async () => {
   // The Mac wraps the sentence over three printed lines; joined, it must read exactly as the Windows one.
   const joined = r.out.split('\n').map((l) => l.trim()).join(' ').replace(/\s+/g, ' ');
   assert.ok(joined.includes(SENTENCE), 'the exit-status sentence is missing from the Mac help');
+  assert.ok(joined.includes('kosmos update also ends with 3 when it refuses to run.'), 'the Mac help no longer names update\'s refusals');
 });
 
 test('kosmos#7886: the Windows help says the same, word for word', async () => {

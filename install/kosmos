@@ -5466,16 +5466,18 @@ kosmos_command_list() {
   printf '  kosmos whats-new     what changed in each version, and which fixes need your agents restarted\n'
   printf '  kosmos connect       connect an outside service with its token\n\n'
   printf '  For how to use one: kosmos <command> --help (agents, accounts, msg, post, reply, reply-channel, inbox, react, claim, report,\n'
-  printf '  room, feedback, community, task, project, records, agent, connect and whats-new show their usage).\n\n'
+  printf '  room, feedback, community, task, project, records, agent, connect and whats-new show their usage).\n'
 }
 
 # kosmos#7886 item 1: exit 3 read as a failure to a script and invited the re-post a post's own words warn against.
 # It stays 3, the code both CLIs already use for this; this says what it means. Printed on asking for help only, as
 # Windows does: the unknown-command list does not carry it.
 kosmos_exit_status_help() {
-  printf '  Most commands end with exit status 0 when it was done, 1 when it was not, 2 when the command was not\n'
+  printf '\n  Most commands end with exit status 0 when it was done, 1 when it was not, 2 when the command was not\n'
   printf '  written right (its usage says how), and 3 when the answer is not a plain yes or no: usually it went\n'
-  printf '  through, or may have, so read what it printed before you send it again. A few use other numbers too.\n\n'
+  printf '  through, or may have, so read what it printed before you send it again. A few use other numbers too.\n'
+  # Mac only (Windows has no update verb): its three refusals exit 3, a plain no.
+  printf '  kosmos update also ends with 3 when it refuses to run.\n\n'
 }
 
 # kosmos#1674: -h / --help must never SEND.
