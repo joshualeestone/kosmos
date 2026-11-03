@@ -361,3 +361,21 @@ test('#7835 connecting a folder under the name of an agent whose delete runs is 
   assert.match(joined.because, /still being deleted/);
   assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
 });
+
+test('#7835 item 5: the warm off the board waits for a cold PowerShell start; a probe on the board keeps its short limit', async () => {
+  leftoverFolder('ot7835w');
+  leftover.setRunner(stub);   // forgets the kept drive answers, so both plans below probe
+  calls.length = 0;
+  const p = await asyncWin.plan('ot7835w');
+  assert.equal(p.ok, true, p.because);
+  const warm = calls.filter((c) => c.args.includes(leftover.DRIVE_SCRIPT));
+  assert.equal(warm.length, 1, 'the async plan did not probe once');
+  assert.equal(warm[0].opts.timeout, leftover.DRIVE_WARM_TIMEOUT_MS);
+  assert.ok(leftover.DRIVE_WARM_TIMEOUT_MS > leftover.DRIVE_TIMEOUT_MS, 'the warm has no more time than the board probe');
+  leftover.setRunner(stub);
+  calls.length = 0;
+  win.plan('ot7835w');
+  const onBoard = calls.filter((c) => c.args.includes(leftover.DRIVE_SCRIPT));
+  assert.equal(onBoard.length, 1, 'the plan on the board did not probe once');
+  assert.equal(onBoard[0].opts.timeout, leftover.DRIVE_TIMEOUT_MS);
+});

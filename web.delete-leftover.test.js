@@ -71,3 +71,13 @@ test('no em dash in anything a person reads here', () => {
   assert.doesNotMatch(region, /—/);
   assert.doesNotMatch(fs.readFileSync(path.join(__dirname, 'engine', 'delete-leftover.js'), 'utf8'), /—/);
 });
+
+test('#7835 item 6: a dialog repainted to ask for the name puts the cursor in the name box; a fresh one still opens on Keep', () => {
+  const at = JS.indexOf("document.getElementById('del-go').addEventListener('click'");
+  assert.ok(at > 0, 'the delete button handler moved; this test no longer reads it');
+  const handler = JS.slice(at, JS.indexOf('closeDeleteModal();', at));
+  assert.match(handler, /repainted = true;\n\s*\/\/[^\n]*\n\s*document\.getElementById\('del-typed'\)\.focus\(\);/,
+    'the repainted dialog leaves the cursor on Keep, so the person has to find the box to type the name');
+  const open = JS.slice(JS.indexOf('function openDeleteModal('), JS.indexOf('function closeDeleteModal('));
+  assert.match(open, /document\.getElementById\('del-keep'\)\.focus\(\);\n\}\s*$/, 'a fresh dialog no longer opens on the harmless answer');
+});
