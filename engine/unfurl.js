@@ -361,13 +361,76 @@ async function pageText(raw) {
   }
 }
 
-/** The first http(s) link in a message's text, or null. Exported for the
-    payload helper and its test. */
+/* The first explicit http(s) link in a message's text (firstLinkInfo below finds a bare one too). */
 const LINK_RE = /https?:\/\/[^\s<>"')\]]+/i;
-function firstLink(text) {
-  const m = String(text || '').match(LINK_RE);
-  if (!m) return null;
-  return m[0].replace(/[.,;:!?]+$/, '');
+
+/* kosmos#7861: a bare web address (example.com), by the SAME rule the page uses to make it a link (web/index.html
+   pjBareWeb and pjBareSplit, kosmos#7239), so the board previews exactly what the chat links. A copy, because the page
+   cannot require an engine file; engine/unfurl.bare-7861.test.js runs the page's own functions beside these on one
+   list of words and fails when the two disagree. Returns the https:// address, or ''. */
+const BARE_ENDINGS = new Set(['com', 'net', 'org', 'io', 'ai', 'dev', 'co', 'me',
+  'us', 'uk', 'ca', 'au', 'nz', 'ie', 'de', 'fr', 'nl', 'es', 'it', 'se', 'no', 'dk', 'fi', 'ch', 'at', 'be', 'eu', 'jp',
+  'br', 'mx', 'biz', 'xyz', 'tech', 'online', 'cloud', 'gg', 'tv', 'fm', 'studio', 'agency', 'software', 'world', 'gov',
+  'edu']);
+const BARE_AMBIGUOUS = new Set(['ai', 'dev', 'me', 'at', 'it', 'no', 'co']);
+function bareWeb(tok) {
+  const t = String(tok || '');
+  if (t.length > 2048) return '';
+  const m = /^((?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+([a-z]{2,24}))(:\d{1,5})?([/?#][^\s\uFFFC]*)?$/.exec(t);
+  if (!m || !BARE_ENDINGS.has(m[2])) return '';
+  if (BARE_AMBIGUOUS.has(m[2]) && !m[3] && !m[4] && (m[1].match(/\./g) || []).length === 1) return '';
+  return 'https://' + m[0];
+}
+function bareSplit(tok) {
+  const t = String(tok || '');
+  if (t.length > 512 || t.indexOf('.') === -1) return null;
+  let a = 0;
+  while (a < t.length && '"\'<(*~_\u201C\u2018'.indexOf(t[a]) !== -1) a += 1;
+  let b = t.length;
+  for (;;) {
+    if (b - 2 > a && (t.slice(b - 2, b) === "'s" || t.slice(b - 2, b) === '\u2019s')) { b -= 2; continue; }
+    if (b > a && '"\'>.,;:!?])*~_\u201D\u2019'.indexOf(t[b - 1]) !== -1) { b -= 1; continue; }
+    break;
+  }
+  let core = t.slice(a, b);
+  let opens = 0, closes = 0;
+  for (const c of core) { if (c === '(') opens += 1; else if (c === ')') closes += 1; }
+  while (b < t.length && t[b] === ')' && opens > closes) { core += ')'; b += 1; closes += 1; }
+  const web = bareWeb(core);
+  return web ? { lead: t.slice(0, a), core, tail: t.slice(b), web } : null;
+}
+
+/** kosmos#7861: the first link in a message's text, explicit (http/https) or bare, whichever comes first, as
+    { url, bare } or null. A bare one is its https:// address.
+    The bare scan is CONSERVATIVE, because the page decides what is a link (web/index.html pjRich) and a word the page
+    shows as text must never be fetched. It looks only at whole words between whitespace, and not at all in a message
+    holding any of ` [ ] | (code, markdown links and tables each change which words the page links), nor in one past
+    BARE_SCAN_MAX characters. A bare address the page links but this skips gets no preview, which is how every bare address was
+    before. The explicit scan is unchanged.
+    engine/unfurl.bare-7861.test.js checks against the page's own renderers (pjRich, and pjBody for the project room)
+    that a bare address found here is always one they draw, on a fixed list and on generated messages.
+    Known exceptions, outside those renderers: a word the project room draws as a file chip because a project file has
+    that name; a "Name:" prefix the page drops when an agent's display name is itself host-shaped (pjDropSelfName); a
+    room message split at quote offsets inside a word. Each needs a host-shaped name or a cut inside a word.
+    `opts.bare === false` turns the bare scan off (the server does, for a row carrying files: the page hides a text that
+    is only the file names, and a file can be named like a host). */
+const BARE_SCAN_MAX = 8000;
+const BARE_SKIP_RE = /[`[\]|]/;
+function firstLinkInfo(text, opts) {
+  const raw = String(text || '');
+  const m = raw.match(LINK_RE);
+  const explicit = m ? { url: m[0].replace(/[.,;:!?]+$/, ''), bare: false, at: m.index } : null;
+  if ((opts && opts.bare === false) || raw.length > BARE_SCAN_MAX || BARE_SKIP_RE.test(raw)) {
+    return explicit ? { url: explicit.url, bare: false } : null;
+  }
+  const words = /\S+/g;
+  let w;
+  while ((w = words.exec(raw)) !== null) {
+    if (explicit && w.index >= explicit.at) break;
+    const got = bareSplit(w[0]);
+    if (got) return { url: got.web, bare: true };
+  }
+  return explicit ? { url: explicit.url, bare: false } : null;
 }
 
 /** What the cache holds for a URL right now, without fetching: the preview
@@ -377,15 +440,59 @@ function peek(raw) {
   return cached('p:' + String(raw));
 }
 
+/* kosmos#7861: the refusals that say https was not reached, after which a bare address is tried over http: no
+   connection, too slow, or a server error (5xx). A 4xx is an answer from the site, a gate refusal (a private address, a
+   sign-in in the link) is never sidestepped, and an answer with nothing to show stays an answer. */
+function unreached(because) {
+  return because === 'that site could not be reached' || because === 'that site took too long to answer'
+    || /^that site answered 5\d\d$/.test(String(because || ''));
+}
+/** kosmos#7861: a bare address's preview, kept under its OWN key ('b:'), so a preview fetched over http is never what
+    an https:// link the person typed shows. https first; http only when https was not reached. A preview read over
+    the http FALLBACK keeps the https:// address as its link (the one the word in the message opens), unless the http
+    page itself sent us to an https:// one. (When https answers, the preview is whatever https answered, redirects
+    included, exactly as for a typed https:// link.) */
+async function previewBare(httpsUrl) {
+  const key = 'b:' + String(httpsUrl);
+  const hit = cached(key);
+  if (hit) return hit;
+  // https first. Its answer is kept by preview() under the typed-link key ('p:'), and peekBare reads it from there, so
+  // a bare address https answers takes one cache slot, not two. Only an http fallback's outcome needs the 'b:' key.
+  const first = await preview(httpsUrl);
+  if (first.ok || !unreached(first.because) || !/^https:\/\//.test(httpsUrl)) return first;
+  /* Two fetches, each with its own timeout, when https does not answer. */
+  const second = await preview('http://' + httpsUrl.slice('https://'.length));
+  if (!second.ok) return remember(key, first);
+  // A page the http address sent us to on ANOTHER host, over http or https, is not this address's preview: a network
+  // that can answer plain http could otherwise point the card at a host of its choosing. www. counts as the same host,
+  // the commonest redirect an old site makes.
+  const bareHost = (u) => new URL(u).hostname.toLowerCase().replace(/^www\./, '');
+  let sameHost = false;
+  try { sameHost = bareHost(second.url) === bareHost(httpsUrl); } catch { sameHost = false; }
+  if (!sameHost) return remember(key, first);
+  return remember(key, { ...second, url: /^https:\/\//.test(second.url) ? second.url : httpsUrl });
+}
+/** kosmos#7861: what the cache holds for a bare address: an http fallback's outcome ('b:'), or else what https
+    answered ('p:') when that answer is final (a preview, or a refusal that is not "https was not reached"). Null while
+    a fallback is still owed, so warm starts it. */
+function peekBare(httpsUrl) {
+  const b = cached('b:' + String(httpsUrl));
+  if (b) return b;
+  const p = cached('p:' + String(httpsUrl));
+  return p && (p.ok || !unreached(p.because)) ? p : null;
+}
+
 /* In flight, so a poll every five seconds does not start a second fetch for
    a link whose first is still running. */
 const inflight = new Set();
-/** Start a fetch for a URL if nothing is cached or running; never awaited. */
-function warm(raw) {
-  const key = String(raw);
-  if (cached('p:' + key) || inflight.has(key)) return;
+/** Start a fetch for a URL if nothing is cached or running; never awaited. `opts.bare` (kosmos#7861): the link was a
+    bare address, so it takes previewBare and its own key. */
+function warm(raw, opts) {
+  const bare = !!(opts && opts.bare);
+  const key = (bare ? 'b:' : 'p:') + String(raw);
+  if ((bare ? peekBare(String(raw)) : cached(key)) || inflight.has(key)) return;
   inflight.add(key);
-  preview(key).catch(() => {}).finally(() => inflight.delete(key));
+  (bare ? previewBare(String(raw)) : preview(String(raw))).catch(() => {}).finally(() => inflight.delete(key));
 }
 
-module.exports = { firstLink, peek, warm, preview, image, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };
+module.exports = { firstLinkInfo, bareWeb, bareSplit, previewBare, peekBare, peek, warm, preview, image, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };

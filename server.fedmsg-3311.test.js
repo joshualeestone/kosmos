@@ -278,12 +278,14 @@ test('a link in words from outside is never fetched when the room is read', asyn
   unfurl.peek = (u) => { calls.push(['peek', u]); return null; };
   try {
     children[0].stdout.write(JSON.stringify({ event: 'message', data: { from: 'Grace', kind: 'person', text: 'look https://tracker.example/unique-3311' } }) + '\n');
+    // kosmos#7861: a bare address from outside is not fetched either.
+    children[0].stdout.write(JSON.stringify({ event: 'message', data: { from: 'Grace', kind: 'person', text: 'or tracker3311.example.com' } }) + '\n');
     await new Promise((r) => setImmediate(r));
     await (await fetch(`${base}/api/project/${encodeURIComponent(pid)}/room`)).json();
   } finally {
     unfurl.warm = orig.warm; unfurl.peek = orig.peek;
   }
-  assert.equal(calls.filter(([, u]) => String(u).includes('tracker.example')).length, 0, JSON.stringify(calls));
+  assert.equal(calls.filter(([, u]) => String(u).includes('tracker.example') || String(u).includes('tracker3311')).length, 0, JSON.stringify(calls));
 });
 
 test('a post in a shared room while the link record cannot be read stays here and says so', async () => {

@@ -242,7 +242,8 @@ test('#3769 rows served by /api/messages and the project thread are masked when 
   const whole = guideMaskedRows(rows, GUIDE);
   assert.ok(whole.every((m) => !m.text.includes(KEY)), 'a thread with the guide left a row unmasked');
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-  assert.match(src, /messages: withPreviews\(guideMaskedRows\(messages\.list\(who\), null\)\)/, '/api/messages does not mask on read');
+  // kosmos#7861: this route passes { bare: false } to withPreviews; the masking is what this line checks.
+  assert.match(src, /messages: withPreviews\(guideMaskedRows\(messages\.list\(who\), null\)(, \{ bare: false \})?\)/, '/api/messages does not mask on read');
   assert.match(src, /messages: withPreviews\(guideMaskedRows\(messages, guideMember\)\)/, 'the project thread does not mask on read');
   // kosmos#7365 slice 3: the room read masks into roomRows before the archive split and the kind filter.
   assert.match(src, /const roomRows = guideMaskedRows\(rec\.rows, null\)/, 'the project room feed does not mask on read');
