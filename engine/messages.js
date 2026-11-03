@@ -4056,14 +4056,17 @@ function react({ project, of, emoji, from, operator, members, claim }) {
     /* kosmos#7869: a colleague's direct note has an id of the same shape but lives in no room, so "no post by that id"
        read like a wrong id. Said plainly to the two agents it is between; to anyone else it stays "no post", so a
        private note's existence is never shown. */
-    // Its recipient is told only of a note that reached them (placed or unconfirmed, not kept for later or held).
-    const reached = (m) => (m.state === chat.DELIVERY.PLACED || m.state === chat.DELIVERY.UNCONFIRMED) && m.queued !== true;
+    // Its recipient is told only of a note that reached them: typed (placed or unconfirmed), or held and typed later,
+    // which is a separate held-delivered row (logHeldDelivered).
+    const typed = (s) => s === chat.DELIVERY.PLACED || s === chat.DELIVERY.UNCONFIRMED;
+    const reached = (m) => typed(m.state)
+      || (m.state === HELD_STATE && rows.some((r) => r && r.kind === 'held-delivered' && String(r.of) === String(m.id) && typed(r.state)));
     const direct = reactor !== 'you' && rows.find((m) => m && m.kind === 'message' && String(m.id) === postId
       && (m.from === reactor || (m.to === reactor && reached(m))));
     if (direct) {
       const other = direct.to === reactor ? direct.from : direct.to;
       // No double quote: the Mac CLI reads this answer with sed, which stops at the first one.
-      return { ok: false, because: `${postId} is a direct message, not a room post, and only room posts take a reaction or a claim. To answer it, write back: kosmos msg ${other} 'your answer'` };
+      return { ok: false, because: `${postId} is a direct message, not a room post, and only room posts take a reaction or a claim; to answer it, use kosmos msg ${other} 'your answer' instead` };
     }
     return { ok: false, because: 'there is no post by that id in this room' };
   }

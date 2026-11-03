@@ -44,7 +44,7 @@ test('#7869: an agent giving an open part of a built task is refused, and the bu
   const out = tasks.assignPart(p.id, t.number, 1, 'mikey', { via: 'process', by: 'mara' });
   assert.equal(out.ok, false, 'an agent gave a built task to another agent');
   assert.equal(out.builtRefused, true);
-  assert.equal(out.because, `task ${t.number} is marked built, so mikey was not put on it. If there is more to do on it, add that as new work: kosmos task add ${p.id} 'what is left' --parent ${t.number}`);
+  assert.equal(out.because, `task ${t.number} is marked built, so mikey was not put on it. If there is more to do on it, add that as new work (kosmos task add ${p.id} 'what is left' --parent ${t.number})`);
   // The Mac CLI reads the answer with sed, which stops at the first double quote: none may be in it.
   assert.equal(out.because.includes('"'), false, 'a double quote would cut the sentence short in the Mac CLI');
   const after = stored(p, t.number);
@@ -99,11 +99,11 @@ test('#7869: reacting to a direct note says it is not a room post, and how to an
   seed({ kind: 'post', id: 'm9002', project: 'room7869', from: 'angel', to: ['april'], text: 'a room post', outcomes: {} });
   const r = messages.react({ project: 'room7869', of: 'm9001', emoji: THUMB, from: 'april', members: ['april', 'angel'] });
   assert.equal(r.ok, false);
-  assert.equal(r.because, 'm9001 is a direct message, not a room post, and only room posts take a reaction or a claim. To answer it, write back: kosmos msg angel \'your answer\'');
+  assert.equal(r.because, 'm9001 is a direct message, not a room post, and only room posts take a reaction or a claim; to answer it, use kosmos msg angel \'your answer\' instead');
   assert.equal(r.because.includes('"'), false, 'a double quote would cut the sentence short in the Mac CLI');
   // The sender of the note gets the same plain sentence, naming the other party.
   const s = messages.react({ project: 'room7869', of: 'm9001', emoji: THUMB, from: 'angel', members: ['april', 'angel'] });
-  assert.match(s.because, /^m9001 is a direct message, not a room post\b.*kosmos msg april 'your answer'$/);
+  assert.match(s.because, /^m9001 is a direct message, not a room post\b.*kosmos msg april 'your answer' instead$/);
   // CONTROL: a real room post still takes the reaction, so the refusal above is about the id's kind.
   assert.equal(messages.react({ project: 'room7869', of: 'm9002', emoji: THUMB, from: 'april', members: ['april', 'angel'] }).ok, true);
 });
@@ -118,14 +118,21 @@ test('#7869: to an agent the note is not between, it stays "no post by that id" 
     'there is no post by that id in this room');
 });
 
-test('#7869: a note that never reached its recipient (held, kept for later, or not delivered) is not shown to them', () => {
-  const cases = [['m9004', { state: 'held', heldUntil: null }], ['m9005', { state: 'placed', queued: true }], ['m9006', { state: 'could_not' }]];
+test('#7869: a note that never reached its recipient (still held, or not delivered) is not shown to them', () => {
+  const cases = [['m9004', { state: 'held', heldUntil: null }], ['m9006', { state: 'could_not' }]];
   for (const [id, extra] of cases) {
     seed({ kind: 'message', id, from: 'angel', to: 'april', text: 'not reached', in_reply_to: null, ...extra });
     const r = messages.react({ project: 'room7869', of: id, emoji: THUMB, from: 'april', members: ['april', 'angel'] });
     assert.equal(r.because, 'there is no post by that id in this room', `${JSON.stringify(extra)} was shown to its recipient`);
   }
-  // CONTROL: the same note once it reached them (unconfirmed counts as reached) is said plainly.
+  // CONTROL: a note that did reach them is said plainly: unconfirmed, typed behind a working turn (queued), and held then
+  // typed later (its held-delivered row).
   seed({ kind: 'message', id: 'm9007', from: 'angel', to: 'april', text: 'reached', in_reply_to: null, state: 'unconfirmed' });
-  assert.match(messages.react({ project: 'room7869', of: 'm9007', emoji: THUMB, from: 'april', members: ['april', 'angel'] }).because, /^m9007 is a direct message/);
+  seed({ kind: 'message', id: 'm9005', from: 'angel', to: 'april', text: 'typed behind a turn', in_reply_to: null, state: 'placed', queued: true });
+  seed({ kind: 'message', id: 'm9008', from: 'angel', to: 'april', text: 'held then typed', in_reply_to: null, state: 'held', heldUntil: null });
+  seed({ kind: 'held-delivered', of: 'm9008', from: 'angel', to: 'april', state: 'placed' });
+  for (const id of ['m9007', 'm9005', 'm9008']) {
+    assert.match(messages.react({ project: 'room7869', of: id, emoji: THUMB, from: 'april', members: ['april', 'angel'] }).because,
+      new RegExp('^' + id + ' is a direct message'), id + ' reached its recipient but was not said plainly');
+  }
 });
