@@ -1096,6 +1096,8 @@ daemon_listeners() {
   dloaded=0; dpid=""; foreign=""
   djob="$(launchctl print "system/$label" 2>/dev/null)" && dloaded=1
   [ "$dloaded" = 0 ] || dpid="$(printf '%s\n' "$djob" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+  # Loaded with no pid (between a crash and the restart): no Listener can be placed, so none is called foreign.
+  [ "$dloaded" = 1 ] && [ -z "$dpid" ] && return 0
   for l in $listeners; do
     { [ -n "$dpid" ] && ppid_chain_has "$l" "$dpid"; } || foreign="${foreign:+$foreign }$l"
   done
@@ -1103,6 +1105,7 @@ daemon_listeners() {
 # daemon_child: the first of listeners that is under the daemon's pid (not in foreign), or nothing.
 daemon_child() {
   local l
+  [ -n "$dpid" ] || return 0
   for l in $listeners; do case " $foreign " in *" $l "*) ;; *) printf '%s' "$l"; return 0 ;; esac; done
   return 0
 }
@@ -1123,6 +1126,14 @@ daemon() {
   local adm=0; is_admin "$CI_USER" || adm=$?
   case "$adm" in 0) echo "refused: $CI_USER is in the admin group; a daemon gets every group its user is in, and a runner must not be an admin" >&2; exit 1 ;;
     2) echo "refused: could not read $CI_USER's groups" >&2; exit 1 ;; esac
+  if [ "$APPLY" = 1 ]; then
+    # Root runs this file: a copy a job can rewrite (in the CI home, owned by the CI user, or group or world writable)
+    # would hand a job root.
+    local self sm; self="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/$(basename "$0")"; sm="$(stat -f '%u %Lp' "$self" 2>/dev/null || true)"
+    local cihp; cihp="$(cd "$CI_HOME" 2>/dev/null && pwd -P || printf '%s' "$CI_HOME")"   # physical, as self is (/var is /private/var)
+    case "$self" in "$CI_HOME"/*|"$cihp"/*) echo "refused: this is a copy in $CI_HOME, which a job can rewrite, and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
+    case "$sm" in "$ciuid "*|*" "?[2367]?|*" "??[2367]|"") echo "refused: $self is owned by $CI_USER, writable by others, or unreadable (stat: ${sm:-none}), and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
+  fi
   local label; label="$(runner_label)"
   local dplist="$DAEMON_DIR/$label.plist" agent="$CI_HOME/Library/LaunchAgents/$label.plist"
   local own_re worker_re; own_re="$(own_listener_re)"
@@ -1138,7 +1149,7 @@ daemon() {
   # LaunchAgent is left that a login would load beside it.
   local dok=0; [ -f "$dplist" ] && daemon_set "$dplist" && dok=1
   if [ "$dok" = 1 ] && [ "$dloaded" = 1 ] && [ -n "$dpid" ] && [ -n "$listeners" ] && [ -z "$foreign" ] && [ "$aloaded" = 0 ]; then
-    if [ ! -e "$agent" ]; then
+    if [ ! -e "$agent" ] && [ ! -L "$agent" ]; then
       ok "$label runs as a LaunchDaemon (system domain, UserName $CI_USER, pid $dpid): a logout or a WindowServer crash does not stop it"
       return 0
     fi
@@ -1195,6 +1206,8 @@ daemon() {
     if [ -n "$stuck" ]; then
       # A stop between moving the agent aside and writing the daemon plist: the agent is only parked.
       [ -n "$why" ] || why="no LaunchAgent at $agent and no daemon plist at $dplist, but the agent is parked at $stuck (a run that stopped half way); put it back and run this again: $(put_back_cmd "$stuck")"
+    elif [ "$(id -u)" != 0 ]; then
+      [ -n "$why" ] || why="no LaunchAgent at $agent and no daemon plist at $dplist; $(id -un) cannot look inside $RETIRED_DIR (root only), where a run that stopped half way parks the agent: run this dry run with sudo to tell that from a runner that was never registered"
     else
       [ -n "$why" ] || why="no LaunchAgent at $agent and no daemon plist at $dplist to load; install and register the runner first"
     fi
@@ -1349,11 +1362,19 @@ EOF
   say "the runner's LaunchAgent (a killed runner must come back by itself: kosmos#7001)"
   local plist sf dpl; plist="$(runner_plist)"; dpl="$DAEMON_DIR/$(runner_label).plist"
   if [ -f "$dpl" ]; then
-    # After the daemon stage (kosmos#7001) the runner has no LaunchAgent; its plist is world-readable.
-    if [ -e "$CI_HOME/Library/LaunchAgents/$(runner_label).plist" ]; then
-      problem "$dpl is there AND its LaunchAgent is back in $CI_HOME/Library/LaunchAgents: a login would start a second Listener; as root: tools/ci-runner-setup.sh daemon (a dry run) says how to move it aside"
-    elif keepalive_set "$dpl"; then ok "the runner has a LaunchDaemon plist ($dpl) with KeepAlive SuccessfulExit false (whether it is loaded and running: tools/ci-runner-setup.sh daemon, a dry run, as root or $CI_USER)"
-    else problem "$dpl lacks $(keepalive_missing "$dpl"): it is not the daemon plist the daemon stage writes; as root: tools/ci-runner-setup.sh daemon (a dry run) says what is wrong"; fi
+    # After the daemon stage (kosmos#7001) the runner has no LaunchAgent. The daemon plist is world-readable, so the
+    # owner can hold it to the stage's own exact check (daemon_set reads label and cigroup from here).
+    local label cigroup la; label="$(runner_label)"; cigroup="$(id -gn "$CI_USER" 2>/dev/null || true)"
+    la="$CI_HOME/Library/LaunchAgents"
+    if ! daemon_set "$dpl"; then
+      problem "$dpl is not exactly the plist the daemon stage writes (or not root:wheel 0644); as root: tools/ci-runner-setup.sh daemon (a dry run) says what is wrong"
+    elif [ ! -r "$la" ] || [ ! -x "$la" ]; then
+      echo "note:   $dpl is the daemon stage's plist; whether its LaunchAgent is back in $la is NOT checked ($(id -un) cannot look in there); as root: tools/ci-runner-setup.sh daemon (a dry run)"
+    elif [ -e "$la/$label.plist" ] || [ -L "$la/$label.plist" ]; then
+      problem "$dpl is there AND its LaunchAgent is back in $la: a login would start a second Listener; as root: tools/ci-runner-setup.sh daemon (a dry run) says how to move it aside"
+    else
+      ok "$dpl is the daemon stage's plist, and no LaunchAgent is beside it (whether it is loaded and running: tools/ci-runner-setup.sh daemon, a dry run, as root or $CI_USER)"
+    fi
   elif [ "$hidden" = 1 ]; then
     echo "note:   cannot look inside $RUNNER_DIR as $(id -un); as $CI_USER, tools/ci-runner-setup.sh keepalive (a dry run) says whether KeepAlive is set and loaded"
   elif [ -n "$plist" ] && [ -r "$plist" ]; then

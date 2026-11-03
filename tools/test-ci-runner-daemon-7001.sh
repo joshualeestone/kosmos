@@ -29,7 +29,7 @@ case "$me" in
         "-u") echo "${FX_EUID:-0}" ;; "-un") echo "${FX_WHO:-root}" ;;
         "-u kosmos-ci") echo "${FX_CIUID:-502}" ;; "-gn kosmos-ci") echo "${FX_GROUP:-staff}" ;; "-Gn kosmos-ci") echo "${FX_GROUPS:-staff everyone}" ;; *) /usr/bin/id "$@" ;; esac ;;
   launchctl) case "$1 $2" in
-      "print system/"*) [ -f "$S/daemon-loaded" ] || exit 113; printf 'system/x = {\n\tstate = running\n\tpid = 7000\n}\n' ;;
+      "print system/"*) [ -f "$S/daemon-loaded" ] || exit 113; if [ "${FX_NO_DPID:-0}" = 1 ]; then printf 'system/x = {\n\tstate = waiting\n}\n'; else printf 'system/x = {\n\tstate = running\n\tpid = 7000\n}\n'; fi ;;
       "print gui/"*) if [ "${FX_GUI_LATE:-0}" = 1 ] && [ ! -f "$S/gui-seen" ]; then touch "$S/gui-seen"; exit 113; fi
         [ "${FX_AGENT_LOADED:-0}" = 1 ] || [ "${FX_GUI_LATE:-0}" = 1 ] || [ -f "$S/agent-loaded" ] || exit 113; printf 'gui/x = {\n\tstate = running\n}\n' ;;
       "print-disabled system") [ "${FX_PD_FAIL:-0}" = 1 ] && exit 1
@@ -84,7 +84,7 @@ run() {   # run <name> <env...> -- <args...>
   : > "$LOG"
   env -i PATH="$BIN:/usr/bin:/bin" HOME="$T/home/kosmos-ci" CALL_LOG="$LOG" KOSMOS_CI_HOME="$T/home/kosmos-ci" \
     KOSMOS_CI_DAEMON_DIR="$T/daemons" KOSMOS_CI_RETIRED_DIR="$T/retired" KOSMOS_CI_START_WAIT_S=2 FX_R="$R" FX_H="$H" FX_LABEL="$LABEL" ${e[@]+"${e[@]}"} \
-    bash "$SCRIPT" "$@" > "$T/$n.out" 2>&1
+    bash "${RUN_SCRIPT:-$SCRIPT}" "$@" > "$T/$n.out" 2>&1
   echo $? > "$T/$n.rc"
 }
 rc() { cat "$T/$1.rc"; }
@@ -234,4 +234,19 @@ fixture; run plistmv2 FX_MV_PLIST_FAIL=1 -- --apply daemon
 fixture; run hl0 -- --apply daemon; ln "$(DP)" "$AG"; run hardlink -- daemon
 [ "$(rc hardlink)" = 1 ] && has hardlink "no command is printed" && ! has hardlink "sudo mv" \
   && pass "an agent that is a hard link to the daemon plist (same file, no symlink) prints no move" || fail "hardlink: rc $(rc hardlink) $(cat "$T/hardlink.out")"
+# Round 6: root never runs a copy a job can rewrite.
+fixture; cp "$SCRIPT" "$H/ci-runner-setup.sh"; RUN_SCRIPT="$H/ci-runner-setup.sh" run copyhome -- --apply daemon
+[ "$(rc copyhome)" = 2 ] && has copyhome "this is a copy in" && untouched && pass "--apply from a copy in the CI home refuses" || fail "copyhome: rc $(rc copyhome) $(cat "$T/copyhome.out")"
+fixture; mkdir -p "$T/gw"; cp "$SCRIPT" "$T/gw/ci-runner-setup.sh"; chmod 775 "$T/gw/ci-runner-setup.sh"; RUN_SCRIPT="$T/gw/ci-runner-setup.sh" run gw -- --apply daemon
+[ "$(rc gw)" = 2 ] && has gw "writable by others" && untouched && pass "--apply from a group-writable copy refuses" || fail "gw: rc $(rc gw) $(cat "$T/gw.out")"
+fixture; cp "$SCRIPT" "$T/gw/ci-runner-setup.sh"; chmod 755 "$T/gw/ci-runner-setup.sh"; RUN_SCRIPT="$T/gw/ci-runner-setup.sh" run gwok -- daemon
+[ "$(rc gwok)" = 0 ] && pass "a dry run from any copy still reads (the check is for --apply)" || fail "gwok: rc $(rc gwok) $(cat "$T/gwok.out")"
+fixture; run np0 -- --apply daemon; run nopid FX_NO_DPID=1 -- daemon
+[ "$(rc nopid)" = 1 ] && has nopid "run this again in a minute" && ! has nopid "outside the daemon" && pass "a loaded daemon with no pid yet: restarting, its Listener not blamed" || fail "nopid: rc $(rc nopid) $(cat "$T/nopid.out")"
+fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; chmod 000 "$T/retired"   # as the CI user sees the root-only dir
+run halfci FX_EUID=502 FX_WHO=kosmos-ci -- daemon; chmod 700 "$T/retired"
+[ "$(rc halfci)" = 1 ] && has halfci "cannot look inside $T/retired (root only)" && ! has halfci "register the runner first" \
+  && pass "a CI-user dry run that cannot see a parked agent says so, not register again" || fail "halfci: rc $(rc halfci) $(cat "$T/halfci.out")"
+fixture; run dg0 -- --apply daemon; ln -s /nonexistent-7001 "$AG"; run dangling -- daemon
+[ "$(rc dangling)" = 1 ] && ! has dangling "runs as a LaunchDaemon (system" && has dangling "no command is printed" && pass "a dangling symlink at the agent's path is not done" || fail "dangling: rc $(rc dangling) $(cat "$T/dangling.out")"
 [ "$fails" = 0 ] && echo "test-ci-runner-daemon-7001: all passed" || { echo "test-ci-runner-daemon-7001: $fails failed"; exit 1; }
