@@ -118,3 +118,18 @@ never offering at all.
   list's purpose); punctuation-variant world-start test (same safeKey path as the case test).
 - Weakest premise, added: a recorded folder written with ".." after a link is judged by its normalised spelling;
   Kosmos writes recorded folders already resolved (discover writes the folder it was given, absolute).
+
+## Review round 7 (opus, fixed by replacing the check)
+- Three ways around round 6's walk (a different-case spelling skipped it; it stopped at the first live link; a file on
+  the way refused forever). Third patch in a row on one check, so it was replaced: resolveRecordedFolder resolves the
+  recorded folder one part at a time from the root, following every link wherever it sits; the first missing part
+  (ENOENT, or ENOTDIR under a file) and the rest are the gone rest; a dangling or looping link is its own refusal; the
+  existing part is resolved once more so its case is the disk's. Then one compare against the resolved workers folder.
+- Sentences: a dangling link says it leads nowhere; an outside folder that is gone says it is not there now and may be
+  on a disk that is not connected (true whether the disk is unplugged or the folder simply went).
+- Dropped with it: round 5's plain-spelling-first shortcut. The whole path is lstat'ed part by part, as workerDir
+  already lstat'ed it in the same plan(); a hung share costs what it already cost.
+- Tests: two links (live then dangling), another case (case-blind disk only), a loop, a file on the way. Every branch of
+  the resolver mutation-checked (ENOTDIR, following links, final resolve, dangling vs unlookable, failed look).
+- Declined: naming the revoked tokens in a records-only REFUSED sentence (they are inert for a folderless name, and the
+  person acts on what stays, which the sentence names).
