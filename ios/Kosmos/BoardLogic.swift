@@ -1330,7 +1330,9 @@ enum Board {
         let description = words("description", 500)
         let image = (o["image"] as? String).flatMap { $0.hasPrefix("/api/unfurl/image?url=") && isBoardPath($0) ? $0 : nil }
         guard title != nil || description != nil || image != nil else { return nil }
-        return LinkPreview(url: url, site: words("site", 120) ?? host, title: title ?? s, description: description, image: image)
+        // The board's fallback, new URL(url).host, keeps a port; so does this.
+        let siteFallback = url.port.map { host + ":\($0)" } ?? host
+        return LinkPreview(url: url, site: words("site", 120) ?? siteFallback, title: title ?? s, description: description, image: image)
     }
 
     // kosmos#7864: what VoiceOver says for a link preview inside a message: the title and the site.

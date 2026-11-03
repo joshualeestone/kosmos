@@ -35,11 +35,14 @@ Rooms have their own row model (BoardRoom.swift RoomRow) and renderer (RoomView.
   way across a drop is not kept (tested). Accepted, stated: a list holding more than 12 preview cards at once could
   evict and refetch in turn (the chat's LazyVStack keeps a screen's worth alive, well under 12); a card scrolled away
   mid-fetch relies on env.send answering nil when its task is cancelled, as the thumbnail loader does.
+- Review round 5: the pictures are dropped when the chat closes (not when its info page is pushed over it), so they do
+  not outlive it; and a card's load task id carries the drop generation, so a picture thrown away for arriving across a
+  drop is fetched again. The site fallback keeps a port, as the board's.
 - Weakest premise: that the picture fits a 0.52 aspect at the bubble's width (capped 220 pt); a tall picture is cropped,
   as the board's own card crops with object-fit.
 
 ## Verified
-- ios/LogicTests (run.sh): 1901/1901 (a sign-out while a picture is on its way, and a memory-warning drop with its
+- ios/LogicTests (run.sh): 1903/1903 (a sign-out while a picture is on its way, and a memory-warning drop with its
   refetch, added in rounds 2 and 3), with the loader cases mirroring the thumbnail loader's (not a picture, 900 px,
   the unfurl route, 5xx again, 404 not, the sign-in page again, once only, no picture no request, the cap (12) and
   its refetch, a sign-out clears them; the test Mac now answers the unfurl route) and the parsing cases (a full preview read; none on a plain row; non-http(s)

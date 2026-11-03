@@ -5664,6 +5664,7 @@ do {
     check(lp(#"{"url":"https://x.example.com/"}"#) == nil, "no title, words or picture: no card (the board's rule)")
     check(lp(#"{"url":"https://x.example.com/","description":"words"}"#)?.title == "https://x.example.com/", "no title: the address stands in")
     check(lp(#"{"url":"https://x.example.com/a","title":"T"}"#)?.site == "x.example.com", "no site: the host stands in")
+    check(lp(#"{"url":"https://x.example.com:8443/a","title":"T"}"#)?.site == "x.example.com:8443", "with its port, as the board's")
     for (img, why) in [("https://evil.example.net/p.png", "a picture from anywhere but the Mac's unfurl route is dropped"),
                        ("/api/agent/x/files/download", "another Mac route is not a preview picture"),
                        ("/api/unfurl/image?url=a/../../b", "a path with .. is dropped")] {

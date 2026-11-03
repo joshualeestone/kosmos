@@ -1080,7 +1080,7 @@ final class BoardClient: ObservableObject {
     private var previewImageOrder: [String] = []
     static let previewImageCap = 12
     // Bumped by every drop, so a picture already on its way when the pictures were dropped is not kept after it.
-    private var previewGeneration = 0
+    private(set) var previewGeneration = 0
     func dropPreviewImages() {
         previewImages = [:]
         previewImageAsked = []

@@ -249,11 +249,12 @@ struct ChatView: View {
         })
         // kosmos#7034 build 11 reviews 2 and 4: the header star's stars, asked again on a switch to another computer.
         .task(id: client.chatEpoch) { await client.readStarsIfUnknown() }
+        // kosmos#7864: link preview pictures are the large ones; on a memory warning they go, and drawn cards fetch theirs again.
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            client.dropPreviewImages()
+        }
         .quickLookPreview($previewURL)
         // Closed: the file it showed is removed from the phone (#7016 review 1).
-        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
-            client.dropPreviewImages()   // kosmos#7864: link preview pictures are the large ones; drawn cards fetch theirs again
-        }
         .onChange(of: previewURL) { now in
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
         }
@@ -355,6 +356,7 @@ struct ChatView: View {
         .onDisappear {
             visible = false
             if !infoOpen { sendShiftReport() }   // kosmos#7575 (review 1: the info page pushed over the chat is not a close)
+            if !infoOpen { client.dropPreviewImages() }   // kosmos#7864: the pictures are this chat's; they do not outlive it
             if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }   // review 3: by session on purpose: a computer switch while open must never leave a stale value hiding banners; the cost is an extra banner
             armed = nil
             // A reading posture, not the chat's state: coming back shows the whole conversation (the board clears its
@@ -1207,7 +1209,8 @@ struct ChatView: View {
     // kosmos#7864: the picture's load runs again when its picture is gone (dropped for room, or on a memory warning, while
     // the card is on screen).
     private func previewTaskKey(_ row: Board.ChatRow) -> String? {
-        row.preview?.image.map { $0 + (client.previewImages[$0] == nil ? "#missing" : "#kept") }
+        // The drop generation too: a picture thrown away because it arrived across a drop is fetched again.
+        row.preview?.image.map { $0 + (client.previewImages[$0] == nil ? "#missing" : "#kept") + "#\(client.previewGeneration)" }
     }
 
     @ViewBuilder private func itemView(_ item: Board.ChatItem) -> some View {
