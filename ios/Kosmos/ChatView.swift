@@ -819,8 +819,11 @@ struct ChatView: View {
                 #if DEBUG
                 // kosmos#7420, KOSMOS_SAMPLE_WALK=1: the walk's steps count as a reader's scroll, as a drag's do.
                 .onReceive(NotificationCenter.default.publisher(for: .sampleWalking)) { n in
-                    let walking = (n.object as? Bool) ?? false
-                    // The start only for the chat on screen (another tab can keep a chat alive under it); the end for any.
+                    // Only the walk under this chat's own list: the notice carries that list's RowTops.
+                    guard let from = n.object as? RowTops, from === rowTops else { return }
+                    let phase = n.userInfo?["phase"] as? String ?? "end"
+                    if phase == "newest" { if visible { goNewest(proxy, animated: true) }; return }
+                    let walking = phase == "start"
                     guard visible || !walking else { return }
                     personScrolling = walking
                     // A scroll by code leaves the id anchor naming "end", and SwiftUI puts the list back there on its next
@@ -1149,10 +1152,12 @@ struct ChatView: View {
     // events, always kept in memory (numbers and event names only, never message text), for the diagnostic below.
     static var diagRing: [String] = []
     static let diagStart = Date()
-    static func trace(_ line: @autoclosure () -> String) {
+    static func trace(_ line: @autoclosure () -> String, ring: Bool = true) {
         let said = line()
-        diagRing.append(String(format: "%.2f ", Date().timeIntervalSince(diagStart)) + said)
-        if diagRing.count > 80 { diagRing.removeFirst(diagRing.count - 80) }
+        if ring {   // kosmos#7420: the Debug height lines (twice a second) stay out of the 80-line ring the report reads
+            diagRing.append(String(format: "%.2f ", Date().timeIntervalSince(diagStart)) + said)
+            if diagRing.count > 80 { diagRing.removeFirst(diagRing.count - 80) }
+        }
         #if DEBUG
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1" {
             let text = String(format: "TRACE %.2f ", Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 1000)) + said + "\n"
@@ -2863,6 +2868,11 @@ struct KeyboardHold: UIViewRepresentable {
         private var heightTimer: Timer?   // kosmos#7420, KOSMOS_SAMPLE_HEIGHT=1
         private var walkTimer: Timer?   // kosmos#7420, KOSMOS_SAMPLE_WALK=1: the walk under way, ended on re-entry
         private var walkStart: DispatchWorkItem?   // its start, 4 s after opening, cancelled on re-entry
+        private var walkNewest: DispatchWorkItem?   // its ask for the newest, 2 s after the top, cancelled on re-entry
+        private func walkSay(_ phase: String) {
+            guard let rows else { return }
+            NotificationCenter.default.post(name: .sampleWalking, object: rows, userInfo: ["phase": phase])
+        }
         static let walkStepsMax = 400   // 2 minutes of steps
         // kosmos#7420: points and counts only (the allow-list test pins this line): the reported content height, the offset,
         // how many rows have a reading in RowTops, the first and last of those rows' tops in the content, and the content
@@ -2945,7 +2955,8 @@ struct KeyboardHold: UIViewRepresentable {
             #if DEBUG
             heightTimer?.invalidate(); heightTimer = nil
             walkStart?.cancel(); walkStart = nil
-            if walkTimer != nil { walkTimer?.invalidate(); walkTimer = nil; NotificationCenter.default.post(name: .sampleWalking, object: false) }
+            walkNewest?.cancel(); walkNewest = nil
+            if walkTimer != nil { walkTimer?.invalidate(); walkTimer = nil; walkSay("end") }
             #endif
             guard window != nil, !Self.off else { return }
             var up = superview
@@ -2969,35 +2980,35 @@ struct KeyboardHold: UIViewRepresentable {
                 let height = Timer(timeInterval: 0.5, repeats: true) { [weak self] t in
                     guard let self, self.window != nil else { t.invalidate(); return }   // the chat left: no more lines
                     guard let v = self.scroll, let r = self.rows else { return }
-                    ChatView.trace("height: \(Self.heightLine(v, rows: r))")
+                    ChatView.trace("height: \(Self.heightLine(v, rows: r))", ring: false)
                 }
                 RunLoop.main.add(height, forMode: .common)   // .common: lines keep coming while a finger scrolls too
                 heightTimer = height
-                // KOSMOS_SAMPLE_WALK=1, read only inside this switch (the plan says what the walk does).
+                // KOSMOS_SAMPLE_WALK=1
                 if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WALK"] == "1" {
                     let start = DispatchWorkItem { [weak self] in
                         guard let self, self.window != nil else { return }   // a rebuilt or closed list: no walk, no notice
-                        NotificationCenter.default.post(name: .sampleWalking, object: true)
+                        self.walkSay("start")
                         var steps = 0
                         self.walkTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] t in
                             guard let self, self.window != nil, let v = self.scroll else {
-                                t.invalidate(); self?.walkTimer = nil
-                                NotificationCenter.default.post(name: .sampleWalking, object: false); return
+                                t.invalidate(); self?.walkTimer = nil; self?.walkSay("end"); return
                             }
                             steps += 1
                             if steps > Self.walkStepsMax {
-                                t.invalidate(); self.walkTimer = nil; ChatView.trace("height: walk gave up")
-                                NotificationCenter.default.post(name: .sampleWalking, object: false); return
+                                t.invalidate(); self.walkTimer = nil; ChatView.trace("height: walk gave up"); self.walkSay("end"); return
                             }
                             let top = -v.adjustedContentInset.top
                             if v.contentOffset.y <= top + 1 {
                                 t.invalidate(); self.walkTimer = nil; ChatView.trace("height: walk at the top")
-                                NotificationCenter.default.post(name: .sampleWalking, object: false)
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                                self.walkSay("end")
+                                let newest = DispatchWorkItem { [weak self] in
                                     guard let self, self.window != nil else { return }
                                     ChatView.trace("height: walk asks for the newest")
-                                    NotificationCenter.default.post(name: .chatScrollToEnd, object: nil)
+                                    self.walkSay("newest")
                                 }
+                                self.walkNewest = newest
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: newest)
                                 return
                             }
                             v.setContentOffset(CGPoint(x: 0, y: max(top, v.contentOffset.y - v.bounds.height)), animated: false)
