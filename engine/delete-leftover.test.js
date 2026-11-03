@@ -999,11 +999,17 @@ test('kosmos#7825: a profile that cannot be read refuses, never reads as "no rec
   assert.equal(p.ok, false, 'an unreadable profile was offered for deleting');
   assert.match(p.because, /could not read what Kosmos has stored for noread7825/);
   // Not JSON: also a failed look.
-  // A file that reads but is not settings is not a passing fault: its own sentence, never "try again" (review 2).
+  // A file that reads but is not settings is offered, and the plan says it could not be checked (review 4); a waiting
+  // world start still holds it.
   for (const body of ['{half', 'null', '[1]']) {
     fs.writeFileSync(file, body);
-    assert.equal(mac.plan(name).because, "noread7825's settings file cannot be read as settings, so Kosmos cannot tell whether it is left over and has not offered to delete it.", body);
+    const d = mac.plan(name);
+    assert.equal(d.ok, true, `${body}: ${d.because}`);
+    assert.ok(d.loses.includes('Its settings file could not be read, so Kosmos could not check what it recorded before offering it'), JSON.stringify(d.loses));
+    withWorldStarts([{ name, why: 'import' }], () => assert.match(mac.plan(name).because || '', /waiting to start/, `${body}: a damaged file was offered over a waiting world start`));
   }
+  fs.writeFileSync(file, JSON.stringify({ displayName: 'x' }));
+  assert.ok(!mac.plan(name).loses.some((l) => /could not be read/.test(l)), 'CONTROL: readable settings were said to be unreadable');
   fs.rmSync(file, { force: true });
 });
 
@@ -1129,8 +1135,8 @@ test('kosmos#7825: on a case-blind disk a folder recorded in the workers folder 
   const W = process.env.AGENT_WORKFORCE_WORKERS;
   const name = strandedProfile('fold7825', { dir: nodePath.join(W.toUpperCase(), 'fold7825') });
   assert.equal(mac.plan(name).ok, true, 'a gone folder inside the workers folder, spelled in another case, read as out of reach');
-  // CONTROL: on Linux the two spellings are two folders, so it is outside and refused.
-  assert.match(leftover.plan(name, { platform: 'linux' }).because || '', /cannot reach right now/);
+  // No Linux CONTROL here: the disk under the test answers, and on a case-blind disk the link-resolving compare
+  // (review 4) already reads both spellings as one folder whatever platform is asked about.
   fs.rmSync(store.profilePath(name), { force: true });
 });
 
@@ -1151,4 +1157,33 @@ test('kosmos#7825: a folder or auto-start file that will not go still drops the 
     assert.equal(remove.isRemoved(name), false, `${name}: the removed-list record was kept while a folder or job still shows the card`);
     assert.equal(remove.isHidden(name), false, `${name}: the card stays hidden`);
   }
+});
+
+test('kosmos#7825: a recorded folder spelled through a link to the workers folder is inside it (review 4)', () => {
+  const W = process.env.AGENT_WORKFORCE_WORKERS;
+  fs.mkdirSync(W, { recursive: true });
+  const link = nodePath.join(SANDBOX, 'workers-link');
+  try { fs.symlinkSync(W, link); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
+  const name = strandedProfile('link7825', { dir: nodePath.join(link, 'link7825') });
+  assert.equal(mac.plan(name).ok, true, 'a gone folder in the workers folder, spelled through a link, read as out of reach');
+  // (A profile recording the workers folder itself has a folder that exists, so plan()'s folder rule answers first.)
+  // CONTROL: a sibling folder of the workers folder is outside it.
+  store.writeProfile(name, { dir: nodePath.join(SANDBOX, 'elsewhere', 'link7825') });
+  assert.match(mac.plan(name).because || '', /cannot reach right now/);
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a picture alone left over is named in the singular, end to end', () => {
+  const name = 'onlypic7825';
+  fs.mkdirSync(store.AVATARS, { recursive: true });
+  fs.writeFileSync(nodePath.join(store.AVATARS, 'onlypic7825.png'), 'png');
+  const p = mac.plan(name);
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.verb, 'Move its picture to the Trash');
+  assert.equal(p.reassurance, 'Its picture goes to the Trash, where you can get it back until you empty it. After this, the name onlypic7825 is free for a new agent.');
+  assert.match(p.hint, /a new agent with this name would start with it\.$/);
+  const r = mac.del(name);
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.equal(r.said, "onlypic7825's picture is in the Trash. The name is free.");
+  assert.equal(store.avatarPath(name), null);
 });
