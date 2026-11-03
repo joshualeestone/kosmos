@@ -56201,7 +56201,7 @@ async function pbpChoose(gb) {
   // #7827: a page that may just have been paid (relay "finished", a 409 the board cannot name, an earlier page the relay
   // could not close (unclosed, a 503), or an answer that may have come mid-way (unsure)): the wait line says so,
   // where no read reaches, and the plan is watched each minute as after Choose. Set before the paint, and no read at
-  // once: the relay says finished only while no plan is recorded yet. backup_checkout_conflict is the board's own name
+  // once: the relay says finished only while no plan is recorded yet, and for the others a minute's wait is safe. backup_checkout_conflict is the board's own name
   // (engine checkout) for any 409 it cannot name: once the relay naming its two conflicts is deployed (Ice Cream Kitty,
   // #3763, #7827) an unnamed 409 no longer occurs, but a code this board does not know still lands here, so it stays.
   // The earlier page is expired or paid either way, so its link goes.

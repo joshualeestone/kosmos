@@ -733,13 +733,13 @@ async function checkout(gb, opts = {}) {
     // The status from either kind of tunnel (item 7): an older one prints no refusal object, only the line.
     const st = statusOf(r);
     if (st === 409) return { ok: false, code: 'backup_checkout_conflict', because: CHECKOUT_CONFLICT };
-    // "Nothing was charged" only when that is known: the request never left this computer, or Kosmos+ refused it outright
-    // (a 4xx). That holds because every 4xx in kosmos-relay coordinator/src/backup_plans.rs `checkout` is raised before a
-    // page is made or after the earlier one is closed; a relay change that returned a 4xx after a paid page would make it
-    // false, so it is named here. A timeout, a 5xx or an answer this board cannot read may have come mid-way through
-    // closing an earlier page that was paid, so it claims nothing about payment and the page watches for the plan.
-    // Accepted: a tunnel that could not start (setupRun, no notSent) also lands there, the safe direction.
-    if ((r && r.notSent) || (Number.isSafeInteger(st) && st >= 400 && st < 500)) return { ok: false, because: CHECKOUT_RETRY };
+    // "Nothing was charged" only when that is known: the request never left this computer. Any other refusal with no code
+    // claims nothing about payment and the page watches for the plan: a timeout, a 5xx or an unreadable answer may have
+    // come mid-way through closing an earlier page that was paid, and even an uncoded 4xx (a lapsed sign-in, a bad body;
+    // kosmos-relay backup_plans.rs `checkout` raises those before it looks at the earlier page) can arrive while a page
+    // paid in another tab waits for its plan (review 4). Coded refusals keep their own sentences above.
+    // Accepted: a tunnel that could not start (setupRun, no notSent) also lands on the uncertain sentence, the safe side.
+    if (r && r.notSent) return { ok: false, because: CHECKOUT_RETRY };
     return { ok: false, code: 'backup_checkout_unsure', because: CHECKOUT_UNSURE };
   }
   const url = stripeCheckoutUrl(r.data && r.data.url);

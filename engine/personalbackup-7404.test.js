@@ -1130,13 +1130,13 @@ test('#7827 item 7: a 409 from a tunnel that prints no refusal object is still t
   const other = await onWith(t, { checkout: () => ({ ok: false, because: 'Kosmos+ refused this Mac: the payment page could not be opened. (HTTP 503 on /v1/mac/personal-backup/checkout)' }) });
   assert.equal((await pb.checkout(25, { root: other.root, remote: other.remote })).code, 'backup_checkout_unsure', 'a 503 line (it may have come mid-way through closing a paid page) claimed nothing was charged');
   const refused = await onWith(t, { checkout: () => ({ ok: false, because: 'Kosmos+ refused this Mac: the payment page could not be opened. (HTTP 403 on /v1/mac/personal-backup/checkout)' }) });
-  assert.equal((await pb.checkout(25, { root: refused.root, remote: refused.remote })).because, RETRY, 'CONTROL: a 4xx refusal is refused outright, so nothing was charged');
+  assert.equal((await pb.checkout(25, { root: refused.root, remote: refused.remote })).code, 'backup_checkout_unsure', 'an uncoded 4xx (raised before the earlier page is looked at) claimed nothing was charged');
   const unsent = await onWith(t, { checkout: () => ({ ok: false, notSent: true, because: 'this computer is not connected to Kosmos+' }) });
   assert.equal((await pb.checkout(25, { root: unsent.root, remote: unsent.remote })).because, RETRY, 'CONTROL: a request that never left says nothing was charged');
   const proto = await onWith(t, { checkout: () => ({ ok: false, because: '400', refusal: { status: 400, code: 'constructor' } }) });
   const pr = await pb.checkout(25, { root: proto.root, remote: proto.remote });
   assert.equal(typeof pr.because, 'string', 'a wire code named like an object property became a function');
-  assert.equal(pr.because, RETRY);
+  assert.equal(pr.code, 'backup_checkout_unsure', 'an unknown code is not a sentence, and claims nothing about payment');
 });
 
 test('#7827 item 7: other callers read an older tunnel\'s coded line too (plansNow says its sentence, final)', async (t) => {
@@ -1166,17 +1166,17 @@ test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in 
   assert.deepEqual(await pb.checkout(25, { root: opening.root, remote: opening.remote }), { ok: false, code: 'backup_checkout_conflict',
     because: 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.' }, 'the codeless 409, from a relay that does not name it');
   // #7827: the relay names its two conflicts; each gets its own sentence, and a person who just paid is never told to try again.
-  for (const [code, say] of [['backup_checkout_opening', 'Kosmos+ is opening a payment page for this already. Try again in a moment.'],
+  for (const [code, say, status = 409] of [['backup_checkout_opening', 'Kosmos+ is opening a payment page for this already. Try again in a moment.'],
     ['backup_checkout_finished', 'The payment page has just finished. If you paid, your plan shows here in a moment.'],
-    ['backup_checkout_unclosed', 'An earlier payment for this backup may still be going through. If you paid, your plan shows here shortly; if not, try again in a minute.']]) {
-    const a = await onWith(t, { checkout: () => ({ ok: false, because: '409 {"code":"' + code + '"}', refusal: { status: 409, code } }) });
+    ['backup_checkout_unclosed', 'An earlier payment for this backup may still be going through. If you paid, your plan shows here shortly; if not, try again in a minute.', 503]]) {
+    const a = await onWith(t, { checkout: () => ({ ok: false, because: status + ' {"code":"' + code + '"}', refusal: { status, code } }) });
     assert.deepEqual(await pb.checkout(25, { root: a.root, remote: a.remote }), { ok: false, code, because: say }, code);
   }
   const unknown = await onWith(t, { checkout: () => ({ ok: false, because: '409 {"code":"something_new"}', refusal: { status: 409, code: 'something_new' } }) });
   const u = await pb.checkout(25, { root: unknown.root, remote: unknown.remote });
   assert.deepEqual(u, { ok: false, code: 'backup_checkout_conflict', because: 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.' }, '#7827: a 409 code this board does not know was told that nothing was charged');
   const odd403 = await onWith(t, { checkout: () => ({ ok: false, because: '403 {"code":"something_new"}', refusal: { status: 403, code: 'something_new' } }) });
-  assert.equal((await pb.checkout(25, { root: odd403.root, remote: odd403.remote })).because, 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.', 'CONTROL: an unknown refusal that is not a conflict');
+  assert.equal((await pb.checkout(25, { root: odd403.root, remote: odd403.remote })).code, 'backup_checkout_unsure', 'an unknown 403 claimed nothing was charged (it can arrive while a page paid in another tab waits)');
   const sent = [];
   assert.equal((await pb.checkout(25, { root: fresh(t), remote: { macRequest: async (m, route) => { sent.push(route); return { ok: true, data: { url: page } }; } } })).ok, false, 'not on here');
   assert.deepEqual(sent, [], 'a checkout was asked for with personal backup off here');
