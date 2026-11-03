@@ -50313,7 +50313,10 @@ async function loadLeftover(sessionName) {
   // kosmos#7852: the delete has ended; a dialog still open for this agent says what is so now, as the no-answer path does.
   if (wasRunning && plan && DEL_FOR !== null && String(DEL_FOR).toLowerCase() === lower) {
     const modal = document.getElementById('del-modal');
-    if (modal && !modal.hidden) { deleteNoAnswerShow(plan, DEL_FOR, null); if (!plan.ok) return; }
+    if (modal && !modal.hidden) {
+      // Still offered: the dialog shows what is left now (nothing went unanswered, so no sentence of the no-answer path).
+      if (plan.ok) { const back = DEL_RETURN; openDeleteModal(plan); DEL_RETURN = back; } else { deleteNoAnswerShow(plan, DEL_FOR, null); return; }
+    }
   }
   const start = document.getElementById('d-delete-start');
   if (start) start.hidden = false;
