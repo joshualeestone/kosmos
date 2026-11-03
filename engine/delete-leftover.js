@@ -1208,6 +1208,8 @@ async function planAsync(name, opts) {
   const win = ((opts && opts.platform) || process.platform) === 'win32';
   if (win && deletingName(name)) return { ok: false, because: DELETING_BECAUSE };
   if (win) await warmFor(name, opts);
+  // Asked again: a delete of the name can have started while the probe ran.
+  if (win && deletingName(name)) return { ok: false, because: DELETING_BECAUSE };
   return plan(name, opts);
 }
 /** del, with the Windows drive probe and Recycle Bin moves run without holding the board. One at a time per name: a
