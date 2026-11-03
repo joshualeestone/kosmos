@@ -99,7 +99,7 @@ test('older posts not on the profile are said as not checked', async () => {
   const urls = serve({ listed: range(1, 12) });   // post 0 is not on the profile
   const r = await cr.readReplies('Unl7811', { now: NOW });
   assert.deepEqual(threadReads(urls), range(2, 12));
-  assert.match(r.text, /\(1 of your older posts is not among the posts your public profile lists, so Kosmos cannot check it for new comments\)/);
+  assert.match(r.text, /\(Kosmos looks for new comments on the older posts your public profile lists, its newest 50; 1 of yours is not among them\)/);
 });
 
 test('ten posts or fewer make no profile read at all', async () => {
@@ -329,6 +329,8 @@ test('the nudge\'s count leaves the older posts for later on a slow profile, as 
   clearSeen();
   writeSendState('Slc7811', 12);
   const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, threads: { 0: [comment({ id: CID(1) })] }, slowProfileMs: 150 });
+  /* As a profile that failed: partial twice (the read a minute later may take them), then the newest only. */
+  for (let k = 0; k < 2; k += 1) assert.equal((await cr.freshReplies('Slc7811', { now: NOW, paceMs: 0, olderStartMs: 50 })).partial, true, 'pass ' + (k + 1));
   const f = await cr.freshReplies('Slc7811', { now: NOW, paceMs: 0, olderStartMs: 50 });
   assert.equal(f.ok, true, f.because);
   assert.ok(!threadReads(urls).includes(0), 'the count read an older post the read would leave');
