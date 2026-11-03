@@ -271,6 +271,12 @@ test('#7827: the shared plans read keeps only a good answer; a failure or a thro
   pb.plansNow = async () => answers[n++]();
   for (let i = 0; i < 4; i++) await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
   assert.equal(n, 3, 'a failed or thrown read was shared, or a good one was not');
+  // A final refusal (it will not clear on a retry) is kept like a good answer.
+  await call('/api/personal-backup/off', { body: {}, headers: SCREEN });
+  let f = 0;
+  pb.plansNow = async () => { f++; return { ok: false, final: true, because: 'Personal backup is not available on Kosmos+ yet.' }; };
+  for (let i = 0; i < 2; i++) await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
+  assert.equal(f, 1, 'a final refusal was asked again by every caller');
 });
 
 test('#7827: a failed read that finishes after a newer good read was shared does not wipe it', async (t) => {

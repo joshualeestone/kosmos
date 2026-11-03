@@ -56117,6 +56117,11 @@ function pbpPaint(on) {
   for (const b of list.querySelectorAll('button')) b.disabled = PBP.busy;
   const wait = document.getElementById('pb-plans-wait');
   const waiting = show && !!PBP.url;
+  // #7827: after a page that may just have been paid, "in a moment" becomes Mona Lisa's late line (m2559), no link.
+  if (show && PBP.awaitPlan && !PBP.url && PBP.msgFrom === 'choose' && Date.now() - PBP.since > PBP_CONFIRMING_MS) {
+    const late = 'If you paid, it is being confirmed, and this updates when your plan arrives.';
+    if (document.getElementById('pb-plans-msg').textContent !== late) pbpMsg(late, 'choose');
+  }
   const words = !waiting ? '' : Date.now() - PBP.since > PBP_CONFIRMING_MS ? 'If you paid, it is being confirmed, and this updates when your plan arrives. If not, open the payment page again.'
     // Mona Lisa's review: every row still reads Choose, so the line names the plan that is waiting for payment.
     : 'Finish the ' + Number(PBP.gb).toLocaleString() + ' GB plan on the payment page. This updates when it arrives.';
@@ -56140,7 +56145,9 @@ async function pbpChoose(gb) {
   if (!url && r && r.code === 'backup_plan_exists') pbpRead();
   // #7827: a page that may just have been paid: watch for the plan each minute, as after Choose.
   // No read at once: the relay says finished only while no plan is recorded yet, so the first look is a minute on.
-  else if (!url && r && (r.code === 'backup_checkout_finished' || r.code === 'backup_checkout_conflict')) { PBP.awaitPlan = true; PBP.since = Date.now(); PBP.at = Date.now(); }
+  // backup_checkout_conflict is the board's own name for a relay's unnamed 409 (engine checkout); drop it here once the
+  // relay with the two named codes is deployed. The earlier page is expired or paid either way, so its link goes.
+  else if (!url && r && (r.code === 'backup_checkout_finished' || r.code === 'backup_checkout_conflict')) { PBP.awaitPlan = true; PBP.url = null; PBP.gb = null; PBP.since = Date.now(); PBP.at = Date.now(); pbPaint(); }
   if (url) { const a = document.getElementById('pb-plans-open'); try { a.focus(); } catch { /* gone */ } }
 }
 /* ---- kosmos#7404: restore from a backup, into a separate copy (engine/personalrestorejob.js). The list is read only when
