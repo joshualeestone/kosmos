@@ -148,6 +148,15 @@ test('#7404 plan screen: plans and checkout pass only their own fields; checkout
   assert.deepEqual(got, [25, null], 'a size that is not a whole number reached the engine as one');
   await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
   assert.equal(reads, 2, 'after a checkout the plans came from the old read (a plan found there would stay hidden)');
+  const wasOff = pb.switchOff;
+  pb.switchOff = async () => ({ ok: true });
+  try {
+    await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
+    assert.equal(reads, 2, 'CONTROL: a second read within 30 seconds is shared');
+    await call('/api/personal-backup/off', { body: {}, headers: SCREEN });
+    await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
+    assert.equal(reads, 3, 'after Off the plans came from a read made before it');
+  } finally { pb.switchOff = wasOff; }
 });
 
 /* Challenge round 1: the answer the screen needs passes through the route's named-field list, and nothing else does.

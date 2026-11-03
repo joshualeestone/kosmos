@@ -1086,7 +1086,10 @@ test('#7404 plansNow: the plan is read first; an unread or unreadable plan is a 
   const ab = await pb.plansNow({ root: absent.root, remote: absent.remote });
   assert.deepEqual(ab, { ok: false, final: true, because: 'Kosmos+ did not send the plans for this backup, so they cannot be shown here. Nothing on your account has changed. View account shows your Kosmos+ plan.' }, 'a status with no plan field is not an outage');
   const coded = await onWith(t, { planGb: null, preview: { ok: false, because: '403 {"code":"org_not_member"}', refusal: { status: 403, code: 'org_not_member' } } });
-  assert.equal((await pb.plansNow({ root: coded.root, remote: coded.remote })).because, 'Kosmos+ did not send the plans for this backup, so they cannot be shown here. Nothing on your account has changed. View account shows your Kosmos+ plan.', 'a coded refusal said try again in a minute');
+  const cr = await pb.plansNow({ root: coded.root, remote: coded.remote });
+  assert.deepEqual(cr, { ok: false, because: 'Kosmos+ could not be reached just now, so the plans cannot be shown. Try again in a minute.' }, 'a code not known to be final was made final');
+  const offc = await onWith(t, { planGb: null, preview: { ok: false, because: '409 {"code":"personal_backup_off"}', refusal: { status: 409, code: 'personal_backup_off' } } });
+  assert.deepEqual(await pb.plansNow({ root: offc.root, remote: offc.remote }), { ok: false, final: true, because: 'Personal backup is not available on Kosmos+ yet.' }, 'CONTROL: the known final code');
   const busy = await onWith(t, {});
   const notSent = { macRequest: async (m, route, body) => (route === oe.ROUTES.status ? { ok: false, notSent: true } : busy.remote.macRequest(m, route, body)) };
   assert.deepEqual(await pb.plansNow({ root: busy.root, remote: notSent }), { ok: false, because: 'Kosmos+ could not be reached just now, so the plans cannot be shown. Try again in a minute.' }, 'a status never sent was told as Kosmos+ answering');

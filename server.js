@@ -12934,6 +12934,10 @@ const server = http.createServer(async (req, res) => {
         const pb = require('./engine/personalbackup');
         const pk = require('./engine/personalbackupkey');
         let r;
+        // Any step but the plans read can change what a plans read would say (on, off, a restore, a checkout): the next
+        // read asks Kosmos+ again. Cleared before the step (so a step that throws is covered) and after it (a read that
+        // started while it ran).
+        if (kind !== 'plans') PB_PLANS_READ = { at: 0, p: null };
         if (kind === 'preview') r = await pb.preview();
         else if (kind === 'on') r = await pb.switchOn(typeof body.ticket === 'string' ? body.ticket : null, body.accepted === true);
         else if (kind === 'key') r = await pb.setUpKey();
@@ -12960,11 +12964,9 @@ const server = http.createServer(async (req, res) => {
           if (!PB_PLANS_READ.p || now - PB_PLANS_READ.at > 30000) PB_PLANS_READ = { at: now, p: pb.plansNow() };
           r = await PB_PLANS_READ.p;
         }
-        else if (kind === 'checkout') {
-          r = await pb.checkout(Number.isSafeInteger(body.gb) ? body.gb : null);
-          PB_PLANS_READ = { at: 0, p: null };   // a checkout can find a plan already there: the next plans read asks again
-        }
+        else if (kind === 'checkout') r = await pb.checkout(Number.isSafeInteger(body.gb) ? body.gb : null);
         else r = null;   // unreachable: kind was checked above; answers the generic refusal below
+        if (kind !== 'plans') PB_PLANS_READ = { at: 0, p: null };
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and
            member are the opaque ids confirmRecoveryCodeSaved needs back, nothing more. */
         // Named fields only, per step (challenge round 4): each step can send the page only what that step answers.
