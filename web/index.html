@@ -26889,6 +26889,10 @@ async function tick() {
     // one small fetch, guarded by its own token, and `fromPoll` so it does not
     // blank a message or steal focus on every tick.
     loadRemoval(fresh.sessionName, { fromPoll: true });
+  } else if (CURRENT && DEL_RUNNING_FOR === String(CURRENT.sessionName).toLowerCase()) {
+    // kosmos#7852: a delete that took the folder and job takes the agent off the list, so loadRemoval is not reached;
+    // the block that says it is running asks once more, and the answer (nothing left) takes it away.
+    loadLeftover(CURRENT.sessionName);
   }
 
       // Not while a load is in flight or the file is one we refused: the note
@@ -50265,7 +50269,8 @@ function paintLeftoverRunning(plan, name) {
   if (typeof CURRENT === 'undefined' || !CURRENT || String(CURRENT.sessionName).toLowerCase() !== lower) return;
   const box = document.getElementById('d-delete-leftover');
   if (!box) return;
-  DEL_PLAN = null;
+  DEL_TOKEN += 1;   // as deleteForgetPlan: a loadLeftover still in flight carries the plan from before
+  if (DEL_PLAN && String(DEL_PLAN.name).toLowerCase() === lower) DEL_PLAN = null;   // an open dialog's plan for another agent stays
   DEL_RUNNING_FOR = lower;
   const w = String(plan.because || '');
   const hint = document.getElementById('d-delete-hint');
@@ -50293,8 +50298,10 @@ async function loadLeftover(sessionName) {
   if (start) start.hidden = false;
   /* Any other refusal is not a message, it is the block staying hidden: the
      Remove section above already says what state the agent is in. */
-  if (!plan || !plan.ok) { box.hidden = true; DEL_PLAN = null; return; }
-  DEL_PLAN = plan;
+  // kosmos#7852: the poll now reads here too; a dialog open for another agent keeps its own plan.
+  const dialogElsewhere = DEL_FOR !== null && String(DEL_FOR).toLowerCase() !== lower;
+  if (!plan || !plan.ok) { box.hidden = true; if (!dialogElsewhere) DEL_PLAN = null; return; }
+  if (!dialogElsewhere) DEL_PLAN = plan;
   document.getElementById('d-delete-hint').textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.hint || '');
   box.hidden = false;
 }

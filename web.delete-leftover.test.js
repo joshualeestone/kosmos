@@ -92,9 +92,9 @@ test('#7852 an agent page whose delete is running says so, with no button, and k
   const ctx = vm.createContext({ String, Promise, encodeURIComponent, document: { getElementById: (id) => els[id] || null },
     // the route answers 200 with any plan; an unreadable answer is a proxy's page
     fetch: async () => ({ ok: true, json: async () => (readable ? answer : Promise.reject(new Error('not json'))) }) });
-  vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_RUNNING_FOR = null; let CURRENT = { sessionName: "miles" };',
+  vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_FOR = null; let DEL_RUNNING_FOR = null; let CURRENT = { sessionName: "miles" };',
     liftAll(scriptOf(PAGE), ['fetchLeftoverPlan', 'paintLeftoverRunning', 'loadLeftover']),
-    'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_RUNNING_FOR }); this.view = (n) => { CURRENT = { sessionName: n }; };'].join('\n'), ctx);
+    'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_RUNNING_FOR }); this.view = (n) => { CURRENT = { sessionName: n }; }; this.dialog = (n, p) => { DEL_FOR = n; DEL_PLAN = p; };'].join('\n'), ctx);
   answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
   await ctx.load('miles');
   assert.equal(els['d-delete-leftover'].hidden, false, 'a running delete must keep the block showing');
@@ -117,12 +117,25 @@ test('#7852 an agent page whose delete is running says so, with no button, and k
   await ctx.load('miles');
   ctx.view('ada');
   let seenHidden = null;
-  answer = { then: undefined };   // read below, at the moment Ada's ask starts
+  answer = { then: undefined };   // no boolean ok: an answer that is not a plan (fetchLeftoverPlan gives null)
   const asking = ctx.load('ada');
   seenHidden = els['d-delete-leftover'].hidden;
   await asking;
   assert.equal(seenHidden, true, 'another agent\'s running block must not show on this agent\'s page');
   assert.equal(ctx.state().DEL_RUNNING_FOR, null);
+  // A dialog open for another agent keeps its plan while this page's block keeps asking.
+  ctx.view('miles');
+  const adaPlan = { ok: true, name: 'Ada', typeToConfirm: 'Ada' };
+  ctx.dialog('Ada', adaPlan);
+  answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
+  await ctx.load('miles');
+  assert.equal(ctx.state().DEL_PLAN, adaPlan, 'the running block took the plan of a dialog open for another agent');
+  answer = { ok: true, name: 'Miles', hint: 'h' };
+  await ctx.load('miles');
+  assert.equal(ctx.state().DEL_PLAN, adaPlan, 'a plan read for this page replaced the plan of a dialog open for another agent');
+  // The poll asks again for an agent that has left the list (its folder and job gone), so the block can go.
+  const offList = PAGE.indexOf('} else if (CURRENT && DEL_RUNNING_FOR === String(CURRENT.sessionName).toLowerCase()) {');
+  assert.ok(offList > 0 && PAGE.slice(offList, offList + 400).includes('loadLeftover(CURRENT.sessionName);'), 'a delete that took the agent off the list leaves "running" on its page for good');
   const poll = PAGE.slice(PAGE.indexOf('async function loadRemoval('), PAGE.indexOf('async function loadRemoval(') + 600);
   assert.match(poll, /if \(!fromPoll \|\| DEL_RUNNING_FOR === String\(sessionName\)\.toLowerCase\(\)\) loadLeftover\(sessionName\);/, 'the poll must ask again while this agent\'s delete runs');
 });
