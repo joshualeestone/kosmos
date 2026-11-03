@@ -248,6 +248,35 @@ if [ "$rc" -eq 0 ] && grep -qF "NOTICE (#7883): no setup-9.9.1.ps1 was staged wi
   pass "#7883 a promote of a build staged without a script leaves setup.ps1 untouched, and says so"
 else fail "#7883 promote without a staged script: rc=$rc $(grep '^PUT setup' "$FAKE/.calls") $(tail -1 "$TMP/out")"; fi
 mv "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; mv "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
+# Josh's go is logged with the installer it will publish.
+# (The promotes above with a staged script logged its sha; the last one, staged without a script, logged none.)
+if [ "$(grep -c "approval=given.* setup_sha256=$SETUP_SHA " "$ALOG")" -ge 1 ] && grep 'approval=given' "$ALOG" | tail -1 | grep -qF ' setup_sha256=none '; then pass "#7883 the approval line names the installer's sha, or none"
+else fail "#7883 approval line: $(grep 'approval=given' "$ALOG" | tail -2)"; fi
+# setup-<v>.ps1 is immutable like the zip: other bytes already up under the name are refused without -ReplaceVersioned.
+cp "$FAKE/latest-win-staging.json" "$TMP/stg7883.keep"   # the block below stages other versions; later tests expect 9.9.1 staged
+mkzip "$TMP/s40.zip" 9.9.40 S40
+printf 'not this tree\n' > "$FAKE/setup-9.9.40.ps1"
+fake -Zip "$TMP/s40.zip"; rc=$?; refuses_clean "#7883 different installer bytes under a staged version: refused, nothing written" "setup-9.9.40.ps1 is already in the bucket with DIFFERENT bytes"
+rm -f "$FAKE/setup-9.9.40.ps1"
+# A zip that records the commit it was built from must be staged from that commit's tree.
+mkzip "$TMP/s41.zip" 9.9.41 S41
+python3 - "$TMP/s41.zip" <<'PYEOF'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'a') as z:
+    z.writestr('manifest.json', '{"product":"kosmos","source_sha":"%s"}' % ('0' * 40))
+PYEOF
+fake -Zip "$TMP/s41.zip"; rc=$?; refuses_clean "#7883 a zip built from another commit: refused, nothing written" "was built from 0000000000000000000000000000000000000000"
+# Control: the same check passes for a zip built from this tree's HEAD.
+mkzip "$TMP/s42.zip" 9.9.42 S42
+python3 - "$TMP/s42.zip" "$(git -C "$HERE" rev-parse HEAD)" <<'PYEOF'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'a') as z:
+    z.writestr('manifest.json', '{"product":"kosmos","source_sha":"%s"}' % sys.argv[2])
+PYEOF
+fake -Zip "$TMP/s42.zip"; rc=$?
+if [ "$rc" -eq 0 ] && cmp -s "$FAKE/setup-9.9.42.ps1" "$HERE/windows/setup.ps1" && ! grep -qF "records no source commit" "$TMP/out"; then pass "#7883 control: a zip built from this tree's HEAD stages, with HEAD's installer"
+else fail "#7883 source-commit control: rc=$rc $(tail -2 "$TMP/out")"; fi
+cp "$TMP/stg7883.keep" "$FAKE/latest-win-staging.json"
 # The promote's copy carried its pin and its own no-cache metadata.
 if grep -qE '^PUT kosmos-win-x64\.zip COPY /kosmos-dist-win/kosmos-9\.9\.1-win-x64\.zip \| cache-control=no-cache;x-amz-copy-source=[^;]+;x-amz-copy-source-if-match="[0-9a-f]{64}";x-amz-metadata-directive=REPLACE$' "$FAKE/.calls"; then pass "the alias copy is pinned and replaces its metadata with no-cache"
 else fail "copy headers: $(grep COPY "$FAKE/.calls")"; fi

@@ -48,3 +48,11 @@ via tools/lib/win-staging-record.js):
 - control: an uncommitted edit to setup.ps1 makes staging refuse with zero writes.
 
 ## Review rounds
+- Round 1 (blind reviewer): 0 BLOCKER, 4 WARNING, 4 NIT. Fixed: W1 the script is held to the build's source commit
+  (zip manifest.json source_sha must equal HEAD; a zip without one is staged with HEAD's script and says so). W2
+  setup-<v>.ps1 is create-only like the zip (different bytes need -ReplaceVersioned, never for prod's version), and
+  Josh's approval line records setup_sha256. W3 tools/windows/.gitattributes `setup.ps1 -text`, so Git for Windows'
+  default autocrlf cannot make every stage refuse. W4 the installer writes moved after the served checks and the
+  promoted=yes log line. NIT1 explicit null checks and empty-script refusals; NIT2 the NOTICE says a rollback keeps
+  the newer installer; NIT3 the BucketBase comment. NIT4 (harness precheck for a dirty local setup.ps1) not taken:
+  CI checkouts are clean, and the refusal text already names the cause.
