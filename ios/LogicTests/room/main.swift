@@ -1684,6 +1684,33 @@ check(chatSource.contains("private func dropChoices() {\n        // kosmos#7810:
 check(chatSource.contains("thread = nil\n            fullRead = false; threadTag = nil"), "kosmos#7810: a fresh chat starts with no whole window and no tag")
 check(chatSource.contains("if let t = thread { fillGap(t) }\n            loadEarlier()\n            lastRead = Date()"), "kosmos#7810: an unchanged read still retries the gap fill and the earlier page")
 check(chatSource.contains("if small, fullRead, case .thread = result { return false }"), "kosmos#7810: a late small page is never drawn over a whole window")
+// kosmos#7838: the project's own page.
+print("project info page (#7838)")
+let infoRows = Board.parseProjects(Data(#"{"projects":[{"id":"p1","name":"Launch","description":"  Ship the spring catalogue  ","agents":[{"sessionName":"ada","name":"Ada","roleHere":"writes the copy"},{"sessionName":"bo","name":"Bo","roleHere":"  "},{"sessionName":"cy","name":"Cy"}]},{"id":"p2","name":"Empty","description":""}]}"#.utf8))?.projects ?? []
+let launchP = infoRows.first { $0.id == "p1" }
+check(launchP?.members.map(\.roleHere) == ["writes the copy", nil, nil], "roleHere is read; a blank one is none")
+check(launchP.map { Board.projectMemberLine($0.members[0], agentRole: "Writer") } == "writes the copy", "what they do here outranks their own role")
+check(launchP.map { Board.projectMemberLine($0.members[1], agentRole: " Designer ") } == "Designer", "no role here: their own role, trimmed")
+check(launchP.map { Board.projectMemberLine($0.members[2], agentRole: "  ") } == .some(nil), "neither: no line")
+check(launchP.map(Board.projectAbout) == "Ship the spring catalogue", "what it is for: the description, trimmed")
+check(infoRows.first { $0.id == "p2" }.map(Board.projectAbout) == Board.projectNoDescription, "no description: says so, never an empty section")
+var infoTasks: [Board.TaskRow] = []
+for n in 1...7 {
+    var t = Board.TaskRow(projectId: "p1", projectName: "Launch", number: n, sentence: "Task \(n)", state: n == 7 ? "closed" : "working")
+    t.createdAt = "2026-11-0\(n)T10:00:00Z"
+    infoTasks.append(t)
+}
+infoTasks.append(Board.TaskRow(projectId: "p2", projectName: "Empty", number: 1, sentence: "Elsewhere", state: "working"))
+let infoOpen = Board.projectOpenTasks(Board.TasksRead(tasks: infoTasks, rosterUnknown: false), project: "p1")
+check(infoOpen?.total == 6, "open tasks of this project only, closed left out: \(String(describing: infoOpen?.total))")
+check(infoOpen?.rows.map(\.number) == [6, 5, 4, 3, 2], "newest first, at most five shown")
+check(Board.projectOpenTasks(nil, project: "p1") == nil, "unread tasks are unknown, never none")
+check(Board.projectTasksFooter(total: 6, shown: 5) == "1 more on the Tasks tab.", "the rest are counted")
+check(Board.projectTasksFooter(total: 3, shown: 3) == nil, "all shown: no footer")
+check(Board.projectTasksFooter(total: 0, shown: 0) == "No open tasks.", "none: says so")
+check(Board.projectTaskState(infoTasks[0]) == "In progress", "a task's state in the Tasks tab's words")
+check(Board.ProjectPart.allCases.map(\.rawValue) == ["About", "Files"], "the segments, Files last as on the agent page")
+
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
 print("")

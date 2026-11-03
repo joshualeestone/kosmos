@@ -12,6 +12,8 @@ struct FilesView: View {
     // The folder shown (agent only; "" is the top). A folder row pushes another FilesView one level down.
     var dir: String = ""
     let openOnBoard: () -> Void
+    // kosmos#7838: false when a page embeds this list under its own title (the project page's Files segment).
+    var titled: Bool = true
 
     @State private var read: Board.FilesRead?
     @StateObject private var opener = FileOpener()
@@ -63,7 +65,7 @@ struct FilesView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
-        .navigationTitle(dir.isEmpty ? Board.filesTitle : (dir.split(separator: "/").last.map(String.init) ?? Board.filesTitle))
+        .modifier(FilesTitle(title: !titled ? nil : dir.isEmpty ? Board.filesTitle : (dir.split(separator: "/").last.map(String.init) ?? Board.filesTitle)))
         .navigationBarTitleDisplayMode(.inline)
         .kosmosSolidTopBar()
         .refreshable { await load() }
@@ -274,5 +276,13 @@ private struct FilesQuickLook: ViewModifier {
             .onChange(of: opener.previewURL) { opener.shown($0, client: client) }
             // Review 3: another account's file is never left showing, whether or not the screen is popped (the chat's reset).
             .onChange(of: client.chatEpoch) { _ in opener.reset(client: client) }
+    }
+}
+
+// kosmos#7838: a page that embeds the list keeps its own title, so no title is set at all (an empty one would replace it).
+private struct FilesTitle: ViewModifier {
+    let title: String?
+    @ViewBuilder func body(content: Content) -> some View {
+        if let title { content.navigationTitle(title) } else { content }
     }
 }
