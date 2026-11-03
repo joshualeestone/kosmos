@@ -45,3 +45,11 @@ no skip (3), any claimant (1), own claim counted (1), no person-post branch (1),
   line when every ask is claimed says so; a comment says claimed asks are deliberately not dropped from the hold.
 - Each fix mutation-checked. Weakest premise, added: with the registry unreadable, nobody is filtered as a non-member,
   so a removed claimant still takes the ask off; the trailing line keeps it visible.
+
+## Review round 2 (sonnet, fixed)
+- The asks named as claimed (at most -n) are dropped from the idle reminder's hold, as shown posts are: the reader has
+  been told they are handled, so the reminder should not raise them again. Test with a CONTROL (an open ask that was
+  not shown stays held); dropping the fix reds it.
+- Copy: the all-claimed head line is "nothing waiting on you in this room; the ask named below was claimed by another
+  agent it asked" (singular and plural); the claimed line reads "Claimed by an agent the post also asked". Test
+  messages corrected.
