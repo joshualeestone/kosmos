@@ -434,6 +434,8 @@ test('#7820 only settings left (no folder, no job): a record the Recycle Bin did
 test('#7820 the Recycle Bin count also matches a file shown without its extension (Explorer hides known ones)', () => {
   assert.match(leftover.RECYCLE_SCRIPT, /\$i\.Name -eq \$leaf -or \$i\.Name -eq \$stem/);
   assert.match(leftover.RECYCLE_SCRIPT, /\$stem=\[System\.IO\.Path\]::GetFileNameWithoutExtension\(\$p\)/);
+  // The original folder is compared with trailing backslashes trimmed on both sides (-eq already ignores case).
+  assert.match(leftover.RECYCLE_SCRIPT, /\.TrimEnd\(\[char\]92\) -eq \$dir\.TrimEnd\(\[char\]92\)/);
 });
 
 test('#7820 a settings file that is a link sends the LINK to the Recycle Bin, never the file it points at', () => {
