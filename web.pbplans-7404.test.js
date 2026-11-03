@@ -301,3 +301,22 @@ test('a refusal that a retry cannot clear is read again hourly, and shown only t
     else assert.ok(!vis(doc, 'pb-plans'), 'a person whose backups run was shown a plans refusal');
   }
 });
+
+test('the job\'s noPlan reaches the plan screen: pbJobLines carries it, and pbPaint hands those lines to pbpOnView', () => {
+  const f = new Function(page.liftAll(SCRIPT, ['pbJobLines']) + '\nreturn pbJobLines;')();
+  assert.equal(f({ stopped: 'There is no backup plan on this account.', noPlan: true }).noPlan, true, 'pbJobLines dropped noPlan');
+  assert.equal(f({ stopped: 'Remote access is not set up on this computer.' }).noPlan, undefined, 'CONTROL: another stop');
+  const paint = page.liftAll(SCRIPT, ['pbPaint']);
+  assert.match(paint, /const lines = pbJobLines\(v === 'on' \? st\.job : null\);[\s\S]*pbpOnView\(v === 'on', lines, /, 'pbPaint does not pass the job lines to pbpOnView');
+});
+
+test('a read that failed under rows is tried again each minute, not left for an hour', async () => {
+  const doc = fakeDoc();
+  let reads = 0, fail = false;
+  const s = screen(doc, () => { reads++; return fail ? answer({ ok: false, because: 'x' })() : answer({ ok: true, plans: PLANS, planGb: null })(); });
+  s.pbpShow(true, false); await tick(); await tick();
+  fail = true; s.pbpRead(); await tick(); await tick();
+  fail = false; s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(reads, 3, 'a failed read under rows waited an hour');
+  assert.equal(doc.getElementById('pb-plans-msg').textContent, '');
+});

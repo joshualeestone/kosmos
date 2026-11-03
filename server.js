@@ -12960,7 +12960,10 @@ const server = http.createServer(async (req, res) => {
           if (!PB_PLANS_READ.p || now - PB_PLANS_READ.at > 30000) PB_PLANS_READ = { at: now, p: pb.plansNow() };
           r = await PB_PLANS_READ.p;
         }
-        else if (kind === 'checkout') r = await pb.checkout(Number.isSafeInteger(body.gb) ? body.gb : null);
+        else if (kind === 'checkout') {
+          r = await pb.checkout(Number.isSafeInteger(body.gb) ? body.gb : null);
+          PB_PLANS_READ = { at: 0, p: null };   // a checkout can find a plan already there: the next plans read asks again
+        }
         else r = null;   // unreachable: kind was checked above; answers the generic refusal below
         /* What the page may see, by name. `code` is the recovery code on on/key, and a refusal's code elsewhere; org and
            member are the opaque ids confirmRecoveryCodeSaved needs back, nothing more. */

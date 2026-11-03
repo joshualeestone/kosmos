@@ -482,13 +482,13 @@ const NO_PLAN = 'there is no backup plan on this account, so nothing new is back
    not answer: that run waits, because the company bound would pause a person's backup to Monday over one failed read.
    'malformed' (kosmos#7746) when it sent the field but not as null or a positive whole number of GB: that run waits too,
    rather than running under the company bound as though no plan had been sent. */
-async function planOf(opts) {
+async function planOf(opts, seen = {}) {
   const remote = remoteOf(opts);
   if (!remote || typeof remote.macRequest !== 'function') return 'unread';
   let raw = null;
   try { raw = await remote.macRequest('POST', STATUS, {}); } catch { /* unanswered */ }
   // Never sent (remote access not set up, or busy): the run itself says so, with its own stop and no backoff.
-  if (raw && raw.notSent) return undefined;
+  if (raw && raw.notSent) { seen.notSent = true; return undefined; }
   const st = raw && raw.ok && raw.data && typeof raw.data === 'object' ? raw : null;
   if (!st) return 'unread';
   // Status answers for the account's current membership: a plan is only this personal backup's if the org is its own.
@@ -662,7 +662,9 @@ async function plansNow(opts = {}) {
   if (!rec) return { ok: false, code: 'not_on', because: 'Personal backup is not on for this computer.' };
   const remote = remoteOf(opts);
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: PLANS_UNREAD };
-  const gb = await planOf(opts);
+  const seen = {};
+  const gb = await planOf(opts, seen);
+  if (seen.notSent) return { ok: false, because: PLANS_UNREAD };   // never asked: remote access busy or not set up
   if (gb === 'malformed') return { ok: false, because: STOP_SAY.find(([f]) => f === 'planUnreadable')[1] + '.' };
   if (gb === 'unread') return { ok: false, because: PLANS_UNREAD };
   if (gb !== null && !Number.isSafeInteger(gb)) return { ok: false, final: true, because: PLANS_UNSAID };
