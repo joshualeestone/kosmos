@@ -506,7 +506,7 @@ async function runJob(input, opts = {}) {
   const hash = before && before.consentHash;
   const planGb = await planOf(opts);
   // Before anything is listed, and not a pause to Monday: paying takes effect on the next hourly run.
-  if (planGb === null) { const out = { ok: false, personActs: true, because: NO_PLAN }; noteRun(out, opts, before); return out; }
+  if (planGb === null) { const out = { ok: false, personActs: true, noPlan: true, because: NO_PLAN }; noteRun(out, opts, before); return out; }
   if (planGb === 'unread') { const out = { ok: false, because: 'Kosmos+ could not be reached just now, so this backup waits for the next try' }; noteRun(out, opts, before); return out; }
   if (planGb === 'malformed') { const out = { ok: false, planUnreadable: true, because: 'Kosmos+ sent a backup plan this computer could not read, so this backup waits for the next try' }; noteRun(out, opts, before); return out; }
   const r = await run(input, Object.assign({ ensureMemberKey: jobKey(opts), pointerName: JOB_POINTER, requireProof: true }, planGb ? { planGb } : {}));
@@ -584,9 +584,9 @@ function noteRun(r, opts, before) {
   else if (!r.ok && same && was.skippedFiles) next.skippedFiles = was.skippedFiles;
   if (!r.ok) {
     const stopped = stopOf(r);
-    if (stopped) next.stopped = stopped;
+    if (stopped) { next.stopped = stopped; if (r.noPlan === true) next.noPlan = true; }   // #7404: the plan screen offers the plans
     else if (r.overAllowance) next.waiting = true;
-    else if (same && was.stopped) next.stopped = was.stopped;   // a passing failure says nothing about a stop
+    else if (same && was.stopped) { next.stopped = was.stopped; if (was.noPlan === true) next.noPlan = true; }   // a passing failure says nothing about a stop
   }
   try { fs.mkdirSync(root(opts), { recursive: true, mode: 0o700 }); require('./securewrite').writeSecret(path.join(root(opts), JOB_NOTE), JSON.stringify(next), 0o600, { atomicOnly: true }); } catch { /* the panel shows the last note */ }
 }
@@ -622,10 +622,10 @@ function reportNow(opts) {
   if (!mayBackUp(opts)) {
     // A company here: turning this off could not be turned back on (personal_backup_in_org), so no step is offered.
     if (companyHere(opts)) return { lastOk, stopped: null, note: 'Backups are paused while this computer belongs to a company or family account.' };
-    if (stopped) return { lastOk, stopped, note: null };
+    if (stopped) return { lastOk, stopped, note: null, ...(j.noPlan === true ? { noPlan: true } : {}) };
     return wordsUncovered(opts) ? { lastOk, stopped: WORDS_UNCOVERED, note: null } : { lastOk, stopped: null, note: 'Backups are not running on this computer just now.' };
   }
-  if (stopped) return { lastOk, stopped, note: null };
+  if (stopped) return { lastOk, stopped, note: null, ...(j.noPlan === true ? { noPlan: true } : {}) };
   // kosmos#7775: the last run's own lines follow whatever else the note says; a stop above outranks them.
   const also = (say) => { const all = [say, ...runSay(j)].filter(Boolean); return all.length ? all.join(' ') : null; };
   if (j.waiting === true) return { lastOk, stopped: null, note: also(WAITING_WEEK) };
@@ -650,25 +650,29 @@ function isOn(opts = {}) { return !!record(opts); }
 /* #7404 plan screen (design on #7404, Mona Lisa and Ice Cream Kitty, 11-02). Only once personal backup is on here: the
    preview route is then safe to call again ("the same answer, nothing new made", relay org.rs mac_personal_backup),
    while before it MAKES a membership, so it is never called just to read prices. Its org must be this board's own.
-   { ok: true, plans, planGb } (planGb: GB, null with no plan, undefined when Kosmos+ does not say) or { ok: false, because }. */
+   The status read comes first, so the preview route is called only for a membership Kosmos+ says is this backup's own.
+   { ok: true, plans, planGb } (planGb: GB, or null with no plan) or { ok: false, because }. */
 const PLANS_UNREAD = 'Kosmos+ could not be reached just now, so the plans cannot be shown. Try again in a minute.';
+const PLANS_SAY = { personal_backup_off: 'Personal backup is not available on Kosmos+ yet.' };
 async function plansNow(opts = {}) {
   const rec = record(opts);
   if (!rec) return { ok: false, code: 'not_on', because: 'Personal backup is not on for this computer.' };
   const remote = remoteOf(opts);
   if (!remote || typeof remote.macRequest !== 'function') return { ok: false, because: PLANS_UNREAD };
+  const gb = await planOf(opts);
+  if (gb === 'malformed') return { ok: false, because: STOP_SAY.find(([f]) => f === 'planUnreadable')[1] + '.' };
+  if (gb !== null && !Number.isSafeInteger(gb)) return { ok: false, because: PLANS_UNREAD };
   let r;
   try { r = await remote.macRequest('POST', ROUTE, {}); } catch { return { ok: false, because: PLANS_UNREAD }; }
   if (!r || !r.ok) {
     const c = codeOf(r);
-    return { ok: false, because: c && SAY[c] ? SAY[c].replace(/ Nothing was turned on\.?$/, '') : PLANS_UNREAD };
+    return { ok: false, because: (c && PLANS_SAY[c]) || PLANS_UNREAD };
   }
   const d = r.data;
   if (!d || !d.org || d.org.id !== rec.org.id) return { ok: false, because: 'Kosmos+ answered about another backup, so the plans cannot be shown here.' };
   const plans = cleanPlans(d.plans);
   if (!plans) return { ok: false, because: 'Kosmos+ sent plans this Kosmos cannot read. Updating Kosmos may fix it.' };
-  const gb = await planOf(opts);
-  return { ok: true, plans, planGb: gb === null || Number.isSafeInteger(gb) ? gb : undefined };
+  return { ok: true, plans, planGb: gb };
 }
 
 /* #7404 plan screen: open Stripe's page for one size (relay backup_plans.rs checkout). The client names a size, never a

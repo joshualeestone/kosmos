@@ -31,9 +31,9 @@ function pbpState() {
   return m[0] + SCRIPT.match(/\nconst PBP_CONFIRMING_MS = [^\n]*\n/)[0];
 }
 function screen(doc, fetchImpl) {
-  const src = page.liftAll(SCRIPT, ['asSentence', 'plusSiAddPrice', 'pbPost', 'pbpMsg', 'pbpRows', 'pbpShow', 'pbpRead', 'pbpPaint', 'pbpChoose']) + '\n' + pbpState();
+  const src = page.liftAll(SCRIPT, ['asSentence', 'plusSiAddPrice', 'pbPost', 'pbpMsg', 'pbpRows', 'pbpOnView', 'pbpShow', 'pbpRead', 'pbpPaint', 'pbpChoose']) + '\n' + pbpState();
   let on = true;
-  const api = new Function('document', 'fetch', 'pbPaint', src + '\nreturn { PBP, pbpShow, pbpPaint, pbpChoose, pbpRead };')(
+  const api = new Function('document', 'fetch', 'pbPaint', src + '\nreturn { PBP, pbpOnView, pbpShow, pbpPaint, pbpChoose, pbpRead };')(
     doc, fetchImpl, () => api.pbpShow(on, false));
   api.setOn = (v) => { on = v; };
   return api;
@@ -139,14 +139,46 @@ test('after a few minutes with no plan, the line says the payment is being confi
   assert.ok(vis(doc, 'pb-plans-open-row'), 'the link stays, to open the page again');
 });
 
-test('a plans read that fails says so plainly, and the rows already shown stay', async () => {
+test('a plans read that fails says so plainly, the rows stay, and a read that works clears it', async () => {
   const doc = fakeDoc();
   let fail = false;
-  const s = screen(doc, () => (fail ? Promise.reject(new Error('offline')) : answer({ ok: true, plans: PLANS, planGb: null })()));
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: true, url: STRIPE })() : fail ? Promise.reject(new Error('offline')) : answer({ ok: true, plans: PLANS, planGb: null })()));
   s.pbpShow(true, false); await tick(); await tick();
+  await s.pbpChoose(25);
   fail = true; s.PBP.at = 0; s.pbpShow(true, false); await tick(); await tick();
   assert.equal(doc.getElementById('pb-plans-msg').textContent, 'This Kosmos could not be reached. Try again.');
   assert.ok(vis(doc, 'pb-plans-list'));
+  fail = false; s.PBP.at = 0; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(doc.getElementById('pb-plans-msg').textContent, '', 'a read that worked left the old refusal up');
+});
+
+test('a refused Choose stays up when the next read works', async () => {
+  const doc = fakeDoc();
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: false, because: 'This account already has a backup plan.' })() : answer({ ok: true, plans: PLANS, planGb: null })()));
+  s.pbpShow(true, false); await tick(); await tick();
+  await s.pbpChoose(25);
+  assert.equal(doc.getElementById('pb-plans-msg').textContent, 'This account already has a backup plan.', 'CONTROL');
+  s.pbpRead(); await tick(); await tick();
+  assert.equal(doc.getElementById('pb-plans-msg').textContent, 'This account already has a backup plan.', 'a plans read cleared a refused Choose');
+});
+
+test('a first read that fails is shown, though there are no rows yet', async () => {
+  const doc = fakeDoc();
+  const s = screen(doc, answer({ ok: false, because: 'Kosmos+ could not be reached just now, so the plans cannot be shown. Try again in a minute.' }));
+  s.pbpShow(true, false); await tick(); await tick();
+  assert.ok(vis(doc, 'pb-plans'), 'the refusal sat in a hidden box');
+  assert.equal(doc.getElementById('pb-plans-msg').textContent, 'Kosmos+ could not be reached just now, so the plans cannot be shown. Try again in a minute.');
+});
+
+test('with rows and no payment page open, nothing more is read each minute; a failed read is tried again', async () => {
+  const doc = fakeDoc();
+  let calls = 0, fail = true;
+  const s = screen(doc, () => { calls++; return fail ? answer({ ok: false, because: 'x' })() : answer({ ok: true, plans: PLANS, planGb: null })(); });
+  s.pbpShow(true, false); await tick(); await tick();
+  fail = false; s.PBP.at = 0; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(calls, 2, 'CONTROL: a failed first read is tried again');
+  s.PBP.at = 0; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(calls, 2, 'the plans were read again with nothing to wait for');
 });
 
 test('personal backup going off drops the plans, the wait and any answer still out', async () => {
@@ -162,6 +194,43 @@ test('personal backup going off drops the plans, the wait and any answer still o
   assert.ok(!vis(doc, 'pb-plans'));
 });
 
-test('the on view says nothing is backed up until a plan is chosen, only when there are rows to choose', () => {
-  assert.match(SCRIPT, /PBP\.planGb === null && pbpRows\(\)\.length\) say\.textContent = 'Personal backup is on, but nothing is backed up until you choose a plan\.'/);
+/* The real no-plan stop, as the job writes it (engine/personalbackup.js NO_PLAN through report()). */
+const NO_PLAN_LINES = { stopped: 'There is no backup plan on this account, so nothing new is backed up. What is already backed up stays yours to restore.', noPlan: true, plain: '' };
+test('the run\'s no-plan stop keeps the plan screen open, says to choose, and its stop line gives way', async () => {
+  const doc = fakeDoc();
+  const s = screen(doc, answer({ ok: true, plans: PLANS, planGb: null }));
+  doc.getElementById('pb-job').hidden = false; doc.getElementById('pb-on-say').textContent = 'Personal backup has stopped on this computer.';
+  s.pbpOnView(true, NO_PLAN_LINES, false); await tick(); await tick();
+  s.pbpOnView(true, NO_PLAN_LINES, false);
+  assert.ok(vis(doc, 'pb-plans'), 'the no-plan stop hid the plans');
+  assert.deepEqual(rowsText(doc), ['25 GB, $5 a month', '100 GB, $12 a month']);
+  assert.equal(doc.getElementById('pb-on-say').textContent, 'Personal backup is on, but nothing is backed up until you choose a plan.');
+  assert.ok(!vis(doc, 'pb-job'), 'the dead-end stop line stayed beside the rows');
+});
+
+test('any other stop still hides the plan screen', async () => {
+  const doc = fakeDoc();
+  let calls = 0;
+  const s = screen(doc, () => { calls++; return answer({ ok: true, plans: PLANS, planGb: null })(); });
+  doc.getElementById('pb-job').hidden = false; doc.getElementById('pb-on-say').textContent = 'Personal backup has stopped on this computer.';
+  s.pbpOnView(true, { stopped: 'Remote access is not set up on this computer, so nothing was backed up.', noPlan: false, plain: '' }, false); await tick(); await tick();
+  assert.ok(!vis(doc, 'pb-plans')); assert.equal(calls, 0);
+  assert.ok(vis(doc, 'pb-job')); assert.equal(doc.getElementById('pb-on-say').textContent, 'Personal backup has stopped on this computer.');
+});
+
+test('the no-plan stop line stays while the plans cannot be read, so the person is told something', async () => {
+  const doc = fakeDoc();
+  const s = screen(doc, answer({ ok: false, because: 'x' }));
+  doc.getElementById('pb-job').hidden = false;
+  s.pbpOnView(true, NO_PLAN_LINES, false); await tick(); await tick();
+  s.pbpOnView(true, NO_PLAN_LINES, false);
+  assert.ok(vis(doc, 'pb-job'));
+});
+
+
+test('the off view says "from" the smallest plan\'s price; the words view keeps the plain price', () => {
+  const f = new Function(page.liftAll(SCRIPT, ['plusSiAddPrice', 'pbPrice']) + '\nreturn pbPrice;')();
+  assert.equal(f({ price: '$5/month' }, true), 'Personal backup is from $5 a month, billed to your Kosmos+ account.');
+  assert.equal(f({ price: '$5/month' }), 'Personal backup is $5 a month, billed to your Kosmos+ account.');
+  assert.equal(f({ price: null }, true), '', 'a line with no price');
 });
