@@ -205,7 +205,9 @@ runner_plist() {
   # And THIS runner's: svc.sh's template sets WorkingDirectory to the runner dir. A .service rewritten (a job can write
   # this home) to name the relay's plist, which matches the same pattern, is not followed.
   case "$f" in "$CI_HOME"/Library/LaunchAgents/actions.runner.*.plist)
-    [ -e "$f" ] && [ "$(plutil -extract WorkingDirectory raw -o - "$f" 2>/dev/null || true)" = "$RUNNER_DIR" ] && printf '%s\n' "$f" ;; esac
+    # A regular file, not a symlink, before anything reads it. plutil itself refuses a FIFO (measured 2026-11-03: rc 1 at
+    # once, no hang), so this is the stage's own guard rather than a reliance on that (#7877).
+    [ -f "$f" ] && [ ! -L "$f" ] && [ "$(plutil -extract WorkingDirectory raw -o - "$f" 2>/dev/null || true)" = "$RUNNER_DIR" ] && printf '%s\n' "$f" ;; esac
   return 0
 }
 # plist_int_ge <plist> <key> <min>: the key is an integer of at least min.
@@ -423,7 +425,7 @@ preflight() {
   # The exact line: "FileVault is Off, but will be enabled after the next restart." is not off for long.
   case "$(fdesetup status 2>&1)" in
     "FileVault is Off.") ok "FileVault off (auto-login is possible)" ;;
-    *) problem "FileVault is not plainly off ($(fdesetup status 2>&1 | head -1)): auto-login, which the runner's LaunchAgent needs after a restart, is impossible" ;;
+    *) problem "FileVault is not plainly off ($(fdesetup status 2>&1 | head -1)): after a restart the disk stays locked until someone types a password, so neither auto-login (a LaunchAgent runner) nor launchd (a LaunchDaemon runner, the daemon stage) can bring the runner back" ;;
   esac
   local pm
   pm="$(pmset -g 2>&1 || true)"
@@ -1057,13 +1059,14 @@ retired_dir_ok() {
   [ -d "$RETIRED_DIR" ] && [ ! -L "$RETIRED_DIR" ] && [ "$(stat -f '%u %g %Lp' "$RETIRED_DIR" 2>/dev/null || true)" = "0 0 700" ]
 }
 # newest_retired: the newest $RETIRED_DIR/<label>.plist.retired-<UTC stamp> that is a regular file with exactly a
-# stamp for a suffix (the stamps sort as text), or nothing. Any other name is skipped, never printed.
+# stamp for a suffix (the stamps sort as text), or nothing. Any other name is skipped, never printed, and so is an empty
+# file (a copy that failed half way): putting it back would write an empty agent.
 newest_retired() {
   local f n=""
   retired_dir_ok || return 0
   for f in "$RETIRED_DIR/$label.plist.retired-"*; do
     case "${f##*.retired-}" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;; *) continue ;; esac
-    [ -f "$f" ] && [ ! -L "$f" ] && n="$f"
+    [ -f "$f" ] && [ ! -L "$f" ] && [ -s "$f" ] && n="$f"
   done
   printf '%s' "$n"
 }
@@ -1072,12 +1075,13 @@ agent_path_safe() { [ ! -L "$CI_HOME/Library" ] && [ ! -L "$CI_HOME/Library/Laun
 # agent_file_ok: the agent is a regular file on a safe path, and not the daemon plist itself by another name.
 agent_file_ok() { agent_path_safe && [ -f "$agent" ] && ! [ "$agent" -ef "$dplist" ]; }
 # put_back_cmd <retired>: the command an operator pastes to put the agent back. The CI user writes the file in its own
-# home (tee as $CI_USER), so root never writes into a directory a job controls.
-put_back_cmd() { printf "sudo cat %s | sudo -u %s tee %s >/dev/null && sudo rm %s" "$1" "$CI_USER" "$agent" "$1"; }
+# home (tee as $CI_USER), so root never writes into a directory a job controls. An operator's shell has no pipefail, so a
+# cat that fails still lets tee succeed: the retired copy is removed only when the agent is byte for byte the same.
+put_back_cmd() { printf "sudo test -s %s && sudo cat %s | sudo -u %s tee %s >/dev/null && sudo cmp -s %s %s && sudo rm %s" "$1" "$1" "$CI_USER" "$agent" "$1" "$agent" "$1"; }
 # put_back <retired>: the same, done by the stage (as root).
 put_back() {
-  agent_path_safe && [ ! -e "$agent" ] && [ -f "$1" ] || return 1
-  cat "$1" | sudo -u "$CI_USER" tee "$agent" >/dev/null && rm -f "$1"
+  agent_path_safe && [ ! -e "$agent" ] && [ -f "$1" ] && [ -s "$1" ] || return 1
+  cat "$1" | sudo -u "$CI_USER" tee "$agent" >/dev/null && cmp -s "$1" "$agent" && rm -f "$1"
 }
 # ppid_chain_has <pid> <ancestor>: <ancestor> is <pid> or one of its parents.
 ppid_chain_has() {
@@ -1136,6 +1140,10 @@ daemon() {
     [ ! -L "$0" ] && [ ! -L "$self" ] || { echo "refused: $0 is a symlink, and --apply daemon runs as root; run the file itself, from the owner's checkout or a root-owned copy" >&2; exit 2; }
     case "${sm%% *}" in 0|"${SUDO_UID:-0}") ;; *) sm="";; esac   # owned by root or by whoever ran sudo, nobody else
     case "$sm" in "$ciuid "*|*" "?[2367]?|*" "??[2367]|"") echo "refused: $self is not owned by root or by the sudo caller, is owned by $CI_USER, is writable by others, or is unreadable (stat: ${sm:-none}), and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
+    # And its directory: whoever can write that can rename another file over this one between the check and the run.
+    local pd pm; pd="$(dirname "$self")"; pm="$(stat -f '%u %Lp' "$pd" 2>/dev/null || true)"
+    case "${pm%% *}" in 0|"${SUDO_UID:-0}") ;; *) pm="";; esac
+    case "$pm" in "$ciuid "*|*" "?[2367]?|*" "??[2367]|"") echo "refused: $pd, the directory of $self, is not owned by root or by the sudo caller, or is writable by others (stat: ${pm:-none}), so the file could be replaced by a rename, and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
   fi
   local label; label="$(runner_label)"
   local dplist="$DAEMON_DIR/$label.plist" agent="$CI_HOME/Library/LaunchAgents/$label.plist"
@@ -1159,7 +1167,7 @@ daemon() {
     # Only the agent plist came back (a svc.sh install, a restore): the daemon is fine, nothing to stop.
     local back
     if agent_file_ok; then
-      back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir: sudo mkdir -p -m 700 $RETIRED_DIR; sudo cat $agent | sudo tee $RETIRED_DIR/$label.plist.retired-$stamp >/dev/null && sudo -u $CI_USER rm $agent (the CI user removes it, so a path swapped for a symlink cannot make root remove the daemon plist)"
+      back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir: sudo mkdir -p -m 700 $RETIRED_DIR && sudo cp $agent $RETIRED_DIR/$label.plist.retired-$stamp && sudo cmp -s $agent $RETIRED_DIR/$label.plist.retired-$stamp && sudo -u $CI_USER rm $agent (one copy that fails loud, compared before the remove; the CI user removes it, so a path swapped for a symlink cannot make root remove the daemon plist)"
     else
       # A symlink on the path (a job can make one) could make "the agent" the daemon plist itself: print no move.
       back="the daemon runs, but $agent exists and is not a plain file on a plain path in $CI_HOME (a symlink, or the daemon plist itself by another name); no command is printed for it: look at it as root before moving anything"
@@ -1175,7 +1183,8 @@ daemon() {
   [ -n "$why" ] || [ -z "$foreign" ] || why="this runner's Listener runs outside the daemon (pid $foreign: a manual runsvc.sh start or its LaunchAgent), and a daemon would start a second one for the same runner; stop it between jobs first (kill its runsvc.sh and Runner.Listener)"
   if [ -z "$why" ] && [ "$dloaded" = 1 ]; then
     if [ "$dok" = 1 ]; then
-      why="system/$label is loaded and runs no Listener right now: it is restarting, or the runner is updating itself; run this again in a minute"
+      if [ -z "$dpid" ]; then why="system/$label is loaded and has no pid right now: it is restarting; run this again in a minute"
+      else why="system/$label is loaded and runs no Listener right now: it is restarting, or the runner is updating itself; run this again in a minute"; fi
     else
       why="system/$label is loaded but $dplist is not what this stage writes; to load it again: sudo launchctl bootout system/$label"
     fi
@@ -1409,7 +1418,7 @@ EOF
   # ps reads THIS Mac only, and an unknown user makes it fail with no lines, which must not read as "nothing left".
   if ! id "$CI_USER" >/dev/null 2>&1; then problem "no user $CI_USER on this Mac: run verify on the runner's own Mac"
   # macOS ps -U exits 1 for a user with no processes, which here means the user is not logged in.
-  elif ! left="$(ps -U "$CI_USER" -o args=)"; then problem "$CI_USER runs no processes (not logged in? the runner needs auto-login), or ps failed"
+  elif ! left="$(ps -U "$CI_USER" -o args=)"; then problem "$CI_USER runs no processes, so the runner is not running (on its LaunchAgent: not logged in, and it needs auto-login; on the daemon: tools/ci-runner-setup.sh daemon, a dry run, says why), or ps failed"
   # The busy flag was read before ps: read it again, and a job that started or ended in between is a rerun.
   elif [ -n "$row" ] && ! busy2="$(runner_busy)"; then problem "could not read the runners API a second time"
   elif [ -n "$row" ] && [ -z "$busy2" ]; then problem "the runner left the API during verify; run verify again"
