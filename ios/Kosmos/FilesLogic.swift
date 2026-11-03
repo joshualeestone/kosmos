@@ -217,9 +217,10 @@ extension Board {
         return true
     }
     /* kosmos#7850: a refusal the board marks as lasting (`passing: false`). A board since #7850 marks every refusal the
-       LISTING itself makes, one way or the other; a refusal sent before the listing runs (a name it cannot read, the
-       agent or project being gone) and every refusal from an older board carry no mark, and keep the list as
-       filesKeepsShown always has (the owner being gone is handled by filesOwnerGone). */
+       LISTING itself makes, one way or the other, and the "Files is a link" refusal too (marked lasting); a refusal sent
+       before the listing runs (a name it cannot read, the agent or project being gone) and every refusal from an older
+       board carry no mark, and keep the list as filesKeepsShown always has (the owner being gone is handled by
+       filesOwnerGone). */
     static func filesLastingRefusal(status: Int, body: Data?) -> Bool {
         guard status != 0 else { return false }
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -250,8 +251,8 @@ extension Board {
         return filesKeepsShown(r)
     }
     /* The agent page's section, the same rule in its own states: a list is rows (or hidden when empty); the owner being
-       gone (the flat list sends a 404 only for "no agent") and a refusal marked lasting (kosmos#7850) are a message, which
-       replaces rows; everything else is forNow or noAnswer, which keep them (filesSectionAfter). The Files screen's filesScreenKeepsShown is tested beside it. */
+       gone (the flat list sends a 404 only for "no agent") and a refusal marked lasting (kosmos#7850) are a message,
+       which replaces rows; everything else is forNow or noAnswer, which keep them (filesSectionAfter). The Files screen's filesScreenKeepsShown is tested beside it. */
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
         if status == 401 || status == 403 { return .forNow(phoneShutOut) }   // kosmos#7840: never the gate's words
         if filesOwnerGone(status: status, body: body) { return .message(filesAgentNoFolder) }
