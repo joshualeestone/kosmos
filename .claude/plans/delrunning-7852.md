@@ -49,3 +49,10 @@ Windows only (the flag is set where the hold is, which is Windows only).
   and clears DEL_PLAN only when it is this agent's; loadLeftover leaves DEL_PLAN alone while a dialog is open for another
   agent (the poll reads here now).
 - Weakest premise now: the no-card poll arm is checked by source text only (the poll function is not run in a test).
+
+## Review round 4
+- A running answer takes the agent's plan away whichever page is on screen (a dialog opened from the removed list
+  could turn Delete on again by typing the name).
+- fetchLeftoverPlan marks a plan it made from the route's 400 or 500 (`failed: true`); while the block says running, a
+  failed request changes nothing, as an unreadable one does. #7856's shape test records the mark.
+- Still checked by source text only: the poll's two re-read sites (the poll function is not run in a test).

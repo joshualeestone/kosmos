@@ -50188,7 +50188,7 @@ async function fetchLeftoverPlan(name) {
     // kosmos#7852: the route's own 200 is a plan. Its 400 or 500 says why in `error`, which is the board refusing in its
     // own words. Anything else (a proxy's page or JSON) is no plan: only then has the board not been heard.
     if (res.ok && plan && typeof plan.ok === 'boolean') return plan;
-    if (!res.ok && plan && typeof plan.error === 'string' && plan.error.trim()) return { ok: false, because: plan.error };
+    if (!res.ok && plan && typeof plan.error === 'string' && plan.error.trim()) return { ok: false, because: plan.error, failed: true };   // kosmos#7852: not a plan the engine made
     return null;
   } catch { return null; }
 }
@@ -50266,11 +50266,12 @@ let DEL_RUNNING_FOR = null;
    plan to open. Only for the agent on screen. */
 function paintLeftoverRunning(plan, name) {
   const lower = String(name).toLowerCase();
+  // The name's plan goes whichever page is on screen (a dialog opened from the removed list must not offer it again).
+  if (DEL_PLAN && String(DEL_PLAN.name).toLowerCase() === lower) DEL_PLAN = null;
   if (typeof CURRENT === 'undefined' || !CURRENT || String(CURRENT.sessionName).toLowerCase() !== lower) return;
   const box = document.getElementById('d-delete-leftover');
   if (!box) return;
   DEL_TOKEN += 1;   // as deleteForgetPlan: a loadLeftover still in flight carries the plan from before
-  if (DEL_PLAN && String(DEL_PLAN.name).toLowerCase() === lower) DEL_PLAN = null;   // an open dialog's plan for another agent stays
   DEL_RUNNING_FOR = lower;
   const w = String(plan.because || '');
   const hint = document.getElementById('d-delete-hint');
@@ -50290,9 +50291,9 @@ async function loadLeftover(sessionName) {
   if (mine !== DEL_TOKEN || !CURRENT || CURRENT.sessionName !== sessionName) return;
   /* kosmos#7852: a delete of this agent's files is running (a Windows move can take minutes, and a page reloaded meanwhile
      asks again): the block says so in the board's words, with no button, rather than hiding as if nothing were left. An
-     answer that could not be read while it shows running changes nothing; the next poll asks again. */
+     answer that could not be read, or a failed request, while it shows running changes nothing; the next poll asks again. */
   if (plan && plan.running) { paintLeftoverRunning(plan, sessionName); return; }
-  if (!plan && DEL_RUNNING_FOR === lower) return;
+  if ((!plan || plan.failed) && DEL_RUNNING_FOR === lower) return;
   DEL_RUNNING_FOR = null;
   const start = document.getElementById('d-delete-start');
   if (start) start.hidden = false;

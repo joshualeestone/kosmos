@@ -304,8 +304,8 @@ test('fetchLeftoverPlan, the read the detail page and the removed list share: on
   assert.equal(await read(json(200, { ok: true, name: 'Miles' })), JSON.stringify({ ok: true, name: 'Miles' }), 'the plan');
   assert.equal(await read(json(200, { ok: false, because: 'Miles is running' })), JSON.stringify({ ok: false, because: 'Miles is running' }), 'a refusal');
   assert.equal(await read(json(500, { error: 'we could not work out what is left of this agent' })),
-    JSON.stringify({ ok: false, because: 'we could not work out what is left of this agent' }), 'a 500 says why: a refusal in the board\'s words');
-  assert.equal(await read(json(400, { error: 'that is not a name we can read' })), JSON.stringify({ ok: false, because: 'that is not a name we can read' }));
+    JSON.stringify({ ok: false, because: 'we could not work out what is left of this agent', failed: true }), 'a 500 says why: a refusal in the board\'s words, marked as a failed request (kosmos#7852)');
+  assert.equal(await read(json(400, { error: 'that is not a name we can read' })), JSON.stringify({ ok: false, because: 'that is not a name we can read', failed: true }));
   assert.equal(await read(json(200, { message: 'hi' })), 'null', 'a 200 that is not a plan is no plan');
   assert.equal(await read(json(502, { message: 'Bad Gateway' })), 'null', 'a gateway\'s JSON is no plan');
   assert.equal(await read(proxyPage), 'null', 'a page that is not JSON is no plan');
@@ -340,4 +340,12 @@ test('kosmos#7852 a delete still running shows the agent\'s block as running at 
   control.ctx.show({ ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' });
   assert.equal(control.els['d-delete-leftover'].hidden, true, 'CONTROL: another refusal still takes the block away');
   assert.equal(control.ctx.state().DEL_RUNNING_FOR, null);
+});
+
+test('kosmos#7852 a running answer for an agent whose page is not on screen still takes that agent\'s plan away', () => {
+  const d = dialog(offered, 'Ada');   // the dialog is Miles's (from the removed list); the page on screen is Ada's
+  d.ctx.setPlan({ ...offered, typeToConfirm: 'Miles' });
+  d.ctx.show({ ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' });
+  assert.equal(d.ctx.state().DEL_PLAN, null, 'the dialog can still turn Delete on by typing the name while the delete runs');
+  assert.equal(d.ctx.state().DEL_RUNNING_FOR, null, 'Ada\'s page was told Miles\'s delete is running');
 });
