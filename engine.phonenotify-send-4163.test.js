@@ -57,7 +57,7 @@ function runChild(coordinator, event) {
     + " fs.mkdirSync(p.dirname(r.FILE), { recursive: true }); fs.writeFileSync(r.FILE, JSON.stringify({ on: true }));"
     + " const pn = require(process.env.PN); pn.setAvailableForTests(true); const ev = JSON.parse(process.env.EVENT);"
     // kosmos#7212 review 7: an event marked _result hears, on stderr, whether the push is settled.
-    + " if (ev._result) ev.onResult = (ok) => process.stderr.write('RESULT:' + ok + '\\n'); pn.happened(ev);";
+    + " if (ev._result) ev.onResult = (ok) => process.stderr.write('RESULT:' + ok + '\\n'); if (ev._ack) pn.acked(ev._ack); else pn.happened(ev);";   // kosmos#7802: _ack runs acked() instead
   return new Promise((resolve) => {
     const started = Date.now();
     let stderr = '';
@@ -208,4 +208,21 @@ test('#7212 a 2xx or a 4xx settles a push; a 5xx, a 429 or no coordinator at all
     const p = await runChild(`http://127.0.0.1:${plain.port}`, EVENT);
     assert.equal(/RESULT:/.test(p.stderr), false, 'CONTROL: a push with no onResult says nothing');
   } finally { plain.srv.close(); }
+});
+
+/* kosmos#7802: a refused or unreachable stall ack is named as an ack, not as a notification. */
+test('kosmos#7802: a refused ack and an unreachable coordinator are logged as an ack', async () => {
+  const c = await coordinator(401);
+  try {
+    const r = await runChild(`http://127.0.0.1:${c.port}`, { _ack: 'stall:0:2026-11-02T10:00:00.000Z:s-ack' });
+    assert.equal(c.seen.length, 1, 'the ack never reached the coordinator');
+    assert.match(r.stderr, /Kosmos\+ answered 401 to an ack/);
+    assert.doesNotMatch(r.stderr, /to a notification/);
+    assert.ok(!r.stderr.includes(TOKEN), 'the token reached the log');
+  } finally { c.srv.close(); }
+  const port = await new Promise((resolve) => {
+    const s = net.createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); });
+  });
+  const r2 = await runChild(`http://127.0.0.1:${port}`, { _ack: 'stall:0:2026-11-02T10:00:00.000Z:s-ack' });
+  assert.match(r2.stderr, /could not reach Kosmos\+ for an ack: ECONNREFUSED/);
 });

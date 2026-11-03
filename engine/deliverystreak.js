@@ -410,7 +410,7 @@ function tellStalls(cards, { now = Date.now(), file, send, ownBound = null }) {
     /* kosmos#7794: a retry under the same id joins the open entry once it is taken: every agent it lists is open again,
        and agents the first push covered are still waited for. */
     const open = pushOpen.get(ev.id);
-    if (!open) pushOpen.set(ev.id, { at: now, all: sessions.slice(), open: new Set(sessions) });
+    if (!open) pushOpen.set(ev.id, { at: now, first: now, all: sessions.slice(), open: new Set(sessions) });   // kosmos#7802: `first` is never moved by a retry
     let took = false;
     try { took = send(ev) === true; } catch { took = false; }
     if (took) {
@@ -439,8 +439,13 @@ const pushOpen = new Map();
    then. An entry past PUSH_OPEN_MS is dropped. */
 const ACK_AFTER_MS = 25 * 60 * 1000;
 const PUSH_OPEN_MS = 60 * 60 * 1000;
+/* kosmos#7802: the coordinator decides the email 30 minutes after it got the push (NEEDS_YOU_DUE_SECS); an ack after that
+   is marked late, so the board log can explain an email that went anyway. Measured from the FIRST push the sender took: the
+   coordinator keeps the first row of an id, so a retry does not move its mark. */
+const EMAIL_DECIDED_MS = 30 * 60 * 1000;
 /* The ids to ack now, given this minute's ends (endsToSay's entries, each { name }). A push is acked once it is
-   ACK_AFTER_MS old, every agent it covered was seen to recover, and none of them is failing again. An agent that never
+   ACK_AFTER_MS old, every agent it covered was seen to recover, and none of them is failing again. Each is
+   { id, late }. An agent that never
    reports an end (a stuck turn, one that left the board) keeps its push open, so its email goes as before. Each id is
    returned once. Never throws. */
 function acksDue(ends, now = Date.now()) {
@@ -454,7 +459,7 @@ function acksDue(ends, now = Date.now()) {
     for (const [id, p] of [...pushOpen]) {
       if (!(p.at <= now && now - p.at < PUSH_OPEN_MS)) { pushOpen.delete(id); continue; }
       if (now - p.at < ACK_AFTER_MS) continue;
-      if (p.open.size === 0 && !p.all.some((s) => streaks.has(s))) { out.push(id); pushOpen.delete(id); }
+      if (p.open.size === 0 && !p.all.some((s) => streaks.has(s))) { out.push({ id, late: now - p.first >= EMAIL_DECIDED_MS }); pushOpen.delete(id); }
     }
   } catch { /* acked next minute, or emailed as before */ }
   return out;

@@ -548,7 +548,7 @@ function routeFor(event) {
 /* kosmos#7212 review 6: `done(ok)`, when given, is told once whether the push is settled, so a caller that counts a push
    can take it back when a retry could still land it. Review 7: ok is false only for what a retry can fix (no answer, a
    network error, a timeout, a 5xx or a 429); a 2xx, or a 4xx that will refuse again (a revoked token), is settled. */
-function defaultSend(url, headers, body, done = null) {
+function defaultSend(url, headers, body, done = null, what = 'a notification') {   // kosmos#7802: `what` names the request in the log
   let said = false;
   const tell = (ok) => { if (said || typeof done !== 'function') return; said = true; try { done(ok); } catch { /* the caller's */ } };
   const u = new URL(url);
@@ -559,14 +559,14 @@ function defaultSend(url, headers, body, done = null) {
       // A refused send stops notifications with no other symptom, so say so in
       // the board's log (never the token or the payload).
       if (res.statusCode < 200 || res.statusCode >= 300) {
-        process.stderr.write('phonenotify: Kosmos+ answered ' + res.statusCode + ' to a notification\n');
+        process.stderr.write('phonenotify: Kosmos+ answered ' + res.statusCode + ' to ' + what + '\n');
       }
       tell(res.statusCode < 500 && res.statusCode !== 429);
       res.resume();
     },
   );
   req.on('error', (err) => {
-    process.stderr.write('phonenotify: could not reach Kosmos+: ' + ((err && err.code) || 'error') + '\n');
+    process.stderr.write('phonenotify: could not reach Kosmos+' + (what === 'a notification' ? '' : ' for ' + what) + ': ' + ((err && err.code) || 'error') + '\n');
     tell(false);
   });
   req.on('timeout', () => { try { req.destroy(); } catch { /* gone */ } });
@@ -639,9 +639,10 @@ function happened(event) {
 /** kosmos#7794: tell the coordinator a needs_you push it holds is dealt with (POST /v1/mac/notify-ack, #3540), so its
     deferred email never goes. `eventId` is the id happened() was given; it is cut exactly as happened() cut it, so the
     coordinator matches the row it stored. It does not ask the phone switch (a person who turned phone notices off after
-    the push still should not be emailed about something that is over), but it does ask Kosmos+'s. Returns true when it handed the ack
-    to the coordinator. Never throws. */
-function acked(eventId) {
+    the push still should not be emailed about something that is over), but it does ask Kosmos+'s. kosmos#7802: `late`
+    true when the ack goes after the coordinator decided the email, which the log line says. Returns true when it
+    handed the ack to the coordinator. Never throws. */
+function acked(eventId, { late = false } = {}) {
   try {
     if (!available) return false;
     if (typeof eventId !== 'string' || !eventId) return false;
@@ -652,8 +653,10 @@ function acked(eventId) {
     if (!plusLive()) return false;   // #6488: Kosmos+ switched off here sends nothing about agents, an ack included
     const sentId = cap(eventId, CAPS.id);
     const body = JSON.stringify(addressed(s.notifyId, { eventId: sentId }));
-    (sender || defaultSend)(coordinatorUrl(ACK_ROUTE), { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body, null);
-    process.stderr.write('phonenotify: acked ' + require('./phonenotice').idKind(eventId) + ' ref ' + require('./phonenotice').idRef(sentId) + '\n');
+    (sender || defaultSend)(coordinatorUrl(ACK_ROUTE), { 'content-type': 'application/json', 'x-kosmos-notify-token': s.token }, body, null, 'an ack');
+    const notice = require('./phonenotice');
+    process.stderr.write('phonenotify: acked ' + notice.idKind(eventId) + ' ref ' + notice.idRef(sentId)
+      + (late === true ? ', after its email was decided (it may have gone)' : '') + '\n');
     return true;
   } catch { return false; }
 }

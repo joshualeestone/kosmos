@@ -64,6 +64,7 @@ function pushedStalls(names, { answer = true } = {}) {
   return { said, ev: sent[0] };
 }
 const recover = (name, said, at) => { ds.note(name, PLACED, at); return ds.endsToSay(said); };
+const idsOf = (acks) => acks.map((a) => a.id);   // kosmos#7802: acksDue answers { id, late }
 
 test.beforeEach(() => ds.resetForTests());
 /* The push goes out at T0 + 40 min (pushedStalls), so the earliest an ack can go is 25 minutes later. */
@@ -74,34 +75,34 @@ test('one pushed stall that recovers is acked once, 25 minutes after the push, w
   const { said, ev } = pushedStalls(['a1']);
   const ends = recover('a1', said, PUSH + 5 * MIN);
   assert.equal(ends.length, 1);
-  assert.deepEqual(ds.acksDue(ends, PUSH + 5 * MIN), [], 'acked before the coordinator would read it');
-  assert.deepEqual(ds.acksDue([], DUE - MIN), [], 'acked a minute early');
-  assert.deepEqual(ds.acksDue([], DUE), [ev.id]);
-  assert.deepEqual(ds.acksDue([], DUE + MIN), [], 'acked twice');
+  assert.deepEqual(idsOf(ds.acksDue(ends, PUSH + 5 * MIN)), [], 'acked before the coordinator would read it');
+  assert.deepEqual(idsOf(ds.acksDue([], DUE - MIN)), [], 'acked a minute early');
+  assert.deepEqual(idsOf(ds.acksDue([], DUE)), [ev.id]);
+  assert.deepEqual(idsOf(ds.acksDue([], DUE + MIN)), [], 'acked twice');
 });
 
 test('a push covering several agents is acked only when the last of them recovers', () => {
   const { said, ev } = pushedStalls(['m1', 'm2', 'm3']);
   assert.match(ev.agent, /and 2 more$/, 'precondition: the push named the others');
-  assert.deepEqual(ds.acksDue(recover('m1', said, PUSH + 5 * MIN), DUE), [], 'acked while m2 and m3 were still stalled');
-  assert.deepEqual(ds.acksDue(recover('m3', said, DUE + MIN), DUE + MIN), [], 'acked while m2 was still stalled');
-  assert.deepEqual(ds.acksDue(recover('m2', said, DUE + 2 * MIN), DUE + 2 * MIN), [ev.id]);
+  assert.deepEqual(idsOf(ds.acksDue(recover('m1', said, PUSH + 5 * MIN), DUE)), [], 'acked while m2 and m3 were still stalled');
+  assert.deepEqual(idsOf(ds.acksDue(recover('m3', said, DUE + MIN), DUE + MIN)), [], 'acked while m2 was still stalled');
+  assert.deepEqual(idsOf(ds.acksDue(recover('m2', said, DUE + 2 * MIN), DUE + 2 * MIN)), [ev.id]);
 });
 
 test('an agent that recovers and stalls again before the ack is due keeps its email', () => {
   const { said, ev } = pushedStalls(['f1']);
   const ends = recover('f1', said, PUSH + 5 * MIN);
-  assert.deepEqual(ds.acksDue(ends, PUSH + 5 * MIN), [], 'acked before it was due');
+  assert.deepEqual(idsOf(ds.acksDue(ends, PUSH + 5 * MIN)), [], 'acked before it was due');
   ds.note('f1', FAIL, PUSH + 8 * MIN);   // stalled again: the old push's email is its only warning
-  assert.deepEqual(ds.acksDue([], DUE), [], 'acked while the agent was failing again');
+  assert.deepEqual(idsOf(ds.acksDue([], DUE)), [], 'acked while the agent was failing again');
   ds.note('f1', PLACED, DUE + 2 * MIN);   // that streak ends (never said, so it reports no end)
-  assert.deepEqual(ds.acksDue([], DUE + 3 * MIN), [ev.id], 'not acked once it stopped failing');
+  assert.deepEqual(idsOf(ds.acksDue([], DUE + 3 * MIN)), [ev.id], 'not acked once it stopped failing');
 });
 
 test('a push whose answer was a failure is still acked once it is over (the coordinator may hold it)', () => {
   const { said, ev } = pushedStalls(['x1']);
   ev.onResult(false);   // Kosmos+ answered badly (tellStalls' untold); it may still have stored the push
-  assert.deepEqual(ds.acksDue(recover('x1', said, PUSH + 5 * MIN), DUE), [ev.id]);
+  assert.deepEqual(idsOf(ds.acksDue(recover('x1', said, PUSH + 5 * MIN), DUE)), [ev.id]);
 });
 
 test('a retry of a failed push joins it, and its clock starts at the retry (the coordinator may hold only the retry)', () => {
@@ -112,8 +113,8 @@ test('a retry of a failed push joins it, and its clock starts at the retry (the 
   assert.equal(again.length, 1, 'precondition: the push was retried');
   assert.equal(again[0].id, ev.id, 'precondition: the retry carries the same id');
   const ends = recover('r1', said, PUSH + 20 * MIN);
-  assert.deepEqual(ds.acksDue(ends, DUE), [], 'acked 25 minutes after the first push, though the coordinator may hold only the retry');
-  assert.deepEqual(ds.acksDue([], PUSH + 16 * MIN + 25 * MIN), [ev.id], 'not acked 25 minutes after the retry');
+  assert.deepEqual(idsOf(ds.acksDue(ends, DUE)), [], 'acked 25 minutes after the first push, though the coordinator may hold only the retry');
+  assert.deepEqual(idsOf(ds.acksDue([], PUSH + 16 * MIN + 25 * MIN)), [ev.id], 'not acked 25 minutes after the retry');
 });
 
 test('a retry that leaves out an agent the push covered keeps waiting for that agent', () => {
@@ -132,13 +133,13 @@ test('a retry that leaves out an agent the push covered keeps waiting for that a
   assert.equal(pushes[2].agent, pushes[1].agent.replace(/ and 1 more$/, ''), 'precondition: the retry left j2 out');
   const ends = recover('j1', said, PUSH + 40 * MIN);
   ds.reset('j2');   // j2's streak is cleared with no end, so only the push's own list can still hold the ack
-  assert.deepEqual(ds.acksDue(ends, PUSH + 32 * MIN + 25 * MIN), [], 'acked while j2, which the push named, never recovered');
+  assert.deepEqual(idsOf(ds.acksDue(ends, PUSH + 32 * MIN + 25 * MIN)), [], 'acked while j2, which the push named, never recovered');
 });
 
 test('a retry reopens an agent it lists again, even one an earlier end had cleared', () => {
   const { said, ev } = pushedStalls(['k1', 'k2']);   // one push, under k1's id
   ev.onResult(false);                                 // both taken back
-  ds.acksDue(recover('k2', said, PUSH + 5 * MIN), PUSH + 5 * MIN);   // k2's end clears it from the push
+  idsOf(ds.acksDue(recover('k2', said, PUSH + 5 * MIN), PUSH + 5 * MIN));   // k2's end clears it from the push
   for (let i = 0; i < 4; i += 1) ds.note('k2', FAIL, PUSH + 6 * MIN + i * MIN);   // and k2 stalls again
   const again = [];
   ds.tellStalls([stalledCard('k1'), stalledCard('k2')], { now: PUSH + 16 * MIN, send: (e) => { again.push(e); return true; } });
@@ -147,7 +148,7 @@ test('a retry reopens an agent it lists again, even one an earlier end had clear
   assert.match(again[0].agent, /and 1 more$/, 'precondition: the retry lists k2 again');
   ds.reset('k2');   // k2's new streak is cleared with no end
   const ends = recover('k1', said, PUSH + 20 * MIN);
-  assert.deepEqual(ds.acksDue(ends, PUSH + 16 * MIN + 25 * MIN), [], 'acked though k2, listed again by the retry, never recovered');
+  assert.deepEqual(idsOf(ds.acksDue(ends, PUSH + 16 * MIN + 25 * MIN)), [], 'acked though k2, listed again by the retry, never recovered');
 });
 
 test('an agent a retry added is held by its failing again, like the agents the first push covered', () => {
@@ -163,7 +164,7 @@ test('an agent a retry added is held by its failing again, like the agents the f
   const ends = [...recover('c1', said, PUSH + 20 * MIN), ...recover('c2', said, PUSH + 21 * MIN)];
   assert.equal(ends.length, 2, 'precondition: both reported an end');
   ds.note('c2', FAIL, PUSH + 22 * MIN);   // c2 is failing again
-  assert.deepEqual(ds.acksDue(ends, PUSH + 16 * MIN + 25 * MIN), [], 'acked while c2, which the retry named, was failing again');
+  assert.deepEqual(idsOf(ds.acksDue(ends, PUSH + 16 * MIN + 25 * MIN)), [], 'acked while c2, which the retry named, was failing again');
 });
 
 test('a retry the sender did not take changes nothing in the open push', () => {
@@ -177,7 +178,7 @@ test('a retry the sender did not take changes nothing in the open push', () => {
   assert.equal(pushes.length, 2, 'precondition: the retry was offered');
   assert.equal(pushes[1].id, pushes[0].id, 'precondition: under the same id');
   ds.reset('u2');   // u2 never recovers through an end; it was never in a push that went out
-  assert.deepEqual(ds.acksDue(recover('u1', said, PUSH + 5 * MIN), DUE), [pushes[0].id], 'the untaken retry added u2 or moved the clock');
+  assert.deepEqual(idsOf(ds.acksDue(recover('u1', said, PUSH + 5 * MIN), DUE)), [pushes[0].id], 'the untaken retry added u2 or moved the clock');
 });
 
 test('an end clears an agent only from pushes made before it ended', () => {
@@ -195,7 +196,7 @@ test('an end clears an agent only from pushes made before it ended', () => {
     { now: LATER, send: (ev) => { sent.push(ev); return true; } });
   assert.equal(sent.length, 1, 'precondition: the later stall was pushed');
   ds.note('e1', PLACED, LATER + 5 * MIN);   // it recovers, but its own end is not read yet
-  assert.deepEqual(ds.acksDue(early, LATER + 25 * MIN), [], 'an end from before the push cleared it');
+  assert.deepEqual(idsOf(ds.acksDue(early, LATER + 25 * MIN)), [], 'an end from before the push cleared it');
 });
 
 test('a sender that throws opens nothing', () => {
@@ -203,7 +204,7 @@ test('a sender that throws opens nothing', () => {
   for (let i = 0; i < 4; i += 1) ds.note('t1', FAIL, T0 + i * MIN);
   ds.stallsToSay(['t1'], said, { now: PUSH });
   ds.tellStalls([stalledCard('t1')], { now: PUSH, send: () => { throw new Error('a sender that fails'); } });
-  assert.deepEqual(ds.acksDue(recover('t1', said, PUSH + 5 * MIN), DUE), [], 'acked a push that was never handed over');
+  assert.deepEqual(idsOf(ds.acksDue(recover('t1', said, PUSH + 5 * MIN), DUE)), [], 'acked a push that was never handed over');
 });
 
 test('a push the sender did not take opens nothing', () => {
@@ -213,7 +214,7 @@ test('a push the sender did not take opens nothing', () => {
   let sent = 0;
   ds.tellStalls([stalledCard('n1')], { now: PUSH, send: () => { sent += 1; return false; } });
   assert.equal(sent, 1, 'precondition: the push was offered');
-  assert.deepEqual(ds.acksDue(recover('n1', said, PUSH + 5 * MIN), DUE), [], 'acked a push that was never handed over');
+  assert.deepEqual(idsOf(ds.acksDue(recover('n1', said, PUSH + 5 * MIN), DUE)), [], 'acked a push that was never handed over');
 });
 
 test('nothing is acked after a restart, or for an agent that never reports an end', () => {
@@ -224,30 +225,30 @@ test('nothing is acked after a restart, or for an agent that never reports an en
   assert.equal(ds.stallsToSay(['x2'], said, { now: PUSH }).length, 1, 'precondition: the same stall is said again');
   const ends = recover('x2', said, PUSH + 5 * MIN);
   assert.equal(ends.length, 1, 'precondition: its end is reported, so only the lost push can hold the ack');
-  assert.deepEqual(ds.acksDue(ends, DUE), [], 'acked a push made before the restart');
+  assert.deepEqual(idsOf(ds.acksDue(ends, DUE)), [], 'acked a push made before the restart');
 
   ds.resetForTests();
   const reset = pushedStalls(['x3']);
   ds.reset('x3');   // the card speaks for itself now; no end is ever reported
-  assert.deepEqual(ds.acksDue(ds.endsToSay(reset.said), DUE), [], 'acked an agent that never recovered');
+  assert.deepEqual(idsOf(ds.acksDue(ds.endsToSay(reset.said), DUE)), [], 'acked an agent that never recovered');
 
   /* CONTROL: the same shape, recovered, is acked (so the empty answers above are the rules, not a dead function). */
   ds.resetForTests();
   const ok = pushedStalls(['x4']);
-  assert.deepEqual(ds.acksDue(recover('x4', ok.said, PUSH + 5 * MIN), DUE), [ok.ev.id]);
+  assert.deepEqual(idsOf(ds.acksDue(recover('x4', ok.said, PUSH + 5 * MIN), DUE)), [ok.ev.id]);
 });
 
 test('an open push with a time from the future (a clock that went back) is dropped, not acked', () => {
   const { said } = pushedStalls(['z1']);
   const ends = recover('z1', said, PUSH + 5 * MIN);
-  assert.deepEqual(ds.acksDue(ends, PUSH - MIN), [], 'acked a push from the future');
-  assert.deepEqual(ds.acksDue([], DUE), [], 'kept a push from the future');
+  assert.deepEqual(idsOf(ds.acksDue(ends, PUSH - MIN)), [], 'acked a push from the future');
+  assert.deepEqual(idsOf(ds.acksDue([], DUE)), [], 'kept a push from the future');
 });
 
 test('an open push older than an hour is dropped, not acked', () => {
   const { said } = pushedStalls(['o1']);
-  assert.deepEqual(ds.acksDue([], PUSH + 60 * MIN), [], 'kept past an hour');
-  assert.deepEqual(ds.acksDue(recover('o1', said, PUSH + 61 * MIN), PUSH + 61 * MIN), [], 'acked after it was dropped');
+  assert.deepEqual(idsOf(ds.acksDue([], PUSH + 60 * MIN)), [], 'kept past an hour');
+  assert.deepEqual(idsOf(ds.acksDue(recover('o1', said, PUSH + 61 * MIN), PUSH + 61 * MIN)), [], 'acked after it was dropped');
 });
 
 test('acked() posts the id, cut as the push cut it, to /v1/mac/notify-ack with the notify token', () => {
@@ -287,7 +288,52 @@ test('the board sweep acks what acksDue returns, every minute, through phonenoti
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   const at = src.indexOf('ds.acksDue(stallEnds)');
   assert.ok(at > 0, 'server.js no longer asks acksDue');
-  assert.match(src.slice(at, at + 120), /phonenotify\.acked\(id\)/);
+  assert.match(src.slice(at, at + 120), /phonenotify\.acked\(a\.id, \{ late: a\.late \}\)/);
   const ends = src.indexOf('stallEnds = ds.endsToSay(');
   assert.ok(ends > 0 && ends < at, 'acksDue no longer reads this minute\'s ends');
+});
+
+/* kosmos#7802: say when an ack goes after the coordinator decided the email, and name a failed ack as an ack. */
+test('kosmos#7802: an ack before the 30-minute mark is on time; one after it is marked late', () => {
+  const a = pushedStalls(['l1']);
+  assert.deepEqual(ds.acksDue(recover('l1', a.said, PUSH + 5 * MIN), DUE), [{ id: a.ev.id, late: false }]);
+  ds.resetForTests();
+  const b = pushedStalls(['l2']);
+  assert.deepEqual(ds.acksDue(recover('l2', b.said, PUSH + 31 * MIN), PUSH + 31 * MIN), [{ id: b.ev.id, late: true }]);
+  ds.resetForTests();
+  const c = pushedStalls(['l3']);
+  assert.deepEqual(ds.acksDue(recover('l3', c.said, PUSH + 29 * MIN), PUSH + 29 * MIN), [{ id: c.ev.id, late: false }], 'a minute before the mark was called late');
+});
+
+test('kosmos#7802: acked() names a late ack in its log line, and hands the sender the label "an ack"', () => {
+  const labels = [];
+  pn.setSender((url, headers, body, done, what) => { labels.push(what); posts.push({ url, headers, body: JSON.parse(body) }); });
+  const lines = [];
+  const write = process.stderr.write;
+  process.stderr.write = (s) => { lines.push(String(s)); return true; };
+  try {
+    pn.acked('stall:0:x:on-time');
+    pn.acked('stall:0:x:late', { late: true });
+  } finally {
+    process.stderr.write = write;
+    pn.setSender((url, headers, body) => { posts.push({ url, headers, body: JSON.parse(body) }); });
+  }
+  assert.deepEqual(labels, ['an ack', 'an ack']);
+  const acks = lines.filter((l) => l.startsWith('phonenotify: acked '));
+  assert.equal(acks.length, 2);
+  assert.doesNotMatch(acks[0], /decided/, 'an on-time ack read as late');
+  assert.match(acks[1], /after its email was decided/);
+});
+
+test('kosmos#7802: late is measured from the first push the sender took, which a retry does not move', () => {
+  const { said, ev } = pushedStalls(['lr1']);
+  ev.onResult(false);   // a failed answer; the coordinator may still have stored this first push
+  ds.tellStalls([stalledCard('lr1')], { now: PUSH + 16 * MIN, send: () => true });   // the retry, same id
+  const ends = recover('lr1', said, PUSH + 20 * MIN);
+  assert.deepEqual(ds.acksDue(ends, PUSH + 16 * MIN + 25 * MIN), [{ id: ev.id, late: true }], 'a retried ack past the first push\'s mark read as on time');
+});
+
+test('kosmos#7802: exactly 30 minutes after the push is late (the coordinator\'s mark is inclusive)', () => {
+  const { said, ev } = pushedStalls(['lb1']);
+  assert.deepEqual(ds.acksDue(recover('lb1', said, PUSH + 30 * MIN), PUSH + 30 * MIN), [{ id: ev.id, late: true }]);
 });
