@@ -795,10 +795,14 @@ struct ChatView: View {
                     // still kept at the newest whose list reads past its end is put back, unless a finger is on it or a search
                     // is open, in this chat only.
                     kbSettleTick &+= 1
-                    let tick = kbSettleTick, chatAt = epoch
+                    let tick = kbSettleTick, chatAt = epoch, listAt = listEpoch
                     DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {
-                        guard tick == kbSettleTick, epoch == chatAt, visible, keepNewestInView, !searching, !scrollBox.underFinger,
-                              scrollBox.reading()?.place == "past the end" else { return }
+                        guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, keepNewestInView, !searching,
+                              !scrollBox.underFinger else { return }
+                        // The place it found, in the diagnostic's record, so a blank that is not past the end shows which it was.
+                        let place = scrollBox.reading()?.place ?? "unread"
+                        Self.trace("keyboard settled: \(place)")
+                        guard place == "past the end" else { return }
                         if scrollBox.backInside() { Self.trace("keyboard shown: past the end, put back at its end") }
                         goNewest(proxy)
                     }

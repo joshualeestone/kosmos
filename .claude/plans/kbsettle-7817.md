@@ -52,3 +52,7 @@ which bumps appMoves so the hold stands down). Any will-hide cancels a waiting p
 kbSettlePending are gone.
 Weakest premise now: that "past the end" is the state to catch. The 09:27 diagnostic printed it after its own try;
 a blank "within" the content (#7420's estimate) is not covered by this.
+- Review round 4: the settled check records the place it found ("keyboard settled: <place>") whether or not it acts,
+  so a blank "within" the content shows on the next report (the row count is not an allowed diagnostic value, #7420
+  check); a list rebuilt during the wait (listEpoch) is left alone. Kept: the check reads keepNewestInView, not atBottom
+  (it acts only past the end, where moving to the newest is right).
