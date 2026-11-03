@@ -2976,7 +2976,7 @@ section("native board loop: connecting")
         _ = await settle { isLive(c3) }
         check(c3.keptThread(for: "dana") == nil, "another account's phone shows nothing kept under the first account")
         c3.stop()
-        // A session briefly unreadable keeps it (as it keeps the chats); a sign-out (accountChanged) removes it.
+        // A sign-out (accountChanged) removes it.
         sessions.value = nil
         c.accountChanged()
         let left = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
