@@ -28,7 +28,7 @@ function fakeDoc() {
 function pbpState() {
   const m = SCRIPT.match(/\nvar PBP = \{[^\n]*\};\n/);
   assert.ok(m, 'CONTROL: var PBP was not found in the page');
-  return m[0] + SCRIPT.match(/\nconst PBP_CONFIRMING_MS = [^\n]*\n/)[0];
+  return m[0] + SCRIPT.match(/\nconst PBP_RECHECK_MS = [^\n]*\n/)[0] + SCRIPT.match(/\nconst PBP_CONFIRMING_MS = [^\n]*\n/)[0];
 }
 function screen(doc, fetchImpl) {
   const src = page.liftAll(SCRIPT, ['asSentence', 'plusSiAddPrice', 'pbPost', 'pbpMsg', 'pbpRows', 'pbpOnView', 'pbpShow', 'pbpRead', 'pbpPaint', 'pbpChoose']) + '\n' + pbpState();
@@ -245,4 +245,20 @@ test('Choose refused because the account already has a plan reads the plan, and 
   await s.pbpChoose(25); await tick(); await tick();
   assert.equal(reads, 2, 'the plan was not read again');
   assert.ok(!vis(doc, 'pb-plans'), 'the rows stayed beside a plan the account already has');
+});
+
+test('a no-plan stop against a plan read an hour ago reads the plan again; a lapsed plan brings the rows back', async () => {
+  const doc = fakeDoc();
+  let planGb = 25, reads = 0;
+  const s = screen(doc, () => { reads++; return answer({ ok: true, plans: PLANS, planGb })(); });
+  s.pbpOnView(true, NO_PLAN_LINES, false); await tick(); await tick();
+  assert.equal(reads, 1); assert.ok(!vis(doc, 'pb-plans'), 'CONTROL: a plan, so no rows');
+  s.pbpOnView(true, NO_PLAN_LINES, false); await tick(); await tick();
+  assert.equal(reads, 1, 'a fresh plan was read again at once');
+  planGb = null; s.PBP.at = Date.now() - 61 * 60000;
+  s.pbpOnView(true, NO_PLAN_LINES, false); await tick(); await tick();
+  assert.equal(reads, 2, 'a plan the job says is gone was never read again');
+  s.pbpOnView(true, NO_PLAN_LINES, false);
+  assert.ok(vis(doc, 'pb-plans'), 'the lapsed plan left no way to choose one');
+  assert.ok(!vis(doc, 'pb-job'));
 });

@@ -46,7 +46,7 @@ async function call(p, { method = 'POST', body, headers } = {}) {
   return { status: res.status, json };
 }
 const SCREEN = { 'sec-fetch-site': 'same-origin' };
-const POSTS = ['preview', 'on', 'key', 'saved', 'restore', 'off', 'backups', 'files', 'stop'].map((k) => '/api/personal-backup/' + k);
+const POSTS = ['preview', 'on', 'key', 'saved', 'restore', 'off', 'backups', 'files', 'stop', 'plans', 'checkout'].map((k) => '/api/personal-backup/' + k);
 function offerOn(t, price) {
   process.env.KOSMOS_PERSONAL_BACKUP = '1';
   if (price === undefined) delete process.env.KOSMOS_PERSONAL_BACKUP_PRICE; else process.env.KOSMOS_PERSONAL_BACKUP_PRICE = price;
@@ -122,9 +122,26 @@ test('#7404: from the screen, a decline turns nothing on; a bad code restores no
   assert.equal(fs.existsSync(path.join(store.ROOT, 'personal-backup', 'enrollment.json')), false);
 });
 
-test('#7404: every step needs a step-up (preview makes a membership; saved deletes what may be the only copy of the code)', () => {
-  for (const k of ['preview', 'on', 'key', 'restore', 'off', 'saved', 'backups', 'files', 'stop']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), true, k);
+test('#7404: every step needs a step-up (preview makes a membership; saved deletes what may be the only copy of the code), except the plans read', () => {
+  for (const k of ['preview', 'on', 'key', 'restore', 'off', 'saved', 'backups', 'files', 'stop', 'checkout']) assert.equal(needsRemoteStepUp('/api/personal-backup/' + k, 'POST'), true, k);
   assert.equal(needsRemoteStepUp('/api/personal-backup', 'GET'), false);
+  assert.equal(needsRemoteStepUp('/api/personal-backup/plans', 'POST'), false, 'the plans are a read: a remote session sees them without a step-up');
+});
+
+test('#7404 plan screen: plans and checkout pass only their own fields; checkout sends the engine a whole size or null', async (t) => {
+  offerOn(t, '$5/month');
+  const pb = require('./engine/personalbackup');
+  const was = { plansNow: pb.plansNow, checkout: pb.checkout };
+  t.after(() => { pb.plansNow = was.plansNow; pb.checkout = was.checkout; });
+  const got = [];
+  pb.plansNow = async () => ({ ok: true, plans: [{ gb: 25, price: '$5/month' }], planGb: null, ticket: 'never', org: 'never' });
+  pb.checkout = async (gb) => { got.push(gb); return { ok: true, url: 'https://checkout.stripe.com/c/pay/x', price: 'never', session: 'never' }; };
+  const p = await call('/api/personal-backup/plans', { body: {}, headers: SCREEN });
+  assert.deepEqual(p.json, { ok: true, plans: [{ gb: 25, price: '$5/month' }], planGb: null }, JSON.stringify(p.json));
+  const c = await call('/api/personal-backup/checkout', { body: { gb: 25, price: '$0' }, headers: SCREEN });
+  assert.deepEqual(c.json, { ok: true, url: 'https://checkout.stripe.com/c/pay/x' }, JSON.stringify(c.json));
+  await call('/api/personal-backup/checkout', { body: { gb: '25' }, headers: SCREEN });
+  assert.deepEqual(got, [25, null], 'a size that is not a whole number reached the engine as one');
 });
 
 /* Challenge round 1: the answer the screen needs passes through the route's named-field list, and nothing else does.
