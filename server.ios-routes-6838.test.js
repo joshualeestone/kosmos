@@ -357,7 +357,9 @@ async function ask(method, p) {
 // tail routes written as /task/x/x in SITES (the number is made up there); both made-up-sibling controls still hold.
 const madeUp = (p, tag = 'no-such-route-7055') => {
   const [bare, q] = p.split('?');
-  const made = /\/x$/.test(bare) && bare.split('/').length > 4 ? bare.replace(/\/[^/]+\/x$/, '/' + tag + '/x') : bare.replace(/\/[^/]+$/, '/' + tag);
+  // kosmos#7838: also at four parts (/api/project/x, the project's own PUT): replacing the id there only names another
+  // project, which the board refuses the same way, so /api/no-such-route-7055/x is asked instead.
+  const made = /\/x$/.test(bare) && bare.split('/').length >= 4 ? bare.replace(/\/[^/]+\/x$/, '/' + tag + '/x') : bare.replace(/\/[^/]+$/, '/' + tag);
   return made + (q ? '?' + q : '');
 };
 // True when the board answers this route with something other than its reply to a route it does not have.
