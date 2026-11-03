@@ -30,6 +30,12 @@ struct ProjectInfoView: View {
     @State private var textLine: (text: String, ok: Bool)?
     @State private var notifyLine: (text: String, ok: Bool)?
     @State private var pauseLine: (text: String, ok: Bool)?
+    // Review 1: what was just chosen, shown at once and until the board's stored value says the same (or the save fails),
+    // so a tap never snaps back for a round trip, nor sits under "Saved." on the old value if the re-read misses.
+    @State private var pendingNotify: String?
+    @State private var pendingPaused: Bool?
+    private var shownNotify: String { pendingNotify ?? project.notify }
+    private var shownPaused: Bool { pendingPaused ?? project.paused }
     // Review 1: a read was asked for and came back with no list (the Mac not admitted, say): say so, not "Reading".
     @State private var tasksTried = false
 
@@ -152,7 +158,9 @@ struct ProjectInfoView: View {
                 }
             }
             Section {
-                Picker("Notifications from this project", selection: Binding(get: { project.notify }, set: { level in
+                Picker("Notifications from this project", selection: Binding(get: { shownNotify }, set: { level in
+                    guard level != shownNotify else { return }
+                    pendingNotify = level
                     Task { await save(.notify(level)) }
                 })) {
                     ForEach(Board.projectNotifyLevels, id: \.key) { Text($0.label).tag($0.key) }
@@ -162,17 +170,17 @@ struct ProjectInfoView: View {
                 if let notifyLine { Text(notifyLine.text).font(.footnote).foregroundColor(notifyLine.ok ? Palette.secondary : Palette.dangerWord) }
             } header: { label("Notifications from this project") }
             Section {
-                Button { Task { await save(.paused(!project.paused)) } } label: {
+                Button { let to = !shownPaused; pendingPaused = to; Task { await save(.paused(to)) } } label: {
                     HStack {
-                        Text(project.paused ? "Resume it" : "Pause it").foregroundColor(Palette.primary)
+                        Text(shownPaused ? "Resume it" : "Pause it").foregroundColor(Palette.primary)
                         if saving { Spacer(); ProgressView() }
                     }
                     .frame(minHeight: 44).contentShape(Rectangle())
                 }
                 .disabled(saving)
                 if let pauseLine { Text(pauseLine.text).font(.footnote).foregroundColor(pauseLine.ok ? Palette.secondary : Palette.dangerWord) }
-            } header: { label(project.paused ? "This project is paused" : "Pause this project") } footer: {
-                Text(project.paused ? Board.projectResumeWhat : Board.projectPauseWhat)
+            } header: { label(shownPaused ? "This project is paused" : "Pause this project") } footer: {
+                Text(shownPaused ? Board.projectPausedWhat(byPerson: pendingPaused == true || project.pausedByPerson) : Board.projectPauseWhat)
             }
             Section {
                 Button(action: openOnBoard) {
@@ -188,22 +196,24 @@ struct ProjectInfoView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .onAppear { fillIfNeeded() }
+        // Review 1: on every appearance, not only the first (a rename on the computer while About was open), each box apart.
+        .onAppear { refillIfUntouched() }
         .onChange(of: project.name) { _ in refillIfUntouched() }
         .onChange(of: project.description) { _ in refillIfUntouched() }
+        .onChange(of: project.notify) { stored in
+            if pendingNotify == stored { pendingNotify = nil } else if pendingNotify == nil { notifyLine = nil }
+        }
+        .onChange(of: project.paused) { stored in
+            if pendingPaused == stored { pendingPaused = nil } else if pendingPaused == nil { pauseLine = nil }
+        }
     }
 
-    private func fillIfNeeded() {
-        guard !filled else { return }
-        filled = true
-        nameText = project.name; descText = project.description
-        filledName = project.name; filledDesc = project.description
-    }
-    // A change made on the computer shows here unless the person has typed something of their own.
+    // A change made on the computer shows in a box unless the person has typed something of their own in that box; each
+    // box on its own (review 1), so typing a description never pins an old name.
     private func refillIfUntouched() {
-        guard nameText == filledName, descText == filledDesc else { return }
-        nameText = project.name; descText = project.description
-        filledName = project.name; filledDesc = project.description
+        if !filled { filled = true; nameText = project.name; filledName = project.name; descText = project.description; filledDesc = project.description; return }
+        if nameText == filledName { nameText = project.name; filledName = project.name }
+        if descText == filledDesc { descText = project.description; filledDesc = project.description }
     }
 
     private func save(_ change: Board.ProjectChange) async {
@@ -214,16 +224,34 @@ struct ProjectInfoView: View {
         let res = await client.throughMac { Board.projectChangeRequest(mac: $0, project: id, body: body) }
         let line: (text: String, ok: Bool)
         switch Board.projectSaveResult(status: res?.1.statusCode ?? 0, body: res?.0) {
-        case .saved:
+        case .saved(let storedNotify, let storedPaused):
             line = (Board.projectSavedLine(change), true)
-            if case .text = change {
-                filledName = nameText.trimmingCharacters(in: .whitespacesAndNewlines)
-                filledDesc = descText.trimmingCharacters(in: .whitespacesAndNewlines)
-                nameText = filledName; descText = filledDesc
+            switch change {
+            case .text:
+                // Review 1: what was SENT is now saved; anything typed while it was in flight stays unsaved (Save shows).
+                if let n = body["name"] as? String {
+                    if nameText.trimmingCharacters(in: .whitespacesAndNewlines) == n { nameText = n }
+                    filledName = n
+                }
+                if let d = body["description"] as? String {
+                    if descText.trimmingCharacters(in: .whitespacesAndNewlines) == d { descText = d }
+                    filledDesc = d
+                }
+            case .notify(let level): pendingNotify = storedNotify ?? level
+            case .paused(let on): pendingPaused = storedPaused ?? on
             }
             await reload()
-        case .refused(let why): line = (why, false)
-        case .noAnswer: line = (Board.projectNoAnswer, false)
+            refillIfUntouched()
+            if pendingNotify == project.notify { pendingNotify = nil }
+            if pendingPaused == project.paused { pendingPaused = nil }
+        case .refused(let why):
+            line = (why, false)
+            if case .notify = change { pendingNotify = nil }
+            if case .paused = change { pendingPaused = nil }
+        case .noAnswer:
+            line = (Board.projectNoAnswer, false)
+            if case .notify = change { pendingNotify = nil }
+            if case .paused = change { pendingPaused = nil }
         }
         switch change {
         case .text: textLine = line
