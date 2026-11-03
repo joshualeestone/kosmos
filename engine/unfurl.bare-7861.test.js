@@ -40,7 +40,8 @@ function fakeResponse({ status = 200, type = 'text/html; charset=utf-8', body = 
     arrayBuffer: async () => bytes,
   };
 }
-/* pages: url -> a response spec, 'unreachable' (the fetch throws), or absent (the test fails loudly). */
+/* pages: url -> a response spec, or 'unreachable' (the fetch throws). An absent page also throws, which the module reads
+   as unreachable, so every test asserts the exact list of fetches it expects. */
 function world({ pages = {}, resolve = {} } = {}) {
   const calls = [];
   unfurl.setFetcher(async (url) => {
@@ -89,6 +90,8 @@ const MESSAGES = [
   'example.com\'s page', '"example.com"', 'line one\nline two example.dev/docs', 'see http://typed.example.com',
   'evil.example.com[x](y.org)', 'see evil.example.com[x](https://y.example.org)', 'evil.example.com[x](notalink)',
   '**example.com**[z.com](q.com)', '[l](t)x.example.com', '[docs](example.com).', '>example.com', '|a.example.com|b.org|',
+  '| a |\n|---|\n| x | evil.example.com |', 'a | b\n--|--\nx | y | evil.example.com', '| [a|b](c.example.com) |\n|---|---|',
+  '| h |\n|---|\n[a|b](c.example.com)',
 ];
 
 test('#7861: on a fixed list of whole messages, a bare address previewed is always a link the page itself draws', () => {
@@ -111,7 +114,8 @@ test('#7861: on a fixed list of whole messages, a bare address previewed is alwa
 function rng(seed) { let x = seed >>> 0; return () => { x ^= x << 13; x >>>= 0; x ^= x >> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; }; }
 const PIECES = ['example.com', 'x.example.org', 'docs.example.dev/a', 'claude.ai', 'notes.md', 'https://e.example.net',
   'mailto:a@b.co', '[', ']', '(', ')', '[l](t.example.com)', '[a b](https://f.example.io)', '*', '**', '_', '~', '>', '#', '-',
-  '|', '.', ',', '"', '\'', '\n', ' ', ' ', ' ', '1.', '---', 'word', 'www.example.uk/x?y=1'];
+  '|', '.', ',', '"', '\'', '\n', ' ', ' ', ' ', '1.', '---', 'word', 'www.example.uk/x?y=1',
+  '\n|---|', '\n---|---', '\n| x | y |', '[a|b](c.example.com)', '| ', ' |'];
 
 test('#7861: on generated messages (no code), a bare address previewed is always a link the page itself draws', () => {
   const next = rng(7861);
@@ -126,7 +130,7 @@ test('#7861: on generated messages (no code), a bare address previewed is always
     const drawn = pageLinks(text);
     assert.ok(drawn.includes(got.url), 'previewed ' + got.url + ' but the page draws ' + JSON.stringify(drawn) + ' for ' + JSON.stringify(text));
   }
-  assert.ok(checked >= 2000, 'CONTROL: enough generated messages had a bare address, got ' + checked);
+  assert.ok(checked >= 1000, 'CONTROL: enough generated messages had a bare address, got ' + checked);
 });
 
 test('#7861: which link in a message is previewed: the first, bare or explicit; code and other schemes are not', () => {
@@ -165,6 +169,7 @@ for (const [why, https] of [['could not be reached', 'unreachable'], ['answered 
     const got = await unfurl.previewBare('https://old.example.com/');
     assert.equal(got.ok, true, JSON.stringify(got));
     assert.equal(got.title, 'Over http');
+    assert.equal(got.url, 'https://old.example.com/', 'the card opens the https address the word links to, never plain http');
     assert.deepEqual(calls, ['https://old.example.com/', 'http://old.example.com/']);
     assert.equal(unfurl.peekBare('https://old.example.com/').title, 'Over http', 'the payload helper peeks the bare key');
     const typed = unfurl.peek('https://old.example.com/');

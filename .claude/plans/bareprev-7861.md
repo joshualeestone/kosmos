@@ -17,7 +17,9 @@ with no preview, and http://joshualeestone.com had one.
   scan is unchanged there), a word overlapping a markdown link is skipped, and only a link that is a whole word on its
   own offers its target (review round 2: text glued to a link, evil.com[x](y.org), was split off and previewed though
   the page shows it as text). Missing a bare preview is today's behaviour; previewing a word the chat shows as text is
-  the error this rules out. Known misses: a quote marker or table cell with no space (>example.com, |a.com|).
+  the error this rules out. Review round 3: also no bare scan in a message with any | (the page reads | as a table,
+  which drops cells past the header's count and splits a link whose label holds a |; both were previewed). Known misses:
+  any bare address in a message with a backtick or a |, and one after a quote marker with no space (>example.com).
 - What is guaranteed, and tested: a bare address previewed is always a link the page draws. NOT guaranteed: that it is
   the FIRST link the page draws (>x.com then https://e.org previews e.org), and the explicit scan's old behaviour (it can
   preview an http link the page shows as text, e.g. in quotes) is unchanged by this card.
@@ -27,9 +29,11 @@ with no preview, and http://joshualeestone.com had one.
   peekBare, so a preview fetched over http is never what an https:// link the person typed shows (review round 1).
 - server.js withPreviews: firstLinkInfo; peekBare/warm(url, { bare: true }) for a bare one, peek/warm as before for a
   typed one.
-- Known and accepted: when the fallback is used the card's own link is the http:// address the page was read from,
-  while the word in the message links to https://. A network that blocks https can then supply a preview's title and
-  image over http; the preview is display only and the address gate still applies.
+- When the fallback is used, the card's own link stays the https:// address the word opens (or the https:// address
+  the http page redirected to), never plain http (review round 3). Accepted: a network that can break https can then
+  supply the card's title and image over http; the card still opens https, and the address gate still applies.
+- Not changed, noted: a typed https://x and a bare x on the same poll can fetch https://x twice at once (separate
+  in-flight keys); a bare preview can hold up to three of the 200 cache slots. Both bounded, neither wrong.
 
 ## The phone
 Measured: the iPhone chat makes a bare address a link (NSDataDetector) but draws no preview card for ANY link. That is
@@ -49,6 +53,10 @@ a missing feature, not this bug, so it is its own card, #7864, which I take afte
   its 8 helpers): a fixed list of 40 messages and 20000 generated ones (fixed seed); a bare address previewed is always
   a link the page draws. server.unfurl-bare-7861.test.js (4, through GET /api/messages).
 - Mutation G (round 2): the round-1 unfurl.js put back in place turns both parity tests red, each naming a message.
+- Mutation H (round 3): the | rule removed turns both parity tests red; the generator (now with table pieces) found a
+  second table shape on its own. The generator's floor is 1000 bare cases (1429 measured with | pieces in).
+- server.fedmsg-3311.test.js: a bare address in words from outside is not fetched either (its mutation, the external
+  skip removed, goes red, though the test's existing http case would too).
 - Mutations, each restored after: no backtick rule (E) and no label blanking (F) each turn the parity test red; the
   server back to explicit-only links turns both bare route tests red, controls green; the bare flag dropped from warm
   turns both bare route tests red (the bare key is never filled).

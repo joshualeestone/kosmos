@@ -406,8 +406,9 @@ function bareSplit(tok) {
     shows as text must never be fetched. It looks only at whole words between whitespace, and skips: every word in a
     message with any backtick (code), every word that overlaps a markdown link [label](target) (a label is text on the
     page, and text glued to a link is not a separate word there), except the target of a link that stands alone between
-    whitespace. A bare address the page links but this skips (a quote marker or table cell with no space after it, say)
-    gets no preview, which is how every bare address was before. The explicit scan is unchanged.
+    whitespace, and every word in a message with any | (the page reads | as a table, which drops extra cells and splits
+    a link whose label holds one). A bare address the page links but this skips (in a table, after a quote marker with no
+    space, say) gets no preview, which is how every bare address was before. The explicit scan is unchanged.
     engine/unfurl.bare-7861.test.js checks against the page's own pjRich that a bare address found here is always one
     the page draws, on a fixed list and on generated messages. */
 const MD_LINK_RE = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
@@ -415,7 +416,7 @@ function firstLinkInfo(text) {
   const raw = String(text || '');
   const m = raw.match(LINK_RE);
   const explicit = m ? { url: m[0].replace(/[.,;:!?]+$/, ''), bare: false, at: m.index } : null;
-  if (raw.indexOf('`') !== -1) return explicit ? { url: explicit.url, bare: false } : null;
+  if (raw.indexOf('`') !== -1 || raw.indexOf('|') !== -1) return explicit ? { url: explicit.url, bare: false } : null;
   const links = [...raw.matchAll(MD_LINK_RE)].map((l) => ({ from: l.index, to: l.index + l[0].length, target: l[2] }));
   const words = /\S+/g;
   let w;
@@ -454,7 +455,9 @@ function unreached(because) {
     || /^that site answered 5\d\d$/.test(String(because || ''));
 }
 /** kosmos#7861: a bare address's preview, kept under its OWN key ('b:'), so a preview fetched over http is never what
-    an https:// link the person typed shows. https first; http only when https was not reached. */
+    an https:// link the person typed shows. https first; http only when https was not reached. A preview read over
+    http keeps the https:// address as its link (the one the word in the message opens), unless the http page itself
+    sent us to an https:// one, so the card never opens a plain-http page. */
 async function previewBare(httpsUrl) {
   const key = 'b:' + String(httpsUrl);
   const hit = cached(key);
@@ -462,7 +465,8 @@ async function previewBare(httpsUrl) {
   const first = await preview(httpsUrl);
   if (first.ok || !unreached(first.because) || !/^https:\/\//.test(httpsUrl)) return remember(key, first);
   const second = await preview('http://' + httpsUrl.slice('https://'.length));
-  return remember(key, second.ok ? second : first);
+  if (!second.ok) return remember(key, first);
+  return remember(key, { ...second, url: /^https:\/\//.test(second.url) ? second.url : httpsUrl });
 }
 /** kosmos#7861: what the cache holds for a bare address (see previewBare), as peek does for a typed link. */
 function peekBare(httpsUrl) {
