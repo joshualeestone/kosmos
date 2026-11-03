@@ -40,6 +40,7 @@ function conversation(messages, name, date, dateKey) {
   const out = [];
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || typeof m !== 'object') continue;
+    if (m.kosmos === true || m.wire != null) continue;   // Kosmos's own line in the agent's name, or a menu keystroke
     const d = onDay(m.at, date, dateKey);
     if (!d) continue;
     out.push({ d, mine: m.from === name, text: firstLine(m.text) });
@@ -50,8 +51,13 @@ function conversation(messages, name, date, dateKey) {
 /* Task transcript files are `<project key>.task-<number>.jsonl` (engine/taskchat.js taskChatFile). */
 const TASK_FILE = /^(.+)\.task-(\d+)\.jsonl$/;
 
-/* The tasks this agent changed on `date`: [{ project, number, kinds }], by project then number. Only rows it wrote
-   (`by` its name) count; a row the person wrote, or one naming nobody, is not this agent's change. */
+/* Whether a transcript row names this agent as its author. Most rows name nobody (said, closed, hold-set, ...), so only
+   these can count: a task it created through the CLI (`addedBy`), and a mark, run or move it made (`by`). */
+function byAgent(r, name) {
+  if (r.kind === 'created') return r.addedBy === name;
+  return r.by === name;
+}
+/* The tasks this agent changed on `date`: [{ project, number, kinds }], by project then number. */
 function taskChanges(files, readTask, name, date, dateKey) {
   const out = [];
   for (const f of files) {
@@ -63,7 +69,7 @@ function taskChanges(files, readTask, name, date, dateKey) {
     try { rows = readTask(project, number); } catch { rows = []; }
     const kinds = [];
     for (const r of Array.isArray(rows) ? rows : []) {
-      if (!r || r.by !== name || !onDay(r.at, date, dateKey)) continue;
+      if (!r || !byAgent(r, name) || !onDay(r.at, date, dateKey)) continue;
       if (typeof r.kind === 'string' && !kinds.includes(r.kind)) kinds.push(r.kind);
     }
     if (kinds.length) out.push({ project, number, kinds });
@@ -72,10 +78,12 @@ function taskChanges(files, readTask, name, date, dateKey) {
 }
 
 /* The task files touched on `date` by their modification time: a file not written today has no row from today. */
-function listTaskFilesDefault(date, dateKey) {
-  const dir = require('./taskchat').taskChatsDir();
+function listTaskFilesIn(dir, date, dateKey) {
   let names;
-  try { names = fs.readdirSync(dir); } catch { return []; }
+  try { names = fs.readdirSync(dir); } catch (err) {
+    if (err && err.code === 'ENOENT') return [];   // no task has a transcript yet
+    throw err;   // unreadable: the digest says so rather than "none"
+  }
   return names.filter((n) => {
     if (!TASK_FILE.test(n)) return false;
     try { return dateKey(fs.statSync(path.join(dir, n)).mtime) === date; } catch { return false; }
@@ -83,7 +91,26 @@ function listTaskFilesDefault(date, dateKey) {
 }
 
 /**
- * The digest as lines. `o.name` is the agent (feedback.writer); `o.date` the person's local day (feedback.today()).
+ * The name this agent's records are kept under, or null. The board files a token agent's thread and task rows under
+ * its KEY (server.js, the paneless card's sessionName), while feedback.writer gives the token's own spelling ("Mara"
+ * for the key "mara"), which is right for labelling a report and wrong for finding its records. A pane agent's records
+ * are under its window's agent name, which is what the resolver gives. A token shared by two names (twins) is refused,
+ * as the resolver refuses it. `seams` are for tests.
+ */
+function recordName(env, seams) {
+  const e = env || process.env;
+  const s = seams || {};
+  const token = (s.agentToken || ((x) => require('./kosmos-report-hook').agentToken(x)))(e);
+  if (token) {
+    const found = (s.resolveName || ((t) => require('./sendertoken').resolveName(t)))(token);
+    return found && found.ok && found.twins !== true && typeof found.key === 'string' && found.key ? found.key : null;
+  }
+  const r = (s.resolveKeepSender || ((x) => require('./outbox').resolveKeepSender(x)))(e);
+  return r && r.ok ? r.name : null;
+}
+
+/**
+ * The digest as lines. `o.name` is the agent's record name (recordName); `o.date` the person's local day (feedback.today()).
  * A conversation that cannot be read says so, never "nothing today".
  */
 function digest(o) {
@@ -92,7 +119,7 @@ function digest(o) {
   const date = o.date || fb.today();
   const name = o.name;
   const readThread = o.readThread || ((n) => { const chat = require('./chat'); return chat.readThread(chat.DIRECT, n).messages; });
-  const listTaskFiles = o.listTaskFiles || (() => listTaskFilesDefault(date, dateKey));
+  const listTaskFiles = o.listTaskFiles || (() => listTaskFilesIn(require('./taskchat').taskChatsDir(), date, dateKey));
   const readTask = o.readTask || ((p, n) => require('./taskchat').read(p, n));
 
   const lines = ['Your day on this computer, ' + date + ' (for your feedback report; nothing here is sent anywhere).', ''];
@@ -121,4 +148,4 @@ function digest(o) {
   return lines;
 }
 
-module.exports = { digest, conversation, taskChanges, firstLine, MAX_MESSAGES, LINE_MAX };
+module.exports = { digest, recordName, listTaskFilesIn, conversation, taskChanges, firstLine, MAX_MESSAGES, LINE_MAX };

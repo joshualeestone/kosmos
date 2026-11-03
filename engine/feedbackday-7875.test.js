@@ -72,12 +72,13 @@ test('#7875: tasks this agent changed today, by number and kinds, never a title;
       { at: at(11, 5), kind: 'built', by: 'Dana' },
     ],
     'catalog.task-7': [{ at: at(12, 0), kind: 'built', by: 'Eli' }],
-    'launch.task-1': [{ at: at(9, 0, 2), kind: 'created', by: 'Dana' }],
-    'launch.task-2': [{ at: at(9, 0), kind: 'created', by: 'Dana' }],
+    'launch.task-1': [{ at: at(9, 0, 2), kind: 'created', addedBy: 'Dana', addedVia: 'process' }],
+    'launch.task-2': [{ at: at(9, 0), kind: 'created', addedBy: 'Dana', addedVia: 'process' }],
+    'launch.task-4': [{ at: at(9, 0), kind: 'created', by: 'Dana' }, { at: at(9, 5), kind: 'said', text: 'x' }],
   };
   const out = run({
     readThread: () => [],
-    listTaskFiles: () => ['launch.task-2.jsonl', 'catalog.task-3.jsonl', 'catalog.task-7.jsonl', 'launch.task-1.jsonl', 'notes.txt'],
+    listTaskFiles: () => ['launch.task-2.jsonl', 'catalog.task-3.jsonl', 'catalog.task-7.jsonl', 'launch.task-1.jsonl', 'launch.task-4.jsonl', 'notes.txt'],
     readTask: (p, n) => rows[p + '.task-' + n] || [],
   });
   const text = out.join('\n');
@@ -85,8 +86,49 @@ test('#7875: tasks this agent changed today, by number and kinds, never a title;
   assert.ok(text.includes('  launch #2: created'), text);
   assert.ok(!text.includes('catalog #7'), 'another agent\'s change is not listed');
   assert.ok(!text.includes('launch #1'), 'yesterday\'s change is not listed');
+  assert.ok(!text.includes('launch #4'), 'a created row is the agent\'s by addedBy, never by a `by` it does not carry; a said row names nobody');
   assert.ok(!text.includes('SECRET TITLE'), 'no title');
   assert.ok(text.indexOf('catalog #3') < text.indexOf('launch #2'), 'by project');
+});
+
+test('#7875: Kosmos\'s own line and a menu keystroke are not messages', () => {
+  const out = run({ readThread: () => [
+    { at: at(9, 0), text: 'Paused for today\'s limit', from: 'Dana', kosmos: true },
+    { at: at(9, 1), text: '1', from: null, wire: '1' },
+    { at: at(9, 2), text: 'Real', from: null },
+  ] }).join('\n');
+  assert.ok(out.includes('1 from them, 0 from you'), out);
+  assert.ok(!out.includes('Paused'), out);
+});
+
+test('#7875: the task folder: absent is none, unreadable throws (so the digest says so), today\'s files only', () => {
+  const tmp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'fday-'));
+  try {
+    assert.deepEqual(day.listTaskFilesIn(path.join(tmp, 'absent'), DATE, fb.dateKey), []);
+    const notDir = path.join(tmp, 'file');
+    fs.writeFileSync(notDir, 'a file where the folder should be');   // readdir fails with ENOTDIR, not ENOENT
+    assert.throws(() => day.listTaskFilesIn(notDir, DATE, fb.dateKey));
+    const dir = path.join(tmp, 'tasks');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'p.task-1.jsonl'), '');
+    fs.writeFileSync(path.join(dir, 'p.task-2.jsonl'), '');
+    fs.writeFileSync(path.join(dir, 'other.txt'), '');
+    const old = new Date(2026, 10, 1, 12, 0);
+    fs.utimesSync(path.join(dir, 'p.task-2.jsonl'), old, old);
+    const today = fb.dateKey(new Date());
+    assert.deepEqual(day.listTaskFilesIn(dir, today, fb.dateKey), ['p.task-1.jsonl']);
+    const bad = day.digest({ name: 'Dana', date: DATE, readThread: () => [], listTaskFiles: () => day.listTaskFilesIn(notDir, DATE, fb.dateKey) }).join('\n');
+    assert.ok(bad.includes('Kosmos could not read them on this computer'), bad);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+});
+
+test('#7875: the record name is the token\'s KEY (where the board files its records), the window\'s name without one', () => {
+  const env = { X: 1 };
+  assert.equal(day.recordName(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara' }) }), 'mara');
+  assert.equal(day.recordName(env, { agentToken: () => 't', resolveName: () => ({ ok: true, name: 'Mara', key: 'mara', twins: true }) }), null);
+  assert.equal(day.recordName(env, { agentToken: () => 't', resolveName: () => ({ ok: false }) }), null);
+  assert.equal(day.recordName(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: true, name: 'angel' }) }), 'angel');
+  assert.equal(day.recordName(env, { agentToken: () => null, resolveKeepSender: () => ({ ok: false }) }), null);
 });
 
 test('#7875: no tasks today and unreadable tasks read differently', () => {
@@ -100,9 +142,29 @@ test('#7875: the default day is the report\'s own day (feedback.today)', () => {
   assert.ok(out[0].includes(fb.today()), out[0]);
 });
 
-test('#7875: the daily ask tells the agent to run kosmos feedback day first', () => {
-  const text = require('./feedbacknudge').nudgeText();
-  assert.match(text, /first run `kosmos feedback day`/);
+test('#7875: the daily ask and the Project Manager\'s instructions both name kosmos feedback day', () => {
+  assert.match(require('./feedbacknudge').nudgeText(), /first run `kosmos feedback day`/);
+  const pm = JSON.stringify(require('./roles').byKey('pm'));
+  assert.match(pm, /kosmos feedback day/);
+});
+
+test('#7875: the Windows CLI runs feedback day: refuses nobody, extra words, and prints the asking agent\'s day', async () => {
+  const cli = require('../tools/windows/kosmos-cli');
+  async function win(argv, recordName) {
+    const out = []; const err = [];
+    const stub = { recordName: () => recordName, digest: (o) => ['DAY OF ' + o.name] };
+    const code = await cli.main(argv, { env: {}, out: (x) => out.push(x), err: (x) => err.push(x), engine: { feedbackday: stub } });
+    return { code, out: out.join('\n'), err: err.join('\n') };
+  }
+  const nobody = await win(['feedback', 'day'], null);
+  assert.equal(nobody.code, 1);
+  assert.match(nobody.err, /cannot tell which agent is asking/);
+  assert.equal(nobody.out, '');
+  const extra = await win(['feedback', 'day', 'more'], 'dana');
+  assert.equal(extra.code, 2);
+  const ok = await win(['feedback', 'day'], 'dana');
+  assert.equal(ok.code, 0, ok.err);
+  assert.equal(ok.out, 'DAY OF dana');
 });
 
 test('#7875: both CLIs carry the day subcommand and list it in their usage', () => {
@@ -110,7 +172,8 @@ test('#7875: both CLIs carry the day subcommand and list it in their usage', () 
   const sh = fs.readFileSync(path.join(root, 'install', 'kosmos'), 'utf8');
   const win = fs.readFileSync(path.join(root, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
   assert.match(sh, /\n {4}day\)\n/);
-  assert.match(sh, /engine\/feedbackday"\)\.digest\(\{ name \}\)/);
+  assert.match(sh, /day\.recordName\(process\.env\)/);
+  assert.match(sh, /day\.digest\(\{ name \}\)/);
   assert.match(sh, /kosmos feedback day {16}\(your own day/);
   assert.match(win, /day: feedbackDay/);
   assert.match(win, /kosmos feedback day {16}\(your own day/);

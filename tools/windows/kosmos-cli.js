@@ -2420,11 +2420,13 @@ async function feedbackShow(ctx, args) {
 }
 
 /* kosmos#7875: the asking agent's own day on this computer, as install/kosmos's `feedback day` prints it. */
-async function feedbackDay(ctx) {
-  const fb = ctx.engine('feedback');
-  const name = typeof fb.writer === 'function' ? fb.writer(ctx.env) : null;
+async function feedbackDay(ctx, args) {
+  if (args && args.length) { ctx.err('Usage: kosmos feedback day'); return 2; }
+  let day;
+  try { day = ctx.engine('feedbackday'); } catch { ctx.err('Kosmos cannot find its own runtime, so it cannot read your day.'); return 2; }
+  const name = day.recordName(ctx.env);
   if (!name) { ctx.err("Kosmos cannot tell which agent is asking, so it prints nobody's day. Run this from your own agent session."); return 1; }
-  ctx.out(ctx.engine('feedbackday').digest({ name }).join('\n'));
+  ctx.out(day.digest({ name }).join('\n'));
   return 0;
 }
 
