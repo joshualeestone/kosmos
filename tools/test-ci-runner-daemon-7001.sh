@@ -12,7 +12,7 @@
 #   - a failed move, a login between the write and the bootstrap, a failed bootstrap and a Listener that never starts
 #     each fail loud and say how to go back
 set -u
-T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+_td="${TMPDIR:-/tmp}"; T="$(mktemp -d "${_td%/}/test-ci-runner-daemon-7001.XXXXXXXXXX")" || exit 1; trap 'rm -rf "$T"' EXIT
 fails=0
 pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }
@@ -46,6 +46,7 @@ case "$me" in
   ps) p="${*: -1}"; awk -v p="$p" '$2 == p { print $3; f = 1 } END { if (!f) print 1 }' "$S/procs" ;;
   stat) case "${*: -1}" in "$S/daemons/"*|"$S/retired"|"$S/retired/"*) echo "${FX_OWNER:-0} 0 $(/usr/bin/stat -f %Lp "${*: -1}")" ;; *) /usr/bin/stat "$@" ;; esac ;;
   mv) [ "${FX_MV_FAIL:-0}" = 1 ] && case "$2" in *.retired-*) exit 1 ;; esac
+    [ "${FX_MV_PLIST_FAIL:-0}" = 1 ] && case "${*: -1}" in "$S/daemons/"*.plist) exit 1 ;; esac
     /bin/mv "$@" || exit $?
     [ "${FX_LOGIN_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) touch "$S/agent-loaded" ;; esac;
     [ "${FX_LISTENER_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) echo "502 5300 1 $FX_R/bin/Runner.Listener run" >> "$S/procs" ;; esac; exit 0 ;;
@@ -141,7 +142,7 @@ else fail "apply: rc $(rc apply) $(cat "$T/apply.out"); $(cat "$D" 2>/dev/null)"
 run again -- daemon
 [ "$(rc again)" = 0 ] && has again "runs as a LaunchDaemon" && ! has again WOULD && pass "a second run says it is done" || fail "again: rc $(rc again) $(cat "$T/again.out")"
 cp "$(ls "$RA".retired-*)" "$AG"; run agentback -- daemon
-[ "$(rc agentback)" = 1 ] && has agentback "is back" && ! has agentback bootout && pass "only the agent plist back: says move it aside, never a bootout" || fail "agentback: rc $(rc agentback) $(cat "$T/agentback.out")"
+[ "$(rc agentback)" = 1 ] && has agentback "is back" && has agentback "sudo mv $AG $RA.retired-" && ! has agentback bootout && pass "only the agent plist back: says move it aside, never a bootout" || fail "agentback: rc $(rc agentback) $(cat "$T/agentback.out")"
 rm -f "$AG"; grep -v ' 7001 ' "$T/procs" > "$T/procs.x"; mv "$T/procs.x" "$T/procs"; run restarting -- daemon
 [ "$(rc restarting)" = 1 ] && has restarting "run this again in a minute" && ! has restarting bootout && pass "loaded with no Listener: restarting or updating, run again" || fail "restarting: rc $(rc restarting) $(cat "$T/restarting.out")"
 RET="$(ls "$RA".retired-*)"; rm -f "$T/daemon-loaded"; run loadonly -- --apply daemon
@@ -204,4 +205,10 @@ fixture; run uid0 FX_CIUID=0 -- --apply daemon
 fixture; run pgafter FX_PGREP_FAIL_LOADED=1 -- --apply daemon
 [ "$(rc pgafter)" = 1 ] && has pgafter "could not list processes" && has pgafter "the daemon is loaded; to go back: sudo launchctl bootout system/$LABEL" \
   && pass "a pgrep failure after the bootstrap still says how to go back" || fail "pgafter: rc $(rc pgafter) $(cat "$T/pgafter.out")"
+fixture; run plistmv FX_MV_PLIST_FAIL=1 -- --apply daemon
+[ "$(rc plistmv)" = 1 ] && has plistmv "the LaunchAgent is back where it was" && [ -f "$AG" ] && [ ! -e "$(DP)" ] && [ ! -e "$(DP).new" ] && ! ls "$RA".retired-* >/dev/null 2>&1 \
+  && pass "a failed write of the daemon plist puts the agent back" || fail "plistmv: rc $(rc plistmv) $(cat "$T/plistmv.out")"
+fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; run halfway -- --apply daemon
+[ "$(rc halfway)" = 1 ] && has halfway "parked at $RA.retired-20261103T000000Z" && has halfway "sudo mv $RA.retired-20261103T000000Z $AG" && ! has halfway "register the runner first" \
+  && pass "a run stopped after parking the agent says to put it back, not to register again" || fail "halfway: rc $(rc halfway) $(cat "$T/halfway.out")"
 [ "$fails" = 0 ] && echo "test-ci-runner-daemon-7001: all passed" || { echo "test-ci-runner-daemon-7001: $fails failed"; exit 1; }
