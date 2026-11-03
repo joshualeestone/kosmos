@@ -50187,6 +50187,7 @@ async function fetchLeftoverPlan(name) {
 /* kosmos#7852: a delete whose request got no answer (a reload, a sleep, a proxy) may still be running on the board, so
    "nothing was deleted" is not known. The plan, asked again, says what is so: its refusal is the board's words (the delete
    finished, or is still running), an offer means something is still here, and no plan at all means nobody knows. */
+const DEL_REFUSED_LINE = 'The board did not delete it, and gave no reason. Try again in a moment.';
 const DEL_UNKNOWN_LINE = 'We could not reach the board just now, so we cannot tell whether anything was deleted. Look again in a moment.';
 function deleteNoAnswerLine(plan) {
   if (!plan) return DEL_UNKNOWN_LINE;
@@ -50194,7 +50195,7 @@ function deleteNoAnswerLine(plan) {
   return plan.because || DEL_UNKNOWN_LINE;
 }
 /* What the open dialog shows once the plan has been asked again. Still offered: it repaints with that plan (a delete
-   that got partway can leave less, or ask for the name), and says so. Refused: the board's words, with the button off;
+   that got partway can leave less, or ask for the name; the typed name is cleared, as any repaint does), and says so. Refused: the board's words, with the button off;
    the detail page's delete box hides, as it does for any refusal (loadLeftover). The kept leftovers are left to the
    next read: a refusal can be "try again in a moment" or "is running", not only "nothing is left". No plan: the line,
    and the button as the plan on screen gates it, so the person can try again (the board re-plans before it acts). */
@@ -50331,11 +50332,12 @@ document.getElementById('del-go').addEventListener('click', async () => {
       DEL_RETURN = back;
       repainted = true;
     }
-    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(body.because || body.error || DEL_UNKNOWN_LINE);
+    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(body.because || body.error || DEL_REFUSED_LINE);
     if (!repainted) go.disabled = false;
     return;
   }
-  deleteSettled(name, body.said || body.because || '', opened === DEL_OPENED);
+  // The dialog this delete opened, or one opened again for the same agent (now deleted), closes; another agent's stays.
+  deleteSettled(name, body.said || body.because || '', opened === DEL_OPENED || String(DEL_FOR || '').toLowerCase() === String(name).toLowerCase());
 });
 /* The removed list's door: fetch the plan on the click, so a refusal is a
    sentence on the list rather than a modal with nothing true in it. */
