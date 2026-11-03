@@ -117,6 +117,9 @@ function pbfState() {
 function painter(doc, fetchImpl, extra = {}) {
   const src = page.liftAll(SCRIPT, ['asSentence', 'pbfWhen', 'pbfStartedWhen', 'pbfBackupWhen', 'pbfMsg', 'pbfFocus', 'pbfLastWords', 'pbfShow', 'pbfRead', 'pbfPaint', 'pbfRowButton', 'pbfSee', 'pbfStart', 'pbfStop', 'pbfOpen', 'pbPost'])
     + '\n' + pbfState();
+  // kosmos#7816: pbfPaint queues a timer for the end line's switch; unless a test holds the timers, they are dropped, so
+  // none runs after its test against the fake document.
+  extra = { setTimeout: () => 0, ...extra };
   const names = Object.keys(extra);
   return new Function('document', 'fetch', ...names, src + '\nreturn { PBF, pbfShow, pbfPaint, pbfSee, pbfStart, pbfStop, pbfRead, pbfOpen };')(
     doc, fetchImpl || (() => new Promise(() => {})), ...names.map((k) => extra[k]));
