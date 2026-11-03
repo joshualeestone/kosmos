@@ -31,9 +31,9 @@ counts as no answer. If the person left the dialog meanwhile, the plan is still 
 that agent's delete box and plan away without touching any dialog.
 A refusal WITH an answer is unchanged, except that it is dropped once the person has left the dialog.
 
-A side effect, accepted: the removed list's own Delete button also uses fetchLeftoverPlan, so its GET 400 (a name
-the board cannot read, which a listed name never is) and its GET 500 (the plan could not be worked out) now say the
-board could not be reached. A refusal with an answer but no words says the board gave no reason (review 4).
+fetchLeftoverPlan (shared with the detail page and the removed list's Delete): the route's 200 is a plan; its 400 or
+500 `{error}` is a refusal in the board's words; anything else is no plan. So only a request the board did not answer
+says it could not be reached (review 7).
 
 ## Why it helps on main as well
 On main the delete runs on the board's own thread, so the second GET waits for it and answers with the state after

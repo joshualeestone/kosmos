@@ -370,7 +370,13 @@ test('#7820 the page repaints the dialog from a refusal that carries a plan', ()
   const html = fs.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const at = html.indexOf("document.getElementById('del-go').addEventListener('click'");
   assert.ok(at > 0, 'the delete button handler moved; this test no longer reads it');
-  const handler = html.slice(at, html.indexOf('closeDeleteModal();', at));
+  // The handler alone, by its balanced braces (it holds no brace in a string): an anchor on a line inside it goes -1
+  // when that line moves, and slice(at, -1) then reads the rest of the page, where any match passes.
+  const from = html.indexOf('async () => {', at);
+  let i = html.indexOf('{', from), depth = 0;
+  for (; i < html.length; i++) { if (html[i] === '{') depth++; else if (html[i] === '}' && --depth === 0) break; }
+  assert.ok(i < html.length && i - from < 20000, 'the delete button handler did not close where expected');
+  const handler = html.slice(from, i + 1);
   assert.match(handler, /openDeleteModal\(body\.plan\);\s*DEL_RETURN = back;\s*repainted = true;/,
     'a refusal with a plan does not repaint the dialog, so a person shown no name box stays stuck');
   assert.match(handler, /DEL_PLAN\.typeToConfirm === body\.plan\.typeToConfirm/, 'a differently spelled name on screen is not repainted');

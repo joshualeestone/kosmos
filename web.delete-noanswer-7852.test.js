@@ -160,13 +160,40 @@ test('the handler, run: a dropped delete asks the plan again for the same agent 
   assert.doesNotMatch(d.els['del-msg'].textContent, /Nothing was deleted/);
 });
 
-test('the handler, run: a proxy page is no answer too, and a GET that fails with {error} is no plan', async () => {
+test('the handler, run: a proxy page is no answer; a GET 500 {error} is the board saying why, not "could not reach"', async () => {
   const d = dialog(offered);
   d.replies.push(proxyPage, json(500, { error: 'we could not work out what is left of this agent' }));
   await d.ctx.click();
-  assert.equal(d.els['del-msg'].textContent, UNKNOWN);
+  assert.equal(d.els['del-msg'].textContent, 'we could not work out what is left of this agent');
   assert.equal(d.els['del-modal'].hidden, false);
-  assert.equal(d.els['d-delete-leftover'].hidden, false, 'CONTROL: no plan is not a refusal, the box stays');
+  const gone = dialog(offered);
+  gone.replies.push(proxyPage, proxyPage);
+  await gone.ctx.click();
+  assert.equal(gone.els['del-msg'].textContent, UNKNOWN, 'CONTROL: a GET nobody answered is still "cannot tell"');
+  assert.equal(gone.els['d-delete-leftover'].hidden, false, 'and no plan is not a refusal, the box stays');
+});
+
+test('the handler, run: a 200 carrying {error} but no outcome is a proxy, not a delete', async () => {
+  const d = dialog(offered, 'Miles');
+  d.replies.push(json(200, { error: 'upstream reset' }), json(200, { ok: true, name: 'Miles' }));
+  await d.ctx.click();
+  assert.equal(d.calls.length, 2, 'the plan was asked again');
+  assert.equal(d.els['del-modal'].hidden, false);
+  assert.equal(d.ctx.state().kept, 'Miles,Ada');
+});
+
+test('the handler, run: Keep pressed while the delete hangs, then a refusal with a plan: the closed dialog is not repainted', async () => {
+  const d = dialog(offered);
+  let ok;
+  d.replies.push(() => new Promise((res) => { ok = res; }));
+  const done = d.ctx.click();
+  d.ctx.close();
+  const before = d.ctx.state().DEL_OPENED;
+  ok({ ok: false, status: 400, json: () => Promise.resolve({ outcome: 'refused', because: 'type Miles to confirm; nothing was deleted', plan: { ...offered, typeToConfirm: 'Miles' } }) });
+  await done;
+  assert.equal(d.els['del-modal'].hidden, true, 'it stays closed');
+  assert.equal(d.ctx.state().DEL_OPENED, before, 'nothing reopened it');
+  assert.equal(d.els['del-msg'].textContent, '');
 });
 
 test('the handler, run: a gateway\'s JSON (no outcome, no error) is no answer, so the plan is asked again', async () => {
