@@ -41,3 +41,14 @@ Release and Debug typecheck; room 774/774; mutants red; CI ui tests (KeyboardSli
   long as the keyboard is up, so a reader who scrolls up with the keyboard open is not pulled down by a later
   will-show; and any will-hide (on screen or not) cancels a waiting scroll and its put-back. diagKeyboard is no longer
   read for it.
+
+## Review round 3: the design changes (build 32)
+The wait-then-scroll design (build 31) kept meeting the hold for a reader higher up: during the wait both could be on,
+a drag released in the wait was pulled down, and a will-hide/will-show pair in a height change dropped the keep. Each
+fix added state. Build 32 keeps the keyboard-shown scroll exactly as on main (at did-show, as the hold expects) and adds
+only the put-back: keyboardSettle after the latest did-show, a reader still kept at the newest (keepNewestInView), not
+searching, no finger, in the same chat (epoch), whose list reads past its end, is put back (backInside, then goNewest,
+which bumps appMoves so the hold stands down). Any will-hide cancels a waiting put-back. The carry-over and
+kbSettlePending are gone.
+Weakest premise now: that "past the end" is the state to catch. The 09:27 diagnostic printed it after its own try;
+a blank "within" the content (#7420's estimate) is not covered by this.
