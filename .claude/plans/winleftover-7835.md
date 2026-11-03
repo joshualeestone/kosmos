@@ -92,3 +92,7 @@ Leftover tests 154 pass; create tests 545 pass; web.delete-leftover's route pin 
   while a delete waits on the Recycle Bin (moveRefusal is asked once; a leftover has no running agent and a move
   restarts only agents with jobs); during a delete an agent page hides its delete box (planAsync's refusal), which
   is true, and the removed list says a delete is running.
+- Review round 3: a test needle spelled a host check and tripped windows-tests-1777's host-branch guard (red on every
+  host; shown red with the old needle, green with the new). An account move (bulk, automatic or one agent) is now
+  refused while a Windows delete runs, with its own sentence (reverses round 2's keep: two reviewers raised it and the
+  fix is one check at the shared start). A refused warm no longer pins a drive it kept no answer for.

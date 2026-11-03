@@ -140,6 +140,9 @@ function start(body, deps) {
 function startSteps(body, deps, step) {
   if (busy()) return { status: 409, body: { outcome: 'refused', because: BUSY } };
   if (typeof deps.boardRestarting === 'function' && deps.boardRestarting()) return { status: 409, body: { outcome: 'refused', because: BOARD_GOING } };
+  // kosmos#7835: a Windows delete waiting on the Recycle Bin runs its last steps with the board free; a move's restarts
+  // would run under them. deletingBecause() says why, or nothing when no delete runs.
+  { const why = typeof deps.deletingBecause === 'function' ? deps.deletingBecause() : null; if (why) return { status: 409, body: { outcome: 'refused', because: why } }; }
   const dir = body && body.dir;
   const raw = body && body.names;
   if (typeof dir !== 'string' || !dir) return { status: 400, body: { outcome: 'refused', because: 'we need the account to move them to' } };

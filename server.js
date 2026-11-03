@@ -3302,6 +3302,7 @@ function accountMoveDeps() {
     restartAsync: (n) => restartForMoveAsync(n, fromDirs.has(n) ? fromDirs.get(n) : null),   // #6174's note too
     RESTARTED: removal.OUTCOME.RESTARTED,
     boardRestarting: () => boardRestartingSoon(),
+    deletingBecause: () => (leftover.deletingNow() ? leftover.DELETING_MOVE_BECAUSE : null),   // kosmos#7835
     hold: (names) => removal.holdForMove(names),
     release: (n) => removal.releaseFromMove(n),
     /* #6214: what a stop puts back. Read strictly (moveFromDir folds an unreadable job into the default account,
@@ -16352,6 +16353,7 @@ const server = http.createServer(async (req, res) => {
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
         if (accountmove.busy()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.busyBecause() }); return; }
         if (boardRestartingSoon()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.boardGoingBecause() }); return; }   // #6173 review 3
+        if (leftover.deletingNow()) { sendJson(res, 409, { outcome: 'refused', because: leftover.DELETING_MOVE_BECAUSE }); return; }   // kosmos#7835
         /* #6190: an agent a restart still holds (an abandoned async restart's command in flight) is refused BEFORE the
            write, as the provider and model routes do; before this the account was saved and only the restart refused. */
         { const held = removal.moveRefusal(name); if (held) { sendJson(res, 409, { outcome: 'refused', because: held.because }); return; } }
