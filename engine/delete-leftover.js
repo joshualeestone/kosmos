@@ -288,6 +288,9 @@ const DRIVE_KEEP_MS = 60000;
 const DRIVE_FAIL_KEEP_MS = 5000;
 const keptFor = (kept) => (kept && kept.info ? DRIVE_KEEP_MS : DRIVE_FAIL_KEEP_MS);
 const DRIVE_TIMEOUT_MS = 5000;
+/* kosmos#7835 item 5: the warm runs off the board, so it can wait for a cold PowerShell start (often past 5 s on a
+   Windows machine just started), which would otherwise make the first plan after it say "for good". */
+const DRIVE_WARM_TIMEOUT_MS = 20000;
 const RECYCLE_TIMEOUT_MS = 120000;
 function psRun(script, p, timeout) {
   return run(powershell(), ['-NoProfile', '-NonInteractive', '-Command', script], { env: { ...process.env, [RECYCLE_PATH_VAR]: p }, timeout });
@@ -351,7 +354,7 @@ function warmDrive(p) {
   if (probing.has(d.root)) return probing.get(d.root).then(() => d.root);
   const go = (async () => {
     let out;
-    try { out = await psRunAsync(DRIVE_SCRIPT, d.real, DRIVE_TIMEOUT_MS); } catch (err) {
+    try { out = await psRunAsync(DRIVE_SCRIPT, d.real, DRIVE_WARM_TIMEOUT_MS); } catch (err) {
       if (err && err.code === 'LIVE_EXECUTION_REFUSED') return;   // the synchronous plan meets the refusal itself
       out = { ok: false };
     }
@@ -1235,4 +1238,4 @@ async function delAsync(name, opts) {
   }
 }
 
-module.exports = { OUTCOME, plan, del, planAsync, delAsync, deletingName, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, recycleBinCanTake, binVerdict };   // RECYCLE_SCRIPT on, and execAsync, for tests (#5445, kosmos#7820, kosmos#7835)
+module.exports = { OUTCOME, plan, del, planAsync, delAsync, deletingName, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict };   // RECYCLE_SCRIPT on, and execAsync, for tests (#5445, kosmos#7820, kosmos#7835)

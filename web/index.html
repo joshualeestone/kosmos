@@ -50348,6 +50348,8 @@ document.getElementById('del-go').addEventListener('click', async () => {
       openDeleteModal(body.plan);
       DEL_RETURN = back;
       repainted = true;
+      // kosmos#7835 item 6: the name is what the person has to give next, and typing in the box cannot delete anything.
+      document.getElementById('del-typed').focus();
     }
     msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(body.because || body.error || DEL_REFUSED_LINE);
     if (!repainted) go.disabled = false;
