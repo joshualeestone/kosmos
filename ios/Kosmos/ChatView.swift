@@ -770,8 +770,11 @@ struct ChatView: View {
                 // kosmos#7817 (Josh 11-02): the box growing or shrinking a line as he typed moved the conversation elsewhere.
                 // Anything in the strip counts (a wrap, the line above the box, the emoji panel, a reply or file row). A
                 // reader at the newest message stays there, as when the keyboard comes up; one higher up is left alone.
+                // kosmos#7817 (Josh 11-03, build 29): on his phone this follow landed past every drawn row of a long chat (content
+                // reported 124690 pt against 19498 rebuilt), a blank list, worse than the jump it fixed. Off until that
+                // overshoot is reproduced and fixed (followsBox); the jump comes back meanwhile.
                 .onChange(of: stripHeight) { _ in
-                    guard visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
+                    guard Self.followsBox, visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
                     Self.trace("box height changed, to the newest")
                     if Self.idAnchor { appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
                 }
@@ -876,6 +879,16 @@ struct ChatView: View {
         return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOPOSID"] != "1"
         #else
         return true
+        #endif
+    }()
+
+    // kosmos#7817 (11-03): the message box's growth is not followed in a release build (the follow blanked a long chat on
+    // Josh's phone, build 29). Debug: KOSMOS_SAMPLE_BOXFOLLOW=1 turns it on, so the UI checks keep exercising it.
+    static let followsBox: Bool = {
+        #if DEBUG
+        return ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_BOXFOLLOW"] == "1"
+        #else
+        return false
         #endif
     }()
 
