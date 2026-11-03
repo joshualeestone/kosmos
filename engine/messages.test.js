@@ -5004,3 +5004,31 @@ test('kosmos#7886 item 2: a person\'s post that names nobody tells every member 
     }
   });
 });
+
+test('kosmos#7886 item 2: no claim line on a post with no reply wanted, in a shared room, or on a reply to an agent\'s post', () => {
+  withFleet(room3(), (board) => {
+    let tmux = arm([]);
+    const roomwideSince = (n) => tmux.pastedSends().slice(n).filter((s) => s.text.startsWith('[from your operator in project henderson-lease'));
+    // CONTROL: the same post with nothing that stops the line carries it, so each arm below can show its absence.
+    let n = tmux.pastedSends().length;
+    messages.sendPost({ operator: true, project: 'henderson-lease', text: 'can someone check the meter?' }, board.agents, MEMBERS);
+    assert.ok(roomwideSince(n).length > 0 && roomwideSince(n).every((s) => /claim it first/.test(s.text)), 'CONTROL: the open post did not carry the line');
+    n = tmux.pastedSends().length;
+    messages.sendPost({ operator: true, project: 'henderson-lease', text: 'can someone check the gate?', replyExpected: false }, board.agents, MEMBERS);
+    assert.ok(roomwideSince(n).length > 0, 'the FYI post reached nobody');
+    for (const s of roomwideSince(n)) assert.doesNotMatch(s.text, /claim it first/, 'an FYI post told members to claim it');
+    n = tmux.pastedSends().length;
+    messages.sendPost({ operator: true, project: 'henderson-lease', text: 'can someone check the roof?', federated: true }, board.agents, MEMBERS);
+    assert.ok(roomwideSince(n).length > 0, 'the shared-room post reached nobody');
+    for (const s of roomwideSince(n)) assert.doesNotMatch(s.text, /claim it first/, 'a shared room was told to claim, which only this computer sees');
+    tmux = arm([]);
+    armSender('leo-discord');
+    const asked = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'I can look at the boiler, @mara ok?' }, board.agents, MEMBERS);
+    const askedId = messages.record().rows.filter((m) => m.kind === 'post').at(-1).id;
+    assert.ok(asked && asked.state !== 'could_not' && /^m\d+$/.test(askedId), 'no agent post to reply to: ' + JSON.stringify(asked));
+    n = tmux.pastedSends().length;
+    messages.sendPost({ operator: true, project: 'henderson-lease', text: 'yes, go ahead', replyTo: askedId }, board.agents, MEMBERS);
+    assert.ok(roomwideSince(n).length > 0, 'the reply reached nobody on the whole-room arm');
+    for (const s of roomwideSince(n)) assert.doesNotMatch(s.text, /claim it first/, 'a reply to an agent\'s post told the others to claim it');
+  });
+});

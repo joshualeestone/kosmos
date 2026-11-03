@@ -3055,10 +3055,11 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
         ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
         /* kosmos#7886 item 2: five agents answered one fresh whole-room question within a minute. A post that names
            nobody says, beside its answer command, to claim first when one agent should do the work. Not on a post that
-           names someone (react's claim guard refuses everyone else for it), not in a room shared with another computer
-           (a claim there is this computer's alone), and not when no reply is wanted. */
+           names someone, nor on a reply to an agent's post (react's claim guard holds either for the member asked), not
+           in a room shared with another computer (a claim there is this computer's alone), and not when no reply is
+           wanted. */
         : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer
-          + (replyExpected === false || mentioned.size > 0 || federated ? ''
+          + (replyExpected === false || mentioned.size > 0 || federated || (answered && answered.operator !== true) ? ''
             : ' \u00b7 if it asks for work one of you should do, claim it first: kosmos claim ' + projectId + ' ' + id)
           + ']')
       : (askedHere
