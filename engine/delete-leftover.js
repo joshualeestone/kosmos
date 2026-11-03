@@ -345,6 +345,11 @@ function plan(name, opts) {
       ? 'Its startup job, so nothing tries to start it again'
       : 'Its auto-start file, so nothing tries to start it again');
   }
+  /* #7819: its settings and picture go with the files, and a new agent under the name starts without them. */
+  try {
+    const got = namedRecords({ name: clean, folder });
+    if (got.records.length) loses.push(`Its settings${got.records.some((r) => r.what === 'its picture') ? ' and picture' : ''}: a new agent with this name starts without them`);
+  } catch { /* the act says what it moved */ }
   /* #4994: the delete retires the name's community account, which no Trash brings back, so the confirmation says so
      rather than promising everything can be got back. */
   let community = false;
@@ -399,6 +404,66 @@ function plan(name, opts) {
   };
 }
 
+/* #7819: the stored records keyed by this name: its profile and its picture, as [{ what, file, key }]. Keyed the way
+   store keys them (safeKey: lower-cased, punctuation dropped), so the folder's own spelling is asked too (as the
+   standing reset does). Never a file another agent may own: a live session or an existing folder whose name maps to
+   the same key keeps it (Miles and miles share one profile). { records, kept: [{ key, by }] }. */
+function namedRecords(p) {
+  const store = require('./store');
+  const names = new Set([p.name]);
+  if (p.folder && p.folder.path) { try { names.add(path.basename(fs.realpathSync.native(p.folder.path))); } catch { /* the asked-for name */ } }
+  const keyOf = (n) => { try { return store.safeKey(n); } catch { return null; } };
+  const ours = new Set([...names]);
+  const others = new Map();   // key -> another name that maps to it
+  const note = (n) => { const k = keyOf(n); if (k && !ours.has(n) && !others.has(k)) others.set(k, n); };
+  for (const c of status.paneRoster()) note(c.sessionName);
+  try { for (const e of fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true })) if (e.isDirectory()) note(e.name); } catch { /* no workers folder */ }
+  const records = [];
+  const kept = [];
+  const seen = new Set();
+  for (const n of names) {
+    const key = keyOf(n);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (others.has(key)) { kept.push({ key, by: others.get(key) }); continue; }
+    if (fs.existsSync(store.profilePath(n))) records.push({ what: 'its settings', file: store.profilePath(n), name: n });
+    const pic = store.avatarPath(n);
+    if (pic) records.push({ what: 'its picture', file: pic, name: n });
+  }
+  return { records, kept };
+}
+
+/* Moves namedRecords' files where the plan sends the folder. { ok, steps }. The kept originals of a picture
+   (store.removeAvatar) are deleted, not moved: they are the picture's uncropped copies, never shown. */
+function moveRecords(p, platform) {
+  const steps = [];
+  let got;
+  try { got = namedRecords(p); } catch (err) {
+    return { ok: false, steps: [{ step: 'its settings', ok: false, because: String((err && err.message) || err) }] };
+  }
+  for (const k of got.kept) steps.push({ step: 'its settings', ok: true, because: `kept: ${k.by} uses the same stored name` });
+  let ok = true;
+  for (const r of got.records) {
+    try {
+      if (p.toTrash) {
+        fs.mkdirSync(TRASH(platform), { recursive: true });
+        const to = trashName(r.file, platform);
+        fs.renameSync(r.file, to);
+        if (platform === 'linux') { try { writeTrashInfo(r.file, to); } catch { /* moved; only the put-back record is missing */ } }
+      } else {
+        fs.rmSync(r.file, { force: true });
+      }
+      if (fs.existsSync(r.file)) throw new Error('still there');
+      if (r.what === 'its picture') { try { require('./store').removeAvatar(r.name); } catch { /* the picture itself is gone */ } }
+      steps.push({ step: r.what, ok: true });
+    } catch (err) {
+      ok = false;
+      steps.push({ step: r.what, ok: false, because: String((err && err.message) || err) });
+    }
+  }
+  return { ok, steps };
+}
+
 function trashName(p, platform) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   return path.join(TRASH(platform), `${path.basename(p)} (Kosmos ${stamp})`);
@@ -451,6 +516,20 @@ function del(name, opts) {
       outcome: OUTCOME.REFUSED,
       because: 'we could not reset its standing in the community, so nothing was deleted.',
       steps: [{ step: 'its community standing', ok: false, because: String((err && err.message) || err) }],
+    };
+  }
+  /* #7819: the name's PROFILE and PICTURE, second, for the same reason as the standing above: once the folder and job
+     are gone plan() refuses, so a step after them that failed could never be retried. Both are keyed by the name, so
+     left behind they make a new agent under the freed name the old one: writeProfile keeps a stored `id` (#170) and
+     every field the new create does not write (`dir`, accounts, provider), and the picture is the old one's. They go
+     where the folder goes (the Trash, or deleted for good), and a failure refuses the whole delete. */
+  const records = moveRecords(p, platform);
+  for (const st of records.steps) steps.push(st);
+  if (!records.ok) {
+    return {
+      outcome: OUTCOME.REFUSED,
+      because: `we could not ${p.toTrash ? 'move' : 'delete'} ${p.shown}'s settings and picture, so nothing else was deleted. Its standing in the community was reset, so if it comes back it starts at the beginning. Try again in a moment.`,
+      steps,
     };
   }
   const gone = [];
