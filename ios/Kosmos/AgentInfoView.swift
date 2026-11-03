@@ -314,7 +314,8 @@ struct AgentInfoView: View {
         (instructions, instructionsWhy) = Board.profileNext(shown: instructions, read: Board.instructionsRead(i))
         (skills, skillsWhy) = Board.profileNext(shown: skills, read: Board.skillsRead(k))
         readFailed = d == nil   // the details' own read (the name footer and Runs on); each section says its own why
-        // Review 2 (the Files list): a refresh that gets no answer, or is not let in, keeps the list it had, as instructions and skills keep theirs; a
+        // Review 2 (the Files list): a refresh that gets no answer, or is not let in, keeps the list it had (instructions and
+        // skills keep theirs through more: a 5xx, 408 or 429 too, see Board.profileNext; Files does not yet); a
         // refusal or a new list replaces it. (A deliberate difference from the board, which says it could not read: a
         // phone loses its connection far more than a desk page does, and the rows it had are still the agent's.)
         let newFiles = await files

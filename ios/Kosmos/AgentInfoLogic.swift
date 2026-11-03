@@ -239,7 +239,8 @@ extension Board {
     // reads it; the desktop's skills read uses `because` only).
     // got: the value. refused: the board answered this agent with its own words for why not (a 200 that is not the
     // thing, or a 4xx such as 404). unanswered: nothing came back, the phone was not let in (401, 403: a gate, or the
-    // seconds after the computer restarts), the board failed for now (5xx), or a body with no words of its own.
+    // seconds after the computer restarts), the board failed for now (5xx, 408, 429, or the skills route's 200
+    // {ok:false} folder read), or a body with no words of its own.
     enum ProfileRead<T: Equatable>: Equatable { case got(T), refused(String), unanswered(String) }
     // No answer at all: the page's own wording for its computer, with the way to try again.
     static let macNoAnswer = "We could not reach your computer just now. Pull down to try again."

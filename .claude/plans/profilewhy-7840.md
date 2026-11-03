@@ -25,6 +25,12 @@ this right now.") for no answer, a refusal, an error and an unreadable body alik
   section shows: a value or a refusal replaces what was shown; an unanswered read keeps a value already shown and gives
   its reason only when there is nothing.
 - ios/Kosmos/AgentInfoView.swift: each section shows its value or its own reason, through `profileNext`.
+- ios/Kosmos/BoardLogic.swift: one sentence for the phone not being let in (`Board.phoneShutOut`), used by
+  SettingsLogic.swift's `refusal`, the Profile and Files.
+- ios/Kosmos/FilesLogic.swift, FilesView.swift: a 401 or 403 says that sentence, never the gate's words, and keeps a
+  list shown (`filesKeepsShown`, `filesSectionKeepsShown`, both screens). Files' handling of 5xx, 408 and 429 is
+  unchanged: it predates this card, and stays a follow-up (the Profile keeps through those; Files replaces).
+- ios/LogicTests/files/main.swift: the shut-out sentence and keep rules.
 - ios/LogicTests/agentinfo/main.swift: an ordinary agent's answers (the board's shapes) show real instructions and
   skills; each failure kind shows its reason; what the screen shows after each kind of read.
 
