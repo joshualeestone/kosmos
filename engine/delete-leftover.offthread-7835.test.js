@@ -251,3 +251,41 @@ test('#7835 the hold meets any spelling of the same agent, and a restore of it i
   assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
   assert.equal(leftover.deletingName('Ot7835 K'), false);
 });
+
+test('#7835 its settings go to the Recycle Bin off the board too, and the answer is what del gives', async () => {
+  const store = require('./store');
+  const withSettings = (name) => {
+    leftoverFolder(name);
+    fs.mkdirSync(nodePath.dirname(store.profilePath(name)), { recursive: true });
+    fs.writeFileSync(store.profilePath(name), '{}');
+  };
+  withSettings('ot7835m');
+  const profile = fs.realpathSync.native(store.profilePath('ot7835m'));
+  leftover.setRunner(later(150));
+  const { value: done, ticks } = await ticksDuring(() => asyncWin.del('ot7835m'));
+  assert.equal(done.outcome, leftover.OUTCOME.DELETED, JSON.stringify(done));
+  assert.ok(moves() >= 2, 'the settings were not moved through the Recycle Bin call');
+  assert.ok(calls.some((c) => c.args.includes(leftover.RECYCLE_SCRIPT) && c.env.KOSMOS_RECYCLE_PATH === profile), 'its settings file was not sent');
+  assert.ok(ticks >= 10, `the board was held while the folder and its settings were moved (${ticks} ticks)`);
+  assert.equal(fs.existsSync(store.profilePath('ot7835m')), false);
+  leftover.setRunner(stub);
+  withSettings('ot7835m');
+  const same = win.del('ot7835m');
+  assert.equal(done.said, same.said);
+  assert.deepEqual(done.steps.map((s) => [s.step, s.ok]), same.steps.map((s) => [s.step, s.ok]));
+});
+
+test('#7835 while a delete runs, Start, Restart and Remove of that agent are refused', async () => {
+  leftoverFolder('ot7835n');
+  leftover.setRunner(later(300));
+  const going = asyncWin.del('ot7835n');
+  await new Promise((r) => setTimeout(r, 50));
+  const started = remove.restart('ot7835n', 'restart', { startIfDead: true });
+  assert.equal(started.outcome, remove.OUTCOME.REFUSED, JSON.stringify(started));
+  assert.match(started.because, /being deleted now/);
+  const startedAsync = await remove.restartAsync('ot7835n', 'restart', { startIfDead: true });
+  assert.equal(startedAsync.outcome, remove.OUTCOME.REFUSED, JSON.stringify(startedAsync));
+  const removed = remove.remove('ot7835n');
+  assert.equal(removed.outcome, remove.OUTCOME.REFUSED, JSON.stringify(removed));
+  assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
+});

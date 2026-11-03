@@ -91,10 +91,10 @@ const driveTypes = new Map();
    remove dry-runs while this executes live. Read at load (the board reads env at
    startup); a test controls it through resetForTests. */
 let DRY_RUN = process.env.AGENT_WORKFORCE_DRY_RUN === '1';
-function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; if (!runner) DRY_RUN = true; driveTypes.clear(); }
+function setRunner(fn) { runner = typeof fn === 'function' ? fn : null; if (!runner) DRY_RUN = true; driveTypes.clear(); probing.clear(); }
 /* Test seam (#1598): back to fail-closed (no runner, dry-run flag off) so a test
    can exercise the live-execution gate directly. */
-function resetForTests() { runner = null; DRY_RUN = false; driveTypes.clear(); }
+function resetForTests() { runner = null; DRY_RUN = false; driveTypes.clear(); probing.clear(); }
 function run(file, args, opts) {
   if (runner) return runner(file, args, opts);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
@@ -143,10 +143,11 @@ function execAsync(file, args, opts) {
       child = execFile(file, args, { encoding: 'utf8', timeout: limit, killSignal: 'SIGKILL', windowsHide: true, ...(opts && opts.env ? { env: opts.env } : {}) },
         (err, stdout, stderr) => {
           if (!err) { answer({ ok: true, stdout: String(stdout || '') }); return; }
-          answer({ ok: false, code: !err.killed && typeof err.code === 'number' ? err.code : null, stdout: text(stdout), stderr: text(stderr) });
+          // No stdout on a failure, as run(): a line printed before the kill is not this answer.
+          answer({ ok: false, code: !err.killed && typeof err.code === 'number' ? err.code : null, stderr: text(stderr) });
         });
-    } catch (err) { answer({ ok: false, code: null, stdout: '', stderr: text(err && err.message) }); return; }
-    hard = setTimeout(() => answer({ ok: false, code: null, stdout: '', stderr: 'it did not answer within its time limit' }), limit + EXEC_HARD_GRACE_MS);
+    } catch (err) { answer({ ok: false, code: null, stderr: text(err && err.message) }); return; }
+    hard = setTimeout(() => answer({ ok: false, code: null, stderr: 'it did not answer within its time limit' }), limit + EXEC_HARD_GRACE_MS);
     if (hard.unref) hard.unref();
     if (child && child.stdin) child.stdin.end();
   });
@@ -1187,7 +1188,8 @@ async function warmFor(name, opts) {
   try { first = plan(name, { ...(opts || {}), probe: false }); } catch { return; }
   if (!first || first.ok !== true) return;
   const paths = [first.folder && first.folder.path, ...((first.records && first.records.files) || []).map((r) => r.file)].filter(Boolean);
-  for (const p of paths) await warmDrive(p);
+  // Together: one after another, a failed probe's short keep could end while the next drive is still being asked.
+  await Promise.all(paths.map((p) => warmDrive(p)));
 }
 /** plan, with the Windows drive probe run first without holding the board. While a delete of the name runs, its files
     are on their way out, so the plan says that rather than reading them half-moved. */
