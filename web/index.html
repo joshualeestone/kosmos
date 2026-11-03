@@ -56040,7 +56040,8 @@ async function pbRestore() {
 }
 document.getElementById('pb-on').addEventListener('click', pbOpen);
 /* kosmos#7404 plan screen. The plans are read (POST /api/personal-backup/plans: the sizes on sale and the current plan, by
-   GB or null) when the on view shows, then once a minute until a read works and for half an hour after Choose, and
+   GB or null) when the on view shows, then once a minute until a read works and for half an hour after Choose (or after a
+   checkout that may just have been paid), and
    once an hour otherwise; with a plan, nothing more is read. */
 var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, gb: null, since: 0, reading: false, msgFrom: null, noPlanStop: false, awaitPlan: false };
 const PBP_WAIT_MS = 30 * 60000;
@@ -56067,7 +56068,8 @@ function pbpShow(on, drop) {
   if (drop) { PBP.plans = null; PBP.planGb = undefined; PBP.url = null; PBP.gb = null; PBP.awaitPlan = false; PBP.since = 0; PBP.at = 0; PBP.seq++; PBP.gen++; PBP.reading = false; pbpMsg(''); }
   const hasPlan = Number.isSafeInteger(PBP.planGb);
   const since = Date.now() - PBP.at;
-  // Each minute until a read works (or after one failed), and for half an hour after Choose; otherwise each hour (a plan paid for elsewhere,
+  // Each minute until a read works (or after one failed), and for half an hour after Choose or a checkout that may just
+  // have been paid; otherwise each hour (a plan paid for elsewhere,
   // or a payment page left open and never paid).
   if (on && !hasPlan && ((since > 60000 && (PBP.plans === null || PBP.msgFrom === 'read' || ((PBP.url || PBP.awaitPlan) && Date.now() - PBP.since < PBP_WAIT_MS))) || since > PBP_RECHECK_MS)) pbpRead();
   pbpPaint(on);
@@ -56137,6 +56139,7 @@ async function pbpChoose(gb) {
   // The account has a plan already (another tab, or a payment confirmed late): read it, so the rows give way to it.
   if (!url && r && r.code === 'backup_plan_exists') pbpRead();
   // #7827: a page that may just have been paid: watch for the plan each minute, as after Choose.
+  // No read at once: the relay says finished only while no plan is recorded yet, so the first look is a minute on.
   else if (!url && r && (r.code === 'backup_checkout_finished' || r.code === 'backup_checkout_conflict')) { PBP.awaitPlan = true; PBP.since = Date.now(); PBP.at = Date.now(); }
   if (url) { const a = document.getElementById('pb-plans-open'); try { a.focus(); } catch { /* gone */ } }
 }

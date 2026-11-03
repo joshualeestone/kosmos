@@ -1,7 +1,7 @@
 # planscache-7827: the plan screen's follow-ups
 
 Card: kosmos#7827 (follow-up to the #7404 plan screen, its review round 8). Owner: Baron Draxum.
-Stacked on planscreen-7404 (not merged yet); rebase onto main once it is.
+Was stacked on planscreen-7404; rebased onto main after it merged (c0b8a273fb).
 
 ## What
 1. The server's shared plans read keeps only an `ok` or `final` answer for 30 seconds; a failure lets the next caller ask.

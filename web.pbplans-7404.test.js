@@ -334,3 +334,19 @@ test('#7827: a checkout that has just finished (or a conflict that may be one) w
     assert.equal(s.PBP.awaitPlan, false, code + ': Off kept the watch');
   }
 });
+
+test('#7827: "opening" does not start the watch, and a watch after "finished" ends after half an hour', async () => {
+  const doc = fakeDoc();
+  let reads = 0, code = 'backup_checkout_opening';
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: false, code, because: 'x' })() : (reads++, answer({ ok: true, plans: PLANS, planGb: null })())));
+  s.pbpShow(true, false); await tick(); await tick();
+  await s.pbpChoose(25);
+  s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(reads, 1, 'a page still opening started the minute watch');
+  code = 'backup_checkout_finished';
+  await s.pbpChoose(25);
+  s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(reads, 2, 'CONTROL: "finished" watches');
+  s.PBP.since = Date.now() - 31 * 60000; s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
+  assert.equal(reads, 2, 'the watch after "finished" never ended');
+});
