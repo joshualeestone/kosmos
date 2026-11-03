@@ -320,6 +320,7 @@ function plan(name, opts) {
      before #7819, or a #7819 PARTIAL), and a new agent under the name would start with them. Offered only when they are
      not somebody's on purpose: see strandedRefusal. */
   let recs = null;
+  let damagedSettings = false;
   if (!folder && !job) {
     try { recs = namedRecords(clean, null); } catch {
       return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
@@ -331,8 +332,9 @@ function plan(name, opts) {
     if (!recs.records.length) {
       return { ok: false, because: `nothing of ${shown} is left on this computer, so there is nothing to delete. If the name is still refused, something else holds it.` };
     }
-    const why = strandedRefusal(clean, shown, caseBlind);
-    if (why) return { ok: false, because: why };
+    const st = strandedRefusal(clean, shown);
+    if (st.because) return { ok: false, because: st.because };
+    damagedSettings = st.damaged;
   }
   const recordsOnly = Boolean(recs);
 
@@ -374,6 +376,7 @@ function plan(name, opts) {
     const w = recordsWords(recs.records);
     loses.push(`${w.cap}: ${recordsTrash ? (recordsOnly ? 'to the Trash' : 'to the Trash with the files') : 'deleted for good'}, and a new agent with this name starts without ${w.plural ? 'them' : 'it'}`);
   }
+  if (damagedSettings) loses.push('Its settings file could not be read, so Kosmos could not check what it recorded before offering it');
   // Kept, and said before the click: a new agent under the name will share them.
   if (recs.kept) loses.push(`${recs.keptWords.cap} stay${recs.keptWords.plural ? '' : 's'}: ${recs.kept}, and a new agent with this name shares ${recs.keptWords.plural ? 'them' : 'it'}`);
   /* #4994: the delete retires the name's community account, which no Trash brings back, so the confirmation says so
@@ -457,33 +460,53 @@ function plan(name, opts) {
    - a connected agent whose recorded folder is outside the workers folder and not reachable right now (a disk or share
      that is not connected): its folder is not gone, only out of sight.
    The profile is read here, not through store.readProfile, which answers {} for a file it cannot read: a failed look
-   refuses, as every other one in plan() does. */
-function strandedRefusal(name, shown, caseBlind) {
+   refuses, as every other one in plan() does. A file that reads but is not settings is offered (review 4): it cannot be
+   a world start's (that is checked by the record), every reader already treats it as empty, so whatever it recorded is
+   lost to its agent anyway, and refusing left it under the name for good. The plan says it could not be checked.
+   { because } to refuse, else { damaged }. */
+function strandedRefusal(name, shown) {
   const store = require('./store');
   const couldNot = `we could not read what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.`;
   let prof = {};
   let raw = null;
   try { raw = fs.readFileSync(store.profilePath(name), 'utf8'); } catch (e) {
-    if (!(e && e.code === 'ENOENT')) return couldNot;   // a picture alone has no profile; anything else is a failed look
+    if (!(e && e.code === 'ENOENT')) return { because: couldNot };   // a picture alone has no profile; anything else is a failed look
   }
-  /* A file that reads but is not a record is not a passing fault, so the sentence does not say "try again": without its
-     contents Kosmos cannot tell whether it records a folder somewhere else (review 2). */
-  const damaged = `${shown}'s settings file cannot be read as settings, so Kosmos cannot tell whether it is left over and has not offered to delete it.`;
-  if (raw !== null) { try { prof = JSON.parse(raw); } catch { return damaged; } }
-  if (!prof || typeof prof !== 'object' || Array.isArray(prof)) return damaged;
+  let damaged = false;
+  if (raw !== null) { try { prof = JSON.parse(raw); } catch { damaged = true; } }
+  if (!prof || typeof prof !== 'object' || Array.isArray(prof)) damaged = true;
+  if (damaged) prof = {};
   const pending = require('./worldstarts').pendingNames();
-  if (pending === null) return `we could not check whether ${shown} is waiting to start, so we have not offered to delete anything. Try again in a moment.`;
+  if (pending === null) return { because: `we could not check whether ${shown} is waiting to start, so we have not offered to delete anything. Try again in a moment.` };
   let key;
   try { key = store.safeKey(name); } catch { key = null; }
   const sameKey = (n) => { try { return store.safeKey(n) === key; } catch { return false; } };
-  if (pending.some((n) => n === name || (key && sameKey(n)))) return `${shown} is waiting to start on this computer, so its settings are not left over.`;
+  if (pending.some((n) => n === name || (key && sameKey(n)))) return { because: `${shown} is waiting to start on this computer, so its settings are not left over.` };
   const dir = typeof prof.dir === 'string' && prof.dir && path.isAbsolute(prof.dir) ? prof.dir : null;
-  // Case-blind where the disk is (review 2): a folder recorded as .../Workers/x is inside a workers folder spelled .../workers.
-  const fold = (x) => (caseBlind ? path.resolve(x).toLowerCase() : path.resolve(x));
-  if (dir && !insideDir(fold(dir), fold(create.WORKERS_DIR))) {
-    return `${shown}'s folder is somewhere this computer cannot reach right now, perhaps a disk or a shared folder that is not connected, so Kosmos will not delete its settings.`;
+  /* Compared as the disk spells them (review 4): the nearest part that exists is resolved through links and the disk's
+     own case (/var is /private/var on a Mac; .../Workers is .../workers on a case-blind disk), the gone rest joined on.
+     A separate case fold (review 2) was taken out again: the part that can differ in case always exists (the workers
+     folder does), so it changed no outcome. The workers folder itself counts as inside. */
+  const real = (x) => {
+    let at = path.resolve(x);
+    const rest = [];
+    for (;;) {
+      try { return path.join(fs.realpathSync.native(at), ...rest); } catch {
+        const up = path.dirname(at);
+        if (up === at) return path.resolve(x);
+        rest.unshift(path.basename(at));
+        at = up;
+      }
+    }
+  };
+  if (dir) {
+    const a = real(dir);
+    const b = real(create.WORKERS_DIR);
+    if (a !== b && !insideDir(a, b)) {
+      return { because: `${shown}'s folder is somewhere this computer cannot reach right now, perhaps a disk or a shared folder that is not connected, so Kosmos will not delete its settings.` };
+    }
   }
-  return null;
+  return { damaged };
 }
 
 /* #7819: the stored records keyed by this name: its profile, its picture files and the picture's kept originals, as
@@ -598,8 +621,8 @@ function del(name, opts) {
   const steps = [];
   /* #5000: the name's community moderation standing, FIRST. The board keys trust by the agent's name, so without
      this a new agent under the freed name would start with the deleted agent's standing. It goes before anything
-     is moved because it is the one step a retry could never reach afterwards: once the folder and the job are
-     gone and nothing is stored under the name, plan() finds nothing left and refuses. Resetting a leftover's standing early costs nothing (it is not
+     is moved because it is the one step a retry could never reach afterwards: once the folder and the job
+     are gone and nothing is stored under the name, plan() finds nothing left and refuses. Resetting a leftover's standing early costs nothing (it is not
      running, and a standing only drops). If it fails, nothing has been touched yet, so the delete is refused
      whole and can simply be tried again. The folder's own name is reset too when the case differs from the one
      asked for (a Mac's disk does not tell Miles from miles; the board's trust key does). */

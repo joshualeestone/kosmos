@@ -80,3 +80,15 @@ never offering at all.
 - Two comments the move made false (the standing reset's reason; "unlike forget above"). Plan lines on policyHeld.
 - Declined: capitalising the community-only `because` start; every `because` here starts lower case by convention.
 - Each fix mutation-checked (kept row, dropped row on folder/job stuck, door, no door).
+
+## Review round 4 (sonnet, fixed)
+- The recorded folder is compared as the disk spells it: the nearest existing part resolved through links and the
+  disk's case, the gone rest joined on (a link or /var vs /private/var read as "cannot reach", stuck for good).
+- A settings file that reads but is not settings is offered (it was a dead end): it cannot be a world start's (the
+  record is still checked), every reader already treats it as empty, and the plan says it could not be checked.
+- Taken out again: round 2's separate case fold. With the link-resolving compare it changed no outcome (its mutation
+  stayed green), so it was an unarmed guard.
+- Picture-only wording pinned end to end. Each fix mutation-checked.
+- Declined: a create-in-flight guard (create writes the profile after the folder, create.js:7205, so a name mid-create
+  has a folder and never reaches this path); win32 records-only test (the records-only arm has no platform branch: no
+  job, so win32job is never asked).
