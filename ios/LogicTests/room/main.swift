@@ -1730,7 +1730,13 @@ check((Board.projectChangeBody(.paused(true), shownName: "", shownDescription: "
 let putReq = Board.projectChangeRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "springcatalogue", body: ["paused": false])
 check(putReq?.httpMethod == "PUT" && putReq?.url?.path == "/api/project/springcatalogue", "PUT /api/project/<id>, as the board")
 check(Board.projectChangeRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "../x", body: ["paused": false]) == nil, "CONTROL: not a project id, no request")
-check(Board.projectSaveResult(status: 200, body: Data(#"{"project":{}}"#.utf8)) == .saved, "saved")
+check(Board.projectSaveResult(status: 200, body: Data(#"{"project":{}}"#.utf8)) == .saved(notify: nil, paused: nil), "saved")
+check(Board.projectSaveResult(status: 200, body: Data(#"{"project":{"notify":"muted","paused":true}}"#.utf8)) == .saved(notify: "muted", paused: true), "review 1: the stored level and pause come back with the save")
+check(Board.projectSaveResult(status: 200, body: Data(#"{"project":{"notify":"loud"}}"#.utf8)) == .saved(notify: nil, paused: nil), "CONTROL: an unknown stored level is not taken")
+let pausedRows = Board.parseProjects(Data(#"{"projects":[{"id":"a","name":"A","paused":true,"pausedByPerson":true},{"id":"b","name":"B","paused":true}]}"#.utf8))?.projects ?? []
+check(pausedRows.map(\.pausedByPerson) == [true, false], "who paused it is read")
+check(Board.projectPausedWhat(byPerson: false) == "An agent paused it. Kosmos is not nudging agents about its tasks or handing them out. Resume it to bring them back.", "an agent's pause says so")
+check(boardPage.contains("'Kosmos is not nudging agents about its tasks or handing them out. Resume it to bring them back.'") && boardPage.contains("'An agent paused it. '"), "review 1: the paused line is the board's own")
 check(Board.projectSaveResult(status: 200, body: Data("not json".utf8)) == .refused("We could not tell whether that saved. Look again in a moment."), "an unreadable 200 is never 'failed'")
 if case .refused(let why) = Board.projectSaveResult(status: 400, body: Data(#"{"error":"that name is taken"}"#.utf8)) { check(why.hasPrefix("That name is taken"), "the board's reason, as a sentence: \(why)") } else { check(false, "a refusal is the board's reason") }
 check(Board.projectSaveResult(status: 0, body: nil) == .noAnswer, "no answer")

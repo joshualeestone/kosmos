@@ -676,6 +676,8 @@ extension Board {
         var quiet = false
         // kosmos#7838 slice B: the project's notification level as the board keeps it (all, mentions, muted; #7210).
         var notify = "all"
+        // Review 1: whether the person paused it (the board's pausedByPerson), so the paused line can say an agent did.
+        var pausedByPerson = false
     }
 
     struct ProjectList: Equatable {
@@ -846,7 +848,8 @@ extension Board {
                               heldForYou: integer(s["heldForYou"]) ?? 0,
                               working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0,
                               quiet: ["mentions", "muted"].contains(p["notify"] as? String ?? ""),
-                              notify: ["all", "mentions", "muted"].contains(p["notify"] as? String ?? "") ? (p["notify"] as! String) : "all")
+                              notify: ["all", "mentions", "muted"].contains(p["notify"] as? String ?? "") ? (p["notify"] as! String) : "all",
+                              pausedByPerson: isTrue(p["pausedByPerson"]))
         }
         return ProjectList(projects: rows, agentsUnreadable: isTrue(obj["agentsUnreadable"]))
     }
@@ -1251,7 +1254,10 @@ extension Board {
     static let projectDescriptionLimit = "Up to 1000 characters."
     static let projectDescriptionWho = "For people reading Kosmos. Agents are not told when this changes, so anything they need belongs in a task or in their instructions."
     static let projectPauseWhat = "Kosmos stops nudging agents about its tasks and stops handing them out. Nothing else changes."
-    static let projectResumeWhat = "Kosmos nudges agents about its tasks and hands them out again."
+    // Review 1: the board's own paused line (pj-one-paused-hint), with "An agent paused it." when the person did not.
+    static func projectPausedWhat(byPerson: Bool) -> String {
+        (byPerson ? "" : "An agent paused it. ") + "Kosmos is not nudging agents about its tasks or handing them out. Resume it to bring them back."
+    }
     // The board's notification choices (pjs-notify), in its order.
     static let projectNotifyLevels: [(key: String, label: String)] = [("all", "All"), ("mentions", "Mentions only"), ("muted", "Muted")]
 
@@ -1286,10 +1292,17 @@ extension Board {
         return r
     }
     // Saved, the board's own reason, or no answer. A 200 this build cannot read may still have saved: never "failed".
-    enum ProjectSave: Equatable { case saved, refused(String), noAnswer }
+    // Review 1: a save carries the stored notify level and paused state from the board's answer (`project`), as the
+    // board's pjNotifyChoose takes it, so the controls show what was stored even before the list is read again.
+    enum ProjectSave: Equatable { case saved(notify: String?, paused: Bool?), refused(String), noAnswer }
     static func projectSaveResult(status: Int, body: Data?) -> ProjectSave {
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        if status == 200 { return obj == nil ? .refused("We could not tell whether that saved. Look again in a moment.") : .saved }
+        if status == 200 {
+            guard let obj else { return .refused("We could not tell whether that saved. Look again in a moment.") }
+            let stored = obj["project"] as? [String: Any]
+            let n = stored?["notify"] as? String
+            return .saved(notify: n.flatMap { ["all", "mentions", "muted"].contains($0) ? $0 : nil }, paused: stored?["paused"] as? Bool)
+        }
         if let e = obj?["error"] as? String, !e.isEmpty { return .refused(sentence(e)) }
         return status == 0 ? .noAnswer : .refused("We could not save that.")
     }
