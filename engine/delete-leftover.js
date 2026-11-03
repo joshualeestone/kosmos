@@ -83,9 +83,12 @@ const WALK_CAP = 20000;
    file goes, so launchd does not keep a job whose file has vanished. */
 let runner = null;
 /* Drive root -> { info, at }: the drive probe's answer, kept a minute (the agent page asks on every visit, and each ask
-   is a PowerShell start; a minute is short enough that a changed Recycle Bin setting is seen). Cleared by
+   is a PowerShell start; a minute is short enough that a changed Recycle Bin setting is seen). A probe that gave no
+   answer is kept 5 s, and a running delete's own re-plan reads the answers its warm kept whatever their age. Cleared by
    setRunner/resetForTests (below) so a test's new answer is heard. */
 const driveTypes = new Map();
+/* kosmos#7835: drive root -> the probe running for it off the board, so two pages opening together share one. */
+const probing = new Map();
 /* #1598: honor AGENT_WORKFORCE_DRY_RUN, symmetric with remove.js. Without this,
    an operator who set the env on the opted-in board got asymmetric behaviour,
    remove dry-runs while this executes live. Read at load (the board reads env at
@@ -348,7 +351,6 @@ function recycleBinCanTake(p, m, how) {
 }
 /* kosmos#7835: the same probe without holding the board, kept for the synchronous plan that follows. One probe per
    drive at a time: two agent pages opening together share it. */
-const probing = new Map();
 function warmDrive(p) {
   const d = driveOf(p);
   if (!d || !d.root) return Promise.resolve(null);
@@ -363,7 +365,7 @@ function warmDrive(p) {
       out = { ok: false };
     }
     keepDrive(d.root, out);
-  })().finally(() => probing.delete(d.root));
+  })().finally(() => { if (probing.get(d.root) === go) probing.delete(d.root); });
   probing.set(d.root, go);
   return go.then(stored);
 }
@@ -1202,8 +1204,8 @@ function deletingName(name) { return deleting.size > 0 && name != null && deleti
 /* kosmos#7835: any delete running. A board restart (an update, the restart button, a Kosmos switch) would end it partway,
    after the folder moved and before its records, so the board's restarts wait for it (server.js moveHoldsBoard). */
 function deletingNow() { return deleting.size > 0; }
-const DELETING_BOARD_BECAUSE = "An agent's files are being moved to the Recycle Bin now, and this would restart the board in the middle of it. Try again in a minute.";
-const DELETING_MOVE_BECAUSE = "An agent's files are being moved to the Recycle Bin now, so no agent was moved. Try again in a minute.";
+const DELETING_BOARD_BECAUSE = "An agent's leftover files are being deleted now, and this would restart the board in the middle of it. Try again in a minute.";
+const DELETING_MOVE_BECAUSE = "An agent's leftover files are being deleted now, so no agent was moved. Try again in a minute.";
 const DELETING_BECAUSE = 'a delete of what is left of this agent is running now; try again when it has finished';
 /* The drive roots warmed (`roots`, for delAsync to pin), and the plan made to find the paths (`first`) with whether any
    drive still had to be asked (`probed`): when none did, `first` already read every answer the plan needs. */

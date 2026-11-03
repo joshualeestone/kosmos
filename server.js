@@ -3302,7 +3302,6 @@ function accountMoveDeps() {
     restartAsync: (n) => restartForMoveAsync(n, fromDirs.has(n) ? fromDirs.get(n) : null),   // #6174's note too
     RESTARTED: removal.OUTCOME.RESTARTED,
     boardRestarting: () => boardRestartingSoon(),
-    deletingBecause: () => (leftover.deletingNow() ? leftover.DELETING_MOVE_BECAUSE : null),   // kosmos#7835
     hold: (names) => removal.holdForMove(names),
     release: (n) => removal.releaseFromMove(n),
     /* #6214: what a stop puts back. Read strictly (moveFromDir folds an unreadable job into the default account,

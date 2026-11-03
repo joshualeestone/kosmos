@@ -108,3 +108,8 @@ Leftover tests 154 pass; create tests 545 pass; web.delete-leftover's route pin 
 - Review round 6: no new code finding. Kept: Windows' own words for a late failure ("note") reach the step in the
   answer but the page does not show them yet; the automatic update waiting for a running delete is asserted by the
   moveHoldsBoard source checks, not by a route test.
+- Review round 7: the hold's sentences say "leftover files are being deleted" (true while the drive is asked and for a
+  delete that does not use the Recycle Bin, which "moved to the Recycle Bin" was not). accountmove's shared start asks
+  delete-leftover itself (as create, remove and discover do), so no move caller can leave the check out; the server
+  dep from round 3 is gone. probing sits beside driveTypes; a finished probe clears only its own entry. Kept for a
+  card: a DELETE request dropped during a long move reads "Nothing was deleted" while the delete finishes.
