@@ -5558,7 +5558,12 @@ if [ "$_kosmos_help" = 1 ]; then
       # #6506: run bare it prints your handoff facts (a local read); --help must only say what it does, not gather them.
       printf 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)\n'
       exit 0 ;;
-    adopt|whoami|connections)
+    connections)
+      # kosmos#7875 item 2: name --how before the read-only output, and keep --how when it was given (--how --help
+      # prints the guide itself, which is also read-only).
+      printf 'Usage: kosmos connections [--how]   (--how: how connecting a provider, a plugin or a service works here)\n'
+      case " $* " in *" --how "*) set -- connections --how ;; *) set -- "$1" ;; esac ;;
+    adopt|whoami)
       # These show read-only OUTPUT on --help (they act read-only), so their own
       # exit status is meaningful -- a failed whoami must not read as success.
       # Keep the bare re-dispatch and let their status stand.

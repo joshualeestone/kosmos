@@ -73,7 +73,8 @@ function blockBody() {
     'repeated here because it rarely applies, and it is long.',
     '',
     'Two things always hold: run `kosmos accounts` to see which AI providers are',
-    'set up (never ask the person), and `kosmos connections` to see which',
+    'set up (never ask the person; run it when you need the answer, never in a',
+    'loop, since most accounts are checked live), and `kosmos connections` to see which',
     'services are connected (never read `GET /api/connections` yourself: it',
     'checks every service live, and the search services bill the person).',
   ].join('\n');

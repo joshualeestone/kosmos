@@ -93,8 +93,10 @@ test('#1034: it carries NO machine state, which is the line between part one and
   const body = connections.blockBody();
   assert.equal(connections.blockBody.length, 0, 'blockBody grew an argument; part two is being smuggled in');
   assert.equal(connections.guideText.length, 0, 'guideText grew an argument; part two is being smuggled in');
-  assert.doesNotMatch(body, /@/, 'an email address reached a block that must carry no machine state');
-  assert.doesNotMatch(body, /sk-|key tail|is connected on this/i);
+  for (const text of [body, connections.guideText()]) {   // kosmos#7875 item 2: the guide is printed whole, so it too
+    assert.doesNotMatch(text, /@/, 'an email address reached text that must carry no machine state');
+    assert.doesNotMatch(text, /sk-|key tail|is connected on this/i);
+  }
 });
 
 test('#1034: the block lands in an agent file and is idempotent', () => {
@@ -244,6 +246,12 @@ test('kosmos#7875 item 2: both CLIs print the guide with connections --how', asy
     assert.equal(how.stdout, connections.guideText() + '\n');
     const more = spawnSync(path.join(root, 'install', 'kosmos'), ['connections', '--how', 'more'], { env, encoding: 'utf8', timeout: 30000 });
     assert.equal(more.status, 2, more.stdout + more.stderr);
+    // --help names --how first; --how --help still prints the guide (the help guard used to drop --how).
+    const help = spawnSync(path.join(root, 'install', 'kosmos'), ['connections', '--help'], { env, encoding: 'utf8', timeout: 30000 });
+    assert.match(help.stdout, /Usage: kosmos connections \[--how\]/);
+    const howHelp = spawnSync(path.join(root, 'install', 'kosmos'), ['connections', '--how', '--help'], { env, encoding: 'utf8', timeout: 30000 });
+    assert.equal(howHelp.status, 0, howHelp.stderr);
+    assert.ok(howHelp.stdout.includes(connections.guideText()), 'connections --how --help did not print the guide');
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
   const cli = require('../tools/windows/kosmos-cli');
   const out = []; const err = [];
