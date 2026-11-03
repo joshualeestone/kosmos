@@ -1128,7 +1128,11 @@ test('#7827 item 7: a 409 from a tunnel that prints no refusal object is still t
   const named = await onWith(t, { checkout: () => ({ ok: false, because: 'checkout refused (HTTP 409 on /v1/mac/personal-backup/checkout, code backup_checkout_finished)' }) });
   assert.equal((await pb.checkout(25, { root: named.root, remote: named.remote })).code, 'backup_checkout_finished', 'the code in an older tunnel\'s line was not read');
   const other = await onWith(t, { checkout: () => ({ ok: false, because: 'checkout refused (HTTP 503 on /v1/mac/personal-backup/checkout)' }) });
-  assert.equal((await pb.checkout(25, { root: other.root, remote: other.remote })).because, RETRY, 'CONTROL: a 503 line is not a conflict');
+  assert.equal((await pb.checkout(25, { root: other.root, remote: other.remote })).code, 'backup_checkout_unsure', 'a 503 line (it may have come mid-way through closing a paid page) claimed nothing was charged');
+  const refused = await onWith(t, { checkout: () => ({ ok: false, because: 'checkout refused (HTTP 403 on /v1/mac/personal-backup/checkout)' }) });
+  assert.equal((await pb.checkout(25, { root: refused.root, remote: refused.remote })).because, RETRY, 'CONTROL: a 4xx refusal is refused outright, so nothing was charged');
+  const unsent = await onWith(t, { checkout: () => ({ ok: false, notSent: true, because: 'this computer is not connected to Kosmos+' }) });
+  assert.equal((await pb.checkout(25, { root: unsent.root, remote: unsent.remote })).because, RETRY, 'CONTROL: a request that never left says nothing was charged');
   const proto = await onWith(t, { checkout: () => ({ ok: false, because: '400', refusal: { status: 400, code: 'constructor' } }) });
   const pr = await pb.checkout(25, { root: proto.root, remote: proto.remote });
   assert.equal(typeof pr.because, 'string', 'a wire code named like an object property became a function');
@@ -1150,7 +1154,7 @@ test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in 
   // Mona Lisa's review: a refusal that may pass gives the next step, in her words.
   const RETRY = 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.';
   const down = await onWith(t, { checkout: () => null });
-  assert.deepEqual(await pb.checkout(25, { root: down.root, remote: down.remote }), { ok: false, because: RETRY }, 'Kosmos+ unreached');
+  assert.deepEqual(await pb.checkout(25, { root: down.root, remote: down.remote }), { ok: false, code: 'backup_checkout_unsure', because: 'Kosmos+ did not answer about the payment page just now. If you paid on an earlier page, your plan shows here shortly; if not, choose your plan again in a minute.' }, 'Kosmos+ unreached');
   const odd = await onWith(t, { checkout: () => ({ ok: true, data: { url: 'https://evil.example/x' } }) });
   assert.deepEqual(await pb.checkout(25, { root: odd.root, remote: odd.remote }), { ok: false, because: RETRY }, 'a page this Kosmos does not open');
   const opening = await onWith(t, { checkout: () => ({ ok: false, because: '409', refusal: { status: 409 } }) });
@@ -1159,7 +1163,7 @@ test('#7404 checkout: only Stripe\'s own page over https is opened; refusals in 
   // #7827: the relay names its two conflicts; each gets its own sentence, and a person who just paid is never told to try again.
   for (const [code, say] of [['backup_checkout_opening', 'Kosmos+ is opening a payment page for this already. Try again in a moment.'],
     ['backup_checkout_finished', 'The payment page has just finished. If you paid, your plan shows here in a moment.'],
-    ['backup_checkout_unclosed', 'Kosmos+ could not close your earlier payment page just now. If you paid on it, your plan shows here shortly; if not, try again in a minute.']]) {
+    ['backup_checkout_unclosed', 'An earlier payment for this backup may still be going through. If you paid, your plan shows here shortly; if not, try again in a minute.']]) {
     const a = await onWith(t, { checkout: () => ({ ok: false, because: '409 {"code":"' + code + '"}', refusal: { status: 409, code } }) });
     assert.deepEqual(await pb.checkout(25, { root: a.root, remote: a.remote }), { ok: false, code, because: say }, code);
   }

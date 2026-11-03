@@ -322,7 +322,7 @@ test('a read that failed under rows is tried again each minute, not left for an 
 });
 
 test('#7827: a checkout that has just finished (or a conflict that may be one) watches for the plan each minute', async () => {
-  for (const code of ['backup_checkout_finished', 'backup_checkout_conflict', 'backup_checkout_unclosed']) {
+  for (const code of ['backup_checkout_finished', 'backup_checkout_conflict', 'backup_checkout_unclosed', 'backup_checkout_unsure']) {
     const doc = fakeDoc();
     let reads = 0;
     const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: false, code, because: 'x' })() : (reads++, answer({ ok: true, plans: PLANS, planGb: null })())));
