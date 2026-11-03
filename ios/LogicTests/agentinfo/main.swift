@@ -174,11 +174,11 @@ check(Board.freshResult(.clear, status: 200, body: Data("{}".utf8)).ok == false,
 check(Board.freshResult(.clear, status: 404, body: Data(#"{"error":"no agent by that name"}"#.utf8)) == ("No agent by that name.", false), "a refusal before delivery: the route's own words")
 
 print("")
-// kosmos#7842: only an answer that says what the thing is now (200, 404, 409) replaces a value shown.
+// kosmos#7842: only an answer that says what the thing is now (200, 404) replaces a value shown.
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(400, #"{"error":"bad request"}"#))) == ("Old text", nil), "a 400 is about the request: it keeps what was shown")
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(422, #"{"error":"busy"}"#))) == ("Old text", nil), "a 422 keeps it too")
 check(Board.profileNext(shown: nil, read: Board.instructionsRead(answer(400, #"{"error":"bad request"}"#))) == (nil, "Bad request."), "CONTROL: with nothing shown, a 400 says the board's words")
-check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(409, #"{"error":"its files are a link"}"#))) == (nil, "Its files are a link."), "CONTROL: a 409 replaces what was shown")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(409, #"{"error":"busy"}"#))) == ("Old text", nil), "a 409 keeps it (no route the Profile reads sends one)")
 check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(404, #"{"error":"no such agent"}"#))) == (nil, "No such agent."), "CONTROL: a 404 replaces what was shown")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

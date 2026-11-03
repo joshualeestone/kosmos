@@ -1,29 +1,31 @@
-# filesparity-7842: Files keeps its list through the same answers as the Profile
+# filesparity-7842: Files keeps its list through the same failures as the Profile, and more
 
 Card: kosmos#7842 (split from #7840's last review round).
 
 ## Call
-One rule in BoardLogic, `Board.answerStands(status)`: only a 200, 404 or 409 says what a thing is now and replaces a
-value already shown. Everything else (no answer, 401/403, 5xx, 408, 429, any other 4xx) keeps what is shown and is
-said only when nothing is. The Profile (AgentInfoLogic.notTheValue) and Files (filesKeepsShown on the Files screen,
-FilesSectionState.forNow plus filesSectionAfter on the agent page) both use it.
+- Profile: `Board.answerStands(status)` is 200 or 404. Only those, carrying the board's words, replace a value shown;
+  every other answer (no answer, 401/403, 5xx, 408, 429, any other 4xx) keeps it and is said only when nothing is.
+  This narrows #7840's rule, which let any other worded 4xx replace a value (the card's second ask).
+- Files (the Files screen and the agent page's section, one function `filesKeepsShown(read)`): only a new list
+  replaces a list shown. Every refusal keeps it, its words said only when nothing is shown. Exception: the agent
+  page's 404 (the agent has no folder of its own) replaces.
+
+## Why Files is stricter than the Profile (review 3)
+The engine's listing refusals (engine/projects.js listFiles and listDir) mix lasting reasons (not there, not a folder,
+a link) with passing ones ("that folder changed while it was being read", "we could not read what is in that
+folder"), and server.js sends both under the same statuses: 200 {ok:false} on the flat list, 409 at the top of
+browse, 404 below it. Nothing in the answer tells them apart, and a passing one comes during any save by the agent.
 
 ## Rejected
-- A new FilesRead case: FilesRead is matched in many views; the Files screen has the status, so a status rule is enough.
-- Keeping "any 4xx with words replaces": a 400 or 409 is about the request, not the agent's instructions or files.
+- A status rule for Files (rounds 1 and 2): it wiped the list on those passing refusals.
+- Matching refusal text on the phone: the reasons are prose and change.
+- A server-side marker for a passing refusal (a field, or a 503): right in the long run, but it needs a board
+  release before the phone can rely on it, and older boards would still send neither. Worth a follow-up card.
 
 ## Weakest premise
-That nothing the phone reads uses a status outside 200/404/409 to mean "this is what it is now". Read in server.js:
-instructions GET answers 200, 404, 500; skills GET 200, 400 (an unreadable name), 404; files (flat) 200, 400, 404;
-files browse (what the Files screen reads, review 1) 200, 404, 403 (a cross-site read, which the phone does not
-make), and 409 when Files is a link, a file, or cannot be read: those 409s say what the folder is now, so 409 stands.
-No route sends 410, so it is not in the rule (review 1).
+That keeping a stale list through a LASTING refusal (Files became a link, a subfolder was removed) is the lesser
+harm. Opening a stale row gets its own refusal from the board, and Pull to refresh shows the reason once the list
+goes, but the list itself will not say it changed.
 
-## Review 2
-Files now uses the Profile's whole rule, not only its statuses: a refusal replaces a shown list only when its status
-stands AND it carries the board's words. So an unreadable 200 (a proxy page, a reply with no files) keeps the list on
-both Files screens, as the Profile keeps its value. One function, filesKeepsShown(read, status), decides for the Files
-screen and for the agent page's section, so the two cannot drift.
-
-## Verified
-See the latest commit message for the measured counts (they move with every round).
+## Not changed
+The 200 the phone cannot read is now kept on both screens (review 2), as on the Profile.

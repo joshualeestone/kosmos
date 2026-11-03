@@ -208,15 +208,13 @@ extension Board {
     // came back from a refusal that happens to use the same words.
     // kosmos#7842: forNow is a message from a read that keeps a list already shown (filesKeepsShown).
     enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), forNow(String), rows([ListedFile]) }
-    /* kosmos#7842: whether a read keeps the list already shown, for the Files screen and the agent page's section alike.
-       The Profile's rule (AgentInfoLogic.notTheValue): a list replaces it, and a refusal does only when its status
-       stands (Board.answerStands) and it carries words of its own (not filesCannotRead). */
-    static func filesKeepsShown(_ r: FilesRead, status: Int) -> Bool {
-        switch r {
-        case .page: return false
-        case .noAnswer: return true
-        case .refused(let why): return !answerStands(status) || why == filesCannotRead
-        }
+    /* kosmos#7842: whether a read keeps the list already shown, for the Files screen and the agent page's section alike:
+       only a list replaces it. Stricter than the Profile on purpose: the engine's listing refusals (engine/projects.js
+       listFiles, listDir) mix lasting reasons with passing ones (the folder changed while it was being read), under the
+       same statuses and with nothing to tell them apart, and a passing one comes during any save by the agent. */
+    static func filesKeepsShown(_ r: FilesRead) -> Bool {
+        if case .page = r { return false }
+        return true
     }
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
         if status == 401 || status == 403 { return .forNow(phoneShutOut) }   // kosmos#7840: never the gate's words
@@ -227,14 +225,14 @@ extension Board {
         case .refused(let why):
             let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             let line = (obj?["because"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why)
-            return filesKeepsShown(read, status: status) ? .forNow(line) : .message(line)
+            return filesKeepsShown(read) ? .forNow(line) : .message(line)
         case .noAnswer: return .noAnswer
         }
     }
 
     // kosmos#7679 review 2: what the agent page keeps after a refresh. An answer that never came keeps the rows it had (a
-    // phone loses its connection far more than a desk page does), and so does any answer for now (forNow: a shut-out, a
-    // 5xx, 408, 429 or other 4xx, kosmos#7842); a refusal that says what the files are now, or a new list, replaces them.
+    // phone loses its connection far more than a desk page does), and so does a forNow (kosmos#7842); a new list, or
+    // the agent having no folder (a 404), replaces them.
     static func filesSectionAfter(_ old: FilesSectionState, _ new: FilesSectionState) -> FilesSectionState {
         guard case .rows = old else { return new }
         switch new {

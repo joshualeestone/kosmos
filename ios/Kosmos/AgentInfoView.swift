@@ -341,8 +341,7 @@ struct AgentInfoView: View {
         let mine = filesLoad
         let newFiles = await FilesSection.read(client: client, session: session)
         guard mine == filesLoad else { return }   // a newer load started meanwhile; its answer is the one shown
-        // A refresh that gets no answer, or is not let in (kosmos#7840), keeps the list it had, as instructions and skills
-        // keep theirs (a deliberate difference from the board, which says it could not read): Board.filesSectionAfter, tested.
+        // What a refresh keeps, and why it differs from the board (which says it could not read): Board.filesSectionAfter.
         filesRead = Board.filesSectionAfter(filesRead, newFiles)
         filesLoaded = true
     }
