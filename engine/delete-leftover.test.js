@@ -680,3 +680,71 @@ test('kosmos#7149: deleting what is left forgets the agent\'s instructions copy;
   assert.equal(again.outcome, create.OUTCOME.CREATED, again.because);
   assert.equal(ir.readSeen('ned'), null, 'a new agent inherited the old copy');
 });
+
+/* #7819: the name's profile and picture go with the files, so a new agent under the freed name is a new agent. */
+const trashHas = (prefix) => fs.readdirSync(process.env.AGENT_WORKFORCE_TRASH).some((f) => f.startsWith(prefix + ' (Kosmos '));
+
+test('#7819: after a delete, a new agent under the freed name gets a new id and none of the old profile fields', () => {
+  const name = leftoverAgent('rex7819');
+  store.writeProfile(name, { dir: '/old/place', vendorAccount: '/old/acct', provider: 'openai', displayName: 'Rex' });
+  const old = store.readProfile(name);
+  assert.ok(old.id && old.dir === '/old/place' && old.vendorAccount === '/old/acct', 'fixture: the old profile was not written');
+  const r = mac.del(name);
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.equal(fs.existsSync(store.profilePath(name)), false, 'the profile outlived the delete');
+  assert.ok(trashHas('rex7819.json'), 'the profile did not go to the Trash with the folder');
+  assert.ok(r.steps.some((s) => s.step === 'its settings' && s.ok), 'the delete did not report moving its settings');
+  const made = createAgain(name);
+  assert.equal(made.outcome, create.OUTCOME.CREATED, made.because);
+  store.writeProfile(name, { displayName: 'Rex the second' });   // the new agent's first profile write
+  const now = store.readProfile(name);
+  assert.ok(now.id, 'no id was minted for the new agent');
+  assert.notEqual(now.id, old.id, 'the new agent inherited the deleted one\'s id');
+  for (const k of ['dir', 'vendorAccount']) assert.equal(now[k], undefined, `the new agent inherited ${k} from the deleted one`);
+  assert.notEqual(now.provider, 'openai', 'the new agent inherited the deleted one\'s provider');
+});
+
+test('#7819: the picture goes with it, and the plan says the settings and picture go', () => {
+  const name = leftoverAgent('pic7819');
+  store.writeProfile(name, { displayName: 'Pic' });
+  fs.mkdirSync(store.AVATARS, { recursive: true });
+  fs.writeFileSync(nodePath.join(store.AVATARS, 'pic7819.png'), 'png');
+  assert.ok(store.avatarPath(name), 'fixture: no picture');
+  const p = mac.plan(name);
+  assert.ok(p.loses.some((l) => /^Its settings and picture: a new agent with this name starts without them$/.test(l)), JSON.stringify(p.loses));
+  const r = mac.del(name);
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.equal(store.avatarPath(name), null, 'the picture outlived the delete');
+  assert.ok(trashHas('pic7819.png'), 'the picture did not go to the Trash');
+  // CONTROL: a leftover with neither says nothing about them.
+  const bare = leftoverAgent('bare7819');
+  assert.ok(!mac.plan(bare).loses.some((l) => /settings/.test(l)), 'a leftover with no settings is told they go');
+});
+
+test('#7819: a profile another agent shares (same stored name, other case) is kept, and the step says why', () => {
+  const name = leftoverAgent('miles7819', { job: false });
+  store.writeProfile(name, { displayName: 'miles' });
+  status.setPaneSource(() => fleet.line({ session: 'Miles7819', claim: 'Miles7819', title: '✳ Claude Code' }));
+  // On Linux names are case-sensitive, so the running Miles7819 does not hold miles7819's leftover.
+  const r = leftover.del(name, { platform: 'linux' });
+  assert.ok(r.outcome === leftover.OUTCOME.DELETED || r.outcome === leftover.OUTCOME.PARTIAL, `${r.outcome}: ${r.because}`);
+  assert.equal(fs.existsSync(store.profilePath(name)), true, 'the delete took a profile the running Miles7819 also reads');
+  assert.ok(r.steps.some((s) => s.step === 'its settings' && /kept: Miles7819/.test(s.because || '')), JSON.stringify(r.steps));
+});
+
+test('#7819: a profile that cannot be moved refuses the whole delete, so it can be tried again', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+  const name = leftoverAgent('stuck7819');
+  store.writeProfile(name, { displayName: 'Stuck' });
+  const dir = nodePath.dirname(store.profilePath(name));
+  fs.chmodSync(dir, 0o555);
+  let r;
+  try { r = mac.del(name); } finally { fs.chmodSync(dir, 0o755); }
+  assert.equal(r.outcome, leftover.OUTCOME.REFUSED, r.because);
+  assert.match(r.because, /settings and picture, so nothing else was deleted/);
+  assert.equal(fs.existsSync(create.workerDir(name)), true, 'the folder went although the profile could not');
+  assert.equal(fs.existsSync(create.plistPath(name)), true, 'the job went although the profile could not');
+  // And it can be tried again: the plan still finds it, and with the folder writable the delete goes through.
+  assert.equal(mac.plan(name).ok, true);
+  assert.equal(mac.del(name).outcome, leftover.OUTCOME.DELETED);
+  assert.equal(fs.existsSync(store.profilePath(name)), false);
+});
