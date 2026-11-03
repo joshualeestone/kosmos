@@ -87,7 +87,7 @@ let rowsBefore: Board.FilesSectionState = .rows([Board.ListedFile(name: "a.txt",
 check(Board.filesSectionAfter(rowsBefore, .noAnswer) == rowsBefore, "review 2: a refresh with no answer keeps the rows it had")
 check(Board.filesSectionAfter(rowsBefore, .message(Board.filesAgentNoFolder)) == .message(Board.filesAgentNoFolder), "a refusal replaces them")
 check(Board.filesSectionAfter(rowsBefore, .hidden) == .hidden, "an answer with no files replaces them")
-check(Board.filesSectionAfter(.hidden, .noAnswer) == .noAnswer, "with no rows yet, no answer says so"); check(Board.filesSectionAfter(rowsBefore, .message(Board.filesAgentUnread)) == .message(Board.filesAgentUnread), "review 3: a refusal with no reason (the same words) replaces them")
+check(Board.filesSectionAfter(.hidden, .noAnswer) == .noAnswer, "with no rows yet, no answer says so"); check(Board.filesSectionAfter(rowsBefore, .message(Board.filesAgentUnread)) == .message(Board.filesAgentUnread), "a message state replaces them (only the agent page's 404 makes one)")
 check(sec(#"{"ok":false,"because":"its Files is a link, so it is not listed","files":[]}"#) == .forNow("Its Files is a link, so it is not listed."), "a refusal says the route's reason")
 check(sec(#"{"ok":false,"because":""}"#) == .forNow("We could not read this agent\u{2019}s files just now."), "an empty reason falls back to the board's line (review 5)")
 check(Board.filesSection(status: 0, body: nil) == .noAnswer && sec("<html>sign in</html>") == .forNow("We could not read this agent\u{2019}s files just now."), "no answer is its own state (review 3); the gate's page is a refusal in the board's line")

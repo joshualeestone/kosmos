@@ -225,7 +225,7 @@ extension Board {
         case .refused(let why):
             let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             let line = (obj?["because"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why)
-            return filesKeepsShown(read) ? .forNow(line) : .message(line)
+            return .forNow(line)   // filesKeepsShown: a refusal keeps a list shown
         case .noAnswer: return .noAnswer
         }
     }
