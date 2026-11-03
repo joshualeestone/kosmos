@@ -214,6 +214,13 @@ extension Board {
         }
     }
 
+    // kosmos#7679 review 2: what the agent page keeps after a refresh. An answer that never came keeps the rows it had (a
+    // phone loses its connection far more than a desk page does); a refusal or a new list replaces them.
+    static func filesSectionAfter(_ old: FilesSectionState, _ new: FilesSectionState) -> FilesSectionState {
+        if new == .message(filesAgentUnread), case .rows = old { return old }
+        return new
+    }
+
     // The empty line, as the board's: a folder inside, the agent's top, or the project's list.
     static func filesEmpty(owner: FilesOwner, dir: String) -> String {
         switch owner {

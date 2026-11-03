@@ -18,6 +18,8 @@ and AI Settings, instead of a section at the foot of Profile.
   board's own line, "This agent has no folder of its own on your computer, so there is no Files list." (review 1; the
   board names its machine where the phone says "your computer"). Before, at the foot of Profile, a 404 hid the section.
 - The Files result is applied as soon as its own read is back (review 1), not after the slowest of the page's reads.
+  A newer load wins over an older one that finishes later (review 2: a load counter), and a refresh that gets no
+  answer keeps the rows it had (Board.filesSectionAfter, now a tested pure function).
 - Rejected: hiding the Files segment for an agent with no files (a control that comes and goes moves the other two).
 
 ## Not in this branch

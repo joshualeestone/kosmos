@@ -34,6 +34,8 @@ struct AgentInfoView: View {
     @State private var filesRead: Board.FilesSectionState = .hidden
     // kosmos#7679: whether the first Files read has come back, so the Files segment can tell loading from empty.
     @State private var filesLoaded = false
+    // Review 2: which Files load is the newest, so an older one that finishes later never overwrites it.
+    @State private var filesLoad = 0
     @StateObject private var filesOpener = FileOpener()
 
     @ScaledMetric(relativeTo: .body) private var markSize: CGFloat = 22
@@ -324,11 +326,13 @@ struct AgentInfoView: View {
     }
 
     private func loadFiles(_ session: String) async {
+        filesLoad += 1
+        let mine = filesLoad
         let newFiles = await FilesSection.read(client: client, session: session)
-        // Review 2: a refresh that gets no answer keeps the list it had, as instructions and skills keep theirs; a
-        // refusal or a new list replaces it. (A deliberate difference from the board, which says it could not read: a
-        // phone loses its connection far more than a desk page does, and the rows it had are still the agent's.)
-        if newFiles == .message(Board.filesAgentUnread), case .rows = filesRead {} else { filesRead = newFiles }
+        guard mine == filesLoad else { return }   // a newer load started meanwhile; its answer is the one shown
+        // A refresh that gets no answer keeps the list it had, as instructions and skills keep theirs (a deliberate
+        // difference from the board, which says it could not read): Board.filesSectionAfter, tested.
+        filesRead = Board.filesSectionAfter(filesRead, newFiles)
         filesLoaded = true
     }
 
