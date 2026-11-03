@@ -44,7 +44,7 @@ Card: kosmos#7850 (follow-up to #7842). Owner: Ice Cream Kitty.
   this branch; it is recorded on #7850 for the phone half, which will decide whether to keep a list that shrank.
 
 ## Verified
-- 14/14 new tests. Mutation A (every mark removed): exactly the 5 passing arms go red (round 1). Mutation B (EIO added
+- 14/14 new tests. Mutation A (every mark removed), re-run after round 4: exactly the 6 passing arms go red, the 8 controls stay green. Mutation B (EIO added
   to the passing codes): exactly the EIO control goes red. Mutation C (the after-read lstat back to "any error is gone"):
   exactly the after-read EMFILE arm goes red (round 2). Round 3: the after-read arm fails the first lstat after the
   listing opened the folder (not the Nth call, which a Windows host's extra lstat would shift); a swapped-for-a-file
