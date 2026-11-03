@@ -353,7 +353,6 @@ function warmDrive(p) {
   const d = driveOf(p);
   if (!d || !d.root) return Promise.resolve(null);
   if (freshDrive(d.root)) return Promise.resolve(d.root);
-  // Pinned (handed back) only when this warm stored an answer: an older one kept from before is not this warm's.
   const before = driveTypes.get(d.root);
   const stored = () => (driveTypes.get(d.root) !== before ? d.root : null);
   if (probing.has(d.root)) return probing.get(d.root).then(stored);
