@@ -697,7 +697,7 @@ const CHECKOUT_SAY = {
   backup_checkout_finished: 'The payment page has just finished. If you paid, your plan shows here in a moment.',
 };
 // A relay that does not name its conflict yet sends either of those two with no code: a sentence true of both.
-const CHECKOUT_CONFLICT = 'Kosmos+ is already handling a payment page for this backup. If you just paid, your plan shows here in a moment; if not, try again in a moment.';
+const CHECKOUT_CONFLICT = 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.';   // Mona Lisa m2568
 /* Mona Lisa's review (#7404 comment 6593277093): a refusal that may pass says what to do next. Used for every one that
    is not the person's own account (unreached, or a page this Kosmos does not open), so the words are hers verbatim. */
 const CHECKOUT_RETRY = 'The payment page could not be opened just now, and nothing was charged. Choose your plan again to try once more.';

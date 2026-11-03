@@ -56043,7 +56043,7 @@ document.getElementById('pb-on').addEventListener('click', pbOpen);
    GB or null) when the on view shows, then once a minute until a read works and for half an hour after Choose (or after a
    checkout that may just have been paid), and
    once an hour otherwise; with a plan, nothing more is read. */
-var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, gb: null, since: 0, reading: false, msgFrom: null, noPlanStop: false, awaitPlan: false };
+var PBP = { plans: null, planGb: undefined, at: 0, seq: 0, gen: 0, busy: false, url: null, gb: null, since: 0, reading: false, msgFrom: null, noPlanStop: false, awaitPlan: false, awaitCode: null, awaitSay: '' };
 const PBP_WAIT_MS = 30 * 60000;
 const PBP_RECHECK_MS = 60 * 60000;   // the backup runs hourly, so its no-plan stop is at most an hour behind a payment
 const PBP_CONFIRMING_MS = 3 * 60000;   // Kitty m2543: a late webhook can take hours, so after a few minutes say so
@@ -56116,19 +56116,21 @@ function pbpPaint(on) {
   }
   for (const b of list.querySelectorAll('button')) b.disabled = PBP.busy;
   const wait = document.getElementById('pb-plans-wait');
-  const waiting = show && !!PBP.url;
-  // #7827: after a page that may just have been paid, "in a moment" becomes Mona Lisa's late line (m2559), no link.
-  if (show && PBP.awaitPlan && !PBP.url && PBP.msgFrom === 'choose' && Date.now() - PBP.since > PBP_CONFIRMING_MS) {
-    const late = 'If you paid, it is being confirmed, and this updates when your plan arrives.';
-    if (document.getElementById('pb-plans-msg').textContent !== late) pbpMsg(late, 'choose');
-  }
-  const words = !waiting ? '' : Date.now() - PBP.since > PBP_CONFIRMING_MS ? 'If you paid, it is being confirmed, and this updates when your plan arrives. If not, open the payment page again.'
+  const page = show && !!PBP.url;
+  // #7827: a checkout that may just have been paid waits here too, with no link, its words from the board's own answer,
+  // so no read can wipe them; after a few minutes "finished" becomes Mona Lisa's late line (m2559) without the link
+  // clause. The unnamed conflict keeps its own sentence, which says what to do if nothing was paid.
+  const awaiting = show && !PBP.url && PBP.awaitPlan;
+  const late = Date.now() - PBP.since > PBP_CONFIRMING_MS;
+  const words = page ? (late ? 'If you paid, it is being confirmed, and this updates when your plan arrives. If not, open the payment page again.'
     // Mona Lisa's review: every row still reads Choose, so the line names the plan that is waiting for payment.
-    : 'Finish the ' + Number(PBP.gb).toLocaleString() + ' GB plan on the payment page. This updates when it arrives.';
+    : 'Finish the ' + Number(PBP.gb).toLocaleString() + ' GB plan on the payment page. This updates when it arrives.')
+    : awaiting ? (late && PBP.awaitCode === 'backup_checkout_finished' ? 'If you paid, it is being confirmed, and this updates when your plan arrives.' : PBP.awaitSay)
+    : '';
   if (wait.textContent !== words) wait.textContent = words;
-  wait.hidden = !waiting;
-  document.getElementById('pb-plans-open-row').hidden = !waiting;
-  if (waiting) document.getElementById('pb-plans-open').href = PBP.url;
+  wait.hidden = !(page || awaiting);
+  document.getElementById('pb-plans-open-row').hidden = !page;
+  if (page) document.getElementById('pb-plans-open').href = PBP.url;
 }
 async function pbpChoose(gb) {
   if (PBP.busy) return;
@@ -56147,7 +56149,10 @@ async function pbpChoose(gb) {
   // No read at once: the relay says finished only while no plan is recorded yet, so the first look is a minute on.
   // backup_checkout_conflict is the board's own name for a relay's unnamed 409 (engine checkout); drop it here once the
   // relay with the two named codes is deployed. The earlier page is expired or paid either way, so its link goes.
-  else if (!url && r && (r.code === 'backup_checkout_finished' || r.code === 'backup_checkout_conflict')) { PBP.awaitPlan = true; PBP.url = null; PBP.gb = null; PBP.since = Date.now(); PBP.at = Date.now(); pbPaint(); }
+  else if (!url && r && (r.code === 'backup_checkout_finished' || r.code === 'backup_checkout_conflict')) {
+    PBP.awaitPlan = true; PBP.awaitCode = r.code; PBP.awaitSay = asSentence(r.because || ''); PBP.url = null; PBP.gb = null;
+    PBP.since = Date.now(); PBP.at = Date.now(); pbpMsg(''); pbPaint();   // the wait line says it, where no read reaches
+  }
   if (url) { const a = document.getElementById('pb-plans-open'); try { a.focus(); } catch { /* gone */ } }
 }
 /* ---- kosmos#7404: restore from a backup, into a separate copy (engine/personalrestorejob.js). The list is read only when

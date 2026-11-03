@@ -363,16 +363,41 @@ test('#7827: a new Choose drops the watch an earlier "finished" started', async 
   assert.equal(s.PBP.awaitPlan, false, 'a watch from an earlier press outlived the next one');
 });
 
-test('#7827: "finished" after a page was open drops that page\'s link, and after a few minutes says it is being confirmed', async () => {
+test('#7827: "finished" after a page was open drops that page\'s link; the wait line says it, and later that it is being confirmed', async () => {
   const doc = fakeDoc();
   let finished = false;
-  const s = screen(doc, (u) => (/checkout$/.test(u) ? (finished ? answer({ ok: false, code: 'backup_checkout_finished', because: 'The payment page has just finished. If you paid, your plan shows here in a moment.' }) : answer({ ok: true, url: STRIPE }))() : answer({ ok: true, plans: PLANS, planGb: null })()));
+  const FIN = 'The payment page has just finished. If you paid, your plan shows here in a moment.';
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? (finished ? answer({ ok: false, code: 'backup_checkout_finished', because: FIN }) : answer({ ok: true, url: STRIPE }))() : answer({ ok: true, plans: PLANS, planGb: null })()));
   s.pbpShow(true, false); await tick(); await tick();
   await s.pbpChoose(25);
   assert.ok(vis(doc, 'pb-plans-open-row'), 'CONTROL: the link');
   finished = true; await s.pbpChoose(25);
-  assert.ok(!vis(doc, 'pb-plans-open-row') && !vis(doc, 'pb-plans-wait'), 'the finished page\'s link and wait line stayed');
-  assert.equal(doc.getElementById('pb-plans-msg').textContent, 'The payment page has just finished. If you paid, your plan shows here in a moment.');
+  assert.ok(!vis(doc, 'pb-plans-open-row'), 'the finished page\'s link stayed');
+  assert.ok(vis(doc, 'pb-plans-wait'));
+  assert.equal(doc.getElementById('pb-plans-wait').textContent, FIN);
   s.PBP.since = Date.now() - 4 * 60000; s.pbpPaint(true);
-  assert.equal(doc.getElementById('pb-plans-msg').textContent, 'If you paid, it is being confirmed, and this updates when your plan arrives.', '"in a moment" was never revised');
+  assert.equal(doc.getElementById('pb-plans-wait').textContent, 'If you paid, it is being confirmed, and this updates when your plan arrives.', '"in a moment" was never revised');
+});
+
+test('#7827: a failed read, then a good one, during the watch leave the "if you paid" line where it is', async () => {
+  const doc = fakeDoc();
+  let fail = false;
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: false, code: 'backup_checkout_finished', because: 'The payment page has just finished. If you paid, your plan shows here in a moment.' })()
+    : fail ? answer({ ok: false, because: 'x' })() : answer({ ok: true, plans: PLANS, planGb: null })()));
+  s.pbpShow(true, false); await tick(); await tick();
+  await s.pbpChoose(25);
+  fail = true; s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
+  fail = false; s.PBP.at = Date.now() - 2 * 60000; s.pbpShow(true, false); await tick(); await tick();
+  assert.ok(vis(doc, 'pb-plans-wait'));
+  assert.match(doc.getElementById('pb-plans-wait').textContent, /If you paid/, 'a read wiped the only word that a payment may be in progress');
+});
+
+test('#7827: the unnamed conflict keeps its own sentence, with what to do if nothing was paid, after a few minutes too', async () => {
+  const doc = fakeDoc();
+  const C = 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.';
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: false, code: 'backup_checkout_conflict', because: C })() : answer({ ok: true, plans: PLANS, planGb: null })()));
+  s.pbpShow(true, false); await tick(); await tick();
+  await s.pbpChoose(25);
+  s.PBP.since = Date.now() - 4 * 60000; s.pbpPaint(true);
+  assert.equal(doc.getElementById('pb-plans-wait').textContent, C);
 });
