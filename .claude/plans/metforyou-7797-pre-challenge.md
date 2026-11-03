@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: metforyou-7797
-diff_hash: baac530bc3c499a9c0275af11ea78591a9959df75c0154783437d8582ff00f69
+diff_hash: d5a56468e3037b39849f1e2f2cbcebbf3506620543839ec1098f2c17ae11f88f
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-03T01:07:00Z
+timestamp: 2026-11-03T01:15:00Z
 iterations: 5
 converged: true
 ---
@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 0 BLOCKERs, 9 WARNINGs, nits
 **Fixed:** 9 | **Deferred:** 4 nits (recorded on kosmos#7797) | **Asked (awaiting user):** 0
 
-Final validation: full suite 26495 tests, 26088 passed, 0 failed, 0 cancelled (the rest platform-gated skips), build passed, at c849c9e47a (the diff hash above).
+Final validation: full suite 26495 tests, 26088 passed, 0 failed, 0 cancelled (the rest platform-gated skips), build passed, at c849c9e47a. Then rebased onto main after #7815 (item 1) merged: one conflict, in docs/browser-checks/mobile-shots.js (both branches' design-shot entries kept); range-diff shows every other commit identical. On the rebased head (the diff hash above): the touched node suites 523/523, browser checks render-onhold-4771, render-asknotask-7797 and render-holduntil-7184 green, iPhone room 747/747 and tasks 128/128, surface gate clean. The full suite was not re-run locally on the rebased head; CI runs it.
 
 ### Per-Iteration Breakdown
 
