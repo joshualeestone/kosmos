@@ -1716,7 +1716,30 @@ check(Board.projectTasksFooter(total: 0, shown: 0) == nil && Board.projectNoOpen
 check(Board.projectTaskState(infoTasks[0]) == "In progress", "a task's state in the Tasks tab's words")
 var decisionT = infoTasks[0]; decisionT = Board.TaskRow(projectId: "p1", projectName: "Launch", number: 9, sentence: "x", state: "decision")
 check(Board.projectTaskState(decisionT) == "Needs your decision", "in sentence case beside the page's other lines")
-check(Board.ProjectPart.allCases.map(\.rawValue) == ["About", "Files"], "the segments, Files last as on the agent page")
+check(Board.ProjectPart.allCases.map(\.rawValue) == ["About", "Settings", "Files"], "the segments, Files last as on the agent page")
+print("project settings (#7838 slice B)")
+check(Board.projectChangeBody(.text(name: " Launch ", description: "x"), shownName: "Launch", shownDescription: "x") == nil, "nothing changed: nothing to send")
+let renameBody = Board.projectChangeBody(.text(name: "Spring launch", description: "x"), shownName: "Launch", shownDescription: "x")
+check(renameBody?.keys.sorted() == ["name"] && (renameBody?["name"] as? String) == "Spring launch", "a rename sends only the name")
+let descBody = Board.projectChangeBody(.text(name: "Launch", description: "  New words  "), shownName: "Launch", shownDescription: "Old")
+check(descBody?.keys.sorted() == ["description"] && (descBody?["description"] as? String) == "New words", "a description sends only that, trimmed")
+check(Board.projectChangeBody(.text(name: "   ", description: "Old"), shownName: "Launch", shownDescription: "Old") == nil, "a blank name is never sent")
+check((Board.projectChangeBody(.notify("muted"), shownName: "", shownDescription: "")?["notify"] as? String) == "muted", "a notification level")
+check(Board.projectChangeBody(.notify("loud"), shownName: "", shownDescription: "") == nil, "CONTROL: an unknown level is not sent")
+check((Board.projectChangeBody(.paused(true), shownName: "", shownDescription: "")?["paused"] as? Bool) == true, "pause")
+let putReq = Board.projectChangeRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "springcatalogue", body: ["paused": false])
+check(putReq?.httpMethod == "PUT" && putReq?.url?.path == "/api/project/springcatalogue", "PUT /api/project/<id>, as the board")
+check(Board.projectChangeRequest(mac: URL(string: "http://127.0.0.1:16180")!, project: "../x", body: ["paused": false]) == nil, "CONTROL: not a project id, no request")
+check(Board.projectSaveResult(status: 200, body: Data(#"{"project":{}}"#.utf8)) == .saved, "saved")
+check(Board.projectSaveResult(status: 200, body: Data("not json".utf8)) == .refused("We could not tell whether that saved. Look again in a moment."), "an unreadable 200 is never 'failed'")
+if case .refused(let why) = Board.projectSaveResult(status: 400, body: Data(#"{"error":"that name is taken"}"#.utf8)) { check(why.hasPrefix("That name is taken"), "the board's reason, as a sentence: \(why)") } else { check(false, "a refusal is the board's reason") }
+check(Board.projectSaveResult(status: 0, body: nil) == .noAnswer, "no answer")
+let notifyRows2 = Board.parseProjects(Data(#"{"projects":[{"id":"m","name":"M","notify":"muted"},{"id":"n","name":"N","notify":"mentions"},{"id":"x","name":"X"},{"id":"y","name":"Y","notify":"loud"}]}"#.utf8))?.projects ?? []
+check(notifyRows2.map(\.notify) == ["muted", "mentions", "all", "all"], "the level is read; none or an unknown one is all")
+check(boardPage.contains(Board.projectRenameSafe), "the rename sentence is the board's own")
+check(boardPage.contains(Board.projectDescriptionWho), "the description sentence is the board's own")
+check(boardPage.contains(Board.projectPauseWhat), "the pause sentence is the board's own")
+check(boardPage.contains(">Mentions only<") && boardPage.contains(">Muted<"), "premise: the board's notification choices")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 

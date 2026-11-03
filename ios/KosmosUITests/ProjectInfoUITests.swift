@@ -24,6 +24,12 @@ final class ProjectInfoUITests: XCTestCase {
         shot(app, "project-info-about")
         app.swipeUp()
         shot(app, "project-info-about-lower")
+        // Slice B: Settings, the middle segment, with the board's own rename sentence.
+        app.buttons["Settings"].tap()
+        XCTAssertTrue(app.staticTexts["Renaming is safe. Agents stay on the project, and Kosmos tells them the new name."].waitForExistence(timeout: 5), "Settings did not open")
+        shot(app, "project-info-settings")
+        app.swipeUp()
+        shot(app, "project-info-settings-lower")
         app.buttons["Files"].tap()
         XCTAssertFalse(app.staticTexts["What it is for"].waitForExistence(timeout: 2), "About stayed after choosing Files")
         sleep(2)

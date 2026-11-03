@@ -674,6 +674,8 @@ extension Board {
         // kosmos#7342 (Mona Lisa): on Mentions only or Muted (the board's notify, #7210): its count stays on its row but
         // adds nothing to the Projects tab or the Dock, so its bubble is grey.
         var quiet = false
+        // kosmos#7838 slice B: the project's notification level as the board keeps it (all, mentions, muted; #7210).
+        var notify = "all"
     }
 
     struct ProjectList: Equatable {
@@ -843,7 +845,8 @@ extension Board {
                               needsYou: integer(s["needsYou"]) ?? 0, needsYouQuestions: integer(s["needsYouQuestions"]) ?? 0,
                               heldForYou: integer(s["heldForYou"]) ?? 0,
                               working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0,
-                              quiet: ["mentions", "muted"].contains(p["notify"] as? String ?? ""))
+                              quiet: ["mentions", "muted"].contains(p["notify"] as? String ?? ""),
+                              notify: ["all", "mentions", "muted"].contains(p["notify"] as? String ?? "") ? (p["notify"] as! String) : "all")
         }
         return ProjectList(projects: rows, agentsUnreadable: isTrue(obj["agentsUnreadable"]))
     }
@@ -1216,7 +1219,7 @@ enum NewProject {
 
 extension Board {
     // The segments, in the agent page's shape (AgentInfoView's Part). Settings follows as the third (#7838 slice B).
-    enum ProjectPart: String, CaseIterable { case about = "About", files = "Files" }
+    enum ProjectPart: String, CaseIterable { case about = "About", settings = "Settings", files = "Files" }
 
     // A member's line under their name: what they said they do on THIS project, else their own role, else none.
     static func projectMemberLine(_ m: ProjectMember, agentRole: String?) -> String? {
@@ -1233,5 +1236,69 @@ extension Board {
     }
 
     static let projectMoreOnBoard = "Open on your computer\u{2019}s board"
-    static let projectMoreOnBoardWhy = "Rename it, pause it or change who is on it there, for now."
+    static let projectMoreOnBoardWhy = "Change who is on it, archive it and more there."
+    // Slice B: under Settings, what is still the board's (its members, webhooks, folder, archive and the rest).
+    static let projectSettingsOnBoardWhy = "Members, archiving and the rest of its settings are there."
+}
+
+
+// MARK: kosmos#7838 slice B: the project page's Settings, the board's project settings a person changes from a phone.
+// One route, as the board's (PUT /api/project/<id>: name, description, notify, paused); words are the board's own
+// (web/index.html pj-settings-view), word for word where the board has one.
+
+extension Board {
+    static let projectRenameSafe = "Renaming is safe. Agents stay on the project, and Kosmos tells them the new name."
+    static let projectDescriptionLimit = "Up to 1000 characters."
+    static let projectDescriptionWho = "For people reading Kosmos. Agents are not told when this changes, so anything they need belongs in a task or in their instructions."
+    static let projectPauseWhat = "Kosmos stops nudging agents about its tasks and stops handing them out. Nothing else changes."
+    static let projectResumeWhat = "Kosmos nudges agents about its tasks and hands them out again."
+    // The board's notification choices (pjs-notify), in its order.
+    static let projectNotifyLevels: [(key: String, label: String)] = [("all", "All"), ("mentions", "Mentions only"), ("muted", "Muted")]
+
+    enum ProjectChange: Equatable {
+        case text(name: String, description: String)
+        case notify(String)
+        case paused(Bool)
+    }
+    // The body the board's Save sends: only what changed, trimmed (the engine checks the rest and says why it refuses).
+    static func projectChangeBody(_ c: ProjectChange, shownName: String, shownDescription: String) -> [String: Any]? {
+        switch c {
+        case .text(let name, let description):
+            let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let d = description.trimmingCharacters(in: .whitespacesAndNewlines)
+            var body: [String: Any] = [:]
+            if !n.isEmpty && n != shownName { body["name"] = n }
+            if d != shownDescription.trimmingCharacters(in: .whitespacesAndNewlines) { body["description"] = d }
+            return body.isEmpty ? nil : body
+        case .notify(let level):
+            return projectNotifyLevels.contains { $0.key == level } ? ["notify": level] : nil
+        case .paused(let on):
+            return ["paused": on]
+        }
+    }
+    static func projectChangeRequest(mac: URL, project: String, body: [String: Any]) -> URLRequest? {
+        guard isProjectId(project), let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/project/\(project)", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "PUT"
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.httpBody = data
+        return r
+    }
+    // Saved, the board's own reason, or no answer. A 200 this build cannot read may still have saved: never "failed".
+    enum ProjectSave: Equatable { case saved, refused(String), noAnswer }
+    static func projectSaveResult(status: Int, body: Data?) -> ProjectSave {
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        if status == 200 { return obj == nil ? .refused("We could not tell whether that saved. Look again in a moment.") : .saved }
+        if let e = obj?["error"] as? String, !e.isEmpty { return .refused(sentence(e)) }
+        return status == 0 ? .noAnswer : .refused("We could not save that.")
+    }
+    static let projectNoAnswer = "We could not reach your computer, so it was not saved."
+    static func projectSavedLine(_ c: ProjectChange) -> String {
+        switch c {
+        case .text: return "Saved."
+        case .notify: return "Saved."
+        case .paused(let on): return on ? "Paused." : "Resumed."
+        }
+    }
 }
