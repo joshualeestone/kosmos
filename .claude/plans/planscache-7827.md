@@ -13,10 +13,11 @@ Was stacked on planscreen-7404; rebased onto main after it merged (c0b8a273fb).
    maps each to its own sentence, and a codeless 409 from a relay without them gets a sentence true of both. After
    "finished" (or the codeless conflict) the page watches for the plan each minute for half an hour, as after Choose.
 
-## Transitional, remove later
-A codeless 409 also starts the half-hour watch, though from a relay without the codes it may mean "opening" (no payment
-pending): at most 30 extra plans reads. Once the relay with backup_checkout_opening/finished is deployed (Ice Cream
-Kitty, #3763), drop backup_checkout_conflict from the watch.
+## After the relay's codes are deployed
+A relay without the codes sends an unnamed 409 that may mean "opening" (no payment pending), and the board watches for
+the plan anyway (at most 30 extra reads). Once the relay naming both conflicts is deployed (Ice Cream Kitty, #3763),
+an unnamed 409 no longer occurs. Keep backup_checkout_conflict in the watch: the engine also gives it to a 409 code this
+board does not know, which may be a page just paid.
 
 ## Decided
 The wait line after "finished" (or the unnamed conflict) stays until a plan arrives or Off, as the payment-page wait
@@ -24,4 +25,7 @@ line does: reads go from each minute to the hourly recheck after half an hour, s
 arrives" stays true. (Review 5 read it as "nothing checks any more"; the hourly recheck does.)
 
 ## Weakest premise
+Not covered: the relay's checkout arm that could neither close nor read the earlier page (backup_plans.rs, `Open |
+Err(_)`, a 503) has no code, so the board says "nothing was charged" though that page may have been paid. Naming it
+needs a relay code; filed as a follow-up.
 That Stripe refuses to expire a page just paid (Kitty's read-back relies on it). Not measured live: no plan sold yet.

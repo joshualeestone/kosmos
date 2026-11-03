@@ -351,16 +351,19 @@ test('#7827: "opening" does not start the watch, and a watch after "finished" en
   assert.equal(reads, 2, 'the watch after "finished" never ended');
 });
 
-test('#7827: a new Choose drops the watch an earlier "finished" started', async () => {
+test('#7827: a watch an earlier "finished" started survives a press that fails, and gives way to a payment page', async () => {
   const doc = fakeDoc();
   let code = 'backup_checkout_finished';
-  const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: false, code, because: 'x' })() : answer({ ok: true, plans: PLANS, planGb: null })()));
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? (code ? answer({ ok: false, code, because: 'x' }) : answer({ ok: true, url: STRIPE }))() : answer({ ok: true, plans: PLANS, planGb: null })()));
   s.pbpShow(true, false); await tick(); await tick();
   await s.pbpChoose(25);
   assert.equal(s.PBP.awaitPlan, true, 'CONTROL');
   code = 'backup_checkout_opening';
   await s.pbpChoose(25);
-  assert.equal(s.PBP.awaitPlan, false, 'a watch from an earlier press outlived the next one');
+  assert.equal(s.PBP.awaitPlan, true, 'a press that merely failed dropped the "if you paid" watch');
+  code = null;   // the next press opens a page: that replaces the watch
+  await s.pbpChoose(25);
+  assert.equal(s.PBP.awaitPlan, false, 'a watch from an earlier press outlived a payment page that replaced it');
 });
 
 test('#7827: "finished" after a page was open drops that page\'s link; the wait line says it, and later that it is being confirmed', async () => {
