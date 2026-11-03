@@ -270,8 +270,8 @@ struct RoomView: View {
         }
         .onDisappear {
             visible = false; roomScrolling = false; loop?.cancel(); loop = nil   // kosmos#7654: no idle phase may come once off screen
-            // kosmos#7864 slice 2: link preview pictures do not outlive the room; a member's chat opened from it is not a close.
-            if chatAgent == nil { client.releasePreviewImages() }
+            // kosmos#7864 slice 2: no release of link preview pictures here. The room stays alive behind another tab, so a
+            // release would also drop pictures a chat on that tab is showing; the cap (12) and the memory-warning drop bound them.
             // A reading posture, not the room's state: coming back (from another tab, or a member's chat opened from here)
             // shows the whole room, as the chat's search goes when it leaves the screen. A search that filtered settles the
             // scroll again, as putting it away does.
