@@ -14,7 +14,8 @@ on Mac/Linux and Windows. The next instruction sync replaces the long block in e
   `kosmos accounts` rather than asking which providers are set up, and never read `GET /api/connections` (it checks
   every service live and bills the person for search services).
 - `kosmos connections --how` (install/kosmos and tools/windows/kosmos-cli.js) prints guideText locally, with no board
-  needed; extra words are a usage error (2). `kosmos connections` alone is unchanged.
+  needed; extra words are a usage error (2). `kosmos connections` alone is unchanged, except that extra words after
+  it, ignored before, are now a usage error (2) on both CLIs: nothing in the repo passes any.
 - engine/instructionreread.js names the new single heading for the re-read notice.
 
 ## Why this block first
