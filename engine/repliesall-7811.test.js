@@ -337,3 +337,14 @@ test('the nudge\'s count leaves the older posts for later on a slow profile, as 
   assert.ok(threadReads(ok).includes(0), 'CONTROL: inside the limit the count takes it');
 });
 
+test('an older post with two sent records is read once', async () => {
+  clearSeen();
+  writeSendState('Dup7811', 12);
+  const p = cs._paths;
+  const sent = JSON.parse(fs.readFileSync(p.sentFile(), 'utf8'));
+  sent.dup = { ...sent.p0, sentAt: '2026-09-30T00:30:00Z' };   // a second record of post 0, still older than the newest 10
+  fs.writeFileSync(p.sentFile(), JSON.stringify(sent));
+  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } } });
+  await cr.readReplies('Dup7811', { now: NOW });
+  assert.equal(threadReads(urls).filter((i) => i === 0).length, 1, 'the post was read twice');
+});
