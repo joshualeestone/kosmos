@@ -142,7 +142,7 @@ test('the paint: idle, listed, asked, running, stop asked, ended', () => {
   p.PBF.stopAsk = true; p.pbfPaint();
   assert.ok(vis(doc, 'pb-files-stop-ask') && !vis(doc, 'pb-files-stop-row'), 'stop asked');
   p.PBF.stopAsk = false; p.PBF.list = null; p.PBF.status = { running: false, startedAt: null, last: { ok: true, restored: 3, world: WORLD } }; p.pbfPaint();
-  assert.ok(vis(doc, 'pb-files-last') && vis(doc, 'pb-files-open') && vis(doc, 'pb-files-see') && vis(doc, 'pb-files-end-row'), 'ended: the line, Open the copy and See');
+  assert.ok(/^Restored 3 files/.test(doc.getElementById('pb-files-last').textContent) && vis(doc, 'pb-files-open') && vis(doc, 'pb-files-see') && vis(doc, 'pb-files-end-row'), 'ended: the line, Open the copy and See');
 });
 
 test('keyMissing: said, and never "no backups yet"', async () => {
@@ -348,7 +348,7 @@ test('a read still out is not thrown away by the next repaint: a slow board stil
   p.PBF.at = 0; p.pbfShow(true);        // a repaint 5 s later, the first still out
   assert.equal(calls, 1, 'a second read went out over the first');
   release(); await tick(); await tick();
-  assert.ok(vis(doc, 'pb-files-last'), 'the slow answer was dropped and the end never showed');
+  assert.match(doc.getElementById('pb-files-last').textContent, /^Restored 2 files/, 'the slow answer was dropped and the end never showed');
 });
 
 test('the end line, a live region, is written only when it changes', () => {
@@ -374,4 +374,212 @@ test('a start refused because another restore runs: focus leaves the hidden conf
   await p.pbfStart(); await tick(); await tick();
   assert.ok(!vis(doc, 'pb-files-ask') && vis(doc, 'pb-files-run'), 'CONTROL: the read showed the other restore');
   assert.equal(doc.focused && doc.focused.id, 'pb-files-run');
+});
+
+/* kosmos#7801: a refusal outlives its state. */
+test('a refusal is cleared when a later read sees the restore end, and when one sees a restore start', async () => {
+  for (const [from, to] of [[{ running: true, startedAt: 5, last: null }, { running: false, last: { ok: true, restored: 2, world: WORLD } }],
+    [{ running: false, last: null }, { running: true, startedAt: 9, last: null }]]) {
+    const doc = fakeDoc();
+    const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve(to) }));
+    p.PBF.status = from; p.PBF.at = Date.now();
+    p.pbfShow(true);
+    doc.getElementById('pb-files-msg').textContent = 'Confirm it is you on this device first.';
+    p.pbfRead(); await tick(); await tick();
+    assert.equal(p.PBF.status, to, 'CONTROL: the read did not land');
+    assert.equal(doc.getElementById('pb-files-msg').textContent, '', (from.running ? 'end' : 'start') + ': the old refusal stayed');
+  }
+});
+
+test('a read that sees no change keeps the refusal', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve({ running: true, startedAt: 5, last: null }) }));
+  p.PBF.status = { running: true, startedAt: 5, last: null }; p.PBF.at = Date.now();
+  p.pbfShow(true);
+  doc.getElementById('pb-files-msg').textContent = 'Confirm it is you on this device first.';
+  p.pbfRead(); await tick(); await tick();
+  assert.equal(doc.getElementById('pb-files-msg').textContent, 'Confirm it is you on this device first.');
+});
+
+test('a start refused because another restore runs keeps its reason, though its own read sees that restore begin', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, (url, init) => Promise.resolve({ ok: true, json: () => Promise.resolve(init && init.method === 'POST'
+    ? { ok: false, code: 'restore_running', because: 'A restore is already running on this computer.' }
+    : { running: true, startedAt: 9, last: null }) }));
+  p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
+  p.PBF.list = [{ key: 'k1', takenAt: 1e9, problem: null }]; p.PBF.asked = p.PBF.list[0];
+  p.pbfShow(true);
+  await p.pbfStart(); await tick(); await tick();
+  assert.ok(vis(doc, 'pb-files-run'), 'CONTROL: the read showed the other restore');
+  assert.equal(doc.getElementById('pb-files-msg').textContent, 'A restore is already running on this computer.');
+});
+
+/* kosmos#7801: the end line is a polite live region, so it stays in the tree, shown and empty, and only its text fills. */
+test('the end line is never hidden, in the markup, the CSS or the paint', () => {
+  const tag = PAGE.match(/<p [^>]*id="pb-files-last"[^>]*>/);
+  assert.ok(tag, 'CONTROL: the end line was not found');
+  assert.doesNotMatch(tag[0], /\shidden\b/, 'the region starts hidden, so it appears already filled');
+  assert.match(PAGE, /#pb-files-last:empty \{ display: block;/, '.fhint:empty would display:none the empty region');
+  const doc = fakeDoc();
+  const p = painter(doc);
+  p.PBF.status = { running: true, startedAt: 5, last: null }; p.PBF.at = Date.now();
+  p.pbfShow(true);
+  assert.ok(vis(doc, 'pb-files-last') && doc.getElementById('pb-files-last').textContent === '', 'running: shown and empty');
+  p.PBF.status = { running: false, last: { ok: true, restored: 3, world: WORLD } }; p.pbfPaint();
+  assert.ok(vis(doc, 'pb-files-last') && /^Restored 3 files/.test(doc.getElementById('pb-files-last').textContent), 'ended: filled');
+});
+
+test('a start refused because another restore runs keeps its reason when only a later read sees that restore', async () => {
+  const doc = fakeDoc();
+  let gets = 0;
+  const p = painter(doc, (url, init) => {
+    if (init && init.method === 'POST') return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: false, code: 'restore_running', because: 'A restore is already running on this computer.' }) });
+    gets++;
+    return gets === 1 ? Promise.reject(new Error('offline')) : Promise.resolve({ ok: true, json: () => Promise.resolve({ running: true, startedAt: 9, last: null }) });
+  });
+  p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
+  p.PBF.list = [{ key: 'k1', takenAt: 1e9, problem: null }]; p.PBF.asked = p.PBF.list[0];
+  p.pbfShow(true);
+  await p.pbfStart(); await tick(); await tick();
+  p.pbfRead(); await tick(); await tick();
+  assert.ok(vis(doc, 'pb-files-run'), 'CONTROL: the second read showed the other restore');
+  assert.equal(doc.getElementById('pb-files-msg').textContent, 'A restore is already running on this computer.');
+});
+
+test('a refused Stop whose own read sees the restore end loses its message to the end line', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, (url, init) => Promise.resolve({ ok: true, json: () => Promise.resolve(init && init.method === 'POST'
+    ? { ok: false, because: 'The restore could not be stopped just now.' }
+    : { running: false, last: { ok: true, restored: 4, world: WORLD } }) }));
+  p.PBF.status = { running: true, startedAt: 5, last: null }; p.PBF.at = Date.now();
+  p.pbfShow(true); p.PBF.stopAsk = true; p.pbfPaint();
+  await p.pbfStop(); await tick(); await tick();
+  assert.match(doc.getElementById('pb-files-last').textContent, /^Restored 4 files/, 'CONTROL: the read showed the end');
+  assert.equal(doc.getElementById('pb-files-msg').textContent, '');
+});
+
+test('a start refused for another reason is cleared when a restore then begins', async () => {
+  const doc = fakeDoc();
+  let gets = 0;
+  const p = painter(doc, (url, init) => {
+    if (init && init.method === 'POST') return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: false, because: 'The restore did not start. Nothing was restored.' }) });
+    gets++;
+    return Promise.resolve({ ok: true, json: () => Promise.resolve(gets === 1 ? { running: false, last: null } : { running: true, startedAt: 9, last: null }) });
+  });
+  p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
+  p.PBF.list = [{ key: 'k1', takenAt: 1e9, problem: null }]; p.PBF.asked = p.PBF.list[0];
+  p.pbfShow(true);
+  await p.pbfStart(); await tick(); await tick();
+  assert.equal(doc.getElementById('pb-files-msg').textContent, 'The restore did not start. Nothing was restored.', 'CONTROL: the refusal showed');
+  p.pbfRead(); await tick(); await tick();
+  assert.ok(vis(doc, 'pb-files-run'), 'CONTROL: the read showed a restore');
+  assert.equal(doc.getElementById('pb-files-msg').textContent, '');
+});
+
+test('a restore that ends with no answer to show moves focus to See your backups, not an empty end line', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve({ running: false, last: null }) }));
+  p.PBF.status = { running: true, startedAt: 5, last: null }; p.PBF.at = Date.now();
+  p.pbfShow(true);
+  doc.getElementById('pb-files-stop').focus();
+  p.pbfRead(); await tick(); await tick();
+  assert.equal(doc.getElementById('pb-files-last').textContent, '', 'CONTROL: no end line');
+  assert.equal(doc.focused && doc.focused.id, 'pb-files-see');
+});
+
+test('a kept "already running" refusal is cleared by a read that sees nothing running, whether or not it saw the restore', async () => {
+  for (const sawIt of [true, false]) {
+    const doc = fakeDoc();
+    let gets = 0;
+    const p = painter(doc, (url, init) => {
+      if (init && init.method === 'POST') return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: false, code: 'restore_running', because: 'A restore is already running on this computer.' }) });
+      gets++;
+      const running = sawIt && gets === 1;
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(running ? { running: true, startedAt: 9, last: null } : { running: false, last: null }) });
+    });
+    p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
+    p.PBF.list = [{ key: 'k1', takenAt: 1e9, problem: null }]; p.PBF.asked = p.PBF.list[0];
+    p.pbfShow(true);
+    await p.pbfStart(); await tick(); await tick();
+    if (sawIt) assert.equal(doc.getElementById('pb-files-msg').textContent, 'A restore is already running on this computer.', 'CONTROL: kept while it ran');
+    p.pbfRead(); await tick(); await tick();
+    assert.ok(!vis(doc, 'pb-files-run'), 'CONTROL: the read saw nothing running');
+    assert.equal(doc.getElementById('pb-files-msg').textContent, '', sawIt ? 'the restore ended' : 'no read ever saw it');
+  }
+});
+
+test('a stopped restore, with no copy to open, moves focus to its end line', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve({ running: false, last: { ok: false, code: 'stopped', stoppedByPerson: true, because: 'You stopped this restore.' } }) }));
+  p.PBF.status = { running: true, startedAt: 5, last: null }; p.PBF.at = Date.now();
+  p.pbfShow(true);
+  doc.getElementById('pb-files-stop').focus();
+  p.pbfRead(); await tick(); await tick();
+  assert.ok(!vis(doc, 'pb-files-open') && /^You stopped the restore/.test(doc.getElementById('pb-files-last').textContent), 'CONTROL: a stop line, no copy');
+  assert.equal(doc.focused && doc.focused.id, 'pb-files-last');
+});
+
+test('turning personal backup off drops a kept refusal and its flag', () => {
+  const doc = fakeDoc();
+  const p = painter(doc);
+  p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
+  p.pbfShow(true);
+  doc.getElementById('pb-files-msg').textContent = 'A restore is already running on this computer.'; p.PBF.msgRunning = true;
+  p.pbfShow(false, true);
+  assert.equal(doc.getElementById('pb-files-msg').textContent, '');
+  assert.equal(p.PBF.msgRunning, false);
+});
+
+test('a non-ok answer that carries because and code keeps its code through pbPost (the board answers 200; a relay may not)', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, (url, init) => Promise.resolve(init && init.method === 'POST'
+    ? { ok: false, status: 409, json: () => Promise.resolve({ ok: false, code: 'restore_running', because: 'A restore is already running on this computer.' }) }
+    : { ok: true, json: () => Promise.resolve({ running: true, startedAt: 9, last: null }) }));
+  p.PBF.status = { running: false, last: null }; p.PBF.at = Date.now();
+  p.PBF.list = [{ key: 'k1', takenAt: 1e9, problem: null }]; p.PBF.asked = p.PBF.list[0];
+  p.pbfShow(true);
+  await p.pbfStart(); await tick(); await tick();
+  assert.ok(vis(doc, 'pb-files-run'), 'CONTROL: the read showed the other restore');
+  assert.equal(doc.getElementById('pb-files-msg').textContent, 'A restore is already running on this computer.');
+});
+
+/* kosmos#7801: the end line is quiet for the first fill after a show (an old end is not news), and live after. */
+function liveAtWrite(doc) {
+  const el = doc.getElementById('pb-files-last');
+  const writes = []; let t = el.textContent;
+  Object.defineProperty(el, 'textContent', { configurable: true, get() { return t; }, set(v) { if (v !== t) writes.push({ text: v, live: el.attrs['aria-live'] }); t = v; } });
+  return writes;
+}
+test('the first read after a show fills the end line with an old end quietly; an end seen later is read out', async () => {
+  const doc = fakeDoc();
+  let answer = { running: false, last: { ok: true, restored: 3, world: WORLD } };
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve(answer) }));
+  const writes = liveAtWrite(doc);
+  p.pbfShow(true); await tick(); await tick();
+  assert.deepEqual(writes, [{ text: 'Restored 3 files into Restored: Josh, 2 Nov.', live: 'off' }], 'an end from before the page opened was announced');
+  p.PBF.at = 0; p.pbfShow(true);                      // the 5-second repaint
+  assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'polite', 'CONTROL: live after a paint has shown the answer');
+  answer = { running: true, startedAt: 9, last: null };
+  await tick(); await tick();
+  answer = { running: false, last: { ok: true, restored: 7, world: WORLD } };
+  p.PBF.at = 0; p.pbfShow(true); await tick(); await tick();
+  assert.equal(writes[writes.length - 1].text, 'Restored 7 files into Restored: Josh, 2 Nov.', 'CONTROL: the new end was written');
+  assert.equal(writes[writes.length - 1].live, 'polite', 'an end this tab saw happen was not announced');
+});
+
+test('turning personal backup off makes the end line quiet again for the next first fill', async () => {
+  const doc = fakeDoc();
+  const p = painter(doc, () => Promise.resolve({ ok: true, json: () => Promise.resolve({ running: false, last: { ok: true, restored: 3, world: WORLD } }) }));
+  p.pbfShow(true); await tick(); await tick();
+  p.PBF.at = 0; p.pbfShow(true); await tick(); await tick();
+  assert.equal(doc.getElementById('pb-files-last').attrs['aria-live'], 'polite', 'CONTROL: live before Off');
+  p.pbfShow(false, true);
+  doc.getElementById('pb-files-last').textContent = '';
+  const writes = liveAtWrite(doc);
+  p.pbfShow(true); await tick(); await tick();
+  assert.deepEqual(writes.map((x) => x.live), ['off']);
+});
+
+test('the end line starts quiet in the markup', () => {
+  assert.match(PAGE, /<p [^>]*id="pb-files-last"[^>]*aria-live="off"/);
 });
