@@ -2970,7 +2970,13 @@ struct KeyboardHold: UIViewRepresentable {
                             let top = -v.adjustedContentInset.top
                             if v.contentOffset.y <= top + 1 {
                                 t.invalidate(); ChatView.trace("height: walk at the top")
-                                NotificationCenter.default.post(name: .sampleWalking, object: false); return
+                                NotificationCenter.default.post(name: .sampleWalking, object: false)
+                                // As the New messages capsule does from far up (the jump across the unmeasured stretch).
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                    ChatView.trace("height: walk asks for the newest")
+                                    NotificationCenter.default.post(name: .chatScrollToEnd, object: nil)
+                                }
+                                return
                             }
                             v.setContentOffset(CGPoint(x: 0, y: max(top, v.contentOffset.y - v.bounds.height)), animated: false)
                         }
