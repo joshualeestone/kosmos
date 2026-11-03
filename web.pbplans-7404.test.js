@@ -401,3 +401,14 @@ test('#7827: the unnamed conflict keeps its own sentence, with what to do if not
   s.PBP.since = Date.now() - 4 * 60000; s.pbpPaint(true);
   assert.equal(doc.getElementById('pb-plans-wait').textContent, C);
 });
+
+test('#7827: "finished" after a page had been open a while does not read at once', async () => {
+  const doc = fakeDoc();
+  let reads = 0, finished = false;
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? (finished ? answer({ ok: false, code: 'backup_checkout_finished', because: 'x' }) : answer({ ok: true, url: STRIPE }))() : (reads++, answer({ ok: true, plans: PLANS, planGb: null })())));
+  s.pbpShow(true, false); await tick(); await tick();
+  await s.pbpChoose(25);
+  s.PBP.at = Date.now() - 2 * 60000;   // the page has been open two minutes since the last read
+  finished = true; await s.pbpChoose(25); await tick(); await tick();
+  assert.equal(reads, 1, 'a read ran at once, though the relay says finished only while no plan is recorded');
+});
