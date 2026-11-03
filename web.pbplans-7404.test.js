@@ -362,3 +362,17 @@ test('#7827: a new Choose drops the watch an earlier "finished" started', async 
   await s.pbpChoose(25);
   assert.equal(s.PBP.awaitPlan, false, 'a watch from an earlier press outlived the next one');
 });
+
+test('#7827: "finished" after a page was open drops that page\'s link, and after a few minutes says it is being confirmed', async () => {
+  const doc = fakeDoc();
+  let finished = false;
+  const s = screen(doc, (u) => (/checkout$/.test(u) ? (finished ? answer({ ok: false, code: 'backup_checkout_finished', because: 'The payment page has just finished. If you paid, your plan shows here in a moment.' }) : answer({ ok: true, url: STRIPE }))() : answer({ ok: true, plans: PLANS, planGb: null })()));
+  s.pbpShow(true, false); await tick(); await tick();
+  await s.pbpChoose(25);
+  assert.ok(vis(doc, 'pb-plans-open-row'), 'CONTROL: the link');
+  finished = true; await s.pbpChoose(25);
+  assert.ok(!vis(doc, 'pb-plans-open-row') && !vis(doc, 'pb-plans-wait'), 'the finished page\'s link and wait line stayed');
+  assert.equal(doc.getElementById('pb-plans-msg').textContent, 'The payment page has just finished. If you paid, your plan shows here in a moment.');
+  s.PBP.since = Date.now() - 4 * 60000; s.pbpPaint(true);
+  assert.equal(doc.getElementById('pb-plans-msg').textContent, 'If you paid, it is being confirmed, and this updates when your plan arrives.', '"in a moment" was never revised');
+});
