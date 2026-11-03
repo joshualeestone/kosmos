@@ -22,9 +22,9 @@ const SENTENCE = 'Most commands end with exit status 0 when it was done, 1 when 
   + 'written right (its usage says how), and 3 when the answer is not a plain yes or no: usually it went through, or may have, '
   + 'so read what it printed before you send it again. A few use other numbers too.';
 
-function macHelp() {
+function macHelp(args = ['help']) {
   return new Promise((resolve, reject) => {
-    execFile('bash', [CLI, 'help'], { env: DEAD, timeout: 20000 }, (err, stdout, stderr) => {
+    execFile('bash', [CLI, ...args], { env: DEAD, timeout: 20000 }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(new Error('the CLI gave no exit code')); return; }
       resolve({ code: err ? err.code : 0, out: `${stdout}${stderr}` });
     });
@@ -64,4 +64,15 @@ test('kosmos#7886 control: the unconfirmed post outcome exits 3 on Windows too',
   });
   assert.equal(code, 3, 'Windows: ' + err.join(' | '));
   assert.match(err.join('\n'), /Posted, but not everyone is confirmed/);
+});
+
+test('kosmos#7886: an unknown command lists the commands without the exit-status sentence, on both CLIs alike', async () => {
+  const mac = await macHelp(['no-such-verb-7886']);
+  assert.equal(mac.code, 2);
+  assert.match(mac.out, /Unknown: kosmos no-such-verb-7886/, 'CONTROL: this is the unknown-command path');
+  assert.doesNotMatch(mac.out, /A few use other numbers too/);
+  const lines = [];
+  const code = await cli.main(['no-such-verb-7886'], { out: (s) => lines.push(s), err: (s) => lines.push(s) });
+  assert.equal(code, 2);
+  assert.ok(!lines.includes(SENTENCE), 'Windows printed the exit-status sentence on an unknown command');
 });
