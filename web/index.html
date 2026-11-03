@@ -56179,8 +56179,9 @@ function pbpPaint(on) {
 async function pbpChoose(gb) {
   if (PBP.busy) return;
   const gen = PBP.gen;
-  // A new Choose starts its own watch, or none; and no plans read starts while its answer is out (PBP.at).
-  PBP.busy = true; PBP.awaitPlan = false; PBP.awaitCode = null; PBP.awaitSay = ''; PBP.at = Date.now(); pbpMsg(''); pbPaint();
+  // No plans read starts while its answer is out (PBP.at). A watch from an earlier press stays until this answer
+  // replaces it (a payment page, or a new watch): a press that merely fails must not drop "if you paid".
+  PBP.busy = true; PBP.at = Date.now(); pbpMsg(''); pbPaint();
   const r = await pbPost('checkout', { gb });
   PBP.busy = false;
   if (gen !== PBP.gen) { pbPaint(); return; }
@@ -56188,10 +56189,11 @@ async function pbpChoose(gb) {
   // #7827: a page that may just have been paid (relay "finished", or a 409 the board cannot name): the wait line says so,
   // where no read reaches, and the plan is watched each minute as after Choose. Set before the paint, and no read at
   // once: the relay says finished only while no plan is recorded yet. backup_checkout_conflict is the board's own name
-  // (engine checkout); drop it here once the relay with the two named codes is deployed (Ice Cream Kitty, #3763, #7827).
+  // (engine checkout) for any 409 it cannot name: once the relay naming its two conflicts is deployed (Ice Cream Kitty,
+  // #3763, #7827) an unnamed 409 no longer occurs, but a code this board does not know still lands here, so it stays.
   // The earlier page is expired or paid either way, so its link goes.
   const paidMaybe = !url && r && (r.code === 'backup_checkout_finished' || r.code === 'backup_checkout_conflict');
-  if (url) { PBP.url = url; PBP.gb = gb; PBP.since = Date.now(); PBP.at = Date.now(); }
+  if (url) { PBP.url = url; PBP.gb = gb; PBP.since = Date.now(); PBP.at = Date.now(); PBP.awaitPlan = false; PBP.awaitCode = null; PBP.awaitSay = ''; }
   else if (paidMaybe) {
     PBP.awaitPlan = true; PBP.awaitCode = r.code; PBP.url = null; PBP.gb = null; PBP.since = Date.now(); PBP.at = Date.now();
     PBP.awaitSay = asSentence(r.because || 'A payment for this backup is already in progress. If you just paid, your plan shows here shortly; if not, try again in a minute.');
