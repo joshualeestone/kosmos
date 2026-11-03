@@ -4,12 +4,24 @@
  * must not say "Nothing was deleted". It asks for the plan again and says what that finds. The page's own
  * dialog functions run here on a stubbed DOM, and the click handler is read for the path that calls them.
  */
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+/* The detail page's CURRENT is a real board card (fixture-discipline): sandbox the roots before requiring the fleet. */
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'deletedrop-7852-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const vm = require('node:vm');
 const { scriptOf, liftAll, liftConst } = require('./test-support/page');
+const fleet = require('./test-support/fleet');
+
+const BOARD = fleet.install(['miles', 'ada'].map((n) => fleet.agent(n)));
+const CARD = Object.fromEntries(BOARD.agents.map((c) => [String(c.sessionName).toLowerCase(), c]));
+test.after(() => { try { BOARD.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
 const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
 /* The del-go click handler is an anonymous arrow; lift it by its anchor and balanced braces (it holds no brace in a
@@ -61,7 +73,7 @@ function dialog(planOnScreen, detailFor = null) {
     fetch: (url, opts) => { calls.push({ url, method: (opts && opts.method) || 'GET' }); return replies.shift()(url, opts); },
   });
   vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0;',
-    'let CURRENT = ' + JSON.stringify(detailFor ? { sessionName: detailFor } : null) + ';',
+    'let CURRENT = ' + JSON.stringify(detailFor ? CARD[detailFor.toLowerCase()] : null) + ';',
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
     'function paintRemoved() { paints += 1; }',
     liftConst(SCRIPT, 'DEL_UNKNOWN_LINE'), liftConst(SCRIPT, 'DEL_REFUSED_LINE'),
