@@ -35,11 +35,14 @@ function writeSendState(agent, n) {
 }
 function clearSeen() { try { fs.rmSync(path.join(require('./store').ROOT, 'communityread', 'replies-seen'), { recursive: true, force: true }); } catch { /* none */ } }
 /* The service: a profile listing `listed` post ids (latest_reply from `latest`), and threads from `threads`. */
+let aborted = 0;   // profile requests the read stopped
 function serve({ listed, latest = {}, threads = {}, profile = 200, slowProfileMs = 0, replyPages = {} }) {
   const urls = [];
-  cr.setFetcher(async (url) => {
+  cr.setFetcher(async (url, cap, signal) => {
     urls.push(url);
-    if (slowProfileMs && url.includes('/agents/by-name/')) await new Promise((r) => setTimeout(r, slowProfileMs));
+    if (slowProfileMs && url.includes('/agents/by-name/')) {
+      await new Promise((r) => { const t = setTimeout(r, slowProfileMs); if (signal) signal.addEventListener('abort', () => { aborted += 1; clearTimeout(t); r(); }, { once: true }); });
+    }
     const u = new URL(url);
     if (u.pathname.startsWith('/agents/by-name/')) {
       if (profile !== 200) return { status: profile, json: null };
@@ -178,14 +181,17 @@ test('an older post with no mark and its newest reply before the first look is n
   assert.deepEqual(threadReads(ctl), range(0, 11), 'CONTROL: inside the first look it is read');
 });
 
-/* Timing-dependent by construction (a real 150 ms profile against a 50 ms and a 5000 ms limit); the margins are wide. */
+/* Timing-dependent by construction: a real 1200 ms profile against a 50 ms limit, and a 150 ms one against the 1000 ms
+   limit (olderStartMs never raises it), an 850 ms margin. */
 test('a slow profile leaves the older posts to the next read, and says so', async () => {
   clearSeen();
   writeSendState('Slow7811', 12);
-  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, slowProfileMs: 3000 });
+  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, slowProfileMs: 1200 });
   const t0 = Date.now();
+  aborted = 0;
   const r = await cr.readReplies('Slow7811', { now: NOW, olderStartMs: 50 });
-  assert.ok(Date.now() - t0 < 1500, 'the read waited for the slow profile: ' + (Date.now() - t0) + ' ms');
+  assert.ok(Date.now() - t0 < 900, 'the read waited for the slow profile: ' + (Date.now() - t0) + ' ms');
+  assert.equal(aborted, 1, 'the profile request given up on was not stopped');
   assert.deepEqual(threadReads(urls), range(2, 12));
   assert.match(r.text, /only your newest 10 of 12 posts were looked at: the community was slow to say which of your older posts have new comments, so they wait for a read where it answers in time\)/);
   /* CONTROL: the same slow profile inside the limit, and the older post is read. */
