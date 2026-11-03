@@ -610,10 +610,12 @@ extension Board {
     // None open is a row of its own (as the description's "No description yet."), never a footer under nothing.
     static let projectNoOpenTasks = "No open tasks."
     static func projectTasksFooter(total: Int, shown: Int) -> String? {
-        return total > shown ? "\(total - shown) more on the Tasks tab." : nil
+        return total > shown ? "\(total - shown) more on the Tasks tab, which can show just this project." : nil
     }
-    // A task's state, in the Tasks tab's own words (Tasks.groups).
+    // A task's state in the Tasks tab's own words (Tasks.groups), in sentence case beside the page's other lines
+    // ("Needs your decision", not the group heading's "Needs Your Decision"; final review).
     static func projectTaskState(_ t: TaskRow) -> String {
-        Tasks.groups.first { $0.key == t.state }?.label ?? ""
+        guard let l = Tasks.groups.first(where: { $0.key == t.state })?.label, let f = l.first else { return "" }
+        return String(f) + l.dropFirst().lowercased()
     }
 }

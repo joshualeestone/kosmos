@@ -1233,5 +1233,5 @@ extension Board {
     }
 
     static let projectMoreOnBoard = "Open on your computer\u{2019}s board"
-    static let projectMoreOnBoardWhy = "Its settings, pause, members and webhooks are there for now."
+    static let projectMoreOnBoardWhy = "Rename it, pause it or change who is on it there, for now."
 }

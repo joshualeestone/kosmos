@@ -70,14 +70,14 @@ struct ProjectInfoView: View {
             Section {
                 Text(Board.projectAbout(project))
                     .foregroundColor(project.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Palette.secondary : Palette.primary)
-            } header: { Text("What it is for") }
+            } header: { label("What it is for") }
 
             Section {
                 if project.members.isEmpty {
                     Text("No agents on this project yet.").foregroundColor(Palette.secondary)
                 }
                 ForEach(project.members, id: \.session) { m in memberRow(m) }
-            } header: { Text("Members") }
+            } header: { label("Members") }
 
             tasksSection
 
@@ -99,6 +99,9 @@ struct ProjectInfoView: View {
         // Review 1: read again on every appearance, so a list from hours ago is never shown as this project's tasks.
         .task { await readTasks() }
     }
+
+    // The agent page's section label (AgentInfoView.label), so the two pages read the same side by side (final review).
+    private func label(_ s: String) -> some View { Text(s).font(.footnote.weight(.semibold)).foregroundColor(Palette.secondary).textCase(nil) }
 
     private func readTasks() async {
         await client.refreshTasks()
@@ -150,7 +153,7 @@ struct ProjectInfoView: View {
                 Text(client.tasksListFailed || tasksTried ? "We cannot read the tasks right now. Pull down to try again." : "Reading the tasks\u{2026}")
                     .foregroundColor(Palette.secondary)
             }
-        } header: { Text("Open tasks") } footer: {
+        } header: { label("Open tasks") } footer: {
             if let open, let f = Board.projectTasksFooter(total: open.total, shown: open.rows.count) { Text(f) }
         }
     }
