@@ -323,19 +323,19 @@ final class BoardClient: ObservableObject {
             // Through the real parser, as /api/status rows from a Mac that sends its words ready-made (#7004).
             // kosmos#7030: with Today's fields (the reason, the project's name, when the wait began), times relative to now.
             let iso = { (minutes: Double) in ISO8601DateFormatter().string(from: Date().addingTimeInterval(-minutes * 60)) }
-            let tasks = #"{"tasks":[{"projectId":"p-cat","projectName":"Spring catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtAt":""# + iso(20) + #"","builtBy":"dana","builtNote":"Ready for a look. The captions on page 6 are placeholders."},{"projectId":"p-site","projectName":"Website","number":11,"sentence":"Shipping page copy","state":"built","builtAt":""# + iso(95) + #"","builtByPerson":true}]}"#
+            let tasks = #"{"tasks":[{"projectId":"springcatalogue","projectName":"Spring catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtAt":""# + iso(20) + #"","builtBy":"dana","builtNote":"Ready for a look. The captions on page 6 are placeholders."},{"projectId":"p-site","projectName":"Website","number":11,"sentence":"Shipping page copy","state":"built","builtAt":""# + iso(95) + #"","builtByPerson":true}]}"#
             readyTasks = Board.readyTasks(Data(tasks.utf8))
             // kosmos#7031: the Tasks tab's samples, one or more in every group, through the real parser.
             let all = #"{"rosterUnreadable":false,"tasks":["# + [
-                #"{"projectId":"p-cat","projectName":"Spring catalogue","number":7,"sentence":"Choose the cover photo","state":"decision","waitingOn":[{"who":"cleo","reason":"question"}],"waitingSince":""# + iso(3) + #"","createdAt":""# + iso(40) + #""}"#,
-                #"{"projectId":"p-cat","projectName":"Spring catalogue","number":8,"sentence":"Pages 9 to 12","state":"working","whoNames":["dana"],"createdAt":""# + iso(30) + #""}"#,
+                #"{"projectId":"springcatalogue","projectName":"Spring catalogue","number":7,"sentence":"Choose the cover photo","state":"decision","waitingOn":[{"who":"cleo","reason":"question"}],"waitingSince":""# + iso(3) + #"","createdAt":""# + iso(40) + #""}"#,
+                #"{"projectId":"springcatalogue","projectName":"Spring catalogue","number":8,"sentence":"Pages 9 to 12","state":"working","whoNames":["dana"],"createdAt":""# + iso(30) + #""}"#,
                 #"{"projectId":"p-mkt","projectName":"Market study","number":2,"sentence":"Summarise the three competitor price lists","state":"assigned","whoNames":["eli"],"createdAt":""# + iso(300) + #""}"#,
                 #"{"projectId":"p-print","projectName":"Print run","projectPath":["Spring catalogue"],"number":1,"sentence":"Get two quotes from printers","state":"nobody","createdAt":""# + iso(600) + #""}"#,
-                #"{"projectId":"p-cat","projectName":"Spring catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtAt":""# + iso(20) + #"","builtBy":"dana","builtNote":"Ready for a look. The captions on page 6 are placeholders.","createdAt":""# + iso(900) + #""}"#,
+                #"{"projectId":"springcatalogue","projectName":"Spring catalogue","number":4,"sentence":"Pages 1 to 8","state":"built","builtAt":""# + iso(20) + #"","builtBy":"dana","builtNote":"Ready for a look. The captions on page 6 are placeholders.","createdAt":""# + iso(900) + #""}"#,
                 #"{"projectId":"p-site","projectName":"Website","number":12,"sentence":"Check the shop for broken links","state":"scheduled","repeat":{"every":"week"},"repeatWords":"every Monday at 9am","repeatNextWords":"Monday at 9am","lastRunAt":""# + iso(4000) + #"","lastRunBy":"farah","lastRunNote":"none found","createdAt":""# + iso(20000) + #""}"#,
                 #"{"projectId":"p-site","projectName":"Website","number":9,"sentence":"New photos for the about page","state":"held","createdAt":""# + iso(30000) + #""}"#,
                 #"{"projectId":"p-site","projectName":"Website","number":11,"sentence":"Shipping page copy","state":"closed","createdAt":""# + iso(40000) + #""}"#,
-                #"{"projectId":"p-cat","projectName":"Spring catalogue","number":2,"sentence":"Collect last year's sales figures","state":"closed","createdAt":""# + iso(50000) + #""}"#,
+                #"{"projectId":"springcatalogue","projectName":"Spring catalogue","number":2,"sentence":"Collect last year's sales figures","state":"closed","createdAt":""# + iso(50000) + #""}"#,
             ].joined(separator: ",") + "]}"
             tasksList = Board.parseTasks(Data(all.utf8))
             // kosmos#7342: counts as a real board sends them (waiting = the agents' 6 + the projects' 3), so the Projects

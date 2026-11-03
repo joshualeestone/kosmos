@@ -9,12 +9,16 @@ struct ProjectInfoView: View {
     @ObservedObject var client: BoardClient
     let project: Board.ProjectRow
     let openOnBoard: () -> Void
-    // Opening a member: the room's own chat push (RoomView), so the conversation opens as it does from a post.
-    let openAgent: (Board.Agent) -> Void
+    // A member's conversation, as the room builds it (RoomView), pushed on top of this page: Back returns here. Review 1:
+    // closing this page and pushing the chat from the room in one update dropped the push (measured in the simulator).
+    let chat: (Board.Agent) -> AnyView
     let openPage: (URL) -> Void
 
     @State private var part: Board.ProjectPart = .about
     @State private var openTask: TaskPageRef?
+    @State private var chatWith: Board.Agent?
+    // Review 1: a read was asked for and came back with no list (the Mac not admitted, say): say so, not "Reading".
+    @State private var tasksTried = false
 
     private var roles: [String: String] {
         Dictionary(client.agents.compactMap { a in a.role.map { (a.session, $0) } }, uniquingKeysWith: { a, _ in a })
@@ -36,6 +40,11 @@ struct ProjectInfoView: View {
         .background(
             NavigationLink(isActive: Binding(get: { openTask != nil }, set: { if !$0 { openTask = nil } })) {
                 if let ref = openTask { TaskPageView(client: client, ref: ref, openPage: openPage) }
+            } label: { EmptyView() }.hidden()
+        )
+        .background(
+            NavigationLink(isActive: Binding(get: { chatWith != nil }, set: { if !$0 { chatWith = nil } })) {
+                if let a = chatWith { chat(a) }
             } label: { EmptyView() }.hidden()
         )
     }
@@ -86,14 +95,21 @@ struct ProjectInfoView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .refreshable { await client.refreshTasks() }
-        .task { if client.tasksList == nil { await client.refreshTasks() } }
+        .refreshable { await readTasks() }
+        // Review 1: read again on every appearance, so a list from hours ago is never shown as this project's tasks.
+        .task { await readTasks() }
+    }
+
+    private func readTasks() async {
+        await client.refreshTasks()
+        tasksTried = true
     }
 
     @ViewBuilder private func memberRow(_ m: Board.ProjectMember) -> some View {
         let line = Board.projectMemberLine(m, agentRole: roles[m.session])
         let agent = client.agents.first { $0.session == m.session }
-        Button { if let agent { openAgent(agent) } } label: {
+        // Review 1: a member the agents list does not have yet opens the board, as the room's own member button does.
+        Button { if let agent { chatWith = agent } else { openOnBoard() } } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(m.name).foregroundColor(Palette.primary)
@@ -107,8 +123,7 @@ struct ProjectInfoView: View {
             .frame(minHeight: 44).contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(agent == nil)
-        .accessibilityHint(agent == nil ? "" : "Opens the conversation")
+        .accessibilityHint(agent == nil ? "Opens your computer\u{2019}s board" : "Opens the conversation")
     }
 
     @ViewBuilder private var tasksSection: some View {
@@ -131,7 +146,7 @@ struct ProjectInfoView: View {
                     .accessibilityHint("Opens the task")
                 }
             } else {
-                Text(client.tasksListFailed ? "We cannot read the tasks right now. Pull down to try again." : "Reading the tasks\u{2026}")
+                Text(client.tasksListFailed || tasksTried ? "We cannot read the tasks right now. Pull down to try again." : "Reading the tasks\u{2026}")
                     .foregroundColor(Palette.secondary)
             }
         } header: { Text("Open tasks") } footer: {

@@ -242,7 +242,11 @@ struct RoomView: View {
         .background(
             NavigationLink(isActive: $infoOpen) {
                 ProjectInfoView(client: client, project: project, openOnBoard: { openBoardPage() },
-                                openAgent: { a in infoOpen = false; chatAgent = a }, openPage: openPage)
+                                chat: { a in
+                                    AnyView(ChatView(client: store.clientForChat, agent: a, openOnBoard: {
+                                        if let url = store.clientForChat.chatURL(for: a) { openPage(url) }
+                                    }))
+                                }, openPage: openPage)
             } label: { EmptyView() }.hidden()
         )
         .onAppear {
