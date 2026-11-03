@@ -712,7 +712,7 @@ test('#7819: the picture goes with it (every extension), and the plan says where
   fs.writeFileSync(nodePath.join(store.AVATARS, 'pic7819.jpg'), 'jpg');   // a crashed save's second extension
   const p = mac.plan(name);
   assert.ok(p.loses.includes('Its settings and picture: to the Trash with the files, and a new agent with this name starts without them'), JSON.stringify(p.loses));
-  assert.equal(p.typeToConfirm, null, 'nothing goes for good, yet the name must be typed');
+  assert.equal(p.typeToConfirm, null, 'nothing goes for good, yet the name was asked for');
   const r = mac.del(name);
   assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
   assert.equal(store.avatarPath(name), null, 'a picture outlived the delete');
@@ -864,4 +864,16 @@ test('#7819: settings kept for another agent are said in the plan and in the res
   const r = leftover.del(name, { platform: 'linux' });
   if (r.outcome === leftover.OUTCOME.DELETED) assert.match(r.said, /Its settings and picture stay \(Kim7819 uses the same stored name\), so a new agent with this name shares them\.$/);
   assert.equal(fs.existsSync(store.profilePath(name)), true);
+});
+
+
+test('#7819: with nothing stored, a shared stored name says nothing about settings staying', () => {
+  const name = leftoverAgent('nil7819', { job: false });
+  status.setPaneSource(() => fleet.line({ session: 'Nil7819', claim: 'Nil7819', title: '✳ Claude Code' }));
+  assert.equal(fs.existsSync(store.profilePath(name)), false, 'fixture: a profile exists');
+  const p = leftover.plan(name, { platform: 'linux' });
+  assert.equal(p.ok, true, p.because);
+  assert.ok(!p.loses.some((l) => /stay/.test(l)), 'the plan says settings stay that do not exist: ' + JSON.stringify(p.loses));
+  const r = leftover.del(name, { platform: 'linux' });
+  assert.doesNotMatch(String(r.said || r.because), /stay/, 'the result says settings stayed that do not exist');
 });
