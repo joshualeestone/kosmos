@@ -12,8 +12,9 @@
  *   - prepare(action, bytes) decodes under THAT action's tag only (another action's bytes refuse, as do short,
  *     malformed or trailing bytes) and returns what a screen must show: the decoded fields and, for an admin add or a
  *     reviewer enrolment, the fingerprint computed here from the decoded bytes;
- *   - sign(action, bytes, opts) decodes again, then hands the RAW message to kosmos-se, which hashes it in the Enclave
- *     (Apple's message mode, which is what verify_se checks). No digest ever crosses into the signer.
+ *   - sign(action, bytes, opts) decodes again, then hands the RAW message to kosmos-se (Apple's message mode, which
+ *     is what verify_se checks). No digest ever crosses into the signer, and the signature is checked against the
+ *     key before it is returned.
  * kosmos-se keeps its own tag list as a second fence; engine/seadmin-7116.test.js pins it to SIGNED below.
  *
  * The byte layouts are the page's (kosmos-relay console-bundle/roster-bytes.js), matched by the relay's pinned
@@ -27,6 +28,8 @@
  *   - the local signed-item log and the 4 h no-fresh-head alarm, and checking a signed roster head against this
  *     Mac's own challenge (the plan's head-read rules).
  *   - shipping kosmos-se in the app bundle and any caller. Nothing outside the test calls this file yet.
+ * A key's access control is fixed when the key is made, so createKey makes a `presence` key (Touch ID or password on
+ * every signature) unless told otherwise; see native-se/main.swift for what is and is not measured about that.
  */
 
 const crypto = require('node:crypto');
@@ -218,9 +221,12 @@ function hexOf(out, what) {
   return Buffer.from(out, 'hex');
 }
 
-/** Make this Mac's Secure Enclave admin key; returns its 65-byte public key. Refuses if keyFile exists. */
-function createKey({ helper, keyFile }) {
-  return key(hexOf(runHelper(helper, ['create', keyFile]), 'public key'));
+/**
+ * Make this Mac's Secure Enclave admin key; returns its 65-byte public key. Refuses if keyFile exists. `presence:
+ * false` makes a key any program running as this user can sign with; it exists for tests, where nobody can answer.
+ */
+function createKey({ helper, keyFile, presence = true }) {
+  return key(hexOf(runHelper(helper, ['create', keyFile, presence === false ? 'none' : 'presence']), 'public key'));
 }
 function publicKey({ helper, keyFile }) {
   return key(hexOf(runHelper(helper, ['pub', keyFile]), 'public key'));
@@ -228,8 +234,16 @@ function publicKey({ helper, keyFile }) {
 
 /** Sign `bytes` as `action` with the Enclave key. Decodes first; returns the DER signature escrowd's verify_se takes. */
 function sign(action, bytes, { helper, keyFile }) {
-  prepare(action, bytes);
-  return hexOf(runHelper(helper, ['sign', keyFile], Buffer.from(bytes)), 'signature');
+  const message = Buffer.from(bytes);
+  prepare(action, message);
+  const pub = publicKey({ helper, keyFile });
+  const der = hexOf(runHelper(helper, ['sign', keyFile], message), 'signature');
+  const jwk = { kty: 'EC', crv: 'P-256', x: pub.subarray(1, 33).toString('base64url'),
+    y: pub.subarray(33, 65).toString('base64url') };
+  if (!crypto.verify('sha256', message, { key: crypto.createPublicKey({ key: jwk, format: 'jwk' }), dsaEncoding: 'der' }, der)) {
+    throw new Error('kosmos-se returned a signature that does not verify under its own key');
+  }
+  return der;
 }
 
 module.exports = {

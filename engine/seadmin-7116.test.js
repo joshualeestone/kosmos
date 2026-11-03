@@ -7,8 +7,10 @@
  * Part 1, everywhere: the encoders reproduce escrowd's pinned bytes and fingerprints (test-support/
  * escrowd-roster-vectors.json, the same file kosmos-relay's Rust test and console page test check); prepare() refuses
  * another action's bytes, a bare hash, and short or trailing bytes; kosmos-se's tag list equals SIGNED; the committed
- * Apple vectors verify here. Part 2 needs macOS, swiftc and a Secure Enclave, and is skipped (said so) without them:
- * build kosmos-se, make a key, sign each pinned message, verify, and check the helper's own refusals.
+ * Apple vectors verify here; and, with a stand-in helper, what createKey asks for and what sign does with a bad answer.
+ * Part 2 needs macOS, a working swiftc and a Secure Enclave, and is skipped with the reason (a failed build or key
+ * included, with its first error line) without them: build kosmos-se, make a key, sign each pinned message, verify,
+ * and check the helper's own refusals.
  */
 
 const test = require('node:test');
@@ -104,24 +106,55 @@ test('#7116: the committed Apple Secure Enclave signatures verify over their pin
   }
 });
 
+// A stand-in for kosmos-se: records its arguments, prints a fixed public key, and answers sign with a signature made by
+// a DIFFERENT key, so sign() must refuse it.
+const FAKE_DIR = process.platform === 'win32' ? null : fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-se-fake-7116-'));
+let FAKE = null;
+const FAKE_PUB = Buffer.from(APPLE.key, 'hex');
+if (FAKE_DIR) {
+  const other = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' }).privateKey;
+  const badSig = crypto.sign('sha256', hex(V.bytes.cancel), { key: other, dsaEncoding: 'der' }).toString('hex');
+  FAKE = path.join(FAKE_DIR, 'fake-se');
+  fs.writeFileSync(FAKE, `#!/bin/sh\necho "$@" >> "${FAKE_DIR}/argv"\ncat > /dev/null\n` +
+    `case "$1" in sign) echo ${badSig} ;; *) echo ${APPLE.key} ;; esac\n`, { mode: 0o755 });
+}
+
+test('#7116: createKey asks for a presence key unless a caller says presence: false', { skip: FAKE ? false : 'needs a POSIX shell' }, () => {
+  const argv = path.join(FAKE_DIR, 'argv');
+  fs.rmSync(argv, { force: true });
+  assert.ok(se.createKey({ helper: FAKE, keyFile: '/k1' }).equals(FAKE_PUB));
+  se.createKey({ helper: FAKE, keyFile: '/k2', presence: false });
+  assert.deepStrictEqual(fs.readFileSync(argv, 'utf8').trim().split('\n'), ['create /k1 presence', 'create /k2 none']);
+});
+
+test('#7116: sign refuses a signature that does not verify under the helper\'s own key', { skip: FAKE ? false : 'needs a POSIX shell' }, () => {
+  assert.throws(() => se.sign('cancel', hex(V.bytes.cancel), { helper: FAKE, keyFile: '/k1' }), /does not verify/);
+});
+
 // Part 2: the real Enclave.
 const swiftc = spawnSync('/usr/bin/xcrun', ['--find', 'swiftc'], { encoding: 'utf8' });
-const CAN_BUILD = process.platform === 'darwin' && swiftc.status === 0;
-let HELPER = null, DIR = null, SKIP = CAN_BUILD ? false : 'needs macOS and swiftc';
-if (CAN_BUILD) {
+let HELPER = null, DIR = null;
+let SKIP = process.platform === 'darwin' && swiftc.status === 0 ? false : 'needs macOS and swiftc';
+const firstLine = (s) => String(s || '').trim().split('\n')[0];
+if (!SKIP) {
   DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-se-7116-'));
   HELPER = path.join(DIR, 'kosmos-se');
   const b = spawnSync('/usr/bin/xcrun', ['swiftc', '-O', path.join(ROOT, 'native-se/main.swift'), '-o', HELPER], { encoding: 'utf8' });
-  if (b.status !== 0) throw new Error('kosmos-se did not build: ' + b.stderr);
-  const probe = spawnSync(HELPER, ['create', path.join(DIR, 'probe')], { encoding: 'utf8' });
-  if (probe.status === 3) SKIP = 'this Mac has no Secure Enclave';
-  else if (probe.status !== 0) throw new Error('kosmos-se create failed: ' + probe.stderr);
+  if (b.status !== 0) SKIP = 'kosmos-se did not build here: ' + firstLine(b.stderr);
 }
-test.after(() => { if (DIR) fs.rmSync(DIR, { recursive: true, force: true }); });
+if (!SKIP) {
+  const probe = spawnSync(HELPER, ['create', path.join(DIR, 'probe'), 'none'], { encoding: 'utf8' });
+  if (probe.status === 3) SKIP = 'this Mac has no Secure Enclave';
+  else if (probe.status !== 0) SKIP = 'this Mac\'s Secure Enclave would not make a key: ' + firstLine(probe.stderr);
+}
+test.after(() => {
+  if (DIR) fs.rmSync(DIR, { recursive: true, force: true });
+  if (FAKE_DIR) fs.rmSync(FAKE_DIR, { recursive: true, force: true });
+});
 
 test('#7116: a key made in the Enclave signs every pinned action, and the signature verifies under its own key only', { skip: SKIP }, () => {
   const keyFile = path.join(DIR, 'admin');
-  const pub = se.createKey({ helper: HELPER, keyFile });
+  const pub = se.createKey({ helper: HELPER, keyFile, presence: false });
   assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600, 'the key file is 0600');
   assert.ok(pub.equals(se.publicKey({ helper: HELPER, keyFile })), 'pub reads back the key create printed');
   const otherPub = se.publicKey({ helper: HELPER, keyFile: path.join(DIR, 'probe') });
@@ -136,7 +169,7 @@ test('#7116: a key made in the Enclave signs every pinned action, and the signat
 test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are not an admin action even when called directly', { skip: SKIP }, () => {
   const keyFile = path.join(DIR, 'probe');
   const before = fs.readFileSync(keyFile);
-  assert.throws(() => se.createKey({ helper: HELPER, keyFile }), /already exists/);
+  assert.throws(() => se.createKey({ helper: HELPER, keyFile, presence: false }), /already exists/);
   assert.ok(fs.readFileSync(keyFile).equals(before), 'the existing key is untouched');
   const hash = crypto.createHash('sha256').update(hex(V.bytes.cancel)).digest();
   const direct = spawnSync(HELPER, ['sign', keyFile], { input: hash });
@@ -145,6 +178,31 @@ test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are no
   // Its passing twin: the same direct call with a pinned message signs.
   const ok = spawnSync(HELPER, ['sign', keyFile], { input: hex(V.bytes.cancel) });
   assert.strictEqual(ok.status, 0, ok.stderr.toString());
+  // A message one byte over the cap is refused; the cap itself is not.
+  const cap = 64 * 1024, tag = Buffer.from('kosmos-escrowd-roster-cancel v1');
+  const at = Buffer.concat([tag, Buffer.alloc(cap - tag.length)]);
+  assert.strictEqual(spawnSync(HELPER, ['sign', keyFile], { input: at }).status, 0, 'exactly the cap signs');
+  const over = spawnSync(HELPER, ['sign', keyFile], { input: Buffer.concat([at, Buffer.of(0)]) });
+  assert.strictEqual(over.status, 1);
+  assert.match(over.stderr.toString(), /too long/);
   // And seadmin.sign stops another action's bytes before the helper is ever asked.
   assert.throws(() => se.sign('reviewerRevoke', hex(V.bytes.cancel), { helper: '/nonexistent/kosmos-se', keyFile }), /different action/);
+});
+
+test('#7116: kosmos-se refuses a key file that is readable by others, or is a symlink, and makes no key without a policy', { skip: SKIP }, () => {
+  const keyFile = path.join(DIR, 'probe');
+  const loose = path.join(DIR, 'loose');
+  fs.copyFileSync(keyFile, loose);
+  fs.chmodSync(loose, 0o644);
+  const r = spawnSync(HELPER, ['pub', loose]);
+  assert.strictEqual(r.status, 1);
+  assert.match(r.stderr.toString(), /readable by others/);
+  fs.chmodSync(loose, 0o600);
+  assert.strictEqual(spawnSync(HELPER, ['pub', loose]).status, 0, 'the same file at 0600 opens');
+  const link = path.join(DIR, 'link');
+  fs.symlinkSync(keyFile, link);
+  assert.match(spawnSync(HELPER, ['pub', link]).stderr.toString(), /not a plain file/);
+  const bare = spawnSync(HELPER, ['create', path.join(DIR, 'nopolicy')]);
+  assert.strictEqual(bare.status, 2);
+  assert.ok(!fs.existsSync(path.join(DIR, 'nopolicy')), 'no key file was made');
 });

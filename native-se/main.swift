@@ -1,25 +1,32 @@
 // kosmos-se (kosmos#7116 slice 4, the Mac half): an admin's se-p256 roster key, held in this Mac's Secure Enclave.
 //
 // escrowd's roster takes two admin key types (kosmos-relay .claude/plans/reviewpage-5686.md, "Keys"). `se-p256` is
-// ECDSA P-256 in Apple's MESSAGE mode: the signer hashes the message with SHA-256 itself. escrowd checks it with
-// coordinator/src/roster.rs verify_se, which takes a DER signature over the raw message. This helper is the only code
-// that touches the key; engine/seadmin.js decides WHAT may be signed and is the only caller.
+// ECDSA P-256 in Apple's MESSAGE mode: the message, not a digest, is what this helper is handed, and it is hashed
+// with SHA-256 on this side of the call. escrowd checks it with coordinator/src/roster.rs verify_se, which takes a DER
+// signature over the raw message. This helper is the only code that touches the key; engine/seadmin.js decides WHAT
+// may be signed and is the only caller.
 //
 // The private key never leaves the Secure Enclave. What is stored is CryptoKit's dataRepresentation: a blob the
 // Enclave wrapped under a key of its own, usable only by THIS Mac's Enclave. So the file needs no keychain access
 // group and no signed app (measured 2026-11-03 on an unsigned swiftc build: create, reload from the blob, sign). The
-// file is still written 0600, because whoever can read it on this Mac can ask the Enclave to sign with it; the
-// Enclave is what stops it being copied to another computer, not what stops another program on this one.
+// Enclave stops the key being used on another computer; it does not stop another program running as this user here.
+// Two things cover that: the file is written 0600 and refused if it is ever anything else or someone else's, and a
+// `presence` key needs the person's Touch ID or password for every signature.
+//
+// A key's access control is fixed when it is made and can never be added later, so the policy is a required argument
+// of create rather than a default: `presence` for a real admin key, `none` only where no person is there to answer
+// (a test). Measured 2026-11-03: making a `presence` key from a tmux/ssh session fails with errSecInteractionNotAllowed
+// (-25308); from inside the app, with a person at the screen, is not measured yet (#7116).
 //
 // Usage:
-//   kosmos-se create <keyfile>   make a key; refuses if <keyfile> exists. Prints the public key.
-//   kosmos-se pub <keyfile>      print the public key
-//   kosmos-se sign <keyfile>     read the message on stdin, print the DER signature
+//   kosmos-se create <keyfile> presence|none   make a key; refuses if <keyfile> exists. Prints the public key.
+//   kosmos-se pub <keyfile>                    print the public key
+//   kosmos-se sign <keyfile>                   read the message on stdin, print the DER signature
 // Output is lowercase hex on one line; a public key is 65 bytes of uncompressed SEC1 (04 || x || y).
 //
 // sign refuses a message that does not start with one of SIGNABLE_TAGS, as a second fence behind engine/seadmin.js
-// (which decodes every byte and checks the tag is the action the person chose). The list must equal seadmin.js's
-// SIGNED tags; engine/seadmin-7116.test.js reads this file and fails if they differ.
+// (which decodes every byte and checks the tag is the action the person chose). engine/seadmin-7116.test.js fails if
+// this list and seadmin.js's SIGNED tags differ.
 //
 // Build: swiftc -O native-se/main.swift -o kosmos-se
 
@@ -44,21 +51,49 @@ func fail(_ why: String, _ code: Int32 = 1) -> Never {
 func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
 
 func load(_ path: String) -> SecureEnclave.P256.Signing.PrivateKey {
+    var st = stat()
+    guard lstat(path, &st) == 0 else { fail("cannot read the key file") }
+    guard (st.st_mode & S_IFMT) == S_IFREG else { fail("the key file is not a plain file") }
+    guard st.st_uid == getuid() else { fail("the key file belongs to someone else") }
+    guard (st.st_mode & 0o777) == 0o600 else { fail("the key file is readable by others (it must be 0600)") }
     guard let blob = FileManager.default.contents(atPath: path) else { fail("cannot read the key file") }
     do { return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob) }
     catch { fail("this Mac's Secure Enclave cannot open that key file") }
 }
 
+func readMessage() -> Data {
+    var message = Data()
+    while message.count <= MAX_MESSAGE {
+        let chunk = FileHandle.standardInput.readData(ofLength: MAX_MESSAGE + 1 - message.count)
+        if chunk.isEmpty { break }
+        message.append(chunk)
+    }
+    guard message.count <= MAX_MESSAGE else { fail("the message is too long to be an escrowd action") }
+    return message
+}
+
 let args = CommandLine.arguments
-guard args.count == 3 else { fail("usage: kosmos-se create|pub|sign <keyfile>", 2) }
+let usage = "usage: kosmos-se create <keyfile> presence|none | pub <keyfile> | sign <keyfile>"
+guard args.count >= 3 else { fail(usage, 2) }
 let (verb, path) = (args[1], args[2])
 
 switch verb {
 case "create":
+    guard args.count == 4, ["presence", "none"].contains(args[3]) else { fail(usage, 2) }
     guard SecureEnclave.isAvailable else { fail("this Mac has no Secure Enclave", 3) }
     let key: SecureEnclave.P256.Signing.PrivateKey
-    do { key = try SecureEnclave.P256.Signing.PrivateKey() }
-    catch { fail("the Secure Enclave refused to make a key") }
+    do {
+        if args[3] == "presence" {
+            var err: Unmanaged<CFError>?
+            guard let ac = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+                                                           [.privateKeyUsage, .userPresence], &err) else {
+                fail("cannot make the access control for a presence key")
+            }
+            key = try SecureEnclave.P256.Signing.PrivateKey(accessControl: ac)
+        } else {
+            key = try SecureEnclave.P256.Signing.PrivateKey()
+        }
+    } catch { fail("the Secure Enclave refused to make a key (\(error.localizedDescription))") }
     // O_EXCL: never overwrite a key someone may already have enrolled; 0600 from the first byte.
     let fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
     guard fd >= 0 else { fail(errno == EEXIST ? "the key file already exists" : "cannot create the key file") }
@@ -69,16 +104,17 @@ case "create":
     guard wrote == blob.count && synced else { unlink(path); fail("cannot write the key file") }
     print(hex(key.publicKey.x963Representation))
 case "pub":
+    guard args.count == 3 else { fail(usage, 2) }
     print(hex(load(path).publicKey.x963Representation))
 case "sign":
+    guard args.count == 3 else { fail(usage, 2) }
     let key = load(path)
-    let message = FileHandle.standardInput.readDataToEndOfFile()
-    guard message.count <= MAX_MESSAGE else { fail("the message is too long to be an escrowd action") }
+    let message = readMessage()
     guard SIGNABLE_TAGS.contains(where: { message.starts(with: Data($0.utf8)) }) else {
         fail("refusing to sign bytes that are not an escrowd admin action")
     }
     do { print(hex(try key.signature(for: message).derRepresentation)) }
     catch { fail("the Secure Enclave refused to sign") }
 default:
-    fail("usage: kosmos-se create|pub|sign <keyfile>", 2)
+    fail(usage, 2)
 }

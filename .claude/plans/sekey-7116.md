@@ -13,7 +13,7 @@ action; show the decoded target and fingerprint; compute the challenge itself; n
 - engine/seadmin.js: encoders/decoders ported from relay console-bundle/roster-bytes.js; prepare(); sign(); createKey();
   publicKey(). Nothing calls it yet.
 - test-support/escrowd-roster-vectors.json (relay e094b8bed console-bundle/vectors.json, unchanged).
-- test-support/se-p256-apple-vectors.json: 12 real Enclave signatures (8 high-S) over two pinned messages.
+- test-support/se-p256-apple-vectors.json: 12 real Enclave signatures (9 high-S) over two pinned messages.
 - engine/seadmin-7116.test.js; engine.reachable.test.js excuses for the five unwired exports.
 
 ## Decided
@@ -21,7 +21,7 @@ action; show the decoded target and fingerprint; compute the challenge itself; n
   pub and sign in two later processes, from the 284-byte wrapped blob. The card's open question ("a persistent key may
   need a signed app") is answered no for CryptoKit's blob form. Rejected: SecKeyCreateRandomKey with kSecAttrIsPermanent,
   which needs a keychain-access-groups entitlement and a provisioning profile.
-- **High-S is fine.** Apple signed high-S 8 times in 12. Measured with an offline build of p256 0.13.2 (relay's
+- **High-S is fine.** Apple signed high-S 9 times in 12 (an earlier count of 8, also posted on #7116, was my misreading of the generator's output; the file's flags were right). Measured with an offline build of p256 0.13.2 (relay's
   Cargo.lock) running verify_se's exact calls: all 12 verify, and each against the other message fails. roster.rs
   verify_se's doc already says high-S is accepted. The vector file is for the relay to pin as its
   SecKeyCreateSignature vector (roster.rs line ~510 asks for one).
@@ -36,11 +36,13 @@ Swift fence removed; tag check removed; end() check removed; sign() skipping pre
 - The relay test pinning se-p256-apple-vectors.json (a relay PR).
 
 ## Weakest premise
-That a file readable only by this user is enough custody for the wrapped blob. The Enclave stops the key leaving this
-Mac, not another program running as this user from asking it to sign. A biometric or passcode access-control flag
-(SecAccessControl .userPresence) would close that, and needs a person at the Mac for every signature, which is right
-for roster changes and is the first thing to add with the admin screen.
+That a `presence` key (Touch ID or password on every signature, now createKey's default, because a key's access
+control cannot be added after it is made) can be made from inside the app with a person at the screen. Measured only
+the other way: from a tmux session it fails with errSecInteractionNotAllowed (-25308). If the app cannot make one
+either, the admin screen slice has to find out why before any real admin key exists; a `none` key (custody = a 0600
+file this user owns, refused otherwise) is what the tests use and is not acceptable for a real admin.
 
 ## Status
-- [x] module, helper, tests (7/7, Enclave arms not skipped on this Mac), engine.reachable 8/8
+- [x] module, helper, tests (10/10, Enclave arms not skipped on this Mac), engine.reachable 8/8
+- [x] review round 1: presence policy at create (a key cannot gain one later), stated skips, key file mode/owner/symlink refusals, bounded stdin, sign checks its own result
 - [ ] challenge-loop, validation, PR
