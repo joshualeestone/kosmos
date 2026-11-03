@@ -17,11 +17,12 @@ this right now.") for no answer, a refusal, an error and an unreadable body alik
 `because` or `error`) never reached the person, so neither the person nor anyone debugging could tell which case it was.
 
 ## Change
-- ios/Kosmos/AgentInfoLogic.swift: `instructionsRead` / `skillsRead` answer `.got(value)` or `.reason(words)`:
-  no answer reads "We could not reach your computer just now. Pull down to try again." (the page's own words for its
-  computer); an answer carries the board's `because`, else its `error`, through `Board.sentence`, else "We cannot read
-  this right now." (no status number). `profileNext` decides what a section shows after a read: an answer replaces what
-  was shown; no answer keeps a value already shown and gives its reason only when there is nothing.
+- ios/Kosmos/AgentInfoLogic.swift: `instructionsRead` / `skillsRead` answer `.got(value)`, `.refused(words)` (the
+  board answered with its own `because`, else `error`, through `Board.sentence`), or `.unanswered(words)` (nothing
+  came back: "We could not reach your computer just now. Pull down to try again."; or a body with no words of its own,
+  such as a relay's error page or an unreadable answer: "We cannot read this right now."). `profileNext` decides what a
+  section shows: a value or a refusal replaces what was shown; an unanswered read keeps a value already shown and gives
+  its reason only when there is nothing.
 - ios/Kosmos/AgentInfoView.swift: each section shows its value or its own reason, through `profileNext`.
 - ios/LogicTests/agentinfo/main.swift: an ordinary agent's answers (the board's shapes) show real instructions and
   skills; each failure kind shows its reason; what the screen shows after each kind of read.

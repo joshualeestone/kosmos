@@ -311,8 +311,8 @@ struct AgentInfoView: View {
             details = d
         }
         // kosmos#7840: each section shows its value or why not (Board.profileNext keeps a shown value through no answer).
-        (instructions, instructionsWhy) = Board.profileNext(shown: instructions, read: Board.instructionsRead(i), answered: i != nil)
-        (skills, skillsWhy) = Board.profileNext(shown: skills, read: Board.skillsRead(k), answered: k != nil)
+        (instructions, instructionsWhy) = Board.profileNext(shown: instructions, read: Board.instructionsRead(i))
+        (skills, skillsWhy) = Board.profileNext(shown: skills, read: Board.skillsRead(k))
         readFailed = d == nil || instructions == nil || skills == nil
         // Review 2: a refresh that gets no answer keeps the list it had, as instructions and skills keep theirs; a
         // refusal or a new list replaces it. (A deliberate difference from the board, which says it could not read: a

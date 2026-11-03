@@ -237,36 +237,39 @@ extension Board {
     // kosmos#7840: what the Profile says when it has no instructions or skills to show, so the person learns why
     // instead of one fixed sentence. No answer at all is the phone's side; any answer carries the board's own reason
     // (its `because`, else its `error`), as the board page shows it.
-    enum ProfileRead<T: Equatable>: Equatable { case got(T), reason(String) }
+    // got: the value. refused: the board answered with its own words for why not. unanswered: nothing came back, or a
+    // body with no words of its own (a relay's error page, an unreadable answer).
+    enum ProfileRead<T: Equatable>: Equatable { case got(T), refused(String), unanswered(String) }
     // No answer at all: the page's own wording for its computer, with the way to try again.
     static let macNoAnswer = "We could not reach your computer just now. Pull down to try again."
-    // An answer with no words of its own, or one the phone cannot read: said as the phone, with no status number.
+    // A body with no words of its own, or one the phone cannot read: said as the phone, with no status number.
     static let profileCannotRead = "We cannot read this right now."
-    static func boardReason(_ data: Data) -> String {
+    // The board's own words for why not: its `because`, else its `error`, as a sentence; nil when it gave none.
+    static func boardReason(_ data: Data) -> String? {
         let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        let said = (obj?["because"] as? String) ?? (obj?["error"] as? String)
-        let words = sentence(said)
-        return words.isEmpty ? profileCannotRead : words
+        let words = sentence((obj?["because"] as? String) ?? (obj?["error"] as? String))
+        return words.isEmpty ? nil : words
     }
     static func instructionsRead(_ res: (Data, HTTPURLResponse)?) -> ProfileRead<String> {
-        guard let r = res else { return .reason(macNoAnswer) }
+        guard let r = res else { return .unanswered(macNoAnswer) }
         let (data, http) = r
         if http.statusCode == 200, let text = parseInstructions(data) { return .got(text) }
-        return .reason(boardReason(data))
+        return boardReason(data).map { .refused($0) } ?? .unanswered(profileCannotRead)
     }
     static func skillsRead(_ res: (Data, HTTPURLResponse)?) -> ProfileRead<[Skill]> {
-        guard let r = res else { return .reason(macNoAnswer) }
+        guard let r = res else { return .unanswered(macNoAnswer) }
         let (data, http) = r
         if http.statusCode == 200, let list = parseSkills(data) { return .got(list) }
-        return .reason(boardReason(data))
+        return boardReason(data).map { .refused($0) } ?? .unanswered(profileCannotRead)
     }
-    /* What a section shows after a read: an answer replaces what was shown (its value, or nothing and its reason); no
-       answer keeps a value already shown (a phone loses its connection far more than a desk page does) and gives its
-       reason only when there is nothing to show. Returns (value, reason); one of them is nil. */
-    static func profileNext<T: Equatable>(shown: T?, read: ProfileRead<T>, answered: Bool) -> (T?, String?) {
+    /* What a section shows after a read: the board's value, or its own reason replacing what was shown; with no real
+       answer, a value already shown is kept (a phone loses its connection, or meets a relay's error page, far more than
+       a desk page does) and the reason is given only when there is nothing to show. Returns (value, reason), one nil. */
+    static func profileNext<T: Equatable>(shown: T?, read: ProfileRead<T>) -> (T?, String?) {
         switch read {
         case .got(let v): return (v, nil)
-        case .reason(let why): return answered || shown == nil ? (nil, why) : (shown, nil)
+        case .refused(let why): return (nil, why)
+        case .unanswered(let why): return shown == nil ? (nil, why) : (shown, nil)
         }
     }
 
