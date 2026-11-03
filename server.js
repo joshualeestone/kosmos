@@ -22323,8 +22323,8 @@ const server = http.createServer(async (req, res) => {
       /* #5705 review 1: say which group was kept, so a command can tell a filtered answer from an older board that
          ignored the filter and listed everything. kosmos#7057: and that every project was read (all). */
       /* kosmos#7875 item 3: on the built list only, when the person last viewed each task (engine/taskseen.js, #6947), so
-         an agent can tell a built task the person has not looked at since from one seen and not yet acted on. One small
-         file read per built row (the built list, even with all=1, is the work waiting on the person). */
+         an agent can tell a built task the person has not looked at since from one seen and not yet acted on. Per built
+         row: one small file read and projectborn's cached check (the built list, even with all=1, is short). */
       const taskseen = listOnly === 'built' ? require('./engine/taskseen') : null;
       const seenOf = (t) => {
         if (!t) return t;
