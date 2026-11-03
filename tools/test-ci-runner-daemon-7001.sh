@@ -1,6 +1,6 @@
 #!/bin/bash
 # kosmos#7001: tools/ci-runner-setup.sh's daemon stage, against stand-ins (launchctl, pgrep, ps, id, stat, chown, mv,
-# sleep) and a throwaway runner home. It never touches launchd, /Library or a real runner. What it checks:
+# mkdir, date, sudo, sleep) and a throwaway runner home. It never touches launchd, /Library or a real runner. What it checks:
 #   - --apply as non-root is refused (exit 2); a dry run as a third user reads nothing (exit 3)
 #   - a running job, a Listener outside the daemon (named by pid), a loaded LaunchAgent, a disabled label, a .service
 #     naming another plist and an agent with a foreign Label each refuse, dry or --apply
@@ -16,7 +16,11 @@ _td="${TMPDIR:-/tmp}"; T="$(mktemp -d "${_td%/}/test-ci-runner-daemon-7001.XXXXX
 fails=0
 pass() { printf 'ok   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1"; fails=$((fails + 1)); }
-HERE="$(cd "$(dirname "$0")" && pwd -P)"; SCRIPT="$HERE/ci-runner-setup.sh"
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+# A copy with a known mode, in a directory with a known mode: --apply refuses a script (or its directory) that others
+# can write, so the arms below must not depend on how this checkout was made (#7877).
+mkdir -m 755 "$T/src"; cp "$HERE/ci-runner-setup.sh" "$T/src/ci-runner-setup.sh"; chmod 755 "$T/src/ci-runner-setup.sh"
+SCRIPT="$T/src/ci-runner-setup.sh"
 BIN="$T/bin"; mkdir -p "$BIN"; LOG="$T/calls.log"
 LABEL=actions.runner.joshualeestone-kosmos.kosmos-ci-agent1s
 RA="$T/retired/$LABEL.plist"   # the retired agent, in the root-owned dir (KOSMOS_CI_RETIRED_DIR)
@@ -54,13 +58,19 @@ case "$me" in
     /bin/mv "$@" || exit $?
     [ "${FX_LOGIN_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) touch "$S/agent-loaded" ;; esac;
     [ "${FX_LINK_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) /bin/mv "$FX_H/Library/LaunchAgents" "$FX_H/LA.real"; ln -s "$FX_H/LA.real" "$FX_H/Library/LaunchAgents" ;; esac
-    [ "${FX_LISTENER_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) echo "$FX_CIU 5300 1 $FX_R/bin/Runner.Listener run" >> "$S/procs" ;; esac; exit 0 ;;
+    [ "${FX_LISTENER_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) echo "$FX_CIU 5300 1 $FX_R/bin/Runner.Listener run" >> "$S/procs" ;; esac
+    # A hangup, ^C or TERM while the agent is parked and nothing is loaded: the stage must not die here.
+    [ "${FX_TERM_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) kill -TERM "$PPID"; kill -INT "$PPID"; kill -HUP "$PPID" ;; esac; exit 0 ;;
+  mkdir) /bin/mkdir "$@" || exit $?
+    # FX_LINK_ON_MKDIR: LaunchAgents becomes a symlink as the retired dir is made, AFTER the planning check and BEFORE
+    # the re-check right before the move (#7877): only that second agent_file_ok can see it.
+    [ "${FX_LINK_ON_MKDIR:-0}" = 1 ] && case "${*: -1}" in "$S/retired") /bin/mv "$FX_H/Library/LaunchAgents" "$FX_H/LA.real"; ln -s "$FX_H/LA.real" "$FX_H/Library/LaunchAgents" ;; esac; exit 0 ;;
   date) echo "${FX_DATE:-20261103T000000Z}" ;;
   sudo) [ "$1" = -u ] && shift 2; exec "$@" ;;
   chown|sleep) : ;;
 esac
 STUB
-chmod 755 "$BIN/_stub"; for c in id launchctl pgrep ps stat mv date sudo chown sleep; do ln -s _stub "$BIN/$c"; done
+chmod 755 "$BIN/_stub"; for c in id launchctl pgrep ps stat mv mkdir date sudo chown sleep; do ln -s _stub "$BIN/$c"; done
 fixture() {   # a runner as svc.sh install leaves it: .service names its LaunchAgent, WorkingDirectory the runner dir
   rm -rf "$T/home" "$T/daemons" "$T/retired" "$T/daemon-loaded" "$T/agent-loaded" "$T/gui-seen"; H="$T/home/kosmos-ci"; R="$H/actions-runner"
   mkdir -p "$R" "$H/Library/LaunchAgents" "$T/daemons"; AG="$H/Library/LaunchAgents/$LABEL.plist"
@@ -85,7 +95,7 @@ listener() { echo "$CIU $1 ${2:-1} $R/bin/Runner.Listener run" >> "$T/procs"; }
 run() {   # run <name> <env...> -- <args...>
   local n="$1"; shift; local e=(); while [ "$1" != -- ]; do e+=("$1"); shift; done; shift
   : > "$LOG"
-  env -i PATH="$BIN:/usr/bin:/bin" HOME="$T/home/kosmos-ci" CALL_LOG="$LOG" KOSMOS_CI_HOME="$T/home/kosmos-ci" \
+  perl -e 'alarm 60; exec @ARGV' env -i PATH="$BIN:/usr/bin:/bin" HOME="$T/home/kosmos-ci" CALL_LOG="$LOG" KOSMOS_CI_HOME="$T/home/kosmos-ci" \
     KOSMOS_CI_DAEMON_DIR="$T/daemons" KOSMOS_CI_RETIRED_DIR="$T/retired" KOSMOS_CI_START_WAIT_S=2 FX_R="$R" FX_H="$H" FX_CIU="$CIU" SUDO_UID="$ME" FX_LABEL="$LABEL" ${e[@]+"${e[@]}"} \
     bash "${RUN_SCRIPT:-$SCRIPT}" "$@" > "$T/$n.out" 2>&1
   echo $? > "$T/$n.rc"
@@ -148,7 +158,7 @@ else fail "apply: rc $(rc apply) $(cat "$T/apply.out"); $(cat "$D" 2>/dev/null)"
 run again -- daemon
 [ "$(rc again)" = 0 ] && has again "runs as a LaunchDaemon" && ! has again WOULD && pass "a second run says it is done" || fail "again: rc $(rc again) $(cat "$T/again.out")"
 cp "$(ls "$RA".retired-*)" "$AG"; run agentback -- daemon
-[ "$(rc agentback)" = 1 ] && has agentback "is back" && has agentback "sudo cat $AG | sudo tee $RA.retired-" && has agentback "sudo -u kosmos-ci rm $AG" && ! has agentback bootout && pass "only the agent plist back: says move it aside, never a bootout" || fail "agentback: rc $(rc agentback) $(cat "$T/agentback.out")"
+[ "$(rc agentback)" = 1 ] && has agentback "is back" && has agentback "sudo cp $AG $RA.retired-" && has agentback "&& sudo cmp -s $AG $RA.retired-" && has agentback "sudo -u kosmos-ci rm $AG" && ! has agentback "sudo cat $AG |" && ! has agentback bootout && pass "only the agent plist back: says move it aside, never a bootout" || fail "agentback: rc $(rc agentback) $(cat "$T/agentback.out")"
 rm -f "$AG"; grep -v ' 7001 ' "$T/procs" > "$T/procs.x"; mv "$T/procs.x" "$T/procs"; run restarting -- daemon
 [ "$(rc restarting)" = 1 ] && has restarting "run this again in a minute" && ! has restarting bootout && pass "loaded with no Listener: restarting or updating, run again" || fail "restarting: rc $(rc restarting) $(cat "$T/restarting.out")"
 RET="$(ls "$RA".retired-*)"; rm -f "$T/daemon-loaded"; run loadonly -- --apply daemon
@@ -227,7 +237,7 @@ fixture; run pgpark FX_PGREP_FAIL_PARKED=1 -- --apply daemon
 fixture; run suppadmin FX_GROUPS="staff everyone admin" -- --apply daemon
 [ "$(rc suppadmin)" = 1 ] && has suppadmin "is in the admin group" && untouched && pass "a CI user in admin (not as primary group) refuses" || fail "suppadmin: rc $(rc suppadmin) $(cat "$T/suppadmin.out")"
 fixture; run linkput FX_MV_PLIST_FAIL=1 FX_LINK_ON_MV=1 -- --apply daemon
-[ "$(rc linkput)" = 1 ] && has linkput "could not put $AG back (nothing was loaded): sudo cat $RA.retired-" && ! has linkput "back where it was" && [ ! -e "$H/LA.real/$LABEL.plist" ] && ls "$RA".retired-* >/dev/null 2>&1 \
+[ "$(rc linkput)" = 1 ] && has linkput "could not put $AG back (nothing was loaded): sudo test -s $RA.retired-" && ! has linkput "back where it was" && [ ! -e "$H/LA.real/$LABEL.plist" ] && ls "$RA".retired-* >/dev/null 2>&1 \
   && pass "a LaunchAgents dir swapped for a symlink mid-run: root does not write the agent back through it" || fail "linkput: rc $(rc linkput) $(cat "$T/linkput.out")"
 fixture; printf 'x\n' > "$(DP)"; run replace -- --apply daemon
 [ "$(rc replace)" = 0 ] && has replace "note:   replacing $(DP)" && pass "an unloaded wrong daemon plist is replaced, and said" || fail "replace: rc $(rc replace) $(cat "$T/replace.out")"
@@ -265,4 +275,37 @@ fixture; rm -f "$R/.service"; mkfifo "$R/.service"; run fifo -- --apply daemon
 fixture; run rn0 -- --apply daemon; cp "$(ls "$RA".retired-*)" "$AG"; rm -f "$T/daemon-loaded"; grep -v ' 7001 ' "$T/procs" > "$T/procs.x"; /bin/mv "$T/procs.x" "$T/procs"
 run noreplace FX_DATE=20261103T000001Z -- --apply daemon
 [ "$(rc noreplace)" = 0 ] && ! has noreplace "note:   replacing" && pass "a right daemon plist written again is not called a replacement" || fail "noreplace: rc $(rc noreplace) $(cat "$T/noreplace.out")"
+# #7877, round 8's warnings.
+# 1: the re-check right before the move has its own arm (a symlink appears after planning, before the mv).
+fixture; run mkdirlink FX_LINK_ON_MKDIR=1 -- --apply daemon
+[ "$(rc mkdirlink)" = 1 ] && has mkdirlink "could not move $AG aside" && [ -f "$H/LA.real/$LABEL.plist" ] && [ ! -e "$(DP)" ] && [ ! -e "$(DP).new" ] \
+  && ! grep -q '^mv .*\.retired-' "$LOG" && ! grep -q '^launchctl bootstrap' "$LOG" \
+  && pass "a LaunchAgents dir swapped for a symlink just before the move refuses: root does not move through it" || fail "mkdirlink: rc $(rc mkdirlink) $(cat "$T/mkdirlink.out")"
+# 2: an empty retired file (a put-back or a copy that failed half way) is never the one named or put back.
+fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; : > "$RA.retired-20261103T000001Z"; run emptyret -- --apply daemon
+[ "$(rc emptyret)" = 1 ] && has emptyret "parked at $RA.retired-20261103T000000Z" && ! has emptyret 20261103T000001Z \
+  && has emptyret "sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo cmp -s $RA.retired-20261103T000000Z $AG && sudo rm $RA.retired-20261103T000000Z" \
+  && pass "an empty retired file is skipped, and the printed put-back removes the retired copy only after a compare" || fail "emptyret: rc $(rc emptyret) $(cat "$T/emptyret.out")"
+# 2: the printed put-back, run in a shell with no pipefail, keeps the retired file when the copy fails.
+PB="$(sed -n 's/.*put it back and run this again: //p' "$T/emptyret.out")"; RF="$RA.retired-20261103T000000Z"
+mkdir -p "$T/pbbin"; printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = cat ] && exit 1\nexec "$@"\n' > "$T/pbbin/sudo"; chmod 755 "$T/pbbin/sudo"
+PATH="$T/pbbin:$PATH" sh -c "$PB" >/dev/null 2>&1
+[ -n "$PB" ] && [ -s "$RF" ] && pass "the printed put-back, with a cat that fails, keeps the retired file" || fail "pbfail: [$PB] retired $(ls -l "$RF" 2>&1)"
+rm -f "$AG"; PATH="$T/pbbin0:$PATH" sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //; s/sudo //g')" >/dev/null 2>&1
+[ ! -e "$RF" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && pass "and with a copy that works, the agent is back and the retired file gone" || fail "pbok: [$PB] agent $(ls -l "$AG" 2>&1)"
+# 3: a FIFO at the plist name .service gives refuses and does not hang (the alarm in run() fails a hang). This arm cannot
+# tell runner_plist's own -f check from plutil's refusal of a FIFO (measured: rc 1, no hang); it pins the outcome.
+fixture; RL="$H/Library/LaunchAgents/actions.runner.joshualeestone-kosmos-relay.x.plist"; mkfifo "$RL"; printf '%s\n' "$RL" > "$R/.service"
+run plfifo -- --apply daemon
+[ "$(rc plfifo)" = 1 ] && has plfifo ".service does not name" && untouched && pass "a FIFO at the plist .service names refuses, never read" || fail "plfifo: rc $(rc plfifo) $(cat "$T/plfifo.out")"
+# NIT: signals are ignored from the first write to the bootstrap.
+fixture; run sigs FX_TERM_ON_MV=1 -- --apply daemon
+[ "$(rc sigs)" = 0 ] && has sigs "Listener pid 7001 under pid 7000" && grep -q "^launchctl bootstrap system" "$LOG" \
+  && pass "a TERM, ^C or hangup while the agent is parked does not stop the stage before the load" || fail "sigs: rc $(rc sigs) $(cat "$T/sigs.out")"
+# NIT: a setuid script that is group-writable is still refused (%Lp is the low bits only: 4775 reads 775, measured).
+fixture; mkdir -p "$T/suid"; cp "$SCRIPT" "$T/suid/ci-runner-setup.sh"; chmod 4775 "$T/suid/ci-runner-setup.sh"; RUN_SCRIPT="$T/suid/ci-runner-setup.sh" run suid -- --apply daemon
+[ "$(rc suid)" = 2 ] && has suid "writable by others" && untouched && pass "--apply from a setuid group-writable copy refuses" || fail "suid: rc $(rc suid) $(cat "$T/suid.out")"
+# NIT: a script in a directory others can write refuses (a rename replaces it).
+fixture; mkdir -p "$T/gwdir"; chmod 775 "$T/gwdir"; cp "$SCRIPT" "$T/gwdir/ci-runner-setup.sh"; chmod 755 "$T/gwdir/ci-runner-setup.sh"; RUN_SCRIPT="$T/gwdir/ci-runner-setup.sh" run gwdir -- --apply daemon
+[ "$(rc gwdir)" = 2 ] && has gwdir "the directory of" && untouched && pass "--apply from a directory others can write refuses" || fail "gwdir: rc $(rc gwdir) $(cat "$T/gwdir.out")"
 [ "$fails" = 0 ] && echo "test-ci-runner-daemon-7001: all passed" || { echo "test-ci-runner-daemon-7001: $fails failed"; exit 1; }
