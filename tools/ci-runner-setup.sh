@@ -36,9 +36,10 @@
 #                             KOSMOS_CI_STATE_WAIT_S (12)
 #   daemon                    as root (sudo, by the machine owner) for --apply; a dry run as root or as $CI_USER
 #                             (kosmos#7001). Runs THIS runner as a LaunchDaemon in the system domain, as $CI_USER, so a
-#                             logout or a WindowServer crash cannot stop it (a LaunchAgent goes with its session). Built
-#                             from the runner's own LaunchAgent, which is moved aside (kept). Refuses while a job runs,
-#                             while a Listener of this runner runs outside the daemon, or while the agent is loaded.
+#                             logout or a WindowServer crash cannot stop it (a LaunchAgent goes with its session). The
+#                             daemon plist is written whole by this stage, never copied from the job-writable LaunchAgent,
+#                             which is moved aside (kept). Refuses while a job runs, while a Listener of this runner runs
+#                             outside the daemon, while the agent is loaded, or while the label is disabled in system.
 #                             KOSMOS_CI_USER and KOSMOS_CI_RUNNER_NAME as for keepalive; KOSMOS_CI_DAEMON_DIR is a test seam.
 #   verify                    as the machine owner. Reads only. The runner is online with exactly its labels.
 #                             Give KOSMOS_CI_GUARD_SHA (the install pin), or the guard counts as unchecked.
@@ -988,33 +989,61 @@ keepalive() {
 # daemon (kosmos#7001): run THIS runner as a LaunchDaemon in the system domain, as the CI user (UserName), so no logout
 # and no WindowServer crash can take it down. On 2026-11-03 13:09 the old Agent1s Mac's WindowServer crashed, loginwindow
 # logged out every GUI session, and the runner's LaunchAgent went with its gui/<uid> domain: KeepAlive restarts a job
-# inside its domain, and the domain was gone. The daemon is built from the runner's own LaunchAgent (svc.sh's template
-# already names UserName and SessionCreate), plus HOME and USER (a daemon is not given them) and the keepalive keys.
+# inside its domain, and the domain was gone.
+# The daemon plist is WRITTEN FROM SCRATCH, every key and value fixed here, never copied from the LaunchAgent: a job can
+# write the CI user's home, and root loading a plist from there would honour whatever a job planted in it (GroupName
+# wheel, Program, MachServices, Sockets, RootDirectory, InitGroups ...). The keys are svc.sh's template's own (Label,
+# ProgramArguments, WorkingDirectory, UserName, SessionCreate, ProcessType, Nice, RunAtLoad, ACTIONS_RUNNER_SVC), plus
+# GroupName (the user's primary group), HOME and USER (a daemon is not given them) and the keepalive stage's three keys.
+# No StandardOutPath or StandardErrorPath: launchd opens those paths for the job, and under the CI user's home a job
+# could swap the log dir for a symlink; the runner's own logs are in $RUNNER_DIR/_diag.
 # The LaunchAgent is moved aside, not deleted, so a later login cannot start a second Listener and a rollback is one mv.
 # A dry run reads only, as root or as the CI user (another user cannot read the CI user's home or its processes' argv).
 DAEMON_DIR="${KOSMOS_CI_DAEMON_DIR:-/Library/LaunchDaemons}"   # a test seam; launchd reads only the real one
-# daemon_set <plist>: the daemon plist has every key this stage writes, each typed as launchd reads it.
-daemon_set() {
-  [ "$(plutil -extract UserName raw -o - "$1" 2>/dev/null || true)" = "$CI_USER" ] \
-    && [ "$(plutil -extract EnvironmentVariables.HOME raw -o - "$1" 2>/dev/null || true)" = "$CI_HOME" ] \
-    && [ "$(plutil -extract EnvironmentVariables.USER raw -o - "$1" 2>/dev/null || true)" = "$CI_USER" ] \
-    && [ "$(plutil -extract WorkingDirectory raw -o - "$1" 2>/dev/null || true)" = "$RUNNER_DIR" ] \
-    && [ "$(plutil -extract ProgramArguments.0 raw -o - "$1" 2>/dev/null || true)" = "$RUNNER_DIR/runsvc.sh" ] \
-    && case "$(plutil -extract RunAtLoad xml1 -o - "$1" 2>/dev/null || true)" in *"<true/>"*) true ;; *) false ;; esac \
-    && ! plutil -extract LimitLoadToSessionType raw -o - "$1" >/dev/null 2>&1 \
-    && keepalive_set "$1"
+# daemon_xml: the one daemon plist this stage writes. Uses label and cigroup from daemon (dynamic scope); every value is
+# checked to need no XML escaping before this runs (NAME, CI_HOME at the top, CI_USER and cigroup in daemon).
+daemon_xml() {
+  cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>$label</string>
+<key>ProgramArguments</key><array><string>$RUNNER_DIR/runsvc.sh</string></array>
+<key>WorkingDirectory</key><string>$RUNNER_DIR</string>
+<key>UserName</key><string>$CI_USER</string>
+<key>GroupName</key><string>$cigroup</string>
+<key>SessionCreate</key><true/>
+<key>ProcessType</key><string>Interactive</string>
+<key>Nice</key><integer>15</integer>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+<key>ThrottleInterval</key><integer>10</integer>
+<key>ExitTimeOut</key><integer>35</integer>
+<key>EnvironmentVariables</key><dict>
+<key>ACTIONS_RUNNER_SVC</key><string>1</string>
+<key>HOME</key><string>$CI_HOME</string>
+<key>USER</key><string>$CI_USER</string>
+</dict>
+</dict></plist>
+EOF
 }
-# build_daemon <from LaunchAgent plist> <to>: the agent's plist, made a daemon, written to <to> (a temp file).
-build_daemon() {
-  cp "$1" "$2" || return 1
-  plutil -replace UserName -string "$CI_USER" "$2" \
-    && plutil -remove LimitLoadToSessionType "$2" >/dev/null 2>&1 || true
-  plutil -extract EnvironmentVariables raw -o - "$2" >/dev/null 2>&1 || plutil -insert EnvironmentVariables -dictionary "$2" || return 1
-  plutil -replace EnvironmentVariables.HOME -string "$CI_HOME" "$2" \
-    && plutil -replace EnvironmentVariables.USER -string "$CI_USER" "$2" \
-    && plutil -replace RunAtLoad -bool true "$2" || return 1
-  add_keepalive "$2" >/dev/null || return 1   # the same three keys, written the same way, as the keepalive stage
-  plutil -lint "$2" >/dev/null && daemon_set "$2"
+# daemon_content_ok <plist>: exactly daemon_xml, compared after plutil normalises both, so ANY other key, value or type
+# (a planted one included) reads as not this stage's plist. This is the allowlist: there is no list of keys to drift.
+daemon_content_ok() {
+  local want have
+  want="$(daemon_xml | plutil -convert xml1 -o - - 2>/dev/null)" || return 1
+  have="$(plutil -convert xml1 -o - "$1" 2>/dev/null)" || return 1
+  [ -n "$want" ] && [ "$want" = "$have" ]
+}
+# daemon_set <plist>: the right content, and root-owned 0644 (launchd refuses a system plist anyone else can write).
+daemon_set() {
+  daemon_content_ok "$1" && [ "$(stat -f '%u %Lp' "$1" 2>/dev/null || true)" = "0 644" ]
+}
+# newest_retired: the newest <agent>.retired-<UTC stamp> (the stamps sort as text), or nothing.
+newest_retired() {
+  local f n=""
+  for f in "$agent".retired-*; do [ -e "$f" ] && n="$f"; done
+  printf '%s' "$n"
 }
 # ppid_chain_has <pid> <ancestor>: <ancestor> is <pid> or one of its parents.
 ppid_chain_has() {
@@ -1025,6 +1054,25 @@ ppid_chain_has() {
   done
   return 1
 }
+# daemon_listeners: sets listeners (this runner's Listener pids, one per line), dloaded, dpid and foreign (the Listeners
+# not under the daemon's pid). Exits on a pgrep that could not list. Uses ciuid, label, own_re from daemon.
+daemon_listeners() {
+  local prc=0 djob l
+  listeners="$(pgrep -u "$ciuid" -f "$own_re")" || prc=$?
+  [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc)" >&2; exit 1; }
+  dloaded=0; dpid=""; foreign=""
+  djob="$(launchctl print "system/$label" 2>/dev/null)" && dloaded=1
+  [ "$dloaded" = 0 ] || dpid="$(printf '%s\n' "$djob" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
+  for l in $listeners; do
+    { [ -n "$dpid" ] && ppid_chain_has "$l" "$dpid"; } || foreign="${foreign:+$foreign }$l"
+  done
+}
+# daemon_child: the first of listeners that is under the daemon's pid (not in foreign), or nothing.
+daemon_child() {
+  local l
+  for l in $listeners; do case " $foreign " in *" $l "*) ;; *) printf '%s' "$l"; return 0 ;; esac; done
+  return 0
+}
 daemon() {
   mode_line
   if [ "$APPLY" = 1 ] && [ "$(id -u)" != 0 ]; then
@@ -1033,44 +1081,65 @@ daemon() {
   if [ "$(id -u)" != 0 ] && [ "$(id -un)" != "$CI_USER" ]; then
     echo "note:   cannot read $CI_USER's runner as $(id -un) (its home and its processes' arguments are its own); run this with sudo, or as $CI_USER"; exit 3
   fi
-  local ciuid; ciuid="$(id -u "$CI_USER" 2>/dev/null)" || { echo "refused: no user $CI_USER on this Mac" >&2; exit 1; }
+  case "$CI_USER" in ''|*[!A-Za-z0-9._-]*) echo "refused: KOSMOS_CI_USER '$CI_USER' may hold only letters, digits, '.', '_' and '-'" >&2; exit 2 ;; esac
+  local ciuid cigroup
+  ciuid="$(id -u "$CI_USER" 2>/dev/null)" || { echo "refused: no user $CI_USER on this Mac" >&2; exit 1; }
+  [ "$ciuid" != 0 ] || { echo "refused: $CI_USER is root; a runner never runs as root" >&2; exit 1; }
+  cigroup="$(id -gn "$CI_USER" 2>/dev/null)" || { echo "refused: could not read $CI_USER's primary group" >&2; exit 1; }
+  case "$cigroup" in ''|*[!A-Za-z0-9._-]*|wheel|admin) echo "refused: $CI_USER's primary group is '$cigroup'; a runner runs in its own unprivileged group (staff)" >&2; exit 1 ;; esac
   local label; label="actions.runner.$(printf '%s' "$REPO" | tr '/' '-').$NAME"
   local dplist="$DAEMON_DIR/$label.plist" agent="$CI_HOME/Library/LaunchAgents/$label.plist"
   local own_re worker_re; own_re="$(own_listener_re)"
+  # Anchored at this runner's absolute path, as own_listener_re is: a Worker of the relay's runner (same user) is not this one.
   worker_re="^$(printf '%s' "$RUNNER_DIR" | sed 's/[.]/[.]/g')/bin[^/]*/Runner[.]Worker( |$)"
-  local prc listeners workers
-  prc=0; listeners="$(pgrep -u "$ciuid" -f "$own_re")" || prc=$?
-  [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc)" >&2; exit 1; }
+  local prc workers listeners dloaded dpid foreign
   prc=0; workers="$(pgrep -u "$ciuid" -f "$worker_re")" || prc=$?
   [ "$prc" -lt 2 ] || { echo "refused: could not list processes (pgrep exit $prc)" >&2; exit 1; }
-  # The daemon's own job and pid, when it is loaded; a Listener under it is the daemon's, any other is not.
-  local dloaded=0 djob dpid="" foreign="" l
-  djob="$(launchctl print "system/$label" 2>/dev/null)" && dloaded=1
-  [ "$dloaded" = 1 ] && dpid="$(printf '%s\n' "$djob" | sed -n 's/^[[:space:]]pid = \([0-9][0-9]*\)$/\1/p' | head -n 1 || true)"
-  for l in $listeners; do
-    { [ -n "$dpid" ] && ppid_chain_has "$l" "$dpid"; } || foreign="${foreign:+$foreign }$l"
-  done
+  daemon_listeners
   local aloaded=0; launchctl print "gui/$ciuid/$label" >/dev/null 2>&1 && aloaded=1
+  local stamp; stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   # Done: the daemon plist is right, it is loaded and running a Listener, nothing else runs this runner, and no
   # LaunchAgent is left that a login would load beside it.
-  if [ -f "$dplist" ] && daemon_set "$dplist" && [ "$dloaded" = 1 ] && [ -n "$dpid" ] && [ -n "$listeners" ] \
-     && [ -z "$foreign" ] && [ "$aloaded" = 0 ] && [ ! -e "$agent" ]; then
-    ok "$label runs as a LaunchDaemon (system domain, UserName $CI_USER, pid $dpid): a logout or a WindowServer crash does not stop it"
-    return 0
+  local dok=0; [ -f "$dplist" ] && daemon_set "$dplist" && dok=1
+  if [ "$dok" = 1 ] && [ "$dloaded" = 1 ] && [ -n "$dpid" ] && [ -n "$listeners" ] && [ -z "$foreign" ] && [ "$aloaded" = 0 ]; then
+    if [ ! -e "$agent" ]; then
+      ok "$label runs as a LaunchDaemon (system domain, UserName $CI_USER, pid $dpid): a logout or a WindowServer crash does not stop it"
+      return 0
+    fi
+    # Only the agent plist came back (a svc.sh install, a restore): the daemon is fine, nothing to stop.
+    local back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside: sudo mv $agent $agent.retired-$stamp"
+    if [ "$APPLY" = 1 ]; then echo "refused: $back" >&2; else echo "refused: --apply would refuse now: $back" >&2; fi
+    exit 1
   fi
   # Refusals, said the same way in a dry run (so it can tell an operator whether --apply would go now).
   local why=""
   [ -z "$workers" ] || why="a job is running (Runner.Worker $(printf '%s' "$workers" | tr '\n' ' ')); run this between jobs"
   [ -n "$why" ] || [ -z "$foreign" ] || why="this runner's Listener runs outside the daemon (pid $foreign: a manual runsvc.sh start or its LaunchAgent), and a daemon would start a second one for the same runner; stop it between jobs first (kill its runsvc.sh and Runner.Listener)"
   [ -n "$why" ] || [ "$aloaded" = 0 ] || why="its LaunchAgent is loaded in gui/$ciuid; between jobs: sudo launchctl bootout gui/$ciuid/$label"
-  [ -n "$why" ] || [ "$dloaded" = 0 ] || why="system/$label is already loaded but not as this stage leaves it; to load it again: sudo launchctl bootout system/$label"
-  local from=""
+  if [ -z "$why" ] && [ "$dloaded" = 1 ]; then
+    if [ "$dok" = 1 ]; then
+      why="system/$label is loaded and runs no Listener right now: it is restarting, or the runner is updating itself; run this again in a minute"
+    else
+      why="system/$label is loaded but $dplist is not what this stage writes; to load it again: sudo launchctl bootout system/$label"
+    fi
+  fi
+  if [ -z "$why" ]; then
+    local dis=0; label_disabled system "$label" || dis=$?
+    case "$dis" in
+      0) why="$label is disabled in the system domain, so a bootstrap would fail after the agent is moved; first: sudo launchctl enable system/$label" ;;
+      2) why="could not read launchctl print-disabled system, so cannot tell whether a bootstrap would be refused; nothing was changed" ;;
+    esac
+  fi
+  local from="" retired=""
   if [ -e "$agent" ]; then
     from="$(runner_plist)"   # svc.sh's .service must name THIS runner's plist, WorkingDirectory the runner dir
     [ -n "$why" ] || [ "$from" = "$agent" ] || why="$RUNNER_DIR/.service does not name $agent (the plist svc.sh wrote for this runner, WorkingDirectory $RUNNER_DIR); nothing was changed"
     [ -n "$why" ] || [ "$(plutil -extract Label raw -o - "$agent" 2>/dev/null || true)" = "$label" ] || why="$agent has another Label; nothing was changed"
-  elif [ -f "$dplist" ] && daemon_set "$dplist"; then
-    from=""   # retired already, by an earlier run: only the load is left
+    retired="$agent.retired-$stamp"
+  elif [ "$dok" = 1 ]; then
+    retired="$(newest_retired)"   # retired already, by an earlier run: only the load is left
+  elif [ -f "$dplist" ]; then
+    [ -n "$why" ] || why="$dplist is not exactly what this stage writes (or not root:wheel 0644), and there is no LaunchAgent at $agent to build it from; nothing was changed"
   else
     [ -n "$why" ] || why="no LaunchAgent at $agent and no daemon plist at $dplist to load; install and register the runner first"
   fi
@@ -1078,32 +1147,53 @@ daemon() {
     if [ "$APPLY" = 1 ]; then echo "refused: $why" >&2; else echo "refused: --apply would refuse now: $why" >&2; fi
     exit 1
   fi
-  local stamp; stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  local back_cmd="sudo rm $dplist"
+  [ -z "$retired" ] || back_cmd="$back_cmd; sudo mv $retired $agent"
   if [ "$APPLY" != 1 ]; then
-    [ -z "$from" ] || echo "WOULD: write $dplist from $agent (UserName $CI_USER, HOME and USER, KeepAlive {SuccessfulExit: false}, ThrottleInterval 10, ExitTimeOut 35), root:wheel 0644"
-    [ -z "$from" ] || echo "WOULD: move $agent aside to $agent.retired-$stamp (kept, so a login cannot start a second Listener)"
+    [ -z "$from" ] || echo "WOULD: write $dplist (written here, not copied: UserName $CI_USER, GroupName $cigroup, HOME and USER, KeepAlive {SuccessfulExit: false}, ThrottleInterval 10, ExitTimeOut 35), root:wheel 0644"
+    [ -z "$from" ] || echo "WOULD: move $agent aside to $retired (kept, so a login cannot start a second Listener)"
+    [ -n "$from" ] || echo "note:   $dplist is already written; the LaunchAgent is retired at ${retired:-(no .retired-* file found)}"
     echo "WOULD: launchctl bootstrap system $dplist, then wait for a Runner.Listener of $RUNNER_DIR under it"
     return 0
   fi
+  # From the first write to the bootstrap, a hangup or ^C must not leave the plist written and the agent moved with
+  # nothing loaded: each step's failure is handled below instead.
+  trap '' HUP INT TERM PIPE
   if [ -n "$from" ]; then
-    build_daemon "$from" "$dplist.new" \
-      && chown root:wheel "$dplist.new" && chmod 0644 "$dplist.new" && mv -f "$dplist.new" "$dplist" \
+    { daemon_xml > "$dplist.new" && daemon_content_ok "$dplist.new" \
+      && chown root:wheel "$dplist.new" && chmod 0644 "$dplist.new" && mv -f "$dplist.new" "$dplist"; } \
       || { rm -f "$dplist.new"; echo "FAILED: could not write $dplist; nothing else was changed" >&2; exit 1; }
-    mv "$agent" "$agent.retired-$stamp" \
-      || { echo "FAILED: wrote $dplist but could not move $agent aside; not loading it (a login would start a second Listener). Remove $dplist to go back" >&2; exit 1; }
+    mv "$agent" "$retired" \
+      || { echo "FAILED: wrote $dplist but could not move $agent aside; not loading it (a login would start a second Listener). To go back: sudo rm $dplist" >&2; exit 1; }
+  fi
+  # Again, right before the bootstrap: a console login in the window above loads the agent, and its Listener with it.
+  local aload2=0; launchctl print "gui/$ciuid/$label" >/dev/null 2>&1 && aload2=1
+  daemon_listeners
+  if [ "$aload2" = 1 ] || [ -n "$listeners" ]; then
+    if [ -n "$from" ]; then
+      rm -f "$dplist"
+      mv "$retired" "$agent" || { echo "FAILED: a Listener or the LaunchAgent started while the daemon was being written; removed $dplist but could not put $agent back: sudo mv $retired $agent" >&2; exit 1; }
+    fi
+    echo "refused: this runner's LaunchAgent or a Listener (pid ${listeners:-none}) started while the daemon was being written (a login?); put everything back as it was, nothing is loaded in the system domain" >&2
+    exit 1
   fi
   launchctl bootstrap system "$dplist" \
-    || { echo "FAILED: launchctl bootstrap system $dplist. To go back: rm $dplist; mv $agent.retired-* $agent (the newest)" >&2; exit 1; }
-  local w=0 lim="${KOSMOS_CI_START_WAIT_S:-30}" now
+    || { echo "FAILED: launchctl bootstrap system $dplist. The runner stays down until $CI_USER logs in at the console (a LaunchAgent loads only at login). To go back: $back_cmd" >&2; exit 1; }
+  trap - HUP INT TERM PIPE
+  # A Listener under the daemon's own pid, still alive a few seconds later (one that dies at once is not a start).
+  local w=0 lim="${KOSMOS_CI_START_WAIT_S:-30}" mine=""
   while :; do
-    prc=0; now="$(pgrep -u "$ciuid" -f "$own_re")" || prc=$?
-    [ -n "$now" ] && break
-    [ "$w" -lt "$lim" ] || { echo "FAILED: system/$label is loaded but no Runner.Listener of $RUNNER_DIR runs after ${w}s; see its StandardErrorPath. To go back: sudo launchctl bootout system/$label; rm $dplist; mv $agent.retired-* $agent (the newest)" >&2; exit 1; }
+    daemon_listeners; mine="$(daemon_child)"
+    if [ -n "$mine" ]; then
+      sleep 3; daemon_listeners
+      [ "$(daemon_child)" = "$mine" ] && break
+    fi
+    [ "$w" -lt "$lim" ] || { echo "FAILED: system/$label is loaded but no Runner.Listener of $RUNNER_DIR runs under it after ${w}s; see $RUNNER_DIR/_diag. To go back: sudo launchctl bootout system/$label; $back_cmd" >&2; exit 1; }
     sleep 1; w=$((w + 1))
   done
-  ok "$label loaded as a LaunchDaemon (system domain, UserName $CI_USER), Listener pid $(printf '%s' "$now" | tr '\n' ' ')"
-  echo "note:   keep $agent.retired-$stamp until one job has passed under the daemon (kosmos#7001: a daemon has no login session, so it cannot read the login keychain)"
-  echo "note:   to go back: sudo launchctl bootout system/$label; sudo rm $dplist; mv $agent.retired-$stamp $agent; then log in as $CI_USER"
+  ok "$label loaded as a LaunchDaemon (system domain, UserName $CI_USER), Listener pid $mine under pid $dpid"
+  [ -z "$retired" ] || echo "note:   keep $retired until one job has passed under the daemon (kosmos#7001: a daemon has no login session, so it cannot read the login keychain)"
+  echo "note:   to go back: sudo launchctl bootout system/$label; $back_cmd; then log in as $CI_USER"
 }
 
 verify() {
