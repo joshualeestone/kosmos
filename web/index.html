@@ -12200,6 +12200,7 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 #pb-files-failed summary { cursor: pointer; min-height: 44px; display: list-item; padding: 12px 0; color: var(--label-2); }
 #pb-files-failed summary:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 #pb-files-last { margin-bottom: var(--space-2); }
+#pb-files-last:empty { display: block; margin: 0; }   /* kosmos#7801: .fhint:empty is display:none, which drops a live region from the tree */
 #pb-files-failed { margin-bottom: var(--space-7); }   /* Mona Lisa, review 2: the gap above Turn off, so the list does not sit on the buttons */
 #pb-files-failed-list { max-height: 40vh; overflow-y: auto; margin: 0 0 var(--space-4); padding-left: 20px; font: var(--text-callout) var(--font-ui); color: var(--label-2); overflow-wrap: anywhere; }
 #pb-skipped-more { margin: 0; }
@@ -20551,7 +20552,8 @@ window.kosmosMeasureScrollbarWidth();
               <p class="fhint">Stop now? What is restored so far stays in the copy.</p>
               <div class="frow"><button class="btn danger-btn" type="button" id="pb-files-stop-yes">Stop</button><button class="btn" type="button" id="pb-files-stop-no">Keep going</button></div>
             </div>
-            <p class="fhint" id="pb-files-last" tabindex="-1" aria-live="polite" hidden></p>
+            <!-- kosmos#7801: never hidden, even empty: a live region that appears already filled is not announced by many screen readers. pbfPaint makes it polite. -->
+            <p class="fhint" id="pb-files-last" tabindex="-1" aria-live="off"></p>
             <details id="pb-files-failed" hidden><summary class="fhint" id="pb-files-failed-sum"></summary><ul id="pb-files-failed-list"></ul></details>
             <!-- Mona Lisa's review 2: one row, Open the copy first and primary (it is the next step), as Restore and Cancel are. -->
             <div class="frow" id="pb-files-end-row"><button class="btn uprime" type="button" id="pb-files-open" hidden>Open the copy</button><button class="btn" type="button" id="pb-files-see">See your backups</button></div>
@@ -56022,14 +56024,15 @@ document.getElementById('pb-on').addEventListener('click', pbOpen);
    asked (it spends the hourly Kosmos+ allowance); where a restore is (GET /api/personal-backup/files) is read every 5
    seconds while one runs and once a minute otherwise, only while the panel shows it. The copy is a Kosmos of its own in the
    switcher (restoreworld.prepareRestoreWorld), so "Open the copy" is the switcher's own restart-to-switch confirm. */
-var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, gen: 0, busy: false, stopAsk: false, stopping: false, stopSent: false, reading: false };
+var PBF = { list: null, more: false, keyMissing: false, asked: null, startedFor: null, status: null, at: 0, seq: 0, gen: 0, busy: false, stopAsk: false, stopping: false, stopSent: false, reading: false, msgRunning: false, liveReady: false };
 function pbfWhen(ms) { return Number.isFinite(ms) ? new Date(ms).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : ''; }
 /* Mona Lisa's review 2: a restore that started today says the time alone; the list's backups keep the full date. */
 function pbfStartedWhen(ms, now = Date.now()) {
   return new Date(ms).toDateString() === new Date(now).toDateString() ? new Date(ms).toLocaleTimeString([], { timeStyle: 'short' }) : pbfWhen(ms);
 }
 function pbfBackupWhen(b) { return b && Number.isFinite(b.takenAt) ? pbfWhen(b.takenAt * 1000) : 'A backup with no date'; }   // takenAt is Unix seconds
-function pbfMsg(t) { document.getElementById('pb-files-msg').textContent = t ? asSentence(t) : ''; }
+/* Any message resets msgRunning (kosmos#7801), so a caller sets that flag after its pbfMsg. */
+function pbfMsg(t) { document.getElementById('pb-files-msg').textContent = t ? asSentence(t) : ''; PBF.msgRunning = false; }
 /* Focus goes to the control a step leaves on screen, so a keyboard or screen reader is never left on a hidden one. */
 function pbfFocus(el) { if (el && !el.hidden) { try { el.focus(); } catch { /* gone */ } } }
 /* The end of a restore, in Mona Lisa's words. `last` is personalrestorejob.status()'s; from a remote session it has counts and
@@ -56069,6 +56072,7 @@ function pbfShow(on, drop) {
   if (!on) {
     PBF.asked = null; PBF.stopAsk = false; PBF.stopSent = false; PBF.list = null; PBF.more = false; PBF.keyMissing = false; PBF.status = null; PBF.startedFor = null; PBF.at = 0;
     PBF.seq++; PBF.gen++; PBF.reading = false;   // a read, a list, a start or a stop already in flight answers nothing
+    pbfMsg('');   // kosmos#7801: and its refusal, with the flag that kept it
     return;
   }
   // 4500, not 5000: the panel repaints every 5 seconds, and a repaint a moment early would skip a read.
@@ -56090,13 +56094,19 @@ function pbfRead(force) {
     PBF.status = j;
     const ended = wasRunning && !j.running;
     if (ended) { PBF.stopAsk = false; PBF.list = null; PBF.asked = null; }   // a restore this tab saw end puts the list, and any confirm, away
+    // kosmos#7801: a restore starting or ending clears a refusal. One that said a restore runs is cleared by any read
+    // that sees none running, and kept by one that sees it.
+    if (PBF.msgRunning ? j.running !== true : (ended || (!wasRunning && j.running === true))) pbfMsg('');
     // The control in focus (Stop, or the running line) goes with the restore, so the end takes it.
     const inside = ended && document.activeElement && document.activeElement !== document.body
       && document.getElementById('pb-files').contains(document.activeElement);
     // A refused start (another restore was already running) left focus on the confirm, which this read hides.
     const onAsk = document.activeElement && (document.activeElement === document.getElementById('pb-files-no') || document.activeElement === document.getElementById('pb-files-yes'));
     pbfPaint();
-    if (inside) pbfFocus(!document.getElementById('pb-files-open').hidden ? document.getElementById('pb-files-open') : document.getElementById('pb-files-last'));
+    if (inside) {
+      const last = document.getElementById('pb-files-last');   // kosmos#7801: never hidden, so an empty one is passed over
+      pbfFocus(!document.getElementById('pb-files-open').hidden ? document.getElementById('pb-files-open') : last.textContent ? last : document.getElementById('pb-files-see'));
+    }
     else if (onAsk && document.getElementById('pb-files-ask').hidden) pbfFocus(document.getElementById('pb-files-run'));
   }).catch(() => { done(); /* the next read tries again */ });
 }
@@ -56153,8 +56163,11 @@ function pbfPaint() {
   const lastEl = document.getElementById('pb-files-last');
   // A live region: written only when it changes, or the 5-second repaint would have it read out again each time.
   const lastText = w ? w.line : '';
+  // kosmos#7801: only the text changes; the region stays shown. It is quiet until a paint has shown the board's answer,
+  // so the first read after a show fills it with an old end silently, and a later end is read out.
+  lastEl.setAttribute('aria-live', PBF.liveReady ? 'polite' : 'off');
   if (lastEl.textContent !== lastText) lastEl.textContent = lastText;
-  lastEl.hidden = !w;
+  PBF.liveReady = !!PBF.status;
   const fd = document.getElementById('pb-files-failed');
   fd.hidden = !(w && w.failedSum);
   if (w && w.failedSum) {
@@ -56202,7 +56215,10 @@ async function pbfStart() {
     PBF.startedFor = { backup: b, at }; PBF.asked = null;
     PBF.status = { running: true, startedAt: at, last: PBF.status && PBF.status.last };
     pbfMsg('');
-  } else pbfMsg((r && r.because) || 'The restore did not start. Nothing was restored.');
+  } else {
+    pbfMsg((r && r.because) || 'The restore did not start. Nothing was restored.');
+    PBF.msgRunning = !!(r && r.code === 'restore_running');
+  }
   pbfRead(true);
   pbfPaint();
   pbfFocus(started ? document.getElementById('pb-files-stop') : document.getElementById('pb-files-no'));

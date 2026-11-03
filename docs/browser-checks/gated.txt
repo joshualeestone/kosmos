@@ -185,6 +185,7 @@ render-otheraccounts-6178
 render-owncode-4649
 render-ownremove-4658
 render-ownseal-4658
+render-pbrestore-end-7801
 render-permcard-6727
 render-personal-instr-4446
 render-phone-offline-718
