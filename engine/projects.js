@@ -2235,7 +2235,8 @@ const BROWSE_MAX_ENTRIES = 1000;   // shown (iteration 2: hidden and skipped nam
 const BROWSE_MAX_SCAN = 20000;     // read, so a folder of a million hidden files still answers
 const byName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
 
-/* #7850: a failed read of a folder's entries, as a refusal. Only a code in PASSING_READ_CODES is marked passing. */
+/* #7850: a failed read of a folder, as a refusal. ENOENT and ENOTDIR say it is not there; only a code in
+   PASSING_READ_CODES is marked passing, and every other code (EIO, EACCES, EPERM, ESTALE, ETIMEDOUT...) is not. */
 const PASSING_READ_CODES = new Set(['EMFILE', 'ENFILE', 'EAGAIN', 'EBUSY', 'EINTR']);
 function unreadFolder(err) {
   const code = err && err.code;
@@ -2268,7 +2269,10 @@ function listDir(folder, rel, where, opts) {
      The folder's identity is read before and after the read, and an answer from a folder that changed is dropped. */
   let before;
   // #7229: BigInt ids, so a folder swapped for another whose number id is the same is still seen as changed.
-  try { before = fs.lstatSync(got.real, { bigint: true }); } catch { return { ok: false, because: 'that folder is not there any more, or it was moved' }; }
+  try { before = fs.lstatSync(got.real, { bigint: true }); } catch (err) {
+    if (err instanceof TypeError || err instanceof ReferenceError) throw err;
+    return unreadFolder(err);   // #7850
+  }
   if (!before.isDirectory()) return { ok: false, because: 'that is not a folder in ' + where };
   let dir;
   try { dir = fs.opendirSync(got.real); } catch (err) { return unreadFolder(err); }   // #7850
@@ -2289,9 +2293,12 @@ function listDir(folder, rel, where, opts) {
   } finally {
     try { dir.closeSync(); } catch { /* already closed */ }
   }
-  let after = null;
-  try { after = fs.lstatSync(got.real, { bigint: true }); } catch { after = null; }
-  if (!after || !after.isDirectory()) return { ok: false, because: 'that folder is not there any more, or it was moved' };
+  let after;
+  try { after = fs.lstatSync(got.real, { bigint: true }); } catch (err) {
+    if (err instanceof TypeError || err instanceof ReferenceError) throw err;
+    return unreadFolder(err);   // #7850
+  }
+  if (!after.isDirectory()) return { ok: false, because: 'that folder is not there any more, or it was moved' };
   if (after.ino !== before.ino || after.dev !== before.dev) {
     return { ok: false, because: 'that folder changed while it was being read', passing: true };   // #7850
   }

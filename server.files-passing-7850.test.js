@@ -171,6 +171,28 @@ test('#7850 agent browse, below the top: an entry read that fails with EINTR is 
   assert.equal(got.body.passing, true, JSON.stringify(got.body));
 });
 
+test('#7850 agent browse, below the top: the identity read after the listing failing with EMFILE is a 404 marked passing', async () => {
+  const sub = path.join(FILES, 'sub');
+  let bigintReads = 0;
+  // The before and after identity reads are the two bigint lstats of the folder; fail only the second.
+  const { got, hits } = await failingRead('lstatSync', sub, () => getJson('/api/agent/ava/files/browse?dir=sub'), (was, p, rest) => {
+    if (rest[0] && rest[0].bigint && ++bigintReads === 2) throw fsError('EMFILE');
+    return was.call(fs, p, ...rest);
+  });
+  assert.ok(hits > 0 && bigintReads === 2, 'the after read never reached the seam (bigint reads: ' + bigintReads + ')');
+  assert.equal(got.status, 404);
+  assert.equal(got.body.because, 'we could not read what is in that folder');
+  assert.equal(got.body.passing, true, JSON.stringify(got.body));
+});
+
+test('#7850 agent Files list CONTROL: a read that finds the folder gone (ENOENT) says it is not there, with no mark', async () => {
+  const { got, hits } = await failingRead('readdirSync', FILES, () => getJson('/api/agent/ava/files'), 'ENOENT');
+  assert.ok(hits > 0, 'the read never reached the seam');
+  assert.equal(got.status, 200);
+  assert.equal(got.body.because, 'that folder is not there any more, or it was moved');
+  assert.equal('passing' in got.body, false, JSON.stringify(got.body));
+});
+
 test('#7850 agent browse CONTROL: a folder that is not there is a lasting 404 with no mark', async () => {
   const { status, body } = await getJson('/api/agent/ava/files/browse?dir=gone');
   assert.equal(status, 404);
