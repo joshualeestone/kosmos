@@ -802,7 +802,6 @@ function del(name, opts) {
   }
   const gone = [];
   const stuck = [];
-  /* kosmos#7820: set when Windows deleted the folder but it is not in the Recycle Bin, so the last sentence says so. */
   /* kosmos#7820: what did not land in the Recycle Bin (gone and not found there) or could not be checked, by name, so the
      sentence names the folder's files or the settings and picture, whichever it was. */
   const missed = [];
@@ -1001,7 +1000,8 @@ function del(name, opts) {
       : !p.folder && p.job && (p.job.task || p.job.unit)   // review 32: a unit-only leftover moved nothing either
       ? `Nothing starts ${p.shown} any more. The name is free.`
       : p.toTrash && (binMissed || binUnsure)
-        ? `${p.shown}'s files are gone from its folder. ${binNote} The name is free.`
+        // The folder's own files are said to be in the Recycle Bin when only a record was not.
+        ? `${p.shown}'s files ${missed.includes('its files') || unsure.includes('its files') ? 'are gone from its folder' : `are in ${binWords(platform)}`}. ${binNote} The name is free.`
       : p.toTrash
         ? `${p.shown}'s files are in ${binWords(platform)}. The name is free.`
         : `${p.shown}'s files are deleted. The name is free.`)

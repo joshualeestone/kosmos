@@ -405,6 +405,7 @@ test('#7820 a settings record the Recycle Bin did not keep is named in the outco
   assert.equal(done.toTrash, false);
   assert.match(done.said, /Kosmos could not find its settings in the Recycle Bin afterwards, so Windows may have deleted them for good/);
   assert.doesNotMatch(done.said, /could not find its files/, 'the folder, which WAS in the Recycle Bin, was blamed');
+  assert.match(done.said, /^rb7820s's files are in the Recycle Bin\. /, 'the folder that did land there was not said to be there');
 });
 
 test('#7820 only settings left (no folder, no job): a record the Recycle Bin did not keep is never said to be there', () => {

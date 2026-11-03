@@ -62,5 +62,8 @@ the card parks needs-device after the PR.
 - The Recycle Bin count matches an item's name with or without its extension (Explorer hides known extensions by
   default, so a settings file shows without `.json`).
 
+- A path Windows hands back in its long form (`\\?\C:\...`) starts with `\\` and is treated like a network path, so it
+  keeps "for good". Safe, but it is a downgrade for a very deep folder.
+
 ## Tests
 `engine/delete-leftover.win32-recyclebin-7820.test.js`, platform-injected with a stubbed PowerShell runner.
