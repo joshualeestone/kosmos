@@ -1079,13 +1079,17 @@ final class BoardClient: ObservableObject {
     private var previewImageAsked: Set<String> = []
     private var previewImageOrder: [String] = []
     static let previewImageCap = 12
-    // Bumped by every drop, so a picture already on its way when the pictures were dropped is not kept after it.
+    // Bumped by a memory-warning drop, so a picture already on its way when the pictures were dropped is not kept after it.
     private(set) var previewGeneration = 0
     func dropPreviewImages() {
-        previewImages = [:]
+        releasePreviewImages()
+        previewGeneration += 1
+    }
+    // A chat closing: its pictures go, without the generation, so the next chat's pictures already on their way are kept.
+    func releasePreviewImages() {
+        if !previewImages.isEmpty { previewImages = [:] }   // no redraw for nothing
         previewImageAsked = []
         previewImageOrder = []
-        previewGeneration += 1
     }
     private func keepPreviewImage(_ image: CGImage, at path: String) {
         previewImages[path] = image
@@ -1108,7 +1112,8 @@ final class BoardClient: ObservableObject {
         let epoch = chatEpoch
         guard let held = admitted, let request = Board.attachmentRequest(mac: held.url, path: path) else { previewImageAsked.remove(path); return }
         let answer = await env.send(request)
-        guard epoch == chatEpoch else { return }
+        // Across a drop, the asked set is a later load's: leave it alone.
+        guard epoch == chatEpoch, generation == previewGeneration else { return }
         guard let (data, response) = answer else { previewImageAsked.remove(path); return }
         let isImage = (response.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
         let ok = (200...299).contains(response.statusCode)
@@ -1320,7 +1325,6 @@ final class BoardClient: ObservableObject {
         return .sent
     }
     #if DEBUG && canImport(UIKit)
-    // The sample chats' files, drawn here so no real file is ever in a picture.
     // kosmos#7864: the sample link preview's picture (KOSMOS_SAMPLE_PREVIEW=1), drawn here: a soft studio scene.
     private func samplePreviewImage(_ path: String) -> Data? {
         guard sampleThreads.values.contains(where: { $0.rows.contains { $0.preview?.image == path } }) else { return nil }
@@ -1332,6 +1336,7 @@ final class BoardClient: ObservableObject {
             UIColor(red: 0.95, green: 0.95, blue: 0.93, alpha: 1).setFill(); ctx.fill(CGRect(x: 600, y: 210, width: 120, height: 160))
         }
     }
+    // The sample chats' files, drawn here so no real file is ever in a picture.
     private func sampleThumbnail(_ a: Board.Attachment) -> Data? {
         guard sampleThreads.values.contains(where: { $0.rows.contains { $0.attachments.contains(a) } }) else { return nil }
         let size = CGSize(width: 128, height: 128)

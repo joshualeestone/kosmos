@@ -356,7 +356,7 @@ struct ChatView: View {
         .onDisappear {
             visible = false
             if !infoOpen { sendShiftReport() }   // kosmos#7575 (review 1: the info page pushed over the chat is not a close)
-            if !infoOpen { client.dropPreviewImages() }   // kosmos#7864: the pictures are this chat's; they do not outlive it
+            if !infoOpen { client.releasePreviewImages() }   // kosmos#7864: the pictures do not outlive the chat
             if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }   // review 3: by session on purpose: a computer switch while open must never leave a stale value hiding banners; the cost is an extra banner
             armed = nil
             // A reading posture, not the chat's state: coming back shows the whole conversation (the board clears its
@@ -2346,7 +2346,8 @@ struct ChatBubble: View {
                 let number = links.count > 1 ? "\(i + 1) " : ""
                 Button("Open link \(number)to \(url.host ?? url.absoluteString)") { openURL(url) }
             }
-            if let card { Button("Open link to \(card.site)") { openURL(card.url) } }
+            // Named from the address it opens, never from the page's own site name, which a page can make up.
+            if let card { Button("Open link to \(site(card.url))") { openURL(card.url) } }
         }
     }
 

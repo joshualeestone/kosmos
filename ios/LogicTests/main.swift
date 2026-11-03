@@ -3863,6 +3863,14 @@ section("native board loop: connecting")
         await inFlight.value
         w.attachmentYields = 0
         check(c.previewImages[lp("inflight").image!] == nil, "preview: a picture on its way across a memory-warning drop is not kept")
+        // A chat closing releases its pictures without the drop generation: a picture on its way for the next chat is kept.
+        w.attachmentYields = 50
+        let nextChat = Task { await c.loadPreviewImage(lp("nextchat")) }
+        _ = await settle { w.attachmentAsks.last == lp("nextchat").image! }
+        c.releasePreviewImages()
+        await nextChat.value
+        w.attachmentYields = 0
+        check(c.previewImages[lp("nextchat").image!] != nil, "preview: closing a chat keeps a picture on its way for the next one")
         // A sign-out while a picture is on its way: it lands in nobody's chat.
         w.attachmentYields = 50
         w.attachmentAnswer = (200, "image/png", big)
@@ -5674,6 +5682,7 @@ do {
     check(lp(#"{"url":"https://x.example.com/","title":"   "}"#) == nil, "a blank title is no title")
     check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T"}"#)!) == "Link: T, x.example.com", "VoiceOver hears the title and the site")
     check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"x.example.com","site":"x.example.com"}"#)!) == "Link: x.example.com", "and once when they are the same")
+    check(Board.linkPreviewSpoken(lp(#"{"url":"https://evil.example.net/","title":"Sign in","site":"apple.com"}"#)!) == "Link: Sign in, evil.example.net", "VoiceOver hears the address's host, not a site name the page made up")
 }
 
 print("")

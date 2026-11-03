@@ -1335,9 +1335,11 @@ enum Board {
         return LinkPreview(url: url, site: words("site", 120) ?? siteFallback, title: title ?? s, description: description, image: image)
     }
 
-    // kosmos#7864: what VoiceOver says for a link preview inside a message: the title and the site.
+    // kosmos#7864: what VoiceOver says for a link preview inside a message: the title and the address's own host (never
+    // the page's site name, which a page can make up: by ear there is no address to check it against).
     static func linkPreviewSpoken(_ p: LinkPreview) -> String {
-        p.title == p.site ? "Link: " + p.title : "Link: " + p.title + ", " + p.site
+        let host = p.url.host ?? p.site
+        return p.title == host ? "Link: " + p.title : "Link: " + p.title + ", " + host
     }
 
     // A reaction pill on a chat message: the room's Board.Reaction shape (BoardRoom.swift), kept here because not every

@@ -18,7 +18,8 @@ row's `preview`, which the board attaches in withPreviews (#357) on the thread r
   again (its task's id names whether the picture is kept, round 2); reset with the chat.
 - ChatView.swift: `LinkPreviewCard` under the bubble, laid out as the board's card (#761, Josh: the words first, then a
   much larger picture at the card's width); tapping opens the address. Inside ChatBubble, whose one VoiceOver element
-  now says "Link: title, site" and, among its link actions, "Open link to <site>" unless one of the message's own links
+  now says "Link: title, host" and, among its link actions, "Open link to <host>" (round 6: the address's own host,
+  never the page's site name, which a page can make up and a VoiceOver user has no address to check against) unless one of the message's own links
   already opens that site (review round 1: it was an action on every bubble).
 - Debug only: KOSMOS_SAMPLE_PREVIEW=1 adds two sample rows with previews and draws a sample picture, for design shots.
 
@@ -35,14 +36,16 @@ Rooms have their own row model (BoardRoom.swift RoomRow) and renderer (RoomView.
   way across a drop is not kept (tested). Accepted, stated: a list holding more than 12 preview cards at once could
   evict and refetch in turn (the chat's LazyVStack keeps a screen's worth alive, well under 12); a card scrolled away
   mid-fetch relies on env.send answering nil when its task is cancelled, as the thumbnail loader does.
-- Review round 5: the pictures are dropped when the chat closes (not when its info page is pushed over it), so they do
+- Review round 6: a chat closing RELEASES its pictures without the drop generation (a quick switch kept discarding the
+  next chat's pictures on their way, tested); only a memory warning bumps it. A cancelled load leaves the asked set alone
+  across a drop. Before round 6: the pictures are dropped when the chat closes (not when its info page is pushed over it), so they do
   not outlive it; and a card's load task id carries the drop generation, so a picture thrown away for arriving across a
   drop is fetched again. The site fallback keeps a port, as the board's.
 - Weakest premise: that the picture fits a 0.52 aspect at the bubble's width (capped 220 pt); a tall picture is cropped,
   as the board's own card crops with object-fit.
 
 ## Verified
-- ios/LogicTests (run.sh): 1903/1903 (a sign-out while a picture is on its way, and a memory-warning drop with its
+- ios/LogicTests (run.sh): 1905/1905 (a sign-out while a picture is on its way, and a memory-warning drop with its
   refetch, added in rounds 2 and 3), with the loader cases mirroring the thumbnail loader's (not a picture, 900 px,
   the unfurl route, 5xx again, 404 not, the sign-in page again, once only, no picture no request, the cap (12) and
   its refetch, a sign-out clears them; the test Mac now answers the unfurl route) and the parsing cases (a full preview read; none on a plain row; non-http(s)
