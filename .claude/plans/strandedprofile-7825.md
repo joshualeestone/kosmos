@@ -105,3 +105,16 @@ never offering at all.
   the workers folder (Miles vs miles) is offered under the other spelling. Accepted: the file is already empty to every
   reader, and it goes to the Trash.
 - Each fix mutation-checked (link resolve, "there" sentence, plain-only compare).
+
+## Review round 6 (sonnet, fixed)
+- A recorded folder inside the workers folder by its spelling is trusted only when no part below the workers folder is
+  a link: a dangling link (a disk not mounted) is out of reach; a live one is judged by where it goes. A look that fails
+  there refuses. Both mutation-checked.
+- The case-fold test is skipped on a disk that tells case apart (CI may be one).
+- Answered, no change: "the retry relies on PR 2". It does not: the removed list draws "Delete its files" on every
+  removed row whatever is left (web/index.html removed-row template), and the plan is fetched on the click, so the
+  kept record is a reachable retry today. PR 2 is for names with no removal record.
+- Declined: the "loses" list carrying the damaged-file line (it is what the person should know before the click, the
+  list's purpose); punctuation-variant world-start test (same safeKey path as the case test).
+- Weakest premise, added: a recorded folder written with ".." after a link is judged by its normalised spelling;
+  Kosmos writes recorded folders already resolved (discover writes the folder it was given, absolute).

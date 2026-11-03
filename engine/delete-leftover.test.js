@@ -1131,7 +1131,7 @@ test('kosmos#7825: a recorded folder that is not an absolute path is not a conne
   fs.rmSync(store.profilePath(name), { force: true });
 });
 
-test('kosmos#7825: on a case-blind disk a folder recorded in the workers folder in another case is inside it (review 2)', () => {
+test('kosmos#7825: on a case-blind disk a folder recorded in the workers folder in another case is inside it (review 2)', { skip: (() => { const W = process.env.AGENT_WORKFORCE_WORKERS; fs.mkdirSync(W, { recursive: true }); return fs.existsSync(W.toUpperCase()) ? false : 'this disk tells case apart (review 6)'; })() }, () => {
   const W = process.env.AGENT_WORKFORCE_WORKERS;
   const name = strandedProfile('fold7825', { dir: nodePath.join(W.toUpperCase(), 'fold7825') });
   assert.equal(mac.plan(name).ok, true, 'a gone folder inside the workers folder, spelled in another case, read as out of reach');
@@ -1201,5 +1201,41 @@ test('kosmos#7825: a recorded folder outside the workers folder that is there (a
   // CONTROL: nothing there is the disconnected-disk sentence.
   store.writeProfile(name, { dir: nodePath.join(out, 'gone') });
   assert.match(mac.plan(name).because || '', /cannot reach right now/);
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a recorded folder inside the workers folder behind a link is judged by the link (review 6)', () => {
+  const W = process.env.AGENT_WORKFORCE_WORKERS;
+  fs.mkdirSync(W, { recursive: true });
+  const dangling = nodePath.join(W, 'ext7825');
+  try { fs.symlinkSync(nodePath.join(SANDBOX, 'unmounted7825'), dangling); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
+  const name = strandedProfile('behind7825', { dir: nodePath.join(dangling, 'behind7825') });
+  try {
+    assert.match(mac.plan(name).because || '', /^behind7825's folder is somewhere this computer cannot reach right now/, 'a folder behind a link to an unmounted disk was offered');
+    // A live link out of the workers folder: judged by where it goes (outside, and its folder gone there).
+    fs.mkdirSync(nodePath.join(SANDBOX, 'mounted7825'), { recursive: true });
+    const live = nodePath.join(W, 'live7825');
+    try { fs.symlinkSync(nodePath.join(SANDBOX, 'mounted7825'), live); } catch (e) { if (!(e && e.code === 'EEXIST')) throw e; }
+    store.writeProfile(name, { dir: nodePath.join(live, 'behind7825') });
+    assert.match(mac.plan(name).because || '', /cannot reach right now/, 'a gone folder behind a link out of the workers folder was offered');
+    // CONTROL: the same gone folder spelled with no link is a leftover.
+    store.writeProfile(name, { dir: nodePath.join(W, 'behind7825') });
+    assert.equal(mac.plan(name).ok, true);
+  } finally {
+    for (const l of ['ext7825', 'live7825']) fs.rmSync(nodePath.join(W, l), { force: true });
+    fs.rmSync(store.profilePath(name), { force: true });
+  }
+});
+
+test('kosmos#7825: a look below the workers folder that fails refuses, never reads as a gone folder (review 6)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a folder whatever its mode' : false }, () => {
+  const W = process.env.AGENT_WORKFORCE_WORKERS;
+  const locked = nodePath.join(W, 'locked7825');
+  fs.mkdirSync(locked, { recursive: true });
+  const name = strandedProfile('peek7825', { dir: nodePath.join(locked, 'inner', 'peek7825') });
+  fs.chmodSync(locked, 0o000);
+  let p;
+  try { p = mac.plan(name); } finally { fs.chmodSync(locked, 0o755); fs.rmSync(locked, { recursive: true, force: true }); }
+  assert.equal(p.ok, false, 'a folder Kosmos could not look into was read as gone');
+  assert.match(p.because, /^we could not check where peek7825's folder was/);
   fs.rmSync(store.profilePath(name), { force: true });
 });
