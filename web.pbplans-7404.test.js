@@ -415,3 +415,15 @@ test('#7827: "finished" after a page had been open a while does not read at once
   finished = true; await s.pbpChoose(25); await tick(); await tick();
   assert.equal(reads, 1, 'a read ran at once, though the relay says finished only while no plan is recorded');
 });
+
+test('#7827 items 6, 7: the wait line shows the engine\'s own sentence for an unclosed page and for an answer Kosmos+ could not finish', async () => {
+  for (const [code, because] of [['backup_checkout_unclosed', 'An earlier payment for this backup may still be going through. If you paid, your plan shows here shortly; if not, try again in a minute.'],
+    ['backup_checkout_unsure', 'Kosmos+ could not finish that just now. If you already paid, your plan shows here shortly; if not, choose your plan again in a minute.']]) {
+    const doc = fakeDoc();
+    const s = screen(doc, (u) => (/checkout$/.test(u) ? answer({ ok: false, code, because })() : answer({ ok: true, plans: PLANS, planGb: null })()));
+    s.pbpShow(true, false); await tick(); await tick();
+    await s.pbpChoose(25);
+    assert.ok(vis(doc, 'pb-plans-wait'), code);
+    assert.equal(doc.getElementById('pb-plans-wait').textContent, because, code + ': the wait line did not say the engine\'s sentence');
+  }
+});
