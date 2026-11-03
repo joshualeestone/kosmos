@@ -774,8 +774,7 @@ struct ChatView: View {
                 .onChange(of: stripHeight) { [was = stripHeight] _ in
                     guard was > 0, visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
                     Self.trace("box height changed, to the newest")
-                    appMoves &+= 1
-                    if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
+                    if Self.idAnchor { appMoves &+= 1; proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                     // Only the chat on screen: another tab can keep a chat alive under it.

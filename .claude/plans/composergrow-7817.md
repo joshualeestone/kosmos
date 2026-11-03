@@ -18,8 +18,7 @@ above the box (within 4 pt). A reader higher up is not moved by it.
 - ChatView: `stripHeight`, the height of the strip under the list (the box and its line), read by a GeometryReader on
   the strip. When it changes and the reader is at the newest message (`atBottom`, not searching, no finger on the
   list), the list is put at its end, as keyboardDidShow already does. Not on the strip's first measure (0 to its
-  height as the chat opens). The keyboard showing or hiding also changes the strip (the home indicator's inset); at
-  the newest that is the same move keyboardDidShow makes, and a reader higher up is not followed either way.
+  height as the chat opens).
 - ios/tools/ui-sample.sh: KeyboardSlideUITests count 9; ui-keyboard.sh's stale count 3 raised to 9.
 
 ## Rejected
@@ -33,6 +32,11 @@ above the box (within 4 pt). A reader higher up is not moved by it.
 (ChatView end-disappear), which the test's pass supports but a device may differ (Josh's phone moved the list the
 other way, which the simulator did not reproduce). On iOS 16 and 17 (followsScrollPhase off) a paste of several lines
 can hide the end marker and clear atBottom before the follow runs; residual, not tested (the simulator runs iOS 26).
+Also residual: in KeyboardHold's window right after the keyboard shows, an iOS jump can briefly show the end marker for
+a reader higher up (atBottom true until the hold's re-read 0.1 s later); a strip change in that window (the emoji
+panel closing on focus) would take them to the newest. Not reproduced or tested.
+Josh's phone moved the list the other way (older messages into view); the simulator shows only the list not
+following. Not proven fixed for his symptom until seen on a TestFlight build.
 
 ## Tests
 - KosmosUITests/KeyboardSlideUITests.testNewestStaysJustAboveTheBoxAsItGrowsAndShrinks: fails on main (90 to 46 pt
