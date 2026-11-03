@@ -7,8 +7,10 @@
  * ios/Kosmos/ShellLogic.swift, AppTabs.markScript) runs at document start, as its WKUserScript does. /api/whats-new is
  * stubbed to say the board moved from 0.7.84 to 0.7.85 with this release's highlights (web/whats-new.json). No board,
  * in Chromium and WebKit:
- *  - CONTROL, the same page not marked: the window opens and the version is recorded as seen;
- *  - marked by the app: no window, nothing recorded (so the computer's own window still shows it);
+ *  - CONTROL, the same page not marked (on the computer, and over Kosmos+ at desktop width): the window opens and the
+ *    version is recorded as seen;
+ *  - marked by the app, or over a Kosmos+ address at phone width (the Android app, a phone browser): the load itself
+ *    shows no window and records nothing (so the computer's own window still shows it), judged after 1.5 s;
  *  - no page error.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-whatsnew-phone-7839.js
@@ -25,6 +27,9 @@ const PAGE = nodePath.join(ROOT, 'web', 'index.html');
 const NEWS = JSON.parse(fs.readFileSync(nodePath.join(ROOT, 'web', 'whats-new.json'), 'utf8'));
 const SWIFT = fs.readFileSync(nodePath.join(ROOT, 'ios', 'Kosmos', 'ShellLogic.swift'), 'utf8');
 const MARK = (SWIFT.match(/static let markScript = """\n([\s\S]*?)\n\s*"""/) || [])[1];
+const REMOTE_HOST = 'https://sample.kosmosplus.com';
+const REMOTE = REMOTE_HOST + '/';
+const HTML = fs.readFileSync(PAGE, 'utf8');
 const fails = [];
 const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : '')); if (!ok) fails.push(label); };
 
@@ -46,32 +51,43 @@ const STUB = (news) => {
     let browser;
     try { browser = await pw[engine].launch({ headless: process.env.HEADED === '0' }); }
     catch (err) { say(false, '[' + engine + '] could not start a browser', err && err.message ? err.message.split('\n')[0] : String(err)); continue; }
-    for (const marked of [false, true]) {
-      const tag = '[' + engine + (marked ? ' in the iPhone app' : ' not marked') + ']';
-      const page = await browser.newPage({ viewport: { width: 393, height: 852 } });
+    // Each arm: how the page is loaded, and whether the window should show. The "none" arms are judged on the
+    // load's OWN call (nothing is called by hand), after more than one tick of its held loop.
+    const arms = [
+      { name: 'not marked, on the computer', url: 'file://' + PAGE, mark: false, width: 393, show: true },
+      { name: 'in the iPhone app', url: 'file://' + PAGE, mark: true, width: 393, show: false },
+      { name: 'Kosmos+ address at phone width (Android, a phone browser)', url: REMOTE, mark: false, width: 393, show: false },
+      { name: 'Kosmos+ address at desktop width', url: REMOTE, mark: false, width: 1280, show: true },
+    ];
+    for (const arm of arms) {
+      const tag = '[' + engine + ' ' + arm.name + ']';
+      const page = await browser.newPage({ viewport: { width: arm.width, height: 852 } });
       const errs = []; page.on('pageerror', (e) => { if (!/due to access control checks/.test(e.message)) errs.push(e.message); });
+      // A Kosmos+ address: the page itself at that host; anything else it asks for is refused (fetch is stubbed).
+      await page.route(REMOTE_HOST + '/**', (r) => (r.request().url() === REMOTE ? r.fulfill({ status: 200, contentType: 'text/html', body: HTML }) : r.abort()));
       await page.addInitScript(() => { window.setInterval = () => 0; });
       await page.addInitScript(STUB, { version: NEWS.version, highlights: NEWS.highlights || [] });
-      if (marked) await page.addInitScript(MARK);
-      await page.goto('file://' + PAGE);
+      if (arm.mark) await page.addInitScript(MARK);
+      await page.goto(arm.url);
       await page.waitForFunction(() => typeof whatsNewCheck === 'function');
-      // The load's own check can wait behind the first-run tour or the boot cover on a file:// page; clear them and
-      // ask again, as the next load would.
-      const r = await page.evaluate(async () => {
-        for (const id of ['firstrun', 'boot-cover']) { const e = document.getElementById(id); if (e) e.hidden = true; }
-        if (typeof TIP_OPEN !== 'undefined') { try { TIP_OPEN = null; } catch { /* const in some builds */ } }
-        await whatsNewCheck();
-        await new Promise((res) => setTimeout(res, 50));
+      const base = await page.evaluate(() => new Promise((res) => setTimeout(() => {
         const w = document.getElementById('whatsnew');
-        return { marked: document.documentElement.classList.contains('kapptabs'), shown: !!w && !w.hidden && getComputedStyle(w).display !== 'none', seen: window.__wnSeen };
-      });
-      say(r.marked === marked, tag + ' the page is marked as the app marks it: ' + marked, JSON.stringify(r));
-      if (marked) {
-        say(!r.shown, tag + ' no "Kosmos has been updated" window', JSON.stringify(r));
-        say(r.seen === 0, tag + ' the version is not recorded as seen, so the computer still shows it', JSON.stringify(r));
+        res({ remote: typeof kplusRemote === 'function' && kplusRemote(), marked: document.documentElement.classList.contains('kapptabs'),
+          shown: !!w && !w.hidden, seen: window.__wnSeen });
+      }, 1500)));
+      say(base.marked === arm.mark && base.remote === (arm.url === REMOTE), tag + ' loaded as meant (marked ' + arm.mark + ', Kosmos+ ' + (arm.url === REMOTE) + ')', JSON.stringify(base));
+      if (!arm.show) {
+        say(!base.shown, tag + ' the load shows no "Kosmos has been updated" window', JSON.stringify(base));
+        say(base.seen === 0, tag + ' the load records nothing, so the computer still shows it', JSON.stringify(base));
       } else {
-        say(r.shown, tag + ' CONTROL: the window opens', JSON.stringify(r));
-        say(r.seen >= 1, tag + ' CONTROL: the version is recorded as seen', JSON.stringify(r));
+        // CONTROL: the load's own call can wait behind the first-run tour or the boot cover; clear them and ask again.
+        const r = await page.evaluate(async () => {
+          for (const id of ['firstrun', 'boot-cover']) { const e = document.getElementById(id); if (e) e.hidden = true; }
+          await whatsNewCheck(); await new Promise((res) => setTimeout(res, 50));
+          const w = document.getElementById('whatsnew');
+          return { shown: !!w && !w.hidden, seen: window.__wnSeen };
+        });
+        say(r.shown && r.seen >= 1, tag + ' CONTROL: the window opens and the version is recorded', JSON.stringify(r));
       }
       say(errs.length === 0, tag + ' no page error', errs.join(' | '));
       await page.close();
