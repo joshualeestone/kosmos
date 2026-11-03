@@ -19,7 +19,8 @@ and AI Settings, instead of a section at the foot of Profile.
   board names its machine where the phone says "your computer"). Before, at the foot of Profile, a 404 hid the section.
 - The Files result is applied as soon as its own read is back (review 1), not after the slowest of the page's reads.
   A newer load wins over an older one that finishes later (review 2: a load counter), and a refresh that gets no
-  answer keeps the rows it had (Board.filesSectionAfter, now a tested pure function).
+  answer keeps the rows it had (Board.filesSectionAfter, now a tested pure function). Review 3: "no answer" is its own
+  state, so a refusal that shows the same words (no reason given, or the sign-in page) replaces the rows instead.
 - Rejected: hiding the Files segment for an agent with no files (a control that comes and goes moves the other two).
 
 ## Not in this branch
@@ -29,4 +30,6 @@ and AI Settings, instead of a section at the foot of Profile.
   the card; this branch does not touch it.
 
 ## Shots (simulator, sample data; under Files on Ice Cream Kitty's page, named on the #7679 card)
+Launched with KOSMOS_SAMPLE_AGENTS=1, KOSMOS_SAMPLE_OPEN=dana, KOSMOS_SAMPLE_INFO=files and KOSMOS_SAMPLE_FILES=1 (or =empty for
+the empty line; without it the sample page reads through the Mac, gets no answer, and says it could not read).
 7679-seg-files (two files and View All), 7679-seg-files-empty (the empty line), 7679-seg-profile, 7679-seg-ai.

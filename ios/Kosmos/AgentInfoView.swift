@@ -1,9 +1,9 @@
 import SwiftUI
 
 // kosmos#7267: the agent's own page, opened by the chat's info button. Profile and AI Settings, and since kosmos#7679
-// Files, under a segmented control (Josh: "a hybrid of the agent's Profile and its AI Settings, using a segmented control to switch between the
-// two sections"), never the conversation again. Words are the board's (web/index.html d-sec-profile, d-sec-model,
-// d-sec-memory); the decisions are in AgentInfoLogic.swift (tested).
+// Files, under a segmented control (Josh: "a hybrid of the agent's Profile and its AI Settings, using a segmented
+// control to switch between the two sections"), never the conversation again. Words are the board's (web/index.html
+// d-sec-profile, d-sec-model, d-sec-memory); the decisions are in AgentInfoLogic.swift (tested).
 struct AgentInfoView: View {
     @ObservedObject var client: BoardClient
     let agent: Board.Agent

@@ -173,6 +173,10 @@ struct FilesSection: View {
             Section {
                 Text(line).foregroundColor(Palette.secondary)
             } header: { header }
+        case .noAnswer:   // kosmos#7679 review 3: the same line as a refusal without a reason
+            Section {
+                Text(Board.filesAgentUnread).foregroundColor(Palette.secondary)
+            } header: { header }
         case .rows(let files):
             Section {
                 ForEach(files) { f in

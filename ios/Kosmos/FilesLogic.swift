@@ -56,7 +56,7 @@ extension Board {
     static let filesTitle = "Files"
     static let filesAll = "View All"
     static let filesAgentUnread = "We could not read this agent\u{2019}s files just now."
-    // kosmos#7679 review 1: the board's 404 line (paintAgentFiles), with "your computer" where the board names its own
+    // kosmos#7679 review 1: the board's Files screen 404 line (paintAgentFilesAll), with "your computer" where the board names its own
     // machine (the phone is not on it).
     static let filesAgentNoFolder = "This agent has no folder of its own on your computer, so there is no Files list."
     // Review 2: a file is read whole into memory to open it, so one past this is not fetched (a 3 GB recording would get
@@ -197,12 +197,15 @@ extension Board {
         return line
     }
 
-    // Review 4: the agent page's section, as the board's paintAgentFiles decides it (#3757, Josh 0.6.94: an agent with no
-    // files shows no Files section at all). Hidden while it loads or with no files; a 404 (no folder of its own) says so, as
-    // the board does (kosmos#7679 review 1, now that Files is a segment of its own);
+    // Review 4: the agent page's section, from the board's paintAgentFiles (#3757, Josh 0.6.94: an agent with no files shows
+    // no Files section at all). Hidden while it loads or with no files. A 404 (no folder of its own) differs from that
+    // sidebar, which hides: it says so, as the board's Files screen (paintAgentFilesAll) does (kosmos#7679 review 1, now
+    // that Files is a segment of its own). No answer is its own state (review 3);
     // a refusal says the route's reason, or the board's line; otherwise the rows, and View All (#3994: whenever there is
     // a file, even one).
-    enum FilesSectionState: Equatable { case hidden, message(String), rows([ListedFile]) }
+    // kosmos#7679 review 3: noAnswer is its own state (shown as filesAgentUnread), so a refresh can tell a read that never
+    // came back from a refusal that happens to use the same words.
+    enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), rows([ListedFile]) }
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
         if status == 404 { return .message(filesAgentNoFolder) }
         switch filesResult(status: status, body: body) {
@@ -210,14 +213,14 @@ extension Board {
         case .refused(let why):
             let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             return .message((obj?["because"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why))
-        case .noAnswer: return .message(filesAgentUnread)
+        case .noAnswer: return .noAnswer
         }
     }
 
     // kosmos#7679 review 2: what the agent page keeps after a refresh. An answer that never came keeps the rows it had (a
     // phone loses its connection far more than a desk page does); a refusal or a new list replaces them.
     static func filesSectionAfter(_ old: FilesSectionState, _ new: FilesSectionState) -> FilesSectionState {
-        if new == .message(filesAgentUnread), case .rows = old { return old }
+        if new == .noAnswer, case .rows = old { return old }
         return new
     }
 
