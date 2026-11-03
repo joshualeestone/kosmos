@@ -245,7 +245,7 @@ struct RoomView: View {
                                     AnyView(ChatView(client: store.clientForChat, agent: a, openOnBoard: {
                                         if let url = store.clientForChat.chatURL(for: a) { openPage(url) }
                                     }))
-                                }, openPage: openPage)
+                                }, openPage: openPage, reload: { _ = await store.loadList() })
             } label: { EmptyView() }.hidden()
         )
         .onAppear {
