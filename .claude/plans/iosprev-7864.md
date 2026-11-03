@@ -13,10 +13,12 @@ row's `preview`, which the board attaches in withPreviews (#357) on the thread r
   phone never talks to the site. `ChatRow.preview`; `linkPreviewSpoken` for VoiceOver.
 - BoardClient.swift: `loadPreviewImage`, the thumbnail loader's rules (through the phone's own session, once per run,
   a passing failure asked again, a 404 or an undrawable picture not), decoded once to a CGImage at most 900 px (review
-  round 1: not a PNG decoded again on every draw), the newest 40 kept; reset with the chat.
+  round 1: not a PNG decoded again on every draw), decoded off the main actor (round 3), the newest 12 kept and all
+  dropped on a memory warning (round 3: 40 could reach ~130 MB); a card on screen whose picture was dropped fetches it
+  again (its task's id names whether the picture is kept, round 2); reset with the chat.
 - ChatView.swift: `LinkPreviewCard` under the bubble, laid out as the board's card (#761, Josh: the words first, then a
   much larger picture at the card's width); tapping opens the address. Inside ChatBubble, whose one VoiceOver element
-  now says "Link: title, site" and, among its link actions, "Open <title>" unless one of the message's own links
+  now says "Link: title, site" and, among its link actions, "Open link to <site>" unless one of the message's own links
   already opens that site (review round 1: it was an action on every bubble).
 - Debug only: KOSMOS_SAMPLE_PREVIEW=1 adds two sample rows with previews and draws a sample picture, for design shots.
 
@@ -33,7 +35,8 @@ Rooms have their own row model (BoardRoom.swift RoomRow) and renderer (RoomView.
   as the board's own card crops with object-fit.
 
 ## Verified
-- ios/LogicTests (run.sh): 1898/1898, with the loader cases mirroring the thumbnail loader's (not a picture, 900 px,
+- ios/LogicTests (run.sh): 1901/1901 (a sign-out while a picture is on its way, and a memory-warning drop with its
+  refetch, added in rounds 2 and 3), with the loader cases mirroring the thumbnail loader's (not a picture, 900 px,
   the unfurl route, 5xx again, 404 not, the sign-in page again, once only, no picture no request, the cap of 40 and
   its refetch, a sign-out clears them; the test Mac now answers the unfurl route) and the parsing cases (a full preview read; none on a plain row; non-http(s)
   refused; no title/words/picture is no card; title and site fallbacks; a picture from anywhere but the unfurl route

@@ -3849,6 +3849,11 @@ section("native board loop: connecting")
         let capAsks = w.attachmentAsks.count
         await c.loadPreviewImage(lp("cap0"))
         check(w.attachmentAsks.count == capAsks + 1 && c.previewImages[lp("cap0").image!] != nil, "preview: one dropped for room is fetched again when drawn")
+        c.dropPreviewImages()
+        check(c.previewImages.isEmpty, "preview: a memory warning drops every picture")
+        let dropAsks = w.attachmentAsks.count
+        await c.loadPreviewImage(lp("cap0"))
+        check(w.attachmentAsks.count == dropAsks + 1 && c.previewImages[lp("cap0").image!] != nil, "preview: and a card drawn after it fetches its picture again")
         // A sign-out while a picture is on its way: it lands in nobody's chat.
         w.attachmentYields = 50
         w.attachmentAnswer = (200, "image/png", big)
@@ -5650,9 +5655,12 @@ do {
     check(lp(#"{"url":"https://x.example.com/"}"#) == nil, "no title, words or picture: no card (the board's rule)")
     check(lp(#"{"url":"https://x.example.com/","description":"words"}"#)?.title == "https://x.example.com/", "no title: the address stands in")
     check(lp(#"{"url":"https://x.example.com/a","title":"T"}"#)?.site == "x.example.com", "no site: the host stands in")
-    check(lp(#"{"url":"https://x.example.com/","title":"T","image":"https://evil.example.net/p.png"}"#)?.image == nil, "a picture from anywhere but the Mac's unfurl route is dropped")
-    check(lp(#"{"url":"https://x.example.com/","title":"T","image":"/api/agent/x/files/download"}"#)?.image == nil, "another Mac route is not a preview picture")
-    check(lp(#"{"url":"https://x.example.com/","title":"T","image":"/api/unfurl/image?url=a/../../b"}"#)?.image == nil, "a path with .. is dropped")
+    for (img, why) in [("https://evil.example.net/p.png", "a picture from anywhere but the Mac's unfurl route is dropped"),
+                       ("/api/agent/x/files/download", "another Mac route is not a preview picture"),
+                       ("/api/unfurl/image?url=a/../../b", "a path with .. is dropped")] {
+        let got = lp(#"{"url":"https://x.example.com/","title":"T","image":""# + img + #""}"#)
+        check(got?.title == "T" && got?.image == nil, why + ", and the card stays")
+    }
     check(lp(#"{"url":"https://x.example.com/","title":"   "}"#) == nil, "a blank title is no title")
     check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T"}"#)!) == "Link: T, x.example.com", "VoiceOver hears the title and the site")
     check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"x.example.com","site":"x.example.com"}"#)!) == "Link: x.example.com", "and once when they are the same")

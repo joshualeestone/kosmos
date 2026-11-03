@@ -251,6 +251,9 @@ struct ChatView: View {
         .task(id: client.chatEpoch) { await client.readStarsIfUnknown() }
         .quickLookPreview($previewURL)
         // Closed: the file it showed is removed from the phone (#7016 review 1).
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+            client.dropPreviewImages()   // kosmos#7864: link preview pictures are the large ones; drawn cards fetch theirs again
+        }
         .onChange(of: previewURL) { now in
             if let was = openedFile, was != now { client.closed(was); openedFile = now }
         }
@@ -1201,7 +1204,8 @@ struct ChatView: View {
         .padding(.top, 60)
     }
 
-    // kosmos#7864: the picture's load runs again when its picture is gone (dropped for room while the card is on screen).
+    // kosmos#7864: the picture's load runs again when its picture is gone (dropped for room, or on a memory warning, while
+    // the card is on screen).
     private func previewTaskKey(_ row: Board.ChatRow) -> String? {
         row.preview?.image.map { $0 + (client.previewImages[$0] == nil ? "#missing" : "#kept") }
     }
@@ -2339,7 +2343,7 @@ struct ChatBubble: View {
                 let number = links.count > 1 ? "\(i + 1) " : ""
                 Button("Open link \(number)to \(url.host ?? url.absoluteString)") { openURL(url) }
             }
-            if let card { Button("Open \(card.title)") { openURL(card.url) } }
+            if let card { Button("Open link to \(card.site)") { openURL(card.url) } }
         }
     }
 

@@ -1072,12 +1072,18 @@ final class BoardClient: ObservableObject {
     }
 
     // kosmos#7864: a link preview's picture, by its path on the Mac (/api/unfurl/image, the Mac fetches the site, never
-    // the phone), decoded once at most 900 px on its longer side (the card's width at @3x), fetched once per run, the
-    // newest `previewImageCap` kept in memory, nothing on disk.
+    // the phone), decoded once, off the main thread, at most 900 px on its longer side (the card's width at @3x), fetched
+    // once per run, the newest `previewImageCap` kept in memory (a screen shows a few cards; a decoded picture can be
+    // 3 MB), all dropped on a memory warning (ChatView), nothing on disk. A dropped one is fetched again when drawn.
     @Published private(set) var previewImages: [String: CGImage] = [:]
     private var previewImageAsked: Set<String> = []
     private var previewImageOrder: [String] = []
-    static let previewImageCap = 40
+    static let previewImageCap = 12
+    func dropPreviewImages() {
+        previewImages = [:]
+        previewImageAsked = []
+        previewImageOrder = []
+    }
     private func keepPreviewImage(_ image: CGImage, at path: String) {
         previewImages[path] = image
         previewImageOrder.removeAll { $0 == path }
@@ -1102,13 +1108,18 @@ final class BoardClient: ObservableObject {
         guard let (data, response) = answer else { previewImageAsked.remove(path); return }
         let isImage = (response.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
         let ok = (200...299).contains(response.statusCode)
-        if ok, isImage { if let pic = Self.picture(data, maxPixels: 900) { keepPreviewImage(pic, at: path) } }
+        if ok, isImage {
+            // Decoded off the main actor (a page's picture is often a large JPEG), then kept only for the same chat.
+            let pic = await Task.detached(priority: .utility) { Self.picture(data, maxPixels: 900) }.value
+            guard epoch == chatEpoch else { return }
+            if let pic { keepPreviewImage(pic, at: path) }
+        }
         // As the thumbnails: a passing failure is asked again on the next draw, a 404 or a picture the phone cannot draw is not.
         else if response.statusCode >= 500 || (ok && !isImage) { previewImageAsked.remove(path) }
     }
 
     // kosmos#7864: a picture decoded at most `maxPixels` on its longer side; nil for bytes that are not a picture.
-    static func picture(_ data: Data, maxPixels: Int) -> CGImage? {
+    nonisolated static func picture(_ data: Data, maxPixels: Int) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         return CGImageSourceCreateThumbnailAtIndex(source, 0, [
             kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: maxPixels,
