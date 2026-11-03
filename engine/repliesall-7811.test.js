@@ -99,7 +99,7 @@ test('older posts not on the profile are said as not checked', async () => {
   const urls = serve({ listed: range(1, 12) });   // post 0 is not on the profile
   const r = await cr.readReplies('Unl7811', { now: NOW });
   assert.deepEqual(threadReads(urls), range(2, 12));
-  assert.match(r.text, /\(1 of your older posts is not on your public profile, so Kosmos cannot check it for new comments\)/);
+  assert.match(r.text, /\(1 of your older posts is not among the posts your public profile lists, so Kosmos cannot check it for new comments\)/);
 });
 
 test('ten posts or fewer make no profile read at all', async () => {
@@ -217,4 +217,83 @@ test('a profile that fails pass after pass stops holding the nudge\'s count: aft
   const third = await cr.freshReplies('Down7811', { now: NOW, paceMs: 0 });
   assert.equal(third.ok, true, third.because);
   assert.deepEqual(third.posts.map((p) => p.remoteId), [PID(1)]);
+});
+
+const markFile = (name) => path.join(require('./store').ROOT, 'communityread', 'replies-seen', require('node:crypto').createHash('sha256').update(name).digest('hex') + '.json');
+
+test('items the read\'s cap held back on an older post are read next time, though the agent\'s own reply there is newest', async () => {
+  clearSeen();
+  writeSendState('Cap7811', 12);
+  /* Post 0 (older): the agent's own reply at 9:00 is newest, Ann's A2 at 8:00 and A1 at 0:30. The 10 newest posts hold
+     30 items between them, so the read's cap of 30 shows A1 and holds A2 back. */
+  const C = (k) => 'c0000000-0000-4000-8000-000000000' + String(k).padStart(3, '0');
+  const threads = { 0: [comment({ id: C(900), created_at: at(9), agent: { name: 'cap7811-writes' }, body: 'my own' }),
+    comment({ id: C(800), created_at: at(8), body: 'A2 held back' }), comment({ id: C(100), created_at: at(0, 30), body: 'A1 first' })] };
+  let n = 1;
+  for (let i = 2; i < 12; i += 1) threads[i] = [0, 1, 2].map((k) => comment({ id: C(n++), created_at: at(1, i * 3 + k), body: 'p' + i }));
+  const latest = { 0: { id: C(900), created_at: at(9), agent: { name: 'cap7811-writes' } } };
+  for (let i = 2; i < 12; i += 1) latest[i] = { id: threads[i][2].id, created_at: threads[i][2].created_at };
+  serve({ listed: range(0, 12), latest, threads });
+  const r1 = await cr.readReplies('Cap7811', { now: NOW });
+  assert.match(r1.text, /A1 first/);
+  assert.doesNotMatch(r1.text, /A2 held back/, 'the precondition: the cap held A2 back');
+  const urls = serve({ listed: range(0, 12), latest, threads });
+  const r2 = await cr.readReplies('Cap7811', { now: NOW + 1000 });
+  assert.ok(threadReads(urls).includes(0), 'the older post was not read again for what the cap held back');
+  assert.match(r2.text, /A2 held back/);
+});
+
+test('a hold that has reached MARK_HOLD_MAX no longer takes an older slot', async () => {
+  clearSeen();
+  writeSendState('Max7811', 12);
+  const latest = { 1: { id: CID(2), created_at: at(9), agent: { name: 'Ann' } } };
+  const threads = { 1: [comment({ id: CID(2), created_at: at(9) })] };
+  serve({ listed: range(0, 12), latest, threads });
+  await cr.readReplies('Max7811', { now: NOW });
+  const j = JSON.parse(fs.readFileSync(markFile('Max7811'), 'utf8'));
+  j.posts[PID(1)].held = 3;   // MARK_HOLD_MAX
+  fs.writeFileSync(markFile('Max7811'), JSON.stringify(j));
+  const urls = serve({ listed: range(0, 12), latest, threads });
+  await cr.readReplies('Max7811', { now: NOW + 1000 });
+  assert.ok(!threadReads(urls).includes(1), 'a post whose hold is spent was read again');
+});
+
+test('an older post with something new but not read this time gets its first-look floor', async () => {
+  clearSeen();
+  writeSendState('Flo7811', 12);
+  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } }, slowProfileMs: 150 });
+  await cr.readReplies('Flo7811', { now: NOW, olderStartMs: 50 });
+  assert.ok(!threadReads(urls).includes(0), 'the precondition: the slow profile left post 0 for later');
+  const j = JSON.parse(fs.readFileSync(markFile('Flo7811'), 'utf8'));
+  assert.ok(j.posts[PID(0)], 'the waiting older post got no floor');
+  assert.equal(j.posts[PID(0)].at, NOW - 7 * 24 * 3600 * 1000);
+});
+
+test('a profile 429 sends no round-2 pages in the read, and stops the nudge\'s count', async () => {
+  clearSeen();
+  writeSendState('Lim7811', 12);
+  const threads = { 5: [comment({ id: CID(1), reply_count: 4, replies_cursor: 'C1', replies: [] })] };
+  const urls = serve({ listed: [], profile: 429, threads });
+  await cr.readReplies('Lim7811', { now: NOW });
+  assert.equal(urls.filter((u) => u.includes('/replies')).length, 0, 'round 2 paged a service that is limiting');
+  const ctl = serve({ listed: range(0, 12), threads });
+  clearSeen();
+  await cr.readReplies('Lim7811', { now: NOW });
+  assert.ok(ctl.some((u) => u.includes('/replies')), 'CONTROL: with the profile answering, round 2 pages');
+  serve({ listed: [], profile: 429 });
+  const f = await cr.freshReplies('Lim7811', { now: NOW, paceMs: 0 });
+  assert.equal(f.stop, true);
+});
+
+test('an agent with no stored name reads and counts its newest only', async () => {
+  clearSeen();
+  writeSendState('Nam7811', 12);
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({}));
+  const urls = serve({ listed: range(0, 12), latest: { 0: { id: CID(1), created_at: at(9) } } });
+  const r = await cr.readReplies('Nam7811', { now: NOW });
+  assert.equal(urls.filter((u) => u.includes('/agents/by-name/')).length, 0);
+  assert.deepEqual(threadReads(urls), range(2, 12));
+  assert.match(r.text, /could not be checked for new comments/);
+  const f = await cr.freshReplies('Nam7811', { now: NOW, paceMs: 0 });
+  assert.equal(f.ok, true, f.because);
 });
