@@ -8,22 +8,23 @@ the same from the Mac/Linux CLI (install/kosmos) and the Windows CLI (tools/wind
 leaves the computer: the digest is printed locally, and the report the agent writes is scrubbed and sent as before.
 
 ## Shape (decided)
-- `kosmos feedback day` prints the digest for the agent asking, by the name its records are kept under
-  (feedbackday.recordName): a token agent's KEY, which is where the board files its thread and task rows (the token's
-  own spelling, "Mara" for "mara", would find nothing), else its window's agent name. A token shared by two names is
-  refused. No agent identified: it says so and exits 1, rather than printing someone else's day. Extra words: usage, 2.
+- `kosmos feedback day` prints the digest for the agent asking (feedbackday.recordWho). A token agent's direct
+  thread is under its KEY (chat.threadFile accepts only a key), and so are a paneless token agent's task rows; with a
+  running pane the board can file task rows under the token's own spelling ("Mara" for "mara"), so a task row counts
+  under either. A token shared by two names is refused. No token: its window's agent name. No agent identified: it says so and exits 1, rather than printing someone else's day. Extra words: usage, 2.
 - `engine/feedbackday.js`, pure where it can be: `digest({ name, date, readThread, listTaskFiles, readTask })` returns lines;
   the CLIs only print. Readers injected so tests use inline fixtures, not the live store.
 - Conversation: the direct thread (chat.readThread(chat.DIRECT, name)), messages whose `at` falls on `date` in the
   person's local day (feedback.dateKey, the same day the report is filed under). Counts both ways, then each
   message as time, who (you / the person) and its first line cut to 160 characters, newest last, at most 40.
-  Kosmos's own lines in the agent's name (`kosmos: true`) and menu keystrokes (`wire`) are not messages, so skipped.
+  Kosmos's own lines in the agent's name (`kosmos: true`) are not messages, so skipped; a menu answer (`wire`) is the
+  person's own message and is kept.
   A name Kosmos keeps no conversation under (chat.threadFile refuses it) says exactly that, not "could not read".
   The digest's header asks the agent not to copy names, project names, task numbers or the person's words.
 - Tasks: tasks whose history today (taskchat.read) has a row naming this agent as its author: a task it created
   through the CLI (`addedBy`, with `addedVia: 'process'`, as tasks.js AGENT_ROW does), and a mark, run or move it made (`by`). Most rows name nobody (said, closed, holds),
   so those cannot count. Number, project id and the kinds of change, no titles. An absent task folder is "none"; an
-  unreadable folder, or a transcript in it that cannot be opened, says so. The report's own rules forbid task titles and
+  unreadable folder, or a transcript in it that cannot be inspected or opened, says so. The report's own rules forbid task titles and
   contents, so the digest does not hand them over; the agent can look a task up itself.
 - The nudge line gains one sentence: run `kosmos feedback day` first, since this session may be new. The Project
   Manager's own instructions (engine/roles.js), which carry the same four questions, say so too.
@@ -37,8 +38,10 @@ leaves the computer: the digest is printed locally, and the report the agent wri
 - Project room posts: the card asks for "its messages"; the direct thread is where the person and the agent talk.
   Room posts can follow if the first reports still come out thin.
 
+## Known limits
 - A thread that rolled over today (chat.js keeps 1000 rows, then continues a new file) is read from the current file
   only, so a very busy day's counts can understate. Rare; left for the reports to show whether it matters.
+- The Mac/Linux CLI arm is tested by its source only (running it needs a staged runtime); the Windows handler runs.
 
 ## Weakest premise
 That "its day" is mostly in the direct thread and the task history. An agent that worked only in project rooms gets

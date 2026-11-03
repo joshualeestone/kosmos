@@ -2424,9 +2424,9 @@ async function feedbackDay(ctx, args) {
   if (args && args.length) { ctx.err('Usage: kosmos feedback day'); return 2; }
   let day;
   try { day = ctx.engine('feedbackday'); } catch { ctx.err('Kosmos cannot find its own runtime, so it cannot read your day.'); return 2; }
-  const name = day.recordName(ctx.env);
-  if (!name) { ctx.err("Kosmos cannot tell which agent is asking, so it prints nobody's day. Run this from your own agent session."); return 1; }
-  ctx.out(day.digest({ name }).join('\n'));
+  const who = day.recordWho(ctx.env);
+  if (!who) { ctx.err("Kosmos cannot tell which agent is asking, so it prints nobody's day. Run this from your own agent session."); return 1; }
+  ctx.out(day.digest(who).join('\n'));
   return 0;
 }
 
