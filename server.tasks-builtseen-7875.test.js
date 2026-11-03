@@ -62,7 +62,7 @@ function withProjects(t) {
       { number: 1, sentence: 'built, viewed since', state: 'open', createdAt: ago(10), builtAt: ago(2), builtBy: 'dana' },
       { number: 2, sentence: 'built, never viewed', state: 'open', createdAt: ago(10), builtAt: ago(2), builtBy: 'dana' },
       { number: 3, sentence: 'still open', state: 'open', createdAt: ago(10) },
-      /* Viewed, then built AFTER the view (builtAt in the future of the view recorded in the test): not seen since. */
+      /* A built time one day ahead of now, so the view this test records falls before the build: "not seen since". */
       { number: 4, sentence: 'viewed before it was built', state: 'open', createdAt: ago(10), builtAt: new Date(Date.now() + DAY).toISOString(), builtBy: 'dana' },
       { number: 5, sentence: 'marked built by the person', state: 'open', createdAt: ago(10), builtAt: ago(1), builtByPerson: true },
     ] },

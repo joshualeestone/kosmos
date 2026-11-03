@@ -36,4 +36,6 @@ from a real board (cli.task-list-compact-6761, cli.task-list-across-7057) now ex
 
 ## Weakest premise
 That "viewed the task's conversation in Kosmos" is what agents mean by "seen". A person who reads the built note in
-the project room never opens the task, so the line says "not seen" for work they did see.
+the project room never opens the task, so the line says "not seen" for work they did see. And the other way: a view is
+counted by its time alone, so a person who opened the task after the latest mark for some other reason reads "seen",
+whatever they looked at.
