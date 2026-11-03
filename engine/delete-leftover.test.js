@@ -997,11 +997,11 @@ test('kosmos#7825: a profile that cannot be read refuses, never reads as "no rec
   assert.equal(p.ok, false, 'an unreadable profile was offered for deleting');
   assert.match(p.because, /could not read what Kosmos has stored for noread7825/);
   // Not JSON: also a failed look.
-  fs.writeFileSync(file, '{half');
-  assert.match(mac.plan(name).because || '', /could not read what Kosmos has stored/);
-  // JSON that is not a record (null): also a failed look, not "no recorded folder".
-  fs.writeFileSync(file, 'null');
-  assert.match(mac.plan(name).because || '', /could not read what Kosmos has stored/);
+  // A file that reads but is not settings is not a passing fault: its own sentence, never "try again" (review 2).
+  for (const body of ['{half', 'null', '[1]']) {
+    fs.writeFileSync(file, body);
+    assert.equal(mac.plan(name).because, "noread7825's settings file cannot be read as settings, so Kosmos cannot tell whether it is left over and has not offered to delete it.", body);
+  }
   fs.rmSync(file, { force: true });
 });
 
@@ -1094,5 +1094,39 @@ test('kosmos#7825: a records-only leftover is offered on Linux too', () => {
   const p = leftover.plan(name, { platform: 'linux' });
   assert.equal(p.ok, true, p.because);
   assert.equal(p.verb, 'Move its settings to the Trash');
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: settings stuck after the folder went keep the removed-list row, so the retry is reachable, and it clears it (review 2)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+  quiet();
+  const name = leftoverAgent('retry7825', { job: false });
+  store.writeProfile(name, { displayName: 'Retry' });
+  const rec = remove.remove(name);
+  assert.notEqual(rec.outcome, remove.OUTCOME.REFUSED, rec.because);
+  const dir = nodePath.dirname(store.profilePath(name));
+  fs.chmodSync(dir, 0o555);
+  let first;
+  try { first = mac.del(name); } finally { fs.chmodSync(dir, 0o755); }
+  assert.equal(first.outcome, leftover.OUTCOME.PARTIAL, first.because);
+  assert.equal(fs.existsSync(create.workerDir(name)), false, 'CONTROL: the folder did go');
+  assert.equal(remove.isRemoved(name), true, 'the removed-list row (the way back to Delete) went while its settings stayed');
+  const again = mac.del(name);
+  assert.equal(again.outcome, leftover.OUTCOME.DELETED, again.because);
+  assert.equal(fs.existsSync(store.profilePath(name)), false);
+  assert.equal(remove.isRemoved(name), false, 'the row outlived the settings');
+});
+
+test('kosmos#7825: a recorded folder that is not an absolute path is not a connected agent, so it does not hold the settings (review 2)', () => {
+  const name = strandedProfile('rel7825', { dir: 'somewhere/rel7825' });
+  assert.equal(mac.plan(name).ok, true);
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: on a case-blind disk a folder recorded in the workers folder in another case is inside it (review 2)', () => {
+  const W = process.env.AGENT_WORKFORCE_WORKERS;
+  const name = strandedProfile('fold7825', { dir: nodePath.join(W.toUpperCase(), 'fold7825') });
+  assert.equal(mac.plan(name).ok, true, 'a gone folder inside the workers folder, spelled in another case, read as out of reach');
+  // CONTROL: on Linux the two spellings are two folders, so it is outside and refused.
+  assert.match(leftover.plan(name, { platform: 'linux' }).because || '', /cannot reach right now/);
   fs.rmSync(store.profilePath(name), { force: true });
 });

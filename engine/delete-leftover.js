@@ -331,7 +331,7 @@ function plan(name, opts) {
     if (!recs.records.length) {
       return { ok: false, because: `nothing of ${shown} is left on this computer, so there is nothing to delete. If the name is still refused, something else holds it.` };
     }
-    const why = strandedRefusal(clean, shown);
+    const why = strandedRefusal(clean, shown, caseBlind);
     if (why) return { ok: false, because: why };
   }
   const recordsOnly = Boolean(recs);
@@ -458,14 +458,19 @@ function plan(name, opts) {
      that is not connected): its folder is not gone, only out of sight.
    The profile is read here, not through store.readProfile, which answers {} for a file it cannot read: a failed look
    refuses, as every other one in plan() does. */
-function strandedRefusal(name, shown) {
+function strandedRefusal(name, shown, caseBlind) {
   const store = require('./store');
   const couldNot = `we could not read what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.`;
   let prof = {};
-  try { prof = JSON.parse(fs.readFileSync(store.profilePath(name), 'utf8')); } catch (e) {
+  let raw = null;
+  try { raw = fs.readFileSync(store.profilePath(name), 'utf8'); } catch (e) {
     if (!(e && e.code === 'ENOENT')) return couldNot;   // a picture alone has no profile; anything else is a failed look
   }
-  if (!prof || typeof prof !== 'object') return couldNot;
+  /* A file that reads but is not a record is not a passing fault, so the sentence does not say "try again": without its
+     contents Kosmos cannot tell whether it records a folder somewhere else (review 2). */
+  const damaged = `${shown}'s settings file cannot be read as settings, so Kosmos cannot tell whether it is left over and has not offered to delete it.`;
+  if (raw !== null) { try { prof = JSON.parse(raw); } catch { return damaged; } }
+  if (!prof || typeof prof !== 'object' || Array.isArray(prof)) return damaged;
   const pending = require('./worldstarts').pendingNames();
   if (pending === null) return `we could not check whether ${shown} is waiting to start, so we have not offered to delete anything. Try again in a moment.`;
   let key;
@@ -473,7 +478,9 @@ function strandedRefusal(name, shown) {
   const sameKey = (n) => { try { return store.safeKey(n) === key; } catch { return false; } };
   if (pending.some((n) => n === name || (key && sameKey(n)))) return `${shown} is waiting to start on this computer, so its settings are not left over.`;
   const dir = typeof prof.dir === 'string' && prof.dir && path.isAbsolute(prof.dir) ? prof.dir : null;
-  if (dir && !insideDir(path.resolve(dir), path.resolve(create.WORKERS_DIR))) {
+  // Case-blind where the disk is (review 2): a folder recorded as .../Workers/x is inside a workers folder spelled .../workers.
+  const fold = (x) => (caseBlind ? path.resolve(x).toLowerCase() : path.resolve(x));
+  if (dir && !insideDir(fold(dir), fold(create.WORKERS_DIR))) {
     return `${shown}'s folder is somewhere this computer cannot reach right now, perhaps a disk or a shared folder that is not connected, so Kosmos will not delete its settings.`;
   }
   return null;
@@ -683,8 +690,10 @@ function del(name, opts) {
     };
   } else if (p.folder) move(p.folder.path, 'its folder');
   /* The removed-list record, if any, is what keeps a name hidden on the
-     board; with the files gone it has nothing to point at. */
-  try { remove.forget(p.name); } catch { /* the record is inert without files */ }
+     board; with the files gone it has nothing to point at. Forgotten after the records below, and only once they went
+     (kosmos#7825): the removed list's row is how a person reaches "Delete its files" again, so settings that would not
+     move keep it. */
+  const forgetRemoval = () => { try { remove.forget(p.name); } catch { /* the record is inert without files */ } };
   /* #1131. NOT best-effort, unlike `forget` above: a removal record with no
      files is inert, but a TOKEN with no files is a live credential for a name
      we are about to advertise as free. A failure here belongs in `stuck`, so
@@ -721,6 +730,7 @@ function del(name, opts) {
       if (st.ok) { if (!st.because) gone.push(st.step); } else stuck.push(st.step);
     }
   }
+  if (!stuck.includes('its settings') && !stuck.includes('its picture')) forgetRemoval();
   /* #4994: the name's community account. NOT best-effort, for the same reason as the tokens above: a new agent
      under the freed name would otherwise post as the old one, with its public posts and profile. The account is
      retired, not dropped (communitysend.requestRetire says why); this only records the request, which is applied

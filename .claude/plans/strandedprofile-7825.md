@@ -56,3 +56,18 @@ never offering at all.
   records-only (no retire), Linux arm. Each fix mutation-checked.
 - Deferred: a recorded folder compared by path.resolve, not realpath (a symlinked workers path reads as outside and is
   refused: the safe direction).
+
+## Review round 2 (sonnet)
+- BLOCKER, accepted and SPLIT: a stranded name is not reachable on screen. The agent page box needs a card and the
+  removed list needs a removal record, and a stranded name (no folder, no job) has neither once del() forgot the record.
+  The call: two PRs under this card. This one keeps the removed-list record when settings or a picture would not move
+  (forgotten only once they went), so the PARTIAL's "Deleting what is left again clears them" is reachable through the
+  removed list's row. The second PR lists names stranded BEFORE #7819 (b55-1) in the removed list (server + web), and
+  the card stays open until it merges. Rejected: adding profile-only names to the board's offline roster, which is read
+  every 5 s poll and would draw a card with Start and Repair controls that cannot work without a folder.
+- A file that reads but is not settings gets its own sentence, not "try again" (it is not a passing fault).
+- A folder recorded inside the workers folder in another case is inside it on a case-blind disk.
+- Tests: the kept row and the retry through it; damaged settings sentence; relative dir; case-blind fold with a Linux
+  CONTROL. Each fix mutation-checked.
+- Weakest premise, added: a world start registered between del()'s re-plan and its move is not seen (the usual
+  plan-then-act gap, narrowed by the re-plan).
