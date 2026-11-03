@@ -2198,7 +2198,7 @@ extension Notification.Name {
    picture. The picture came through the Mac; tapping the card opens the address, as the link in the message does. */
 struct LinkPreviewCard: View {
     let preview: Board.LinkPreview
-    let image: Data?
+    let image: CGImage?
     let width: CGFloat
     @Environment(\.openURL) private var openURL
 
@@ -2215,8 +2215,8 @@ struct LinkPreviewCard: View {
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 12).padding(.vertical, 10)
-                if let image, let picture = UIImage(data: image) {
-                    Image(uiImage: picture).resizable().scaledToFill()
+                if let image {
+                    Image(decorative: image, scale: 1).resizable().scaledToFill()
                         .frame(width: width, height: min(width * 0.52, 220))
                         .clipped()
                         .accessibilityHidden(true)
@@ -2250,7 +2250,7 @@ struct ChatBubble: View {
     var reply: (() -> Void)? = nil
     var delete: (() -> Void)? = nil   // kosmos#7614: the person's own sent message only
     // kosmos#7864: the picture of the row's link preview, once the client has it through the Mac.
-    var previewImage: Data? = nil
+    var previewImage: CGImage? = nil
     @Environment(\.openURL) private var openURL
 
     private var mine: Bool { row.who == .person }
@@ -2286,8 +2286,6 @@ struct ChatBubble: View {
         .messageActionsAccessibility(mine: Set(row.reactions.filter(\.mine).map(\.emoji)), react: react, reply: reply, text: row.text,
                                      delete: delete)   // kosmos#7614 review 1: VoiceOver's sheet has Delete too
         .accessibilityLabel(spokenLabel)
-        // kosmos#7864: the card is inside this one element, so its link is an action of the bubble.
-        .accessibilityAction(named: Text("Open link")) { if let p = row.preview { openURL(p.url) } }
         // Always present, doing nothing where there is no retry: without a default action VoiceOver's double-tap would
         // fall through as a tap at the bubble's centre, which can land on a link (#7014).
         .accessibilityAction { if failed?.canRetry == true { sendAgain() } }
@@ -2326,9 +2324,15 @@ struct ChatBubble: View {
 
     private var linkActions: some View {
         let links = Board.messageLinks(row.text)
-        return ForEach(Array(links.enumerated()), id: \.offset) { i, url in
-            let number = links.count > 1 ? "\(i + 1) " : ""
-            Button("Open link \(number)to \(url.host ?? url.absoluteString)") { openURL(url) }
+        // kosmos#7864: the preview card is inside this one element, so its address is an action here too, named from the
+        // card, unless one of the message's own links already opens that site.
+        let card = row.preview.flatMap { p in links.contains { $0.host?.lowercased() == p.url.host?.lowercased() } ? nil : p }
+        return Group {
+            ForEach(Array(links.enumerated()), id: \.offset) { i, url in
+                let number = links.count > 1 ? "\(i + 1) " : ""
+                Button("Open link \(number)to \(url.host ?? url.absoluteString)") { openURL(url) }
+            }
+            if let card { Button("Open \(card.title)") { openURL(card.url) } }
         }
     }
 

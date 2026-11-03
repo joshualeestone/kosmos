@@ -1072,15 +1072,28 @@ final class BoardClient: ObservableObject {
     }
 
     // kosmos#7864: a link preview's picture, by its path on the Mac (/api/unfurl/image, the Mac fetches the site, never
-    // the phone), drawn at most 900 px on its longer side, fetched once per run, nothing kept on disk.
-    @Published private(set) var previewImages: [String: Data] = [:]
+    // the phone), decoded once at most 900 px on its longer side (the card's width at @3x), fetched once per run, the
+    // newest `previewImageCap` kept in memory, nothing on disk.
+    @Published private(set) var previewImages: [String: CGImage] = [:]
     private var previewImageAsked: Set<String> = []
+    private var previewImageOrder: [String] = []
+    static let previewImageCap = 40
+    private func keepPreviewImage(_ image: CGImage, at path: String) {
+        previewImages[path] = image
+        previewImageOrder.removeAll { $0 == path }
+        previewImageOrder.append(path)
+        while previewImageOrder.count > Self.previewImageCap {
+            let oldest = previewImageOrder.removeFirst()
+            previewImages[oldest] = nil
+            previewImageAsked.remove(oldest)   // drawn again later, it is fetched again
+        }
+    }
 
     func loadPreviewImage(_ p: Board.LinkPreview) async {
         guard let path = p.image, !previewImageAsked.contains(path) else { return }
         previewImageAsked.insert(path)
         #if DEBUG && canImport(UIKit)
-        if let sample = samplePreviewImage(path) { previewImages[path] = sample; return }
+        if let sample = samplePreviewImage(path).flatMap({ Self.picture($0, maxPixels: 900) }) { keepPreviewImage(sample, at: path); return }
         #endif
         let epoch = chatEpoch
         guard let held = admitted, let request = Board.attachmentRequest(mac: held.url, path: path) else { previewImageAsked.remove(path); return }
@@ -1089,17 +1102,25 @@ final class BoardClient: ObservableObject {
         guard let (data, response) = answer else { previewImageAsked.remove(path); return }
         let isImage = (response.value(forHTTPHeaderField: "Content-Type") ?? "").lowercased().hasPrefix("image/")
         let ok = (200...299).contains(response.statusCode)
-        if ok, isImage { if let pic = Self.smallPicture(data, maxPixels: 900) { previewImages[path] = pic } }
+        if ok, isImage { if let pic = Self.picture(data, maxPixels: 900) { keepPreviewImage(pic, at: path) } }
         // As the thumbnails: a passing failure is asked again on the next draw, a 404 or a picture the phone cannot draw is not.
         else if response.statusCode >= 500 || (ok && !isImage) { previewImageAsked.remove(path) }
     }
 
-    // A picture drawn at most `maxPixels` on its longer side (192: a 64 pt square at @3x), as PNG; nil for bytes that are
-    // not a picture.
-    static func smallPicture(_ data: Data, maxPixels: Int = 192) -> Data? {
+    // kosmos#7864: a picture decoded at most `maxPixels` on its longer side; nil for bytes that are not a picture.
+    static func picture(_ data: Data, maxPixels: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+        ] as CFDictionary)
+    }
+
+    // A picture drawn at most 192 px on its longer side (a 64 pt square at @3x), as PNG; nil for bytes that are not a picture.
+    static func smallPicture(_ data: Data) -> Data? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: 192,
                 kCGImageSourceCreateThumbnailWithTransform: true,
               ] as CFDictionary) else { return nil }
         let out = NSMutableData()
@@ -1187,6 +1208,7 @@ final class BoardClient: ObservableObject {
         thumbnailAsked = []
         previewImages = [:]
         previewImageAsked = []
+        previewImageOrder = []
         // Files opened under the account or Mac before are not left on the phone.
         try? FileManager.default.removeItem(at: env.files)
         drafts = [:]

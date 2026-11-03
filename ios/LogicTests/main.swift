@@ -2101,6 +2101,12 @@ final class FakeBoardWorld {
                 if let hook = onOlder { onOlder = nil; hook() }
                 return olderAnswer.map { answer($0.0, $0.1) }
             }
+            // kosmos#7864: a link preview's picture comes the same way, recorded with its query (the address it names).
+            if url.path == "/api/unfurl/image" {
+                attachmentAsks.append(url.path + "?" + (URLComponents(url: url, resolvingAgainstBaseURL: true)?.percentEncodedQuery ?? ""))
+                guard let (code, type, body) = attachmentAnswer else { return nil }
+                return (body, HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: ["Content-Type": type])!)
+            }
             if url.path.hasPrefix("/api/attachment/") {
                 attachmentAsks.append(url.path)
                 guard let (code, type, body) = attachmentAnswer else { return nil }
@@ -3800,6 +3806,49 @@ section("native board loop: connecting")
         let doc = Board.Attachment(id: "222222222222222222222222", name: "b.docx", type: "", size: nil, kind: "other", url: "/api/attachment/222222222222222222222222", preview: nil)
         await c.loadThumbnail(doc)
         check(w.attachmentAsks.count == asks && c.thumbnails["222222222222222222222222"] == nil, "no preview: no request")
+        // kosmos#7864: a link preview's picture, by the thumbnail loader's rules, decoded at most 900 px, the newest 40 kept.
+        func lp(_ n: String) -> Board.LinkPreview {
+            Board.LinkPreview(url: URL(string: "https://p\(n).example.com/")!, site: "p\(n).example.com", title: "P\(n)", description: nil,
+                              image: "/api/unfurl/image?url=https%3A%2F%2Fp\(n).example.com%2Fog.png")
+        }
+        w.attachmentAnswer = (200, "image/png", Data([0x89, 0x50]))
+        await c.loadPreviewImage(lp("bad"))
+        check(c.previewImages[lp("bad").image!] == nil, "preview: bytes that are not a picture are no picture")
+        let badAsks = w.attachmentAsks.count
+        await c.loadPreviewImage(lp("bad"))
+        check(w.attachmentAsks.count == badAsks, "preview: a picture the phone cannot draw is not downloaded again")
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadPreviewImage(lp("ok"))
+        check(c.previewImages[lp("ok").image!].map { max($0.width, $0.height) } == 900, "preview: the 1200 px picture is kept at 900 px")
+        check(w.attachmentAsks.last == lp("ok").image!, "preview: the picture comes from the Mac's unfurl route")
+        w.attachmentAnswer = (503, "application/json", Data("{}".utf8))
+        await c.loadPreviewImage(lp("flaky"))
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadPreviewImage(lp("flaky"))
+        check(c.previewImages[lp("flaky").image!] != nil, "preview: a 5xx is asked again")
+        w.attachmentAnswer = (404, "application/json", Data("{}".utf8))
+        await c.loadPreviewImage(lp("gone"))
+        let goneAsks = w.attachmentAsks.count
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadPreviewImage(lp("gone"))
+        check(w.attachmentAsks.count == goneAsks && c.previewImages[lp("gone").image!] == nil, "preview: a 404 is not asked again")
+        w.attachmentAnswer = (200, "text/html", Data("<html>sign in</html>".utf8))
+        await c.loadPreviewImage(lp("gate"))
+        w.attachmentAnswer = (200, "image/png", big)
+        await c.loadPreviewImage(lp("gate"))
+        check(c.previewImages[lp("gate").image!] != nil, "preview: the gate's sign-in page in place of a picture is asked again")
+        let onceAsks = w.attachmentAsks.count
+        await c.loadPreviewImage(lp("ok"))
+        check(w.attachmentAsks.count == onceAsks, "preview: a picture kept is asked for once")
+        let noPic = Board.LinkPreview(url: URL(string: "https://np.example.com/")!, site: "np.example.com", title: "NP", description: nil, image: nil)
+        await c.loadPreviewImage(noPic)
+        check(w.attachmentAsks.count == onceAsks, "preview: no picture, no request")
+        for i in 0..<(BoardClient.previewImageCap + 1) { await c.loadPreviewImage(lp("cap\(i)")) }
+        check(c.previewImages.count == BoardClient.previewImageCap, "preview: at most \(BoardClient.previewImageCap) pictures are kept")
+        check(c.previewImages[lp("cap0").image!] == nil && c.previewImages[lp("cap\(BoardClient.previewImageCap)").image!] != nil, "preview: the oldest goes first")
+        let capAsks = w.attachmentAsks.count
+        await c.loadPreviewImage(lp("cap0"))
+        check(w.attachmentAsks.count == capAsks + 1 && c.previewImages[lp("cap0").image!] != nil, "preview: one dropped for room is fetched again when drawn")
         // A sign-out while a picture is on its way: it lands in nobody's chat.
         w.attachmentYields = 50
         w.attachmentAnswer = (200, "image/png", big)
@@ -3827,6 +3876,7 @@ section("native board loop: connecting")
         check(FileManager.default.fileExists(atPath: testFiles.path), "CONTROL: the opened file's folder exists")
         c.accountChanged()
         check(!FileManager.default.fileExists(atPath: testFiles.path) && c.thumbnails.isEmpty, "a sign-out removes opened files and pictures")
+        check(c.previewImages.isEmpty, "preview: a sign-out removes the link preview pictures too")
         c.stop()
     }
     do {
