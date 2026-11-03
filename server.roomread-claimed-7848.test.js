@@ -155,7 +155,7 @@ test('kosmos#7848 review 1: with -n, the count leaves claimed asks out and the c
   assert.match(r.text, /^Waiting on an answer from you: 3 posts in this room .*; the newest 2 are below:$/m, 'the count includes claimed asks or the cap is wrong:\n' + r.text);
   assert.ok(listed(r.text, open[1]) && listed(r.text, open[2]) && !listed(r.text, open[0]), 'the newest two open asks are not the ones listed:\n' + r.text);
   const line = r.text.split('\n').find((l) => l.startsWith(CLAIMED)) || '';
-  assert.ok(line.includes('[' + claimed[1] + ']') && line.includes('[' + claimed[2] + ']') && !line.includes('[' + claimed[0] + ']') && line.endsWith(', and 1 older. kosmos room shows them in full, and one comes back here if its claim is given up.'), 'the claimed line is not capped at -n with how many more:\n' + r.text);
+  assert.ok(line.includes('[' + claimed[1] + ']') && line.includes('[' + claimed[2] + ']') && !line.includes('[' + claimed[0] + ']') && line.endsWith(', and 1 older. They are still in the room, and one comes back here if its claim ends.'), 'the claimed line is not capped at -n with how many more:\n' + r.text);
 });
 
 test('kosmos#7848 review 3: a claimed ask stays held for my idle reminder (a claim can go; a dropped reminder cannot come back)', async () => {
@@ -205,4 +205,14 @@ test('kosmos#7848 review 6: with the project\'s member list unreadable, a claim 
     assert.ok(listed(r.text, ask), 'with no member list, a claim (perhaps a departed agent\'s) hid the ask:\n' + r.text);
     assert.ok(!r.text.includes(CLAIMED), 'with no member list, the ask was reported as claimed:\n' + r.text);
   } finally { projects.writeAll(before); }
+});
+
+test('kosmos#7848 review 7: the person naming only the claimer, delivered to me too: the claim answers it', async () => {
+  const pid = newRoom('Claimed7848l');
+  const ask = post(pid, { from: 'operator', operator: true, to: [ME, CLAIMER], text: '@claimseat please renew the lease', mentioned: [CLAIMER], outcomes: { [ME]: 'delivered', [CLAIMER]: 'delivered' } });
+  let r = await room(pid, ME, '&unanswered=1');
+  assert.ok(r.text.includes('[' + ask + '] operator'), 'fixture: the person\'s post that reached me should be waiting on me:\n' + r.text);
+  claim(pid, ask, CLAIMER);
+  r = await room(pid, ME, '&unanswered=1');
+  assert.ok(r.text.includes(CLAIMED + '[' + ask + '] by ' + CLAIMER), 'the person asked the claimer by name and it claimed: not moved to the claimed line:\n' + r.text);
 });

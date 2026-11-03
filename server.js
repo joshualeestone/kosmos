@@ -23394,11 +23394,11 @@ const server = http.createServer(async (req, res) => {
            read it. A later post that names the reader again is its own ask and is listed as one. Only a claimant the
            post asked: a bystander's claim does not answer for the agents that were asked. The reader's own claim is no
            answer either, so an ask it claimed and has not answered stays listed. */
-        /* Review 1: "asked" as for the reader: a post that names agents asked those it names (a person's @name narrows it
-           too); the person's post that names nobody asked every agent it was delivered to, not one it went quiet or
+        /* kosmos#7848: "asked" as for the reader: a post that names agents asked those it names (a person's @name narrows
+           it too); the person's post that names nobody asked every agent it was delivered to, not one it went quiet or
            could not reach. */
-        /* Review 5: only while the project's members could be read. With no member list a departed agent's claim is not
-           filtered out (claimMembers fails toward "held", right for the page's pill), so here the ask stays listed. */
+        /* kosmos#7848: only while the project's members could be read. With no member list a departed agent's claim is
+           not filtered out (claimMembers fails toward "held", right for the page's pill), so here the ask stays listed. */
         const membersKnown = !!(roomRecord && Array.isArray(roomRecord.agents));
         const claimedByOther = (m) => {
           if (!membersKnown) return null;
@@ -23615,7 +23615,7 @@ const server = http.createServer(async (req, res) => {
           ? '[kosmos] Claimed, each by an agent the post also asked, so not counted as waiting on you: '
             + shownClaimed.map((x) => '[' + x.id + '] by ' + String(x.by).replace(/\s+/g, ' ') + (x.at ? ' (' + messages.claimAge(x.at, Date.now()) + ')' : '')).join(', ')
             + (moreClaimed ? ', and ' + moreClaimed + ' older' : '')
-            + '. kosmos room shows them in full, and one comes back here if its claim is given up.\n'
+            + '. They are still in the room, and one comes back here if its claim ends.\n'
           : '';
         res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine);
         return;

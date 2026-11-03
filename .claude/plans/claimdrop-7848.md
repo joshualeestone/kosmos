@@ -90,3 +90,12 @@ no skip (3), any claimant (1), own claim counted (1), no person-post branch (1),
   off); deleting the guard reds it. Round 5's REASONED note is now MEASURED.
 - install/kosmos's comment beside the usage names the claim rule.
 - Declined: dropping "else" from the all-claimed head line (round 5 chose it so the line claims no more than it knows).
+
+## Review round 7 (opus, fixed)
+- The claimed line no longer promises kosmos room shows them (it shows the last 40 rows; --unanswered walks the whole
+  live room): "They are still in the room, and one comes back here if its claim ends" (given up, freed, or the
+  claimant leaving all end it).
+- Pinned the one case where the two "asked" readings meet: the person's post naming only the claimer, delivered to the
+  reader too. Intended: the claim answers it (the person asked the claimer by name). Test added.
+- The "Review N" comments are rewritten as plain kosmos#7848 rules.
+- Declined: rewording the could-not-read head beside a claimed line (both are true as written).
