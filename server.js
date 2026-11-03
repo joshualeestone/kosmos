@@ -26172,7 +26172,14 @@ const server = http.createServer(async (req, res) => {
           // givePart (module scope): the parts valve for a process caller (#803: a process
           // reassigning parts in a loop is the same runaway as adding them), assignPart, and only
           // on a real move (#304's rule) the pane line against the heard budget.
-          const g = await givePart(id, partAct[2], partAct[3], body && body.who, { screen, asyncDelivery: true });
+          /* kosmos#7869: the agent making the give, as the task/assign route passes it, so a named agent's give of a
+             built task is refused here too. Only names it: a caller this cannot identify gives as before. */
+          let by = null;
+          if (!screen) {
+            try { const c = processCaller(req, body, safeRoster(), false, 'the part was not given'); if (c && !c.refusal && c.card) by = c.card.sessionName; }
+            catch { by = null; }
+          }
+          const g = await givePart(id, partAct[2], partAct[3], body && body.who, { screen, asyncDelivery: true, by });
           if (g.status === 429) { res.setHeader('retry-after', String(g.retryAfterSecs)); sendJson(res, 429, { error: g.because, retry_after_secs: g.retryAfterSecs }); return; }
           if (!g.ok) { sendJson(res, 400, { error: g.because }); return; }
           sendJson(res, 200, { task: g.task, told: g.told, heard: g.heard });
