@@ -476,3 +476,17 @@ test('#7835 a warm that stored no answer does not pin an older one: the delete r
     fs.rmSync(create.workerDir('ot7835y'), { recursive: true, force: true });
   }
 });
+
+test('#7852 the plan asked while a delete runs says running, so a reloaded page can show it; other refusals do not', async () => {
+  leftoverFolder('ot7852r');
+  leftover.setRunner(later(300));
+  const going = asyncWin.del('ot7852r');
+  await new Promise((r) => setTimeout(r, 50));
+  const during = await asyncWin.plan('ot7852r');
+  assert.equal(during.ok, false);
+  assert.equal(during.running, true, 'a plan asked during the delete does not say it is running');
+  assert.match(during.because, /running now/);
+  assert.equal((await going).outcome, leftover.OUTCOME.DELETED);
+  const after = await asyncWin.plan('ot7852r');
+  assert.notEqual(after.running, true, 'a plan asked after the delete still says it is running');
+});

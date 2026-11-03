@@ -1223,10 +1223,10 @@ async function warmFor(name, opts) {
     are on their way out, so the plan says that rather than reading them half-moved. */
 async function planAsync(name, opts) {
   const win = ((opts && opts.platform) || process.platform) === 'win32';
-  if (win && deletingName(name)) return { ok: false, because: DELETING_BECAUSE };
+  if (win && deletingName(name)) return { ok: false, running: true, because: DELETING_BECAUSE };   // kosmos#7852: the page can say so
   const warm = win ? await warmFor(name, opts) : null;
   // Asked again: a delete of the name can have started while the probe ran.
-  if (win && deletingName(name)) return { ok: false, because: DELETING_BECAUSE };
+  if (win && deletingName(name)) return { ok: false, running: true, because: DELETING_BECAUSE };   // kosmos#7852: the page can say so
   if (warm && warm.first && !warm.probed) return warm.first;
   return plan(name, opts);
 }
