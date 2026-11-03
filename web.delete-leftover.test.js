@@ -81,3 +81,16 @@ test('#7835 item 6: a dialog repainted to ask for the name puts the cursor in th
   const open = JS.slice(JS.indexOf('function openDeleteModal('), JS.indexOf('function closeDeleteModal('));
   assert.match(open, /document\.getElementById\('del-keep'\)\.focus\(\);\n\}\s*$/, 'a fresh dialog no longer opens on the harmless answer');
 });
+
+test('#7852 an agent page whose delete is running says so, with no button, instead of hiding the block', () => {
+  const at = PAGE.indexOf('async function loadLeftover(sessionName) {');
+  assert.ok(at > 0, 'loadLeftover moved; this test no longer reads it');
+  const fn = PAGE.slice(at, PAGE.indexOf('\nfunction openDeleteModal(', at));
+  const run = fn.indexOf('if (plan && plan.running) {'), hide = fn.indexOf('if (!plan || !plan.ok) { box.hidden = true;');
+  assert.ok(run > 0 && hide > run, 'a running delete is hidden like any refusal');
+  const branch = fn.slice(run, hide);
+  assert.match(branch, /start\.hidden = true;/, 'the delete button is offered while the delete runs');
+  assert.match(branch, /box\.hidden = false;/, 'the block stays hidden while the delete runs');
+  assert.match(branch, /plan\.because/, 'the block says something the board did not');
+  assert.match(fn.slice(hide - 60, hide), /if \(start\) start\.hidden = false;/, 'the button stays hidden after the delete ends');
+});

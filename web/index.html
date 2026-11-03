@@ -50260,6 +50260,18 @@ async function loadLeftover(sessionName) {
   if (mine !== DEL_TOKEN || !CURRENT || CURRENT.sessionName !== sessionName) return;
   /* A refusal here is not a message, it is the block staying hidden: the
      Remove section above already says what state the agent is in. */
+  const start = document.getElementById('d-delete-start');
+  /* kosmos#7852: a delete of this agent's files is running (a Windows move can take minutes, and a page reloaded meanwhile
+     asks again): the block says so in the board's words, with no button, rather than hiding as if nothing were left. */
+  if (plan && plan.running) {
+    DEL_PLAN = null;
+    const w = String(plan.because || '');
+    document.getElementById('d-delete-hint').textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(w.charAt(0).toUpperCase() + w.slice(1) + '.');
+    if (start) start.hidden = true;
+    box.hidden = false;
+    return;
+  }
+  if (start) start.hidden = false;
   if (!plan || !plan.ok) { box.hidden = true; DEL_PLAN = null; return; }
   DEL_PLAN = plan;
   document.getElementById('d-delete-hint').textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.hint || '');
