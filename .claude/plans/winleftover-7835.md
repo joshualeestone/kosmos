@@ -82,3 +82,8 @@ Leftover tests 154 pass; create tests 545 pass; web.delete-leftover's route pin 
   Weakest premise: 20 s is a guess; the real cold-start time is on #7820's Windows-box check.
 - Item 6: a dialog repainted to ask for the name focuses the name box. A fresh dialog still opens on Keep (the
   house rule for an unaimed modal); typing in the box cannot delete, since it is not in a form.
+- Review round 1 after the rebase: a running Windows delete now holds the board (server.js moveHoldsBoard), so an
+  update, the restart button or a Kosmos switch waits for it, with its own sentence; a delete asked while the board is
+  about to restart is refused. planAsync plans once when every drive already answered (it planned twice on every page
+  open). The async runner gets a win32-only test against the real PowerShell (exit code, kill at the limit), which
+  the Windows CI job runs. Restart and Remove refusals during a delete are asserted by their sentence.
