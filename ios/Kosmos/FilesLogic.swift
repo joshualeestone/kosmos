@@ -215,12 +215,18 @@ extension Board {
         if case .page = r { return false }
         return true
     }
-    /* The Files screen's own reads add one answer that is never passing: a 404 from a project's documents (no project by
-       that name) or from the top of an agent's browse (no agent by that name; below the top a 404 is a listing refusal).
-       server.js sends every listing refusal on those two reads some other way, so that 404 replaces the list when it
-       carries words of its own (a proxy's page, which has none, keeps it). */
-    static func filesScreenKeepsShown(_ r: FilesRead, status: Int, owner: FilesOwner, dir: String) -> Bool {
-        if status == 404, case .refused(let why) = r, why != filesCannotRead {
+    /* A 404 carrying the board's own words (a `because` or `error`): on the reads where server.js sends a 404 only for
+       "no agent" or "no project", it says the owner is gone. A 404 with no words (a proxy's page) says nothing. */
+    static func filesOwnerGone(status: Int, body: Data?) -> Bool {
+        guard status == 404 else { return false }
+        let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+        return [obj?["because"] as? String, obj?["error"] as? String].contains { !($0 ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+    /* The Files screen: filesKeepsShown, except that the owner being gone replaces the list on a project's documents and
+       at the top of an agent's browse. Below the top a 404 is also a listing refusal (and the agent being removed while
+       a subfolder is open is not told apart from one), so it keeps the list. */
+    static func filesScreenKeepsShown(_ r: FilesRead, status: Int, body: Data?, owner: FilesOwner, dir: String) -> Bool {
+        if filesOwnerGone(status: status, body: body) {
             switch owner {
             case .project: return false
             case .agent: if dir.isEmpty { return false }
@@ -228,25 +234,35 @@ extension Board {
         }
         return filesKeepsShown(r)
     }
+    /* The agent page's section, the same rule in its own states: a list is rows (or hidden when empty); the owner being
+       gone (the flat list sends a 404 only for "no agent") is a message, which replaces rows; everything else is forNow
+       or noAnswer, which keep them (filesSectionAfter). The Files screen's filesScreenKeepsShown is tested beside it. */
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
         if status == 401 || status == 403 { return .forNow(phoneShutOut) }   // kosmos#7840: never the gate's words
-        if status == 404 { return .message(filesAgentNoFolder) }
+        if filesOwnerGone(status: status, body: body) { return .message(filesAgentNoFolder) }
         let read = filesResult(status: status, body: body)
         switch read {
         case .page(let p): return p.files.isEmpty ? .hidden : .rows(p.files)
         case .refused(let why):
             let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
             let line = (obj?["because"] as? String).flatMap { $0.isEmpty ? nil : sentence($0) } ?? (why == filesCannotRead ? filesAgentUnread : why)
-            return .forNow(line)   // filesKeepsShown: a refusal keeps a list shown
+            return .forNow(line)
         case .noAnswer: return .noAnswer
         }
     }
 
     // kosmos#7679 review 2: what the agent page keeps after a refresh. An answer that never came keeps the rows it had (a
     // phone loses its connection far more than a desk page does), and so does a forNow (kosmos#7842); a new list, or
-    // the agent having no folder (a 404), replaces them.
-    static func filesSectionAfter(_ old: FilesSectionState, _ new: FilesSectionState) -> FilesSectionState {
-        guard case .rows = old else { return new }
+    // the agent having no folder, replaces them. `loaded`: whether `old` was read (an empty list shown as hidden is a
+    // list too, review 7), as against the hidden it starts in.
+    static func filesSectionAfter(_ old: FilesSectionState, _ new: FilesSectionState, loaded: Bool = false) -> FilesSectionState {
+        let shownList: Bool
+        switch old {
+        case .rows: shownList = true
+        case .hidden: shownList = loaded
+        default: shownList = false
+        }
+        guard shownList else { return new }
         switch new {
         case .noAnswer, .forNow: return old
         default: return new

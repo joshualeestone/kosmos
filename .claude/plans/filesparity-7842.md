@@ -6,10 +6,11 @@ Card: kosmos#7842 (split from #7840's last review round).
 - Profile: `Board.answerStands(status)` is 200 or 404. Only those, carrying the board's words, replace a value shown;
   every other answer (no answer, 401/403, 5xx, 408, 429, any other 4xx) keeps it and is said only when nothing is.
   This narrows #7840's rule, which let any other worded 4xx replace a value (the card's second ask).
-- Files (the Files screen and the agent page's section, one function `filesKeepsShown(read)`): only a new list
-  replaces a list shown. Every refusal keeps it, its words said only when nothing is shown. Exceptions, a 404 that
-  can only mean the owner is gone (review 5, server.js): the agent page's flat list, the top of an agent's browse,
-  and a project's documents (filesScreenKeepsShown for the Files screen).
+- Files: only a new list (an empty one included) replaces a list shown. Every refusal keeps it, its words said only
+  when nothing is shown. Exception: a 404 with the board's words where server.js sends a 404 only for "no agent" or
+  "no project" (reviews 5 to 7; filesOwnerGone). Two paths apply it, tested in step: the Files screen
+  (filesScreenKeepsShown: a project's documents, the top of an agent's browse) and the agent page's section
+  (filesSection's states plus filesSectionAfter: the flat list).
 
 ## Why Files is stricter than the Profile (review 3)
 The engine's listing refusals (engine/projects.js listFiles and listDir) mix lasting reasons (not there, not a folder,
