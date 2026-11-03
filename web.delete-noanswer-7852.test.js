@@ -34,6 +34,14 @@ function liftHandler() {
   for (; i < SCRIPT.length; i++) { if (SCRIPT[i] === '{') depth++; else if (SCRIPT[i] === '}' && --depth === 0) break; }
   return SCRIPT.slice(from, i + 1);
 }
+function liftStart() {
+  const at = SCRIPT.indexOf("document.getElementById('d-delete-start').addEventListener('click', async () => {");
+  assert.ok(at > -1, 'the page\'s Delete button handler moved; re-anchor');
+  const from = SCRIPT.indexOf('async () => {', at);
+  let i = SCRIPT.indexOf('{', from), depth = 0;
+  for (; i < SCRIPT.length; i++) { if (SCRIPT[i] === '{') depth++; else if (SCRIPT[i] === '}' && --depth === 0) break; }
+  return SCRIPT.slice(from, i + 1);
+}
 const line = vm.runInNewContext([liftConst(SCRIPT, 'DEL_UNKNOWN_LINE'), liftAll(SCRIPT, ['deleteNoAnswerLine'])].join('\n') + '\ndeleteNoAnswerLine', {});
 const UNKNOWN = vm.runInNewContext(liftConst(SCRIPT, 'DEL_UNKNOWN_LINE') + '; DEL_UNKNOWN_LINE', {});
 
@@ -77,7 +85,8 @@ function dialog(planOnScreen, detailFor = null) {
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
     'function paintRemoved() { paints += 1; }',
     liftConst(SCRIPT, 'DEL_UNKNOWN_LINE'), liftConst(SCRIPT, 'DEL_REFUSED_LINE'),
-    liftAll(SCRIPT, ['fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteForgetPlan', 'deleteSettled', 'openDeleteModal', 'closeDeleteModal', 'paintLeftoverRunning']),
+    liftAll(SCRIPT, ['fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteForgetPlan', 'deleteSettled', 'openDeleteModal', 'closeDeleteModal', 'paintLeftoverRunning', 'loadLeftover']),
+    'this.startClick = ' + liftStart() + ';', 'this.load = loadLeftover;',
     'this.click = ' + liftHandler() + ';',
     'this.show = (p, onScreen) => deleteNoAnswerShow(p, DEL_FOR, onScreen === undefined ? DEL_PLAN : onScreen);',
     'this.open = openDeleteModal; this.close = closeDeleteModal; this.setPlan = (x) => { DEL_PLAN = x; };',
@@ -355,4 +364,32 @@ test('kosmos#7852 a dialog open for the agent whose delete is running offers not
   assert.equal(d.els['del-go'].disabled, false, 'CONTROL: the dialog offers the delete before');
   d.ctx.show({ ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' });
   assert.equal(d.els['del-go'].disabled, true, 'the open dialog still offers a delete the board will refuse');
+});
+
+test('kosmos#7852 the page\'s Delete button opens that agent\'s own plan, never another\'s held from the removed list', async () => {
+  const d = dialog(offered, 'Miles');
+  d.ctx.close();
+  const ada = { ok: true, name: 'Ada', question: 'Delete Ada?', reassurance: '', loses: ['x'], verb: 'Delete' };
+  d.ctx.setPlan(ada);   // what a removed-list dialog for Ada left behind
+  const milesNow = { ok: true, name: 'Miles', question: 'Delete Miles?', reassurance: '', loses: ['m'], verb: 'Delete' };
+  d.replies.push(async () => ({ ok: true, json: async () => milesNow }));
+  await d.ctx.startClick();
+  assert.equal(d.els['del-title'].textContent, 'Delete Miles?', 'the page\'s button opened another agent\'s plan, or none');
+  assert.equal(d.ctx.state().DEL_FOR, 'Miles');
+});
+
+test('kosmos#7852 a dialog left saying "running" says what is so once the delete has ended', async () => {
+  const d = dialog(offered, 'Miles');
+  d.ctx.show({ ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' });
+  assert.equal(d.els['del-go'].disabled, true);
+  d.replies.push(async () => ({ ok: true, json: async () => ({ ...offered, loses: ['b'] }) }));
+  await d.ctx.load(CARD.miles.sessionName);
+  assert.equal(d.els['del-modal'].hidden, false);
+  assert.equal(d.els['del-go'].disabled, false, 'a dialog left saying running never offers what is still left');
+  assert.equal(d.els['del-list'].kids.length, 1, 'the dialog shows the old list, not what is left now');
+  const gone = dialog(offered, 'Miles');
+  gone.ctx.show({ ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' });
+  gone.replies.push(async () => ({ ok: true, json: async () => ({ ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' }) }));
+  await gone.ctx.load(CARD.miles.sessionName);
+  assert.match(gone.els['del-msg'].textContent, /nothing of Miles is left/, 'a dialog left saying running never says the delete finished');
 });

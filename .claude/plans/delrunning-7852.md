@@ -72,3 +72,11 @@ Windows only (the flag is set where the hold is, which is Windows only).
 - The poll's two decisions are named functions (leftoverOnPoll, leftoverOffList) that the web test runs on its stubbed
   page: asking while running, not for another agent, and once more off the list until the block goes. Only the two
   call sites are still read as text. Each red on its mutant.
+
+## Review round 7
+- A dialog left saying "running" settles when the agent page reads that the delete has ended: still offered, it
+  repaints (deleteNoAnswerShow's own path); nothing left, it says so.
+- The page's "Delete its files" asks for that agent's own plan when the one held is another agent's (it had become a
+  silent no-op after a removed-list dialog for another agent).
+- The off-list poll asks on each poll while the block says running (comment corrected).
+- Tests on the stubbed page: the dialog across the end of the delete (both endings) and the button; each red on its mutant.

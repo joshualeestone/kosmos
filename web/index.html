@@ -50264,8 +50264,8 @@ let DEL_RUNNING_FOR = null;
 /* kosmos#7852: whether a repaint of `sessionName`'s page asks for its plan: always, except on the poll, where only while its
    block says a delete is running. */
 function leftoverOnPoll(sessionName, fromPoll) { return !fromPoll || DEL_RUNNING_FOR === String(sessionName).toLowerCase(); }
-/* kosmos#7852: the poll found no card for the page on screen: if its block says a delete is running, it asks once more,
-   and the answer (nothing left) takes the block away. */
+/* kosmos#7852: the poll found no card for the page on screen: while its block says a delete is running, it asks on
+   each poll, and the answer once the delete has ended (nothing left) takes the block away. */
 function leftoverOffList() {
   if (typeof CURRENT !== 'undefined' && CURRENT && DEL_RUNNING_FOR === String(CURRENT.sessionName).toLowerCase()) loadLeftover(CURRENT.sessionName);
 }
@@ -50308,7 +50308,13 @@ async function loadLeftover(sessionName) {
      answer that could not be read, or a failed request, while it shows running changes nothing; the next poll asks again. */
   if (plan && plan.running) { paintLeftoverRunning(plan, sessionName); return; }
   if ((!plan || plan.failed) && DEL_RUNNING_FOR === lower) return;
+  const wasRunning = DEL_RUNNING_FOR === lower;
   DEL_RUNNING_FOR = null;
+  // kosmos#7852: the delete has ended; a dialog still open for this agent says what is so now, as the no-answer path does.
+  if (wasRunning && plan && DEL_FOR !== null && String(DEL_FOR).toLowerCase() === lower) {
+    const modal = document.getElementById('del-modal');
+    if (modal && !modal.hidden) { deleteNoAnswerShow(plan, DEL_FOR, null); if (!plan.ok) return; }
+  }
   const start = document.getElementById('d-delete-start');
   if (start) start.hidden = false;
   /* Any other refusal is not a message, it is the block staying hidden: the
@@ -50357,10 +50363,18 @@ function closeDeleteModal() {
 document.getElementById('del-typed').addEventListener('input', (e) => {
   document.getElementById('del-go').disabled = !(DEL_PLAN && DEL_PLAN.typeToConfirm && e.target.value.trim() === DEL_PLAN.typeToConfirm);
 });
-document.getElementById('d-delete-start').addEventListener('click', () => {
-  // kosmos#7852: the agent page's button opens only that agent's plan (a dialog opened from the removed list can hold another's).
-  const mine = DEL_PLAN && typeof CURRENT !== 'undefined' && CURRENT && String(DEL_PLAN.name).toLowerCase() === String(CURRENT.sessionName).toLowerCase();
-  if (mine && DEL_PLAN.ok) openDeleteModal(DEL_PLAN);
+document.getElementById('d-delete-start').addEventListener('click', async () => {
+  // kosmos#7852: the agent page's button opens only that agent's plan (a dialog opened from the removed list can hold
+  // another's); when what it holds is not this agent's, it asks for this agent's.
+  if (typeof CURRENT === 'undefined' || !CURRENT) return;
+  const name = CURRENT.sessionName;
+  const mine = DEL_PLAN && String(DEL_PLAN.name).toLowerCase() === String(name).toLowerCase();
+  if (mine && DEL_PLAN.ok) { openDeleteModal(DEL_PLAN); return; }
+  const plan = await fetchLeftoverPlan(name);
+  if (!CURRENT || String(CURRENT.sessionName).toLowerCase() !== String(name).toLowerCase()) return;
+  if (plan && plan.ok) { openDeleteModal(plan); return; }
+  const dmsg = document.getElementById('d-delete-msg');
+  if (dmsg) dmsg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)((plan && plan.because) || 'We could not reach the board just now.');
 });
 document.getElementById('del-keep').addEventListener('click', closeDeleteModal);
 document.getElementById('del-modal').addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDeleteModal(); });

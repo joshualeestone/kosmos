@@ -124,7 +124,7 @@ test('#7852 an agent page whose delete is running says so, with no button, and k
   await ctx.load('miles');
   ctx.view('ada');
   let seenHidden = null;
-  answer = { then: undefined };   // no boolean ok: an answer that is not a plan (fetchLeftoverPlan gives null)
+  answer = { message: 'hi' };   // a 200 that is not a plan (fetchLeftoverPlan gives null)
   const asking = ctx.load('ada');
   seenHidden = els['d-delete-leftover'].hidden;
   await asking;
