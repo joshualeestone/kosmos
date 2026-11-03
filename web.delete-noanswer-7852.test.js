@@ -46,7 +46,7 @@ test('the plan still offers a delete: something is still here', () => {
 });
 
 /* The page's own dialog functions on a stubbed DOM: what the screen shows once the plan has been asked again. */
-function dialog(planOnScreen) {
+function dialog(planOnScreen, detailFor = null) {
   const els = {};
   const el = (id) => (els[id] = els[id] || { id, hidden: false, disabled: false, textContent: '', value: '', kids: [],
     set innerHTML(v) { this.kids = []; }, focus() {}, appendChild(c) { this.kids.push(c); } });
@@ -61,6 +61,7 @@ function dialog(planOnScreen) {
     fetch: (url, opts) => { calls.push({ url, method: (opts && opts.method) || 'GET' }); return replies.shift()(url, opts); },
   });
   vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0;',
+    'let CURRENT = ' + JSON.stringify(detailFor ? { sessionName: detailFor } : null) + ';',
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
     'function paintRemoved() { paints += 1; }',
     liftConst(SCRIPT, 'DEL_UNKNOWN_LINE'),
@@ -102,21 +103,30 @@ test('refused: the board\'s words in the dialog, the button off, the delete box 
   }
 });
 
-test('no plan either: the line, the dialog stays, and the button stays off', () => {
+test('no plan either: the line, the dialog stays, and the button follows the plan on screen so the person can retry', () => {
   const d = dialog(offered);
   d.els['del-go'].disabled = true;
   d.ctx.show(null);
   assert.equal(d.els['del-modal'].hidden, false);
-  assert.equal(d.els['del-go'].disabled, true);
+  assert.equal(d.els['del-go'].disabled, false, 'no name to type: a retry is open');
   assert.equal(d.els['del-msg'].textContent, UNKNOWN);
+  const typed = dialog({ ...offered, typeToConfirm: 'Miles' });
+  typed.els['del-go'].disabled = true;
+  typed.ctx.show(null);
+  assert.equal(typed.els['del-go'].disabled, true, 'a plan that asks for the name: off until it is typed');
+  typed.els['del-typed'].value = 'Miles';
+  typed.ctx.show(null);
+  assert.equal(typed.els['del-go'].disabled, false, 'CONTROL: the name typed, the retry is open');
   assert.equal(d.ctx.state().kept, 'Miles,Ada', 'CONTROL: nothing is cleared on not knowing');
 });
 
-test('opening or closing the dialog moves the token the click handler checks', () => {
+test('opening and closing the dialog each move the token the click handler checks', () => {
   const d = dialog(offered);
   const before = d.ctx.state().DEL_OPENED;
   d.ctx.open(offered);
   assert.equal(d.ctx.state().DEL_OPENED, before + 1);
+  d.ctx.close();
+  assert.equal(d.ctx.state().DEL_OPENED, before + 2);
 });
 
 const json = (status, body) => () => Promise.resolve({ ok: status >= 200 && status < 300, status, json: () => Promise.resolve(body) });
@@ -156,17 +166,30 @@ test('the handler, run: Keep pressed while the delete hangs, then no answer: not
 });
 
 test('the handler, run: reopened for another agent while the delete hangs, its success does not close that dialog', async () => {
-  const d = dialog(offered);
+  const d = dialog(offered, 'Ada');   // the detail page shows Ada
   let ok;
   d.replies.push(() => new Promise((res) => { ok = res; }));
   const done = d.ctx.click();
-  d.ctx.open({ ...offered, name: 'Ada' });
+  d.ctx.open({ ...offered, name: 'Ada', typeToConfirm: 'Ada' });
   ok({ ok: true, status: 200, json: () => Promise.resolve({ outcome: 'deleted', said: 'Miles is gone.' }) });
   await done;
   assert.equal(d.els['del-modal'].hidden, false, 'Ada\'s dialog stays open');
   assert.equal(d.ctx.state().DEL_FOR, 'Ada');
+  assert.equal(d.ctx.state().DEL_PLAN && d.ctx.state().DEL_PLAN.typeToConfirm, 'Ada', 'Ada\'s plan stays, so typing her name still opens the button');
   assert.equal(d.ctx.state().kept, 'Ada', 'Miles, the one deleted, leaves the kept leftovers');
+  assert.equal(d.els['d-delete-msg'].textContent, '', 'Ada\'s detail page is not told about Miles');
+  assert.equal(d.els['d-delete-leftover'].hidden, false, 'nor loses her delete box');
+});
+
+test('the handler, run: a delete from the deleted agent\'s own detail page settles that page', async () => {
+  const d = dialog(offered, 'Miles');
+  d.replies.push(json(200, { outcome: 'deleted', said: 'Miles is gone.' }));
+  await d.ctx.click();
+  assert.equal(d.els['del-modal'].hidden, true);
   assert.equal(d.els['d-delete-msg'].textContent, 'Miles is gone.');
+  assert.equal(d.els['d-delete-leftover'].hidden, true);
+  assert.equal(d.ctx.state().DEL_PLAN, null);
+  assert.equal(d.ctx.paints, 1, 'the removed list redraws');
 });
 
 test('the click handler never says Nothing was deleted', () => {

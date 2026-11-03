@@ -50175,7 +50175,7 @@ let DEL_FOR = null;
 let DEL_PLAN = null;
 let DEL_RETURN = null;
 let DEL_TOKEN = 0;
-let DEL_OPENED = 0;   // bumped each time the dialog opens or closes, so a late answer is not written into a later dialog
+let DEL_OPENED = 0;   // bumped by openDeleteModal (an in-place repaint too) and closeDeleteModal: a late answer checks it
 async function fetchLeftoverPlan(name) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
@@ -50197,7 +50197,7 @@ function deleteNoAnswerLine(plan) {
    that got partway can leave less, or ask for the name), and says so. Refused: the board's words, with the button off;
    the detail page's delete box hides, as it does for any refusal (loadLeftover). The kept leftovers are left to the
    next read: a refusal can be "try again in a moment" or "is running", not only "nothing is left". No plan: the line,
-   and the button stays off. */
+   and the button as the plan on screen gates it, so the person can try again (the board re-plans before it acts). */
 function deleteNoAnswerShow(plan) {
   const say = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(deleteNoAnswerLine(plan));
   if (plan && plan.ok) {
@@ -50211,6 +50211,9 @@ function deleteNoAnswerShow(plan) {
     const box = document.getElementById('d-delete-leftover');
     if (box) box.hidden = true;
     DEL_PLAN = null;
+  } else {
+    const typed = document.getElementById('del-typed').value.trim();
+    document.getElementById('del-go').disabled = !!(DEL_PLAN && DEL_PLAN.typeToConfirm && typed !== DEL_PLAN.typeToConfirm);
   }
   document.getElementById('del-msg').textContent = say;
 }
@@ -50220,14 +50223,19 @@ function deleteSettled(name, say, closeDialog) {
   /* kosmos#7825 review 2: a name just deleted is never drawn again from the kept leftovers. */
   { const deleted = String(name).toLowerCase(); LEFTOVERS_LAST = LEFTOVERS_LAST.filter((x) => String(x.name).toLowerCase() !== deleted); }
   if (closeDialog) closeDeleteModal();
-  const dmsg = document.getElementById('d-delete-msg');
-  if (dmsg) dmsg.textContent = say;
+  const deleted = String(name).toLowerCase();
+  // The detail page's box and line, and the shared plan, only when they are the deleted agent's (the dialog may have
+  // been opened for another agent meanwhile, or the delete started from the removed list).
+  if (typeof CURRENT !== 'undefined' && CURRENT && String(CURRENT.sessionName).toLowerCase() === deleted) {
+    const dmsg = document.getElementById('d-delete-msg');
+    if (dmsg) dmsg.textContent = say;
+    const box = document.getElementById('d-delete-leftover');
+    if (box) box.hidden = true;
+  }
+  if (DEL_PLAN && String(DEL_PLAN.name).toLowerCase() === deleted) DEL_PLAN = null;
   const rmsg = document.getElementById('removed-msg');
   const wrap = document.getElementById('removed-wrap');
   if (rmsg && wrap && !wrap.hidden) rmsg.textContent = say;
-  const box = document.getElementById('d-delete-leftover');
-  if (box) box.hidden = true;
-  DEL_PLAN = null;
   try { paintRemoved(); } catch { /* the next paint shows it */ }
 }
 async function loadLeftover(sessionName) {
