@@ -47501,7 +47501,19 @@ function wnNewer(a, b) {
   for (let i = 1; i <= 3; i++) if (+pa[i] !== +pb[i]) return +pa[i] > +pb[i];
   return false;
 }
+/* kosmos#7839 (Josh, iPhone build 29): the "Kosmos has been updated" window is about the Mac or Linux app on the computer,
+   so a phone never shows it: the iPhone app marks every page it loads (html.kapptabs, ios ShellLogic markScript), and
+   a Kosmos+ session at phone width (html.kremote) covers the Android app and a phone's browser. Nothing is recorded
+   there, so the computer's own window still shows it. */
+function wnOnPhone() {
+  const root = typeof document !== 'undefined' && document.documentElement;
+  if (!root || !root.classList) return false;
+  if (root.classList.contains('kapptabs')) return true;
+  return root.classList.contains('kremote') && typeof window !== 'undefined' && !!window.matchMedia
+    && typeof PNAV_PHONE_MQ === 'string' && window.matchMedia(PNAV_PHONE_MQ).matches;
+}
 async function whatsNewCheck() {
+  if (typeof wnOnPhone === 'function' && wnOnPhone()) return;   // typeof: tests lift this function alone
   /* #4347: while this is deciding (it can wait an hour for the boot cover), the Mac window must not restart,
      or the old page records the version as seen and the new window never shows What's New. */
   if (typeof window !== 'undefined') { window.kosmosWhatsNewPending = true; window.kosmosWhatsNewSince = Date.now(); }
