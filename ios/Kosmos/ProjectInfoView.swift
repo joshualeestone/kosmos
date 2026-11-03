@@ -30,6 +30,8 @@ struct ProjectInfoView: View {
     @State private var filledDesc = ""
     @State private var filled = false
     @State private var saving = false
+    // Final review: which change is saving, so its own row (only) shows the spinner.
+    @State private var savingKind: String?
     @State private var textLine: (text: String, ok: Bool)?
     @State private var notifyLine: (text: String, ok: Bool)?
     @State private var pauseLine: (text: String, ok: Bool)?
@@ -75,7 +77,7 @@ struct ProjectInfoView: View {
     // Paused when it is, and the segments. The name is the top bar's (said once, not twice).
     private var header: some View {
         VStack(spacing: 8) {
-            if project.paused {
+            if shownPaused {   // final review: as Settings shows it, at once
                 Text("Paused").font(.subheadline).foregroundColor(Palette.secondary)
             }
             Picker("Section", selection: $part) {
@@ -139,7 +141,9 @@ struct ProjectInfoView: View {
             Section {
                 TextField("Name", text: $nameText).foregroundColor(Palette.primary)
                     .accessibilityLabel("Name")
-            } header: { label("Name") } footer: { Text(Board.projectRenameSafe) }
+            } header: { label("Name") } footer: {
+                Text(nameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Board.projectNameNeeded : Board.projectRenameSafe)
+            }
             Section {
                 TextEditor(text: $descText).frame(minHeight: 96).foregroundColor(Palette.primary)
                     .scrollContentBackground(.hidden)
@@ -152,7 +156,7 @@ struct ProjectInfoView: View {
                 Section {
                     if textChanged {
                         Button { Task { await save(.text(name: nameText, description: descText)) } } label: {
-                            HStack { Text("Save changes"); if saving { Spacer(); ProgressView() } }
+                            HStack { Text("Save changes"); if savingKind == "text" { Spacer(); ProgressView() } }
                                 .frame(minHeight: 44).contentShape(Rectangle())
                         }
                         .disabled(saving)
@@ -171,12 +175,12 @@ struct ProjectInfoView: View {
                 .pickerStyle(.segmented)
                 .disabled(saving)
                 if let notifyLine { Text(notifyLine.text).font(.footnote).foregroundColor(notifyLine.ok ? Palette.secondary : Palette.dangerWord) }
-            } header: { label("Notifications from this project") }
+            } header: { label("Notifications from this project") } footer: { Text(Board.projectNotifyHint(shownNotify)) }
             Section {
                 Button { let to = !shownPaused; pendingPaused = to; Task { await save(.paused(to)) } } label: {
                     HStack {
                         Text(shownPaused ? "Resume it" : "Pause it").foregroundColor(Palette.primary)
-                        if saving { Spacer(); ProgressView() }
+                        if savingKind == "paused" { Spacer(); ProgressView() }
                     }
                     .frame(minHeight: 44).contentShape(Rectangle())
                 }
@@ -205,11 +209,14 @@ struct ProjectInfoView: View {
         .onChange(of: project.description) { _ in refillIfUntouched(project) }
         // Review 2: a stored value that changes while no save is running always wins (a change on the computer), so a
         // choice can never stick on a value that is no longer stored; a result line from before goes with it.
+        // Final review: a result line stays only while it still describes what is stored.
         .onChange(of: project.notify) { stored in
-            if pendingNotify == stored || !saving { if pendingNotify == nil { notifyLine = nil }; pendingNotify = nil }
+            if pendingNotify == stored { pendingNotify = nil }
+            else if !saving { pendingNotify = nil; notifyLine = nil }
         }
         .onChange(of: project.paused) { stored in
-            if pendingPaused == stored || !saving { if pendingPaused == nil { pauseLine = nil }; pendingPaused = nil }
+            if pendingPaused == stored { pendingPaused = nil }
+            else if !saving { pendingPaused = nil; pauseLine = nil }
         }
     }
 
@@ -224,7 +231,8 @@ struct ProjectInfoView: View {
     private func save(_ change: Board.ProjectChange) async {
         guard let body = Board.projectChangeBody(change, shownName: filledName, shownDescription: filledDesc) else { return }
         saving = true
-        defer { saving = false }
+        switch change { case .text: savingKind = "text"; case .notify: savingKind = "notify"; case .paused: savingKind = "paused" }
+        defer { saving = false; savingKind = nil }
         let id = project.id
         let res = await client.throughMac { Board.projectChangeRequest(mac: $0, project: id, body: body) }
         let line: (text: String, ok: Bool)

@@ -1746,6 +1746,8 @@ check(boardPage.contains(Board.projectRenameSafe), "the rename sentence is the b
 check(boardPage.contains(Board.projectDescriptionWho), "the description sentence is the board's own")
 check(boardPage.contains(Board.projectPauseWhat), "the pause sentence is the board's own")
 check(boardPage.contains(">Mentions only<") && boardPage.contains(">Muted<"), "premise: the board's notification choices")
+for level in ["all", "mentions", "muted"] { check(boardPage.contains("'" + Board.projectNotifyHint(level) + "'"), "final review: the \(level) hint is the board's own (PJ_NOTIFY_HINT)") }
+check(Board.projectNotifyHint("loud") == Board.projectNotifyHint("all"), "an unknown level reads as all, as the board's fallback")
 
 extension Array { subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil } }
 
