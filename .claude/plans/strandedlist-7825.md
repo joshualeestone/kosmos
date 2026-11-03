@@ -101,3 +101,11 @@ which hides a real leftover rather than offering a wrong one.
 - Copy: "Kosmos could not check for agents with only their settings left, so this list may be missing some."
 - The check's header and README name the first-load arms. Noted in the comment: while another writer's sentence
   stands, the failure goes unsaid until the line is empty again.
+
+## Review round 8 (sonnet): no BLOCKER, no WARNING. CONVERGED at the cap (8).
+- Answered: "the route test may not reach the survey reset". Measured in round 2: deleting `LAST_SURVEY = null` reds it.
+- Accepted, recorded: a poll that took its survey just before a delete can store it just after (milliseconds); the
+  name can then be listed up to about 15 s, and its click refuses with a true sentence. A generation counter would
+  close it; not built.
+- Accepted: the cache is cleared only by a leftover delete (a create under the name can leave a stale row ~15 s, whose
+  click refuses truthfully).
