@@ -47503,13 +47503,13 @@ function wnNewer(a, b) {
 }
 /* kosmos#7839 (Josh, iPhone build 29): the "Kosmos has been updated" window is about the Mac or Linux app on the computer,
    so a phone never shows it: the iPhone app marks every page it loads (html.kapptabs, ios ShellLogic markScript), and
-   a Kosmos+ session at phone width (html.kremote) covers the Android app and a phone's browser. Nothing is recorded
-   there, so the computer's own window still shows it. */
+   a Kosmos+ address at phone width covers the Android app and a phone's browser. The address (kplusRemote), not
+   html.kremote: this runs at load, long before kplusBar adds that class. Nothing is recorded there, so the computer's
+   own window still shows it. */
 function wnOnPhone() {
   const root = typeof document !== 'undefined' && document.documentElement;
-  if (!root || !root.classList) return false;
-  if (root.classList.contains('kapptabs')) return true;
-  return root.classList.contains('kremote') && typeof window !== 'undefined' && !!window.matchMedia
+  if (root && root.classList && root.classList.contains('kapptabs')) return true;
+  return typeof kplusRemote === 'function' && kplusRemote() && typeof window !== 'undefined' && !!window.matchMedia
     && typeof PNAV_PHONE_MQ === 'string' && window.matchMedia(PNAV_PHONE_MQ).matches;
 }
 async function whatsNewCheck() {

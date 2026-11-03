@@ -6,8 +6,9 @@ Card: kosmos#7839 (Josh 11-03 04:16, iPhone build 29). Owner: Baron Draxum (What
 whatsNewCheck returns at once, reading and recording nothing, when wnOnPhone():
 - html.kapptabs: the iPhone app marks every page it loads at document start (ios ShellLogic AppTabs.markScript, its
   one WKWebView in ContentView), the board sheet Josh opened included; or
-- html.kremote at phone width (PNAV_PHONE_MQ): the Android app, which opens the board without marking it, and a phone's
-  browser.
+- a Kosmos+ address (kplusRemote, the page's own host) at phone width (PNAV_PHONE_MQ): the Android app, which opens the
+  board in a Custom Tab without marking it, and a phone's browser. Not html.kremote: kplusBar adds that class long after
+  whatsNewCheck runs at load (review 1's BLOCKER).
 Nothing is recorded on a phone, so the computer's own window still shows the update.
 
 ## Checked, not changed

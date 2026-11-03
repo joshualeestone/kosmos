@@ -14,7 +14,7 @@ const MQ = SCRIPT.match(/\nconst PNAV_PHONE_MQ = [^\n]*\n/);
 const H1 = [{ icon: 'spark', title: 'A thing', line: 'It does a thing.' }];
 
 // The page as each viewer sees it: its <html> classes, and whether the phone media query matches.
-async function load({ classes = [], phoneWidth = false } = {}) {
+async function load({ classes = [], phoneWidth = false, host = '127.0.0.1' } = {}) {
   const posts = [], opened = [], reads = [];
   const fetchStub = async (url, opts) => {
     if (opts && opts.method === 'POST') { posts.push(url); return { ok: true, text: async () => '' }; }
@@ -23,9 +23,10 @@ async function load({ classes = [], phoneWidth = false } = {}) {
   };
   const document = { documentElement: { classList: { contains: (c) => classes.includes(c) } }, querySelector: () => null };
   const window = { matchMedia: () => ({ matches: phoneWidth }) };
-  const run = new Function('fetch', 'bakedVersion', 'wnOpen', 'document', 'window',
-    MQ[0] + page.liftAll(SCRIPT, ['wnNewer', 'wnOnPhone', 'whatsNewCheck']) + '\nreturn whatsNewCheck();');
-  await run(fetchStub, () => '0.7.85', (v) => opened.push(v), document, window);
+  const location = { hostname: host };
+  const run = new Function('fetch', 'bakedVersion', 'wnOpen', 'document', 'window', 'location',
+    MQ[0] + page.liftAll(SCRIPT, ['kplusRemote', 'wnNewer', 'wnOnPhone', 'whatsNewCheck']) + '\nreturn whatsNewCheck();');
+  await run(fetchStub, () => '0.7.85', (v) => opened.push(v), document, window, location);
   await new Promise((r) => setImmediate(r));
   return { posts, opened, reads };
 }
@@ -46,11 +47,14 @@ test('#7839: inside the iPhone app (html.kapptabs, every page it loads) no windo
   }
 });
 
-test('#7839: a Kosmos+ session at phone width (the Android app, a phone browser) shows nothing; at desktop width it does', async () => {
-  const phone = await load({ classes: ['kremote'], phoneWidth: true });
-  assert.deepEqual([phone.opened, phone.posts], [[], []]);
-  const desk = await load({ classes: ['kremote'], phoneWidth: false });
+test('#7839: a Kosmos+ address at phone width (the Android app, a phone browser) shows nothing, with no class set yet', async () => {
+  // No html class at all: at load, kplusBar has not added kremote yet; the address is what the page knows.
+  const phone = await load({ host: 'sample.kosmosplus.com', phoneWidth: true });
+  assert.deepEqual([phone.opened, phone.posts], [[], []], 'a phone over Kosmos+ got the desktop window');
+  const desk = await load({ host: 'sample.kosmosplus.com', phoneWidth: false });
   assert.deepEqual(desk.opened, ['0.7.85'], 'CONTROL: a Kosmos+ session in a desktop browser still shows it');
+  const local = await load({ host: '127.0.0.1', phoneWidth: true });
+  assert.deepEqual(local.opened, ['0.7.85'], 'CONTROL: a narrow window on the computer itself still shows it');
 });
 
 test('#7839: the iPhone app still marks every page it loads with kapptabs (the signal this depends on)', () => {
