@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: composergrow-7817
-diff_hash: e589972ab596f306aff8f663196a2db4bb32ec9ab6e4bf764bdb999530d76251
+diff_hash: 90ddd558b05334297b05183c83940196b56a5c00fceda50b31dbcff69e666d17
 validation: passed
 subdir_audit: passed
 timestamp: 2026-11-03T03:35:43Z
@@ -86,6 +86,12 @@ Validation: full suite passed on fc88c4352f (26528 tests, 0 fail). UI: ios/tools
 - [CONVENTION] ios/tools/ui-keyboard.sh:56 — failure line says "of 3" --> FIXED after the cap (fc88c4352f), not reviewed
 - Duplicates: keyboard changes the strip (iteration 2); first measure with a kept copy (plan)
 **Stopped at the cap.**
+
+#### After the cap: a CI failure in the new test (run 41573225906)
+**Reviewer model:** opus (one blind review of the test fix)
+- CI: the shrink arm read 130 to 130 pt; the follow's gap check itself held.
+- Fix bbdfc8f085 waited for one line of shrink; its blind review: [WARNING] one line does not prove every delete landed; [WARNING] the comment guessed a cause --> FIXED (next commit): wait until the box holds 54 characters, then settle; comment says what CI saw. [NIT] polling after the condition held --> FIXED (while loop).
+- Not reviewed again after that commit. Validation unchanged by it (a UI test only; the node suite does not run it); CI's ui-sample job is its measure.
 
 ### Final Ledger
 
