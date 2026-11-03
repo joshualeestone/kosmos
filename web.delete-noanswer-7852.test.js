@@ -86,7 +86,7 @@ function dialog(planOnScreen, detailFor = null) {
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
     'function paintRemoved() { paints += 1; }',
     liftConst(SCRIPT, 'DEL_UNKNOWN_LINE'), liftConst(SCRIPT, 'DEL_REFUSED_LINE'),
-    liftAll(SCRIPT, ['fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteForgetPlan', 'deleteSettled', 'openDeleteModal', 'closeDeleteModal', 'paintLeftoverRunning', 'loadLeftover']),
+    liftAll(SCRIPT, ['asSentence', 'fetchLeftoverPlan', 'deleteNoAnswerLine', 'deleteNoAnswerShow', 'deleteForgetPlan', 'deleteSettled', 'openDeleteModal', 'closeDeleteModal', 'paintLeftoverRunning', 'loadLeftover']),
     'this.startClick = ' + liftStart() + ';', 'this.load = loadLeftover;',
     'this.click = ' + liftHandler() + ';',
     'this.show = (p, onScreen) => deleteNoAnswerShow(p, DEL_FOR, onScreen === undefined ? DEL_PLAN : onScreen);',
@@ -406,7 +406,7 @@ test('kosmos#7852 an agent page whose delete is running says so, with no button,
     // the route answers 200 with any plan; an unreadable answer is a proxy's page
     fetch: async () => ({ ok: !failing, json: async () => (readable ? answer : Promise.reject(new Error('not json'))) }) });
   vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_FOR = null; let DEL_RUNNING_FOR = null; let CURRENT = null;', 'const CARDS = ' + JSON.stringify(CARD) + ';', 'CURRENT = CARDS.miles;',
-    liftAll(SCRIPT, ['fetchLeftoverPlan', 'paintLeftoverRunning', 'loadLeftover', 'leftoverOnPoll', 'leftoverOffList']),
+    liftAll(SCRIPT, ['asSentence', 'fetchLeftoverPlan', 'paintLeftoverRunning', 'loadLeftover', 'leftoverOnPoll', 'leftoverOffList']),
     'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_RUNNING_FOR }); this.view = (n) => { CURRENT = CARDS[n]; }; this.dialog = (n, p) => { DEL_FOR = n; DEL_PLAN = p; }; this.onPoll = leftoverOnPoll; this.offList = leftoverOffList;'].join('\n'), ctx);
   answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
   await ctx.load(CARD.miles.sessionName);
