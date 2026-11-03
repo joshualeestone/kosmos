@@ -23,6 +23,10 @@ with no preview, and http://joshualeestone.com had one.
 - Review round 4: a row carrying files gets no bare scan (the page hides a text that is only the file names, and a
   file can be named like a host); a host followed by a colon or a port ("example.com: here", example.com:8080) is no
   longer mistaken for a scheme of its own; and an http page that redirects to another host over plain http is not kept.
+- Review round 5: GET /api/messages, which no screen reads and which serves every agent's whole record, previews only
+  links typed with http(s) (withPreviews opts.bare false), so this change does not widen what an unread route fetches.
+  The scheme check is gone: the page's own word rule (bareSplit) already refuses any word with a scheme, and the extra
+  check skipped "example.com:)". An http page redirecting to its own www. host is kept (same host).
 - What is guaranteed, and tested: a bare address previewed is always a link the page's pjRich draws for that text.
   Stated exceptions, outside pjRich, not tested: an agent whose display name is itself host-shaped (the page drops a
   "Name:" prefix, pjDropSelfName); a room message the server splits at quote offsets mid-word; a word the room draws as
@@ -55,12 +59,14 @@ a missing feature, not this bug, so it is its own card, #7864, which I take afte
   residual is a file named like a multi-label host.
 
 ## Verified
-- engine/unfurl.bare-7861.test.js (12 tests), including whole-message parity against the page's own pjRich (lifted with
-  its 8 helpers): a fixed list of 40 messages and 20000 generated ones (fixed seed); a bare address previewed is always
-  a link the page draws. server.unfurl-bare-7861.test.js (5, through GET /api/messages).
+- engine/unfurl.bare-7861.test.js (14 tests), including whole-message parity against the page's own pjRich (lifted with
+  its 8 helpers): a fixed list of 49 messages and 20000 generated ones (fixed seed); a bare address previewed is always
+  a link the page draws, and (generated messages) a link the project room's pjBody draws too. server.unfurl-bare-7861.test.js (6, through GET /api/agent/<name>/thread, the route the agent
+  page polls; one checks GET /api/messages fetches no bare address).
 - Mutation G (round 2): the round-1 unfurl.js put back in place turns both parity tests red, each naming a message.
 - Mutation H (round 3): the | rule removed turns both parity tests red; the generator (now with table pieces) found a
   second table shape on its own. The generator's floor is 1000 bare cases (1429 measured with | pieces in).
+- Mutation L (round 5): bare previews put back on GET /api/messages turns its test red.
 - Mutations J and K (round 4): the server ignoring a row's files turns the file-named-host route test red; the
   cross-host check removed turns the redirect test red.
 - server.fedmsg-3311.test.js: a bare address in words from outside is not fetched either (its mutation, the external

@@ -23,6 +23,9 @@ const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', '
 const pageFns = new Function(page.lift(SCRIPT, 'pjBareWeb') + '\n' + page.lift(SCRIPT, 'pjBareSplit') + '\nreturn { pjBareWeb, pjBareSplit };')();
 const RICH = ['esc', 'pjRich', 'pjRichSpans', 'pjListDepth', 'pjBareWeb', 'pjBareSplit', 'pjTableAligns', 'pjTableCells', 'pjTableHtml'];
 const pjRich = new Function(RICH.map((n) => page.lift(SCRIPT, n)).join('\n') + '\nreturn pjRich;')();
+/* The project room's renderer, with no project file names (a file named like a host is a stated exception). */
+const pjBody = new Function('let PJ_DOC_NAMES = null;\n' + RICH.concat(['pjBody', 'pjProse']).map((n) => page.lift(SCRIPT, n)).join('\n') + '\nreturn pjBody;')();
+const roomLinks = (text) => [...pjBody(text).matchAll(/<a class="xlink" href="([^"]*)"/g)].map((m) => unesc(m[1]));
 /* The addresses the page links in a message, in order. */
 const unesc = (h) => h.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 const pageLinks = (text) => [...pjRich(text).matchAll(/<a class="xlink" href="([^"]*)"/g)].map((m) => unesc(m[1]));
@@ -130,6 +133,8 @@ test('#7861: on generated messages (no code), a bare address previewed is always
     checked += 1;
     const drawn = pageLinks(text);
     assert.ok(drawn.includes(got.url), 'previewed ' + got.url + ' but the page draws ' + JSON.stringify(drawn) + ' for ' + JSON.stringify(text));
+    const room = roomLinks(text);
+    assert.ok(room.includes(got.url), 'previewed ' + got.url + ' but the project room draws ' + JSON.stringify(room) + ' for ' + JSON.stringify(text));
   }
   assert.ok(checked >= 1000, 'CONTROL: enough generated messages had a bare address, got ' + checked);
 });
@@ -216,6 +221,43 @@ test('#7861: an http page that sends us to ANOTHER host over plain http is not t
   const got = await unfurl.previewBare('https://hop.example.com/');
   assert.deepEqual(calls, ['https://hop.example.com/', 'http://hop.example.com/', 'http://elsewhere.example.net/'], 'CONTROL: the redirect was followed');
   assert.equal(got.ok, false, 'another host\'s page was kept as this address\'s preview: ' + JSON.stringify(got));
+});
+
+test('#7861: https that takes too long falls back to http too', async () => {
+  const calls = [];
+  unfurl.setResolver(async () => [{ address: '93.184.216.34', family: 4 }]);
+  unfurl.setFetcher(async (url) => {
+    calls.push(url);
+    if (url === 'https://slow.example.com/') { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
+    if (url === 'http://slow.example.com/') return fakeResponse({ body: '<title>Slow over http</title>' });
+    throw new Error('unexpected ' + url);
+  });
+  assert.equal((await unfurl.preview('https://slow.example.com/')).because, 'that site took too long to answer', 'CONTROL: the refusal is the timeout one');
+  unfurl.resetForTests();
+  unfurl.setResolver(async () => [{ address: '93.184.216.34', family: 4 }]);
+  unfurl.setFetcher(async (url) => {
+    calls.push(url);
+    if (url === 'https://slow.example.com/') { const e = new Error('aborted'); e.name = 'AbortError'; throw e; }
+    return fakeResponse({ body: '<title>Slow over http</title>' });
+  });
+  const got = await unfurl.previewBare('https://slow.example.com/');
+  assert.equal(got.title, 'Slow over http');
+});
+
+test('#7861: an http page that redirects to its own www. host is kept', async () => {
+  const calls = [];
+  unfurl.setResolver(async () => [{ address: '93.184.216.34', family: 4 }]);
+  unfurl.setFetcher(async (url) => {
+    calls.push(url);
+    if (url === 'https://old.example.org/') throw new TypeError('fetch failed');
+    if (url === 'http://old.example.org/') return { status: 301, ok: false, headers: { get: (k) => (k.toLowerCase() === 'location' ? 'http://www.old.example.org/' : null) }, body: { cancel: async () => {} } };
+    if (url === 'http://www.old.example.org/') return fakeResponse({ body: '<title>Old www</title>' });
+    throw new Error('unexpected ' + url);
+  });
+  const got = await unfurl.previewBare('https://old.example.org/');
+  assert.deepEqual(calls, ['https://old.example.org/', 'http://old.example.org/', 'http://www.old.example.org/']);
+  assert.equal(got.title, 'Old www');
+  assert.equal(got.url, 'https://old.example.org/', 'the card opens the https address, never plain http');
 });
 
 test('#7861: when both fail, the https refusal is what is kept', async () => {

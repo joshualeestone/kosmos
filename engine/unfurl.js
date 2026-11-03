@@ -409,8 +409,11 @@ function bareSplit(tok) {
     whitespace, and every word in a message with any | (the page reads | as a table, which drops extra cells and splits
     a link whose label holds one). A bare address the page links but this skips (in a table, after a quote marker with no
     space, say) gets no preview, which is how every bare address was before. The explicit scan is unchanged.
-    engine/unfurl.bare-7861.test.js checks against the page's own pjRich that a bare address found here is always one
-    the page draws, on a fixed list and on generated messages.
+    engine/unfurl.bare-7861.test.js checks against the page's own renderers (pjRich, and pjBody for the project room)
+    that a bare address found here is always one they draw, on a fixed list and on generated messages.
+    Known exceptions, outside those renderers: a word the project room draws as a file chip because a project file has
+    that name; a "Name:" prefix the page drops when an agent's display name is itself host-shaped (pjDropSelfName); a
+    room message split at quote offsets inside a word. Each needs a host-shaped name or a cut inside a word.
     `opts.bare === false` turns the bare scan off (the server does, for a row carrying files: the page hides a text that
     is only the file names, and a file can be named like a host). */
 const MD_LINK_RE = /\[([^\]\n]+)\]\(([^)\n]+)\)/g;
@@ -434,9 +437,6 @@ function firstLinkInfo(text, opts) {
       if (touching.length !== 1 || touching[0].from !== from || touching[0].to !== to) continue;
       cand = touching[0].target;
     }
-    // A scheme of its own (http:, mailto:, ftp:) is never a bare address; a host's port (example.com:8080) or a colon
-    // ending the word ("example.com: here it is") is not a scheme.
-    if (/^[a-z][a-z0-9+.-]*:(?!\d|$)/i.test(cand)) continue;
     const got = bareSplit(cand);
     if (got && !(touching.length && (got.lead || got.tail))) { bare = { url: got.web, bare: true }; break; }
   }
@@ -472,9 +472,11 @@ async function previewBare(httpsUrl) {
      typed-link key ('p:'), which is right: that IS what https://x answered. */
   const second = await preview('http://' + httpsUrl.slice('https://'.length));
   if (!second.ok) return remember(key, first);
-  // A plain-http page that sent us to another host's plain-http page is not this address's preview.
+  // A plain-http page that sent us to another host's plain-http page is not this address's preview (www. counts as the
+  // same host, the commonest redirect an old site makes).
+  const bareHost = (u) => new URL(u).hostname.toLowerCase().replace(/^www\./, '');
   let sameHost = false;
-  try { sameHost = new URL(second.url).hostname === new URL(httpsUrl).hostname; } catch { sameHost = false; }
+  try { sameHost = bareHost(second.url) === bareHost(httpsUrl); } catch { sameHost = false; }
   if (!/^https:\/\//.test(second.url) && !sameHost) return remember(key, first);
   return remember(key, { ...second, url: /^https:\/\//.test(second.url) ? second.url : httpsUrl });
 }

@@ -1,7 +1,7 @@
 'use strict';
 /*
- * kosmos#7861: through a route the page reads. A person's message naming a bare address (no http) gets a preview on
- * the next read of GET /api/messages (withPreviews, the same helper the room and thread routes use), fetched over https first and over http when https is not reached; the same post with http:// in
+ * kosmos#7861: through the route the agent page polls, GET /api/agent/<name>/thread. A person's message naming a bare
+ * address (no http) gets a preview on a later read, fetched over https first and over http when https is not reached; the same post with http:// in
  * front is the control that already worked. Nothing touches the network: engine/unfurl's own fetch seam answers.
  *
  *   node --test server.unfurl-bare-7861.test.js
@@ -27,6 +27,8 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 const { start, server } = require('./server');
 const messages = require('./engine/messages');
 const unfurl = require('./engine/unfurl');
+const fleet = require('./test-support/fleet');
+const chat = require('./engine/chat');
 
 const base = () => `http://127.0.0.1:${server.address().port}`;
 const page = (title) => ({ status: 200, ok: true, headers: { get: (k) => (k.toLowerCase() === 'content-type' ? 'text/html' : null) },
@@ -37,8 +39,16 @@ let calls = [];
 const callsFor = (host) => calls.filter((u) => new URL(u).hostname === host);
 let seq = 0;
 
-test.before(async () => { await start(0); });
-test.after(() => { unfurl.resetForTests(); try { server.closeAllConnections(); server.close(); } catch { /* best effort */ } });
+let AGENT = null;
+test.before(async () => {
+  await start(0);
+  AGENT = fleet.install([fleet.agent('ava', { state: 'idle' })]).agents[0].name;
+});
+test.after(() => {
+  unfurl.resetForTests();
+  try { fleet.restore(); } catch { /* best effort */ }
+  try { server.closeAllConnections(); server.close(); } catch { /* best effort */ }
+});
 test.beforeEach(() => {
   unfurl.resetForTests();
   calls = [];
@@ -53,16 +63,16 @@ test.beforeEach(() => {
   });
 });
 
-/* A message the person sent an agent, written to the record the way the board records one; then read back through
+/* A message the person sent an agent, written to its direct thread the way the board records one; then read back through
    the route until a read carries a preview (the first read starts the fetch), for up to two seconds, so a loaded
    machine is not a red. A row that never gets one is read once more and returned as it is. */
 async function postAndRead(text, extra) {
   seq += 1;
-  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
-  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'message', id: 'm7861-' + seq, from: 'you', to: 'ava', text, at: new Date().toISOString(), state: 'delivered', ...(extra || {}) }) + '\n');
-  const read = async () => (await (await fetch(base() + '/api/messages')).json()).messages.find((x) => x.text === text);
+  const kept = chat.appendMessage(chat.DIRECT, AGENT, { text, at: new Date(Date.now() + seq).toISOString(), delivery: { state: chat.DELIVERY.PLACED }, ...(extra || {}) });
+  assert.notEqual(kept && kept.recorded, false, 'CONTROL: the thread took the message: ' + JSON.stringify(kept));
+  const read = async () => (await (await fetch(base() + '/api/agent/' + encodeURIComponent(AGENT) + '/thread')).json()).messages.find((x) => x.text === text);
   const first = await read();
-  assert.ok(first, 'CONTROL: the message is in the record the route reads');
+  assert.ok(first, 'CONTROL: the message is in the thread the route serves');
   for (let i = 0; i < 100; i += 1) {
     const r = await read();
     if (r && r.preview) return r;
@@ -101,4 +111,18 @@ test('#7861 CONTROL: a file name and a code span are not fetched', async () => {
   assert.equal(row.preview, undefined);
   assert.deepEqual(callsFor('code7861.com'), []);
   assert.deepEqual(callsFor('notes.md'), []);
+});
+
+test('#7861 GET /api/messages (read by no screen, serving every agent\'s record) previews no bare address, only a typed link', async () => {
+  seq += 1;
+  fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
+  const text = 'old record unread7861.com';
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'message', id: 'm7861-' + seq, from: 'you', to: AGENT, text, at: new Date().toISOString(), state: 'delivered' }) + '\n');
+  for (let i = 0; i < 5; i += 1) { await (await fetch(base() + '/api/messages')).json(); await new Promise((res) => setTimeout(res, 20)); }
+  assert.deepEqual(callsFor('unread7861.com'), [], 'the unread record fetched a bare address');
+  // CONTROL: the same route still previews a link typed with http.
+  const typed = 'old record http://typed7861.com';
+  fs.appendFileSync(messages.LOG, JSON.stringify({ kind: 'message', id: 'm7861-x' + seq, from: 'you', to: AGENT, text: typed, at: new Date().toISOString(), state: 'delivered' }) + '\n');
+  for (let i = 0; i < 5; i += 1) { await (await fetch(base() + '/api/messages')).json(); await new Promise((res) => setTimeout(res, 20)); }
+  assert.ok(callsFor('typed7861.com').length >= 1, 'CONTROL: a typed link on that route was not fetched');
 });

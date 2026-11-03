@@ -5809,8 +5809,9 @@ const FORM_TYPES = new Set([
    its fetch now and is carried on the next poll, so a payload is never held
    for the internet. A refusal or "nothing to show" attaches nothing: absence
    is how the page draws a link that stays a link. The image is this board's
-   own path, never the site's. */
-function withPreviews(rows) {
+   own path, never the site's. `opts.bare === false` (kosmos#7861) previews only links typed with http(s). */
+function withPreviews(rows, opts) {
+  const bareAllowed = !(opts && opts.bare === false);
   if (!Array.isArray(rows)) return rows;
   for (const r of rows) {
     if (!r || typeof r !== 'object' || typeof r.text !== 'string') continue;
@@ -5824,7 +5825,7 @@ function withPreviews(rows) {
     // kosmos#7861: a bare address (example.com) the chat links gets a preview too, fetched https first.
     // A row carrying files gets no bare scan: the page hides a text that is only the file names (pjWords).
     const files = (Array.isArray(r.attachments) && r.attachments.length) || (r.attachment && typeof r.attachment === 'object');
-    const found = unfurl.firstLinkInfo(r.text, { bare: !files });
+    const found = unfurl.firstLinkInfo(r.text, { bare: bareAllowed && !files });
     if (!found) continue;
     const link = found.url;
     const hit = found.bare ? unfurl.peekBare(link) : unfurl.peek(link);
@@ -20993,7 +20994,9 @@ const server = http.createServer(async (req, res) => {
       try { who = new URL(req.url, ROUTING_BASE).searchParams.get('agent') || null; } catch { who = null; }
       /* #4649 slice 3: an outside row's relay stamp (an account id) stays on this board, as in the room route. The
          masked read stays written as one expression: server.guide-secrets-3769.test.js finds it by its text. */
-      sendJson(res, 200, { messages: withPreviews(guideMaskedRows(messages.list(who), null)).map(withoutStamp) });
+      /* kosmos#7861: no screen reads this route, and it serves every agent's whole record, so it fetches only links
+         typed with http(s), as it did before bare addresses had previews. */
+      sendJson(res, 200, { messages: withPreviews(guideMaskedRows(messages.list(who), null), { bare: false }).map(withoutStamp) });
     } catch (err) {
       sendJson(res, 500, { error: String((err && err.message) || 'we could not read the record') });
     }
