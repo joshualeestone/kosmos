@@ -74,3 +74,18 @@ credential in the secrets map gives. It is one command for whoever has root:
   "move it aside", neither suggesting a bootout.
 - The test's pgrep stand-in now matches the passed pattern against a process table and honours -u (the relay's
   Listener, and one of this path under another uid, are always in it).
+
+## Challenge round 2 (sonnet), fixed in the next commit
+- verify and keepalive did not know the daemon: after it, verify reported a missing LaunchAgent and told the operator
+  to run keepalive, which refused with "register first". verify now reads the daemon plist (world-readable) and checks
+  its KeepAlive; keepalive refuses saying the runner runs as a daemon. The verify branch has no arm in the daemon test
+  (verify needs gh and the owner's view); it is three lines over keepalive_set, which test-ci-runner-setup-4601 covers.
+- The agent is now moved aside BEFORE the daemon plist appears at its path, so a power cut between the two cannot leave
+  both for the next boot and login to load. A retired name that already exists (a job can write that dir) refuses.
+- On the load-only path, a late agent or Listener refuses saying the daemon plist stays and loads at the next boot.
+- New arms: a Listener in the window, a taken retired name, the move order, the load-only late refusal, keepalive
+  after the daemon. Four perturbations, each red.
+- Not changed: KOSMOS_CI_DAEMON_DIR is honoured as root. sudo scrubs the environment unless the operator passes it on
+  purpose, and the seam only redirects where root writes a plist it built itself; refusing it would need the real uid,
+  which the test stubs. launchctl print system/<label> and print-disabled system were measured to work as a non-root
+  user (rc 0, 2026-11-03), so a dry run as the CI user can read them.

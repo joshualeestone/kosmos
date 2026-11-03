@@ -29,7 +29,8 @@ case "$me" in
         "-u kosmos-ci") echo 502 ;; "-gn kosmos-ci") echo "${FX_GROUP:-staff}" ;; *) /usr/bin/id "$@" ;; esac ;;
   launchctl) case "$1 $2" in
       "print system/"*) [ -f "$S/daemon-loaded" ] || exit 113; printf 'system/x = {\n\tstate = running\n\tpid = 7000\n}\n' ;;
-      "print gui/"*) [ "${FX_AGENT_LOADED:-0}" = 1 ] || [ -f "$S/agent-loaded" ] || exit 113; printf 'gui/x = {\n\tstate = running\n}\n' ;;
+      "print gui/"*) if [ "${FX_GUI_LATE:-0}" = 1 ] && [ ! -f "$S/gui-seen" ]; then touch "$S/gui-seen"; exit 113; fi
+        [ "${FX_AGENT_LOADED:-0}" = 1 ] || [ "${FX_GUI_LATE:-0}" = 1 ] || [ -f "$S/agent-loaded" ] || exit 113; printf 'gui/x = {\n\tstate = running\n}\n' ;;
       "print-disabled system") [ "${FX_PD_FAIL:-0}" = 1 ] && exit 1
         printf 'disabled services = {\n'; [ "${FX_DISABLED:-0}" = 1 ] && printf '\t"%s" => disabled\n' "$FX_LABEL"; printf '}\n' ;;
       "bootstrap system") [ "${FX_BOOTSTRAP_FAIL:-0}" = 1 ] && exit 5; touch "$S/daemon-loaded"
@@ -44,13 +45,15 @@ case "$me" in
   stat) case "${*: -1}" in "$S/daemons/"*) echo "${FX_OWNER:-0} $(/usr/bin/stat -f %Lp "${*: -1}")" ;; *) /usr/bin/stat "$@" ;; esac ;;
   mv) [ "${FX_MV_FAIL:-0}" = 1 ] && case "$2" in *.retired-*) exit 1 ;; esac
     /bin/mv "$@" || exit $?
-    [ "${FX_LOGIN_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) touch "$S/agent-loaded" ;; esac; exit 0 ;;
+    [ "${FX_LOGIN_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) touch "$S/agent-loaded" ;; esac;
+    [ "${FX_LISTENER_ON_MV:-0}" = 1 ] && case "$2" in *.retired-*) echo "502 5300 1 $FX_R/bin/Runner.Listener run" >> "$S/procs" ;; esac; exit 0 ;;
+  date) echo 20261103T000000Z ;;
   chown|sleep) : ;;
 esac
 STUB
-chmod 755 "$BIN/_stub"; for c in id launchctl pgrep ps stat mv chown sleep; do ln -s _stub "$BIN/$c"; done
+chmod 755 "$BIN/_stub"; for c in id launchctl pgrep ps stat mv date chown sleep; do ln -s _stub "$BIN/$c"; done
 fixture() {   # a runner as svc.sh install leaves it: .service names its LaunchAgent, WorkingDirectory the runner dir
-  rm -rf "$T/home" "$T/daemons" "$T/daemon-loaded" "$T/agent-loaded"; H="$T/home/kosmos-ci"; R="$H/actions-runner"
+  rm -rf "$T/home" "$T/daemons" "$T/daemon-loaded" "$T/agent-loaded" "$T/gui-seen"; H="$T/home/kosmos-ci"; R="$H/actions-runner"
   mkdir -p "$R" "$H/Library/LaunchAgents" "$T/daemons"; AG="$H/Library/LaunchAgents/$LABEL.plist"
   # Always there, never this runner's: the relay's Listener (same user, #6245), and one of this path under another uid.
   printf '%s\n' "502 4000 1 $H/actions-runner-relay/bin/Runner.Listener run" "501 4100 1 $R/bin/Runner.Listener run" > "$T/procs"
@@ -150,8 +153,8 @@ plutil -insert Sockets -xml '<dict/>' "$D"; run extra -- --apply daemon
 [ "$(rc extra)" = 1 ] && has extra "not exactly what this stage writes" && pass "a daemon plist with one extra key is not this stage's" || fail "extra: rc $(rc extra) $(cat "$T/extra.out")"
 
 fixture; run mvfail FX_MV_FAIL=1 -- --apply daemon
-[ "$(rc mvfail)" = 1 ] && has mvfail "could not move" && has mvfail "sudo rm $(DP)" && [ -e "$AG" ] && ! grep -q '^launchctl bootstrap' "$LOG" \
-  && pass "a failed move of the agent does not load, and says how to go back" || fail "mvfail: rc $(rc mvfail) $(cat "$T/mvfail.out")"
+[ "$(rc mvfail)" = 1 ] && has mvfail "could not move" && [ ! -e "$(DP)" ] && [ ! -e "$(DP).new" ] && [ -e "$AG" ] && ! grep -q '^launchctl bootstrap' "$LOG" \
+  && pass "a failed move of the agent writes no daemon plist and loads nothing" || fail "mvfail: rc $(rc mvfail) $(cat "$T/mvfail.out")"
 fixture; run login FX_LOGIN_ON_MV=1 -- --apply daemon
 [ "$(rc login)" = 1 ] && has login "put everything back" && [ -e "$AG" ] && [ ! -e "$(DP)" ] && ! ls "$AG".retired-* >/dev/null 2>&1 && ! grep -q '^launchctl bootstrap' "$LOG" \
   && pass "a login between the write and the bootstrap puts everything back" || fail "login: rc $(rc login) $(cat "$T/login.out")"
@@ -161,4 +164,19 @@ fixture; run bsfail FX_BOOTSTRAP_FAIL=1 -- --apply daemon
 fixture; run nolistener FX_NO_LISTENER=1 -- --apply daemon
 [ "$(rc nolistener)" = 1 ] && has nolistener "no Runner.Listener of" && has nolistener "sudo launchctl bootout system/$LABEL" \
   && pass "a Listener that never starts under the daemon fails after the wait" || fail "nolistener: rc $(rc nolistener) $(cat "$T/nolistener.out")"
+fixture; run lstnwin FX_LISTENER_ON_MV=1 -- --apply daemon
+[ "$(rc lstnwin)" = 1 ] && has lstnwin "pid 5300" && has lstnwin "put everything back" && [ -e "$AG" ] && [ ! -e "$(DP)" ] && ! grep -q '^launchctl bootstrap' "$LOG" \
+  && pass "a Listener started between the write and the bootstrap puts everything back" || fail "lstnwin: rc $(rc lstnwin) $(cat "$T/lstnwin.out")"
+fixture; mkdir "$AG.retired-20261103T000000Z"; run taken -- --apply daemon
+[ "$(rc taken)" = 1 ] && has taken "is something already there" && [ -f "$AG" ] && [ ! -e "$(DP)" ] && [ ! -e "$(DP).new" ] \
+  && pass "a retired name already taken (a job can write that dir) refuses before anything moves" || fail "taken: rc $(rc taken) $(cat "$T/taken.out")"
+fixture; run order FX_LOGIN_ON_MV=1 -- --apply daemon
+mvline="$(grep -n '^mv .*\.retired-' "$LOG" | head -n 1 | cut -d: -f1)"; dline="$(grep -n "^mv -f $(DP).new $(DP)" "$LOG" | head -n 1 | cut -d: -f1)"
+[ -n "$mvline" ] && [ -n "$dline" ] && [ "$mvline" -lt "$dline" ] && pass "the agent is moved aside before the daemon plist appears at its path" || fail "order: agent mv line ${mvline:-none}, plist mv line ${dline:-none}"
+fixture; run late1 -- --apply daemon; grep -v ' 7001 ' "$T/procs" > "$T/procs.x"; /bin/mv "$T/procs.x" "$T/procs"; rm -f "$T/daemon-loaded"
+run latelo FX_GUI_LATE=1 -- --apply daemon
+[ "$(rc latelo)" = 1 ] && has latelo "nothing was changed" && has latelo "loads it at the next boot" && [ -f "$(DP)" ] && ! grep -q '^launchctl bootstrap' "$LOG" \
+  && pass "load only: an agent loaded just before the load refuses, and says the daemon plist stays" || fail "latelo: rc $(rc latelo) $(cat "$T/latelo.out")"
+run ka FX_EUID=502 FX_WHO=kosmos-ci -- keepalive
+[ "$(rc ka)" = 1 ] && has ka "runs as a LaunchDaemon" && pass "keepalive after the daemon says it runs as a daemon, not register first" || fail "ka: rc $(rc ka) $(cat "$T/ka.out")"
 [ "$fails" = 0 ] && echo "test-ci-runner-daemon-7001: all passed" || { echo "test-ci-runner-daemon-7001: $fails failed"; exit 1; }
