@@ -50175,6 +50175,7 @@ let DEL_FOR = null;
 let DEL_PLAN = null;
 let DEL_RETURN = null;
 let DEL_TOKEN = 0;
+let DEL_OPENED = 0;   // bumped each time the dialog opens or closes, so a late answer is not written into a later dialog
 async function fetchLeftoverPlan(name) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
@@ -50190,6 +50191,37 @@ function deleteNoAnswerLine(plan) {
   if (plan.ok) return 'We could not reach the board just now, and what is left of this agent is still here. Try again.';
   return plan.because || DEL_UNKNOWN_LINE;
 }
+/* What the screen shows once the plan has been asked again. Still offered: the dialog repaints with that plan (a delete
+   that got partway can leave less, or ask for the name), and says so. Refused: nothing is offered any more, so the
+   dialog closes and the screen is put right as after a delete. No plan: the line, and the button stays off. */
+function deleteNoAnswerShow(plan) {
+  const say = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(deleteNoAnswerLine(plan));
+  if (plan && plan.ok) {
+    const back = DEL_RETURN;
+    openDeleteModal(plan);
+    DEL_RETURN = back;
+    document.getElementById('del-msg').textContent = say;
+    return;
+  }
+  if (plan) { deleteSettled(DEL_FOR, say); return; }
+  document.getElementById('del-msg').textContent = say;
+}
+// After a delete, or once the plan no longer offers one: the dialog closes, the name leaves the kept leftovers, and the
+// detail page and the removed list say `say`.
+function deleteSettled(name, say) {
+  /* kosmos#7825 review 2: a name just deleted is never drawn again from the kept leftovers. */
+  { const deleted = String(name).toLowerCase(); LEFTOVERS_LAST = LEFTOVERS_LAST.filter((x) => String(x.name).toLowerCase() !== deleted); }
+  closeDeleteModal();
+  const dmsg = document.getElementById('d-delete-msg');
+  if (dmsg) dmsg.textContent = say;
+  const rmsg = document.getElementById('removed-msg');
+  const wrap = document.getElementById('removed-wrap');
+  if (rmsg && wrap && !wrap.hidden) rmsg.textContent = say;
+  const box = document.getElementById('d-delete-leftover');
+  if (box) box.hidden = true;
+  DEL_PLAN = null;
+  try { paintRemoved(); } catch { /* the next paint shows it */ }
+}
 async function loadLeftover(sessionName) {
   const box = document.getElementById('d-delete-leftover');
   if (!box) return;
@@ -50204,6 +50236,7 @@ async function loadLeftover(sessionName) {
   box.hidden = false;
 }
 function openDeleteModal(plan) {
+  DEL_OPENED += 1;
   DEL_FOR = plan.name;
   DEL_PLAN = plan;
   DEL_RETURN = document.activeElement;
@@ -50230,6 +50263,7 @@ function openDeleteModal(plan) {
   document.getElementById('del-keep').focus();
 }
 function closeDeleteModal() {
+  DEL_OPENED += 1;
   document.getElementById('del-modal').hidden = true;
   DEL_FOR = null;
   if (DEL_RETURN && DEL_RETURN.focus) DEL_RETURN.focus();
@@ -50259,11 +50293,10 @@ document.getElementById('del-go').addEventListener('click', async () => {
     body = await res.json().catch(() => null);
   } catch { res = null; }
   if (!res || !body) {
-    const asked = DEL_FOR;
-    const plan = await fetchLeftoverPlan(asked);
-    if (DEL_FOR !== asked) return;   // the dialog was closed or moved on meanwhile
-    msg.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(deleteNoAnswerLine(plan));
-    go.disabled = !(plan && plan.ok);
+    const opened = DEL_OPENED;
+    const plan = await fetchLeftoverPlan(DEL_FOR);
+    if (opened !== DEL_OPENED) return;   // the dialog was closed, or opened again, meanwhile
+    deleteNoAnswerShow(plan);
     return;
   }
   if (!res.ok && body.outcome !== 'partial') {
@@ -50283,19 +50316,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
     if (!repainted) go.disabled = false;
     return;
   }
-  /* kosmos#7825 review 2: a name just deleted is never drawn again from the kept leftovers. */
-  { const deleted = String(DEL_FOR).toLowerCase(); LEFTOVERS_LAST = LEFTOVERS_LAST.filter((x) => String(x.name).toLowerCase() !== deleted); }
-  closeDeleteModal();
-  const say = body.said || body.because || '';
-  const dmsg = document.getElementById('d-delete-msg');
-  if (dmsg) dmsg.textContent = say;
-  const rmsg = document.getElementById('removed-msg');
-  const wrap = document.getElementById('removed-wrap');
-  if (rmsg && wrap && !wrap.hidden) rmsg.textContent = say;
-  const box = document.getElementById('d-delete-leftover');
-  if (box) box.hidden = true;
-  DEL_PLAN = null;
-  try { paintRemoved(); } catch { /* the next paint shows it */ }
+  deleteSettled(DEL_FOR, body.said || body.because || '');
 });
 /* The removed list's door: fetch the plan on the click, so a refusal is a
    sentence on the list rather than a modal with nothing true in it. */
