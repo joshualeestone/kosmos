@@ -368,7 +368,7 @@ test('#7820 the page repaints the dialog from a refusal that carries a plan', ()
   const at = html.indexOf("document.getElementById('del-go').addEventListener('click'");
   assert.ok(at > 0, 'the delete button handler moved; this test no longer reads it');
   const handler = html.slice(at, html.indexOf('closeDeleteModal();', at));
-  assert.match(handler, /body\.plan && body\.plan\.ok && body\.plan\.name === DEL_FOR\) \{\s*const back = DEL_RETURN;\s*openDeleteModal\(body\.plan\);/,
+  assert.match(handler, /body\.plan && body\.plan\.ok && body\.plan\.name === DEL_FOR && body\.plan\.typeToConfirm && !\(DEL_PLAN && DEL_PLAN\.typeToConfirm\)\) \{\s*const back = DEL_RETURN;\s*openDeleteModal\(body\.plan\);/,
     'a refusal with a plan does not repaint the dialog, so a person shown no name box stays stuck');
 });
 
@@ -432,7 +432,7 @@ test('#7820 only settings left (no folder, no job): a record the Recycle Bin did
 });
 
 test('#7820 the Recycle Bin count also matches a file shown without its extension (Explorer hides known ones)', () => {
-  assert.match(leftover.RECYCLE_SCRIPT, /\$i\.Name -eq \$leaf -or \$i\.Name -eq \$stem/);
+  assert.match(leftover.RECYCLE_SCRIPT, /\$i\.Name -eq \$leaf -or \(\$isFile -and \$i\.Name -eq \$stem\)/, 'the extension-less name is matched for a folder too');
   assert.match(leftover.RECYCLE_SCRIPT, /\$stem=\[System\.IO\.Path\]::GetFileNameWithoutExtension\(\$p\)/);
   // The original folder is compared with trailing backslashes trimmed on both sides (-eq already ignores case).
   assert.match(leftover.RECYCLE_SCRIPT, /\.TrimEnd\(\[char\]92\) -eq \$dir\.TrimEnd\(\[char\]92\)/);
@@ -453,6 +453,23 @@ test('#7820 a settings file that is a link sends the LINK to the Recycle Bin, ne
   assert.ok(sent.includes(link), 'the link itself was not what went to the Recycle Bin: ' + JSON.stringify(sent));
   assert.ok(!sent.includes(fs.realpathSync.native(outside)), 'the file the link points at, outside Kosmos, was sent to the Recycle Bin');
   assert.equal(fs.readFileSync(outside, 'utf8'), 'someone else\'s file', 'the file the link points at was touched');
+});
+
+test('#7820 neither PowerShell script contains a double quote (they cross the Windows command line)', () => {
+  for (const [name, script] of [['DRIVE_SCRIPT', leftover.DRIVE_SCRIPT], ['RECYCLE_SCRIPT', leftover.RECYCLE_SCRIPT]]) {
+    assert.equal(script.includes('"'), false, `${name} holds a double quote, which Windows' command-line quoting can strip`);
+    assert.ok(script.length > 100, `${name} is empty, so the check above could not fail`);
+  }
+});
+
+test('#7820 a failed token revoke beside a stuck folder reads "revoke", never "move"', (t) => {
+  recycle = () => 'FAILED Access to the path is denied.';
+  const dir = leftoverFolder('rb7820v');
+  t.mock.method(require('./sendertoken'), 'revoke', () => ({ ok: false, because: 'token store locked' }));
+  const done = win.del('rb7820v');
+  assert.match(String(done.because), /we could not move its folder or revoke its sender tokens/, 'the fixture did not make both steps fail');
+  assert.doesNotMatch(String(done.because), /move its sender tokens/);
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('#7820 CONTROL: the Mac still says the Trash and never asks PowerShell', () => {

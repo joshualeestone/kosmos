@@ -205,7 +205,7 @@ const DRIVE_SCRIPT = [
   String.raw`try { $r=[System.IO.Path]::GetPathRoot($env:KOSMOS_RECYCLE_PATH); if (-not $r -or $r.StartsWith('\\')) { 'UNKNOWN'; exit 0 }`
     + String.raw`; $d=New-Object System.IO.DriveInfo $r; $o=[ordered]@{ type=[string]$d.DriveType; total=[int64]$d.TotalSize; policy=$false; nuke=$null; maxMB=$null }`
     + String.raw`; foreach ($k in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer','HKLM:\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer') { $v=(Get-ItemProperty -LiteralPath $k -Name NoRecycleFiles -ErrorAction SilentlyContinue).NoRecycleFiles; if ($v -eq 1) { $o.policy=$true } }`
-    + String.raw`; try { $vol=(Get-CimInstance Win32_Volume -Filter ("DriveLetter='" + $r.Substring(0,2) + "'")).DeviceID; if ($vol -match '\{[0-9A-Fa-f-]+\}') { $bb=Get-ItemProperty -LiteralPath ('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\' + $Matches[0]) -ErrorAction SilentlyContinue; if ($bb) { $o.nuke=$bb.NukeOnDelete; $o.maxMB=$bb.MaxCapacity } } } catch { }`
+    + String.raw`; try { $vol=(Get-CimInstance Win32_Volume -Filter ('DriveLetter=''' + $r.Substring(0,2) + '''')).DeviceID; if ($vol -match '\{[0-9A-Fa-f-]+\}') { $bb=Get-ItemProperty -LiteralPath ('HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume\' + $Matches[0]) -ErrorAction SilentlyContinue; if ($bb) { $o.nuke=$bb.NukeOnDelete; $o.maxMB=$bb.MaxCapacity } } } catch { }`
     + String.raw`; $o | ConvertTo-Json -Compress } catch { 'UNKNOWN' }`,
 ].join('; ');
 /* The Recycle Bin is offered only with room to spare: 90% of its limit. With no limit recorded for the volume, 5% of
@@ -228,9 +228,9 @@ const RECYCLE_SCRIPT = [
   "$ErrorActionPreference='Stop'",
   '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8',
   '$p=$env:KOSMOS_RECYCLE_PATH',
-  '$dir=[System.IO.Path]::GetDirectoryName($p); $leaf=[System.IO.Path]::GetFileName($p); $stem=[System.IO.Path]::GetFileNameWithoutExtension($p)',
+  '$dir=[System.IO.Path]::GetDirectoryName($p); $leaf=[System.IO.Path]::GetFileName($p); $stem=[System.IO.Path]::GetFileNameWithoutExtension($p); $isFile=Test-Path -LiteralPath $p -PathType Leaf',
   // Each count stops after 15 s, so a large Recycle Bin cannot eat the move's own time; a stopped count reads UNVERIFIED.
-  "function Get-KosmosBinCount { $sw=[System.Diagnostics.Stopwatch]::StartNew(); $n=0; foreach ($i in (New-Object -ComObject Shell.Application).Namespace(10).Items()) { if ($sw.Elapsed.TotalSeconds -gt 15) { throw 'slow' }; if (($i.Name -eq $leaf -or $i.Name -eq $stem) -and ([string]$i.ExtendedProperty('System.Recycle.DeletedFrom')).TrimEnd([char]92) -eq $dir.TrimEnd([char]92)) { $n++ } }; $n }",
+  "function Get-KosmosBinCount { $sw=[System.Diagnostics.Stopwatch]::StartNew(); $n=0; foreach ($i in (New-Object -ComObject Shell.Application).Namespace(10).Items()) { if ($sw.Elapsed.TotalSeconds -gt 15) { throw 'slow' }; if (($i.Name -eq $leaf -or ($isFile -and $i.Name -eq $stem)) -and ([string]$i.ExtendedProperty('System.Recycle.DeletedFrom')).TrimEnd([char]92) -eq $dir.TrimEnd([char]92)) { $n++ } }; $n }",
   '$before=$null; try { $before=Get-KosmosBinCount } catch { }',
   // A single file (an agent's settings or picture) goes through DeleteFile, a folder through DeleteDirectory.
   "try { Add-Type -AssemblyName Microsoft.VisualBasic; if (Test-Path -LiteralPath $p -PathType Leaf) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } } catch { $e=$_.Exception; if ($e.InnerException) { $e=$e.InnerException }; 'FAILED ' + $e.Message; exit 0 }",
@@ -971,7 +971,7 @@ function del(name, opts) {
     const tail = left.length ? ` ${lw.cap} ${lw.plural ? 'are' : 'is'} still on this computer, so a new agent with this name would start with ${lw.plural ? 'them' : 'it'}.${door ? ` Deleting what is left again from the removed agents list clears ${lw.plural ? 'them' : 'it'}.` : ''}` : '';
     // The verb for what could not go: a record follows the records' own mode, which can differ from the folder's.
     const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
-    const verbFor = (x) => (x === 'its startup job' ? 'remove' : (x === 'its settings' || x === 'its picture') ? (p.records.trash ? 'move' : 'delete') : (p.toTrash ? 'move' : 'delete'));
+    const verbFor = (x) => (x === 'its startup job' ? 'remove' : x === 'its sender tokens' ? 'revoke' : (x === 'its settings' || x === 'its picture') ? (p.records.trash ? 'move' : 'delete') : (p.toTrash ? 'move' : 'delete'));
     return {
       outcome: gone.length ? OUTCOME.PARTIAL : OUTCOME.REFUSED,
       /* #4994: the community account is retired, not moved or deleted, and only once everything else is gone, so a
