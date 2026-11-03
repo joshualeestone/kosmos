@@ -816,6 +816,13 @@ struct ChatView: View {
                     guard visible else { return }
                     goNewest(proxy, animated: true)
                 }
+                #if DEBUG
+                // kosmos#7420, KOSMOS_SAMPLE_WALK=1: the walk's steps count as a reader's scroll, as a drag's do.
+                .onReceive(NotificationCenter.default.publisher(for: .sampleWalking)) { n in
+                    personScrolling = (n.object as? Bool) ?? false
+                    if personScrolling { atBottom = false }
+                }
+                #endif
             }
         } else {
             VStack(spacing: 12) {
@@ -2236,6 +2243,9 @@ struct TapWhen: ViewModifier {
 // The "New messages" capsule asks the open chat's scroll view to go to the end.
 extension Notification.Name {
     static let chatScrollToEnd = Notification.Name("kosmos.chatScrollToEnd")
+    #if DEBUG
+    static let sampleWalking = Notification.Name("kosmos.sampleWalking")   // kosmos#7420, KOSMOS_SAMPLE_WALK=1
+    #endif
 }
 
 // One message as a bubble: the person's on the right, the agent's on the left, in the board's colours; the time (and a
@@ -2952,10 +2962,14 @@ struct KeyboardHold: UIViewRepresentable {
                 // measured once; the height lines after it are the true content height to set against the estimates.
                 if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WALK"] == "1" {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+                        NotificationCenter.default.post(name: .sampleWalking, object: true)
                         Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { t in
                             guard let self, self.window != nil, let v = self.scroll else { t.invalidate(); return }
                             let top = -v.adjustedContentInset.top
-                            if v.contentOffset.y <= top + 1 { t.invalidate(); ChatView.trace("height: walk at the top"); return }
+                            if v.contentOffset.y <= top + 1 {
+                                t.invalidate(); ChatView.trace("height: walk at the top")
+                                NotificationCenter.default.post(name: .sampleWalking, object: false); return
+                            }
                             v.setContentOffset(CGPoint(x: 0, y: max(top, v.contentOffset.y - v.bounds.height)), animated: false)
                         }
                     }
