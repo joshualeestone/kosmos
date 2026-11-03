@@ -324,6 +324,7 @@ struct ChatView: View {
         #if DEBUG
         // KOSMOS_SAMPLE_INFO=profile|ai|files with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
         .onAppear {
+            rowTops.isChat = true   // kosmos#7420: the height lines and the walk measure this chat's list, never a room's
             let env = ProcessInfo.processInfo.environment
             // Once a launch, so Back leaves the page (review 2: it pushed again each time the chat reappeared).
             if env["KOSMOS_SAMPLE_AGENTS"] == "1", env["KOSMOS_SAMPLE_INFO"] != nil, !ChatView.sampleInfoOpened {
@@ -828,7 +829,7 @@ struct ChatView: View {
                     personScrolling = walking
                     // A scroll by code leaves the id anchor naming "end", and SwiftUI puts the list back there on its next
                     // update (measured: from 5166 to 28435 on the poll); a finger's scroll moves the anchor, so let it go.
-                    if personScrolling { atBottom = false; positionId = nil; anchorLetGo = true }
+                    if personScrolling { atBottom = false; positionId = nil; anchorLetGo = true; rowTops.walkTaken = true }
                 }
                 #endif
             }
@@ -2979,7 +2980,7 @@ struct KeyboardHold: UIViewRepresentable {
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_TRACE"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_HEIGHT"] == "1" {
                 let height = Timer(timeInterval: 0.5, repeats: true) { [weak self] t in
                     guard let self, self.window != nil else { t.invalidate(); return }   // the chat left: no more lines
-                    guard let v = self.scroll, let r = self.rows else { return }
+                    guard let v = self.scroll, let r = self.rows, r.isChat else { return }
                     ChatView.trace("height: \(Self.heightLine(v, rows: r))", ring: false)
                 }
                 RunLoop.main.add(height, forMode: .common)   // .common: lines keep coming while a finger scrolls too
@@ -2987,7 +2988,8 @@ struct KeyboardHold: UIViewRepresentable {
                 // KOSMOS_SAMPLE_WALK=1
                 if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_WALK"] == "1" {
                     let start = DispatchWorkItem { [weak self] in
-                        guard let self, self.window != nil else { return }   // a rebuilt or closed list: no walk, no notice
+                        guard let self, self.window != nil, let rows = self.rows, rows.isChat else { return }   // a rebuilt or closed list, or a room: no walk
+                        rows.walkTaken = false
                         self.walkSay("start")
                         var steps = 0
                         self.walkTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] t in
@@ -2995,6 +2997,12 @@ struct KeyboardHold: UIViewRepresentable {
                                 t.invalidate(); self?.walkTimer = nil; self?.walkSay("end"); return
                             }
                             steps += 1
+                            // The chat takes the start only on screen; a walk it did not take (checked a tick later, once the
+                            // notice has landed) would scroll a list still holding its "end" anchor, so it does not run.
+                            if steps == 1, self.rows?.walkTaken != true {
+                                t.invalidate(); self.walkTimer = nil
+                                ChatView.trace("height: walk not taken, the chat is not on screen", ring: false); self.walkSay("end"); return
+                            }
                             if steps > Self.walkStepsMax {
                                 t.invalidate(); self.walkTimer = nil; ChatView.trace("height: walk gave up", ring: false); self.walkSay("end"); return
                             }
@@ -3131,6 +3139,10 @@ final class RowTops {
     var last: [String: Double] = [:]   // each row's last place in the content, kept after it stops being drawn (one per row
                                        // drawn in this chat; a fresh chat clears it)
     var watch: (id: String, seen: (RowReading?) -> Void)?
+    #if DEBUG
+    var isChat = false   // kosmos#7420: set by ChatView, so the Debug height lines and walk skip a room's list
+    var walkTaken = false   // kosmos#7420: the chat took the walk's start (on screen, its anchor let go)
+    #endif
     func set(_ id: String, _ r: RowReading?) {
         if KeyboardHold.Probe.off { return }   // the hold is off (below iOS 26, or the Debug control): nothing reads these
         y[id] = r
