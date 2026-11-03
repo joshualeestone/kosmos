@@ -216,7 +216,7 @@ const BIN_DEFAULT_SHARE = 0.05;
 function binVerdict(info, m) {
   if (!info || info.type !== 'Fixed' || info.policy === true || Number(info.nuke) === 1) return false;
   if (m && m.capped) return false;   // its size is not known, so it cannot be said to fit
-  const maxBytes = Number.isFinite(Number(info.maxMB)) && info.maxMB !== null
+  const maxBytes = info.maxMB !== null && info.maxMB !== undefined && Number.isFinite(Number(info.maxMB))
     ? Number(info.maxMB) * 1024 * 1024
     : (Number.isFinite(Number(info.total)) && Number(info.total) > 0 ? Number(info.total) * BIN_DEFAULT_SHARE : 0);
   return ((m && m.bytes) || 0) <= maxBytes * BIN_ROOM;
@@ -228,9 +228,9 @@ const RECYCLE_SCRIPT = [
   "$ErrorActionPreference='Stop'",
   '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8',
   '$p=$env:KOSMOS_RECYCLE_PATH',
-  '$dir=[System.IO.Path]::GetDirectoryName($p); $leaf=[System.IO.Path]::GetFileName($p)',
+  '$dir=[System.IO.Path]::GetDirectoryName($p); $leaf=[System.IO.Path]::GetFileName($p); $stem=[System.IO.Path]::GetFileNameWithoutExtension($p)',
   // Each count stops after 15 s, so a large Recycle Bin cannot eat the move's own time; a stopped count reads UNVERIFIED.
-  "function Get-KosmosBinCount { $sw=[System.Diagnostics.Stopwatch]::StartNew(); $n=0; foreach ($i in (New-Object -ComObject Shell.Application).Namespace(10).Items()) { if ($sw.Elapsed.TotalSeconds -gt 15) { throw 'slow' }; if ($i.Name -eq $leaf -and [string]$i.ExtendedProperty('System.Recycle.DeletedFrom') -eq $dir) { $n++ } }; $n }",
+  "function Get-KosmosBinCount { $sw=[System.Diagnostics.Stopwatch]::StartNew(); $n=0; foreach ($i in (New-Object -ComObject Shell.Application).Namespace(10).Items()) { if ($sw.Elapsed.TotalSeconds -gt 15) { throw 'slow' }; if (($i.Name -eq $leaf -or $i.Name -eq $stem) -and [string]$i.ExtendedProperty('System.Recycle.DeletedFrom') -eq $dir) { $n++ } }; $n }",
   '$before=$null; try { $before=Get-KosmosBinCount } catch { }',
   // A single file (an agent's settings or picture) goes through DeleteFile, a folder through DeleteDirectory.
   "try { Add-Type -AssemblyName Microsoft.VisualBasic; if (Test-Path -LiteralPath $p -PathType Leaf) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, 'OnlyErrorDialogs', 'SendToRecycleBin') } } catch { $e=$_.Exception; if ($e.InnerException) { $e=$e.InnerException }; 'FAILED ' + $e.Message; exit 0 }",
@@ -719,8 +719,8 @@ function moveRecords(p, platform) {
       if (p.records.trash && platform === 'win32') {
         // kosmos#7820: the Recycle Bin, as the folder; a record it did not keep is reported like the folder.
         const where = recycle(r.file);
-        if (where === 'gone') steps.binMissed = true;
-        else if (where === 'unverified') steps.binUnsure = true;
+        if (where === 'gone') steps.binMissed = [...(steps.binMissed || []), r.what];
+        else if (where === 'unverified') steps.binUnsure = [...(steps.binUnsure || []), r.what];
       } else if (p.records.trash) {
         fs.mkdirSync(TRASH(platform), { recursive: true });
         const to = trashName(r.file, platform);
@@ -803,14 +803,16 @@ function del(name, opts) {
   const gone = [];
   const stuck = [];
   /* kosmos#7820: set when Windows deleted the folder but it is not in the Recycle Bin, so the last sentence says so. */
-  let binMissed = false;
-  let binUnsure = false;
+  /* kosmos#7820: what did not land in the Recycle Bin (gone and not found there) or could not be checked, by name, so the
+     sentence names the folder's files or the settings and picture, whichever it was. */
+  const missed = [];
+  const unsure = [];
   const move = (from, what) => {
     try {
       if (p.toTrash && platform === 'win32') {
         const where = recycle(from);
-        if (where === 'gone') binMissed = true;
-        else if (where === 'unverified') binUnsure = true;
+        if (where === 'gone') missed.push('its files');
+        else if (where === 'unverified') unsure.push('its files');
       } else if (p.toTrash) {
         fs.mkdirSync(TRASH(platform), { recursive: true });
         const to = trashName(from, platform);
@@ -917,8 +919,8 @@ function del(name, opts) {
      `id`, #170, and every field a create does not write; the picture is the old one's). */
   if (!stuck.some((s) => s !== 'its sender tokens')) {
     const recStepsOut = moveRecords(p, platform);
-    if (recStepsOut.binMissed) binMissed = true;   // kosmos#7820
-    if (recStepsOut.binUnsure) binUnsure = true;
+    for (const x of recStepsOut.binMissed || []) if (!missed.includes(x)) missed.push(x);   // kosmos#7820
+    for (const x of recStepsOut.binUnsure || []) if (!unsure.includes(x)) unsure.push(x);
     for (const st of recStepsOut) {
       steps.push(st);
       if (st.ok) { if (!st.because) gone.push(st.step); } else stuck.push(st.step);
@@ -946,9 +948,13 @@ function del(name, opts) {
   /* kosmos#7820: what a Recycle Bin move that did not land there means, said on the partial path as on the full one.
      "Could not find" rather than "deleted for good": the search matches the Recycle Bin's name for the item, which
      Kosmos has not measured against every Windows setting. */
-  const binNote = binMissed
-    ? 'Kosmos could not find its files in the Recycle Bin afterwards, so Windows may have deleted them for good.'
-    : (binUnsure ? 'Kosmos could not check that Windows put its files in the Recycle Bin, so look there before you empty it.' : '');
+  const binMissed = missed.length > 0;
+  const binUnsure = unsure.length > 0;
+  const plural = (xs) => xs.length > 1 || xs[0] !== 'its picture';   // its files, its settings: plural nouns
+  const binNote = [
+    binMissed ? `Kosmos could not find ${missed.join(' and ')} in the Recycle Bin afterwards, so Windows may have deleted ${plural(missed) ? 'them' : 'it'} for good.` : '',
+    binUnsure ? `Kosmos could not check that Windows put ${unsure.join(' and ')} in the Recycle Bin, so look there before you empty it.` : '',
+  ].filter(Boolean).join(' ');
   if (stuck.length) {
     /* #7819: a record that would not move is still a leftover; since kosmos#7825 plan() offers it alone, so the sentence
        says what it means and that deleting again clears it. */
@@ -990,7 +996,8 @@ function del(name, opts) {
        an agent that had none is a false sentence in the one line that reports
        the act. */
     said: (!p.folder && !p.job   // kosmos#7825: only stored records were left
-      ? (() => { const w = recordsWords(p.records.files); const n = w.words.replace(/^its /, ''); return `${p.shown}'s ${n} ${w.plural ? 'are' : 'is'} ${p.records.trash ? `in ${binWords(platform)}` : 'deleted'}. The name is free.`; })()
+      // kosmos#7820: a record the Recycle Bin did not keep, or that could not be checked, is said as such.
+      ? (() => { const w = recordsWords(p.records.files); const n = w.words.replace(/^its /, ''); return binNote ? `${p.shown}'s ${n} ${w.plural ? 'are' : 'is'} gone. ${binNote} The name is free.` : `${p.shown}'s ${n} ${w.plural ? 'are' : 'is'} ${p.records.trash ? `in ${binWords(platform)}` : 'deleted'}. The name is free.`; })()
       : !p.folder && p.job && (p.job.task || p.job.unit)   // review 32: a unit-only leftover moved nothing either
       ? `Nothing starts ${p.shown} any more. The name is free.`
       : p.toTrash && (binMissed || binUnsure)
