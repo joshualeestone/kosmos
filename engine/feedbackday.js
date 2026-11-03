@@ -40,8 +40,8 @@ function conversation(messages, names, date, dateKey) {
   const out = [];
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || typeof m !== 'object') continue;
-    if (m.kosmos === true) continue;
-    if (m.delivery && m.delivery.duplicateOf) continue;   // a resend recorded as a copy of one already counted   // Kosmos's own line in the agent's name (a menu answer, `wire`, is the person's and stays)
+    if (m.kosmos === true) continue;   // Kosmos's own line in the agent's name (a menu answer, `wire`, is the person's and stays)
+    if (m.delivery && m.delivery.duplicateOf) continue;   // a resend recorded as a copy of one already counted
     const d = onDay(m.at, date, dateKey);
     if (!d) continue;
     const mine = names.includes(m.from);
@@ -58,7 +58,7 @@ const TASK_FILE = /^(.+)\.task-(\d+)\.jsonl$/;
    these can count: a task it created through the CLI (`addedBy`), and a mark, run or move it made (`by`). */
 function byAgent(r, name) {
   if (r.kind === 'created') return r.addedVia === 'process' && r.addedBy === name;   // as tasks.js AGENT_ROW.created
-  return r.by === name;
+  return r.by === name && r.person !== true;   // as AGENT_ROW: a mark the person made is not the agent's
 }
 /* The tasks this agent changed on `date`: [{ project, number, kinds }], by project then number. */
 function taskChanges(files, readTask, names, date, dateKey) {
@@ -149,7 +149,8 @@ function digest(o) {
   // (server.js guideMaskedRows): its conversation is not printed here. A check that cannot tell counts as the guide.
   const isGuide = o.isGuide || ((n) => require('./setup-assistant').isGuideFolderStrict(n));
   let guide;
-  try { guide = isGuide(name) === true; } catch { guide = true; }
+  let guideUnsure = false;
+  try { guide = isGuide(name) === true; } catch { guide = true; guideUnsure = true; }
 
   const lines = ['Your day on this computer, ' + date + ' (for your feedback report; nothing here is sent anywhere).',
     'Do not copy names, project names, task numbers or your person\'s words into the report: describe what happened.', ''];
@@ -158,7 +159,9 @@ function digest(o) {
   if (!guide) {
     try { talk = conversation(readThread(name), names, date, dateKey); } catch (err) { talk = null; unfilable = Boolean(err && err.code === 'BAD_THREAD'); }
   }
-  if (guide) {
+  if (guideUnsure) {
+    lines.push('Your conversation with your person: not shown, since Kosmos could not tell whether you are the setup guide.');
+  } else if (guide) {
     lines.push('Your conversation with your person: not shown for the setup guide (what the person pasted stays hidden).');
   } else if (talk == null && unfilable) {
     lines.push('Your conversation with your person: Kosmos keeps no conversation under this agent\'s name.');

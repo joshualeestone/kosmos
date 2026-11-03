@@ -75,6 +75,7 @@ test('#7875: tasks this agent changed today, by number and kinds, never a title;
       { at: at(11, 5), kind: 'built', by: 'Dana' },
     ],
     'catalog.task-7': [{ at: at(12, 0), kind: 'built', by: 'Eli' }],
+    'catalog.task-8': [{ at: at(12, 0), kind: 'built', by: 'Dana', person: true }],
     'launch.task-1': [{ at: at(9, 0, 2), kind: 'created', addedBy: 'Dana', addedVia: 'process' }],
     'launch.task-2': [{ at: at(9, 0), kind: 'created', addedBy: 'Dana', addedVia: 'process' }],
     'launch.task-4': [{ at: at(9, 0), kind: 'created', by: 'Dana' }, { at: at(9, 5), kind: 'said', text: 'x' }],
@@ -82,13 +83,14 @@ test('#7875: tasks this agent changed today, by number and kinds, never a title;
   };
   const out = run({
     readThread: () => [],
-    listTaskFiles: () => ['launch.task-2.jsonl', 'catalog.task-3.jsonl', 'catalog.task-7.jsonl', 'launch.task-1.jsonl', 'launch.task-4.jsonl', 'launch.task-5.jsonl', 'notes.txt'],
+    listTaskFiles: () => ['launch.task-2.jsonl', 'catalog.task-3.jsonl', 'catalog.task-7.jsonl', 'catalog.task-8.jsonl', 'launch.task-1.jsonl', 'launch.task-4.jsonl', 'launch.task-5.jsonl', 'notes.txt'],
     readTask: (p, n) => rows[p + '.task-' + n] || [],
   });
   const text = out.join('\n');
   assert.ok(text.includes('  catalog #3: assigned, built'), text);
   assert.ok(text.includes('  launch #2: created'), text);
   assert.ok(!text.includes('catalog #7'), 'another agent\'s change is not listed');
+  assert.ok(!text.includes('catalog #8'), 'a mark the person made is not the agent\'s, as AGENT_ROW');
   assert.ok(!text.includes('launch #1'), 'yesterday\'s change is not listed');
   assert.ok(!text.includes('launch #5'), 'a webhook labelled like the agent did not create it as the agent');
   assert.ok(!text.includes('launch #4'), 'a created row is the agent\'s by addedBy, never by a `by` it does not carry; a said row names nobody');
@@ -168,6 +170,7 @@ test('#7875: the setup guide\'s conversation is never read or printed (what the 
   assert.ok(!out.includes('could not read it'), out);
   const unsure = run({ isGuide: () => { throw new Error('cannot tell'); }, readThread: () => [{ at: at(9, 0), text: 'sk-SECRETKEY', from: null }] }).join('\n');
   assert.ok(!unsure.includes('SECRETKEY'), 'a guide check that cannot tell counts as the guide');
+  assert.ok(unsure.includes('could not tell whether you are the setup guide'), unsure);
 });
 
 test('#7875: a resend recorded as a copy is not counted twice', () => {
