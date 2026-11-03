@@ -50179,7 +50179,9 @@ let DEL_OPENED = 0;   // bumped each time the dialog opens or closes, so a late 
 async function fetchLeftoverPlan(name) {
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', { cache: 'no-store' });
-    return await res.json().catch(() => null);
+    const plan = await res.json().catch(() => null);
+    // kosmos#7852: only the route's own 200 answer is a plan; a 500's {error} (or a proxy's JSON) is no plan at all.
+    return res.ok && plan && typeof plan.ok === 'boolean' ? plan : null;
   } catch { return null; }
 }
 /* kosmos#7852: a delete whose request got no answer (a reload, a sleep, a proxy) may still be running on the board, so
@@ -50191,9 +50193,11 @@ function deleteNoAnswerLine(plan) {
   if (plan.ok) return 'We could not reach the board just now, and what is left of this agent is still here. Try again.';
   return plan.because || DEL_UNKNOWN_LINE;
 }
-/* What the screen shows once the plan has been asked again. Still offered: the dialog repaints with that plan (a delete
-   that got partway can leave less, or ask for the name), and says so. Refused: nothing is offered any more, so the
-   dialog closes and the screen is put right as after a delete. No plan: the line, and the button stays off. */
+/* What the open dialog shows once the plan has been asked again. Still offered: it repaints with that plan (a delete
+   that got partway can leave less, or ask for the name), and says so. Refused: the board's words, with the button off;
+   the detail page's delete box hides, as it does for any refusal (loadLeftover). The kept leftovers are left to the
+   next read: a refusal can be "try again in a moment" or "is running", not only "nothing is left". No plan: the line,
+   and the button stays off. */
 function deleteNoAnswerShow(plan) {
   const say = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(deleteNoAnswerLine(plan));
   if (plan && plan.ok) {
@@ -50203,15 +50207,19 @@ function deleteNoAnswerShow(plan) {
     document.getElementById('del-msg').textContent = say;
     return;
   }
-  if (plan) { deleteSettled(DEL_FOR, say); return; }
+  if (plan) {
+    const box = document.getElementById('d-delete-leftover');
+    if (box) box.hidden = true;
+    DEL_PLAN = null;
+  }
   document.getElementById('del-msg').textContent = say;
 }
-// After a delete, or once the plan no longer offers one: the dialog closes, the name leaves the kept leftovers, and the
-// detail page and the removed list say `say`.
-function deleteSettled(name, say) {
+// After a delete of `name`: the name leaves the kept leftovers, and the detail page and the removed list say `say`.
+// `closeDialog` is false when the dialog was closed or opened again while the delete ran: it is not this delete's.
+function deleteSettled(name, say, closeDialog) {
   /* kosmos#7825 review 2: a name just deleted is never drawn again from the kept leftovers. */
   { const deleted = String(name).toLowerCase(); LEFTOVERS_LAST = LEFTOVERS_LAST.filter((x) => String(x.name).toLowerCase() !== deleted); }
-  closeDeleteModal();
+  if (closeDialog) closeDeleteModal();
   const dmsg = document.getElementById('d-delete-msg');
   if (dmsg) dmsg.textContent = say;
   const rmsg = document.getElementById('removed-msg');
@@ -50281,25 +50289,28 @@ document.getElementById('del-go').addEventListener('click', async () => {
   const go = document.getElementById('del-go');
   const msg = document.getElementById('del-msg');
   if (!DEL_FOR) return;
+  const name = DEL_FOR;
+  const opened = DEL_OPENED;   // this dialog; closing or opening it again moves the token
   go.disabled = true;
   msg.textContent = '';
   let res = null;
   let body = null;
   try {
-    res = await fetch('/api/agent/' + encodeURIComponent(DEL_FOR) + '/leftover', {
+    res = await fetch('/api/agent/' + encodeURIComponent(name) + '/leftover', {
       method: 'DELETE', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ typed: document.getElementById('del-typed').value }),
     });
     body = await res.json().catch(() => null);
   } catch { res = null; }
   if (!res || !body) {
-    const opened = DEL_OPENED;
-    const plan = await fetchLeftoverPlan(DEL_FOR);
-    if (opened !== DEL_OPENED) return;   // the dialog was closed, or opened again, meanwhile
+    if (opened !== DEL_OPENED) return;   // the person left this dialog while the delete ran; nothing to say in it
+    const plan = await fetchLeftoverPlan(name);
+    if (opened !== DEL_OPENED) return;
     deleteNoAnswerShow(plan);
     return;
   }
   if (!res.ok && body.outcome !== 'partial') {
+    if (opened !== DEL_OPENED) return;   // a refusal belongs to the dialog that asked, which is gone
     /* kosmos#7820: the engine re-plans before acting, and its answer can now ask for the name where the one on screen
        did not. It sends that plan back, so the dialog shows it (with the box to type in) rather than refusing again. */
     // Only when the new plan asks for a name the one on screen does not (or spells it differently): a plain typo keeps
@@ -50316,7 +50327,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
     if (!repainted) go.disabled = false;
     return;
   }
-  deleteSettled(DEL_FOR, body.said || body.because || '');
+  deleteSettled(name, body.said || body.because || '', opened === DEL_OPENED);
 });
 /* The removed list's door: fetch the plan on the click, so a refusal is a
    sentence on the list rather than a modal with nothing true in it. */

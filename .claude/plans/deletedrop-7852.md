@@ -11,14 +11,19 @@ a proxy's page), the dialog asks for the plan again (GET .../leftover) and says 
 - the plan still offers a delete: "what is left of this agent is still here. Try again." (not "nothing was deleted",
   which a delete that got partway would make false).
 - no plan either: "we cannot tell whether anything was deleted. Look again in a moment."
-What the screen does with it (`deleteNoAnswerShow`, review 1):
+What the screen does with it (`deleteNoAnswerShow`):
 - still offered: the dialog repaints with THAT plan (a delete that got partway can leave less, or ask for the name),
   so the list and the typed-name gate are current, and the line is shown.
-- refused: nothing is offered any more, so the dialog closes and the screen is put right exactly as after a delete
-  (`deleteSettled`, shared with the success path: the name leaves the kept leftovers, the detail page's box hides,
-  the removed list redraws), with the board's words where the success line goes.
-- no plan: the line in the dialog, and the button stays off.
-A late answer is dropped if the dialog was closed or opened again meanwhile (`DEL_OPENED`, bumped on open and close).
+- refused: the board's words in the dialog, the button off, and the detail page's delete box hidden (the page's rule
+  for any refusal, as loadLeftover). The kept leftovers are NOT cleared: a refusal can be passing ("try again in a
+  moment") or mean the agent is back ("is running"), so the next read decides the removed list (review 2).
+- no plan (no answer, or a GET that is not the route's own 200: fetchLeftoverPlan now refuses those): the line, the
+  button off.
+The name and a dialog token (`DEL_OPENED`, moved on every open and close) are taken BEFORE the DELETE is sent (review
+2: taken after it, Keep pressed during a hanging delete re-asked for a null name). If the person left the dialog
+while the delete ran: no answer says nothing; a refusal says nothing; a success still settles the screen for the
+name that was deleted (`deleteSettled`, shared with the plain success path) but does not close a dialog that is no
+longer its own.
 A refusal WITH an answer is unchanged.
 
 ## Why it helps on main as well
