@@ -23380,6 +23380,23 @@ const server = http.createServer(async (req, res) => {
            stop. Never the reader's own post. The rows above drop `addressed`, so it is read from the stored rows. */
         const namedReader = new Set();
         if (readerName) for (const m of roomRows) if (m && m.kind === 'post' && messages.namedIn(m).includes(readerName)) namedReader.add(String(m.id));
+        /* kosmos#7848: who each post asked, by name, for the claim rule below (the same reading as namedReader). Built
+           only for --unanswered. */
+        const namedBy = new Map();
+        if (onlyUnanswered && readerName) for (const m of roomRows) if (m && m.kind === 'post') namedBy.set(String(m.id), messages.namedIn(m));
+        /* kosmos#7848: an ask another agent it also asked has claimed (kosmos claim, the live 🙋 the shaped row carries)
+           is handled for the reader: it is left out of --unanswered and named under the list, so the reader can still
+           read it. A later post that names the reader again is its own ask and is listed as one. Only a claimant the
+           post asked: a bystander's claim does not answer for the agents that were asked. The reader's own claim is no
+           answer either, so an ask it claimed and has not answered stays listed. */
+        const claimedByOther = (m) => {
+          const c = m && m.claim;
+          if (!c || typeof c.by !== 'string' || c.by === readerName) return null;
+          const asked = (namedBy.get(String(m.id)) || []).includes(c.by)
+            || (m.operator === true && Array.isArray(m.to) && m.to.includes(c.by));
+          return asked ? c : null;
+        };
+        const claimedAsks = [];
         const askedOfReader = (m) => !!readerName && m && m.kind === 'post'
           && (m.operator === true || m.from !== readerName)
           && (namedReader.has(String(m.id))
@@ -23405,6 +23422,8 @@ const server = http.createServer(async (req, res) => {
              open is found; N then caps how many are listed (the newest), and the count says how many there are. */
           if (onlyUnanswered) {
             if (askedOfReader(rows[i]) && !answeredBy.has(String(rows[i].id))) {
+              const c = claimedByOther(rows[i]);
+              if (c) { claimedAsks.unshift({ id: String(rows[i].id), by: c.by, at: c.at }); continue; }
               openAsks += 1;
               if (tail.length < textRows) tail.unshift(rows[i]);
             }
@@ -23569,7 +23588,13 @@ const server = http.createServer(async (req, res) => {
             + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'
           : rec.ok === false ? UNANSWERED_HEAD + 'none found, but this room could not be read, so that may be wrong.\n'
           : UNANSWERED_HEAD + 'nothing in this room.\n';
-        res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : ''));
+        /* kosmos#7848: the asks left out because another agent they asked has claimed them, newest last, so the reader can
+           still read them (kosmos room shows them in full). */
+        const claimedLine = claimedAsks.length
+          ? '[kosmos] Claimed by another agent the post also asked, so not counted as waiting on you: '
+            + claimedAsks.map((x) => '[' + x.id + '] by ' + x.by + (x.at ? ' (' + messages.claimAge(x.at, Date.now()) + ')' : '')).join(', ') + '.\n'
+          : '';
+        res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine);
         return;
       }
       if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)
