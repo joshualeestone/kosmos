@@ -94,8 +94,8 @@ test('#7852 an agent page whose delete is running says so, with no button, and k
     // the route answers 200 with any plan; an unreadable answer is a proxy's page
     fetch: async () => ({ ok: !failing, json: async () => (readable ? answer : Promise.reject(new Error('not json'))) }) });
   vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_FOR = null; let DEL_RUNNING_FOR = null; let CURRENT = { sessionName: "miles" };',
-    liftAll(scriptOf(PAGE), ['fetchLeftoverPlan', 'paintLeftoverRunning', 'loadLeftover']),
-    'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_RUNNING_FOR }); this.view = (n) => { CURRENT = { sessionName: n }; }; this.dialog = (n, p) => { DEL_FOR = n; DEL_PLAN = p; };'].join('\n'), ctx);
+    liftAll(scriptOf(PAGE), ['fetchLeftoverPlan', 'paintLeftoverRunning', 'loadLeftover', 'leftoverOnPoll', 'leftoverOffList']),
+    'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_RUNNING_FOR }); this.view = (n) => { CURRENT = { sessionName: n }; }; this.dialog = (n, p) => { DEL_FOR = n; DEL_PLAN = p; }; this.onPoll = leftoverOnPoll; this.offList = leftoverOffList;'].join('\n'), ctx);
   answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
   await ctx.load('miles');
   assert.equal(els['d-delete-leftover'].hidden, false, 'a running delete must keep the block showing');
@@ -140,11 +140,21 @@ test('#7852 an agent page whose delete is running says so, with no button, and k
   answer = { ok: true, name: 'Miles', hint: 'h' };
   await ctx.load('miles');
   assert.equal(ctx.state().DEL_PLAN, adaPlan, 'a plan read for this page replaced the plan of a dialog open for another agent');
-  // The poll asks again for an agent that has left the list (its folder and job gone), so the block can go.
-  const offList = PAGE.indexOf('} else if (CURRENT && DEL_RUNNING_FOR === String(CURRENT.sessionName).toLowerCase()) {');
-  assert.ok(offList > 0 && PAGE.slice(offList, offList + 400).includes('loadLeftover(CURRENT.sessionName);'), 'a delete that took the agent off the list leaves "running" on its page for good');
-  const start = PAGE.slice(PAGE.indexOf("document.getElementById('d-delete-start').addEventListener('click'"));
-  assert.match(start.slice(0, 700), /String\(DEL_PLAN\.name\)\.toLowerCase\(\) === String\(CURRENT\.sessionName\)\.toLowerCase\(\);\n  if \(mine && DEL_PLAN\.ok\) openDeleteModal\(DEL_PLAN\);/, 'the page\'s button can open another agent\'s plan');
-  const poll = PAGE.slice(PAGE.indexOf('async function loadRemoval('), PAGE.indexOf('async function loadRemoval(') + 800);
-  assert.match(poll, /if \(!fromPoll \|\| DEL_RUNNING_FOR === String\(sessionName\)\.toLowerCase\(\)\) loadLeftover\(sessionName\);/, 'the poll must ask again while this agent\'s delete runs');
+  // The poll: while a page's block says running, its poll asks; once the agent has left the list, it asks once more.
+  ctx.dialog(null, null);
+  answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
+  await ctx.load('miles');
+  assert.equal(ctx.onPoll('miles', true), true, 'the poll must ask while this agent\'s block says running');
+  assert.equal(ctx.onPoll('ada', true), false, 'the poll must not ask for another agent');
+  assert.equal(ctx.onPoll('ada', false), true, 'a repaint that is not the poll always asks');
+  answer = { ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' };
+  ctx.offList();
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(els['d-delete-leftover'].hidden, true, 'an agent that left the list keeps "running" on its page for good');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, null);
+  assert.equal(ctx.onPoll('miles', true), false, 'the poll keeps asking after the delete ended');
+  const tick = PAGE.indexOf("loadRemoval(fresh.sessionName, { fromPoll: true });");
+  assert.ok(tick > 0 && /\} else \{\n[^\n]*\n    leftoverOffList\(\);/.test(PAGE.slice(tick, tick + 400)), 'the poll does not call leftoverOffList when the card is gone');
+  assert.match(PAGE, /if \(leftoverOnPoll\(sessionName, fromPoll\)\) loadLeftover\(sessionName\);/, 'loadRemoval does not ask leftoverOnPoll');
 });

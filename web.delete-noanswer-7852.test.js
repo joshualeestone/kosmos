@@ -349,3 +349,10 @@ test('kosmos#7852 a running answer for an agent whose page is not on screen stil
   assert.equal(d.ctx.state().DEL_PLAN, null, 'the dialog can still turn Delete on by typing the name while the delete runs');
   assert.equal(d.ctx.state().DEL_RUNNING_FOR, null, 'Ada\'s page was told Miles\'s delete is running');
 });
+
+test('kosmos#7852 a dialog open for the agent whose delete is running offers nothing more', () => {
+  const d = dialog(offered, 'Miles');   // Miles's dialog is open on Miles's page
+  assert.equal(d.els['del-go'].disabled, false, 'CONTROL: the dialog offers the delete before');
+  d.ctx.show({ ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' });
+  assert.equal(d.els['del-go'].disabled, true, 'the open dialog still offers a delete the board will refuse');
+});
