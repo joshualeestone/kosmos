@@ -324,6 +324,10 @@ function plan(name, opts) {
     try { recs = namedRecords(clean, null); } catch {
       return { ok: false, because: `we could not check what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.` };
     }
+    if (recs.kept) {
+      const kw = recs.keptWords;
+      return { ok: false, because: `nothing of ${shown} is left on this computer except ${kw.words}, which stay${kw.plural ? '' : 's'} because ${recs.kept}, so there is nothing to delete.` };
+    }
     if (!recs.records.length) {
       return { ok: false, because: `nothing of ${shown} is left on this computer, so there is nothing to delete. If the name is still refused, something else holds it.` };
     }
@@ -447,24 +451,28 @@ function plan(name, opts) {
 /* kosmos#7825: why a name with only stored settings or a picture left must NOT be offered for deleting, or null when they
    are a leftover. Settings are written on purpose before an agent has a folder in two places this answers:
    - a world start waiting to retry (engine/worldstarts.js writes provider and policyHeld before a held create retries),
-     read from its record AND from the profile's own policyHeld mark (register.js writes it too);
+     read from its record. Not from policyHeld alone: removing an agent drops its entry and leaves the mark
+     (remove.recordRemoval), and Repair cannot start a name with no folder (create.installJob), so a marked profile with
+     no entry is stranded like any other;
    - a connected agent whose recorded folder is outside the workers folder and not reachable right now (a disk or share
      that is not connected): its folder is not gone, only out of sight.
-   A record that cannot be read refuses, as every other failed look in plan() does. */
+   The profile is read here, not through store.readProfile, which answers {} for a file it cannot read: a failed look
+   refuses, as every other one in plan() does. */
 function strandedRefusal(name, shown) {
   const store = require('./store');
-  let prof;
-  try { prof = store.readProfile(name) || {}; } catch {
-    return `we could not read what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.`;
+  const couldNot = `we could not read what Kosmos has stored for ${shown}, so we have not offered to delete anything. Try again in a moment.`;
+  let prof = {};
+  try { prof = JSON.parse(fs.readFileSync(store.profilePath(name), 'utf8')); } catch (e) {
+    if (!(e && e.code === 'ENOENT')) return couldNot;   // a picture alone has no profile; anything else is a failed look
   }
-  if (prof.policyHeld) return `${shown} is waiting to start, held until it is allowed to run, so its settings are not left over.`;
+  if (!prof || typeof prof !== 'object') return couldNot;
   const pending = require('./worldstarts').pendingNames();
   if (pending === null) return `we could not check whether ${shown} is waiting to start, so we have not offered to delete anything. Try again in a moment.`;
   let key;
   try { key = store.safeKey(name); } catch { key = null; }
   const sameKey = (n) => { try { return store.safeKey(n) === key; } catch { return false; } };
   if (pending.some((n) => n === name || (key && sameKey(n)))) return `${shown} is waiting to start on this computer, so its settings are not left over.`;
-  const dir = create.recordedDirSpelling(name);
+  const dir = typeof prof.dir === 'string' && prof.dir && path.isAbsolute(prof.dir) ? prof.dir : null;
   if (dir && !insideDir(path.resolve(dir), path.resolve(create.WORKERS_DIR))) {
     return `${shown}'s folder is somewhere this computer cannot reach right now, perhaps a disk or a shared folder that is not connected, so Kosmos will not delete its settings.`;
   }
@@ -718,8 +726,11 @@ function del(name, opts) {
      retired, not dropped (communitysend.requestRetire says why); this only records the request, which is applied
      before the community sender next acts. Only once the folder and the job are gone: retiring cannot be undone,
      and while either is left the agent can still start. A stuck token alone does not hold it back, because a retry
-     is refused once the folder and job are gone, so this is the only chance to retire it. */
-  if (!stuck.some((s) => s !== 'its sender tokens' && s !== 'its settings' && s !== 'its picture')) {
+     is refused once the folder and job are gone, so this is the only chance to retire it. Stuck settings or a picture
+     hold it back only when they were all that was left (kosmos#7825): plan() offers those again, so a retry reaches it,
+     and retiring while nothing was deleted would be the one step of a REFUSED delete that cannot be undone. */
+  const recordsOnlyPlan = !p.folder && !p.job;
+  if (!stuck.some((s) => s !== 'its sender tokens' && (recordsOnlyPlan || (s !== 'its settings' && s !== 'its picture')))) {
     try {
       require('./communitysend').requestRetire(p.name);
       steps.push({ step: 'its community account', ok: true });
@@ -735,6 +746,7 @@ function del(name, opts) {
     const lw = recordsWords(left.map((what) => ({ what })));
     const tail = left.length ? ` ${lw.cap} ${lw.plural ? 'are' : 'is'} still on this computer, so a new agent with this name would start with ${lw.plural ? 'them' : 'it'}. Deleting what is left again clears ${lw.plural ? 'them' : 'it'}.` : '';
     // The verb for what could not go: a record follows the records' own mode, which can differ from the folder's.
+    const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
     const verbFor = (x) => ((x === 'its settings' || x === 'its picture') ? (p.records.trash ? 'move' : 'delete') : (p.toTrash ? 'move' : 'delete'));
     return {
       outcome: gone.length ? OUTCOME.PARTIAL : OUTCOME.REFUSED,
@@ -742,12 +754,12 @@ function del(name, opts) {
          failure there is its own sentence: the old account still answers to the name. #5000's standing reset has
          already run by here (it is unconditional and early-returns on failure), so the all-stuck tail says so. */
       because: (stuck.length === 1 && stuck[0] === 'its community account' && gone.length)
-        ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone, but we could not retire its community account yet. Making a new agent with this name retires it first, or refuses.`
+        ? `${gone.join(' and ')} ${gone.length === 1 && gone[0] !== 'its settings' ? 'is' : 'are'} gone, but we could not retire its community account yet. Making a new agent with this name retires it first, or refuses.`
         : (stuck.some((x) => x !== 'its community account')
           ? `we could not ${verbFor(stuck.find((x) => x !== 'its community account'))} ${stuck.filter((x) => x !== 'its community account').join(' or ')}`
             + (stuck.includes('its community account') ? ', or retire its community account yet' : '')
           : 'we could not retire its community account yet. Making a new agent with this name retires it first, or refuses')
-          + '. ' + (gone.length ? `${gone.join(' and ')} ${gone.length === 1 ? 'is' : 'are'} gone.` : `None of its files were ${p.toTrash ? 'moved' : 'deleted'}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`) + tail,
+          + '. ' + (gone.length ? `${cap(gone.join(' and '))} ${gone.length === 1 && gone[0] !== 'its settings' ? 'is' : 'are'} gone.` : `${recordsOnlyPlan ? `Nothing was ${p.records.trash ? 'moved' : 'deleted'}` : `None of its files were ${p.toTrash ? 'moved' : 'deleted'}`}. Its standing in the community was reset, so a new agent with this name starts at the beginning.`) + tail,
       steps,
     };
   }

@@ -41,3 +41,18 @@ offered); world start in another case; policyHeld (CONTROL unheld); unreadable r
 folder inside the workers folder); no Trash (typed name, for good); shared stored name with a running agent.
 Mutations (each reds its own test): world-start check, case-key match, policyHeld, unreadable record, out-of-reach dir,
 never offering at all.
+
+## Review round 1 (opus, fixed)
+- The profile is read directly: store.readProfile answers {} for an unreadable or non-JSON file, so an unreachable
+  connected agent's profile at mode 000 was offered. Now any failed read refuses.
+- policyHeld alone no longer refuses: removal drops the world-start entry and leaves the mark, and Repair cannot start a
+  name with no folder (create.installJob), so a marked profile with no entry is stranded. The world-start record decides.
+- A records-only delete whose settings will not move no longer retires the community account (a retry is offered now,
+  so retiring while nothing was deleted would be the one irreversible step of a REFUSED delete); it says "Nothing was
+  moved" and that deleting again clears them.
+- Settings kept for another agent under the same stored name get their own sentence instead of "nothing left".
+- Grammar of the PARTIAL join ("Its settings are gone").
+- Tests added: unreadable and non-record profile, records-only community wording plus token revoke plus retire, stuck
+  records-only (no retire), Linux arm. Each fix mutation-checked.
+- Deferred: a recorded folder compared by path.resolve, not realpath (a symlinked workers path reads as outside and is
+  refused: the safe direction).

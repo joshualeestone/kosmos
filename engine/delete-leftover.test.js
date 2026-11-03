@@ -978,14 +978,31 @@ test('kosmos#7825: a world start recorded in another case shares the stored name
   fs.rmSync(store.profilePath(name), { force: true });
 });
 
-test('kosmos#7825: a profile marked held by a policy is never offered', () => {
+test('kosmos#7825: a profile marked held with no world start waiting is stranded, and offered (review 1)', () => {
+  // remove.recordRemoval drops the world-start entry and leaves the mark; Repair cannot start a name with no folder.
   const name = strandedProfile('held7825', { policyHeld: true, provider: 'openai' });
-  const p = mac.plan(name);
-  assert.equal(p.ok, false);
-  assert.match(p.because, /^held7825 is waiting to start, held until it is allowed to run/);
-  store.writeProfile(name, { policyHeld: false });
-  assert.equal(mac.plan(name).ok, true, 'CONTROL: the same profile unheld is not offered');
+  assert.equal(mac.plan(name).ok, true, 'a stranded profile was refused for its leftover policyHeld mark');
+  withWorldStarts([{ name, why: 'import', because: 'held by policy' }], () => {
+    assert.match(mac.plan(name).because || '', /^held7825 is waiting to start on this computer/, 'CONTROL: with its entry it is a waiting world start');
+  });
   fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a profile that cannot be read refuses, never reads as "no recorded folder" (review 1)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root reads a file whatever its mode' : false }, () => {
+  const name = strandedProfile('noread7825', { dir: nodePath.join(SANDBOX, 'unplugged-disk', 'noread7825') });
+  const file = store.profilePath(name);
+  fs.chmodSync(file, 0o000);
+  let p;
+  try { p = mac.plan(name); } finally { fs.chmodSync(file, 0o644); }
+  assert.equal(p.ok, false, 'an unreadable profile was offered for deleting');
+  assert.match(p.because, /could not read what Kosmos has stored for noread7825/);
+  // Not JSON: also a failed look.
+  fs.writeFileSync(file, '{half');
+  assert.match(mac.plan(name).because || '', /could not read what Kosmos has stored/);
+  // JSON that is not a record (null): also a failed look, not "no recorded folder".
+  fs.writeFileSync(file, 'null');
+  assert.match(mac.plan(name).because || '', /could not read what Kosmos has stored/);
+  fs.rmSync(file, { force: true });
 });
 
 test('kosmos#7825: a world-start record that cannot be read refuses, never offers', () => {
@@ -1032,10 +1049,50 @@ test('kosmos#7825: a stranded profile a running agent shares by stored name is n
   const name = strandedProfile('share7825');
   status.setPaneSource(() => fleet.line({ session: 'Share7825', claim: 'Share7825', title: '✳ Claude Code' }));
   // Linux, so the running Share7825 is not the same name and the stored-name rule is what refuses.
-  const p = leftover.plan(name, { platform: 'linux' });
+  let p;
+  try { p = leftover.plan(name, { platform: 'linux' }); } finally { status.setPaneSource(null); }
   assert.equal(p.ok, false);
-  assert.match(p.because, /^nothing of share7825 is left/);
+  assert.equal(p.because, 'nothing of share7825 is left on this computer except its settings, which stay because Share7825 uses the same stored name, so there is nothing to delete.');
   assert.equal(fs.existsSync(store.profilePath(name)), true);
-  status.setPaneSource(null);
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a records-only delete revokes its tokens and retires its community account, and the plan says so (review 1)', () => {
+  const cs = require('./communitysend');
+  const name = strandedProfile('poster7825');
+  fs.mkdirSync(nodePath.dirname(cs._paths.keysFile()), { recursive: true });
+  const had = fs.existsSync(cs._paths.keysFile()) ? JSON.parse(fs.readFileSync(cs._paths.keysFile(), 'utf8')) : {};
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ...had, poster7825: { remoteId: 'r7825', name, apiKey: 'kc_7825', token: 't7825', registeredAt: '2026-11-02T00:00:00.000Z' } }));
+  const minted = sendertoken.mint(name);
+  assert.equal(minted.ok, true, minted.because);
+  const p = mac.plan(name);
+  assert.equal(p.ok, true, p.because);
+  assert.ok(p.loses.some((l) => /^Its community account:/.test(l)), JSON.stringify(p.loses));
+  assert.match(p.reassurance, /^Its settings go to the Trash, where you can get them back until you empty it, and its community account does not come back\. After this/);
+  const r = mac.del(name);
+  assert.equal(r.outcome, leftover.OUTCOME.DELETED, r.because);
+  assert.ok(r.steps.some((x) => x.step === 'its community account' && x.ok), JSON.stringify(r.steps));
+  assert.equal(sendertoken.resolveName(minted.token).ok, false, 'the stranded name\'s token still resolves');
+});
+
+test('kosmos#7825: records-only settings that will not move: REFUSED, community account NOT retired, and a retry is offered (review 1)', { skip: typeof process.getuid === 'function' && process.getuid() === 0 ? 'root ignores the chmod this test fails a move with' : false }, () => {
+  const name = strandedProfile('stuckonly7825');
+  const dir = nodePath.dirname(store.profilePath(name));
+  fs.chmodSync(dir, 0o555);
+  let r;
+  try { r = mac.del(name); } finally { fs.chmodSync(dir, 0o755); }
+  assert.equal(r.outcome, leftover.OUTCOME.REFUSED, r.because);
+  assert.ok(!r.steps.some((x) => x.step === 'its community account'), 'the account was retired while nothing was deleted');
+  assert.match(r.because, /^we could not move its settings\. Nothing was moved\./);
+  assert.match(r.because, /Deleting what is left again clears them\.$/);
+  assert.equal(mac.plan(name).ok, true, 'CONTROL: the retry the sentence promises is offered');
+  fs.rmSync(store.profilePath(name), { force: true });
+});
+
+test('kosmos#7825: a records-only leftover is offered on Linux too', () => {
+  const name = strandedProfile('linux7825');
+  const p = leftover.plan(name, { platform: 'linux' });
+  assert.equal(p.ok, true, p.because);
+  assert.equal(p.verb, 'Move its settings to the Trash');
   fs.rmSync(store.profilePath(name), { force: true });
 });
