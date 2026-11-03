@@ -2924,7 +2924,8 @@ async function verbConnections(ctx, args) {
   if (args && args[0] === '--how') {
     if (args.length > 1) { ctx.err('Usage: kosmos connections [--how]'); return 2; }
     let guide;
-    try { guide = ctx.engine('connections').guideText(); } catch { ctx.err('Kosmos could not find its own runtime to print this.'); return 1; }
+    // engine/connectionsguide.js requires nothing, so only that one file can fail here.
+    try { guide = ctx.engine('connectionsguide').guideText(); } catch { ctx.err('Kosmos could not find its own runtime to print this.'); return 1; }
     ctx.out(guide);
     return 0;
   }

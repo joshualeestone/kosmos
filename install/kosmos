@@ -3644,7 +3644,7 @@ cmd_connections() {
   if [ "${1:-}" = --how ]; then
     [ $# -eq 1 ] || { say "Usage: kosmos connections [--how]"; exit 2; }
     local _gn _gm; _gn="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to print this."; exit 1; }
-    _gm="$(kosmos_engine_module connections).js"
+    _gm="$(kosmos_engine_module connectionsguide).js"   # requires nothing, so only this file can fail
     [ -f "$_gm" ] || { say "Kosmos could not find its own runtime to print this."; exit 1; }
     "$_gn" -e 'process.stdout.write(require(process.argv[1]).guideText() + "\n")' "$_gm" 2>/dev/null \
       || { say "Kosmos could not find its own runtime to print this."; exit 1; }
@@ -5559,10 +5559,11 @@ if [ "$_kosmos_help" = 1 ]; then
       printf 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)\n'
       exit 0 ;;
     connections)
-      # kosmos#7875 item 2: name --how before the read-only output, and keep --how when it was given (--how --help
-      # prints the guide itself, which is also read-only).
+      # kosmos#7875 item 2: name --how before the read-only output. --how --help only says what --how does, as the
+      # Windows CLI does (--help never acts beyond the read-only listing).
       printf 'Usage: kosmos connections [--how]   (--how: how connecting a provider, a plugin or a service works here)\n'
-      case " $* " in *" --how "*) set -- connections --how ;; *) set -- "$1" ;; esac ;;
+      case " $* " in *" --how "*) exit 0 ;; esac
+      set -- "$1" ;;
     adopt|whoami)
       # These show read-only OUTPUT on --help (they act read-only), so their own
       # exit status is meaningful -- a failed whoami must not read as success.
