@@ -23397,7 +23397,11 @@ const server = http.createServer(async (req, res) => {
         /* Review 1: "asked" as for the reader: a post that names agents asked those it names (a person's @name narrows it
            too); the person's post that names nobody asked every agent it was delivered to, not one it went quiet or
            could not reach. */
+        /* Review 5: only while the project's members could be read. With no member list a departed agent's claim is not
+           filtered out (claimMembers fails toward "held", right for the page's pill), so here the ask stays listed. */
+        const membersKnown = !!(roomRecord && Array.isArray(roomRecord.agents));
         const claimedByOther = (m) => {
+          if (!membersKnown) return null;
           const c = m && m.claim;
           if (!c || typeof c.by !== 'string' || c.by === readerName) return null;
           const named = namedBy.get(String(m.id)) || [];
@@ -23597,7 +23601,7 @@ const server = http.createServer(async (req, res) => {
             + ' in this room (each asked you something, and no post of yours cites it by id with --reply-to)'
             + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'
           : rec.ok === false ? UNANSWERED_HEAD + 'none found, but this room could not be read, so that may be wrong.\n'
-          : claimedAsks.length ? UNANSWERED_HEAD + 'nothing waiting on you in this room; '   // kosmos#7848
+          : claimedAsks.length ? UNANSWERED_HEAD + 'nothing else waiting on you in this room; '   // kosmos#7848
             + (claimedAsks.length === 1 ? 'the ask below is claimed by another agent it also asked.\n' : 'the asks named below are claimed by agents they also asked.\n')
           : UNANSWERED_HEAD + 'nothing in this room.\n';
         /* kosmos#7848: the asks left out because another agent they asked has claimed them, newest last, so the reader can
@@ -23610,7 +23614,8 @@ const server = http.createServer(async (req, res) => {
         const claimedLine = claimedAsks.length
           ? '[kosmos] Claimed, each by an agent the post also asked, so not counted as waiting on you: '
             + shownClaimed.map((x) => '[' + x.id + '] by ' + String(x.by).replace(/\s+/g, ' ') + (x.at ? ' (' + messages.claimAge(x.at, Date.now()) + ')' : '')).join(', ')
-            + (moreClaimed ? ', and ' + moreClaimed + ' older' : '') + '.\n'
+            + (moreClaimed ? ', and ' + moreClaimed + ' older' : '')
+            + '. kosmos room shows them in full, and one comes back here if its claim is given up.\n'
           : '';
         res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine);
         return;

@@ -120,7 +120,7 @@ test('kosmos#7848: the person\'s ask that reached both of us, claimed by the oth
   r = await room(pid, ME, '&unanswered=1');
   assert.ok(!r.text.split('\n').some((l) => / \[m\d+\] operator /.test(l) && l.includes('[' + ask + ']')), 'the person\'s claimed ask is still listed (review 1):\n' + r.text);
   assert.ok(r.text.includes(CLAIMED + '[' + ask + '] by ' + CLAIMER), 'the person\'s claimed ask is not named:\n' + r.text);
-  assert.match(r.text, /^Waiting on an answer from you: nothing waiting on you in this room; the ask below is claimed by another agent it also asked\.$/m, 'all claimed: the head line is wrong:\n' + r.text);
+  assert.match(r.text, /^Waiting on an answer from you: nothing else waiting on you in this room; the ask below is claimed by another agent it also asked\.$/m, 'all claimed: the head line is wrong:\n' + r.text);
 });
 
 test('kosmos#7848 review 1: the person naming only me, or an agent the post could not reach, does not make another claim answer for me', async () => {
@@ -155,7 +155,7 @@ test('kosmos#7848 review 1: with -n, the count leaves claimed asks out and the c
   assert.match(r.text, /^Waiting on an answer from you: 3 posts in this room .*; the newest 2 are below:$/m, 'the count includes claimed asks or the cap is wrong:\n' + r.text);
   assert.ok(listed(r.text, open[1]) && listed(r.text, open[2]) && !listed(r.text, open[0]), 'the newest two open asks are not the ones listed:\n' + r.text);
   const line = r.text.split('\n').find((l) => l.startsWith(CLAIMED)) || '';
-  assert.ok(line.includes('[' + claimed[1] + ']') && line.includes('[' + claimed[2] + ']') && !line.includes('[' + claimed[0] + ']') && line.endsWith(', and 1 older.'), 'the claimed line is not capped at -n with how many more:\n' + r.text);
+  assert.ok(line.includes('[' + claimed[1] + ']') && line.includes('[' + claimed[2] + ']') && !line.includes('[' + claimed[0] + ']') && line.endsWith(', and 1 older. kosmos room shows them in full, and one comes back here if its claim is given up.'), 'the claimed line is not capped at -n with how many more:\n' + r.text);
 });
 
 test('kosmos#7848 review 3: a claimed ask stays held for my idle reminder (a claim can go; a dropped reminder cannot come back)', async () => {
@@ -169,7 +169,7 @@ test('kosmos#7848 review 3: a claimed ask stays held for my idle reminder (a cla
   const r = await room(pid, ME, '&unanswered=1');
   assert.ok(r.text.includes(CLAIMED + '[' + ask + ']'), 'fixture: the claimed ask should be named:\n' + r.text);
   const left = roomhold.heldIn(ME, pid).join(' ');
-  assert.ok(left.includes(ask), 'a claimed ask was dropped from my idle reminder hold: ' + left);
+  assert.ok(roomhold.heldIn(ME, pid).includes(roomhold.addressedId(ask)), 'a claimed ask was dropped from my idle reminder hold, or changed form: ' + left);
   assert.ok(!left.includes(open), 'CONTROL: the listed (shown) ask should leave the hold as before: ' + left);
 });
 
@@ -177,5 +177,16 @@ test('kosmos#7848 review 4: several asks, all claimed, get the plural head line'
   const pid = newRoom('Claimed7848i');
   for (let i = 0; i < 2; i++) { const id = post(pid, { text: '@readerseat @claimseat part ' + i, mentioned: [ME, CLAIMER] }); claim(pid, id, CLAIMER); }
   const r = await room(pid, ME, '&unanswered=1');
-  assert.match(r.text, /^Waiting on an answer from you: nothing waiting on you in this room; the asks named below are claimed by agents they also asked\.$/m, r.text);
+  assert.match(r.text, /^Waiting on an answer from you: nothing else waiting on you in this room; the asks named below are claimed by agents they also asked\.$/m, r.text);
+});
+
+test('kosmos#7848 review 5: an ask I answered and another agent claimed is on neither the list nor the claimed line', async () => {
+  const pid = newRoom('Claimed7848j');
+  const ask = post(pid, { text: '@readerseat @claimseat the parking?', mentioned: [ME, CLAIMER] });
+  post(pid, { from: ME, to: [POSTER], text: 'Bay 4.', replyTo: ask });
+  claim(pid, ask, CLAIMER);
+  const r = await room(pid, ME, '&unanswered=1');
+  assert.ok(!listed(r.text, ask), 'an answered ask is listed:\n' + r.text);
+  assert.ok(!r.text.includes(CLAIMED), 'an ask I answered is reported as claimed by another:\n' + r.text);
+  assert.match(r.text, /^Waiting on an answer from you: nothing in this room\.$/m, r.text);
 });

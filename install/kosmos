@@ -5305,7 +5305,7 @@ cmd_room() {
     esac
   done
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id> [-n N] [--unanswered]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something and that no post of yours answers by id; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
+    say "Usage: kosmos room <project-id> [-n N] [--unanswered]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
   fi
   # Checked as text first (no leading 0, at most 3 digits), so a huge number can never reach bash arithmetic.
