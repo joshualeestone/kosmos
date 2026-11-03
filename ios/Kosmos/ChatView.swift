@@ -317,7 +317,7 @@ struct ChatView: View {
             AgentInfoView(client: client, agent: agent, openOnBoard: openOnBoard)
         }, label: { EmptyView() }).hidden())
         #if DEBUG
-        // KOSMOS_SAMPLE_INFO=profile|ai with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
+        // KOSMOS_SAMPLE_INFO=profile|ai|files with KOSMOS_SAMPLE_OPEN: the sample agent's page, open, for the design shots.
         .onAppear {
             let env = ProcessInfo.processInfo.environment
             // Once a launch, so Back leaves the page (review 2: it pushed again each time the chat reappeared).

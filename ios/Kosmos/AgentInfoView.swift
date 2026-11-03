@@ -1,15 +1,17 @@
 import SwiftUI
 
-// kosmos#7267: the agent's own page, opened by the chat's info button. Profile and AI Settings under a segmented
-// control (Josh: "a hybrid of the agent's Profile and its AI Settings, using a segmented control to switch between the
-// two sections"), never the conversation again. Words are the board's (web/index.html d-sec-profile, d-sec-model,
-// d-sec-memory); the decisions are in AgentInfoLogic.swift (tested).
+// kosmos#7267: the agent's own page, opened by the chat's info button. Profile and AI Settings, and since kosmos#7679
+// Files, under a segmented control (Josh: "a hybrid of the agent's Profile and its AI Settings, using a segmented
+// control to switch between the two sections"), never the conversation again. Words are the board's (web/index.html
+// d-sec-profile, d-sec-model, d-sec-memory); the decisions are in AgentInfoLogic.swift (tested).
 struct AgentInfoView: View {
     @ObservedObject var client: BoardClient
     let agent: Board.Agent
     let openOnBoard: () -> Void
 
-    enum Part: String, CaseIterable { case profile = "Profile", ai = "AI Settings" }
+    // kosmos#7679 (Josh, iPhone build 29, 11-03 04:11: "We should add files to the segment controller"): Files is its own
+    // segment, after the two the board's page has.
+    enum Part: String, CaseIterable { case profile = "Profile", ai = "AI Settings", files = "Files" }
     @State private var part: Part = .profile
     @State private var details: Board.AgentDetails?
     @State private var readFailed = false
@@ -33,6 +35,10 @@ struct AgentInfoView: View {
     @State private var freshBusy = false
     // kosmos#7679: the Files section's read and its opener, owned here so they attach once, to the List (review 1).
     @State private var filesRead: Board.FilesSectionState = .hidden
+    // kosmos#7679: whether the first Files read has come back, so the Files segment can tell loading from empty.
+    @State private var filesLoaded = false
+    // Review 2: which Files load is the newest, so an older one that finishes later never overwrites it.
+    @State private var filesLoad = 0
     @StateObject private var filesOpener = FileOpener()
 
     @ScaledMetric(relativeTo: .body) private var markSize: CGFloat = 22
@@ -55,6 +61,7 @@ struct AgentInfoView: View {
                 switch part {
                 case .profile: profile
                 case .ai: aiSettings
+                case .files: filesPart
                 }
             }
         }
@@ -80,7 +87,7 @@ struct AgentInfoView: View {
         }
     }
 
-    // The face, name and role, then the two parts' switch.
+    // The face, name and role, then the switch between the parts.
     private var header: some View {
         VStack(spacing: 10) {
             AgentAvatar(name: live.name, picture: client.pictures[live.session].flatMap { UIImage(data: $0) }, tone: nil, size: 72)
@@ -174,8 +181,18 @@ struct AgentInfoView: View {
                 why(skillsWhy)
             }
         } header: { label("Skills") }
-        // kosmos#7679: the agent's Files, the newest few and All files (FilesView.swift).
-        FilesSection(client: client, session: agent.session, state: filesRead, opener: filesOpener, openOnBoard: openOnBoard)
+    }
+
+    // kosmos#7679: the Files segment. The section hides itself when there is nothing to list (as it did at the foot of
+    // Profile, the board's #3757); as a segment of its own it says so instead, in the board's words, once the read is back.
+    @ViewBuilder private var filesPart: some View {
+        if filesRead == .hidden {
+            Section {
+                if filesLoaded { Text(Board.filesAgentEmpty).foregroundColor(Palette.secondary) } else { ProgressView() }
+            } header: { label(Board.filesTitle) }
+        } else {
+            FilesSection(client: client, session: agent.session, state: filesRead, opener: filesOpener, openOnBoard: openOnBoard)
+        }
     }
 
     private var changed: Bool {
@@ -295,9 +312,11 @@ struct AgentInfoView: View {
         let session = agent.session
         guard Board.isAgentSession(session) else { return }   // the page says where to change it instead
         #if DEBUG
-        if AgentInfoView.sample { applySample(); filesRead = await FilesSection.read(client: client, session: session); return }
+        if AgentInfoView.sample { applySample(); filesRead = await FilesSection.read(client: client, session: session); filesLoaded = true; return }
         #endif
-        async let files = FilesSection.read(client: client, session: session)   // kosmos#7679
+        // kosmos#7679 review 1: Files is applied as soon as its own read is back, not after the slowest of the others,
+        // since it is a segment of its own now.
+        async let filesDone: Void = loadFiles(session)
         async let status = client.throughMac { Board.statusRequest(mac: $0) }
         async let instr = client.throughMac { Board.instructionsRequest(mac: $0, session: session) }
         async let sk = client.throughMac { Board.skillsRequest(mac: $0, session: session) }
@@ -314,12 +333,18 @@ struct AgentInfoView: View {
         (instructions, instructionsWhy) = Board.profileNext(shown: instructions, read: Board.instructionsRead(i))
         (skills, skillsWhy) = Board.profileNext(shown: skills, read: Board.skillsRead(k))
         readFailed = d == nil   // the details' own read (the name footer and Runs on); each section says its own why
-        // Review 2 (the Files list): a refresh that gets no answer, or is not let in, keeps the list it had (instructions and
-        // skills keep theirs through more: a 5xx, 408 or 429 too, see Board.profileNext; Files does not yet); a
-        // refusal or a new list replaces it. (A deliberate difference from the board, which says it could not read: a
-        // phone loses its connection far more than a desk page does, and the rows it had are still the agent's.)
-        let newFiles = await files
-        if Board.filesSectionKeepsShown(newFiles), case .rows = filesRead {} else { filesRead = newFiles }
+        await filesDone
+    }
+
+    private func loadFiles(_ session: String) async {
+        filesLoad += 1
+        let mine = filesLoad
+        let newFiles = await FilesSection.read(client: client, session: session)
+        guard mine == filesLoad else { return }   // a newer load started meanwhile; its answer is the one shown
+        // A refresh that gets no answer, or is not let in (kosmos#7840), keeps the list it had, as instructions and skills
+        // keep theirs (a deliberate difference from the board, which says it could not read): Board.filesSectionAfter, tested.
+        filesRead = Board.filesSectionAfter(filesRead, newFiles)
+        filesLoaded = true
     }
 
     private func save() async {
@@ -357,7 +382,7 @@ struct AgentInfoView: View {
 
     #if DEBUG
     // KOSMOS_SAMPLE_AGENTS=1 (a Debug build): the sample agent's page without a Mac, for the design shots.
-    // KOSMOS_SAMPLE_INFO=ai opens on AI Settings.
+    // KOSMOS_SAMPLE_INFO=ai opens on AI Settings, =files on Files.
     static var sample: Bool { ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" }
     private func applySample() {
         let d = Board.AgentDetails(session: live.session, name: live.name, role: live.role, reportsTo: nil, runner: "",
@@ -367,7 +392,7 @@ struct AgentInfoView: View {
         fill(d)
         instructions = "You look after the spring catalogue: the cover, the order of the pages, and getting proofs to the printer on time.\n\nAsk before you spend money or send anything outside the team."
         skills = [Board.Skill(key: "meeting-minutes", name: "Meeting minutes"), Board.Skill(key: "proof-checklist", name: "Proof checklist")]
-        if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_INFO"] == "ai" { part = .ai }
+        switch ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_INFO"] { case "ai": part = .ai; case "files": part = .files; default: break }
     }
     #endif
 }
