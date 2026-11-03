@@ -3,10 +3,12 @@
  * kosmos#7861 (Josh): a bare web address the chat makes a link (joshualeestone.com) gets the same preview as one
  * typed with http://, fetched as https:// first and as http:// only when https was not reached.
  *
- * Three things are checked here:
+ * Four things are checked here:
  *   1. the engine finds a bare address by the SAME rule the page links one by (web/index.html pjBareWeb and
  *      pjBareSplit are lifted and run beside the engine's copies on one list of words);
- *   2. which link in a message is the one previewed;
+ *   2. on WHOLE messages, the link the engine previews is always one the page's own renderer (pjRich, lifted) draws:
+ *      the board never fetches a word the chat shows as text;
+ *   3. which link in a message is the one previewed;
  *   3. the https-then-http order, and that a refusal from the address gate never falls back.
  * Nothing touches the network: the fetcher and the resolver are the module's own seams.
  */
@@ -19,6 +21,14 @@ const page = require('../test-support/page');
 
 const SCRIPT = page.scriptOf(fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8'));
 const pageFns = new Function(page.lift(SCRIPT, 'pjBareWeb') + '\n' + page.lift(SCRIPT, 'pjBareSplit') + '\nreturn { pjBareWeb, pjBareSplit };')();
+const RICH = ['esc', 'pjRich', 'pjRichSpans', 'pjListDepth', 'pjBareWeb', 'pjBareSplit', 'pjTableAligns', 'pjTableCells', 'pjTableHtml'];
+const pjRich = new Function(RICH.map((n) => page.lift(SCRIPT, n)).join('\n') + '\nreturn pjRich;')();
+/* The addresses the page links in a message, in order. */
+const pageLinks = (text) => [...pjRich(text).matchAll(/<a class="xlink" href="([^"]*)"/g)].map((m) => m[1].replace(/&amp;/g, '&'));
+/* Until `ready()` holds or two seconds pass, so a loaded machine is not a red. */
+async function until(ready) {
+  for (let i = 0; i < 200 && !ready(); i += 1) await new Promise((r) => setTimeout(r, 10));
+}
 
 function fakeResponse({ status = 200, type = 'text/html; charset=utf-8', body = '' } = {}) {
   const bytes = Buffer.from(String(body));
@@ -67,6 +77,34 @@ test('#7861: the engine finds a bare address exactly where the page links one (t
   assert.ok(linked >= 6 && linked <= WORDS.length - 10, 'the list should hold links and non-links, got ' + linked + ' links');
 });
 
+const MESSAGES = [
+  'see joshualeestone.com today', 'joshualeestone.com', 'go to www.example.com/path?q=1.', '(meridianworks.kosmosplus.com)',
+  '[docs](example.com)', '[a example.com b](https://e.example.org)', '[x](https://y.example.org) then example.net',
+  '| a | b |\n|---|---|\n| example.org | x |', '# Head example.net', '> quote example.io', '- item example.com',
+  '1. first example.com', '**example.com**', '_example.com_', 'a `x`example.com', '```\nexample.com', '`` example.com',
+  '```\nexample.com\n```\nthen example.org', 'run `curl example.com` first', 'notes.md and setup.sh', 'claude.ai alone',
+  'claude.ai/settings', 'mail x@example.com', 'ftp://files.example.com then example.org', 'v0.7.70 is out',
+  'first example.org then https://b.example.com', 'https://a.example.com/x, then b.org', 'store.ROOT and logger.info',
+  'example.com\'s page', '"example.com"', 'line one\nline two example.dev/docs', 'see http://typed.example.com',
+];
+
+test('#7861: on whole messages, the link previewed is always a link the page itself draws (pjRich, lifted)', () => {
+  let bare = 0;
+  for (const text of MESSAGES) {
+    const got = unfurl.firstLinkInfo(text);
+    const drawn = pageLinks(text);
+    if (got) {
+      assert.equal(got.url, drawn[0], 'previewed ' + got.url + ' but the page draws ' + JSON.stringify(drawn) + ' for ' + JSON.stringify(text));
+      if (got.bare) bare += 1;
+    } else if (text.indexOf('`') === -1) {
+      // Outside code, nothing the page links goes unpreviewed.
+      assert.deepEqual(drawn, [], 'the page links ' + JSON.stringify(drawn) + ' but nothing is previewed for ' + JSON.stringify(text));
+    }
+  }
+  assert.ok(bare >= 10, 'CONTROL: the list holds bare addresses the engine previews, got ' + bare);
+  assert.ok(MESSAGES.some((t) => t.indexOf('`') !== -1 && pageLinks(t).length), 'CONTROL: a message with code the page still links (the conservative miss)');
+});
+
 test('#7861: which link in a message is previewed: the first, bare or explicit; code and other schemes are not', () => {
   const cases = [
     ['look at joshualeestone.com today', { url: 'https://joshualeestone.com', bare: true }],
@@ -76,6 +114,11 @@ test('#7861: which link in a message is previewed: the first, bare or explicit; 
     ['(meridianworks.kosmosplus.com).', { url: 'https://meridianworks.kosmosplus.com', bare: true }],
     ['run `curl example.com` first', null],
     ['```\nexample.com\n```', null],
+    ['```\nexample.com', null],
+    ['`` example.com', null],
+    ['a `x`example.com', null],
+    ['[docs](example.com)', { url: 'https://example.com', bare: true }],
+    ['[a example.com b](https://e.example.org)', { url: 'https://e.example.org', bare: false }],
     ['ftp://files.example.com and notes.md', null],
     ['mail x@example.com', null],
     ['claude.ai alone', null],
@@ -93,21 +136,24 @@ test('#7861: a bare address is fetched over https first, and http is never asked
 });
 
 for (const [why, https] of [['could not be reached', 'unreachable'], ['answered 503', { status: 503, body: '' }]]) {
-  test(`#7861: https that ${why} falls back to http, and the answer is kept under the https address`, async () => {
+  test(`#7861: https that ${why} falls back to http, kept under the bare key and never under the typed-https key`, async () => {
     const calls = world({ pages: { 'https://old.example.com/': https, 'http://old.example.com/': { body: '<title>Over http</title>' } } });
     const got = await unfurl.previewBare('https://old.example.com/');
     assert.equal(got.ok, true, JSON.stringify(got));
     assert.equal(got.title, 'Over http');
     assert.deepEqual(calls, ['https://old.example.com/', 'http://old.example.com/']);
-    assert.equal(unfurl.peek('https://old.example.com/').title, 'Over http', 'the payload helper peeks the https address');
+    assert.equal(unfurl.peekBare('https://old.example.com/').title, 'Over http', 'the payload helper peeks the bare key');
+    const typed = unfurl.peek('https://old.example.com/');
+    assert.ok(!typed || typed.ok === false, 'a typed https:// link would show the preview fetched over http: ' + JSON.stringify(typed));
   });
 }
 
-test('#7861: no fallback when https answered with something (not a page, nothing to show)', async () => {
-  const calls = world({ pages: { 'https://pdf.example.com/': { type: 'application/pdf', body: '%PDF' }, 'https://plain.example.com/': { body: '<p>no tags</p>' } } });
+test('#7861: no fallback when https answered with something (not a page, nothing to show, a 404)', async () => {
+  const calls = world({ pages: { 'https://pdf.example.com/': { type: 'application/pdf', body: '%PDF' }, 'https://plain.example.com/': { body: '<p>no tags</p>' }, 'https://lost.example.com/': { status: 404, body: '' } } });
   assert.equal((await unfurl.previewBare('https://pdf.example.com/')).ok, false);
   assert.equal((await unfurl.previewBare('https://plain.example.com/')).ok, false);
-  assert.deepEqual(calls, ['https://pdf.example.com/', 'https://plain.example.com/'], 'http was asked after https answered');
+  assert.equal((await unfurl.previewBare('https://lost.example.com/')).ok, false);
+  assert.deepEqual(calls, ['https://pdf.example.com/', 'https://plain.example.com/', 'https://lost.example.com/'], 'http was asked after https answered');
 });
 
 test('#7861: the address gate is never sidestepped: a private address is refused over https and http is not tried', async () => {
@@ -128,13 +174,13 @@ test('#7861: when both fail, the https refusal is what is kept', async () => {
 test('#7861: warm with bare:true takes the https-then-http path; without it an explicit https link never falls back', async () => {
   const calls = world({ pages: { 'https://w.example.com/': 'unreachable', 'http://w.example.com/': { body: '<title>W</title>' } } });
   unfurl.warm('https://w.example.com/', { bare: true });
-  await new Promise((r) => setTimeout(r, 30));
-  assert.equal(unfurl.peek('https://w.example.com/').title, 'W');
+  await until(() => unfurl.peekBare('https://w.example.com/'));
+  assert.equal(unfurl.peekBare('https://w.example.com/').title, 'W');
   assert.deepEqual(calls, ['https://w.example.com/', 'http://w.example.com/']);
   unfurl.resetForTests();
   const calls2 = world({ pages: { 'https://x.example.com/': 'unreachable', 'http://x.example.com/': { body: '<title>X</title>' } } });
   unfurl.warm('https://x.example.com/');
-  await new Promise((r) => setTimeout(r, 30));
+  await until(() => unfurl.peek('https://x.example.com/'));
   assert.equal(unfurl.peek('https://x.example.com/').ok, false, 'a link the person typed as https:// was quietly fetched over http');
   assert.deepEqual(calls2, ['https://x.example.com/']);
 });

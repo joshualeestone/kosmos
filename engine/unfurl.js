@@ -401,19 +401,26 @@ function bareSplit(tok) {
 }
 
 /** kosmos#7861: the first link in a message's text, explicit (http/https) or bare, whichever comes first, as
-    { url, bare } or null. A bare one is its https:// address. Code (fenced or inline, in backticks) is blanked before
-    the bare scan, as the page holds code before it links a bare address; an explicit link is found as before. */
+    { url, bare } or null. A bare one is its https:// address.
+    The bare scan is CONSERVATIVE, because the page decides what is a link (web/index.html pjRich) and a word the page
+    shows as text must never be fetched: a message with any backtick (code, fenced or inline) gets no bare scan at all,
+    and a markdown link [label](target) offers only its target, as the page links only that. A bare address the page
+    links but this skips simply gets no preview, which is how every bare address was before. The explicit scan is
+    unchanged. engine/unfurl.bare-7861.test.js renders whole messages with the page's own pjRich and checks that the
+    link found here is always one the page draws. */
 function firstLinkInfo(text) {
   const raw = String(text || '');
   const m = raw.match(LINK_RE);
   const explicit = m ? { url: m[0].replace(/[.,;:!?]+$/, ''), bare: false, at: m.index } : null;
-  const blanked = raw.replace(/```[\s\S]*?```|`[^`\n]*`/g, (c) => ' '.repeat(c.length));
+  if (raw.indexOf('`') !== -1) return explicit ? { url: explicit.url, bare: false } : null;
+  // A markdown link keeps its target in place and blanks its label (same length, so positions still compare).
+  const scan = raw.replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/g, (all, label, target) => ' '.repeat(label.length + 3) + target + ' ');
   const words = /\S+/g;
   let w;
   let bare = null;
-  while ((w = words.exec(blanked)) !== null) {
+  while ((w = words.exec(scan)) !== null) {
     if (explicit && w.index >= explicit.at) break;
-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(w[0])) continue;   // a scheme of its own: the explicit scan's, or not a web link
+    if (/^[a-z][a-z0-9+.-]*:/i.test(w[0])) continue;   // a scheme of its own (http:, mailto:, ftp:): never a bare address
     const got = bareSplit(w[0]);
     if (got) { bare = { url: got.web, bare: true }; break; }
   }
@@ -428,32 +435,40 @@ function peek(raw) {
   return cached('p:' + String(raw));
 }
 
+/* kosmos#7861: the refusals that say https was not reached, after which a bare address is tried over http: no
+   connection, too slow, or a server error (5xx). A 4xx is an answer from the site, a gate refusal (a private address, a
+   sign-in in the link) is never sidestepped, and an answer with nothing to show stays an answer. */
+function unreached(because) {
+  return because === 'that site could not be reached' || because === 'that site took too long to answer'
+    || /^that site answered 5\d\d$/.test(String(because || ''));
+}
+/** kosmos#7861: a bare address's preview, kept under its OWN key ('b:'), so a preview fetched over http is never what
+    an https:// link the person typed shows. https first; http only when https was not reached. */
+async function previewBare(httpsUrl) {
+  const key = 'b:' + String(httpsUrl);
+  const hit = cached(key);
+  if (hit) return hit;
+  const first = await preview(httpsUrl);
+  if (first.ok || !unreached(first.because) || !/^https:\/\//.test(httpsUrl)) return remember(key, first);
+  const second = await preview('http://' + httpsUrl.slice('https://'.length));
+  return remember(key, second.ok ? second : first);
+}
+/** kosmos#7861: what the cache holds for a bare address (see previewBare), as peek does for a typed link. */
+function peekBare(httpsUrl) {
+  return cached('b:' + String(httpsUrl));
+}
+
 /* In flight, so a poll every five seconds does not start a second fetch for
    a link whose first is still running. */
 const inflight = new Set();
-/* kosmos#7861: the refusals that say the site was not reached over https at all, after which a bare address is tried
-   over http. A gate refusal (a private address, a sign-in in the link) and an answer that came back (not a page,
-   nothing to show) are not among them. */
-function unreached(because) {
-  return because === 'that site could not be reached' || because === 'that site took too long to answer'
-    || /^that site answered \d+$/.test(String(because || ''));
-}
-/** kosmos#7861: a bare address's preview: its https:// address first, and its http:// address only when https was not
-    reached. The answer is kept under the https:// address, which is the one the payload helper peeks. */
-async function previewBare(httpsUrl) {
-  const first = await preview(httpsUrl);
-  if (first.ok || !unreached(first.because) || !/^https:\/\//.test(httpsUrl)) return first;
-  const second = await preview('http://' + httpsUrl.slice('https://'.length));
-  return second.ok ? remember('p:' + httpsUrl, second) : first;
-}
-
 /** Start a fetch for a URL if nothing is cached or running; never awaited. `opts.bare` (kosmos#7861): the link was a
-    bare address, so https is tried first and http after it. */
+    bare address, so it takes previewBare and its own key. */
 function warm(raw, opts) {
-  const key = String(raw);
-  if (cached('p:' + key) || inflight.has(key)) return;
+  const bare = !!(opts && opts.bare);
+  const key = (bare ? 'b:' : 'p:') + String(raw);
+  if (cached(key) || inflight.has(key)) return;
   inflight.add(key);
-  (opts && opts.bare ? previewBare(key) : preview(key)).catch(() => {}).finally(() => inflight.delete(key));
+  (bare ? previewBare(String(raw)) : preview(String(raw))).catch(() => {}).finally(() => inflight.delete(key));
 }
 
-module.exports = { firstLinkInfo, bareWeb, bareSplit, previewBare, peek, warm, preview, image, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };
+module.exports = { firstLinkInfo, bareWeb, bareSplit, previewBare, peekBare, peek, warm, preview, image, pageText, allowed, privateAddress, parseTags, setFetcher, setResolver, resetForTests, PAGE_MAX, IMAGE_MAX, REDIRECTS };

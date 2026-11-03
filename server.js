@@ -5825,7 +5825,7 @@ function withPreviews(rows) {
     const found = unfurl.firstLinkInfo(r.text);
     if (!found) continue;
     const link = found.url;
-    const hit = unfurl.peek(link);
+    const hit = found.bare ? unfurl.peekBare(link) : unfurl.peek(link);
     if (hit === null) { unfurl.warm(link, { bare: found.bare }); continue; }
     if (!hit.ok) continue;
     r.preview = {

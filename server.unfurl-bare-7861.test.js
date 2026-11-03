@@ -53,8 +53,9 @@ test.beforeEach(() => {
   });
 });
 
-/* A message the person sent an agent, written to the record the way the board records one; then read back twice
-   through the route, since the first read starts the fetch and a later one carries it. */
+/* A message the person sent an agent, written to the record the way the board records one; then read back through
+   the route until a read carries a preview (the first read starts the fetch), for up to two seconds, so a loaded
+   machine is not a red. A row that never gets one is read once more and returned as it is. */
 async function postAndRead(text) {
   seq += 1;
   fs.mkdirSync(path.dirname(messages.LOG), { recursive: true });
@@ -62,7 +63,11 @@ async function postAndRead(text) {
   const read = async () => (await (await fetch(base() + '/api/messages')).json()).messages.find((x) => x.text === text);
   const first = await read();
   assert.ok(first, 'CONTROL: the message is in the record the route reads');
-  await new Promise((res) => setTimeout(res, 100));
+  for (let i = 0; i < 100; i += 1) {
+    const r = await read();
+    if (r && r.preview) return r;
+    await new Promise((res) => setTimeout(res, 20));
+  }
   return read();
 }
 
