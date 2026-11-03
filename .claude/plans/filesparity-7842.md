@@ -22,7 +22,7 @@ browse, 404 below it. Nothing in the answer tells them apart, and a passing one 
 - A status rule for Files (rounds 1 and 2): it wiped the list on those passing refusals.
 - Matching refusal text on the phone: the reasons are prose and change.
 - A server-side marker for a passing refusal (a field, or a 503): right in the long run, but it needs a board
-  release before the phone can rely on it, and older boards would still send neither. Worth a follow-up card.
+  release before the phone can rely on it, and older boards would still send neither. Filed as kosmos#7850.
 
 ## Weakest premise
 That keeping a stale list through a LASTING refusal (Files became a link, a subfolder was removed) is the lesser

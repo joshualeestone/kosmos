@@ -204,7 +204,7 @@ extension Board {
     // that Files is a segment of its own). No answer is its own state (review 3);
     // a refusal says the route's reason, or the board's line; otherwise the rows, and View All (#3994: whenever there is
     // a file, even one).
-    // kosmos#7679 review 3: noAnswer is its own state, shown as filesAgentUnread when there are no rows.
+    // noAnswer is its own state, shown as filesAgentUnread when there are no rows.
     // kosmos#7842: forNow is a refusal's line that a list already shown outlasts (filesSectionAfter keeps the rows).
     enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), forNow(String), rows([ListedFile]) }
     /* kosmos#7842: whether a read keeps the list already shown, for the Files screen and the agent page's section alike:
@@ -216,7 +216,9 @@ extension Board {
         return true
     }
     /* A 404 carrying the board's own words (a `because` or `error`): on the reads where server.js sends a 404 only for
-       "no agent" or "no project", it says the owner is gone. A 404 with no words (a proxy's page) says nothing. */
+       "no agent" or "no project", it says the owner is gone. A 404 with no words (a proxy's page) says nothing. This
+       trusts the board to send a 404 that way (server.js today); a route that 404s with words for another reason would
+       read as the owner gone. */
     static func filesOwnerGone(status: Int, body: Data?) -> Bool {
         guard status == 404 else { return false }
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
@@ -254,8 +256,8 @@ extension Board {
     // kosmos#7679 review 2: what the agent page keeps after a refresh. An answer that never came keeps the rows it had (a
     // phone loses its connection far more than a desk page does), and so does a forNow (kosmos#7842); a new list, or
     // the agent having no folder, replaces them. `loaded`: whether `old` was read (an empty list shown as hidden is a
-    // list too, review 7), as against the hidden it starts in.
-    static func filesSectionAfter(_ old: FilesSectionState, _ new: FilesSectionState, loaded: Bool = false) -> FilesSectionState {
+    // list too), as against the hidden it starts in.
+    static func filesSectionAfter(_ old: FilesSectionState, _ new: FilesSectionState, loaded: Bool) -> FilesSectionState {
         let shownList: Bool
         switch old {
         case .rows: shownList = true
