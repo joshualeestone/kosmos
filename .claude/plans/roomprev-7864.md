@@ -21,7 +21,8 @@ Slice 1 (#7870, merged 637cf2fd5c) drew the card in an agent's chat. Rooms have 
 - Review round 3 (a BLOCKER, from the code and Apple's docs, not a device): `.ignore` on the card's Button itself keeps
   its button trait and action, so a VoiceOver double-tap on a post (the picture fills its centre) could open the site.
   The card is now wrapped in a container before `.ignore` (the file cards' shape), and a post with a card gets a
-  do-nothing default action (the chat's #7014 rule); other posts keep their default exactly. NOT verified with
+  do-nothing default action (the chat's #7014 rule); other posts keep their default exactly. A post that is a reply AND has a
+  card keeps the reply's default (jump to the original); its link is still only the "Open link" action. NOT verified with
   VoiceOver or Accessibility Inspector on a device: stated.
 - Accepted, as in the chat: the card is the bubble's maximum width (a short post's bubble is narrower) and sized from
   the screen, not the window (iPad split view); two memory-warning observers when a room and a chat are both alive
