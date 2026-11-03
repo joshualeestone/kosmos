@@ -99,3 +99,8 @@ no skip (3), any claimant (1), own claim counted (1), no person-post branch (1),
   reader too. Intended: the claim answers it (the person asked the claimer by name). Test added.
 - The "Review N" comments are rewritten as plain kosmos#7848 rules.
 - Declined: rewording the could-not-read head beside a claimed line (both are true as written).
+
+## Review round 8 (sonnet): no BLOCKER, no WARNING. CONVERGED at the cap (8).
+- Answered: "the reader's own-claim guard is untested". It is the first test's claimer arm (the claimer reading its own
+  list keeps the ask it claimed); round 1's mutation removing the guard reds it.
+- Answered: the repeating reminder (round 4: flushOnIdle takes the held ids, so a claimed ask is raised once).
