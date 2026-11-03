@@ -1009,8 +1009,9 @@ keepalive() {
 DAEMON_DIR="${KOSMOS_CI_DAEMON_DIR:-/Library/LaunchDaemons}"   # a test seam; launchd reads only the real one
 # runner_label: svc.sh's label for this runner, which the daemon keeps.
 runner_label() { printf 'actions.runner.%s.%s' "$(printf '%s' "$REPO" | tr '/' '-')" "$NAME"; }
-# daemon_xml: the one daemon plist this stage writes. Uses label and cigroup from daemon (dynamic scope); every value is
-# checked to need no XML escaping before this runs (NAME, CI_HOME at the top, CI_USER and cigroup in daemon).
+# daemon_xml: the one daemon plist this stage writes. Uses label and cigroup from daemon (dynamic scope); in daemon every
+# value is checked to need no XML escaping before this runs (NAME, CI_HOME at the top, CI_USER and cigroup there); in
+# verify CI_USER and cigroup are not, and a bad value only makes the comparison fail.
 daemon_xml() {
   cat <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1132,7 +1133,9 @@ daemon() {
     local self sm; self="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)/$(basename "$0")"; sm="$(stat -f '%u %Lp' "$self" 2>/dev/null || true)"
     local cihp; cihp="$(cd "$CI_HOME" 2>/dev/null && pwd -P || printf '%s' "$CI_HOME")"   # physical, as self is (/var is /private/var)
     case "$self" in "$CI_HOME"/*|"$cihp"/*) echo "refused: this is a copy in $CI_HOME, which a job can rewrite, and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
-    case "$sm" in "$ciuid "*|*" "?[2367]?|*" "??[2367]|"") echo "refused: $self is owned by $CI_USER, writable by others, or unreadable (stat: ${sm:-none}), and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
+    [ ! -L "$0" ] && [ ! -L "$self" ] || { echo "refused: $0 is a symlink, and --apply daemon runs as root; run the file itself, from the owner's checkout or a root-owned copy" >&2; exit 2; }
+    case "${sm%% *}" in 0|"${SUDO_UID:-0}") ;; *) sm="";; esac   # owned by root or by whoever ran sudo, nobody else
+    case "$sm" in "$ciuid "*|*" "?[2367]?|*" "??[2367]|"") echo "refused: $self is not owned by root or by the sudo caller, is owned by $CI_USER, is writable by others, or is unreadable (stat: ${sm:-none}), and --apply daemon runs as root; run it from the owner's checkout or a root-owned copy" >&2; exit 2 ;; esac
   fi
   local label; label="$(runner_label)"
   local dplist="$DAEMON_DIR/$label.plist" agent="$CI_HOME/Library/LaunchAgents/$label.plist"
@@ -1156,7 +1159,7 @@ daemon() {
     # Only the agent plist came back (a svc.sh install, a restore): the daemon is fine, nothing to stop.
     local back
     if agent_file_ok; then
-      back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir: sudo mkdir -p -m 700 $RETIRED_DIR; sudo mv $agent $RETIRED_DIR/$label.plist.retired-$stamp"
+      back="the daemon runs, but $agent is back (a svc.sh install or a restore), and a login would load it and start a second Listener; move it aside, into the root-owned dir: sudo mkdir -p -m 700 $RETIRED_DIR; sudo cat $agent | sudo tee $RETIRED_DIR/$label.plist.retired-$stamp >/dev/null && sudo -u $CI_USER rm $agent (the CI user removes it, so a path swapped for a symlink cannot make root remove the daemon plist)"
     else
       # A symlink on the path (a job can make one) could make "the agent" the daemon plist itself: print no move.
       back="the daemon runs, but $agent exists and is not a plain file on a plain path in $CI_HOME (a symlink, or the daemon plist itself by another name); no command is printed for it: look at it as root before moving anything"
@@ -1167,8 +1170,9 @@ daemon() {
   # Refusals, said the same way in a dry run (so it can tell an operator whether --apply would go now).
   local why=""
   [ -z "$workers" ] || why="a job is running (Runner.Worker $(printf '%s' "$workers" | tr '\n' ' ')); run this between jobs"
-  [ -n "$why" ] || [ -z "$foreign" ] || why="this runner's Listener runs outside the daemon (pid $foreign: a manual runsvc.sh start or its LaunchAgent), and a daemon would start a second one for the same runner; stop it between jobs first (kill its runsvc.sh and Runner.Listener)"
+  # A loaded agent first: its Listener is foreign too, and under KeepAlive a kill only respawns it; the bootout is the fix.
   [ -n "$why" ] || [ "$aloaded" = 0 ] || why="its LaunchAgent is loaded in gui/$ciuid; between jobs: sudo launchctl bootout gui/$ciuid/$label"
+  [ -n "$why" ] || [ -z "$foreign" ] || why="this runner's Listener runs outside the daemon (pid $foreign: a manual runsvc.sh start or its LaunchAgent), and a daemon would start a second one for the same runner; stop it between jobs first (kill its runsvc.sh and Runner.Listener)"
   if [ -z "$why" ] && [ "$dloaded" = 1 ]; then
     if [ "$dok" = 1 ]; then
       why="system/$label is loaded and runs no Listener right now: it is restarting, or the runner is updating itself; run this again in a minute"
@@ -1184,8 +1188,11 @@ daemon() {
     esac
   fi
   local from="" retired=""
-  if [ -e "$agent" ]; then
-    from="$(runner_plist)"   # svc.sh's .service must name THIS runner's plist, WorkingDirectory the runner dir
+  if [ -e "$agent" ] || [ -L "$agent" ]; then
+    # Before root reads anything here: a FIFO a job put in place of .service or the agent would hang the read.
+    [ -n "$why" ] || { [ -f "$RUNNER_DIR/.service" ] && [ ! -L "$RUNNER_DIR/.service" ]; } || why="$RUNNER_DIR/.service is not a regular file; nothing was changed"
+    [ -n "$why" ] || agent_file_ok || why="$agent, or a directory above it in $CI_HOME, is a symlink or not a regular file; root does not read or move it. Nothing was changed"
+    [ -n "$why" ] || from="$(runner_plist)"   # svc.sh's .service must name THIS runner's plist, WorkingDirectory the runner dir
     [ -n "$why" ] || [ "$from" = "$agent" ] || why="$RUNNER_DIR/.service does not name $agent (the plist svc.sh wrote for this runner, WorkingDirectory $RUNNER_DIR); nothing was changed"
     [ -n "$why" ] || [ "$(plutil -extract Label raw -o - "$agent" 2>/dev/null || true)" = "$label" ] || why="$agent has another Label; nothing was changed"
     # Root moves the agent out of a directory a job can write: refuse a symlink on that path, here and again just before
@@ -1229,7 +1236,7 @@ daemon() {
   # nothing loaded: each step's failure is handled below instead.
   trap '' HUP INT TERM PIPE
   if [ -n "$from" ]; then
-    [ ! -e "$dplist" ] || echo "note:   replacing $dplist, which is not what this stage writes (it is not loaded)"
+    [ ! -e "$dplist" ] || [ "$dok" = 1 ] || echo "note:   replacing $dplist, which is not what this stage writes (it is not loaded)"
     # The agent is moved aside BEFORE the daemon plist appears at its final path: a power cut between the two steps then
     # leaves no plist for both launchd domains to load at the next boot and login.
     { daemon_xml > "$dplist.new" && daemon_content_ok "$dplist.new" \
@@ -1240,8 +1247,10 @@ daemon() {
       && [ ! -e "$retired" ] && [ ! -L "$retired" ] && agent_file_ok && mv "$agent" "$retired"; } \
       || { rm -f "$dplist.new"; echo "FAILED: could not move $agent aside to $retired (is something already there?); nothing was loaded and $dplist was not written" >&2; exit 1; }
     mv -f "$dplist.new" "$dplist" \
-      || { rm -f "$dplist.new"; put_back "$retired" || echo "FAILED: could not put $agent back: $(put_back_cmd "$retired")" >&2
-           echo "FAILED: could not write $dplist; the LaunchAgent is back where it was, nothing was loaded" >&2; exit 1; }
+      || { rm -f "$dplist.new"
+           if put_back "$retired"; then echo "FAILED: could not write $dplist; the LaunchAgent is back where it was, nothing was loaded" >&2
+           else echo "FAILED: could not write $dplist, and could not put $agent back (nothing was loaded): $(put_back_cmd "$retired")" >&2; fi
+           exit 1; }
   fi
   # Again, right before the bootstrap: a console login in the window above loads the agent, and its Listener with it.
   local aload2=0; launchctl print "gui/$ciuid/$label" >/dev/null 2>&1 && aload2=1

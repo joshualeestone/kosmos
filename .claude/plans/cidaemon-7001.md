@@ -176,3 +176,22 @@ credential in the secrets map gives. It is one command for whoever has root:
   are refused as groups (the two that grant root-equivalent rights on macOS).
 - New arms: copy in the CI home, group-writable copy, dry run from a copy, no pid, CI-user halfway, dangling.
   Five perturbations, each red.
+
+## Challenge round 7 (opus), fixed in the next commit
+- A failed put-back after a failed plist write printed "could not put back" and then "is back where it was"; now
+  one or the other.
+- A loaded agent is named before a foreign Listener: under KeepAlive a kill only respawns it, so the fix printed is
+  the bootout.
+- The test's uids are derived from the runner of the test (CI uid = own + 1000, other = own + 1001), not 501/502:
+  as uid 502 every --apply arm refused. SUDO_UID is passed, as sudo does.
+- --apply now also refuses a script that is a symlink, or owned by anyone but root or the sudo caller.
+- Before root reads .service or the agent, both must be regular files (a FIFO a job put there would hang the read).
+- The agent-back hint copies the agent as root and has the CI user remove it, so a path swapped for a symlink before
+  the paste cannot make root remove the daemon plist.
+- The "replacing" note is only for a plist that is not this stage's; the daemon_xml comment says verify does not
+  check the values.
+- New arms: agent loaded first, symlinked script, a copy another user owns, a FIFO .service, no false replace note,
+  and the put-back contradiction. Four perturbations red; the FIFO guard is not perturbed (without it the read
+  blocks forever rather than failing).
+- Not done: an arm that the signals are ignored across the write-to-bootstrap window (a trap cannot be observed
+  through these stand-ins without racing the run).
