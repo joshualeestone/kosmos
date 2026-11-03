@@ -50287,9 +50287,8 @@ function paintLeftoverRunning(plan, name) {
   if (!box) return;
   DEL_TOKEN += 1;   // as deleteForgetPlan: a loadLeftover still in flight carries the plan from before
   DEL_RUNNING_FOR = lower;
-  const w = String(plan.because || '');
   const hint = document.getElementById('d-delete-hint');
-  if (hint) hint.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(w.charAt(0).toUpperCase() + w.slice(1) + (/[.!?]$/.test(w) ? '' : '.'));
+  if (hint) hint.textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(asSentence(plan.because));
   const start = document.getElementById('d-delete-start');
   if (start) start.hidden = true;
   box.hidden = false;
