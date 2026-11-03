@@ -100,12 +100,22 @@ check(crumbs.map(\.name) == ["Files", "Covers", "Spring"] && crumbs.map(\.path) 
 
 // kosmos#7840: a 401 or 403 is the phone not being let in, said in one sentence on every screen, never the gate's words.
 check(Board.filesResult(status: 403, body: Data(#"{"error":"this board belongs to the account that started it; open it with `kosmos open`"}"#.utf8)) == .refused(Board.phoneShutOut), "a 403 is not the gate's words")
-check(Board.filesSection(status: 401, body: Data("{}".utf8)) == .message(Board.phoneShutOut), "the agent page's Files section says the same on a 401")
-check(Board.filesKeepsShown(Board.filesResult(status: 403, body: Data("{}".utf8))), "a shut-out keeps the Files list shown")
-check(Board.filesKeepsShown(Board.filesResult(status: 0, body: nil)), "CONTROL: no answer keeps it, as before")
-check(!Board.filesKeepsShown(Board.filesResult(status: 200, body: Data(#"{"ok":false,"because":"the folder was removed"}"#.utf8))), "a refusal with the board's reason replaces it")
+check(Board.filesSection(status: 401, body: Data("{}".utf8)) == .forNow(Board.phoneShutOut), "the agent page's Files section says the same on a 401")
+check(Board.filesKeepsShown(status: 403), "a shut-out keeps the Files list shown")
+check(Board.filesKeepsShown(status: 0), "CONTROL: no answer keeps it, as before")
+check(!Board.filesKeepsShown(status: 200), "a refusal with the board's reason replaces it")
 check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 401, body: Data("{}".utf8))) == rowsBefore, "the agent page keeps its Files rows on a shut-out")
 
-check(Board.filesSectionAfter(.hidden, .message(Board.phoneShutOut)) == .message(Board.phoneShutOut), "CONTROL: with no rows yet, a shut-out says so")
+check(Board.filesSectionAfter(.hidden, .forNow(Board.phoneShutOut)) == .forNow(Board.phoneShutOut), "CONTROL: with no rows yet, a shut-out says so")
+// kosmos#7842: Files keeps its list through the same answers as the Profile (Board.answerStands).
+let busy = Data(#"{"error":"the board is busy"}"#.utf8)
+for st in [500, 502, 503, 408, 429, 400, 409] {
+    check(Board.filesKeepsShown(status: st), "the Files screen keeps its list on a \(st)")
+    check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: st, body: busy)) == rowsBefore, "the agent page keeps its Files rows on a \(st)")
+}
+check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 503, body: busy)) == .forNow("The board is busy."), "CONTROL: with no rows yet, a 503 says the board's words")
+for st in [200, 404, 410] { check(!Board.filesKeepsShown(status: st), "CONTROL: a \(st) says what the folder is now, so it replaces the list") }
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 410, body: Data(#"{"because":"the agent was removed"}"#.utf8))) == .message("The agent was removed."), "CONTROL: a 410 with words replaces the rows")
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: Data(#"{"ok":false,"because":"the folder was removed"}"#.utf8))) == .message("The folder was removed."), "CONTROL: a 200 refusal replaces the rows")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
