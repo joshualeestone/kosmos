@@ -23,7 +23,8 @@ const BOARD = fleet.install(['miles', 'ada'].map((n) => fleet.agent(n)));
 const CARD = Object.fromEntries(BOARD.agents.map((c) => [String(c.sessionName).toLowerCase(), c]));
 test.after(() => { try { BOARD.restore(); } catch { /* best effort */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
-const SCRIPT = scriptOf(fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8'));
+const PAGE_HTML = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+const SCRIPT = scriptOf(PAGE_HTML);
 /* The del-go click handler is an anonymous arrow; lift it by its anchor and balanced braces (it holds no brace in a
    string or regex, which the walk would miscount). */
 function liftHandler() {
@@ -393,4 +394,79 @@ test('kosmos#7852 a dialog left saying "running" says what is so once the delete
   gone.replies.push(async () => ({ ok: true, json: async () => ({ ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' }) }));
   await gone.ctx.load(CARD.miles.sessionName);
   assert.match(gone.els['del-msg'].textContent, /nothing of Miles is left/, 'a dialog left saying running never says the delete finished');
+});
+
+test('kosmos#7852 an agent page whose delete is running says so, with no button, and keeps asking; another answer ends it', async () => {
+  const els = {};
+  for (const id of ['d-delete-leftover', 'd-delete-hint', 'd-delete-start']) els[id] = { id, hidden: true, textContent: '' };
+  let answer = null;
+  let readable = true;
+  let failing = false;   // the route's 500, with its error words
+  const ctx = vm.createContext({ String, Promise, encodeURIComponent, document: { getElementById: (id) => els[id] || null },
+    // the route answers 200 with any plan; an unreadable answer is a proxy's page
+    fetch: async () => ({ ok: !failing, json: async () => (readable ? answer : Promise.reject(new Error('not json'))) }) });
+  vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_FOR = null; let DEL_RUNNING_FOR = null; let CURRENT = null;', 'const CARDS = ' + JSON.stringify(CARD) + ';', 'CURRENT = CARDS.miles;',
+    liftAll(SCRIPT, ['fetchLeftoverPlan', 'paintLeftoverRunning', 'loadLeftover', 'leftoverOnPoll', 'leftoverOffList']),
+    'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_RUNNING_FOR }); this.view = (n) => { CURRENT = CARDS[n]; }; this.dialog = (n, p) => { DEL_FOR = n; DEL_PLAN = p; }; this.onPoll = leftoverOnPoll; this.offList = leftoverOffList;'].join('\n'), ctx);
+  answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
+  await ctx.load(CARD.miles.sessionName);
+  assert.equal(els['d-delete-leftover'].hidden, false, 'a running delete must keep the block showing');
+  assert.equal(els['d-delete-start'].hidden, true, 'no delete button while the delete runs');
+  assert.match(els['d-delete-hint'].textContent, /^A delete of what is left of this agent is running now; .*\.$/, 'the board\'s words, as a sentence');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, CARD.miles.sessionName.toLowerCase(), 'the poll must be told to keep asking for this agent');
+  assert.equal(ctx.state().DEL_PLAN, null);
+  readable = false;
+  await ctx.load(CARD.miles.sessionName);
+  assert.equal(els['d-delete-leftover'].hidden, false, 'an unreadable answer must not end the running block');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, CARD.miles.sessionName.toLowerCase(), 'an unreadable answer must not stop the poll asking');
+  readable = true;
+  failing = true;
+  answer = { error: 'the board could not work out what is left of this agent' };
+  await ctx.load(CARD.miles.sessionName);
+  assert.equal(els['d-delete-leftover'].hidden, false, 'a failed request must not end the running block');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, CARD.miles.sessionName.toLowerCase(), 'a failed request must not stop the poll asking');
+  failing = false;
+  answer = { ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' };
+  await ctx.load(CARD.miles.sessionName);
+  assert.equal(els['d-delete-leftover'].hidden, true, 'the block must leave once the delete has ended');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, null, 'the poll must stop asking once the delete has ended');
+  assert.equal(els['d-delete-start'].hidden, false, 'the button must come back for the next plan');
+  // Another agent: Miles's "running" goes before Ada's own answer comes.
+  answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
+  await ctx.load(CARD.miles.sessionName);
+  ctx.view('ada');
+  let seenHidden = null;
+  answer = { message: 'hi' };   // a 200 that is not a plan (fetchLeftoverPlan gives null)
+  const asking = ctx.load(CARD.ada.sessionName);
+  seenHidden = els['d-delete-leftover'].hidden;
+  await asking;
+  assert.equal(seenHidden, true, 'another agent\'s running block must not show on this agent\'s page');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, null);
+  // A dialog open for another agent keeps its plan while this page's block keeps asking.
+  ctx.view('miles');
+  const adaPlan = { ok: true, name: 'Ada', typeToConfirm: 'Ada' };
+  ctx.dialog('Ada', adaPlan);
+  answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
+  await ctx.load(CARD.miles.sessionName);
+  assert.equal(ctx.state().DEL_PLAN, adaPlan, 'the running block took the plan of a dialog open for another agent');
+  answer = { ok: true, name: 'Miles', hint: 'h' };
+  await ctx.load(CARD.miles.sessionName);
+  assert.equal(ctx.state().DEL_PLAN, adaPlan, 'a plan read for this page replaced the plan of a dialog open for another agent');
+  // The poll: while a page's block says running, its poll asks; once the agent has left the list, it asks once more.
+  ctx.dialog(null, null);
+  answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
+  await ctx.load(CARD.miles.sessionName);
+  assert.equal(ctx.onPoll(CARD.miles.sessionName, true), true, 'the poll must ask while this agent\'s block says running');
+  assert.equal(ctx.onPoll(CARD.ada.sessionName, true), false, 'the poll must not ask for another agent');
+  assert.equal(ctx.onPoll(CARD.ada.sessionName, false), true, 'a repaint that is not the poll always asks');
+  answer = { ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' };
+  ctx.offList();
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(els['d-delete-leftover'].hidden, true, 'an agent that left the list keeps "running" on its page for good');
+  assert.equal(ctx.state().DEL_RUNNING_FOR, null);
+  assert.equal(ctx.onPoll(CARD.miles.sessionName, true), false, 'the poll keeps asking after the delete ended');
+  const tick = PAGE_HTML.indexOf("loadRemoval(fresh.sessionName, { fromPoll: true });");
+  assert.ok(tick > 0 && /\} else \{\n[^\n]*\n    leftoverOffList\(\);/.test(PAGE_HTML.slice(tick, tick + 400)), 'the poll does not call leftoverOffList when the card is gone');
+  assert.match(PAGE_HTML, /if \(leftoverOnPoll\(sessionName, fromPoll\)\) loadLeftover\(sessionName\);/, 'loadRemoval does not ask leftoverOnPoll');
 });
