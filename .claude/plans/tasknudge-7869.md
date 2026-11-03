@@ -30,5 +30,6 @@ reaction, and to answer with `kosmos msg <name>`. To anyone else it stays "no po
 never shown to exist.
 
 ## Tests
-`engine/builtgive-react-7869.test.js` (6 tests, with controls for the screen give, taking off, an unbuilt give, a real
-room post, and an outsider). Four mutants, each fails a test.
+`engine/builtgive-react-7869.test.js`, with controls for the screen give, taking off, an unbuilt give, a real room post,
+an outsider and a note that did reach its recipient. Both sentences carry no double quote (the Mac CLI reads the
+answer with sed, which stops at the first one), and a test pins it. Mutants run on every fix each fail a test.
