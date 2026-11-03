@@ -78,6 +78,8 @@ test.afterEach(() => { status.setPaneSource(null); win32job.setRunner(null); });
 /* A stub whose PowerShell answers after `ms`, as a promise. Called synchronously (plan, del), it returns that promise,
    which run()'s callers read as no answer: so a plan that offers the Recycle Bin read a kept probe, and a move that
    lands went through recycleAsync. */
+// Answers as a promise: the async drivers wait for it. A SYNCHRONOUS plan or del handed this gets a promise from run(),
+// reads it as no answer, and keeps that failed drive answer for 5 s (setRunner clears it).
 const later = (ms) => (file, args, opts) => new Promise((resolve) => setTimeout(() => resolve(stub(file, args, opts)), ms));
 /* Ticks of a 20 ms timer while `fn` runs: a board held by a synchronous wait shows none. */
 async function ticksDuring(fn) {
@@ -411,7 +413,7 @@ test('#7835 a running delete holds the board: its restarts wait, with their own 
     'a restart refused for a running delete would say an account move holds it');
   assert.equal((server.match(/moveHoldsBoard\(\)\) \{ (?:sendJson\(res, 409, \{ ok: false, because|say\(409, \{ error): boardHoldBecause\(\)/g) || []).length, 4);
   const route = server.slice(server.indexOf("if (lo && req.method === 'DELETE') {"));
-  const guard = route.indexOf("if (process.platform === 'win32' && boardRestartingSoon()) {"), act = route.indexOf('leftover.delAsync(');
+  const guard = route.indexOf("boardRestartingSoon()) { sendJson(res, 409, { outcome: leftover.OUTCOME.REFUSED"), act = route.indexOf('leftover.delAsync(');
   assert.ok(guard > 0 && act > guard, 'a delete can start under a board restart, which would cut it off');
 });
 
@@ -429,4 +431,16 @@ test('#7835 planAsync with every drive already answered plans once, and says wha
   const direct = win.plan('ot7835x');
   assert.equal(plansRun, asked, 'planAsync planned twice with nothing left to ask the drive');
   assert.deepEqual(again, direct);
+});
+
+test('#7835 an account move does not start while a Windows delete runs, and says why', async () => {
+  const accountmove = require('./accountmove');
+  const refused = accountmove.start({ dir: '/nowhere', names: ['someone'] }, { deletingBecause: () => leftover.DELETING_MOVE_BECAUSE });
+  const r = await Promise.resolve(refused);
+  assert.equal(r.status, 409, JSON.stringify(r));
+  assert.equal(r.body.because, leftover.DELETING_MOVE_BECAUSE);
+  const server = fs.readFileSync(nodePath.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /deletingBecause: \(\) => \(leftover\.deletingNow\(\) \? leftover\.DELETING_MOVE_BECAUSE : null\),/, 'the board does not tell a move about a running delete');
+  const one = server.slice(server.indexOf("if (boardRestartingSoon()) { sendJson(res, 409, { outcome: 'refused', because: accountmove.boardGoingBecause() }); return; }"));
+  assert.match(one.slice(0, 400), /if \(leftover\.deletingNow\(\)\) \{ sendJson\(res, 409, \{ outcome: 'refused', because: leftover\.DELETING_MOVE_BECAUSE \}\); return; \}/, 'the one-agent Move can start under a running delete');
 });

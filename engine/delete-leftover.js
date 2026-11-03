@@ -353,7 +353,7 @@ function warmDrive(p) {
   const d = driveOf(p);
   if (!d || !d.root) return Promise.resolve(null);
   if (freshDrive(d.root)) return Promise.resolve(d.root);
-  if (probing.has(d.root)) return probing.get(d.root).then(() => d.root);
+  if (probing.has(d.root)) return probing.get(d.root).then(() => (driveTypes.has(d.root) ? d.root : null));
   const go = (async () => {
     let out;
     try { out = await psRunAsync(DRIVE_SCRIPT, d.real, DRIVE_WARM_TIMEOUT_MS); } catch (err) {
@@ -363,7 +363,8 @@ function warmDrive(p) {
     keepDrive(d.root, out);
   })().finally(() => probing.delete(d.root));
   probing.set(d.root, go);
-  return go.then(() => d.root);
+  // A root is handed back (to be pinned) only with an answer kept for it: a refused probe keeps none.
+  return go.then(() => (driveTypes.has(d.root) ? d.root : null));
 }
 /** win32: send `p` to the Recycle Bin. 'recycled' (it is there), 'gone' (it is gone, and not found in the Recycle Bin),
     'unverified' (it is gone, and the Recycle Bin could not be read), or throws with what went wrong. The folder's
@@ -1201,6 +1202,7 @@ function deletingName(name) { return deleting.size > 0 && name != null && deleti
    after the folder moved and before its records, so the board's restarts wait for it (server.js moveHoldsBoard). */
 function deletingNow() { return deleting.size > 0; }
 const DELETING_BOARD_BECAUSE = "An agent's files are being moved to the Recycle Bin now, and this would restart the board in the middle of it. Try again in a minute.";
+const DELETING_MOVE_BECAUSE = "An agent's files are being moved to the Recycle Bin now, so no agent was moved. Try again in a minute.";
 const DELETING_BECAUSE = 'a delete of what is left of this agent is running now; try again when it has finished';
 /* The drive roots warmed (`roots`, for delAsync to pin), and the plan made to find the paths (`first`) with whether any
    drive still had to be asked (`probed`): when none did, `first` already read every answer the plan needs. */
@@ -1249,4 +1251,4 @@ async function delAsync(name, opts) {
   }
 }
 
-module.exports = { OUTCOME, plan, del, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835)
+module.exports = { OUTCOME, plan, del, planAsync, delAsync, deletingName, deletingNow, DELETING_BOARD_BECAUSE, DELETING_MOVE_BECAUSE, execAsync, settingsLeftovers, setRunner, resetForTests, run, measure, TRASH, writeTrashInfo, RECYCLE_SCRIPT, DRIVE_SCRIPT, DRIVE_TIMEOUT_MS, DRIVE_WARM_TIMEOUT_MS, recycleBinCanTake, binVerdict };   // the scripts, the drive time limits, execAsync, recycleBinCanTake and binVerdict are exported for tests (#5445, kosmos#7820, kosmos#7835)
