@@ -127,5 +127,12 @@ for body in [Data("<html>proxy</html>".utf8), Data(#"{"ok":true}"#.utf8)] {
     check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 200, body: body)) == rowsBefore, "the agent page keeps its rows on an unreadable 200")
 }
 check(Board.filesSectionAfter(.hidden, Board.filesSection(status: 200, body: Data("<html>proxy</html>".utf8))) == .forNow(Board.filesAgentUnread), "CONTROL: with no rows yet, an unreadable 200 says the phone cannot read it")
+// Review 5: a 404 that can only mean the owner is gone replaces the Files screen's list; below the top it keeps it.
+let noAgent = Board.filesResult(status: 404, body: Data(#"{"ok":false,"because":"there is no agent by that name on this computer"}"#.utf8))
+check(!Board.filesScreenKeepsShown(noAgent, status: 404, owner: .agent("pete"), dir: ""), "the top of an agent's Files: a 404 (no agent) replaces the list")
+check(Board.filesScreenKeepsShown(Board.filesResult(status: 404, body: racing), status: 404, owner: .agent("pete"), dir: "sub"), "CONTROL: below the top, a 404 refusal keeps it")
+check(!Board.filesScreenKeepsShown(Board.filesResult(status: 404, body: Data(#"{"error":"there is no project by that name"}"#.utf8)), status: 404, owner: .project("p1"), dir: ""), "a project's 404 (no project) replaces the list")
+check(Board.filesScreenKeepsShown(Board.filesResult(status: 200, body: racing), status: 200, owner: .project("p1"), dir: ""), "CONTROL: a project's 200 refusal keeps it")
+check(Board.filesScreenKeepsShown(Board.filesResult(status: 409, body: racing), status: 409, owner: .agent("pete"), dir: ""), "CONTROL: the top's 409 refusal keeps it")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)

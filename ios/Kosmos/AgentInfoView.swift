@@ -341,7 +341,7 @@ struct AgentInfoView: View {
         let mine = filesLoad
         let newFiles = await FilesSection.read(client: client, session: session)
         guard mine == filesLoad else { return }   // a newer load started meanwhile; its answer is the one shown
-        // What a refresh keeps, and why it differs from the board (which says it could not read): Board.filesSectionAfter.
+        // What a refresh keeps (unlike the board, which says it could not read): Board.filesSectionAfter and filesKeepsShown.
         filesRead = Board.filesSectionAfter(filesRead, newFiles)
         filesLoaded = true
     }

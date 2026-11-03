@@ -2025,8 +2025,8 @@ enum Board {
         return first.uppercased() + tail + (".!?".contains(said.last!) ? "" : ".")
     }
 
-    /* kosmos#7842: whether the Profile's answer replaces a value already shown: a 200 or a 404. Every other answer
-       keeps what is shown and is said only when nothing is. (Files has its own, stricter rule: filesKeepsShown.) */
+    /* kosmos#7842: for an answer that reaches AgentInfoLogic.notTheValue, whether its words replace a Profile value
+       already shown: on a 200 or a 404. Every other status keeps the value. (Files has its own rule: filesKeepsShown.) */
     static func answerStands(_ status: Int) -> Bool { status == 200 || status == 404 }
 
     // kosmos#7840: a 401 or 403 is the phone not being let in (a gate, or the seconds after the computer restarts). One

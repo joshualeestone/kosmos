@@ -101,9 +101,9 @@ struct FilesView: View {
             }
         }
         guard epoch == client.chatEpoch else { return }   // the answer belongs to the account before
-        // A list already shown is kept unless a new list came (Board.filesKeepsShown).
+        // What a refresh keeps: Board.filesScreenKeepsShown.
         let got = Board.filesResult(status: res?.1.statusCode ?? 0, body: res?.0)
-        if Board.filesKeepsShown(got), case .page = read { return }
+        if Board.filesScreenKeepsShown(got, status: res?.1.statusCode ?? 0, owner: owner, dir: dir), case .page = read { return }
         read = got
     }
 

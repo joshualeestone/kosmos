@@ -204,8 +204,7 @@ extension Board {
     // that Files is a segment of its own). No answer is its own state (review 3);
     // a refusal says the route's reason, or the board's line; otherwise the rows, and View All (#3994: whenever there is
     // a file, even one).
-    // kosmos#7679 review 3: noAnswer is its own state (shown as filesAgentUnread), so a refresh can tell a read that never
-    // came back from a refusal that happens to use the same words.
+    // kosmos#7679 review 3: noAnswer is its own state, shown as filesAgentUnread when there are no rows.
     // kosmos#7842: forNow is a message from a read that keeps a list already shown (filesKeepsShown).
     enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), forNow(String), rows([ListedFile]) }
     /* kosmos#7842: whether a read keeps the list already shown, for the Files screen and the agent page's section alike:
@@ -215,6 +214,18 @@ extension Board {
     static func filesKeepsShown(_ r: FilesRead) -> Bool {
         if case .page = r { return false }
         return true
+    }
+    /* The Files screen's own reads add one answer that is never passing: a 404 from a project's documents (no project by
+       that name) or from the top of an agent's browse (no agent by that name; below the top a 404 is a listing refusal).
+       server.js sends every listing refusal on those two reads some other way, so that 404 replaces the list. */
+    static func filesScreenKeepsShown(_ r: FilesRead, status: Int, owner: FilesOwner, dir: String) -> Bool {
+        if status == 404 {
+            switch owner {
+            case .project: return false
+            case .agent: if dir.isEmpty { return false }
+            }
+        }
+        return filesKeepsShown(r)
     }
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
         if status == 401 || status == 403 { return .forNow(phoneShutOut) }   // kosmos#7840: never the gate's words

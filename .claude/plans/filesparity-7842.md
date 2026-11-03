@@ -7,8 +7,9 @@ Card: kosmos#7842 (split from #7840's last review round).
   every other answer (no answer, 401/403, 5xx, 408, 429, any other 4xx) keeps it and is said only when nothing is.
   This narrows #7840's rule, which let any other worded 4xx replace a value (the card's second ask).
 - Files (the Files screen and the agent page's section, one function `filesKeepsShown(read)`): only a new list
-  replaces a list shown. Every refusal keeps it, its words said only when nothing is shown. Exception: the agent
-  page's 404 (the agent has no folder of its own) replaces.
+  replaces a list shown. Every refusal keeps it, its words said only when nothing is shown. Exceptions, a 404 that
+  can only mean the owner is gone (review 5, server.js): the agent page's flat list, the top of an agent's browse,
+  and a project's documents (filesScreenKeepsShown for the Files screen).
 
 ## Why Files is stricter than the Profile (review 3)
 The engine's listing refusals (engine/projects.js listFiles and listDir) mix lasting reasons (not there, not a folder,
@@ -26,5 +27,5 @@ browse, 404 below it. Nothing in the answer tells them apart, and a passing one 
 That keeping a stale list through a LASTING refusal (Files became a link, a subfolder was removed) is the lesser
 harm. The list itself will not say it changed.
 
-## Not changed
+## Also changed
 The 200 the phone cannot read is now kept on both screens (review 2), as on the Profile.
