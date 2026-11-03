@@ -74,7 +74,7 @@ test('kosmos#7848: an ask claimed by another agent it asked leaves my --unanswer
   // CONTROL: before the claim it is waiting on me.
   let r = await room(pid, ME, '&unanswered=1');
   assert.equal(r.status, 200, r.text);
-  assert.ok(listed(r.text, ask) && listed(r.text, open), 'fixture: both asks were not waiting before the claim:\n' + r.text);
+  assert.ok(listed(r.text, ask) && listed(r.text, open), 'fixture: before the claim, both asks should be waiting on me:\n' + r.text);
   claim(pid, ask, CLAIMER);
   r = await room(pid, ME, '&unanswered=1');
   assert.ok(!listed(r.text, ask), 'an ask another addressed agent claimed is still listed as waiting on me:\n' + r.text);
@@ -103,7 +103,7 @@ test('kosmos#7848: a claim taken back puts the ask back; a later post that names
   claim(pid, ask, CLAIMER);
   const again = post(pid, { text: '@readerseat can you take the invoice after all?', mentioned: [ME], to: [ME] });
   let r = await room(pid, ME, '&unanswered=1');
-  assert.ok(!listed(r.text, ask), 'fixture: the claimed ask is listed');
+  assert.ok(!listed(r.text, ask), 'fixture: the claimed ask should be off my list:\n' + r.text);
   assert.ok(listed(r.text, again), 'a later post naming me again is not listed:\n' + r.text);
   claim(pid, ask, CLAIMER, 'remove');
   r = await room(pid, ME, '&unanswered=1');
@@ -118,5 +118,42 @@ test('kosmos#7848: the person\'s ask that reached both of us, claimed by the oth
   assert.ok(r.text.includes('[' + ask + ']'), 'fixture: the person\'s ask is not waiting on me:\n' + r.text);
   claim(pid, ask, CLAIMER);
   r = await room(pid, ME, '&unanswered=1');
-  assert.ok(r.text.includes(CLAIMED + '[' + ask + '] by ' + CLAIMER), 'the person\'s claimed ask was not taken off and named:\n' + r.text);
+  assert.ok(!r.text.split('\n').some((l) => / \[m\d+\] operator /.test(l) && l.includes('[' + ask + ']')), 'the person\'s claimed ask is still listed (review 1):\n' + r.text);
+  assert.ok(r.text.includes(CLAIMED + '[' + ask + '] by ' + CLAIMER), 'the person\'s claimed ask is not named:\n' + r.text);
+  assert.match(r.text, /^Waiting on an answer from you: nothing in this room; the asks named below were claimed by another agent they asked\.$/m, 'all claimed: the head line is wrong:\n' + r.text);
+});
+
+test('kosmos#7848 review 1: the person naming only me, or an agent the post could not reach, does not make another claim answer for me', async () => {
+  const pid = newRoom('Claimed7848e');
+  const named = post(pid, { from: 'operator', operator: true, to: [ME, CLAIMER], text: '@readerseat please check the lease', mentioned: [ME], outcomes: { [ME]: 'delivered', [CLAIMER]: 'delivered' } });
+  const unreached = post(pid, { from: 'operator', operator: true, to: [ME, CLAIMER], text: 'Could someone check the deposit?', outcomes: { [ME]: 'delivered', [CLAIMER]: 'could_not' } });
+  claim(pid, named, CLAIMER);
+  claim(pid, unreached, CLAIMER);
+  const r = await room(pid, ME, '&unanswered=1');
+  assert.ok(!r.text.includes(CLAIMED), 'a claim by an agent the post did not ask answered for me:\n' + r.text);
+  assert.match(r.text, /^Waiting on an answer from you: 2 posts in this room/m, r.text);
+});
+
+test('kosmos#7848 review 1: a claimant no longer on the project does not take the ask off my list', async () => {
+  const pid = newRoom('Claimed7848f');
+  const ask = post(pid, { text: '@readerseat @claimseat who files it?', mentioned: [ME, CLAIMER] });
+  claim(pid, ask, CLAIMER);
+  let r = await room(pid, ME, '&unanswered=1');
+  assert.ok(!listed(r.text, ask), 'fixture: the claim should take it off while the claimer is a member:\n' + r.text);
+  projects.removeAgent(pid, CLAIMER);
+  r = await room(pid, ME, '&unanswered=1');
+  assert.ok(listed(r.text, ask), 'a claim by an agent that left the project still hides the ask:\n' + r.text);
+});
+
+test('kosmos#7848 review 1: with -n, the count leaves claimed asks out and the claimed line is capped too', async () => {
+  const pid = newRoom('Claimed7848g');
+  const claimed = [];
+  for (let i = 0; i < 3; i++) { const id = post(pid, { text: '@readerseat @claimseat item ' + i, mentioned: [ME, CLAIMER] }); claimed.push(id); claim(pid, id, CLAIMER); }
+  const open = [];
+  for (let i = 0; i < 3; i++) open.push(post(pid, { text: '@readerseat open ' + i, mentioned: [ME] }));
+  const r = await room(pid, ME, '&unanswered=1&n=2');
+  assert.match(r.text, /^Waiting on an answer from you: 3 posts in this room .*; the newest 2 are below:$/m, 'the count includes claimed asks or the cap is wrong:\n' + r.text);
+  assert.ok(listed(r.text, open[1]) && listed(r.text, open[2]) && !listed(r.text, open[0]), 'the newest two open asks are not the ones listed:\n' + r.text);
+  const line = r.text.split('\n').find((l) => l.startsWith(CLAIMED)) || '';
+  assert.ok(line.includes('[' + claimed[1] + ']') && line.includes('[' + claimed[2] + ']') && !line.includes('[' + claimed[0] + ']') && line.endsWith(', and 1 older.'), 'the claimed line is not capped at -n with how many more:\n' + r.text);
 });

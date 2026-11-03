@@ -23389,11 +23389,16 @@ const server = http.createServer(async (req, res) => {
            read it. A later post that names the reader again is its own ask and is listed as one. Only a claimant the
            post asked: a bystander's claim does not answer for the agents that were asked. The reader's own claim is no
            answer either, so an ask it claimed and has not answered stays listed. */
+        /* Review 1: "asked" as for the reader: a post that names agents asked those it names (a person's @name narrows it
+           too); the person's post that names nobody asked every agent it was delivered to, not one it went quiet or
+           could not reach. */
         const claimedByOther = (m) => {
           const c = m && m.claim;
           if (!c || typeof c.by !== 'string' || c.by === readerName) return null;
-          const asked = (namedBy.get(String(m.id)) || []).includes(c.by)
-            || (m.operator === true && Array.isArray(m.to) && m.to.includes(c.by));
+          const named = namedBy.get(String(m.id)) || [];
+          const asked = named.length ? named.includes(c.by)
+            : (m.operator === true && Array.isArray(m.to) && m.to.includes(c.by)
+              && !(m.outcomes && (m.outcomes[c.by] === 'quiet' || m.outcomes[c.by] === 'could_not')));
           return asked ? c : null;
         };
         const claimedAsks = [];
@@ -23587,12 +23592,19 @@ const server = http.createServer(async (req, res) => {
             + ' in this room (each asked you something, and no post of yours cites it by id with --reply-to)'
             + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'
           : rec.ok === false ? UNANSWERED_HEAD + 'none found, but this room could not be read, so that may be wrong.\n'
+          : claimedAsks.length ? UNANSWERED_HEAD + 'nothing in this room; the asks named below were claimed by another agent they asked.\n'   // kosmos#7848
           : UNANSWERED_HEAD + 'nothing in this room.\n';
         /* kosmos#7848: the asks left out because another agent they asked has claimed them, newest last, so the reader can
            still read them (kosmos room shows them in full). */
+        /* One line, as every row here is (#314): the name flattened as the post line's claim is; at most -n of them, the
+           newest, with how many more. Not dropped from the idle reminder's hold (roomhold.dropShown): these were named,
+           not shown. */
+        const shownClaimed = claimedAsks.slice(-textRows);
+        const moreClaimed = claimedAsks.length - shownClaimed.length;
         const claimedLine = claimedAsks.length
           ? '[kosmos] Claimed by another agent the post also asked, so not counted as waiting on you: '
-            + claimedAsks.map((x) => '[' + x.id + '] by ' + x.by + (x.at ? ' (' + messages.claimAge(x.at, Date.now()) + ')' : '')).join(', ') + '.\n'
+            + shownClaimed.map((x) => '[' + x.id + '] by ' + String(x.by).replace(/\s+/g, ' ') + (x.at ? ' (' + messages.claimAge(x.at, Date.now()) + ')' : '')).join(', ')
+            + (moreClaimed ? ', and ' + moreClaimed + ' older' : '') + '.\n'
           : '';
         res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine);
         return;
