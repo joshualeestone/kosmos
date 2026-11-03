@@ -82,15 +82,29 @@ test('#7835 item 6: a dialog repainted to ask for the name puts the cursor in th
   assert.match(open, /document\.getElementById\('del-keep'\)\.focus\(\);\n\}\s*$/, 'a fresh dialog no longer opens on the harmless answer');
 });
 
-test('#7852 an agent page whose delete is running says so, with no button, instead of hiding the block', () => {
-  const at = PAGE.indexOf('async function loadLeftover(sessionName) {');
-  assert.ok(at > 0, 'loadLeftover moved; this test no longer reads it');
-  const fn = PAGE.slice(at, PAGE.indexOf('\nfunction openDeleteModal(', at));
-  const run = fn.indexOf('if (plan && plan.running) {'), hide = fn.indexOf('if (!plan || !plan.ok) { box.hidden = true;');
-  assert.ok(run > 0 && hide > run, 'a running delete is hidden like any refusal');
-  const branch = fn.slice(run, hide);
-  assert.match(branch, /start\.hidden = true;/, 'the delete button is offered while the delete runs');
-  assert.match(branch, /box\.hidden = false;/, 'the block stays hidden while the delete runs');
-  assert.match(branch, /plan\.because/, 'the block says something the board did not');
-  assert.match(fn.slice(hide - 60, hide), /if \(start\) start\.hidden = false;/, 'the button stays hidden after the delete ends');
+test('#7852 an agent page whose delete is running says so, with no button, and keeps asking; any other answer ends that', async () => {
+  const vm = require('node:vm');
+  const { scriptOf, liftAll } = require('./test-support/page');
+  const els = {};
+  for (const id of ['d-delete-leftover', 'd-delete-hint', 'd-delete-start']) els[id] = { id, hidden: true, textContent: '' };
+  let answer = null;
+  const ctx = vm.createContext({ String, Promise, encodeURIComponent, document: { getElementById: (id) => els[id] || null },
+    fetch: async () => ({ ok: true, json: async () => answer }) });   // the route answers 200 with any plan
+  vm.runInContext(['let DEL_TOKEN = 0; let DEL_PLAN = null; let DEL_SHOWS_RUNNING = false; let CURRENT = { sessionName: "miles" };',
+    liftAll(scriptOf(PAGE), ['fetchLeftoverPlan', 'loadLeftover']),
+    'this.load = loadLeftover; this.state = () => ({ DEL_PLAN, DEL_SHOWS_RUNNING });'].join('\n'), ctx);
+  answer = { ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' };
+  await ctx.load('miles');
+  assert.equal(els['d-delete-leftover'].hidden, false, 'a running delete hides the block as if nothing were left');
+  assert.equal(els['d-delete-start'].hidden, true, 'the delete button is offered while the delete runs');
+  assert.match(els['d-delete-hint'].textContent, /^A delete of what is left of this agent is running now; .*\.$/, 'not the board\'s words, as a sentence');
+  assert.equal(ctx.state().DEL_SHOWS_RUNNING, true, 'the poll is not told to keep asking');
+  assert.equal(ctx.state().DEL_PLAN, null);
+  answer = { ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' };
+  await ctx.load('miles');
+  assert.equal(els['d-delete-leftover'].hidden, true, 'the block still says running after the delete ended');
+  assert.equal(ctx.state().DEL_SHOWS_RUNNING, false, 'the poll keeps asking after the delete ended');
+  assert.equal(els['d-delete-start'].hidden, false, 'the button stays hidden for the next plan');
+  const poll = PAGE.slice(PAGE.indexOf('// kosmos#7852: while the block says a delete is running, every poll asks again'));
+  assert.match(poll.slice(0, 300), /if \(!fromPoll \|\| DEL_SHOWS_RUNNING\) loadLeftover\(sessionName\);/, 'the poll does not ask again while it runs');
 });

@@ -49583,7 +49583,8 @@ let REMOVE_TOKEN = 0;
 async function loadRemoval(sessionName, { fromPoll = false } = {}) {
   /* #514: whether anything is left to delete. Not on the poll: the plan
      walks the folder to count it, and the answer only changes on an act. */
-  if (!fromPoll) loadLeftover(sessionName);
+  // kosmos#7852: while the block says a delete is running, every poll asks again, so it changes when the delete ends.
+  if (!fromPoll || DEL_SHOWS_RUNNING) loadLeftover(sessionName);
   const box = document.getElementById('d-remove-agent');
   const hint = document.getElementById('d-remove-hint');
   /**
@@ -50200,7 +50201,8 @@ function deleteNoAnswerLine(plan) {
 /* What the open dialog for `name` shows once its plan has been asked again (`onScreen`: the plan it was showing when
    the delete was sent). Still offered: it repaints with the new plan (a delete that got partway can leave less, or
    ask for the name; the typed name is cleared, as any repaint does), and says so. Refused: the board's words, the
-   button off and Keep focused; this agent's delete box hides, as for any refusal (loadLeftover). The kept leftovers
+   button off and Keep focused; this agent's delete box hides (loadLeftover), except for a delete still running, which the
+   next poll shows as running (kosmos#7852). The kept leftovers
    are left to the next read: a refusal can be "try again in a moment" or "is running", not only "nothing is left".
    No plan: the line, and the button as `onScreen` gates it, so the person can try again (the board re-plans first). */
 function deleteNoAnswerShow(plan, name, onScreen) {
@@ -50213,7 +50215,9 @@ function deleteNoAnswerShow(plan, name, onScreen) {
     return;
   }
   if (plan) {
-    deleteForgetPlan(name);
+    // kosmos#7852: a delete still running keeps the agent's block (the next poll shows it running); any other refusal
+    // takes it away.
+    if (plan.running) DEL_SHOWS_RUNNING = true; else deleteForgetPlan(name);
     document.getElementById('del-keep').focus();
   } else {
     const typed = document.getElementById('del-typed').value.trim();
@@ -50252,14 +50256,14 @@ function deleteSettled(name, say, closeDialog) {
   if (rmsg && wrap && !wrap.hidden) rmsg.textContent = say;
   try { paintRemoved(); } catch { /* the next paint shows it */ }
 }
+/* kosmos#7852: the agent page's delete block is showing "a delete is running" (so the poll keeps asking). */
+let DEL_SHOWS_RUNNING = false;
 async function loadLeftover(sessionName) {
   const box = document.getElementById('d-delete-leftover');
   if (!box) return;
   const mine = ++DEL_TOKEN;
   const plan = await fetchLeftoverPlan(sessionName);
   if (mine !== DEL_TOKEN || !CURRENT || CURRENT.sessionName !== sessionName) return;
-  /* A refusal here is not a message, it is the block staying hidden: the
-     Remove section above already says what state the agent is in. */
   const start = document.getElementById('d-delete-start');
   /* kosmos#7852: a delete of this agent's files is running (a Windows move can take minutes, and a page reloaded meanwhile
      asks again): the block says so in the board's words, with no button, rather than hiding as if nothing were left. */
@@ -50269,9 +50273,13 @@ async function loadLeftover(sessionName) {
     document.getElementById('d-delete-hint').textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(w.charAt(0).toUpperCase() + w.slice(1) + '.');
     if (start) start.hidden = true;
     box.hidden = false;
+    DEL_SHOWS_RUNNING = true;
     return;
   }
+  DEL_SHOWS_RUNNING = false;
   if (start) start.hidden = false;
+  /* Any other refusal is not a message, it is the block staying hidden: the
+     Remove section above already says what state the agent is in. */
   if (!plan || !plan.ok) { box.hidden = true; DEL_PLAN = null; return; }
   DEL_PLAN = plan;
   document.getElementById('d-delete-hint').textContent = (typeof cloudWords === 'function' ? cloudWords : (x) => x)(plan.hint || '');
@@ -50343,7 +50351,7 @@ document.getElementById('del-go').addEventListener('click', async () => {
     const plan = await fetchLeftoverPlan(name);
     // The person left this dialog while the delete ran: nothing is said in a dialog that is not this one's, but a plan
     // that no longer offers a delete still takes that agent's delete box and plan away.
-    if (opened !== DEL_OPENED) { if (plan && !plan.ok) deleteForgetPlan(name); return; }
+    if (opened !== DEL_OPENED) { if (plan && !plan.ok) { if (plan.running) DEL_SHOWS_RUNNING = true; else deleteForgetPlan(name); } return; }   // kosmos#7852: running keeps the block
     deleteNoAnswerShow(plan, name, onScreen);
     return;
   }

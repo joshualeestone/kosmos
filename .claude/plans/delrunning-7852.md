@@ -19,8 +19,16 @@ This half is the plan flag (agreed in Fleet Builders, m2598 to m2600).
 
 ## Rejected
 - A sentence of the page's own: the block's words come from the engine (house rule in web.delete-leftover.test.js).
-- Polling until the delete ends: the agent page already re-reads the plan as it repaints.
+- A timer of its own: the agent page's five-second poll is there already; it now re-reads the plan while the block
+  says running (it read it only on a non-poll repaint, so "running" would have stayed after the delete ended).
 
 ## Weakest premise
-That the page re-reads the plan soon enough after the delete ends; until then the block keeps saying it is running.
+That the five-second poll runs while the agent page is open (it does on the detail page; nowhere else shows the block).
 Windows only (the flag is set where the hold is, which is Windows only).
+
+## Review round 1
+- The poll re-reads the plan while the block says running (DEL_SHOWS_RUNNING), so it changes when the delete ends.
+- #7856's no-answer path (deleteNoAnswerShow, and the dialog-gone arm of the click handler) keeps the block for a
+  running answer instead of taking it away, so the two halves of #7852 agree.
+- Tests run loadLeftover and deleteNoAnswerShow on a stubbed DOM (state, not text): each red on its mutant (the
+  missing return, the poll re-read, the running arm).

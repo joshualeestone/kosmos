@@ -72,7 +72,7 @@ function dialog(planOnScreen, detailFor = null) {
     paints: 0,
     fetch: (url, opts) => { calls.push({ url, method: (opts && opts.method) || 'GET' }); return replies.shift()(url, opts); },
   });
-  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0;',
+  vm.runInContext(['let DEL_FOR = null; let DEL_PLAN = null; let DEL_RETURN = null; let DEL_OPENED = 0; let DEL_TOKEN = 0; let DEL_SHOWS_RUNNING = false;',
     'let CURRENT = ' + JSON.stringify(detailFor ? CARD[detailFor.toLowerCase()] : null) + ';',
     'let LEFTOVERS_LAST = [{ name: "Miles" }, { name: "Ada" }];',
     'function paintRemoved() { paints += 1; }',
@@ -82,7 +82,7 @@ function dialog(planOnScreen, detailFor = null) {
     'this.show = (p, onScreen) => deleteNoAnswerShow(p, DEL_FOR, onScreen === undefined ? DEL_PLAN : onScreen);',
     'this.open = openDeleteModal; this.close = closeDeleteModal; this.setPlan = (x) => { DEL_PLAN = x; };',
     'this.plan = fetchLeftoverPlan;',
-    'this.state = () => ({ DEL_FOR, DEL_PLAN, DEL_OPENED, DEL_TOKEN, kept: LEFTOVERS_LAST.map((x) => x.name).join(",") });'].join('\n'), ctx);
+    'this.state = () => ({ DEL_FOR, DEL_PLAN, DEL_OPENED, DEL_TOKEN, DEL_SHOWS_RUNNING, kept: LEFTOVERS_LAST.map((x) => x.name).join(",") });'].join('\n'), ctx);
   ctx.open(planOnScreen);
   return { els, ctx, calls, replies };
 }
@@ -324,4 +324,16 @@ test('a refused re-read on the deleted agent\'s own page moves the token loadLef
 
 test('the click handler never says Nothing was deleted', () => {
   assert.doesNotMatch(liftHandler(), /Nothing was deleted/);
+});
+
+test('kosmos#7852 a delete still running keeps the agent\'s block (the next poll shows it running), unlike any other refusal', () => {
+  const d = dialog(offered, 'Miles');
+  d.ctx.show({ ok: false, running: true, because: 'a delete of what is left of this agent is running now; try again when it has finished' });
+  assert.equal(d.els['d-delete-leftover'].hidden, false, 'a running delete hides the block as if nothing were left');
+  assert.equal(d.ctx.state().DEL_SHOWS_RUNNING, true, 'nothing asks the board again, so the block never shows it running');
+  assert.match(d.els['del-msg'].textContent, /running now/);
+  const control = dialog(offered, 'Miles');
+  control.ctx.show({ ok: false, because: 'nothing of Miles is left on this computer, so there is nothing to delete.' });
+  assert.equal(control.els['d-delete-leftover'].hidden, true, 'CONTROL: another refusal still takes the block away');
+  assert.equal(control.ctx.state().DEL_SHOWS_RUNNING, false);
 });
