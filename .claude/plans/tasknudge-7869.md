@@ -37,6 +37,10 @@ a post id. Now, to the two agents the note is between, it says the id is a direc
 reaction, and to answer with `kosmos msg <name>`. To anyone else it stays "no post by that id", so a private note is
 never shown to exist.
 
+**Known limit (item 2).** The recipient is matched by the exact name on the note's row, which is the name its sender
+typed. A note sent to another spelling of the name (`kosmos msg Angel` for angel) is not matched, so that recipient
+still reads "no post by that id": safe, and the same exact match the room listing uses.
+
 ## Tests
 `engine/builtgive-react-7869.test.js`, with controls for the screen give, taking off, an unbuilt give, a real room post,
 an outsider and a note that did reach its recipient. Both sentences carry no double quote (the Mac CLI reads the
