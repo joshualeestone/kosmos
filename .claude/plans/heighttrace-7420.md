@@ -14,10 +14,12 @@ builds are unchanged, and the room logic tests (including the trace allow-list) 
    count: content height, offset, rows drawn, the first and last drawn row's place, the content past the last.
    The timer stops itself when the chat leaves the window. `heightLine` is admitted to the trace allow-list by name,
    and its body is pinned by a source check, as `numbers(sv)` is.
-3. `KOSMOS_SAMPLE_WALK=1`: 4 s after opening, a screen up every 0.3 s to the top. It posts `.sampleWalking`, so the
+3. `KOSMOS_SAMPLE_WALK=1`, read only when `KOSMOS_SAMPLE_TRACE=1` and `KOSMOS_SAMPLE_HEIGHT=1` are set too (alone it does
+   nothing: the walk exists to be read in the height lines). 4 s after opening, a screen up every 0.3 s to the top. It posts `.sampleWalking`, so the
    chat sets personScrolling, clears atBottom and lets the id anchor go, as a finger's scroll does (without that,
    SwiftUI put the list back on the "end" id at each update). At the top it stops, and 2 s later asks for the
-   newest message as the New messages capsule does.
+   newest message as the New messages capsule does. After 400 steps (2 minutes) without reaching the top it stops
+   and traces "walk gave up", so a run whose offset keeps moving reads as that rather than as a hang.
 
 ## Decided
 - HEIGHT and WALK live in KeyboardHold.Probe, so they are silent below iOS 26 and with KOSMOS_SAMPLE_NOKBHOLD=1
