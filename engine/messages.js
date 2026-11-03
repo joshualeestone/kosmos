@@ -4052,7 +4052,17 @@ function react({ project, of, emoji, from, operator, members, claim }) {
   const rec = record();   // #7367: with the projects file unreadable every row is kept
   const rows = rec.rows;
   const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
-  if (!post) return { ok: false, because: 'there is no post by that id in this room' };
+  if (!post) {
+    /* kosmos#7869: a colleague's direct note has an id of the same shape but lives in no room, so "no post by that id"
+       read like a wrong id. Said plainly to the two agents it is between; to anyone else it stays "no post", so a
+       private note's existence is never shown. */
+    const direct = reactor !== 'you' && rows.find((m) => m && m.kind === 'message' && String(m.id) === postId && (m.to === reactor || m.from === reactor));
+    if (direct) {
+      const other = direct.to === reactor ? direct.from : direct.to;
+      return { ok: false, because: `${postId} is a direct message, not a room post, and only room posts take a reaction. To answer it, write back: kosmos msg ${other} "..."` };
+    }
+    return { ok: false, because: 'there is no post by that id in this room' };
+  }
   const cur = reactionsFor(postId, rows).find((r) => r.emoji === e);
   const has = !!(cur && cur.who.includes(reactor));
   const stamp = (extra) => ({ kind: 'reaction', project: projectId, of: postId, at: new Date().toISOString(), ...extra });

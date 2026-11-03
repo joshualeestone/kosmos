@@ -693,6 +693,7 @@ function assignPart(projectId, n, partId, who, made) {
   // takeback, so it never clears a part somebody else took in the meantime).
   let taken = false;
   let stopped = false;   // #5382: a failover move refused because the work itself changed (finished, closed, held), not its owner
+  let builtRefused = null;   // kosmos#7869: an agent's give on a built task (the task's number, for the sentence)
   // The membership check runs only for a part that actually exists (inside
   // the id match below) -- checked unconditionally up front, a nonexistent
   // partId with an unrecognised who threw the membership error instead of
@@ -718,6 +719,11 @@ function assignPart(projectId, n, partId, who, made) {
       /* #5382 (post-merge review 2): a failover's take-back to the agent it came from is a move to a named agent, which
          would drop a built mark set while the line was in flight; `keepBuilt` refuses it so the caller gives it to nobody. */
       if (made && made.keepBuilt === true && whoKey && t.builtAt) { taken = true; stopped = true; return x; }
+      /* kosmos#7869: an agent's give (process) of an open part on a built task is refused, so one agent never silently
+         undoes another's built mark and the work is not handed (and then nudged) as if it were still to do. New work goes
+         in as a new part, which reopens the task with its own record. The person's give from the screen still reopens it
+         (#3951 review 5), and taking an agent off a part (who null) is not new work. */
+      if (made && made.via === 'process' && whoKey && t.builtAt && !x.closedAt && (x.who || null) !== whoKey) { builtRefused = t.number; return x; }
       moved = (x.who || null) !== whoKey;
       givenOpen = moved && !!whoKey && !x.closedAt;
       if (moved && whoKey && !(p.agents || []).includes(whoKey)) {
@@ -746,6 +752,9 @@ function assignPart(projectId, n, partId, who, made) {
   }, { dropBuilt: () => givenOpen });   // #3951 (review round 5): an open part given to somebody is work to do
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
   if (stopped) return { ok: false, because: 'that part was finished, closed, built or put on hold since it was picked' };
+  if (builtRefused !== null) {
+    return { ok: false, builtRefused: true, because: `task ${builtRefused} is marked built, so its part was not given to ${whoKey}. If there is more to do on it, add that as new work: kosmos task add ${projectId} "what is left" --parent ${builtRefused}` };
+  }
   if (taken) return { ok: false, because: made && typeof made.onlyIfWho === 'string' ? 'that part is no longer on ' + made.onlyIfWho : 'somebody is already on that part' };
   // Only a real move is recorded: a resubmit of the current assignee (moved
   // false) changed nothing and types no pane line, so it leaves no transcript
