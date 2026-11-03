@@ -94,3 +94,10 @@ which hides a real leftover rather than offering a wrong one.
 - Answered, no change: the round-5 reorder (every return path checked by the reviewer, no read-before-set).
 - Declined: an off-tab arm (the update sits after the token check and before the tab gate, both read in one place);
   dropping the cache on create and restore (a stale row's click refuses with a true sentence, as rounds 2 and 4 said).
+
+## Review round 7 (opus, fixed; read-only review, a validation was running)
+- The first-load sentence is written on the Agents tab only (the shared line sits outside every panel, so a paint from
+  the agent page or Settings left it under a screen with no removed list). Arm added; dropping the guard reds it.
+- Copy: "Kosmos could not check for agents with only their settings left, so this list may be missing some."
+- The check's header and README name the first-load arms. Noted in the comment: while another writer's sentence
+  stands, the failure goes unsaid until the line is empty again.

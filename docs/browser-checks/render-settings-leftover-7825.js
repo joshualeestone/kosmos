@@ -8,7 +8,8 @@
  * that the folder hint stays off rows it is false for, or that the section still hides when there is nothing at all.
  * This drives the real paintRemoved() against a stubbed /api/removed (no board) and reads the rendered rows.
  *
- * Arms: leftovers alone show the section with no Restore and no folder hint; mixed with a removed row the count is
+ * Arms: a first load whose leftovers read fails says so in the shared line (not on another screen), and a good read
+ * takes it down; leftovers alone show the section with no Restore and no folder hint; mixed with a removed row the count is
  * both and the hint stays with the removed rows; the field absent (the board could not read it)
  * keeps the rows last drawn; nothing removed and nothing left over hides the section (NEGATIVE); the door fetches the
  * plan and paints a refusal under the list.
@@ -79,6 +80,14 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
     body = { agents: [] };
     await paintRemoved();
     out.firstMsg = (document.getElementById('removed-msg') || {}).textContent || '';
+    // 0b. the same failure painted from another screen (the agent page, Settings) writes nothing there
+    document.getElementById('removed-msg').textContent = '';
+    const bar = document.getElementById('boardbar');
+    bar.hidden = true;
+    await paintRemoved();
+    out.offTabMsg = (document.getElementById('removed-msg') || {}).textContent || '';
+    bar.hidden = false;
+    await paintRemoved();
     // 1. leftovers alone
     body = { agents: [], leftovers: [{ name: 'stray-7825', shownAs: 'Stray' }] };
     await paintRemoved();
@@ -127,8 +136,9 @@ const say = (ok, label, extra) => console.log((ok ? 'PASS  ' : 'FAIL  ') + label
   const check = (ok, label, extra) => { say(ok, label, extra); if (!ok) bad += 1; };
   if (r.error) { check(false, 'render-settings-leftover-7825: ' + r.error); await browser.close(); process.exit(1); }
 
-  check(/could not check for agents with only settings left/.test(r.firstMsg), 'first load with the leftovers read failing says so, never reads as none', r.firstMsg);
-  check(!/could not check for agents with only settings left/.test(r.aloneMsg), 'a good read takes that sentence down', r.aloneMsg);
+  check(/could not check for agents with only their settings left/.test(r.firstMsg), 'first load with the leftovers read failing says so, never reads as none', r.firstMsg);
+  check(r.offTabMsg === '', 'off the Agents tab the failure writes nothing into the shared line', r.offTabMsg);
+  check(!/could not check for agents with only their settings left/.test(r.aloneMsg), 'a good read takes that sentence down', r.aloneMsg);
   const a = r.alone;
   check(!a.wrapHidden && !r.aloneListHidden, 'leftovers alone: the removed section shows and opens', JSON.stringify({ wrap: a.wrapHidden, list: r.aloneListHidden }));
   check(a.label === 'Show what is left of past agents (1)', 'leftovers alone: the label does not call it removed, and counts it', a.label);
