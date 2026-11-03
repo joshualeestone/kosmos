@@ -116,6 +116,44 @@ check(Board.parseInstructions(Data("x".utf8)) == nil, "unreadable")
 check(Board.parseSkills(Data(#"{"ok":true,"skills":[{"name":"Minutes","key":"minutes"},{"name":"Minutes","key":"minutes-2"},{"name":""}]}"#.utf8))?.map(\.key) == ["minutes", "minutes-2"], "the skills, keyed (two may share a name)")
 check(Board.parseSkills(Data(#"{"ok":false,"because":"x"}"#.utf8)) == nil, "the route could not: unreadable, never \"none\"")
 
+// kosmos#7840: the Profile shows an ordinary agent's real instructions and skills, and otherwise says why, in the words
+// of whoever could not: the phone ("did not answer") or the board (its own because or error).
+func answer(_ code: Int, _ body: String) -> (Data, HTTPURLResponse) {
+    (Data(body.utf8), HTTPURLResponse(url: URL(string: "https://mac.example/x")!, statusCode: code, httpVersion: nil, headerFields: nil)!)
+}
+// The board's answers for an ordinary agent, in the shapes engine/instructions.read and the skills route send.
+check(Board.instructionsRead(answer(200, #"{"exists":true,"editable":true,"text":"You look after the catalogue.","path":"/x/CLAUDE.md"}"#)) == .got("You look after the catalogue."), "an ordinary agent's instructions are shown")
+check(Board.skillsRead(answer(200, #"{"ok":true,"skills":[{"key":"minutes","name":"Meeting minutes"}]}"#)) == .got([Board.Skill(key: "minutes", name: "Meeting minutes")]), "an ordinary agent's skills are shown")
+check(Board.skillsRead(answer(200, #"{"ok":true,"skills":[]}"#)) == .got([]), "no skills is none, not a failure")
+check(Board.instructionsRead(nil) == .unanswered(Board.macNoAnswer), "no answer: the phone says its computer did not answer")
+check(Board.skillsRead(nil) == .unanswered(Board.macNoAnswer), "no answer for skills too")
+check(Board.instructionsRead(answer(200, #"{"exists":false,"editable":false,"because":"it has no folder of its own on this computer yet"}"#)) == .refused("It has no folder of its own on this computer yet."), "the board's own reason, as a sentence")
+check(Board.skillsRead(answer(404, #"{"ok":false,"because":"there is no agent by that name on this computer"}"#)) == .refused("There is no agent by that name on this computer."), "a refusal says the board's reason")
+check(Board.instructionsRead(answer(404, #"{"error":"no agent by that name"}"#)) == .refused("No agent by that name."), "an error word is used when there is no because")
+check(Board.instructionsRead(answer(502, "<html>bad gateway</html>")) == .unanswered(Board.profileCannotRead), "a relay's error page is not the board answering")
+check(Board.instructionsRead(answer(200, "x")) == .unanswered(Board.profileCannotRead), "an unreadable 200 is not shown as instructions")
+// What the section shows after a read (Board.profileNext).
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(nil)) == ("Old text", nil), "no answer keeps the instructions already shown")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(502, "<html>bad gateway</html>"))) == ("Old text", nil), "a relay's error page keeps them too")
+check(Board.profileNext(shown: nil as String?, read: Board.instructionsRead(nil)) == (nil, Board.macNoAnswer), "no answer with nothing shown says the computer did not answer")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(404, #"{"ok":false,"because":"it was removed"}"#))) == (nil, "It was removed."), "a refusal replaces what was shown with its reason")
+check(Board.profileNext(shown: nil as String?, read: Board.instructionsRead(answer(200, #"{"exists":true,"text":"New"}"#))) == ("New", nil), "a good read after a reason shows the value and drops the reason")
+check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(nil)) == ([Board.Skill(key: "a", name: "A")], nil), "no answer keeps the skills already shown")
+// A gate or a failure for now is not a decision about the agent: it keeps what was shown, and never shows a gate's words.
+check(Board.instructionsRead(answer(403, #"{"error":"this board belongs to the account that started it; open it with `kosmos open`"}"#)) == .unanswered(Board.phoneShutOut), "a 403 from a gate says the phone was not let in, not the gate's words")
+check(Board.instructionsRead(answer(401, #"{"error":"x"}"#)) == .unanswered(Board.phoneShutOut), "a 401 with words is still the phone not let in")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(401, #"{"error":"x"}"#))) == ("Old text", nil), "a 401 keeps the instructions shown")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(500, #"{"error":"those instructions could not be read"}"#))) == ("Old text", nil), "a 500 with words keeps the instructions shown")
+check(Board.profileNext(shown: nil as String?, read: Board.instructionsRead(answer(500, #"{"error":"those instructions could not be read"}"#))) == (nil, "Those instructions could not be read."), "a 500 with nothing shown gives the board's words")
+check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(answer(403, "{}"))) == ([Board.Skill(key: "a", name: "A")], nil), "a 403 keeps the skills shown")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(429, #"{"error":"too many requests"}"#))) == ("Old text", nil), "a 429 is not now: it keeps what was shown")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(408, #"{"error":"timed out"}"#))) == ("Old text", nil), "a 408 is not now too")
+check(Board.instructionsRead(answer(404, #"{"because":"","error":"no agent by that name"}"#)) == .refused("No agent by that name."), "an empty because does not hide the error word")
+check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(answer(200, #"{"ok":false,"because":"we could not read the skills folder","skills":[]}"#))) == ([Board.Skill(key: "a", name: "A")], nil), "the skills folder read failing keeps the list shown")
+check(Board.profileNext(shown: nil as [Board.Skill]?, read: Board.skillsRead(answer(200, #"{"ok":false,"because":"we could not read the skills folder","skills":[]}"#))) == (nil, "We could not read the skills folder."), "with nothing shown it says why")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(200, #"{"exists":false,"editable":false}"#))) == ("Old text", nil), "a 200 that is not the thing and gives no words keeps what was shown")
+check(Board.profileNext(shown: [Board.Skill(key: "a", name: "A")], read: Board.skillsRead(answer(404, #"{"ok":false,"because":"it was removed"}"#))) == (nil, "It was removed."), "a refusal replaces the skills shown")
+
 section("fresh start")
 let compact = Board.freshConfirm(.compact, name: "Cleo")
 check(compact.title == "Compact Cleo\u{2019}s memory?" && compact.go == "Compact Cleo\u{2019}s memory", "the board's dialog words")

@@ -234,6 +234,61 @@ extension Board {
         }
     }
 
+    // kosmos#7840: what the Profile says when it has no instructions or skills to show, so the person learns why
+    // instead of one fixed sentence. The board's own reason is its `because`, else its `error` (as the Files section
+    // reads it; the desktop's skills read uses `because` only).
+    // got: the value. refused: the board answered this agent with its own words for why not (a 200 that is not the
+    // thing, or a 4xx such as 404). unanswered: nothing came back, the phone was not let in (401, 403: a gate, or the
+    // seconds after the computer restarts), the board failed for now (5xx, 408, 429, or the skills route's 200
+    // {ok:false} folder read), or a body with no words of its own.
+    enum ProfileRead<T: Equatable>: Equatable { case got(T), refused(String), unanswered(String) }
+    // No answer at all: the page's own wording for its computer, with the way to try again.
+    static let macNoAnswer = "We could not reach your computer just now. Pull down to try again."
+    // A body with no words of its own, or one the phone cannot read: said as the phone, with no status number.
+    static let profileCannotRead = "We cannot read this right now."
+    /* An answer that is not the value: the board's own words for this agent are a refusal, a gate or a failure for now
+       is unanswered (so a value already shown is kept). */
+    static func notTheValue<T: Equatable>(_ data: Data, status: Int) -> ProfileRead<T> {
+        if status == 401 || status == 403 { return .unanswered(phoneShutOut) }
+        guard let words = boardReason(data) else { return .unanswered(profileCannotRead) }
+        // 408 and 429 are "not now" as much as a 5xx; any other answer with words is the board's reason for this agent
+        // as it stands, so it replaces a value shown (a list from before that reason is no longer what the board says).
+        return status >= 500 || status == 408 || status == 429 ? .unanswered(words) : .refused(words)
+    }
+    // The board's own words for why not: its `because`, else its `error`, as a sentence; nil when it gave none.
+    static func boardReason(_ data: Data) -> String? {
+        let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let said = [obj?["because"] as? String, obj?["error"] as? String].compactMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let words = sentence(said)
+        return words.isEmpty ? nil : words
+    }
+    static func instructionsRead(_ res: (Data, HTTPURLResponse)?) -> ProfileRead<String> {
+        guard let r = res else { return .unanswered(macNoAnswer) }
+        let (data, http) = r
+        if http.statusCode == 200, let text = parseInstructions(data) { return .got(text) }
+        return notTheValue(data, status: http.statusCode)
+    }
+    static func skillsRead(_ res: (Data, HTTPURLResponse)?) -> ProfileRead<[Skill]> {
+        guard let r = res else { return .unanswered(macNoAnswer) }
+        let (data, http) = r
+        if http.statusCode == 200, let list = parseSkills(data) { return .got(list) }
+        /* The skills route's 200 {ok:false} is its folder read failing (engine/skills.js), a read error for now rather
+           than a decision about the agent: a list shown is kept. */
+        if http.statusCode == 200, let words = boardReason(data) { return .unanswered(words) }
+        return notTheValue(data, status: http.statusCode)
+    }
+    /* What a section shows after a read: the board's value, or its own reason replacing what was shown; with no real
+       answer, a value already shown is kept (a phone loses its connection, or meets a relay's error page, far more than
+       a desk page does) and the reason is given only when there is nothing to show. Returns (value, reason), one nil. */
+    static func profileNext<T: Equatable>(shown: T?, read: ProfileRead<T>) -> (T?, String?) {
+        switch read {
+        case .got(let v): return (v, nil)
+        case .refused(let why): return (nil, why)
+        case .unanswered(let why): return shown == nil ? (nil, why) : (shown, nil)
+        }
+    }
+
     // MARK: Fresh start (POST .../compact or .../clear, the board's memoryCommand)
 
     enum FreshStart: String { case compact, clear }

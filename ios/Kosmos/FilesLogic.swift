@@ -152,6 +152,7 @@ extension Board {
     // The answer, read. A 200 that is not a list this build can read is "cannot read", never an empty folder.
     static func filesResult(status: Int, body: Data?) -> FilesRead {
         if status == 0 { return .noAnswer }
+        if status == 401 || status == 403 { return .refused(phoneShutOut) }   // kosmos#7840: never the gate's words
         let obj = body.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
         if status == 200, let obj, obj["ok"] as? Bool == true {
             let missing = obj["missing"] as? Bool == true
@@ -206,7 +207,14 @@ extension Board {
     // kosmos#7679 review 3: noAnswer is its own state (shown as filesAgentUnread), so a refresh can tell a read that never
     // came back from a refusal that happens to use the same words.
     enum FilesSectionState: Equatable { case hidden, noAnswer, message(String), rows([ListedFile]) }
+    /* kosmos#7840: whether a refresh keeps the list already shown. No answer keeps it (review 3), and so does the phone not
+       being let in (a gate, or the seconds after the computer restarts): neither says anything about the files. */
+    static func filesKeepsShown(_ r: FilesRead) -> Bool {
+        if case .noAnswer = r { return true }
+        return r == .refused(phoneShutOut)
+    }
     static func filesSection(status: Int, body: Data?) -> FilesSectionState {
+        if status == 401 || status == 403 { return .message(phoneShutOut) }   // kosmos#7840: never the gate's words
         if status == 404 { return .message(filesAgentNoFolder) }
         switch filesResult(status: status, body: body) {
         case .page(let p): return p.files.isEmpty ? .hidden : .rows(p.files)
@@ -220,7 +228,7 @@ extension Board {
     // kosmos#7679 review 2: what the agent page keeps after a refresh. An answer that never came keeps the rows it had (a
     // phone loses its connection far more than a desk page does); a refusal or a new list replaces them.
     static func filesSectionAfter(_ old: FilesSectionState, _ new: FilesSectionState) -> FilesSectionState {
-        if new == .noAnswer, case .rows = old { return old }
+        if new == .noAnswer || new == .message(phoneShutOut), case .rows = old { return old }   // kosmos#7840: a shut-out too
         return new
     }
 

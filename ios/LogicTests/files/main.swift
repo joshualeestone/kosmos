@@ -98,5 +98,14 @@ check(boardPage.contains("(PJ_DOCS_TOTAL === 1 ? ' file' : ' files')"), "the boa
 let crumbs = Board.filesCrumbs("Covers/Spring")
 check(crumbs.map(\.name) == ["Files", "Covers", "Spring"] && crumbs.map(\.path) == ["", "Covers", "Covers/Spring"], "breadcrumbs from Files down")
 
+// kosmos#7840: a 401 or 403 is the phone not being let in, said in one sentence on every screen, never the gate's words.
+check(Board.filesResult(status: 403, body: Data(#"{"error":"this board belongs to the account that started it; open it with `kosmos open`"}"#.utf8)) == .refused(Board.phoneShutOut), "a 403 is not the gate's words")
+check(Board.filesSection(status: 401, body: Data("{}".utf8)) == .message(Board.phoneShutOut), "the agent page's Files section says the same on a 401")
+check(Board.filesKeepsShown(Board.filesResult(status: 403, body: Data("{}".utf8))), "a shut-out keeps the Files list shown")
+check(Board.filesKeepsShown(Board.filesResult(status: 0, body: nil)), "CONTROL: no answer keeps it, as before")
+check(!Board.filesKeepsShown(Board.filesResult(status: 200, body: Data(#"{"ok":false,"because":"the folder was removed"}"#.utf8))), "a refusal with the board's reason replaces it")
+check(Board.filesSectionAfter(rowsBefore, Board.filesSection(status: 401, body: Data("{}".utf8))) == rowsBefore, "the agent page keeps its Files rows on a shut-out")
+
+check(Board.filesSectionAfter(.hidden, .message(Board.phoneShutOut)) == .message(Board.phoneShutOut), "CONTROL: with no rows yet, a shut-out says so")
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
