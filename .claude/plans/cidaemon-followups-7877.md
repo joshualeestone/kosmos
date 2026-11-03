@@ -8,8 +8,8 @@ Card: kosmos#7877 (follow-up to #7001, PR #7878 merged as 7a37ec1c3e). Per-item 
 - W2: printed move: the CI user reads the agent, root writes the copy, checked not empty and the same before the
   CI user's rm; put_back_cmd and put_back remove the retired copy only after cmp;
   newest_retired skips empty files. Arms emptyret, pbfail, pbok. Mutations red.
-- W3: runner_plist reads only a regular file (-f; a symlink is followed, and the daemon stage refuses a symlinked
-  agent before it gets here). Measured: plutil refuses a FIFO itself (rc 1, no hang),
+- W3: runner_plist reads only a regular file that is not a symlink (-f and ! -L); arm pllink checks root never runs
+  plutil on a symlinked plist. Measured: plutil refuses a FIFO itself (rc 1, no hang),
   so arm plfifo uses a plutil stand-in that blocks on a FIFO; the mutation of -f reds it.
 - W4: closed with the round-2 measurement.
 - NITs: parent-dir check (arm gwdir, mutation reds); no-pid message; FileVault and ps -U wording; test runs a 755
@@ -24,3 +24,7 @@ Card: kosmos#7877 (follow-up to #7001, PR #7878 merged as 7a37ec1c3e). Per-item 
 
 ## Weakest premise
 The printed commands are checked by string and one `sh` run with stand-ins, never by an operator on the runner Mac.
+
+## Stopped at round 8 (Splinter's rule: 8 rounds, no BLOCKER open)
+Round 8's two wording WARNINGs (a failed sudo probe reads as "already done"; an empty retired file passed by hand is
+named as a different agent) are on a follow-up card, not fixed here.
