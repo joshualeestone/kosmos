@@ -129,9 +129,14 @@ check(Board.instructionsRead(nil) == .reason(Board.macNoAnswer), "no answer: the
 check(Board.skillsRead(nil) == .reason(Board.macNoAnswer), "no answer for skills too")
 check(Board.instructionsRead(answer(200, #"{"exists":false,"editable":false,"because":"it has no folder of its own on this computer yet"}"#)) == .reason("It has no folder of its own on this computer yet."), "the board's own reason, as a sentence")
 check(Board.skillsRead(answer(404, #"{"ok":false,"because":"there is no agent by that name on this computer"}"#)) == .reason("There is no agent by that name on this computer."), "a refusal says the board's reason")
-check(Board.instructionsRead(answer(403, #"{"error":"no agent by that name"}"#)) == .reason("No agent by that name."), "an error word is used when there is no because")
-check(Board.instructionsRead(answer(502, "gateway")) == .reason("Your Mac could not read this (it answered 502)."), "an answer with no words says its status")
-check(Board.instructionsRead(answer(200, "x")) == .reason("Your Mac could not read this (it answered 200)."), "an unreadable 200 is not shown as instructions")
+check(Board.instructionsRead(answer(404, #"{"error":"no agent by that name"}"#)) == .reason("No agent by that name."), "an error word is used when there is no because")
+check(Board.instructionsRead(answer(502, "gateway")) == .reason(Board.profileCannotRead), "an answer with no words is said as the phone, with no status number")
+check(Board.instructionsRead(answer(200, "x")) == .reason(Board.profileCannotRead), "an unreadable 200 is not shown as instructions")
+// What the section shows after a read (Board.profileNext).
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(nil), answered: false) == ("Old text", nil), "no answer keeps the instructions already shown")
+check(Board.profileNext(shown: nil as String?, read: Board.instructionsRead(nil), answered: false) == (nil, Board.macNoAnswer), "no answer with nothing shown says the computer did not answer")
+check(Board.profileNext(shown: "Old text", read: Board.instructionsRead(answer(404, #"{"ok":false,"because":"it was removed"}"#)), answered: true) == (nil, "It was removed."), "a refusal replaces what was shown with its reason")
+check(Board.profileNext(shown: nil as String?, read: Board.instructionsRead(answer(200, #"{"exists":true,"text":"New"}"#)), answered: true) == ("New", nil), "a good read after a reason shows the value and drops the reason")
 
 section("fresh start")
 let compact = Board.freshConfirm(.compact, name: "Cleo")

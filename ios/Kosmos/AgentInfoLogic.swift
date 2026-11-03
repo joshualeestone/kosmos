@@ -238,26 +238,36 @@ extension Board {
     // instead of one fixed sentence. No answer at all is the phone's side; any answer carries the board's own reason
     // (its `because`, else its `error`), as the board page shows it.
     enum ProfileRead<T: Equatable>: Equatable { case got(T), reason(String) }
-    static let macNoAnswer = "Your Mac did not answer just now."
-    static func boardReason(_ data: Data, status: Int) -> String {
+    // No answer at all: the page's own wording for its computer, with the way to try again.
+    static let macNoAnswer = "We could not reach your computer just now. Pull down to try again."
+    // An answer with no words of its own, or one the phone cannot read: said as the phone, with no status number.
+    static let profileCannotRead = "We cannot read this right now."
+    static func boardReason(_ data: Data) -> String {
         let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        let said = ((obj?["because"] as? String) ?? (obj?["error"] as? String))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !said.isEmpty else { return "Your Mac could not read this (it answered \(status))." }
-        let words = String(said.prefix(300))
-        let first = words.prefix(1).uppercased() + words.dropFirst()
-        return first.hasSuffix(".") || first.hasSuffix("?") || first.hasSuffix("!") ? first : first + "."
+        let said = (obj?["because"] as? String) ?? (obj?["error"] as? String)
+        let words = sentence(said)
+        return words.isEmpty ? profileCannotRead : words
     }
     static func instructionsRead(_ res: (Data, HTTPURLResponse)?) -> ProfileRead<String> {
         guard let r = res else { return .reason(macNoAnswer) }
         let (data, http) = r
         if http.statusCode == 200, let text = parseInstructions(data) { return .got(text) }
-        return .reason(boardReason(data, status: http.statusCode))
+        return .reason(boardReason(data))
     }
     static func skillsRead(_ res: (Data, HTTPURLResponse)?) -> ProfileRead<[Skill]> {
         guard let r = res else { return .reason(macNoAnswer) }
         let (data, http) = r
         if http.statusCode == 200, let list = parseSkills(data) { return .got(list) }
-        return .reason(boardReason(data, status: http.statusCode))
+        return .reason(boardReason(data))
+    }
+    /* What a section shows after a read: an answer replaces what was shown (its value, or nothing and its reason); no
+       answer keeps a value already shown (a phone loses its connection far more than a desk page does) and gives its
+       reason only when there is nothing to show. Returns (value, reason); one of them is nil. */
+    static func profileNext<T: Equatable>(shown: T?, read: ProfileRead<T>, answered: Bool) -> (T?, String?) {
+        switch read {
+        case .got(let v): return (v, nil)
+        case .reason(let why): return answered || shown == nil ? (nil, why) : (shown, nil)
+        }
     }
 
     // MARK: Fresh start (POST .../compact or .../clear, the board's memoryCommand)

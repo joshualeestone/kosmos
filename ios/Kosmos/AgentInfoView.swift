@@ -310,16 +310,9 @@ struct AgentInfoView: View {
             if details == nil || !changed { fill(d) }
             details = d
         }
-        /* kosmos#7840: an answer replaces what was shown and says why when it is not the thing; no answer keeps what was
-           shown (a phone loses its connection far more than a desk page does) and says so only when there is nothing. */
-        switch Board.instructionsRead(i) {
-        case .got(let t): instructions = t; instructionsWhy = nil
-        case .reason(let why): if i != nil || instructions == nil { instructions = nil; instructionsWhy = why }
-        }
-        switch Board.skillsRead(k) {
-        case .got(let l): skills = l; skillsWhy = nil
-        case .reason(let why): if k != nil || skills == nil { skills = nil; skillsWhy = why }
-        }
+        // kosmos#7840: each section shows its value or why not (Board.profileNext keeps a shown value through no answer).
+        (instructions, instructionsWhy) = Board.profileNext(shown: instructions, read: Board.instructionsRead(i), answered: i != nil)
+        (skills, skillsWhy) = Board.profileNext(shown: skills, read: Board.skillsRead(k), answered: k != nil)
         readFailed = d == nil || instructions == nil || skills == nil
         // Review 2: a refresh that gets no answer keeps the list it had, as instructions and skills keep theirs; a
         // refusal or a new list replaces it. (A deliberate difference from the board, which says it could not read: a

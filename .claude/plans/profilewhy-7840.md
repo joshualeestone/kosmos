@@ -18,12 +18,13 @@ this right now.") for no answer, a refusal, an error and an unreadable body alik
 
 ## Change
 - ios/Kosmos/AgentInfoLogic.swift: `instructionsRead` / `skillsRead` answer `.got(value)` or `.reason(words)`:
-  no answer reads "Your Mac did not answer just now."; an answer carries the board's `because`, else its `error`, as a
-  sentence, else "Your Mac could not read this (it answered <status>)".
-- ios/Kosmos/AgentInfoView.swift: each section shows its own reason. An answer replaces what was shown; no answer
-  keeps what was shown (as before) and says so only when there is nothing.
+  no answer reads "We could not reach your computer just now. Pull down to try again." (the page's own words for its
+  computer); an answer carries the board's `because`, else its `error`, through `Board.sentence`, else "We cannot read
+  this right now." (no status number). `profileNext` decides what a section shows after a read: an answer replaces what
+  was shown; no answer keeps a value already shown and gives its reason only when there is nothing.
+- ios/Kosmos/AgentInfoView.swift: each section shows its value or its own reason, through `profileNext`.
 - ios/LogicTests/agentinfo/main.swift: an ordinary agent's answers (the board's shapes) show real instructions and
-  skills; each failure kind shows its reason.
+  skills; each failure kind shows its reason; what the screen shows after each kind of read.
 
 ## Rejected
 - Changing the board to resolve a raw `-discord` session to the agent: the phone does not send it (measured).
