@@ -214,7 +214,7 @@ test('#5309: it tells an agent where a plugin it cannot use may be (folder, acco
   assert.match(flat, /different from the Connections tab below/);
   const at = flat.indexOf('## A plugin the person');
   assert.ok(at >= 0 && at < flat.indexOf('## The Connections tab'), 'the plugin section is missing or moved after the Connections tab section');
-  assert.doesNotMatch(flat, /\u2014/, 'an em dash reached the agent block');
+  assert.doesNotMatch(flat, /\u2014/, 'an em dash reached the connecting guide');
 });
 
 test('kosmos#7875 item 2: the block is short and points at the guide; the guide carries the whole', () => {

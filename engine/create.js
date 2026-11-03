@@ -6492,7 +6492,8 @@ function createAgentInner(opts) {
     if (!defaultsLanded) {
       steps.push({ label: 'could not add the operating instructions to its instructions, so it does not know how to answer you or when to keep working; edit its instructions or remake it', ok: false });
     }
-      /* #1034: how connecting a provider works. Constant words, no machine
+      /* #1034: how connecting a provider works (kosmos#7875 item 2: the short block that points at
+         `kosmos connections --how`, where the whole guide is printed). Constant words, no machine
          state, no consent surface -- the card's part one. An agent born
          without it will confidently describe a screen it cannot see, which is
          worse than saying "tell me what you are looking at". Same gate and the
