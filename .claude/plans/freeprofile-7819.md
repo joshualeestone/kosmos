@@ -28,10 +28,11 @@ Move the profile and the picture with the files: to the Trash where the folder g
 
 ## Weakest premise
 Profiles already stranded with no folder or job (the Windows box's `b55-1.json`) are not reachable: `plan()` refuses a
-name with nothing but a profile. Not built here.
+name with nothing but a profile. Not built here: filed as kosmos#7825 (it needs a rule that leaves worldstarts' held
+profiles alone).
 
 ## Tests
-engine/delete-leftover.test.js, ten #7819 tests (the card's done-when: create, remove, delete, create again; new id, no
+engine/delete-leftover.test.js, eleven #7819 tests (the card's done-when: create, remove, delete, create again; new id, no
 old field; the picture; a shared stored name kept; an unmovable profile refuses the whole delete and can be retried).
 Mutation: no move reds three; no shared-name guard reds the fourth. All 13 test files that use delete-leftover: 570 pass.
 
@@ -39,3 +40,8 @@ Mutation: no move reds three; no shared-name guard reds the fourth. All 13 test 
 BLOCKER: the folder basename could take another agent's profile; dropped. Records moved last (folder found through the
 profile; a stuck job keeps them). Trash asked of the records themselves. A job-only leftover losing settings asks for the
 name. Every picture extension. Each fix mutation-checked; the typing guard needed a job-only test to go red.
+
+## Review round 2 (fixed)
+A failed look at what is stored now refuses the plan (it read as "nothing stored" and promised a free name). The
+shared-name guard's comment now says what it does not see (a stopped agent connected outside the workers folder).
+Deferred: originals of a picture are deleted, not moved (never shown); profile-only leftovers (#7825).

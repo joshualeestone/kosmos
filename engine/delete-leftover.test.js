@@ -815,3 +815,15 @@ test('#7819: a job-only leftover whose settings go for good asks for the name, a
   assert.match(p.reassurance, /^Its settings cannot go to the Trash, so it is deleted for good\. After this, the name Unit is free for a new agent\.$/);
   fs.rmSync(unit, { force: true });
 });
+
+test('#7819: a failed look at what is stored refuses the plan, never promises a free name over a profile', () => {
+  const name = leftoverAgent('look7819');
+  store.writeProfile(name, { displayName: 'Look' });
+  let reads = 0;
+  status.setPaneSource(() => { reads += 1; if (reads > 1) throw new Error('tmux went away'); return ''; });
+  const p = mac.plan(name);
+  assert.ok(reads > 1, 'fixture: the roster was not read a second time, so the failing look never happened');
+  assert.equal(p.ok, false, 'the plan offered a delete after it could not see what is stored');
+  assert.match(p.because, /could not check what Kosmos has stored for Look/);
+  assert.equal(fs.existsSync(store.profilePath(name)), true);
+});
