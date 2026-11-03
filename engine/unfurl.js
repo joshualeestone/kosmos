@@ -403,12 +403,11 @@ function bareSplit(tok) {
 /** kosmos#7861: the first link in a message's text, explicit (http/https) or bare, whichever comes first, as
     { url, bare } or null. A bare one is its https:// address.
     The bare scan is CONSERVATIVE, because the page decides what is a link (web/index.html pjRich) and a word the page
-    shows as text must never be fetched. It looks only at whole words between whitespace, and skips: every word in a
-    message with any backtick (code), every word that overlaps a markdown link [label](target) (a label is text on the
-    page, and text glued to a link is not a separate word there), except the target of a link that stands alone between
-    whitespace, and every word in a message with any | (the page reads | as a table, which drops extra cells and splits
-    a link whose label holds one). A bare address the page links but this skips (in a table, after a quote marker with no
-    space, say) gets no preview, which is how every bare address was before. The explicit scan is unchanged.
+    shows as text must never be fetched. It looks only at whole words between whitespace, and not at all in a message
+    holding any of ` [ ] | (code, markdown links and tables: each changes which words the page links, and matching the
+    page's rules for them one by one kept finding new edges, review rounds 1 to 7), nor in one past BARE_SCAN_MAX
+    characters. A bare address the page links but this skips gets no preview, which is how every bare address was
+    before. The explicit scan is unchanged.
     engine/unfurl.bare-7861.test.js checks against the page's own renderers (pjRich, and pjBody for the project room)
     that a bare address found here is always one they draw, on a fixed list and on generated messages.
     Known exceptions, outside those renderers: a word the project room draws as a file chip because a project file has
@@ -416,35 +415,22 @@ function bareSplit(tok) {
     room message split at quote offsets inside a word. Each needs a host-shaped name or a cut inside a word.
     `opts.bare === false` turns the bare scan off (the server does, for a row carrying files: the page hides a text that
     is only the file names, and a file can be named like a host). */
-// Bounded label and target, and no bare scan past BARE_SCAN_MAX characters: this runs on every poll for every row, and
-// an unbounded pattern backtracks quadratically on a line of "[" (review round 6: 20000 of them took 270 ms).
-const MD_LINK_RE = /\[([^\]\n]{1,500})\]\(([^)\n]{1,2048})\)/g;
 const BARE_SCAN_MAX = 8000;
+const BARE_SKIP_RE = /[`[\]|]/;
 function firstLinkInfo(text, opts) {
   const raw = String(text || '');
   const m = raw.match(LINK_RE);
   const explicit = m ? { url: m[0].replace(/[.,;:!?]+$/, ''), bare: false, at: m.index } : null;
-  if ((opts && opts.bare === false) || raw.length > BARE_SCAN_MAX || raw.indexOf('`') !== -1 || raw.indexOf('|') !== -1) return explicit ? { url: explicit.url, bare: false } : null;
-  const links = [...raw.matchAll(MD_LINK_RE)].map((l) => ({ from: l.index, to: l.index + l[0].length, target: l[2] }));
+  if ((opts && opts.bare === false) || raw.length > BARE_SCAN_MAX || BARE_SKIP_RE.test(raw)) {
+    return explicit ? { url: explicit.url, bare: false } : null;
+  }
   const words = /\S+/g;
   let w;
-  let bare = null;
   while ((w = words.exec(raw)) !== null) {
     if (explicit && w.index >= explicit.at) break;
-    const from = w.index;
-    const to = w.index + w[0].length;
-    const touching = links.filter((l) => l.from < to && l.to > from);
-    let cand = w[0];
-    if (touching.length) {
-      // Only a link that IS this whole word offers its target (its label is text on the page, so it is never scanned);
-      // anything else touching a link is skipped.
-      if (touching.length !== 1 || touching[0].from !== from || touching[0].to !== to) continue;
-      cand = touching[0].target;
-    }
-    const got = bareSplit(cand);
-    if (got && !(touching.length && (got.lead || got.tail))) { bare = { url: got.web, bare: true }; break; }
+    const got = bareSplit(w[0]);
+    if (got) return { url: got.web, bare: true };
   }
-  if (bare) return bare;
   return explicit ? { url: explicit.url, bare: false } : null;
 }
 
@@ -470,10 +456,11 @@ async function previewBare(httpsUrl) {
   const key = 'b:' + String(httpsUrl);
   const hit = cached(key);
   if (hit) return hit;
+  // https first. Its answer is kept by preview() under the typed-link key ('p:'), and peekBare reads it from there, so
+  // a bare address https answers takes one cache slot, not two. Only an http fallback's outcome needs the 'b:' key.
   const first = await preview(httpsUrl);
-  if (first.ok || !unreached(first.because) || !/^https:\/\//.test(httpsUrl)) return remember(key, first);
-  /* Two fetches, each with its own timeout, when https does not answer. preview() also keeps the https result under the
-     typed-link key ('p:'), which is right: that IS what https://x answered. */
+  if (first.ok || !unreached(first.because) || !/^https:\/\//.test(httpsUrl)) return first;
+  /* Two fetches, each with its own timeout, when https does not answer. */
   const second = await preview('http://' + httpsUrl.slice('https://'.length));
   if (!second.ok) return remember(key, first);
   // A page the http address sent us to on ANOTHER host, over http or https, is not this address's preview (review round
@@ -485,9 +472,14 @@ async function previewBare(httpsUrl) {
   if (!sameHost) return remember(key, first);
   return remember(key, { ...second, url: /^https:\/\//.test(second.url) ? second.url : httpsUrl });
 }
-/** kosmos#7861: what the cache holds for a bare address (see previewBare), as peek does for a typed link. */
+/** kosmos#7861: what the cache holds for a bare address: an http fallback's outcome ('b:'), or else what https
+    answered ('p:') when that answer is final (a preview, or a refusal that is not "https was not reached"). Null while
+    a fallback is still owed, so warm starts it. */
 function peekBare(httpsUrl) {
-  return cached('b:' + String(httpsUrl));
+  const b = cached('b:' + String(httpsUrl));
+  if (b) return b;
+  const p = cached('p:' + String(httpsUrl));
+  return p && (p.ok || !unreached(p.because)) ? p : null;
 }
 
 /* In flight, so a poll every five seconds does not start a second fetch for
@@ -498,7 +490,7 @@ const inflight = new Set();
 function warm(raw, opts) {
   const bare = !!(opts && opts.bare);
   const key = (bare ? 'b:' : 'p:') + String(raw);
-  if (cached(key) || inflight.has(key)) return;
+  if ((bare ? peekBare(String(raw)) : cached(key)) || inflight.has(key)) return;
   inflight.add(key);
   (bare ? previewBare(String(raw)) : preview(String(raw))).catch(() => {}).finally(() => inflight.delete(key));
 }

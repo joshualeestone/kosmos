@@ -96,6 +96,7 @@ const MESSAGES = [
   '| a |\n|---|\n| x | evil.example.com |', 'a | b\n--|--\nx | y | evil.example.com', '| [a|b](c.example.com) |\n|---|---|',
   '| h |\n|---|\n[a|b](c.example.com)', 'see example.com: it works', 'x.example.com:', 'example.com:8080/x',
   'example.com:x', 'javascript:alert(1) and mailto:a@b.co',
+  '[' + 'a'.repeat(520) + ' evil-label.example.com ](https://ok.example.org)', '[x](' + 'b'.repeat(2100) + ' evil-target.example.com c)',
 ];
 
 test('#7861: on a fixed list of whole messages, a bare address previewed is always a link the page itself draws', () => {
@@ -151,7 +152,8 @@ test('#7861: which link in a message is previewed: the first, bare or explicit; 
     ['```\nexample.com', null],
     ['`` example.com', null],
     ['a `x`example.com', null],
-    ['[docs](example.com)', { url: 'https://example.com', bare: true }],
+    ['[docs](example.com)', null],
+    ['see example.com, and [docs](https://d.example.org)', { url: 'https://d.example.org', bare: false }],
     ['[a example.com b](https://e.example.org)', { url: 'https://e.example.org', bare: false }],
     ['see joshualeestone.com: here it is', { url: 'https://joshualeestone.com', bare: true }],
     ['example.com:8080/x', { url: 'https://example.com:8080/x', bare: true }],
@@ -235,16 +237,28 @@ test('#7861: an http page that sends us to ANOTHER host over https is not this a
   assert.equal(got.ok, false, 'another host\'s https page was kept as this address\'s preview: ' + JSON.stringify(got));
 });
 
-test('#7861: a hostile message (a run of "[" or "[a](") is scanned quickly, and a long message is not scanned for bare addresses', () => {
-  for (const text of ['['.repeat(50000) + ' example.com', '[a]('.repeat(20000) + ' example.com', 'x '.repeat(4000) + 'example.com']) {
+test('#7861: a message just under the scan cap is scanned quickly, and a longer one is not scanned for bare addresses', () => {
+  const under = ['['.repeat(7980) + ' example.com', '[a]('.repeat(1995) + ' example.com', '[a](b) '.repeat(1140) + 'example.com', 'x '.repeat(3990) + 'example.com'];
+  for (const text of under) {
+    assert.ok(text.length <= 8000, 'CONTROL: this input is under the cap, so the scan really runs: ' + text.length);
     const t0 = process.hrtime.bigint();
     unfurl.firstLinkInfo(text);
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-    assert.ok(ms < 150, 'firstLinkInfo took ' + ms.toFixed(0) + ' ms on a ' + text.length + '-character message');
+    assert.ok(ms < 50, 'firstLinkInfo took ' + ms.toFixed(1) + ' ms on a ' + text.length + '-character message');
   }
-  assert.equal(unfurl.firstLinkInfo('x '.repeat(4000) + 'example.com'), null, 'a message past the cap was scanned for a bare address');
-  assert.deepEqual(unfurl.firstLinkInfo('x '.repeat(4000) + 'https://e.example.org'), { url: 'https://e.example.org', bare: false }, 'CONTROL: the explicit scan still runs');
-  assert.deepEqual(unfurl.firstLinkInfo('x '.repeat(100) + 'example.com'), { url: 'https://example.com', bare: true }, 'CONTROL: a short one is scanned');
+  assert.deepEqual(unfurl.firstLinkInfo('x '.repeat(3990) + 'example.com'), { url: 'https://example.com', bare: true }, 'CONTROL: under the cap a bare address is found');
+  assert.equal(unfurl.firstLinkInfo('x '.repeat(4010) + 'example.com'), null, 'a message past the cap was scanned for a bare address');
+  assert.deepEqual(unfurl.firstLinkInfo('x '.repeat(4010) + 'https://e.example.org'), { url: 'https://e.example.org', bare: false }, 'CONTROL: the explicit scan still runs');
+});
+
+test('#7861: a bare address https answers takes one cache slot: peekBare reads the typed-link entry', async () => {
+  const calls = world({ pages: { 'https://one.example.com/': { body: '<title>One</title>' } } });
+  await unfurl.previewBare('https://one.example.com/');
+  assert.equal(unfurl.peekBare('https://one.example.com/').title, 'One');
+  assert.equal(unfurl.peek('https://one.example.com/').title, 'One', 'CONTROL: the typed-link entry holds it');
+  unfurl.warm('https://one.example.com/', { bare: true });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(calls, ['https://one.example.com/'], 'a cached answer was fetched again');
 });
 
 test('#7861: https that takes too long falls back to http too', async () => {
