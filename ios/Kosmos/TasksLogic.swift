@@ -10,7 +10,8 @@ extension Board {
     // One task as the Tasks view row reads it. Named TaskRow, not Task: inside Board a nested `Task` would hide Swift's
     // own Task from every Board extension.
     struct TaskRow: Equatable, Identifiable {
-        struct Waiting: Equatable { let who: String; let reason: String }
+        // kosmos#7918 (#7916's waitingOnOf): `held` on an agent's own question it holds until the person is back.
+        struct Waiting: Equatable { let who: String; let reason: String; var held = false }
         struct Subtasks: Equatable { let done: Int; let total: Int; let built: Int }
         struct Reading: Equatable { let value: String; let at: String }
         let projectId: String
@@ -100,7 +101,7 @@ extension Board {
             t.parentSentence = str(row, "parentSentence")
             t.waitingOn = (row["waitingOn"] as? [[String: Any]])?.compactMap { w in
                 guard let who = w["who"] as? String, !who.isEmpty else { return nil }
-                return TaskRow.Waiting(who: who, reason: w["reason"] as? String ?? "other")
+                return TaskRow.Waiting(who: who, reason: w["reason"] as? String ?? "other", held: isTrue(w["held"]))
             } ?? []
             t.waitingSince = str(row, "waitingSince")
             t.holdForYou = (row["onHold"] as? Bool) == true && (row["onHoldForPerson"] as? Bool) == true
@@ -211,7 +212,7 @@ enum Tasks {
     }
     static func askWait(_ a: Board.Asking, now: Date) -> String {
         // kosmos#7918 (tskAskRow, #7916): a held question is not pressed on the person: no age, and it says so.
-        if a.held { return "Held until you are back." }
+        if a.held { return needsWhy["held"]! }
         let wait = ago(a.waitingSince, now: now)
         if wait.isEmpty { return "" }
         return wait == "just now" ? "Just started waiting for your answer." : "Waiting for your answer for " + wait.replacingOccurrences(of: " ago", with: "") + "."
@@ -497,14 +498,17 @@ enum Tasks {
         if !wait.isEmpty {
             if askOnly {
                 let names = uniqueNames(who.map(\.who)).map(name).joined(separator: ", ")
-                lines.append(names + ": " + (wait == "just now" ? "Just started waiting for your answer."
+                // kosmos#7918 (tskRow waitLine, #7916): every question here held: say so, with no age pressing it.
+                lines.append(names + ": " + (who.allSatisfy { $0.held && $0.reason == "question" } ? needsWhy["held"]!
+                    : wait == "just now" ? "Just started waiting for your answer."
                     : "Waiting for your answer for " + wait.replacingOccurrences(of: " ago", with: "") + "."))
             } else {
                 lines.append(wait == "just now" ? "Just started waiting on you" : "Waiting on you for " + wait.replacingOccurrences(of: " ago", with: ""))
             }
         }
         if !who.isEmpty && !askOnly {
-            lines.append(who.map { name($0.who) + ": " + (needsWhy[$0.reason] ?? needsWhy["other"]!) }.joined(separator: " "))
+            // kosmos#7918 (tskRow whoLine, #7916): a held question names held.
+            lines.append(who.map { name($0.who) + ": " + (($0.held && $0.reason == "question" ? needsWhy["held"] : needsWhy[$0.reason]) ?? needsWhy["other"]!) }.joined(separator: " "))
         }
         return lines.joined(separator: "\n")
     }

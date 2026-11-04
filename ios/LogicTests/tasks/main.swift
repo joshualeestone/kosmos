@@ -213,6 +213,17 @@ check(Board.parseTasks(Data(#"{"tasks":[{"projectId":"p","number":1,"state":"hel
       "control: the mark without a hold is no hold for you")
 let noStart = row(1, "decision") { $0.waitingOn = [.init(who: "rex-discord", reason: "trust")] }
 check(Tasks.rowLine(noStart, now: now, name: name) == "Rex: Waiting for you to approve it before it can start.", "no known start: the who line alone")
+// kosmos#7918 (tskRow, #7916): a question the agent holds until the person is back reads held, with no age.
+let heldAsk = row(1, "decision") { $0.waitingOn = [.init(who: "cleo-discord", reason: "question", held: true)]; $0.waitingSince = iso(24) }
+check(Tasks.rowLine(heldAsk, now: now, name: name) == "Cleo: Held until you are back.", "every question held: held, no age")
+let halfHeld = row(1, "decision") { $0.waitingOn = [.init(who: "cleo-discord", reason: "question", held: true), .init(who: "eli-discord", reason: "question")]; $0.waitingSince = iso(24) }
+check(Tasks.rowLine(halfHeld, now: now, name: name).hasSuffix(": Waiting for your answer for 24 seconds."), "control: one of two held keeps the age")
+let heldMixed = row(1, "decision") { $0.waitingOn = [.init(who: "cleo-discord", reason: "question", held: true), .init(who: "rex-discord", reason: "trust")] }
+check(Tasks.rowLine(heldMixed, now: now, name: name) == "Cleo: Held until you are back. Rex: Waiting for you to approve it before it can start.", "the who line names the held one held, the other its reason")
+let heldTrust = row(1, "decision") { $0.waitingOn = [.init(who: "rex-discord", reason: "trust", held: true)] }
+check(Tasks.rowLine(heldTrust, now: now, name: name) == "Rex: Waiting for you to approve it before it can start.", "control: held means something only on a question")
+check(Board.parseTasks(Data(#"{"tasks":[{"projectId":"p","number":1,"state":"decision","waitingOn":[{"who":"a","reason":"question","held":true},{"who":"b","reason":"question","held":1},{"who":"c","reason":"question"}]}]}"#.utf8))?.tasks.first?.waitingOn.map(\.held) == [true, false, false],
+      "waitingOn held is read only from a JSON true")
 let working = row(1, "working") { $0.whoNames = ["rex-discord", "cleo-discord", "rex-discord"] }
 check(Tasks.rowLine(working, now: now, name: name) == "Rex, Cleo", "in progress: the agents on it, by name, once each")
 check(Tasks.rowLine(row(1, "assigned") { $0.whoNames = ["ghost"] }, now: now, name: name) == "ghost", "an agent the roster does not name keeps its session name")

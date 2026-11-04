@@ -653,6 +653,8 @@ extension Board {
         var because: String? = nil
         // kosmos#7838: what this agent says it does on THIS project (`kosmos project role`, describe's roleHere).
         var roleHere: String? = nil
+        // kosmos#7918 (#7916's describe stateHeld): the agent holds its question here until the person is back.
+        var stateHeld = false
     }
 
     struct ProjectRow: Equatable, Identifiable {
@@ -734,7 +736,8 @@ extension Board {
     static func needsNotice(_ members: [ProjectMember], names: [String: String] = [:]) -> NeedsNotice? {
         let rows = members.compactMap { m -> NeedsRow? in
             guard let reason = m.needsYouHere else { return nil }
-            let words = needsWhy[reason] ?? needsWhy["other"]!
+            // kosmos#7918 (pjNeedsNotice, #7916): a held question says held.
+            let words = (reason == "question" && m.stateHeld ? needsWhy["held"] : needsWhy[reason]) ?? needsWhy["other"]!
             // The engine's needsYouKey; built as it is when absent (a question carries its words).
             // (300 UTF-16 units, as the engine's slice; review 1: Characters would let an emoji-rich question run long.)
             let key = m.needsYouKey ?? (reason == "question" ? "question:" + utf16Prefix(m.because ?? "", 300) : reason)
@@ -839,7 +842,8 @@ extension Board {
                                      needsYouHere: (a["needsYouHere"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                                      needsYouKey: (a["needsYouKey"] as? String).flatMap { $0.isEmpty ? nil : $0 },
                                      because: a["because"] as? String,
-                                     roleHere: (a["roleHere"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 })
+                                     roleHere: (a["roleHere"] as? String).flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 },
+                                     stateHeld: isTrue(a["stateHeld"]))
             }
             let folder = p["folderState"] as? [String: Any]
             // The board's pjFolderLine: any state but readable (an absent one included) has a line, its own reason or
