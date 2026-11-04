@@ -1846,7 +1846,7 @@ function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin, more)
     because: behind
       ? 'held: ' + toName + (more.behindInput === true ? ' still has messages kept while its input box held text not yet sent'
         : ' still has messages kept from while it was out of usage') + '; Kosmos types this one after them'
-      : input ? 'held: ' + toName + "'s input box holds text not yet sent; Kosmos types it once the box is clear"   // #6774
+      : input ? 'held: ' + toName + "'s input box holds text not yet sent; Kosmos types it once the box is clear, or drops it after 2 hours and tells you"   // #6774, #7936
       : signin ? 'held: ' + toName + ' is signed out; Kosmos types it once it is signed in again'   // #5948
       : 'held: ' + toName + ' is out of usage' + (heldUntil ? ' until ' + heldUntil : '') + '; Kosmos types it after the reset',
     ...(!behind && signin ? { heldFor: 'signin' } : {}),
@@ -1873,8 +1873,18 @@ function logHeldDropped(entry) {
 async function tellHeldDropped(entry, roster) {
   logHeldDropped(entry);
   unspill(entry.spill);   // a long message's file, kept only for the line that was never typed
-  const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' was never delivered: Kosmos kept it for a'
-    + ' day and could not type it. Send it again, or to someone else, if it still matters.';
+  // kosmos#7936: one kept behind an input box is dropped after two hours, and says so.
+  const kept = entry.input === true && !entry.kind ? 'for two hours while its input box held text not yet sent' : 'for a day';
+  const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' was never delivered: Kosmos kept it ' + kept
+    + ' and could not type it. Send it again, or to someone else, if it still matters.';
+  try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
+}
+/* kosmos#7936: a `kosmos msg` kept behind its recipient's input box, STILL_HELD_TELL_MS on: its sender learns, in its own
+   pane, that it has not arrived, why, and when it is dropped, while the round it belongs to is still open. */
+async function tellHeldStill(entry, roster, dropAt) {
+  const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' is still held: ' + entry.to + "'s input box"
+    + ' holds text not yet sent. Kosmos types it once the box is clear, or drops it at ' + dropAt + ' and tells you.'
+    + ' Do not re-send; if it cannot wait, reach someone else.';
   try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
 }
 
@@ -4700,7 +4710,7 @@ async function deletePostAsync({ projectId, id, roster } = {}) {
   return { ok: true, code: 200, told };
 }
 
-module.exports = {
+module.exports = { tellHeldStill,
   namedIn,   // #4926: server.js asks it who a room post asked by name
   lastPostAt, recommenderNoted,   // #6341
   spillLimit,   // #6065: the longest line typed whole
