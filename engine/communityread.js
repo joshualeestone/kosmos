@@ -317,7 +317,7 @@ function markHere(reader, items, comments) {
    says both, in board words outside the quote, before the agent acts. Only what is known is said: no mark is "not
    known", never "no", and the read says so when the follow list could not be checked (followNote). */
 const COMMENTED_MARK = 'you commented on this post';
-const COMMENT_WAITING_MARK = 'you wrote a comment for this post that has not gone out yet or was not confirmed; do not comment again (kosmos community status says more)';
+const COMMENT_WAITING_MARK = 'you wrote a comment for this post that has not gone out yet or was not confirmed, so do not comment again; see kosmos community status';
 const FOLLOWING_MARK = 'you follow this agent';
 const FOLLOWING_ASKED = 100;   // the service's page; past it a followed author can go unmarked (followNote says so)
 /* The comment states that mean it reached the post, and those that mean it is not there and will not be. Review 1:
@@ -374,7 +374,7 @@ async function followingAsked(reader, signal) {
   const r = await getJson('/agents/by-name/' + encodeURIComponent(me) + '/following?limit=' + FOLLOWING_ASKED, null, signal);
   /* Review 1: a 404 is not "just now": the community does not know this agent by the name the board holds (renamed, or
      no longer listed), so every read would repeat a promise of a later check. It is said once in its own words. */
-  if (r && r.status === 404) return { unknown: true };
+  if (r && r.status === 404) return { unknown: true, me };
   const list = r && r.status === 200 && r.json && Array.isArray(r.json.agents) ? r.json.agents : null;
   if (!list) return null;
   const nameKey = require('./communityfollow').nameKey;
@@ -390,14 +390,16 @@ async function followingAsked(reader, signal) {
  *  read's own answer is in, waits at most FOLLOWS_WAIT_MS more for it and then stops it: the mark is a nicety, so a slow
  *  follow route costs the read at most that, and then reads as "could not check just now" (null). Review 2. */
 function followsFor(reader, company) {
-  if (company) return async () => undefined;
+  if (company) return Object.assign(async () => undefined, { stop: () => {} });
   const ctl = new AbortController();
   const asked = followingOf(reader, ctl.signal);
-  return async () => {
+  const wait = async () => {
     let timer = null;
     const late = new Promise((res) => { timer = setTimeout(() => res(null), FOLLOWS_WAIT_MS); });
     try { return await Promise.race([asked, late]); } finally { clearTimeout(timer); ctl.abort(); }
   };
+  // Review 3: a read that returns before it uses the list (a missing post, an unreadable answer) stops the request.
+  return Object.assign(wait, { stop: () => ctl.abort() });
 }
 /** Marks each post whose author the reader follows (`following`). A person's post is never marked (people are not
  *  followed here); an author with an id is matched by id, one without by name as the follow verb compares names. */
@@ -406,15 +408,19 @@ function markFollowing(follows, items) {
   const nameKey = require('./communityfollow').nameKey;
   (items || []).forEach((it) => {
     if (!it || it.person || it.label) return;
-    if (it.authorId ? follows.ids.has(it.authorId) : (it.author && follows.names.has(nameKey(it.author)))) it.following = true;
+    // Review 3: an author with no usable name reads "an agent" (itemOf); that placeholder is never matched as a name.
+    const named = it.author && it.author !== 'an agent';
+    if (it.authorId ? follows.ids.has(it.authorId) : (named && follows.names.has(nameKey(it.author)))) it.following = true;
   });
 }
 /** The line a read adds under its heading about the follow marks: when the list could not be read (so no mark means
  *  "not known"), or was longer than one page (so a followed author can be unmarked). Null when there is nothing to say. */
 function followNote(follows, items) {
   if (follows === undefined || !(items || []).some((it) => it && !it.person && !it.label)) return null;
-  if (!follows) return 'Kosmos could not check just now which of these agents you follow, so none is marked.';
-  if (follows.unknown) return 'The community does not find this agent under its name just now, so Kosmos cannot tell which of these agents you follow; none is marked.';
+  // Review 3: one post's read names its one author, not "these agents"; the 404 names the reader, not the post's author.
+  const which = (items || []).length === 1 ? 'whether you follow this post\u2019s author' : 'which of these agents you follow';
+  if (!follows) return 'Kosmos could not check just now ' + which + ', so none is marked.';
+  if (follows.unknown) return 'The community does not find you under your community name (' + scrub(follows.me, 64, true) + ') just now, so Kosmos cannot tell ' + which + '; none is marked.';
   if (follows.partial) return 'You follow more than ' + FOLLOWING_ASKED + ' agents; only the first ' + FOLLOWING_ASKED + ' were checked, so an agent you follow may be unmarked.';
   return null;
 }
@@ -551,10 +557,10 @@ async function read(opts = {}) {
     // kosmos#7886 item 5, review 1: the follow list is asked alongside the post, as the feed does (public only).
     const followsAsked = followsFor(opts.reader, company);
     const r = await get('/posts/' + encodeURIComponent(id.toLowerCase()));
-    if (r.status === 404) return { ok: false, because: 'there is no such post' };
-    if (r.status === 410) return { ok: false, because: 'that post was taken down' };
+    if (r.status === 404) { followsAsked.stop(); return { ok: false, because: 'there is no such post' }; }
+    if (r.status === 410) { followsAsked.stop(); return { ok: false, because: 'that post was taken down' }; }
     const it = r.status === 200 ? itemOf(r.json, POST_BODY_CAP) : null;
-    if (!it) return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' };
+    if (!it) { followsAsked.stop(); return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' }; }
     /* #4833: the post's first page of comments. A thread that cannot be read does not cost the post: it says so. */
     const t = await get('/posts/' + encodeURIComponent(id.toLowerCase()) + '/comments?order=oldest&limit=' + COMMENTS_ASKED, THREAD_READ_CAP);
     const list = t.status === 200 && t.json && Array.isArray(t.json.comments) ? t.json.comments : null;
@@ -583,9 +589,9 @@ async function read(opts = {}) {
   const r = await get((company ? '/feed' : '/posts/feed') + q);   // kosmos#7543: the space's feed is /spaces/{org}/feed
   /* A place with the right shape that the service does not recognise (mistyped, cut short, from an older service) is
      the reader's mistake, not the service failing: say so, so it is not retried as an outage. */
-  if (older && r.status === 400) return { ok: false, because: 'the community did not recognise that place in the feed: run kosmos community read again and use the --older it prints' };
+  if (older && r.status === 400) { followsAsked.stop(); return { ok: false, because: 'the community did not recognise that place in the feed: run kosmos community read again and use the --older it prints' }; }
   const posts = r.status === 200 && r.json && Array.isArray(r.json.posts) ? r.json.posts : null;
-  if (!posts) return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' };
+  if (!posts) { followsAsked.stop(); return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' }; }
   const items = posts.slice(0, MAX_ITEMS).map((p) => itemOf(p)).filter(Boolean);
   markHere(opts.reader, items);
   const commentsRead = markCommented(opts.reader, items);

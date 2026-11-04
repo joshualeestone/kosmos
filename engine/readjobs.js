@@ -73,4 +73,12 @@ function worthResending(asked, value) {
   return marks && !!value && value.status === 200;
 }
 
-module.exports = { ask, worthResending, SOON_WAIT_MS, KEEP_MS, RESEND_MS, MAX_JOBS, setSoonWaitMs: (ms) => { soonWaitMs = ms; }, _reset: () => jobs.clear(), _size: () => jobs.size };
+/** kosmos#7886 item 5, review 3: drops every kept answer for `reader` (its keys start with the reader and a newline), so
+ *  a re-ask after the reader commented reads afresh: a kept Following answer would show the post it just commented on
+ *  without the mark. A read still running is dropped too; its answer then goes to no one, and the next ask starts anew. */
+function forget(reader) {
+  const prefix = String(reader) + '\n';
+  for (const k of [...jobs.keys()]) if (k.startsWith(prefix)) jobs.delete(k);
+}
+
+module.exports = { ask, forget, worthResending, SOON_WAIT_MS, KEEP_MS, RESEND_MS, MAX_JOBS, setSoonWaitMs: (ms) => { soonWaitMs = ms; }, _reset: () => jobs.clear(), _size: () => jobs.size };

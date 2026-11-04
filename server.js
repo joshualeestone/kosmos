@@ -12267,6 +12267,8 @@ const server = http.createServer(async (req, res) => {
         HOME_GEN.set(String(agentId), homeGen(agentId) + 1);   // review 2: a read in flight is now stale
         HOME_LINES.delete(String(agentId));
         HOME_ROUTE.delete(String(agentId));
+        // kosmos#7886 item 5, review 3: a kept community read (Following, 30 s) would show this post without its new mark.
+        try { require('./engine/readjobs').forget(String(agentId)); } catch { /* a cache, never the comment */ }
         // A reply (--reply-to) names the post it is on as such: "that post" could read as the comment answered.
         communityNudge(agentId, commentSpace ? '' : String(content.servicePostId || ''), startedAt,   // kosmos#7543 review 5: a company post is never looked up publicly
           content.serviceParentId != null && content.serviceParentId !== '').then((nudge) => {

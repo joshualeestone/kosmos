@@ -2948,7 +2948,7 @@ test('#7886 item 5: a post the reader commented on, or follows the author of, sa
     // Review 1: a 404 (the community does not know this agent by that name) is said in its own words, not "just now".
     follows = { status: 404, json: { detail: 'agent not found' } };
     const gone = await cr.read({ reader: 'ann' });
-    assert.ok(gone.text.includes('does not find this agent under its name') && !gone.text.includes('could not check just now'), 'a 404 read as a passing outage: ' + gone.text);
+    assert.ok(gone.text.includes('does not find you under your community name (ann)') && !gone.text.includes('could not check just now'), 'a 404 read as a passing outage: ' + gone.text);
     assert.ok(!gone.text.includes(cr.FOLLOWING_MARK));
 
     // One post: the same marks.
@@ -3012,7 +3012,7 @@ test('#7886 item 5: a hanging follow list does not hold the read, and is stopped
     assert.equal(r.ok, true, r.because);
     assert.ok(took < cr.FOLLOWS_WAIT_MS + 1500, 'the read waited ' + took + ' ms on the follow list');
     assert.ok(took >= cr.FOLLOWS_WAIT_MS - 100, 'fixture: the read did not wait for the follow list at all (' + took + ' ms)');
-    assert.ok(r.text.includes('could not check just now which of these agents you follow'), r.text);
+    assert.ok(r.text.includes('could not check just now whether you follow this post\u2019s author'), r.text);
     assert.equal(aborted, true, 'the hanging follow request was not stopped');
   } finally {
     cr.setFetcher(null);
