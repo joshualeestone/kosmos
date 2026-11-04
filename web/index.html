@@ -3148,8 +3148,9 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    used for agent restart, not a loader. ONE markup shape sized by --sz:
    <span class="spin spin-sweep" style="--sz:16px"> with eight <i></i>. Each <i> is a rotator;
    its ::before is the dot on the ring, and the dots light one after another around it. Gold by
-   default; on a gold .btn it flips to ink so it stays visible. Since #7896 (Josh 2026-11-03) the
-   KOSMOS orb (KORB, in the script) is drawn over these dots and hides them; they show only until the script runs. Reduced motion calms to one slow pulse
+   default; on a gold .btn it flips to ink so it stays visible. Since #7896 (Josh 2026-11-03) the KOSMOS orb (KORB,
+   in the script) is drawn in their place and hides them, so the dots and their reduced-motion pulse below show only
+   until the script runs. Reduced motion calms to one slow pulse
    (no travel), so it still says "working" without the movement. */
 .spin { position: relative; display: inline-block; width: var(--sz); height: var(--sz); flex: none;
         vertical-align: -0.18em; --sz: 16px; --dot: calc(var(--sz)*0.19); --spin-dot: var(--gold); }
@@ -46859,7 +46860,7 @@ const KORB = (() => {
     return cuts[i][r * CN + c];
   };
   /* Where every dot is at time t (seconds): worked out ONCE per frame and shared by every orb on screen. Each entry is
-     [x, y, z, size, visibility] in orb units, sorted far to near. */
+     [x, y, z, size, visibility] in orb units. */
   function place(t) {
     cutsNow();
     const a = 2 * Math.PI * t / PERIOD, ca = Math.cos(a), sa = Math.sin(a), ph = a;
@@ -46882,17 +46883,29 @@ const KORB = (() => {
       const vis = 1 - Math.max(wNew * (1 - vc), (1 - wNew) * (1 - vp));
       if (vis > 0) out.push([ox * ca + oz * sa, oy, -ox * sa + oz * ca, d.r, vis]);
     }
-    return out.sort((p, q) => q[2] - p[2]);
+    return out;
   }
   /* Those dots into a 2d context of side `side` device pixels, in one colour. */
+  /* One colour, so depth order does not show: the dots are grouped by how strongly they show (8 steps) and each group
+     is one path and one fill, instead of a fill per dot (review round 2: 2200 fills per orb per frame). */
+  const STEPS = 8, groups = Array.from({ length: STEPS }, () => []);
   function paint(g, side, pts, colour) {
     g.clearRect(0, 0, side, side);
     g.fillStyle = colour;
     const R = side * 0.46, CAM = 6, px = side * 0.009;   // a dot is under 2% of the orb, so many small dots blend into a clear letter
+    for (const grp of groups) grp.length = 0;
     for (const [X, Y, Z, r, vis] of pts) {
       const f = CAM / (CAM + Z), front = Math.max(0, Math.min(1, (1 - Z) / 2));
-      g.globalAlpha = (0.25 + 0.75 * Math.pow(front, 1.4)) * vis;
-      g.beginPath(); g.arc(side / 2 + X * R * f, side / 2 + Y * R * f, Math.max(0.35, r * px * f), 0, 6.283); g.fill();
+      const alpha = (0.25 + 0.75 * Math.pow(front, 1.4)) * vis;
+      groups[Math.min(STEPS - 1, Math.floor(alpha * STEPS))].push(side / 2 + X * R * f, side / 2 + Y * R * f, Math.max(0.35, r * px * f));
+    }
+    for (let k = 0; k < STEPS; k++) {
+      const grp = groups[k];
+      if (!grp.length) continue;
+      g.globalAlpha = (k + 0.5) / STEPS;
+      g.beginPath();
+      for (let i = 0; i < grp.length; i += 3) { g.moveTo(grp[i] + grp[i + 2], grp[i + 1]); g.arc(grp[i], grp[i + 1], grp[i + 2], 0, 6.283); }
+      g.fill();
     }
     g.globalAlpha = 1;
   }
@@ -46913,7 +46926,7 @@ const KORB = (() => {
   const shown = new Set();
   let running = false, t0 = 0, last = -1e9, ticks = 0;
   function frame(now) {
-    for (const s of shown) if (!s.isConnected) shown.delete(s);
+    for (const s of shown) if (!s.isConnected) { shown.delete(s); if (io) io.unobserve(s); }
     if (!shown.size) { running = false; return; }
     if (now - last < 30) { requestAnimationFrame(frame); return; }   // about 30 a second: the turn is slow, and it halves the cost
     last = now; ticks++;
@@ -46926,29 +46939,32 @@ const KORB = (() => {
       paint(cv.getContext('2d'), cv.width, calm ? place(0) : pts, cv.korbColour);
       cv.korbKey = key;
     }
-    if (calm) { running = false; return; }   // nothing moves; a change of colour, size or setting starts it again
+    if (calm) { running = false; return; }   // nothing moves; a theme change, the setting, or the spinner showing again redraws it
     requestAnimationFrame(frame);
   }
   function start() { if (running) return; running = true; if (!t0) t0 = performance.now(); requestAnimationFrame(frame); }
   let io = null;
-  const watch = (root) => {
-    if (!io || !root || root.nodeType !== 1) return;
-    if (root.matches && root.matches('.spin.spin-sweep')) io.observe(root);
-    if (root.querySelectorAll) for (const s of root.querySelectorAll('.spin.spin-sweep')) io.observe(s);
+  const seen = new WeakSet();
+  let all = null;   // the page's live list of .spin-sweep elements, read once per batch of page changes
+  const watch = () => {
+    if (!io) return;
+    for (const s of all) if (!seen.has(s) && s.classList.contains('spin')) { seen.add(s); io.observe(s); }
   };
   if (typeof IntersectionObserver === 'function' && typeof MutationObserver === 'function' && typeof document !== 'undefined') {
     io = new IntersectionObserver((entries) => {
       for (const e of entries) { if (e.isIntersecting) { shown.add(e.target); if (e.target.querySelector('canvas.korb')) e.target.querySelector('canvas.korb').korbKey = ''; } else shown.delete(e.target); }
       if (shown.size) start();
     });
-    new MutationObserver((recs) => { for (const r of recs) for (const n of r.addedNodes) watch(n); })
-      .observe(document.documentElement, { childList: true, subtree: true });
-    watch(document.documentElement);
+    all = document.getElementsByClassName('spin-sweep');
+    new MutationObserver(watch).observe(document.documentElement, { childList: true, subtree: true });
+    watch();
     // A theme change recolours: forget each colour and draw again (a still orb would otherwise keep the old one).
     const recolour = () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) { c.korbColour = ''; c.korbKey = ''; } } if (shown.size) start(); };
     const themeWatch = new MutationObserver(recolour);
-    themeWatch.observe(document.documentElement, { attributes: true });
-    if (document.body) themeWatch.observe(document.body, { attributes: true });
+    const themeAttrs = { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] };
+    themeWatch.observe(document.documentElement, themeAttrs);
+    if (document.body) themeWatch.observe(document.body, themeAttrs);
+    try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', recolour); } catch (e) { /* older engines */ }
     try { matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) c.korbKey = ''; } if (shown.size) start(); }); } catch (e) { /* older engines: the next show redraws */ }
     // The letter cuts take a moment to work out: do it while the page is idle, not when a loading state first shows.
     (window.requestIdleCallback || ((f) => setTimeout(f, 2000)))(() => cutsNow());
