@@ -69,7 +69,9 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    The promote refuses to move `latest-linux.json` unless both recorded the exact staged Linux sha
    (`tools/linux-check-runs.sh`); `--skip-linux-check` overrides it loudly, and `--force` never does. Records are
    kept 90 days and only a build staging serves can be checked, so a rollback (`--version`) to an older build has
-   none and needs `--skip-linux-check`, with the reason in the promote report.
+   none and needs `--skip-linux-check`, with the reason in the promote report. If GitHub cannot be read (no `gh`,
+   not signed in, an outage) the promote HOLDS with exit 2 like the other gates' cannot-tell, but `--force` does not
+   pass it: only `--skip-linux-check` does.
    Then `tools/promote-channel.sh <site-checkout> <that-board's-port>` points `latest.json`
    at the same bytes `latest-staging.json` names, gated on (a) the served sha matching, (b) the
    board-reachability gate passing, and (c) the agent-spawn gate passing. Either gate: exit 1

@@ -341,6 +341,8 @@ if [ "$FAMILY" = mac ] && [ "$PROMOTE_LINUX" = yes ]; then
     } >&2
   else
     LINUX_CHECK_CMD="${KOSMOS_PROMOTE_LINUX_CHECK_CMD:-bash $(cd "$(dirname "$0")/.." && pwd)/tools/linux-check-runs.sh}"
+    # The override exists for the tests; anywhere else it replaces the lookup, so it is said as loudly as a skip.
+    [ -z "${KOSMOS_PROMOTE_LINUX_CHECK_CMD:-}" ] || echo "promote-channel: !!! KOSMOS_PROMOTE_LINUX_CHECK_CMD is set: the Linux check runs are asked of '$KOSMOS_PROMOTE_LINUX_CHECK_CMD', not tools/linux-check-runs.sh." >&2
     echo "promote-channel: checking the Linux check runs for $V ($_lc_sha): $LINUX_CHECK_CMD"
     $LINUX_CHECK_CMD "$V" "$_lc_sha"; _lc_rc=$?
     case "$_lc_rc" in
