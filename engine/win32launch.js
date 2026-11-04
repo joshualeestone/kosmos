@@ -161,7 +161,9 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      agent is told to run is started from Git Bash as `powershell -File <script>.ps1`,
      which gets no flag, so on a fresh machine it failed with the same "running scripts is
      disabled" error. That powershell.exe inherits this environment, so the variable lets
-     it run. It is read only by PowerShell: the Git Bash path itself is unchanged.
+     it run. It is read only by PowerShell: the Git Bash path itself is unchanged. Group Policy (the
+     MachinePolicy and UserPolicy scopes) outranks it, for every runner alike. The sign-in child (win32signin.js,
+     no runner named) gets it too; it runs no scripts, so it changes nothing there.
      GEMINI AND GROK TOO: both run their shell tool through PowerShell on Windows
      (gemini 0.61.0's getShellConfiguration picks powershell.exe; grok 1.0.41 ships a
      PowerShell shell), so their `kosmos reply` meets the same policy. */
@@ -169,7 +171,7 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
   // No runner named is a claude agent, as everywhere else in this file (s.runner || 'claude'): an agent recorded before
   // runners existed must not miss it.
   const policyRunner = String(runner || 'claude');
-  if (policyRunner === 'claude' || runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity') {
+  if (['claude', 'codex', 'gemini', 'grok', 'antigravity'].includes(policyRunner)) {
     envSet(env, 'PSExecutionPolicyPreference', 'Bypass');   // one key, whatever case it arrived in (#5358)
   }
   /* #5385: the PowerShell runners (codex, gemini, grok, antigravity) run Windows PowerShell 5.1 (powershell.exe). Claude

@@ -2,7 +2,7 @@
 /**
  * kosmos#5358 (beta-day report, a Windows install): "the `kosmos` CLI is still not on PATH in an agent's own shell".
  * Kosmos's own launch path is meant to make it work in every shell an agent uses (engine/win32launch.childEnv puts
- * <zip>\bin first on PATH, and gives the PowerShell runners the process-scope policy, #3380). Until now that was
+ * <zip>\bin first on PATH, and gives the PowerShell runners, and since #7886 item 9 claude agents too, the process-scope policy, #3380). Until now that was
  * measured by hand on one box; these arms measure it on the Windows CI runner, so a red names which half broke:
  *   - Git Bash, as Claude Code's Bash tool runs it (`bash -c`, measured in #570's cli-verbs plan): finds `kosmos` on
  *     the agent's PATH;
@@ -150,7 +150,7 @@ test('#5358 Windows: in Git Bash run as Claude Code\'s Bash tool runs it (bash -
     } finally { try { removeTree(z.root); } catch { /* a leftover temp folder must never hide the arm's own result */ } }
   });
 
-test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and runs with Claude Code\'s flags; codex\'s PowerShell needs the agent\'s variable',
+test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and runs with Claude Code\'s flags; codex\'s PowerShell, and a helper a claude agent starts from Git Bash (#7886), need the agent\'s variable',
   // Its own timeout: several PowerShell starts, past the runner script's 60 s per test default.
   { timeout: 300000, skip: !onWindows ? 'Windows only' : !onCi ? 'changes the CurrentUser script policy, so only on GitHub Actions' : false }, () => {
     const z = stageZip();
@@ -180,6 +180,24 @@ test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and 
       assert.equal(codex.PSExecutionPolicyPreference, 'Bypass', 'the policy must come from childEnv (baseEnv carries none)');
       const ran = ps(codex, 'kosmos --version');
       assert.match(String(ran.stdout), STUB, 'codex\'s PowerShell with the agent\'s variable: ' + said(ran));
+      // kosmos#7886 item 9: a helper script a claude agent is told to run, started from its Git Bash as
+      // `powershell -File` (no policy flag of its own): refused under Restricted WITHOUT the variable (the control),
+      // runs WITH what childEnv now gives a claude agent. Paths go in through the environment, so Git Bash passes them
+      // to powershell.exe unconverted.
+      assert.ok(GIT_BASH, 'no Git Bash on the CI runner, so the claude helper-script arm measured nothing');
+      const helper = path.join(z.root, 'helper-7886.ps1');
+      fs.writeFileSync(helper, "Write-Output 'HELPER-7886-RAN'\r\n");
+      const viaBash = (env) => run(GIT_BASH, ['-c', '"$KZ_PS" -NoProfile -NonInteractive -File "$KZ_HELPER"'], { ...env, KZ_PS: POWERSHELL, KZ_HELPER: helper });
+      const claudeBare = { ...agentEnv(z.bin, 'claude') };
+      for (const k of keysOf(claudeBare, 'PSExecutionPolicyPreference')) delete claudeBare[k];
+      const helperRefused = viaBash(claudeBare);
+      assert.doesNotMatch(String(helperRefused.stdout), /HELPER-7886-RAN/, 'control: a Restricted policy did not stop the helper script from Git Bash');
+      assert.match(String(helperRefused.stderr) + String(helperRefused.stdout), /scripts is disabled|UnauthorizedAccess|PSSecurityException/i,
+        'control: the helper was refused for another reason: ' + said(helperRefused));
+      const claudeEnv = agentEnv(z.bin, 'claude');
+      assert.equal(claudeEnv.PSExecutionPolicyPreference, 'Bypass', 'a claude agent\'s policy must come from childEnv (baseEnv carries none)');
+      const helperRan = viaBash(claudeEnv);
+      assert.match(String(helperRan.stdout), /HELPER-7886-RAN/, 'a claude agent\'s helper script from Git Bash with the agent\'s variable: ' + said(helperRan));
     } catch (e) { failed = e; throw e; } finally {
       const back = ps(baseEnv(), 'Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy ' + (/^[A-Za-z]+$/.test(was) ? was : 'Undefined') + ' -Force');
       try { removeTree(z.root); } catch { /* a leftover temp folder must never hide the policy check below */ }

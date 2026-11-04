@@ -25,3 +25,16 @@ alarming policy error." It names neither the script nor the runner.
 - engine/win32launch.test.js, win32-kosmos-shell-5358.test.js, win32keyed.test.js: the three tests that pinned
   "claude unchanged" now pin claude (and no runner) getting Bypass, one key whatever spelling it inherited.
 - Control: main's win32launch.js swapped in fails exactly those 3; the branch passes 126 run (122 pass, 4 skipped).
+
+## Review rounds
+
+#### Iteration 1
+- [WARNING] tools.ps-execpolicy-6569.test.js's header still said a claude agent is deliberately left without it -->
+  FIXED: says claude (and no runner) get it since #7886 item 9, and that Group Policy still outranks it.
+- [WARNING] the premise (a `powershell -File` started from Git Bash honours the variable) was reasoned only -->
+  FIXED: engine/win32-kosmos-shell-5358.test.js's Restricted-policy arm (Windows CI only) now starts a helper .ps1
+  from Git Bash with a claude agent's env: refused without the variable (control), runs with it. Measured by the PR's
+  Windows CI run; skipped on this Mac.
+- [NIT] the sign-in child (no runner) gets it too --> noted in the win32launch.js comment (it runs no scripts).
+- [NIT] mixed policyRunner / runner comparisons --> FIXED: one list, on policyRunner.
+- [NIT] the 5358 test header named only the PowerShell runners --> FIXED.

@@ -11,9 +11,11 @@
  * - Scheduled tasks run node, not PowerShell; KosmosLauncher.cs runs schtasks and node.
  * - An agent's own `kosmos` call in PowerShell loads the kosmos.ps1 shim. That is the agent's shell, not a Kosmos
  *   launch, and for the codex, gemini, grok and antigravity runners the engine gives it a process-scope
- *   PSExecutionPolicyPreference=Bypass (#3380, pinned by engine/win32launch.test.js). A claude agent is deliberately
- *   left without it (its `kosmos` runs through Git Bash, which never reads a policy; also pinned there): whether a
- *   claude agent ever runs `kosmos` from a PowerShell tool is unmeasured, and is recorded on #6569 rather than changed.
+ *   PSExecutionPolicyPreference=Bypass (#3380, pinned by engine/win32launch.test.js). Since kosmos#7886 item 9 a claude
+ *   agent (and one with no runner recorded) gets it too: its `kosmos` runs through Git Bash, which never reads a policy,
+ *   but a helper script it is told to run is started from Git Bash as `powershell -File`, which passes no flag and
+ *   inherits the variable (measured on the Windows CI runner by engine/win32-kosmos-shell-5358.test.js). Group Policy
+ *   (the MachinePolicy and UserPolicy scopes) still outranks it, for every runner alike.
  *
  * How a launch is found: by CENSUS, not by guessing which lines start PowerShell. Two reviews showed a pattern for
  * "a PowerShell start" always has holes (an args array built lines before the spawn, the executable in a variable, two
