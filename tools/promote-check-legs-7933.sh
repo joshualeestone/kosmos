@@ -62,11 +62,11 @@ leg_verify() {
   [ "$rc" -eq 0 ] || { fail verify "prod's verifier refused the unpacked staged files"; return; }
   head -c "$(( $(wc -c < "$tb") / 2 ))" "$tb" > "$W/dl/cut.tar.gz"
   o="$("$N" "$V" "$m" "$m.sig" "$W/dl/cut.tar.gz" - "$SV" "$W/prod" 2>&1)"; rc=$?; echo "  CONTROL cut tarball: rc=$rc $o"
-  [ "$rc" -ne 0 ] && printf '%s' "$o" | grep -q 'does not match' || { fail verify "CONTROL: a cut tarball was not refused for its hash"; return; }
+  case "$rc:$o" in 0:*) false ;; *'does not match'*) true ;; *) false ;; esac || { fail verify "CONTROL: a cut tarball was not refused for its hash"; return; }
   case "$SV" in *[!0-9.]*|.*|*.|*..*) fail verify "staging version '$SV' is not plain x.y.z, so the control cannot name the next one"; return ;; esac
   next="${SV%.*}.$(( 10#${SV##*.} + 1 ))"
   o="$("$N" "$V" "$m" "$m.sig" "$tb" - "$next" "$W/prod" 2>&1)"; rc=$?; echo "  CONTROL as $next: rc=$rc $o"
-  [ "$rc" -ne 0 ] && printf '%s' "$o" | grep -qF "not $next" || { fail verify "CONTROL: the manifest was not refused as $next"; return; }
+  case "$rc:$o" in 0:*) false ;; *"not $next"*) true ;; *) false ;; esac || { fail verify "CONTROL: the manifest was not refused as $next"; return; }
   pass verify
 }
 
@@ -161,12 +161,16 @@ leg_update() {
   echo staging > "$root/source-channel"
   # Only the check: pressing the board's own Update is refused on Linux today (#7935), and once it is not it would race
   # the installer below.
-  echo "  board's own check: $(api -X POST "http://127.0.0.1:$port/api/update/check" --data '{}' | head -c 300)"
+  local chk; chk="$(api -X POST "http://127.0.0.1:$port/api/update/check" --data '{}')"; echo "  board's own check: ${chk:0:300}"
+  case "$chk" in *"\"offer\":{\"version\":\"$sv\""*) ;; *) fail update "the prod board's own check does not offer $sv"; return ;; esac
+  case "$chk" in *'"channel":"staging"'*) ;; *) fail update "the prod board's own check is not on the staging channel"; return ;; esac
   printf '%s\n' "$stamp0" > "$root/source-channel"
   curl -fsSL "$SITE/setup-staging" -o "$W/setup-staging.sh" || { fail update "could not fetch $SITE/setup-staging"; return; }
+  [ "$(sha "$W/setup-staging.sh")" = "$(field setup_sha256 "$W/staging-ptr.json")" ] || { fail update "the served /setup-staging does not hash to the staging pointer's setup_sha256"; return; }
   KOSMOS_UPDATE_CHANNEL=staging KOSMOS_RELEASE_BASE="$SITE/dist" sh "$W/setup-staging.sh" > "$W/setup-staging.log" 2>&1 \
     || { tail -20 "$W/setup-staging.log"; fail update "/setup-staging over the prod install failed"; return; }
   grep -E 'on disk now|already|updat' "$W/setup-staging.log" | head -4 | sed 's/^/  setup-staging: /'
+  grep -F 'Updating it in place' "$W/setup-staging.log" > /dev/null || { fail update "the installer did not update the existing install in place"; return; }
   for _ in $(seq 1 60); do [ "$(ver)" = "$sv" ] && break; sleep 2; done
   got="$(ver)"; pid1="$(bpid)"; echo "  after /setup-staging over it: $got (staging pointer $sv), systemd MainPID $pid1"
   [ "$got" = "$sv" ] || { tail -20 "$HOME/.local/share/kosmos/logs/install.log" 2>/dev/null; fail update "the answering board loaded $got, not $sv"; return; }
