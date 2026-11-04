@@ -37,3 +37,13 @@ Review round 1 (0 BLOCKERs, 4 WARNINGs, 4 NITs), all four WARNINGs fixed:
 NITs taken: a 404 on the follow list is said in its own words, not "just now"; the waiting mark says do not comment again.
 NITs left: a name-only author whose display name had brackets stripped can go unmarked (only against a service that
 sends no ids; never a false mark); itemsFor reads the whole store on each read (one agent's own read; accepted).
+
+Review round 2 (0 BLOCKERs, 3 WARNINGs, 4 NITs), all three WARNINGs fixed:
+- `before_on` (never sent, the community was off) is now "gone", not waiting. A test holds every state communitystatus
+  has words for to exactly one of there, gone and waiting, so a new state fails until it is decided.
+- A slow follow route costs a read at most 1.5 s after the feed or post answers, then reads as "could not check just
+  now", and the request is stopped (test: a hanging route; mutant without the limit waited 20 s, red).
+- followingOf can no longer reject, even when a read returns early and leaves it unawaited.
+NIT taken: the feed's note sits above its heading, so the heading's colon still introduces the list.
+NITs left: an author with an id is matched by id only (never a false mark); the waiting mark is long (kept: the
+do-not-comment-again words are the point); the tests stub itemsFor (the states come from the real word table, above).

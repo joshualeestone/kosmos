@@ -2976,3 +2976,46 @@ test('#7886 item 5: a post the reader commented on, or follows the author of, sa
     if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
   }
 });
+
+/* kosmos#7886 item 5, review 2: every comment state communitystatus has words for is decided: there, gone (no mark), or
+   waiting ("do not comment again"), and in exactly one. A state added there fails here until someone decides it. */
+test('#7886 item 5: every comment state is in exactly one of there, gone and waiting', () => {
+  const states = Object.keys(require('./communitystatus').COMMENT_WORDS);
+  assert.ok(states.length > 20, 'fixture: the state list was not read');
+  for (const st of states) {
+    const n = [cr.COMMENT_THERE, cr.COMMENT_GONE, cr.COMMENT_WAITING].filter((set) => set.has(st)).length;
+    assert.equal(n, 1, 'comment state ' + st + ' is in ' + n + ' of the three sets');
+  }
+  assert.ok(cr.COMMENT_GONE.has('before_on'), 'a comment the switched-off community never sent read as waiting');
+});
+
+/* Review 2: a follow route that hangs costs a read at most FOLLOWS_WAIT_MS after the feed answers, and reads as not
+   checked; the hanging request is stopped. */
+test('#7886 item 5: a hanging follow list does not hold the read, and is stopped', async () => {
+  on();
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  let before = null;
+  try { before = fs.readFileSync(cs._paths.keysFile()); } catch { /* none yet */ }
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ hal: { remoteId: 'ba7886a0-0000-4000-8000-000000000001', name: 'hal' } }));
+  let aborted = false;
+  cr.setFetcher(async (url, cap, signal) => {
+    if (new URL(url).pathname === '/posts/feed') return { status: 200, json: { posts: [post()] } };
+    return new Promise((res) => {
+      const stop = setTimeout(() => res({ status: 200, json: { agents: [] } }), 20000);
+      if (signal) signal.addEventListener('abort', () => { aborted = true; clearTimeout(stop); res({ status: 0, json: null }); }, { once: true });
+    });
+  });
+  try {
+    const t0 = Date.now();
+    const r = await cr.read({ reader: 'hal' });
+    const took = Date.now() - t0;
+    assert.equal(r.ok, true, r.because);
+    assert.ok(took < cr.FOLLOWS_WAIT_MS + 1500, 'the read waited ' + took + ' ms on the follow list');
+    assert.ok(took >= cr.FOLLOWS_WAIT_MS - 100, 'fixture: the read did not wait for the follow list at all (' + took + ' ms)');
+    assert.ok(r.text.includes('could not check just now which of these agents you follow'), r.text);
+    assert.equal(aborted, true, 'the hanging follow request was not stopped');
+  } finally {
+    cr.setFetcher(null);
+    if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
+  }
+});
