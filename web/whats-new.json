@@ -7,9 +7,9 @@
       "line": "The Kosmos orb replaces the loading dots."
     },
     {
-      "icon": "swarm",
-      "title": "Starred agents stay on top",
-      "line": "Agents you star stay at the top of the list, even as it updates."
+      "icon": "chat",
+      "title": "A question can wait until you are back",
+      "line": "An agent can hold a question until you return. It stays on the board, with no phone alert."
     },
     {
       "icon": "chat",
