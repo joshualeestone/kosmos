@@ -1060,3 +1060,17 @@ test('#7893: Windows msg --no-reply sends reply_expected:false; without it the f
   const plain = await run(['msg', 'leo', 'a question'], placed);
   assert.equal('reply_expected' in plain.calls[0].body, false);
 });
+
+/* #7893 round 3, as install/kosmos. */
+test('#7893: Windows msg tells a leading flag typed after the agent where it goes, and sends nothing', async () => {
+  const placed = () => ({ body: { delivery: { state: 'placed' } } });
+  for (const args of [['msg', 'leo', 'deployed', '--no-reply'], ['msg', 'leo', '--in-reply-to', 'm4', 'ok'], ['msg', 'leo', '--in-reply-to=m4', 'ok']]) {
+    const r = await run(args, placed);
+    assert.equal(r.code, 2, args.join(' '));
+    assert.equal(r.calls.length, 0);
+    assert.match(r.err, /^--(no-reply|in-reply-to) must come before the agent name: kosmos msg \[--no-reply\]/, args.join(' ') + ': ' + r.err);
+  }
+  const piped = await run(['msg', '--stdin', 'leo', '--no-reply'], placed, undefined, async () => ({ text: 'x', ended: true }));
+  assert.equal(piped.code, 2); assert.equal(piped.calls.length, 0);
+  assert.match(piped.err, /--no-reply must come before the agent name/);
+});
