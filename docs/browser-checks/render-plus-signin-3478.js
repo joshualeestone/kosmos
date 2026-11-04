@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-si-child plus-state1 plus-state2 plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells otp-fit plus-si-code-change plus-si-code-late plus-si-code-join plus-si-keychanged
+// Browser-check-surface: plus-si-child plus-si-childbox plus-state1 plus-state2 plus-si-owned plus-si-name-count plus-si-expired plus-si-second-lead plus-si-second-help plus-si-cancel plus-si-code-resend plus-si-code-to plus-si-email plus-si-code plus-si-second plus-si-enrol plus-si-enrol-sms plus-si-enrol-why plus-si-enrol-confirm plus-si-secret plus-si-register plus-flow plus-status otp-boxes otp-cell otp-cells otp-fit plus-si-code-change plus-si-code-late plus-si-code-join plus-si-keychanged
 'use strict';
 /**
  * #3478: the Kosmos+ sign-in links open the IN-APP wizard, not the web.
@@ -191,12 +191,31 @@ const visible = (page, sel) => page.evaluate((s) => {
       chk(page.url() === beforeUrl, `[${key}] the #${entry} sign-in link did NOT navigate away`, page.url());
       await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
       chk(!(await visible(page, '#plus-state1')), `[${key}] state 1 gives way to the wizard on the sign-in click`);
-      // kosmos#6873: the email step says whose account a child's computer signs in with, and is the field's description.
+      // kosmos#6873 + #7974: the email step offers the child-account advice as one closed line ("Setting up a child's
+      // computer?"), so a person setting up a work computer is not handed it; pressing the line shows #6873's words, and
+      // only then do they describe the email box.
+      // A missing line reads as '' and fails below, rather than timing out and ending the run.
+      const childLine = await page.$eval('#plus-si-childbox > summary', (e) => e.textContent.trim()).catch(() => '');
+      chk(await visible(page, '#plus-si-childbox > summary') && childLine === "Setting up a child's computer?"
+          // page.isVisible, not visible(): inside a closed <details> the advice still measures 18px tall in Chromium
+          // although nothing is drawn (checkVisibility() says false), so a height test would call it shown.
+          && !(await page.isVisible('#plus-si-child'))
+          && (await page.getAttribute('#plus-signin-email', 'aria-describedby')) === null,
+        `[${key}] kosmos#7974: the child-account advice is one closed line, and describes nothing while closed`, childLine);
+      await page.click('#plus-si-childbox > summary', { timeout: 3000 }).catch(() => {});
+      await page.waitForSelector('#plus-si-child', { state: 'visible', timeout: 3000 }).catch(() => {});
+      // The toggle event comes a moment after the press, so wait for the description rather than read it at once.
+      await page.waitForFunction(() => document.getElementById('plus-signin-email').getAttribute('aria-describedby') === 'plus-si-child', null, { timeout: 3000 }).catch(() => {});
       const child = (await page.textContent('#plus-si-child')).trim();
-      chk(await visible(page, '#plus-si-child') && child.startsWith("Setting up a child's computer? Sign in with your child's account, not with the address you sign in with yourself")
+      chk(child.startsWith("Sign in with your child's account, not with the address you sign in with yourself")
           && child.includes('For a child under 13, use an account you make for them, at an email address you read')
           && (await page.getAttribute('#plus-signin-email', 'aria-describedby')) === 'plus-si-child',
-        `[${key}] kosmos#6873: the email step says a child's computer signs in with the child's account`, child);
+        `[${key}] kosmos#6873: pressed, it says a child's computer signs in with the child's account, and describes the box`, child);
+      await page.click('#plus-si-childbox > summary', { timeout: 3000 }).catch(() => {});
+      await page.waitForFunction(() => !(document.getElementById('plus-si-childbox') || {}).open
+        && document.getElementById('plus-signin-email').getAttribute('aria-describedby') === null, null, { timeout: 3000 }).catch(() => {});
+      chk(!(await page.isVisible('#plus-si-child')) && (await page.getAttribute('#plus-signin-email', 'aria-describedby')) === null,
+        `[${key}] kosmos#7974: pressed again, it closes and no longer describes the box`);
 
       // #12/#13 (once, on the first scenario): "Sign out" (#3796, was "Not now") hides the wizard
       // synchronously and returns to the marketing state, re-entering starts from a cleared field
