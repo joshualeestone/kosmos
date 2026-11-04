@@ -3302,7 +3302,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* #7978: inside the model line, so the card's grid gains no row; on a line of its own, and only when out of the ordinary. */
 .acard .amachine { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }
-.lrow .amachine { font-weight: 600; color: var(--k-ink); }
+/* In a cell, never as its own: the row's grid has exactly seven children, and an eighth lands in the avatar's column. */
+.lrow .amachine { display: block; font-weight: 600; color: var(--k-ink); }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
    the absence of one. Mona Lisa's spec (#184) is `--space-3`.
    ⚠️ MEASURE THE SPACE BUDGET, NOT THE ELEMENT — her rule, and the thing to
@@ -22676,10 +22677,8 @@ function idleLine(a) {
 }
 /* The list row's task cell. #6716: no sentence sits in it any more (each is its pill's hover), so it holds a task line or
    nothing; #6045's note styling (.lnote) went with the notes. */
-/* extraHtml: already escaped (#7978's line). Inside this cell: the row's grid has exactly seven children, and an eighth lands in
-   the avatar's column. */
-function lrowTask(text, extraHtml) {
-  return '<div class="ltask">' + esc(text || '') + (extraHtml ? (text ? ' \u00b7 ' : '') + extraHtml : '') + '</div>';
+function lrowTask(text) {
+  return '<div class="ltask">' + esc(text || '') + '</div>';
 }
 /* The offline card and list row's one note: rules behind, then not run in N days, whichever apply. */
 function offlineNote(a) {
@@ -23827,7 +23826,7 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>${typeof starBtn === 'function' ? starBtn(a) : ''}
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}"${split ? '' : pillTitle(offlineNote(a))}>${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b>${split ? '' : pillVh(offlineNote(a))}</div>
-    ${machineFlag(a) ? '<div class="amodel">' + machineFlagHtml(a) + '</div>' : ''}
+    ${typeof machineFlag === 'function' && machineFlag(a) ? '<div class="amodel">' + machineFlagHtml(a) + '</div>' : ''}
   </div>`;
   }
   /* ⚠️ THE PACK'S CARD (stage 3). Column order: gauge -> name -> state pill
@@ -23870,7 +23869,7 @@ function card(a) {
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, say) : pillTitle(say)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(say)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
-    <div class="amodel">${esc(tileModelLine(a))}${machineFlagHtml(a)}</div>
+    <div class="amodel">${esc(tileModelLine(a))}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
   </div>`;
 }
@@ -24028,7 +24027,7 @@ function lrow(a) {
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b>${typeof starBtn === 'function' ? starBtn(a) : ''}</div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}"${a.jobRunningUnseen === true ? '' : pillTitle(offlineNote(a))}>${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}${a.jobRunningUnseen === true ? '' : pillVh(offlineNote(a))}</div>
-      <div class="ltask">${machineFlagHtml(a)}</div>
+      <div class="ltask">${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
@@ -24074,8 +24073,8 @@ function lrow(a) {
          it is an action, not status text (#6400: the Answer link went; the row itself answers). This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${pillVh(lsay)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${pillTitle(lsay)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    ${lrowTask(taskLine(a, { card: true }), machineFlagHtml(a))}
-    <div class="lmodel">${lmodelCell(a)}</div>
+    ${lrowTask(taskLine(a, { card: true }))}
+    <div class="lmodel">${lmodelCell(a)}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>
     <div class="lmem">${mem}</div>
   </div>`;
 }
@@ -45319,7 +45318,7 @@ function paintDetailState(card) {
   const dhealth = document.getElementById('d-health');
   if (dhealth) { dhealth.textContent = healthLine(a, Date.now()); dhealth.hidden = !dhealth.textContent; }
   const dmachine = document.getElementById('d-machine');   // #7978
-  if (dmachine) { dmachine.textContent = machineLine(a); dmachine.hidden = !dmachine.textContent; }
+  if (dmachine && typeof machineLine === 'function') { dmachine.textContent = machineLine(a); dmachine.hidden = !dmachine.textContent; }
   /* #3958 (review): the screen-said evidence and the re-auth button follow the poll with the
      pill. Painted FIRST, so a missing #d-task or #d-state cannot stop them. Painted only by openDetail they froze while the pill went live, so a page opened on a
      working agent that then hit auth_failed said so in the pill with no "Sign in again" beside it. */

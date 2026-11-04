@@ -7,6 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn, spawnSync, execFileSync } = require('node:child_process');
 const mc = require('./machinecost');
+const { killServerAt } = require('../test-support/tmux-kill');
 
 const row = (pid, ppid, kb, cpu, etime, comm) => `${pid} ${ppid} ${kb} ${cpu} ${etime} ${comm}`;
 const table = (...rows) => mc.parsePs(rows.join('\n'));
@@ -158,7 +159,7 @@ test('on Linux it reads NUL-separated, and a failed read names nobody', async ()
 });
 
 /* A fake of the four commands a sample runs. */
-function fakeExec({ tmux = pane('angel', 10), ps, cmdline = 'x', env = '', lsof = '', launchctl = '-\t0\tcom.example\n' }) {
+function fakeExec({ tmux = pane('angel', 10), ps, cmdline = 'x', env = '', lsof = '', launchctl = 'PID\tStatus\tLabel\n-\t0\tcom.example\n1\t0\tcom.apple.xpc.launchd\n' }) {
   return (cmd, args, opts, cb) => {
     if (typeof tmux === 'object' && cmd === 'tmux') return cb(new Error('failed'), '', tmux.err);
     if (cmd === 'tmux') return cb(null, tmux, '');
@@ -208,14 +209,21 @@ test('BLOCKER from review: a readable environment with no variable is never name
 test('anything launchd runs is never named, and if that list cannot be read the folder clue is not used', async () => {
   const ps = `${zsh10}${row(300, 1, GB, 0, '01:00', '/bin/bash')}\n`;
   const lsof = 'p300\nfcwd\nn/w/a\n';
-  const asJob = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps, lsof, launchctl: '300\t0\tcom.kosmos.angel\n' }) });
+  const asJob = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps, lsof, launchctl: 'PID\tStatus\tLabel\n300\t0\tcom.kosmos.angel\n' }) });
   assert.equal(asJob.angel.left, null, 'a supervisor or a scheduled job');
   const unknown = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps, lsof, launchctl: null }) });
   assert.equal(unknown.angel.left, null, 'the list could not be read: no guess');
   const notAJob = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps, lsof }) });
   assert.equal(notAJob.angel.left.how, 'folder', 'control: not a job, it is named');
-  const named = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps: `${zsh10}${row(60, 1, GB, 0, '01:00', 'node')}\n`, env: 'KOSMOS_AGENT_SESSION=raph', launchctl: null }) });
-  assert.equal(named.raph.left.how, undefined, 'a name needs no list, and is not marked');
+  const named = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps: `${zsh10}${row(60, 1, GB, 0, '01:00', 'node')}\n`, env: 'KOSMOS_AGENT_SESSION=raph' }) });
+  assert.equal(named.raph.left.how, undefined, 'a name is not marked');
+  const namedNoList = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps: `${zsh10}${row(60, 1, GB, 0, '01:00', 'node')}\n`, env: 'KOSMOS_AGENT_SESSION=raph', launchctl: null }) });
+  assert.equal(namedNoList.raph, undefined, 'review 4: with no list even a named process is not named, since launchd may run it');
+  assert.equal(namedNoList.angel.memMb, 2, 'and the panes are still measured');
+  for (const short of ['', 'PID\tStatus\tLabel\n', '-\t0\tcom.example\n', 'PID\tStatus\tLabel\n-\t0\tcom.example\n']) {
+    const got = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps, lsof, launchctl: short }) });
+    assert.equal(got.angel.left, null, `review 4: a short list that exits 0 is no list: ${JSON.stringify(short)}`);
+  }
   const linux = await mc.sample({ platform: 'linux', home: '/h', readFile: async () => 'X=1\0', exec: fakeExec({ ps, lsof }) });
   assert.equal(linux.angel.left, null, 'Linux can read every environment, so no folder guess there');
 });
@@ -290,10 +298,10 @@ const haveTmux = spawnSync('tmux', ['-V'], { encoding: 'utf8' }).status === 0 &&
    a private socket, with the environment a board started outside a pane has, through the real sample and read. */
 test('REAL tmux, outside a pane, under a C locale: the sample finds the session by its raw name', { skip: !haveTmux }, async () => {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mc-tmux-7978-')));
-  const sock = `mc7978-${process.pid}`;
+  const sock = path.join(dir, 's');
   const wrapper = path.join(dir, 'tmux');
   const real = execFileSync('/usr/bin/env', ['sh', '-c', 'command -v tmux'], { encoding: 'utf8' }).trim();
-  fs.writeFileSync(wrapper, `#!/bin/sh\nexec '${real}' -L '${sock}' "$@"\n`, { mode: 0o755 });
+  fs.writeFileSync(wrapper, `#!/bin/sh\nexec '${real}' -S '${sock}' "$@"\n`, { mode: 0o755 });
   const saved = { TMUX: process.env.TMUX, TMUX_PANE: process.env.TMUX_PANE, LC_ALL: process.env.LC_ALL, LANG: process.env.LANG, LC_CTYPE: process.env.LC_CTYPE };
   const clean = { ...process.env, LC_ALL: 'C' };
   for (const k of ['TMUX', 'TMUX_PANE', 'LANG', 'LC_CTYPE']) delete clean[k];
@@ -314,7 +322,7 @@ test('REAL tmux, outside a pane, under a C locale: the sample finds the session 
     assert.ok(mc.readAgent('ava', (s) => s.replace(/-discord$/, '')), 'which a not-running row finds through the name rule');
   } finally {
     for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
-    spawnSync(wrapper, ['kill-server'], { env: clean, timeout: 10000 });
+    killServerAt(real, sock);
     mc.resetForTest();
   }
 });
@@ -323,10 +331,10 @@ test('REAL tmux, outside a pane, under a C locale: the sample finds the session 
    tmux and a throwaway data root, in a child so nothing here reaches this computer's own agents. */
 test('REAL status row: its session finds the sample and its sessionName does not', { skip: !haveTmux }, () => {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mc-join-7978-')));
-  const sock = `mcj7978-${process.pid}`;
+  const sock = path.join(dir, 's');
   const wrapper = path.join(dir, 'tmux');
   const real = execFileSync('/usr/bin/env', ['sh', '-c', 'command -v tmux'], { encoding: 'utf8' }).trim();
-  fs.writeFileSync(wrapper, `#!/bin/sh\nexec '${real}' -L '${sock}' "$@"\n`, { mode: 0o755 });
+  fs.writeFileSync(wrapper, `#!/bin/sh\nexec '${real}' -S '${sock}' "$@"\n`, { mode: 0o755 });
   const env = { ...process.env, LC_ALL: 'en_US.UTF-8', AGENT_WORKFORCE_TMUX_BIN: wrapper, AGENT_WORKFORCE_DATA: path.join(dir, 'data'), AGENT_WORKFORCE_HOME: dir, HOME: dir };
   for (const k of ['TMUX', 'TMUX_PANE', 'KOSMOS_WORLD']) delete env[k];
   spawnSync(wrapper, ['new-session', '-d', '-s', 'ava-discord', '/bin/sleep 60'], { env, timeout: 10000 });
@@ -344,7 +352,7 @@ test('REAL status row: its session finds the sample and its sessionName does not
     const m = /^JOIN (.*)$/m.exec(r.stdout || '');
     assert.ok(m, `no join printed: ${(r.stderr || '').slice(-400)}`);
     assert.deepEqual(JSON.parse(m[1]), { sessionName: 'ava', ours: true, bySession: true, byName: false });
-  } finally { spawnSync(wrapper, ['kill-server'], { env, timeout: 10000 }); }
+  } finally { killServerAt(real, sock); }
 });
 
 test('REAL ps: the columns parse, and this test process is in them', { skip: process.platform === 'win32' }, () => {
@@ -368,7 +376,7 @@ async function waitFor(fn, ms = 8000) {
 
 test('REAL: launchctl answers on this computer and its pids parse', { skip: process.platform !== 'darwin' }, async () => {
   const pids = await mc.launchdPids();
-  assert.ok(pids instanceof Set, 'the list was read');
+  assert.ok(pids instanceof Set && pids.size > 0, 'the real list has its header and at least one running job, or the rule above would blank this feature on every Mac');
 });
 
 test('REAL: on this computer, a parentless node is named by its environment and a parentless shell by its folder', { skip: process.platform !== 'darwin' }, async () => {
