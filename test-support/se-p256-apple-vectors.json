@@ -1,0 +1,66 @@
+{
+  "note": "Made by kosmos-se (native-se/main.swift) in this Mac's Secure Enclave, CryptoKit SecureEnclave.P256.Signing, message mode, DER. kosmos#7116. Messages are bytes.<message> of escrowd-roster-vectors.json. ECDSA is randomised, so this is not reproducible: it pins that escrowd verify_se ACCEPTS what Apple signs, including any high-S signature.",
+  "key": "047c4daebb1065112c7604d66dbf1742e4e2568bae6028b996e4b0ea3b0fd782537c32b2187643dfb12ab8b058d0bc4dd05e02bb33a888ef2cc3acf6f9088bc378",
+  "signatures": [
+    {
+      "message": "cancel",
+      "der": "3046022100c319cf35534243d480bcf73098ff410b296831f0f723c71ddf6d9a30878e53340221008008bf702043a362e16ffbfab33f8b3f57dba97502f7ff1c4944f0cc45d69ee4",
+      "highS": true
+    },
+    {
+      "message": "cancel",
+      "der": "304502203607d6cad34dde89cbefccb13b8bed09087ec4df77bbdf83179132d8f8d108e2022100855927ccd8fb056b762186daecbf7e4ca6447f7f54937ae868940472de07c18a",
+      "highS": true
+    },
+    {
+      "message": "cancel",
+      "der": "30450220655159639aeaa7812e5dbd88fbf146b01e8ed0dbbccfa6d6f0237ed50255caed022100835bf831e10471560db56c7861a75127e4b5754d8b2b6a7d65679e473b05d103",
+      "highS": true
+    },
+    {
+      "message": "cancel",
+      "der": "304502207e8cbf48f95bc092beabf10c5c86f21dc8a5658c624d471ef420dcf8d95c558f022100f49bb40489e96e92ded4ac7c912740a1f19a048335f4613d1bb8350a652fd9da",
+      "highS": true
+    },
+    {
+      "message": "cancel",
+      "der": "304502207ad5085a334574e593d34d77a7b483970d295776996c64c7814be20dbed924f4022100842f02df4a1f8b10cf997f2c483e712496eca2d4b01ca4d27a6156b449e4d622",
+      "highS": true
+    },
+    {
+      "message": "cancel",
+      "der": "3044022009c7979645e17697e139f3c010124374a486c77f4f0a14bfb67a6775222644cf02206510568c058b56586d978b0b7bb6a8cff5e63aae65d49b2ce140b38c07dd8e05",
+      "highS": false
+    },
+    {
+      "message": "changeAdd",
+      "der": "3046022100ab02206fcfcc4bd6cede209315a5f36d092d62991aeebd7fd2a9c1416f235094022100911a1ab40b58cb52640b3c540f7fb9a7a71059dc5e6152fab334057c0bc00f4b",
+      "highS": true
+    },
+    {
+      "message": "changeAdd",
+      "der": "304402206158ee966a555dd1bd75537f655fc7701b353bca0985d43de08b3a8d26ef7f530220510aa281bb85d347d5ba95eee78746b29424643676f92ffebc01dc13bb0d46c7",
+      "highS": false
+    },
+    {
+      "message": "changeAdd",
+      "der": "304402203b5d93549a9020e5656de14cba7435b27ffc6506a4dbe5d8957f09af6bd0d043022037488a8ea8f4fa41688405b24e0f9e7f9d54ed0d8e32cf65b33f0dc8f21c2c73",
+      "highS": false
+    },
+    {
+      "message": "changeAdd",
+      "der": "304502201de1cfd8deeda4b371ffd6076e6dec006ead15fdfd88e7ee2f69de69a1b6503a02210093e5af13c742400e12c09b411821a1f6c41bfc56da733df258f0b00ecc79a5b1",
+      "highS": true
+    },
+    {
+      "message": "changeAdd",
+      "der": "304502204c0cb13c9fd61adf1734f2d69ff3514abcbfbca536b07c1d8326d0e5379dfb79022100d82f05f19893e2a9933ba307f1620ca450947247edbce93e7c5f75836be635f4",
+      "highS": true
+    },
+    {
+      "message": "changeAdd",
+      "der": "3046022100b4681f5b5f1fb8af1313f8970deb89bacaf3fcb5d2501b1807a4182ce733927d0221008d09349c0fc8a9ee0cf45fe06e6dcfb2450849c918359cc349df99cf09d35846",
+      "highS": true
+    }
+  ]
+}
