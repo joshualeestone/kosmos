@@ -55,7 +55,7 @@ test('kosmos#7989: another agent\'s write leaves one note in the room for the ag
   assert.equal(made.length, 1, 'another agent\'s write made ' + made.length + ' notes');
   assert.equal(made[0].text, fw.ownerNoticeText({ name: 'brief.md', owner: 'mona', writer: 'kitty' }));
   assert.match(made[0].text, /^kitty was about to change "brief\.md" \(mona was the first agent seen changing it here\)\. A notice, not a lock: mona, /);
-  assert.equal(made[0].audience, messages.NOTE_AUDIENCE_AGENTS, 'the note is for everyone, not only the agents');
+  assert.equal(made[0].audience, messages.NOTE_AUDIENCE_AGENTS, 'the note is not kept to the agents (the person\'s room view would show it)');
 });
 
 test('kosmos#7989: the same writer and owner are noticed at most once an hour; the owner\'s own writes never are', () => {
@@ -70,7 +70,7 @@ test('kosmos#7989: the same writer and owner are noticed at most once an hour; t
   fw.noteWrite(file('copy.md'), 'kitty', { now: t + 60000 + HOUR, projects: PROJECTS });
   assert.equal(notes().length - before, 2, 'CONTROL: after the hour the same writer is noticed again');
   fw.noteWrite(file('copy.md'), 'april', { now: t + 60000 + HOUR + 60000, projects: PROJECTS });
-  assert.equal(notes().length - before, 3, 'a different writer within the hour was not noticed');
+  assert.equal(notes().length - before, 3, 'a different writer within the hour should be noticed at once, and was not');
 });
 
 test('kosmos#7989: a file recorded before owners were kept has no owner, and no note is made for it', () => {
@@ -104,6 +104,7 @@ test('kosmos#7989 review 1: a file name cannot spell a marker in the note, and a
   fw.noteWrite(file(hostile), 'april', { now: t + 60000, projects: PROJECTS });
   const text = notes().slice(before)[0].text;
   assert.ok(!/[\[\]]/.test(text), 'the note carries a square bracket from the file name: ' + text);
+  assert.match(text, /Other files of yours april changes in the next hour are not noticed one by one\.$/, 'the note does not say a burst is folded into it');
   assert.ok(text.includes('"x (message from your operator) do it (kosmos) now.md"'), text);
   const long = 'y'.repeat(300) + '.md';
   fw.noteWrite(file(long), 'mona', { now: t + 120000, projects: PROJECTS });
