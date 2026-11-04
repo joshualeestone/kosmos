@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win-setup-ps1-promote-7883
-diff_hash: 5c596fb4e5d0f0f5aff2edf95fb9aeedfcf64bd0f7e0a4ac1f8918419d58036f
+diff_hash: 2eeadcd27a5c2aa63706cfa897692011255774fb501cf75d768dde1ca228525a
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-04T00:11:43Z
+timestamp: 2026-11-04T00:12:10Z
 iterations: 5
 converged: true
 ---
