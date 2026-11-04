@@ -11,7 +11,10 @@ simulator does not reproduce the blank) and guarded by the room logic checks and
   window landing is one), so a reader at the newest gets the two looks after each arriving message too.
 - At each look, at the newest with nobody scrolling: past the end -> put back (as before); within with NOTHING drawn -> rebuild the
   list (recoverEmpty, with its limits; build 34 showed the id jump lands in the inflated estimate's undrawn stretch); within, drawn, but
-  the newest not showing (end marker gone, or ScrollBox.shortOfEnd() > 2 pt) -> goNewest by id. A reader higher up is never moved.
+  the newest not showing (end marker gone, or, only after a did-show or a box change, ScrollBox.shortOfEnd() more than the
+  list's bottom padding listPadV + 4 pt) -> scrolled to the end marker by id, as did-show does. A reader higher up (atBottom
+  false) is never moved, nor one who nudged up a little after a thread read. The keepAtEnd ask is on the id-anchor path
+  (iOS 17+) only; iOS 16 keeps its own two scrollTo calls.
 
 ## Evidence
 Six build-33 captures and two build-34 captures from Josh (diagnostics in the session handoff dir; screenshots private, never on the
