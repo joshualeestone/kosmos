@@ -109,6 +109,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName System.Net.Http
+Add-Type -AssemblyName System.IO.Compression   # kosmos#7883: ZipArchive over a byte stream (5.1 does not load it with FileSystem)
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 
@@ -188,6 +189,36 @@ function New-SigV4Authorization([string] $Method, [string] $HostName, [string] $
 }
 
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
+# kosmos#7883: the commit a Windows zip was built from (its root manifest.json, tools/build-kosmos-windows.sh), or ''
+# when it records none. Takes the zip's bytes, so staging (a file) and -Promote (the staged object) read it the same way.
+function Get-ZipSourceSha([byte[]] $ZipBytes) {
+  $zs = New-Object IO.MemoryStream (, $ZipBytes)
+  try {
+    $za = New-Object IO.Compression.ZipArchive ($zs, [IO.Compression.ZipArchiveMode]::Read)
+    try {
+      $me = $za.GetEntry('manifest.json'); if (-not $me) { return '' }
+      $mr = New-Object IO.StreamReader ($me.Open())
+      try { $bm = $mr.ReadToEnd() | ConvertFrom-Json } catch { return '' } finally { $mr.Dispose() }
+      if ($bm -and ($bm.PSObject.Properties.Name -ccontains 'source_sha') -and ([string]$bm.source_sha -cmatch '^[0-9a-f]{40}\z')) { return [string]$bm.source_sha }
+      return ''
+    } finally { $za.Dispose() }
+  } finally { $zs.Dispose() }
+}
+# The installer at a commit, as git stores it: raw bytes through a process stream (PowerShell's pipeline would decode
+# and re-encode them). Returns @{ Bytes; Error }: Bytes is $null when git cannot read it, and Error says why.
+function Get-SetupAtCommit([string] $Commit) {
+  $g = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $g) { return @{ Bytes = $null; Error = 'git is not installed' } }
+  $psi = New-Object Diagnostics.ProcessStartInfo $g.Source
+  $psi.Arguments = '-C "' + $PSScriptRoot.TrimEnd([char]92, [char]47) + '" cat-file blob ' + $Commit + ':tools/windows/setup.ps1'
+  $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
+  $proc = [Diagnostics.Process]::Start($psi)
+  $errTask = $proc.StandardError.ReadToEndAsync()
+  $ms = New-Object IO.MemoryStream
+  try { $proc.StandardOutput.BaseStream.CopyTo($ms); $proc.WaitForExit(); $b = $ms.ToArray() } finally { $ms.Dispose() }
+  if ($proc.ExitCode -ne 0) { return @{ Bytes = $null; Error = $errTask.Result.Trim() } }
+  @{ Bytes = $b; Error = '' }
+}
 function Get-NodeExe { Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1 }
 # #6466: tools/lib/win-release-manifest.js, run with node. It prints its one-line verdict on STDOUT (stderr from a
 # native command can turn into a terminating error under Stop on 5.1); returns @{ Rc; Out }.
@@ -570,15 +601,6 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     if (-not $baked) { Refuse "$ZipPath has no version in app/package.json, so its version cannot be checked; rebuild it with tools/build-kosmos-windows.sh" }
     if (-not $Version) { $Version = $baked }
     elseif ($baked -cne $Version) { Refuse "-Version $Version is not the version this zip was built as ($baked)" }
-    # kosmos#7883: the commit the build was made from (its root manifest.json, tools/build-kosmos-windows.sh), so the
-    # installer script staged with it can be held to that commit. '' when the zip does not record one.
-    $BuiltFrom = ''
-    $me = $archive.GetEntry('manifest.json')
-    if ($me) {
-      $mr = New-Object IO.StreamReader ($me.Open())
-      try { $bm = $mr.ReadToEnd() | ConvertFrom-Json } catch { $bm = $null } finally { $mr.Dispose() }
-      if ($bm -and ($bm.PSObject.Properties.Name -ccontains 'source_sha') -and ([string]$bm.source_sha -cmatch '^[0-9a-f]{40}\z')) { $BuiltFrom = [string]$bm.source_sha }
-    }
     # The launcher must BE the committed, signed Kosmos.exe (#3677): a validly signed exe from
     # anyone else, or an older launcher, is not the one we ship.
     # A zip with two entries of one name: the check below would read the first while Explorer
@@ -617,6 +639,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   Assert-Version 'version' $Version
   $Versioned = "kosmos-$Version-win-$Arch.zip"
   $Sha = Sha256-File $ZipPath
+  $BuiltFrom = Get-ZipSourceSha ([IO.File]::ReadAllBytes($ZipPath))   # kosmos#7883
   Say "staging $Versioned ($Sha) from $ZipPath"
 
   # #6466: the release manifest, beside the zip (tools/build-kosmos-windows.sh writes it there). The key holder signs
@@ -675,15 +698,9 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       finally { $ErrorActionPreference = $prev }
     }
     if ($BuiltFrom) {
-      # The raw bytes of the blob, through a process stream (PowerShell's pipeline would decode and re-encode them).
-      $psi = New-Object Diagnostics.ProcessStartInfo $git.Source
-      $psi.Arguments = '-C "' + $PSScriptRoot + '" cat-file blob ' + $BuiltFrom + ':tools/windows/setup.ps1'
-      $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
-      $proc = [Diagnostics.Process]::Start($psi)
-      $errTask = $proc.StandardError.ReadToEndAsync()
-      $ms = New-Object IO.MemoryStream
-      try { $proc.StandardOutput.BaseStream.CopyTo($ms); $proc.WaitForExit(); $SetupBytes = $ms.ToArray() } finally { $ms.Dispose() }
-      if ($proc.ExitCode -ne 0) { Refuse "$ZipPath was built from $BuiltFrom, and this repository cannot read tools/windows/setup.ps1 at that commit ($($errTask.Result.Trim())). Fetch it (git fetch origin), then stage again. Nothing was written." }
+      $got = Get-SetupAtCommit $BuiltFrom
+      if ($null -eq $got.Bytes) { Refuse "$ZipPath was built from $BuiltFrom, and this repository cannot read tools/windows/setup.ps1 at that commit ($($got.Error)). Fetch it (git fetch origin), then stage again. Nothing was written." }
+      $SetupBytes = [byte[]]$got.Bytes
       $SetupFrom = "the build's commit $BuiltFrom"
     } else {
       $SetupPath = Join-Path $PSScriptRoot 'setup.ps1'
@@ -958,7 +975,15 @@ if ($stagedSetup -or $stagedSetupSide) {
   $SetupBytes = [byte[]]$stagedSetup.Bytes; $SetupSha = Sha256-Bytes $SetupBytes
   if ($SetupBytes.Length -eq 0) { Refuse "$SetupVersioned in the bucket is empty. Re-stage with this script. Nothing was written." }
   if ((Sha256-Bytes $stagedSetupSide.Bytes) -cne (Sha256-Bytes (New-SidecarBytes $SetupSha $SetupVersioned))) { Refuse "$SetupVersioned.sha256 does not name $SetupVersioned's bytes ($SetupSha). Re-stage with this script. Nothing was written." }
-  Say "installer: $SetupVersioned ($SetupSha) becomes setup.ps1 after latest-win.json"
+  # Review 3: the staged copy is not taken on trust. When the staged zip (the bytes Josh approved) records the commit
+  # it was built from, the installer is read again from that commit and must be these exact bytes.
+  $promoteFrom = Get-ZipSourceSha $staged.Bytes
+  if ($promoteFrom) {
+    $want = Get-SetupAtCommit $promoteFrom
+    if ($null -eq $want.Bytes) { Refuse "the staged zip was built from $promoteFrom, and this repository cannot read tools/windows/setup.ps1 at that commit ($($want.Error)), so the staged installer cannot be checked. Fetch it (git fetch origin), then promote again. Nothing was written." }
+    if ((Sha256-Bytes ([byte[]]$want.Bytes)) -cne $SetupSha) { Refuse "$SetupVersioned in the bucket ($SetupSha) is not tools/windows/setup.ps1 at $promoteFrom, the commit the approved zip was built from ($(Sha256-Bytes ([byte[]]$want.Bytes))). Re-stage with this script. Nothing was written." }
+    Say "installer: $SetupVersioned ($SetupSha) is tools/windows/setup.ps1 at the approved build's commit $promoteFrom; it becomes setup.ps1 after latest-win.json"
+  } else { Say "installer: $SetupVersioned ($SetupSha) becomes setup.ps1 after latest-win.json (the staged zip records no source commit, so it is not re-read from git)" }
 } else {
   Say "NOTICE (#7883): no $SetupVersioned was staged with this build (it was staged before staging carried one), so setup.ps1 is left as it is: it stays the installer of the build promoted before, which may be newer than this one."
 }
@@ -1174,6 +1199,7 @@ if ($null -ne $SetupBytes) {
   Assert-Served 'setup.ps1' $SetupSha -Bucket
   Assert-Served 'setup.ps1.sha256' (Sha256-Bytes $setupSide) -Bucket
   $script:AfterNote = ''
+  Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha installer=published setup_sha256=$SetupSha $Where" -Outcome
 }
 if ($FakeDir) { Say "TEST TRANSPORT, NOTHING PUBLISHED:" }
 Say "PROMOTED $ApprovedVersion ($ApprovedSha) to prod; the bucket and the served bytes both verified."

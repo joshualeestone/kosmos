@@ -226,6 +226,9 @@ if [ "$rc" -eq 0 ] && [ "$order" = "kosmos-win-x64.zip(copy) kosmos-win-x64.zip.
 else fail "promote order: rc=$rc order=[$order] $(tail -2 "$TMP/out")"; fi
 if [ "$(grep -c 'approval=given.*transport=test' "$ALOG")" -eq 1 ] && [ "$(grep -c 'promoted=yes.*transport=test' "$ALOG")" -eq 1 ]; then pass "both approval-log lines name where the promote wrote"
 else fail "approval log: $(cat "$ALOG")"; fi
+# The promote's copy carried its pin and its own no-cache metadata.
+if grep -qE '^PUT kosmos-win-x64\.zip COPY /kosmos-dist-win/kosmos-9\.9\.1-win-x64\.zip \| cache-control=no-cache;x-amz-copy-source=[^;]+;x-amz-copy-source-if-match="[0-9a-f]{64}";x-amz-metadata-directive=REPLACE$' "$FAKE/.calls"; then pass "the alias copy is pinned and replaces its metadata with no-cache"
+else fail "copy headers: $(grep COPY "$FAKE/.calls")"; fi
 # kosmos#7883: setup.ps1 is the staged script, its sidecar names setup.ps1, and both were created only if absent.
 if cmp -s "$FAKE/setup.ps1" "$HERE/windows/setup.ps1" && [ "$(cat "$FAKE/setup.ps1.sha256")" = "$SETUP_SHA  setup.ps1" ] \
    && grep -qE '^PUT setup\.ps1 \| cache-control=no-cache;if-none-match=\*$' "$FAKE/.calls" && grep -qE '^PUT setup\.ps1\.sha256 \| cache-control=no-cache;if-none-match=\*$' "$FAKE/.calls"; then
@@ -249,8 +252,8 @@ if [ "$rc" -eq 0 ] && grep -qF "NOTICE (#7883): no setup-9.9.1.ps1 was staged wi
 else fail "#7883 promote without a staged script: rc=$rc $(grep '^PUT setup' "$FAKE/.calls") $(tail -1 "$TMP/out")"; fi
 mv "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; mv "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
 # Josh's go is logged with the installer it will publish.
-# (The promotes above with a staged script logged its sha; the last one, staged without a script, logged none.)
-if [ "$(grep -c "setup_sha256=$SETUP_SHA approval=given " "$ALOG")" -ge 1 ] && grep 'approval=given' "$ALOG" | tail -1 | grep -qF ' setup_sha256=none '; then pass "#7883 the approval line names the installer's sha, or none"
+# (The two promotes above with a staged script logged its sha; the last one, staged without a script, logged none.)
+if [ "$(grep -c "setup_sha256=$SETUP_SHA approval=given " "$ALOG")" -eq 2 ] && grep 'approval=given' "$ALOG" | tail -1 | grep -qF ' setup_sha256=none '; then pass "#7883 the approval line names the installer's sha, or none"
 else fail "#7883 approval line: $(grep 'approval=given' "$ALOG" | tail -2)"; fi
 # setup-<v>.ps1 is immutable like the zip: other bytes already up under the name are refused without -ReplaceVersioned.
 cp "$FAKE/latest-win-staging.json" "$TMP/stg7883.keep"   # the block below stages other versions; later tests expect 9.9.1 staged
@@ -276,10 +279,15 @@ PYEOF
 fake -Zip "$TMP/s42.zip"; rc=$?
 if [ "$rc" -eq 0 ] && cmp -s "$FAKE/setup-9.9.42.ps1" "$HERE/windows/setup.ps1" && ! grep -qF "records no source commit" "$TMP/out"; then pass "#7883 control: a zip built from this tree's HEAD stages, with HEAD's installer"
 else fail "#7883 source-commit control: rc=$rc $(tail -2 "$TMP/out")"; fi
+# The promote does not take the staged installer on trust: a zip that records its commit has the installer read again
+# from git, so a staged copy swapped afterwards (with a sidecar to match) is refused before anything is written.
+SHA42=$(shasum -a 256 "$TMP/s42.zip" | cut -d' ' -f1)
+node -e 'const s=require(process.argv[1]);const [v,sha,out]=process.argv.slice(2);const c={};for(const r of s.REQUIRED_CHECKS)c[r.id]={result:"pass"};require("fs").writeFileSync(out,JSON.stringify(s.buildRecord({version:v,sha256:sha,sourceSha:"a".repeat(40),checkResults:c,at:"2026-09-25T12:00:00Z"})))' "$HERE/lib/win-staging-record.js" 9.9.42 "$SHA42" "$VDIR/win-staging-$SHA42.json"
+printf 'swapped after staging\n' > "$FAKE/setup-9.9.42.ps1"
+printf '%s  setup-9.9.42.ps1\n' "$(shasum -a 256 "$FAKE/setup-9.9.42.ps1" | cut -d' ' -f1)" > "$FAKE/setup-9.9.42.ps1.sha256"
+fake -Promote -ApprovedVersion 9.9.42 -ApprovedSha "$SHA42" -ApprovalRef 1789228393.821399; rc=$?
+refuses_clean "#7883 a staged installer that is not the approved build's commit's: refused, nothing written" "is not tools/windows/setup.ps1 at"
 cp "$TMP/stg7883.keep" "$FAKE/latest-win-staging.json"
-# The promote's copy carried its pin and its own no-cache metadata.
-if grep -qE '^PUT kosmos-win-x64\.zip COPY /kosmos-dist-win/kosmos-9\.9\.1-win-x64\.zip \| cache-control=no-cache;x-amz-copy-source=[^;]+;x-amz-copy-source-if-match="[0-9a-f]{64}";x-amz-metadata-directive=REPLACE$' "$FAKE/.calls"; then pass "the alias copy is pinned and replaces its metadata with no-cache"
-else fail "copy headers: $(grep COPY "$FAKE/.calls")"; fi
 # -ReplaceVersioned never replaces what prod names.
 fake -Zip "$TMP/b.zip" -ReplaceVersioned; rc=$?; refuses_clean "-ReplaceVersioned refuses the version prod names" "PROD's latest-win.json names"
 # A staging failure after its writes began says what may be up.

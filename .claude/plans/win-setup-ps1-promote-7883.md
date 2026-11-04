@@ -65,3 +65,15 @@ via tools/lib/win-staging-record.js):
   re-read runs before the setup PUT. NIT1 git calls run with ErrorAction Continue and check exit codes. NIT2 the
   refusal names the re-checkout commands. NIT3 not taken (a dry run reads every gate a real run reads before writing).
   Known gap, for a follow-up card: on-box V2 does not yet run the staged setup-<v>.ps1 itself.
+- Round 3 (blind reviewer): 1 BLOCKER, 3 WARNING, 3 NIT. Fixed: BLOCKER the alias-copy header check read .calls
+  after the #7883 block had replaced it (moved up to just after the first promote). W2 -Promote no longer trusts
+  the staged installer: when the staged zip (the approved bytes) records source_sha, the installer is read again
+  from that commit in git and must match, else refused before any write (harness case added). W3 a separate
+  `installer=published setup_sha256=` outcome line after the installer writes (promoted=yes stays before them, per
+  round 1). NIT5 the -C path is trimmed of a trailing slash; NIT6 the zip and git helpers moved to script scope;
+  NIT7 the approval count is pinned (-eq 2). W4 (installer can lag or lead the build on a rollback) is by design
+  and already said by the NOTICE and setup_sha256=none.
+  Found on-box while measuring round 3: Windows PowerShell 5.1 does not load System.IO.Compression with
+  .FileSystem, so the promote's zip read crashed (UNEXPECTED); it is now loaded explicitly. Also caught: a regex
+  `\z` lost its backslash in an edit script, which made source_sha never match; fixed, and every added line with
+  a backslash was re-checked.
