@@ -1334,12 +1334,16 @@ sweep_dead_stages() {
 # in it is what gets replaced below, so finding it there links it to itself.
 setup_linux_tmux() {
   local dest="$1"
-  local tmux_bin="" outside="" dir saved_ifs
-  saved_ifs="$IFS"; IFS=:
+  local tmux_bin="" outside="" dir saved_ifs own
+  # Physical folders: the CLI and this installer can spell one home differently (a link, a trailing slash).
+  own="$(cd "$dest/bin" 2>/dev/null && pwd -P)"
+  saved_ifs="$IFS"; IFS=:; set -f
   for dir in $PATH; do
-    [ "$dir" = "$dest/bin" ] || outside="${outside:+$outside:}$dir"
+    [ -n "$own" ] && [ "$(cd "$dir" 2>/dev/null && pwd -P)" = "$own" ] || outside="${outside:+$outside:}$dir"
   done
-  IFS="$saved_ifs"
+  set +f; IFS="$saved_ifs"
+  # An empty PATH would search the current folder.
+  outside="${outside:-/nonexistent}"
   tmux_bin="$(PATH="$outside"; command -v tmux 2>/dev/null || true)"
   if [ -z "$tmux_bin" ]; then
     if command -v apt-get >/dev/null 2>&1; then
