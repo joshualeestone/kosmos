@@ -10743,6 +10743,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .oa-devrow .fr-cmd.devcode-copytext { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* The manual update offer's numbered steps (W-25). */
 .upd-manual-steps { margin: 8px 0 0; padding-left: 1.4em; }
+/* kosmos#7935: the Linux update command; selects whole on a click so it can be copied, and wraps on a phone. */
+.upd-command { user-select: all; overflow-wrap: anywhere; font-family: var(--font-mono); }
 .upd-manual-steps li { margin: 2px 0; }
 .fr-code-row { display: flex; gap: var(--space-4); margin-top: var(--space-4); flex-wrap: wrap; }
 .fr-code-row input { flex: 1; min-width: 200px; font: var(--text-body) var(--font-mono);
@@ -19886,6 +19888,9 @@ window.kosmosMeasureScrollbarWidth();
         <button class="btn-quiet" type="button" id="upd-rollback" hidden aria-describedby="upd-line">Roll back</button>
       </div>
       <ol class="dhint upd-manual-steps" id="upd-manual-steps" hidden></ol>
+      <!-- kosmos#7935: a board that cannot replace itself (Linux) is updated by re-running its installer; the
+           manual arm shows that command here. -->
+      <p class="dhint" id="upd-command-row" hidden><code id="upd-command" class="upd-command"></code></p>
       <p class="dhint" id="upd-open-folder-msg" role="status" hidden></p>
       <!-- 🛑 THIS ROW USED TO BE A SWITCH THAT COULD NOT MOVE. It read "Tell me
            when there is a new version", with a hint underneath admitting
@@ -25108,6 +25113,9 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
   const openFolder = document.getElementById('upd-open-folder');
   if (manualSteps) manualSteps.hidden = true;
   if (openFolder) openFolder.hidden = true;
+  const cmdRow = document.getElementById('upd-command-row');
+  const cmd = document.getElementById('upd-command');
+  if (cmdRow) cmdRow.hidden = true;
   /* win32-update-rollback (S5, #3017): the Roll back button is ORTHOGONAL to the offer/manual arms
      below -- a person may have an update to install AND a kept build to go back to, or be up to date
      with a kept build. It shows whenever the status carries a rollback offer (win32-only), labelled
@@ -25131,6 +25139,15 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
     put(v + 'Version ' + offer.version + ' is ready.');
     putBtn('Update');
     btn.dataset.act = 'update';
+  } else if (manual && manual.version && manual.command) {
+    /* kosmos#7935: a board that cannot replace itself (Linux). Pressing [Update] only got a refusal, so the newer
+       version arrives as the command that installs it: the same installer, run again over this install. Like the
+       Windows arm below, it is news a person needs without asking, and the check button stands down. */
+    put(v + 'Version ' + manual.version + ' is ready. To update, run this in a terminal:');
+    btn.hidden = true;
+    btn.dataset.act = 'check';
+    if (cmd && cmd.textContent !== manual.command) cmd.textContent = manual.command;
+    if (cmdRow) cmdRow.hidden = false;
   } else if (manual && manual.version && manual.download) {
     /* 🛑 WINDOWS, BEFORE THE IN-APP UPDATER IS ARMED (win32-update-check). A Windows bundle
        cannot take the install offer above (the install route refuses there), so a newer Windows

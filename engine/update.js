@@ -279,6 +279,9 @@ function windowsLocationRefusal() {
 function installOffer() {
   if (!installedRoot()) return null;
   if (windowsLocationRefusal()) return null;
+  // kosmos#7935: a platform that cannot replace itself in place (Linux) never gets an [Update] button, which only
+  // led to a refusal; it gets manualOffer()'s command instead.
+  if (!platformGate.canSelfInstall(updatePlatform())) return null;
   return available();
 }
 
@@ -305,8 +308,20 @@ function rollbackOffer() {
   } catch { return null; }
 }
 
+/** kosmos#7935: the command that updates a platform off SELF_INSTALL: the same installer, re-run over the install
+    (it keeps the person's agents and settings). The URL is quoted because setupUrl() carries a ?v= cache-buster. */
+function reinstallCommand() {
+  return "curl -fsSL '" + setupUrl() + "' | sh";
+}
+
 function manualOffer() {
-  if (updatePlatform() !== 'win32') return null;
+  if (updatePlatform() !== 'win32') {
+    // kosmos#7935: an installed board on a platform that cannot replace itself is told the command, not offered a
+    // button. A source checkout (no installedRoot) gets nothing, as before.
+    if (platformGate.canSelfInstall(updatePlatform()) || !installedRoot()) return null;
+    const newer = available();
+    return newer ? { version: newer.version, command: reinstallCommand() } : null;
+  }
   const avail = available();
   if (!avail) return null;
   if (!windowsBundleRoot()) return null;
@@ -679,7 +694,8 @@ function setupUrl() {
  */
 function selfInstallRefusal(platform = updatePlatform()) {
   if (platformGate.canSelfInstall(platform)) return null;
-  return 'Kosmos cannot update itself on this platform (' + String(platform) + '): its installer is a POSIX shell script';
+  return 'Kosmos cannot update itself on this platform (' + String(platform) + '). To update, run the installer again in a terminal: '
+    + reinstallCommand();
 }
 
 let installStarted = false;
