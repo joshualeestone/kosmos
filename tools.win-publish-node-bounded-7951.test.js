@@ -18,7 +18,7 @@ const { spawnSync, spawn } = require('node:child_process');
 // Runs PowerShell with a stdin nobody closes, which is what a child inheriting it would wait on. Resolves when it exits.
 function runHoldingStdin(ps, args, limitMs) {
   return new Promise((resolve) => {
-    const child = spawn(ps, args, { env: PS_ENV, stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(ps, args, { env: envFor(ps), stdio: ['pipe', 'pipe', 'pipe'] });
     let out = ''; let err = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d; });
@@ -34,6 +34,12 @@ function runHoldingStdin(ps, args, limitMs) {
 // Off Windows pwsh keeps a startup profile under this folder, and a damaged shared one makes every start crash (#6352).
 const CACHE = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-7951-cache-'));
 const PS_ENV = { ...process.env, XDG_CACHE_HOME: CACHE };
+// 5.1 reads an inherited PSModulePath and finds PowerShell 7's module folders first, which it cannot load.
+const envFor = (ps) => {
+  const env = { ...PS_ENV };
+  if (ps === 'powershell.exe') for (const key of Object.keys(env)) if (/^psmodulepath$/i.test(key)) delete env[key];
+  return env;
+};
 test.after(() => { fs.rmSync(CACHE, { recursive: true, force: true }); });
 
 const SCRIPT = path.join(__dirname, 'tools', 'windows', 'publish-r2.ps1');
@@ -42,13 +48,12 @@ const HARNESS = String.raw`
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$null, [ref]$null)
-foreach ($f in 'Get-NodeTimeoutSec', 'ConvertTo-NativeArg', 'Invoke-NodeBounded') {
+foreach ($f in 'ConvertTo-NativeArg', 'Invoke-NodeBounded') {
   $d = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $f }, $true) | Select-Object -First 1
   . ([scriptblock]::Create($d.Extent.Text.Replace("function $f", "function global:$f")))
 }
 $Utf8 = New-Object Text.UTF8Encoding $false
-$FakeDir = 'test'
-$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '120'
+$NodeTimeoutSec = 120
 $node = $args[1]
 $weird = @('a b', 'q"uote', 'trail\', 'sp ace\', '', 'back\\"slash', 'C:\Program Files\x y\', 'plain')
 $res = @{}
@@ -60,22 +65,20 @@ $res.want = $weird
 $res.script = Row (Invoke-NodeBounded $node @('-', 'one', 'two') "console.log('argc '+process.argv.length)")
 $res.utf8 = Row (Invoke-NodeBounded $node @('-') "console.log(process.argv.length, '$([char]0xe9)'.codePointAt(0), '$([char]0xe9)')")
 $res.exit4 = Row (Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)"))
-$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '4'
+$NodeTimeoutSec = 4
 $res.hang = Row (Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)"))
 $res.bigstdin = Row (Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000))
-$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '120'
+$NodeTimeoutSec = 120
 # Something node started keeps its output open after node has exited 0: the handle inheritance is Windows's own.
 $res.held = Row (Invoke-NodeBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},10000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
 $res.nostart = Row (Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @())
 # The form publish-r2.ps1 starts git with, and the form it used to start node with.
 $res.emptypipe = @(@() | & $node -e "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})") -join ' '
-$FakeDir = $null
-$res.limit = Get-NodeTimeoutSec
 [IO.File]::WriteAllText($args[3], ($res | ConvertTo-Json -Depth 4), $Utf8)
 `;
 
 function runtimes() {
-  const have = (exe) => spawnSync(exe, ['-NoProfile', '-Command', '1'], { env: PS_ENV, stdio: 'ignore' }).status === 0;
+  const have = (exe) => spawnSync(exe, ['-NoProfile', '-Command', '1'], { env: envFor(exe), stdio: 'ignore' }).status === 0;
   const list = [];
   if (process.platform === 'win32') list.push('powershell.exe');
   if (have('pwsh')) list.push('pwsh');
@@ -84,7 +87,8 @@ function runtimes() {
 
 const RUNTIMES = runtimes();
 
-test('there is a PowerShell to test with on Windows, under both names', { skip: process.platform !== 'win32' }, () => {
+// On CI only: Windows ships without pwsh, so a person's own computer may have just the one.
+test('CI has both PowerShells to test with', { skip: process.platform !== 'win32' || !process.env.GITHUB_ACTIONS }, () => {
   assert.deepStrictEqual(RUNTIMES, ['powershell.exe', 'pwsh'], 'this job is the only place these functions run on Windows, so a missing runtime is a failure, not a skip');
 });
 
@@ -97,7 +101,7 @@ test('Ctrl+C is not held off by the limit, and takes node with it', { skip: proc
     const harness = path.join(dir, 'int.ps1');
     const pidFile = path.join(dir, 'node.pid');
     fs.writeFileSync(harness, HARNESS.slice(0, HARNESS.indexOf('$res = @{}')) + String.raw`
-$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '40'
+$NodeTimeoutSec = 40
 [void] (Invoke-NodeBounded $node @('-e', "require('fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000)", $args[2]))
 `);
     const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', harness, SCRIPT, process.execPath, pidFile], { env: PS_ENV, stdio: 'ignore' });
@@ -145,7 +149,6 @@ for (const ps of RUNTIMES) {
       assert.strictEqual(res.nostart.rc, 99, 'a node that does not start');
       assert.ok(res.nostart.undecided, 'and it says so');
       assert.strictEqual(res.emptypipe, 'EOF', 'the form git is started with closes stdin');
-      assert.strictEqual(res.limit, 300, 'the time limit seam does nothing without the test transport');
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 

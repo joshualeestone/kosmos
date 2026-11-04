@@ -3,7 +3,7 @@
 Card: #7951. A prod promote from Git Bash sat 10 minutes holding publish.lock: the manifest check's node had printed its passing verdict and never exited. Closing stdin got through.
 
 ## Change
-- `Invoke-NodeBounded`: node runs through System.Diagnostics.Process with stdin redirected and closed, stdout and stderr drained, and a limit (300 s; a test seam exists only under the fake bucket).
+- `Invoke-NodeBounded`: node runs through System.Diagnostics.Process with stdin redirected and closed, stdout and stderr drained, and a limit (`-NodeTimeoutSec`, 300 s unless named, at most 600).
 - Both node call sites use it: `Invoke-WinManifest` and the verification-record verdict.
 - A run that reached no answer (stopped, output never closed, did not start) refuses as "decided nothing", never as "does not check out", and never counts as a pass even if it printed one.
 - Every other refusal names the exit code.
@@ -12,7 +12,7 @@ Card: #7951. A prod promote from Git Bash sat 10 minutes holding publish.lock: t
 ## Decisions
 - **Call:** a hung check that printed PASS still refuses. Rejected: trusting the printed verdict, because a killed process has no exit code and the printed line is not the decision.
 - **Rejected:** Start-Job, whose child inherits a different world and costs a second PowerShell; `$null | & node`, which closes stdin but gives no limit.
-- **Limit 300 s, per check:** the check took 4 s by hand. A run makes several checks while it holds the lock: even three limits in a row is 15 minutes, below the 35 after which -BreakLock can take it.
+- **Limit 300 s, per check:** the check took 4 s by hand on one PC, and that is the only timing there is. So a slow PC has a named way past it rather than needing a code change. Capped at 600: a run makes several checks while it holds the lock, and three at the cap stay under the 35 minutes after which -BreakLock can take it.
 
 ## Weakest premise
 The hang is not reproduced. It needs Windows with Git Bash holding stdin. On this Mac the tests show stdin reaches EOF while pwsh's own stdin stays open, and a node that hangs is stopped. If the real cause is not stdin, the time limit still bounds it to 5 minutes and names it, but the promote would keep refusing until the cause is found.

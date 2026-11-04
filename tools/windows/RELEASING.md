@@ -197,8 +197,12 @@ signed again (an old `.sig` no longer verifies, and the stage refuses it).
 
 Each node check has 5 minutes and runs with stdin closed. A check that goes past that is stopped and the run refuses,
 saying it "decided nothing". That is not a verdict on the build, and nothing was written, so run it again. A stopped
-check can leave a `kosmos-winmanifest-*` or `kosmos-winchecker-*` folder in `%TEMP%`, which is safe to delete. If it
-happens again on the same build, the check itself is stuck: file a card rather than retrying.
+check can leave a `kosmos-winmanifest-*` or `kosmos-winchecker-*` folder in `%TEMP%`, which is safe to delete. If this
+PC is simply slow, give it longer with `-NodeTimeoutSec <seconds>`, up to 600. If it happens again with that, the check
+itself is stuck: file a card rather than retrying.
+
+Ctrl+C stops the check at once, but a run stopped that way may not give back `publish.lock`. If the next run says
+another run holds it, that is `-BreakLock`, which waits until the lock is 35 minutes old.
 
 ## What the installed copy checks before an update runs (#6466)
 

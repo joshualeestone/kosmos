@@ -24,6 +24,8 @@
  * this job is the only place its arms run. A file that skips SOME of its tests is counted in the
  * log, not judged.
  *
+ * MEASURED: a line a test prints starting "MEASURED: " is copied to this log even when the file passes.
+ *
  * HOW IT JUDGES: a failing file is a failure unless KNOWN_RED lists it, with its card AND the
  * exact tests expected to fail. Any other failing test in a listed file, or a listed file that
  * was killed (a hang), is a failure. A listed test that now PASSES is also a failure, "take it
