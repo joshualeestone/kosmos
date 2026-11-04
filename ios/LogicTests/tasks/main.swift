@@ -302,6 +302,11 @@ check(Tasks.askTitle(askRead.asking[0], name: nameOf) == "Max asks about Book A 
 check(Tasks.askTitle(askRead.asking[1], name: nameOf) == "Zoe asks you something", "no project: asks you something")
 check(Tasks.askWait(askRead.asking[0], now: now) == "Waiting for your answer for 3 minutes.", "the wait in the board's words")
 check(Tasks.askWait(askRead.asking[1], now: now) == "", "no known start: no wait line")
+// kosmos#7918 (tskAskRow, #7916): a held question says so, with no age; only a JSON true counts.
+let heldAskRead = Board.parseTasks(Data((#"{"tasks":[],"askingWithoutTask":[{"who":"max","waitingSince":""# + iso(180) + #"","held":true},{"who":"ada","waitingSince":""# + iso(180) + #"","held":1},{"who":"zoe","waitingSince":""# + iso(180) + #""}]}"#).utf8))!
+check(heldAskRead.asking.map(\.held) == [true, false, false], "held is read only from a JSON true: \(heldAskRead.asking.map(\.held))")
+check(Tasks.askWait(heldAskRead.asking[0], now: now) == "Held until you are back.", "a held question: no age, and it says so")
+check(Tasks.askWait(heldAskRead.asking[2], now: now) == "Waiting for your answer for 3 minutes.", "control: an unheld one keeps its wait")
 check(page.contains("' asks you something'") && page.contains("' asks about '") && page.contains("'Waiting for your answer for '"), "premise: the board's tskAskRow says the same words")
 
 print("")
