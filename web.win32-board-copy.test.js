@@ -310,8 +310,8 @@ test('one CSS rule hides the Mac-only surfaces, and it is on each one the audits
     'Settings Accessibility sentence': /<p class="dhint" id="set-a11y-say"[^>]*data-win-hide[ >]/,
     'Settings Accessibility button': /<button class="btn" id="set-a11y-open" type="button" data-win-hide[ >]/,
     'Settings tmux box': /<section class="dbox" data-win-hide[^>]*>\s*<!-- The tmux permission box/,
-    'Update Kosmos automatically (P0-5)': /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide>/,
-    'its status line': /<p class="dhint" id="auto-msg"[^>]*data-win-hide>/,
+    'Update Kosmos automatically (P0-5)': /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide[ >]/,
+    'its status line': /<p class="dhint" id="auto-msg"[^>]*data-win-hide[ >]/,
     'Open Terminal (W-18)': /<div class="field" data-win-hide[^>]*>\s*<button class="btn" id="d-open-terminal"/,
     // #4025: the App icon switch, until a Windows taskbar count exists to switch.
     'Settings App icon box': /<section class="dbox" data-win-hide data-linux-hide>\s*<h3 class="dlab">App icon<\/h3>/,
@@ -781,8 +781,7 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
     'Accessibility sentence': /id="set-a11y-say" [^>]*data-linux-hide>/,
     'Open Accessibility settings': /id="set-a11y-open" type="button" data-win-hide data-linux-hide>/,
     'tmux permission box': /<section class="dbox" data-win-hide data-linux-hide>\s*<!-- The tmux permission box/,
-    // engine/terminal.js opens Terminal.app with osascript. (Update Kosmos automatically stays: a Linux install has the
-    // Mac's runtime/bin/node layout, so engine/update.js installedRoot finds it and auto-install runs.)
+    // engine/terminal.js opens Terminal.app with osascript.
     'Open Terminal': /<div class="field" data-win-hide data-linux-hide>\s*<button class="btn" id="d-open-terminal"/,
     // engine/projects.js revealFolder runs /usr/bin/open, which a Linux board does not have.
     'agent Files: Open in Finder': /id="d-files-finder" data-remote-hide type="button" data-win-copy="docsOpenFolder" data-linux-hide>/,   // #6724: hidden over Kosmos+ too
@@ -793,6 +792,11 @@ test('#5865: Settings on Linux has no Dock line, app icon, Accessibility or tmux
     'its hint': /data-linux-hide>One folder for every project, with a file for each conversation\./,
     'task: Show me where the task conversations live': /id="tk-chats-reveal" data-remote-hide type="button" style="margin-top:12px;" data-linux-hide>/,
     'its hint (task)': /data-linux-hide>One folder, with a file for each task's conversation\./,
+    // kosmos#7935: a Linux board cannot replace itself (platform.js SELF_INSTALL), so update.js autoInstallWouldStart
+    // is false there and the update card gives the command instead; the automatic-update switch would promise
+    // installs that never happen.
+    'Update Kosmos automatically': /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide>/,
+    'its status line (auto-update)': /<p class="dhint" id="auto-msg"[^>]*data-win-hide data-linux-hide>/,
   };
   for (const [name, re] of Object.entries(HIDDEN_ON_LINUX)) assert.match(PAGE, re, name + ' shows on Linux');
   const markup = PAGE.replace(/<script\b[\s\S]*?<\/script>/g, '').replace(/<style\b[\s\S]*?<\/style>/g, '').replace(/<!--[\s\S]*?-->/g, '');

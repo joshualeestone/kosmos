@@ -2612,9 +2612,11 @@ cmd_version() {
 # runs under. Also refused while another install here is under way (logs/install.started younger than
 # 30 minutes): the app that started it may have quit, and its installer runs on. An interrupted install
 # leaves the marker behind (update.js reads it), so an older one is not in the way.
+# On Linux (kosmos#7935) neither the mode nor a running board refuses: the board there cannot install, so its update
+# card sends the person here.
 # The installer's own output goes to logs/install.log, as an update the board starts does.
 cmd_update() {
-  local _install=0 _node _said _rc=0 _mode kind v consent setup base pointer channel started code
+  local _install=0 _node _said _rc=0 _mode _board_installs kind v consent setup base pointer channel started code
   [ "${1:-}" = "--if-newer" ] || { say "Usage: kosmos update --if-newer [--install]   (install a newer Kosmos when updates are on; --install installs it even when they are off)"; exit 2; }
   case "${2:-}" in
     '') ;;
@@ -2625,8 +2627,16 @@ cmd_update() {
     printf 'refused\tan agent may not update Kosmos; the person who runs this computer does\n'
     exit 3
   fi
+  # kosmos#7935: on Linux the board cannot replace itself (engine/platform.js SELF_INSTALL is darwin and win32), so
+  # its update card tells the person to run this verb, and the two guards below that leave an update to the board do
+  # not apply: the board never runs an installer of its own there, so there is nothing to race, and the person ran
+  # this. The agent refusal above and the install-under-way guard below still hold. Keep this in step with SELF_INSTALL
+  # in engine/platform.js: Linux is the platform it leaves out, and this is the same rule read from uname.
+  # KOSMOS_PLATFORM overrides uname here as everywhere in this file (the tests' seam).
+  _board_installs=1
+  [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && _board_installs=0
   _mode="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _mode=""
-  if [ "$_mode" != connect ]; then
+  if [ "$_mode" != connect ] && [ "$_board_installs" = 1 ]; then
     printf 'refused\tthis computer is not set to connect to agents elsewhere; its own board keeps it updated\n'
     exit 3
   fi
@@ -2636,7 +2646,7 @@ cmd_update() {
     exit 3
   fi
   # A running board looks for itself, every fifteen minutes, and two installers must never race.
-  if running_pid >/dev/null 2>&1; then
+  if [ "$_board_installs" = 1 ] && running_pid >/dev/null 2>&1; then
     printf 'board\n'
     exit 0
   fi

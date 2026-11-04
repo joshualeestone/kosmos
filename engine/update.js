@@ -279,6 +279,9 @@ function windowsLocationRefusal() {
 function installOffer() {
   if (!installedRoot()) return null;
   if (windowsLocationRefusal()) return null;
+  // kosmos#7935: a platform that cannot replace itself in place (Linux) never gets an [Update] button, which only
+  // led to a refusal; it gets manualOffer()'s command instead.
+  if (!platformGate.canSelfInstall(updatePlatform())) return null;
   return available();
 }
 
@@ -305,8 +308,26 @@ function rollbackOffer() {
   } catch { return null; }
 }
 
+/** kosmos#7935: the command that updates a board off SELF_INSTALL: this install's own `kosmos update`, which works out
+    the channel, the subscription and the base as beginInstall does, checks the installer against its signed manifest
+    (never curl | sh, #6468), and runs it over THIS home. --install because the person running it has chosen to. The
+    home is quoted, a quote inside it escaped, so the line can be pasted as it is. */
+function updateCommand(platform = updatePlatform()) {
+  if (platform !== 'linux') return null;   // install/kosmos waives its board guards for Linux only
+  const home = installedHomeAsInstalled();
+  if (!home) return null;
+  return "'" + String(home).replace(/'/g, "'\\''") + "/bin/kosmos' update --if-newer --install";
+}
+
 function manualOffer() {
-  if (updatePlatform() !== 'win32') return null;
+  if (updatePlatform() !== 'win32') {
+    // kosmos#7935: an installed Linux board (which cannot replace itself) is told the command, not offered a button.
+    // Linux by name, because install/kosmos waives its board guards for Linux only; a source checkout gets nothing.
+    if (updatePlatform() !== 'linux' || platformGate.canSelfInstall('linux') || !installedRoot()) return null;
+    const newer = available();
+    const command = updateCommand();
+    return newer && command ? { version: newer.version, command } : null;
+  }
   const avail = available();
   if (!avail) return null;
   if (!windowsBundleRoot()) return null;
@@ -534,6 +555,9 @@ let autoFailedAt = 0;
 function autoInstallWouldStart() {
   if (!available()) return false;
   if (!installedRoot()) return false;
+  // kosmos#7935: a board that cannot replace itself (Linux) never starts an install of its own, so it neither asks the
+  // coordinator about a pause nor records a refusal as its last attempt on every look; its card gives the command.
+  if (!platformGate.canSelfInstall(updatePlatform())) return false;
   if (!(autoPref() || {}).on) return false;
   if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return false;
   /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between
@@ -679,7 +703,9 @@ function setupUrl() {
  */
 function selfInstallRefusal(platform = updatePlatform()) {
   if (platformGate.canSelfInstall(platform)) return null;
-  return 'Kosmos cannot update itself on this platform (' + String(platform) + '): its installer is a POSIX shell script';
+  const command = updateCommand(platform);
+  return 'Kosmos cannot update itself on this platform (' + String(platform) + ').'
+    + (command ? ' To update, run this in a terminal: ' + command : '');
 }
 
 let installStarted = false;
