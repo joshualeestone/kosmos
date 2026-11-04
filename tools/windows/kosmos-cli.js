@@ -2367,7 +2367,7 @@ async function agentRoleDraft(ctx, args) {
    the report store is local (engine/feedback.js), so they work with no board. */
 const FEEDBACK_WRITE_USAGE = 'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin; --unchanged [text] when nothing is new)';
 async function feedbackWrite(ctx, args) {
-  /* kosmos#7886 item 6, as install/kosmos: --unchanged, first, points back to this writer's latest earlier report. */
+  /* kosmos#7886 item 6, as install/kosmos: --unchanged points back to this writer's latest earlier report. */
   const dd = args.indexOf('--');
   const before = dd < 0 ? args : args.slice(0, dd);
   const unchangedAsked = before.includes('--unchanged');   // anywhere before a bare --, as `kosmos task ran` takes it

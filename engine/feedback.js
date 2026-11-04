@@ -383,7 +383,8 @@ function reportsForTriage(opts) {
  * report was yesterday's repeated. This points back to the writer's own latest earlier report instead, by its date,
  * with an optional line of its own.
  * - The writer's OWN section only (the same key match write() uses), so one agent's report is never claimed by another.
- * - An earlier pointer is followed to the report it names, so a run of unchanged days all point at the real report.
+ * - An earlier BARE pointer is followed to the report it names, so a run of unchanged days all point at the real report.
+ *   A pointer with a line added carries something new that day, so it is pointed at, not skipped.
  * - Refused ({ ok: false, why: 'today' }) when the writer already saved a report today: write() would replace it.
  * - Refused ({ ok: false, why: 'none' }) with no earlier report to point back to. A named agent whose only earlier
  *   report predates #5317 (stored with no section marker, so it is the unnamed section) is refused too: the safe way.
@@ -392,7 +393,7 @@ function reportsForTriage(opts) {
  * the pointer names the day, not which report of it; and it cannot know whether that earlier report was sent (sending
  * switched off, or a send that failed), so the team may get a pointer to a report it never received.
  */
-const POINTER_RE = /^Nothing new since my report of (\d{4}-\d{2}-\d{2})\./;
+const POINTER_RE = /^Nothing new since my report of (\d{4}-\d{2}-\d{2})\.$/;   // the whole text: bare, no line added
 function unchanged(from, note, date) {
   const day = date ? assertDate(date) : today();
   const key = writerKey(from).toLowerCase();
@@ -407,7 +408,7 @@ function unchanged(from, note, date) {
     if (d >= day) continue;
     const text = mineOn(d);
     if (text == null) continue;
-    const m = text.match(POINTER_RE);
+    const m = text.trim().match(POINTER_RE);
     const since = m && m[1] < d ? m[1] : d;
     const extra = String(note == null ? '' : note).trim();
     return { ok: true, since, day, body: 'Nothing new since my report of ' + since + '.' + (extra ? ' ' + extra : '') };

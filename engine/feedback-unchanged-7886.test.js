@@ -45,11 +45,13 @@ test('a report already saved today is refused, so --unchanged never replaces it'
   assert.equal(fb.unchanged('mara', '', TODAY).why, 'none', 'CONTROL: another writer is not blocked by leo\'s report');
 });
 
-test('an earlier pointer is followed to the report it names', () => {
+test('a bare earlier pointer is followed to the report it names; one with a line added is pointed at', () => {
   fresh();
   fb.write('the real report', { from: 'leo', date: '2026-10-30' });
   fb.write(fb.unchanged('leo', '', '2026-10-31').body, { from: 'leo', date: '2026-10-31' });
-  fb.write(fb.unchanged('leo', 'still nothing', '2026-11-01').body, { from: 'leo', date: '2026-11-01' });
+  const bare = fb.unchanged('leo', '', '2026-11-01');
+  assert.equal(bare.since, '2026-10-30', 'a bare pointer was pointed at instead of followed: ' + bare.body);
+  fb.write(fb.unchanged('leo', 'one new thing', '2026-11-01').body, { from: 'leo', date: '2026-11-01' });
   const u = fb.unchanged('leo', '', TODAY);
-  assert.equal(u.since, '2026-10-30', 'a pointer pointed at a pointer: ' + u.body);
+  assert.equal(u.since, '2026-11-01', 'a pointer that carried a new line was skipped: ' + u.body);
 });

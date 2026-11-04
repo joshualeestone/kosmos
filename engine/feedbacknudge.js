@@ -111,7 +111,7 @@ function nudgeText() {
     '4. How are tasks going? In your own words; no task counts, titles or contents.',
     'No usernames, agent names or project names, and never a key, token or password (redact any in an error you quote).',
     'If `kosmos feedback show` already has a note for today, leave it.',
-    'If nothing has changed since your last report (`kosmos feedback list` and `kosmos feedback show <date>` show it),',
+    'If nothing has changed since your last report (see it with `kosmos feedback list` and `kosmos feedback show <date>`),',
     'run `kosmos feedback write --unchanged` instead of repeating it (add a line after it if there is one new thing).',
   ].join(' ');
 }
