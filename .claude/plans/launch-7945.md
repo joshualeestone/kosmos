@@ -30,8 +30,13 @@ first screen's loading mark.
 - CONTROL: the same recording before the simulator was erased showed navy (17,33,61) for about a second, from iOS's
   cached launch snapshot of the old build. So the recording can see navy.
 - ios/tools/render-launch-orb.sh draws the six PNGs from OrbLogic, one path per opacity group as KosmosOrb does;
-  LogicTests/run-orb.sh draws them again and fails if the committed ones differ (CI runs it).
+  LogicTests/run-orb.sh draws them again and compares the decoded pixels with the committed ones (a few levels of
+  tolerance, so another toolchain's encoding does not fail it; a changed orb does). CI runs it.
+  Controls: a swapped PNG fails (63718 channels off); OrbLogic's seed 7 changed to 8 fails all six (23912 to
+  228027 channels off); the real orb passes.
 
 ## Not measured
 A real iPhone. iOS caches launch screens per app: a phone that already had the navy one may show it once more
 until iOS refreshes its snapshot after the update (on the simulator only an erase cleared it).
+The biometric lock screen (off by default) draws on the system background, not the launch ground, so with the
+lock on, launch hands off with a slight shift (white vs #faf9f7). Not changed here.
