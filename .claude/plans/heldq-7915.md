@@ -24,6 +24,12 @@ holding if they say so.
 - [x] Tests: engine/heldq-7915.test.js, cli.heldq-7915.test.js, a #7915 case in server.phonenotify-718.test.js;
       server.answeredq-5943.test.js pin updated. Every piece mutated red (20 mutations).
 
+## Accepted residual (challenge-loop round 1)
+The project card's pill and the need-you counts still count a held question, and the project pill reads the calm
+"Question" (the same calm look as the agent card), not "Question held". The card asked that nothing be lost, and the
+counts are where it stays visible; only the agent card's word changes. Carrying `stateHeld` into
+projects.js summary and the page's project pill is a follow-up if a person finds the count noisy while away.
+
 ## Weakest premise
 That the person's next direct message means they are back. The note leaves "keep holding" to the agent.
 

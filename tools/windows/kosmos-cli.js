@@ -985,9 +985,9 @@ async function verbReport(ctx, args, opts) {
      from the parsed flag, as on the Mac, so a note that mentions --auto is still a note. */
   if (opts && opts.clear && f.auto) { ctx.err('kosmos report clear is something you do yourself, so it takes no --auto.'); return 2; }
   const text = left.join(' ');
+  if (!state) { ctx.err(USAGE.report); return 2; }
   /* #7915, as install/kosmos: --held means something only on a needs_you. */
   if (f.held && state !== 'needs_you') { ctx.err('--held goes only with needs_you: kosmos report needs_you --held \'<your question>\' holds a question until the person is back.'); return 2; }
-  if (!state) { ctx.err(USAGE.report); return 2; }
   /* #2001, as install/kosmos: the two states that summon a person need something
      a person can act on. */
   if ((state === 'blocked' || state === 'needs_you') && !(f.on + f.owner + text).trim()) {
