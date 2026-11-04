@@ -57,8 +57,7 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
     A box that reads empty or unread (a backlog draining, a menu or quota hold), a missing card, a throw, or a caller
     that passes no boxIsReason all keep the day;
   - no notice in a sweep that found the agent released (its box read clear);
-  - a notice that did not land is tried again no sooner than STILL_RETRY_MS (15 min), so Kosmos's own retries cannot
-    make up a sender's stall streak (3 failures within 30 minutes);
+  - a notice that did not land is tried again no sooner than STILL_RETRY_MS (15 min);
   - a bad reset is never told as "two hours"; the file's doc comments name the 2-hour rule.
 - Review 4:
   - the receipts say "after 2 hours with the box still full", since the clock restarts while the box is not the only
@@ -71,6 +70,11 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
   so it counts as the box being the reason (the sentence stays true); the retry stamp uses the real clock where the sweep
   passes `now` (the same in production); a notice that fails after its message left the queue leaves one map entry.
 - Review 6: a task line kept behind an input-held message gets no 2-hour clause in its receipt (it keeps the day).
+- Review 7: spacing alone did not keep Kosmos's notices under a stall alert (deliverystreak.stallOf: 3 failures over a
+  streak of 30 minutes; one notice retried at 0, 15 and 30 reaches it, and several messages from one sender add up). A
+  sender with STILL_FAILS_MAX (2) notices that did not land gets no more until one lands; the drop notice still comes. The
+  "keeps the day" tests were rebuilt so the first-sweep rule cannot pass them on its own: each starts the clock at
+  arrival with the box as the reason, then reports the limit or the doubt; a mutation with boxIsReason ignored fails them.
 
 ## Tests
 
