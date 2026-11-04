@@ -7428,8 +7428,12 @@ cmd_agent() {
       rm_plan=$(printf '%s' "$body" | "$_node" -e "$_rmparse"'const loses=Array.isArray(j.loses)?j.loses:[];const keeps=Array.isArray(j.keeps)?j.keeps:[];console.log([j.ok===true?"ok":"no",one(j.label||j.name),one(j.because||j.error),loses.some((l)=>/put it back/.test(l))?"back":""].join("\t"));if(j.ok!==true)return;if(j.hint)console.log(one(j.hint));if(loses.length)console.log("It loses: "+loses.map(one).join("; ")+".");if(keeps.length)console.log("It keeps: "+keeps.map(one).join("; ")+".")})') \
         || { say "Kosmos gave an answer we could not read when asked about removing $rm_name."; exit 1; }
       # cut, not `IFS=<tab> read`: a tab is whitespace to read, so an empty field would take the next one's value.
-      rm_ok=$(printf '%s\n' "$rm_plan" | head -n 1 | cut -f1); rm_label=$(printf '%s\n' "$rm_plan" | head -n 1 | cut -f2)
-      rm_why=$(printf '%s\n' "$rm_plan" | head -n 1 | cut -f3); rm_back=$(printf '%s\n' "$rm_plan" | head -n 1 | cut -f4)
+      # kosmos#7946: no `printf | head -n 1` here. head exits on its first line, and under pipefail and set -e a
+      # producer that takes SIGPIPE ends the whole command with 141 before anything is sent or said (seen on macOS CI).
+      # The first line comes from parameter expansion, and cut reads a here-string: no pipe for an early reader to close.
+      local rm_head="${rm_plan%%$'\n'*}"
+      rm_ok=$(cut -f1 <<<"$rm_head"); rm_label=$(cut -f2 <<<"$rm_head")
+      rm_why=$(cut -f3 <<<"$rm_head"); rm_back=$(cut -f4 <<<"$rm_head")
       if [ "$rm_ok" != ok ]; then
         while [[ "$rm_why" == *[.[:space:]] ]]; do rm_why="${rm_why%?}"; done
         rm_why="${rm_why:-it did not say why}"
