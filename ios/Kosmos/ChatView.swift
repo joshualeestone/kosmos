@@ -86,7 +86,7 @@ struct ChatView: View {
     @State private var epoch = 0
     @State private var lastPendingCount = 0
     @State private var keepNewestInView = true
-    @State private var boxAskedAt: Date?   // kosmos#7420: the last did-show or box change that asked the settled looks
+    @State private var boxAskedAt: Date?   // kosmos#7420: the last did-show or box change that asked the settled looks (nil after will-hide or another chat)
     @State private var kbSettleTick = 0   // kosmos#7817/#7420: the latest settle ask or will-hide; older looks stand down
     // kosmos#7016: a lasting choice pressed once (armed until a second press, another press, 15 s, or leaving the chat),
     // the line a press left for its question (not sure it went, or the Mac's refusal), and the line over the composer
@@ -410,6 +410,7 @@ struct ChatView: View {
         .onChange(of: client.chatEpoch) { now in
             diagDone = false; diagWideDone = false; diagReport = nil; diagRebuilt = false   // kosmos#7420 review 1: another account or computer is a new chat
             diagThreadAt = nil; diagEverDrew = false   // review 4
+            boxAskedAt = nil   // kosmos#7420 review 7: a box change in the chat before is not this one's
             // kosmos#7575 review 1: what one computer saw is dropped, never sent to another's board (deliberately lost).
             shifts.reset(); shifts.attach(send: shiftSender())
             dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
@@ -810,7 +811,7 @@ struct ChatView: View {
                 // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                     // kosmos#7817/#7420: a keyboard going down (on screen or not) cancels every settled look still waiting.
-                    kbSettleTick &+= 1
+                    kbSettleTick &+= 1; boxAskedAt = nil
                     if visible { diagKeyboard = 0; Self.trace("keyboard down") }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
@@ -1052,10 +1053,12 @@ struct ChatView: View {
     // kosmos#7817: at a settled look (settleAtNewest), a list read past its end is put back at its end, then at the newest
     // message, unless a search is typed, another ask or a will-hide came, the chat or its list changed, or a finger (or a
     // fling) is on it at that look. kosmos#7420: within the content at the newest, see below.
-    private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int, boxMoved: Bool) {
+    // again: the one look after this function's own id scroll, which only puts back a landing past the end (review 7).
+    private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int, boxMoved: Bool, again: Bool = false) {
         guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching else { return }
         let place = scrollBox.reading()?.place ?? "unread"
         guard place == "past the end" else {
+            if again { return }
             // kosmos#7420 (build 33, 18:51): within the content at the newest message, with the end not showing, nothing drawn
             // (the estimate's stretch with no rows), or the offset short of the end by more than the list's own bottom
             // padding (the simulator, 11-03: the newest 19 pt under the grown box while the end marker read as showing).
@@ -1074,13 +1077,19 @@ struct ChatView: View {
                         // Review 2: nor while a chat is still opening and has drawn nothing yet (slow, not blank; diagCheck's).
                         // Review 3: nor with the end showing (a pending bubble can fill the list), nor with the app not active,
                         // as diagCheck. It spends recoverEmpty's own per-open budget (rebuildsMax).
-                        guard !endVisible, scenePhase == .active, !(thread?.rows.isEmpty ?? true), endSeen || diagEverDrew else { return }
+                        guard !endVisible, scenePhase == .active, !(thread?.rows.isEmpty ?? true), endSeen || diagEverDrew else {
+                            Self.trace("keyboard settled: within, nothing drawn"); return
+                        }
                         Self.trace("keyboard settled: within, nothing drawn, rebuilt")
                         recoverEmpty(proxy)
                     } else {
                         Self.trace("keyboard settled: the newest not showing (short \(Int(short)) pt), back to it")
                         // As did-show (#7344): an anchor already reading "end" is scrolled to, not only set again.
                         if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
+                        // Review 7: an id scroll against an estimate can land past the end (build 29's follow); look once more.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {
+                            settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: false, again: true)
+                        }
                     }
                 } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn") }
             } else if place != "within" { Self.trace("keyboard settled: \(place)") }
