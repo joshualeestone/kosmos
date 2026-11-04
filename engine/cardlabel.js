@@ -99,7 +99,7 @@ function toneOf(a, needsPerson) {
    is present by being on the roster and tied (review 2: the tie gate is for crediting a wait to a project, which Today
    does not do; an untied pane whose reconnect gave up is on Today, and its reason is gave_up). Without them every
    reason but the question fell to 'other' (review 1, measured on real rows). */
-const NEEDS_REASONS = ['question', 'permission', 'waiting', 'restart_failed', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate',
+const NEEDS_REASONS = ['question', 'held' /* #7924 */, 'permission', 'waiting', 'restart_failed', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'stuck_rate',
   'own_bound', 'other'];
 function reasonOf(a, needsPerson) {
   const tone = toneOf(a, needsPerson);
@@ -110,6 +110,9 @@ function reasonOf(a, needsPerson) {
   if (a.running === false && a.needsTrust === true) return 'trust';
   if (a.crashLoop && a.crashLoop.looping === true) return 'crash_loop';
   if (a.state === 'needs_you') {
+    /* #7924: the agent's own question held until the person is back, by the one rule every held surface reads
+       (projects.heldOwnQuestion), so Today says it is held, with no age, under the card word Question held. */
+    if (require('./projects').heldOwnQuestion(a)) return 'held';
     if (a.stateReportedBy === 'agent') return 'question';   // labelOf's order: the card's word is Question (or Question held)
     // Mona Lisa, 10-24: a wait read off the screen that is neither the agent's question nor a permission prompt (a Codex
     // hooks screen, the safeguards menu) is 'waiting' ("Waiting for you. Open it to see what it shows."), never
