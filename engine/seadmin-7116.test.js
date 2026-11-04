@@ -464,7 +464,19 @@ test('#7892: a zero-width joiner or non-joiner inside a Persian or Indic word is
     // Two joining scripts either side, and a virama of another script.
     ['\u0645\u200C\u0915', '\u0645\\u{200C}\u0915'],
     ['\u0645\u094D\u200D\u06CC', '\u0645\u094D\\u{200D}\u06CC'],
+    // A tatweel either side (Joining_Type C, not D); dal before (R: never joins forward); a ZWNJ then a ZWJ; a virama
+    // at the very start; Tamil, which has no half forms.
+    ['\u0628\u0640\u200C\u0628', '\u0628\u0640\\u{200C}\u0628'],
+    ['\u0628\u200C\u0640\u0628', '\u0628\\u{200C}\u0640\u0628'],
+    ['\u062F\u200C\u0628', '\u062F\\u{200C}\u0628'],
+    ['\u0628\u200C\u200D\u0628', '\u0628\\u{200C}\\u{200D}\u0628'],
+    ['\u094D\u200D\u0937', '\u094D\\u{200D}\u0937'],
+    ['\u0B95\u0BCD\u200D\u0BB7', '\u0B95\u0BCD\\u{200D}\u0BB7'],
   ]) assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // More spelling that stays: a ZWNJ before an R letter (beh, ZWNJ, alef), and one after an Arabic-extended D letter
+  // (heh goal U+06C1).
+  for (const org of ['\u0628\u200C\u0627', '\u06C1\u200C\u0628'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
   // More spelling that stays: a Persian ZWNJ after a harakah, and a Bengali ZWNJ after its virama.
   for (const org of ['\u0628\u064E\u200C\u0628', '\u0995\u09CD\u200C\u09B7'])
     assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));

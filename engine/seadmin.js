@@ -206,8 +206,8 @@ function fingerprintDisplay(fp) {
 /* kosmos#7892 (round-8 WARNING 1 of #7116): decoded text goes on the screen that asks a person to sign, and the only
    check on it is valid UTF-8, so a hostile coordinator could make two orgs or admins look alike. shownText() is what
    the screen shows instead of the raw string:
-   - every control, format (bidi overrides and isolates, zero-width characters except a joiner that spells, below; the
-     BOM, the soft hyphen), line or
+   - every control, format (bidi overrides and isolates, zero-width characters, the BOM, the soft hyphen; the one
+     exception is a joiner that spells a word, below), line or
      paragraph separator, private-use or unassigned code point, every default-ignorable code point (variation
      selectors, the combining grapheme joiner, the Hangul fillers: invisible marks and letters), the characters that
      draw as a blank or a box (U+2800 braille blank, U+FFFC object replacement, U+FFFD replacement), and every space
@@ -245,22 +245,25 @@ function scriptOf(ch) {
 }
 // kosmos#7892: Persian, Arabic-script and Indic words use the zero-width non-joiner and joiner as spelling (Persian
 // "mi" + U+200C + "khaham", Hindi half forms). One of them is kept as it is, and does not mark the text, only where it
-// changes how the word looks, after IDNA's ContextJ rule (RFC 5892 A.1 and A.2): a ZWJ or ZWNJ straight after a
+// can change how the word looks, after IDNA's ContextJ rule (RFC 5892 A.1 and A.2): a ZWJ or ZWNJ straight after a
 // virama, with a letter of the virama's script before it and after the joiner; or a ZWNJ between an Arabic letter that
-// joins forward and one that joins back (harakat may sit between). Anywhere else it is escaped and marked as before:
-// after an alef, between letters that join anyway, in Indic text with no virama, in a Latin name, between two scripts.
-// The scripts are deliberately partial (Syriac, Mongolian, N'Ko, Thaana and the rest still escape every joiner).
+// joins forward and one that joins back (harakat may sit before the ZWNJ, not after it). Anywhere else it is escaped
+// and marked as before: after an alef or a tatweel, between letters that join anyway, in Indic text with no virama, in
+// a Latin name, between two scripts. The scripts are deliberately partial: Tamil is left out (no half forms, so a
+// joiner after its virama changes nothing), as are Syriac, Mongolian, N'Ko, Thaana and the rest. Known residual: in
+// the scripts kept, a font that draws no conjunct or half form shows the two spellings alike.
 const VIRAMAS = [['Devanagari', '\u094D'], ['Bengali', '\u09CD'], ['Gurmukhi', '\u0A4D'], ['Gujarati', '\u0ACD'],
-  ['Oriya', '\u0B4D'], ['Tamil', '\u0BCD'], ['Telugu', '\u0C4D'], ['Kannada', '\u0CCD'], ['Malayalam', '\u0D4D'],
-  ['Sinhala', '\u0DCA']].map(([name, v]) => [new RegExp('^\\p{Script=' + name + '}$', 'u'), v]);
+  ['Oriya', '\u0B4D'], ['Telugu', '\u0C4D'], ['Kannada', '\u0CCD'], ['Malayalam', '\u0D4D'], ['Sinhala', '\u0DCA']].map(([name, v]) => [new RegExp('^\\p{Script=' + name + '}$', 'u'), v]);
 // Arabic letters by Joining_Type (Unicode ArabicShaping.txt): R joins only to the letter before it, U to neither; every
 // other Arabic letter here is D (both ways). Only these ranges count; anything else is not an Arabic joining letter.
+// The tatweel (U+0640, Joining_Type C) and the superscript alef (U+0670, T) are inside the ranges and are excluded.
 const ARABIC_R = new Set([...'\u0622\u0623\u0624\u0625\u0627\u0629\u062F\u0630\u0631\u0632\u0648\u0671\u0672\u0673\u0675\u0676\u0677',
   ...Array.from({ length: 0x0699 - 0x0688 + 1 }, (_, k) => String.fromCodePoint(0x0688 + k)),
   ...'\u06C0\u06C3\u06C4\u06C5\u06C6\u06C7\u06C8\u06C9\u06CA\u06CB\u06CD\u06CF\u06D2\u06D3\u06D5\u06EE\u06EF',
   ...'\u0759\u075A\u075B\u076B\u076C\u0771\u0773\u0774\u0778\u0779']);
 const ARABIC_U = new Set(['\u0621', '\u0674']);
-const arabicLetter = (c) => !!c && /^[\u0620-\u064A\u066E-\u06D3\u06D5\u06EE\u06EF\u06FA-\u06FC\u06FF\u0750-\u077F]$/u.test(c);
+const arabicLetter = (c) => !!c && c !== '\u0640' && c !== '\u0670'
+  && /^[\u0620-\u064A\u066E-\u06D3\u06D5\u06EE\u06EF\u06FA-\u06FC\u06FF\u0750-\u077F]$/u.test(c);
 const joinsBack = (c) => arabicLetter(c) && !ARABIC_U.has(c);                 // R or D
 const joinsForward = (c) => joinsBack(c) && !ARABIC_R.has(c);                 // D
 function joinerInWord(chars, i) {
