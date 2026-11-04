@@ -18667,6 +18667,7 @@ const server = http.createServer(async (req, res) => {
           if (rep.on) detail.push('on ' + rep.on);
           if (rep.owner) detail.push('owner ' + rep.owner);
           if (rep.until) detail.push('until ' + rep.until);
+          if (rep.held === true) detail.push('held until the person is back');   // #7915
           line = 'You are currently: ' + rep.state + (detail.length ? ' (' + detail.join(', ') + ')' : '') + '.';
           if (rep.at) line += ' Set ' + rep.at + '.';
           if (stale) {
@@ -18784,6 +18785,16 @@ const server = http.createServer(async (req, res) => {
           const bad = new Error('that request is not the shape we expect');
           bad.status = 400; throw bad;
         }
+        /* #7915: `held` (a question held until the person returns) is a strict boolean and means something only on a
+           needs_you. Refused rather than ignored, so a caller that sends it elsewhere learns it did nothing. */
+        if (body.held !== undefined && typeof body.held !== 'boolean') {
+          const bad = new Error('held must be true or false');
+          bad.status = 400; throw bad;
+        }
+        if (body.held === true && body.state !== 'needs_you') {
+          const bad = new Error('--held goes only with needs_you: it holds a question until the person is back');
+          bad.status = 400; throw bad;
+        }
         const roster = safeRoster();
         if (roster === null) {
           sendJson(res, 200, { recorded: false, because: 'we could not check which agents are running, so we could not tell who this is from' });
@@ -18816,7 +18827,8 @@ const server = http.createServer(async (req, res) => {
         let wasNeedsYou = false;
         try {
           const prior = selfreport.read(who);
-          wasNeedsYou = !!(prior && prior.found === true && prior.state === 'needs_you');
+          /* #7915: a HELD question was never buzzed, so asking it for real afterwards is the change that buzzes. */
+          wasNeedsYou = !!(prior && prior.found === true && prior.state === 'needs_you' && prior.held !== true);
         } catch { /* unknown reads as a change */ }
         /* #4733: the setup guide's words are masked in each field selfreport stores as text; any other agent's
            pass as they came. Before the store caps them, so a cut can never leave part of a key behind. */
@@ -18835,6 +18847,7 @@ const server = http.createServer(async (req, res) => {
           on: said(body.on),
           owner: said(body.owner),
           until: said(body.until),
+          held: body.held === true,   // #7915
           /* #570: which RUN said it, when the sender came from a launch token.
              The pane arm resolves no instance and leaves this undefined. */
           instance: sender.instance,
@@ -18943,7 +18956,8 @@ const server = http.createServer(async (req, res) => {
         }
         // #718: phone notifications, only when the person turned them on
         // (engine/phonenotify.js). Never the report's words.
-        if (body.state === 'needs_you' && !wasNeedsYou) {
+        // #7915: a held question does not buzz; the person asked not to be asked until they are back.
+        if (body.state === 'needs_you' && body.held !== true && !wasNeedsYou) {
           // The project this report stands under, stated or carried forward (a
           // permission hook's needs_you names none), shown by its name.
           let projectName = null;
@@ -18968,7 +18982,7 @@ const server = http.createServer(async (req, res) => {
           for (const c of roster || []) for (const n of [c && c.sessionName, c && c.name]) if (typeof n === 'string' && n) agentNames.push(n);
           note = selfreport.blockedOwnerNote(body.state, body.owner, { personName, agentNames });
         } catch { note = ''; }
-        if (body.state === 'needs_you' && body.auto !== true) note = selfreport.NEEDS_YOU_ASK_NOTE;   // #5943: an agent asking, not a hook
+        if (body.state === 'needs_you' && body.auto !== true) note = body.held === true ? selfreport.NEEDS_YOU_HELD_NOTE : selfreport.NEEDS_YOU_ASK_NOTE;   // #5943: an agent asking, not a hook
         sendJson(res, 200, note ? { recorded: true, note } : { recorded: true });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
@@ -20689,7 +20703,8 @@ const server = http.createServer(async (req, res) => {
           try { rep = selfreport.read(askingCard.sessionName); } catch { rep = null; }
           if (rep && rep.found && rep.state === 'needs_you' && !selfreport.isAutoPermissionWait(rep) && rep.askedAt
             && !chat.dmQuestionTold(askingCard.sessionName, rep.askedAt)) {
-            questionNote = chat.dmStandingQuestionNote(rep.because || askingCard.because);   // the fresh report's words (review 2)
+            // #7915: a question held until the person is back gets the held words: they are back, so ask it or keep holding.
+            questionNote = chat.dmStandingQuestionNote(rep.because || askingCard.because, { held: rep.held === true });   // the fresh report's words (review 2)
             questionAsk = rep.askedAt;
           }
         }

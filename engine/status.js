@@ -8753,7 +8753,8 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
        (by:'auto', class 1). Only the KNOWN 'agent' case is de-alarmed downstream; 'auto',
        'operator' and null (legacy, provenance unknown -- selfreport.js:389) stay red, which
        is the safe direction. Read-only passthrough: it changes no state decision here. */
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said(ASKING_GENERIC), reported: true, conflict: null, by: reported.by || null, ...project };
+    /* #7915: `held` (the agent holds this question until the person is back) rides along; the card's label reads it. */
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said(ASKING_GENERIC), reported: true, conflict: null, by: reported.by || null, held: reported.held === true, ...project };
   }
   if (reported.state === 'blocked') {
     /* #5948: on a non-Claude card, the automatic sign-in line reads auth_failed, so accountProblemOf and
@@ -8969,6 +8970,7 @@ function panelessCard(key, nowMs, defaultStatus, disruptionRec) {
        when the report carried no `by` (legacy/unknown provenance, which stays alarmed and is by
        definition not a class-2 question). See the pane card below (the #188 stateReported field). */
     stateReportedBy: status.by || null,
+    stateHeld: status.held === true,   // #7915: a question held until the person is back
     awaitingApproval: false,   // #6091: no screen, so no permission prompt to read; carried for one card shape
     /* 📌 ALWAYS `false` HERE, AND SAYING SO IS THE POINT. `panelessCard` reconciles
        against `PANELESS_DEFAULT` / `NEVER_RUN_DEFAULT`, neither of which carries
@@ -9884,6 +9886,7 @@ function snapshot() {
          "app broken"), 'operator'/null = unknown provenance, left alarmed. Null for a scraped
          (not self-reported) state, so a scrape stays red. */
       stateReportedBy: status.by || null,
+      stateHeld: status.held === true,   // #7915: a question held until the person is back (engine/cardlabel.js)
       awaitingApproval: awaitingApprovalOf(scrapedStatus, status),   // #6091: the page's "Needs permission" (#6727)
       /* #1889. `working` because the screen says the agent is waiting on a
          BACKGROUND agent, which is a different fact from `working` mid-turn: the

@@ -70,6 +70,9 @@ function untilTimeOf(until) {
   return null;
 }
 function untilDefers(rep, now) {
+  /* #7915: a question held until the person is back waits on purpose for as long as they are away, so it is never
+     stale; the next direct message from them is what ends the hold (engine/chat.js dmStandingQuestionNote). */
+  if (rep && rep.held === true && rep.state === 'needs_you') return true;
   const until = rep && typeof rep.until === 'string' ? rep.until.trim() : '';
   if (!until) return false;
   const when = untilTimeOf(until);
@@ -383,6 +386,11 @@ function record(sessionName, entry) {
     on,
     owner,
     until: capped(entry.until, CAPS.until),
+    /* #7915: a question held until the person returns (`kosmos report needs_you --held`). Kept only on a needs_you
+       and only when true, so every other line is unchanged; read() exposes it. While it stands the phone does not
+       buzz, the Recommender does not convene, the card says it is held, and the next direct message from the person
+       carries a note saying they are back. */
+    held: state === 'needs_you' && entry.held === true ? true : undefined,
     /* #763: the project this report is about (a project id), when the agent
        says. A needs_you that names one lights that project alone; one that
        names none lights no project and is read on the Agents page. */
@@ -563,6 +571,7 @@ function latestOf(rows, cut) {
     on: wellFormed(latest.on),
     owner: wellFormed(latest.owner),
     until: latest.until || null,
+    held: latest.state === 'needs_you' && latest.held === true,   // #7915
     at: latest.at || null,
     // #5943: null unless the latest report waits on a person (see the loop above).
     // Not known (null) rather than too recent: a run that begins at the first line of a CUT tail began earlier (Mona Lisa).
@@ -689,6 +698,10 @@ const PERSON_WORDS = /^(?:(?:the|my|our|your) )?(?:person|human|user|operator|bo
 const NEEDS_YOU_ASK_NOTE = 'Before a person has to answer this: can you undo it yourself? Can you undo it before anyone acts on it? '
   + 'If both are yes, decide it, tell them what you decided, and run: kosmos report clear. '
   + 'When they answer, wherever they answer, run: kosmos report clear.';
+/* #7915: said back on `kosmos report needs_you --held`. Same rule as above: no quote or backslash. */
+const NEEDS_YOU_HELD_NOTE = 'Held: the board shows this question as held until the person is back, and nothing buzzes or follows it up. '
+  + 'When they next write to you, you are told; ask it then by running kosmos report needs_you again without --held, '
+  + 'or keep holding it if they say so. When it is settled, run: kosmos report clear.';
 const BLOCKED_PERSON_NOTE = 'Note: that owner looks like a person, and blocked is never followed up or escalated. '
   + 'If a person must decide or act, report it this way instead, and Kosmos follows it up: kosmos report needs_you \'<your question>\'';
 function blockedOwnerNote(state, owner, opts) {
@@ -706,4 +719,4 @@ function blockedOwnerNote(state, owner, opts) {
 }
 
 module.exports = { turnTakenOf, TURN_STATES /* #7786 */, STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, untilTimeOf, untilDefers /* kosmos#6683 */, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
-  blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE };
+  blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE, NEEDS_YOU_HELD_NOTE /* #7915 */ };

@@ -1031,3 +1031,29 @@ test('#7212 a stall push and a needs-you buzz for one agent do not share a coold
   phonenotify.happened({ kind: 'needs_you', id: 'report:2:leo', agent: 'leo', session: 'leo', project: null });
   assert.equal(sent.length, 2, 'CONTROL: each class still keeps its own window');
 });
+
+/* kosmos#7915: a question held until the person is back (`kosmos report needs_you --held`) does not buzz, and asking it
+   for real afterwards is the change that does. The route refuses held off a needs_you, and anything but a boolean. */
+test('#7915 a held needs_you does not buzz; asking it for real then does; held is refused anywhere else', async () => {
+  enrol();
+  await call('PUT', '/api/phone-notify', { body: { on: true } });
+  await withLeo(async (h) => {
+    const held = await call('POST', '/api/report', { headers: h, body: { state: 'needs_you', text: 'THE REPORT WORDS', held: true } });
+    assert.equal(held.json.recorded, true);
+    assert.equal(held.json.note, selfreport.NEEDS_YOU_HELD_NOTE, 'the held question is told it is held');
+    assert.equal(selfreport.read(WHO).held, true);
+    assert.equal(sent.length, 0, 'a held question buzzed the phone');
+    const asked = await report(h, 'needs_you');   // the same question, now asked
+    assert.equal(asked.json.note, selfreport.NEEDS_YOU_ASK_NOTE, 'CONTROL: an unheld question gets the asking note');
+    assert.equal(selfreport.read(WHO).held, false);
+    assert.equal(sent.length, 1, 'asking a held question for real did not buzz');
+    assert.equal(sent[0].body.kind, 'needs_you');
+    const off = await call('POST', '/api/report', { headers: h, body: { state: 'working', text: 'x', held: true } });
+    assert.equal(off.code, 400);
+    assert.match(off.json.error, /--held goes only with needs_you/);
+    const bad = await call('POST', '/api/report', { headers: h, body: { state: 'needs_you', text: 'x', held: 'yes' } });
+    assert.equal(bad.code, 400);
+    assert.match(bad.json.error, /held must be true or false/);
+    assert.equal(selfreport.read(WHO).held, false, 'a refused report recorded nothing');
+  });
+});
