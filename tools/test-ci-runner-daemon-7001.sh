@@ -314,18 +314,18 @@ PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')
   && pass "the printed put-back pasted again refuses and leaves the agent it put back" || fail "pbtwice: [$PBOUT] agent $(ls -l "$AG" 2>&1)"
 # An agent already there (a svc.sh install) with the retired copy still parked: the put-back never writes over it.
 cp "$AG" "$RF"; printf 'reinstalled\n' > "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-[ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it (a copy cut short, or a newer install); to put $RF back anyway, keep that one under another name first: test ! -e $H/$LABEL.plist.newer-20261103T000000Z && test ! -L $H/$LABEL.plist.newer-20261103T000000Z && mv $AG $H/$LABEL.plist.newer-20261103T000000Z || echo not renamed: that name is taken or could not be checked, so pick another free name, then paste this again" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
+[ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it (a copy cut short, or a newer install); to put $RF back anyway, keep that one under another name first, then paste this again. If the rename says the name is taken, use another free name in place of $H/$LABEL.plist.newer-20261103T000000Z, all three times it appears: test ! -e $H/$LABEL.plist.newer-20261103T000000Z && test ! -L $H/$LABEL.plist.newer-20261103T000000Z && mv $AG $H/$LABEL.plist.newer-20261103T000000Z || echo not renamed: that name is taken or could not be checked" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
   && pass "the printed put-back refuses when an agent is already there, and keeps both files" || fail "pbover: [$PBOUT] agent $(cat "$AG" 2>&1)"
 # kosmos#7887: and the advice works: keep the newer agent under the printed name, paste again, and both are kept.
-NW="$H/$LABEL.plist.newer-20261103T000000Z"; ADV="$(printf '%s' "$PBOUT" | sed -n 's/.*keep that one under another name first: \(.*\), then paste this again.*/\1/p')"; [ -n "$ADV" ] && sh -c "$ADV"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
+NW="$H/$LABEL.plist.newer-20261103T000000Z"; ADV="$(printf '%s' "$PBOUT" | sed -n 's/.*all three times it appears: //p')"; [ -n "$ADV" ] && sh -c "$ADV"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 [ "$PBOUT" = "put back" ] && [ "$(cat "$NW")" = reinstalled ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && [ ! -e "$RF" ] \
   && pass "#7887: following the advice keeps the newer agent and puts the parked one back" || fail "pbfollow: [$PBOUT] newer $(cat "$NW" 2>&1)"
 printf 'other\n' > "$AG"; cp "$AG" "$T/other.bak"; echo x > "$RF"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-ADV2="$(printf '%s' "$PBOUT" | sed -n 's/.*keep that one under another name first: \(.*\), then paste this again.*/\1/p')"; [ -n "$ADV2" ] && sh -c "$ADV2"; [ -n "$ADV2" ] && [ "$(cat "$NW")" = reinstalled ] && cmp -s "$AG" "$T/other.bak" \
+ADV2="$(printf '%s' "$PBOUT" | sed -n 's/.*all three times it appears: //p')"; [ -n "$ADV2" ] && sh -c "$ADV2" >/dev/null; [ -n "$ADV2" ] && [ "$(cat "$NW")" = reinstalled ] && cmp -s "$AG" "$T/other.bak" \
   && pass "#7887: the printed rename never overwrites a name already taken" || fail "pbnoclobber: newer $(cat "$NW" 2>&1) agent $(cat "$AG" 2>&1)"
 # kosmos#7899: that rename says so when its name is taken, and never replaces a symlink at that name (the CI home is
 # writable by a job, so a dangling link there is a real state; test -e alone reads it as free).
-PBTAKEN="not renamed: that name is taken or could not be checked, so pick another free name"
+PBTAKEN="not renamed: that name is taken or could not be checked"
 AOUT="$(sh -c "$ADV2" 2>&1)"
 [ -n "$ADV2" ] && [ "$AOUT" = "$PBTAKEN" ] && [ "$(cat "$NW")" = reinstalled ] && cmp -s "$AG" "$T/other.bak" \
   && pass "#7899: the put-back's rename says so when its name is taken" || fail "pbtaken: [$AOUT]"
@@ -389,14 +389,14 @@ MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
 [ "$MVOUT" = "moved aside, but $AG was not removed: sudo -u kosmos-ci rm $AG" ] && cmp -s "$AG" "$T/agent.good" && cmp -s "$D9" "$T/agent.good" \
   && pass "#7887: a move-aside whose final rm fails says it is moved aside and names the rm" || fail "mvrm: [$MVOUT]"
 : > "$D9"; MVOUT="$(sh -c "$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-[ "$MVOUT" = "NOT finished; $AG is not removed. $D9 is there and not the same as it (a copy cut short, or an earlier parked copy); keep it under another name: test ! -e $D9.earlier && test ! -L $D9.earlier && mv $D9 $D9.earlier || echo not renamed: that name is taken or could not be checked, so run the stage again for a new stamp, then paste this again" ] && cmp -s "$AG" "$T/agent.good" \
+[ "$MVOUT" = "NOT finished; $AG is not removed. $D9 is there and not the same as it (a copy cut short, or an earlier parked copy); keep it under another name, then paste this again. If the rename says the name is taken, run the stage again for a new stamp: test ! -e $D9.earlier && test ! -L $D9.earlier && mv $D9 $D9.earlier || echo not renamed: that name is taken or could not be checked" ] && cmp -s "$AG" "$T/agent.good" \
   && pass "#7887: a move-aside onto a different file at its name keeps the agent and names that file" || fail "mvdiff: [$MVOUT]"
 # kosmos#7887: and the advice works: keep that file under the printed name, paste again, and the agent moves aside.
-ADV="$(printf '%s' "$MVOUT" | sed -n 's/.*keep it under another name: \(.*\), then paste this again.*/\1/p')"; [ -n "$ADV" ] && sh -c "$ADV"; MVOUT="$(sh -c "$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
+ADV="$(printf '%s' "$MVOUT" | sed -n 's/.*run the stage again for a new stamp: //p')"; [ -n "$ADV" ] && sh -c "$ADV"; MVOUT="$(sh -c "$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 [ "$MVOUT" = "moved aside" ] && [ ! -e "$AG" ] && cmp -s "$D9" "$T/agent.good" && [ -e "$D9.earlier" ] \
   && pass "#7887: following the move-aside advice keeps the earlier file and moves the agent aside" || fail "mvfollow: [$MVOUT]"
 printf 'third\n' > "$D9"; : > "$D9.earlier"; cp "$T/agent.good" "$AG"; MVOUT="$(sh -c "$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-ADV="$(printf '%s' "$MVOUT" | sed -n 's/.*keep it under another name: \(.*\), then paste this again.*/\1/p')"; [ -n "$ADV" ] && sh -c "$ADV"
+ADV="$(printf '%s' "$MVOUT" | sed -n 's/.*run the stage again for a new stamp: //p')"; [ -n "$ADV" ] && sh -c "$ADV"
 [ -n "$ADV" ] && [ "$(cat "$D9")" = third ] && [ ! -s "$D9.earlier" ] && pass "#7887: the printed rename never overwrites an earlier kept file" || fail "mvnoclobber: $(cat "$D9" 2>&1)"
 # Round 7: an empty agent cannot be moved aside (nothing to copy); the line says so and to remove it, and following
 # that leaves no agent and nothing wrongly parked.
@@ -415,15 +415,14 @@ rm -f "$AG"; cp "$T/agent.good" "$T/linked-7899.plist"; ln -s "$T/linked-7899.pl
   && pass "#7899: a symlink to a real file at the agent path is not moved through" || fail "mvlivelink: [$MVOUT]"
 rm -f "$AG" "$T/linked-7899.plist"
 # kosmos#7899: the .earlier rename says so when its name is taken, and never replaces a symlink at that name.
-MVTAKEN="not renamed: that name is taken or could not be checked, so run the stage again for a new stamp"
+MVTAKEN="not renamed: that name is taken or could not be checked"
 printf 'third\n' > "$D9"; printf 'kept\n' > "$D9.earlier"; cp "$T/agent.good" "$AG"; MVOUT="$(sh -c "$MVS" 2>&1)"
-ADV="$(printf '%s' "$MVOUT" | sed -n 's/.*keep it under another name: \(.*\), then paste this again.*/\1/p')"; AOUT="$(sh -c "$ADV" 2>&1)"
+ADV="$(printf '%s' "$MVOUT" | sed -n 's/.*run the stage again for a new stamp: //p')"; AOUT="$(sh -c "$ADV" 2>&1)"
 [ -n "$ADV" ] && [ "$AOUT" = "$MVTAKEN" ] && [ "$(cat "$D9")" = third ] && [ "$(cat "$D9.earlier")" = kept ] && cmp -s "$AG" "$T/agent.good" \
   && pass "#7899: the .earlier rename says so when its name is taken" || fail "mvearliertaken: [$AOUT] [$ADV]"
 rm -f "$D9.earlier"; ln -s "$T/nowhere-7899/earlier" "$D9.earlier"; AOUT="$(sh -c "$ADV" 2>&1)"
 [ -n "$ADV" ] && [ "$AOUT" = "$MVTAKEN" ] && [ -L "$D9.earlier" ] && [ "$(cat "$D9")" = third ] \
   && pass "#7899: a dangling symlink at the .earlier name is not replaced" || fail "mvearlierlink: [$AOUT]"
-rm -f "$D9.earlier" "$D9" "$AG"
 rm -f "$D9"
 rm -f "$D9.earlier"
 rm -f "$D9" "$AG"
