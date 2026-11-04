@@ -5596,8 +5596,10 @@ do {
     check(Board.holdReadingFar(moved: 1281, showing: 262), "keyboard hold: moved past the view's height, the reading is not trusted")
     check(Board.holdReadingFar(moved: -1281, showing: 262), "keyboard hold: either way")
     check(!Board.holdReadingFar(moved: 200, showing: 262), "keyboard hold: CONTROL: within a screenful, the reading stands")
-    check(Board.emptyRecovery(later: false, place: "within", scrolling: false) == .newest && Board.emptyRecovery(later: false, place: nil, scrolling: false) == .newest,
-          "the first empty list goes to the newest message as before, the scroll left alone when within or unread")
+    check(Board.emptyRecovery(later: false, place: "within", scrolling: false) == .rebuild && Board.emptyRecovery(later: false, place: nil, scrolling: false) == .newest,
+          "kosmos#7420 (TestFlight 37): the first empty list within the content is rebuilt whatever the anchor; unread goes to the newest")
+    check(Board.emptyRecovery(later: false, place: "within", scrolling: false, canRebuild: false) == .newest,
+          "CONTROL: with the Debug no-rebuild switch the first one goes to the newest as before")
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: false) == .backInsideThenNewest && Board.emptyRecovery(later: false, place: "before the top", scrolling: false) == .backInsideThenNewest,
           "the first one puts a scroll outside its content back first")
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: true) == .newest, "never moves the scroll under a finger")
@@ -5633,8 +5635,9 @@ do {
           && Board.emptyRecovery(later: true, place: "within", scrolling: false, atNewest: true) == .rebuild, "within at the newest: rebuilt")
     check(Board.emptyRecovery(later: false, place: "within", scrolling: true, atNewest: true) == .newest
           && Board.emptyRecovery(later: true, place: "within", scrolling: true, atNewest: true) == .none, "not under a finger")
-    check(Board.emptyRecovery(later: false, place: "within", scrolling: false, atNewest: false) == .newest
-          && Board.emptyRecovery(later: true, place: "within", scrolling: false, atNewest: false) == .none, "not for a reader higher up")
+    check(Board.emptyRecovery(later: false, place: "within", scrolling: false, atNewest: false) == .rebuild
+          && Board.emptyRecovery(later: true, place: "within", scrolling: false, atNewest: false) == .none,
+          "TestFlight 37: the reported blank is rebuilt for a reader higher up too; a later automatic look leaves them")
     check(Board.emptyRecovery(later: true, place: "past the end", scrolling: false, atNewest: true) == .backInsideThenNewest
           && Board.emptyRecovery(later: false, place: nil, scrolling: false, atNewest: true) == .newest, "outside the content or unread: as before")
 

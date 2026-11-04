@@ -525,8 +525,11 @@ enum Board {
     static let rebuildSpacing: Double = 2
     static let diagCheckWaits: [Double] = [0.5, 1.5]
     static var rebuildTimingHolds: Bool { rebuildGrace + rebuildCheckBump + (diagCheckWaits.min() ?? 0) >= rebuildSpacing }
-    static func emptyRecovery(later: Bool, place: String?, scrolling: Bool, atNewest: Bool = false) -> EmptyRecovery {
-        if !scrolling && atNewest && place == "within" { return .rebuild }
+    // kosmos#7420 (TestFlight 37, Josh 11-04 08:07): the reported blank (the first, `later` false) is rebuilt whatever the
+    // reader's place: going to the newest by id lands in the same undrawn stretch (build 34) and a reader who had scrolled
+    // was left blank. A later automatic look still rebuilds only at the newest. `canRebuild` false: the Debug control.
+    static func emptyRecovery(later: Bool, place: String?, scrolling: Bool, atNewest: Bool = false, canRebuild: Bool = true) -> EmptyRecovery {
+        if !scrolling && canRebuild && place == "within" && (atNewest || !later) { return .rebuild }
         if later { return !scrolling && place == "past the end" ? .backInsideThenNewest : .none }
         return !scrolling && (place == "past the end" || place == "before the top") ? .backInsideThenNewest : .newest
     }
