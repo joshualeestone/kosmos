@@ -78,6 +78,15 @@ the served installer is what the #7933 leg does successfully.
 - NITs fixed: the Copy button is named "Copy the update command"; the command arm is gated on Linux by name (a
   freebsd board gets nothing; that mutant is red). Kept: the hidden button's data-act (as the Windows arm).
 
+## Review round 6 (sonnet)
+- WARNING: the person's terminal could be a pane inside Kosmos, which the installer's restart closes mid-run. Fixed
+  in the copy: "in a terminal on this computer, outside Kosmos".
+- WARNING (kept, stated): with fleet updates paused, `--install` prints `paused <v>` and installs nothing (#6781 says
+  --install does not pass a pause), while the card says the version is ready. The terminal says why.
+- WARNING (kept, stated): the shell's Linux rule and the engine's SELF_INSTALL are kept in step by hand; the engine
+  arm is Linux by name, so a third platform off SELF_INSTALL gets no command rather than one its CLI refuses.
+- NIT fixed: the new CSS rules no longer split the .upd-manual-steps pair.
+
 ## Tests
 - cli.update-ifnewer-4382.test.js (new test): with a fake `uname` saying Linux, a board running and mode `run`, the
   verb installs with the board's three variables on prod and on a staging stamp; CONTROL: the real uname refuses; an
