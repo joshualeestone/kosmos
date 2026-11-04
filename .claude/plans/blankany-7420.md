@@ -25,8 +25,11 @@ anchor, so the person sees rows again. Josh's phone is the test (the simulator n
 ## Decided
 - A rebuild opens the list at its newest, so a reader who had scrolled up is moved there. A blank screen holds no place
   worth keeping. Rejected: rebuilding at the reader's place (no way to do it today).
-- A later automatic look keeps leaving a reader higher up alone: a list mid-draw in a fast scroll can be empty for a
-  moment, and that look should not pull anyone.
+- The periodic look (diagCheck's later recovery) keeps leaving a reader higher up alone: a list mid-draw in a fast scroll
+  can be empty for a moment. Review 1: the settled look is automatic too, so for a reader higher up it rebuilds only once
+  the list is still blank `blankConfirm` (0.5 s) later, with the same guards read again; a rebuild sets atBottom (the new
+  list goes to its newest), so a rebuilt list that stays blank is rebuilt again by the later look, within the budget; and
+  the Debug no-rebuild switch leaves a reader higher up untouched, as before.
 - Weakest premise: that the person's scroll had ended by the look. The trace shows personScrolling true just before;
   PersonScroll follows the scroll phase and clears when it rests, but if the blank comes with a scroll that never rests,
   this does not fire either.

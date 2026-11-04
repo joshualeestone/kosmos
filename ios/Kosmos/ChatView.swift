@@ -944,6 +944,8 @@ struct ChatView: View {
     static let fadeHeight: CGFloat = 18
     // The list's padding above its first row and below the end marker; settledPutBack allows for it at the end (#7420).
     static let listPadV: CGFloat = 12
+    // TestFlight 37 review 1: how long a settled look waits to confirm a blank before rebuilding a reader higher up.
+    static let blankConfirm: Double = 0.5
     // kosmos#7420 review 6: how long a box change still counts for a later settle ask (past the last look, 1.2 s).
     static let boxAskCarries: Double = 1.5
 
@@ -972,7 +974,8 @@ struct ChatView: View {
         guard visible, scenePhase == .active else { return }
         // kosmos#7420 (build 22, 10-30): reported once per chat. A later empty list (or the same one at the 1.5 s check) is
         // put right only as Board.emptyRecovery says: past the content's end, or (build 24) rebuilt when within the content
-        // at the newest. Nobody scrolling either way, and never a reader higher up. A later reading reaches here only through
+        // at the newest. Nobody scrolling either way, and a later look never moves a reader higher up (the first try, the
+        // reported blank, rebuilds whatever the anchor, TestFlight 37). A later reading reaches here only through
         // diagCheck, which asks for no row counted, the end not showing and the top not showing.
         if recover, diagDone { recoverEmpty(proxy, later: true); return }
         guard recover || !diagWideDone else { return }
@@ -1061,7 +1064,7 @@ struct ChatView: View {
 
     // kosmos#7817: at a settled look (settleAtNewest), a list read past its end is put back at its end, then at the newest
     // message, unless a search is typed, another ask or a will-hide came, the chat or its list changed, or a finger (or a
-    // fling) is on it at that look. kosmos#7420: within the content at the newest, see below.
+    // fling) is on it at that look. kosmos#7420: within the content, see below.
     // again: the one look after this function's own id scroll, which only puts back a landing past the end (review 7).
     private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int, boxMoved: Bool, again: Bool = false) {
         guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching else { return }
@@ -1076,7 +1079,7 @@ struct ChatView: View {
             // screen keeps no place worth holding. Review 5: the short-of-end test only after the box moved.
             let short = scrollBox.shortOfEnd() ?? 0
             if place == "within", !endVisible || onScreen.isEmpty || (boxMoved && short > Double(Self.listPadV) + 4) {
-                if atBottom || onScreen.isEmpty, !personScrolling, !scrollBox.underFinger {
+                if atBottom || (onScreen.isEmpty && !Self.sampleNoRebuild), !personScrolling, !scrollBox.underFinger {
                     // Review 6: a list just rebuilt is laying out and goes to its newest itself; neither arm acts in its grace.
                     if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
                     if onScreen.isEmpty {
@@ -1090,8 +1093,19 @@ struct ChatView: View {
                         guard !endVisible, scenePhase == .active, !(thread?.rows.isEmpty ?? true), endSeen || diagEverDrew else {
                             Self.trace("keyboard settled: within, nothing drawn"); return
                         }
-                        Self.trace("keyboard settled: within, nothing drawn, rebuilt")
-                        recoverEmpty(proxy)
+                        if atBottom {
+                            Self.trace("keyboard settled: within, nothing drawn, rebuilt")
+                            recoverEmpty(proxy)
+                        } else {
+                            // Review 1: a reader higher up is rebuilt only if the list is still blank a moment on, so a list
+                            // empty for an instant (a row placed by id, a redraw) moves nobody.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankConfirm) {
+                                guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching, onScreen.isEmpty,
+                                      !endVisible, !personScrolling, !scrollBox.underFinger else { return }
+                                Self.trace("keyboard settled: within, nothing drawn, still blank, rebuilt")
+                                recoverEmpty(proxy)
+                            }
+                        }
                     } else {
                         Self.trace("keyboard settled: the newest not showing (short \(Int(short)) pt), back to it")
                         // As did-show (#7344): an anchor already reading "end" is scrolled to, not only set again.
@@ -1136,6 +1150,9 @@ struct ChatView: View {
             // new list that also stays empty is checked again), and no earlier page asked for by its top (settledAtEnd).
             anchorLetGo = false; rowTops.reset(); endSeen = false; endVisible = false; onScreen = []; settledAtEnd = false
             positionId = nil
+            // TestFlight 37 review 1: the new list is sent to its newest, so the reader is at the newest from here; a rebuilt
+            // list that stays blank is then checked and rebuilt again by the later look (within its budget).
+            atBottom = true
             listEpoch &+= 1
             let listAt = listEpoch, chatAt = epoch
             for at in [0.05, 0.4] {
