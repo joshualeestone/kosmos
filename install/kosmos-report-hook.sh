@@ -344,6 +344,19 @@ MARK="$THROTTLE_DIR/$(printf '%s' "${TMUX_PANE:-nopane}" | tr -c 'A-Za-z0-9_-' '
 # swallowed. That check is deliberately the one FOREGROUND send, because it
 # needs the verdict.
 report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/null & ) 2>/dev/null || true; }
+# kosmos#7977: the turn-end report (Stop -> idle) is the one a lost send costs most: the agent's last word stays
+# "working", and once that goes stale a Mac board can only say "Can't tell" until the agent's next turn (status.js's
+# honest unknown). Measured 11-04: a Stop hook ran, 304 ms, no hook error, and its idle never reached the board, and
+# nothing said why, because report() discards everything. So this one send gets a second try a moment later, and a
+# second failure leaves one line, the time, the event and the exit code (no command text, as below), in the
+# throttle folder.
+report_turn_end() {
+  [ -n "$KOSMOS" ] || return 0
+  ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/null \
+      || { sleep "${KOSMOS_REPORT_RETRY_S:-2}"; "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/null; } \
+      || { _rc=$?; mkdir -p "$THROTTLE_DIR" 2>/dev/null; printf '%s %s %s not delivered after a retry (exit %s)\n' \
+             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$EVENT" "$1" "$_rc" >> "$THROTTLE_DIR/turn-end-failures.log" 2>/dev/null; } & ) 2>/dev/null || true
+}
 
 # #5495: true when this agent runs with Kosmos's PermissionRequest allow hook (Kosmos's settings file sets these two
 # names, engine/agentpermission.js; Claude Code hands a settings file's env to its hooks) AND that hook allows this
@@ -515,7 +528,7 @@ case "$EVENT" in
     # `needs_you` the agent filed DURING the turn. Stop fires at the end of
     # every turn, so without this an agent waiting on a person read as idle
     # within seconds of saying so.
-    report idle --auto finished responding ;;
+    report_turn_end idle --auto finished responding ;;
   StopFailure)
     KIND=$(json_field '.matcher // .error_type' 'matcher'); KIND="${KIND:-an api error}"
     rm -f "$MARK" 2>/dev/null || true
