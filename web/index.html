@@ -1004,7 +1004,8 @@ body:has(#panel-settings:not([hidden]) #s-sec-accounts:not([hidden])) #login-adv
 .fhint:empty { display: none; }
 /* kosmos#7974: the child-account advice behind one closed line; the line is a 44pt place to press. */
 .plus-si-childbox { margin-bottom: var(--space-4); }
-.plus-si-childbox > summary.fhint { margin: 0; padding: 12px 0; cursor: pointer; width: fit-content; }
+.plus-si-childbox > summary.fhint { margin: 0; padding: 14px 0; min-height: 44px; box-sizing: border-box; cursor: pointer; width: fit-content; }
+.plus-si-childbox > summary.fhint:focus-visible { outline: 2px solid #7ea0f0; outline-offset: 2px; border-radius: 4px; }
 .plus-si-childbox > summary.fhint:hover { color: var(--label-2); }
 .plus-si-childbox > p.fhint { margin: 0 0 var(--space-2); }
 .instr-defaults { margin-top: var(--space-4); }
@@ -59234,6 +59235,7 @@ async function plusCompanyManaged() {
   // kosmos#6873 review 2: a computer its company manages is not a child's; the child line is not for it (#7974: the
   // whole closed line, not only the advice inside it).
   const child = document.getElementById('plus-si-childbox');
+  if (child && r && r.managed) child.open = false;   // closed first, so the email box is not left described by it
   if (child) child.hidden = !!(r && r.managed);
   return !!(r && r.managed);
 }
