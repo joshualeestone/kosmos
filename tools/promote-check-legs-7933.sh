@@ -224,7 +224,10 @@ leg_verb() {
   [ "$rc" = 0 ] && [ "$(printf '%s\n' "$said" | tail -1)" = "current $sv" ] || { fail verb "with nothing newer it did not answer current $sv"; return; }
   [ "$(bpid)" = "$pid0" ] || { fail verb "with nothing newer the board restarted anyway"; return; }
 
+  # app/ is left read-only by design (#4449): lifted for the stamp alone, so the installer meets it as a person's would.
+  chmod u+w "$home/app" "$pkg" || { fail verb "could not lift the read-only app for the stamp"; return; }
   sed -i 's/"version": *"'"$sv"'"/"version": "0.0.1"/' "$pkg"
+  chmod a-w "$home/app" "$pkg"
   grep -q '"version": "0.0.1"' "$pkg" || { fail verb "the stamp did not apply to $pkg"; return; }
   said="$("$cli" update --if-newer --install 2>&1)"; rc=$?; echo "  stamped older, --install: rc=$rc: $said"
   [ "$rc" = 0 ] && [ "$(printf '%s\n' "$said" | tail -1)" = "updated $sv" ] || { tail -30 "$home/logs/install.log" 2>/dev/null; fail verb "stamped older, it did not answer updated $sv"; return; }
@@ -233,6 +236,7 @@ leg_verb() {
   got="$(ver)"; pid1="$(bpid)"; echo "  after the verb: $got, systemd MainPID $pid1, package.json $(field version "$pkg")"
   [ "$got" = "$sv" ] || { fail verb "the answering board loaded '$got', not $sv"; return; }
   [ "$(field version "$pkg")" = "$sv" ] || { fail verb "the installer did not put $sv back on disk"; return; }
+  [ ! -w "$home/app" ] || { fail verb "the installer left app/ writable"; return; }
   [ "$(systemctl --user is-active kosmos-board.service)" = active ] || { fail verb "systemd does not run the board"; return; }
   [ -n "$pid1" ] && [ "$pid1" != 0 ] && [ "$pid1" != "$pid0" ] || { fail verb "systemd's board process did not change ($pid0 -> $pid1)"; return; }
   ours "$pid1" || { fail verb "the process answering port $port is not systemd's board ($pid1)"; return; }
