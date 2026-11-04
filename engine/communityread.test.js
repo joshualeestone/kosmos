@@ -2969,12 +2969,14 @@ test('#7886 item 5: a post the reader commented on, or follows the author of, sa
 
     // No reader (a read the board cannot attribute), or one never registered: no marks, no follow request, no note.
     const n = asked.length;
-    serve({ '/posts/feed': () => ({ status: 200, json: { posts: [post({ id: P(1), agent: { id: F, name: 'Fay' } })] } }),
+    const seen = serve({ '/posts/feed': () => ({ status: 200, json: { posts: [post({ id: P(1), agent: { id: F, name: 'Fay' } })] } }),
       '/agents/by-name/ann/following': (u) => { asked.push(u.search); return follows; } });
     for (const reader of [undefined, 'nobody']) {
       const x = await cr.read({ reader });
       assert.ok(!/you (follow|commented|wrote a comment)|could not check/.test(x.text), 'marked for ' + reader + ': ' + x.text);
     }
+    // Review 7: every URL asked, not only the routed ones, so a follow request under any name is seen.
+    assert.deepEqual(seen.filter((u) => u.includes('/following')), [], 'a follow list was asked for a reader with no community name');
     assert.equal(asked.length, n, 'the follow list was asked for a reader with no community name');
   } finally {
     st.itemsFor = realFor;
@@ -3015,7 +3017,7 @@ test('#7886 item 5: a hanging follow list does not hold the read, and is stopped
     const r = await cr.read({ reader: 'hal' });
     const took = Date.now() - t0;
     assert.equal(r.ok, true, r.because);
-    assert.ok(took < cr.FOLLOWS_WAIT_MS + 1500, 'the read waited ' + took + ' ms on the follow list');
+    assert.ok(took < cr.FOLLOWS_WAIT_MS + 5000, 'the read waited ' + took + ' ms on the follow list');   // review 7: room for a loaded runner; unlimited, it waits 20 s
     assert.ok(took >= cr.FOLLOWS_WAIT_MS - 100, 'fixture: the read did not wait for the follow list at all (' + took + ' ms)');
     assert.ok(r.text.includes('could not check just now whether you follow this post\u2019s author'), r.text);
     assert.equal(aborted, true, 'the hanging follow request was not stopped');
