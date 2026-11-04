@@ -366,7 +366,7 @@ function main() {
     const slow = ms > PER_FILE_TIMEOUT_MS / 2 ? ' SLOW: over half the file cap' : '';
     console.log(`${ok ? 'PASS' : 'FAIL'} ${Math.round(ms / 1000)}s ${file}${why}${counts}${slow}`);
     // A line a test prints as "MEASURED: ..." reaches this log even on a pass: some facts only this job can see.
-    for (const l of output.split(/\r?\n/)) if (/^(# )?MEASURED: /.test(l)) console.log('    ' + l);
+    for (const l of output.split(/\r?\n/)) if (/^\s*(# )?MEASURED: /.test(l)) console.log('    ' + l.trim());
     const failing = ok ? [] : failingTests(output, file);
     if (!ok) {
       // Every failing name (a KNOWN_RED entry is copied from these), then why (#4301).

@@ -12,7 +12,7 @@ Card: #7951. A prod promote from Git Bash sat 10 minutes holding publish.lock: t
 ## Decisions
 - **Call:** a hung check that printed PASS still refuses. Rejected: trusting the printed verdict, because a killed process has no exit code and the printed line is not the decision.
 - **Rejected:** Start-Job, whose child inherits a different world and costs a second PowerShell; `$null | & node`, which closes stdin but gives no limit.
-- **Limit 300 s:** the check took 4 s by hand. Well below the 35 minutes after which -BreakLock can take the lock.
+- **Limit 300 s, per check:** the check took 4 s by hand. A run makes several checks while it holds the lock: even three limits in a row is 15 minutes, below the 35 after which -BreakLock can take it.
 
 ## Weakest premise
 The hang is not reproduced. It needs Windows with Git Bash holding stdin. On this Mac the tests show stdin reaches EOF while pwsh's own stdin stays open, and a node that hangs is stopped. If the real cause is not stdin, the time limit still bounds it to 5 minutes and names it, but the promote would keep refusing until the cause is found.
