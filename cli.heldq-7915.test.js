@@ -75,6 +75,11 @@ test('#7915 Mac: --held sends held:true on a needs_you; without it held:false; e
       assert.match(r.out, /--held goes only with needs_you/, args.join(' '));
       assert.equal(hits.length, 0, args.join(' ') + ' reached the board');
     }
+    hits.length = 0;
+    const auto = await runCli(['report', 'needs_you', '--held', '--auto', 'x'], envFor(port));
+    assert.equal(auto.code, 2, auto.out);
+    assert.match(auto.out, /takes no --auto/);
+    assert.equal(hits.length, 0, '--held --auto reached the board');
   }));
 
 test('#7915 Mac: the report usage names --held', async () => {
@@ -113,6 +118,10 @@ test('#7915 Windows: the same, through the CLI\'s own main()', async () => {
     assert.match(r.err, /--held goes only with needs_you/);
     assert.equal(r.posts.length, 0, argv.join(' ') + ' reached the board');
   }
+  const auto = await runWin(['report', 'needs_you', '--held', '--auto', 'x']);
+  assert.equal(auto.code, 2, auto.err);
+  assert.match(auto.err, /takes no --auto/);
+  assert.equal(auto.posts.length, 0, '--held --auto reached the board');
   const usage = await runWin(['report']);
   assert.match(usage.err, /\[--held\]/);
 });

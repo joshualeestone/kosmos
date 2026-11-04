@@ -4119,6 +4119,10 @@ cmd_report() {
     say "--held goes only with needs_you: kosmos report needs_you --held '<your question>' holds a question until the person is back."
     exit 2
   fi
+  if [ "$held" = 1 ] && [ "$auto" = 1 ]; then
+    say "--held is for a question you hold yourself, so it takes no --auto."
+    exit 2
+  fi
   # #2001: blocked and needs_you are the only two states that exist to SUMMON A
   # PERSON; every other state is informational. A summons with no what (--on), no
   # who (--owner) and no note names nothing anyone can act on, and it records as a

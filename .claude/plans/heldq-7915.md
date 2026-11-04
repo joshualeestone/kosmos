@@ -27,8 +27,9 @@ holding if they say so.
 ## Accepted residual (challenge-loop round 1)
 The project card's pill and the need-you counts still count a held question, and the project pill reads the calm
 "Question" (the same calm look as the agent card), not "Question held". The card asked that nothing be lost, and the
-counts are where it stays visible; only the agent card's word changes. The phone's Today list shows it the same way:
-under the question reason, never pushed. Carrying `stateHeld` into
+counts are where it stays visible; only the agent card's word changes. The same holds everywhere a waiting question is
+counted or listed: the phone's Today list (under the question reason, never pushed), the Dock badge total, and the
+Tasks page's "Needs your decision" row ("Waiting for your answer for N"). All of these are kosmos#7916. Carrying `stateHeld` into
 projects.js summary and the page's project pill is a follow-up if a person finds the count noisy while away.
 
 ## Weakest premise
