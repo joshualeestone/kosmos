@@ -807,11 +807,14 @@ $FakeDir = $null
 $FakeDir = 'test'
 # Something node started that keeps the pipe open: exit 0 must not pass with its output missing.
 $sh = Join-Path $args[2] 'holdpipe.sh'
-"#!/bin/sh`necho PASS`nsleep 30 &`nexit 0`n" | Set-Content -NoNewline -LiteralPath $sh
+"#!/bin/sh`necho PASS`nsleep 8 &`nexit `$1`n" | Set-Content -NoNewline -LiteralPath $sh
 chmod +x $sh
 $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '20'
-$r = Invoke-NodeBounded $sh @()
+$r = Invoke-NodeBounded $sh @('0')
 "held rc=$($r.Rc) undecided=[$($r.Undecided)]"
+# And a non-zero exit: rc 1 is an accepted verdict from ships-checker, and this one's text was never read.
+$r = Invoke-NodeBounded $sh @('1')
+"heldnonzero rc=$($r.Rc) undecided=[$(if ($r.Undecided) { 'yes' })]"
 # A program that does not exist does not start, and that is not exit 0.
 $r = Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @()
 "nostart rc=$($r.Rc) undecided=[$(if ($r.Undecided) { 'yes' })]"
@@ -828,6 +831,7 @@ want7951 "a node that printed PASS and never exits is stopped, with a non-zero r
 want7951 "the timeout seam does nothing without the test transport" "limit=300"
 want7951 "a stdin node never reads cannot outlast the limit" "bigstdin rc=98 quick=True"
 want7951 "exit 0 with its output still held open is not a pass, and says why" "held rc=97 undecided=[it exited, but its output never closed, so its verdict was not read]"
+want7951 "a non-zero exit with its output held open is not a verdict either" "heldnonzero rc=97 undecided=[yes]"
 want7951 "a node that does not start is not a pass" "nostart rc=99 undecided=[yes]"
 
 # The whole script: a fake node on PATH prints a passing verdict and hangs, at each kind of caller. Everything else goes

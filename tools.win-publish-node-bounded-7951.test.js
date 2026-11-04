@@ -15,6 +15,22 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync, spawn } = require('node:child_process');
 
+// Runs PowerShell with a stdin nobody closes, which is what a child inheriting it would wait on. Resolves when it exits.
+function runHoldingStdin(ps, args, limitMs) {
+  return new Promise((resolve) => {
+    const child = spawn(ps, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = ''; let err = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    const timer = setTimeout(() => { child.kill(); }, limitMs);
+    child.on('exit', (status, signal) => {
+      clearTimeout(timer);
+      child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy();
+      resolve({ status, signal, out, err, finished: signal === null });
+    });
+  });
+}
+
 const SCRIPT = path.join(__dirname, 'tools', 'windows', 'publish-r2.ps1');
 
 const HARNESS = String.raw`
@@ -27,7 +43,7 @@ foreach ($f in 'Get-NodeTimeoutSec', 'ConvertTo-NativeArg', 'Invoke-NodeBounded'
 }
 $Utf8 = New-Object Text.UTF8Encoding $false
 $FakeDir = 'test'
-$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '6'
+$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '120'
 $node = $args[1]
 $weird = @('a b', 'q"uote', 'trail\', 'sp ace\', '', 'back\\"slash', 'C:\Program Files\x y\', 'plain')
 $res = @{}
@@ -39,8 +55,10 @@ $res.want = $weird
 $res.script = Row (Invoke-NodeBounded $node @('-', 'one', 'two') "console.log('argc '+process.argv.length)")
 $res.utf8 = Row (Invoke-NodeBounded $node @('-') "console.log(process.argv.length, '$([char]0xe9)'.codePointAt(0), '$([char]0xe9)')")
 $res.exit4 = Row (Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)"))
+$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '6'
 $res.hang = Row (Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)"))
 $res.bigstdin = Row (Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000))
+$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '120'
 $res.nostart = Row (Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @())
 # The form publish-r2.ps1 starts git with, and the form it used to start node with.
 $res.emptypipe = @(@() | & $node -e "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})") -join ' '
@@ -60,11 +78,11 @@ function runtimes() {
 const RUNTIMES = runtimes();
 
 test('there is a PowerShell to test with on Windows, under both names', { skip: process.platform !== 'win32' }, () => {
-  assert.deepStrictEqual(RUNTIMES, ['powershell.exe', 'pwsh']);
+  assert.deepStrictEqual(RUNTIMES, ['powershell.exe', 'pwsh'], 'this job is the only place these functions run on Windows, so a missing runtime is a failure, not a skip');
 });
 
 for (const ps of RUNTIMES) {
-  test(`Invoke-NodeBounded under ${ps}`, () => {
+  test(`Invoke-NodeBounded under ${ps}`, async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-7951-'));
     try {
       const harness = path.join(dir, 'harness.ps1');
@@ -73,8 +91,8 @@ for (const ps of RUNTIMES) {
       const args = ['-NoProfile', '-NonInteractive'];
       if (process.platform === 'win32') args.push('-ExecutionPolicy', 'Bypass');
       args.push('-File', harness, SCRIPT, process.execPath, dir, out);
-      const run = spawnSync(ps, args, { encoding: 'utf8', timeout: 120000, stdio: ['ignore', 'pipe', 'pipe'] });
-      assert.ok(fs.existsSync(out), `harness wrote nothing: status ${run.status} ${run.stderr}`);
+      const run = await runHoldingStdin(ps, args, 400000);
+      assert.ok(fs.existsSync(out), `harness wrote nothing: status ${run.status} signal ${run.signal} ${run.err}`);
       const res = JSON.parse(fs.readFileSync(out, 'utf8'));
 
       assert.deepStrictEqual(res.eof, { rc: 0, out: 'EOF', undecided: '' }, 'node sees EOF on its stdin');
@@ -101,15 +119,8 @@ for (const ps of RUNTIMES) {
       const args = ['-NoProfile', '-NonInteractive'];
       if (process.platform === 'win32') args.push('-ExecutionPolicy', 'Bypass');
       args.push('-File', f, process.execPath);
-      const child = spawn(ps, args, { stdio: ['pipe', 'pipe', 'pipe'] });
-      let text = '';
-      child.stdout.on('data', (d) => { text += d; });
-      const finished = await new Promise((resolve) => {
-        const timer = setTimeout(() => { child.kill(); resolve(false); }, 30000);
-        child.on('exit', () => { clearTimeout(timer); resolve(true); });
-      });
-      child.stdin.destroy();
-      console.log(`#7951 measurement ${ps} on ${process.platform}: old form ${finished ? 'exited' : 'still running after 30 s'}; printed: ${text.trim().replace(/\s+/g, ' ')}`);
+      const run = await runHoldingStdin(ps, args, 30000);
+      console.log(`#7951 measurement ${ps} on ${process.platform}: old form ${run.finished ? 'exited' : 'still running after 30 s'}; printed: ${run.out.trim().replace(/\s+/g, ' ')}`);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 }
