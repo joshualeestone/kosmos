@@ -28,9 +28,11 @@ const ROOTS_TTL_MS = 10 * 1000;
 /* kosmos#7989: at most one owner notice per writer and owner in a project in this long, so a writer changing a whole
    folder of one agent's files leaves one note, not one per file. */
 const NOTICE_EVERY_MS = 60 * 60 * 1000;
-/* kosmos#7989: at most this many owner notices in one project's room per NOTICE_EVERY_MS, so a busy room's own posts are not
-   pushed out of what `kosmos room` shows by default. */
+/* kosmos#7989: at most this many owner notices in one project's room per NOTICE_EVERY_MS, which limits how many of the rows
+   `kosmos room` shows by default these notices can take. Past it, one note says further notices are held back. */
 const NOTICE_ROOM_MAX = 6;
+/* kosmos#7989: a session name as Kosmos makes one; a name read back from the record that is not this shape gets no notice. */
+const SESSION_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 /* kosmos#7989: the record's own entry for those notices. A file's name is derived from its path, and noteWrite refuses a
    path holding any control character, so this key cannot be a file's. */
 const NOTICES_KEY = '\u0000notices';
@@ -117,23 +119,30 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
     const entry = { agent: who, at: new Date(now).toISOString() };
     if (first) entry.first = first;
     /* kosmos#7989: another agent about to change an owned file is said in the project's room, at most once per writer and
-       owner per NOTICE_EVERY_MS (NOTICES_KEY keeps when each pair was last said; stamped before the note is written, so
-       a note that fails, or one skipped because the owner is no longer on the project, silences that pair for the hour, the
-       quiet direction), and at most NOTICE_ROOM_MAX pairs per project in that time. A notice, not a lock: nothing is refused. */
+       owner per NOTICE_EVERY_MS (NOTICES_KEY keeps when each pair was last said, stamped before the note is written, so a
+       note that fails silences that pair for the hour, the quiet direction), and at most NOTICE_ROOM_MAX pairs per project
+       in that time, after which one note says the rest are held back. A notice, not a lock: nothing is refused. */
     let notice = null;
     const book = rec[NOTICES_KEY] && typeof rec[NOTICES_KEY] === 'object' && rec[NOTICES_KEY].by && typeof rec[NOTICES_KEY].by === 'object'
       ? { ...rec[NOTICES_KEY].by } : {};
     for (const k of Object.keys(book)) if (!(now - Date.parse(book[k]) < NOTICE_EVERY_MS)) delete book[k];
-    if (first && first !== who) {
+    const heldAt = rec[NOTICES_KEY] && Date.parse(rec[NOTICES_KEY].held);
+    let held = Number.isFinite(heldAt) && now - heldAt >= 0 && now - heldAt < NOTICE_EVERY_MS ? rec[NOTICES_KEY].held : null;
+    if (first && first !== who && SESSION_NAME_RE.test(first) && SESSION_NAME_RE.test(who)) {
       const pair = who + '\u0000' + first;
       const last = Date.parse(book[pair]);
-      const roomFull = Object.keys(book).length >= NOTICE_ROOM_MAX;
-      if (!roomFull && !(Number.isFinite(last) && now - last >= 0 && now - last < NOTICE_EVERY_MS)) {
-        notice = { projectId: at.projectId, name: at.name, owner: first, writer: who };
-        book[pair] = entry.at;
+      // The project's members are read only when a notice is due; an owner no longer on it takes no slot and gets no note.
+      if (!(Number.isFinite(last) && now - last >= 0 && now - last < NOTICE_EVERY_MS) && onProject(at.projectId, first)) {
+        if (Object.keys(book).length < NOTICE_ROOM_MAX) {
+          notice = { projectId: at.projectId, name: at.name, owner: first, writer: who };
+          book[pair] = entry.at;
+        } else if (!held) {
+          notice = { projectId: at.projectId, heldBack: true };
+          held = entry.at;
+        }
       }
     }
-    if (Object.keys(book).length) rec[NOTICES_KEY] = { at: entry.at, by: book }; else delete rec[NOTICES_KEY];
+    if (Object.keys(book).length || held) rec[NOTICES_KEY] = { at: entry.at, by: book, ...(held ? { held } : {}) }; else delete rec[NOTICES_KEY];
     rec[at.name] = entry;
     const kept = Object.entries(rec)
       .filter(([, v]) => v && typeof v === 'object' && now - Date.parse(v.at) <= KEEP_MS)
@@ -153,23 +162,30 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
    a marker in a line that speaks in Kosmos's voice (as the room's text view does for an outside row, server.js, kind
    'external'). Line and paragraph separators and direction controls go too, so it cannot break or reorder the line. */
 function quotedName(name) {
-  const s = String(name || '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\[/g, '(').replace(/\]/g, ')').replace(/"/g, "'");
+  const s = String(name || '').replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, ' ').replace(/\[/g, '(').replace(/\]/g, ')').replace(/"/g, "'");
   const cut = require('./textcut').cutUnits(s, NOTICE_NAME_MAX);
   return '"' + cut + (cut.length < s.length ? '...' : '') + '"';
 }
-/* The writer and owner are session names, which Kosmos itself makes (letters, digits, - and _), so they are not quoted. */
+/* The writer and owner are session names (SESSION_NAME_RE, checked before a notice is made), so they are not quoted. */
 function ownerNoticeText({ name, owner, writer }) {
   return writer + ' was about to change ' + quotedName(name) + ' (' + owner + ' was the first agent seen changing it here). '
     + 'A notice, not a lock: ' + owner + ', read it again before you build on what you last saw in it. For the next hour, '
-    + 'Kosmos will not post a separate notice for each other file ' + writer + ' changes that you were first to change.';
+    + 'Kosmos will not post a separate notice for each other file ' + writer + ' changes that you were the first seen changing.';
+}
+const HELD_BACK_TEXT = 'Agents have changed many files other agents were first seen changing in this room in the last hour, '
+  + 'so Kosmos is holding back further notices of that for the rest of the hour. Read a shared file again before you build on '
+  + 'what you last saw in it.';
+/* Whether `owner` is on the project, read only when a notice is due. An unreadable list is no (no notice, no slot). */
+function onProject(projectId, owner) {
+  try {
+    const p = require('./projects').readAll().find((x) => x && x.id === projectId);
+    return Boolean(p && Array.isArray(p.agents) && p.agents.includes(owner));
+  } catch { return false; }
 }
 function ownerNotice(n) {
   try {
-    // An owner no longer on the project is not addressed in a room it does not read.
-    const p = require('./projects').readAll().find((x) => x && x.id === n.projectId);
-    if (!p || !Array.isArray(p.agents) || !p.agents.includes(n.owner)) return;
     const messages = require('./messages');
-    messages.roomNote(n.projectId, ownerNoticeText(n), { audience: messages.NOTE_AUDIENCE_AGENTS });
+    messages.roomNote(n.projectId, n.heldBack ? HELD_BACK_TEXT : ownerNoticeText(n), { audience: messages.NOTE_AUDIENCE_AGENTS });
   } catch { /* the write stands */ }
 }
 
@@ -195,4 +211,4 @@ function annotate(projectId, files, nameOf = (s) => s) {
   });
 }
 
-module.exports = { noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, ownerNoticeText, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS, NOTICE_ROOM_MAX };
+module.exports = { noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, ownerNoticeText, HELD_BACK_TEXT, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS, NOTICE_ROOM_MAX };
