@@ -748,6 +748,8 @@ final class BoardClient: ObservableObject {
             if kept.count != attachedPreviews.count { attachedPreviews = kept }
         }
     }
+    /// kosmos#7944: a test's look at the moment a picture's composer copy starts (nil in the app).
+    var beforePictureCopy: (() -> Void)?
     /// kosmos#7944: each picture waiting on a composer, by its id, as two small JPEGs (Board.attachedPicture).
     @Published private(set) var attachedPreviews: [String: Board.AttachedPicture] = [:]
     @Published private(set) var uploading: [String: Int] = [:]
@@ -792,11 +794,16 @@ final class BoardClient: ObservableObject {
         // kosmos#7682: the count comes back down on EVERY way out, not only the last line, unless this chat's adds were
         // cancelled meanwhile (cancelAdding already set it to none, and a later add may be counting).
         let generation = addGeneration[session, default: 0]
-        defer {
-            if addGeneration[session, default: 0] == generation {
+        // kosmos#7944 review 5: a picture's composer copy is made after its file lands, and the file stops counting as
+        // on its way then, not when the copy ends (Send, the ten-file count and "Adding a file..." all read the count).
+        var counted = true
+        func stopCounting() {
+            if counted, addGeneration[session, default: 0] == generation {
                 uploading[session] = max(0, uploading[session, default: 0] - 1)
             }
+            counted = false
         }
+        defer { stopCounting() }
         let root = env.uploads
         let prepared: Board.Prepared
         switch pick {
@@ -843,10 +850,12 @@ final class BoardClient: ObservableObject {
         case .added(let a):
             guard attached[session]?.contains(where: { $0.id == a.id }) != true else { return }
             attached[session, default: []].append(a)
+            stopCounting()
             // kosmos#7944: the picture's copy for the composer is made AFTER the file is on the composer (review 3: made
             // before, the x on "Adding a file..." during it dropped a file the Mac already had), and after the upload
             // (review 1: nothing waits between the guard above the upload and the upload). The phone's copy is still
             // here: it goes when this add ends. keepPicture decides whether the copy is still wanted.
+            if pictureFile != nil { beforePictureCopy?() }
             if let pictureFile, let picture = await Self.offMain({ Board.attachedPicture(of: pictureFile) }) {
                 keepPicture(picture, for: a.id, epoch: epoch)
             }

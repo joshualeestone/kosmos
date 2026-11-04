@@ -154,7 +154,7 @@ struct ChatView: View {
     // kosmos#7071: the + beside the composer (kosmos#7596: Camera, Photos or Files).
     @State private var photoPicks: [PhotosPickerItem] = []
     @State private var showPhotos = false
-    @State private var previewing: Board.Attached?   // kosmos#7944: the waiting picture opened from its chip
+    @State private var previewing: OpenPicture?   // kosmos#7944: the waiting picture opened from its chip
     @State private var showFiles = false
     @State private var showCamera = false   // kosmos#7596
     // The account or computer the camera was opened under: a photo taken across a switch is never sent under the new one
@@ -1926,16 +1926,13 @@ struct ChatView: View {
         .padding(.bottom, 2)
         // kosmos#7944: a waiting picture, tapped. Presented from the + (always there), not from the chips, which go
         // when the last file does (review 3): the sheet and its closing rule must outlive the row.
-        .sheet(item: $previewing) { a in
-            if let picture = client.attachedPreviews[a.id] {
-                AttachedPreview(name: a.name, preview: picture.large, remove: {
-                    client.unattach(a.id, for: agent.session)
-                    RoomView.say("Removed \(a.name)")
-                })
-            } else {
-                // The file left the composer as the sheet opened: nothing to show, so it closes.
-                Color.clear.onAppear { previewing = nil }
-            }
+        .sheet(item: $previewing) { open in
+            // The picture as it was when tapped (review 5): Remove takes the file off at once, and the sheet keeps
+            // showing it while it slides away rather than going blank.
+            AttachedPreview(name: open.name, preview: open.picture.large, remove: {
+                client.unattach(open.id, for: agent.session)
+                RoomView.say("Removed \(open.name)")
+            })
         }
         // It closes if its file leaves the composer while it is open (sent, or another account or computer).
         .onChange(of: previewing.map { client.attachedPreviews[$0.id] != nil } ?? true) { still in
@@ -1974,7 +1971,7 @@ struct ChatView: View {
                     .padding(.horizontal, 6)
                 }
                 ForEach(attachedHere) { a in
-                    FileChip(name: a.name, preview: client.attachedPreviews[a.id]?.small, open: { previewing = a },
+                    FileChip(name: a.name, preview: client.attachedPreviews[a.id]?.small, open: { previewing = OpenPicture(a, client.attachedPreviews[a.id]) },
                              remove: { client.unattach(a.id, for: agent.session) })
                 }
             }

@@ -1789,12 +1789,13 @@ enum Board {
     /// and about 0.2 to 0.5 MB as a JPEG, so ten waiting files stay small.
     static let attachPreviewMaxPixels = 1600
 
-    /// A JPEG of the picture at `url`, its longest side at most `maxPixels`, turned upright as the camera took it. Nil
-    /// when the file is not a picture ImageIO can read (a damaged or unknown file shows as a plain chip, as before).
+    /// A JPEG of the picture at `url` (one size; the app uses attachedPicture, which opens the file once for both).
     static func attachPreview(of url: URL, maxPixels: Int = attachPreviewMaxPixels) -> Data? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
         return attachPreview(of: source, maxPixels: maxPixels)
     }
+    /// A JPEG of the picture in `source`, its longest side at most `maxPixels`, turned upright as the camera took it.
+    /// Nil when it is not a picture ImageIO can read (a damaged or unknown file shows as a plain chip, as before).
     static func attachPreview(of source: CGImageSource, maxPixels: Int = attachPreviewMaxPixels) -> Data? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

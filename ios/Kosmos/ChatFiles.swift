@@ -173,6 +173,18 @@ struct FileChip: View {
     }
 }
 
+// kosmos#7944: a waiting picture as its sheet opened it, kept with the sheet (the composer may drop it first).
+struct OpenPicture: Identifiable {
+    let id: String
+    let name: String
+    let picture: Board.AttachedPicture
+    /// Nil when the file has no picture yet, so a tap opens nothing (the square is not drawn without one anyway).
+    init?(_ file: Board.Attached, _ picture: Board.AttachedPicture?) {
+        guard let picture else { return nil }
+        id = file.id; name = file.name; self.picture = picture
+    }
+}
+
 // kosmos#7944 (Josh 11-04 08:28: "I think we would only need the remove feature from a button perspective and skip
 // caption or edit etc"): a picture waiting on the composer, as large as the screen allows, its name above it and one
 // action under it. Swipe down or Remove closes it. Nothing has been sent, so Remove only takes it off the composer.
