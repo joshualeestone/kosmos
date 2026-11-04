@@ -110,3 +110,35 @@ test('kosmos#7886 item 6 (Windows): --unchanged writes the engine\'s pointer, an
 test('kosmos#7886 item 6: the daily nudge teaches --unchanged', () => {
   assert.match(require('./engine/feedbacknudge').nudgeText(), /kosmos feedback write --unchanged/);
 });
+
+test('kosmos#7886 item 6 (Mac): --unchanged is taken after the words too, and refuses over a report saved today', async () => {
+  const h = makeHome();
+  fs.mkdirSync(fbDir(h.data), { recursive: true });
+  fs.writeFileSync(path.join(fbDir(h.data), OLD + '.md'), '---\ndate: ' + OLD + '\n---\n\nthe earlier report\n');
+  const later = await run(['feedback', 'write', 'one', 'thing', '--unchanged'], h);
+  assert.equal(later.code, 0, later.both);
+  const again = await run(['feedback', 'write', '--unchanged'], h);
+  assert.equal(again.code, 2, again.both);
+  assert.match(again.both, /You already saved a report today, so nothing was changed/);
+  const today = reports(h.data).filter((n) => n !== OLD + '.md');
+  assert.match(fs.readFileSync(path.join(fbDir(h.data), today[0]), 'utf8'), /Nothing new since my report of 2020-01-02\. one thing/, 'the first --unchanged report was replaced');
+});
+
+test('kosmos#7886 item 6 (Windows): --unchanged after the words, and the today refusal', async () => {
+  const written = [];
+  let why = null;
+  const engine = { feedback: { write: (b) => { written.push(b); return { ok: true }; }, writer: () => null,
+    unchanged: (from, note) => (why ? { ok: false, why } : { ok: true, since: OLD, body: 'Nothing new since my report of ' + OLD + '.' + (note ? ' ' + note : '') }) } };
+  const go = async (argv) => {
+    const err = [];
+    const code = await cli.main(argv, { env: {}, engine, readStdin: () => ({ text: '', ended: true }), out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
+    return { code, err: err.join('\n') };
+  };
+  assert.equal((await go(['feedback', 'write', 'one', 'thing', '--unchanged'])).code, 0);
+  assert.deepEqual(written, ['Nothing new since my report of ' + OLD + '. one thing']);
+  why = 'today';
+  const t = await go(['feedback', 'write', '--unchanged']);
+  assert.equal(t.code, 2);
+  assert.match(t.err, /You already saved a report today, so nothing was changed/);
+  assert.equal(written.length, 1);
+});

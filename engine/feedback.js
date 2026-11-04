@@ -381,23 +381,36 @@ function reportsForTriage(opts) {
 /**
  * kosmos#7886 item 6: the body for `kosmos feedback write --unchanged`. On a stretch where nothing changed, the honest
  * report was yesterday's repeated. This points back to the writer's own latest earlier report instead, by its date,
- * with an optional line of its own. A writer with no earlier report has nothing to point back to: { ok: false }, and
- * the CLIs refuse rather than save a report that refers to nothing.
+ * with an optional line of its own.
+ * - The writer's OWN section only (the same key match write() uses), so one agent's report is never claimed by another.
+ * - An earlier pointer is followed to the report it names, so a run of unchanged days all point at the real report.
+ * - Refused ({ ok: false, why: 'today' }) when the writer already saved a report today: write() would replace it.
+ * - Refused ({ ok: false, why: 'none' }) with no earlier report to point back to. A named agent whose only earlier
+ *   report predates #5317 (stored with no section marker, so it is the unnamed section) is refused too: the safe way.
+ * Known limit: the team sees each day's writers as "Report 1", "Report 2" (forSend), so on a day with several writers
+ * the pointer names the day, not which report of it.
  */
+const POINTER_RE = /^Nothing new since my report of (\d{4}-\d{2}-\d{2})\./;
 function unchanged(from, note, date) {
   const day = date ? assertDate(date) : today();
   const key = writerKey(from).toLowerCase();
+  const mineOn = (d) => {
+    const raw = read(d);
+    if (raw == null) return null;
+    const s = sections(stripFrontmatter(raw)).find((x) => x.key.toLowerCase() === key && x.text.trim());
+    return s ? s.text : null;
+  };
+  if (mineOn(day) != null) return { ok: false, why: 'today' };
   for (const d of list()) {
     if (d >= day) continue;
-    const raw = read(d);
-    if (raw == null) continue;
-    if (sections(stripFrontmatter(raw)).some((x) => x.key.toLowerCase() === key && x.text.trim())) {
-      const extra = String(note == null ? '' : note).trim();
-      return { ok: true, since: d, body: 'Nothing new since my report of ' + d + '.' + (extra ? ' ' + extra : '') };
-    }
+    const text = mineOn(d);
+    if (text == null) continue;
+    const m = text.match(POINTER_RE);
+    const since = m && m[1] < d ? m[1] : d;
+    const extra = String(note == null ? '' : note).trim();
+    return { ok: true, since, body: 'Nothing new since my report of ' + since + '.' + (extra ? ' ' + extra : '') };
   }
-  return { ok: false };
+  return { ok: false, why: 'none' };
 }
-const UNCHANGED_NONE = 'There is no earlier report of yours to point back to, so nothing was saved. Write today\'s report instead.';
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, UNCHANGED_NONE, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };

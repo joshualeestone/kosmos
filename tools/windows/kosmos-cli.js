@@ -2364,11 +2364,13 @@ async function agentRoleDraft(ctx, args) {
 
 /* The feedback verbs are engine-direct, as install/kosmos's `node -e` snippets are:
    the report store is local (engine/feedback.js), so they work with no board. */
-const FEEDBACK_WRITE_USAGE = 'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)';
+const FEEDBACK_WRITE_USAGE = 'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin; --unchanged [text] when nothing is new)';
 async function feedbackWrite(ctx, args) {
   /* kosmos#7886 item 6, as install/kosmos: --unchanged, first, points back to this writer's latest earlier report. */
-  const unchangedAsked = args[0] === '--unchanged';
-  if (unchangedAsked) args = args.slice(1);
+  const dd = args.indexOf('--');
+  const before = dd < 0 ? args : args.slice(0, dd);
+  const unchangedAsked = before.includes('--unchanged');   // anywhere before a bare --, as `kosmos task ran` takes it
+  if (unchangedAsked) args = before.filter((a) => a !== '--unchanged').concat(dd < 0 ? [] : args.slice(dd));
   const bf = takeBodyFile(ctx, FEEDBACK_WRITE_USAGE, args);   // #5946
   if (!bf) return 2;
   args = bf.args;
@@ -2385,6 +2387,7 @@ async function feedbackWrite(ctx, args) {
       ctx.err('We could not read your earlier reports (' + String((e && e.message) || e) + '), so nothing was saved.');
       return 1;
     }
+    if (u && u.why === 'today') { ctx.err('You already saved a report today, so nothing was changed. To change it, write the whole report again.'); return 2; }
     if (!u || !u.ok) { ctx.err('There is no earlier report of yours to point back to, so nothing was saved. Write today\'s report instead.'); return 2; }
     body = u.body;
   } else if (bf.file !== null) {
