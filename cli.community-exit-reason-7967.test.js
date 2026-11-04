@@ -135,61 +135,63 @@ test('#7967 review 1: an exit 1 after a post the board may have taken never says
     assert.doesNotMatch(out.stderr, /nothing was done/i, 'the suffix must not tell an agent a maybe-sent post is safe to resend');
   }));
 
-/* Review 3: this command holds no trap of its own, so a TERM or HUP sent to it alone (a kill, a runner's timeout, a
-   closed terminal) stops it at once, as before #7967; with a trap here it waited for the whole request. The board here
-   never answers, so the request alone would hold it for 60 s. */
-for (const sig of ['TERM', 'HUP']) {
-  test('#7967 review 3: a SIG' + sig + ' sent to the command stops it at once, not after the request', () => withStubBoard(
-    { '/api/community/home': 'hang' },
-    async (port) => {
-      seen.length = 0;
-      const child = spawn(CLI, ['community', 'home'], { env: envFor(port), detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
-      // 'exit' (this process), not 'close': the subcommand's own shell may still hold the pipes while its request ends.
-      const done = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal, at: Date.now() })));
-      for (let i = 0; i < 200 && !seen.includes('/api/community/home'); i++) await new Promise((r) => setTimeout(r, 50));
-      assert.ok(seen.includes('/api/community/home'), 'premise: the CLI reached the hanging route');
-      const sent = Date.now();
-      process.kill(child.pid, 'SIG' + sig);   // only the process this test started
-      const end = await done;
-      assert.ok(end.signal === 'SIG' + sig || end.code === 128 + ({ TERM: 15, HUP: 1 })[sig], 'it stopped the way SIG' + sig + ' asks: ' + JSON.stringify(end));
-      assert.ok(end.at - sent < 5000, 'it stopped within 5 s, not after the request (' + (end.at - sent) + ' ms)');
-    }));
+/* Review 5: the command runs in its own shell exactly as before #7967 (no subshell, background job or trap), so every
+   signal does what it did before. These check the outcomes rounds 3 to 5 found broken: a TERM or HUP waiting for the
+   request, a killed command still asking the board, and a Ctrl-C leaving the request's curl running. */
+const READ_REPLIES = { '/api/community/read': 'slow202' };   // a read asks again every ~0.3 s while the board says 202
+const readAsks = () => seen.filter((r) => r === '/api/community/read').length;
+async function startPollingRead(port) {
+  seen.length = 0;
+  const child = spawn(CLI, ['community', 'read'], { env: envFor(port, { KOSMOS_READ_ASKS: '50' }), detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
+  const done = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal, at: Date.now() })));
+  for (let i = 0; i < 200 && readAsks() < 2; i++) await new Promise((r) => setTimeout(r, 50));
+  assert.ok(readAsks() >= 2, 'premise: the read was asking again');
+  return { child, done };
+}
+const groupGone = (pid) => { try { process.kill(-pid, 0); return false; } catch (e) { return e.code === 'ESRCH'; } };
+
+for (const [sig, group] of [['TERM', false], ['HUP', false], ['KILL', false], ['INT', true]]) {
+  test('#7967 review 5: a SIG' + sig + (group ? ' to the process group (Ctrl-C)' : ' to the command') + ' stops it at once and the board is asked nothing more', () => withStubBoard(READ_REPLIES, async (port) => {
+    const { child, done } = await startPollingRead(port);
+    const sent = Date.now();
+    process.kill(group ? -child.pid : child.pid, 'SIG' + sig);   // only the process (or group) this test started
+    const end = await done;
+    assert.ok(end.signal === 'SIG' + sig || end.code > 128, 'it stopped the way SIG' + sig + ' asks: ' + JSON.stringify(end));
+    assert.ok(end.at - sent < 5000, 'it stopped within 5 s (' + (end.at - sent) + ' ms)');
+    const atStop = readAsks();
+    await new Promise((r) => setTimeout(r, 2000));   // several more asks' worth of time
+    assert.ok(readAsks() <= atStop + 1, 'the board was asked ' + (readAsks() - atStop) + ' more time(s) after it stopped (one already in flight is allowed)');
+    if (group) assert.ok(groupGone(child.pid), 'after a Ctrl-C nothing of the command is left running (its request\'s curl included)');
+  }));
 }
 
-test('#7967: a Ctrl-C (SIGINT to the process group) stops it at once', () => withStubBoard(
+/* Round 5's case: a Ctrl-C while a request hangs. A curl that ignored the interrupt (bash 3.2 cannot un-ignore SIGINT
+   in a background job) would sit in the group for its whole 60 s; a polling read cannot show that (each ask ends in
+   0.3 s by itself). */
+test('#7967 review 5: a Ctrl-C while a request hangs leaves nothing of the command running', () => withStubBoard(
   { '/api/community/home': 'hang' },
   async (port) => {
     seen.length = 0;
     const child = spawn(CLI, ['community', 'home'], { env: envFor(port), detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
-    const done = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal, at: Date.now() })));
-    for (let i = 0; i < 200 && !seen.includes('/api/community/home'); i++) await new Promise((r) => setTimeout(r, 50));
-    assert.ok(seen.includes('/api/community/home'), 'premise: the CLI reached the hanging route');
-    const sent = Date.now();
-    process.kill(-child.pid, 'SIGINT');   // the CLI's own process group (detached), as a terminal's Ctrl-C would
-    const end = await done;
-    assert.ok(end.signal === 'SIGINT' || end.code === 130, 'it stopped the way an interrupt asks: ' + JSON.stringify(end));
-    assert.ok(end.at - sent < 5000, 'it stopped within 5 s (' + (end.at - sent) + ' ms)');
-  }));
-
-/* Review 4: a TERM to the command alone stops the subcommand too, so it starts nothing more. A read asks again while the
-   board answers 202 (still reading): before the fix the outer shell died and the subcommand kept asking. */
-test('#7967 review 4: after a SIGTERM to the command, the board is asked nothing more', () => withStubBoard(
-  { '/api/community/read': 'slow202' },
-  async (port) => {
-    seen.length = 0;
-    const child = spawn(CLI, ['community', 'read'], { env: envFor(port, { KOSMOS_READ_ASKS: '50' }), detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
     const done = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })));
-    for (let i = 0; i < 200 && seen.filter((r) => r === '/api/community/read').length < 2; i++) await new Promise((r) => setTimeout(r, 50));
-    assert.ok(seen.filter((r) => r === '/api/community/read').length >= 2, 'premise: the read was asking again');
-    process.kill(child.pid, 'SIGTERM');   // only the process this test started
-    const end = await done;
-    assert.ok(end.signal === 'SIGTERM' || end.code === 143, JSON.stringify(end));
-    const atStop = seen.length;
-    await new Promise((r) => setTimeout(r, 3000));   // ten more asks' worth of time
-    assert.ok(seen.length <= atStop + 1, 'the board was asked ' + (seen.length - atStop) + ' more time(s) after the command was stopped (one already in flight is allowed)');
+    for (let i = 0; i < 200 && !seen.includes('/api/community/home'); i++) await new Promise((r) => setTimeout(r, 50));
+    assert.ok(seen.includes('/api/community/home'), 'premise: the request is hanging on the board');
+    assert.equal(groupGone(child.pid), false, 'premise: the command is running');
+    process.kill(-child.pid, 'SIGINT');   // the CLI's own process group, as a terminal's Ctrl-C
+    await done;
+    await new Promise((r) => setTimeout(r, 500));
+    assert.ok(groupGone(child.pid), 'something of the command (its curl?) is still running after the Ctrl-C');
   }));
 
-test('#7967 review 4: a post body piped on stdin still reaches the board (the background job is handed stdin)', () => {
+test('#7967 review 5: --help says nothing on stderr (its bare re-dispatch exits 2 by design)', () => withStubBoard({}, async (port) => {
+  for (const args of [['community', '--help'], ['community', 'read', '--help'], ['community', 'home', '--help']]) {
+    const out = await run(CLI, args, envFor(port));
+    assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
+    assert.equal(out.stderr, '', args.join(' ') + ' wrote to stderr: ' + JSON.stringify(out.stderr));
+  }
+}));
+
+test('#7967 review 4: a post body piped on stdin still reaches the board', () => {
   const bodies = [];
   return withStubBoard(
     { '/api/community/post': (b) => { bodies.push(b); return { status: 200, body: { ok: true, status: 'published', id: 'p1' } }; } },
@@ -207,14 +209,16 @@ test('#7967 review 4: a post body piped on stdin still reaches the board (the ba
     });
 });
 
-/* Review 1, 3 and 4: errexit stays on inside the subcommand, and the subcommand runs in the background with this shell
-   waiting (a trap interrupts `wait`; it would not interrupt a foreground subshell). Read from the source: no community
-   path fails unguarded today, so no run of the CLI can show the first. */
-test('#7967 review 1: the community subcommands still run with errexit on, in a background job that is waited on', () => {
+/* Review 5: the wrapper keeps the command in this shell. Read from the source, because the reason it matters (no
+   signal behaves differently) is what the signal tests above check one by one. */
+test('#7967 review 5: the wrapper runs the command in this shell: no subshell, background job or trap', () => {
   const src = fs.readFileSync(CLI, 'utf8');
   const open = src.indexOf('\ncmd_community_with_reason() {\n');
   assert.ok(open >= 0, 'premise: the wrapper was found');
-  const body = src.slice(open, src.indexOf('\n}\n', open + 1) + 1);
-  assert.match(body, /\n {2}\( trap - INT; set -e; [^\n]*cmd_community "\$@" \) <&0 &\n {2}_pid=\$!\n {2}set \+e\n {2}wait "\$_pid"\n {2}_rc=\$\?\n {2}set -e\n/);
-  assert.doesNotMatch(body, /cmd_community "\$@" \) \|\|/, 'a subshell on the left of || runs with errexit off');
+  const body = src.slice(open + 1, src.indexOf('\n}\n', src.indexOf('builtin exit', open)) + 2);
+  assert.match(body, /\n {2}cmd_community "\$@"\n\}/, 'premise: the wrapper ends by calling cmd_community directly');
+  const code = body.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  assert.doesNotMatch(code, /\btrap\b/, 'a trap here holds a TERM until the request ends');
+  assert.doesNotMatch(code, /\(\s*[^)]*cmd_community "\$@"/, 'a subshell keeps running after the command is killed');
+  assert.doesNotMatch(code, /cmd_community "\$@"[^\n]*&\s*$/m, 'a background job cannot take a Ctrl-C on bash 3.2');
 });
