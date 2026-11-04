@@ -973,14 +973,6 @@
       "status": "pending"
     },
     {
-      "title": "Starred agents stay on top",
-      "line": "Agents you star stay at the top of the list, even as it updates.",
-      "icon": "swarm",
-      "rank": 11,
-      "since": "0.7.88",
-      "status": "pending"
-    },
-    {
       "title": "A new loading mark",
       "line": "The Kosmos orb replaces the loading dots.",
       "icon": "spark",
@@ -990,7 +982,7 @@
     },
     {
       "title": "Linux shows its update command",
-      "line": "A Linux computer shows the command that updates Kosmos, in place of an Update button it could not use.",
+      "line": "A Linux computer shows the command to run to update Kosmos, in place of an Update button it could not use.",
       "icon": "shield",
       "rank": 59,
       "since": "0.7.89",
@@ -1026,12 +1018,20 @@
     },
     {
       "title": "Agents can hold a question until you return",
-      "line": "kosmos report needs_you --held keeps a question on the board without a phone alert; your next direct message tells the agent you are back.",
+      "line": "kosmos report needs_you --held keeps a question on the board without a phone alert; the person's next direct message tells the agent they are back.",
       "icon": "chat",
       "rank": 58,
       "since": "0.7.89",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "A question can wait until you are back",
+      "line": "An agent can hold a question until you return: it stays on the board, with no phone alert.",
+      "icon": "chat",
+      "rank": 11,
+      "since": "0.7.89",
+      "status": "pending"
     }
   ]
 }
