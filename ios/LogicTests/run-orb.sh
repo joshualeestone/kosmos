@@ -28,7 +28,7 @@ launch_hex() {   # the colorset's entry $1 (0 light, 1 dark) as 0xrrggbb
 want_launch=$(printf '%s\n' "$ground")
 have_launch=$( { launch_hex 0 && launch_hex 1; } 2>/dev/null || true)
 [ "$have_launch" = "$want_launch" ] \
-  || { echo "VERDICT: FAIL (LaunchBackground is $(echo $have_launch) but Palette.ground is $(echo $want_launch))"; exit 1; }
+  || { echo "VERDICT: FAIL (LaunchBackground is $(echo $have_launch) but Palette.ground is $(echo $want_launch); the colorset's components must be 0xNN hex, as Xcode's 8-bit hex field writes them)"; exit 1; }
 echo "ok   the launch ground is Palette.ground, light and dark ($(echo $want_launch))"
 # Which entry is dark, and which PNG is which, by the catalog's own tags rather than by position or by file name.
 [ "$(plutil -extract colors.0.appearances raw -o - "$colorset" 2>/dev/null || echo none)" = none ] \
@@ -38,9 +38,14 @@ imageset="$src/Assets.xcassets/LaunchOrb.imageset/Contents.json"
 for i in 0 1 2 3 4 5; do
   file=$(plutil -extract "images.$i.filename" raw -o - "$imageset" 2>/dev/null || true)
   look=$(plutil -extract "images.$i.appearances.0.value" raw -o - "$imageset" 2>/dev/null || echo light)
-  case "$file" in launch-orb-"$look".png|launch-orb-"$look"@*x.png) ;;
-    *) echo "VERDICT: FAIL (LaunchOrb entry $i shows ${file:-nothing} for the $look appearance)"; exit 1 ;; esac
+  scale=$(plutil -extract "images.$i.scale" raw -o - "$imageset" 2>/dev/null || true)
+  case "$scale" in 1x) want="launch-orb-$look.png" ;; 2x|3x) want="launch-orb-$look@$scale.png" ;; *) want="" ;; esac
+  [ -n "$want" ] && [ "$file" = "$want" ] \
+    || { echo "VERDICT: FAIL (LaunchOrb entry $i shows ${file:-nothing} for the $look appearance at ${scale:-no} scale)"; exit 1; }
 done
+if plutil -extract images.6 raw -o - "$imageset" >/dev/null 2>&1; then
+  echo "VERDICT: FAIL (LaunchOrb has more than the six entries this checks)"; exit 1
+fi
 echo "ok   the dark colour and the dark PNGs are tagged dark, the light ones untagged"
 have_gold=$( { grep -E '^let golds' "$here/../tools/launch-orb/main.swift" | grep -oE '0x[0-9a-fA-F]{2}, 0x[0-9a-fA-F]{2}, 0x[0-9a-fA-F]{2}' \
   | sed -E 's/0x([0-9a-fA-F]{2}), 0x([0-9a-fA-F]{2}), 0x([0-9a-fA-F]{2})/0x\1\2\3/' | tr 'A-F' 'a-f'; } || true)
