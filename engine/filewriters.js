@@ -22,6 +22,8 @@ const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 const MAX_ENTRIES = 2000;
 const REWRITE_MS = 5000;
 const ROOTS_TTL_MS = 10 * 1000;
+/* kosmos#7989: at most one owner notice per file and writer in this long. */
+const NOTICE_EVERY_MS = 60 * 60 * 1000;
 
 function dir() { return path.join(store.ROOT, 'filewriters'); }
 function fileFor(projectId) { return path.join(dir(), store.safeKey(String(projectId)) + '.json'); }
@@ -95,15 +97,47 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
     const since = prev ? now - Date.parse(prev.at) : NaN;
     // The same agent again within REWRITE_MS (an edit in several steps): the record already says it.
     if (prev && prev.agent === who && since >= 0 && since < REWRITE_MS) return true;
-    rec[at.name] = { agent: who, at: new Date(now).toISOString() };
+    /* kosmos#7989: the file's owner is the agent recorded writing it when it had no record yet (`first`), set once and
+       never moved by a later write. A record from before this change has no owner, and no notice is made for it. */
+    const first = prev ? (typeof prev.first === 'string' && prev.first ? prev.first : null) : who;
+    const entry = { agent: who, at: new Date(now).toISOString() };
+    if (first) entry.first = first;
+    /* kosmos#7989: another agent writing an owned file is said in the project's room, at most once per file and writer
+       per NOTICE_EVERY_MS. `noticed` keeps when each writer was last said. A notice, not a lock: nothing is refused. */
+    const noticed = prev && prev.noticed && typeof prev.noticed === 'object' && !Array.isArray(prev.noticed) ? { ...prev.noticed } : {};
+    let notice = null;
+    if (first && first !== who) {
+      const last = Date.parse(noticed[who]);
+      if (!(Number.isFinite(last) && now - last >= 0 && now - last < NOTICE_EVERY_MS)) {
+        notice = { projectId: at.projectId, name: at.name, owner: first, writer: who };
+        noticed[who] = entry.at;
+      }
+    }
+    if (Object.keys(noticed).length) entry.noticed = noticed;
+    rec[at.name] = entry;
     const kept = Object.entries(rec)
       .filter(([, v]) => v && typeof v === 'object' && now - Date.parse(v.at) <= KEEP_MS)
       .sort((a, b) => Date.parse(b[1].at) - Date.parse(a[1].at))
       .slice(0, MAX_ENTRIES);
     fs.mkdirSync(dir(), { recursive: true });
     require('./securewrite').writeSecret(fileFor(at.projectId), JSON.stringify(Object.fromEntries(kept)), 0o600, { atomicOnly: true });
+    if (notice) ownerNotice(notice);
     return true;
   } catch { return false; }
+}
+
+/* kosmos#7989: the note another agent's write of an owned file leaves in the project's room, for the agents (the
+   person's room view leaves agent notes out). Names are session names, as the record keeps them. Best-effort: a note
+   that cannot be written changes nothing about the write. */
+function ownerNoticeText({ name, owner, writer }) {
+  return writer + ' is changing ' + name + ', a file ' + owner + ' first wrote here. A notice, not a lock: ' + owner
+    + ', read it again before you build on what you last saw in it.';
+}
+function ownerNotice(n) {
+  try {
+    const messages = require('./messages');
+    messages.roomNote(n.projectId, ownerNoticeText(n), { audience: messages.NOTE_AUDIENCE_AGENTS });
+  } catch { /* the write stands */ }
 }
 
 /* The agent that made the change at `modifiedIso`, from its record, or null. */
@@ -128,4 +162,4 @@ function annotate(projectId, files, nameOf = (s) => s) {
   });
 }
 
-module.exports = { noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS };
+module.exports = { noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, ownerNoticeText, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS };
