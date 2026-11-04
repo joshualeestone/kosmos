@@ -18,7 +18,6 @@ struct KosmosOrb: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
-    @Environment(\.isEnabled) private var isEnabled   // inside a disabled Button it dims with the label beside it
 
     var body: some View {
         Group {
@@ -33,8 +32,7 @@ struct KosmosOrb: View {
                 }
             }
         }
-        .frame(width: size, height: size)
-        .opacity(isEnabled ? 1 : 0.4)
+        .frame(width: size, height: size)   // not dimmed in a disabled Button: those are disabled because they are working (round 6)
         .accessibilityElement()
         .accessibilityLabel(Text(label))
         .accessibilityAddTraits(reduceMotion ? [] : .updatesFrequently)

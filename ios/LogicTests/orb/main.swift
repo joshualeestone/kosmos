@@ -40,7 +40,6 @@ let later = OrbLogic.place(27)
 let same = later.count == still.count && zip(later, still).allSatisfy { abs($0.x - $1.x) < 1e-9 && abs($0.y - $1.y) < 1e-9 }
 check(same, "t = 27 s draws the same frame as t = 0")
 
-// The shared placing is the same as a fresh one at the frame's time, and moves on with the time.
 // The shared placing is main-actor isolated; this test's top level is not, so it asks on the main actor (it is on it).
 let (a1, a2) = MainActor.assumeIsolated { (OrbLogic.placeShared(5.001), OrbLogic.placeShared(5.004)) }
 let b = OrbLogic.place((5.001 * 15).rounded() / 15)
