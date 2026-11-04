@@ -1030,11 +1030,8 @@ struct ChatView: View {
     }
     #endif
 
-    // kosmos#7817: after the keyboard settles, a list read past its end is put back at its end, then at the newest message,
-    // unless a search is typed, another did-show or a will-hide came, the chat or its list changed, or a finger (or a fling)
-    // is on it at that look. A reading outside the content, or within it with nothing drawn, is recorded.
-    // kosmos#7420: the settled looks, after a keyboard did-show (#7817), a change of the box's height at the newest, or the
-    // whole window landing at the newest. Each new ask replaces the looks still waiting (kbSettleTick).
+    // kosmos#7420: the settled looks, after a keyboard did-show (#7817), a change of the box's height at the newest, or a
+    // thread read while the chat is kept at the newest (keepAtEndTick). Each new ask replaces the looks still waiting.
     private func settleAtNewest(_ proxy: ScrollViewProxy) {
         kbSettleTick &+= 1
         let tick = kbSettleTick, chatAt = epoch, listAt = listEpoch
@@ -1043,6 +1040,9 @@ struct ChatView: View {
         }
     }
 
+    // kosmos#7817: after the keyboard settles, a list read past its end is put back at its end, then at the newest message,
+    // unless a search is typed, another did-show or a will-hide came, the chat or its list changed, or a finger (or a fling)
+    // is on it at that look. A reading outside the content, or within it with nothing drawn, is recorded.
     private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int) {
         guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching else { return }
         let place = scrollBox.reading()?.place ?? "unread"
@@ -1059,7 +1059,8 @@ struct ChatView: View {
                         // the same undrawn stretch; the rebuild (recoverEmpty) measures the list again and drew rows each time.
                         // Review 1: never for a chat with no rows (nothing to draw is not a blank), and not while a list just
                         // rebuilt is still laying out (its own gap, as diagCheck waits Board.rebuildGrace).
-                        guard !(thread?.rows.isEmpty ?? true) else { return }
+                        // Review 2: nor while a chat is still opening and has drawn nothing yet (slow, not blank; diagCheck's).
+                        guard !(thread?.rows.isEmpty ?? true), endSeen || diagEverDrew else { return }
                         if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
                         Self.trace("keyboard settled: within, nothing drawn, rebuilt")
                         recoverEmpty(proxy)
