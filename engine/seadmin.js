@@ -249,15 +249,18 @@ function scriptOf(ch) {
 // virama, with a letter of the virama's script before it and after the joiner; or a ZWNJ between an Arabic letter that
 // joins forward and one that joins back (harakat may sit before the ZWNJ, not after it). Anywhere else it is escaped
 // and marked as before: after an alef or a tatweel, between letters that join anyway, in Indic text with no virama, in
-// a Latin name, between two scripts. The scripts are deliberately partial: Tamil is left out (no half forms, so a
-// joiner after its virama changes nothing), as are Syriac, Mongolian, N'Ko, Thaana and the rest; Sinhala keeps only the
-// ZWJ (a conjunct forms only on ZWJ, so a ZWNJ after al-lakuna changes nothing). Known residuals: a letter with no half
-// form (Devanagari nga, Telugu ka) looks the same with a ZWJ, a ZWNJ or neither after its virama, in any font; so does
-// a ZWNJ in a pair that never forms a conjunct; and a font that draws no conjunct shows the spellings alike; both are
-// allowed by ContextJ and are not marked here. Known false positives (marked, never hidden): a nukta before the virama,
-// Bengali ya-phala (ra, ZWJ, virama, ya), a chillu at the end of a word, and a mark after the ZWNJ.
-const VIRAMAS = [['Devanagari', '\u094D'], ['Bengali', '\u09CD'], ['Gurmukhi', '\u0A4D'], ['Gujarati', '\u0ACD'],
-  ['Oriya', '\u0B4D'], ['Telugu', '\u0C4D'], ['Kannada', '\u0CCD'], ['Malayalam', '\u0D4D'], ['Sinhala', '\u0DCA', 'zwj']]
+// a Latin name, between two scripts. The scripts are deliberately partial: Tamil is left out (no half forms), as are
+// Syriac, Mongolian, N'Ko, Thaana and the rest; which joiner each kept script keeps is set in VIRAMAS below. Known
+// residuals, allowed by ContextJ and not marked here: for a letter with no half form (Devanagari nga), a ZWJ after its
+// virama looks the same as no joiner; a ZWNJ looks the same as no joiner in a pair that never forms a conjunct; and a
+// font that draws no conjunct shows the spellings alike. Known false positives (marked, never hidden): a nukta before
+// the virama, Bengali ya-phala (ra, ZWJ, virama, ya), a chillu at the end of a word, and a mark after the ZWNJ. Which
+// joiner a script keeps: both where it has productive half forms or chillus (Devanagari, Bengali, Gujarati, Malayalam);
+// only the ZWNJ where a ZWJ after the virama has almost no half form to ask for (Gurmukhi, Oriya, Telugu, Kannada);
+// only the ZWJ in Sinhala (a conjunct forms only on ZWJ).
+const VIRAMAS = [['Devanagari', '\u094D'], ['Bengali', '\u09CD'], ['Gurmukhi', '\u0A4D', 'zwnj'], ['Gujarati', '\u0ACD'],
+  ['Oriya', '\u0B4D', 'zwnj'], ['Telugu', '\u0C4D', 'zwnj'], ['Kannada', '\u0CCD', 'zwnj'], ['Malayalam', '\u0D4D'],
+  ['Sinhala', '\u0DCA', 'zwj']]
   .map(([name, v, only]) => [new RegExp('^\\p{Script=' + name + '}$', 'u'), v, only]);
 // Arabic letters by Joining_Type (Unicode ArabicShaping.txt): R joins only to the letter before it, U to neither; every
 // other Arabic letter here is D (both ways). Only these ranges count; anything else is not an Arabic joining letter.
@@ -280,6 +283,7 @@ function joinerInWord(chars, i) {
   if (viramaOf) {
     const [re, , only] = viramaOf, base = chars[i - 2];
     if (only === 'zwj' && chars[i] !== '\u200D') return false;
+    if (only === 'zwnj' && chars[i] !== '\u200C') return false;
     return !!base && /\p{L}/u.test(base) && re.test(base) && /\p{L}/u.test(next) && re.test(next);
   }
   if (chars[i] !== '\u200C') return false;
