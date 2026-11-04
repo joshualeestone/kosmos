@@ -1,4 +1,5 @@
 # kosmos#7883: the Windows promote carries setup.ps1
+n**Posture:** production
 
 ## Goal
 `https://installkosmos.com/setup.ps1` (the one-line Windows install, and step 1 of the Intune path) stays current
