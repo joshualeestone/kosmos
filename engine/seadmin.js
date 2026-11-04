@@ -252,12 +252,14 @@ function scriptOf(ch) {
 // a Latin name, between two scripts. The scripts are deliberately partial: Tamil is left out (no half forms), as are
 // Syriac, Mongolian, N'Ko, Thaana and the rest; which joiner each kept script keeps is set in VIRAMAS below. Known
 // residuals, allowed by ContextJ and not marked here: for a letter with no half form (Devanagari nga), a ZWJ after its
-// virama looks the same as no joiner; a ZWNJ looks the same as no joiner in a pair that never forms a conjunct; and a
-// font that draws no conjunct shows the spellings alike. Known false positives (marked, never hidden): a nukta before
-// the virama, Bengali ya-phala (ra, ZWJ, virama, ya), a chillu at the end of a word, and a mark after the ZWNJ. Which
-// joiner a script keeps: both where it has productive half forms or chillus (Devanagari, Bengali, Gujarati, Malayalam);
-// only the ZWNJ where a ZWJ after the virama has almost no half form to ask for (Gurmukhi, Oriya, Telugu, Kannada);
-// only the ZWJ in Sinhala (a conjunct forms only on ZWJ).
+// virama looks the same as no joiner; a ZWNJ looks the same as no joiner in a pair that never forms a conjunct; a
+// joiner before or after an independent vowel or another non-consonant letter of the script (Devanagari A, Om) cannot
+// form a conjunct, and is kept anyway (restricting it needs a per-script consonant table); and a font that draws no
+// conjunct shows the spellings alike. Known false positives (marked, never hidden): a nukta before the virama, Bengali
+// ya-phala (ra, ZWJ, virama, ya), a chillu at the end of a word, and a mark after the ZWNJ. Which joiner a script
+// keeps: both where it has productive half forms or chillus (Devanagari, Bengali, Gujarati, Malayalam); only the ZWNJ
+// where a ZWJ after the virama has almost no half form to ask for (Gurmukhi, Oriya, Telugu, Kannada); only the ZWJ in
+// Sinhala (a conjunct forms only on ZWJ).
 const VIRAMAS = [['Devanagari', '\u094D'], ['Bengali', '\u09CD'], ['Gurmukhi', '\u0A4D', 'zwnj'], ['Gujarati', '\u0ACD'],
   ['Oriya', '\u0B4D', 'zwnj'], ['Telugu', '\u0C4D', 'zwnj'], ['Kannada', '\u0CCD', 'zwnj'], ['Malayalam', '\u0D4D'],
   ['Sinhala', '\u0DCA', 'zwj']]

@@ -498,6 +498,9 @@ test('#7892: a zero-width joiner or non-joiner inside a Persian or Indic word is
     assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
   // The first letter of the accepted Arabic range (U+0620, D) joins both ways: kept.
   assert.deepStrictEqual(shownOrg('\u0620\u200C\u0628'), ['\u0620\u200C\u0628', false], 'U+0620');
+  // A virama joiner at the very end of the word (a chillu-style ending) and a superscript alef skipped like a harakah.
+  assert.deepStrictEqual(shownOrg('\u0D28\u0D4D\u200D'), ['\u0D28\u0D4D\\u{200D}', true], 'joiner at the end');
+  assert.deepStrictEqual(shownOrg('\u0628\u0670\u200C\u0628')[0], '\u0628\u0670\u200C\u0628', 'superscript alef before the ZWNJ');
   // Sinhala keeps only the ZWJ: a ZWNJ after al-lakuna changes nothing, so it is escaped and marked.
   assert.deepStrictEqual(shownOrg('\u0D9A\u0DCA\u200C\u0DC2'), ['\u0D9A\u0DCA\\u{200C}\u0DC2', true], 'Sinhala ZWNJ');
   // A known false positive, pinned so it is a decision: a harakah AFTER the ZWNJ is not skipped, so the joiner is
