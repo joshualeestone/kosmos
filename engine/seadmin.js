@@ -10,8 +10,10 @@
  * DECODE bytes you were given and check the tag is the action the person chose; show the decoded target; compute the
  * challenge yourself; never sign a hash, a challenge or an opaque blob from the coordinator. So:
  *   - prepare(action, bytes) decodes under THAT action's tag only (another action's bytes refuse, as do short,
- *     malformed or trailing bytes) and returns what a screen must show: the decoded fields and, for an admin add or a
- *     reviewer enrolment, the fingerprint computed here from the decoded bytes;
+ *     malformed or trailing bytes) and returns what a screen must show: `shown` (the decoded text, escaped, with
+ *     `unusual`; never the raw `decoded` strings; the generation and the reviewer flags, which are not text, are
+ *     read from `decoded`) and, for an admin add or a reviewer enrolment, the fingerprint computed here from the
+ *     decoded bytes;
  *   - sign(prepared, opts) takes ONLY an object prepare() returned, and signs the copy of the bytes it holds, so what
  *     is signed is what the screen was shown. It hands that RAW message to kosmos-se (Apple's message mode, which
  *     is what verify_se checks). No digest ever crosses into the signer, and the signature is checked against the
@@ -31,15 +33,12 @@
  *   - shipping kosmos-se in the app bundle and any caller. Nothing outside the test calls this file yet.
  *   - choosing the helper. runHelper runs the path it is given; the bundle slice must resolve kosmos-se itself
  *     (the signed app's own copy), never take the path from anything a page or the coordinator supplies.
- *   - an asynchronous call for the admin screen. runHelper blocks its caller, and a presence key's sign blocks on the
- *     person, so the screen must run it off the board's event loop; and the prompt should name the action (an
- *     LAContext reason string), which kosmos-se does not pass yet.
  * A key's access control is fixed when the key is made, so createKey makes a `presence` key (Touch ID or password on
  * every signature) unless told otherwise; see native-se/main.swift for what is and is not measured about that.
  */
 
 const crypto = require('node:crypto');
-const { execFileSync } = require('node:child_process');
+const { execFile } = require('node:child_process');
 
 const TAGS = {
   change: 'kosmos-escrowd-roster-change v1',
@@ -204,6 +203,92 @@ function fingerprintDisplay(fp) {
   return [h.slice(0, 8), h.slice(8, 16), h.slice(16, 24), h.slice(24, 32)].join(' ');
 }
 
+/* kosmos#7892 (round-8 WARNING 1 of #7116): decoded text goes on the screen that asks a person to sign, and the only
+   check on it is valid UTF-8, so a hostile coordinator could make two orgs or admins look alike. shownText() is what
+   the screen shows instead of the raw string:
+   - every control, format (bidi overrides and isolates, zero-width characters, the BOM, the soft hyphen), line or
+     paragraph separator, private-use or unassigned code point, every default-ignorable code point (variation
+     selectors, the combining grapheme joiner, the Hangul fillers: invisible marks and letters), the characters that
+     draw as a blank or a box (U+2800 braille blank, U+FFFC object replacement, U+FFFD replacement), and every space
+     other than U+0020, is written as \u{XXXX}, and the text is marked unusual;
+   - text that changes under NFC, or a letter or digit that changes under NFKC, is marked unusual: "Cafe" with a
+     combining accent looks like "Café" with a precomposed one, and fullwidth "ＡBC" like "ABC" (symbols and
+     punctuation, such as "™" or the fullwidth brackets of "（株）", are left alone: they are ordinary in names);
+   - more than two combining marks in a row mark it unusual (a stack can hide or imitate a letter), and so does an
+     enclosing mark, an overlay mark (U+0334 to U+0338, U+20D2, U+20D3, U+20D8 to U+20DA, U+20E5, U+20E6, U+20EA,
+     U+20EB: "o" with U+0338 draws like "ø"), or a mark with no letter under it (at the start, or after anything that
+     is not a letter or a mark);
+   - a space at the start or end, or a second space in a row, is written as \u{0020} and marks it unusual;
+   - a backslash is written as \\, so a name that spells "\u{202E}" in plain letters cannot pass for an escaped one;
+   - letters or digits from more than one script (Latin with Cyrillic or Greek, say, or Devanagari zeros in "Google")
+     are left as they are but mark the text unusual, since look-alike letters are the other way to fake a name. Han,
+     Hiragana, Katakana and Hangul count as one, and Latin with them is not marked ("NTTデータ", "Kosmos 株式会社" are
+     ordinary company names); both are pinned by tests.
+   `unusual` means "look closer", not "suspicious", and it is not rare: it is cautious, so ordinary names carry it too
+   (an emoji with its variation selector, a Persian or Indic word with a zero-width joiner or non-joiner, which are
+   escaped; a superscript, a circled number or a Roman-numeral character; half-width katakana; decomposed Hangul; a mark
+   after a hyphen or a digit). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in
+   one script that looks like another (all-Cyrillic "АВС" for Latin "ABC") is not marked, nor are dash and slash
+   look-alikes, nor two scripts that are both off SCRIPTS (each counts as "other"), nor look-alikes inside Japanese
+   (Katakana エ and Han 工). \p{Cs} cannot arrive through prepare (the decoder refuses ill-formed UTF-8); it is in ESCAPED
+   for any other caller. For an admin add or a reviewer enrolment the fingerprint is the defence; for an org name on a
+   cancel or a revoke nothing here is. */
+const ESCAPED = /[\p{Cs}\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}\u2800\uFFFC\uFFFD]|(?! )\p{Zs}/u;
+const SCRIPTS = ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana', 'Hangul', 'Arabic',
+  'Hebrew', 'Devanagari', 'Thai'].map((name) => [name, new RegExp('\\p{Script=' + name + '}', 'u')]);
+function scriptOf(ch) {
+  // Letters and digits only. A Common or Inherited one (the Japanese long-vowel mark, the Arabic tatweel, the ASCII
+  // digits) belongs to no one script.
+  if (!/[\p{L}\p{Nd}]/u.test(ch) || /[\p{Script=Common}\p{Script=Inherited}]/u.test(ch)) return null;
+  const hit = SCRIPTS.find(([, re]) => re.test(ch));
+  return hit ? hit[0] : 'other';
+}
+function shownText(s) {
+  let text = '';
+  let unusual = s !== s.normalize('NFC')
+    || [...s].some((c) => /[\p{L}\p{N}]/u.test(c) && c !== c.normalize('NFKC'))
+    || /\p{M}{3}|\p{Me}|[\u0334-\u0338\u20D2\u20D3\u20D8-\u20DA\u20E5\u20E6\u20EA\u20EB]|(?:^|[^\p{L}\p{M}])\p{M}/u.test(s);
+  const scripts = new Set();
+  const chars = [...s];
+  chars.forEach((ch, i) => {
+    if (ch === ' ' && (i === 0 || i === chars.length - 1 || chars[i - 1] === ' ')) {
+      text += '\\u{0020}'; unusual = true; return;
+    }
+    if (ch === '\\') { text += '\\\\'; return; }
+    if (ESCAPED.test(ch)) {
+      text += '\\u{' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '}'; unusual = true; return;
+    }
+    const sc = scriptOf(ch);
+    if (sc) scripts.add(sc);
+    text += ch;
+  });
+  // Japanese and Korean write Han, Hiragana, Katakana and Hangul together, and with Latin; none of that alone is a
+  // look-alike. Any other pair of scripts is.
+  const CJK = ['Han', 'Hiragana', 'Katakana', 'Hangul'];
+  const groups = new Set([...scripts].map((x) => (CJK.includes(x) ? 'CJK' : x)));
+  if (groups.has('CJK') && groups.has('Latin')) groups.delete('Latin');
+  if (groups.size > 1) unusual = true;
+  return { text, unusual };
+}
+// Every string in a decoded action, as shownText() writes it; bytes and other values are left out (the screen shows
+// those as hex or fingerprints). `unusual` is true when any one string is.
+function shownFields(decoded) {
+  let unusual = false;
+  const walk = (v) => {
+    if (typeof v === 'string') { const s = shownText(v); unusual = unusual || s.unusual; return s.text; }
+    // An array keeps only its text items, so its indices can differ from decoded's; no decoder returns one today.
+    if (Array.isArray(v)) return Object.freeze(v.map(walk).filter((w) => w !== undefined));
+    if (v && typeof v === 'object' && !(v instanceof Uint8Array)) {
+      const out = {};
+      for (const [k, x] of Object.entries(v)) { const w = walk(x); if (w !== undefined) out[k] = w; }
+      return Object.freeze(out);
+    }
+    return undefined;
+  };
+  const fields = walk(decoded);
+  return { fields, unusual };
+}
+
 const DECODERS = { change: decodeChange, cancel: decodeCancel, reviewerEnrol: decodeReviewerEnrol,
   reviewerRevoke: decodeReviewerRevoke };
 
@@ -222,7 +307,9 @@ function prepare(action, bytes) {
   } else if (action === 'reviewerEnrol') {
     fingerprint = fingerprintDisplay(reviewerFingerprint(decoded.org, decoded));
   }
-  const prepared = Object.freeze(Object.defineProperties({ action, fingerprint, challenge: sha256(message).toString('hex') }, {
+  const shown = shownFields(decoded);   // #7892: what the screen shows in place of the raw strings
+  const prepared = Object.freeze(Object.defineProperties({ action, fingerprint, challenge: sha256(message).toString('hex'),
+    shown: shown.fields, unusual: shown.unusual }, {
     // Read fresh from the held copy every time, so nothing a caller does to one read changes the next.
     decoded: { get: () => DECODERS[action](Buffer.from(message)), enumerable: true },
   }));
@@ -230,15 +317,54 @@ function prepare(action, bytes) {
   return prepared;
 }
 
+/* kosmos#7892: what a screen may say when kosmos-se fails. A child-process error's message carries the helper's
+   path, its argv and its stderr, so it is never passed on. kosmos-se writes one line, "kosmos-se: <why>", and every
+   literal <why> it can write is listed here (seadmin-7116.test.js holds this list to native-se/main.swift, and fails
+   on any fail() whose argument is not a literal, a ternary of two literals, or `usage`); a line not on it, or no
+   line, becomes the generic sentence, its usage line included. The one <why> with a variable tail (the Enclave's own
+   description after "refused to make a key") is matched by its fixed start, and only the fixed start is shown. A
+   person cancelling Touch ID also reads "the Secure Enclave refused to sign": the screen cannot tell that from a
+   fault. */
+const HELPER_SAYS = [
+  'cannot read the key file', 'the key file is not a plain file', 'the key file belongs to someone else',
+  'the key file is readable by others (it must be 0600)', "this Mac's Secure Enclave cannot open that key file",
+  'the message is too long to be an escrowd action', 'this Mac has no Secure Enclave',
+  'cannot make the access control for a presence key', 'the key file already exists', 'cannot create the key file',
+  'cannot write the key file', 'refusing to sign bytes that are not an escrowd admin action',
+  'the Secure Enclave refused to sign',
+];
+const HELPER_SAYS_PREFIX = ['the Secure Enclave refused to make a key'];
+const HELPER_GENERIC = 'the admin key helper failed';
+function helperSentence(stderr) {
+  const line = String(stderr || '').split('\n').find((l) => l.startsWith('kosmos-se: '));
+  const why = line ? line.slice('kosmos-se: '.length).trim() : '';
+  if (HELPER_SAYS.includes(why)) return why;
+  return HELPER_SAYS_PREFIX.find((p) => why.startsWith(p + ' (') || why === p) || HELPER_GENERIC;
+}
+
+// Async (#7892): a presence key's signature waits on the person, so the board's event loop must not.
 function runHelper(helper, args, input) {
-  if (typeof helper !== 'string' || !helper) throw new Error('no kosmos-se helper was named');
-  try {
-    return execFileSync(helper, args, { input: input || Buffer.alloc(0), stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: HELPER_TIMEOUT_MS }).toString('utf8').trim();
-  } catch (e) {
-    if (e.code === 'ETIMEDOUT') throw new Error('kosmos-se did not finish in time (a presence key waits for the person)');
-    throw e;
-  }
+  if (typeof helper !== 'string' || !helper) return Promise.reject(new Error('no kosmos-se helper was named'));
+  return new Promise((resolve, reject) => {
+    let child;
+    // An invalid argument (a NUL in a path, say) makes execFile THROW, and its message carries the argument: generic.
+    try { child = execFile(helper, args, { timeout: HELPER_TIMEOUT_MS, encoding: 'buffer', maxBuffer: 1 << 16 },
+      (err, stdout, stderr) => {
+        if (!err) return resolve(stdout.toString('utf8').trim());
+        // Over maxBuffer: on Node 26.8.1 on this Mac `killed` was unset here (measured 11-03; other versions may
+        // differ), so this reaches the generic sentence either way; the check keeps it from reading as a timeout on a
+        // runtime that does set `killed`.
+        if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return reject(new Error(HELPER_GENERIC));
+        if (err.killed) return reject(new Error('kosmos-se did not finish in time (a presence key waits for the person)'));
+        if (err.code === 'ENOENT') return reject(new Error('the admin key helper is not installed'));
+        if (err.code === 'EACCES') return reject(new Error('the admin key helper cannot be run'));
+        reject(new Error(helperSentence(stderr)));
+      }); } catch { return reject(new Error(HELPER_GENERIC)); }
+    // No stdin when the spawn itself failed (EMFILE, say): the callback reports it.
+    if (!child.stdin) return;
+    child.stdin.on('error', () => {});   // a helper that exits before reading its input is reported by its exit
+    child.stdin.end(input || Buffer.alloc(0));
+  });
 }
 function hexOf(out, what) {
   if (!/^([0-9a-f]{2})+$/.test(out)) throw new Error(`kosmos-se did not print a ${what}`);
@@ -249,24 +375,32 @@ function hexOf(out, what) {
  * Make this Mac's Secure Enclave admin key; returns its 65-byte public key. Refuses if keyFile exists. `presence:
  * false` makes a key any program running as this user can sign with; it exists for tests, where nobody can answer.
  */
-function createKey({ helper, keyFile, presence = true }) {
-  return key(hexOf(runHelper(helper, ['create', keyFile, presence === false ? 'none' : 'presence']), 'public key'));
+async function createKey({ helper, keyFile, presence = true }) {
+  return key(hexOf(await runHelper(helper, ['create', keyFile, presence === false ? 'none' : 'presence']), 'public key'));
 }
-function publicKey({ helper, keyFile }) {
-  return key(hexOf(runHelper(helper, ['pub', keyFile]), 'public key'));
+async function publicKey({ helper, keyFile }) {
+  return key(hexOf(await runHelper(helper, ['pub', keyFile]), 'public key'));
 }
 
 /**
  * Sign what prepare() decoded and showed, with the Enclave key; returns the DER signature escrowd's verify_se takes.
  * `expectedKey` is the 65-byte public key this Mac enrolled as its admin key; a key file holding any other refuses.
  */
-function sign(prepared, { helper, keyFile, expectedKey }) {
+// #7892: one signature at a time. Each raises its own Touch ID prompt, which names only the KIND of action, so two in
+// flight would leave the person unable to tell which prompt approves which change. Every sign waits for the last.
+let signQueue = Promise.resolve();
+function sign(prepared, opts) {
+  const run = signQueue.then(() => signOne(prepared, opts));
+  signQueue = run.catch(() => {});
+  return run;
+}
+async function signOne(prepared, { helper, keyFile, expectedKey }) {
   const message = PREPARED.get(prepared);
   if (!message) throw new Error('sign takes only what prepare returned');
   const expected = key(expectedKey);
-  const pub = publicKey({ helper, keyFile });
+  const pub = await publicKey({ helper, keyFile });
   if (!pub.equals(Buffer.from(expected))) throw new Error('the key file holds a different key from the enrolled one');
-  const der = hexOf(runHelper(helper, ['sign', keyFile], message), 'signature');
+  const der = hexOf(await runHelper(helper, ['sign', keyFile], message), 'signature');
   const jwk = { kty: 'EC', crv: 'P-256', x: pub.subarray(1, 33).toString('base64url'),
     y: pub.subarray(33, 65).toString('base64url') };
   if (!crypto.verify('sha256', message, { key: crypto.createPublicKey({ key: jwk, format: 'jwk' }), dsaEncoding: 'der' }, der)) {
@@ -280,5 +414,5 @@ module.exports = {
   encodeChange, encodeCancel, encodeReviewerEnrol, encodeReviewerRevoke,
   decodeChange, decodeCancel, decodeReviewerEnrol, decodeReviewerRevoke,
   adminFingerprint, reviewerFingerprint, fingerprintDisplay,
-  prepare, createKey, publicKey, sign,
+  prepare, createKey, publicKey, sign, HELPER_SAYS, HELPER_SAYS_PREFIX,
 };

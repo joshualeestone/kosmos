@@ -124,16 +124,16 @@ if (FAKE_DIR) {
     `case "$1" in sign) echo ${badSig} ;; *) echo ${APPLE.key} ;; esac\n`, { mode: 0o755 });
 }
 
-test('#7116: createKey asks for a presence key unless a caller says presence: false', { skip: FAKE ? false : 'needs a POSIX shell' }, () => {
+test('#7116: createKey asks for a presence key unless a caller says presence: false', { skip: FAKE ? false : 'needs a POSIX shell' }, async () => {
   const argv = path.join(FAKE_DIR, 'argv');
   fs.rmSync(argv, { force: true });
-  assert.ok(se.createKey({ helper: FAKE, keyFile: '/k1' }).equals(FAKE_PUB));
-  se.createKey({ helper: FAKE, keyFile: '/k2', presence: false });
+  assert.ok((await se.createKey({ helper: FAKE, keyFile: '/k1' })).equals(FAKE_PUB));
+  await se.createKey({ helper: FAKE, keyFile: '/k2', presence: false });
   assert.deepStrictEqual(fs.readFileSync(argv, 'utf8').trim().split('\n'), ['create /k1 presence', 'create /k2 none']);
 });
 
-test('#7116: sign refuses a signature that does not verify under the helper\'s own key', { skip: FAKE ? false : 'needs a POSIX shell' }, () => {
-  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: FAKE, keyFile: '/k1', expectedKey: FAKE_PUB }), /does not verify/);
+test('#7116: sign refuses a signature that does not verify under the helper\'s own key', { skip: FAKE ? false : 'needs a POSIX shell' }, async () => {
+  await assert.rejects(se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: FAKE, keyFile: '/k1', expectedKey: FAKE_PUB }), /does not verify/);
 });
 
 // Part 2: the real Enclave.
@@ -164,34 +164,35 @@ test.after(() => {
   if (FAKE_DIR) fs.rmSync(FAKE_DIR, { recursive: true, force: true });
 });
 
-test('#7116: a key made in the Enclave signs every pinned action, and the signature verifies under its own key only', { skip: SKIP }, () => {
+test('#7116: a key made in the Enclave signs every pinned action, and the signature verifies under its own key only', { skip: SKIP }, async () => {
   whole();
   const keyFile = path.join(DIR, 'admin');
-  const pub = se.createKey({ helper: HELPER, keyFile, presence: false });
+  const pub = await se.createKey({ helper: HELPER, keyFile, presence: false });
   assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600, 'the key file is 0600');
-  assert.ok(pub.equals(se.publicKey({ helper: HELPER, keyFile })), 'pub reads back the key create printed');
-  const otherPub = se.publicKey({ helper: HELPER, keyFile: path.join(DIR, 'probe') });
+  assert.ok(pub.equals(await se.publicKey({ helper: HELPER, keyFile })), 'pub reads back the key create printed');
+  const otherPub = await se.publicKey({ helper: HELPER, keyFile: path.join(DIR, 'probe') });
   for (const [name, action] of Object.entries(ACTION_OF)) {
     const msg = hex(V.bytes[name]);
     const callers = Buffer.from(msg);
     const shown = se.prepare(action, callers);
     callers.fill(0);                       // changed after the screen: the signature must still be over what was shown
-    const der = se.sign(shown, { helper: HELPER, keyFile, expectedKey: pub });
+    const der = await se.sign(shown, { helper: HELPER, keyFile, expectedKey: pub });
     assert.ok(verifyDer(pub, msg, der), name);
     assert.ok(!verifyDer(otherPub, msg, der), `${name} under another key`);
   }
   // The same key file, but the screen expects the other key: refused before anything is signed.
-  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: HELPER, keyFile, expectedKey: otherPub }),
+  await assert.rejects(se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: HELPER, keyFile, expectedKey: otherPub }),
     /different key from the enrolled one/);
-  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: HELPER, keyFile }), /65 bytes/,
+  await assert.rejects(se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: HELPER, keyFile }), /65 bytes/,
     'no expected key is a refusal, not a pass');
 });
 
-test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are not an admin action even when called directly', { skip: SKIP }, () => {
+test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are not an admin action even when called directly', { skip: SKIP }, async () => {
   whole();
   const keyFile = path.join(DIR, 'probe');
   const before = fs.readFileSync(keyFile);
-  assert.throws(() => se.createKey({ helper: HELPER, keyFile, presence: false }), /already exists/);
+  await assert.rejects(se.createKey({ helper: HELPER, keyFile, presence: false }), (e) => e.message === 'the key file already exists',
+    'the helper\'s refusal reaches the caller as its own fixed sentence, nothing more');
   assert.ok(fs.readFileSync(keyFile).equals(before), 'the existing key is untouched');
   const hash = crypto.createHash('sha256').update(hex(V.bytes.cancel)).digest();
   const direct = spawnSync(HELPER, ['sign', keyFile], { input: hash });
@@ -209,8 +210,8 @@ test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are no
   assert.match(over.stderr.toString(), /too long/);
   // And seadmin.sign signs nothing prepare() did not make, before the helper is ever asked.
   const dead = { helper: '/nonexistent/kosmos-se', keyFile };
-  assert.throws(() => se.sign({ ...se.prepare('cancel', hex(V.bytes.cancel)) }, dead), /only what prepare returned/);
-  assert.throws(() => se.sign(hex(V.bytes.cancel), dead), /only what prepare returned/);
+  await assert.rejects(se.sign({ ...se.prepare('cancel', hex(V.bytes.cancel)) }, dead), /only what prepare returned/);
+  await assert.rejects(se.sign(hex(V.bytes.cancel), dead), /only what prepare returned/);
 });
 
 test('#7116: kosmos-se refuses a key file that is readable by others, or is a symlink, and makes no key without a policy', { skip: SKIP }, () => {
@@ -243,7 +244,7 @@ test('#7116: a key made under a strict umask is still exactly 0600 and opens', {
   assert.strictEqual(spawnSync(HELPER, ['pub', keyFile]).status, 0);
 });
 
-test('#7116: sign signs the bytes prepare was given, not bytes changed afterwards, and prepare takes only bytes', () => {
+test('#7116: sign signs the bytes prepare was given, not bytes changed afterwards, and prepare takes only bytes', async () => {
   const bytes = Buffer.from(hex(V.bytes.cancel));
   const shown = se.prepare('cancel', bytes);
   bytes[bytes.length - 1] ^= 1;          // the caller changes its buffer after the screen was shown
@@ -260,10 +261,183 @@ test('#7116: sign signs the bytes prepare was given, not bytes changed afterward
     // The stand-in records what it was handed: the bytes as shown, not the caller's changed buffer. (Its signature is
     // another key's, so sign then refuses it, after the helper was asked.)
     fs.rmSync(path.join(FAKE_DIR, 'stdin'), { force: true });
-    assert.throws(() => se.sign(shown, { helper: FAKE, keyFile: '/k1', expectedKey: FAKE_PUB }), /does not verify/);
+    await assert.rejects(se.sign(shown, { helper: FAKE, keyFile: '/k1', expectedKey: FAKE_PUB }), /does not verify/);
     assert.ok(fs.readFileSync(path.join(FAKE_DIR, 'stdin')).equals(hex(V.bytes.cancel)), 'the helper got the shown bytes');
   }
   for (const notBytes of ['kosmos-escrowd-roster-cancel v1', [1, 2], new ArrayBuffer(4)]) {
     assert.throws(() => se.prepare('cancel', notBytes), /are bytes/);
   }
+});
+
+test('#7892: prepare gives the screen escaped text, so hidden or look-alike characters cannot make two names look the same', () => {
+  // The pinned vectors are plain text: shown matches decoded, and nothing is unusual.
+  const plain = se.prepare('change', hex(V.bytes.changeAdd));
+  assert.strictEqual(plain.shown.org, V.org);
+  assert.strictEqual(plain.shown.change.admin.adminId, plain.decoded.change.admin.adminId);
+  assert.strictEqual(plain.unusual, false, 'CONTROL: the pinned add reads as unusual');
+  assert.ok(Object.isFrozen(plain.shown) && Object.isFrozen(plain.shown.change.admin), 'shown can be changed by a caller');
+  assert.strictEqual(plain.shown.change.admin.key, undefined, 'bytes are shown as hex or fingerprints, never as text');
+
+  const shownOrg = (org) => { const p = se.prepare('cancel', se.encodeCancel(org, 'roster-change', Buffer.alloc(16, 7))); return [p.shown.org, p.unusual]; };
+  // A right-to-left override, a zero-width space, a BOM, a soft hyphen, a control character, a no-break space.
+  for (const [org, want] of [
+    ['Acme\u202Eevil', 'Acme\\u{202E}evil'], ['Ac\u200Bme', 'Ac\\u{200B}me'], ['\uFEFFAcme', '\\u{FEFF}Acme'],
+    ['Ac\u00ADme', 'Ac\\u{00AD}me'], ['Acme\u0007', 'Acme\\u{0007}'], ['Acme\u00A0Inc', 'Acme\\u{00A0}Inc'],
+    ['Acme\u2028Inc', 'Acme\\u{2028}Inc'], ['Acme\u{E000}', 'Acme\\u{E000}'],
+    // Invisible marks and letters (default-ignorable): a variation selector, the combining grapheme joiner, a Hangul
+    // filler inside a Hangul name (where the script rule alone would not mark it).
+    ['Acme\uFE0F', 'Acme\\u{FE0F}'], ['Ac\u034Fme', 'Ac\\u{034F}me'], ['\uAC00\u3164\uB098', '\uAC00\\u{3164}\uB098'],
+  ]) assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // The same letters in two Unicode forms: a combining accent is marked, the precomposed one is not.
+  assert.deepStrictEqual(shownOrg('Cafe\u0301'), ['Cafe\u0301', true], 'a decomposed accent');
+  assert.deepStrictEqual(shownOrg('Caf\u00E9'), ['Caf\u00E9', false], 'CONTROL: the composed form');
+  // Characters that draw as a blank or a box are escaped (braille blank, object replacement, replacement character).
+  for (const [org, want] of [['Acme\u2800', 'Acme\\u{2800}'], ['\uFFFCAcme', '\\u{FFFC}Acme'], ['Ac\uFFFDme', 'Ac\\u{FFFD}me']])
+    assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // Spaces that do not show: at the start, at the end, or a second in a row. One space between words is the control.
+  for (const [org, want] of [['Acme ', 'Acme\\u{0020}'], [' Acme', '\\u{0020}Acme'], ['Acme  Inc', 'Acme \\u{0020}Inc']])
+    assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  assert.deepStrictEqual(shownOrg('Acme Inc'), ['Acme Inc', false], 'CONTROL: one space between words');
+  // Letters of the Common script (the Japanese long-vowel mark, the Arabic tatweel) are no one script's, so they do not
+  // make an ordinary name read as mixed.
+  for (const org of ['コーヒー株式会社', 'اـل'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
+  // Marks that NFC leaves alone but that draw over, around or without a letter: an overlay ("o" + U+0338 draws like
+  // "ø"), an enclosing circle, a mark at the start, a mark after a space.
+  for (const org of ['Bjo̸rn', 'o⃒', 'o⃘', 'Ac⃝me', '́Acme', 'Acme ́Inc', 'Acme-́Inc']) {
+    assert.strictEqual(org.normalize('NFC'), org, 'CONTROL: NFC leaves ' + JSON.stringify(org) + ' alone');
+    assert.strictEqual(shownOrg(org)[1], true, JSON.stringify(org));
+  }
+  // Fullwidth letters look like ASCII ones and change under NFKC: kept as they are, but marked.
+  assert.deepStrictEqual(shownOrg('\uFF21BC'), ['\uFF21BC', true], 'fullwidth A');
+  // A stack of three combining marks is marked even where NFC leaves it alone; two (as in Devanagari) are not.
+  const stack = 'x\u0301\u0302\u0303';
+  assert.strictEqual(stack.normalize('NFC'), stack, 'CONTROL: NFC leaves this stack alone, so only the mark rule can catch it');
+  assert.strictEqual(shownOrg(stack)[1], true, 'three marks');
+  assert.deepStrictEqual(shownOrg('\u0915\u093F\u0902'), ['\u0915\u093F\u0902', false], 'CONTROL: two marks in Devanagari');
+  // Latin with Han, Katakana or Hangul is how East Asian companies write their names: not marked (a decision, pinned).
+  // Symbols and punctuation that NFKC changes (a trademark sign, the fullwidth brackets of "(\u682A)") are not marked
+  // either; a fullwidth LETTER is (above).
+  for (const org of ['Kosmos \u682A\u5F0F\u4F1A\u793E', 'NTT\u30C7\u30FC\u30BF', 'Acme\u2122', '\uFF08\u682A\uFF09\u30AB\u30AA\u30B9', '\u3231\u30AB\u30AA\u30B9'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
+  // Digits from another script count toward mixing: Devanagari zeros in "Google" are marked; plain "Google" is not.
+  assert.deepStrictEqual(shownOrg('G\u0966\u0966gle'), ['G\u0966\u0966gle', true], 'Devanagari zeros');
+  assert.deepStrictEqual(shownOrg('Acme\u0660'), ['Acme\u0660', true], 'an Arabic-Indic zero');
+  assert.deepStrictEqual(shownOrg('Google'), ['Google', false], 'CONTROL: ASCII digits and letters');
+  assert.deepStrictEqual(shownOrg('Acme 2026'), ['Acme 2026', false], 'CONTROL: ASCII digits are no script');
+  // Cyrillic with Han is still two scripts.
+  assert.strictEqual(shownOrg('\u0410\u682A')[1], true, 'Cyrillic with Han');
+  // Two orgs that render the same raw are told apart once shown.
+  assert.notStrictEqual(shownOrg('Acme')[0], shownOrg('Ac\u200Bme')[0]);
+  // A name spelling an escape in plain letters cannot pass for a real escape.
+  assert.deepStrictEqual(shownOrg('Acme\\u{202E}'), ['Acme\\\\u{202E}', false]);
+  assert.notStrictEqual(shownOrg('Acme\\u{202E}')[0], shownOrg('Acme\u202E')[0]);
+  // Look-alike letters: a Cyrillic a in a Latin name is kept as it is but marked.
+  assert.deepStrictEqual(shownOrg('Acmе'), ['Acmе', true]);
+  assert.deepStrictEqual(shownOrg('Αcme'), ['Αcme', true], 'a Greek capital alpha');
+  // Ordinary names are not unusual: accents, one other script, Japanese's three scripts together, plain spaces.
+  for (const org of ['Café Zürich', 'Москва ООО', '株式会社カオス', 'ひらがな会社', 'Acme Inc.', 'O\'Neil & Co'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], org);
+});
+
+test('#7892: nested decoded text is escaped too (an admin id and a reviewer name)', () => {
+  const add = se.decodeChange(hex(V.bytes.changeAdd));
+  const bytes = se.encodeChange(add.org, add.generation, { kind: 'add', admin: { ...add.change.admin, adminId: 'adm\u202Ein' } }, add.nonce);
+  const p = se.prepare('change', bytes);
+  assert.strictEqual(p.shown.change.admin.adminId, 'adm\\u{202E}in');
+  assert.strictEqual(p.unusual, true);
+  assert.strictEqual(p.decoded.change.admin.adminId, 'adm\u202Ein', 'the raw decode is unchanged: what is signed is the bytes');
+});
+
+test('#7892: every refusal kosmos-se can write is on the list a screen may show, and nothing else is', () => {
+  const swift = fs.readFileSync(path.join(ROOT, 'native-se/main.swift'), 'utf8');
+  const literal = [...swift.matchAll(/fail\("((?:[^"\\]|\\.)*)"/g)].map((m) => m[1].replace(/\\\(.*\)$/, '').replace(/ \($/, '').trim());
+  const ternary = [...swift.matchAll(/\? "([^"]+)" : "([^"]+)"/g)].flatMap((m) => [m[1], m[2]]);
+  const said = new Set([...literal, ...ternary]);
+  // Every fail( argument is a literal, a literal ternary, or `usage`, so the two lists above see every refusal.
+  const args = [...swift.matchAll(/(?<!func )\bfail\(\s*([^"\s][^,)]*)/g)].map((m) => m[1].trim());
+  assert.ok(swift.includes('fail(usage, 2)'), 'CONTROL: the usage call is where this test expects it');
+  assert.deepStrictEqual([...new Set(args)].filter((a) => a !== 'usage' && !/^[^?]+\?\s*"/.test(a)), [], 'a fail() whose argument the lists cannot read');
+  assert.ok(said.size >= 10, 'CONTROL: found only ' + said.size + ' refusals in main.swift');
+  const listed = new Set([...se.HELPER_SAYS, ...se.HELPER_SAYS_PREFIX]);
+  assert.deepStrictEqual([...said].filter((w) => !listed.has(w)).sort(), [], 'kosmos-se writes a refusal the list does not have');
+  assert.deepStrictEqual([...listed].filter((w) => !said.has(w)).sort(), [], 'the list has a refusal kosmos-se never writes');
+});
+
+test('#7892: a helper failure reaches the caller as a fixed sentence, never its path, argv or stderr', { skip: FAKE ? false : 'needs a POSIX shell' }, async () => {
+  const say = (body) => { const f = path.join(FAKE_DIR, 'say-' + crypto.randomBytes(4).toString('hex')); fs.writeFileSync(f, '#!/bin/sh\n' + body + '\n', { mode: 0o755 }); return f; };
+  const secret = '/Users/someone/Library/secret-key-file';
+  // A listed refusal: exactly its sentence.
+  await assert.rejects(se.publicKey({ helper: say('echo "kosmos-se: the key file belongs to someone else" >&2; exit 1'), keyFile: secret }),
+    (e) => e.message === 'the key file belongs to someone else');
+  // The one with a variable tail: only its fixed start.
+  await assert.rejects(se.createKey({ helper: say('echo "kosmos-se: the Secure Enclave refused to make a key (' + secret + ')" >&2; exit 1'), keyFile: secret }),
+    (e) => e.message === 'the Secure Enclave refused to make a key');
+  // Anything else: the generic sentence, with nothing of the path, the argv or the stderr.
+  for (const body of ['echo "' + secret + ' exploded" >&2; exit 1', 'echo "kosmos-se: ' + secret + '" >&2; exit 4', 'exit 1', 'kill -9 $$']) {
+    await assert.rejects(se.publicKey({ helper: say(body), keyFile: secret }), (e) => {
+      assert.strictEqual(e.message, 'the admin key helper failed', body);
+      return true;
+    });
+  }
+  // A helper that is there but cannot be run (not executable), and one that floods its output past the buffer: each its
+  // own sentence, and neither reads as a timeout.
+  const noExec = path.join(FAKE_DIR, 'no-exec-se'); fs.writeFileSync(noExec, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+  await assert.rejects(se.publicKey({ helper: noExec, keyFile: secret }), (e) => e.message === 'the admin key helper cannot be run');
+  await assert.rejects(se.publicKey({ helper: say('head -c 70000 /dev/zero | tr "\\0" x >&2; exit 1'), keyFile: secret }),
+    (e) => e.message === 'the admin key helper failed');
+  // An argument execFile itself refuses (a NUL in the key path) throws with the argument in its message: generic.
+  await assert.rejects(se.publicKey({ helper: FAKE, keyFile: secret + '\u0000k' }), (e) => e.message === 'the admin key helper failed');
+  // A helper that is not there: named as not installed, without its path.
+  await assert.rejects(se.publicKey({ helper: path.join(FAKE_DIR, 'no-such-helper'), keyFile: secret }),
+    (e) => e.message === 'the admin key helper is not installed');
+  // CONTROL: a helper that answers well still works through the same call.
+  assert.ok((await se.publicKey({ helper: FAKE, keyFile: '/k1' })).equals(FAKE_PUB));
+});
+
+test('#7892: signing does not hold the event loop while the helper waits (a presence key waits on the person)', { skip: FAKE ? false : 'needs a POSIX shell' }, async () => {
+  const slow = path.join(FAKE_DIR, 'slow-se');
+  fs.writeFileSync(slow, '#!/bin/sh\nsleep 0.4\necho ' + APPLE.key + '\n', { mode: 0o755 });
+  let ticks = 0;
+  const timer = setInterval(() => { ticks += 1; }, 20);
+  try {
+    const t0 = Date.now();
+    const pub = await se.publicKey({ helper: slow, keyFile: '/k1' });
+    assert.ok(Date.now() - t0 >= 350, 'CONTROL: the stand-in did not wait');
+    assert.ok(pub.equals(FAKE_PUB));
+    assert.ok(ticks >= 5, 'the event loop ran ' + ticks + ' times in 400 ms of helper time');
+  } finally { clearInterval(timer); }
+});
+
+test('#7892: every tag kosmos-se signs has a prompt reason, chosen from the tag and not from an argument', () => {
+  const swift = fs.readFileSync(path.join(ROOT, 'native-se/main.swift'), 'utf8');
+  const at = swift.indexOf('= [', swift.indexOf('let SIGN_REASONS'));
+  const table = swift.slice(at, swift.indexOf('\n]', at));
+  assert.ok(table.length > 20, 'CONTROL: SIGN_REASONS not found');
+  const reasons = Object.fromEntries([...table.matchAll(/"([^"]+)": "([^"]+)"/g)].map((m) => [m[1], m[2]]));
+  assert.deepStrictEqual(Object.keys(reasons).sort(), se.SIGNED.map((a) => se.TAGS[a]).sort(), 'a signed tag has no prompt reason, or a reason names no signed tag');
+  for (const r of Object.values(reasons)) assert.match(r, /^[a-z][A-Za-z' ]+$/, 'a reason does not read as "kosmos-se is trying to ' + r + '"');
+  assert.match(swift, /context\.localizedReason = reason/, 'the reason is not given to the signature\'s context');
+  // One cancel tag covers both kinds of pending item, so its reason must name both, or half the prompts are wrong.
+  const cancelReason = reasons[se.TAGS.cancel];
+  for (const word of ['admins', 'reviewers']) assert.ok(cancelReason.includes(word), 'the cancel prompt does not name ' + word);
+  assert.doesNotMatch(swift, /localizedReason = .*args/, 'the reason comes from an argument');
+});
+
+test('#7892: two signs asked for at once run one after the other, so two prompts are never up together', { skip: FAKE ? false : 'needs a POSIX shell' }, async () => {
+  const log = path.join(FAKE_DIR, 'serial.log');
+  fs.rmSync(log, { force: true });
+  const slow = path.join(FAKE_DIR, 'serial-se');
+  fs.writeFileSync(slow, '#!/bin/sh\ncase "$1" in\n  pub) echo ' + APPLE.key + ' ;;\n' +
+    '  sign) cat > /dev/null; echo start >> "' + log + '"; sleep 0.3; echo end >> "' + log + '"; echo 3006020101020101 ;;\nesac\n', { mode: 0o755 });
+  const opts = { helper: slow, keyFile: '/k1', expectedKey: FAKE_PUB };
+  // Both reject (the stand-in's signature is not a real one); what matters is the order the helper saw.
+  const both = await Promise.allSettled([se.sign(se.prepare('cancel', hex(V.bytes.cancel)), opts),
+    se.sign(se.prepare('cancel', hex(V.bytes.cancel)), opts)]);
+  assert.deepStrictEqual(both.map((r) => r.status), ['rejected', 'rejected']);
+  assert.deepStrictEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['start', 'end', 'start', 'end'],
+    'the second signature began before the first ended');
+  // A failed sign does not stall the queue: a third one still runs.
+  await assert.rejects(se.sign(se.prepare('cancel', hex(V.bytes.cancel)), opts));
+  assert.strictEqual(fs.readFileSync(log, 'utf8').trim().split('\n').length, 6);
 });
