@@ -23535,6 +23535,7 @@ const server = http.createServer(async (req, res) => {
             if (askedOfReader(rows[i]) && !answeredBy.has(String(rows[i].id))) {
               const c = claimedByOther(rows[i]);
               if (c) { claimedAsks.unshift({ id: String(rows[i].id), by: c.by, at: c.at }); continue; }
+              // kosmos#7969: after the claim check on purpose: a claimed ask is named on the claimed line whatever its age.
               if (aged(rows[i])) { agedAsks += 1; continue; }
               openAsks += 1;
               if (tail.length < textRows) tail.unshift(rows[i]);
