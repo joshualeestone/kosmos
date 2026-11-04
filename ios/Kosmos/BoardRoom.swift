@@ -672,6 +672,9 @@ extension Board {
         let needsYou: Int
         let needsYouQuestions: Int
         var heldForYou: Int = 0   // kosmos#7797: open tasks an agent held for the person (summary.heldForYou)
+        // kosmos#7918: of needsYouQuestions, those the agent holds until the person is back (summary.needsYouHeld, #7916).
+        // 0 from a board older than #7916, which never sent it, so the pill reads the plain Question there.
+        var needsYouHeld: Int = 0
         let working: Int
         let restarting: Int
         // kosmos#7342 (Mona Lisa): on Mentions only or Muted (the board's notify, #7210): its count stays on its row but
@@ -848,7 +851,7 @@ extension Board {
                               paused: isTrue(p["paused"]), createdAt: isoDate(p["createdAt"] as? String), members: members,
                               folderProblem: folderProblem.flatMap { $0.isEmpty ? nil : $0 },
                               needsYou: integer(s["needsYou"]) ?? 0, needsYouQuestions: integer(s["needsYouQuestions"]) ?? 0,
-                              heldForYou: integer(s["heldForYou"]) ?? 0,
+                              heldForYou: integer(s["heldForYou"]) ?? 0, needsYouHeld: integer(s["needsYouHeld"]) ?? 0,
                               working: integer(s["working"]) ?? 0, restarting: integer(s["restarting"]) ?? 0,
                               quiet: ["mentions", "muted"].contains(p["notify"] as? String ?? ""),
                               notify: ["all", "mentions", "muted"].contains(p["notify"] as? String ?? "") ? (p["notify"] as! String) : "all",
@@ -857,11 +860,13 @@ extension Board {
         return ProjectList(projects: rows, agentsUnreadable: isTrue(obj["agentsUnreadable"]))
     }
 
-    enum ProjectWord: Equatable { case question, issue, paused, working, restarting }
+    enum ProjectWord: Equatable { case question, questionHeld, issue, paused, working, restarting }
 
     // The board's one status word (pjPillOf): Question (only agents' own questions, calm) > Issue > Paused > Working >
     // Restarting > none. None when nothing is running or the agents could not be read (#4730).
+    // kosmos#7918 (pjPillOf, #7916): when every one of those questions is held until the person is back, Question held.
     static func projectWord(_ p: ProjectRow, agentsUnreadable: Bool) -> ProjectWord? {
+        if !agentsUnreadable && p.needsYou > 0 && p.needsYouQuestions == p.needsYou && p.needsYouHeld == p.needsYou { return .questionHeld }
         if !agentsUnreadable && p.needsYou > 0 && p.needsYouQuestions == p.needsYou { return .question }
         if !agentsUnreadable && p.needsYou > 0 { return .issue }
         // kosmos#7797: pjPillOf's hold for the person, a calm Question that needs no roster.
@@ -875,6 +880,7 @@ extension Board {
     static func projectWordText(_ w: ProjectWord) -> String {
         switch w {
         case .question: return "Question"
+        case .questionHeld: return "Question held"
         case .issue: return "Issue"
         case .paused: return "Paused"
         case .working: return "Working"
