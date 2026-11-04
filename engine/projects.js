@@ -1057,6 +1057,14 @@ const NEEDS_GONE_MS = 10 * 60 * 1000;
 
 /* ⚠️ A read that can write: describe() persists `everSeen` upgrades and (#6341) the dismissal upkeep (needsDismissed /
    needsDismissGone), each by re-reading the store just before writing. */
+/* #6483 (and #7916, which counts the held ones among them): a member that needs the person here for its own question
+   (reported by the agent, #2808 class 2), in the agent card's order: a failed restart or a crash loop is red first. One
+   predicate for needsYouQuestions and needsYouHeld, so the two counts cannot drift apart. */
+function isOwnQuestion(m) {
+  return m.needsYouHere === 'question' && m.stateReportedBy === 'agent'
+    && m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true);
+}
+
 function describe(project, roster, all) {
   const cards = Array.isArray(roster) ? roster : [];
   // ⚠️ Seeing an agent is remembered. `everSeen` was written once, at add time,
@@ -1505,13 +1513,11 @@ function describe(project, roster, all) {
          2), the case the agent's card calls a calm "Question". When it is all of them, the project card says Question
          too; any other reason (sign-in lapsed, a crash loop, a technical prompt) keeps Issue. */
       // Review 1: in the agent card's own order (cardStOf): a failed restart or a crash loop is red before a question is calm.
-      needsYouQuestions: members.filter((m) => m.needsYouHere === 'question' && m.stateReportedBy === 'agent'
-        && m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true)).length,
+      needsYouQuestions: members.filter(isOwnQuestion).length,
       /* #7916: of needsYouQuestions, how many the agent holds until the person is back (`kosmos report needs_you
          --held`). When it is all of needsYou, the project card says Question held, as the agent card does. Still
          counted in needsYou, so nothing is lost while the person is away (#7915). */
-      needsYouHeld: members.filter((m) => m.needsYouHere === 'question' && m.stateReportedBy === 'agent' && m.stateHeld === true
-        && m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true)).length,
+      needsYouHeld: members.filter((m) => isOwnQuestion(m) && m.stateHeld === true).length,
       needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== null && m.stateProject !== project.id).length,
       /* ...and about no project at all (nothing named, nothing to inherit). #6180: the Agents page no longer reads
          it (its No project chip is gone); kept as a field of this summary. Kept apart from "elsewhere" so a screen sentence

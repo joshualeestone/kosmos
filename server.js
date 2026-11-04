@@ -20709,7 +20709,7 @@ const server = http.createServer(async (req, res) => {
           if (rep && rep.found && rep.state === 'needs_you' && !selfreport.isAutoPermissionWait(rep) && rep.askedAt
             && !chat.dmQuestionTold(askingCard.sessionName, rep.askedAt)) {
             // #7915: a question held until the person is back gets the held words: they are back, so ask it or keep holding.
-            const words = rep.because || (rep.held === true ? (rep.on || rep.owner) : null) || askingCard.because;   // #7916
+            const words = rep.because || (rep.held === true ? (rep.on || (rep.owner ? 'a question for ' + rep.owner : null)) : null) || askingCard.because;   // #7916
             if (words && words !== ASKING_GENERIC) {
               questionNote = chat.dmStandingQuestionNote(words, { held: rep.held === true });   // the fresh report's words (review 2)
               questionAsk = rep.askedAt;
