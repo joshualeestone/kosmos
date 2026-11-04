@@ -46,6 +46,8 @@ first screen's loading mark.
   ground assumes a native first screen; a palette line the check cannot read prints its own VERDICT (control).
 - It reads the catalog's own appearance tags: a dark colour that lost its tag fails, and so does a light/dark filename
   swap in LaunchOrb's Contents.json (controls); the 2 px dot still fails with the output filtered.
+  Each LaunchOrb entry's file must match its scale too, and a seventh entry fails (controls: 2x/3x swapped, an
+  extra entry).
 
 ## Not measured
 A real iPhone. iOS caches launch screens per app: a phone that already had the navy one may show it once more
