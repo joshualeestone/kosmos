@@ -43,6 +43,21 @@ the served installer is what the #7933 leg does successfully.
 - NIT fixed: the uname rule says to keep in step with SELF_INSTALL. Kept: the hidden button's data-act (as the
   Windows arm); a stale "Command copied." after a same-command repaint (harmless).
 
+## Review round 3 (opus)
+- WARNING: the shell rule read the real uname, so the CLI tests meant different things on a Linux host (the board and
+  mode tests, and my Mac controls, would fail on the Linux CI). Fixed: `${KOSMOS_PLATFORM:-$(uname -s)}`, the file's
+  own convention; the test helper names Darwin unless a test says Linux.
+- WARNING: Settings on Linux still offered "Update Kosmos automatically", which never acts there. Fixed: the row and
+  its status line carry data-linux-hide. web.win32-board-copy.test.js said the opposite ("auto-install runs" on
+  Linux), which was never true (beginInstall refused); its list and comment are corrected.
+- WARNING: "Command copied." outlived the command, and the empty status took room on every platform. Fixed: cleared
+  on every paint the command does not show, and `:empty { display: none }`.
+- WARNING: the Copy handler had no behaviour test. Added: copied (exec and clipboard), refused (field selected, the
+  line says "command"), and a command replaced mid-copy writes nothing.
+- NITs fixed: a control that the stand-in board is detected; the refusal line names the command; "in a terminal on
+  this computer". Not taken: a KOSMOS_HOME exported in the person's shell (pre-existing, and the command names the
+  script by this install's path).
+
 ## Tests
 - cli.update-ifnewer-4382.test.js (new test): with a fake `uname` saying Linux, a board running and mode `run`, the
   verb installs with the board's three variables on prod and on a staging stamp; CONTROL: the real uname refuses; an
@@ -51,7 +66,8 @@ the served installer is what the #7933 leg does successfully.
   home, the refusal carries the command, the Mac control, a source checkout offered nothing.
 - web.linux-update-7935.test.js: the real paintUpdateCard on the engine's real offer; focus; a repaint clears the row;
   the markup.
-- Seven mutants red (shell, engine, board). web, cli, install and engine update tests: 5202 pass, 0 fail.
+- Mutants red throughout (shell, engine, board). web, cli, install and engine update tests: 5207 pass, 0 fail, on
+  macOS; the CLI tests name their platform, so they mean the same on a Linux host.
 
 ## Weakest premise
 UNMEASURED: that `kosmos update` running the real installer over a live Linux board leaves it serving the new version

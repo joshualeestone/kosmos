@@ -10743,7 +10743,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .oa-devrow .fr-cmd.devcode-copytext { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* The manual update offer's numbered steps (W-25). */
 .upd-manual-steps { margin: 8px 0 0; padding-left: 1.4em; }
-/* kosmos#7935: the Linux update command, in a read-only field (focusable, so a keyboard can select and copy it). */
+/* kosmos#7935: the Linux update command, in a read-only field (focusable, so a keyboard can select and copy it); its
+   copy line takes no room while empty. */
+#upd-command-msg:empty { display: none; }
 .upd-command { font-family: var(--font-mono); min-width: 0; flex: 1 1 auto; }
 .upd-manual-steps li { margin: 2px 0; }
 .fr-code-row { display: flex; gap: var(--space-4); margin-top: var(--space-4); flex-wrap: wrap; }
@@ -19915,12 +19917,14 @@ window.kosmosMeasureScrollbarWidth();
       <!-- win32-board-copy (parity P0-5): hidden on Windows, where self-update cannot run yet
            (engine/update.js maybeAutoInstall returns without an installedRoot); the manual
            offer above is the Windows update path. -->
-      <div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide>
+      <!-- kosmos#7935: hidden on Linux too, where the board never installs on its own (update.js autoInstallWouldStart);
+           its card gives the command instead. -->
+      <div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide>
         <div><b>Update Kosmos automatically</b>
           <p class="dhint" style="margin:2px 0 0;">On by default. New versions install themselves, which takes a few seconds and reloads this board. Agents keep running throughout.</p></div>
         <button class="toggle" id="auto-toggle" role="switch" aria-label="Update Kosmos automatically" hidden><i></i></button>
       </div>
-      <p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;" data-win-hide></p>
+      <p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;" data-win-hide data-linux-hide></p>
     </section>
   </section>
   <!-- ============ PLUS ACCOUNT (#Josh 19:15, the relay service's home) ====
@@ -25121,6 +25125,7 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
   const cmd = document.getElementById('upd-command');
   if (cmdRow) cmdRow.hidden = true;
   const cmdMsg = document.getElementById('upd-command-msg');
+  if (cmdMsg) cmdMsg.textContent = '';   // the copy result belongs to the command; the arm below keeps it while it shows
   /* win32-update-rollback (S5, #3017): the Roll back button is ORTHOGONAL to the offer/manual arms
      below -- a person may have an update to install AND a kept build to go back to, or be up to date
      with a kept build. It shows whenever the status carries a rollback offer (win32-only), labelled
@@ -25148,10 +25153,10 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
     /* kosmos#7935: a board that cannot replace itself (Linux). Pressing [Update] only got a refusal, so the newer
        version arrives as the command that installs it: the same installer, run again over this install. Like the
        Windows arm below, it is news a person needs without asking, and the check button stands down. */
-    put(v + 'Version ' + manual.version + ' is ready. To update, run this in a terminal (Kosmos restarts when it is done):');
+    put(v + 'Version ' + manual.version + ' is ready. To update, run this in a terminal on this computer (Kosmos restarts when it is done):');
     btn.hidden = true;
     btn.dataset.act = 'check';
-    if (cmd && cmd.value !== manual.command) { cmd.value = manual.command; if (cmdMsg) cmdMsg.textContent = ''; }
+    if (cmd && cmd.value !== manual.command) cmd.value = manual.command;
     if (cmdRow) cmdRow.hidden = false;
     // As the Windows arm: focus resting on Check goes to the field, not to <body>, when Check is hidden.
     if (checkHadFocus && cmd && typeof cmd.focus === 'function') cmd.focus();
@@ -74104,7 +74109,7 @@ async function updCopyCommand() {
   if (field.value !== text) return;
   let focused = true;
   if (!ok) { try { focused = selectForCopy(field, btn); } catch { /* the field is the fallback */ } }
-  msg.textContent = ok ? 'Command copied.' : copyRefusedLine(focused);
+  msg.textContent = ok ? 'Command copied.' : copyRefusedLine(focused).replace(/the code/g, 'the command');
 }
 document.getElementById('upd-command-copy').addEventListener('click', updCopyCommand);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {

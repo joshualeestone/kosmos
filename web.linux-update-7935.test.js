@@ -62,7 +62,7 @@ test('#7935: a Linux board shows the installer command and no [Update] button', 
   const manual = update.manualOffer();
   assert.ok(manual && manual.command, 'CONTROL: the engine made no Linux offer');
   const els = paint(update.installOffer(), manual);
-  assert.equal(els['upd-line'].textContent, 'Version ' + NEWER + ' is ready. To update, run this in a terminal (Kosmos restarts when it is done):');
+  assert.equal(els['upd-line'].textContent, 'Version ' + NEWER + ' is ready. To update, run this in a terminal on this computer (Kosmos restarts when it is done):');
   assert.equal(els['upd-btn'].hidden, true, 'the [Update] or Check button is still offered beside the command');
   assert.equal(els['upd-command-row'].hidden, false, 'the command is not shown');
   assert.equal(els['upd-command'].value, manual.command);
@@ -79,8 +79,10 @@ test('#7935: a repaint after the update clears the command (the row does not sti
   await linuxLook();
   const els = paint(null, update.manualOffer());
   assert.equal(els['upd-command-row'].hidden, false, 'CONTROL: the command was not shown first');
+  els['upd-command-msg'].textContent = 'Command copied.';
   paint({ version: NEWER }, null, els);
   assert.equal(els['upd-command-row'].hidden, true, 'the command row stayed up on the next paint');
+  assert.equal(els['upd-command-msg'].textContent, '', '"Command copied." stayed under a card with no command');
 });
 
 test('#7935: focus on Check moves to the command field, not to the page, when Check is hidden', async () => {
@@ -97,4 +99,59 @@ test('#7935: the markup: a read-only field described by the status line, a Copy 
   assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-command-copy">Copy<\/button>/);
   assert.match(PAGE, /<p class="dhint" id="upd-command-msg" role="status"><\/p>/);
   assert.match(SCRIPT, /getElementById\('upd-command-copy'\)\.addEventListener\('click', updCopyCommand\)/);
+  // The automatic-update switch promises installs a Linux board never makes, so it is hidden there (as on Windows).
+  assert.match(PAGE, /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide>/);
+  assert.match(PAGE, /<p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;" data-win-hide data-linux-hide><\/p>/);
+  assert.match(PAGE, /html\[data-kosmos-platform="linux"\] \[data-linux-hide\] \{ display: none !important; \}/, 'CONTROL: the Linux hide rule');
+  assert.match(PAGE, /#upd-command-msg:empty \{ display: none; \}/);
+});
+
+/* The REAL updCopyCommand and the page's copy helpers, against a stub document: execCommand copies or refuses, the
+   clipboard API copies, refuses or is absent. */
+function copyRig({ exec = false, clip } = {}) {
+  const field = { value: "'/h/bin/kosmos' update --if-newer --install", selected: false, focused: false,
+    focus() { this.focused = true; doc.activeElement = this; }, select() { this.selected = true; },
+    setSelectionRange() { this.selected = true; } };
+  const msg = { textContent: '' };
+  const btn = { isConnected: true, focus() { doc.activeElement = this; } };
+  const els = { 'upd-command': field, 'upd-command-msg': msg, 'upd-command-copy': btn };
+  const doc = {
+    activeElement: btn, body: { appendChild() {} },
+    getElementById: (id) => els[id] || null,
+    createElement: () => ({ style: {}, setAttribute() {}, select() {}, remove() {} }),
+    execCommand: () => exec,
+  };
+  const nav = clip === undefined ? {} : { clipboard: { writeText: clip } };
+  // eslint-disable-next-line no-new-func
+  const fn = new Function('document', 'navigator', 'MSG_MENU_MAC',
+    page.liftAll(SCRIPT, ['copyKeysWord', 'selectAllKeysWord', 'copyRefusedLine', 'copyFocusStillOn', 'selectForCopy',
+      'copyTextViaExec', 'copyTextOrdered', 'updCopyCommand']) + '\nreturn updCopyCommand;')(doc, nav, false);
+  return { run: fn, field, msg };
+}
+
+test('#7935: Copy copies the command, and says so', async () => {
+  const r = copyRig({ exec: true });
+  await r.run();
+  assert.equal(r.msg.textContent, 'Command copied.');
+  const viaClip = copyRig({ exec: false, clip: async () => {} });
+  await viaClip.run();
+  assert.equal(viaClip.msg.textContent, 'Command copied.', 'the clipboard API path');
+});
+
+test('#7935: a refused copy selects the field and says how to copy the COMMAND', async () => {
+  const r = copyRig({ exec: false, clip: async () => { throw new Error('denied'); } });
+  await r.run();
+  assert.equal(r.field.selected, true, 'the field was not selected for a manual copy');
+  assert.match(r.msg.textContent, /^Kosmos could not copy it\. (Select|Click) the command/, r.msg.textContent);
+  assert.doesNotMatch(r.msg.textContent, /the code/);
+});
+
+test('#7935: a command replaced while the copy runs says nothing about the old one', async () => {
+  let release;
+  const r = copyRig({ exec: false, clip: () => new Promise((ok) => { release = ok; }) });
+  const pending = r.run();
+  r.field.value = 'something else';
+  release();
+  await pending;
+  assert.equal(r.msg.textContent, '', 'a result was written for a command no longer shown');
 });

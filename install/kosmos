@@ -2633,7 +2633,7 @@ cmd_update() {
   # this. The agent refusal above and the install-under-way guard below still hold. Keep this in step with SELF_INSTALL
   # in engine/platform.js: Linux is the platform it leaves out, and this is the same rule read from uname.
   _board_installs=1
-  [ "$(uname -s 2>/dev/null)" = Linux ] && _board_installs=0
+  [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && _board_installs=0
   _mode="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _mode=""
   if [ "$_mode" != connect ] && [ "$_board_installs" = 1 ]; then
     printf 'refused\tthis computer is not set to connect to agents elsewhere; its own board keeps it updated\n'
