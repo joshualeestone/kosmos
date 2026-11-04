@@ -422,6 +422,7 @@ struct ChatView: View {
             eagerFrom = nil   // kosmos#7265: the next conversation picks its own eager start
             thread = nil
             fullRead = false; threadTag = nil   // kosmos#7810
+            quietFollowKey = nil
             replying = nil
             retryNote = nil
             retrySettling = []
@@ -982,14 +983,14 @@ struct ChatView: View {
         if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
         // kosmos#7420 review 5: a look under a scroll or a finger neither moves the reader nor uses up the first try. It comes
         // back: nothing else looks again once the scroll ends (a row that never drew never leaves). One waits at a time.
-        if personScrolling || scrollBox.underFinger {
-            if !diagRetrying {
-                diagRetrying = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { diagRetrying = false; diagTick &+= 1 }
-            }
-            return
-        }
+        if personScrolling || scrollBox.underFinger { diagLookAgain(); return }
         diagCapture(proxy, why: "no message on screen", count: count)
+    }
+
+    private func diagLookAgain() {
+        guard !diagRetrying else { return }
+        diagRetrying = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { diagRetrying = false; diagTick &+= 1 }
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
@@ -1008,8 +1009,10 @@ struct ChatView: View {
             let chatAt = epoch, listAt = listEpoch
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankConfirm) {
                 guard epoch == chatAt, listEpoch == listAt, visible, scenePhase == .active, !searchMode, onScreen.isEmpty,
-                      !endVisible, !topVisible, !personScrolling, !scrollBox.underFinger, !(thread?.rows.isEmpty ?? true)
+                      !endVisible, !topVisible, !(thread?.rows.isEmpty ?? true)
                 else { return }
+                // Review 6: a finger that arrived during the wait is the same as one at the look: come back.
+                if personScrolling || scrollBox.underFinger { diagLookAgain(); return }
                 Self.trace("diag: a later blank, a reader higher up, still blank")
                 recoverEmpty(proxy, keepPlace: true)
             }
