@@ -24,7 +24,7 @@ fs.writeFileSync(CLI, '#!/bin/bash\n'
   + 'if [ "$1" = report ] && [ "$2" = idle ]; then read n kind wait < "' + MODE + '"; sleep "${wait:-0}";\n'
   + '  if [ "$n" -gt 0 ]; then echo "$((n-1)) $kind 0" > "' + MODE + '";\n'
   + '    case "$kind" in waiting) echo "  That was not recorded: it is waiting on a person (needs_you), so an automatic idle did not overwrite that." ;;\n'
-  + '      unsaved) echo "  That was not recorded: we could not save that report." ;; down) echo "  Kosmos is not running, so this could not be recorded. Start it with: kosmos start" ;; *) echo "  Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
+  + '      unsaved) echo "  That was not recorded: we could not save that report." ;; down) echo "  Kosmos is not running, so this could not be recorded. Start it with: kosmos start" ;; refused) echo "  Kosmos refused that: this report is not from an agent it knows." ;; *) echo "  Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
   + 'exit 0\n');
 fs.chmodSync(CLI, 0o755);
 
@@ -107,6 +107,12 @@ test('a session with no tmux pane (the person\'s own Claude) sends once, as befo
 
 test('Kosmos not running at all is neither retried nor noted', () => {
   setup('2 down 0'); hook('Stop'); settle(1);
+  assert.equal(idle().length, 1, JSON.stringify(idle()));
+  assert.equal(note(), null);
+});
+
+test('a board refusal ("Kosmos refused that"), certain to repeat, is neither retried nor noted', () => {
+  setup('2 refused 0'); hook('Stop'); settle(1);
   assert.equal(idle().length, 1, JSON.stringify(idle()));
   assert.equal(note(), null);
 });

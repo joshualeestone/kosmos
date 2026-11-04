@@ -355,7 +355,8 @@ report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/nul
 # nothing said why, because report() discards everything. So this one send:
 #   - runs detached with ALL its output on /dev/null, like report(), so the hook never waits on the board;
 #   - is tried again once, a moment later, whenever the CLI failed, except when Kosmos is not running at all (nothing to
-#     deliver to) and for the board's deliberate keep: an agent
+#     deliver to; a board mid-restart reads so too, so that loss is not recorded), for a board refusal ("Kosmos refused
+#     that", certain to repeat), and for the board's deliberate keep: an agent
 #     waiting on a person (or blocked on its provider) keeps that state, and every such answer says the idle "did not
 #     overwrite" it (engine/selfreport.js, skipped: 'waiting'). That is the one answer that is neither retried nor
 #     noted. Every other failure, a transport error or a "not recorded" for another reason (a save that failed, a
@@ -365,7 +366,7 @@ report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/nul
 #     could; the token only keeps a stale idle from being started late. (Events that end the hook early, an empty
 #     event or a refused call, do not remove it; neither comes between a Stop and the next prompt. Panes with no
 #     TMUX_PANE share one 'nopane' key, as MARK does, so one may cancel another's retry, which only loses a retry.)
-#     The log is only appended to, one line per twice-lost turn end of an agent's pane, in TMPDIR;
+#     The log holds one line per twice-lost turn end of an agent's pane, in TMPDIR, capped below;
 #   - after a second lost send, leaves one line: the time, the pane, the exit code and the CLI's own first line (no
 #     command text or tool input, the #1099 rule above), in turn-end-failures.log in the throttle folder.
 report_turn_end() {
@@ -378,13 +379,16 @@ report_turn_end() {
   printf '%s\n' "$$" > "$STOP_TOKEN" 2>/dev/null || true
   ( {
       _out=$("$KOSMOS" report "$@" 2>&1 </dev/null); _rc=$?
-      if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -qE 'did not overwrite|Kosmos is not running'; then
+      if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -qE 'did not overwrite|Kosmos is not running|Kosmos refused that'; then
         sleep "${KOSMOS_REPORT_RETRY_S:-2}"
         if [ "$(cat "$STOP_TOKEN" 2>/dev/null)" = "$$" ]; then
           _out=$("$KOSMOS" report "$@" 2>&1 </dev/null); _rc=$?
-          if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -qE 'did not overwrite|Kosmos is not running'; then
+          if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -qE 'did not overwrite|Kosmos is not running|Kosmos refused that'; then
             printf '%s pane %s: %s not delivered after a retry (exit %s): %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               "$PANE_KEY" "$1" "$_rc" "$(printf '%s' "$_out" | sed 's/^[[:space:]]*//' | head -1 | cut -c1-160)" >> "$THROTTLE_DIR/turn-end-failures.log"
+            # Capped: past 400 lines, the last 200 are kept (a board down for days writes one line per turn per pane).
+            _lf="$THROTTLE_DIR/turn-end-failures.log"
+            if [ "$(wc -l < "$_lf" 2>/dev/null || echo 0)" -gt 400 ]; then tail -n 200 "$_lf" > "$_lf.tmp" 2>/dev/null && mv -f "$_lf.tmp" "$_lf"; fi
           fi
         fi
       fi
