@@ -199,5 +199,5 @@ test('#7924 reasonOf: a held own question is held; asked, red or not the agent\'
   assert.equal(on({ ...held, stateHeld: false }), 'question', 'CONTROL: asked');
   assert.equal(on({ ...held, crashLoop: { looping: true } }), 'crash_loop', 'a crash loop is never calmly held');
   assert.equal(on({ ...held, disruption: { failed: true } }), 'restart_failed', 'nor a failed restart');
-  assert.notEqual(on({ ...held, stateReportedBy: 'auto' }), 'held', 'a hook-written wait is never held');
+  assert.equal(on({ ...held, stateReportedBy: 'auto' }), 'waiting', 'a hook-written wait is never held');
 });

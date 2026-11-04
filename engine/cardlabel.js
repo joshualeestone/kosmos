@@ -91,7 +91,8 @@ function toneOf(a, needsPerson) {
    into the board's own sentence (web/index.html PJ_NEEDS_WHY), so the phone keeps no copy of the rule. Null unless the
    card's tone puts it on Today (asked or needs_you). In the board's own order (pjAlsoWhy, and labelOf for the word): a
    restart that did not come back (a needs_you row with no question behind it, #4006), a trust prompt on a card that is
-   not running, a crash loop, then a needs_you state: the agent's own question, its permission prompt
+   not running, a crash loop, then a needs_you state: the agent's own question (#7924: 'held' when it holds it until the
+   person is back, by projects.heldOwnQuestion), its permission prompt
    (status.awaitingApprovalOf, the card's "Needs permission"), or a wait read off its screen ('waiting'). Anything
    else is the engine's own reason (projects.needsYouReasonPastUsage, so a rate limit never hides a real reason), and 'other' where
    it has none: a stopped agent, a rate limit not yet counted as stuck, or a state added later.
@@ -112,8 +113,10 @@ function reasonOf(a, needsPerson) {
   if (a.state === 'needs_you') {
     /* #7924: the agent's own question held until the person is back, by the one rule every held surface reads
        (projects.heldOwnQuestion), so Today says it is held, with no age, under the card word Question held. */
-    if (require('./projects').heldOwnQuestion(a)) return 'held';
-    if (a.stateReportedBy === 'agent') return 'question';   // labelOf's order: the card's word is Question (or Question held)
+    let held = false;
+    try { held = require('./projects').heldOwnQuestion(a); } catch { held = false; }   // as needsYouReasonPastUsage below
+    if (held) return 'held';
+    if (a.stateReportedBy === 'agent') return 'question';   // labelOf's order: the card's word is Question
     // Mona Lisa, 10-24: a wait read off the screen that is neither the agent's question nor a permission prompt (a Codex
     // hooks screen, the safeguards menu) is 'waiting' ("Waiting for you. Open it to see what it shows."), never
     // "Waiting for your answer.", which would be false there.

@@ -106,7 +106,7 @@ extension Board {
     }
 
     // Needs you: every agent whose tone is asked or needs you (the board's own needsPerson verdict, sent since #7004),
-    // longest waiting first (an unknown start after the known ones), then by name, with the person's starred agents
+    // longest waiting first (an unknown start, or a held question, after the known ones), then by name, with the person's starred agents
     // first (#7034, the board's rule #6719). Working now: agents whose tone is working, by name. Each section is hidden
     // by the view when it is empty.
     static func today(agents: [Agent], tasks: [ReadyTask]?, stars: Set<String>? = nil) -> TodayModel {
@@ -115,7 +115,9 @@ extension Board {
             return c == .orderedSame ? a.session < b.session : c == .orderedAscending
         }
         let needs = agents.filter { let t = tone($0); return t == .asked || t == .needsYou }.sorted { a, b in
-            switch (a.waitingSince, b.waitingSince) {
+            // kosmos#7924: a held question has no age here (todayWaitingSince), so it sorts with the unknown starts, after
+            // every wait that presses.
+            switch (todayWaitingSince(a), todayWaitingSince(b)) {
             case let (x?, y?) where x != y: return x < y
             case (_?, nil): return true
             case (nil, _?): return false
