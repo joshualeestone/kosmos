@@ -20701,15 +20701,19 @@ const server = http.createServer(async (req, res) => {
         let questionAsk = null;
         if (!automatic && chat.dmNoteMayRide(body.text, chose) && askingCard
           && askingCard.state === STATE.NEEDS_YOU && askingCard.stateReported === true
-          && typeof askingCard.because === 'string' && askingCard.because !== ASKING_GENERIC
+          /* #7916: a held question is told the person is back even when it was filed with only --on or --owner. */
+          && typeof askingCard.because === 'string' && (askingCard.because !== ASKING_GENERIC || askingCard.stateHeld === true)
           && !(seenNow && typeof seenNow.text === 'string' && chat.questionIn(seenNow.text, askingCard.runner))) {
           let rep = null;
           try { rep = selfreport.read(askingCard.sessionName); } catch { rep = null; }
           if (rep && rep.found && rep.state === 'needs_you' && !selfreport.isAutoPermissionWait(rep) && rep.askedAt
             && !chat.dmQuestionTold(askingCard.sessionName, rep.askedAt)) {
             // #7915: a question held until the person is back gets the held words: they are back, so ask it or keep holding.
-            questionNote = chat.dmStandingQuestionNote(rep.because || askingCard.because, { held: rep.held === true });   // the fresh report's words (review 2)
-            questionAsk = rep.askedAt;
+            const words = rep.because || (rep.held === true ? (rep.on || rep.owner) : null) || askingCard.because;   // #7916
+            if (words && words !== ASKING_GENERIC) {
+              questionNote = chat.dmStandingQuestionNote(words, { held: rep.held === true });   // the fresh report's words (review 2)
+              questionAsk = rep.askedAt;
+            }
           }
         }
         const reactionNote = news.note + questionNote;

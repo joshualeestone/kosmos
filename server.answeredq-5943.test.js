@@ -205,3 +205,32 @@ test('#7915 the person\'s next message carries the held note for a held question
     board.restore();
   }
 });
+
+/* kosmos#7916: a question held with only --on (no words) is still told the person is back, quoting what it is on. */
+test('#7916 a held question filed with only --on still gets the held note, quoting what it is on', async () => {
+  const board = fleet.install([fleet.agent('onholder', { state: 'idle', displayName: 'On Holder' })]);
+  const sends = [];
+  chat.setRunner((args) => {
+    sends.push(args);
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chat.setDryRun(false);
+  try {
+    assert.equal(selfreport.record('onholder', { state: 'needs_you', on: 'the logo choice', held: true }).recorded, true);
+    sends.length = 0;
+    assert.equal((await say('onholder', 'Back now.')).status, 200);
+    const typed = pastedChunks(sends).join('');
+    assert.ok(typed.includes('Back now.'), 'control: the message was typed: ' + typed);
+    assert.ok(typed.includes('[kosmos] you held a question until this person was back, and they are writing to you now: "the logo choice"'), 'no held note: ' + typed);
+    // CONTROL: the same --on-only question NOT held gets no note (no words to quote, as before).
+    assert.equal(selfreport.record('onholder', { state: 'needs_you', on: 'the font choice' }).recorded, true);
+    sends.length = 0;
+    assert.equal((await say('onholder', 'And this?')).status, 200);
+    assert.ok(!pastedChunks(sends).join('').includes('[kosmos]'), 'an unheld words-less question got a note');
+  } finally {
+    try { selfreport.record('onholder', { state: 'working', because: 'test over' }); } catch { /* best effort */ }
+    chat.setRunner(null);
+    board.restore();
+  }
+});

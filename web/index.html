@@ -69615,6 +69615,8 @@ function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   /* #6483: only agents' own questions (the engine's needsYouQuestions) read as the agent card reads them, a calm
      "Question" with its "?" and no red; anything else that needs the person is still the red Issue. */
+  /* #7916: and when every one of those questions is held until the person is back, it says so, as the agent card does. */
+  if (!unreadable && s.needsYou && s.needsYouQuestions === s.needsYou && s.needsYouHeld === s.needsYou) return { cls: 'question', glyph: GLYPH.question, label: 'Question held' };
   if (!unreadable && s.needsYou && s.needsYouQuestions === s.needsYou) return { cls: 'question', glyph: GLYPH.question, label: 'Question' };
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
   /* kosmos#7797: a task an agent held for the person waits on their answer, so the card reads the calm Question; a
@@ -70996,7 +70998,8 @@ function tskAskRow(a, now) {
   /* The route names the project as it names a task row's (projectName, projectPath), so this works before the Projects list is read. */
   const about = typeof a.projectName === 'string' && a.projectName ? ' asks about ' + pjChainText(tskChainOf(a)) : ' asks you something';
   const ago = typeof a.waitingSince === 'string' ? agoWords(now - Date.parse(a.waitingSince)) : '';
-  const wait = !ago ? '' : ago === 'just now' ? 'Just started waiting for your answer.' : 'Waiting for your answer for ' + ago.replace(/ ago$/, '') + '.';
+  /* #7916: a question the agent holds until the person is back is not pressed on them: no age, and it says so. */
+  const wait = a.held === true ? 'Held until you are back.' : !ago ? '' : ago === 'just now' ? 'Just started waiting for your answer.' : 'Waiting for your answer for ' + ago.replace(/ ago$/, '') + '.';
   return '<div class="tsk-ask" data-ask="' + esc(a.who) + '"><span aria-hidden="true"></span><div class="t">'
     + '<span class="tsk-ask-l"><b>' + esc(tskAgentName(a.who)) + '</b>' + esc(about) + '</span>'
     + (wait ? '<div class="why tsk-waiting">' + esc(wait) + '</div>' : '')

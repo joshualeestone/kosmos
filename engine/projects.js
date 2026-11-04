@@ -1171,6 +1171,7 @@ function describe(project, roster, all) {
          still includes a class-2; #6483 added summary.needsYouQuestions, so the project PILL is a
          calm Question when every needs-you member is one. Null when untied. */
       stateReportedBy: (card && card.isNamedOurs) ? (card.stateReportedBy || null) : null,
+      stateHeld: Boolean(card && card.isNamedOurs && card.stateHeld === true),   // #7916: a question held until the person is back, same gate
       awaitingApproval: Boolean(card && card.isNamedOurs && card.awaitingApproval === true),   // #6091, same gate
       // The face, gated on tied like every other card-read here: a
       // stranger's pane borrowing the name must not lend the row a
@@ -1505,6 +1506,11 @@ function describe(project, roster, all) {
          too; any other reason (sign-in lapsed, a crash loop, a technical prompt) keeps Issue. */
       // Review 1: in the agent card's own order (cardStOf): a failed restart or a crash loop is red before a question is calm.
       needsYouQuestions: members.filter((m) => m.needsYouHere === 'question' && m.stateReportedBy === 'agent'
+        && m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true)).length,
+      /* #7916: of needsYouQuestions, how many the agent holds until the person is back (`kosmos report needs_you
+         --held`). When it is all of needsYou, the project card says Question held, as the agent card does. Still
+         counted in needsYou, so nothing is lost while the person is away (#7915). */
+      needsYouHeld: members.filter((m) => m.needsYouHere === 'question' && m.stateReportedBy === 'agent' && m.stateHeld === true
         && m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true)).length,
       needsYouElsewhere: members.filter((m) => m.present && m.tied && m.state === 'needs_you' && m.stateProject !== null && m.stateProject !== project.id).length,
       /* ...and about no project at all (nothing named, nothing to inherit). #6180: the Agents page no longer reads

@@ -93,3 +93,15 @@ test('#7797 final review: a question about an archived project is left out, unle
   assert.equal(tasks.askingWithoutTask([], roster, null, list, 'old').length, 1, 'the door keeps it');
   assert.equal(tasks.askingWithoutTask([], roster, null, [{ ...list[0], archived: false }]).length, 1, 'CONTROL: not archived');
 });
+
+test('#7916: a held question is listed with held:true; an asked one carries no held field', () => {
+  const [ann, bo] = realCards();
+  const roster = [
+    { ...ann, state: 'needs_you', stateProject: null, waitingSince: '2026-11-02T09:00:00Z', stateHeld: true },
+    { ...bo, state: 'needs_you', stateProject: null, waitingSince: '2026-11-02T10:00:00Z', stateHeld: false },
+  ];
+  assert.deepEqual(tasks.askingWithoutTask([], roster), [
+    { who: 'ann', projectId: null, waitingSince: '2026-11-02T09:00:00.000Z', held: true },
+    { who: 'bo', projectId: null, waitingSince: '2026-11-02T10:00:00.000Z' },
+  ]);
+});
