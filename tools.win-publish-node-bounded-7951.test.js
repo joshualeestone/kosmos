@@ -8,6 +8,9 @@
  *
  * The functions are parsed out of the real script, under the same Stop and StrictMode the script runs with.
  */
+// First: a pwsh ended by SIGTERM or SIGKILL leaves .NET diagnostic sockets in temp (measured), which fails the suite's
+// leak check, so its temp folder is this process's own.
+require('./test-support/tmpscope');
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -58,22 +61,26 @@ $node = $args[1]
 $weird = @('a b', 'q"uote', 'trail\', 'sp ace\', '', 'back\\"slash', 'C:\Program Files\x y\', 'plain')
 $res = @{}
 function Row($r) { @{ rc = $r.Rc; out = $r.Out; undecided = $r.Undecided } }
-$res.eof = Row (Invoke-NodeBounded $node @('-e', "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})"))
-$r = Invoke-NodeBounded $node (@('-e', 'console.log(Buffer.from(JSON.stringify(process.argv.slice(1))).toString("base64"))') + $weird)
-$res.args = Row $r
-$res.want = $weird
-$res.script = Row (Invoke-NodeBounded $node @('-', 'one', 'two') "console.log('argc '+process.argv.length)")
-$res.utf8 = Row (Invoke-NodeBounded $node @('-') "console.log(process.argv.length, '$([char]0xe9)'.codePointAt(0), '$([char]0xe9)')")
-$res.exit4 = Row (Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)"))
-$NodeTimeoutSec = 4
-$res.hang = Row (Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)"))
-$res.bigstdin = Row (Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000))
-$NodeTimeoutSec = 120
-# Something node started keeps its output open after node has exited 0: the handle inheritance is Windows's own.
-$res.held = Row (Invoke-NodeBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},10000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
-$res.nostart = Row (Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @())
-# The form publish-r2.ps1 starts git with, and the form it used to start node with.
-$res.emptypipe = @(@() | & $node -e "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})") -join ' '
+if ($args[4] -ceq 'waits') {
+  $NodeTimeoutSec = 5
+  $res.hang = Row (Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)"))
+  $NodeTimeoutSec = 3
+  $res.bigstdin = Row (Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000))
+  $NodeTimeoutSec = 120
+  # Something node started keeps its output open after node has exited 0: the handle inheritance is Windows's own.
+  $res.held = Row (Invoke-NodeBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},10000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
+} else {
+  $res.eof = Row (Invoke-NodeBounded $node @('-e', "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})"))
+  $r = Invoke-NodeBounded $node (@('-e', 'console.log(Buffer.from(JSON.stringify(process.argv.slice(1))).toString("base64"))') + $weird)
+  $res.args = Row $r
+  $res.want = $weird
+  $res.script = Row (Invoke-NodeBounded $node @('-', 'one', 'two') "console.log('argc '+process.argv.length)")
+  $res.utf8 = Row (Invoke-NodeBounded $node @('-') "console.log(process.argv.length, '$([char]0xe9)'.codePointAt(0), '$([char]0xe9)')")
+  $res.exit4 = Row (Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)"))
+  $res.nostart = Row (Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @())
+  # The form publish-r2.ps1 starts git with.
+  $res.emptypipe = @(@() | & $node -e "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})") -join ' '
+}
 [IO.File]::WriteAllText($args[3], ($res | ConvertTo-Json -Depth 4), $Utf8)
 `;
 
@@ -123,33 +130,43 @@ $NodeTimeoutSec = 40
 });
 
 for (const ps of RUNTIMES) {
-  test(`Invoke-NodeBounded under ${ps}`, async () => {
+  // Two tests, not one: on CI's loaded Mac a pwsh start alone took 17 s, and one harness holding every arm reached the
+  // kill below.
+  const harnessRun = async (group) => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-7951-'));
     try {
       const harness = path.join(dir, 'harness.ps1');
       const out = path.join(dir, 'out.json');
-      fs.writeFileSync(harness, '\ufeff' + HARNESS);
+      fs.writeFileSync(harness, '﻿' + HARNESS);
       const args = ['-NoProfile', '-NonInteractive'];
       if (process.platform === 'win32') args.push('-ExecutionPolicy', 'Bypass');
-      args.push('-File', harness, SCRIPT, process.execPath, dir, out);
+      args.push('-File', harness, SCRIPT, process.execPath, dir, out, group);
       // Under the 60 s tools/windows-tests.js gives one test, so a wedged harness is killed rather than orphaned.
       const run = await runHoldingStdin(ps, args, 55000);
-      assert.ok(fs.existsSync(out), `harness wrote nothing: status ${run.status} signal ${run.signal} ${run.err}`);
-      const res = JSON.parse(fs.readFileSync(out, 'utf8'));
-
-      assert.deepStrictEqual(res.eof, { rc: 0, out: 'EOF', undecided: '' }, 'node sees EOF on its stdin');
-      assert.deepStrictEqual(JSON.parse(Buffer.from(res.args.out, 'base64').toString()), res.want, 'arguments arrive byte for byte');
-      assert.strictEqual(res.script.out, 'argc 4', 'a script given on stdin runs, with its arguments');
-      assert.match(res.utf8.out, /233 \u00e9$/, 'UTF-8 both ways');
-      assert.deepStrictEqual(res.exit4, { rc: 4, out: 'one two', undecided: '' }, 'an exit code comes back');
-      assert.deepStrictEqual(res.hang, { rc: 98, out: 'PASS', undecided: 'it did not finish within 4 seconds and was stopped' }, 'a printed PASS that never exits is stopped');
-      assert.strictEqual(res.bigstdin.rc, 98, 'a stdin node never reads cannot outlast the limit');
-      assert.strictEqual(res.held.rc, 97, 'exit 0 with its output held open is not a pass');
-      assert.ok(res.held.undecided, 'and it says so');
-      assert.strictEqual(res.nostart.rc, 99, 'a node that does not start');
-      assert.ok(res.nostart.undecided, 'and it says so');
-      assert.strictEqual(res.emptypipe, 'EOF', 'the form git is started with closes stdin');
+      assert.ok(run.finished, `the harness had to be killed after 55 s: ${run.err}`);
+      assert.ok(fs.existsSync(out), `harness wrote nothing: status ${run.status} ${run.err}`);
+      return JSON.parse(fs.readFileSync(out, 'utf8'));
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+
+  test(`Invoke-NodeBounded under ${ps}`, async () => {
+    const res = await harnessRun('answers');
+    assert.deepStrictEqual(res.eof, { rc: 0, out: 'EOF', undecided: '' }, 'node sees EOF on its stdin');
+    assert.deepStrictEqual(JSON.parse(Buffer.from(res.args.out, 'base64').toString()), res.want, 'arguments arrive byte for byte');
+    assert.strictEqual(res.script.out, 'argc 4', 'a script given on stdin runs, with its arguments');
+    assert.match(res.utf8.out, /233 é$/, 'UTF-8 both ways');
+    assert.deepStrictEqual(res.exit4, { rc: 4, out: 'one two', undecided: '' }, 'an exit code comes back');
+    assert.strictEqual(res.nostart.rc, 99, 'a node that does not start');
+    assert.ok(res.nostart.undecided, 'and it says so');
+    assert.strictEqual(res.emptypipe, 'EOF', 'the form git is started with closes stdin');
+  });
+
+  test(`Invoke-NodeBounded stops what does not finish, under ${ps}`, async () => {
+    const res = await harnessRun('waits');
+    assert.deepStrictEqual(res.hang, { rc: 98, out: 'PASS', undecided: 'it did not finish within 5 seconds and was stopped' }, 'a printed PASS that never exits is stopped');
+    assert.strictEqual(res.bigstdin.rc, 98, 'a stdin node never reads cannot outlast the limit');
+    assert.strictEqual(res.held.rc, 97, 'exit 0 with its output held open is not a pass');
+    assert.ok(res.held.undecided, 'and it says so');
   });
 
   // Not judged either way: whether the shape the card saw reproduces here. It is printed, because the card's cause was
