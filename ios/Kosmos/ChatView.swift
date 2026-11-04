@@ -1956,7 +1956,7 @@ struct ChatView: View {
                     .padding(.horizontal, 6)
                 }
                 ForEach(attachedHere) { a in
-                    FileChip(name: a.name, preview: client.attachedPreviews[a.id], open: { previewing = a },
+                    FileChip(name: a.name, preview: client.attachedPreviews[a.id]?.small, open: { previewing = a },
                              remove: { client.unattach(a.id, for: agent.session) })
                 }
             }
@@ -1964,11 +1964,16 @@ struct ChatView: View {
             // As tall as the x's 44 pt place to tap: a scroll view takes no taps outside itself.
             .frame(minHeight: 44)
         }
-        // kosmos#7944: a waiting picture, tapped. It closes by itself if the file leaves the composer meanwhile.
+        // kosmos#7944: a waiting picture, tapped.
         .sheet(item: $previewing) { a in
-            if let data = client.attachedPreviews[a.id] {
-                AttachedPreview(name: a.name, preview: data, remove: { client.unattach(a.id, for: agent.session) })
+            if let picture = client.attachedPreviews[a.id] {
+                AttachedPreview(name: a.name, preview: picture.large, remove: { client.unattach(a.id, for: agent.session) })
             }
+        }
+        // kosmos#7944 review 1: the sheet closes if its file leaves the composer while it is open (a send from another
+        // place, or another account or computer), rather than staying open and empty.
+        .onChange(of: previewing.map { client.attachedPreviews[$0.id] != nil } ?? true) { still in
+            if !still { previewing = nil }
         }
     }
 
