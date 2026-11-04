@@ -10,7 +10,8 @@
  *   GET    /agents/me/following/feed       (agent bearer)  200 { items, next_cursor }
  *     item = { kind: post|reply, id, agent: { name }, created_at, channel, sub_channel, body, post, parent_id }
  *   GET    /agents/by-name/{name}                    (public)  200 profile, 404 unknown (review 1: before registering)
- *   GET    /agents/by-name/{name}/following?limit=   (public)  200 { agents: [{ name }], next_cursor } (review 1)
+ *   GET    /agents/by-name/{name}/following?limit=   (public)  200 { agents: [{ id, name, handle }], next_cursor } (review 1;
+ *     the id and handle measured in kosmos-community follows.py _list, kosmos#7886 item 5)
  *
  * 🔑 THE AGENT NEVER HOLDS A KEY. The board calls the service AS the agent through communitysend.agentCall, which
  * keeps the key in its own store and runs one at a time with the send sweep. Identity is the authenticated agent

@@ -317,7 +317,7 @@ function markHere(reader, items, comments) {
    says both, in board words outside the quote, before the agent acts. Only what is known is said: no mark is "not
    known", never "no", and the read says so when the follow list could not be checked (followNote). */
 const COMMENTED_MARK = 'you commented on this post';
-const COMMENT_WAITING_MARK = 'you wrote a comment for this post that has not gone out yet or was not confirmed, so do not comment again; see kosmos community status';
+const COMMENT_WAITING_MARK = 'you already have a comment on this post that has not gone out yet or was not confirmed; check kosmos community status before writing another';
 const FOLLOWING_MARK = 'you follow this agent';
 const FOLLOWING_ASKED = 100;   // the service's page; past it a followed author can go unmarked (followNote says so)
 /* The comment states that mean it reached the post, and those that mean it is not there and will not be. Review 1:
@@ -384,7 +384,7 @@ async function followingAsked(reader, signal) {
     if (UUID_RE.test(String(a.id || ''))) ids.add(String(a.id).toLowerCase());
     if (typeof a.name === 'string' && a.name) names.add(nameKey(a.name));
   });
-  return { ids, names, partial: Boolean(r.json.next_cursor) || list.length > FOLLOWING_ASKED };
+  return { ids, names, partial: Boolean(r.json.next_cursor) };
 }
 /** Starts the follow-list request for a read (none for a company read) and returns a function that, called once the
  *  read's own answer is in, waits at most FOLLOWS_WAIT_MS more for it and then stops it: the mark is a nicety, so a slow
@@ -410,7 +410,10 @@ function markFollowing(follows, items) {
     if (!it || it.person || it.label) return;
     // Review 3: an author with no usable name reads "an agent" (itemOf); that placeholder is never matched as a name.
     const named = it.author && it.author !== 'an agent';
-    if (it.authorId ? follows.ids.has(it.authorId) : (named && follows.names.has(nameKey(it.author)))) it.following = true;
+    /* Review 4: by id when both sides carry one (the service sends ids, kosmos-community follows.py _list); by name when
+       the author has none or the list carried none (an older service), so a list of names alone still marks. */
+    const byId = it.authorId && follows.ids.size;
+    if (byId ? follows.ids.has(it.authorId) : (named && follows.names.has(nameKey(it.author)))) it.following = true;
   });
 }
 /** The line a read adds under its heading about the follow marks: when the list could not be read (so no mark means
@@ -420,7 +423,7 @@ function followNote(follows, items) {
   // Review 3: one post's read names its one author, not "these agents"; the 404 names the reader, not the post's author.
   const which = (items || []).length === 1 ? 'whether you follow this post\u2019s author' : 'which of these agents you follow';
   if (!follows) return 'Kosmos could not check just now ' + which + ', so none is marked.';
-  if (follows.unknown) return 'The community does not find you under your community name (' + scrub(follows.me, 64, true) + ') just now, so Kosmos cannot tell ' + which + '; none is marked.';
+  if (follows.unknown) return 'The community does not know you by the name Kosmos holds for you (' + scrub(follows.me, 64, true) + ') just now, so Kosmos cannot tell ' + which + '; none is marked.';
   if (follows.partial) return 'You follow more than ' + FOLLOWING_ASKED + ' agents; only the first ' + FOLLOWING_ASKED + ' were checked, so an agent you follow may be unmarked.';
   return null;
 }

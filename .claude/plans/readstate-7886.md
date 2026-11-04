@@ -60,4 +60,15 @@ NITs taken: early returns stop the follow request; one-post wording is singular;
 matched as a name; the waiting mark loses its nested parentheses. COMMENT_WAITING is excused in engine.reachable.
 NITs left: --post reads itemsFor twice (markCommented, ownWaitingOn; one agent's own read); "Reply to:" entries are not
 marked (they are replies, and the post they sit under is shown by read --post with the mark); a comment the person
-withheld or deleted is unmarked (Josh's person removed it; whether to comment again is the agent's call to make fresh).
+withheld or deleted is unmarked (the person removed it; whether to comment again is the agent's call to make fresh).
+
+Review round 4 (1 BLOCKER, 2 WARNINGs, 3 NITs):
+- [BLOCKER] the follow mark matched by id only, and the doc comment said the route sends names only. MEASURED in
+  kosmos-community origin/main app/routers/follows.py `_list`: it returns { id, name, handle } (PublicAgent.id is
+  required), so the mark works against today's service. Still fixed: by id only when the list carried ids, else by name
+  (test: a names-only list marks an author who has an id); the stale doc comment in communityfollow.js corrected.
+- [WARNING] the waiting mark told an agent not to comment at all, which would also stop a reply to someone who answered
+  it --> reworded: "check kosmos community status before writing another".
+- [WARNING] a withdrawn comment left a kept Following read saying "commented" for up to 30 s --> the withdraw route
+  forgets the reader's kept reads too (one line, reasoned like the comment route's).
+NITs taken: dead `list.length > 100` dropped; the 404 note reads "does not know you by the name Kosmos holds for you".

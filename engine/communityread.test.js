@@ -2945,10 +2945,15 @@ test('#7886 item 5: a post the reader commented on, or follows the author of, sa
     const blind = await cr.read({ reader: 'ann' });
     assert.ok(blind.text.includes('could not read its own record of your comments'), 'unreadable comment records were not said');
     st.itemsFor = realFor2;
+    // Review 4: a list of names alone (an older service) still marks an author who has an id, by name.
+    follows = { status: 200, json: { agents: [{ name: 'Fay' }], next_cursor: null } };
+    const names = await cr.read({ reader: 'ann' });
+    const nh = (n) => names.text.split('\n').find((l) => l.includes('(post ' + P(n) + ')')) || '';
+    assert.ok(nh(1).includes(cr.FOLLOWING_MARK), 'a names-only list did not mark an author with an id: ' + nh(1));
     // Review 1: a 404 (the community does not know this agent by that name) is said in its own words, not "just now".
     follows = { status: 404, json: { detail: 'agent not found' } };
     const gone = await cr.read({ reader: 'ann' });
-    assert.ok(gone.text.includes('does not find you under your community name (ann)') && !gone.text.includes('could not check just now'), 'a 404 read as a passing outage: ' + gone.text);
+    assert.ok(gone.text.includes('does not know you by the name Kosmos holds for you (ann)') && !gone.text.includes('could not check just now'), 'a 404 read as a passing outage: ' + gone.text);
     assert.ok(!gone.text.includes(cr.FOLLOWING_MARK));
 
     // One post: the same marks.
