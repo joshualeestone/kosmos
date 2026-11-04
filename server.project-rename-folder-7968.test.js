@@ -101,7 +101,7 @@ test('#7968 a folder already called that is refused, with both folders untouched
   assert.equal(offered(p.id), null, 'a name already taken is not offered');
   const r = await put(p.id, { renameFolder: true }, SCREEN);
   assert.equal(r.status, 409);
-  assert.match((await r.json()).error, /already a folder called Taken Name/);
+  assert.match((await r.json()).error, /already something called Taken Name/);
   assert.equal(stored(p.id).folder, path.join(KEEP, 'Starter Three'));
   assert.equal(fs.existsSync(path.join(KEEP, 'Starter Three', 'work.txt')), true);
   assert.equal(fs.readFileSync(path.join(KEEP, 'Taken Name', 'theirs.txt'), 'utf8'), 'theirs');
@@ -112,7 +112,7 @@ test('#7968 a dangling symlink at that name is not replaced', () => {
   const at = path.join(KEEP, 'Link Name');
   fs.symlinkSync(path.join(SANDBOX, 'nowhere'), at);
   assert.equal(offered(p.id), null);
-  assert.throws(() => projects.renameFolderToName(p.id), /already a folder called Link Name/);
+  assert.throws(() => projects.renameFolderToName(p.id), /already something called Link Name/);
   assert.equal(fs.lstatSync(at).isSymbolicLink(), true);
   assert.equal(stored(p.id).folder, path.join(KEEP, 'Starter Link'));
 });
@@ -143,7 +143,7 @@ test('#7968 another project recorded at that name, its folder gone: not offered,
 test('#7968 a member working, or an agent living in or holding the folder, is refused and nothing moves', () => {
   const p = renamed('Starter Four', 'Fourth Name');
   const old = path.join(KEEP, 'Starter Four');
-  assert.throws(() => projects.renameFolderToName(p.id, { busy: ['Ada'] }), /Ada is in the middle of something on this project/);
+  assert.throws(() => projects.renameFolderToName(p.id, { busy: ['Ada'] }), /Ada is not idle or stopped just now/);
   assert.throws(() => projects.renameFolderToName(p.id, { homes: [old] }), /an agent lives in this folder/);
   assert.throws(() => projects.renameFolderToName(p.id, { homes: [path.join(old, 'inner')] }), /an agent lives in this folder/);
   assert.equal(stored(p.id).folder, old);
@@ -157,6 +157,7 @@ test('#7968 a project inside the folder is refused, so it is not orphaned', () =
   const outer = renamed('Starter Nest', 'Nest Name');
   fs.mkdirSync(path.join(outer.folder, 'inner'));
   const inner = projects.create({ name: 'Inner', folder: path.join(outer.folder, 'inner') });
+  assert.equal(offered(outer.id), null, 'a press could only be refused, so it is not offered');
   assert.throws(() => projects.renameFolderToName(outer.id), /the project "Inner" is inside this folder/);
   assert.equal(stored(outer.id).folder, path.join(KEEP, 'Starter Nest'));
   assert.equal(projects.folderState(stored(inner.id).folder).state, 'readable');
@@ -170,7 +171,7 @@ test('#7968 through the route: a member not idle refuses, an idle member does no
   projects.edit(p.id, { name: 'Route Busy' });
   const busy = await put(p.id, { renameFolder: true }, SCREEN);
   assert.equal(busy.status, 409, JSON.stringify(await busy.clone().json()));
-  assert.match((await busy.json()).error, /mara is in the middle of something on this project/);
+  assert.match((await busy.json()).error, /mara is not idle or stopped just now/);
   assert.equal(stored(p.id).folder, path.join(KEEP, 'Route Start'));
 
   const q = projects.create({ name: 'Route Calm' });
@@ -238,7 +239,7 @@ test('#7968 a list reads the projects file once, not once a project', () => {
   };
   try { assert.ok(projects.list().length > 3); } finally { fs.readFileSync = realRead; }
   assert.ok(reads > 0, 'CONTROL: the counter saw the file');
-  assert.ok(reads < projects.readAll().length, `read ${reads} times for ${projects.readAll().length} projects`);
+  assert.ok(reads < 3, `read ${reads} times, with three projects offering a rename`);
 });
 
 test('#7968 a stopped agent living in the folder refuses it too, which the board alone cannot see', async (t) => {
@@ -262,7 +263,7 @@ test('#7968 a member waiting on a question refuses, a stopped one does not, and 
   projects.addAgent(asks.id, 'quin');
   const r1 = await put(asks.id, { renameFolder: true }, SCREEN);
   assert.equal(r1.status, 409);
-  assert.match((await r1.json()).error, /quin is in the middle of something/);
+  assert.match((await r1.json()).error, /quin is not idle or stopped just now/);
 
   const gem = renamed('Gem Start', 'Gem Other');
   projects.addAgent(gem.id, 'gem');
@@ -283,7 +284,7 @@ test('#7968 a name Windows cannot hold is not offered there', () => {
   Object.defineProperty(process, 'platform', { value: 'win32' });
   try {
     assert.equal(projects.folderRenameTarget(stored(p.id)), null);
-    for (const name of ['Con', 'nul', 'COM1', 'lpt2.txt', 'Plan.', 'CON .txt', 'CONIN$']) {
+    for (const name of ['Con', 'nul', 'COM1', 'lpt2.txt', 'Plan.', 'CON .txt', 'CONIN$', 'CLOCK$']) {
       assert.equal(projects.folderRenameTarget({ folder: path.join(KEEP, 'x'), name }), null, name);
     }
     assert.equal(projects.folderRenameTarget({ folder: path.join(KEEP, 'x'), name: 'Console' }), 'Console', 'CONTROL: only the device names themselves');
@@ -334,6 +335,6 @@ test('#7968 the page offers it only with an answer to give, and sends it alone',
   assert.match(page, /id="pjs-rename-folder" hidden/);
   assert.match(page, /rf\.hidden = !p\.folderRenameTo;/);
   assert.match(page, /JSON\.stringify\(\{ renameFolder: true \}\)/);
-  assert.match(page, /e\.status >= 400 && e\.status < 500\) \{ said\.textContent = 'Not changed: '/);
+  assert.match(page, /e\.status >= 400 && e\.status < 500\) \{\s+said\.textContent = 'Not changed: '/);
   assert.match(page, /Kosmos did not answer, so we cannot say whether the folder changed/);
 });

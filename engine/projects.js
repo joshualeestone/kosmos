@@ -3436,7 +3436,7 @@ function folderRenameTarget(project) {
   if (!project || typeof project.folder !== 'string' || path.dirname(project.folder) !== projectsRoot()) return null;
   let want;
   try { want = folderNameFor(project.name); } catch { return null; }
-  if (process.platform === 'win32' && (/[<>"|?*]|[. ]$/.test(want) || winpath.WINDOWS_DEVICE_NAME.test(want))) return null;
+  if (process.platform === 'win32' && (/[<>"|?*]|[. ]$/.test(want) || winpath.WINDOWS_DEVICE_NAME.test(want) || /^clock\$/i.test(want))) return null;
   return want.toLowerCase() === path.basename(project.folder).toLowerCase() ? null : want;
 }
 
@@ -3444,6 +3444,11 @@ function folderRenameTarget(project) {
 function nothingAt(target) {
   try { fs.lstatSync(target); return false; } catch (e) { return e.code === 'ENOENT'; }
 }
+
+// Both spellings of a path: one through a symlink, or one not there yet, has no real form to compare.
+const spellingsOf = (given) => { const real = folderState(given).real; return real && real !== given ? [given, real] : [given]; };
+const holdsPath = (outerGiven, innerGiven) => spellingsOf(innerGiven).some((inner) => spellingsOf(outerGiven).some((outer) => pathHolds(outer, inner)));
+const projectInside = (all, project) => all.find((p) => p.id !== project.id && typeof p.folder === 'string' && holdsPath(project.folder, p.folder));
 
 // A project whose record holds that path, whatever the case: a disk may not care, and the folder may not be there.
 const recordedAt = (all, id, target) => all.find((p) => p.id !== id && typeof p.folder === 'string' && p.folder.toLowerCase() === target.toLowerCase());
@@ -3453,13 +3458,14 @@ function isLink(folder) {
   try { return fs.lstatSync(folder).isSymbolicLink(); } catch { return false; }
 }
 
-/* The offer the page shows: the same, but not when it could only be refused. `all` is what describe already read. */
+/* The offer the page shows: the same, less what the records alone say would be refused. Agent homes and who is busy are
+   the board's to know, so those are still refusals at the press. `all` is what describe already read. */
 function folderRenameOffer(project, all) {
   const want = folderRenameTarget(project);
   if (!want) return null;
   if (folderState(project.folder).state !== FOLDER.READABLE || isLink(project.folder)) return null;
   const target = path.join(path.dirname(project.folder), want);
-  if (!nothingAt(target) || recordedAt(all, project.id, target)) return null;
+  if (!nothingAt(target) || recordedAt(all, project.id, target) || projectInside(all, project)) return null;
   return want;
 }
 
@@ -3478,25 +3484,21 @@ function renameFolderToName(id, { busy = [], homes = [], stuckOnOldFolder = [] }
   if (now.state !== FOLDER.READABLE) throw new Error('we cannot get to this project\'s folder to rename it');
   if (isLink(self.folder)) throw new Error('this project\'s folder is a link to a folder somewhere else, so it keeps its name');
   const refused = (message) => { const e = new Error(message); e.status = 409; return e; };
-  // Both spellings of each side: a path through a symlink, or one that is not there yet, has no real form to compare.
-  const spellings = (given, real) => (real && real !== given ? [given, real] : [given]);
-  const heres = spellings(self.folder, now.real);
-  const holdsAny = (given, real) => spellings(given, real).some((r) => heres.some((f) => pathHolds(f, r)));
-  if (homes.some((h) => holdsAny(h, folderState(h).real))) throw refused('an agent lives in this folder, so it stays where it is');
-  const nested = all.find((p) => p.id !== id && typeof p.folder === 'string' && holdsAny(p.folder, folderState(p.folder).real));
+  if (homes.some((h) => holdsPath(self.folder, h))) throw refused('an agent lives in this folder, so it stays where it is');
+  const nested = projectInside(all, self);
   if (nested) throw refused('the project "' + nested.name + '" is inside this folder, so it stays where it is');
+  if (busy.length) throw refused(andList(busy) + (busy.length === 1 ? ' is' : ' are') + ' not idle or stopped just now, and could still be using the old folder. Rename it once ' + (busy.length === 1 ? 'that agent is' : 'they are'));
   if (stuckOnOldFolder.length) throw refused(andList(stuckOnOldFolder) + (stuckOnOldFolder.length === 1 ? ' runs on Gemini, which keeps the folder it started with. Stop that agent first' : ' run on Gemini, which keeps the folder it started with. Stop them first') + ', then rename the folder');
-  if (busy.length) throw refused(andList(busy) + (busy.length === 1 ? ' is' : ' are') + ' in the middle of something on this project. Try again once ' + (busy.length === 1 ? 'that agent is' : 'they are') + ' idle');
   const target = path.join(path.dirname(self.folder), want);
   const holder = recordedAt(all, id, target);
   if (holder) throw refused('the project "' + holder.name + '" uses the name ' + want + ' for its folder');
-  if (!nothingAt(target)) throw refused('there is already a folder called ' + want);
+  if (!nothingAt(target)) throw refused('there is already something called ' + want + ' in that folder');
   try { fs.renameSync(self.folder, target); } catch {
     throw refused('that folder could not be renamed. Something may have it open, so close it and try again');
   }
   try { return mutate(id, (p) => { p.folder = target; return p; }); } catch {
     try { fs.renameSync(target, self.folder); } catch {
-      const stuck = new Error('the folder was renamed to ' + want + ', but Kosmos could not save that or put it back. Use "Use this location" on this page to point Kosmos at ' + target);
+      const stuck = new Error('the folder was renamed to ' + want + ', but Kosmos could not save that or put it back. It is now at ' + target + ', so paste that into "Use this location" on this page');
       stuck.status = 500;
       throw stuck;
     }

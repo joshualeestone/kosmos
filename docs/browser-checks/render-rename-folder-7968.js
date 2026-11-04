@@ -87,8 +87,9 @@ const PORT = freePort();
     await p.click('#pjs-rename-folder-btn');
     await p.waitForFunction(() => /Not changed:/.test(document.getElementById('pjs-move-msg').textContent), null, { timeout: 8000 });
     const refused = (await shown(p.locator('#pjs-move-msg'))).trim();
-    chk(refused === 'Not changed: there is already a folder called Launch Plan.', 'a name already taken is refused in plain words', JSON.stringify(refused));
+    chk(refused === 'Not changed: there is already something called Launch Plan in that folder.', 'a name already taken is refused in plain words', JSON.stringify(refused));
     chk(fs.existsSync(path.join(moved.folder, 'work.txt')), 'and the work stayed where it was');
+    chk(await p.evaluate(() => document.activeElement === document.getElementById('pjs-rename-folder-btn')), 'and the keyboard is back on the button');
 
     // The way clear: the folder is renamed, the offer goes away, the page reads the new folder.
     fs.rmdirSync(taken);
