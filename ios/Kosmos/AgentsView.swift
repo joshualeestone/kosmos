@@ -389,7 +389,7 @@ struct BoardStates<Empty: View>: View {
         case .connecting(let mac):
             VStack(spacing: 12) {
                 message("Connecting to \(mac).", detail: "This can take a moment, for example just after your Mac starts.")
-                KosmosOrb(label: "Waiting for your Mac")
+                SweepDots(label: "Waiting for your Mac")   // kosmos#7954: the same wait as `reaching`, so the same dots
             }
         case .denied(let mac):
             message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)
@@ -425,8 +425,8 @@ struct BoardStates<Empty: View>: View {
     // First connect, nothing shown yet (spec frame 3).
     private var reaching: some View {
         VStack(spacing: 8) {
-            KosmosOrb().accessibilityHidden(true)   // the text beside it says what is loading
-            Text("Reaching your computer\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
+            SweepDots()   // kosmos#7954: the board's ring of dots, not the orb; hidden from VoiceOver (the words say what is loading)
+            Text("Connecting\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
