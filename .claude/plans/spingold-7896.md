@@ -35,3 +35,14 @@ button keeps the button's ink.
 - [NIT] the side figure named the wrong token --> FIXED (--k-side 3.78, --k-side-2 3.49).
 - [NIT] KORB's comment said gold is the same in both themes --> FIXED.
 - [NIT] #firstrun is white in both themes --> FIXED: it pins the deep gold.
+
+#### Iteration 2
+- [WARNING] going in or out of the Kosmos+ screen changes the orb's colour in the light theme, but nothing redrew a
+  still (reduced-motion) orb, which kept the wrong gold until shown again --> FIXED: KORB watches body's class for a
+  change in plus-active alone (old vs new, so other body classes cost nothing) and recolours. Arm: a still orb on a
+  reduced-motion page goes into plus-active and must turn from the deep gold to --gold. Mutant (the watcher not
+  observing): fails it (stays r154).
+- [WARNING] the #firstrun pin had no arm --> FIXED: on the dark-scheme page, a spinner put inside #firstrun must read
+  --spin-dot #9c741b. Mutant (the pin removed): fails it (#d6a62e).
+- [NIT] the arm's restore was not in try/finally --> FIXED.
+- [NIT] plus-active in the dark theme is untested --> left: it resolves to the same --gold as dark itself.
