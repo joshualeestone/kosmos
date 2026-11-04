@@ -582,7 +582,7 @@ async function verbMsg(ctx, args) {
     return 0;
   }
   if (d.held === true && d.heldBy === 'limit' && d.heldFor === 'input') {   // #6774
-    ctx.out('Held for ' + to + ': its input box holds text not yet sent. Kosmos types it once the box is clear; do not re-send.');
+    ctx.out('Held for ' + to + ': its input box holds text not yet sent. Kosmos types it once the box is clear, or drops it after 2 hours and tells you; do not re-send.');
     return 0;
   }
   if (d.held === true && d.heldBy === 'limit' && d.behind === true) {

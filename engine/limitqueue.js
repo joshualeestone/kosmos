@@ -14,6 +14,16 @@ const path = require('node:path');
 const store = require('./store');
 
 const DROP_AFTER_MS = 24 * 60 * 60 * 1000;
+/* kosmos#7936: a `kosmos msg` kept because the agent's input box held text not yet sent waits for a box, not a known
+   reset, so a day was a day of silence for its sender after the round it belonged to had closed. It drops after
+   INPUT_DROP_AFTER_MS (the 2 hours a held room post is told within, messages.HELD_TELL_MAX_MS), and its sender is told
+   STILL_HELD_TELL_MS in that it is still held. A task line or a person's own message keeps the day and its own notices. */
+const INPUT_DROP_AFTER_MS = 2 * 60 * 60 * 1000;
+const STILL_HELD_TELL_MS = 10 * 60 * 1000;
+function shortHold(e) { return !!e && e.input === true && !e.kind; }
+function dropAfter(e) { return shortHold(e) ? INPUT_DROP_AFTER_MS : DROP_AFTER_MS; }
+// Ids whose sender was told they are still held (in memory: a restart may tell a sender once more, the stated cost).
+const toldStill = new Set();
 const MAX_KEPT = 200;   // per agent, from all senders together
 const MAX_PER_SENDER = 20;   // per agent per sender: one sender in a loop cannot crowd out the others
 /* Typed per agent per minute: the roster is read once a minute, so an agent that hits its limit again mid-backlog is
@@ -211,7 +221,7 @@ async function flush(roster, opts) {
   // Only this run frees the guard: a stuck run that finishes late must not clear a newer run's.
   try { return await flushOnce(roster, opts); } finally { if (runToken === mine) flushingSince = 0; }
 }
-async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, onStuck, now = Date.now() }) {
+async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, onStuck, onStillHeld, now = Date.now() }) {
   const out = [];
   for (const name of names()) {
     try {
@@ -226,10 +236,18 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         const reset = Number.isFinite(Date.parse(e.reset)) ? Date.parse(e.reset) : Date.parse(e.at);
         // Being typed this moment (a run that outlived the guard): not dropped under it.
         if (claimedNow(e.id)) { live.push(e); continue; }
-        if (!Number.isFinite(reset) || now - reset > DROP_AFTER_MS) {
+        if (!Number.isFinite(reset) || now - reset > dropAfter(e)) {
           if (!remove(name, e.id)) done.add(e.id);
+          toldStill.delete(e.id);
           try { if (onDropped) onDropped(e, roster); } catch { /* the drop stands */ }
-        } else live.push(e);
+        } else {
+          // kosmos#7936: once, STILL_HELD_TELL_MS in, the sender hears it is still held and when it would drop.
+          if (shortHold(e) && now - reset >= STILL_HELD_TELL_MS && !toldStill.has(e.id)) {
+            toldStill.add(e.id);
+            try { if (onStillHeld) onStillHeld(e, roster, new Date(reset + INPUT_DROP_AFTER_MS).toISOString()); } catch { /* told or not, it stays kept */ }
+          }
+          live.push(e);
+        }
       }
       if (!live.length) continue;
       const card = resolveCard(roster, name);
@@ -319,9 +337,11 @@ function sweepHooks({ chat, messages }) {
       if (e.kind === TASK_KIND) { messages.tellTaskLineDropped(e, r).catch(() => { /* the drop stands */ }); return; }
       messages.tellHeldDropped(e, r).catch(() => { /* recorded */ });
     },
+    // kosmos#7936: a `kosmos msg` still held behind an input box (shortHold): its sender is told once, in its own pane.
+    onStillHeld: (e, r, dropAt) => { if (!e.kind) messages.tellHeldStill(e, r, dropAt).catch(() => { /* it stays kept */ }); },
   };
 }
 
-function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); flushingSince = 0; }
+function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); toldStill.clear(); flushingSince = 0; }
 
-module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
+module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, dropAfter, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };

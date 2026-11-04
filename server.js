@@ -23682,7 +23682,7 @@ const server = http.createServer(async (req, res) => {
            ignored ?unanswered=1 (an older one) by this line being absent. */
         const filtered = !onlyUnanswered ? ''
           : lines.length ? UNANSWERED_HEAD + openAsks + (openAsks === 1 ? ' post' : ' posts')
-            + ' in this room (each asked you something, and no post of yours cites it by id with --reply-to)'
+            + ' in this room (each asked you something, and no post of yours cites it by id with --in-reply-to)'   // kosmos#7936: post's flag
             + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'
           : rec.ok === false ? UNANSWERED_HEAD + 'none found, but this room could not be read, so that may be wrong.\n'
           : claimedAsks.length ? UNANSWERED_HEAD + 'nothing else waiting on you in this room; '   // kosmos#7848
