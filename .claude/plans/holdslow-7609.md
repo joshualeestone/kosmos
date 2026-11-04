@@ -36,6 +36,8 @@ main's CI traces, a source check pins both, and the PR's own CI ui tests job pas
   the reading keeps its will-show's keyboard frame, and a did-show of a keyboard of another WIDTH skips it (width only: one
   keyboard's height flips, 380 and 608 on Josh's phone, #7817); and the reader's own scroll (a finger) between will-show
   and did-show drops the reading.
+- Review 3: that an iPad floating keyboard sends a will-show with no did-show is review 1's reading of an older comment, not
+  a measurement; the width check is a guard that cannot harm an iPhone (its keyboard is always full width), nothing more.
 - Weakest premise: that a floating and a docked keyboard always differ in width. A docked keyboard after an orphaned
   docked will-show (same width, no will-hide) still gets the older reading, within 6 s. And a will-show or did-show
   without a keyboard frame skips the width check (fails open to the 6 s limit).

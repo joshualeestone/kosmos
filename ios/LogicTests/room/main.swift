@@ -567,7 +567,10 @@ check(chatSource.contains("guard Date().timeIntervalSince(kept.at) < Self.staleA
 check(chatSource.contains("let f = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect, abs(a.width - f.width) > 0.5 {")
       && chatSource.contains("self.savedKeyboard = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect")
       && chatSource.contains("if let self, self.saved != nil, v.isTracking || v.isDragging {\n                    self.saved = nil; self.savedKeyboard = nil;")
-      && chatSource.contains("self?.saved = nil; self?.savedKeyboard = nil; self?.lastJump = nil"),
+      && chatSource.contains("self?.saved = nil; self?.savedKeyboard = nil; self?.lastJump = nil")
+      && chatSource.contains("func standDown() { saved = nil; savedKeyboard = nil;") && chatSource.contains("self.saved = nil; self.savedKeyboard = nil\n")
+      && chatSource.contains("observers = []; saved = nil; savedKeyboard = nil; endGuard()")
+      && chatSource.contains("self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true, relooked: relooked) }"),
       "kosmos#7609: a reading is this keyboard's (same width), and a reader's scroll before did-show drops it")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
