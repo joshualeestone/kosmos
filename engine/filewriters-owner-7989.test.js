@@ -68,7 +68,7 @@ test('kosmos#7989: another agent\'s write leaves one note for the agents, naming
   assert.equal(made.length, 1, 'another agent\'s write made ' + made.length + ' notes');
   assert.equal(made[0].text, fw.ownerNoticeText({ name: 'brief.md', owner: 'mona', writer: 'kitty' }));
   assert.match(made[0].text, /^kitty was about to change "brief\.md" \(mona was the first agent seen changing it here\)\. A notice, not a lock: mona, /);
-  assert.match(made[0].text, /For the next hour, Kosmos will not post a separate notice for each other file kitty changes that you were first to change\.$/);
+  assert.match(made[0].text, /For the next hour, Kosmos will not post a separate notice for each other file kitty changes that you were the first seen changing\.$/);
   assert.equal(made[0].audience, messages.NOTE_AUDIENCE_AGENTS, 'the note is not kept to the agents (the person\'s room view would show it)');
   // That the room route keeps a note with this audience out of the person's JSON view and in `kosmos room` is pinned at
   // the route, for a tagged note in any words, in server.projects.test.js ("the brief-pending note reaches the agents").
@@ -116,10 +116,14 @@ test('kosmos#7989 review 3: a busy room gets at most NOTICE_ROOM_MAX notices an 
   const writers = MEMBERS.slice(1);
   writers.forEach((w, i) => r.write('own' + i + '.md', 'mona', t + i));
   writers.forEach((w, i) => r.write('own' + i + '.md', w, t + MIN + i * 1000));
-  assert.ok(writers.length > fw.NOTICE_ROOM_MAX, 'fixture: not enough writers to reach the cap');
-  assert.equal(r.notes().length, fw.NOTICE_ROOM_MAX, writers.length + ' different writers made ' + r.notes().length + ' notes in one hour');
+  assert.ok(writers.length >= fw.NOTICE_ROOM_MAX + 1, 'fixture: not enough writers to pass the cap');
+  const n = r.notes();
+  assert.equal(n.length, fw.NOTICE_ROOM_MAX + 1, writers.length + ' different writers made ' + n.length + ' notes in one hour');
+  assert.equal(n[fw.NOTICE_ROOM_MAX].text, fw.HELD_BACK_TEXT, 'past the cap, the room is not told notices are held back');
+  assert.equal(n.filter((x) => x.text === fw.HELD_BACK_TEXT).length, 1, 'the held-back note was said more than once in the hour');
+  // CONTROL, and a capped pair (lisa's, held back above) is noticed once the hour has passed.
   r.write('own0.md', 'lisa', t + MIN + HOUR + 10000);
-  assert.equal(r.notes().length, fw.NOTICE_ROOM_MAX + 1, 'CONTROL: after the hour the room is noticed again');
+  assert.equal(r.notes().length, fw.NOTICE_ROOM_MAX + 2, 'after the hour a capped pair is not noticed again');
 });
 
 test('kosmos#7989 review 1: a file name cannot spell a marker in the note, and a long one is cut', () => {
@@ -157,4 +161,28 @@ test('kosmos#7989: a file recorded before owners were kept has no owner, and no 
   r.write('old.md', 'kitty', t + MIN);
   assert.equal(r.notes().length, 0, 'a guessed owner was noticed');
   assert.equal('first' in r.record()['old.md'], false, 'an owner was invented for an old record');
+});
+
+test('kosmos#7989 review 5: an owner no longer on the project takes no room slot', () => {
+  const r = room();
+  const t = day(10);
+  for (let i = 0; i < 8; i++) r.write('left' + i + '.md', 'zed' + i, t + i);   // owners who are not members
+  for (let i = 0; i < 8; i++) r.write('left' + i + '.md', 'kitty', t + MIN + i * 6000);
+  assert.equal(r.notes().length, 0, 'a departed owner was addressed');
+  r.write('live.md', 'mona', t + 2 * MIN);
+  r.write('live.md', 'kitty', t + 3 * MIN);
+  assert.equal(r.notes().length, 1, 'departed owners used up the room\'s slots, so a real owner went unnoticed');
+});
+
+test('kosmos#7989 review 5: a note that cannot be written never fails the write, and the record still moves', () => {
+  const r = room();
+  const t = day(11);
+  r.write('safe.md', 'mona', t);
+  const real = messages.roomNote;
+  messages.roomNote = () => { throw new Error('the log is full'); };
+  try {
+    assert.equal(r.write('safe.md', 'kitty', t + MIN), true, 'a failing note failed the write');
+  } finally { messages.roomNote = real; }
+  assert.equal(r.record()['safe.md'].agent, 'kitty', 'the record did not move');
+  assert.equal(r.record()['safe.md'].first, 'mona', 'the owner moved');
 });
