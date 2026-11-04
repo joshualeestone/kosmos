@@ -11,10 +11,11 @@ const path = require('node:path');
 const read = (p) => fs.readFileSync(path.join(__dirname, p), 'utf8');
 
 test('#5317 the Mac CLI writes the report as the writing agent', () => {
-  assert.match(read('install/kosmos'), /fb\.write\(process\.env\.KOSMOS_FEEDBACK_BODY \|\| "", \{ from: fb\.writer\(process\.env\) \}\)/);
+  // kosmos#7886 item 6: an --unchanged report is saved under the day it checked, so a date option may follow the writer.
+  assert.match(read('install/kosmos'), /fb\.write\(process\.env\.KOSMOS_FEEDBACK_BODY \|\| "", \{ from: fb\.writer\(process\.env\)(, \.\.\.\(process\.env\.KOSMOS_FEEDBACK_DAY \? \{ date: process\.env\.KOSMOS_FEEDBACK_DAY \} : \{\}\))? \}\)/);
 });
 test('#5317 the Windows CLI writes the report as the writing agent', () => {
-  assert.match(read('tools/windows/kosmos-cli.js'), /fb\.write\(body, \{ from: typeof fb\.writer === 'function' \? fb\.writer\(ctx\.env\) : null \}\)/);
+  assert.match(read('tools/windows/kosmos-cli.js'), /fb\.write\(body, \{ from: typeof fb\.writer === 'function' \? fb\.writer\(ctx\.env\) : null(, \.\.\.\(unchangedDay \? \{ date: unchangedDay \} : \{\}\))? \}\)/);
 });
 test('#5317 the board sweep sends a changed yesterday too (sweepTick, not today alone)', () => {
   const s = read('server.js');
