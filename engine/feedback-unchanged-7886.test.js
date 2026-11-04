@@ -4,6 +4,7 @@
  * store with NAMED writers (the CLI tests run as the unnamed one). The store's folder is read when it is required, so
  * the data folder is set before the first require.
  */
+require('../test-support/tmpscope');   // this process's temp folders, removed when it exits
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -34,7 +35,7 @@ test('the newest earlier report is chosen, the writer is matched without case, a
   fb.write('second', { from: 'leo', date: '2026-10-30' });
   fb.write('   ', { from: 'leo', date: '2026-11-01' });
   const u = fb.unchanged('LEO', 'one thing', TODAY);
-  assert.deepEqual(u, { ok: true, since: '2026-10-30', day: TODAY, body: 'Nothing new since my report of 2026-10-30. one thing' });
+  assert.deepEqual(u, { ok: true, since: '2026-10-30', day: TODAY, body: 'Nothing new since my report of 2026-10-30, except: one thing' });
 });
 
 test('a report already saved today is refused, so --unchanged never replaces it', () => {
@@ -54,4 +55,15 @@ test('a bare earlier pointer is followed to the report it names; one with a line
   fb.write(fb.unchanged('leo', 'one new thing', '2026-11-01').body, { from: 'leo', date: '2026-11-01' });
   const u = fb.unchanged('leo', '', TODAY);
   assert.equal(u.since, '2026-11-01', 'a pointer that carried a new line was skipped: ' + u.body);
+});
+
+test('the same pointer again is allowed (a send that failed says to write it again); a different note is refused', () => {
+  fresh();
+  fb.write('the real report', { from: 'leo', date: '2026-11-01' });
+  const first = fb.unchanged('leo', 'one thing', TODAY);
+  fb.write(first.body, { from: 'leo', date: TODAY });
+  const again = fb.unchanged('leo', 'one thing', TODAY);
+  assert.equal(again.ok, true, 'retrying the same --unchanged was refused');
+  assert.equal(again.body, first.body);
+  assert.equal(fb.unchanged('leo', 'another thing', TODAY).why, 'today', 'a different --unchanged replaced today\'s report');
 });
