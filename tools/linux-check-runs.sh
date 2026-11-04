@@ -31,7 +31,7 @@ command -v "$GH" >/dev/null 2>&1 || { echo "linux-check-runs: $GH is not install
 missing=""; told=0
 # <artifact prefix> <workflow file>: prints why it does not count, or nothing when it does. Exit 2 = cannot tell.
 one() {
-  local name="$1-$V-$SHA" file="$2" ids id run concl event from hsha branch path cmp unknown=0
+  local name="$1-$V-$SHA" file="$2" ids id run concl event from hsha branch wfpath cmp unknown=0
   ids="$("$GH" api "repos/$REPO/actions/artifacts?name=$name&per_page=100" --jq '.artifacts[] | select(.expired == false) | .workflow_run.id' 2>/dev/null)" \
     || { echo "linux-check-runs: GitHub did not answer for the artifact $name" >&2; return 2; }
   [ -n "$ids" ] || { echo "no green run of $file has checked $V ($SHA)"; return 0; }
@@ -42,13 +42,13 @@ one() {
     run="$("$GH" api "repos/$REPO/actions/runs/$id" --jq '.conclusion + " " + .event + " " + .head_repository.full_name + " " + .head_sha + " " + .head_branch + " " + .path' 2>/dev/null)" \
       || { echo "linux-check-runs: GitHub did not answer for run $id" >&2; unknown=1; continue; }
     concl="${run%% *}"; run="${run#* }"; event="${run%% *}"; run="${run#* }"; from="${run%% *}"; run="${run#* }"
-    hsha="${run%% *}"; run="${run#* }"; branch="${run%% *}"; path="${run#* }"
+    hsha="${run%% *}"; run="${run#* }"; branch="${run%% *}"; wfpath="${run#* }"
     # .path can carry an @ref suffix ("…/x.yml@refs/heads/main"): when it does it must name main itself.
-    case "$path" in *@*) [ "${path#*@}" = refs/heads/main ] || continue ;; esac
+    case "$wfpath" in *@*) [ "${wfpath#*@}" = refs/heads/main ] || continue ;; esac
     # A dispatch of THIS repository's own main: a fork's pull-request run can name its own branch main, edit the
     # workflow and upload an artifact of the right name into this repository's list.
     if [ "$concl" = success ] && [ "$event" = workflow_dispatch ] && [ "$from" = "$REPO" ] && [ "$branch" = main ] \
-      && [ "${path%%@*}" = ".github/workflows/$file" ]; then
+      && [ "${wfpath%%@*}" = ".github/workflows/$file" ]; then
       # A TAG can be named main, and a dispatch on it reports head_branch main too. So the commit the run ran must be
       # on this repository's main: identical to it, or behind it (main has moved on since). Anything else, no.
       case "$hsha" in *[!0-9a-f]*|'') continue ;; esac
