@@ -1,0 +1,3 @@
+# kosmos#7883: the installer is published byte for byte from the committed blob (tools/windows/publish-r2.ps1 checks
+# that), so no checkout may convert its line endings (Git for Windows defaults to core.autocrlf=true).
+setup.ps1 -text

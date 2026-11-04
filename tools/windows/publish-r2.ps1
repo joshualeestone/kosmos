@@ -13,8 +13,9 @@ TWO MODES.
 
   Staging (the default). From a built zip (tools/build-kosmos-windows.sh):
     kosmos-<v>-win-x64.zip, its .sha256 sidecar, its SIGNED release manifest
-    (kosmos-<v>-win-x64.manifest.json and .sig, #6466, read from beside the zip), then
-    latest-win-staging.json LAST (the pointer is the go-live, so it never names bytes that are not
+    (kosmos-<v>-win-x64.manifest.json and .sig, #6466, read from beside the zip), the one-line
+    installer this tree carries (tools/windows/setup.ps1, exactly as committed) as setup-<v>.ps1 and its
+    .sha256 (kosmos#7883), then latest-win-staging.json LAST (the pointer is the go-live, so it never names bytes that are not
     already up). Prod readers are untouched. A build whose updater checks signed manifests (its
     app/engine/win32update.js carries the capability line) is refused without a manifest that
     verifies under the pinned release key and matches the zip file for file, and the manifest and
@@ -45,7 +46,11 @@ TWO MODES.
       when it has none, prod's current build has none either (so prod's installs do not check one).
   Then: the alias kosmos-win-x64.zip becomes a server-side copy of the staged zip (pinned to the
   exact object just verified), its sidecar is rewritten to name the alias, both are read back, and
-  only then latest-win.json becomes the staging pointer's bytes verbatim, LAST.
+  only then latest-win.json becomes the staging pointer's bytes verbatim, LAST (of the release).
+  kosmos#7883: after it, the build's staged setup-<v>.ps1 becomes setup.ps1 (and its .sha256), the script
+  installkosmos.com/setup.ps1 serves, so the installer moves with the Windows promote. A build staged
+  without one leaves setup.ps1 as it is. Both modes read the installer from git at the commit the zip records
+  (manifest.json source_sha), so the checkout they run from must contain that commit (git fetch origin).
 
     pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion 0.6.94 -ApprovedSha <sha> -ApprovalRef <ref>
 
@@ -87,8 +92,8 @@ param(
   [string] $CredentialFile = $(if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'Kosmos\release-secrets\r2-dist-win.env' } else { '' }),
   # Where users are served from; read only to confirm a write reached them.
   [string] $ServedBase = 'https://installkosmos.com/dist',
-  # The bucket's own public address (what installkosmos.com/dist redirects to). Read only by -ForSigning, for a
-  # manifest name the site does not redirect yet (#6466). Names under it carry -KeyPrefix.
+  # The bucket's own public address (what installkosmos.com/dist redirects to). Read for names the site does not
+  # redirect yet: -ForSigning's manifest (#6466), and the installer script staging and -Promote write (#7883). Names under it carry -KeyPrefix.
   [string] $BucketBase = 'https://dl.chaoskosmos.com',
   # For tests only: write every key under this prefix (e.g. "_selftest/abc/"). A non-default
   # -ServedBase is refused without it, so no stand-in server can speak for prod. -ServedBase
@@ -105,7 +110,11 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName System.Net.Http
+Add-Type -AssemblyName System.IO.Compression   # kosmos#7883: ZipArchive over a byte stream (5.1 does not load it with FileSystem)
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+# kosmos#7883: the one-line installer's name, in one place. Kept as data: this script reads and uploads it, never runs it.
+$SetupName = 'setup.ps1'
+$SetupExt = '.ps1'
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 
 # Anything that goes wrong after latest-win.json is written must say so (set just before it).
@@ -183,6 +192,38 @@ function New-SigV4Authorization([string] $Method, [string] $HostName, [string] $
   "AWS4-HMAC-SHA256 Credential=$AccessKey/$scope, SignedHeaders=$signed, Signature=$(Hex (Hmac $k $toSign))"
 }
 
+# kosmos#7883: the commit a Windows zip was built from (its root manifest.json, tools/build-kosmos-windows.sh), or ''
+# when it records none. Takes the zip's bytes, so staging (a file) and -Promote (the staged object) read it the same way.
+function Get-ZipSourceSha([byte[]] $ZipBytes) {
+  $zs = New-Object IO.MemoryStream (, $ZipBytes)
+  try {
+    $za = New-Object IO.Compression.ZipArchive ($zs, [IO.Compression.ZipArchiveMode]::Read)
+    try {
+      $me = $za.GetEntry('manifest.json'); if (-not $me) { return '' }
+      $mr = New-Object IO.StreamReader ($me.Open())
+      try { $bm = $mr.ReadToEnd() | ConvertFrom-Json } catch { return '' } finally { $mr.Dispose() }
+      if ($bm -and ($bm.PSObject.Properties.Name -ccontains 'source_sha') -and ([string]$bm.source_sha -cmatch '^[0-9a-f]{40}\z')) { return [string]$bm.source_sha }
+      return ''
+    } finally { $za.Dispose() }
+  } finally { $zs.Dispose() }
+}
+# The installer at a commit, as git stores it: raw bytes through a process stream (PowerShell's pipeline would decode
+# and re-encode them). Returns @{ Bytes; Error }: Bytes is $null when git cannot read it, and Error says why.
+function Get-SetupAtCommit([string] $Commit) {
+  $g = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $g) { return @{ Bytes = $null; Error = 'git is not installed' } }
+  $psi = New-Object Diagnostics.ProcessStartInfo $g.Source
+  $psi.Arguments = '-C "' + $PSScriptRoot.TrimEnd([char]92, [char]47) + '" cat-file blob ' + $Commit + ':tools/windows/' + $SetupName
+  $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
+  $proc = [Diagnostics.Process]::Start($psi)
+  try {
+    $errTask = $proc.StandardError.ReadToEndAsync()
+    $ms = New-Object IO.MemoryStream
+    try { $proc.StandardOutput.BaseStream.CopyTo($ms); $proc.WaitForExit(); $b = $ms.ToArray() } finally { $ms.Dispose() }
+    if ($proc.ExitCode -ne 0) { return @{ Bytes = $null; Error = $errTask.Result.Trim() } }
+    @{ Bytes = $b; Error = '' }
+  } finally { $proc.Dispose() }
+}
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
 function Get-NodeExe { Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1 }
 # #6466: tools/lib/win-release-manifest.js, run with node. It prints its one-line verdict on STDOUT (stderr from a
@@ -604,6 +645,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   Assert-Version 'version' $Version
   $Versioned = "kosmos-$Version-win-$Arch.zip"
   $Sha = Sha256-File $ZipPath
+  $BuiltFrom = Get-ZipSourceSha ([IO.File]::ReadAllBytes($ZipPath))   # kosmos#7883
   Say "staging $Versioned ($Sha) from $ZipPath"
 
   # #6466: the release manifest, beside the zip (tools/build-kosmos-windows.sh writes it there). The key holder signs
@@ -642,6 +684,45 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     Refuse "this build's updater refuses any update without a signed release manifest (#6466), and there is no $ManifestName beside $ZipPath. Run this with -ForSigning first, have the key holder sign it, then stage. Nothing was written."
   } else {
     Say "NOTICE (#6466): no release manifest beside the zip. This build's updater does not check one, so it is staged without it; the next build's installs will require one."
+  }
+
+  # kosmos#7883: the one-line installer (installkosmos.com/setup.ps1) travels with the build it was cut with. Staging
+  # puts the build's tools/windows/setup.ps1 up as setup-<v>.ps1 (and its sidecar); -Promote copies it to setup.ps1.
+  # The bytes are the committed blob, never a working file that could carry an uncommitted edit or converted line
+  # endings (the site's drift alarm compares against main's bytes).
+  #   - A zip that records the commit it was built from (manifest.json source_sha) gets that commit's blob, read from
+  #     git, wherever this script runs (review 2): the zip's sha then pins the installer, so Josh's go covers it.
+  #   - A zip that records none (an old or hand-made one) gets this tree's HEAD, and only if the working file is
+  #     exactly HEAD's blob; that is said.
+  if (-not $ForSigning) {
+    $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $git) { Refuse "git is needed to read the committed installer script. Nothing was written." }
+    # One line of git's output, '' on any failure. Stop would turn git's stderr into a terminating error on 5.1.
+    function Get-GitLine([string[]] $GitArgs) {
+      $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+      try { $o = @(& $git.Source -C $PSScriptRoot @GitArgs 2>$null); if ($LASTEXITCODE -ne 0 -or $o.Count -eq 0) { return '' }; return "$($o[0])".Trim() }
+      finally { $ErrorActionPreference = $prev }
+    }
+    if ($BuiltFrom) {
+      $got = Get-SetupAtCommit $BuiltFrom
+      if ($null -eq $got.Bytes) { Refuse "$ZipPath was built from $BuiltFrom, and this repository cannot read tools/windows/$SetupName at that commit ($($got.Error)). Fetch it (git fetch origin), then stage again. Nothing was written." }
+      $SetupBytes = [byte[]]$got.Bytes
+      $SetupFrom = "the build's commit $BuiltFrom"
+    } else {
+      $SetupPath = Join-Path $PSScriptRoot $SetupName
+      if (-not (Test-Path -LiteralPath $SetupPath -PathType Leaf)) { Refuse "the installer script $SetupPath is missing. Nothing was written." }
+      $head = Get-GitLine @('rev-parse', 'HEAD')
+      $blobHead = Get-GitLine @('rev-parse', "HEAD:./$SetupName")
+      $blobFile = Get-GitLine @('hash-object', '--no-filters', '--', $SetupName)
+      if (-not $blobHead -or -not $blobFile -or $blobHead -cne $blobFile) { Refuse "$SetupPath is not byte for byte the script committed at this tree's HEAD (an uncommitted edit, or line endings converted by an older checkout: re-check it out with git rm --cached tools/windows/$SetupName and git checkout -- tools/windows/$SetupName). Nothing was written." }
+      Say "NOTICE (#7883): $ZipPath records no source commit (manifest.json source_sha), so the installer staged with it is this tree's HEAD ($head)."
+      $SetupBytes = [IO.File]::ReadAllBytes($SetupPath)
+      $SetupFrom = "this tree's HEAD $head"
+    }
+    if ($SetupBytes.Length -eq 0) { Refuse "the installer script from $SetupFrom is empty. Nothing was written." }
+    $SetupSha = Sha256-Bytes $SetupBytes
+    $SetupVersioned = "setup-$Version$SetupExt"
+    Say "installer: tools/windows/$SetupName from $SetupFrom ($SetupSha), staged as $SetupVersioned"
   }
 
   # The versioned name is IMMUTABLE once published (the same promise publish-kosmos-windows.sh
@@ -690,6 +771,33 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   } else {
     # Not there when read, so create it only if it is STILL not there when the PUT lands.
     $putExtra = @{ 'if-none-match' = '*' }
+  }
+  # kosmos#7883 (reviews 1-2): setup-<v>.ps1 keeps the zip's promise. Created only if absent; the same bytes again
+  # are pinned to what is there; different bytes only together with a replaced zip (-ReplaceVersioned, which never
+  # touches the version prod names). The zip's sha is what Josh's go names, so an installer that changed under an
+  # unchanged zip would reach prod with nobody having approved or verified it.
+  $setupPutExtra = $null
+  if (-not $ForSigning) {
+    $setupExisting = Get-Object $SetupVersioned
+    if (-not $setupExisting) { $setupPutExtra = @{ 'cache-control' = 'no-cache'; 'if-none-match' = '*' } }
+    else {
+      if (-not $setupExisting.ETag) { Refuse "the bucket gave no ETag for $SetupVersioned, so its write cannot be pinned. Nothing was written." }
+      $setupExistingSha = Sha256-Bytes $setupExisting.Bytes
+      if ($setupExistingSha -cne $SetupSha) {
+        $zipChanging = [bool]($existing -and (Sha256-Bytes $existing.Bytes) -cne $Sha)
+        # Review 4: finishing a -ReplaceVersioned that died after its zip but before this write. The zip is then
+        # already the new one, but an installer read from the zip's own recorded commit is still pinned by the zip's
+        # sha, so with -ReplaceVersioned it may follow, never for the version prod names.
+        if (-not $zipChanging -and $ReplaceVersioned -and $BuiltFrom) {
+          $pf7883 = if ($prodNamed) { Read-PointerFields $prodNamed.Bytes } else { $null }
+          if ($prodNamed -and (-not $pf7883 -or $pf7883.versioned -ceq $Versioned)) { Refuse "$SetupVersioned belongs to the version PROD's latest-win.json names (or prod cannot be read), so -ReplaceVersioned cannot change it. Bump the version. Nothing was written." }
+          $zipChanging = $true
+        }
+        if (-not $zipChanging) { Refuse "$SetupVersioned is already in the bucket with DIFFERENT bytes ($setupExistingSha; these are $SetupSha), and its zip is not being replaced. The installer changes only with its build: bump the version, or replace the zip itself (-ReplaceVersioned) if this version was never promoted. Nothing was written." }
+        Say "NOTICE -ReplaceVersioned: $SetupVersioned changes from $setupExistingSha to $SetupSha"
+      }
+      $setupPutExtra = @{ 'cache-control' = 'no-cache'; 'if-match' = $setupExisting.ETag }
+    }
   }
 
   # Zip, then sidecar, then pointer LAST, so the pointer never names bytes that are not up.
@@ -773,6 +881,17 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       Assert-Served $ManifestName (Sha256-Bytes $ManifestBytes)
       Assert-Served "$ManifestName.sig" (Sha256-Bytes $SigBytes)
     }
+  }
+  # kosmos#7883: the installer script for this build, up and read back before the pointer names the build, so a
+  # promote of what staging names always finds it. No site name redirects to setup-<v>.ps1, so it is read back from
+  # the bucket's own address; only setup.ps1 (written by -Promote) is what people run.
+  $SetupSide = New-SidecarBytes $SetupSha $SetupVersioned
+  Put-Object $SetupVersioned $SetupBytes $null $SetupSha 'text/plain; charset=utf-8' $setupPutExtra
+  Put-Object "$SetupVersioned.sha256" $SetupSide $null (Sha256-Bytes $SetupSide) 'text/plain; charset=utf-8' $NoCache
+  if (-not $DryRun) {
+    [void](Assert-Object $SetupVersioned $SetupSha)
+    [void](Assert-Object "$SetupVersioned.sha256" (Sha256-Bytes $SetupSide))
+    Assert-Served $SetupVersioned $SetupSha -Bucket
   }
   $ptr = New-PointerBytes $Version $Sha $Versioned
   Put-Object 'latest-win-staging.json' $ptr $null (Sha256-Bytes $ptr) 'application/json' $NoCache
@@ -859,6 +978,30 @@ if ($stagedManifest -or $stagedSig) {
   Say "NOTICE (#6466): the staged build has no signed manifest; prod's current build has none either, so its installs do not require one."
 }
 
+# kosmos#7883: the installer script staged with this build (setup-<v>.ps1 and its sidecar), which becomes setup.ps1
+# once prod names the build. A build staged before staging carried one leaves setup.ps1 as it is, and says so.
+$SetupVersioned = "setup-$ApprovedVersion$SetupExt"
+$stagedSetup = Get-Object $SetupVersioned
+$stagedSetupSide = Get-Object "$SetupVersioned.sha256"
+$SetupBytes = $null; $SetupSha = ''
+if ($stagedSetup -or $stagedSetupSide) {
+  if (-not ($stagedSetup -and $stagedSetupSide)) { Refuse "the bucket holds only one of $SetupVersioned and its .sha256. Re-stage with this script. Nothing was written." }
+  $SetupBytes = [byte[]]$stagedSetup.Bytes; $SetupSha = Sha256-Bytes $SetupBytes
+  if ($SetupBytes.Length -eq 0) { Refuse "$SetupVersioned in the bucket is empty. Re-stage with this script. Nothing was written." }
+  if ((Sha256-Bytes $stagedSetupSide.Bytes) -cne (Sha256-Bytes (New-SidecarBytes $SetupSha $SetupVersioned))) { Refuse "$SetupVersioned.sha256 does not name $SetupVersioned's bytes ($SetupSha). Re-stage with this script. Nothing was written." }
+  # Review 3: the staged copy is not taken on trust. When the staged zip (the bytes Josh approved) records the commit
+  # it was built from, the installer is read again from that commit and must be these exact bytes.
+  $promoteFrom = Get-ZipSourceSha $staged.Bytes
+  if ($promoteFrom) {
+    $want = Get-SetupAtCommit $promoteFrom
+    if ($null -eq $want.Bytes) { Refuse "the staged zip was built from $promoteFrom, and this repository cannot read tools/windows/$SetupName at that commit ($($want.Error)), so the staged installer cannot be checked. Fetch it (git fetch origin), then promote again. Nothing was written." }
+    if ((Sha256-Bytes ([byte[]]$want.Bytes)) -cne $SetupSha) { Refuse "$SetupVersioned in the bucket ($SetupSha) is not tools/windows/$SetupName at $promoteFrom, the commit the approved zip was built from ($(Sha256-Bytes ([byte[]]$want.Bytes))). Re-stage with this script. Nothing was written." }
+    Say "installer: $SetupVersioned ($SetupSha) is tools/windows/$SetupName at the approved build's commit $promoteFrom; it becomes $SetupName after latest-win.json"
+  } else { Say "installer: $SetupVersioned ($SetupSha) becomes $SetupName after latest-win.json (the staged zip records no source commit, so it is not re-read from git)" }
+} else {
+  Say "NOTICE (#7883): no $SetupVersioned was staged with this build (it was staged before staging carried one), so $SetupName is left as it is: it stays the installer of the build promoted before, which may be newer than this one."
+}
+
 # The verification record for this sha on this PC, validated by the one spec the writer uses.
 $spec = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-staging-record.js'
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script). The script goes to
@@ -899,7 +1042,7 @@ if (-not $again -or (Sha256-Bytes $again.Bytes) -cne (Sha256-Bytes $staging.Byte
 # Josh's go is logged BEFORE any write; a go that is not logged is not given. bucket= and
 # prefix= tell a real promote from a self-test in the one log.
 $Where = "bucket=$Bucket prefix=$(if ($KeyPrefix) { $KeyPrefix } else { '-' })$(if ($FakeDir) { ' transport=test' })"
-Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef record_sha256=$recordSha approval=given $Where record=$recordPath"   # record= LAST: the path may hold spaces (promote-channel.sh does the same)
+Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef record_sha256=$recordSha setup_sha256=$(if ($null -ne $SetupBytes) { $SetupSha } else { 'none' }) approval=given $Where record=$recordPath"   # record= LAST: the path may hold spaces (promote-channel.sh does the same)
 
 # What prod is BEFORE this promote writes anything, so a promote that finds itself raced can
 # put it back: the pointer, and the alias sidecar (the alias zip is restored from the previous
@@ -909,6 +1052,12 @@ $aliasSideBefore = Get-Object "$Alias.sha256"
 # Both are pinned to below (the sidecar write, the pointer write, an undo): an object with no
 # ETag cannot be pinned, and an empty If-Match is not a pin.
 if (($prodBefore -and -not $prodBefore.ETag) -or ($aliasSideBefore -and -not $aliasSideBefore.ETag)) { Refuse "the bucket answered latest-win.json or $Alias.sha256 with no ETag, so this promote cannot pin its writes to them. Nothing was written." }
+# kosmos#7883: setup.ps1 and its sidecar as they are now, so their writes (after the pointer) are pinned to them.
+$setupBefore = $null; $setupSideBefore = $null
+if ($null -ne $SetupBytes) {
+  $setupBefore = Get-Object $SetupName; $setupSideBefore = Get-Object "$SetupName.sha256"
+  if (($setupBefore -and -not $setupBefore.ETag) -or ($setupSideBefore -and -not $setupSideBefore.ETag)) { Refuse "the bucket answered $SetupName or $SetupName.sha256 with no ETag, so this promote cannot pin its writes to them. Nothing was written." }
+}
 function Test-StagedIntact {
   $z = Get-Object $Versioned; $zs = Get-Object "$Versioned.sha256"
   return [bool]($z -and $zs -and (Sha256-Bytes $z.Bytes) -ceq $ApprovedSha -and (Sha256-Bytes $zs.Bytes) -ceq (Sha256-Bytes (New-SidecarBytes $ApprovedSha $Versioned)))
@@ -1011,7 +1160,11 @@ if (-not $DryRun) {
   # A -ReplaceVersioned may have landed since the checks: never let the pointer name it.
   if (-not (Test-StagedIntact)) { $how = Undo-Promote -AliasEtag $aliasEtag -SideEtag $sideEtag; $script:AfterNote = ''; Refuse "$Versioned or its sidecar changed while this promote ran (a -ReplaceVersioned landed); latest-win.json was NOT written; $how." }
 }
-if ($DryRun) { Put-Object 'latest-win.json' $staging.Bytes $null (Sha256-Bytes $staging.Bytes) 'application/json' $NoCache; Say "DRY RUN complete: nothing was written."; exit 0 }
+if ($DryRun) {
+  Put-Object 'latest-win.json' $staging.Bytes $null (Sha256-Bytes $staging.Bytes) 'application/json' $NoCache
+  if ($null -ne $SetupBytes) { Put-Object $SetupName $SetupBytes $null $SetupSha 'text/plain; charset=utf-8' $NoCache; $ss = New-SidecarBytes $SetupSha $SetupName; Put-Object "$SetupName.sha256" $ss $null (Sha256-Bytes $ss) 'text/plain; charset=utf-8' $NoCache }
+  Say "DRY RUN complete: nothing was written."; exit 0
+}
 # Pinned to the pointer read at the start (or its absence): a pointer someone else wrote during
 # this promote is never overwritten, and the alias writes are undone instead.
 $pointerPin = if ($prodBefore) { @{ 'cache-control' = 'no-cache'; 'if-match' = $prodBefore.ETag } } else { @{ 'cache-control' = 'no-cache'; 'if-none-match' = '*' } }
@@ -1042,6 +1195,26 @@ Assert-Served 'latest-win.json' (Sha256-Bytes $staging.Bytes)
 Assert-Served $Versioned $ApprovedSha
 Assert-Served "$Versioned.sha256" (Sha256-Bytes (New-SidecarBytes $ApprovedSha $Versioned))
 Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef promoted=yes $Where" -Outcome
+# kosmos#7883: the installer moves only once prod names its build, that has held, and the release is verified and
+# logged as promoted (review 1), so an undo never has to put it back and a failure here leaves a promoted release.
+# The script reads latest-win.json when it runs, so until it is written a new install gets the previous script on
+# the new build: the pair that was live a moment before, not a new script on an old build. Each write is pinned to
+# what this promote read at its start (412: someone else wrote it); a re-run of the full -Promote finishes it.
+if ($null -ne $SetupBytes) {
+  $script:AfterNote = " (latest-win.json was written: prod points at $ApprovedVersion. $SetupName or its sidecar may still be the previous ones: re-run the full -Promote to finish.)"
+  $setupPin = if ($setupBefore) { @{ 'cache-control' = 'no-cache'; 'if-match' = $setupBefore.ETag } } else { @{ 'cache-control' = 'no-cache'; 'if-none-match' = '*' } }
+  Put-Object $SetupName $SetupBytes $null $SetupSha 'text/plain; charset=utf-8' $setupPin
+  $setupSide = New-SidecarBytes $SetupSha $SetupName
+  $setupSidePin = if ($setupSideBefore) { @{ 'cache-control' = 'no-cache'; 'if-match' = $setupSideBefore.ETag } } else { @{ 'cache-control' = 'no-cache'; 'if-none-match' = '*' } }
+  Put-Object "$SetupName.sha256" $setupSide $null (Sha256-Bytes $setupSide) 'text/plain; charset=utf-8' $setupSidePin
+  [void](Assert-Object $SetupName $SetupSha)
+  [void](Assert-Object "$SetupName.sha256" (Sha256-Bytes $setupSide))
+  # installkosmos.com/setup.ps1 is the site's to redirect here; this checks the bucket's own address.
+  Assert-Served $SetupName $SetupSha -Bucket
+  Assert-Served "$SetupName.sha256" (Sha256-Bytes $setupSide) -Bucket
+  $script:AfterNote = ''
+  Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha installer=published setup_sha256=$SetupSha $Where" -Outcome
+}
 if ($FakeDir) { Say "TEST TRANSPORT, NOTHING PUBLISHED:" }
 Say "PROMOTED $ApprovedVersion ($ApprovedSha) to prod; the bucket and the served bytes both verified."
 Unlock-Publish
