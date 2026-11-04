@@ -31,9 +31,7 @@
  *   - shipping kosmos-se in the app bundle and any caller. Nothing outside the test calls this file yet.
  *   - choosing the helper. runHelper runs the path it is given; the bundle slice must resolve kosmos-se itself
  *     (the signed app's own copy), never take the path from anything a page or the coordinator supplies.
- *   - the prompt naming the action (an LAContext reason string), which kosmos-se does not pass yet. (createKey,
- *     publicKey and sign are asynchronous since #7892, so a presence key waiting on the person holds no event loop.)
- * A key's access control is fixed when the key is made, so createKey makes a `presence` key (Touch ID or password on
+ *  * A key's access control is fixed when the key is made, so createKey makes a `presence` key (Touch ID or password on
  * every signature) unless told otherwise; see native-se/main.swift for what is and is not measured about that.
  */
 

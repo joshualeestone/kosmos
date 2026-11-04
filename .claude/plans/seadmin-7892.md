@@ -18,10 +18,13 @@ measured without a person at the screen.
    `native-se/main.swift` both ways); anything else is "the admin key helper failed", a missing helper is "not
    installed". No path, argv or stderr reaches a caller.
 
+5. **The prompt names the action.** `kosmos-se sign` sets an LAContext `localizedReason` chosen from the signed
+   message's own tag (`SIGN_REASONS`), never from an argument; a test holds the table to `SIGNED`. The prompt itself
+   is not seen: that needs a presence key and a person (gate 6).
+
 ## Next, in order
 
-4. WARNING 2: the screen's wording around the prompt must not promise approving means signed.
-5. LAContext reason string in `kosmos-se` (Swift), naming the action.
+4. WARNING 2: the screen's wording around the prompt must not promise approving means signed. Needs the screen.
 6. Gate needing a person: a presence key made from inside the app. Park needs-operator when it is the only one left.
 
 ## Weakest premise

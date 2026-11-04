@@ -30,6 +30,7 @@
 
 import CryptoKit
 import Foundation
+import LocalAuthentication
 
 let SIGNABLE_TAGS: [String] = [
     "kosmos-escrowd-roster-change v1",
@@ -38,6 +39,16 @@ let SIGNABLE_TAGS: [String] = [
     "kosmos-escrowd-reviewer-revoke v1",
 ]
 
+// kosmos#7892: what a presence key's Touch ID or password prompt says the signature is for. It is chosen here from the
+// signed message's own tag, never taken from an argument, so no caller can make the prompt describe another action.
+// macOS shows it after the program's name ("kosmos-se is trying to ..."). engine/seadmin-7116.test.js fails if a tag
+// in SIGNABLE_TAGS has no reason here.
+let SIGN_REASONS: [String: String] = [
+    "kosmos-escrowd-roster-change v1": "approve a change to your company's Kosmos admins",
+    "kosmos-escrowd-roster-cancel v1": "cancel a pending change to your company's Kosmos admins",
+    "kosmos-escrowd-reviewer-enrol v1": "add a reviewer for your company's Kosmos backups",
+    "kosmos-escrowd-reviewer-revoke v1": "remove a reviewer for your company's Kosmos backups",
+]
 // The longest message escrowd's encoders make is a few hundred bytes; anything far larger is not one of them.
 let MAX_MESSAGE = 64 * 1024
 
@@ -48,7 +59,7 @@ func fail(_ why: String, _ code: Int32 = 1) -> Never {
 
 func hex(_ d: Data) -> String { d.map { String(format: "%02x", $0) }.joined() }
 
-func load(_ path: String) -> SecureEnclave.P256.Signing.PrivateKey {
+func load(_ path: String, _ context: LAContext? = nil) -> SecureEnclave.P256.Signing.PrivateKey {
     // Opened once, never through a symlink, and every check is on the open descriptor, so what is checked is what is read.
     let fd = open(path, O_RDONLY | O_NOFOLLOW)
     guard fd >= 0 else { fail(errno == ELOOP ? "the key file is not a plain file" : "cannot read the key file") }
@@ -59,7 +70,7 @@ func load(_ path: String) -> SecureEnclave.P256.Signing.PrivateKey {
     guard st.st_uid == getuid() else { fail("the key file belongs to someone else") }
     guard (st.st_mode & 0o777) == 0o600 else { fail("the key file is readable by others (it must be 0600)") }
     guard let blob = try? handle.readToEnd(), !blob.isEmpty else { fail("cannot read the key file") }
-    do { return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob) }
+    do { return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: blob, authenticationContext: context) }
     catch { fail("this Mac's Secure Enclave cannot open that key file") }
 }
 
@@ -116,11 +127,14 @@ case "pub":
     print(hex(load(path).publicKey.x963Representation))
 case "sign":
     guard args.count == 3 else { fail(usage, 2) }
-    let key = load(path)
+    let context = LAContext()
+    let key = load(path, context)
     let message = readMessage()
-    guard SIGNABLE_TAGS.contains(where: { message.starts(with: Data($0.utf8)) }) else {
+    guard let tag = SIGNABLE_TAGS.first(where: { message.starts(with: Data($0.utf8)) }), let reason = SIGN_REASONS[tag] else {
         fail("refusing to sign bytes that are not an escrowd admin action")
     }
+    // The prompt, if the key asks for one, appears at the signature below; the context carries what it says.
+    context.localizedReason = reason
     do { print(hex(try key.signature(for: message).derRepresentation)) }
     catch { fail("the Secure Enclave refused to sign") }
 default:

@@ -354,3 +354,15 @@ test('#7892: signing does not hold the event loop while the helper waits (a pres
     assert.ok(ticks >= 5, 'the event loop ran ' + ticks + ' times in 400 ms of helper time');
   } finally { clearInterval(timer); }
 });
+
+test('#7892: every tag kosmos-se signs has a prompt reason, chosen from the tag and not from an argument', () => {
+  const swift = fs.readFileSync(path.join(ROOT, 'native-se/main.swift'), 'utf8');
+  const at = swift.indexOf('= [', swift.indexOf('let SIGN_REASONS'));
+  const table = swift.slice(at, swift.indexOf('\n]', at));
+  assert.ok(table.length > 20, 'CONTROL: SIGN_REASONS not found');
+  const reasons = Object.fromEntries([...table.matchAll(/"([^"]+)": "([^"]+)"/g)].map((m) => [m[1], m[2]]));
+  assert.deepStrictEqual(Object.keys(reasons).sort(), se.SIGNED.map((a) => se.TAGS[a]).sort(), 'a signed tag has no prompt reason, or a reason names no signed tag');
+  for (const r of Object.values(reasons)) assert.match(r, /^[a-z][A-Za-z' ]+$/, 'a reason does not read as "kosmos-se is trying to ' + r + '"');
+  assert.match(swift, /context\.localizedReason = reason/, 'the reason is not given to the signature\'s context');
+  assert.doesNotMatch(swift, /localizedReason = .*args/, 'the reason comes from an argument');
+});
