@@ -25,6 +25,10 @@
  * CONTROL for the whole feature: on a page whose loading states render the Kosmos icon (the
  * pre-fix #11 shape) or no spinner, the sweep+no-icon assertions red.
  *
+ * #7896 (Josh 2026-11-03): the loading mark is now the KOSMOS orb (KORB draws it into a canvas inside each
+ * .spin-sweep). The arm at the end reads the drawing, not the markup: drawn, turning, the old dots hidden, and with
+ * reduced motion drawn once and still.
+ *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" HEADED=0 node docs/browser-checks/render-model-spinners-2365.js
  */
@@ -110,9 +114,49 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     return out;
   });
 
+  /* #7896 (Josh 2026-11-03): the loading mark is now the KOSMOS orb, drawn by KORB into a canvas inside each
+     .spin-sweep. The markup check above cannot see that (the eight <i> are still there, hidden), so this reads the
+     DRAWING: the page's own LOAD_SPIN_HTML, put on the page, gets a canvas.korb with gold pixels on it that change
+     between frames, and its old dots are hidden. Then, with reduced motion, it is drawn once and holds still. */
+  const orbRead = async (pg) => pg.evaluate(async () => {
+    if (typeof KORB !== 'object' || typeof LOAD_SPIN_HTML !== 'string') return { error: 'KORB or LOAD_SPIN_HTML is missing' };
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:10px;top:10px;z-index:99999;background:#faf9f7';
+    host.innerHTML = LOAD_SPIN_HTML.replace('--sz:14px', '--sz:32px');
+    document.body.appendChild(host);
+    const frames = (n) => new Promise((res) => { let k = 0; const f = () => (++k < n ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
+    const lit = (c) => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0, sum = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 20) { n++; sum += i * d[i]; } return { n, sum }; };
+    await frames(12);
+    const span = host.querySelector('.spin.spin-sweep');
+    const cv = span && span.querySelector('canvas.korb');
+    if (!cv) return { error: 'no canvas.korb inside the .spin-sweep after 12 frames' };
+    const a = lit(cv);
+    await new Promise((res) => setTimeout(res, 400)); await frames(4);
+    const b = lit(cv);
+    const dot = span.querySelector('i');
+    return { side: cv.width, litA: a.n, litB: b.n, changed: a.sum !== b.sum, oldDotsShown: dot ? getComputedStyle(dot).display !== 'none' : false };
+  });
+  const orb = await orbRead(page);
+  const calmPage = await browser.newPage({ viewport: { width: 900, height: 800 }, reducedMotion: 'reduce' });
+  await calmPage.goto('file://' + PAGE);
+  const calm = await orbRead(calmPage);
+
   await browser.close();
 
-  const problems = [];
+  const orbProblems = [];
+  if (orb.error) orbProblems.push('orb: ' + orb.error);
+  else {
+    if (!(orb.litA > 40)) orbProblems.push('orb: the canvas has ' + orb.litA + ' drawn pixels, so no orb was drawn');
+    if (!orb.changed) orbProblems.push('orb: the drawing did not change between frames, so it is not turning');
+    if (orb.oldDotsShown) orbProblems.push('orb: the old Sweep dots still show beside the orb');
+  }
+  if (calm.error) orbProblems.push('orb (reduced motion): ' + calm.error);
+  else {
+    if (!(calm.litA > 40)) orbProblems.push('orb (reduced motion): nothing drawn; it should hold still, not vanish');
+    if (calm.changed) orbProblems.push('orb (reduced motion): the drawing still moves');
+  }
+
+  const problems = orbProblems.slice();
   if (r.error) problems.push(r.error);
   if (!r.error) {
     const want = [['downloading', r.downloading], ['installing', r.installing], ['signin-launching', r.signinLaunching], ['signin-completing', r.signinCompleting]];
@@ -140,6 +184,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   }
 
   console.log('  ' + JSON.stringify(r));
+  console.log('  orb ' + JSON.stringify(orb) + ' reduced-motion ' + JSON.stringify(calm));
   if (problems.length) {
     console.error('render-model-spinners-2365: ' + problems.length + ' problem(s)');
     for (const p of problems) console.error('  FAIL  ' + p);
