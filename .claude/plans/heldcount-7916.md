@@ -15,7 +15,13 @@ Stacked on heldq-7915 until it merges; then rebased onto origin/main.
 - Round 1 review: the project page's needs list and a task row that carries the question say held too
   (PJ_NEEDS_WHY.held; waitingOnOf adds `held: true`, only when true); an owner-only held question is quoted as
   "a question for <owner>".
-- Not here: the iPhone app (project pill, Tasks rows) needs its own build and LogicTests, so it is kosmos#7918.
+- The iPhone app, agreed with April (kosmos#7918) at 03:2x: this branch carries her first two #7918 commits (the
+  phone's project pill and Tasks ask row read held) and the `held` entry in both phone needsWhy maps, which the room
+  suite's "the phone words exactly the board's reasons" check requires once PJ_NEEDS_WHY has it. On this branch alone
+  the phone's needs notice and task rows still say "Waiting for your answer" for a held question: those map entries
+  are read by April's remaining #7918 commits (task rows read waitingOn[].held, the notice reads a member's
+  stateHeld), stacked on this branch and merged right after it. heldios-7918.md's line about waitingOn was written
+  before round 1 here and is superseded by this paragraph.
 
 ## Rejected
 Leaving a held question out of the counts: while the person is away, the count is where it stays visible.
