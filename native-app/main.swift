@@ -3977,7 +3977,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let clean = file.map { downloadDestination(dir: URL(fileURLWithPath: "/"), suggested: $0) { _ in false }.lastPathComponent }
         let shown = clean.map { $0.filter { !"\"\u{201C}\u{201D}\u{2018}\u{2019}'`".contains($0) } }   // cannot close the quotation
         let what = (shown.map { !$0.isEmpty && $0 != "Download" } ?? false) ? "\u{201C}\(shown!)\u{201D}" : "a file"
-        alert.informativeText = "This Kosmos+ computer wants to save \(what) to your Downloads folder. Allow it only if it is one of your own computers. Your answer lasts until Kosmos quits; after Don't Allow, View > Reload asks again."
+        alert.informativeText = "This Kosmos+ computer wants to save \(what) to your Downloads folder. Allow it only if it is one of your own computers. Neither answer is permanent: it lasts until you quit Kosmos, and after Don't Allow, View > Reload asks you again."   // kosmos#7952: Josh read Don't Allow as for good
         alert.alertStyle = .warning
         let allow = alert.addButton(withTitle: "Allow")
         let refuse = alert.addButton(withTitle: "Don't Allow")
@@ -4098,7 +4098,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
             logLine("#5167: a download answered \(http.statusCode), so nothing was saved")
             downloadsTold.add(download)
-            // The Files lists' page says any answer that is not OK itself (pageSaysDownloadRefusal), so it is not said twice.
+            /* kosmos#7952 review 1: a busy computer (429) is said here even on a Files list. The page's look answers at the
+               click, and a download from a Kosmos+ computer starts only after the Allow question, so the look can have
+               said OK before this answer came; staying quiet here would leave the person's Allow with nothing saved and
+               nothing said. */
+            if http.statusCode == 429 {
+                tellDownloadFailed("That computer is busy sending other files right now, so nothing was saved. Try again in a minute.")
+                completionHandler(nil)
+                return
+            }
+            // The Files lists' page says any other answer that is not OK itself (pageSaysDownloadRefusal), so it is not said twice.
             if pageSaysDownloadRefusal(http.url ?? download.originalRequest?.url) {
                 completionHandler(nil)
                 return
@@ -6408,7 +6417,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=zip href=/pack.zip>i</a>"
                 + "<a id=attstar href=/attstar>j</a>"
                 + "<a id=foreignzip href=http://localhost:\(port)/pack2.zip>k</a>"
-                + "<button id=frames onclick=\"document.body.insertAdjacentHTML('beforeend', '<iframe src=/attframe></iframe><iframe src=http://localhost:\(port)/attframe2></iframe>')\">l</button>"
+                + "<button id=frames onclick=\"document.body.insertAdjacentHTML('beforeend', '<iframe src=/attframe></iframe><iframe src=http://localhost:\(port)/attframe2></iframe><iframe src=/framedl></iframe>')\">l</button>"
                 + "<a id=foreign href=http://localhost:\(port)/foreign.txt download>d</a>"
                 + "<a id=foreignatt href=http://localhost:\(port)/att2>e</a>"
                 + "<a id=last href=/last.txt download>f</a>"
@@ -6424,6 +6433,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/att": return ok("Content-Disposition: attachment; filename=\"att.txt\"\r\n")
         case "/attframe": return ok("Content-Disposition: attachment; filename=\"attframe.txt\"\r\n")
+        case "/framedl":   // kosmos#7952: a frame inside the board page that asks for a same-origin download itself
+            let page = "<!doctype html><meta charset=utf-8><a id=fd href=/framed.txt download>q</a><script>document.getElementById('fd').click()</script>"
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
         case "/attframe2": return ok("Content-Disposition: attachment; filename=\"attframe2.txt\"\r\n")
         case "/pack2.zip":
             let z = "PK not really a zip"
@@ -6643,6 +6655,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(saved("modal-yes.txt"), "asked fresh, the real question's Allow saves")
             row(saved("same.txt"), "a same-origin <a download> is saved")
             row((heads["/same.txt"] ?? "").contains("\r\nsec-fetch-site: same-origin\r\n"), "kosmos#7952: THE PAGE'S OWN DOWNLOAD SAYS SAME-ORIGIN, so the Kosmos+ tunnel gives it the board's token")
+            row(heads["/framed.txt"] != nil && !(heads["/framed.txt"] ?? "").contains("sec-fetch-site: same-origin"), "kosmos#7952: A FRAME INSIDE THE PAGE IS NEVER MARKED SAME-ORIGIN, even at the board's own origin (asked: \(heads["/framed.txt"] != nil))")
             row(saved("att.txt"), "a same-origin attachment response is saved, under its own name")
             row(saved("ok2.txt"), "a same-origin redirect is followed and saved")
             row(!saved("missing.txt") && !saved("empty.txt") && !saved("report.pptx") && !saved("gone.pptx"),
@@ -6661,7 +6674,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("pack2.zip") && !leftBoard.contains("foreignzip"), "A FILE FROM ANOTHER ORIGIN THE WINDOW CANNOT SHOW IS NOT SAVED, and the board stays")
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
-            row(all.sorted() == ["asked-yes.txt", "att.txt", "last.txt", "modal-yes.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
+            row(all.sorted() == ["asked-yes.txt", "att.txt", "framed.txt", "last.txt", "modal-yes.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
             let fails = failures()
             row(fails.count == 3 && voided.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
                 "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, a web page answered for a file, the voided Allow) (failures \(fails.count): \(fails.joined(separator: " | ")))")
@@ -6686,7 +6699,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 33   // kosmos#7952: +1 the page's own download says same-origin; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 34   // kosmos#7952: +2 the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)

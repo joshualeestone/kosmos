@@ -8618,6 +8618,12 @@ html.has-speak .asp-speak { display: grid; }
 .pj-doc:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .pj-doc-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pj-doc-w { flex: 0 0 auto; font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
+.pj-doc-line { display: flex; align-items: center; gap: var(--space-2); }   /* kosmos#7952: a file row and its download button */
+.pj-doc-line .pj-doc { flex: 1; min-width: 0; }
+.pj-doc-dl { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px;
+             background: none; border: 0; border-radius: var(--radius-control); cursor: pointer; color: var(--k-ink-2); }
+.pj-doc-dl:hover { background: var(--k-bg); color: var(--k-ink); }
+.pj-doc-dl:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 /* #3614: the agent page's Files block, under the pack (a pair since #4550). */
 .dfiles { margin-top: 18px; }
 .dfiles-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -44790,6 +44796,7 @@ let AGENT_FILES_STAMP = null;
    two let a repaint give the keyboard back to the same row (by its file or folder name), as the Documents fill does. */
 function rowKey(el) {
   if (!el || !el.dataset) return null;
+  if (el.dataset.dl != null) return 'dl:' + el.dataset.dl;   // kosmos#7952: a row's download button keeps its own focus
   if (el.dataset.doc != null) return 'doc:' + el.dataset.doc;
   return el.dataset.dir != null ? 'dir:' + el.dataset.dir : null;
 }
@@ -44828,6 +44835,23 @@ function agentFileRow(f, compact = false, label = null) {   // #6724: `label` (t
   if (fp) b.setAttribute('aria-description', (day && compact ? 'changed ' + day + ', ' : '') + 'fingerprint ' + fp.slice(0, 12));   // iteration 8: the attribute, not the reflection property
   b.append(n, w);
   return b;
+}
+/* kosmos#7952 (Josh, 11-04): on the Files screen of a board on another computer (or a Linux one), each file has its own
+   download button beside its row, so one file is saved to this device without Download folder. The row itself still
+   previews a picture, a PDF or text, which is why the button is needed even where a click on other files downloads. */
+function agentFileWithDownload(row, name, label) {
+  const line = document.createElement('div');
+  line.className = 'pj-doc-line';
+  const dl = document.createElement('button');
+  dl.type = 'button';
+  dl.className = 'pj-doc-dl';
+  dl.dataset.dl = name;
+  dl.title = 'Download';
+  dl.setAttribute('aria-label', 'Download ' + (label || name));
+  dl.insertAdjacentHTML('afterbegin', '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">'
+    + '<path d="M8 2.5v7.5M4.75 6.75 8 10l3.25-3.25M3 13h10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>');
+  line.append(row, dl);
+  return line;
 }
 /* #5153 slice 3: one Recent work row's muted line (Mona Lisa's wording): "closed <date> · <n> files · <n> commands ·
    <tokens> tokens · about $<x> at API prices". Pure (node-testable). `item` is one entry of GET
@@ -45074,7 +45098,12 @@ async function paintAgentFilesAll(sessionName) {
   const files = Array.isArray(body.files) ? body.files : [];
   msg.textContent = dirs.length || files.length ? '' : (dir ? 'This folder is empty.' : 'This agent has no files yet.');
   for (const d of dirs) list.append(agentDirRow(d));
-  for (const f of files) list.append(agentFileRow(f, false, String(f.name).split('/').pop()));
+  const downloads = kplusRemote() || onLinux();   // kosmos#7952: where a file is saved to this device rather than opened
+  for (const f of files) {
+    const label = String(f.name).split('/').pop();
+    const row = agentFileRow(f, false, label);
+    list.append(downloads ? agentFileWithDownload(row, f.name, label) : row);
+  }
   if (more && body.truncated) {
     // Iteration 3: stopped by the read budget (many hidden names) is said as the project list says it, not as a count.
     more.textContent = body.scanCut
@@ -45091,6 +45120,12 @@ async function paintAgentFilesAll(sessionName) {
   } else refocusRow(list, hadFocus);
 }
 for (const [listId, msgId] of [['d-files-list', 'd-files-msg'], ['d-filesall-list', 'd-filesall-msg']]) document.getElementById(listId) && document.getElementById(listId).addEventListener('click', async (e) => {
+  const dlb = e.target.closest('.pj-doc-dl');
+  if (dlb && CURRENT) {   // kosmos#7952: one file, to this device
+    const who = CURRENT.sessionName;
+    kplusDownload('agent', who, dlb.dataset.dl, kplusSayer(document.getElementById(msgId), () => CURRENT && CURRENT.sessionName === who));
+    return;
+  }
   const row = e.target.closest('.pj-doc');
   if (!row || !CURRENT) return;
   const who = CURRENT.sessionName;
