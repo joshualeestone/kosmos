@@ -275,7 +275,7 @@ promote; rc=$?; refuses_clean "#7890 an installer that is neither the build's co
 mkdir -p "$TMP/nogit"; ln -sf "$(command -v node)" "$TMP/nogit/node"
 cp "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; cp "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
 # Only node on PATH, so no host's git is found ($PWSH is an absolute path).
-PATH="$TMP/nogit" promote; rc=$?; refuses_clean "#7890 a HEAD git cannot read: refused with git's reason" "git cannot read tools/windows/setup.ps1 there (git is not installed)"
+rc=0; ( PATH="$TMP/nogit"; promote ) || rc=$?; refuses_clean "#7890 a HEAD git cannot read: refused, saying git cannot say which commit HEAD is" "git cannot say which commit HEAD is (git is not installed"
 mv "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; mv "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
 # setup-<v>.ps1 is immutable like the zip: other bytes already up under the name are refused without -ReplaceVersioned.
 cp "$FAKE/latest-win-staging.json" "$TMP/stg7883.keep"   # the block below stages other versions; later tests expect 9.9.1 staged

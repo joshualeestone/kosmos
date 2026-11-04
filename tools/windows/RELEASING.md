@@ -233,7 +233,9 @@ pinned private key means installs refuse updates until Kosmos is installed afres
 - **Josh's go is logged on the PC that promotes**, in `%USERPROFILE%\.claude\logs\win-promote-approvals.log`
   (or `KOSMOS_WIN_PROMOTE_LOG`), in `promote-channel.sh`'s line format with `path=promote-r2`
   (not `path=promote`) plus `bucket=` and `prefix=`, so a self-test never reads as a real promote.
-  It also names the installer (#7883, #7890): `setup_sha256=` (or `none`), and `setup_source=`: `commit` (read again
+  Staging says (a NOTICE, not a refusal) when the zip's manifest records `source_dirty: true`: the build came from a
+  tree with uncommitted changes, though the installer staged with it is still the committed script (#7890).
+  The approval line also names the installer (#7883, #7890): `setup_sha256=` (or `none`), and `setup_source=`: `commit` (read again
   at the commit the zip records), `head` (the zip records none; the staged bytes equal the promoting checkout's HEAD blob, the
   commit named by `setup_head=`; that is byte-equality only, not proof it was the commit staging used), or `none` (no installer staged; `setup_left=` is the sha of the setup.ps1 left live, or `absent`).
   A Windows promote from the PC is therefore NOT in the Mac's log. The durable record of the go

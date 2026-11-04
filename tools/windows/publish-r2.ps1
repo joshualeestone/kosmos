@@ -673,7 +673,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   Assert-Version 'version' $Version
   $Versioned = "kosmos-$Version-win-$Arch.zip"
   $Sha = Sha256-File $ZipPath
-  $zipBytesForManifest = [IO.File]::ReadAllBytes($ZipPath)   # one read, so both manifest answers come from the same bytes
+  $zipBytesForManifest = [IO.File]::ReadAllBytes($ZipPath)   # one read for both manifest answers
   $BuiltFrom = Get-ZipSourceSha $zipBytesForManifest   # kosmos#7883
   # kosmos#7890: a build from a tree with uncommitted changes is not exactly the commit it names; said, not refused.
   if (Get-ZipSourceDirty $zipBytesForManifest) {
@@ -1052,7 +1052,8 @@ if ($stagedSetup -or $stagedSetupSide) {
     # outcome the refusal exists to prevent.
     # One commit is both checked and logged: HEAD is resolved first, then read at that commit.
     $SetupHead = Get-SetupHeadCommit
-    $headSetup = if ($SetupHead -ne 'unknown') { Get-SetupAtCommit $SetupHead } else { Get-SetupAtCommit 'HEAD' }
+    if ($SetupHead -eq 'unknown') { Refuse "the staged zip records no source commit, so $SetupVersioned is checked against this tree's HEAD, and git cannot say which commit HEAD is (git is not installed, or this is not a git checkout). Promote from a checkout git can read. Nothing was written." }
+    $headSetup = Get-SetupAtCommit $SetupHead
     # What works when it cannot be checked: setup-<v>.ps1 cannot be replaced for a zip that names no commit, so the fix
     # is a checkout whose setup.ps1 is the staged bytes (staging named it as "this tree's HEAD (<sha>)"), or a new build.
     $fix = "Promote from a checkout of the commit staging named for it (its NOTICE says this tree's HEAD and the commit), or rebuild under a new version."
