@@ -1228,6 +1228,7 @@ struct RoomView: View {
 
     @State private var photoPicks: [PhotosPickerItem] = []
     @State private var showPhotos = false
+    @State private var previewing: OpenPicture?   // kosmos#7944: the waiting picture opened from its chip
     @State private var showFiles = false
     @State private var showCamera = false   // kosmos#7596
     // The account or computer the camera was opened under: a photo taken across a switch is never sent under the new one
@@ -1255,11 +1256,26 @@ struct RoomView: View {
             case .files: showFiles = true
             }
         }
+        // kosmos#7944: a waiting picture, tapped. Presented from the + (always there), not from the chips, which go
+        // when the last file does (review 3): the sheet and its closing rule must outlive the row.
+        .sheet(item: $previewing) { open in
+            // The picture as it was when tapped (review 5): Remove takes the file off at once, and the sheet keeps
+            // showing it while it slides away rather than going blank.
+            AttachedPreview(name: open.name, preview: open.picture.large, remove: {
+                client.unattach(open.id, for: attachKey)
+                RoomView.say("Removed \(open.name)")
+            })
+        }
+        // It closes if its file leaves the composer while it is open (sent, or another account or computer).
+        .onChange(of: previewing.map { client.attachedPreviews[$0.id] != nil } ?? true) { still in
+            if !still { previewing = nil }
+        }
     }
 
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+            // Bottom-aligned (kosmos#7944 review 4): a picture's square is taller than a name chip, by the room its x needs.
+            HStack(alignment: .bottom, spacing: 6) {
                 if uploadingHere > 0 {
                     HStack(spacing: 6) {
                         HStack(spacing: 6) {
@@ -1283,7 +1299,8 @@ struct RoomView: View {
                     .padding(.horizontal, 6)
                 }
                 ForEach(attachedHere) { a in
-                    FileChip(name: a.name, remove: { client.unattach(a.id, for: attachKey) })
+                    FileChip(name: a.name, preview: client.attachedPreviews[a.id]?.small, open: { previewing = OpenPicture(a, client.attachedPreviews[a.id]) },
+                             remove: { client.unattach(a.id, for: attachKey) })
                 }
             }
             .padding(.horizontal, 2)

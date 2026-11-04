@@ -1747,8 +1747,17 @@ async function gatherCaptures() {
   clearTimeout(timer);
   return { out, texts, at, budget };
 }
+const slowSnapshotLine = require('./loopheld').perMinute((line) => console.warn(line));
+// #7693: this part holds the board, once per waiting request, and the spawn log cannot see it (file reads).
+function timedSnapshot() {
+  const began = Date.now();
+  try { return snapshot(); } finally {
+    const took = Date.now() - began;
+    if (took >= 1000) slowSnapshotLine('[slow-snapshot] ' + took + ' ms');
+  }
+}
 async function snapshotUnheld() {
-  if (paneCapture) return snapshot();   // a test seam, or a Windows board's own capture
+  if (paneCapture) return timedSnapshot();   // a test seam, or a Windows board's own capture
   if (!gathering) {
     gathering = gatherCaptures().catch((e) => {
       console.error('FAIL snapshotUnheld gather: ' + (e && e.message));   // not only "could not see": a bug here must say so
@@ -1758,7 +1767,7 @@ async function snapshotUnheld() {
   const got = await gathering;
   await new Promise((resolve) => { setImmediate(resolve); });   // requests sharing a gather each take their own turn of the loop
   gathered = { ...got, held: new Set() };
-  try { return snapshot(); } finally { gathered = null; }
+  try { return timedSnapshot(); } finally { gathered = null; }
 }
 
 /* The reader of the live input box in an ANSI capture (capture-pane -e); engine/chat.js uses it to confirm a line was

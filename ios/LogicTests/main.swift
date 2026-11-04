@@ -1274,6 +1274,23 @@ do {
     let newUnderQuestion = Board.Thread(rows: [r("a", "T1"), r("b", "T2"), r("c", "T3"), r("q", nil)], olderCount: 5)
     check(Board.followKey(withQuestion) != Board.followKey(newUnderQuestion), "a new message above the Mac's untimed question row moves the key")
     check(Board.followKey(before) == Board.followKey(Board.Thread(rows: [r("a", "T1"), r("b", "T2")], olderCount: 5)), "the same conversation read again does not")
+    // kosmos#7420 review 5 and 7: a read moves a drawn list only when the end of the list changed, or the list is not held there.
+    let quietRead = { (from: Board.Thread?, to: Board.Thread, pinned: Bool, end: Bool, seen: Bool, anchored: Bool, drawn: Bool, settled: Bool) in
+        Board.readLeavesDrawnEndAlone(before: from, after: to, pinned: pinned, endVisible: end, endSeen: seen, anchorAtEnd: anchored, drawn: drawn, settled: settled)
+    }
+    let olderLanded = Board.Thread(rows: [r("z", "T0"), r("a", "T1"), r("b", "T2")], olderCount: 4)
+    check(quietRead(before, before, true, true, true, true, true, true), "the same newest row at a drawn, settled end: not moved")
+    check(quietRead(before, olderLanded, true, true, true, true, true, true), "older rows landing above the same newest row: not moved")
+    check(!quietRead(before, shifted, true, true, true, true, true, true), "a new newest row is followed")
+    check(!quietRead(withQuestion, newUnderQuestion, true, true, true, true, true, true), "a new message above the untimed question row is followed")
+    check(!quietRead(before, withQuestion, true, true, true, true, true, true), "a question row arriving last is followed")
+    check(!quietRead(nil, before, true, true, true, true, true, true), "the first rows of a chat are followed")
+    check(!quietRead(before, before, false, true, true, true, true, true), "a reader who is not kept at the newest is not this case")
+    check(!quietRead(before, before, true, false, true, true, true, true), "the end not showing: taken back")
+    check(!quietRead(before, before, true, true, false, true, true, true), "a chat whose end was never drawn is still taken there")
+    check(!quietRead(before, before, true, true, true, false, true, true), "with the anchor let go nothing holds the list: put back")
+    check(!quietRead(before, before, true, true, true, true, false, true), "nothing drawn: not left alone")
+    check(!quietRead(before, before, true, true, true, true, true, false), "a chat still opening is still taken to the newest")
 }
 
 section("native chat: what a send's answer means")
@@ -3132,14 +3149,56 @@ section("native board loop: connecting")
         c.attachLine["dana"] = nil
         await c.attach(.photo(load: { nil }), epoch: c.chatEpoch, to: dana)
         check(c.attachLine["dana"] == "We could not read that photo." && c.uploading["dana"] == 0, "a photo that cannot be read is said, and nothing waits")
+        check(c.attachedPreviews[attached()[1].id] == nil, "kosmos#7944: bytes that are not a readable picture keep no copy (a plain chip)")
         c.unattach(attached()[1].id, for: "dana")
         check(attached().map(\.name) == ["deck.pdf"], "the x takes one off the composer")
+
+        // kosmos#7944: a real photo keeps a small copy for the composer while it waits, and only while it waits.
+        func realJPEG() -> Data {
+            let ctx = CGContext(data: nil, width: 2400, height: 1800, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+            ctx.setFillColor(CGColor(red: 0.6, green: 0.45, blue: 0.1, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: 2400, height: 1800))
+            let out = NSMutableData(); let d = CGImageDestinationCreateWithData(out, "public.jpeg" as CFString, 1, nil)!
+            CGImageDestinationAddImage(d, ctx.makeImage()!, nil); _ = CGImageDestinationFinalize(d); return out as Data
+        }
+        var atCopy: (onItsWay: Int, waiting: Int)?
+        c.beforePictureCopy = { atCopy = (c.uploading["dana", default: 0], c.attached["dana"]?.count ?? 0) }
+        await c.attach(.photo(load: { ("Photo 2026-11-04 at 08.27.39.jpg", realJPEG()) }), epoch: c.chatEpoch, to: dana)
+        c.beforePictureCopy = nil
+        check(atCopy.map { $0.onItsWay == 0 && $0.waiting == 2 } == true,
+              "kosmos#7944 review 5: when the copy starts the photo is on the composer and no longer counted as on its way (\(String(describing: atCopy)))")
+        let kept = attached().last!.id
+        check(attached().count == 2 && (c.attachedPreviews[kept]?.large.count ?? 0) > 0, "a real photo waiting on the composer keeps a copy to show")
+        if let small = c.attachedPreviews[kept]?.small, let src = CGImageSourceCreateWithData(small as CFData, nil),
+           let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
+            let w = props[kCGImagePropertyPixelWidth] as? Int ?? 0, h = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+            check(max(w, h) == Board.attachThumbnailMaxPixels && min(w, h) >= 168, "and a small one for its square: 336 px long, at least 168 short (\(w)x\(h))")
+        } else {
+            check(false, "and a small one for its square: 336 px long, at least 168 short (none kept)")
+        }
+        check(c.attachedPreviews[attached()[0].id] == nil, "CONTROL: the PDF beside it keeps none")
+        c.unattach(kept, for: "dana")
+        check(c.attachedPreviews.isEmpty, "the x (or Remove) drops the copy with the file")
+
+        // kosmos#7944 review 3: the copy is made after the file is on the composer, and kept only if it still waits there.
+        let latePicture = Board.AttachedPicture(large: realJPEG(), small: realJPEG())
+        c.keepPicture(latePicture, for: kept, epoch: c.chatEpoch)
+        check(c.attachedPreviews.isEmpty, "a copy that finishes after its file was taken off is not kept")
+        c.keepPicture(latePicture, for: attached()[0].id, epoch: c.chatEpoch - 1)
+        check(c.attachedPreviews.isEmpty, "nor one from before another account or computer")
+        c.keepPicture(latePicture, for: attached()[0].id, epoch: c.chatEpoch)
+        check(c.attachedPreviews[attached()[0].id] != nil, "CONTROL: a file still waiting, same chats, keeps it")
 
         // Sent with no words: the names are the words, the ids ride along, and the composer is free again.
         let deckId = attached()[0].id
         await c.post("  ", files: attached(), to: dana)
         check(w.posted.last == "deck.pdf" && w.postedAttachments.last == [deckId], "files with no words: their names as the words, and their ids")
         check(attached().isEmpty && pending().last?.files.map(\.id) == [deckId], "the files leave the composer and ride the bubble")
+        await c.attach(.photo(load: { ("Photo 2026-11-04 at 08.35.32.jpg", realJPEG()) }), epoch: c.chatEpoch, to: dana)
+        check(c.attachedPreviews.count == 1, "kosmos#7944: a second photo keeps its copy")
+        let photoOnly = attached()
+        await c.post("", files: photoOnly, to: dana)
+        check(attached().isEmpty && c.attachedPreviews.isEmpty, "kosmos#7944: sending it drops the copy (it left the composer)")
 
         // A failed send keeps its files on the bubble, and the retry sends them again.
         await add(picked("shot.png"))
@@ -5596,8 +5655,12 @@ do {
     check(Board.holdReadingFar(moved: 1281, showing: 262), "keyboard hold: moved past the view's height, the reading is not trusted")
     check(Board.holdReadingFar(moved: -1281, showing: 262), "keyboard hold: either way")
     check(!Board.holdReadingFar(moved: 200, showing: 262), "keyboard hold: CONTROL: within a screenful, the reading stands")
-    check(Board.emptyRecovery(later: false, place: "within", scrolling: false) == .newest && Board.emptyRecovery(later: false, place: nil, scrolling: false) == .newest,
-          "the first empty list goes to the newest message as before, the scroll left alone when within or unread")
+    check(Board.emptyRecovery(later: false, place: "within", scrolling: false) == .rebuild && Board.emptyRecovery(later: false, place: nil, scrolling: false) == .newest,
+          "kosmos#7420 (TestFlight 37): the first empty list within the content is rebuilt whatever the anchor; unread goes to the newest")
+    check(Board.emptyRecovery(later: false, place: "within", scrolling: false, canRebuild: false) == .newest,
+          "CONTROL: with the Debug no-rebuild switch the first one goes to the newest as before")
+    check(Board.emptyRecovery(later: true, place: "within", scrolling: false, atNewest: true, canRebuild: false) == .none,
+          "and a later look at the newest does not rebuild with the switch either")
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: false) == .backInsideThenNewest && Board.emptyRecovery(later: false, place: "before the top", scrolling: false) == .backInsideThenNewest,
           "the first one puts a scroll outside its content back first")
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: true) == .newest, "never moves the scroll under a finger")
@@ -5633,8 +5696,9 @@ do {
           && Board.emptyRecovery(later: true, place: "within", scrolling: false, atNewest: true) == .rebuild, "within at the newest: rebuilt")
     check(Board.emptyRecovery(later: false, place: "within", scrolling: true, atNewest: true) == .newest
           && Board.emptyRecovery(later: true, place: "within", scrolling: true, atNewest: true) == .none, "not under a finger")
-    check(Board.emptyRecovery(later: false, place: "within", scrolling: false, atNewest: false) == .newest
-          && Board.emptyRecovery(later: true, place: "within", scrolling: false, atNewest: false) == .none, "not for a reader higher up")
+    check(Board.emptyRecovery(later: false, place: "within", scrolling: false, atNewest: false) == .rebuild
+          && Board.emptyRecovery(later: true, place: "within", scrolling: false, atNewest: false) == .none,
+          "TestFlight 37: the reported blank is rebuilt for a reader higher up too; a later automatic look leaves them")
     check(Board.emptyRecovery(later: true, place: "past the end", scrolling: false, atNewest: true) == .backInsideThenNewest
           && Board.emptyRecovery(later: false, place: nil, scrolling: false, atNewest: true) == .newest, "outside the content or unread: as before")
 
@@ -5714,6 +5778,48 @@ do {
     check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T","description":"Words here"}"#)!) == "Link: T, x.example.com. Words here", "VoiceOver hears the page's words too")
     let longWords = String(repeating: "a", count: 200)
     check(Board.linkPreviewSpoken(lp(#"{"url":"https://x.example.com/","title":"T","description":""# + longWords + #""}"#)!) == "Link: T, x.example.com. " + String(repeating: "a", count: 160) + "\u{2026}", "shortened as the card's lines are")
+}
+
+section("kosmos#7944: a picture waiting on the composer keeps a small copy of itself")
+do {
+    check(Board.isPreviewableImage(type: "image/jpeg", name: "x.bin"), "a JPEG by its type")
+    check(Board.isPreviewableImage(type: "image/heic", name: "IMG_1.HEIC"), "a HEIC (the iPhone camera's own)")
+    check(Board.isPreviewableImage(type: "", name: "Photo.PNG"), "no type: by the name's ending, any case")
+    check(Board.isPreviewableImage(type: "application/octet-stream", name: "scan.jpeg"), "the generic type: by the name's ending")
+    check(!Board.isPreviewableImage(type: "application/pdf", name: "Catalogue pages 1-8.pdf"), "CONTROL: a PDF is not a picture")
+    check(!Board.isPreviewableImage(type: "application/pdf", name: "trick.png"), "a stated non-picture type wins over the name")
+    check(!Board.isPreviewableImage(type: "image/svg+xml", name: "logo.svg"), "an SVG (a page, not a picture) gets no copy")
+
+    // A real picture through ImageIO: 3000 by 2000, so the copy must come down to 1600 on its long side.
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-7944-\(UUID().uuidString)")
+    try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    func write(_ w: Int, _ h: Int, orientation: Int? = nil) -> URL {
+        let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                            bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        ctx.setFillColor(CGColor(red: 0.6, green: 0.45, blue: 0.1, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        let url = dir.appendingPathComponent("p\(w)x\(h)-\(orientation ?? 1).jpg")
+        let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.jpeg" as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, orientation.map { [kCGImagePropertyOrientation: $0] as CFDictionary })
+        _ = CGImageDestinationFinalize(dest)
+        return url
+    }
+    func size(_ d: Data?) -> (Int, Int)? {
+        guard let d, let src = CGImageSourceCreateWithData(d as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] else { return nil }
+        return (props[kCGImagePropertyPixelWidth] as? Int ?? 0, props[kCGImagePropertyPixelHeight] as? Int ?? 0)
+    }
+    let big = Board.attachPreview(of: write(3000, 2000))
+    check(size(big).map { $0 == (1600, 1067) || $0 == (1600, 1066) } == true, "a large picture comes down to 1600 on its long side, shape kept (\(String(describing: size(big))))")
+    check((big?.count ?? Int.max) < 600_000, "and stays small (\(big?.count ?? -1) bytes)")
+    let small = Board.attachPreview(of: write(400, 300))
+    check(size(small).map { $0 == (400, 300) } == true, "a small picture is not blown up (\(String(describing: size(small))))")
+    // EXIF 6: the camera held sideways. The copy is turned upright, so a 3000x2000 file reads as tall.
+    let turned = Board.attachPreview(of: write(3000, 2000, orientation: 6))
+    check(size(turned).map { $0.0 < $0.1 } == true, "a sideways camera photo is turned upright (\(String(describing: size(turned))))")
+    let notPicture = dir.appendingPathComponent("notes.jpg")
+    try? Data("not a picture".utf8).write(to: notPicture)
+    check(Board.attachPreview(of: notPicture) == nil, "a file that only claims to be a picture gets no copy (a plain chip)")
 }
 
 print("")

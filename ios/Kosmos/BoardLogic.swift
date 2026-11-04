@@ -1,6 +1,7 @@
 import Foundation
 import UniformTypeIdentifiers
 import CryptoKit
+import ImageIO
 
 // kosmos#6838 slice 1: the native Agents tab's decisions, kept free of UIKit and
 // SwiftUI so ios/LogicTests proves them on a Mac (#718). BoardClient and
@@ -504,16 +505,15 @@ enum Board {
         if offset < top - 1 { return ("before the top", top, end) }
         return ("within", top, end)
     }
-    // kosmos#7420: what an empty list's recovery does. The first in a chat (the one reported) goes to the newest message as
-    // before, after putting a scroll outside its content back at its end unless a finger is on it. A later one (later: true)
+    // kosmos#7420: what an empty list's recovery does. The first in a chat (the one reported) with the scroll outside its
+    // content puts it back at its end and goes to the newest, unless a finger is on it. A later one (later: true)
     // acts only on a scroll past the content's end (the case the evidence points at; before the top may be a bounce), and
     // never while the person scrolls. An unread place (no scroll view) is treated as within. The first one's "before the
     // top" arm is probably unreachable from the chat's check, which needs the top marker off screen.
     // kosmos#7420 (build 24, 10-31): a list empty WITHIN its content while the reader is at the newest message (atNewest) is
     // rebuilt (.rebuild): the scroll is where the newest messages are and none is drawn there, so moving the scroll cannot
     // help (the one try moved it and the list stayed empty), but a new list opened at its end can. Never while the person
-    // scrolls, and never for a reader higher up, who would lose their place.
-    // On iOS 16 and 17 the chat clears atNewest when its end leaves the screen, so there this arm is effectively unreachable.
+    // scrolls. For a reader higher up see emptyRecovery's own note below.
     enum EmptyRecovery: Equatable { case none, newest, backInsideThenNewest, rebuild }
     // kosmos#7688 (1): the rebuild's timing, in one place, because its parts only work together. A rebuilt list gets one
     // check after rebuildGrace + rebuildCheckBump (diagTick), and diagCheck reads at each of diagCheckWaits after it; a second
@@ -525,10 +525,26 @@ enum Board {
     static let rebuildSpacing: Double = 2
     static let diagCheckWaits: [Double] = [0.5, 1.5]
     static var rebuildTimingHolds: Bool { rebuildGrace + rebuildCheckBump + (diagCheckWaits.min() ?? 0) >= rebuildSpacing }
-    static func emptyRecovery(later: Bool, place: String?, scrolling: Bool, atNewest: Bool = false) -> EmptyRecovery {
-        if !scrolling && atNewest && place == "within" { return .rebuild }
+    // kosmos#7420 (TestFlight 37, Josh 11-04 08:07): the reported blank (the first, `later` false) is rebuilt whatever the
+    // reader's place: going to the newest by id lands in the same undrawn stretch (build 34) and a reader who had scrolled
+    // was left blank. `later` alone never rebuilds for a reader higher up: the chat asks for that separately, as a first try
+    // with keepPlace, once a blank has held still (diagCapture, review 5). `canRebuild` false: the Debug control.
+    static func emptyRecovery(later: Bool, place: String?, scrolling: Bool, atNewest: Bool = false, canRebuild: Bool = true) -> EmptyRecovery {
+        if !scrolling && canRebuild && place == "within" && (atNewest || !later) { return .rebuild }
         if later { return !scrolling && place == "past the end" ? .backInsideThenNewest : .none }
         return !scrolling && (place == "past the end" || place == "before the top") ? .backInsideThenNewest : .newest
+    }
+    // kosmos#7420 review 5 (Josh 11-04 08:26, jumping on open): a thread read that leaves the same newest row at the end of a
+    // list already drawn there changes nothing the reader is waiting for (a status, a settled row, older rows landing above),
+    // and on iOS 17+ the anchor on the end marker holds the list by itself. Moving it again is the jump.
+    // Review 7: the same last row AND the same last dated row, since the Mac's untimed question row stays last while a new
+    // message lands above it (followKey's case). endSeen: endVisible starts true before any end was drawn. anchorAtEnd: with
+    // the anchor let go nothing holds the list.
+    static func readLeavesDrawnEndAlone(before: Thread?, after: Thread, pinned: Bool, endVisible: Bool, endSeen: Bool,
+                                        anchorAtEnd: Bool, drawn: Bool, settled: Bool) -> Bool {
+        guard let before, let last = before.rows.last?.id, last == after.rows.last?.id,
+              before.rows.last(where: { $0.atRaw != nil })?.id == after.rows.last(where: { $0.atRaw != nil })?.id else { return false }
+        return pinned && endVisible && endSeen && anchorAtEnd && drawn && settled
     }
 
     // kosmos#7678: the in-chat actions panel. Never taller than the room between the top of the messages and the keyboard.
@@ -1719,6 +1735,78 @@ enum Board {
     struct Attached: Equatable, Identifiable {
         let id: String
         let name: String
+    }
+
+    // kosmos#7944 (Josh 11-04: tap an image waiting on the composer to see it, with Remove as its only action): which
+    // waiting files get a picture. The phone's own copy goes once the Mac has it, so a small JPEG of it is kept for the
+    // composer instead. By type, or by the name's ending when the type is the generic one.
+    static func isPreviewableImage(type: String, name: String) -> Bool {
+        let t = type.lowercased()
+        if ["image/jpeg", "image/png", "image/heic", "image/heif", "image/gif", "image/webp", "image/tiff", "image/bmp",
+          "image/avif", "image/x-adobe-dng"].contains(t) { return true }
+        if !t.isEmpty && t != "application/octet-stream" { return false }
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "tif", "tiff", "bmp", "avif", "dng"].contains(ext)
+    }
+
+    #if DEBUG
+    /// The sample chat's waiting photo (KOSMOS_SAMPLE_ATTACHED): a page proof drawn here, so a screenshot never shows a
+    /// real picture. 1200 by 1600, a cream page with a gold block and lines of "text".
+    static func sampleAttachPreview() -> Data? {
+        let w = 1200, h = 1600
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        ctx.setFillColor(CGColor(red: 0.98, green: 0.96, blue: 0.91, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setFillColor(CGColor(red: 0.61, green: 0.45, blue: 0.11, alpha: 1)); ctx.fill(CGRect(x: 120, y: 900, width: 960, height: 540))
+        ctx.setFillColor(CGColor(red: 0.2, green: 0.2, blue: 0.22, alpha: 1))
+        for i in 0..<10 { ctx.fill(CGRect(x: 120, y: 760 - i * 64, width: i % 4 == 3 ? 560 : 960, height: 22)) }
+        guard let image = ctx.makeImage() else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, nil)
+        return CGImageDestinationFinalize(dest) ? out as Data : nil
+    }
+    #endif
+
+    /// kosmos#7944: a waiting picture as the composer keeps it: `large` for the sheet, `small` for its 56 pt square
+    /// (decoded on every draw of the row, so it is kept small rather than scaled down from `large` each time).
+    struct AttachedPicture: Equatable, Sendable {
+        let large: Data
+        let small: Data
+    }
+    /// The small one's longest side: 56 pt at 3x is 168 px, and a square crops a 4:3 picture's long side, so twice that.
+    static let attachThumbnailMaxPixels = 336
+
+    /// Both copies of the picture at `url`, or nil when it is not a picture ImageIO can read (a plain chip then).
+    static func attachedPicture(of url: URL) -> AttachedPicture? {
+        // One source for both (review 2): the file is opened once.
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let large = attachPreview(of: source), let small = attachPreview(of: source, maxPixels: attachThumbnailMaxPixels) else { return nil }
+        return AttachedPicture(large: large, small: small)
+    }
+
+    /// The longest side of the kept picture, in pixels: sharp across a phone's width at 3x (1290 px on the widest),
+    /// and about 0.2 to 0.5 MB as a JPEG, so ten waiting files stay small.
+    static let attachPreviewMaxPixels = 1600
+
+    /// A JPEG of the picture at `url` (one size; the app uses attachedPicture, which opens the file once for both).
+    static func attachPreview(of url: URL, maxPixels: Int = attachPreviewMaxPixels) -> Data? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+        return attachPreview(of: source, maxPixels: maxPixels)
+    }
+    /// A JPEG of the picture in `source`, its longest side at most `maxPixels`, turned upright as the camera took it.
+    /// Nil when it is not a picture ImageIO can read (a damaged or unknown file shows as a plain chip, as before).
+    static func attachPreview(of source: CGImageSource, maxPixels: Int = attachPreviewMaxPixels) -> Data? {
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        return CGImageDestinationFinalize(dest) ? out as Data : nil
     }
 
     static let maxFiles = 10

@@ -90,11 +90,16 @@ builds it on GitHub's macOS runner, which has one.
 
 - `Kosmos/Assets.xcassets` holds `AppIcon` (a byte-for-byte copy of `assets/Kosmos-1024.png`:
   1024 px, full bleed, no transparency; iOS makes every smaller size from it) and
-  `LaunchBackground`, Kosmos navy `#17233D`, the same colour as `UIColor.kosmosNavy`.
+  `LaunchBackground`, the app's own ground (`Palette.ground`: `#faf9f7` light, `#0c0d0f` dark),
+  and `LaunchOrb`, the KOSMOS orb's still frame (the one Reduce Motion shows, K facing), 120 pt,
+  deep gold `#9c741b` light and `#e3b341` dark (kosmos#7945; it was navy `#17233D`, which flashed
+  before every launch on the light sign-in and Agents screens). The PNGs are drawn from `OrbLogic`
+  as `KosmosOrb` draws its still frame, by `ios/tools/render-launch-orb.sh`; `LogicTests/run-orb.sh`
+  draws them again and fails if the committed ones differ, so redraw them when `OrbLogic` changes.
 - `Kosmos-Info.plist` holds the launch screen (`UILaunchScreen` > `UIColorName =
-  LaunchBackground`) and `ITSAppUsesNonExemptEncryption = false` (#6262: the app uses only
-  standard HTTPS, and without the key every TestFlight build stops at an export-compliance
-  question). Everything else in the Info.plist is generated from build settings.
+  LaunchBackground`, `UIImageName = LaunchOrb`) and `ITSAppUsesNonExemptEncryption = false`
+  (#6262: the app uses only standard HTTPS, and without the key every TestFlight build stops at an
+  export-compliance question). Everything else in the Info.plist is generated from build settings.
 - `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` wires the icon.
 - Compiling the catalog queries the installed iOS simulator runtimes and fails without one (`No
   available simulator runtimes for platform iphonesimulator`). Agent1s now has an iOS 26.5 runtime
@@ -256,8 +261,10 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch
   itself, and WebKit keeps any other page (the board today) clear of it. Since the tab bar
   (kosmos#6838) the web view ends above it, with navy behind the bar.
-- **Launch screen:** Kosmos navy, from the asset catalog (see "App icon and launch screen" above),
-  so launch, the WebView before its first paint and the sign-in page are one colour.
+- **Launch screen:** the app's ground with the still orb, from the asset catalog (see "App icon and
+  launch screen" above), so launch hands off to the native sign-in or Agents screen with no change
+  of colour (kosmos#7945). The board pages opened over the tabs keep their navy, so a launch from a
+  notification tap, which opens on a board page, still changes to navy.
 
 ### Tests that run without a simulator
 

@@ -77,19 +77,77 @@ struct FilesBubbleBackground: ViewModifier {
 }
 
 // kosmos#7071: a file waiting on the composer, with its x, or carried by a message still on its way (no x).
+// kosmos#7944: a picture waiting on the composer shows a small copy of itself, and a tap opens it (AttachedPreview).
 struct FileChip: View {
     let name: String
     var faded = false
+    var preview: Data? = nil
+    var open: (() -> Void)? = nil
     var remove: (() -> Void)? = nil
 
+    // Decoded once and kept (review 2: the row redraws on every keystroke and upload count); the first draw decodes
+    // it directly so the square shows at once rather than a frame of the plain chip.
+    @State private var decoded: UIImage?
+    private var thumbnail: UIImage? { decoded ?? preview.flatMap { UIImage(data: $0) } }
+
     var body: some View {
+        if let open, let thumbnail {
+            tile(thumbnail, open: open)
+                .task(id: preview?.count) {   // the byte count, not the bytes, compared on each draw (review 3)
+                    decoded = preview.flatMap { UIImage(data: $0)?.preparingForDisplay() } }
+        } else {
+            chip
+        }
+    }
+
+    // kosmos#7944 (Josh 11-04 08:35, his reference): a picture shows as a small square of itself, no name, its x on the
+    // top corner. The square opens it (AttachedPreview); VoiceOver hears the file's name on both.
+    private func tile(_ thumbnail: UIImage, open: @escaping () -> Void) -> some View {
+        Button {
+            // kosmos#7530: the keyboard goes first, or the sheet opens behind it.
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            open()
+        } label: {
+            Image(uiImage: thumbnail).resizable().scaledToFill()
+                .frame(width: Self.tileSide, height: Self.tileSide)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Palette.separator, lineWidth: 0.5))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(name)
+        .accessibilityHint("Shows the picture")
+        .accessibilityIdentifier("attached-preview-open")
+        .overlay(alignment: .topTrailing) {
+            if let remove {
+                Button(action: remove) {
+                    // The ink's colour with the ground's x and a ring of the ground, so it shows on a light or dark
+                    // ground and on any picture (a dark disc alone vanished on the dark theme's black).
+                    Image(systemName: "xmark.circle.fill").font(.system(size: 20))
+                        .symbolRenderingMode(.palette).foregroundStyle(Palette.chatGround, Palette.primary)
+                        .background(Circle().fill(Palette.chatGround).padding(-2))
+                        // A 44 pt place to tap, centred on the corner.
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                // Centred ON the corner (review 1: set in by 8 pt, its 44 pt place covered a third of the picture, and a
+                // tap meant to open it removed it). A quarter of that place is over the picture, as in Josh's reference.
+                .offset(x: 22, y: -22)
+                .accessibilityLabel("Remove \(name)")
+            }
+        }
+        // The whole 44 pt place inside the row: a scroll view takes no taps outside itself.
+        .padding(.top, 22).padding(.trailing, 22)
+    }
+
+    /// The picture's square in the composer, in points (Josh's reference: about a seventh of the screen's width).
+    static let tileSide: CGFloat = 56
+
+    private var chip: some View {
         HStack(spacing: 6) {
             Image(systemName: "doc").font(.system(size: 13)).foregroundColor(Palette.secondary)
                 .accessibilityHidden(true)
-            Text(name).font(.footnote).foregroundColor(Palette.primary.opacity(faded ? 0.6 : 1))
-                .lineLimit(1).truncationMode(.middle)
-                // Cut in the middle, so a long name keeps its end and the next file shows beside it.
-                .frame(maxWidth: 180, alignment: .leading)
+            label
             if let remove {
                 Button(action: remove) {
                     Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundColor(Palette.secondary)
@@ -105,6 +163,72 @@ struct FileChip: View {
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.separator, lineWidth: 0.5))
         // As wide as its name (up to the cap), wherever it sits: a bubble's row offers the whole width.
         .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var label: some View {
+        Text(name).font(.footnote).foregroundColor(Palette.primary.opacity(faded ? 0.6 : 1))
+            .lineLimit(1).truncationMode(.middle)
+            // Cut in the middle, so a long name keeps its end and the next file shows beside it.
+            .frame(maxWidth: 180, alignment: .leading)
+    }
+}
+
+// kosmos#7944: a waiting picture as its sheet opened it, kept with the sheet (the composer may drop it first).
+struct OpenPicture: Identifiable {
+    let id: String
+    let name: String
+    let picture: Board.AttachedPicture
+    /// Nil when the file has no picture yet, so a tap opens nothing (the square is not drawn without one anyway).
+    init?(_ file: Board.Attached, _ picture: Board.AttachedPicture?) {
+        guard let picture else { return nil }
+        id = file.id; name = file.name; self.picture = picture
+    }
+}
+
+// kosmos#7944 (Josh 11-04 08:28: "I think we would only need the remove feature from a button perspective and skip
+// caption or edit etc"): a picture waiting on the composer, as large as the screen allows, its name above it and one
+// action under it. Swipe down or Remove closes it. Nothing has been sent, so Remove only takes it off the composer.
+struct AttachedPreview: View {
+    let name: String
+    let preview: Data
+    let remove: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var decoded: UIImage?
+    // The danger red of the light theme in both: white on it is about 6.6:1, where the dark theme's lighter red
+    // (dangerWord, made for words on a dark ground) would put white under 3:1.
+    static let removeFill = Color(red: 0xb3 / 255, green: 0x26 / 255, blue: 0x1e / 255)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(name).font(.headline).foregroundColor(Palette.primary)
+                .lineLimit(2).truncationMode(.middle)
+                .accessibilityAddTraits(.isHeader)
+            if let image = decoded ?? UIImage(data: preview) {
+                Image(uiImage: image).resizable().scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .accessibilityLabel("Picture")   // the name is the heading just above (review 2)
+            }
+            Button {
+                remove()
+                dismiss()
+            } label: {
+                Label("Remove", systemImage: "trash")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 50)
+                    .foregroundColor(.white)
+                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Self.removeFill))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Remove \(name)")
+            .accessibilityIdentifier("attached-preview-remove")
+        }
+        .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 12)
+        // Decoded once, off the draw (review 4), as the composer's square is.
+        .task { decoded = UIImage(data: preview)?.preparingForDisplay() }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .background(Palette.ground.ignoresSafeArea())
     }
 }
 
