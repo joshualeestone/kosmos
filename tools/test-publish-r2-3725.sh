@@ -178,8 +178,11 @@ order=$(grep '^PUT ' "$FAKE/.calls" | grep -v '^PUT publish\.lock ' | awk '{prin
 if [ "$rc" -eq 0 ] && [ "$order" = "kosmos-9.9.1-win-x64.zip kosmos-9.9.1-win-x64.zip.sha256 setup-9.9.1.ps1 setup-9.9.1.ps1.sha256 latest-win-staging.json " ]; then pass "staging writes zip, sidecar, the installer script and its sidecar (#7883), then the pointer LAST"
 else fail "staging order: rc=$rc order=[$order] $(tail -2 "$TMP/out")"; fi
 # kosmos#7883: the staged script is this tree's committed setup.ps1, byte for byte, with a sidecar naming itself.
-SETUP_SHA=$(shasum -a 256 "$HERE/windows/setup.ps1" | cut -d' ' -f1)
-if cmp -s "$FAKE/setup-9.9.1.ps1" "$HERE/windows/setup.ps1" && [ "$(cat "$FAKE/setup-9.9.1.ps1.sha256")" = "$SETUP_SHA  setup-9.9.1.ps1" ]; then pass "#7883 staging uploads tools/windows/setup.ps1 as setup-<v>.ps1 with its own sidecar"
+# kosmos#7890: compared with HEAD's blob (git cat-file), never the working file, so an uncommitted edit fails for the right reason.
+git -C "$HERE" cat-file blob HEAD:tools/windows/setup.ps1 > "$TMP/setup-head.ps1"
+[ -s "$TMP/setup-head.ps1" ] || fail "could not read tools/windows/setup.ps1 at HEAD, so the installer checks below compare with nothing"
+SETUP_SHA=$(shasum -a 256 "$TMP/setup-head.ps1" | cut -d' ' -f1)
+if cmp -s "$FAKE/setup-9.9.1.ps1" "$TMP/setup-head.ps1" && [ "$(cat "$FAKE/setup-9.9.1.ps1.sha256")" = "$SETUP_SHA  setup-9.9.1.ps1" ]; then pass "#7883 staging uploads tools/windows/setup.ps1 as setup-<v>.ps1 with its own sidecar"
 else fail "#7883 staged script: $(shasum -a 256 "$FAKE/setup-9.9.1.ps1" 2>&1) side=$(cat "$FAKE/setup-9.9.1.ps1.sha256" 2>&1)"; fi
 # The headers that make it safe were SENT: a create-only zip, no-cache on what gets overwritten.
 if grep -qE '^PUT kosmos-9\.9\.1-win-x64\.zip \| if-none-match=\*$' "$FAKE/.calls" \
@@ -230,7 +233,7 @@ else fail "approval log: $(cat "$ALOG")"; fi
 if grep -qE '^PUT kosmos-win-x64\.zip COPY /kosmos-dist-win/kosmos-9\.9\.1-win-x64\.zip \| cache-control=no-cache;x-amz-copy-source=[^;]+;x-amz-copy-source-if-match="[0-9a-f]{64}";x-amz-metadata-directive=REPLACE$' "$FAKE/.calls"; then pass "the alias copy is pinned and replaces its metadata with no-cache"
 else fail "copy headers: $(grep COPY "$FAKE/.calls")"; fi
 # kosmos#7883: setup.ps1 is the staged script, its sidecar names setup.ps1, and both were created only if absent.
-if cmp -s "$FAKE/setup.ps1" "$HERE/windows/setup.ps1" && [ "$(cat "$FAKE/setup.ps1.sha256")" = "$SETUP_SHA  setup.ps1" ] \
+if cmp -s "$FAKE/setup.ps1" "$TMP/setup-head.ps1" && [ "$(cat "$FAKE/setup.ps1.sha256")" = "$SETUP_SHA  setup.ps1" ] \
    && grep -qE '^PUT setup\.ps1 \| cache-control=no-cache;if-none-match=\*$' "$FAKE/.calls" && grep -qE '^PUT setup\.ps1\.sha256 \| cache-control=no-cache;if-none-match=\*$' "$FAKE/.calls"; then
   pass "#7883 promote puts the staged script up as setup.ps1 with its sidecar, create-only when there was none"
 else fail "#7883 promoted script: side=$(cat "$FAKE/setup.ps1.sha256" 2>&1) $(grep '^PUT setup' "$FAKE/.calls")"; fi
@@ -250,11 +253,28 @@ promote; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF "NOTICE (#7883): no setup-9.9.1.ps1 was staged with this build" "$TMP/out" && ! grep -q '^PUT setup' "$FAKE/.calls" && cmp -s "$FAKE/setup.ps1" "$TMP/setup-live.keep"; then
   pass "#7883 a promote of a build staged without a script leaves setup.ps1 untouched, and says so"
 else fail "#7883 promote without a staged script: rc=$rc $(grep '^PUT setup' "$FAKE/.calls") $(tail -1 "$TMP/out")"; fi
+# kosmos#7890: and its approval line records which setup.ps1 it left live (a rollback to such a build keeps a newer one).
+LIVE_SHA=$(shasum -a 256 "$TMP/setup-live.keep" | cut -d' ' -f1)
+if grep 'approval=given' "$ALOG" | tail -1 | grep -qF " setup_source=none setup_left=$LIVE_SHA setup_sha256=none "; then pass "#7890 a promote that leaves setup.ps1 records the sha it left (setup_left)"
+else fail "#7890 setup_left: $(grep 'approval=given' "$ALOG" | tail -1)"; fi
 mv "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; mv "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
 # Josh's go is logged with the installer it will publish.
 # (The two promotes above with a staged script logged its sha; the last one, staged without a script, logged none.)
 if [ "$(grep -c "setup_sha256=$SETUP_SHA approval=given " "$ALOG")" -eq 2 ] && grep 'approval=given' "$ALOG" | tail -1 | grep -qF ' setup_sha256=none '; then pass "#7883 the approval line names the installer's sha, or none"
 else fail "#7883 approval line: $(grep 'approval=given' "$ALOG" | tail -2)"; fi
+# kosmos#7890: the zip here records no source commit, so the staged installer was checked against this tree's HEAD.
+if [ "$(grep -c "setup_source=head setup_sha256=$SETUP_SHA approval=given " "$ALOG")" -eq 2 ]; then pass "#7890 with no source commit, a staged installer that is HEAD's is published and logged as setup_source=head"
+else fail "#7890 setup_source=head: $(grep 'approval=given' "$ALOG" | tail -3)"; fi
+# kosmos#7890: one that is NOT HEAD's (sidecar to match) cannot be checked, so setup.ps1 is left as it is and the line says so.
+cp "$FAKE/setup-9.9.1.ps1" "$TMP/setup-ver.keep"; cp "$FAKE/setup-9.9.1.ps1.sha256" "$TMP/setup-side.keep"; cp "$FAKE/setup.ps1" "$TMP/setup-live.keep"
+printf 'not HEAD installer\n' > "$FAKE/setup-9.9.1.ps1"
+printf '%s  setup-9.9.1.ps1\n' "$(shasum -a 256 "$FAKE/setup-9.9.1.ps1" | cut -d' ' -f1)" > "$FAKE/setup-9.9.1.ps1.sha256"
+promote; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF "NOTICE (#7890): the staged zip records no source commit and setup-9.9.1.ps1" "$TMP/out" && ! grep -q '^PUT setup' "$FAKE/.calls" && cmp -s "$FAKE/setup.ps1" "$TMP/setup-live.keep" \
+   && grep 'approval=given' "$ALOG" | tail -1 | grep -qF " setup_source=unverified setup_left=$(shasum -a 256 "$TMP/setup-live.keep" | cut -d' ' -f1) setup_sha256=none "; then
+  pass "#7890 an installer that is neither the build's commit's nor HEAD's is not published; setup.ps1 is left, and the line says unverified"
+else fail "#7890 unverified installer: rc=$rc $(grep '^PUT setup' "$FAKE/.calls") $(tail -1 "$TMP/out") | $(grep 'approval=given' "$ALOG" | tail -1)"; fi
+mv "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; mv "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
 # setup-<v>.ps1 is immutable like the zip: other bytes already up under the name are refused without -ReplaceVersioned.
 cp "$FAKE/latest-win-staging.json" "$TMP/stg7883.keep"   # the block below stages other versions; later tests expect 9.9.1 staged
 mkzip "$TMP/s40.zip" 9.9.40 S40
@@ -277,7 +297,7 @@ with zipfile.ZipFile(sys.argv[1], 'a') as z:
     z.writestr('manifest.json', '{"product":"kosmos","source_sha":"%s"}' % sys.argv[2])
 PYEOF
 fake -Zip "$TMP/s42.zip"; rc=$?
-if [ "$rc" -eq 0 ] && cmp -s "$FAKE/setup-9.9.42.ps1" "$HERE/windows/setup.ps1" && ! grep -qF "records no source commit" "$TMP/out"; then pass "#7883 control: a zip built from this tree's HEAD stages, with HEAD's installer"
+if [ "$rc" -eq 0 ] && cmp -s "$FAKE/setup-9.9.42.ps1" "$TMP/setup-head.ps1" && ! grep -qF "records no source commit" "$TMP/out" && ! grep -qF "uncommitted changes" "$TMP/out"; then pass "#7883 control: a zip built from this tree's HEAD stages, with HEAD's installer"
 else fail "#7883 source-commit control: rc=$rc $(tail -2 "$TMP/out")"; fi
 # The promote does not take the staged installer on trust: a zip that records its commit has the installer read again
 # from git, so a staged copy swapped afterwards (with a sidecar to match) is refused before anything is written.
@@ -287,6 +307,16 @@ printf 'swapped after staging\n' > "$FAKE/setup-9.9.42.ps1"
 printf '%s  setup-9.9.42.ps1\n' "$(shasum -a 256 "$FAKE/setup-9.9.42.ps1" | cut -d' ' -f1)" > "$FAKE/setup-9.9.42.ps1.sha256"
 fake -Promote -ApprovedVersion 9.9.42 -ApprovedSha "$SHA42" -ApprovalRef 1789228393.821399; rc=$?
 refuses_clean "#7883 a staged installer that is not the approved build's commit's: refused, nothing written" "is not tools/windows/setup.ps1 at"
+# kosmos#7890: a zip built from a tree with uncommitted changes still stages (the installer is the committed one), and says so.
+mkzip "$TMP/s43.zip" 9.9.43 S43
+python3 - "$TMP/s43.zip" "$(git -C "$HERE" rev-parse HEAD)" <<'PYEOF'
+import sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'a') as z:
+    z.writestr('manifest.json', '{"product":"kosmos","source_sha":"%s","source_dirty":true}' % sys.argv[2])
+PYEOF
+fake -Zip "$TMP/s43.zip"; rc=$?
+if [ "$rc" -eq 0 ] && grep -qF "was built from a tree with uncommitted changes (manifest.json source_dirty)" "$TMP/out" && cmp -s "$FAKE/setup-9.9.43.ps1" "$TMP/setup-head.ps1"; then pass "#7890 a zip built from a dirty tree stages with the committed installer, and says it was dirty"
+else fail "#7890 dirty build: rc=$rc $(tail -2 "$TMP/out")"; fi
 cp "$TMP/stg7883.keep" "$FAKE/latest-win-staging.json"
 # -ReplaceVersioned never replaces what prod names.
 fake -Zip "$TMP/b.zip" -ReplaceVersioned; rc=$?; refuses_clean "-ReplaceVersioned refuses the version prod names" "PROD's latest-win.json names"
