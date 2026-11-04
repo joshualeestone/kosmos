@@ -44,9 +44,10 @@ that is not previewed already downloads (kept small on purpose).
 "Neither answer is permanent: each lasts until you quit Kosmos, and after Don't Allow, View > Reload asks you again."
 
 ## Tests
-- mode selftest +12 rows (226), live download selftest +3 rows (35, the loopback page standing in for a Kosmos+
-  computer's through markBoardDownloadsForSelftest): the page's own download says same-origin, a
-  frame's is never marked, a commit before the start voids it; each red under its mutation (header not set; page
+- mode selftest +12 rows (226), live download selftest +6 rows (38; the loopback page stands in for a Kosmos+
+  computer's through markBoardDownloadsForSelftest on the marked arms, the Allow question among them): the page's own download says same-origin, a
+  frame's is never marked, a commit before the start voids it, a refused download
+  on a Files route is said, a web page answered for one is not saved, a busy folder is said; each red under its mutation (header not set; page
   check forced true; the start's page check removed).
 - native-app.download-5167.test.js: a source pin that the one startDownload sits after the page check, from the
   source frame.
