@@ -35,6 +35,7 @@ struct RoomView: View {
     @State private var atBottom = true
     // kosmos#7645: the debug scroll-up (KOSMOS_SAMPLE_ROOM_SCROLLUP) has come to rest; a UI test taps the box only then.
     @State private var sampleScrollRested = false
+    @State private var sampleShownOnce = false   // kosmos#7645: "room shown" once per launch, "room back" after (Debug trace)
     // kosmos#7654: the latest opening jump to the end (goEnd); a newer one, or none, stops an older one's retries.
     @State private var endJumps = 0
     // kosmos#7654 part 2 review: the room's own jumps (toEnd, toRow), as the DM's appMoves: part of the hold's moves key so a
@@ -790,8 +791,12 @@ struct RoomView: View {
             #if DEBUG
             // kosmos#7690: which row the id anchor holds, so a jump can be read against it. Sample rows only.
             .onChange(of: roomPosition) { now in if RoomStore.sample { ChatView.trace("room anchor \(now ?? "none")") } }
-            // kosmos#7645 review 2: where each room launch starts in the shared trace file (the chat writes "chat shown").
-            .onAppear { if RoomStore.sample { ChatView.trace("room shown") } }
+            // kosmos#7645 review 2: where each room launch starts in the shared trace file, as the chat's "chat shown" and
+            // "chat back" (review 3). Not in the diagnostic ring.
+            .onAppear {
+                guard RoomStore.sample else { return }
+                if !sampleShownOnce { sampleShownOnce = true; ChatView.trace("room shown", ring: false) } else { ChatView.trace("room back", ring: false) }
+            }
             // kosmos#7645, KOSMOS_SAMPLE_ROOM_SCROLLUP=<n> (with the room samples): 3 s after opening, the n-th row from the
             // end leaves the end, as a reader scrolled up would (nothing in the simulator can drag here; on iOS 26 and later the id
             // anchor holds it at the BOTTOM of the screen, earlier ones put it at the top), then a marker

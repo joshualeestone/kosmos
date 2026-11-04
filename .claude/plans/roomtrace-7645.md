@@ -22,5 +22,5 @@ The check launches with KOSMOS_SAMPLE_TRACE=1, so its next failure on CI prints 
   fail sometimes.
 - Review 2: the dump names every keyboard check that ran, in order, read from the log (not a fixed list that skipped the
   drag check and the chat checks whose lines are in the file); the room writes "room shown" when it opens (Debug, sample
-  rooms), so each room launch has a start line as the chat's "chat shown" gives each chat launch; the drag check's
-  failure prints the trace too.
+  rooms; "room back" on a later appearance, review 3), so each room launch has a start line as the chat's "chat shown"
+  gives each chat launch; and the drag check (which already traced) is now one of the failures that print the trace.
