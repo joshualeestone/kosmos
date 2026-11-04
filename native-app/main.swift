@@ -636,6 +636,13 @@ func ownPlusHostFrom(_ raw: String?) -> String? {
 /// #5167: PURE, for --kosmos-app-mode-selftest. Whether the board's page says a refusal of this download
 /// itself: #5165's Files lists (kplusDownload) look at these two routes with ?check=1 and say the board's
 /// own sentence, on any board. Nothing else (an attachment, say) is looked at by the page.
+/// kosmos#7952: PURE. An agent's Download folder (the one route the board limits: ZIP_BUSY answers 429).
+func isFolderDownload(_ url: URL?) -> Bool {
+    let path = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedPath } ?? ""
+    let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+    return parts.count == 6 && parts[1] == "api" && parts[2] == "agent" && !parts[3].isEmpty && parts[4] == "files" && parts[5] == "download-folder"
+}
+
 func pageSaysDownloadRefusal(_ url: URL?) -> Bool {
     let path = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedPath } ?? ""   // an encoded / stays one part
     let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
@@ -3789,7 +3796,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // a frame inside it (another site's, or a sandboxed preview), whose download keeps WebKit's own unmarked one.
             // Review 3: the frame's origin is read only for a main frame, so a frame inside the page is judged on that alone.
             let source = navigationAction.sourceFrame
-            let byPage = source.isMainFrame
+            // Review 4: only a Kosmos+ computer's page needs it (the tunnel is what wants the header); this computer's own
+            // board keeps WebKit's own download, as before #7952.
+            let overKosmosPlus = (committedPageURL.map(isKosmosPlusURL) ?? false) || AppDelegate.markBoardDownloadsForSelftest
+            let byPage = overKosmosPlus && source.isMainFrame
                 && downloadAskedByPage(frameIsMain: true, frameProtocol: source.securityOrigin.protocol,
                                        frameHost: source.securityOrigin.host, framePort: source.securityOrigin.port,
                                        page: committedPageURL)
@@ -3953,6 +3963,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// Only --kosmos-app-download-selftest sets this (kosmos#7952): runs after an allowed download's page is noted and
     /// before its start on the next turn, so the selftest can commit the page in between.
     static var beforeAllowedStartForSelftest: ((URLRequest) -> Void)?
+    /// Only --kosmos-app-download-selftest sets this (kosmos#7952): its loopback page is treated as a Kosmos+ computer's
+    /// for the same-origin mark, since no Kosmos+ computer can be served there.
+    static var markBoardDownloadsForSelftest = false
     fileprivate var allowedDownloadHosts: Set<String> = []
     private var refusedDownloadHosts: Set<String> = []
     fileprivate func resetDownloadAsks() { refusedDownloadHosts = [] }   // the selftest, between its arms
@@ -4114,8 +4127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             downloadsTold.add(download)
             /* kosmos#7952 review 3: a refusal of the download itself (401, 403) is said here even on a Files list. The
                page's look is a fetch, which the Kosmos+ tunnel can let in where it does not let the download in (#7952's
-               own 403), so the look may have said nothing; staying quiet would leave nothing saved and nothing said. */
-            if http.statusCode == 401 || http.statusCode == 403 {
+               own 403), so the look may have said nothing; staying quiet would leave nothing saved and nothing said. Only
+               for a download this app started: those are the ones that reach the tunnel marked. */
+            if (http.statusCode == 401 || http.statusCode == 403) && downloadsStartedHere.contains(download) {
                 tellDownloadFailed("The download was refused (the answer was \(http.statusCode)), so nothing was saved.")
                 completionHandler(nil)
                 return
@@ -4125,7 +4139,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 completionHandler(nil)
                 return
             }
-            if http.statusCode == 429 {   // kosmos#7952: only a folder zip is limited (the board's ZIP_BUSY)
+            // kosmos#7952: only a folder zip is limited by the board (ZIP_BUSY); a 429 anywhere else keeps the general sentence.
+            if http.statusCode == 429, isFolderDownload(http.url ?? download.originalRequest?.url) {
                 tellDownloadFailed("Another folder is still downloading, so nothing was saved. Try again when it has finished.")
                 completionHandler(nil)
                 return
@@ -6643,6 +6658,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
         // kosmos#7952 review 3: the page commits between an allowed download's answer and its start.
         AppDelegate.beforeAllowedStartForSelftest = { r in if r.url?.path == "/start-void.txt" { d.pageCommits += 1 } }
+        AppDelegate.markBoardDownloadsForSelftest = true   // this loopback page stands in for a Kosmos+ computer's
         click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { click("startvoid") { askArm { modalArm { settled {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
@@ -7673,6 +7689,15 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     says("https://josh.kosmosplus.com/api/agent/amy/files/download/extra", false, "only the exact route")
     says("https://josh.kosmosplus.com/api/agent/amy/files/download-folder?dir=", false, "kosmos#7952: DOWNLOAD FOLDER'S REFUSAL IS SAID BY THE APP (its look cannot see a busy answer after the Allow question)")
     says("https://josh.kosmosplus.com/api/agent/amy/files/download?name=a.txt", true, "kosmos#7952: CONTROL: a single file's refusal is still said by the page")
+    do {
+        ran += 2
+        let folder = isFolderDownload(URL(string: "https://josh.kosmosplus.com/api/agent/amy/files/download-folder?dir=a"))
+        let file = isFolderDownload(URL(string: "https://josh.kosmosplus.com/api/agent/amy/files/download?name=a"))
+        if !folder { bad += 1 }
+        if file { bad += 1 }
+        print((folder ? "PASS  " : "FAIL  ") + "folder".padding(toLength: 11, withPad: " ", startingAt: 0) + "kosmos#7952: Download folder is the route a busy answer is said for")
+        print((!file ? "PASS  " : "FAIL  ") + "file".padding(toLength: 11, withPad: " ", startingAt: 0) + "kosmos#7952: CONTROL: a single file's download is not")
+    }
     // kosmos#7952: which downloads this app marks same-origin (the Kosmos+ tunnel then presents the board's token).
     func asked(_ main: Bool, _ proto: String, _ host: String, _ port: Int, _ page: String?, _ want: Bool, _ why: String) {
         ran += 1
@@ -7973,7 +7998,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 224   // kosmos#7952: +10 (2 download-folder says rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 226   // kosmos#7952: +12 (+2 isFolderDownload), (2 download-folder says rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

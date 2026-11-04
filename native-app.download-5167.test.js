@@ -108,7 +108,7 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 224\b/);   // kosmos#7952: +10 (download-folder says rows, downloadAskedByPage rows, the marked request)
+  assert.match(st, /let expected = 226\b/);   // kosmos#7952: +10 (download-folder says rows, downloadAskedByPage rows, the marked request)
   // kosmos#5167 (2026-10-27): +9 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
 });
 
@@ -308,7 +308,9 @@ test('kosmos#7952 review 1: only a download the board page itself asked for is m
   const nav = SRC.slice(SRC.indexOf('if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,'));
   const branch = nav.slice(0, nav.indexOf('if navigationAction.shouldPerformDownload {'));
   assert.match(branch, /let source = navigationAction\.sourceFrame\n/, 'the page check reads some frame other than the one that ASKED (the source frame)');
-  assert.match(branch, /let byPage = source\.isMainFrame\n\s+&& downloadAskedByPage\(frameIsMain: true, frameProtocol: source\.securityOrigin\.protocol,/, 'a frame inside the page is no longer refused on being a frame alone');
+  assert.match(branch, /let overKosmosPlus = \(committedPageURL\.map\(isKosmosPlusURL\) \?\? false\) \|\| AppDelegate\.markBoardDownloadsForSelftest\n/, 'the mark is no longer kept to a Kosmos+ computer\'s page');
+  assert.equal((SRC.match(/markBoardDownloadsForSelftest = true/g) || []).length, 1, 'something outside the selftest marks every board download');
+  assert.match(branch, /let byPage = overKosmosPlus && source\.isMainFrame\n\s+&& downloadAskedByPage\(frameIsMain: true, frameProtocol: source\.securityOrigin\.protocol,/, 'a frame inside the page is no longer refused on being a frame alone');
   const guard = branch.indexOf('guard byPage else');
   assert.ok(guard > 0, 'the marked download is no longer behind the page check');
   const starts = SRC.split('startDownload(using:').length - 1;
