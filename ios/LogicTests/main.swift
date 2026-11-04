@@ -2222,9 +2222,11 @@ do {
     check(Board.sorted(mixed, stars: ["i", "q"]).map(\.session) == ["q", "i", "p", "w"], "starred first, then the rest, each in the tone order")
     check(Board.sorted(mixed, stars: nil).map(\.session) == ["p", "q", "w", "i"] && Board.sorted(mixed, stars: []).map(\.session) == ["p", "q", "w", "i"], "no stars known, or none, change no order")
     check(Board.sorted(mixed, stars: ["nobody"]).map(\.session) == ["p", "q", "w", "i"], "a star for an agent not listed changes no order")
-    let keptStarred = Board.keepingOrder(shown, with: fresh, stars: ["i", "b"])
-    check(keptStarred.map(\.session) == ["i", "b", "w", "z"], "kosmos#7684 (Josh 11-03): starred stay on top on a live update too, a starred newcomer with them; each group keeps the shown order")
-    check(Board.keepingOrder(shown, with: fresh, stars: nil).map(\.session) == ["w", "i", "z", "b"], "CONTROL: no stars known, a live update moves nothing")
+    // kosmos#7684: a list shown under stars is already starred first (every star change re-sorts it, BoardClient.showStars),
+    // so the shown list here is too; the starred newcomer "b" must join "i" at the top, not land below "w".
+    let shownStarred = [a("i", "Ivy", state: "idle"), a("w", "Wes", state: "working")]
+    check(Board.keepingOrder(shownStarred, with: fresh, stars: ["i", "b"]).map(\.session) == ["i", "b", "w", "z"], "kosmos#7684 (Josh 11-03): a starred agent that joins on a live update goes up with the starred rows; each group keeps its order")
+    check(Board.keepingOrder(shown, with: fresh, stars: ["nobody"]).map(\.session) == ["w", "i", "z", "b"], "CONTROL: a star for no listed agent moves nothing on a live update")
     check(Board.parseStars(Data(#"{"names":["dana","wes"],"ok":true}"#.utf8)) == ["dana", "wes"], "the stars are read from the board's answer")
     check(Board.parseStars(Data(#"{"names":["dana"],"ok":false}"#.utf8)) == nil, "an answer the board could not read its list for is no stars")
     check(Board.parseStars(Data(#"{"names":"dana","ok":true}"#.utf8)) == nil && Board.parseStars(Data("not json".utf8)) == nil, "nor is one in another shape")
