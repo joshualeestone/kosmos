@@ -633,9 +633,6 @@ func ownPlusHostFrom(_ raw: String?) -> String? {
     return host.isEmpty ? nil : host
 }
 
-/// #5167: PURE, for --kosmos-app-mode-selftest. Whether the board's page says a refusal of this download
-/// itself: #5165's Files lists (kplusDownload) look at these two routes with ?check=1 and say the board's
-/// own sentence, on any board. Nothing else (an attachment, say) is looked at by the page.
 /// kosmos#7952: PURE. An agent's Download folder (the one route the board limits: ZIP_BUSY answers 429).
 func isFolderDownload(_ url: URL?) -> Bool {
     let path = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedPath } ?? ""
@@ -643,6 +640,9 @@ func isFolderDownload(_ url: URL?) -> Bool {
     return parts.count == 6 && parts[1] == "api" && parts[2] == "agent" && !parts[3].isEmpty && parts[4] == "files" && parts[5] == "download-folder"
 }
 
+/// #5167: PURE, for --kosmos-app-mode-selftest. Whether the board's page says a refusal of this download
+/// itself: #5165's Files lists (kplusDownload) look at these two routes with ?check=1 and say the board's
+/// own sentence, on any board. Nothing else (an attachment, say) is looked at by the page.
 func pageSaysDownloadRefusal(_ url: URL?) -> Bool {
     let path = url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.percentEncodedPath } ?? ""   // an encoded / stays one part
     let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
@@ -4130,7 +4130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                own 403), so the look may have said nothing; staying quiet would leave nothing saved and nothing said. Only
                for a download this app started: those are the ones that reach the tunnel marked. */
             if (http.statusCode == 401 || http.statusCode == 403) && downloadsStartedHere.contains(download) {
-                tellDownloadFailed("The download was refused (the answer was \(http.statusCode)), so nothing was saved.")
+                tellDownloadFailed("The download was refused (the answer was \(http.statusCode)), so nothing was saved. Try again, or sign in to Kosmos+ again.")
                 completionHandler(nil)
                 return
             }
@@ -4159,6 +4159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // off Kosmos+. Over Kosmos+ a signed-out computer answers with its sign-in page, never an attachment.
         // kosmos#7952: a download this app started has no `download` name from the page, so a page named .html by its
         // type alone (a sign-in page answered for a file) proves nothing: only an attachment counts as the file there.
+        // Every such download is on a Kosmos+ page today, where the rule after it already refuses; this keeps it so if
+        // the mark ever reaches another page (and keeps the selftest's loopback stand-in faithful).
         let startedHere = downloadsStartedHere.contains(download)
         let wantsPage = sentAsAttachment || (namedPage && !startedHere && !(committedPageURL.map(isKosmosPlusURL) ?? false))
         if response.mimeType?.lowercased() == "text/html", !wantsPage {
@@ -6658,8 +6660,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
         // kosmos#7952 review 3: the page commits between an allowed download's answer and its start.
         AppDelegate.beforeAllowedStartForSelftest = { r in if r.url?.path == "/start-void.txt" { d.pageCommits += 1 } }
-        AppDelegate.markBoardDownloadsForSelftest = true   // this loopback page stands in for a Kosmos+ computer's
-        click("same", expect: "same.txt") { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { click("startvoid") { askArm { modalArm { settled {
+        // This loopback page stands in for a Kosmos+ computer's (markBoardDownloadsForSelftest) for the two arms that are
+        // about the mark only: the page's own download and the voided start. Every other arm runs the path this
+        // computer's own board ships on, WebKit's own download.
+        func mark(_ on: Bool, then: @escaping () -> Void) { AppDelegate.markBoardDownloadsForSelftest = on; then() }
+        mark(true) { click("same", expect: "same.txt") { mark(false) { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { mark(true) { click("startvoid") { mark(false) { askArm { modalArm { settled {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             // The per-computer question (a Kosmos+ name's holder runs its tunnel), driven directly: no Kosmos+
@@ -6743,7 +6748,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } } } } } } } } } } }
+        } } } } } } } } } } } } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
@@ -7707,7 +7712,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         print((got == want ? "PASS  " : "FAIL  ") + (got ? "marked" : "unmarked").padding(toLength: 11, withPad: " ", startingAt: 0) + why)
     }
     asked(true, "https", "josh.kosmosplus.com", 0, "https://josh.kosmosplus.com/", true, "the board page's own click over Kosmos+ is marked")
-    asked(true, "http", "127.0.0.1", 16180, "http://127.0.0.1:16180/", true, "and on this computer's own board")
+    asked(true, "http", "127.0.0.1", 16180, "http://127.0.0.1:16180/", true, "the origin match alone holds on a loopback page too (this computer's own board is kept out before it)")
     asked(false, "https", "josh.kosmosplus.com", 0, "https://josh.kosmosplus.com/", false, "A FRAME INSIDE THE PAGE IS NOT THE PAGE, even at its origin")
     asked(true, "https", "evil.example", 0, "https://josh.kosmosplus.com/", false, "A MAIN FRAME AT ANOTHER ORIGIN IS NOT THE BOARD PAGE")
     asked(true, "", "", 0, "https://josh.kosmosplus.com/", false, "AN OPAQUE ORIGIN (a sandboxed preview) IS NOT THE PAGE")
