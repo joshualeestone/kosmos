@@ -72,7 +72,7 @@ test('the page stamps data-kplus-remote on <html> only when it is reached throug
 
 /* The browser's painter against a stub DOM: the folder rows, the path line, and an answer that arrives for a folder the
    person has already left. */
-function harness(respond) {
+function harness(respond, remote = false) {   // kosmos#7952: `remote`, the page reached through Kosmos+
   const make = (id) => {
     const el = { id, hidden: false, children: [], attrs: {}, dataset: {}, className: '', append(...c) { this.children.push(...c); }, setAttribute(k, v) { this.attrs[k] = v; }, insertAdjacentHTML() {},
       querySelector() { return this.children.find((c) => /pj-doc/.test(c.className)) || null; }, focus() { focused.push(this); } };
@@ -89,9 +89,9 @@ function harness(respond) {
   };
   const calls = [];
   const env = { CURRENT: BOARD.agents.find((c) => c.sessionName === 'ana') };
-  const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'fileFingerprint', 'rowKey', 'focusedRowKey', 'refocusRow', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'agentFilesGo', 'paintAgentFilesAll']);
+  const FNS = page.liftAll(SCRIPT, ['agentFileRow', 'fileFingerprint', 'rowKey', 'focusedRowKey', 'refocusRow', 'folderIcon', 'agentDirRow', 'agentFilesPath', 'agentFilesGo', 'paintAgentFilesAll', 'agentFileWithDownload']);
   let gate = null;
-  const api = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env',
+  const api = new Function('document', 'fetch', 'fileIcon', 'pjSize', 'asSentence', 'env', 'kplusRemote', 'onLinux',
     'let AGENT_FILES_ALL_EPOCH = 0; let AGENT_FILES_DIR = ""; let AGENT_FILES_ALL_STAMP = null; let AGENT_FILES_FOCUS = false; let AGENT_FILES_ALL_FAIL = null;\n'
     + FNS.replace(/\bCURRENT\b/g, 'env.CURRENT')
     + '\nreturn { paintAgentFilesAll, agentFilesGo, dir: () => AGENT_FILES_DIR, focusPending: () => AGENT_FILES_FOCUS };')(document, async (url) => {
@@ -99,7 +99,7 @@ function harness(respond) {
     if (gate) await gate;
     const out = respond(url);
     return { ok: !out.__status, status: out.__status || 200, json: async () => out };
-  }, () => '', (n) => n + ' B', (t) => t.charAt(0).toUpperCase() + t.slice(1) + '.', env);
+  }, () => '', (n) => n + ' B', (t) => t.charAt(0).toUpperCase() + t.slice(1) + '.', env, () => remote, () => false);
   return { el, api, calls, focused, hold: (p) => { gate = p; } };
 }
 const answer = (dir) => ({ ok: true, dir, stamp: 's-' + dir, dirs: dir ? [] : [{ name: 'reports', modified: '2026-09-20T10:00:00Z' }],
@@ -265,4 +265,39 @@ test('iteration 6: the preview fetches a text file only through an explicit File
   assert.match(open, /pvTextInto\(stage, a\.textOf, fileCard\)/);
   assert.doesNotMatch(open, /pvTextInto\(stage, a\.preview/, 'the preview text is used as an address again');
   assert.match(PAGE, /#d-filesall-path button \{ min-height: 44px;/, 'the path line\u2019s buttons are small on a phone');
+});
+
+/* kosmos#7952 (Josh, 11-04: on a remote board the Files screen offered only Download folder): over Kosmos+, each file has
+   its own download button beside its row; at the computer itself the rows are as they were. */
+test('kosmos#7952: over Kosmos+ each file row has its own download button, named for the file; folders do not', async () => {
+  const h = harness((url) => answer(decodeURIComponent(url.split('dir=')[1] || '')), true);
+  await h.api.paintAgentFilesAll('ana');
+  const [dirRow, line] = h.el['d-filesall-list'].children;
+  assert.equal(dirRow.dataset.dir, 'reports', 'CONTROL: the folder row is a plain row');
+  assert.equal(line.className, 'pj-doc-line', 'the file is not wrapped with a download button');
+  const [row, dl] = line.children;
+  assert.equal(row.dataset.doc, 'note.txt', 'the row itself still opens or previews the file');
+  assert.equal(dl.className, 'pj-doc-dl');
+  assert.equal(dl.dataset.dl, 'note.txt', 'the button must carry the name the download route takes');
+  assert.equal(dl.attrs['aria-label'], 'Download note.txt');
+});
+
+test('kosmos#7952: CONTROL: at the computer itself a file row has no download button', async () => {
+  const h = harness((url) => answer(decodeURIComponent(url.split('dir=')[1] || '')), false);
+  await h.api.paintAgentFilesAll('ana');
+  const fileRow = h.el['d-filesall-list'].children[1];
+  assert.equal(fileRow.dataset.doc, 'note.txt');
+  assert.match(fileRow.className, /^pj-doc\b/);
+});
+
+test('kosmos#7952: the list\'s click handler downloads the file a download button names, before any row rule', () => {
+  const at = PAGE.indexOf("const dlb = e.target.closest('.pj-doc-dl');");
+  assert.ok(at > 0, 'the Files lists no longer handle a download button');
+  const rowAt = PAGE.indexOf("const row = e.target.closest('.pj-doc');", at);
+  assert.ok(rowAt > at, 'the download button is not handled before the row (its click would also open or preview)');
+  assert.match(PAGE.slice(at, rowAt), /kplusDownload\('agent', who, dlb\.dataset\.dl,/);
+  const key = page.lift(SCRIPT, 'rowKey');
+  const rk = new Function(key + '\nreturn rowKey;')();
+  assert.equal(rk({ dataset: { dl: 'a.txt' } }), 'dl:a.txt', 'a repaint would move the keyboard from the button to its row');
+  assert.equal(rk({ dataset: { doc: 'a.txt' } }), 'doc:a.txt', 'CONTROL: a row keeps its own key');
 });
