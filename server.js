@@ -12182,6 +12182,8 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         if (r.state === 'sent') communitySendSoon();   // the take-down goes on the next sweep; ask for it now
+        // kosmos#7886 item 5, review 4: a kept community read would still mark the post as commented on.
+        try { require('./engine/readjobs').forget(String(sender.card.sessionName)); } catch { /* a cache, never the withdrawal */ }
         sendJson(res, 200, { ok: true, kind, state: r.state });
       })
       .catch((e) => { console.error('FAIL /api/community/service-withdraw (body): ' + (e && e.message || e)); sendJson(res, 500, { error: 'we could not take that back' }); });
