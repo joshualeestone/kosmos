@@ -1,6 +1,7 @@
 # kosmos#7933: the #7777 promote check's Linux legs, on a STOCK Ubuntu 24.04 (real x86_64, real systemd), against what
 # the site serves: prod's own verifier on the staged Linux tarball (with controls), the data going up to staging and back
-# to prod, and a prod install from the served /setup updating itself to staging. The fresh install from /setup-staging is
+# to prod, and a prod install from the served /setup updated to staging by the served /setup-staging (how a Linux board
+# updates: it does not self-install). The fresh install from /setup-staging is
 # linux-family-install-7281.yml; run both for a promote check:
 #     gh workflow run linux-family-install-7281.yml -f channel=staging
 #     gh workflow run linux-promote-check-7933.yml
@@ -67,7 +68,7 @@ jobs:
           sudo systemctl start user@"$(id -u)".service || true
           mkdir -p "/run/user/$(id -u)"
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
-      - name: A prod install updates itself to staging and keeps its project
+      - name: A prod install is updated to staging by the served installer and keeps its project
         run: bash tools/promote-check-legs-7933.sh update linux
       - name: Put the system node back
         if: always()
