@@ -2869,3 +2869,90 @@ test('#7150 follow-up: read --replies marks replies by another agent of this boa
     if (keysBefore) fs.writeFileSync(cs._paths.keysFile(), keysBefore); else fs.rmSync(cs._paths.keysFile(), { force: true });
   }
 });
+
+/* kosmos#7886 item 5 (feedback 11-03): a read says, before the agent acts, whether it already follows a post's author
+   and already commented on the post. Each arm has a control that shows the mark appears when it should. */
+test('#7886 item 5: a post the reader commented on, or follows the author of, says so on its header line', async () => {
+  on();
+  const A = 'a7886000-0000-4000-8000-00000000000a';   // ann, the reader
+  const F = 'f7886000-0000-4000-8000-00000000000f';   // an agent ann follows
+  const P = (n) => '17886000-0000-4000-8000-00000000000' + n;
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  let before = null;
+  try { before = fs.readFileSync(cs._paths.keysFile()); } catch { /* none yet */ }
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ ann: { remoteId: A, name: 'ann' } }));
+  const st = require('./communitystatus');
+  const realFor = st.itemsFor;
+  st.itemsFor = (who) => (who === 'ann' ? [
+    { kind: 'comment', id: 'c1', post: P(1).toUpperCase(), state: 'sent' },   // the board's record may be upper-case
+    { kind: 'comment', id: 'c2', post: P(2), state: 'held' },
+    { kind: 'comment', id: 'c3', post: P(3), state: 'refused' },   // never reached it: not marked
+    { kind: 'post', id: P(4), state: 'sent' },                      // a post of ann's, not a comment on P(4)
+  ] : []);
+  let follows = { status: 200, json: { agents: [{ id: F, name: 'Fay' }, { name: 'Nameonly' }], next_cursor: null } };
+  const asked = [];
+  serve({
+    '/posts/feed': () => ({ status: 200, json: { posts: [
+      post({ id: P(1), agent: { id: F, name: 'Fay' } }),
+      post({ id: P(2), agent: { name: 'Nameonly' } }),
+      post({ id: P(3), agent: { id: 'c7886000-0000-4000-8000-00000000000c', name: 'Fay' } }),   // same name, another id
+      post({ id: P(4), agent: { name: 'Stranger' } }),
+      post({ id: P(5), agent: { name: 'Nameonly', kind: 'person' } }),   // a person: never "you follow"
+    ] } }),
+    '/agents/by-name/ann/following': (u) => { asked.push(u.search); return follows; },
+  });
+  try {
+    const r = await cr.read({ reader: 'ann' });
+    assert.equal(r.ok, true, r.because);
+    const header = (n) => r.text.split('\n').find((l) => l.includes('(post ' + P(n) + ')')) || '';
+    assert.deepEqual(asked, ['?limit=' + cr.FOLLOWING_ASKED], 'the follow list was not asked once, with its page size');
+    assert.ok(header(1).includes(cr.FOLLOWING_MARK), 'a followed author (by id) was not marked: ' + header(1));
+    assert.ok(header(1).includes(cr.COMMENTED_MARK), 'a post with a sent comment was not marked: ' + header(1));
+    assert.ok(header(2).includes(cr.FOLLOWING_MARK), 'a followed author with no id (by name) was not marked');
+    assert.ok(header(2).includes(cr.COMMENT_WAITING_MARK) && !header(2).includes(cr.COMMENTED_MARK), 'a held comment read as sent, or not at all');
+    assert.ok(!header(3).includes(cr.FOLLOWING_MARK), 'an author with another id was marked as followed by name alone');
+    assert.ok(!/you (commented|wrote a comment)/.test(header(3)), 'a refused comment was marked');
+    assert.ok(!/you (follow|commented|wrote a comment)/.test(header(4)), 'a stranger, or the reader\'s own post id, was marked');
+    assert.ok(!header(5).includes(cr.FOLLOWING_MARK), 'a person was marked as followed');
+    // The marks are board words on the header line, never inside a quoted body.
+    assert.ok(!r.text.split('\n').some((l) => l.startsWith(cr.QUOTE) && /you (follow|commented)/.test(l)), 'a mark landed inside a quote');
+    assert.ok(!r.text.includes('could not check'), 'a list that was read said it could not be checked');
+
+    // A follow list that cannot be read: no follow mark, and the read says none is marked (not "not following").
+    follows = { status: 503, json: null };
+    const down = await cr.read({ reader: 'ann' });
+    assert.ok(!down.text.includes(cr.FOLLOWING_MARK), 'a follow mark was shown without a list');
+    assert.ok(down.text.includes('could not check just now which of these agents you follow'), 'an unread list was not said');
+    assert.ok(down.text.includes(cr.COMMENTED_MARK), 'the comment mark depended on the follow list');
+
+    // A longer list: what was checked is marked, and the read says the rest was not.
+    follows = { status: 200, json: { agents: [{ id: F, name: 'Fay' }], next_cursor: 'more' } };
+    const long = await cr.read({ reader: 'ann' });
+    assert.ok(long.text.includes('only the first ' + cr.FOLLOWING_ASKED + ' were checked'), 'a partial list was not said');
+    assert.ok(long.text.includes(cr.FOLLOWING_MARK), 'CONTROL: a partial list still marks what it holds');
+
+    // One post: the same marks.
+    follows = { status: 200, json: { agents: [{ id: F, name: 'Fay' }], next_cursor: null } };
+    serve({
+      ['/posts/' + P(1)]: () => ({ status: 200, json: post({ id: P(1), agent: { id: F, name: 'Fay' } }) }),
+      ['/posts/' + P(1) + '/comments']: () => ({ status: 200, json: { comments: [] } }),
+      '/agents/by-name/ann/following': () => follows,
+    });
+    const one = await cr.read({ reader: 'ann', post: P(1) });
+    assert.equal(one.ok, true, one.because);
+    assert.ok(one.text.includes(cr.FOLLOWING_MARK) && one.text.includes(cr.COMMENTED_MARK), 'one post read lacked a mark: ' + one.text);
+
+    // No reader (a read the board cannot attribute), or one never registered: no marks, no follow request, no note.
+    const n = asked.length;
+    serve({ '/posts/feed': () => ({ status: 200, json: { posts: [post({ id: P(1), agent: { id: F, name: 'Fay' } })] } }),
+      '/agents/by-name/ann/following': (u) => { asked.push(u.search); return follows; } });
+    for (const reader of [undefined, 'nobody']) {
+      const x = await cr.read({ reader });
+      assert.ok(!/you (follow|commented|wrote a comment)|could not check/.test(x.text), 'marked for ' + reader + ': ' + x.text);
+    }
+    assert.equal(asked.length, n, 'the follow list was asked for a reader with no community name');
+  } finally {
+    st.itemsFor = realFor;
+    if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
+  }
+});

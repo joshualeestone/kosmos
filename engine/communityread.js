@@ -312,6 +312,84 @@ function markHere(reader, items, comments) {
   (comments || []).forEach((c) => { mark(c); (c.replies || []).forEach(mark); });
 }
 
+/* kosmos#7886 item 5 (feedback 11-03): read showed only after the agent acted (a follow answered "You already follow",
+   a second comment went out) that it had already followed the author or commented on the post. A post's header now
+   says both, in board words outside the quote, before the agent acts. Only what is known is said: no mark is "not
+   known", never "no", and the read says so when the follow list could not be checked (followNote). */
+const COMMENTED_MARK = 'you commented on this post';
+const COMMENT_WAITING_MARK = 'you wrote a comment for this post that is not out yet or not confirmed: see kosmos community status';
+const FOLLOWING_MARK = 'you follow this agent';
+const FOLLOWING_ASKED = 100;   // the service's page; past it a followed author can go unmarked (followNote says so)
+/* The comment states that mean it reached the post, and those that mean it may still (or may already): every other
+   state (refused, not sent, withheld, deleted, taken down, policy) is a comment that is not there and will not be. */
+const COMMENT_THERE = new Set(['sent', 'sent_refused']);
+const COMMENT_ON_ITS_WAY = new Set(['queued', 'capped', 'name_unclaimed', 'sending', 'held', 'paused', 'address_refused',
+  'unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked', 'unconfirmed_taken_back']);
+/** Marks each post in `items` the reader has commented on (`commented`: 'there' or 'waiting'), from this board's own
+ *  records of what it sent (communitystatus.itemsFor). No reader, or records that cannot be read: nothing. */
+function markCommented(reader, items) {
+  if (typeof reader !== 'string' || !reader) return;
+  let mine;
+  try { mine = require('./communitystatus').itemsFor(reader); } catch { return; }
+  if (!Array.isArray(mine)) return;
+  const there = new Set(); const waiting = new Set();
+  mine.forEach((x) => {
+    if (!x || x.kind !== 'comment' || typeof x.post !== 'string') return;
+    const post = x.post.toLowerCase();
+    if (COMMENT_THERE.has(x.state)) there.add(post);
+    else if (COMMENT_ON_ITS_WAY.has(x.state)) waiting.add(post);
+  });
+  (items || []).forEach((it) => {
+    const id = it && typeof it.id === 'string' ? it.id.toLowerCase() : '';
+    if (!id || it.label) return;   // a Following "Reply to:" entry is a reply, not the post
+    if (there.has(id)) it.commented = 'there';
+    else if (waiting.has(id)) it.commented = 'waiting';
+  });
+}
+/** Who the reader follows, from the public community: { ids, names, partial }; undefined when there is nothing to
+ *  check (no reader, or one never registered, which follows nobody); null when it could not be told (no clear answer).
+ *  One request; never throws. */
+async function followingOf(reader) {
+  if (typeof reader !== 'string' || !reader) return undefined;
+  let me;
+  try { me = require('./communityself').stored(reader).name; } catch { return null; }
+  if (typeof me !== 'string' || !me) return undefined;   // never registered: it follows nobody, so nothing to say
+  const r = await getJson('/agents/by-name/' + encodeURIComponent(me) + '/following?limit=' + FOLLOWING_ASKED);
+  const list = r && r.status === 200 && r.json && Array.isArray(r.json.agents) ? r.json.agents : null;
+  if (!list) return null;
+  const nameKey = require('./communityfollow').nameKey;
+  const ids = new Set(); const names = new Set();
+  list.forEach((a) => {
+    if (!a || typeof a !== 'object') return;
+    if (UUID_RE.test(String(a.id || ''))) ids.add(String(a.id).toLowerCase());
+    if (typeof a.name === 'string' && a.name) names.add(nameKey(a.name));
+  });
+  return { ids, names, partial: Boolean(r.json.next_cursor) || list.length > FOLLOWING_ASKED };
+}
+/** Marks each post whose author the reader follows (`following`). A person's post is never marked (people are not
+ *  followed here); an author with an id is matched by id, one without by name as the follow verb compares names. */
+function markFollowing(follows, items) {
+  if (!follows) return;
+  const nameKey = require('./communityfollow').nameKey;
+  (items || []).forEach((it) => {
+    if (!it || it.person || it.label) return;
+    if (it.authorId ? follows.ids.has(it.authorId) : (it.author && follows.names.has(nameKey(it.author)))) it.following = true;
+  });
+}
+/** The line a read adds under its heading about the follow marks: when the list could not be read (so no mark means
+ *  "not known"), or was longer than one page (so a followed author can be unmarked). Null when there is nothing to say. */
+function followNote(follows, items) {
+  if (follows === undefined || !(items || []).some((it) => it && !it.person && !it.label)) return null;
+  if (!follows) return 'Kosmos could not check just now which of these agents you follow, so none is marked.';
+  if (follows.partial) return 'You follow more than ' + FOLLOWING_ASKED + ' agents; only the first ' + FOLLOWING_ASKED + ' were checked, so an agent you follow may be unmarked.';
+  return null;
+}
+/* The words a post's header line ends with, from the marks above. */
+function doneNote(it) {
+  return (it.following ? ' (' + FOLLOWING_MARK + ')' : '')
+    + (it.commented === 'there' ? ' (' + COMMENTED_MARK + ')' : it.commented === 'waiting' ? ' (' + COMMENT_WAITING_MARK + ')' : '');
+}
+
 /** The framed text an agent reads. PURE. #4833: `thread` (one post's comments) goes inside the same frame. */
 const LABEL_RE = /^r[1-9][0-9]{0,2}$/;   // #5636 F7c: a board-set item label (the Following feed's replies)
 function frame(items, heading, thread, company) {
@@ -334,7 +412,8 @@ function frame(items, heading, thread, company) {
       // thread, this id votes on the reply). Empty for a post. Board-validated id, so a body cannot forge one.
       + (it.commentId ? ' (comment ' + it.commentId + ')' : '')
       // #5372: the Following feed's one entry per post counts its other replies here; board-made words only.
-      + (typeof it.activity === 'string' && it.activity ? ', and ' + it.activity : ''));
+      + (typeof it.activity === 'string' && it.activity ? ', and ' + it.activity : '')
+      + doneNote(it));   // kosmos#7886 item 5
     if (it.title) out.push(quoted(it.title));
     if (it.body) out.push(quoted(it.body));
     // #5372: the Following feed's other replies under this post, each under a header of its own outside the quote, as
@@ -451,14 +530,20 @@ async function read(opts = {}) {
       catch { thread = { unread: true }; }
     }
     markHere(opts.reader, [it], thread.comments);
+    // kosmos#7886 item 5: whether the reader already follows the author or commented here, before it acts.
+    markCommented(opts.reader, [it]);
+    const follows = company ? undefined : await followingOf(opts.reader);   // follows are the public community's
+    markFollowing(follows, [it]);
     const text = frame([it], null, thread, company);
-    const own = ownWaitingOn(opts.reader, id.toLowerCase());
+    const tail = [ownWaitingOn(opts.reader, id.toLowerCase()), followNote(follows, [it])].filter(Boolean);
     // kosmos#7391: readPost, for the caller to mark: only a public post can be in the Following feed home counts.
-    return { ok: true, count: 1, text: own ? text + '\n\n' + own : text, ...(company ? {} : { readPost: id.toLowerCase() }) };
+    return { ok: true, count: 1, text: tail.length ? text + '\n\n' + tail.join('\n') : text, ...(company ? {} : { readPost: id.toLowerCase() }) };
   }
   const ch = channelSlug(opts.channel);
   if (!ch.ok) return { ok: false, because: ch.because };
   const q = '?limit=' + MAX_ITEMS + (ch.slug ? '&channel=' + encodeURIComponent(ch.slug) : '') + (older ? '&cursor=' + encodeURIComponent(older) : '');
+  // kosmos#7886 item 5: the follow list is asked alongside the feed, so the read takes no longer for it.
+  const followsAsked = company ? Promise.resolve(undefined) : followingOf(opts.reader);
   const r = await get((company ? '/feed' : '/posts/feed') + q);   // kosmos#7543: the space's feed is /spaces/{org}/feed
   /* A place with the right shape that the service does not recognise (mistyped, cut short, from an older service) is
      the reader's mistake, not the service failing: say so, so it is not retried as an outage. */
@@ -467,8 +552,12 @@ async function read(opts = {}) {
   if (!posts) return { ok: false, upstream: true, because: r.because || 'the community gave an answer we could not read' };
   const items = posts.slice(0, MAX_ITEMS).map((p) => itemOf(p)).filter(Boolean);
   markHere(opts.reader, items);
+  markCommented(opts.reader, items);
+  const follows = await followsAsked;
+  markFollowing(follows, items);
   const next = typeof r.json.next_cursor === 'string' && CURSOR_RE.test(r.json.next_cursor) ? r.json.next_cursor : '';
-  const heading = (older ? 'Older posts' : 'Newest posts') + (ch.slug ? ' in ' + ch.slug : '') + ':';
+  const note = followNote(follows, items);
+  const heading = (older ? 'Older posts' : 'Newest posts') + (ch.slug ? ' in ' + ch.slug : '') + ':' + (note ? '\n' + note : '');
   return { ok: true, count: items.length, text: frame(items, heading, null, company) + '\n\n' + feedFooter(ch.spec, next, company, Boolean(opts.public && scope.company)) };
 }
 
@@ -1482,4 +1571,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { postsToRead, postActivity, REPLIES_OLDER_MAX, HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { COMMENTED_MARK, COMMENT_WAITING_MARK, FOLLOWING_MARK, FOLLOWING_ASKED, markCommented, followingOf, markFollowing, followNote, postsToRead, postActivity, REPLIES_OLDER_MAX, HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
