@@ -1051,7 +1051,8 @@ struct ChatView: View {
             // showing: nothing drawn (the estimate's stretch with no rows), or the newest behind the grown box (the simulator,
             // 11-03: 19 pt under it). Put the newest back by id (never a distance), unless a finger or the reader moved; a
             // reader higher up (atBottom false) is never moved. With the end showing there is nothing to do.
-            if place == "within", !endVisible || onScreen.isEmpty {
+            // (simulator, 11-03: the end marker counts as showing behind the box, so the offset short of the end is asked too)
+            if place == "within", !endVisible || onScreen.isEmpty || (scrollBox.shortOfEnd() ?? 0) > 2 {
                 if atBottom, !personScrolling, !scrollBox.underFinger {
                     Self.trace(onScreen.isEmpty ? "settled: within, nothing drawn, back to the newest" : "settled: the newest not showing, back to it")
                     goNewest(proxy)
@@ -3212,6 +3213,13 @@ final class ScrollBox {
         func n(_ x: CGFloat) -> Int { x.isFinite ? Int(x) : -1 }   // no trap on NaN or infinity in the report about a broken scroll
         return ("scroll y \(n(sv.contentOffset.y)), content \(n(sv.contentSize.height)), view \(n(sv.bounds.height)), insets \(n(i.top))/\(n(i.bottom)): \(p.place)",
                 p.place, p.end)
+    }
+    // kosmos#7420: how far the offset is short of the content's end, in points (0 at the end or past it); nil unread or not finite.
+    func shortOfEnd() -> Double? {
+        guard let sv = view, let r = reading() else { return nil }
+        let y = Double(sv.contentOffset.y)
+        guard y.isFinite, r.end.isFinite else { return nil }
+        return max(0, r.end - y)
     }
     // Outside either way it goes to the end, since the newest message follows. The end is read from the content's size now,
     // which for lazy rows is an estimate; goNewest then goes to the newest message. Never under a finger. True when it moved it.

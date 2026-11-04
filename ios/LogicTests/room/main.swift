@@ -584,7 +584,7 @@ check(chatSource.contains("guard tick == kbSettleTick, epoch == chatAt, listEpoc
       "kosmos#7817: a list past its end is put back (twice looked at, never under a finger), and an outside reading is recorded")
 // kosmos#7420 (Josh's phone, build 33, 18:51 and 18:59): within the content with nothing drawn, at the newest and nobody
 // scrolling, the settled look goes to the newest by id; a reader higher up, a finger or a reader's scroll is left alone.
-check(chatSource.contains("if place == \"within\", !endVisible || onScreen.isEmpty {\n                if atBottom, !personScrolling, !scrollBox.underFinger {") && chatSource.contains("goNewest(proxy)\n                } else if onScreen.isEmpty")
+check(chatSource.contains("if place == \"within\", !endVisible || onScreen.isEmpty || (scrollBox.shortOfEnd() ?? 0) > 2 {\n                if atBottom, !personScrolling, !scrollBox.underFinger {") && chatSource.contains("goNewest(proxy)\n                } else if onScreen.isEmpty")
       && chatSource.contains("if Self.idAnchor { goNewest(proxy); settleAtNewest(proxy); return }"),
       "kosmos#7420: a blank at the newest is put back by id once settled, and the whole window landing at the newest asks the settled look")
 check(chatSource.contains("UIResponder.keyboardWillHideNotification)) { _ in\n                    // kosmos#7817: a keyboard going down (on screen or not) cancels a put-back still waiting.\n                    kbSettleTick &+= 1\n"),
