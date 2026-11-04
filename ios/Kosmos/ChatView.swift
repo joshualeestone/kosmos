@@ -1874,7 +1874,8 @@ struct ChatView: View {
 
     private var chips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+            // Bottom-aligned (kosmos#7944 review 4): a picture's square is taller than a name chip, by the room its x needs.
+            HStack(alignment: .bottom, spacing: 6) {
                 // First, so it is on screen however many files are already waiting.
                 if uploadingHere > 0 {
                     HStack(spacing: 6) {

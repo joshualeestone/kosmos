@@ -11,19 +11,30 @@ references are private, kept off the card).
 - A file that is not a picture, or a picture ImageIO cannot read, is the plain name chip as before.
 
 ## How
-- The phone's own copy is deleted once the Mac has it, so `Board.attachPreview` keeps a JPEG of the picture (long side
-  at most 1600 px, upright from EXIF) taken while the copy is still there. ~30 KB to 0.5 MB each, ten at most.
-- `BoardClient.attachedPreviews[id]`, pruned in `attached`'s didSet, so every way off the composer (x, Remove, send,
-  forgetting the chats) drops it. A file put back after a failed send returns as a plain chip (accepted).
-- Remove is a fixed red #b3261e in both themes (white on it about 6.6:1; the dark theme's dangerWord would put white
-  under 3:1). The x on a square is the ink's colour with a ring of the ground, so it shows on any ground and picture.
+- The phone's own copy is deleted once the Mac has it, so `Board.attachedPicture` makes two JPEGs while that copy is
+  still there: `large` (long side 1600 px, for the sheet) and `small` (336 px, for the 56 pt square), from one
+  ImageIO source, upright from EXIF. Tens of KB to about 0.5 MB each, ten files at most.
+- Order in `BoardClient.attach`: upload, then the file goes on the composer, then the copy is made off the main
+  thread, then `keepPicture` keeps it only if the file still waits there under the same chats. So nothing waits
+  between the guard and the upload (review 1), and the x on "Adding a file..." during the copy cannot drop a file
+  the Mac already has (review 3); the square fills in when the copy is ready.
+- `attachedPreviews` is pruned in `attached`'s didSet, so every way off the composer (x, Remove, send, forgetting the
+  chats) drops it. A file put back after a failed send returns as a plain chip (accepted).
+- The sheet hangs off the + (always on screen), not the chip row, which goes with the last file (review 3); it
+  closes if its picture is gone. Remove is a fixed red #b3261e in both themes (white on it about 6.6:1; the dark
+  theme's dangerWord would put white under 3:1), and VoiceOver hears "Removed <name>".
+- The x is centred on the square's corner, its 44 pt place inside the row (review 1); a quarter of it lies over the
+  picture, as in Josh's reference (deferred in review 4 as deliberate). The chip row is bottom-aligned (review 4).
+- Types: JPEG, PNG, HEIC/HEIF, GIF, WebP, TIFF, BMP, AVIF, DNG, or those endings when the type is empty or generic.
 
 ## Measured
-- Logic tests: all suites pass (main 1936/1936). New: type/name rules with controls, the 1600 px cap, no upscale, EXIF 6
-  turned upright, a fake picture keeps nothing; client: a real photo keeps a copy, the PDF beside it none, the x drops
-  it, a send drops it. Mutant (prune disabled): 3 red, restored.
+- Logic tests: all suites pass (main 1940/1940). Type/name rules with controls; the 1600 px cap, no upscale, EXIF 6
+  upright, a fake picture keeps nothing; client: a real photo keeps both copies (small 336x252), the PDF beside it
+  none, the x drops it, a send drops it; keepPicture refuses a removed file and an earlier account (CONTROL: a waiting
+  file keeps it). Mutants: prune disabled, 3 red; keepPicture's guard removed, 2 red. Both restored.
 - UI test AttachedPreviewUITests (opt-in, KOSMOS_UI_PLUS): tap opens, names the file, Remove closes and takes only
   that file (CONTROL: the PDF stays). StopAddingUITests still pass. Light and dark, iPhone 17e, iOS 27.0.
 
 ## Weakest premise
-Simulator only; a large HEIC from a real camera is not measured for the time the copy takes (off the main thread).
+Simulator only; a large HEIC from a real camera is not measured for the time the copy takes (off the main thread,
+after the file is already on the composer, so a slow copy only delays its square).
