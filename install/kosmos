@@ -434,8 +434,13 @@ esac
 # The installer sets KOSMOS_SAY_INDENT so this command's narration nests as
 # detail under the installer's own step lines instead of reading as new
 # steps; run by hand, it stays at the command's two-space voice.
-say() { printf '%s%s\n' "${KOSMOS_SAY_INDENT:-  }" "$*"; }
-die() { printf '  %s\n' "$*" >&2; exit 1; }
+say() {
+  printf '%s%s\n' "${KOSMOS_SAY_INDENT:-  }" "$*"
+  # kosmos#7967: inside cmd_community_with_reason, keep the first line said, so a failure can repeat it on stderr.
+  if [ -n "${_KOSMOS_SAY_KEEP:-}" ] && [ -z "${_KOSMOS_SAID_FIRST:-}" ]; then _KOSMOS_SAID_FIRST="$*"; fi
+}
+unset _KOSMOS_SAY_KEEP _KOSMOS_SAID_FIRST _KOSMOS_COMMUNITY_NAME   # kosmos#7967: only the community wrapper sets them
+die() { [ -z "${_KOSMOS_SAY_KEEP:-}" ] || [ -n "${_KOSMOS_SAID_FIRST:-}" ] || _KOSMOS_SAID_FIRST="$*"; printf '  %s\n' "$*" >&2; exit 1; }   # kosmos#7967: the community line repeats it
 
 # kosmos#4889: a verb's text is everything its own options did not take, so an option it does not know
 # (`report working --bogusflag x`, `report needs_you --clear`) used to become the text, exit 0, and the
@@ -4336,6 +4341,52 @@ cmd_inbox() {
   esac
 }
 
+# kosmos#7967: every nonzero exit of a community command ends with ONE line on stderr: the first thing it said, its
+# exit code and what that code means. The words a person reads stay on stdout as before (a terminal or a tool that joins
+# the two shows the reason twice; that is the price of a chained check that drops stdout still seeing why it stopped).
+# The suffix never says whether anything happened: an exit 1 can follow a post the board may have taken (a cut answer),
+# so the suffix only sends the reader back to the line.
+# How (review round 5): for the community verb only, `exit` becomes a function that writes the line and then runs the
+# real exit. The command runs in this shell exactly as before, with no subshell, background job or trap, so every
+# signal (Ctrl-C, TERM, HUP, KILL, QUIT) does to it what it did before #7967. Rounds 1 to 4 ran it in a subshell and each
+# shape broke a signal: a trap made TERM wait for the request, no trap left the subshell posting after a kill, and a
+# background job could not take Ctrl-C (bash 3.2 cannot un-ignore SIGINT there). Only an exit in this shell writes the
+# line (BASH_SUBSHELL 0): an exit inside $(...) is that subshell's own. A stop by errexit or by a signal writes none.
+# A function named exit is honoured outside POSIX mode only; under POSIXLY_CORRECT the builtin runs and no line is
+# written, nothing else changes.
+# cmd_community keeps its name: the Windows parity guard reads its subcommands from it.
+cmd_community_with_reason() {
+  # A --help re-dispatch (above) runs the bare verb for its usage and maps its exit 2 to success: no failure line there.
+  if [ -n "${KOSMOS_HELP_REDISPATCH:-}" ]; then cmd_community "$@"; return; fi
+  _KOSMOS_COMMUNITY_NAME="kosmos community${1:+ $1}"
+  _KOSMOS_SAY_KEEP=1
+  _KOSMOS_SAID_FIRST=""
+  exit() {
+    local _rc="${1-$?}"
+    # `|| true`: under set -e a write to a closed or full stderr would end this function before the real exit, and
+    # an exit 3 (may have happened: do not send again) would leave as a 1 (review 6).
+    if [ "${BASH_SUBSHELL:-0}" -eq 0 ] && [ "$_rc" -ne 0 ]; then _community_reason_line "$_rc" || true; fi
+    builtin exit "$_rc"
+  }
+  cmd_community "$@"
+}
+_community_reason_line() {   # <exit code>
+  local _rc="$1" _why="${_KOSMOS_SAID_FIRST:-}" _means=""
+  _why="${_why//$'\n'/ }"
+  _why="${_why#"${_why%%[![:space:]]*}"}"
+  _why="${_why%"${_why##*[![:space:]]}"}"
+  case "$_rc" in
+    2) _means="refused; the line says why" ;;
+    3) _means="it may have happened; read the line before running it again" ;;
+    *) _means="read the line before running it again" ;;
+  esac
+  if [ -n "$_why" ]; then
+    printf '%s: %s (exit %s: %s)\n' "$_KOSMOS_COMMUNITY_NAME" "$_why" "$_rc" "$_means" >&2 || true
+  else
+    printf '%s stopped without saying why (exit %s). Run it on its own to see its output.\n' "$_KOSMOS_COMMUNITY_NAME" "$_rc" >&2 || true
+  fi
+}
+
 # #4289: an agent posts to the Kosmos community through its own board. The board, not the agent,
 # decides what happens next: every post goes through feedpublish (the leak scrub and the trust
 # ladder), a clean post publishes straight away (#3485, 2026-09-30; one the scrub stops is HELD for
@@ -5594,7 +5645,7 @@ if [ "$_kosmos_help" = 1 ]; then
       # surface any OTHER code rather than masking a broken re-dispatch as a
       # silent exit 0 with no usage. The genuine bare `kosmos msg` (no --help) is
       # untouched and still exits 2.
-      _hrc=0; ( "$SELF" "$1" ) || _hrc=$?
+      _hrc=0; ( KOSMOS_HELP_REDISPATCH=1 "$SELF" "$1" ) || _hrc=$?   # kosmos#7967: help, so no failure line
       [ "$_hrc" -eq 2 ] && exit 0
       exit "$_hrc" ;;
     whats-new)
@@ -7558,7 +7609,7 @@ case "${1:-}" in
   room)    shift; cmd_room "$@" ;;
   notice)  shift; cmd_notice "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;
-  community) shift; cmd_community "$@" ;;
+  community) shift; cmd_community_with_reason "$@" ;;   # kosmos#7967
   task)    shift; cmd_task "$@" ;;
   project) shift; cmd_project "$@" ;;
   records) shift; cmd_records "$@" ;;   # kosmos#6994
