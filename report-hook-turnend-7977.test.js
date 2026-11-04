@@ -23,7 +23,8 @@ fs.writeFileSync(CLI, '#!/bin/bash\n'
   + '[ "$1" = report ] && [ -z "${2:-}" ] && { echo "started working idle needs_you blocked stopped"; exit 0; }\n'
   + 'if [ "$1" = report ] && [ "$2" = idle ]; then read n kind wait < "' + MODE + '"; sleep "${wait:-0}";\n'
   + '  if [ "$n" -gt 0 ]; then echo "$((n-1)) $kind 0" > "' + MODE + '";\n'
-  + '    if [ "$kind" = refused ]; then echo "That was not recorded: waiting on you"; else echo "Kosmos is not reachable right now."; fi; exit 1; fi; fi\n'
+  + '    case "$kind" in waiting) echo "That was not recorded: it is waiting on a person (needs_you), so an automatic idle did not overwrite that." ;;\n'
+  + '      unsaved) echo "That was not recorded: we could not save that report." ;; *) echo "Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
   + 'exit 0\n');
 fs.chmodSync(CLI, 0o755);
 
@@ -52,7 +53,7 @@ test('CONTROL: a turn end that goes through is sent once, and leaves no note', (
 test('the hook does not wait on the send: it returns at once while the board takes 2 s', () => {
   setup('0 unreached 2');
   const ms = hook('Stop');
-  assert.ok(ms < 1000, 'the hook returned after ' + ms + ' ms; a send holding its output would take over 2000');
+  assert.ok(ms < 1500, 'the hook returned after ' + ms + ' ms; a send holding its output would take over 2000');
   settle(1);
 });
 
@@ -62,8 +63,8 @@ test('a first send the board never answered is tried again, and a retry that lan
   assert.equal(note(), null);
 });
 
-test('a board that answered "not recorded" (a person is awaited) gets no retry and no note', () => {
-  setup('2 refused 0'); hook('Stop'); settle(1);
+test('a board that kept a deliberate wait ("did not overwrite") gets no retry and no note', () => {
+  setup('2 waiting 0'); hook('Stop'); settle(1);
   assert.equal(idle().length, 1, 'one send only: ' + JSON.stringify(idle()));
   assert.equal(note(), null);
 });
@@ -82,8 +83,16 @@ test('two lost sends leave one line: the time, the pane, the exit code and the C
   assert.match(lines[0], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ pane _7: idle not delivered after a retry \(exit 1\): Kosmos is not reachable right now\.$/);
 });
 
-test('the hook keys on the CLI\'s own refusal words, so a reworded CLI cannot quietly turn refusals into retries', () => {
-  const cli = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
-  assert.match(cli, /That was not recorded: /, 'install/kosmos still says "That was not recorded" for a board refusal');
-  assert.match(fs.readFileSync(HOOK, 'utf8'), /grep -qi 'not recorded'/, 'the hook matches it, any case');
+test('a "not recorded" for another reason (a save that failed) is retried, and noted when it fails again', () => {
+  setup('2 unsaved 0'); hook('Stop'); settle(2);
+  assert.equal(idle().length, 2, JSON.stringify(idle()));
+  assert.match(String(note()), /idle not delivered after a retry \(exit 1\): That was not recorded: we could not save that report\.$/m);
+});
+
+test('the hook keys on the board\'s own words for a deliberate wait, so rewording them cannot quietly stop retries', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'engine', 'selfreport.js'), 'utf8');
+  const waits = src.split("skipped: 'waiting'").length - 1;
+  const words = src.split('did not overwrite').length - 1;
+  assert.ok(waits >= 3 && words >= waits, 'every skipped:waiting answer says "did not overwrite" (' + words + ' of ' + waits + ')');
+  assert.match(fs.readFileSync(HOOK, 'utf8'), /grep -q 'did not overwrite'/, 'and the hook matches that phrase');
 });

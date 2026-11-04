@@ -354,12 +354,17 @@ report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/nul
 # honest unknown). Measured 11-04: a Stop hook ran, 304 ms, no hook error, and its idle never reached the board, and
 # nothing said why, because report() discards everything. So this one send:
 #   - runs detached with ALL its output on /dev/null, like report(), so the hook never waits on the board;
-#   - is tried again once, a moment later, when the CLI failed for any reason other than the board's own "not
-#     recorded" answer (an agent waiting on a person keeps its deliberate state: no retry, no note). So a refusal of
-#     another kind (a token, the board not running) is retried and noted too, which is harmless;
+#   - is tried again once, a moment later, whenever the CLI failed, except for the board's deliberate keep: an agent
+#     waiting on a person (or blocked on its provider) keeps that state, and every such answer says the idle "did not
+#     overwrite" it (engine/selfreport.js, skipped: 'waiting'). That is the one answer that is neither retried nor
+#     noted. Every other failure, a transport error or a "not recorded" for another reason (a save that failed, a
+#     roster it could not read), is retried and, if it fails again, noted;
 #   - does not START a retry if any other hook event of this pane came after this Stop (STOP_TOKEN, which every other
 #     event removes below). A retry already sending can still arrive after a newer report, as the single send always
-#     could; the token only keeps a stale idle from being started late;
+#     could; the token only keeps a stale idle from being started late. (Events that end the hook early, an empty
+#     event or a refused call, do not remove it; neither comes between a Stop and the next prompt. Panes with no
+#     TMUX_PANE share one 'nopane' key, as MARK does, so one may cancel another's retry, which only loses a retry.)
+#     The log is only appended to, one line per twice-lost turn end, in TMPDIR, which the system clears;
 #   - after a second lost send, leaves one line: the time, the pane, the exit code and the CLI's own first line (no
 #     command text or tool input, the #1099 rule above), in turn-end-failures.log in the throttle folder.
 report_turn_end() {
@@ -368,16 +373,17 @@ report_turn_end() {
   printf '%s\n' "$$" > "$STOP_TOKEN" 2>/dev/null || true
   ( {
       _out=$("$KOSMOS" report "$@" 2>&1 </dev/null); _rc=$?
-      if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -qi 'not recorded'; then
+      if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -q 'did not overwrite'; then
         sleep "${KOSMOS_REPORT_RETRY_S:-2}"
         if [ "$(cat "$STOP_TOKEN" 2>/dev/null)" = "$$" ]; then
           _out=$("$KOSMOS" report "$@" 2>&1 </dev/null); _rc=$?
-          if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -qi 'not recorded'; then
+          if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -q 'did not overwrite'; then
             printf '%s pane %s: %s not delivered after a retry (exit %s): %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               "$PANE_KEY" "$1" "$_rc" "$(printf '%s' "$_out" | head -1 | cut -c1-160)" >> "$THROTTLE_DIR/turn-end-failures.log"
           fi
         fi
       fi
+      # Not atomic: a newer Stop writing its token between the read and the rm loses its retry, nothing more.
       [ "$(cat "$STOP_TOKEN" 2>/dev/null)" = "$$" ] && rm -f "$STOP_TOKEN"
     } >/dev/null 2>&1 </dev/null & ) >/dev/null 2>&1 </dev/null || true
 }

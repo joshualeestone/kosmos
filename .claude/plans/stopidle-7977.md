@@ -10,7 +10,9 @@ so the cause of the lost send is unrecorded. Vivienne shows the healthy pair (wo
 The Stop hook's idle report runs detached (the hook never waits on it). If the board did not answer, it is tried once
 more, but a retry is not STARTED once another hook event of the same pane came after the Stop (a per-pane STOP_TOKEN
 every other event removes); a retry already sending can still land after a newer report, as the single send always
-could. A board that answered "not recorded" (an agent waiting on a person keeps its deliberate state) is not retried or noted. A second
+could. Only the board's deliberate keep (an agent waiting on a person or its provider; every such answer says the idle "did
+not overwrite" it, selfreport.js skipped:'waiting') is neither retried nor noted; every other failure, including a
+"not recorded" for another reason (a failed save), is retried and noted. A second
 lost send writes one line (time, pane, exit code, the CLI's first line; no command text) to
 $THROTTLE_DIR/turn-end-failures.log. Every other report is unchanged. The Windows node hook is out of scope (the
 symptom is the Mac board's honest-unknown).
@@ -21,7 +23,8 @@ precedence change status.js already raised rather than took); counting a placed 
 Weakest premise: that the five family-board agents (non-Claude runners) fail this way; their selfreports would show it.
 
 ## Measured on the branch
-report-hook-turnend-7977.test.js 7/7 (retry delay 1.5 s, 2.5 s settle, for a loaded machine; the seventh binds
+report-hook-turnend-7977.test.js 8/8 (incl. a failed-save 'not recorded' that IS retried and noted; a test
+binding the hook's phrase to selfreport.js's skipped:waiting answers) (retry delay 1.5 s, 2.5 s settle, for a loaded machine; the seventh binds
 the hook's 'not recorded' match to install/kosmos's own sentence): success sends once; the hook returns at once while the send takes 2 s; a lost
 first send is retried; a refusal is not; a newer event cancels the retry; two lost sends leave the one line. Mutants,
 each red on its own test: the token check removed, the refusal check removed, the output held open.
