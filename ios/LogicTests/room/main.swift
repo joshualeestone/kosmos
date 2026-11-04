@@ -566,14 +566,15 @@ check(chatSource.contains("guard Date().timeIntervalSince(kept.at) < Self.staleA
 // reader's own scroll between will-show and did-show drops the reading.
 check(chatSource.contains("let f = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect, abs(a.width - f.width) > 0.5 {")
       && chatSource.contains("self.savedKeyboard = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect")
-      && chatSource.contains("if let self, self.saved != nil, v.isTracking || v.isDragging {\n                    self.saved = nil; self.savedKeyboard = nil;")
+      && chatSource.contains("if let self, self.saved != nil, v.isDragging {\n                    self.saved = nil; self.savedKeyboard = nil;")
       && chatSource.contains("self?.saved = nil; self?.savedKeyboard = nil; self?.lastJump = nil")
       && chatSource.contains("func standDown() { saved = nil; savedKeyboard = nil;") && chatSource.contains("self.saved = nil; self.savedKeyboard = nil\n")
       && chatSource.contains("observers = []; saved = nil; savedKeyboard = nil; endGuard()")
       && chatSource.contains("self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true, relooked: relooked) }"),
       "kosmos#7609: a reading is this keyboard's (same width), and a reader's scroll before did-show drops it")
-// kosmos#7609 review 4: a will-show finding a reading older than orphanAfter (its did-show never came) reads again.
-check(chatSource.contains("if let k = self.saved, Date().timeIntervalSince(k.at) >= Self.orphanAfter {") && chatSource.contains("static let orphanAfter: TimeInterval = 3"),
+// kosmos#7609 reviews 4-5: a will-show finding a reading past staleAfter (its did-show would refuse it) reads again; never
+// sooner, since a did-show can come 3.4 s late on CI.
+check(chatSource.contains("if let k = self.saved, Date().timeIntervalSince(k.at) >= Self.staleAfter {") && !chatSource.contains("orphanAfter"),
       "kosmos#7609: an orphaned will-show reading is replaced by the next keyboard's, not kept")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")

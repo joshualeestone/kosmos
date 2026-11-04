@@ -2927,8 +2927,6 @@ struct KeyboardHold: UIViewRepresentable {
         static let window: TimeInterval = 1.5
         // How old a will-show reading may be at its did-show (kosmos#7609: measured 3.4 s on CI).
         static let staleAfter: TimeInterval = 6
-        // A will-show this long after a reading with no did-show reads again (one keyboard's own will-shows come within 0.3 s, #7817).
-        static let orphanAfter: TimeInterval = 3
         // kosmos#7690: a move this large with no finger on the list, this soon before will-show, was not the reader's.
         static let jumpSize: CGFloat = 100
         static let jumpWindow: TimeInterval = 0.25
@@ -3037,7 +3035,8 @@ struct KeyboardHold: UIViewRepresentable {
             lastJump = nil
             offsetWatch = scroll?.observe(\.contentOffset, options: [.old, .new]) { [weak self] v, c in
                 // kosmos#7609 review 1: the reader's own scroll between will-show and did-show is their new place: the reading goes.
-                if let self, self.saved != nil, v.isTracking || v.isDragging {
+                // A drag, not a resting finger (review 5).
+                if let self, self.saved != nil, v.isDragging {
                     self.saved = nil; self.savedKeyboard = nil; ChatView.trace("keyboard hold: the reader scrolled before did-show, dropped"); return
                 }
                 guard let self, let a = c.oldValue?.y, let b = c.newValue?.y, !self.keyboardUp, self.saved == nil, self.guarding == nil,
@@ -3118,9 +3117,9 @@ struct KeyboardHold: UIViewRepresentable {
                 guard let self, let sv = self.scroll else { return }
                 let jump = self.lastJump; self.lastJump = nil   // used once, whatever happens below
                 if !self.keyboardUp { self.settleToken &+= 1; self.replaced = false }   // a new keyboard: a settle still waiting belongs to the one before
-                // A will-show while a reading waits for its did-show keeps that reading, unless that reading is older than
-                // orphanAfter: its did-show never came (kosmos#7609 review 4), so this keyboard reads afresh.
-                if let k = self.saved, Date().timeIntervalSince(k.at) >= Self.orphanAfter {
+                // A will-show while a reading waits for its did-show keeps that reading, unless that reading is past staleAfter:
+                // its did-show would refuse it anyway, so this keyboard reads afresh (kosmos#7609 reviews 4 and 5).
+                if let k = self.saved, Date().timeIntervalSince(k.at) >= Self.staleAfter {
                     self.saved = nil; self.savedKeyboard = nil; ChatView.trace("keyboard hold: an old reading with no did-show, read again")
                 }
                 guard self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
