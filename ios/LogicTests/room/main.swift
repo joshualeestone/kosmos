@@ -530,7 +530,8 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "rebuilds.count",   // kosmos#7420: how many times this chat open rebuilt its list (a count)
     "Board.anchorKind(positionId)",   // kosmos#7645: the anchor's kind (none, end, top, a message), never its id
     "Self.numbers(sv)",   // kosmos#7645 round 4: the scroll's offset, content height and showing height, in points
-    "Self.heightLine(v, rows: r)"]   // kosmos#7420: content height, offset and the drawn rows' places, in points and a count
+    "Self.heightLine(v, rows: r)",   // kosmos#7420: content height, offset and the drawn rows' places, in points and a count
+    "Int(short)"]   // kosmos#7420 review 3: how far the scroll is short of the content's end, in points
 // kosmos#7420: Self.heightLine is admitted by name, so its body is pinned: Int(...) point values, a count and fixed words.
 check(chatSource.contains("\"content \\(Int(size)), y \\(Int(sv.contentOffset.y)), drawn \\(at.count), from \\(Int(first)) to \\(Int(last)), past last \\(Int(size - last))\""), "kosmos#7420: the height line in the record is points and a count and nothing else")
 // kosmos#7645: Self.numbers(sv) is admitted by name, so its body is pinned here: three Int(...) point values and fixed words. Change
@@ -587,9 +588,11 @@ check(chatSource.contains("guard tick == kbSettleTick, epoch == chatAt, listEpoc
 // kosmos#7420 (Josh's phone, builds 33 and 34): within the content at the newest and nobody scrolling, the settled look
 // rebuilds a list with nothing drawn (the id jump landed in the same undrawn stretch, build 34) and takes a drawn list whose
 // newest is not showing back to it by id; a reader higher up, a finger or a reader's scroll is left alone. The rebuild never
-// runs for a chat with no rows, one still opening that has drawn nothing, or inside a rebuild's own grace.
-check(chatSource.contains("if place == \"within\", !endVisible || onScreen.isEmpty || (scrollBox.shortOfEnd() ?? 0) > 2 {\n                if atBottom, !personScrolling, !scrollBox.underFinger {") && chatSource.contains("guard !(thread?.rows.isEmpty ?? true), endSeen || diagEverDrew else { return }\n                        if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }\n                        Self.trace(\"keyboard settled: within, nothing drawn, rebuilt\")\n                        recoverEmpty(proxy)") && chatSource.contains("Self.trace(\"keyboard settled: the newest not showing, back to it\")\n                        goNewest(proxy)")
-      && chatSource.contains("if Self.idAnchor { goNewest(proxy); settleAtNewest(proxy); return }"),
+// runs with the end showing, the app not active, a chat with no rows, one still opening that has drawn nothing, or inside a
+// rebuild's own grace. The allowance at the end is the list's own padding (listPadV), which the stack uses.
+check(chatSource.contains("let short = scrollBox.shortOfEnd() ?? 0\n            if place == \"within\", !endVisible || onScreen.isEmpty || short > Double(Self.listPadV) + 4 {\n                if atBottom, !personScrolling, !scrollBox.underFinger {") && chatSource.contains("guard !endVisible, scenePhase == .active, !(thread?.rows.isEmpty ?? true), endSeen || diagEverDrew else { return }\n                        if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }\n                        Self.trace(\"keyboard settled: within, nothing drawn, rebuilt\")\n                        recoverEmpty(proxy)") && chatSource.contains("Self.trace(\"keyboard settled: the newest not showing (short \\(Int(short)) pt), back to it\")\n                        goNewest(proxy)")
+      && chatSource.contains("if Self.idAnchor { goNewest(proxy); settleAtNewest(proxy); return }")
+      && chatSource.contains(".padding(.vertical, ChatView.listPadV)") && chatSource.contains("static let listPadV: CGFloat = 12"),
       "kosmos#7420: a blank at the newest is put back by id once settled, and the whole window landing at the newest asks the settled look")
 check(chatSource.contains("UIResponder.keyboardWillHideNotification)) { _ in\n                    // kosmos#7817/#7420: a keyboard going down (on screen or not) cancels every settled look still waiting.\n                    kbSettleTick &+= 1\n"),
       "kosmos#7817: a keyboard going down cancels a put-back still waiting, on screen or not")
