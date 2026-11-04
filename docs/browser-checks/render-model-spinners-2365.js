@@ -136,11 +136,22 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await new Promise((res) => setTimeout(res, 400)); await frames(4);
     const b = lit(cv);
     const dot = span.querySelector('i');
+    // Taken off the page WHILE turning and put back (round 3: it froze for good): it must turn again.
+    // From a timer, as a page's own code removes things: a removal straight after a frame is seen by the visibility
+    // watcher first and escapes the bug, so it would not test it.
+    await new Promise((res) => setTimeout(() => { host.remove(); res(); }, 0));
+    await new Promise((res) => setTimeout(res, 150));
+    await new Promise((res) => setTimeout(() => { document.body.appendChild(host); res(); }, 0));
+    await frames(8);
+    const r1 = lit(cv);
+    await new Promise((res) => setTimeout(res, 400)); await frames(4);
+    const reattachedTurns = lit(cv).sum !== r1.sum;
     const wasRunning = KORB.running();
     host.style.display = 'none';
     await new Promise((res) => setTimeout(res, 300)); await frames(6);
     const stopped = !KORB.running();
-    return { side: cv.width, litA: a.n, litB: b.n, changed: a.sum !== b.sum, oldDotsShown: dot ? getComputedStyle(dot).display !== 'none' : false, wasRunning, stopped };
+    const want = Math.round(32 * (window.devicePixelRatio || 1));   // Josh: the same sized circle; this host asks for 32 px
+    return { side: cv.width, want, litA: a.n, litB: b.n, changed: a.sum !== b.sum, oldDotsShown: dot ? getComputedStyle(dot).display !== 'none' : false, wasRunning, stopped, reattachedTurns };
   });
   const orb = await orbRead(page);
   const calmPage = await browser.newPage({ viewport: { width: 900, height: 800 }, reducedMotion: 'reduce' });
@@ -157,11 +168,14 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (orb.oldDotsShown) orbProblems.push('orb: the old Sweep dots still show beside the orb');
     if (!orb.wasRunning) orbProblems.push('orb: the loop was not running while a spinner showed (CONTROL for the stop arm)');
     if (!orb.stopped) orbProblems.push('orb: the loop kept running with no spinner visible (the page keeps four hidden ones)');
+    if (!orb.reattachedTurns) orbProblems.push('orb: a spinner taken off the page and put back does not turn again');
+    if (orb.side !== orb.want) orbProblems.push('orb: drawn at ' + orb.side + ' px, not the spinner\'s own size (' + orb.want + ')');
   }
   if (calm.error) orbProblems.push('orb (reduced motion): ' + calm.error);
   else {
     if (!(calm.litA > 40)) orbProblems.push('orb (reduced motion): nothing drawn; it should hold still, not vanish');
     if (calm.changed) orbProblems.push('orb (reduced motion): the drawing still moves');
+    if (calm.wasRunning) orbProblems.push('orb (reduced motion): the loop was still running with the still orb showing');
   }
 
   const problems = orbProblems.slice();
