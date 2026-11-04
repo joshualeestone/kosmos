@@ -80,3 +80,15 @@ name the wrong cause. That needs a sudo that fails half way through one paste.
 - Test hygiene: the stale "not the privilege split" comment; mvnosudo writes its own sudo stand-in; pbdir compares its
   whole output.
 - Not changed: pbnofolder keeps `tail -n 1`, because tee's own error line comes first and the operator sees it too.
+
+## Challenge round 4 (sonnet, whole branch, no plan file), fixed in the next commit
+- Two lines could still advise removing a good copy. The move-aside's "different file at the name" line called it
+  "empty, or cut short" and advised `sudo rm R`, though R can be a complete earlier parked copy (a paste that worked,
+  then a svc.sh install, then the same paste again). The put-back's "agent differs" line advised `rm` of the agent,
+  which can be a newer install. Both now move instead of remove: R is renamed to R.earlier in the root-owned dir (kept;
+  newest_retired never names it, its suffix is not a stamp), and a differing agent is to be moved aside with the
+  printed move-aside first. The header comment now states the exact rule: removal is advised only for a file with a
+  non-empty, byte-identical twin.
+- Not changed: the order of the two hedges in "not there (...), or the check could not run"; a dangling symlink at the
+  agent path in a pasted command (the stage refuses one before printing; a job changing it between print and paste is
+  the accepted race).
