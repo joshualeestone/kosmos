@@ -1742,10 +1742,11 @@ enum Board {
     // composer instead. By type, or by the name's ending when the type is the generic one.
     static func isPreviewableImage(type: String, name: String) -> Bool {
         let t = type.lowercased()
-        if ["image/jpeg", "image/png", "image/heic", "image/heif", "image/gif", "image/webp", "image/tiff", "image/bmp"].contains(t) { return true }
+        if ["image/jpeg", "image/png", "image/heic", "image/heif", "image/gif", "image/webp", "image/tiff", "image/bmp",
+          "image/avif", "image/x-adobe-dng"].contains(t) { return true }
         if !t.isEmpty && t != "application/octet-stream" { return false }
         let ext = (name as NSString).pathExtension.lowercased()
-        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "tif", "tiff", "bmp"].contains(ext)
+        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "tif", "tiff", "bmp", "avif", "dng"].contains(ext)
     }
 
     #if DEBUG

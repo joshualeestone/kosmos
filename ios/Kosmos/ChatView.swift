@@ -1924,6 +1924,23 @@ struct ChatView: View {
         }
         .padding(.leading, 4)
         .padding(.bottom, 2)
+        // kosmos#7944: a waiting picture, tapped. Presented from the + (always there), not from the chips, which go
+        // when the last file does (review 3): the sheet and its closing rule must outlive the row.
+        .sheet(item: $previewing) { a in
+            if let picture = client.attachedPreviews[a.id] {
+                AttachedPreview(name: a.name, preview: picture.large, remove: {
+                    client.unattach(a.id, for: agent.session)
+                    RoomView.say("Removed \(a.name)")
+                })
+            } else {
+                // The file left the composer as the sheet opened: nothing to show, so it closes.
+                Color.clear.onAppear { previewing = nil }
+            }
+        }
+        // It closes if its file leaves the composer while it is open (sent, or another account or computer).
+        .onChange(of: previewing.map { client.attachedPreviews[$0.id] != nil } ?? true) { still in
+            if !still { previewing = nil }
+        }
     }
 
     private var chips: some View {
@@ -1963,17 +1980,6 @@ struct ChatView: View {
             .padding(.horizontal, 2)
             // As tall as the x's 44 pt place to tap: a scroll view takes no taps outside itself.
             .frame(minHeight: 44)
-        }
-        // kosmos#7944: a waiting picture, tapped.
-        .sheet(item: $previewing) { a in
-            if let picture = client.attachedPreviews[a.id] {
-                AttachedPreview(name: a.name, preview: picture.large, remove: { client.unattach(a.id, for: agent.session) })
-            }
-        }
-        // kosmos#7944 review 1: the sheet closes if its file leaves the composer while it is open (a send from another
-        // place, or another account or computer), rather than staying open and empty.
-        .onChange(of: previewing.map { client.attachedPreviews[$0.id] != nil } ?? true) { still in
-            if !still { previewing = nil }
         }
     }
 

@@ -93,7 +93,8 @@ struct FileChip: View {
     var body: some View {
         if let open, let thumbnail {
             tile(thumbnail, open: open)
-                .task(id: preview) { decoded = preview.flatMap { UIImage(data: $0)?.preparingForDisplay() } }
+                .task(id: preview?.count) {   // the byte count, not the bytes, compared on each draw (review 3)
+                    decoded = preview.flatMap { UIImage(data: $0)?.preparingForDisplay() } }
         } else {
             chip
         }
