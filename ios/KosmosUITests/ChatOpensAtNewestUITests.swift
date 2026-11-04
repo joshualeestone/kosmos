@@ -122,7 +122,7 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "varied-grow-after"; shot.lifetime = .keepAlways; add(shot)
         XCTAssertTrue(newest.exists, "the newest message is no longer drawn after the box grew (the blank list)")
         let f = newest.frame
-        XCTAssertTrue(f.maxY <= box.frame.minY + 2 && f.maxY > 80,
+        XCTAssertTrue(f.maxY <= box.frame.minY + 2 && f.minY >= app.navigationBars.firstMatch.frame.maxY - 1,
                       "the newest message is not on screen above the box after it grew: message \(Int(f.minY))-\(Int(f.maxY)), box top \(Int(box.frame.minY))")
         // Josh's screenshot (18:52) was taken just after sending: the box back to one empty line, the chat blank. So send
         // (the box shrinks and a new row lands) and ask that the sent message is on screen above the box.
@@ -135,7 +135,7 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         let sent = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "captions checked again")).firstMatch
         XCTAssertTrue(sent.waitForExistence(timeout: 5), "the sent message is not drawn after sending (the blank list)")
         let g = sent.frame
-        XCTAssertTrue(g.maxY <= box.frame.minY + 2 && g.maxY > 80,
+        XCTAssertTrue(g.maxY <= box.frame.minY + 2 && g.minY >= app.navigationBars.firstMatch.frame.maxY - 1,
                       "the sent message is not on screen above the box: message \(Int(g.minY))-\(Int(g.maxY)), box top \(Int(box.frame.minY))")
     }
 }

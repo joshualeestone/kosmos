@@ -573,7 +573,7 @@ struct ChatView: View {
                             }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, ChatView.listPadV)
                     // kosmos#7420 diagnostic: the stack's width (wider than the list is the shift-left Josh saw).
                     .background(GeometryReader { g in
                         Color.clear.onAppear { diagContentWidth = g.size.width }.onChange(of: g.size.width) { diagContentWidth = $0 }
@@ -940,6 +940,8 @@ struct ChatView: View {
     // kosmos#7346: how far above the solid strip messages fade into it. The end marker and the New messages button
     // are both set from it, so changing it can never hide the newest message under the fade.
     static let fadeHeight: CGFloat = 18
+    // The list's padding above its first row and below the end marker; settledPutBack allows for it at the end (#7420).
+    static let listPadV: CGFloat = 12
 
     // kosmos#7265: iOS 18 reports the scroll phase, which tells the person's scroll from rows moving under them.
     static var followsScrollPhase: Bool { if #available(iOS 18.0, *) { return true } else { return false } }
@@ -1040,19 +1042,19 @@ struct ChatView: View {
         }
     }
 
-    // kosmos#7817: after the keyboard settles, a list read past its end is put back at its end, then at the newest message,
-    // unless a search is typed, another did-show or a will-hide came, the chat or its list changed, or a finger (or a fling)
-    // is on it at that look. A reading outside the content, or within it with nothing drawn, is recorded.
+    // kosmos#7817: at a settled look (settleAtNewest), a list read past its end is put back at its end, then at the newest
+    // message, unless a search is typed, another ask or a will-hide came, the chat or its list changed, or a finger (or a
+    // fling) is on it at that look. kosmos#7420: within the content at the newest, see below.
     private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int) {
         guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching else { return }
         let place = scrollBox.reading()?.place ?? "unread"
         guard place == "past the end" else {
-            // kosmos#7420 (build 33, 18:51): within the content while the chat is at the newest message, but the end is not
-            // showing: nothing drawn (the estimate's stretch with no rows), or the newest behind the grown box (the simulator,
-            // 11-03: 19 pt under it). Put the newest back by id (never a distance), unless a finger or the reader moved; a
-            // reader higher up (atBottom false) is never moved. With the end showing there is nothing to do.
-            // (simulator, 11-03: the end marker counts as showing behind the box, so the offset short of the end is asked too)
-            if place == "within", !endVisible || onScreen.isEmpty || (scrollBox.shortOfEnd() ?? 0) > 2 {
+            // kosmos#7420 (build 33, 18:51): within the content at the newest message, with the end not showing, nothing drawn
+            // (the estimate's stretch with no rows), or the offset short of the end by more than the list's own bottom
+            // padding (the simulator, 11-03: the newest 19 pt under the grown box while the end marker read as showing).
+            // A reader higher up (atBottom false), a finger or a reader's scroll is never moved.
+            let short = scrollBox.shortOfEnd() ?? 0
+            if place == "within", !endVisible || onScreen.isEmpty || short > Double(Self.listPadV) + 4 {
                 if atBottom, !personScrolling, !scrollBox.underFinger {
                     if onScreen.isEmpty {
                         // kosmos#7420 (build 34, Josh 21:33): going to the newest by id against the inflated estimate landed in
@@ -1060,12 +1062,14 @@ struct ChatView: View {
                         // Review 1: never for a chat with no rows (nothing to draw is not a blank), and not while a list just
                         // rebuilt is still laying out (its own gap, as diagCheck waits Board.rebuildGrace).
                         // Review 2: nor while a chat is still opening and has drawn nothing yet (slow, not blank; diagCheck's).
-                        guard !(thread?.rows.isEmpty ?? true), endSeen || diagEverDrew else { return }
+                        // Review 3: nor with the end showing (a pending bubble can fill the list), nor with the app not active,
+                        // as diagCheck. It spends recoverEmpty's own per-open budget (rebuildsMax).
+                        guard !endVisible, scenePhase == .active, !(thread?.rows.isEmpty ?? true), endSeen || diagEverDrew else { return }
                         if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
                         Self.trace("keyboard settled: within, nothing drawn, rebuilt")
                         recoverEmpty(proxy)
                     } else {
-                        Self.trace("keyboard settled: the newest not showing, back to it")
+                        Self.trace("keyboard settled: the newest not showing (short \(Int(short)) pt), back to it")
                         goNewest(proxy)
                     }
                 } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn") }
