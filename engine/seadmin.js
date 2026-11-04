@@ -11,8 +11,9 @@
  * challenge yourself; never sign a hash, a challenge or an opaque blob from the coordinator. So:
  *   - prepare(action, bytes) decodes under THAT action's tag only (another action's bytes refuse, as do short,
  *     malformed or trailing bytes) and returns what a screen must show: `shown` (the decoded text, escaped, with
- *     `unusual`; never the raw `decoded` strings) and, for an admin add or a reviewer enrolment, the fingerprint
- *     computed here from the decoded bytes;
+ *     `unusual`; never the raw `decoded` strings; the generation and the reviewer flags, which are not text, are
+ *     read from `decoded`) and, for an admin add or a reviewer enrolment, the fingerprint computed here from the
+ *     decoded bytes;
  *   - sign(prepared, opts) takes ONLY an object prepare() returned, and signs the copy of the bytes it holds, so what
  *     is signed is what the screen was shown. It hands that RAW message to kosmos-se (Apple's message mode, which
  *     is what verify_se checks). No digest ever crosses into the signer, and the signature is checked against the
@@ -213,8 +214,9 @@ function fingerprintDisplay(fp) {
    - text that changes under NFC or NFKC is marked unusual: "Cafe" with a combining accent looks like "Café" with a
      precomposed one, and fullwidth "ＡBC" like "ABC";
    - more than two combining marks in a row mark it unusual (a stack can hide or imitate a letter), and so does an
-     enclosing mark, an overlay mark (U+0334 to U+0338: "o" with U+0338 draws like "ø"), or a mark with no letter
-     under it (at the start, or after a space);
+     enclosing mark, an overlay mark (U+0334 to U+0338, U+20D2, U+20D3, U+20D8 to U+20DA, U+20E5, U+20E6, U+20EA,
+     U+20EB: "o" with U+0338 draws like "ø"), or a mark with no letter under it (at the start, or after anything that
+     is not a letter or a mark);
    - a space at the start or end, or a second space in a row, is written as \u{0020} and marks it unusual;
    - a backslash is written as \\, so a name that spells "\u{202E}" in plain letters cannot pass for an escaped one;
    - letters from more than one script (Latin with Cyrillic or Greek, say) are left as they are but mark the text
@@ -236,7 +238,7 @@ function scriptOf(ch) {
   return hit ? hit[0] : 'other';
 }
 function shownText(s) {
-  let text = '', unusual = s !== s.normalize('NFC') || s !== s.normalize('NFKC') || /\p{M}{3}|\p{Me}|[\u0334-\u0338]|(?:^|\s)\p{M}/u.test(s);
+  let text = '', unusual = s !== s.normalize('NFC') || s !== s.normalize('NFKC') || /\p{M}{3}|\p{Me}|[\u0334-\u0338\u20D2\u20D3\u20D8-\u20DA\u20E5\u20E6\u20EA\u20EB]|(?:^|[^\p{L}\p{M}])\p{M}/u.test(s);
   const scripts = new Set();
   const chars = [...s];
   chars.forEach((ch, i) => {

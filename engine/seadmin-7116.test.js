@@ -304,7 +304,7 @@ test('#7892: prepare gives the screen escaped text, so hidden or look-alike char
     assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
   // Marks that NFC leaves alone but that draw over, around or without a letter: an overlay ("o" + U+0338 draws like
   // "ø"), an enclosing circle, a mark at the start, a mark after a space.
-  for (const org of ['Bjo̸rn', 'Ac⃝me', '́Acme', 'Acme ́Inc']) {
+  for (const org of ['Bjo̸rn', 'o⃒', 'o⃘', 'Ac⃝me', '́Acme', 'Acme ́Inc', 'Acme-́Inc']) {
     assert.strictEqual(org.normalize('NFC'), org, 'CONTROL: NFC leaves ' + JSON.stringify(org) + ' alone');
     assert.strictEqual(shownOrg(org)[1], true, JSON.stringify(org));
   }
@@ -408,6 +408,9 @@ test('#7892: every tag kosmos-se signs has a prompt reason, chosen from the tag 
   assert.deepStrictEqual(Object.keys(reasons).sort(), se.SIGNED.map((a) => se.TAGS[a]).sort(), 'a signed tag has no prompt reason, or a reason names no signed tag');
   for (const r of Object.values(reasons)) assert.match(r, /^[a-z][A-Za-z' ]+$/, 'a reason does not read as "kosmos-se is trying to ' + r + '"');
   assert.match(swift, /context\.localizedReason = reason/, 'the reason is not given to the signature\'s context');
+  // One cancel tag covers both kinds of pending item, so its reason must name both, or half the prompts are wrong.
+  const cancelReason = reasons[se.TAGS.cancel];
+  for (const word of ['admins', 'reviewers']) assert.ok(cancelReason.includes(word), 'the cancel prompt does not name ' + word);
   assert.doesNotMatch(swift, /localizedReason = .*args/, 'the reason comes from an argument');
 });
 

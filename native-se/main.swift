@@ -46,7 +46,8 @@ let SIGNABLE_TAGS: [String] = [
 // in SIGNABLE_TAGS has no reason here.
 let SIGN_REASONS: [String: String] = [
     "kosmos-escrowd-roster-change v1": "approve a change to your company's Kosmos admins",
-    "kosmos-escrowd-roster-cancel v1": "cancel a pending change to your company's Kosmos admins",
+    // One tag cancels either a pending admin change or a pending reviewer enrolment, so its reason names both.
+    "kosmos-escrowd-roster-cancel v1": "cancel a pending change to your company's Kosmos admins or reviewers",
     "kosmos-escrowd-reviewer-enrol v1": "add a reviewer for your company's Kosmos backups",
     "kosmos-escrowd-reviewer-revoke v1": "remove a reviewer for your company's Kosmos backups",
 ]

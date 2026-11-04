@@ -83,6 +83,15 @@ measured without a person at the screen.
   and says \p{Cs} cannot arrive through prepare. Not taken: ENOENT from a missing shebang interpreter (the helper
   is a compiled binary); the misleading refusal for a tag with no reason (a test keeps the table complete).
 
+## Review round 6 (sonnet)
+
+- WARNING: the cancel prompt said "admins" for a reviewer-enrolment cancel too (one tag, two kinds). Fixed: it names
+  both; a test requires both words.
+- WARNING: other overlay marks (U+20D2, U+20D3, U+20D8 to U+20DA and kin) passed. Fixed: added, with rows.
+- NITs fixed: a mark after any non-letter, non-mark marks the text (not only after a space); the header says the
+  generation and reviewer flags are read from `decoded`. Not taken: the `args` regex in the reason test (the table
+  lookup is the real guarantee).
+
 ## Weakest premise
 
 That the script list in `scriptOf` covers the mixed-script look-alikes that matter, and, larger, that the screen shows the fingerprint wherever one exists, since one-script look-alikes are not marked. A letter from a script not on the list
