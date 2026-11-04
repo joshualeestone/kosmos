@@ -1086,11 +1086,13 @@ agent_file_ok() { agent_path_safe && [ -f "$agent" ] && ! [ "$agent" -ef "$dplis
 # copy; with the retired file gone it says nothing was done.
 put_back_cmd() {
   local r="$1" u="$CI_USER" a="$agent" go why
-  go="sudo -u $u test ! -e $a && sudo test -s $r && sudo cat $r | sudo -u $u tee $a >/dev/null && sudo -u $u test -s $a && sudo cat $r | sudo -u $u cmp -s - $a && sudo rm $r && echo 'put back'"
-  # kosmos#7887: on failure, look at what is there before naming a cause. No agent: nothing was written (the retired
-  # file is empty or unreadable). The same agent: only the last rm failed. Another agent: the copy failed, or a newer
-  # install (an empty agent is never "the same": a cat that failed would compare empty with empty). No retired file found: a probe that fails because sudo did not run (a cancelled password prompt) reads the same, so it says so.
-  why="if sudo test -e $r; then if ! sudo -u $u test -e $a; then echo 'NOT finished; nothing was written: $r is kept, and is empty or could not be read (look at it: sudo ls -l $r)'; elif sudo -u $u test -s $a && sudo cat $r | sudo -u $u cmp -s - $a; then echo 'put back, but $r could not be removed: sudo rm $r'; else echo 'NOT finished; $r is kept. $a is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $r back anyway: sudo -u $u rm $a, then paste this again'; fi; else echo 'nothing done: $r is not there (already put back, or never parked), or the check could not run'; fi"
+  go="sudo -u $u test ! -e $a && sudo test -f $r && sudo test -s $r && sudo cat $r | sudo -u $u tee $a >/dev/null && sudo -u $u test -s $a && sudo cat $r | sudo -u $u cmp -s - $a && sudo rm $r && echo 'put back'"
+  # kosmos#7887: on failure, look at what is there before naming a cause. No agent: the retired file is checked again,
+  # so a missing folder or a refused sudo step is not blamed on it. The same agent (not empty, byte for byte): the
+  # last rm did not run or failed. Another agent: the copy failed, or a newer install. An empty agent is never "the
+  # same": a cat that failed would compare empty with empty. No retired file found: a probe that fails because sudo
+  # did not run (a cancelled password prompt) reads the same, so it says so.
+  why="if sudo test -e $r; then if ! sudo -u $u test -e $a; then if sudo test -s $r; then echo 'NOT finished; $r is kept and not empty, but $a was not written: its folder is missing or not writable, or a sudo step did not run; paste this again once that is fixed'; else echo 'NOT finished; nothing was written: $r is kept, and is empty or could not be read (look at it: sudo ls -l $r)'; fi; elif sudo -u $u test -s $a && sudo cat $r | sudo -u $u cmp -s - $a; then echo 'put back, but $r was not removed: sudo rm $r'; else echo 'NOT finished; $r is kept. $a is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $r back anyway: sudo -u $u rm $a, then paste this again'; fi; else echo 'nothing done: $r is not there (already put back, or never parked), or the check could not run'; fi"
   printf '%s' "$go || { $why; }"
 }
 # put_back <retired>: the same, done by the stage (as root).
