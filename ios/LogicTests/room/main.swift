@@ -518,7 +518,9 @@ let chatSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmo
 // kosmos#7420 diagnostic (source checks): the record holds numbers and event names, never what was written. Every trace
 // line is checked for the fields that carry words (a message's text, a name, the draft).
 // kosmos#7420 build 16: ChatView.trace( too (SideScrollLock writes from outside the view), so no writer is missed.
-let traceLines = chatSource.components(separatedBy: "\n").filter { $0.contains("Self.trace(") || $0.contains("ChatView.trace(") }
+// kosmos#7645: and the room's (RoomView writes through ChatView.trace), read here before roomSource is declared below.
+let roomTraceSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+let traceLines = (chatSource + "\n" + roomTraceSource).components(separatedBy: "\n").filter { $0.contains("Self.trace(") || $0.contains("ChatView.trace(") }
 // Review 1: an allow-list, not a ban-list. Every value a trace line puts in the record is one of these numbers, yes/no
 // flags or fixed words; anything new (an id, a session, a name) fails here until it is judged and added.
 let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a, b)", "waited", "personScrolling", "scrollBox.underFinger", "place", "Int(back)", "tall", "inset", "sized", "now ?? \"none\"", "Self.sampleRows(rows, held: r.id)", "Self.sampleRows(rows, held: kept.row)", "Int(reading.content)", "Int(r.content)", "Int(r.top)", "Int(top)", "Int(bottom)", "self.scroll.map { Self.numbers($0) } ?? \"no scroll\"", "atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
@@ -531,7 +533,8 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "Board.anchorKind(positionId)",   // kosmos#7645: the anchor's kind (none, end, top, a message), never its id
     "Self.numbers(sv)",   // kosmos#7645 round 4: the scroll's offset, content height and showing height, in points
     "Self.heightLine(v, rows: r)",   // kosmos#7420: content height, offset and the drawn rows' places, in points and a count
-    "Int(short)"]   // kosmos#7420 review 3: how far the scroll is short of the content's end, in points
+    "Int(short)",   // kosmos#7420 review 3: how far the scroll is short of the content's end, in points
+    "keepNewestOnKeyboard", "visible", "holdAtEnd", "searchMode"]   // kosmos#7645: the room's keyboard will-show, yes/no only
 // kosmos#7420: Self.heightLine is admitted by name, so its body is pinned: Int(...) point values, a count and fixed words.
 check(chatSource.contains("\"content \\(Int(size)), y \\(Int(sv.contentOffset.y)), drawn \\(at.count), from \\(Int(first)) to \\(Int(last)), past last \\(Int(size - last))\""), "kosmos#7420: the height line in the record is points and a count and nothing else")
 // kosmos#7645: Self.numbers(sv) is admitted by name, so its body is pinned here: three Int(...) point values and fixed words. Change
