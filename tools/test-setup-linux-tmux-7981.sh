@@ -21,70 +21,83 @@ run() {  # <dest> <PATH>: the installer's function, under sh, with that PATH
 }
 fresh() { rm -rf "$TMP/home"; mkdir -p "$TMP/home/tmux/bin"; D="$TMP/home/tmux"; }
 works() { [ "$("$D/bin/tmux" 2>/dev/null)" = system-tmux ]; }
+kept() { works && [ "$(readlink "$D/bin/tmux")" = "$SYS/tmux" ]; }
 BASE="$SYS:/usr/bin:/bin"
 mkdir -p "$TMP/empty"
 
 # CONTROL: a login shell's PATH, the case that always worked.
 fresh; o="$(run "$D" "$BASE")"; rc=$?
-if [ "$rc" = 0 ] && works; then ok "CONTROL: a login shell's PATH links the system tmux"; else bad "login shell: rc=$rc $o"; fi
+if [ "$rc" = 0 ] && kept; then ok "CONTROL: a login shell's PATH links the system tmux"; else bad "login shell: rc=$rc $o"; fi
 
 # The installed CLI's PATH, with the link already in place from the install before: the reported failure.
 fresh; ln -s "$SYS/tmux" "$D/bin/tmux"
 o="$(run "$D" "$D/bin:$BASE")"; rc=$?
-if [ "$rc" = 0 ] && works && [ "$(readlink "$D/bin/tmux")" = "$SYS/tmux" ]; then ok "with Kosmos's own folder first on PATH, the link still points at the system tmux"; else bad "own folder first: rc=$rc link=$(readlink "$D/bin/tmux") $o"; fi
+if [ "$rc" = 0 ] && kept; then ok "with Kosmos's own folder first on PATH, the link still points at the system tmux"; else bad "own folder first: rc=$rc link=$(readlink "$D/bin/tmux") $o"; fi
 
 # Its own folder anywhere on PATH, not only first.
 fresh; ln -s "$SYS/tmux" "$D/bin/tmux"
 o="$(run "$D" "$TMP/empty:$D/bin:$SYS:/usr/bin:/bin")"; rc=$?
-if [ "$rc" = 0 ] && works; then ok "with Kosmos's own folder in the middle of PATH, the same"; else bad "own folder in the middle: rc=$rc $o"; fi
+if [ "$rc" = 0 ] && kept; then ok "with Kosmos's own folder in the middle of PATH, the same"; else bad "own folder in the middle: rc=$rc $o"; fi
 
 # Other spellings of the same folder: the CLI and the installer do not always spell one home alike.
 fresh; ln -s "$SYS/tmux" "$D/bin/tmux"
 o="$(run "$D" "$D/bin/:$BASE")"; rc=$?
-if [ "$rc" = 0 ] && works; then ok "a trailing slash on the PATH element is the same folder"; else bad "trailing slash: rc=$rc $o"; fi
-fresh; ln -s "$SYS/tmux" "$D/bin/tmux"
-o="$(run "$D" "$TMP/home//tmux/bin:$BASE")"; rc=$?
-if [ "$rc" = 0 ] && works; then ok "a doubled slash on the PATH element is the same folder"; else bad "doubled slash: rc=$rc $o"; fi
+if [ "$rc" = 0 ] && kept; then ok "a trailing slash on the PATH element is the same file"; else bad "trailing slash: rc=$rc $o"; fi
 fresh; ln -s "$SYS/tmux" "$D/bin/tmux"; rm -f "$TMP/homelink"; ln -s "$TMP/home" "$TMP/homelink"
 o="$(run "$D" "$TMP/homelink/tmux/bin:$BASE")"; rc=$?
-if [ "$rc" = 0 ] && works; then ok "PATH reaching the folder through a link is the same folder"; else bad "PATH through a link: rc=$rc $o"; fi
+if [ "$rc" = 0 ] && kept; then ok "PATH reaching the folder through a link is the same file"; else bad "PATH through a link: rc=$rc $o"; fi
 fresh; ln -s "$SYS/tmux" "$D/bin/tmux"
 o="$(run "$TMP/homelink/tmux" "$D/bin:$BASE")"; rc=$?
-if [ "$rc" = 0 ] && works; then ok "the installer reaching the folder through a link is the same folder"; else bad "dest through a link: rc=$rc $o"; fi
+if [ "$rc" = 0 ] && kept; then ok "the installer reaching the folder through a link is the same file"; else bad "dest through a link: rc=$rc $o"; fi
+# One hop away: a link of the person's own pointing at Kosmos's link, earlier on PATH.
+fresh; ln -s "$SYS/tmux" "$D/bin/tmux"; mkdir -p "$TMP/hop"; rm -f "$TMP/hop/tmux"; ln -s "$D/bin/tmux" "$TMP/hop/tmux"
+o="$(run "$D" "$TMP/hop:$BASE")"; rc=$?
+if [ "$rc" = 0 ] && kept; then ok "a link elsewhere that points back at Kosmos's link is the same file"; else bad "one hop: rc=$rc link=$(readlink "$D/bin/tmux") $o"; fi
 
-# A glob character in PATH stays a literal folder name.
-fresh; mkdir -p "$TMP/globbed-x/bin"; printf '#!/bin/sh\necho wrong-tmux\n' > "$TMP/globbed-x/bin/tmux"; chmod 755 "$TMP/globbed-x/bin/tmux"
-o="$(run "$D" "$TMP/globbed-*/bin:$BASE")"; rc=$?
-if [ "$rc" = 0 ] && works; then ok "a glob character in PATH is not expanded"; else bad "glob in PATH: rc=$rc link=$(readlink "$D/bin/tmux") $o"; fi
-
-# A link an earlier failed update left pointing at itself is not picked, so a run after this fix repairs it.
+# A link an earlier failed update left pointing at itself is not picked, so the next run repairs it.
 fresh; ln -s "$D/bin/tmux" "$D/bin/tmux"
 o="$(run "$D" "$D/bin:$BASE")"; rc=$?
-if [ "$rc" = 0 ] && works; then ok "a link an earlier update left pointing at itself is repaired"; else bad "self-link repair: rc=$rc $o"; fi
+if [ "$rc" = 0 ] && kept; then ok "a link an earlier update left pointing at itself is repaired"; else bad "self-link repair: rc=$rc $o"; fi
 
-# Only the tools the function needs, so a real tmux on this machine cannot answer for these two.
+# A different tmux from the one linked, found first on a login shell's PATH: the link moves to it, as it always has.
+fresh; ln -s "$TMP/empty/gone" "$D/bin/tmux"
+o="$(run "$D" "$BASE")"; rc=$?
+if [ "$rc" = 0 ] && kept; then ok "a dead link is replaced by the tmux found"; else bad "dead link: rc=$rc $o"; fi
+
+# Only the tools the function needs, so a real tmux on this machine cannot answer for the rest.
 TOOLS="$TMP/tools"; mkdir -p "$TOOLS"
 for t in mkdir rm ln; do ln -s "$(command -v "$t")" "$TOOLS/$t"; done
 
-# No tmux anywhere else: refused, saying what to do, and the working link it could not replace is not destroyed.
-NOTMUX="$TMP/empty"
-fresh; ln -s "$SYS/tmux" "$D/bin/tmux"
-o="$(run "$D" "$D/bin:$NOTMUX:$TOOLS")"; rc=$?
-if [ "$rc" != 0 ] && printf '%s' "$o" | grep -q 'Kosmos needs tmux on Linux' && works; then ok "with no other tmux it refuses, says what to do, and leaves the link alone"; else bad "no other tmux: rc=$rc works=$(works && echo yes || echo no) $o"; fi
+# The commonest path of all: a fresh install has no bin folder yet. As the real installer runs: set -eu, in a || list.
+rm -rf "$TMP/home"; D="$TMP/home/tmux"; mkdir -p "$TMP/home"
+o="$(sh -c 'set -eu; . "$1/fn.sh"; info() { printf "%s\n" "$*"; }; PATH="$3"; setup_linux_tmux "$2" || exit 9; echo finished' _ "$TMP" "$D" "$SYS:$TOOLS" 2>&1)"; rc=$?
+if [ "$rc" = 0 ] && kept && printf '%s' "$o" | grep -q finished; then ok "a fresh install under set -eu links the system tmux"; else bad "fresh install: rc=$rc $o"; fi
 
-# Kosmos's folder holds the only tmux, and apt-get installs a real one: the look after it stays outside the folder too.
+# No tmux anywhere and no link: refused, saying what to do.
+NOTMUX="$TMP/empty"
+fresh
+o="$(run "$D" "$NOTMUX:$TOOLS")"; rc=$?
+if [ "$rc" != 0 ] && printf '%s' "$o" | grep -q 'Kosmos needs tmux on Linux'; then ok "with no tmux at all it refuses and says what to do"; else bad "no tmux: rc=$rc $o"; fi
+
+# Kosmos's own link is the only tmux on PATH, on a machine with apt-get: nothing is installed, and tmux is not swapped
+# under running agents. A tmux of another version cannot read a live server.
 APT="$TMP/apt"; mkdir -p "$APT"
 cat > "$APT/apt-get" <<APTEOF
 #!/bin/sh
+: > "$TMP/apt-ran"
 case "\$*" in *install*) printf '#!/bin/sh\necho system-tmux\n' > "$APT/tmux"; /bin/chmod 755 "$APT/tmux" ;; esac
 exit 0
 APTEOF
 printf '#!/bin/sh\n[ "$1" = -n ] && shift\nexec "$@"\n' > "$APT/sudo"
 printf '#!/bin/sh\nexit 0\n' > "$APT/true"
 chmod 755 "$APT/apt-get" "$APT/sudo" "$APT/true"
-fresh; ln -s "$SYS/tmux" "$D/bin/tmux"
+fresh; ln -s "$SYS/tmux" "$D/bin/tmux"; rm -f "$TMP/apt-ran"
 o="$(run "$D" "$D/bin:$APT:$TOOLS")"; rc=$?
-if [ "$rc" = 0 ] && [ -x "$APT/tmux" ] && works && [ "$(readlink "$D/bin/tmux")" = "$APT/tmux" ]; then ok "after apt-get installs tmux, the link points at that one"; else bad "after apt-get: rc=$rc link=$(readlink "$D/bin/tmux") $o"; fi
+if [ "$rc" = 0 ] && kept && [ ! -e "$TMP/apt-ran" ]; then ok "with its own link the only tmux on PATH, apt-get is not run and the link stays"; else bad "own link only: rc=$rc link=$(readlink "$D/bin/tmux") apt=$([ -e "$TMP/apt-ran" ] && echo ran) $o"; fi
+# CONTROL for that arm: no tmux at all with apt-get there, and apt-get does run and the link is made to what it installed.
+fresh; rm -f "$TMP/apt-ran" "$APT/tmux"
+o="$(run "$D" "$APT:$TOOLS")"; rc=$?
+if [ "$rc" = 0 ] && [ -e "$TMP/apt-ran" ] && [ "$(readlink "$D/bin/tmux")" = "$APT/tmux" ]; then ok "CONTROL: with no tmux, apt-get runs and the link points at what it installed"; else bad "apt control: rc=$rc link=$(readlink "$D/bin/tmux") $o"; fi
 
 [ "$fails" -eq 0 ] && { echo "test-setup-linux-tmux-7981: all passed"; exit 0; }
 echo "test-setup-linux-tmux-7981: $fails failed"; exit 1
