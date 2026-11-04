@@ -7,9 +7,9 @@
 #   data    prod seeded and booted, then staging, staging again, then prod again, on one sandboxed data set with every
 #           Kosmos service closed; each boot answers health and page with no error lines and the seed reads back
 #   update  a prod install from the served /setup is updated to staging the way a Linux board is: the served
-#           /setup-staging run over it (Linux boards do not self-install; engine/platform.js SELF_INSTALL is darwin
-#           and win32, so their /api/update refuses, which this leg records). The project is kept and systemd runs
-#           the updated board. Linux only: it installs for real under systemd, so it refuses to run outside CI.
+#           /setup-staging run over it (Linux boards do not self-install: engine/platform.js SELF_INSTALL is darwin
+#           and win32, so their own /api/update refuses; see #7935). The project is kept, and systemd runs a new
+#           board process that loaded the staged version. Linux only: it installs for real under systemd, so it refuses to run outside CI.
 #
 #   bash tools/promote-check-legs-7933.sh <verify|data|update|all> [linux|mac]
 # PLATFORM picks the pointers: linux reads dist/latest-linux.json and dist/latest-linux-staging.json; mac reads
@@ -62,10 +62,10 @@ leg_verify() {
   [ "$rc" -eq 0 ] || { fail verify "prod's verifier refused the unpacked staged files"; return; }
   head -c "$(( $(wc -c < "$tb") / 2 ))" "$tb" > "$W/dl/cut.tar.gz"
   o="$("$N" "$V" "$m" "$m.sig" "$W/dl/cut.tar.gz" - "$SV" "$W/prod" 2>&1)"; rc=$?; echo "  CONTROL cut tarball: rc=$rc $o"
-  [ "$rc" -ne 0 ] || { fail verify "CONTROL: a cut tarball was accepted"; return; }
+  [ "$rc" -ne 0 ] && printf '%s' "$o" | grep -q 'does not match' || { fail verify "CONTROL: a cut tarball was not refused for its hash"; return; }
   next="${SV%.*}.$(( 10#${SV##*.} + 1 ))"
   o="$("$N" "$V" "$m" "$m.sig" "$tb" - "$next" "$W/prod" 2>&1)"; rc=$?; echo "  CONTROL as $next: rc=$rc $o"
-  [ "$rc" -ne 0 ] || { fail verify "CONTROL: the manifest was accepted as $next"; return; }
+  [ "$rc" -ne 0 ] && printf '%s' "$o" | grep -qF "not $next" || { fail verify "CONTROL: the manifest was not refused as $next"; return; }
   pass verify
 }
 
@@ -83,18 +83,21 @@ leg_data() (  # a subshell: the sandbox env stays in it
   bad=0; p=""
   trap '[ -n "$p" ] && kill "$p" 2>/dev/null' EXIT
   boot() {  # <build dir> <label>
-    local h pg e
+    local h pg e api
     # Something else answering on the port would pass every boot below, so it must be free first.
     if curl --noproxy '*' -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/api/health"; then echo "  $2: port $PORT already answers, not this board"; bad=1; return; fi
     "$NODE" "$W/$1/app/server.js" > "$SB/board-$2.log" 2>&1 & p=$!
-    for _ in $(seq 1 60); do curl --noproxy '*' -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/api/health" && break; sleep 1; done
+    for _ in $(seq 1 60); do curl --noproxy '*' -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/api/health" && break; kill -0 "$p" 2>/dev/null || break; sleep 1; done
     h="$(curl --noproxy '*' -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/health")"
     pg="$(curl --noproxy '*' -s -m 8 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/")"
+    # The running board serves the seed, not only the files reading back through the engine.
+    if curl --noproxy '*' -s -m 8 "http://127.0.0.1:$PORT/api/projects" | grep -q '"name":"Masterclass prep"'; then api=served; else api="NOT served"; bad=1; fi
     kill -0 "$p" 2>/dev/null || { echo "  $2: the board died"; bad=1; }
     kill "$p" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8; do kill -0 "$p" 2>/dev/null || break; sleep 1; done
     kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null; wait "$p" 2>/dev/null; p=""
-    e="$(grep -ciE 'FAIL|unhandled|TypeError|ReferenceError|EACCES|corrupt' "$SB/board-$2.log")"
-    echo "  $2: health $h, page $pg, error lines $e"
+    e="$(grep -ciE 'FAIL|unhandled|uncaught|TypeError|ReferenceError|SyntaxError|EACCES|EADDRINUSE|corrupt' "$SB/board-$2.log")"
+    echo "  $2: health $h, page $pg, project $api over /api/projects, error lines $e"
+    [ "$e" = 0 ] || grep -iE 'FAIL|unhandled|uncaught|TypeError|ReferenceError|SyntaxError|EACCES|EADDRINUSE|corrupt' "$SB/board-$2.log" | head -5 | sed 's/^/    /' 
     [ "$h" = 200 ] && [ "$pg" = 200 ] && [ "$e" = 0 ] || bad=1
   }
   readback() {  # <build dir> <label>
