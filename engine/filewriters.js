@@ -28,10 +28,11 @@ const ROOTS_TTL_MS = 10 * 1000;
 /* kosmos#7989: at most one owner notice per writer and owner in a project in this long, so a writer changing a whole
    folder of one agent's files leaves one note, not one per file. */
 const NOTICE_EVERY_MS = 60 * 60 * 1000;
-/* kosmos#7989: at most this many owner notices in one project's room per NOTICE_EVERY_MS, which limits how many of the rows
-   `kosmos room` shows by default these notices can take. Past it, one note says further notices are held back. */
+/* kosmos#7989: at most this many owner notices in one project's room per NOTICE_EVERY_MS, so they take only a few of the
+   rows a room read shows (messages.ROOM_READ_ROWS). Past it, one note says further notices are held back. */
 const NOTICE_ROOM_MAX = 6;
-/* kosmos#7989: a session name as Kosmos makes one; a name read back from the record that is not this shape gets no notice. */
+/* kosmos#7989: a session name as Kosmos makes one (create.js NAME_RE is this shape, 2 to 32 long); a name read back from
+   the record that is not this shape gets no notice. */
 const SESSION_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 /* kosmos#7989: the record's own entry for those notices. A file's name is derived from its path, and noteWrite refuses a
    path holding any control character, so this key cannot be a file's. */
@@ -73,7 +74,7 @@ function projectRoots(now) {
   rootsCache = { at: now, roots: rootsOf(require('./projects').readAll()) };
   return rootsCache.roots;
 }
-function resetForTests() { rootsCache = { at: 0, roots: [] }; }
+function resetForTests() { rootsCache = { at: 0, roots: [] }; membersCache = { at: 0, byId: new Map() }; }
 
 /* The project whose folder holds `file` (the deepest one, when one project's folder sits inside another's), and the
    file's name relative to it ('/'-joined), or null. */
@@ -132,7 +133,7 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
       const pair = who + '\u0000' + first;
       const last = Date.parse(book[pair]);
       // The project's members are read only when a notice is due; an owner no longer on it takes no slot and gets no note.
-      if (!(Number.isFinite(last) && now - last >= 0 && now - last < NOTICE_EVERY_MS) && onProject(at.projectId, first)) {
+      if (!(Number.isFinite(last) && now - last >= 0 && now - last < NOTICE_EVERY_MS) && onProject(at.projectId, first, now)) {
         if (Object.keys(book).length < NOTICE_ROOM_MAX) {
           notice = { projectId: at.projectId, name: at.name, owner: first, writer: who };
           book[pair] = entry.at;
@@ -172,14 +173,20 @@ function ownerNoticeText({ name, owner, writer }) {
     + 'A notice, not a lock: ' + owner + ', read it again before you build on what you last saw in it. For the next hour, '
     + 'Kosmos will not post a separate notice for each other file ' + writer + ' changes that you were the first seen changing.';
 }
-const HELD_BACK_TEXT = 'Agents have changed many files other agents were first seen changing in this room in the last hour, '
-  + 'so Kosmos is holding back further notices of that for the rest of the hour. Read a shared file again before you build on '
-  + 'what you last saw in it.';
-/* Whether `owner` is on the project, read only when a notice is due. An unreadable list is no (no notice, no slot). */
-function onProject(projectId, owner) {
+const HELD_BACK_TEXT = 'Many files other agents were first seen changing here have been changed in the last hour, so Kosmos is '
+  + 'holding back further notices of that for now. Read a shared file again before you build on what you last saw in it.';
+/* Whether `owner` is on the project, asked only when a notice is due. The members are kept for ROOTS_TTL_MS, as the roots
+   are, since a departed owner's or a full room's writes ask again on every edit. An unreadable list is no. */
+let membersCache = { at: 0, byId: new Map() };
+function onProject(projectId, owner, now = Date.now()) {
   try {
-    const p = require('./projects').readAll().find((x) => x && x.id === projectId);
-    return Boolean(p && Array.isArray(p.agents) && p.agents.includes(owner));
+    if (!(now - membersCache.at < ROOTS_TTL_MS && now >= membersCache.at)) {
+      const byId = new Map();
+      for (const p of require('./projects').readAll()) if (p && p.id && Array.isArray(p.agents)) byId.set(p.id, p.agents.slice());
+      membersCache = { at: now, byId };
+    }
+    const agents = membersCache.byId.get(projectId);
+    return Boolean(agents && agents.includes(owner));
   } catch { return false; }
 }
 function ownerNotice(n) {

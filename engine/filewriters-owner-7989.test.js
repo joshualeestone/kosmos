@@ -120,7 +120,11 @@ test('kosmos#7989 review 3: a busy room gets at most NOTICE_ROOM_MAX notices an 
   const n = r.notes();
   assert.equal(n.length, fw.NOTICE_ROOM_MAX + 1, writers.length + ' different writers made ' + n.length + ' notes in one hour');
   assert.equal(n[fw.NOTICE_ROOM_MAX].text, fw.HELD_BACK_TEXT, 'past the cap, the room is not told notices are held back');
-  assert.equal(n.filter((x) => x.text === fw.HELD_BACK_TEXT).length, 1, 'the held-back note was said more than once in the hour');
+  // review 6: a second capped pair (another owner's file) in the same hour is held back silently, not told again.
+  r.write('second.md', 'april', t + 2 * MIN);
+  r.write('second.md', 'kitty', t + 3 * MIN);
+  assert.equal(r.notes().length, fw.NOTICE_ROOM_MAX + 1, 'a second capped pair in the hour made another note');
+  assert.equal(r.notes().filter((x) => x.text === fw.HELD_BACK_TEXT).length, 1, 'the held-back note was said more than once in the hour');
   // CONTROL, and a capped pair (lisa's, held back above) is noticed once the hour has passed.
   r.write('own0.md', 'lisa', t + MIN + HOUR + 10000);
   assert.equal(r.notes().length, fw.NOTICE_ROOM_MAX + 2, 'after the hour a capped pair is not noticed again');
@@ -185,4 +189,15 @@ test('kosmos#7989 review 5: a note that cannot be written never fails the write,
   } finally { messages.roomNote = real; }
   assert.equal(r.record()['safe.md'].agent, 'kitty', 'the record did not move');
   assert.equal(r.record()['safe.md'].first, 'mona', 'the owner moved');
+});
+
+test('kosmos#7989 review 6: line separators, direction marks and double quotes leave the quoted name', () => {
+  const r = room();
+  const t = day(12);
+  const name = 'a\u2028b\u202ec"d.md';
+  r.write(name, 'mona', t);
+  r.write(name, 'kitty', t + MIN);
+  const text = r.notes()[0].text;
+  assert.ok(!/[\u2028\u202e]/.test(text), 'a separator or a direction mark reached the note');
+  assert.ok(text.includes('"a b c\'d.md"'), 'the name was not cleaned as expected: ' + text);
 });
