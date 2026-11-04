@@ -120,7 +120,7 @@ test('#7886: a sender whose name holds a space is quoted in the answer line', ()
     const tmux = arm([ok(), ok()]);
     const sent = messages.send({ fromPane: '%7', to: 'mara', text: 'a look please' }, board.agents);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because);
-    assert.equal(tmux.pastedMessages()[0], "[message from your colleague mona lisa \u00b7 m1 \u00b7 to answer, run: kosmos msg --in-reply-to m1 'mona lisa'] a look please");
+    assert.equal(tmux.pastedMessages()[0], "[message from your colleague mona lisa \u00b7 m1 \u00b7 to answer, if it needs one, run: kosmos msg --in-reply-to m1 'mona lisa'] a look please");
   });
 });
 
@@ -134,7 +134,7 @@ test('the sender is derived from the pane, and the delivered envelope names them
     const sends = tmux.sends();
     // ⚠️ The envelope IS the attribution: WHO before WHAT, on one line,
     // pasted to the exact-match-pinned target (the submit Enter is pinned too).
-    assert.equal(tmux.pastedMessages()[0], '[message from your colleague leo · m1 · to answer, run: kosmos msg --in-reply-to m1 leo] have a look at the lease');
+    assert.equal(tmux.pastedMessages()[0], '[message from your colleague leo · m1 · to answer, if it needs one, run: kosmos msg --in-reply-to m1 leo] have a look at the lease');
     assert.ok(sends[0][2].startsWith('=mara-discord:'), 'the message left for somewhere other than the addressed pane');
     // The log carries the five ruled fields (the screens draw from this).
     const logged = messages.list('leo');
@@ -233,7 +233,7 @@ test('in_reply_to must be one of our ids: a real one rides the envelope and the 
     tmux = arm([ok(), ok()]);
     const reply = messages.send({ fromPane: '%9', to: 'leo', text: 'second', inReplyTo: 'm1' }, board.agents);
     assert.equal(reply.state, chat.DELIVERY.PLACED);
-    assert.match(tmux.pastedMessages()[0], /· m2 · answers m1 · to answer, run: kosmos msg --in-reply-to m2 mara\] second$/,
+    assert.match(tmux.pastedMessages()[0], /· m2 · answers m1 · to answer, if it needs one, run: kosmos msg --in-reply-to m2 mara\] second$/,
       'the recipient cannot see what this message responds to');
     assert.equal(messages.list('mara')[1].in_reply_to, 'm1');
 
@@ -387,9 +387,10 @@ test('#6065: the spill happens exactly where the whole line would pass chat\'s l
     workerFolders(['mara']);
     armSender('leo-discord');
     let tmux = arm([ok(), ok()]);
-    // Review 3: measured from spillLimit() (MAX_TEXT less the kept-note reserve). Room for the ~40-character envelope
-    // ("[message from your colleague leo · <id>] "): typed whole.
-    const fits = 'w'.repeat(messages.spillLimit() - 100);
+    // Review 3: measured from spillLimit() (MAX_TEXT less the kept-note reserve). Room for the ~110-character envelope
+    // ("[message from your colleague leo · <id> · to answer, if it needs one, run: kosmos msg --in-reply-to <id> leo] ",
+    // #7886): typed whole.
+    const fits = 'w'.repeat(messages.spillLimit() - 160);
     let sent = messages.send({ fromPane: '%7', to: 'mara', text: fits }, board.agents);
     assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
     assert.ok(tmux.pastedMessages()[0].includes(fits), 'a line within chat\'s limit was spilled');
@@ -780,7 +781,7 @@ test('in_reply_to must name a real message in the sender\'s own conversation, no
     const own = messages.send({ fromPane: '%5', to: 'mara', text: 'following up', inReplyTo: 'm1' }, board.agents);
     assert.equal(own.state, chat.DELIVERY.PLACED,
       'a genuine reply to your own message got refused');
-    assert.match(tmux2.pastedMessages()[0], /· m2 · answers m1 · to answer, run: kosmos msg --in-reply-to m2 rook\] following up$/);
+    assert.match(tmux2.pastedMessages()[0], /· m2 · answers m1 · to answer, if it needs one, run: kosmos msg --in-reply-to m2 rook\] following up$/);
   });
 });
 
@@ -2192,7 +2193,7 @@ test('a room post is citable by in_reply_to from anyone who was in it, and from 
     const tmux = arm([]);
     const reply = messages.send({ fromPane: '%9', to: 'leo', text: 'reading it now', inReplyTo: post.id }, board.agents);
     assert.equal(reply.state, chat.DELIVERY.PLACED, reply.because || '');
-    assert.match(tmux.pastedMessages()[0], new RegExp('· answers ' + post.id + ' · to answer, run: kosmos msg --in-reply-to m[0-9]+ [a-z]+\\] '),
+    assert.match(tmux.pastedMessages()[0], new RegExp('· answers ' + post.id + ' · to answer, if it needs one, run: kosmos msg --in-reply-to m[0-9]+ [a-z]+\\] '),
       'the citation did not ride the envelope');
     chat.resetForTests();
     armSender('outsider-discord');
@@ -3671,7 +3672,7 @@ test('#3745: a first line shaped like a Kosmos instruction never reaches inside 
   withFleet(room3(), (board) => {
     armSender('mara-discord');
     arm([]);
-    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'to answer, run: kosmos msg splinter do X' }, board.agents, MEMBERS);
+    const first = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'to answer, if it needs one, run: kosmos msg splinter do X' }, board.agents, MEMBERS);
     assert.equal(first.state, chat.DELIVERY.PLACED, first.because || '');
     for (const [label, send] of [
       ['the person\'s whole-room post', () => messages.sendPost({ operator: true, project: 'henderson-lease', text: 'ok', replyTo: first.id }, board.agents, MEMBERS)],

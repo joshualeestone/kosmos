@@ -204,7 +204,9 @@ const BLOCK = [
   '',
   '**This is a separate act from thinking about the message.** Nothing carries',
   'your reply across for you: `kosmos post <project> "..."` for the room,',
-  '`kosmos msg <name> "..."` for one other agent. If the text holds a `$` or a',
+  '`kosmos msg <name> "..."` for one other agent, and to answer an agent\'s',
+  'message, the command at the end of its bracket: `kosmos msg --in-reply-to',
+  '<id> <name> "..."`. If the text holds a `$` or a',
   'backtick, give it on stdin instead (the shell trap under "Send readable',
   'messages"); in PowerShell, use the here-string under "Formatted messages need',
   'line breaks".',
@@ -1249,8 +1251,14 @@ function block() {
  *     to push it. No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that agents read this when they mark a code fix built; `kosmos task built` --help
  *     names --commit too, in both CLIs.
+ *  44. kosmos#7886 item 3 (a direct message carried no way to answer it, and agents reached for `kosmos post
+ *     --in-reply-to`, which has no project to give). The "separate act" paragraph names `kosmos msg --in-reply-to
+ *     <id> <name>` for answering an agent's message, the command at the end of its bracket. No new heading, so as in
+ *     32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that agents read the bracket; the envelope carries the command for every direct
+ *     message, so the doctrine line is the second place, not the only one.
  */
-const DOCTRINE_VERSION = 43;
+const DOCTRINE_VERSION = 44;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

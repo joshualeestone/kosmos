@@ -182,7 +182,7 @@ test('#2909: msg keeps its existing tab/CR flattening (#1927), so only backticks
   assert.equal(seen[0].text, 'a b `c` $d \ne');
 }));
 
-/* #7886 item 3: a direct message's envelope ends "to answer, run: kosmos msg --in-reply-to <id> <sender>"
+/* #7886 item 3: a direct message's envelope ends "to answer, if it needs one, run: kosmos msg --in-reply-to <id> <sender>"
    (engine/messages.test.js pins that exact text for m1 from leo); this runs the same command, typed out here, not
    taken from an emitted envelope. */
 test('#7886: msg --in-reply-to <id> sends in_reply_to, before or after --stdin', () => withStubBoard(async (port, seen) => {
