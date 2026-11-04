@@ -34,3 +34,12 @@ retry; (6) two lost sends leave one line (time, pane, exit code, the CLI's first
 skipped:'waiting' answer in engine/selfreport.js. Mutants, each red on its own test: token check removed, the skip
 removed, output held open, the old broad 'not recorded' match restored.
 report-hook-auto-1453.test.js counts report_turn_end as a report call (floor 8). Ten sibling hook test files pass.
+
+## Final classification (review round 7, against the board's real answers)
+- No retry, no note (a retry cannot change it): the deliberate keep ("did not overwrite", selfreport.js skipped:'waiting')
+  and a pane the board cannot tie to an agent ("could not match that to one of your agents", "cannot tell which agent",
+  engine/messages.js).
+- Retried, not noted: "Kosmos is not running" (a board mid-restart reads so, the likeliest loss; Kosmos closed is noise).
+- Retried and noted: everything else, including "Kosmos refused that" (the report route's catch-all, possibly a one-off
+  fault) and any other "not recorded" (a failed save). report-hook-turnend-7977.test.js 12/12, fixtures in the real wording,
+  a test binding every phrase to its source.
