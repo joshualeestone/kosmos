@@ -1846,8 +1846,8 @@ function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin, more)
     because: behind
       ? 'held: ' + toName + (more.behindInput === true ? ' still has messages kept while its input box held text not yet sent'
         : ' still has messages kept from while it was out of usage') + '; Kosmos types this one after them'
-        + (more.behindInput === true ? ', or drops it after 2 hours and tells you' : '')   // kosmos#7936 review 1
-      : input ? 'held: ' + toName + "'s input box holds text not yet sent; Kosmos types it once the box is clear, or drops it after 2 hours and tells you"   // #6774, #7936
+        + (more.behindInput === true ? ', or, after 2 hours with the box still full, drops it and tells you' : '')   // kosmos#7936 review 1
+      : input ? 'held: ' + toName + "'s input box holds text not yet sent; Kosmos types it once the box is clear, or, after 2 hours with the box still full, drops it and tells you"   // #6774, #7936
       : signin ? 'held: ' + toName + ' is signed out; Kosmos types it once it is signed in again'   // #5948
       : 'held: ' + toName + ' is out of usage' + (heldUntil ? ' until ' + heldUntil : '') + '; Kosmos types it after the reset',
     ...(!behind && signin ? { heldFor: 'signin' } : {}),

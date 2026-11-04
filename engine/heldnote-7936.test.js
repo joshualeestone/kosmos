@@ -76,6 +76,7 @@ test('#7936: an input-held message: its sender is told once, ten minutes in, tha
   await withFleet(async (board, tmux) => {
     const at = Date.now() - 9 * MIN;
     limitqueue.add('casey', { id: 'm7936', from: 'leo', envelope: 'x', at: new Date(at).toISOString(), reset: new Date(at).toISOString(), input: true });
+    await sweep(board, at);   // the board was running when it arrived: its first sweep for casey starts the clock
     await sweep(board, Date.now());
     assert.deepEqual(tmux.pastedTo('leo'), [], 'CONTROL: nine minutes in, nothing is said yet');
     await sweep(board, at + limitqueue.STILL_HELD_TELL_MS + 1000);
@@ -96,6 +97,7 @@ test('#7936: an input-held message drops after two hours and says so; a usage-li
     const iso = new Date(at).toISOString();
     limitqueue.add('casey', { id: 'm7937', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
     limitqueue.add('casey', { id: 'm7938', from: 'leo', envelope: 'y', at: iso, reset: iso });   // CONTROL: a usage-limit hold
+    await sweep(board, at);   // the board's first sweep for casey, when they arrived
     await sweep(board, Date.now());
     assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7938'], 'the input-held one was not dropped, or the limit one was');
     const lines = tmux.pastedTo('leo');
@@ -115,9 +117,9 @@ test('#7936: a task line kept behind an input box keeps the day (its own notices
 
 test('#7936: the send receipt for an input-held message names the two-hour drop', () => {
   const src = fs.readFileSync(path.join(__dirname, 'messages.js'), 'utf8');
-  assert.ok(src.includes("Kosmos types it once the box is clear, or drops it after 2 hours and tells you"), 'receipt wording');
+  assert.ok(src.includes("Kosmos types it once the box is clear, or, after 2 hours with the box still full, drops it and tells you"), 'receipt wording');
   const cli = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
-  assert.ok(cli.includes('Kosmos types it once the box is clear, or drops it after 2 hours and tells you; do not re-send.'), 'CLI wording');
+  assert.ok(cli.includes('Kosmos types it once the box is clear, or, after 2 hours with the box still full, drops it and tells you; do not re-send.'), 'CLI wording');
 });
 
 test('#7936 item 2: the unanswered list names the flag kosmos post takes (--in-reply-to), never --reply-to', () => {
@@ -169,6 +171,7 @@ test('#7936 review 1: a still-held notice that does not land is tried again at t
     const at = Date.now() - limitqueue.STILL_HELD_TELL_MS - MIN;
     const iso = new Date(at).toISOString();
     limitqueue.add('casey', { id: 'm7941', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
+    await sweep(board, at, {}, { ...messages, tellHeldStill: async () => ({ state: chat.DELIVERY.PLACED }) });   // first sweep, at arrival
     const tries = [];
     let answer = { state: chat.DELIVERY.COULD_NOT, because: 'held: a menu is up' };
     const fake = { ...messages, tellHeldStill: async (e) => { tries.push(e.id); return answer; } };
@@ -223,5 +226,19 @@ test('#7936 review 2: a message typed in the same sweep gets no still-held notic
     await sweep(board, Date.now(), { isReleased: () => true, deliver: async () => ({ state: chat.DELIVERY.PLACED }) }, fake);
     assert.deepEqual(limitqueue.list('casey'), [], 'CONTROL: the message was typed in this sweep');
     assert.deepEqual(tries, [], 'a still-held notice followed a message just typed');
+  });
+});
+
+test('#7936 review 4: after a board restart the first sweep starts the clock: an old message is not dropped on sight', async () => {
+  await withFleet(async (board, tmux) => {
+    const iso = new Date(Date.now() - 5 * 60 * MIN).toISOString();   // kept 5 hours ago, while the agent was limited
+    limitqueue.add('casey', { id: 'm7946', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
+    const first = Date.now();
+    await sweep(board, first);   // the restarted board's first sweep, the box now the only reason
+    assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7946'], 'dropped on the first sweep after a restart');
+    await sweep(board, first + limitqueue.STILL_HELD_TELL_MS + MIN);
+    assert.equal(tmux.pastedTo('leo').length, 1, 'the sender was not told ten minutes after the restart');
+    await sweep(board, first + limitqueue.INPUT_DROP_AFTER_MS + MIN);
+    assert.deepEqual(limitqueue.list('casey'), [], 'CONTROL: 2 hours after the restart it drops');
   });
 });
