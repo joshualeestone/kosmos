@@ -18293,6 +18293,11 @@ window.kosmosMeasureScrollbarWidth();
         <input class="t" id="pjs-move-path" type="text" spellcheck="false" autocomplete="off" autocapitalize="off">
         <button class="btn" id="pjs-move-btn" type="button">Use this location</button>
       </div>
+      <!-- kosmos#7968: the project has a new name and its folder still has the old one. Offered, never done by itself. -->
+      <div id="pjs-rename-folder" hidden>
+        <p class="fhint" id="pjs-rename-folder-text"></p>
+        <button class="btn" id="pjs-rename-folder-btn" type="button">Rename the folder</button>
+      </div>
       <!-- Outside the form: the form hides once the folder is there again, and the sentence saying so must stay seen. -->
       <p class="fmsg" id="pjs-move-msg" aria-live="polite"></p>
       <button class="btn" id="pjs-reveal" data-remote-hide type="button" data-linux-hide>Show me where it is</button>
@@ -74346,6 +74351,15 @@ function paintSettingsFacts(p) {
       document.getElementById('pjs-move-msg').textContent = '';
     }
   }
+  const rf = document.getElementById('pjs-rename-folder');   // #7968
+  if (rf) {
+    rf.hidden = !p.folderRenameTo;
+    if (!rf.hidden) {
+      const called = String(p.folder).split(/[\\/]/).filter(Boolean).pop();
+      document.getElementById('pjs-rename-folder-text').textContent = 'This project\'s folder is called ' + called + '. You can rename it to '
+        + p.folderRenameTo + ' to match. Anything outside Kosmos that uses the old name, like a shortcut, a script or a terminal open in it, will stop working.';
+    }
+  }
 }
 
 /* #2928: the top-left back chevron. Nesting-based rather than a history stack
@@ -85282,6 +85296,47 @@ document.getElementById('pjs-move-btn').addEventListener('click', async () => {
     const t = String((e && e.message) || 'we could not move it');
     said.textContent = 'Not changed: ' + t + '.';
     box.focus();   // review 3: the disabled button dropped the keyboard; it goes back to the path to correct it
+  } finally {
+    btn.disabled = false;
+  }
+});
+/* #7968 */
+document.getElementById('pjs-rename-folder-btn').addEventListener('click', async () => {
+  const p = pjById(PJ_CURRENT);
+  if (!p) return;
+  const said = document.getElementById('pjs-move-msg');
+  const btn = document.getElementById('pjs-rename-folder-btn');
+  said.textContent = '';
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ renameFolder: true }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { const e = new Error(body.error || 'we could not rename it'); e.status = res.status; throw e; }
+    if (!(await loadProjects())) await loadProjects();
+    if (PJ_CURRENT !== p.id) return;
+    const total = Number(body.members) || 0, reached = Number(body.reached) || 0, notUpdated = Number(body.notUpdated) || 0;
+    let line = (PJ_READ_FAILED ? 'Done, but we could not re-read your projects just then.' : 'Done.') + ' The folder is now called ' + (String((body.project && body.project.folder) || '').split(/[\\/]/).filter(Boolean).pop() || p.folderRenameTo) + '.';
+    if (total > 0) line += ' Told ' + reached + ' of ' + total + (total === 1 ? ' agent' : ' agents') + ' on this project' + (reached < total ? (total === 1 ? '; it will see the new place when it next starts.' : '; the others will see it when they next start.') : '.');
+    if (notUpdated > 0) line += ' Kosmos could not update the instructions for ' + notUpdated + ' of them; each one\'s page says why.';
+    said.textContent = line;
+    // The button hides now: the keyboard goes to the next control, not the page.
+    if (document.activeElement === document.body || document.activeElement === btn) pjsMoveDoneFocus(said);
+  } catch (e) {
+    if (PJ_CURRENT !== p.id) return;
+    const t = String((e && e.message) || 'we could not rename it');
+    // Only a refusal means nothing changed. A 500 says itself what did, and with no answer at all nobody here can know.
+    if (e && e.status >= 400 && e.status < 500) {
+      said.textContent = 'Not changed: ' + t + '.';
+      btn.disabled = false;   // a disabled button cannot take the keyboard
+      btn.focus();
+      return;
+    }
+    said.textContent = e && e.status ? t + '.' : 'Kosmos did not answer, so we cannot say whether the folder changed. Check its name above.';
+    if (!(await loadProjects())) await loadProjects();   // whichever happened, the page shows where it is now
   } finally {
     btn.disabled = false;
   }

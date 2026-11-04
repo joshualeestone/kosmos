@@ -22893,19 +22893,7 @@ const server = http.createServer(async (req, res) => {
            The person's own act, from the page (isViaScreen, as community release: an agent token is refused), and on
            its own, so it is one write that happened or did not. The engine checks the new folder as create does. The
            members' instructions name the folder, so they are re-told, and the room is told where it went. */
-        if (body.folder !== undefined) {
-          const others = Object.keys(body).filter((k) => k !== 'folder' && k !== 'token' && k !== 'from_pane');
-          if (others.length) {
-            const mixed = new Error('move the folder on its own, then save the other changes');
-            mixed.status = 400;
-            throw mixed;
-          }
-          if (!isViaScreen(req, body)) {
-            const notYours = new Error('the project\'s folder is the person\'s to move, on the project\'s page in Kosmos');
-            notYours.status = 403;
-            throw notYours;
-          }
-          const moved = projects.moveFolder(id, body.folder);
+        const answerFolderMoved = async (moved) => {
           const rosterM = safeRoster();
           /* Review 1: each member separately (one failure skips nobody else): its instructions rewritten, then told on its
              screen, as joining and leaving are. The page says how many were reached, never more. */
@@ -22926,6 +22914,51 @@ const server = http.createServer(async (req, res) => {
           let projectM = null;
           try { projectM = projects.get(id, rosterM); } catch { projectM = null; }
           sendJson(res, 200, { project: projectM, agentsUnreadable: rosterM === null, members: members.length, reached, notUpdated });
+        };
+        if (body.renameFolder !== undefined) {   // #7968
+          const others = Object.keys(body).filter((k) => k !== 'renameFolder' && k !== 'token' && k !== 'from_pane');
+          if (others.length || body.renameFolder !== true) {
+            const mixed = new Error('rename the folder on its own, then save the other changes');
+            mixed.status = 400;
+            throw mixed;
+          }
+          if (!isViaScreen(req, body)) {
+            const notYours = new Error('the project\'s folder is the person\'s to rename, on the project\'s page in Kosmos');
+            notYours.status = 403;
+            throw notYours;
+          }
+          /* Every agent Kosmos knows, not only the ones with a pane: a stopped agent living in this folder would otherwise
+             lose its home at its next start. */
+          const { names: everyAgent, complete, roster } = knownAgentNames();
+          if (!complete) {
+            const blind = new Error('we could not read what your agents are doing just now, so the folder stays as it is');
+            blind.status = 409;
+            throw blind;
+          }
+          const mine = (projects.readAll().find((p) => p.id === id) || {}).agents || [];
+          /* Anything but idle or stopped: an agent paused at a question or a rate limit is mid-turn, and when it resumes it
+             can write to the old path. A state nobody can read counts too. */
+          const busy = roster.filter((c) => c && mine.includes(c.sessionName) && c.state !== STATE.IDLE && c.state !== STATE.STOPPED).map((c) => c.name || c.sessionName);
+          // Off Windows, Gemini's workspace is fixed at launch (geminidirs.js), so a running one could not write to the new place.
+          const stuckOnOldFolder = process.platform === 'win32' ? [] : roster.filter((c) => c && mine.includes(c.sessionName) && c.state === STATE.IDLE && c.runner === 'gemini').map((c) => c.name || c.sessionName);
+          const homes = [...everyAgent].map((n) => create.workerDir(n));
+          await answerFolderMoved(projects.renameFolderToName(id, { busy, homes, stuckOnOldFolder }));
+          return;
+        }
+        if (body.folder !== undefined) {
+          const others = Object.keys(body).filter((k) => k !== 'folder' && k !== 'token' && k !== 'from_pane');
+          if (others.length) {
+            const mixed = new Error('move the folder on its own, then save the other changes');
+            mixed.status = 400;
+            throw mixed;
+          }
+          if (!isViaScreen(req, body)) {
+            const notYours = new Error('the project\'s folder is the person\'s to move, on the project\'s page in Kosmos');
+            notYours.status = 403;
+            throw notYours;
+          }
+          const moved = projects.moveFolder(id, body.folder);
+          await answerFolderMoved(moved);
           return;
         }
         /* ⚠️ Each field moves only when the request CARRIES it, and every

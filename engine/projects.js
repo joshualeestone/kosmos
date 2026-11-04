@@ -1460,6 +1460,7 @@ function describe(project, roster, all) {
     // only side that knows where the root is.
     folderInKosmos: typeof project.folder === 'string'
       && path.dirname(project.folder) === projectsRoot(),
+    folderRenameTo: folderRenameOffer(project, all),   // #7968
     taskCounter: project.taskCounter || 0,
     agents: members,
     // Who this project's thread opens on. Published rather than left to the
@@ -3428,6 +3429,87 @@ function moveFolder(id, folder) {
   return mutate(id, (p) => { p.folder = given; return p; });
 }
 
+/* #7968: what a project's folder would be called to match its name, or null when there is nothing to offer: the folder
+   already matches apart from case, the name cannot be a folder name here, or the folder is not directly under the
+   projects root. */
+function folderRenameTarget(project) {
+  if (!project || typeof project.folder !== 'string' || path.dirname(project.folder) !== projectsRoot()) return null;
+  let want;
+  try { want = folderNameFor(project.name); } catch { return null; }
+  if (process.platform === 'win32' && (/[<>"|?*]|[. ]$/.test(want) || winpath.WINDOWS_DEVICE_NAME.test(want) || /^clock\$/i.test(want))) return null;
+  return want.toLowerCase() === path.basename(project.folder).toLowerCase() ? null : want;
+}
+
+// Nothing at all at that path. folderState reads a dangling symlink as missing, and a rename would replace it.
+function nothingAt(target) {
+  try { fs.lstatSync(target); return false; } catch (e) { return e.code === 'ENOENT'; }
+}
+
+// Both spellings of a path: one through a symlink, or one not there yet, has no real form to compare.
+const spellingsOf = (given) => { const real = folderState(given).real; return real && real !== given ? [given, real] : [given]; };
+const holdsPath = (outerGiven, innerGiven) => spellingsOf(innerGiven).some((inner) => spellingsOf(outerGiven).some((outer) => pathHolds(outer, inner)));
+const projectInside = (all, project) => all.find((p) => p.id !== project.id && typeof p.folder === 'string' && holdsPath(project.folder, p.folder));
+
+// A project whose record holds that path, whatever the case: a disk may not care, and the folder may not be there.
+const recordedAt = (all, id, target) => all.find((p) => p.id !== id && typeof p.folder === 'string' && p.folder.toLowerCase() === target.toLowerCase());
+
+// A folder that is itself a link: a rename would rename the link and leave the real folder's name as it was.
+function isLink(folder) {
+  try { return fs.lstatSync(folder).isSymbolicLink(); } catch { return false; }
+}
+
+/* The offer the page shows: the same, less what the records alone say would be refused. Agent homes and who is busy are
+   the board's to know, so those are still refusals at the press. `all` is what describe already read. */
+function folderRenameOffer(project, all) {
+  const want = folderRenameTarget(project);
+  if (!want) return null;
+  if (folderState(project.folder).state !== FOLDER.READABLE || isLink(project.folder)) return null;
+  const target = path.join(path.dirname(project.folder), want);
+  // By spelling alone: this runs on every list, for every project, and the press still does the full check.
+  const inside = all.some((p) => p.id !== project.id && typeof p.folder === 'string' && p.folder.startsWith(project.folder + path.sep));
+  if (inside || !nothingAt(target) || recordedAt(all, project.id, target)) return null;
+  return want;
+}
+
+const pathHolds = (outer, inner) => inner === outer || inner.startsWith(outer + path.sep);
+
+/* #7968: renames a project's folder in place to match its name. The id does not change. `busy` names the members
+   not idle or stopped, `stuckOnOldFolder` the running members who cannot follow a move, and `homes` is every agent's own
+   folder, all from the caller, which holds the board. Each refusal leaves the folder and the record as they were. */
+function renameFolderToName(id, { busy = [], homes = [], stuckOnOldFolder = [] } = {}) {
+  const all = readAll();
+  const self = all.find((p) => p.id === id);
+  if (!self) throw new Error('there is no project by that name');
+  const want = folderRenameTarget(self);
+  if (!want) throw new Error('there is no new name to give this folder');
+  const now = folderState(self.folder);
+  if (now.state !== FOLDER.READABLE) throw new Error('we cannot get to this project\'s folder to rename it');
+  if (isLink(self.folder)) throw new Error('this project\'s folder is a link to a folder somewhere else, so it keeps its name');
+  const refused = (message) => { const e = new Error(message); e.status = 409; return e; };
+  if (homes.some((h) => holdsPath(self.folder, h))) throw refused('an agent lives in this folder, so it stays where it is');
+  const nested = projectInside(all, self);
+  if (nested) throw refused('the project "' + nested.name + '" is inside this folder, so it stays where it is');
+  if (busy.length) throw refused(andList(busy) + (busy.length === 1 ? ' is' : ' are') + ' not idle or stopped just now, and could still be using the old folder. Rename it once ' + (busy.length === 1 ? 'that agent is' : 'they are'));
+  if (stuckOnOldFolder.length) throw refused(andList(stuckOnOldFolder) + (stuckOnOldFolder.length === 1 ? ' runs on Gemini, which keeps the folder it started with. Stop that agent first' : ' run on Gemini, which keeps the folder it started with. Stop them first') + ', then rename the folder');
+  const target = path.join(path.dirname(self.folder), want);
+  const holder = recordedAt(all, id, target);
+  if (holder) throw refused('the project "' + holder.name + '" uses the name ' + want + ' for its folder');
+  if (!nothingAt(target)) throw refused('there is already something called ' + want + ' in that folder');
+  try { fs.renameSync(self.folder, target); } catch {
+    throw refused('that folder could not be renamed. Something may have it open, or Kosmos may not be allowed to change it');
+  }
+  try { return mutate(id, (p) => { p.folder = target; return p; }); } catch {
+    try { fs.renameSync(target, self.folder); } catch {
+      const stuck = new Error('the folder was renamed to ' + want + ', but Kosmos could not save that or put it back. It is now at ' + target + ', so paste that into "Use this location" on this page');
+      stuck.status = 500;
+      throw stuck;
+    }
+    const unsaved = new Error('Kosmos could not save the new folder, so the folder keeps its old name');
+    unsaved.status = 500;
+    throw unsaved;
+  }
+}
+
 function rename(id, name) {
   // ⚠️ The id does NOT change with the name. It is what the agents' recorded
   // membership and any open URL point at, and renaming is a display change
@@ -4360,7 +4442,7 @@ module.exports = { heldOwnQuestion /* #7916 */, exactPathStat, windowsProjectFol
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, CARRIED_NOTES_START, CARRIED_NOTES_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX, roleHereOf, reviewOnlyHere,
-  list, get, projectsFor, namesFor, create, edit, moveFolder, rename, addAgent, removeAgent, remove, mutate,
+  list, get, projectsFor, namesFor, create, edit, moveFolder, renameFolderToName, folderRenameTarget, rename, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, fillDone, WELCOME_DONE,
