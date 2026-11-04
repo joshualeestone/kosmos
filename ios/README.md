@@ -98,8 +98,8 @@ builds it on GitHub's macOS runner, which has one.
   draws them again and fails if the committed ones differ, so redraw them when `OrbLogic` changes.
 - `Kosmos-Info.plist` holds the launch screen (`UILaunchScreen` > `UIColorName =
   LaunchBackground`, `UIImageName = LaunchOrb`) and `ITSAppUsesNonExemptEncryption = false`
-  (#6262: the app uses only standard HTTPS, and without the key every TestFlight build stops at an export-compliance
-  question). Everything else in the Info.plist is generated from build settings.
+  (#6262: the app uses only standard HTTPS, and without the key every TestFlight build stops at an
+  export-compliance question). Everything else in the Info.plist is generated from build settings.
 - `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` wires the icon.
 - Compiling the catalog queries the installed iOS simulator runtimes and fails without one (`No
   available simulator runtimes for platform iphonesimulator`). Agent1s now has an iOS 26.5 runtime

@@ -38,7 +38,7 @@ first screen's loading mark.
   renderer's golds differ, so changing the palette cannot quietly bring a flash back. Controls: ground's light side
   changed to 0xffffff fails, starGold's dark side changed by one fails, an unchanged copy passes. The launch checks run
   before the orb suite, so its VERDICT line is the last one printed.
-- The pixel check allows one channel in 50,000 off by more than 8 levels. Control: a single 2 px dot painted on the
+- The pixel check allows at most 8 channels (or one in 50,000) off by more than 8 levels. Control: a single 2 px dot painted on the
   1x light PNG fails it (16 channels; the earlier budget of one in 1,000, 57 channels, would have passed it). A first
   try at this control used ffmpeg's drawbox, which left the transparent pixels unchanged, so it passed for the wrong
   reason; the dot is painted with CoreGraphics instead and the file confirmed changed.
@@ -47,7 +47,7 @@ first screen's loading mark.
 - It reads the catalog's own appearance tags: a dark colour that lost its tag fails, and so does a light/dark filename
   swap in LaunchOrb's Contents.json (controls); the 2 px dot still fails with the output filtered.
   Each LaunchOrb entry's file must match its scale too, and a seventh entry fails (controls: 2x/3x swapped, an
-  extra entry).
+  extra entry), and the six must be light and dark at each scale (control: six light entries fail).
 
 ## Not measured
 A real iPhone. iOS caches launch screens per app: a phone that already had the navy one may show it once more
@@ -56,7 +56,7 @@ A launch from a notification tap opens on the board page, which is navy (its own
 goes from the launch ground to navy. Before this change it was navy to navy. The board page keeps its navy here;
 matching it would mean the launch screen guessing which way the app opens. The plain launch (the icon) is the case
 Josh named.
-The pixel check's budget (one channel in 50,000) was set on this Mac; the PR's CI run on macOS-latest is its first
+The pixel check's budget (8 channels, or one in 50,000) was set on this Mac; the PR's CI run on macOS-latest is its first
 test on another toolchain. Red there for drift alone fails safe (red, not a false green), and the budget is one number.
 The biometric lock screen (off by default) draws on the system background, not the launch ground, so with the
 lock on, launch hands off with a slight shift (white vs #faf9f7). Not changed here.

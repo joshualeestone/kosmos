@@ -35,18 +35,27 @@ echo "ok   the launch ground is Palette.ground, light and dark ($(echo $want_lau
   && [ "$(plutil -extract colors.1.appearances.0.value raw -o - "$colorset" 2>/dev/null || true)" = dark ] \
   || { echo "VERDICT: FAIL (LaunchBackground's second entry is not the dark one, or its first is not the plain one)"; exit 1; }
 imageset="$src/Assets.xcassets/LaunchOrb.imageset/Contents.json"
+seen=""
 for i in 0 1 2 3 4 5; do
   file=$(plutil -extract "images.$i.filename" raw -o - "$imageset" 2>/dev/null || true)
   look=$(plutil -extract "images.$i.appearances.0.value" raw -o - "$imageset" 2>/dev/null || echo light)
+  if plutil -extract "images.$i.appearances.0" raw -o - "$imageset" >/dev/null 2>&1; then
+    [ "$(plutil -extract "images.$i.appearances.0.appearance" raw -o - "$imageset" 2>/dev/null || true)" = luminosity ] \
+      || { echo "VERDICT: FAIL (LaunchOrb entry $i is tagged by something other than luminosity)"; exit 1; }
+  fi
   scale=$(plutil -extract "images.$i.scale" raw -o - "$imageset" 2>/dev/null || true)
   case "$scale" in 1x) want="launch-orb-$look.png" ;; 2x|3x) want="launch-orb-$look@$scale.png" ;; *) want="" ;; esac
   [ -n "$want" ] && [ "$file" = "$want" ] \
     || { echo "VERDICT: FAIL (LaunchOrb entry $i shows ${file:-nothing} for the $look appearance at ${scale:-no} scale)"; exit 1; }
+  seen="$seen $look-$scale"
 done
+# All six, each once: light and dark at 1x, 2x and 3x (six light entries would otherwise pass one by one).
+[ "$(echo $seen | tr ' ' '\n' | sort -u | tr '\n' ' ')" = "dark-1x dark-2x dark-3x light-1x light-2x light-3x " ] \
+  || { echo "VERDICT: FAIL (LaunchOrb's entries are$seen, not light and dark at 1x, 2x and 3x)"; exit 1; }
 if plutil -extract images.6 raw -o - "$imageset" >/dev/null 2>&1; then
   echo "VERDICT: FAIL (LaunchOrb has more than the six entries this checks)"; exit 1
 fi
-echo "ok   the dark colour and the dark PNGs are tagged dark, the light ones untagged"
+echo "ok   the dark colour and the three dark PNGs are tagged dark; light and dark each at 1x, 2x and 3x"
 have_gold=$( { grep -E '^let golds' "$here/../tools/launch-orb/main.swift" | grep -oE '0x[0-9a-fA-F]{2}, 0x[0-9a-fA-F]{2}, 0x[0-9a-fA-F]{2}' \
   | sed -E 's/0x([0-9a-fA-F]{2}), 0x([0-9a-fA-F]{2}), 0x([0-9a-fA-F]{2})/0x\1\2\3/' | tr 'A-F' 'a-f'; } || true)
 [ "$have_gold" = "$(printf '%s\n' "$gold")" ] \
