@@ -619,13 +619,14 @@ test('#5385 every runner\'s child drops an inherited PSModulePath, in any spelli
   }
 });
 
-test('#3380 the claude path is byte-identical: no execution-policy variable is added', () => {
-  /* Claude Code runs its `kosmos` through Git Bash\'s extensionless shim, which
-     never consults an execution policy, so the claude child must be untouched. */
-  assert.equal('PSExecutionPolicyPreference' in launcher.childEnv({}, 'deadbeef', null, null, 'claude'), false);
-  assert.equal('PSExecutionPolicyPreference' in launcher.childEnv({}, 'deadbeef', null, null), false, 'no runner named: unchanged');
-  /* And it never clobbers a value the base env already carried for a non-codex runner. */
-  assert.equal(launcher.childEnv({ PSExecutionPolicyPreference: 'RemoteSigned' }, 't', null, null, 'claude').PSExecutionPolicyPreference, 'RemoteSigned');
+test('kosmos#7886 item 9: a claude child gets PSExecutionPolicyPreference=Bypass too, and so does one with no runner named', () => {
+  /* Claude Code runs its `kosmos` through Git Bash\'s extensionless shim, which never consults an execution policy; but a
+     helper script the agent is told to run is started from Git Bash as `powershell -File`, with no policy flag of its own,
+     and that powershell.exe inherits this variable. An agent with no runner recorded is a claude agent. */
+  assert.equal(launcher.childEnv({}, 'deadbeef', null, null, 'claude').PSExecutionPolicyPreference, 'Bypass');
+  assert.equal(launcher.childEnv({}, 'deadbeef', null, null).PSExecutionPolicyPreference, 'Bypass', 'no runner named: a claude agent');
+  assert.equal(launcher.childEnv({ PSExecutionPolicyPreference: 'RemoteSigned' }, 't', null, null, 'claude').PSExecutionPolicyPreference, 'Bypass',
+    'an inherited value is replaced, as for the PowerShell runners');
 });
 
 /* ── the agent's own browser (engine/agentbrowser.js) ─────────────────────── */

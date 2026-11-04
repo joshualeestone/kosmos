@@ -219,7 +219,8 @@ test('childEnv lets a gemini or grok agent load the kosmos.ps1 shim, as it does 
   for (const r of ['gemini', 'grok']) {
     assert.equal(win32launch.childEnv({}, 't', null, null, r).PSExecutionPolicyPreference, 'Bypass', r);
   }
-  assert.equal('PSExecutionPolicyPreference' in win32launch.childEnv({}, 't', null, null, 'claude'), false, 'claude unchanged');
+  // kosmos#7886 item 9: claude too (a helper script started from its Git Bash as `powershell -File` has no flag of its own).
+  assert.equal(win32launch.childEnv({}, 't', null, null, 'claude').PSExecutionPolicyPreference, 'Bypass', 'claude');
 });
 
 test('binFor falls back to the runner\'s own bare name, never claude, for gemini and grok', () => {

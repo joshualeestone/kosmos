@@ -50,10 +50,14 @@ test('#5358: a PowerShell runner\'s policy is ONE key whatever case it arrives i
     assert.deepEqual(keysOf(same, 'PSExecutionPolicyPreference'), ['PSExecutionPolicyPreference'], runner + ': the usual spelling');
     assert.equal(same.PSExecutionPolicyPreference, 'Bypass', runner);
   }
-  assert.deepEqual(keysOf(launcher.childEnv({}, 't', null, 'C:\\K\\bin', 'claude'), 'PSExecutionPolicyPreference'), [],
-    'control: a claude child is left as #3380 decided (its PowerShell tool passes its own policy flag)');
-  assert.equal(launcher.childEnv({ PSEXECUTIONPOLICYPREFERENCE: 'AllSigned' }, 't', null, 'C:\\K\\bin', 'claude').PSEXECUTIONPOLICYPREFERENCE, 'AllSigned',
-    'control: a claude child keeps an inherited value untouched');
+  // kosmos#7886 item 9: a claude child gets it too (a helper script it starts from Git Bash as `powershell -File`
+  // passes no policy flag of its own), as one key whatever spelling it inherited.
+  assert.deepEqual(keysOf(launcher.childEnv({}, 't', null, 'C:\\K\\bin', 'claude'), 'PSExecutionPolicyPreference'), ['PSExecutionPolicyPreference'],
+    'claude: one key, spelled as usual');
+  assert.equal(launcher.childEnv({}, 't', null, 'C:\\K\\bin', 'claude').PSExecutionPolicyPreference, 'Bypass', 'claude');
+  const claudeUpper = launcher.childEnv({ PSEXECUTIONPOLICYPREFERENCE: 'AllSigned' }, 't', null, 'C:\\K\\bin', 'claude');
+  assert.deepEqual(keysOf(claudeUpper, 'PSExecutionPolicyPreference'), ['PSExecutionPolicyPreference'], 'claude: an inherited spelling is replaced, not doubled');
+  assert.equal(claudeUpper.PSExecutionPolicyPreference, 'Bypass', 'claude: an inherited AllSigned is replaced');
 });
 
 test('#5358 review 9: every name childEnv removes or sets is matched whatever its case (the #2129 account leak too)', () => {

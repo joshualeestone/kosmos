@@ -155,14 +155,21 @@ function childEnv(baseEnv, token, configDir, cliDir, runner) {
      carry the mark-of-the-web (a remote unsigned script RemoteSigned still blocks) and
      an unattended agent has no console to answer a trust prompt on -- the same
      full-autonomy posture the `--dangerously-bypass-approvals-and-sandbox` launch
-     already takes. CODEX ONLY: the claude path runs its `kosmos` through Git Bash's
-     extensionless shim, which never consults an execution policy, so it is left
-     byte-identical and this variable is not added to a claude child.
+     already takes. CLAUDE TOO, since kosmos#7886 item 9: a claude agent's `kosmos` goes
+     through Git Bash's extensionless shim, which never consults an execution policy, and
+     Claude Code's own PowerShell tool passes its own policy flag; but a helper script the
+     agent is told to run is started from Git Bash as `powershell -File <script>.ps1`,
+     which gets no flag, so on a fresh machine it failed with the same "running scripts is
+     disabled" error. That powershell.exe inherits this environment, so the variable lets
+     it run. It is read only by PowerShell: the Git Bash path itself is unchanged.
      GEMINI AND GROK TOO: both run their shell tool through PowerShell on Windows
      (gemini 0.61.0's getShellConfiguration picks powershell.exe; grok 1.0.41 ships a
      PowerShell shell), so their `kosmos reply` meets the same policy. */
   /* #3568: Antigravity too; its shell tool on Windows is PowerShell's (UNPROVEN until a real turn). */
-  if (runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity') {
+  // No runner named is a claude agent, as everywhere else in this file (s.runner || 'claude'): an agent recorded before
+  // runners existed must not miss it.
+  const policyRunner = String(runner || 'claude');
+  if (policyRunner === 'claude' || runner === 'codex' || runner === 'gemini' || runner === 'grok' || runner === 'antigravity') {
     envSet(env, 'PSExecutionPolicyPreference', 'Bypass');   // one key, whatever case it arrived in (#5358)
   }
   /* #5385: the PowerShell runners (codex, gemini, grok, antigravity) run Windows PowerShell 5.1 (powershell.exe). Claude
