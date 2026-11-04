@@ -14,7 +14,13 @@ simulator does not reproduce the blank) and guarded by the room logic checks and
   the newest not showing (end marker gone, or, only after a did-show or a box change, ScrollBox.shortOfEnd() more than the
   list's bottom padding listPadV + 4 pt) -> scrolled to the end marker by id, as did-show does. A reader higher up (atBottom
   false) is never moved, nor one who nudged up a little after a thread read. The keepAtEnd ask is on the id-anchor path
-  (iOS 17+) only; iOS 16 keeps its own two scrollTo calls.
+  (iOS 17+) only; iOS 16 keeps its own two scrollTo calls. A box change counts for boxAskCarries (1.5 s), so a message
+  arriving inside its looks does not drop the box-cover test. Neither arm acts inside a rebuild's grace.
+- Limits: the looks also run while a chat opens (a pinned read before the end is seen); the rebuild waits for a first
+  drawing there, the id scroll does not (it goes where the open is going anyway). Before iOS 18 the end marker leaving
+  the screen clears atBottom, so the end-gone arm mostly reaches iOS 18+ (Josh's phone is iOS 26). No CI check exercises
+  this behaviour: the UI check is Mac-only (260-message chat) and the simulator never shows the blank; the room source
+  checks pin the wiring and guards.
 
 ## Evidence
 Six build-33 captures and two build-34 captures from Josh (diagnostics in the session handoff dir; screenshots private, never on the
