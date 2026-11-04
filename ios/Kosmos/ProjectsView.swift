@@ -827,8 +827,8 @@ struct ProjectsView: View {
             message("We cannot read your projects right now.", "This is not saying you have none, it is saying we cannot see them.")
         } else {
             VStack(spacing: 8) {
-                KosmosOrb().accessibilityHidden(true)
-                Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
+                SweepDots()   // kosmos#7954: the same wait as the Agents tab's, so the same dots and words
+                Text("Connecting\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }

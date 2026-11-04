@@ -147,6 +147,13 @@ jobs:
           ios/LogicTests/run-orb.sh | tee "$RUNNER_TEMP/orb.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/orb.log"
 
+      # kosmos#7954: the board's Sweep loader (eight dots on a ring) on the first-connect wait, against the board's numbers.
+      - name: Sweep dots logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-sweep.sh | tee "$RUNNER_TEMP/sweep.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/sweep.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

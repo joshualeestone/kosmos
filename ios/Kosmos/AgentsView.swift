@@ -425,8 +425,8 @@ struct BoardStates<Empty: View>: View {
     // First connect, nothing shown yet (spec frame 3).
     private var reaching: some View {
         VStack(spacing: 8) {
-            KosmosOrb().accessibilityHidden(true)   // the text beside it says what is loading
-            Text("Reaching your computer\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
+            SweepDots()   // kosmos#7954: the board's ring of dots, not the orb; hidden from VoiceOver (the words say what is loading)
+            Text("Connecting\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
