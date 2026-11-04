@@ -263,17 +263,18 @@ mv "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; mv "$TMP/setup-side.keep" "$FA
 if [ "$(grep -c "setup_sha256=$SETUP_SHA approval=given " "$ALOG")" -eq 2 ] && grep 'approval=given' "$ALOG" | tail -1 | grep -qF ' setup_sha256=none '; then pass "#7883 the approval line names the installer's sha, or none"
 else fail "#7883 approval line: $(grep 'approval=given' "$ALOG" | tail -2)"; fi
 # kosmos#7890: the zip here records no source commit, so the staged installer was checked against this tree's HEAD.
-if [ "$(grep -c "setup_source=head setup_sha256=$SETUP_SHA approval=given " "$ALOG")" -eq 2 ]; then pass "#7890 with no source commit, a staged installer that is HEAD's is published and logged as setup_source=head"
+if [ "$(grep -c "setup_source=head setup_head=$(git -C "$HERE" rev-parse HEAD) setup_sha256=$SETUP_SHA approval=given " "$ALOG")" -eq 2 ]; then pass "#7890 with no source commit, a staged installer that is HEAD's is published and logged as setup_source=head"
 else fail "#7890 setup_source=head: $(grep 'approval=given' "$ALOG" | tail -3)"; fi
-# kosmos#7890: one that is NOT HEAD's (sidecar to match) cannot be checked, so setup.ps1 is left as it is and the line says so.
-cp "$FAKE/setup-9.9.1.ps1" "$TMP/setup-ver.keep"; cp "$FAKE/setup-9.9.1.ps1.sha256" "$TMP/setup-side.keep"; cp "$FAKE/setup.ps1" "$TMP/setup-live.keep"
+# kosmos#7890: one that is NOT HEAD's (sidecar to match) cannot be checked, so the promote is refused before any write,
+# as a missing commit is: prod must not move to an app whose installer stays older.
+cp "$FAKE/setup-9.9.1.ps1" "$TMP/setup-ver.keep"; cp "$FAKE/setup-9.9.1.ps1.sha256" "$TMP/setup-side.keep"
 printf 'not HEAD installer\n' > "$FAKE/setup-9.9.1.ps1"
 printf '%s  setup-9.9.1.ps1\n' "$(shasum -a 256 "$FAKE/setup-9.9.1.ps1" | cut -d' ' -f1)" > "$FAKE/setup-9.9.1.ps1.sha256"
-promote; rc=$?
-if [ "$rc" -eq 0 ] && grep -qF "NOTICE (#7890): the staged zip records no source commit and setup-9.9.1.ps1" "$TMP/out" && ! grep -q '^PUT setup' "$FAKE/.calls" && cmp -s "$FAKE/setup.ps1" "$TMP/setup-live.keep" \
-   && grep 'approval=given' "$ALOG" | tail -1 | grep -qF " setup_source=unverified setup_left=$(shasum -a 256 "$TMP/setup-live.keep" | cut -d' ' -f1) setup_sha256=none "; then
-  pass "#7890 an installer that is neither the build's commit's nor HEAD's is not published; setup.ps1 is left, and the line says unverified"
-else fail "#7890 unverified installer: rc=$rc $(grep '^PUT setup' "$FAKE/.calls") $(tail -1 "$TMP/out") | $(grep 'approval=given' "$ALOG" | tail -1)"; fi
+promote; rc=$?; refuses_clean "#7890 an installer that is neither the build's commit's nor HEAD's: refused, nothing written" "is not tools/windows/setup.ps1 at this tree's HEAD"
+# And a HEAD git cannot read (no git at all on PATH; node kept) is refused with git's reason, never as a wrong-bytes claim.
+mkdir -p "$TMP/nogit"; ln -sf "$(command -v node)" "$TMP/nogit/node"
+cp "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; cp "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
+PATH="$TMP/nogit:/bin" promote; rc=$?; refuses_clean "#7890 a HEAD git cannot read: refused with git's reason" "git cannot read tools/windows/setup.ps1 there (git is not installed)"
 mv "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; mv "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
 # setup-<v>.ps1 is immutable like the zip: other bytes already up under the name are refused without -ReplaceVersioned.
 cp "$FAKE/latest-win-staging.json" "$TMP/stg7883.keep"   # the block below stages other versions; later tests expect 9.9.1 staged
@@ -307,6 +308,14 @@ printf 'swapped after staging\n' > "$FAKE/setup-9.9.42.ps1"
 printf '%s  setup-9.9.42.ps1\n' "$(shasum -a 256 "$FAKE/setup-9.9.42.ps1" | cut -d' ' -f1)" > "$FAKE/setup-9.9.42.ps1.sha256"
 fake -Promote -ApprovedVersion 9.9.42 -ApprovedSha "$SHA42" -ApprovalRef 1789228393.821399; rc=$?
 refuses_clean "#7883 a staged installer that is not the approved build's commit's: refused, nothing written" "is not tools/windows/setup.ps1 at"
+# kosmos#7890: the same build with its real staged installer promotes, and the line says the installer was read at
+# the build's commit. The bucket is put back afterwards, so later tests see 9.9.1 as before.
+rm -rf "${TMP:?}/fake7890" && cp -R "$FAKE" "$TMP/fake7890"
+cp "$TMP/setup-head.ps1" "$FAKE/setup-9.9.42.ps1"; printf '%s  setup-9.9.42.ps1\n' "$SETUP_SHA" > "$FAKE/setup-9.9.42.ps1.sha256"
+fake -Promote -ApprovedVersion 9.9.42 -ApprovedSha "$SHA42" -ApprovalRef 1789228393.821399; rc=$?
+if [ "$rc" -eq 0 ] && grep 'approval=given' "$ALOG" | tail -1 | grep -qF " version=9.9.42 " && grep 'approval=given' "$ALOG" | tail -1 | grep -qF " setup_source=commit setup_sha256=$SETUP_SHA approval=given "; then pass "#7890 a zip that records its commit promotes, logged setup_source=commit"
+else fail "#7890 setup_source=commit: rc=$rc $(tail -1 "$TMP/out") | $(grep 'approval=given' "$ALOG" | tail -1)"; fi
+rm -rf "${FAKE:?}" && cp -R "$TMP/fake7890" "$FAKE"
 # kosmos#7890: a zip built from a tree with uncommitted changes still stages (the installer is the committed one), and says so.
 mkzip "$TMP/s43.zip" 9.9.43 S43
 python3 - "$TMP/s43.zip" "$(git -C "$HERE" rev-parse HEAD)" <<'PYEOF'

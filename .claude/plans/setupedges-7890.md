@@ -7,8 +7,9 @@ Follow-ups to #7891 (publish-r2.ps1 carries setup.ps1). Items 1 and 2 need other
    git blob (`blob <len>` NUL bytes, sha1) to compare with HEAD's blob, instead of `git hash-object` and a second read.
    At -Promote, the staged copy is compared with this tree's HEAD blob (`git cat-file blob HEAD:tools/windows/setup.ps1`):
    - equal: it is published, and the approval line says `setup_source=head`;
-   - not equal: it cannot be checked, so setup.ps1 is left as it is, a NOTICE says so, and the line says
-     `setup_source=unverified setup_left=<the sha left live>`.
+   - not equal, or a HEAD git cannot read: REFUSED before any write, as a missing commit is (item 4's reason: prod
+     must not move to an app whose installer stays older). The refusal says to promote from the checkout that staged it
+     or re-stage. The approval line for a `head` promote records the witness commit (`setup_head=`).
    A zip that records its commit keeps #7891's check and says `setup_source=commit`.
 5. **A build staged without an installer** (a rollback to an older build): the line records `setup_left=<sha>` of the
    setup.ps1 it leaves live (or `absent`), with `setup_source=none`.
@@ -28,10 +29,10 @@ Follow-ups to #7891 (publish-r2.ps1 carries setup.ps1). Items 1 and 2 need other
 
 ## Choice made against the card's first option
 For item 3's promote side the card offered "compare it to a HEAD blob at promote time, or leave setup.ps1 untouched with
-a NOTICE". Both are used: HEAD's blob first, and untouched only when it differs. Untouched alone would have stopped every
-installer staged from an old or hand-made zip, including the many the harness stages, though HEAD vouches for them.
+a NOTICE". HEAD's blob is used; leaving setup.ps1 untouched was dropped in review (round 1), since it promotes an app whose
+installer stays older, the outcome item 4 refuses. A refusal names its fix.
 **Weakest premise:** that HEAD at promote time is a fair witness for a zip that names no commit. It is only used when the
 zip names none, and a mismatch publishes nothing.
 
 ## Tests
-tools/test-publish-r2-3725.sh: 125 checks pass (4 new for #7890). Needs pwsh and python3 (macOS CI runs it).
+tools/test-publish-r2-3725.sh: 127 checks pass (6 new for #7890: head, commit, refused not-HEAD, refused no-git, none with setup_left, dirty). Mutants on the unverified refusal and the dirty notice each fail it. Needs pwsh and python3 (macOS CI runs it).
