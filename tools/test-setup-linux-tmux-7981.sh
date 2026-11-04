@@ -59,7 +59,22 @@ fresh; ln -s "$D/bin/tmux" "$D/bin/tmux"
 o="$(run "$D" "$D/bin:$BASE")"; rc=$?
 if [ "$rc" = 0 ] && kept; then ok "a link an earlier update left pointing at itself is repaired"; else bad "self-link repair: rc=$rc $o"; fi
 
-# A different tmux from the one linked, found first on a login shell's PATH: the link moves to it, as it always has.
+# The two commonest updates: from a login shell, the link already there and the same tmux found first; and from the CLI
+# when a system tmux won its picker, so that tmux's folder comes before Kosmos's own.
+fresh; ln -s "$SYS/tmux" "$D/bin/tmux"
+o="$(run "$D" "$BASE")"; rc=$?
+if [ "$rc" = 0 ] && kept; then ok "a login-shell update with the link already there leaves it"; else bad "login update: rc=$rc $o"; fi
+fresh; ln -s "$SYS/tmux" "$D/bin/tmux"
+o="$(run "$D" "$SYS:$D/bin:/usr/bin:/bin")"; rc=$?
+if [ "$rc" = 0 ] && kept; then ok "the system tmux's folder ahead of Kosmos's own leaves it too"; else bad "system folder first: rc=$rc $o"; fi
+
+# A different live tmux found first, as on a login shell's PATH: the link moves to it, as it always has.
+OLDER="$TMP/older"; mkdir -p "$OLDER"; printf '#!/bin/sh\necho older-tmux\n' > "$OLDER/tmux"; chmod 755 "$OLDER/tmux"
+fresh; ln -s "$OLDER/tmux" "$D/bin/tmux"
+o="$(run "$D" "$BASE")"; rc=$?
+if [ "$rc" = 0 ] && kept; then ok "a different live tmux found first moves the link to it"; else bad "different tmux: rc=$rc link=$(readlink "$D/bin/tmux") $o"; fi
+
+# A link to something gone is replaced by the tmux found.
 fresh; ln -s "$TMP/empty/gone" "$D/bin/tmux"
 o="$(run "$D" "$BASE")"; rc=$?
 if [ "$rc" = 0 ] && kept; then ok "a dead link is replaced by the tmux found"; else bad "dead link: rc=$rc $o"; fi
