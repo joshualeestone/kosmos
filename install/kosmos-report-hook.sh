@@ -331,7 +331,12 @@ if [ -n "${KOSMOS_SOURCE_LOG:-}" ]; then
 fi
 
 THROTTLE_DIR="${TMPDIR:-/tmp}/kosmos-report-throttle"
-MARK="$THROTTLE_DIR/$(printf '%s' "${TMUX_PANE:-nopane}" | tr -c 'A-Za-z0-9_-' '_')"
+PANE_KEY="$(printf '%s' "${TMUX_PANE:-nopane}" | tr -c 'A-Za-z0-9_-' '_')"
+MARK="$THROTTLE_DIR/$PANE_KEY"
+# kosmos#7977: this pane's last Stop, while its turn-end report may still be retried. Any other event of the pane
+# removes it, which cancels that retry (report_turn_end).
+STOP_TOKEN="$MARK.stop"
+[ "$EVENT" = Stop ] || rm -f "$STOP_TOKEN" 2>/dev/null || true
 
 # ⚠️ NON-BLOCKING, and the reason is the update window: the CLI's report is
 # a curl with a 15-second ceiling, and a board that is down, refusing, or
@@ -347,15 +352,33 @@ report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/nul
 # kosmos#7977: the turn-end report (Stop -> idle) is the one a lost send costs most: the agent's last word stays
 # "working", and once that goes stale a Mac board can only say "Can't tell" until the agent's next turn (status.js's
 # honest unknown). Measured 11-04: a Stop hook ran, 304 ms, no hook error, and its idle never reached the board, and
-# nothing said why, because report() discards everything. So this one send gets a second try a moment later, and a
-# second failure leaves one line, the time, the event and the exit code (no command text, as below), in the
-# throttle folder.
+# nothing said why, because report() discards everything. So this one send:
+#   - runs detached with ALL its output on /dev/null, like report(), so the hook never waits on the board;
+#   - is tried again once, a moment later, only when the board did not answer at all. A board that answered "That was
+#     not recorded" (an agent waiting on a person keeps its deliberate state) is not a lost send: no retry, no note;
+#   - is not tried again if any other hook event of this pane came after this Stop (STOP_TOKEN, which every other
+#     event removes below), so a late idle can never overwrite the next turn's working, a permission prompt, or a
+#     SessionEnd's stopped;
+#   - after a second lost send, leaves one line: the time, the pane, the exit code and the CLI's own first line (no
+#     command text or tool input, the #1099 rule above), in turn-end-failures.log in the throttle folder.
 report_turn_end() {
   [ -n "$KOSMOS" ] || return 0
-  ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/null \
-      || { sleep "${KOSMOS_REPORT_RETRY_S:-2}"; "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/null; } \
-      || { _rc=$?; mkdir -p "$THROTTLE_DIR" 2>/dev/null; printf '%s %s %s not delivered after a retry (exit %s)\n' \
-             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$EVENT" "$1" "$_rc" >> "$THROTTLE_DIR/turn-end-failures.log" 2>/dev/null; } & ) 2>/dev/null || true
+  mkdir -p "$THROTTLE_DIR" 2>/dev/null || true
+  printf '%s\n' "$$" > "$STOP_TOKEN" 2>/dev/null || true
+  ( {
+      _out=$("$KOSMOS" report "$@" 2>&1 </dev/null); _rc=$?
+      if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -q 'not recorded'; then
+        sleep "${KOSMOS_REPORT_RETRY_S:-2}"
+        if [ "$(cat "$STOP_TOKEN" 2>/dev/null)" = "$$" ]; then
+          _out=$("$KOSMOS" report "$@" 2>&1 </dev/null); _rc=$?
+          if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -q 'not recorded'; then
+            printf '%s pane %s: %s not delivered after a retry (exit %s): %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              "$PANE_KEY" "$1" "$_rc" "$(printf '%s' "$_out" | head -1 | cut -c1-160)" >> "$THROTTLE_DIR/turn-end-failures.log"
+          fi
+        fi
+      fi
+      [ "$(cat "$STOP_TOKEN" 2>/dev/null)" = "$$" ] && rm -f "$STOP_TOKEN"
+    } >/dev/null 2>&1 </dev/null & ) >/dev/null 2>&1 </dev/null || true
 }
 
 # #5495: true when this agent runs with Kosmos's PermissionRequest allow hook (Kosmos's settings file sets these two
