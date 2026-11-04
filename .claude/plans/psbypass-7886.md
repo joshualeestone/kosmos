@@ -38,3 +38,11 @@ alarming policy error." It names neither the script nor the runner.
 - [NIT] the sign-in child (no runner) gets it too --> noted in the win32launch.js comment (it runs no scripts).
 - [NIT] mixed policyRunner / runner comparisons --> FIXED: one list, on policyRunner.
 - [NIT] the 5358 test header named only the PowerShell runners --> FIXED.
+
+#### Iteration 2
+- [WARNING] the Windows arm ran powershell.exe by a backslash path inside `bash -c`; bash runs a command name as a
+  path only when it holds a `/`, so it could read "command not found" --> FIXED: KZ_PS uses forward slashes. (Either
+  way it could only go red, never false green: the control fails first.)
+- [NIT] the Claude Code PowerShell arm's flag is now redundant with the variable --> FIXED: the comment says so.
+- [NIT] scope: every program a claude agent starts inherits Bypass (scripts with the mark of the web included) -->
+  stated in the PR description; the same posture the four PowerShell runners already have.

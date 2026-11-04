@@ -166,7 +166,8 @@ test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and 
       assert.equal(String(ps(baseEnv(), 'Get-ExecutionPolicy').stdout || '').trim(), 'Restricted',
         'control: this runner\'s effective policy is not Restricted (a higher scope sets it), so no arm here can show a refusal');
       // Claude Code's PowerShell tool passes its own process-scope policy (#570's measurement, taken as a premise here):
-      // this checks that PATH and the shim work under it, not the flag itself.
+      // this checks that PATH and the shim work under it, not the flag itself (and since #7886 item 9 a claude agent's
+      // environment carries the variable as well, so this arm is no evidence that the flag works).
       const claude = ps(agentEnv(z.bin, 'claude'), 'kosmos --version', ['-ExecutionPolicy', 'Bypass']);
       assert.match(String(claude.stdout), STUB, 'Claude Code\'s PowerShell: ' + said(claude));
       // Codex's `powershell -Command`, without and with what childEnv gives a codex agent.
@@ -182,12 +183,13 @@ test('#5358 Windows: under a Restricted policy, kosmos.ps1 is found on PATH and 
       assert.match(String(ran.stdout), STUB, 'codex\'s PowerShell with the agent\'s variable: ' + said(ran));
       // kosmos#7886 item 9: a helper script a claude agent is told to run, started from its Git Bash as
       // `powershell -File` (no policy flag of its own): refused under Restricted WITHOUT the variable (the control),
-      // runs WITH what childEnv now gives a claude agent. Paths go in through the environment, so Git Bash passes them
-      // to powershell.exe unconverted.
+      // runs WITH what childEnv now gives a claude agent. Paths go in through the environment: powershell.exe's with
+      // forward slashes (bash runs a command name as a path only when it holds a `/`), the script's as Windows wrote it
+      // (an argument to a Windows program, which Git Bash leaves alone).
       assert.ok(GIT_BASH, 'no Git Bash on the CI runner, so the claude helper-script arm measured nothing');
       const helper = path.join(z.root, 'helper-7886.ps1');
       fs.writeFileSync(helper, "Write-Output 'HELPER-7886-RAN'\r\n");
-      const viaBash = (env) => run(GIT_BASH, ['-c', '"$KZ_PS" -NoProfile -NonInteractive -File "$KZ_HELPER"'], { ...env, KZ_PS: POWERSHELL, KZ_HELPER: helper });
+      const viaBash = (env) => run(GIT_BASH, ['-c', '"$KZ_PS" -NoProfile -NonInteractive -File "$KZ_HELPER"'], { ...env, KZ_PS: POWERSHELL.replace(/\\/g, '/'), KZ_HELPER: helper });
       const claudeBare = { ...agentEnv(z.bin, 'claude') };
       for (const k of keysOf(claudeBare, 'PSExecutionPolicyPreference')) delete claudeBare[k];
       const helperRefused = viaBash(claudeBare);
