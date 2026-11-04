@@ -140,6 +140,13 @@ jobs:
           ios/LogicTests/run-files.sh | tee "$RUNNER_TEMP/files.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/files.log"
 
+      # kosmos#7896: the KOSMOS orb's geometry (the loading mark), its own suite like the others.
+      - name: Orb logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-orb.sh | tee "$RUNNER_TEMP/orb.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/orb.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

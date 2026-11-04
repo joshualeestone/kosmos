@@ -172,7 +172,7 @@ struct FileCard: View {
     @ViewBuilder private var meta: some View {
         switch state {
         case .loading:
-            ProgressView().controlSize(.small)
+            KosmosOrb(size: 16)
         case .failed:
             Text("Could not open it. Try again.").font(.caption).foregroundColor(Palette.dangerWord).lineLimit(lines)
         case .ready:

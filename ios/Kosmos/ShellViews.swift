@@ -137,7 +137,7 @@ struct LoadFailureView: View {
                 }
                 Button(action: onRetry) {
                     HStack(spacing: 8) {
-                        if retrying { ProgressView().tint(.white) }
+                        if retrying { KosmosOrb(colour: .white) }
                         Text(retrying ? "Trying" : "Try again")
                             .font(.body.weight(.semibold))
                     }
@@ -177,7 +177,7 @@ struct DownloadLine: View {
     let cancel: () -> Void
     var body: some View {
         HStack(spacing: 12) {
-            ProgressView()
+            KosmosOrb()
             Text(Download.getting(name)).font(.subheadline).lineLimit(1).truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button("Cancel", action: cancel).font(.subheadline.weight(.semibold))

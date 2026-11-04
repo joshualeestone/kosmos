@@ -1,0 +1,40 @@
+import Foundation
+
+// kosmos#7896: the KOSMOS orb's geometry (OrbLogic), run on a Mac. Each test can fail: the cut test has a control
+// that runs the same assertion against the wrong letter and must find dots there.
+var failures = 0
+func check(_ ok: Bool, _ what: String) { if ok { print("ok   " + what) } else { failures += 1; print("FAIL " + what) } }
+
+// The same orb as the desktop: same count, and the first dot equals the desktop generator's (computed in Node:
+// seed 7, Lehmer 16807, the same acceptance rule).
+check(OrbLogic.built.dots.count == 2200, "2200 dots")
+let d0 = OrbLogic.built.dots[0]
+check(abs(d0.x - (-0.57889815307171)) < 1e-12 && abs(d0.y - 0.458741323770369) < 1e-12 && abs(d0.z - 0.06542860859326494) < 1e-12,
+      "the first dot is the desktop's (\(d0.x), \(d0.y), \(d0.z))")
+
+// K O S M O S, one letter per half turn (4.5 s), back to K at 27 s.
+let seq = (0..<7).map { OrbLogic.letter(at: Double($0) * 4.5) }
+check(seq == [0, 1, 2, 3, 4, 5, 0], "letters at each facing: \(seq)")
+
+// With the K facing (t = 0), no dot shows inside the K's cut, front or back (the cut goes all the way through).
+let still = OrbLogic.place(0)
+check(still.count > 1000, "\(still.count) dots placed at t = 0")
+let insideK = still.filter { OrbLogic.gap(0, $0.x, $0.y) < 0 }.count
+check(insideK == 0, "no dot inside the K at t = 0 (\(insideK))")
+// CONTROL: the same rule against the S's cut (not being cut at t = 0) finds dots, so the K result is not vacuous.
+let insideS = still.filter { OrbLogic.gap(2, $0.x, $0.y) < 0 }.count
+check(insideS > 20, "CONTROL: \(insideS) dots sit where the S would be cut")
+
+// The loop is seamless: 27 s is the same frame as 0.
+let later = OrbLogic.place(27)
+let same = later.count == still.count && zip(later, still).allSatisfy { abs($0.x - $1.x) < 1e-9 && abs($0.y - $1.y) < 1e-9 }
+check(same, "t = 27 s draws the same frame as t = 0")
+
+// Painting: grouped into 8 strengths, never more circles than dots, every radius at or above the floor.
+let groups = OrbLogic.groups(still, side: 16, scale: 2)
+let circles = groups.reduce(0) { $0 + $1.count }
+check(groups.count == OrbLogic.steps && circles > 0 && circles <= still.count, "\(circles) circles in \(groups.count) groups")
+check(groups.joined().allSatisfy { $0.radius >= 0.35 / 2 - 1e-12 }, "every radius at or above the 0.35 px floor")
+
+print(failures == 0 ? "VERDICT: PASS (orb)" : "VERDICT: FAIL (orb: \(failures) failed)")
+exit(failures == 0 ? 0 : 1)

@@ -310,7 +310,7 @@ struct NewAgentView: View {
                     HStack { Text(NewTeam.Words.teamsUnread).foregroundColor(Palette.secondary); Spacer()
                         Button(NewTeam.Words.tryAgain) { Task { await loadTeams() } } }
                 } else {
-                    ProgressView()
+                    KosmosOrb()
                 }
             }
             if let detail, detail.key == teamKey {
@@ -341,7 +341,7 @@ struct NewAgentView: View {
                     if detailFailed {
                         HStack { Text(NewTeam.Words.teamsUnread).foregroundColor(Palette.secondary); Spacer()
                             Button(NewTeam.Words.tryAgain) { if let k = teamKey { Task { await loadDetail(k) } } } }
-                    } else { ProgressView() }
+                    } else { KosmosOrb() }
                 }
             }
             if let teamMessage {
@@ -633,7 +633,7 @@ struct NewAgentView: View {
                         }
                         Spacer(minLength: 8)
                         switch states[m.slot] ?? .waiting {
-                        case .making: ProgressView().accessibilityLabel(NewTeam.Words.making)
+                        case .making: KosmosOrb(label: NewTeam.Words.making)
                         case .made: Image(systemName: "checkmark").foregroundColor(Palette.ringOk).accessibilityLabel(NewTeam.Words.made)
                         case .failed: Image(systemName: "exclamationmark.circle").foregroundColor(Palette.dangerWord).accessibilityHidden(true)
                         default: Text(NewTeam.Words.waiting).font(.footnote).foregroundColor(Palette.secondary)
@@ -651,7 +651,7 @@ struct NewAgentView: View {
                         Text(NewAgent.Words.notUp(leadShown(members))).font(.headline)
                         Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.footnote).foregroundColor(Palette.secondary)
                     } else {
-                        HStack(spacing: 8) { ProgressView(); Text(NewAgent.Words.makingNamed(leadShown(members))) }
+                        HStack(spacing: 8) { KosmosOrb(); Text(NewAgent.Words.makingNamed(leadShown(members))) }
                     }
                 }
             }
@@ -1029,7 +1029,7 @@ struct NewAgentView: View {
                 Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.body).foregroundColor(Palette.secondary)
                 ForEach(madeWarnings, id: \.self) { Text($0).font(.footnote).foregroundColor(Palette.askedWord) }
             } else {
-                ProgressView().controlSize(.large)
+                KosmosOrb(size: 36)
                 Text(NewAgent.Words.makingNamed(shown)).font(.title3.weight(.semibold)).foregroundColor(Palette.primary)
             }
             Spacer()
@@ -1058,7 +1058,7 @@ struct NewAgentView: View {
             PhotosPicker(selection: $photoPick, matching: .images) { Text(NewAgent.Words.changePicture) }
                 .buttonStyle(.bordered)
                 .disabled(sending)   // a picture chosen once Create has gone would never be used
-            if photoLoading { ProgressView().accessibilityLabel(NewAgent.Words.readingPicture) }
+            if photoLoading { KosmosOrb(label: NewAgent.Words.readingPicture) }
         }
     }
 
@@ -1121,7 +1121,7 @@ struct NewAgentView: View {
                 Spacer()
                 Button(NewTeam.Words.tryAgain) { Task { await loadCatalogue() } }.disabled(loading)
             } else {
-                ProgressView()
+                KosmosOrb()
             }
         }
     }
@@ -1164,7 +1164,7 @@ struct NewAgentView: View {
             ZStack {
                 // The label in the card colour, as the app's other prominent buttons (build 13 shots: unreadable in dark).
                 Text(title).font(.headline).foregroundColor(enabled ? Palette.card : Palette.secondary).opacity(busy ? 0 : 1)
-                if busy { ProgressView().tint(Palette.secondary) }
+                if busy { KosmosOrb(colour: Palette.secondary) }
             }
             .frame(maxWidth: .infinity, minHeight: 50)
         }

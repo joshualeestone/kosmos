@@ -130,7 +130,7 @@ struct SettingsView: View {
             switch load {
             case .reading:
                 HStack(spacing: 10) {
-                    ProgressView()
+                    KosmosOrb()
                     Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
                 }
             case .signedOut:
@@ -175,7 +175,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(kind?.label ?? Settings.masterLabel).foregroundColor(Palette.primary)
-                    if chosen != nil { ProgressView().controlSize(.small) }
+                    if chosen != nil { KosmosOrb(size: 16) }
                 }
                 if kind == nil {
                     Text(Settings.masterNote(s)).font(.footnote).foregroundColor(Palette.secondary)
