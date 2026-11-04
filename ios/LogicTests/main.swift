@@ -3136,7 +3136,12 @@ section("native board loop: connecting")
             let out = NSMutableData(); let d = CGImageDestinationCreateWithData(out, "public.jpeg" as CFString, 1, nil)!
             CGImageDestinationAddImage(d, ctx.makeImage()!, nil); _ = CGImageDestinationFinalize(d); return out as Data
         }
+        var atCopy: (onItsWay: Int, waiting: Int)?
+        c.beforePictureCopy = { atCopy = (c.uploading["dana", default: 0], c.attached["dana"]?.count ?? 0) }
         await c.attach(.photo(load: { ("Photo 2026-11-04 at 08.27.39.jpg", realJPEG()) }), epoch: c.chatEpoch, to: dana)
+        c.beforePictureCopy = nil
+        check(atCopy.map { $0.onItsWay == 0 && $0.waiting == 2 } == true,
+              "kosmos#7944 review 5: when the copy starts the photo is on the composer and no longer counted as on its way (\(String(describing: atCopy)))")
         let kept = attached().last!.id
         check(attached().count == 2 && (c.attachedPreviews[kept]?.large.count ?? 0) > 0, "a real photo waiting on the composer keeps a copy to show")
         if let small = c.attachedPreviews[kept]?.small, let src = CGImageSourceCreateWithData(small as CFData, nil),
