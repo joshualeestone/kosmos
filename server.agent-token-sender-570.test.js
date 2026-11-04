@@ -120,16 +120,19 @@ test('#2908: reply_expected threads route -> sendRoomPostAsAgent -> sendPost, AN
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const post = src.slice(src.indexOf("pathname === '/api/post'"), src.indexOf("pathname === '/api/react'"));
   // The route validates reply_expected as a strict boolean (refuse non-boolean) and passes it through.
-  assert.match(post, /'reply_expected' in body && typeof body\.reply_expected !== 'boolean'/);
-  assert.match(post, /replyExpected: body\.reply_expected/);
+  assert.match(post, /^\s*if \('reply_expected' in body && typeof body\.reply_expected !== 'boolean'/m);
+  assert.match(post, /^\s*replyExpected: body\.reply_expected/m);
   // The shared helper forwards it to sendPost.
   const shared = src.slice(src.indexOf('function sendRoomPostAsAgent('), src.indexOf('function agentBelongsToThisKosmos('));
   assert.match(shared, /\(asynchronousDelivery \? messages\.sendPostAsync : messages\.sendPost\)\(\{[^}]*\breplyExpected,/);
   // THE DRAIN forwards it too: this arm reds if deliverPost drops entry.body.reply_expected.
   const drain = src.slice(src.indexOf('deliverPost: (entry) =>'), src.indexOf('onExpired:'));
-  assert.match(drain, /replyExpected: entry\.body\.reply_expected/, 'the outbox drain must forward reply_expected, or a kept --no-reply post replays reply-required');
+  assert.match(drain, /^\s*replyExpected: entry\.body\.reply_expected/m, 'the outbox drain must forward reply_expected, or a kept --no-reply post replays reply-required');
 });
 
+/* #7893 round 7: every wiring regex here is anchored to the start of a line (^\s*, /m), so a commented-out line
+   no longer matches; unanchored, all of them passed with the wired lines prefixed by //. The #2908 arms above got
+   the same anchor. */
 test('#7893: reply_expected threads /api/msg -> messages.send, AND the outbox drain forwards it', () => {
   /* The same wiring-assertion approach as #2908 above; the envelope for replyExpected:false is proven against
      messages.send in engine/messages.test.js. This pins the threading, the drain included: a kept
@@ -137,11 +140,11 @@ test('#7893: reply_expected threads /api/msg -> messages.send, AND the outbox dr
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const route = src.slice(src.indexOf("pathname === '/api/msg'"), src.indexOf("pathname === '/api/post'"));
   assert.ok(route.length > 0, 'the /api/msg route slice is empty: the anchors moved');
-  assert.match(route, /'reply_expected' in body && typeof body\.reply_expected !== 'boolean'/);
-  assert.match(route, /replyExpected: body\.reply_expected/);
+  assert.match(route, /^\s*if \('reply_expected' in body && typeof body\.reply_expected !== 'boolean'/m);
+  assert.match(route, /^\s*replyExpected: body\.reply_expected/m);
   const drain = src.slice(src.indexOf('deliverMsg: (entry) =>'), src.indexOf('deliverPost: (entry) =>'));
   assert.ok(drain.length > 0, 'the deliverMsg slice is empty: the anchors moved');
-  assert.match(drain, /replyExpected: entry\.body\.reply_expected/, 'the outbox drain must forward reply_expected for a kept msg');
+  assert.match(drain, /^\s*replyExpected: entry\.body\.reply_expected/m, 'the outbox drain must forward reply_expected for a kept msg');
 });
 
 test('sendPost and send use a sender the route already resolved, and resolve from the pane otherwise', (t) => {

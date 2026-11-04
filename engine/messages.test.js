@@ -775,7 +775,7 @@ test('the colleagues block teaches the command and the colleague-vs-operator dis
   // #7886 item 3: how to answer a colleague's direct message, and what its answer line does and does not mean.
   assert.match(body, /msg --in-reply-to <id> <name>/, 'the block does not teach answering a direct message');
   assert.match(body, /direct message carries the line whether or not it needs an\s+answer/, 'the block does not say what a direct message\'s answer line means');
-  assert.match(body, /put --no-reply\s+before the name:\n\n {4}\S*kosmos msg --no-reply <their-name> /, 'the block does not teach a direct message that asks for no answer, with the runnable command');
+  assert.match(body, /put\s+--no-reply before the name:\n\n {4}\S*kosmos msg --no-reply <their-name> /, 'the block does not teach a direct message that asks for no answer, with the runnable command');
   // The same splice create.js runs at birth: the block lands between its
   // markers and a re-splice replaces rather than duplicates.
   const once = projects.spliceBlock('# leo\n\ntheir words\n', body, messages.START, messages.END);
