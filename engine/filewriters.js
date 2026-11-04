@@ -142,15 +142,17 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
    person's room view leaves agent notes out). Names are session names, as the record keeps them. Best-effort: a note
    that cannot be written changes nothing about the write. */
 /* The file's name is an agent's choice, so it is quoted, cut, and its square brackets made round: a name must never spell
-   a marker in a line that speaks in Kosmos's voice (the room's outside rows are cleaned the same way). */
+   a marker in a line that speaks in Kosmos's voice (as the room's text view does for an outside row, server.js, kind
+   'external'). Line and paragraph separators and direction controls go too, so it cannot break or reorder the line. */
 function quotedName(name) {
-  const s = String(name || '').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/\[/g, '(').replace(/\]/g, ')').replace(/"/g, "'");
+  const s = String(name || '').replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\[/g, '(').replace(/\]/g, ')').replace(/"/g, "'");
   const cut = require('./textcut').cutUnits(s, NOTICE_NAME_MAX);
   return '"' + cut + (cut.length < s.length ? '...' : '') + '"';
 }
 function ownerNoticeText({ name, owner, writer }) {
   return writer + ' was about to change ' + quotedName(name) + ' (' + owner + ' was the first agent seen changing it here). '
-    + 'A notice, not a lock: ' + owner + ', read it again before you build on what you last saw in it.';
+    + 'A notice, not a lock: ' + owner + ', read it again before you build on what you last saw in it. Other files of yours '
+    + writer + ' changes in the next hour are not noticed one by one.';
 }
 function ownerNotice(n) {
   try {
