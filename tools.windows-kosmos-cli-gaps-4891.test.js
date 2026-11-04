@@ -121,6 +121,8 @@ test('kosmos#7969 Windows: --unanswered --all reaches the board as &unanswered=1
     [['room', 'proj', '--unanswered', '--all'], '/api/project/proj/room?as=text&unanswered=1&all=1'],
     [['room', '--all', '--unanswered', 'proj'], '/api/project/proj/room?as=text&unanswered=1&all=1'],
     [['room', '--all', 'proj', '-n', '5', '--unanswered'], '/api/project/proj/room?as=text&n=5&unanswered=1&all=1'],
+    // A project id that starts with "-" (Kosmos makes ids like "-drafts") is still the project beside the new flag.
+    [['room', '-drafts', '--unanswered', '--all'], '/api/project/-drafts/room?as=text&unanswered=1&all=1'],
   ]) {
     const r = await run(argv, () => ({ body: 'Waiting on an answer from you: nothing in this room.\n' }));
     assert.equal(r.code, 0, argv.join(' ') + ': ' + r.err);
@@ -136,6 +138,8 @@ test('kosmos#7969 Windows: --all without --unanswered is refused (exit 2) and as
   // Before #7969 the CLI took "--all" as the project and refused a second project word; now the project is "proj".
   const both = await run(['room', '--unanswered', '--all', 'proj'], () => ({ body: 'Waiting on an answer from you: nothing in this room.\n' }));
   assert.doesNotMatch(both.err, /reads one project at a time/);
+  assert.equal(both.code, 0, both.err);
+  assert.deepEqual(both.calls.map((c) => c.route), ['/api/project/proj/room?as=text&unanswered=1&all=1']);
   // CONTROL: the usage line names the flag, as install/kosmos does.
   const usage = await run(['room'], () => ({ body: '' }));
   assert.equal(usage.code, 2);

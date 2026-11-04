@@ -20,3 +20,4 @@ Renet's #7969 ages an agent's own asks older than 3 days out of `kosmos room <id
 - All tools.windows-kosmos-cli-*.test.js plus no-name-refs, fixture-discipline and windows-tests-1777: 473 of 475 passed with 1 failure, #5946's real-PowerShell pipe test, under a full parallel run. That file passes 18 of 18 on its own with the change, twice, and on main. It was load, not this change.
 
 ## Review rounds
+- Round 1 (blind reviewer): 0 BLOCKER, 0 WARNING, 2 NIT. Behaviour matches install/kosmos on unansage-7969 byte for byte (parse order, check order, strings, URL). Both NITs taken (test-only): the "both" case now asserts exit 0 and the route, and the route table includes a "-drafts" project id beside the new flags. Converged.
