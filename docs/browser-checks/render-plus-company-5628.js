@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-si-child plus-state2 plus-signin-email plus-signin-company plus-si-company plus-si-company-code plus-si-company-open plus-si-company-finish plus-si-company-name plus-si-company-second-row plus-si-company-second plus-si-company-go plus-si-company-resend plus-si-keychanged
+// Browser-check-surface: plus-si-child plus-si-childbox plus-state2 plus-signin-email plus-signin-company plus-si-company plus-si-company-code plus-si-company-open plus-si-company-finish plus-si-company-name plus-si-company-second-row plus-si-company-second plus-si-company-go plus-si-company-resend plus-si-keychanged
 'use strict';
 /**
  * kosmos#5628 slice 2b-ui: a computer whose company's MDM installed the Kosmos profile signs in through the company's
@@ -92,7 +92,7 @@ async function openWizard(browser, BASE, managed, answers) {
     {
       const w = await openWizard(browser, BASE, false, () => [200, {}]);
       chk(!(await visible(w.page, '#plus-signin-company')), 'an unmanaged computer is not offered company sign-in');
-      chk(await visible(w.page, '#plus-si-child'), 'kosmos#6873: an unmanaged computer shows the child-account line (CONTROL for the managed arm)');
+      chk(await visible(w.page, '#plus-si-childbox > summary'), 'kosmos#6873/#7974: an unmanaged computer shows the closed child-account line (CONTROL for the managed arm)');
       chk(await visible(w.page, '#plus-signin-code'), 'CONTROL: the email-code button is there');
       chk(w.errs.length === 0, 'no page errors (unmanaged)', w.errs.join(' | '));
       await w.page.close();
@@ -114,7 +114,7 @@ async function openWizard(browser, BASE, managed, answers) {
       });
       const { page } = w;
       chk(await visible(page, '#plus-signin-company'), 'a managed computer is offered "Sign in with your company"');
-      chk(!(await visible(page, '#plus-si-child')), 'kosmos#6873 review 2: a managed computer is not shown the child-account line');
+      chk(!(await visible(page, '#plus-si-childbox')), 'kosmos#6873 review 2 / #7974: a managed computer is not shown the child-account line');
       await page.screenshot({ path: path.join(OUT, 'company-email-step.png') });
       await page.fill('#plus-signin-email', 'neo@acme.test');
       await page.click('#plus-signin-company');

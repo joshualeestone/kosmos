@@ -1002,6 +1002,12 @@ body:has(#panel-settings:not([hidden]) #s-sec-accounts:not([hidden])) #login-adv
 /* An empty hint keeps its margin box and leaves a band where a deleted sentence
    used to be. Same idiom this file already uses for `.removed-msg`. */
 .fhint:empty { display: none; }
+/* kosmos#7974: the child-account advice behind one closed line; the line is a 44pt place to press. */
+.plus-si-childbox { margin-bottom: var(--space-4); }
+.plus-si-childbox > summary.fhint { margin: 0; padding: 14px 0; min-height: 44px; box-sizing: border-box; cursor: pointer; width: fit-content; }
+.plus-si-childbox > summary.fhint:focus-visible { outline: 2px solid #7ea0f0; outline-offset: 2px; border-radius: 4px; }
+.plus-si-childbox > summary.fhint:hover { color: var(--label-2); }
+.plus-si-childbox > p.fhint { margin: 0 0 var(--space-2); }
 .instr-defaults { margin-top: var(--space-4); }
 .instr-defaults-fold { margin-top: 4px; }
 .instr-defaults-fold summary { cursor: pointer; list-style: none; display: inline; }
@@ -20137,11 +20143,17 @@ window.kosmosMeasureScrollbarWidth();
         <div class="field">
           <label class="flabel" for="plus-signin-email">Enter your Kosmos+ account email address</label>
           <input type="email" id="plus-signin-email" class="tk-inp plus-si-wide" maxlength="120" autocomplete="email"
-            placeholder="you@example.com" aria-describedby="plus-si-child">
+            placeholder="you@example.com">
           <!-- kosmos#6873 (#6379, PigeonPete's decision 10-21, in the words of the family console's Add a child steps): a
                child's computer is signed in with the child's account, never the parent's own; under 13, one the parent
                makes, at an address the parent reads. Says nothing about where the account is made (#6873 step 2). -->
-          <p class="fhint" id="plus-si-child">Setting up a child's computer? Sign in with your child's account, not with the address you sign in with yourself: this computer would then be signed in as you. For a child under 13, use an account you make for them, at an email address you read, so the sign-in emails come to you.</p>
+          <!-- kosmos#7974: one closed line, so a person setting up a work computer (an invite code, no device management)
+               is not handed family advice on their first screen; a parent presses it and reads #6873's words unchanged.
+               The email box is described by the advice only while it is open (plusSiChildToggle). -->
+          <details class="plus-si-childbox" id="plus-si-childbox">
+            <summary class="fhint">Setting up a child's computer?</summary>
+            <p class="fhint" id="plus-si-child">Sign in with your child's account, not with the address you sign in with yourself: this computer would then be signed in as you. For a child under 13, use an account you make for them, at an email address you read, so the sign-in emails come to you.</p>
+          </details>
         </div>
         <!-- kosmos#5995 item 4: the name this computer is sent under, shown BEFORE it is sent. Filled from the
              computer (plusSiComputerName); the person can keep it, change it or clear it. Hidden until the name
@@ -58180,6 +58192,16 @@ function plusSiStage(stage, data) {
    marketing plus a link, guarded), but the click reveals state 2 in place of the
    marketing copy rather than navigating; PLUS_SIGNIN_ACTIVE keeps it there across the
    5s repaint. */
+// kosmos#7974: the email box is described by the child-account advice only while that advice is open.
+function plusSiChildToggle(box) {
+  const input = document.getElementById('plus-signin-email');
+  if (!input) return;
+  if (box.open) input.setAttribute('aria-describedby', 'plus-si-child');
+  else input.removeAttribute('aria-describedby');
+}
+// 'toggle' does not bubble, so it is caught on the way down. Kept out of the company sign-in block, which a unit test
+// lifts into a context with no addEventListener (web.company-signin-5628.test.js).
+document.addEventListener('toggle', (e) => { if (e.target && e.target.id === 'plus-si-childbox') plusSiChildToggle(e.target); }, true);
 /* Start every sign-in from a clean slate: clear the inputs and reset the sub-field
    that plusSiStage reveals conditionally, so a cancel-then-restart cannot leave a stale
    code or a previously-typed name sitting in a later step for a returning person to
@@ -58190,6 +58212,8 @@ function plusSiClear() {
     if (el) el.value = '';
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
+  // kosmos#7974: the child-account line starts closed again for the next person (its toggle clears the description).
+  const childBox = document.getElementById('plus-si-childbox'); if (childBox) childBox.open = false;
   if (typeof plusSiCodeLateReset === 'function') plusSiCodeLateReset();
   /* #5995: the computer's name is read again for the next sign-in. A name typed and never sent is not carried over,
      and neither is one whose start did not go out (the board keeps a name only after a start carried it); one a
@@ -59211,8 +59235,10 @@ async function plusCompanyManaged() {
   try { const res = await fetch('/api/remote/managed', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }
   const btn = document.getElementById('plus-signin-company');
   if (btn) btn.hidden = !(r && r.managed);
-  // kosmos#6873 review 2: a computer its company manages is not a child's; the child line is not for it.
-  const child = document.getElementById('plus-si-child');
+  // kosmos#6873 review 2: a computer its company manages is not a child's; the child line is not for it (#7974: the
+  // whole closed line, not only the advice inside it).
+  const child = document.getElementById('plus-si-childbox');
+  if (child && r && r.managed) child.open = false;   // closed first, so the email box is not left described by it
   if (child) child.hidden = !!(r && r.managed);
   return !!(r && r.managed);
 }
