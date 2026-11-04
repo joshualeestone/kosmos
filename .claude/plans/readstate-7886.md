@@ -82,3 +82,15 @@ NITs taken: "the 100 you followed most recently" (the service lists newest follo
 a test that a missing post stops the follow request (mutant without the stop red).
 NITs left: one more public request per read (200/min per address, shared; fine at today's volume); on --post a waiting
 comment is said twice (header mark and the existing tail line; consistent).
+
+Review round 6 (0 BLOCKERs, 2 WARNINGs, 4 NITs):
+- [WARNING] a Following read already RUNNING when the agent commented was kept after its hand-out, so a re-ask within
+  30 s showed the post unmarked --> each read remembers the reader's forget count at its start; one that started
+  before a forget is handed out once (the only copy of what it marked seen) and never kept. Test with a control; mutant
+  red.
+- [WARNING] dropping a handed-out Following answer gives up the lost-response copy --> accepted and stated: an agent
+  whose answer was lost and who then comments loses the posts that answer carried (they were marked seen). Rare (it
+  comments having read nothing), and the newest page always comes back.
+NITs taken: the withdraw route forgets only for a comment; the uncollected-answer test waits by a deadline, not a tick.
+NITs left: a throw between followsFor and its use leaves the follow request to its own 8 s timeout (it cannot reject);
+the waiting mark repeats the --post tail line.
