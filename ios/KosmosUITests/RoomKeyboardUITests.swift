@@ -10,7 +10,8 @@ final class RoomKeyboardUITests: XCTestCase {
 
     // The swipes past the end are a person's scroll coming to rest at the newest post (KeyboardSlideUITests' long check).
     func testRoomNewestStaysAboveTheBox() throws {
-        let app = Self.launch([:])
+        // kosmos#7645 (11-04): this check failed on main run 41780837713 and on PR #7917 with no trace of its own; it records one now.
+        let app = Self.launch(["KOSMOS_SAMPLE_TRACE": "1"])
         let box = Self.box(app)
         for _ in 0..<6 { app.swipeUp(velocity: .fast) }
         let newest = Self.post(app, 220)
