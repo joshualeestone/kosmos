@@ -90,7 +90,7 @@ for (const [label, run] of [['bash', runCli], ['Windows', runWinCli]]) {
   test(`#6774: ${label} kosmos msg words one behind messages kept for the box as that`, () => withStubBoard(async (port) => {
     const out = await run(['msg', 'casey', 'and another'], envFor(port));
     assert.equal(out.code, 0, out.stdout + out.stderr);
-    assert.match(out.stdout, /Held for casey: it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them\. Do not re-send\./);
+    assert.match(out.stdout, /Held for casey: it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them, or drops it after 2 hours and tells you\. Do not re-send\./);
   }, BEHIND_INPUT));
   test(`#6774 CONTROL: ${label} kosmos msg still words one behind a usage-limit backlog as before`, () => withStubBoard(async (port) => {
     const out = await run(['msg', 'casey', 'and another'], envFor(port));

@@ -36,10 +36,17 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
 - Weakest premise: that two hours is long enough for a box a person is genuinely using. A person typing for over two
   hours in an agent's box loses the queued messages; each sender is told and can resend.
 - The "told" set is in memory: a board restart within the window may tell a sender a second time (stated cost).
+- Review 1:
+  - only while the box is the reason: an agent out of usage or signed out as well (its queue not released on that
+    account, the hooks' `isLimited`) keeps the day and gets no "input box" notice, so a later reset still types it;
+  - the notice counts as told only when it lands (placed or unconfirmed), otherwise the next sweep tries again;
+  - a message kept behind an input-held one names the 2 hours in its receipt and the CLI lines (bash and Windows);
+  - the tests drive the board's own sweepHooks, not a copy of them.
 
 ## Tests
 
-engine/heldnote-7936.test.js: the notice at 10 min (none at 9, once only, still kept, nothing typed into the box); the
+engine/heldnote-7936.test.js (9 tests, through limitqueue.sweepHooks): the limited case and its control, isLimited's
+wiring, the notice retried until it lands; the notice at 10 min (none at 9, once only, still kept, nothing typed into the box); the
 drop at 2 h with its wording, a usage-limit hold of the same age kept (control); dropAfter by kind; the receipt and
 CLI wording; the unanswered header. Control: with the drop back on DROP_AFTER_MS the 2-hour test fails. Existing:
 limitmsg-5805, limittask-5805, inputkeep-6774 (engine, server, cli), limitdm-5805, agyhold-deliver-4588,

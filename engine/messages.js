@@ -1846,6 +1846,7 @@ function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin, more)
     because: behind
       ? 'held: ' + toName + (more.behindInput === true ? ' still has messages kept while its input box held text not yet sent'
         : ' still has messages kept from while it was out of usage') + '; Kosmos types this one after them'
+        + (more.behindInput === true ? ', or drops it after 2 hours and tells you' : '')   // kosmos#7936 review 1
       : input ? 'held: ' + toName + "'s input box holds text not yet sent; Kosmos types it once the box is clear, or drops it after 2 hours and tells you"   // #6774, #7936
       : signin ? 'held: ' + toName + ' is signed out; Kosmos types it once it is signed in again'   // #5948
       : 'held: ' + toName + ' is out of usage' + (heldUntil ? ' until ' + heldUntil : '') + '; Kosmos types it after the reset',
@@ -4710,7 +4711,8 @@ async function deletePostAsync({ projectId, id, roster } = {}) {
   return { ok: true, code: 200, told };
 }
 
-module.exports = { tellHeldStill,
+module.exports = {
+  tellHeldStill,   // kosmos#7936
   namedIn,   // #4926: server.js asks it who a room post asked by name
   lastPostAt, recommenderNoted,   // #6341
   spillLimit,   // #6065: the longest line typed whole

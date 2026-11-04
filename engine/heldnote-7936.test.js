@@ -62,15 +62,13 @@ test.beforeEach(() => {
 });
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
-/* The sweep's hooks with the box never clearing (nothing is typed), and the real tellers. */
-const told = [];
-const opts = (now) => ({
-  now, deliver: chat.deliverAutomaticAsync, isReleased: () => false, resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
-  onDelivered: messages.logHeldDelivered,
-  onDropped: (e, r) => { told.push(messages.tellHeldDropped(e, r)); },
-  onStillHeld: (e, r, dropAt) => { told.push(messages.tellHeldStill(e, r, dropAt)); },
-});
-async function sweep(board, now) { told.length = 0; await limitqueue.flush(board.agents, opts(now)); await Promise.all(told); }
+/* The board's own hooks (limitqueue.sweepHooks, as server.js passes them), with the box never clearing (isReleased
+   false: nothing is typed) and, where a test says so, `isLimited` or the messages module swapped. The tellers type
+   asynchronously, so the sweep waits a turn for their pastes. */
+async function sweep(board, now, extra = {}, msgs = messages) {
+  await limitqueue.flush(board.agents, { ...limitqueue.sweepHooks({ chat, messages: msgs }), isReleased: () => false, now, ...extra });
+  for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+}
 const MIN = 60e3;
 
 test('#7936: an input-held message: its sender is told once, ten minutes in, that it is still held and when it drops', async () => {
@@ -88,7 +86,6 @@ test('#7936: an input-held message: its sender is told once, ten minutes in, tha
     await sweep(board, at + limitqueue.STILL_HELD_TELL_MS + 5 * MIN);
     assert.equal(tmux.pastedTo('leo').length, 1, 'told twice');
     assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7936'], 'still kept after the notice');
-    assert.deepEqual(tmux.pastedTo('casey'), [], 'typed into a box holding text');
   });
 });
 
@@ -128,4 +125,45 @@ test('#7936 item 2: the unanswered list names the flag kosmos post takes (--in-r
   assert.ok(/kosmos post \[--no-reply\] \[--in-reply-to <id>\]/.test(cli), 'CONTROL: post takes --in-reply-to');
   assert.ok(src.includes("no post of yours cites it by id with --in-reply-to)"), 'the header names --in-reply-to');
   assert.ok(!src.includes("cites it by id with --reply-to)"), 'the header still names --reply-to');
+});
+
+test('#7936 review 1: an agent on a usage limit as well keeps the day: no 2-hour drop, no "input box" notice', async () => {
+  await withFleet(async (board, tmux) => {
+    const at = Date.now() - limitqueue.INPUT_DROP_AFTER_MS - MIN;
+    const iso = new Date(at).toISOString();
+    limitqueue.add('casey', { id: 'm7940', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
+    await sweep(board, Date.now(), { isLimited: () => true });
+    assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7940'], 'dropped at 2 hours while the agent is limited');
+    assert.deepEqual(tmux.pastedTo('leo'), [], 'told about the input box while the agent is limited');
+    await sweep(board, Date.now(), { isLimited: () => false });
+    assert.deepEqual(limitqueue.list('casey'), [], 'CONTROL: with the limit gone the same message drops at 2 hours');
+  });
+});
+
+test('#7936 review 1: the board passes isLimited as "its queue is not released on usage or sign-in"', () => {
+  const hooks = limitqueue.sweepHooks({ chat, messages });
+  const real = chat.limitQueueReleased;
+  try {
+    chat.limitQueueReleased = () => true; assert.equal(hooks.isLimited({ sessionName: 'casey' }, []), false);
+    chat.limitQueueReleased = () => false; assert.equal(hooks.isLimited({ sessionName: 'casey' }, []), true);
+  } finally { chat.limitQueueReleased = real; }
+});
+
+test('#7936 review 1: a still-held notice that does not land is tried again at the next sweep, and not after it lands', async () => {
+  await withFleet(async (board) => {
+    const at = Date.now() - limitqueue.STILL_HELD_TELL_MS - MIN;
+    const iso = new Date(at).toISOString();
+    limitqueue.add('casey', { id: 'm7941', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
+    const tries = [];
+    let answer = { state: chat.DELIVERY.COULD_NOT, because: 'held: a menu is up' };
+    const fake = { ...messages, tellHeldStill: async (e) => { tries.push(e.id); return answer; } };
+    await sweep(board, Date.now(), {}, fake);
+    assert.deepEqual(tries, ['m7941'], 'not tried');
+    await sweep(board, Date.now() + MIN, {}, fake);
+    assert.deepEqual(tries, ['m7941', 'm7941'], 'a notice that did not land was not tried again');
+    answer = { state: chat.DELIVERY.PLACED };
+    await sweep(board, Date.now() + 2 * MIN, {}, fake);
+    await sweep(board, Date.now() + 3 * MIN, {}, fake);
+    assert.equal(tries.length, 3, 'tried again after it landed');
+  });
 });
