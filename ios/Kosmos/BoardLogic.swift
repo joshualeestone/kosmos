@@ -504,16 +504,15 @@ enum Board {
         if offset < top - 1 { return ("before the top", top, end) }
         return ("within", top, end)
     }
-    // kosmos#7420: what an empty list's recovery does. The first in a chat (the one reported) goes to the newest message as
-    // before, after putting a scroll outside its content back at its end unless a finger is on it. A later one (later: true)
+    // kosmos#7420: what an empty list's recovery does. The first in a chat (the one reported) with the scroll outside its
+    // content puts it back at its end and goes to the newest, unless a finger is on it. A later one (later: true)
     // acts only on a scroll past the content's end (the case the evidence points at; before the top may be a bounce), and
     // never while the person scrolls. An unread place (no scroll view) is treated as within. The first one's "before the
     // top" arm is probably unreachable from the chat's check, which needs the top marker off screen.
     // kosmos#7420 (build 24, 10-31): a list empty WITHIN its content while the reader is at the newest message (atNewest) is
     // rebuilt (.rebuild): the scroll is where the newest messages are and none is drawn there, so moving the scroll cannot
     // help (the one try moved it and the list stayed empty), but a new list opened at its end can. Never while the person
-    // scrolls, and never for a reader higher up, who would lose their place.
-    // On iOS 16 and 17 the chat clears atNewest when its end leaves the screen, so there this arm is effectively unreachable.
+    // scrolls. For a reader higher up see emptyRecovery's own note below.
     enum EmptyRecovery: Equatable { case none, newest, backInsideThenNewest, rebuild }
     // kosmos#7688 (1): the rebuild's timing, in one place, because its parts only work together. A rebuilt list gets one
     // check after rebuildGrace + rebuildCheckBump (diagTick), and diagCheck reads at each of diagCheckWaits after it; a second
@@ -527,11 +526,18 @@ enum Board {
     static var rebuildTimingHolds: Bool { rebuildGrace + rebuildCheckBump + (diagCheckWaits.min() ?? 0) >= rebuildSpacing }
     // kosmos#7420 (TestFlight 37, Josh 11-04 08:07): the reported blank (the first, `later` false) is rebuilt whatever the
     // reader's place: going to the newest by id lands in the same undrawn stretch (build 34) and a reader who had scrolled
-    // was left blank. A later automatic look still rebuilds only at the newest. `canRebuild` false: the Debug control.
+    // was left blank. `later` alone never rebuilds for a reader higher up: the chat asks for that separately, as a first try
+    // with keepPlace, once a blank has held still (diagCapture, review 5). `canRebuild` false: the Debug control.
     static func emptyRecovery(later: Bool, place: String?, scrolling: Bool, atNewest: Bool = false, canRebuild: Bool = true) -> EmptyRecovery {
         if !scrolling && canRebuild && place == "within" && (atNewest || !later) { return .rebuild }
         if later { return !scrolling && place == "past the end" ? .backInsideThenNewest : .none }
         return !scrolling && (place == "past the end" || place == "before the top") ? .backInsideThenNewest : .newest
+    }
+    // kosmos#7420 review 5 (Josh 11-04 08:26, jumping on open): a thread read that leaves the same newest row at the end of a
+    // list already drawn there changes nothing the reader is waiting for (a status, a settled row, older rows landing above),
+    // and on iOS 17+ the anchor on the end marker holds the list by itself. Moving it again is the jump.
+    static func readLeavesDrawnEndAlone(lastBefore: String?, lastAfter: String?, pinned: Bool, endVisible: Bool, drawn: Bool, settled: Bool) -> Bool {
+        pinned && lastBefore != nil && lastBefore == lastAfter && endVisible && drawn && settled
     }
 
     // kosmos#7678: the in-chat actions panel. Never taller than the room between the top of the messages and the keyboard.

@@ -135,6 +135,8 @@ struct ChatView: View {
     // stay true whatever happens after (rows can "appear" while the list stays black, and can leave again).
     @State private var diagRebuilt = false
     @State private var diagDone = false   // once per open chat, even after the line is dismissed
+    @State private var diagRetrying = false   // kosmos#7420 review 5: one look is waiting for a scroll or a finger to end
+    @State private var quietFollowKey: String?   // kosmos#7420 review 5: the followKey of a read that moves nothing
     @State private var diagWideDone = false   // review 2: a width finding has its own once, so it cannot use up the blank one
     @State private var diagShownOnce = false   // review 2: the record starts at the chat's first showing, not each return
     // Review 4: when this conversation's messages arrived, and whether any row has drawn since, for the never-drawn case.
@@ -746,6 +748,13 @@ struct ChatView: View {
                     keepAnchor = nil
                 }
                 .onChange(of: keepAtEndTick) { _ in
+                    // kosmos#7420 review 5: a read that left the same newest row at a drawn end moves nothing. The settled look
+                    // stays, so a read that left the list blank or past its end is still put right.
+                    if Self.idAnchor, quietFollowKey == Board.followKey(thread) {
+                        Self.trace("keepAtEnd: the newest row unchanged and drawn, not moved")
+                        settleAtNewest(proxy, boxMoved: false)
+                        return
+                    }
                     Self.trace("keepAtEnd scrollTo end")
                     // kosmos#7420 (build 33, 18:59): the whole window replaced the small first page and was measured again
                     // after this; the content shrank under the offset and left it past the end. Settle and look again.
@@ -758,7 +767,10 @@ struct ChatView: View {
                         proxy.scrollTo("end", anchor: .bottom)
                     }
                 }
-                .onChange(of: Board.followKey(thread)) { _ in follow(proxy) }
+                .onChange(of: Board.followKey(thread)) { key in
+                    if Self.idAnchor, quietFollowKey == key { return }   // review 5: older rows landing; the newest is the same
+                    follow(proxy)
+                }
                 .onChange(of: working) { now in if now { follow(proxy) } }
                 // Only a message just sent scrolls down; one settling into its row does not move the person's place.
                 // While searching too, unlike the board's jumpToOwnSend: the phone keeps the sent bubble on screen below
@@ -968,6 +980,15 @@ struct ChatView: View {
         // kosmos#7420: a list just rebuilt has no rows for a moment while the new one lays out; that is not an empty list
         // (measured on iOS 27: without this the rebuild's own gap read as empty and rebuilt it again, three times).
         if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
+        // kosmos#7420 review 5: a look under a scroll or a finger neither moves the reader nor uses up the first try. It comes
+        // back: nothing else looks again once the scroll ends (a row that never drew never leaves). One waits at a time.
+        if personScrolling || scrollBox.underFinger {
+            if !diagRetrying {
+                diagRetrying = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { diagRetrying = false; diagTick &+= 1 }
+            }
+            return
+        }
         diagCapture(proxy, why: "no message on screen", count: count)
     }
 
@@ -980,7 +1001,20 @@ struct ChatView: View {
         // put right only as Board.emptyRecovery says: past the content's end, or (build 24) rebuilt when within the content
         // at the newest. Nobody scrolling either way, and a later look never moves a reader higher up (the first try, the
         // reported blank, rebuilds whatever the anchor, TestFlight 37). A later reading reaches here only through
-        // diagCheck, which asks for no row counted, the end not showing and the top not showing.
+        // diagCheck, which asks for no row counted, the end not showing, the top not showing and nobody scrolling.
+        // Review 5: a blank that comes after the first try, for a reader higher up, is still a blank: rebuilt if it holds
+        // still for blankConfirm, as the settled look does, so a list empty for an instant moves nobody.
+        if recover, diagDone, !atBottom, scrollBox.reading()?.place == "within" {
+            let chatAt = epoch, listAt = listEpoch
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankConfirm) {
+                guard epoch == chatAt, listEpoch == listAt, visible, scenePhase == .active, !searchMode, onScreen.isEmpty,
+                      !endVisible, !topVisible, !personScrolling, !scrollBox.underFinger, !(thread?.rows.isEmpty ?? true)
+                else { return }
+                Self.trace("diag: a later blank, a reader higher up, still blank")
+                recoverEmpty(proxy, keepPlace: true)
+            }
+            return
+        }
         if recover, diagDone { recoverEmpty(proxy, later: true); return }
         guard recover || !diagWideDone else { return }
         if recover { diagDone = true } else { diagWideDone = true }
@@ -1079,11 +1113,12 @@ struct ChatView: View {
             // the newest after a keyboard or box change with the end gone. The offset short of the end is only traced.
             // A drawn list is moved only for a reader at the newest (atBottom); a finger or a reader's scroll is never moved.
             // TestFlight 37 (Josh 11-04 08:07): a list with NOTHING drawn is rebuilt whatever the anchor, since a blank
-            // screen keeps no place worth holding. Review 5: the short-of-end test only after the box moved.
+            // screen keeps no place worth holding.
             let short = scrollBox.shortOfEnd() ?? 0
             // kosmos#7420 (Josh 11-04 08:26, jumping on open and while typing): a drawn list is moved only after a keyboard or
             // box change (boxMoved) and only with its end gone; the short-of-end move (a delayed follow of every new line of
-            // the box) is gone, and a thread read moves a drawn list no more. A list with nothing drawn is still rebuilt.
+            // the box) is gone, so a box that takes the end marker off screen still brings the newest back here, 0.3 s on. This
+            // look moves a drawn list for nothing else. A list with nothing drawn is still rebuilt.
             if place == "within", (boxMoved && !endVisible) || onScreen.isEmpty {
                 if atBottom || (onScreen.isEmpty && !Self.sampleNoRebuild), !personScrolling, !scrollBox.underFinger {
                     // Review 6: a list just rebuilt is laying out and goes to its newest itself; neither arm acts in its grace.
@@ -1162,7 +1197,7 @@ struct ChatView: View {
             // rows it had only estimated and stayed empty. Asked again after its first layout, unless the person has started
             // scrolling or another chat opened. Nothing of the new list is drawn yet: no row counted, the end not shown (so a
             // new list that also stays empty is checked again), and no earlier page asked for by its top (settledAtEnd).
-            anchorLetGo = false; rowTops.reset(); endSeen = false; endVisible = false; onScreen = []; settledAtEnd = false
+            anchorLetGo = false; rowTops.reset(); endSeen = false; endVisible = false; topVisible = false; onScreen = []; settledAtEnd = false
             positionId = nil
             // TestFlight 37 review 1: the new list is sent to its newest, so the reader is at the newest from here; a rebuilt
             // list that stays blank is then checked and rebuilt again by the later look (within its budget).
@@ -1515,7 +1550,7 @@ struct ChatView: View {
             // a reader stopped part way inside the newest rows as a page lands may still move).
             // Review 2: atBottom starts true and clears only after the end marker has shown, so the top showing (the
             // reader is up there) rules it out.
-            if atBottom && endSeen && !topVisible && !searching { keepAtEndTick += 1 }   // review: not while searching
+            if atBottom && endSeen && !topVisible && !searching { quietFollowKey = nil; keepAtEndTick += 1 }   // review: not while searching
             else if case .page(let rows, _, _) = read, !rows.isEmpty { keepAnchor = anchor }
         }
     }
@@ -2237,6 +2272,10 @@ struct ChatView: View {
                 let pinned = !Self.sampleNoKeep && (atBottom || !endSeen) && !searching
                 // kosmos#7810: only from a whole window read in this open (a kept copy or a small page is not one).
                 if !Self.sampleNoKeep, wasFull { earlier = Board.carryDropped(earlier, previous: thread, fresh: fresh) }   // NOKEEP: the control
+                // kosmos#7420 review 5: read before the new rows land, as pinned is.
+                let quiet = Self.idAnchor && Board.readLeavesDrawnEndAlone(lastBefore: thread?.rows.last?.id, lastAfter: fresh.rows.last?.id, pinned: pinned,
+                                                                            endVisible: endVisible, drawn: !onScreen.isEmpty, settled: settledAtEnd)
+                quietFollowKey = quiet ? Board.followKey(fresh) : nil
                 thread = fresh; recomputeHiddenHeads()
                 if pinned { keepAtEndTick += 1 }
                 Self.trace("read \(mine): rows \(fresh.rows.count) older \(fresh.olderCount) pinned \(pinned) atBottom \(atBottom) endSeen \(endSeen) settled \(settledAtEnd) earlierOpen \(earlier.open) earlierRows \(earlier.rows.count) loading \(earlier.loading) filling \(earlier.filling)")

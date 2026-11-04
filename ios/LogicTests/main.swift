@@ -5642,6 +5642,17 @@ do {
           "TestFlight 37: the reported blank is rebuilt for a reader higher up too; a later automatic look leaves them")
     check(Board.emptyRecovery(later: true, place: "past the end", scrolling: false, atNewest: true) == .backInsideThenNewest
           && Board.emptyRecovery(later: false, place: nil, scrolling: false, atNewest: true) == .newest, "outside the content or unread: as before")
+    // kosmos#7420 review 5: a read moves a drawn list only when the end of the list changed, or the list is not drawn there.
+    let quietRead = { (before: String?, after: String?, pinned: Bool, end: Bool, drawn: Bool, settled: Bool) in
+        Board.readLeavesDrawnEndAlone(lastBefore: before, lastAfter: after, pinned: pinned, endVisible: end, drawn: drawn, settled: settled)
+    }
+    check(quietRead("a", "a", true, true, true, true), "the same newest row at a drawn, settled end: not moved")
+    check(!quietRead("a", "b", true, true, true, true), "a new newest row is followed")
+    check(!quietRead(nil, "a", true, true, true, true), "the first rows of a chat are followed")
+    check(!quietRead("a", "a", false, true, true, true), "a reader who is not kept at the newest is not this case")
+    check(!quietRead("a", "a", true, false, true, true), "the end not showing: taken back")
+    check(!quietRead("a", "a", true, true, false, true), "nothing drawn: not left alone")
+    check(!quietRead("a", "a", true, true, true, false), "a chat still opening is still taken to the newest")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
