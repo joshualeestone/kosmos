@@ -5255,7 +5255,7 @@ cmd_claim() {
 # A subverb wins over a project id spelled the same (as room reopen): a project named set, remove or label cannot be
 # listed from here; the project page shows its records.
 cmd_records() {
-  local usage="Usage: kosmos records <project-id> | kosmos records set <project-id> \"<name>\" [--status \"<status>\"] [--confirmed YYYY-MM-DD] [--source \"<link or file>\"] | kosmos records remove <project-id> \"<name>\" | kosmos records label <project-id> \"<what the rows are>\""
+  local usage="Usage: kosmos records <project-id> | kosmos records set <project-id> \"<name>\" [--status \"<status>\"] [--confirmed YYYY-MM-DD] [--source \"<link or file>\"] | kosmos records remove <project-id> \"<name>\" | kosmos records label <project-id> \"<what the rows are>\". A name can be up to 200 characters, a status 80, a source 500 and a label 40."
   local sub="${1:-}" project name
   [ -n "$sub" ] || { say "$usage"; exit 2; }
   # The words are checked before the board is asked anything, so a mistyped command says how to type it even when

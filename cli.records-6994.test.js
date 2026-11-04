@@ -209,3 +209,13 @@ test('#6994: remove names the row as the board stored it, on both commands', () 
   const w = await win(['records', 'remove', 'p6994', 'acme-lower']);
   assert.match(w.out, /Removed Acme from the records of p6994\./);
 }));
+
+// #7991: the limits are said before a refusal teaches them. Neither CLI can read engine/records.js (a shell script, and
+// a CLI that talks to the board), so the numbers are written out and this keeps them equal to the constants.
+test('#7991 both usage lines state the limits the board enforces', () => {
+  const records = require('./engine/records');
+  const said = `A name can be up to ${records.NAME_MAX} characters, a status ${records.STATUS_MAX}, a source ${records.SOURCE_MAX} and a label ${records.LABEL_MAX}.`;
+  for (const [where, text] of [['install/kosmos', fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8')], ['tools/windows/kosmos-cli.js', fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8')]]) {
+    assert.ok(text.includes(said), `${where} does not say: ${said}`);
+  }
+});
