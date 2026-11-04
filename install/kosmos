@@ -5355,12 +5355,14 @@ cmd_room() {
   # this, -n was ignored and the whole tail printed. Either side of the project id.
   # #4926: --unanswered lists only the posts that asked you something and that no post of yours answers by id.
   # #7848: and that no other agent they asked has claimed (the board decides; this only passes the flag).
-  local _n="" _ngiven=0 _arg _unans=""
+  # kosmos#7969: --all (with --unanswered) lists the asks older than the board's few days too.
+  local _n="" _ngiven=0 _arg _unans="" _all=0
   project=""
   while [ $# -gt 0 ]; do
     _arg="$1"; shift
     case "$_arg" in
       --unanswered) _unans="&unanswered=1" ;;
+      --all) _all=1 ;;
       -n|--limit) _ngiven=1; _n="${1:-}"; shift 2>/dev/null || true ;;
       --limit=*)  _ngiven=1; _n="${_arg#--limit=}" ;;
       # Any other word is the project, even one starting with "-": Kosmos makes ids like "-drafts" from a name
@@ -5369,8 +5371,12 @@ cmd_room() {
     esac
   done
   if [ -z "$project" ]; then
-    say "Usage: kosmos room <project-id> [-n N] [--unanswered]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed; or: kosmos room reopen <project-id> to clear a loop-guard hold)"
+    say "Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too); or: kosmos room reopen <project-id> to clear a loop-guard hold)"
     exit 2
+  fi
+  if [ "$_all" = 1 ]; then
+    [ -n "$_unans" ] || { say "--all goes with --unanswered: kosmos room <project-id> --unanswered --all"; exit 2; }
+    _unans="&unanswered=1&all=1"
   fi
   # Checked as text first (no leading 0, at most 3 digits), so a huge number can never reach bash arithmetic.
   if [ "$_ngiven" = 1 ]; then
@@ -5418,8 +5424,14 @@ cmd_room() {
   esac
   # #4926: a filtered answer has a line starting with this; without one, this board does not know --unanswered and
   # what printed is the whole room.
-  if [ -n "$_unans" ] && ! printf '%s\n' "$_body" | grep -q '^Waiting on an answer from you: '; then
-    say "This Kosmos does not know --unanswered yet, so what is above is the whole room, not only what is waiting on you. Update Kosmos to use it." >&2
+  # kosmos#7969: matched in the shell, not by piping the body into grep -q: under pipefail grep -q exiting at its first
+  # match SIGPIPEs the printf on a body bigger than the pipe buffer, and that false status printed this sentence over a
+  # correct answer in a long room.
+  if [ -n "$_unans" ]; then
+    case $'\n'"$_body" in
+      *$'\n''Waiting on an answer from you: '*) ;;
+      *) say "This Kosmos does not know --unanswered yet, so what is above is the whole room, not only what is waiting on you. Update Kosmos to use it." >&2 ;;
+    esac
   fi
 }
 

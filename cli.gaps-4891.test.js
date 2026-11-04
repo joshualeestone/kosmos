@@ -57,6 +57,11 @@ function withBoard(fn) {
       if (/^\/api\/project\/[^/]+\/room\?/.test(req.url) && req.method === 'GET') {
         // #4926: project "newboard" answers as a board that applied ?unanswered=1; every other room as an older board.
         const filtered = req.url.startsWith('/api/project/newboard/') && /[?&]unanswered=1(&|$)/.test(req.url);
+        /* kosmos#7969: "bigboard" applied it, with an answer far past a pipe's buffer (a long room's --unanswered). */
+        if (req.url.startsWith('/api/project/bigboard/') && /[?&]unanswered=1(&|$)/.test(req.url)) {
+          const rows = Array.from({ length: 1500 }, (_, i) => '01:18  [m' + i + '] askerseat -> readerseat: ' + 'a long ask that waits on you '.repeat(4));
+          res.writeHead(200, { 'content-type': 'text/plain' }); res.end('Waiting on an answer from you: 1500 posts in this room:\n' + rows.join('\n') + '\n'); return;
+        }
         res.writeHead(200, { 'content-type': 'text/plain' }); res.end(filtered ? 'Waiting on an answer from you: nothing in this room.\n' : 'the room\n'); return;
       }
       if (/^\/api\/tasks\?project=nosuch(&|$)/.test(req.url)) {   // #5705: the list now asks &order=state too
@@ -225,4 +230,32 @@ test('#4926: --unanswered on a board that ignored it says the answer is the whol
     // CONTROL: without the flag nothing is said about it.
     const plain = await runCli(['room', 'proj'], envFor(port));
     assert.doesNotMatch(plain.stdout + plain.stderr, WARN);
+  }));
+
+test('kosmos#7969: a long filtered answer is not called a board that does not know --unanswered (no SIGPIPE in the check)', () =>
+  withBoard(async (port) => {
+    const out = await runCli(['room', 'bigboard', '--unanswered'], envFor(port));
+    assert.equal(out.code, 0, out.stderr);
+    assert.ok(out.stdout.length > 150000, 'fixture: the answer is not past a pipe buffer (' + out.stdout.length + ' bytes)');
+    assert.match(out.stdout, /^Waiting on an answer from you: 1500 posts/m, 'fixture: the stub did not answer as a new board');
+    assert.doesNotMatch(out.stderr, /does not know --unanswered yet/, 'a long answer from a board that applied the flag was called an older one');
+  }));
+
+test('kosmos#7969: --all goes to the board with --unanswered, either side of the project id; alone it is refused', () =>
+  withBoard(async (port, hits) => {
+    for (const [args, want] of [
+      [['room', 'proj', '--unanswered', '--all'], '/api/project/proj/room?as=text&unanswered=1&all=1'],
+      [['room', '--all', 'proj', '--unanswered'], '/api/project/proj/room?as=text&unanswered=1&all=1'],
+      [['room', 'proj', '-n', '5', '--unanswered', '--all'], '/api/project/proj/room?as=text&n=5&unanswered=1&all=1'],
+    ]) {
+      hits.length = 0;
+      const out = await runCli(args, envFor(port));
+      assert.equal(out.code, 0, args.join(' ') + ': ' + out.stderr);
+      assert.deepEqual(roomReads(hits), [want], args.join(' '));
+    }
+    hits.length = 0;
+    const alone = await runCli(['room', 'proj', '--all'], envFor(port));
+    assert.equal(alone.code, 2, 'a bare --all was not refused');
+    assert.match(alone.stdout + alone.stderr, /--all goes with --unanswered/);
+    assert.deepEqual(roomReads(hits), [], 'a refused --all still read the room');
   }));

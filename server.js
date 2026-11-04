@@ -6635,6 +6635,10 @@ const NOT_ON_PROJECT_FIX = messages.NOT_ON_PROJECT_FIX;
 /* #4926: a line of `kosmos room <id> --unanswered`'s answer starts with this. Both CLIs look for a line starting with it
    to tell a board that ignored the flag (an older one, which sends the whole room) from one that applied it. */
 const UNANSWERED_HEAD = 'Waiting on an answer from you: ';
+/* kosmos#7969 (the 0.7.88 cross-seat report: 39, 41 and 102 old posts on three seats' --unanswered): an agent's ask older
+   than this is counted, not listed, unless the reader adds --all. Measured on one seat in a busy room: 168 listed, every
+   one of the 150 matched older than 3 days. The person's asks never age out. */
+const UNANSWERED_DAYS = 3;
 /* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it without the agent
    having to say so, and can add the agent from that row. `doing` is what the agent tried, in the row's words. */
 /* `addable` (the room's Add button) only for a caller its token named: a pane claim is advisory, so a button on it
@@ -23229,6 +23233,7 @@ const server = http.createServer(async (req, res) => {
     /* #4926: `kosmos room <id> --unanswered` (text view only): the posts that asked the reading agent something and that
        none of its posts answers by id. */
     let onlyUnanswered = false;
+    let unansweredAll = false;   // kosmos#7969: --all, the asks older than UNANSWERED_DAYS too
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       asText = q.get('as') === 'text';
@@ -23238,6 +23243,7 @@ const server = http.createServer(async (req, res) => {
       const av = jsonRows !== null ? q.get('archive') : null;
       archiveView = av === '1' ? 'archive' : av === '0' ? 'live' : null;  // the text view ignores it: agents read the live part only
       onlyUnanswered = asText && q.get('unanswered') === '1';
+      unansweredAll = onlyUnanswered && q.get('all') === '1';
     } catch { asText = false; }
     /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
        do, instead of rendering it as an empty room -- a typo or a hyphenated-name
@@ -23517,6 +23523,11 @@ const server = http.createServer(async (req, res) => {
         const outsideCap = Math.max(1, Math.floor(textRows / 2));
         // kosmos#7365 slice 3: agents read the live room only, so the walk stops at the archive.
         let openAsks = 0;   // #4926: every open ask in the live room, listed or not
+        /* kosmos#7969: an agent's open ask older than UNANSWERED_DAYS, counted under the list rather than in it (unless
+           --all). Aged only on a time that reads as one. */
+        let agedAsks = 0;
+        const agedBefore = Date.now() - UNANSWERED_DAYS * 24 * 60 * 60 * 1000;
+        const aged = (m) => !unansweredAll && m.operator !== true && Number.isFinite(Date.parse(m.at)) && Date.parse(m.at) < agedBefore;
         for (let i = rows.length - 1; i >= archivedCount && (onlyUnanswered || tail.length < textRows); i--) {
           /* #4926: --unanswered walks the whole live room, not just the last N rows, so an ask further back that is still
              open is found; N then caps how many are listed (the newest), and the count says how many there are. */
@@ -23524,6 +23535,7 @@ const server = http.createServer(async (req, res) => {
             if (askedOfReader(rows[i]) && !answeredBy.has(String(rows[i].id))) {
               const c = claimedByOther(rows[i]);
               if (c) { claimedAsks.unshift({ id: String(rows[i].id), by: c.by, at: c.at }); continue; }
+              if (aged(rows[i])) { agedAsks += 1; continue; }
               openAsks += 1;
               if (tail.length < textRows) tail.unshift(rows[i]);
             }
@@ -23687,6 +23699,7 @@ const server = http.createServer(async (req, res) => {
             + ' in this room (each asked you something, and no post of yours cites it by id with --in-reply-to)'   // kosmos#7936: post's flag
             + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'
           : rec.ok === false ? UNANSWERED_HEAD + 'none found, but this room could not be read, so that may be wrong.\n'
+          : agedAsks && !claimedAsks.length ? UNANSWERED_HEAD + 'nothing from the last ' + UNANSWERED_DAYS + ' days in this room.\n'   // kosmos#7969
           : claimedAsks.length ? UNANSWERED_HEAD + 'nothing else waiting on you in this room; '   // kosmos#7848
             + (claimedAsks.length === 1 ? 'the ask below is claimed by another agent it also asked.\n' : 'the asks named below are claimed by agents they also asked.\n')
           : UNANSWERED_HEAD + 'nothing in this room.\n';
@@ -23703,7 +23716,13 @@ const server = http.createServer(async (req, res) => {
             + (moreClaimed ? ', and ' + moreClaimed + ' older' : '')
             + '. They are still in the room, and one comes back here if its claim ends.\n'
           : '';
-        res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine);
+        /* kosmos#7969: the older asks are said, never dropped silently, with the way to see them. */
+        const agedLine = agedAsks
+          ? '[kosmos] ' + agedAsks + (agedAsks === 1 ? ' older post' : ' older posts') + ' that asked you something, more than '
+            + UNANSWERED_DAYS + ' days ago and not from the person, ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed. '
+            + 'Add --all to list ' + (agedAsks === 1 ? 'it' : 'them') + ' too.\n'
+          : '';
+        res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + agedLine);
         return;
       }
       if (jsonRows !== null) {   // kosmos#7032: a page (see the cursor note where n is read)
