@@ -427,7 +427,7 @@ const SITE_COUNTS = {
   'render-made-before.js': [1, 0],
   'render-mobilenav-4823.js': [3, 1],
   'render-model-restart-interstitial.js': [1, 1],
-  'render-model-spinners-2365.js': [1, 1],
+  'render-model-spinners-2365.js': [2, 2],
   'render-msg-counter-3403.js': [1, 0],
   'render-msgdelete-7614.js': [1, 1],
   'render-muse-signin-3939.js': [2, 2],
