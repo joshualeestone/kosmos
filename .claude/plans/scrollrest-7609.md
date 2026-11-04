@@ -21,3 +21,6 @@ unchanged.
 
 ## Tests
 room/main.swift pins the poll. Typecheck Release and DEBUG; room suite passes. The behaviour is CI's ui tests job.
+
+Review 1 (NIT, accepted): the poll is not tied to the chat it started in; a chat change during it would get the marker.
+The old fixed closure did the same, it is Debug only, and no UI check changes chat while it runs.
