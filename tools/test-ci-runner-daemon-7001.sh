@@ -165,7 +165,7 @@ else fail "apply: rc $(rc apply) $(cat "$T/apply.out"); $(cat "$D" 2>/dev/null)"
 run again -- daemon
 [ "$(rc again)" = 0 ] && has again "runs as a LaunchDaemon" && ! has again WOULD && pass "a second run says it is done" || fail "again: rc $(rc again) $(cat "$T/again.out")"
 R0="$(ls "$RA".retired-*)"; cp "$R0" "$AG"; run agentback FX_DATE=20261103T000009Z -- daemon
-[ "$(rc agentback)" = 1 ] && has agentback "is back" && has agentback "sudo -u kosmos-ci cat $AG | sudo tee $RA.retired-" && has agentback "&& sudo -u kosmos-ci cat $AG | sudo cmp -s - $RA.retired-" && has agentback "sudo -u kosmos-ci rm $AG && echo 'moved aside' || { if sudo -u kosmos-ci test -e $AG; then if sudo test -f $RA.retired-" && [ "$(tail -c 4 "$T/agentback.out")" = "; }" ] && ! has agentback "sudo cat $AG |" && ! has agentback "sudo cp" && ! has agentback bootout && pass "only the agent plist back: says move it aside, never a bootout" || fail "agentback: rc $(rc agentback) $(cat "$T/agentback.out")"
+[ "$(rc agentback)" = 1 ] && has agentback "is back" && has agentback "sudo -u kosmos-ci cat $AG | sudo tee $RA.retired-" && has agentback "&& sudo -u kosmos-ci cat $AG | sudo cmp -s - $RA.retired-" && has agentback "sudo -u kosmos-ci rm $AG && echo 'moved aside' || { if sudo -u kosmos-ci test -e $AG; then if [ -n \"\$(sudo -u kosmos-ci find $AG -prune -type f -size 0 2>/dev/null)\" ]; then echo 'NOT finished; $AG is empty, so there is nothing to move aside" && [ "$(tail -c 4 "$T/agentback.out")" = "; }" ] && ! has agentback "sudo cat $AG |" && ! has agentback "sudo cp" && ! has agentback bootout && pass "only the agent plist back: says move it aside, never a bootout" || fail "agentback: rc $(rc agentback) $(cat "$T/agentback.out")"
 MV="$(sed -n 's/.*remove the daemon plist): //p' "$T/agentback.out")"
 [ -n "$MV" ] && sh -n -c "$MV" 2>/dev/null && pass "the printed move-aside is the whole rest of its line and parses as one command" || fail "agentback paste: [$MV]"
 # Pasted twice (sudo stripped): the first moves the agent aside, the second refuses and leaves the copy whole.
@@ -252,7 +252,7 @@ fixture; run pgpark FX_PGREP_FAIL_PARKED=1 -- --apply daemon
 fixture; run suppadmin FX_GROUPS="staff everyone admin" -- --apply daemon
 [ "$(rc suppadmin)" = 1 ] && has suppadmin "is in the admin group" && untouched && pass "a CI user in admin (not as primary group) refuses" || fail "suppadmin: rc $(rc suppadmin) $(cat "$T/suppadmin.out")"
 fixture; run linkput FX_MV_PLIST_FAIL=1 FX_LINK_ON_MV=1 -- --apply daemon
-[ "$(rc linkput)" = 1 ] && has linkput "could not put $AG back (nothing was loaded): sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-" && ! has linkput "back where it was" && [ ! -e "$H/LA.real/$LABEL.plist" ] && ls "$RA".retired-* >/dev/null 2>&1 \
+[ "$(rc linkput)" = 1 ] && has linkput "could not put $AG back (nothing was loaded): sudo -u kosmos-ci test ! -L $AG && sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-" && ! has linkput "back where it was" && [ ! -e "$H/LA.real/$LABEL.plist" ] && ls "$RA".retired-* >/dev/null 2>&1 \
   && pass "a LaunchAgents dir swapped for a symlink mid-run: root does not write the agent back through it" || fail "linkput: rc $(rc linkput) $(cat "$T/linkput.out")"
 fixture; printf 'x\n' > "$(DP)"; run replace -- --apply daemon
 [ "$(rc replace)" = 0 ] && has replace "note:   replacing $(DP)" && pass "an unloaded wrong daemon plist is replaced, and said" || fail "replace: rc $(rc replace) $(cat "$T/replace.out")"
@@ -299,7 +299,7 @@ fixture; run mkdirlink FX_LINK_ON_MKDIR=1 -- --apply daemon
 # 2: an empty retired file (left by a printed move-aside whose copy failed) is never the one named or put back.
 fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; : > "$RA.retired-20261103T000001Z"; run emptyret -- --apply daemon
 [ "$(rc emptyret)" = 1 ] && has emptyret "parked at $RA.retired-20261103T000000Z" && ! has emptyret 20261103T000001Z \
-  && has emptyret "sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-20261103T000000Z && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { if sudo test -f $RA.retired-20261103T000000Z; then if ! sudo -u kosmos-ci test -e $AG; then if sudo test -s $RA.retired-20261103T000000Z; then echo 'NOT finished; $RA.retired-20261103T000000Z is kept and not empty, but $AG was not written" \
+  && has emptyret "sudo -u kosmos-ci test ! -L $AG && sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-20261103T000000Z && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { if sudo test -f $RA.retired-20261103T000000Z; then if sudo -u kosmos-ci test -L $AG; then echo 'NOT finished; $RA.retired-20261103T000000Z is kept. $AG is a symlink" \
   && pass "an empty retired file is skipped, and the printed put-back removes the retired copy only after a compare" || fail "emptyret: rc $(rc emptyret) $(cat "$T/emptyret.out")"
 # 2: the printed put-back, run in a shell with no pipefail, keeps the retired file when the copy fails. These arms run
 # the printed text with sudo stripped (or a sudo shim): they pin the && / || flow; pbwho and pbwho2 pin who runs each probe.
@@ -314,14 +314,14 @@ PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')
   && pass "the printed put-back pasted again refuses and leaves the agent it put back" || fail "pbtwice: [$PBOUT] agent $(ls -l "$AG" 2>&1)"
 # An agent already there (a svc.sh install) with the retired copy still parked: the put-back never writes over it.
 cp "$AG" "$RF"; printf 'reinstalled\n' > "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-[ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it (a copy cut short, or a newer install); to put $RF back anyway, keep that one under another name first: test ! -e $H/$LABEL.plist.newer-20261103T000000Z && mv $AG $H/$LABEL.plist.newer-20261103T000000Z, then paste this again (if that name is taken too, run the stage again for a new stamp)" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
+[ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it (a copy cut short, or a newer install); to put $RF back anyway, keep that one under another name first: test ! -e $H/$LABEL.plist.newer-20261103T000000Z && mv $AG $H/$LABEL.plist.newer-20261103T000000Z, then paste this again (if that name is taken too, use another free name in place of it)" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
   && pass "the printed put-back refuses when an agent is already there, and keeps both files" || fail "pbover: [$PBOUT] agent $(cat "$AG" 2>&1)"
 # kosmos#7887: and the advice works: keep the newer agent under the printed name, paste again, and both are kept.
-NW="$H/$LABEL.plist.newer-20261103T000000Z"; sh -c "test ! -e $NW && mv $AG $NW"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
+NW="$H/$LABEL.plist.newer-20261103T000000Z"; ADV="$(printf '%s' "$PBOUT" | sed -n 's/.*keep that one under another name first: \(.*\), then paste this again.*/\1/p')"; [ -n "$ADV" ] && sh -c "$ADV"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 [ "$PBOUT" = "put back" ] && [ "$(cat "$NW")" = reinstalled ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && [ ! -e "$RF" ] \
   && pass "#7887: following the advice keeps the newer agent and puts the parked one back" || fail "pbfollow: [$PBOUT] newer $(cat "$NW" 2>&1)"
 printf 'other\n' > "$AG"; cp "$AG" "$T/other.bak"; echo x > "$RF"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-sh -c "test ! -e $NW && mv $AG $NW"; [ "$(cat "$NW")" = reinstalled ] && cmp -s "$AG" "$T/other.bak" \
+ADV2="$(printf '%s' "$PBOUT" | sed -n 's/.*keep that one under another name first: \(.*\), then paste this again.*/\1/p')"; [ -n "$ADV2" ] && sh -c "$ADV2"; [ -n "$ADV2" ] && [ "$(cat "$NW")" = reinstalled ] && cmp -s "$AG" "$T/other.bak" \
   && pass "#7887: the printed rename never overwrites a name already taken" || fail "pbnoclobber: newer $(cat "$NW" 2>&1) agent $(cat "$AG" 2>&1)"
 # kosmos#7887: a probe that could not run never reads as "the agent is empty": with the emptiness check failing, a
 # non-empty different agent gets the rename advice, never the advice to remove it.
@@ -351,6 +351,11 @@ PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
 rm -f "$AG"; cp "$T/agent.good" "$RF"; /bin/mv "$H/Library/LaunchAgents" "$H/LA.away"; PBOUT="$(sh -c "$PBS" 2>&1 | tail -n 1)"; /bin/mv "$H/LA.away" "$H/Library/LaunchAgents"
 [ "$PBOUT" = "NOT finished; $RF is kept and not empty, but $AG was not written: its folder is missing or not writable, or a step did not run (a refused password prompt); paste this again once that is fixed" ] && cmp -s "$RF" "$T/agent.good" \
   && pass "#7887: a good retired file whose agent cannot be written is not blamed for it" || fail "pbnofolder: [$PBOUT]"
+# Round 7: a dangling symlink at the agent's path (a job can make one): the put-back writes nothing and says so.
+cp "$T/agent.good" "$RF"; rm -f "$AG"; ln -s "$T/nowhere/agent.plist" "$AG"; PBOUT="$(sh -c "$PBS" 2>&1)"
+[ "$PBOUT" = "NOT finished; $RF is kept. $AG is a symlink, which a job could have put there: look at it as root before anything else: ls -la $AG" ] && [ -L "$AG" ] && [ ! -e "$T/nowhere" ] && cmp -s "$RF" "$T/agent.good" \
+  && pass "#7887: a symlink at the agent path is never written through, and is named" || fail "pbsymlink: [$PBOUT]"
+rm -f "$AG"
 # Who runs each probe is part of the text: the printed failure branch, as the operator sees it, with its sudo.
 grep -q -F "elif sudo -u kosmos-ci test -s $AG && sudo cat $RF | sudo -u kosmos-ci cmp -s - $AG; then echo 'put back, but $RF was not removed: sudo rm $RF';" "$T/emptyret.out" \
   && pass "#7887: the printed failure branch reads the agent as the CI user and the retired file as root" || fail "pbwho: $(grep -o 'elif .\{0,160\}' "$T/emptyret.out" | head -1)"
@@ -360,13 +365,13 @@ rm -f "$AG"; mkdir -p "$T/notafile"; PBD="$(printf '%s' "$PBS" | sed "s#$RF#$T/n
   && pass "#7887: a folder given as the retired file says it is not a plain file" || fail "pbdir: [$PBOUT]"
 rmdir "$T/notafile"
 # And who runs the outer probes, as the operator sees them.
-grep -q -F "|| { if sudo test -f $RF; then if ! sudo -u kosmos-ci test -e $AG; then if sudo test -s $RF; then" "$T/emptyret.out" \
+grep -q -F "|| { if sudo test -f $RF; then if sudo -u kosmos-ci test -L $AG; then echo" "$T/emptyret.out" \
   && pass "#7887: the outer probes of the printed failure branch run as root on the retired file and as the CI user on the agent" || fail "pbwho2: $(grep -o '|| { if .\{0,140\}' "$T/emptyret.out" | head -1)"
 printf '#!/bin/sh\nexit 1\n' > "$T/pbbin/sudo"; cp "$T/agent.good" "$AG"; MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
 [ "$MVOUT" = "nothing done: $AG is not there (already moved aside), or the check could not run" ] && cmp -s "$AG" "$T/agent.good" && pass "#7887: the printed move-aside, with a sudo that does not run, says the check could not run" || fail "mvnosudo: [$MVOUT]"
 # Round 3's BLOCKER: an empty retired file with a good agent in place never advises removing the agent.
 cp "$T/agent.good" "$AG"; : > "$RF"; PBOUT="$(sh -c "$PBS" 2>&1)"
-[ "$PBOUT" = "NOT finished; $RF is empty, so there is nothing to put back: $AG is kept as it is" ] && cmp -s "$AG" "$T/agent.good" \
+[ "$PBOUT" = "NOT finished; $RF is empty or could not be read, so nothing was put back: $AG is kept as it is" ] && cmp -s "$AG" "$T/agent.good" \
   && pass "#7887: an empty retired file with a good agent keeps the agent and never says to remove it" || fail "pbemptyagent: [$PBOUT]"
 # The printed move-aside looks before it names a cause, as the put-back does. Its stamped name is D9.
 rm -f "$D9"; cp "$T/agent.good" "$AG"; printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = rm ] && exit 1\nexec "$@"\n' > "$T/pbbin/sudo"
@@ -377,17 +382,24 @@ MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
 [ "$MVOUT" = "NOT finished; $AG is not removed. $D9 is there and not the same as it (a copy cut short, or an earlier parked copy); keep it under another name: test ! -e $D9.earlier && mv $D9 $D9.earlier, then paste this again (if that name is taken too, run the stage again for a new stamp)" ] && cmp -s "$AG" "$T/agent.good" \
   && pass "#7887: a move-aside onto a different file at its name keeps the agent and names that file" || fail "mvdiff: [$MVOUT]"
 # kosmos#7887: and the advice works: keep that file under the printed name, paste again, and the agent moves aside.
-sh -c "test ! -e $D9.earlier && mv $D9 $D9.earlier"; MVOUT="$(sh -c "$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
+ADV="$(printf '%s' "$MVOUT" | sed -n 's/.*keep it under another name: \(.*\), then paste this again.*/\1/p')"; [ -n "$ADV" ] && sh -c "$ADV"; MVOUT="$(sh -c "$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 [ "$MVOUT" = "moved aside" ] && [ ! -e "$AG" ] && cmp -s "$D9" "$T/agent.good" && [ -e "$D9.earlier" ] \
   && pass "#7887: following the move-aside advice keeps the earlier file and moves the agent aside" || fail "mvfollow: [$MVOUT]"
-printf 'third\n' > "$D9"; : > "$D9.earlier"; cp "$T/agent.good" "$AG"; sh -c "test ! -e $D9.earlier && mv $D9 $D9.earlier"
-[ "$(cat "$D9")" = third ] && [ ! -s "$D9.earlier" ] && pass "#7887: the printed rename never overwrites an earlier kept file" || fail "mvnoclobber: $(cat "$D9" 2>&1)"
+printf 'third\n' > "$D9"; : > "$D9.earlier"; cp "$T/agent.good" "$AG"; MVOUT="$(sh -c "$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
+ADV="$(printf '%s' "$MVOUT" | sed -n 's/.*keep it under another name: \(.*\), then paste this again.*/\1/p')"; [ -n "$ADV" ] && sh -c "$ADV"
+[ -n "$ADV" ] && [ "$(cat "$D9")" = third ] && [ ! -s "$D9.earlier" ] && pass "#7887: the printed rename never overwrites an earlier kept file" || fail "mvnoclobber: $(cat "$D9" 2>&1)"
+# Round 7: an empty agent cannot be moved aside (nothing to copy); the line says so and to remove it, and following
+# that leaves no agent and nothing wrongly parked.
+rm -f "$D9" "$D9.earlier"; : > "$AG"; MVOUT="$(sh -c "$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
+[ "$MVOUT" = "NOT finished; $AG is empty, so there is nothing to move aside: remove it: rm $AG" ] && sh -c "${MVOUT##*: }" && [ ! -e "$AG" ] \
+  && pass "#7887: an empty agent is said to have nothing to move aside, and removing it works" || fail "mvempty: [$MVOUT]"
+rm -f "$D9"
 rm -f "$D9.earlier"
 rm -f "$D9" "$AG"
 rm -f "$RF" "$T/agent.good"
 # 2: the stage's own put-back, when the copy comes out short, keeps the retired file and prints how to put it back.
 fixture; run teeshort FX_MV_PLIST_FAIL=1 FX_TEE_SHORT=1 -- --apply daemon
-[ "$(rc teeshort)" = 1 ] && has teeshort "could not put $AG back (nothing was loaded): sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-" && [ -s "$(ls "$RA".retired-* 2>/dev/null | head -n 1)" ] \
+[ "$(rc teeshort)" = 1 ] && has teeshort "could not put $AG back (nothing was loaded): sudo -u kosmos-ci test ! -L $AG && sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-" && [ -s "$(ls "$RA".retired-* 2>/dev/null | head -n 1)" ] \
   && [ "$(wc -c < "$(ls "$RA".retired-* | head -n 1)")" -gt 20 ] && [ ! -e "$AG" ] && pass "a short copy on the stage's own put-back keeps the retired file and removes the short agent" || fail "teeshort: rc $(rc teeshort) $(cat "$T/teeshort.out")"
 # kosmos#7887: and the put-back that line prints really puts the agent back from that state.
 TPB="$(sed -n 's/.*could not put .* back (nothing was loaded): //p' "$T/teeshort.out")"
@@ -414,6 +426,8 @@ fixture; run quotedir "KOSMOS_CI_RETIRED_DIR=$T/it's" -- daemon
 [ "$(rc quotedir)" = 2 ] && has quotedir "KOSMOS_CI_RETIRED_DIR" && has quotedir "may hold only letters" && pass "#7887: a retired dir with a quote in it is refused before anything" || fail "quotedir: rc $(rc quotedir) $(cat "$T/quotedir.out")"
 fixture; run reldir "KOSMOS_CI_DAEMON_DIR=-x/y" -- daemon
 [ "$(rc reldir)" = 2 ] && has reldir "KOSMOS_CI_DAEMON_DIR '-x/y' must be an absolute path" && pass "#7887: a dir seam that is not an absolute path is refused, named" || fail "reldir: rc $(rc reldir) $(cat "$T/reldir.out")"
+fixture; run relhome "KOSMOS_CI_HOME=-x" -- daemon
+[ "$(rc relhome)" = 2 ] && has relhome "must be an absolute path" && pass "#7887: a CI home that is not an absolute path is refused" || fail "relhome: rc $(rc relhome) $(cat "$T/relhome.out")"
 # NIT: signals are ignored from the first write to the bootstrap.
 fixture; run sigs FX_TERM_ON_MV=1 -- --apply daemon
 [ "$(rc sigs)" = 0 ] && has sigs "Listener pid 7001 under pid 7000" && grep -q "^launchctl bootstrap system" "$LOG" \

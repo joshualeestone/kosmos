@@ -121,3 +121,20 @@ name the wrong cause. That needs a sudo that fails half way through one paste.
   plain file is one cause).
 - Not changed: the hedge order in "not there (...), or the check could not run"; the follow-through arms use the
   advice as written in the test (the exact-string arms pin the printed text).
+
+## Challenge round 7 (opus, whole branch, no plan file), fixed in the next commits
+- An EMPTY agent could never be moved aside: the copy is zero bytes, so `test -s R` fails and the line called R
+  "not the same" and looped through .earlier renames forever. The move-aside's failure branch now says first that the
+  agent is empty, so there is nothing to move aside, and to remove it. Arm mvempty follows that and checks no agent
+  is left.
+- The put-back's taken-name fallback ("run the stage again for a new stamp") does not work from that state (the
+  agent-present branch never prints a put-back); it now says to use another free name in its place.
+- The follow-through arms ran hand-typed copies of the advice; they now cut the command out of the printed line with
+  sed and run that, asserting it was found.
+- A dangling symlink at the agent path: the put-back's go chain now refuses a symlink there (`test ! -L`), and the
+  failure branch names it first ("a symlink, which a job could have put there"). Arm pbsymlink: nothing is written
+  through it.
+- Nits: the bare "R is empty" became "empty or could not be read"; CI_HOME must be an absolute path too (arm relhome).
+- Found in my own edit: I inserted the CI_HOME check twice (a grep with `$` read as an anchor under ugrep told me the
+  first insertion had not landed). The CI_HOME perturbation stayed green because the twin still refused; the duplicate
+  is removed and the perturbation is now red.
