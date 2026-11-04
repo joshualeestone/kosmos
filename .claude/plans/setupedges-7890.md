@@ -35,6 +35,13 @@ leaves setup.ps1 as it is: that is the rollback case of item 5.)
 **Weakest premise:** that HEAD at promote time is a fair witness for a zip that names no commit. It is only used when the
 zip names none, and a mismatch publishes nothing.
 
+## Defence in depth, not a release path (review round 7)
+A zip with no source commit, or a dirty one, already fails the verification record's required manifest check
+(tools/win-staging-verify.js), so -Promote refuses it before the installer code runs. The `head` branch and its refusals
+therefore only matter for a record built by hand or under an older record spec. So the weakest premise above ("HEAD is a
+fair witness") matters little: this path should never run in a real release. The dirty NOTICE now says the build cannot
+be promoted.
+
 ## Known limit
 A zip that names no commit, refused at -Promote because HEAD has moved since staging: the commit staging used is only in
 the staging run's own output, not in the bucket, so another PC may not find it; the other fix (a new build) always
