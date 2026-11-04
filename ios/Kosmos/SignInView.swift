@@ -603,7 +603,7 @@ struct SignInView: View {
     }
     private func primary(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack { Spacer(); if model.busy { KosmosOrb(colour: Palette.card) } else { Text(label) }; Spacer() }
+            HStack { Spacer(); if model.busy { KosmosOrb(colour: Palette.secondary, label: label) } else { Text(label) }   // busy, the button is disabled and iOS greys its fill: the card colour would vanish on it (review round 7); Spacer() }
                 // The app's tint is ink (near-white in dark), so the label takes the card colour to stay readable.
                 .foregroundColor(Palette.card).padding(.vertical, 6)
         }

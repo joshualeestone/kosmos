@@ -44,7 +44,7 @@ check(same, "t = 27 s draws the same frame as t = 0")
 let (a1, a2) = MainActor.assumeIsolated { (OrbLogic.placeShared(5.001), OrbLogic.placeShared(5.004)) }
 let b = OrbLogic.place((5.001 * 15).rounded() / 15)
 check(a1.count == b.count && zip(a1, b).allSatisfy { $0.x == $1.x && $0.y == $1.y }, "the shared placing equals a fresh one at the same frame")
-check(a2.count == a1.count && zip(a2, a1).allSatisfy { $0.x == $1.x }, "two asks within one 15th of a second get the same frame")
+check(a2.count == a1.count && zip(a2, a1).allSatisfy { $0.x == $1.x }, "two asks within one 15th of a second round to the same frame (the rounding; the cache itself is not observable here)")
 let c1 = MainActor.assumeIsolated { OrbLogic.placeShared(6.5) }
 check(!(c1.count == a1.count && zip(c1, a1).allSatisfy { $0.x == $1.x }), "a later frame is placed afresh")
 

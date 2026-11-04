@@ -9,6 +9,8 @@ Decided:
 - OrbLogic.swift is the desktop's KORB geometry ported line for line (same Lehmer seed 7, same acceptance, currents,
   letter cuts, grouped paint), Foundation only, so LogicTests run it on a Mac; KosmosOrb.swift is the SwiftUI view
   (TimelineView at 15 fps, Canvas, one path per strength group).
+- The sign-in Confirm button, busy and so disabled with a grey fill, draws its orb in Palette.secondary, not the card
+  colour that would vanish on the grey (round 7), and keeps the button's words as its spoken label.
 - Mapping: ProgressView() to KosmosOrb() (20 pt); .controlSize(.small) to size 16; .controlSize(.large) to size 36;
   .tint(X) to colour: X (white and card tints on coloured grounds kept); .accessibilityLabel(X) to label: X, passed
   in rather than stacked, so VoiceOver says exactly what each site said. Default label "Loading".
@@ -20,7 +22,7 @@ Decided:
   orb per frame at 3x as ellipses, 0.64 ms at 16 pt once sub-pixel dots are filled as squares. Every orb runs at 15 fps
   (round 4: one rate, so orbs of two sizes share one placing). Sub-pixel dots are squares of the same area. The dots and letter cuts are built off the main
   thread at launch (OrbLogic.warm), so the first orb shown does not stall a frame.
-- VoiceOver: the orb is hidden wherever text beside it, or the button it sits in, says what is happening (14 sites), and says "Loading" (or the
+- VoiceOver: the orb is hidden wherever text beside it, or the button it sits in, says what is happening (15 sites), and says "Loading" (or the
   site's own label) where it stands alone.
 - List and Form rows (7 sites) keep a bare orb, not wrapped to centre: a row lays out its content from the leading
   edge, and the bare ProgressView there was the same kind of fixed-size leaf. Reasoned, not measured on a device:
