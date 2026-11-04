@@ -22923,8 +22923,10 @@ const server = http.createServer(async (req, res) => {
             notYours.status = 403;
             throw notYours;
           }
-          const roster = safeRoster();
-          if (roster === null) {
+          /* Every agent Kosmos knows, not only the ones with a pane: a stopped agent living in this folder would otherwise
+             lose its home at its next start. */
+          const { names: everyAgent, complete, roster } = knownAgentNames();
+          if (!complete) {
             const blind = new Error('we could not read what your agents are doing just now, so the folder stays as it is');
             blind.status = 409;
             throw blind;
@@ -22933,8 +22935,10 @@ const server = http.createServer(async (req, res) => {
           /* Anything but idle or stopped: an agent paused at a question or a rate limit is mid-turn, and when it resumes it
              can write to the old path. A state nobody can read counts too. */
           const busy = roster.filter((c) => c && mine.includes(c.sessionName) && c.state !== STATE.IDLE && c.state !== STATE.STOPPED).map((c) => c.name || c.sessionName);
-          const homes = roster.filter((c) => c && c.sessionName).map((c) => create.workerDir(c.sessionName));
-          await answerFolderMoved(projects.renameFolderToName(id, { busy, homes }));
+          // Gemini's workspace is fixed at launch (geminidirs.js), so a running one could not write to the new place.
+          const stuckOnOldFolder = roster.filter((c) => c && mine.includes(c.sessionName) && c.state !== STATE.STOPPED && c.runner === 'gemini').map((c) => c.name || c.sessionName);
+          const homes = [...everyAgent].map((n) => create.workerDir(n));
+          await answerFolderMoved(projects.renameFolderToName(id, { busy, homes, stuckOnOldFolder }));
           return;
         }
         if (body.folder !== undefined) {

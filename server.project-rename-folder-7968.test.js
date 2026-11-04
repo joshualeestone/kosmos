@@ -1,7 +1,7 @@
 'use strict';
 /**
  * #7968: a renamed project's folder can be renamed to match, by the person, on the project's page
- * (PUT /api/project/<id> {renameFolder: true}). The id stays; a folder the person chose is never offered.
+ * (PUT /api/project/<id> {renameFolder: true}). The id stays; a folder outside the projects root is never offered.
  *
  *   node --test server.project-rename-folder-7968.test.js
  */
@@ -82,7 +82,7 @@ test('#7968 only the person, and on its own', async () => {
   assert.equal(fs.existsSync(path.join(KEEP, 'Starter Two', 'work.txt')), true);
 });
 
-test('#7968 a folder the person chose is never offered, and asking anyway leaves it alone', async () => {
+test('#7968 a folder outside the projects root is never offered, and asking anyway leaves it alone', async () => {
   const mine = path.join(HOME, 'My Own Work');
   fs.mkdirSync(mine, { recursive: true });
   const p = projects.create({ name: 'Elsewhere', folder: mine });
@@ -110,7 +110,7 @@ test('#7968 a folder already called that is refused, with both folders untouched
 test('#7968 a member working, or an agent living in or holding the folder, is refused and nothing moves', () => {
   const p = renamed('Starter Four', 'Fourth Name');
   const old = path.join(KEEP, 'Starter Four');
-  assert.throws(() => projects.renameFolderToName(p.id, { busy: ['Ada'] }), /Ada is busy on this project/);
+  assert.throws(() => projects.renameFolderToName(p.id, { busy: ['Ada'] }), /Ada is in the middle of something on this project/);
   assert.throws(() => projects.renameFolderToName(p.id, { homes: [old] }), /an agent lives in this folder/);
   assert.throws(() => projects.renameFolderToName(p.id, { homes: [path.join(old, 'inner')] }), /an agent lives in this folder/);
   assert.equal(stored(p.id).folder, old);
@@ -137,7 +137,7 @@ test('#7968 through the route: a member not idle refuses, an idle member does no
   projects.edit(p.id, { name: 'Route Busy' });
   const busy = await put(p.id, { renameFolder: true }, SCREEN);
   assert.equal(busy.status, 409, JSON.stringify(await busy.clone().json()));
-  assert.match((await busy.json()).error, /mara is busy on this project/);
+  assert.match((await busy.json()).error, /mara is in the middle of something on this project/);
   assert.equal(stored(p.id).folder, path.join(KEEP, 'Route Start'));
 
   const q = projects.create({ name: 'Route Calm' });
@@ -167,13 +167,48 @@ test('#7968 a roster nobody can read refuses', async (t) => {
   assert.equal(stored(p.id).folder, path.join(KEEP, 'Starter Blind'));
 });
 
-test('#7968 a case-only rename goes through where the disk does not care about case', () => {
-  const p = projects.create({ name: 'casing plan' });
-  projects.edit(p.id, { name: 'Casing Plan' });
-  const done = projects.renameFolderToName(p.id);
-  assert.equal(done.folder, path.join(KEEP, 'Casing Plan'));
-  assert.ok(fs.readdirSync(KEEP).includes('Casing Plan'));
-  assert.equal(fs.readdirSync(KEEP).includes('casing plan'), false);
+test('#7968 a difference of case alone is not offered: the folder is already recognisable', () => {
+  const lease = projects.create({ name: 'lease plan' });
+  projects.edit(lease.id, { name: 'Lease Plan' });
+  assert.equal(offered(lease.id), null);
+  assert.throws(() => projects.renameFolderToName(lease.id), /no new name/);
+});
+
+test('#7968 a stopped agent living in the folder refuses it too, which the board alone cannot see', async (t) => {
+  const b = fleet.install([]);
+  t.after(() => b.restore());
+  const p = renamed('Stopped Home', 'Stopped Other');
+  const WORKERS = process.env.AGENT_WORKFORCE_WORKERS;
+  const home = path.join(p.folder, 'agenthome');
+  fs.mkdirSync(home);
+  require('./engine/store').writeProfile('offl', { name: 'offl', dir: home });
+  assert.equal(create.workerDir('offl'), home, 'CONTROL: the profile records its home there');
+  assert.ok(WORKERS);
+  const r = await put(p.id, { renameFolder: true }, SCREEN);
+  assert.equal(r.status, 409, JSON.stringify(await r.clone().json()));
+  assert.match((await r.json()).error, /an agent lives in this folder/);
+  assert.equal(stored(p.id).folder, path.join(KEEP, 'Stopped Home'));
+});
+
+test('#7968 a member waiting on a question refuses, a stopped one does not, and a running Gemini member refuses', async (t) => {
+  const b = fleet.install([fleet.agent('quin', { state: 'needs_you' }), fleet.agent('sol', { state: 'stopped' }), fleet.agent('gem', { state: 'idle', runner: 'gemini' })]);
+  t.after(() => b.restore());
+  const asks = renamed('Asks Start', 'Asks Other');
+  projects.addAgent(asks.id, 'quin');
+  const r1 = await put(asks.id, { renameFolder: true }, SCREEN);
+  assert.equal(r1.status, 409);
+  assert.match((await r1.json()).error, /quin is in the middle of something/);
+
+  const gem = renamed('Gem Start', 'Gem Other');
+  projects.addAgent(gem.id, 'gem');
+  const r3 = await put(gem.id, { renameFolder: true }, SCREEN);
+  assert.equal(r3.status, 409);
+  assert.match((await r3.json()).error, /gem runs on Gemini/);
+
+  const stopped = renamed('Stops Start', 'Stops Other');
+  projects.addAgent(stopped.id, 'sol');
+  const r2 = await put(stopped.id, { renameFolder: true }, SCREEN);
+  assert.equal(r2.status, 200, 'CONTROL: a stopped member is reading nothing');
 });
 
 test('#7968 a name Windows cannot hold is not offered there', () => {
@@ -183,7 +218,7 @@ test('#7968 a name Windows cannot hold is not offered there', () => {
   Object.defineProperty(process, 'platform', { value: 'win32' });
   try {
     assert.equal(projects.folderRenameTarget(stored(p.id)), null);
-    for (const name of ['Con', 'nul', 'COM1', 'lpt2.txt', 'Plan.']) {
+    for (const name of ['Con', 'nul', 'COM1', 'lpt2.txt', 'Plan.', 'CON .txt', 'CONIN$']) {
       assert.equal(projects.folderRenameTarget({ folder: path.join(KEEP, 'x'), name }), null, name);
     }
     assert.equal(projects.folderRenameTarget({ folder: path.join(KEEP, 'x'), name: 'Console' }), 'Console', 'CONTROL: only the device names themselves');
@@ -205,7 +240,7 @@ test('#7968 a folder that cannot be renamed leaves the record as it was, and a r
   let blocked = 0;
   store.saveFlushed = () => { blocked += 1; throw new Error('disk full'); };
   try {
-    assert.throws(() => projects.renameFolderToName(p.id), /disk full/);
+    assert.throws(() => projects.renameFolderToName(p.id), (e) => e.status === 500 && /keeps its old name/.test(e.message));
   } finally { store.saveFlushed = realSave; }
   assert.ok(blocked > 0, 'CONTROL: the save really was refused');
   assert.equal(stored(p.id).folder, old);
@@ -232,7 +267,7 @@ test('#7968 a name that cannot be a folder name is not offered, and a matching f
 test('#7968 the page offers it only with an answer to give, and sends it alone', () => {
   const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
   assert.match(page, /id="pjs-rename-folder" hidden/);
-  assert.match(page, /rf\.hidden = !\(p\.folderRenameTo && p\.folderState && p\.folderState\.state === 'readable'\)/);
+  assert.match(page, /rf\.hidden = !p\.folderRenameTo;/);
   assert.match(page, /JSON\.stringify\(\{ renameFolder: true \}\)/);
   assert.match(page, /e\.status === 500 \? t \+ '\.' : 'Not changed: '/);
 });

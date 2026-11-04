@@ -79,7 +79,7 @@ const PORT = freePort();
     await openSettings('Launch Plan');
     await p.waitForSelector('#pjs-rename-folder', { state: 'visible', timeout: 8000 });
     const offer = (await shown(p.locator('#pjs-rename-folder-text'))).trim();
-    chk(offer === 'This project\'s folder is still called Starter Name. You can rename it to Launch Plan. Anything outside Kosmos that uses the old name, like a shortcut or a script, will stop working.',
+    chk(offer === 'This project\'s folder is called Starter Name. You can rename it to Launch Plan to match. Anything outside Kosmos that uses the old name, like a shortcut or a script, will stop working.',
       'the offer names both folder names and what stops working', JSON.stringify(offer));
 
     // A folder made under that name after the page offered it: refused in plain words, nothing moves.
@@ -97,7 +97,7 @@ const PORT = freePort();
     const said = (await shown(p.locator('#pjs-move-msg'))).trim();
     chk(said === 'Done. The folder is now called Launch Plan.', 'the rename is confirmed', JSON.stringify(said));
     await p.waitForFunction(() => document.getElementById('pjs-rename-folder').hidden === true, null, { timeout: 8000 });
-    chk(true, 'the offer is gone once the folder matches');
+    chk(!(await p.isVisible('#pjs-rename-folder')), 'the offer is gone once the folder matches');
     chk((await shown(p.locator('#pjs-folder-name'))).trim() === 'Launch Plan', 'the settings show the new folder name');
     chk(fs.readFileSync(path.join(taken, 'work.txt'), 'utf8') === 'mine', 'the work moved with it');
     chk(!fs.existsSync(moved.folder), 'and the old folder is gone');

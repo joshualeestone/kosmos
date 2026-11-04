@@ -3430,29 +3430,30 @@ function moveFolder(id, folder) {
 }
 
 /* #7968: what a project's folder would be called to match its name, or null when there is nothing to offer: the folder
-   already matches, the name cannot be a folder name here, or the folder is not directly under the projects root. */
+   already matches apart from case, the name cannot be a folder name here, or the folder is not directly under the
+   projects root. */
 function folderRenameTarget(project) {
   if (!project || typeof project.folder !== 'string' || path.dirname(project.folder) !== projectsRoot()) return null;
   let want;
   try { want = folderNameFor(project.name); } catch { return null; }
-  if (process.platform === 'win32' && (/[<>"|?*]|[. ]$/.test(want) || /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(want))) return null;
-  return want === path.basename(project.folder) ? null : want;
+  if (process.platform === 'win32' && (/[<>"|?*]|[. ]$/.test(want) || winpath.WINDOWS_DEVICE_NAME.test(want))) return null;
+  return want.toLowerCase() === path.basename(project.folder).toLowerCase() ? null : want;
 }
 
 /* The offer the page shows: the same, but not when another folder already has the name, which could only be refused. */
 function folderRenameOffer(project) {
   const want = folderRenameTarget(project);
   if (!want) return null;
-  const there = folderState(path.join(path.dirname(project.folder), want));
-  return there.state === FOLDER.MISSING || there.real === folderState(project.folder).real ? want : null;
+  if (folderState(project.folder).state !== FOLDER.READABLE) return null;
+  return folderState(path.join(path.dirname(project.folder), want)).state === FOLDER.MISSING ? want : null;
 }
 
 const pathHolds = (outer, inner) => inner === outer || inner.startsWith(outer + path.sep);
 
 /* #7968: renames a project's folder in place to match its name. The id does not change. `busy` names the members
-   working right now and `homes` is every agent's own folder, both from the caller, which holds the board. Each refusal
-   leaves the folder and the record as they were. */
-function renameFolderToName(id, { busy = [], homes = [] } = {}) {
+   not idle or stopped, `stuckOnOldFolder` the running members who cannot follow a move, and `homes` is every agent's own
+   folder, all from the caller, which holds the board. Each refusal leaves the folder and the record as they were. */
+function renameFolderToName(id, { busy = [], homes = [], stuckOnOldFolder = [] } = {}) {
   const all = readAll();
   const self = all.find((p) => p.id === id);
   if (!self) throw new Error('there is no project by that name');
@@ -3468,23 +3469,25 @@ function renameFolderToName(id, { busy = [], homes = [] } = {}) {
   if (homes.some((h) => holdsAny(h, folderState(h).real))) throw refused('an agent lives in this folder, so it stays where it is');
   const nested = all.find((p) => p.id !== id && typeof p.folder === 'string' && holdsAny(p.folder, folderState(p.folder).real));
   if (nested) throw refused('the project "' + nested.name + '" is inside this folder, so it stays where it is');
-  if (busy.length) throw refused(busy.join(', ') + (busy.length === 1 ? ' is' : ' are') + ' busy on this project. Try again when that has finished');
+  if (stuckOnOldFolder.length) throw refused(stuckOnOldFolder.join(', ') + ' runs on Gemini, which keeps the folder it started with. Stop that agent first, then rename the folder');
+  if (busy.length) throw refused(busy.join(', ') + (busy.length === 1 ? ' is' : ' are') + ' in the middle of something on this project. Try again once ' + (busy.length === 1 ? 'that agent is' : 'they are') + ' idle');
   const target = path.join(path.dirname(self.folder), want);
   const there = folderState(target);
-  const onlyCaseDiffers = there.state !== FOLDER.MISSING && there.real === now.real;
-  if ((there.state !== FOLDER.MISSING && !onlyCaseDiffers) || all.some((p) => p.id !== id && p.folder === target)) {
+  if (there.state !== FOLDER.MISSING || all.some((p) => p.id !== id && p.folder === target)) {
     throw refused('there is already a folder called ' + want);
   }
   try { fs.renameSync(self.folder, target); } catch {
     throw refused('that folder could not be renamed. Something may have it open, so close it and try again');
   }
-  try { return mutate(id, (p) => { p.folder = target; return p; }); } catch (e) {
+  try { return mutate(id, (p) => { p.folder = target; return p; }); } catch {
     try { fs.renameSync(target, self.folder); } catch {
       const stuck = new Error('the folder was renamed to ' + want + ', but Kosmos could not save that or put it back. Use "Use this location" on this page to point Kosmos at ' + target);
       stuck.status = 500;
       throw stuck;
     }
-    throw e;
+    const unsaved = new Error('Kosmos could not save the new folder, so the folder keeps its old name');
+    unsaved.status = 500;
+    throw unsaved;
   }
 }
 

@@ -74353,11 +74353,11 @@ function paintSettingsFacts(p) {
   }
   const rf = document.getElementById('pjs-rename-folder');   // #7968
   if (rf) {
-    rf.hidden = !(p.folderRenameTo && p.folderState && p.folderState.state === 'readable');
+    rf.hidden = !p.folderRenameTo;
     if (!rf.hidden) {
       const called = String(p.folder).split(/[\\/]/).filter(Boolean).pop();
-      document.getElementById('pjs-rename-folder-text').textContent = 'This project\'s folder is still called ' + called + '. You can rename it to '
-        + p.folderRenameTo + '. Anything outside Kosmos that uses the old name, like a shortcut or a script, will stop working.';
+      document.getElementById('pjs-rename-folder-text').textContent = 'This project\'s folder is called ' + called + '. You can rename it to '
+        + p.folderRenameTo + ' to match. Anything outside Kosmos that uses the old name, like a shortcut or a script, will stop working.';
     }
   }
 }
@@ -85306,7 +85306,6 @@ document.getElementById('pjs-rename-folder-btn').addEventListener('click', async
   if (!p) return;
   const said = document.getElementById('pjs-move-msg');
   const btn = document.getElementById('pjs-rename-folder-btn');
-  const want = p.folderRenameTo;
   said.textContent = '';
   btn.disabled = true;
   try {
@@ -85320,7 +85319,7 @@ document.getElementById('pjs-rename-folder-btn').addEventListener('click', async
     if (!(await loadProjects())) await loadProjects();
     if (PJ_CURRENT !== p.id) return;
     const total = Number(body.members) || 0, reached = Number(body.reached) || 0, notUpdated = Number(body.notUpdated) || 0;
-    let line = (PJ_READ_FAILED ? 'Done, but we could not re-read your projects just then.' : 'Done.') + ' The folder is now called ' + want + '.';
+    let line = (PJ_READ_FAILED ? 'Done, but we could not re-read your projects just then.' : 'Done.') + ' The folder is now called ' + String((body.project && body.project.folder) || '').split(/[\\/]/).filter(Boolean).pop() + '.';
     if (total > 0) line += ' Told ' + reached + ' of ' + total + (total === 1 ? ' agent' : ' agents') + ' on this project.';
     if (notUpdated > 0) line += ' Kosmos could not update the instructions for ' + notUpdated + ' of them; each one\'s page says why.';
     said.textContent = line;
