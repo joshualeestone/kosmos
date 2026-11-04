@@ -22,7 +22,11 @@ Addresses #7899 (round 8 WARNINGs of #7887, branch `dfail-7887`, merged as #7900
   a single-quoted `echo` and nesting quotes there is fragile. The text holds only letters, spaces, a colon and a
   comma, so sh, bash and zsh all print it as written. It fires on any failure of the chain (name taken, a symlink at
   the name, or a probe that could not run), so it says "taken or could not be checked".
-- The old parenthetical "(if that name is taken too, ...)" is dropped: the command now says that itself.
+- **The rename command is the last thing on its line** (review iteration 1): "then paste this again" and what to do
+  when the name is taken come before it, so copying to the end of the line takes the whole command, its failure line
+  included. The put-back's line names the path to replace and says it appears three times in the command.
+- The `.earlier` rename's `test ! -L` guards little: that name is in the root-only retired dir, where a job cannot
+  make a link. It is kept so the two renames read alike, not as a defence.
 - NITs on the card (a directory or FIFO at the agent, an unreadable agent leaving an empty retired copy) are not
   built: unlikely states whose advice is already safe.
 
@@ -31,6 +35,16 @@ Addresses #7899 (round 8 WARNINGs of #7887, branch `dfail-7887`, merged as #7900
 The new arms run the printed text with `sudo` stripped (as the existing #7887 arms do), so they pin the `&&`/`||`
 flow and the wording, not which user runs each probe. The `test ! -L` probes copy the user of their neighbours
 (CI user on the agent and on the put-back name, root on the `.earlier` name), checked by reading, not by a test.
+
+## Controls (run against main's script)
+
+- Before review iteration 1 (old advice layout, same extraction as main's text): 9 arms red, each for its own
+  reason. mvdangling read "not there"; mvlivelink read "moved aside"; pbtaken and mvearliertaken printed nothing;
+  pbnamelink and mvearlierlink showed main's `mv` replacing the dangling link with a regular file.
+- After moving the command to the end of the line (iteration 1 fix): 13 arms red, but the rename arms now
+  extract the command with the new layout's marker, which main's text does not carry, so on main they run an
+  empty command. Their red there is the extraction, not the rename. The behaviour evidence for the renames is
+  the earlier control; the wording change since then does not touch the command itself.
 
 ## Not done
 
