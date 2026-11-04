@@ -263,7 +263,8 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   (kosmos#6838) the web view ends above it, with navy behind the bar.
 - **Launch screen:** the app's ground with the still orb, from the asset catalog (see "App icon and
   launch screen" above), so launch hands off to the native sign-in or Agents screen with no change
-  of colour (kosmos#7945). The board pages opened over the tabs keep their navy.
+  of colour (kosmos#7945). The board pages opened over the tabs keep their navy, so a launch from a
+  notification tap, which opens on a board page, still changes to navy.
 
 ### Tests that run without a simulator
 

@@ -68,4 +68,4 @@ for (name, rgb) in golds {
   }
 }
 if stale > 0 { print("run ios/tools/render-launch-orb.sh"); exit(1) }
-print("ok")
+if !checking { print("ok") }

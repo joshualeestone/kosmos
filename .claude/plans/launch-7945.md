@@ -44,9 +44,17 @@ first screen's loading mark.
   reason; the dot is painted with CoreGraphics instead and the file confirmed changed.
 - The launch checks also fail if AppTabs.todayTab is turned on in shipped builds (control: it fails), since the launch
   ground assumes a native first screen; a palette line the check cannot read prints its own VERDICT (control).
+- It reads the catalog's own appearance tags: a dark colour that lost its tag fails, and so does a light/dark filename
+  swap in LaunchOrb's Contents.json (controls); the 2 px dot still fails with the output filtered.
 
 ## Not measured
 A real iPhone. iOS caches launch screens per app: a phone that already had the navy one may show it once more
 until iOS refreshes its snapshot after the update (on the simulator only an erase cleared it).
+A launch from a notification tap opens on the board page, which is navy (its own ground, kosmosNavy), so that path
+goes from the launch ground to navy. Before this change it was navy to navy. The board page keeps its navy here;
+matching it would mean the launch screen guessing which way the app opens. The plain launch (the icon) is the case
+Josh named.
+The pixel check's budget (one channel in 50,000) was set on this Mac; the PR's CI run on macOS-latest is its first
+test on another toolchain. Red there for drift alone fails safe (red, not a false green), and the budget is one number.
 The biometric lock screen (off by default) draws on the system background, not the launch ground, so with the
 lock on, launch hands off with a slight shift (white vs #faf9f7). Not changed here.
