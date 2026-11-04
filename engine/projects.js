@@ -3274,9 +3274,8 @@ function cleanParent(value, childId) {
 const NEEDS_REASONS = ['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'own_bound', 'other', 'elsewhere'];
 function dismissNeeds(projectId, sessionName, reason) {
   if (typeof sessionName !== 'string' || !sessionName) throw new Error('say which agent to dismiss');
-  // A question's key carries its words ('question:<words>', or 'question-held:<words>' for a held one, needsDismissKey);
-  // every other reason is the bare reason.
-  // #7931: a held question's key is 'question-held:<words>', under the same cap on its words.
+  // A question's key carries its words ('question:<words>', or #7931 'question-held:<words>' for a held one, under the
+  // same cap, needsDismissKey); every other reason is the bare reason.
   const prefix = typeof reason !== 'string' ? '' : reason.startsWith(HELD_KEY) ? HELD_KEY : reason.startsWith('question:') ? 'question:' : '';
   const base = typeof reason !== 'string' ? '' : prefix ? 'question' : reason;
   // #7108: never a key with half an emoji (it would be stored, and break a strict reader of anything that carries it).

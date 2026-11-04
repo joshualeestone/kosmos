@@ -70,7 +70,18 @@ test('#7931: a dismissed asked question comes back once it is held', () => {
   projects.dismissNeeds(p.id, 'hk03', member(p.id, 'hk03').needsYouKey);
   assert.equal(member(p.id, 'hk03').needsYouHere, null, 'CONTROL: the asked row was not dismissed');
   ask('hk03', p.id, true);
-  assert.equal(member(p.id, 'hk03').needsYouHere, 'question');
+  const m = member(p.id, 'hk03');
+  assert.equal(m.needsYouHere, 'question');
+  assert.equal(m.needsYouQuiet, null);
+});
+
+test('#7931: a held agent in a crash loop is not keyed as held (heldOwnQuestion, not the raw report)', () => {
+  const p = projects.create({ name: 'Held looping', folder: folder('held-looping'), agents: ['hk06'] });
+  ask('hk06', p.id, true);
+  const roster = cards([fleet.agent('hk06', { state: 'needs_you' })]).map((c) => ({ ...c, crashLoop: { looping: true } }));
+  const m = projects.list(roster).find((x) => x.id === p.id).agents.find((a) => a.sessionName === 'hk06');
+  assert.equal(m.stateHeld, false, 'fixture: a crash-looping agent read as calmly held');
+  assert.equal(m.needsYouKey, 'question:Which sign?');
 });
 
 test('#7931: an unchanged held row stays dismissed', () => {
