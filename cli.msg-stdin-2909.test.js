@@ -237,6 +237,10 @@ test('#7893: a leading flag typed after the agent is told where it goes, and not
   const piped = await runCli(['msg', '--stdin', 'leo', '--no-reply'], envFor(port), 'x\n');
   assert.equal(piped.code, 2);
   assert.match(piped.stdout, /--no-reply must come before the agent name/, 'not the stdin-or-arguments refusal');
+  assert.doesNotMatch(piped.stdout, /put -- before it/, 'with --stdin the words after the agent are never text, so no -- tip');
+  const lateBoth = await runCli(['msg', 'leo', 'hi', '--no-reply', '--stdin'], envFor(port));
+  assert.equal(lateBoth.code, 2);
+  assert.match(lateBoth.stdout, /--no-reply must come before the agent name/, 'the same sentence as the Windows CLI');
   assert.equal(seen.length, 0);
   // Round 4: after the #4889 -- escape the words are the message, and are sent as written.
   const escaped = await runCli(['msg', 'leo', '--', '--no-reply', 'is', 'the', 'new', 'flag'], envFor(port));

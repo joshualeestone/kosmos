@@ -1073,6 +1073,10 @@ test('#7893: Windows msg tells a leading flag typed after the agent where it goe
   const piped = await run(['msg', '--stdin', 'leo', '--no-reply'], placed, undefined, async () => ({ text: 'x', ended: true }));
   assert.equal(piped.code, 2); assert.equal(piped.calls.length, 0);
   assert.match(piped.err, /--no-reply must come before the agent name/);
+  assert.doesNotMatch(piped.err, /put -- before it/, 'with --stdin the words after the agent are never text, so no -- tip');
+  const lateBoth = await run(['msg', 'leo', 'hi', '--no-reply', '--stdin'], placed);
+  assert.equal(lateBoth.code, 2); assert.equal(lateBoth.calls.length, 0);
+  assert.match(lateBoth.err, /--no-reply must come before the agent name/, 'the same sentence as install/kosmos');
   // Round 4: after the #4889 -- escape the words are the message, and are sent as written.
   const escaped = await run(['msg', 'leo', '--', '--in-reply-to', 'm4', 'answers', 'it'], placed);
   assert.equal(escaped.code, 0, escaped.err);
