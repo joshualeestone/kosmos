@@ -869,19 +869,29 @@ hung win-staging-record -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_
 refuses_clean "#7951 a promote's record check that hangs refuses as undecided, nothing written" "the verification record check decided nothing: it did not finish"
 if grep -qF 'does not pass' "$TMP/out"; then fail "#7951 a hung record check must not read as a failed record"; else pass "#7951 a hung record check does not read as a failed record"; fi
 held_clean "#7951 that promote gave back the lock it held too"
-# Git gets a closed stdin as well: a git that waits on stdin reports it, with this run's stdin held open.
+# Git gets a closed stdin as well. This git reads its stdin to the end and reports if that took a while, so a stdin held
+# open shows as time (bash 3.2's read -t cannot say: a timeout and an EOF both return 1).
 GITBIN="$TMP/gitbin"; mkdir -p "$GITBIN"; REALGIT="$(command -v git)"
 cat > "$GITBIN/git" <<GITEOF
 #!/bin/bash
-read -r -t 4 _ ; [ \$? -gt 128 ] && echo "\$*" >> "$TMP/git-stdin-open"
+t0=\$(date +%s); cat > /dev/null; t1=\$(date +%s)
 echo "\$*" >> "$TMP/git-called"
+[ \$((t1 - t0)) -ge 2 ] && echo "\$*" >> "$TMP/git-stdin-open"
 exec "$REALGIT" "\$@"
 GITEOF
 chmod +x "$GITBIN/git"
+rm -f "$TMP/git-stdin-open" "$TMP/git-called"
+sleep 3 | "$GITBIN/git" --version > /dev/null
+if [ -s "$TMP/git-stdin-open" ]; then pass "#7951 control: this git reports a stdin that was held open"; else fail "#7951 control: the instrument did not see a held stdin"; fi
 rm -f "$TMP/git-stdin-open" "$TMP/git-called" "$FAKE/publish.lock"
-sleep 6 | PATH="$GITBIN:$PATH" fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399 -DryRun
-if [ -s "$TMP/git-called" ] && [ ! -e "$TMP/git-stdin-open" ]; then pass "#7951 every git this run started saw stdin closed, with the run's own stdin held open"
-else fail "#7951 git stdin: called=$(wc -l < "$TMP/git-called" 2>/dev/null) open=$(cat "$TMP/git-stdin-open" 2>/dev/null) $(tail -1 "$TMP/out")"; fi
+sleep 12 | PATH="$GITBIN:$PATH" fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399 -DryRun
+if grep -q 'cat-file' "$TMP/git-called" 2>/dev/null && grep -q 'rev-parse' "$TMP/git-called" && [ ! -e "$TMP/git-stdin-open" ]; then pass "#7951 a promote's cat-file and rev-parse saw stdin closed, with the run's own stdin held open"
+else fail "#7951 promote git stdin: called=[$(tr '\n' ';' < "$TMP/git-called" 2>/dev/null)] open=[$(tr '\n' ';' < "$TMP/git-stdin-open" 2>/dev/null)] $(tail -1 "$TMP/out")"; fi
+rm -f "$TMP/git-stdin-open" "$TMP/git-called" "$FAKE/publish.lock"
+mkzip "$TMP/g7951.zip" 9.9.51 G
+sleep 12 | PATH="$GITBIN:$PATH" fake -Zip "$TMP/g7951.zip" -DryRun
+if grep -q 'rev-parse' "$TMP/git-called" 2>/dev/null && [ ! -e "$TMP/git-stdin-open" ]; then pass "#7951 a stage's rev-parse saw stdin closed, with the run's own stdin held open"
+else fail "#7951 stage git stdin: called=[$(tr '\n' ';' < "$TMP/git-called" 2>/dev/null)] open=[$(tr '\n' ';' < "$TMP/git-stdin-open" 2>/dev/null)] $(tail -1 "$TMP/out")"; fi
 rm -f "$FAKE/publish.lock"
 
 [ "$fails" -eq 0 ] && { echo "test-publish-r2-3725: all passed"; exit 0; }

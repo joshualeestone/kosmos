@@ -14,8 +14,8 @@
  * Found by `command -v pwsh` only: a script that finds pwsh another way (`which`, `type -P`, a fixed path) or holds it
  * in a variable not named PWSH is not checked. The first test pins that the sweep finds the one script known today.
  *
- * Not covered: a node test that spawns pwsh off Windows (none today; tools.win-setup-ps1.test.js runs pwsh only on
- * Windows, where the profile lives under LOCALAPPDATA).
+ * Not covered: a node test that spawns pwsh off Windows. tools.win-publish-node-bounded-7951.test.js does, and sets its
+ * own XDG_CACHE_HOME; tools.win-setup-ps1.test.js runs pwsh only on Windows, where the profile lives under LOCALAPPDATA.
  *   node --test tools.pwsh-cache-6352.test.js */
 const test = require('node:test');
 const assert = require('node:assert/strict');

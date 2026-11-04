@@ -20,7 +20,7 @@ The hang is not reproduced. It needs Windows with Git Bash holding stdin. On thi
 A Windows run where the hang survives closed stdin, or a real check that legitimately passes 300 s.
 
 ## Git
-Git gets a closed stdin as well, because the stated mechanism (a child inheriting Git Bash's stdin) applies to any child. No time limit on git: rejected as scope, since nothing has seen git hang, and Get-SetupAtCommit reads raw bytes through its own stream. If git hangs, this card's symptom returns with no message. A follow-up should bound it.
+Git gets a closed stdin as well, because the stated mechanism (a child inheriting Git Bash's stdin) applies to any child. No time limit on git: rejected as scope, since nothing has seen git hang, and Get-SetupAtCommit reads raw bytes through its own stream. If git hangs, this card's symptom returns with no message. #7959 is that follow-up.
 
 ## Kill
 Kill() stops node and not anything node started: 5.1 has no tree kill. Nothing these checks run starts a child. If one did, the output wait is bounded at 5 seconds and the run is still undecided.
