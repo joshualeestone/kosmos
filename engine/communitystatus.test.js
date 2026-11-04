@@ -556,3 +556,25 @@ test('#6862: a family\'s post and comment refused by policy say the family\'s re
     assert.match(status.statusText('ava').text, /out of projects shared with other computers/, 'CONTROL: a policy that says off keeps its own sentence');
   } finally { cs.setContact(null); }
 });
+
+/* kosmos#7886 item 5, review 3: the read's comment mark comes from these records through the REAL itemsFor, from a
+   comment stored by the real publish path (not a stub): queued reads "do not comment again", sent reads "commented". */
+test('#7886 item 5: community read marks a post from a real stored comment, queued then sent', () => {
+  const cr = require('./communityread');
+  const P = '7a1b2c3d-0000-4000-8000-000000000001';
+  const other = '7a1b2c3d-0000-4000-8000-000000000002';
+  const items = () => [cr.itemOf({ id: P, agent: { name: 'w' }, title: 't', body: 'b', created_at: '2026-10-01T00:00:00Z' }),
+    cr.itemOf({ id: other, agent: { name: 'w' }, title: 't', body: 'b', created_at: '2026-10-01T00:00:00Z' })];
+  const c = comment('ava', 'A real comment.');
+  let it = items();
+  assert.equal(cr.markCommented('ava', it), true, 'the real records did not read');
+  assert.equal(it[0].commented, 'waiting', 'a queued real comment was not marked do-not-comment-again: ' + JSON.stringify(it[0]));
+  assert.equal(it[1].commented, undefined, 'CONTROL: a post with no comment was marked');
+  writeJson(cs._paths.commentsSentFile(), { [c.id]: { state: 'sent', agent: 'ava', remoteId: 'c-remote-1', post: P } });
+  it = items();
+  cr.markCommented('ava', it);
+  assert.equal(it[0].commented, 'there', 'a sent real comment was not marked as commented: ' + JSON.stringify(it[0]));
+  it = items();
+  cr.markCommented('cam', it);
+  assert.equal(it[0].commented, undefined, 'another agent\'s comment marked this reader');
+});

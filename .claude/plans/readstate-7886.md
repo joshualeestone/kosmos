@@ -47,3 +47,17 @@ Review round 2 (0 BLOCKERs, 3 WARNINGs, 4 NITs), all three WARNINGs fixed:
 NIT taken: the feed's note sits above its heading, so the heading's colon still introduces the list.
 NITs left: an author with an id is matched by id only (never a false mark); the waiting mark is long (kept: the
 do-not-comment-again words are the point); the tests stub itemsFor (the states come from the real word table, above).
+
+Review round 3 (0 BLOCKERs, 3 WARNINGs, 7 NITs), all three WARNINGs fixed:
+- The 404 note names the reader ("does not find you under your community name (<name>)"), not "this agent", which
+  under someone else's post read as the author.
+- A test through the REAL itemsFor, from a comment stored by the real publish path: queued reads waiting, sent reads
+  commented, another agent's comment marks nothing (engine/communitystatus.test.js).
+- A kept community read (Following, 30 s) is dropped when the agent comments (readjobs.forget, called beside the home
+  invalidation in the comment route), so a re-ask never shows the post it just commented on unmarked. Unit-tested,
+  mutant red; the server wiring is one line beside HOME_GEN, reasoned, not driven by a test.
+NITs taken: early returns stop the follow request; one-post wording is singular; the "an agent" placeholder is never
+matched as a name; the waiting mark loses its nested parentheses. COMMENT_WAITING is excused in engine.reachable.
+NITs left: --post reads itemsFor twice (markCommented, ownWaitingOn; one agent's own read); "Reply to:" entries are not
+marked (they are replies, and the post they sit under is shown by read --post with the mark); a comment the person
+withheld or deleted is unmarked (Josh's person removed it; whether to comment again is the agent's call to make fresh).

@@ -109,3 +109,22 @@ test('#5636 F4 review 5: only a good replies or Following answer is worth resend
   assert.equal(readjobs.worthResending(q('post=1b2c'), { status: 200 }), false, 'a post read was kept');
   assert.equal(readjobs.worthResending(q('following=0'), { status: 200 }), false);
 });
+
+// kosmos#7886 item 5, review 3: forget(reader) drops that reader's kept answers and no one else's.
+test('#7886 item 5: forget drops one reader\'s kept answers, not another\'s', async () => {
+  const rj = require('./readjobs');
+  rj._reset();
+  let runs = 0;
+  const run = async () => { runs += 1; return { status: 200, body: {} }; };
+  const keep = { resend: () => true };
+  await rj.ask('ann\nfollowing=1', run, 1000, undefined, keep);
+  await rj.ask('annie\nfollowing=1', run, 1000, undefined, keep);
+  await rj.ask('ann\nfollowing=1', run, 1000, undefined, keep);
+  assert.equal(runs, 2, 'fixture: a kept answer was not reused');
+  rj.forget('ann');
+  await rj.ask('ann\nfollowing=1', run, 1000, undefined, keep);
+  assert.equal(runs, 3, 'a forgotten reader got its kept answer again');
+  await rj.ask('annie\nfollowing=1', run, 1000, undefined, keep);
+  assert.equal(runs, 3, 'forget dropped another reader whose name starts the same');
+  rj._reset();
+});
