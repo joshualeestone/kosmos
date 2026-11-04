@@ -251,13 +251,18 @@ function scriptOf(ch) {
 // and marked as before: after an alef or a tatweel, between letters that join anyway, in Indic text with no virama, in
 // a Latin name, between two scripts. The scripts are deliberately partial: Tamil is left out (no half forms, so a
 // joiner after its virama changes nothing), as are Syriac, Mongolian, N'Ko, Thaana and the rest. Known residual: in
-// the scripts kept, a font that draws no conjunct or half form shows the two spellings alike.
+// the scripts kept, a font that draws no conjunct or half form shows the two spellings alike. Known false positives
+// (marked, never hidden): a nukta before the virama, Bengali ya-phala (ra, ZWJ, virama, ya), a chillu at the end of a
+// word, and a mark after the ZWNJ.
 const VIRAMAS = [['Devanagari', '\u094D'], ['Bengali', '\u09CD'], ['Gurmukhi', '\u0A4D'], ['Gujarati', '\u0ACD'],
-  ['Oriya', '\u0B4D'], ['Telugu', '\u0C4D'], ['Kannada', '\u0CCD'], ['Malayalam', '\u0D4D'], ['Sinhala', '\u0DCA']].map(([name, v]) => [new RegExp('^\\p{Script=' + name + '}$', 'u'), v]);
+  ['Oriya', '\u0B4D'], ['Telugu', '\u0C4D'], ['Kannada', '\u0CCD'], ['Malayalam', '\u0D4D'], ['Sinhala', '\u0DCA']]
+  .map(([name, v]) => [new RegExp('^\\p{Script=' + name + '}$', 'u'), v]);
 // Arabic letters by Joining_Type (Unicode ArabicShaping.txt): R joins only to the letter before it, U to neither; every
 // other Arabic letter here is D (both ways). Only these ranges count; anything else is not an Arabic joining letter.
 // The tatweel (U+0640, Joining_Type C) and the superscript alef (U+0670, T) are inside the ranges and are excluded.
-const ARABIC_R = new Set([...'\u0622\u0623\u0624\u0625\u0627\u0629\u062F\u0630\u0631\u0632\u0648\u0671\u0672\u0673\u0675\u0676\u0677',
+const ARABIC_R = new Set([
+  ...'\u0622\u0623\u0624\u0625\u0627\u0629\u062F\u0630\u0631\u0632\u0648',
+  ...'\u0671\u0672\u0673\u0675\u0676\u0677',
   ...Array.from({ length: 0x0699 - 0x0688 + 1 }, (_, k) => String.fromCodePoint(0x0688 + k)),
   ...'\u06C0\u06C3\u06C4\u06C5\u06C6\u06C7\u06C8\u06C9\u06CA\u06CB\u06CD\u06CF\u06D2\u06D3\u06D5\u06EE\u06EF',
   ...'\u0759\u075A\u075B\u076B\u076C\u0771\u0773\u0774\u0778\u0779']);

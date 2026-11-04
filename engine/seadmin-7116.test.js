@@ -472,10 +472,14 @@ test('#7892: a zero-width joiner or non-joiner inside a Persian or Indic word is
     ['\u0628\u200C\u200D\u0628', '\u0628\\u{200C}\\u{200D}\u0628'],
     ['\u094D\u200D\u0937', '\u094D\\u{200D}\u0937'],
     ['\u0B95\u0BCD\u200D\u0BB7', '\u0B95\u0BCD\\u{200D}\u0BB7'],
+    // One letter from each R group before a ZWNJ (each never joins forward, so the ZWNJ changes nothing).
+    ['\u0691\u200C\u0628', '\u0691\\u{200C}\u0628'],
+    ['\u06C4\u200C\u0628', '\u06C4\\u{200C}\u0628'],
+    ['\u075B\u200C\u0628', '\u075B\\u{200C}\u0628'],
   ]) assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
   // More spelling that stays: a ZWNJ before an R letter (beh, ZWNJ, alef), and one after an Arabic-extended D letter
   // (heh goal U+06C1).
-  for (const org of ['\u0628\u200C\u0627', '\u06C1\u200C\u0628'])
+  for (const org of ['\u0628\u200C\u0627', '\u06C1\u200C\u0628', '\u0750\u200C\u0628'])
     assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
   // More spelling that stays: a Persian ZWNJ after a harakah, and a Bengali ZWNJ after its virama.
   for (const org of ['\u0628\u064E\u200C\u0628', '\u0995\u09CD\u200C\u09B7'])
