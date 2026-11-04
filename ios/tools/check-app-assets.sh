@@ -1,10 +1,10 @@
 #!/bin/bash
-# Checks the BUILT app carries the app icon and the navy launch screen (kosmos #4089, #718).
+# Checks the BUILT app carries the app icon and the launch screen (kosmos #4089, #718, #7945).
 # App Store Connect refuses an upload with no icon, and a launch screen that lost its colour
-# shows white before the navy first screen, so check what was built, not the project settings.
+# or its mark flashes before the first screen, so check what was built, not the project settings.
 #
 #   - Info.plist names the icon (CFBundleIcons > CFBundlePrimaryIcon > CFBundleIconName = AppIcon)
-#     and the launch colour (UILaunchScreen > UIColorName = LaunchBackground);
+#     and the launch screen (UILaunchScreen > UIColorName = LaunchBackground, UIImageName = LaunchOrb);
 #   - Assets.car exists and holds both of those names (assetutil reads the compiled catalog);
 #   - the icon in the repo's catalog is byte-for-byte assets/Kosmos-1024.png, so the artwork has
 #     one source.
@@ -26,11 +26,12 @@ expect_key() { # key-path wanted
 }
 expect_key CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName AppIcon
 expect_key UILaunchScreen.UIColorName LaunchBackground
+expect_key UILaunchScreen.UIImageName LaunchOrb
 
 car="$app/Assets.car"
 if [ -s "$car" ]; then
   info=$(xcrun --sdk iphoneos assetutil --info "$car" 2>/dev/null)
-  for name in AppIcon LaunchBackground; do
+  for name in AppIcon LaunchBackground LaunchOrb; do
     if printf '%s\n' "$info" | grep -q "\"Name\" : \"$name\""; then
       echo "ok       Assets.car holds $name"
     else
