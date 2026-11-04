@@ -47021,7 +47021,9 @@ const KORB = (() => {
     // Only the theme switch (data-theme on <html>): the app writes other classes and styles there all the time.
     themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     // A resize or browser zoom: read every size again and redraw.
-    window.addEventListener('resize', () => { sizeStale = true; forget(false); });
+    // Named, not an arrow: web.consolidated-breakpoint.test.js finds the LAYOUT handler as the page's arrow-form resize listener.
+    const korbResized = () => { sizeStale = true; forget(false); };
+    window.addEventListener('resize', korbResized);
     // A change of pixel density (a move to another screen, some zooms) need not fire resize: a query on the current
     // density does, and is set up again for the new one each time (review round 7).
     const watchDensity = () => {
