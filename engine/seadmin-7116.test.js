@@ -302,6 +302,12 @@ test('#7892: prepare gives the screen escaped text, so hidden or look-alike char
   // make an ordinary name read as mixed.
   for (const org of ['コーヒー株式会社', 'اـل'])
     assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
+  // Marks that NFC leaves alone but that draw over, around or without a letter: an overlay ("o" + U+0338 draws like
+  // "ø"), an enclosing circle, a mark at the start, a mark after a space.
+  for (const org of ['Bjo̸rn', 'Ac⃝me', '́Acme', 'Acme ́Inc']) {
+    assert.strictEqual(org.normalize('NFC'), org, 'CONTROL: NFC leaves ' + JSON.stringify(org) + ' alone');
+    assert.strictEqual(shownOrg(org)[1], true, JSON.stringify(org));
+  }
   // Fullwidth letters look like ASCII ones and change under NFKC: kept as they are, but marked.
   assert.deepStrictEqual(shownOrg('\uFF21BC'), ['\uFF21BC', true], 'fullwidth A');
   // A stack of three combining marks is marked even where NFC leaves it alone; two (as in Devanagari) are not.
@@ -403,4 +409,22 @@ test('#7892: every tag kosmos-se signs has a prompt reason, chosen from the tag 
   for (const r of Object.values(reasons)) assert.match(r, /^[a-z][A-Za-z' ]+$/, 'a reason does not read as "kosmos-se is trying to ' + r + '"');
   assert.match(swift, /context\.localizedReason = reason/, 'the reason is not given to the signature\'s context');
   assert.doesNotMatch(swift, /localizedReason = .*args/, 'the reason comes from an argument');
+});
+
+test('#7892: two signs asked for at once run one after the other, so two prompts are never up together', { skip: FAKE ? false : 'needs a POSIX shell' }, async () => {
+  const log = path.join(FAKE_DIR, 'serial.log');
+  fs.rmSync(log, { force: true });
+  const slow = path.join(FAKE_DIR, 'serial-se');
+  fs.writeFileSync(slow, '#!/bin/sh\ncase "$1" in\n  pub) echo ' + APPLE.key + ' ;;\n' +
+    '  sign) cat > /dev/null; echo start >> "' + log + '"; sleep 0.3; echo end >> "' + log + '"; echo 3006020101020101 ;;\nesac\n', { mode: 0o755 });
+  const opts = { helper: slow, keyFile: '/k1', expectedKey: FAKE_PUB };
+  // Both reject (the stand-in's signature is not a real one); what matters is the order the helper saw.
+  const both = await Promise.allSettled([se.sign(se.prepare('cancel', hex(V.bytes.cancel)), opts),
+    se.sign(se.prepare('cancel', hex(V.bytes.cancel)), opts)]);
+  assert.deepStrictEqual(both.map((r) => r.status), ['rejected', 'rejected']);
+  assert.deepStrictEqual(fs.readFileSync(log, 'utf8').trim().split('\n'), ['start', 'end', 'start', 'end'],
+    'the second signature began before the first ended');
+  // A failed sign does not stall the queue: a third one still runs.
+  await assert.rejects(se.sign(se.prepare('cancel', hex(V.bytes.cancel)), opts));
+  assert.strictEqual(fs.readFileSync(log, 'utf8').trim().split('\n').length, 6);
 });

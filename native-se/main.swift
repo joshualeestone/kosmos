@@ -41,7 +41,8 @@ let SIGNABLE_TAGS: [String] = [
 
 // kosmos#7892: what a presence key's Touch ID or password prompt says the signature is for. It is chosen here from the
 // signed message's own tag, never taken from an argument, so no caller can make the prompt describe another action.
-// macOS shows it after the program's name ("kosmos-se is trying to ..."). engine/seadmin-7116.test.js fails if a tag
+// Expected, not yet seen (that needs a presence key and a person): macOS shows it after the program's name ("kosmos-se
+// is trying to ..."), and inside the app that name may still read kosmos-se. engine/seadmin-7116.test.js fails if a tag
 // in SIGNABLE_TAGS has no reason here.
 let SIGN_REASONS: [String: String] = [
     "kosmos-escrowd-roster-change v1": "approve a change to your company's Kosmos admins",

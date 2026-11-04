@@ -71,6 +71,18 @@ measured without a person at the screen.
 - NITs fixed: comment wrapped; the arrays note; a cancelled Touch ID reads as "refused to sign" (noted for the
   screen); dash and slash look-alikes named as not marked.
 
+## Review round 5 (opus)
+
+- WARNING: marks NFC leaves alone could hide or fake a letter (overlay U+0338 on "o" draws like "ø"; an enclosing
+  circle; a mark with no letter under it). Fixed: an enclosing mark, an overlay U+0334 to U+0338, or a mark at the
+  start or after a space marks the text; four NFC-stable rows, each with an NFC control.
+- WARNING: with sign async, two signatures could be in flight and two prompts up at once, each naming only the kind
+  of action. Fixed: sign queues, one at a time; tested with a slow stand-in (start/end never interleave) and a failed
+  sign that must not stall the next. Mutants: no queue, and a queue that keeps a rejection, both red.
+- NITs fixed: the prompt wording in main.swift is marked expected, not seen; the comment names two unlisted scripts
+  and says \p{Cs} cannot arrive through prepare. Not taken: ENOENT from a missing shebang interpreter (the helper
+  is a compiled binary); the misleading refusal for a tag with no reason (a test keeps the table complete).
+
 ## Weakest premise
 
 That the script list in `scriptOf` covers the mixed-script look-alikes that matter, and, larger, that the screen shows the fingerprint wherever one exists, since one-script look-alikes are not marked. A letter from a script not on the list

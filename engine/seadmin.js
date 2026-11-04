@@ -212,7 +212,9 @@ function fingerprintDisplay(fp) {
      other than U+0020, is written as \u{XXXX}, and the text is marked unusual;
    - text that changes under NFC or NFKC is marked unusual: "Cafe" with a combining accent looks like "Café" with a
      precomposed one, and fullwidth "ＡBC" like "ABC";
-   - more than two combining marks in a row mark it unusual (a stack can hide or imitate a letter);
+   - more than two combining marks in a row mark it unusual (a stack can hide or imitate a letter), and so does an
+     enclosing mark, an overlay mark (U+0334 to U+0338: "o" with U+0338 draws like "ø"), or a mark with no letter
+     under it (at the start, or after a space);
    - a space at the start or end, or a second space in a row, is written as \u{0020} and marks it unusual;
    - a backslash is written as \\, so a name that spells "\u{202E}" in plain letters cannot pass for an escaped one;
    - letters from more than one script (Latin with Cyrillic or Greek, say) are left as they are but mark the text
@@ -220,7 +222,9 @@ function fingerprintDisplay(fp) {
      too: cautious, and pinned by a test.
    `unusual` means "look closer", not "suspicious": it is cautious, so some ordinary names carry it (Latin with Han,
    pinned above). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in one script
-   that looks like another (all-Cyrillic "АВС" for Latin "ABC") is not marked, nor are dash and slash look-alikes. For an admin add or a reviewer enrolment the
+   that looks like another (all-Cyrillic "АВС" for Latin "ABC") is not marked, nor are dash and slash look-alikes, nor two
+   scripts that are both off SCRIPTS (each counts as "other"). \p{Cs} cannot arrive through prepare (the decoder
+   refuses ill-formed UTF-8); it is in ESCAPED for any other caller. For an admin add or a reviewer enrolment the
    fingerprint is the defence; for an org name on a cancel or a revoke nothing here is. */
 const ESCAPED = /[\p{Cs}\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}\u2800\uFFFC\uFFFD]|(?! )\p{Zs}/u;
 const SCRIPTS = ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana', 'Hangul', 'Arabic',
@@ -232,7 +236,7 @@ function scriptOf(ch) {
   return hit ? hit[0] : 'other';
 }
 function shownText(s) {
-  let text = '', unusual = s !== s.normalize('NFC') || s !== s.normalize('NFKC') || /\p{M}{3}/u.test(s);
+  let text = '', unusual = s !== s.normalize('NFC') || s !== s.normalize('NFKC') || /\p{M}{3}|\p{Me}|[\u0334-\u0338]|(?:^|\s)\p{M}/u.test(s);
   const scripts = new Set();
   const chars = [...s];
   chars.forEach((ch, i) => {
@@ -363,7 +367,15 @@ async function publicKey({ helper, keyFile }) {
  * Sign what prepare() decoded and showed, with the Enclave key; returns the DER signature escrowd's verify_se takes.
  * `expectedKey` is the 65-byte public key this Mac enrolled as its admin key; a key file holding any other refuses.
  */
-async function sign(prepared, { helper, keyFile, expectedKey }) {
+// #7892: one signature at a time. Each raises its own Touch ID prompt, which names only the KIND of action, so two in
+// flight would leave the person unable to tell which prompt approves which change. Every sign waits for the last.
+let signQueue = Promise.resolve();
+function sign(prepared, opts) {
+  const run = signQueue.then(() => signOne(prepared, opts));
+  signQueue = run.catch(() => {});
+  return run;
+}
+async function signOne(prepared, { helper, keyFile, expectedKey }) {
   const message = PREPARED.get(prepared);
   if (!message) throw new Error('sign takes only what prepare returned');
   const expected = key(expectedKey);
