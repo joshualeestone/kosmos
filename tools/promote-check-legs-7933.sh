@@ -11,14 +11,16 @@
 #           and win32, so their own /api/update refuses; see #7935). The project is kept, and systemd runs a new
 #           board process that loaded the staged version. Linux only: it installs for real under systemd, so it refuses to run outside CI.
 #
-#   bash tools/promote-check-legs-7933.sh <verify|data|update|all> [linux|mac]
+#   verb    #7935's `kosmos update --if-newer --install` run from an installed board (#7941), see leg_verb. Not in
+#           `all`, and no part of the #7942 record.
+#   bash tools/promote-check-legs-7933.sh <verify|data|update|verb|all> [linux|mac]
 # PLATFORM picks the pointers: linux reads dist/latest-linux.json and dist/latest-linux-staging.json; mac reads
 # dist/latest.json and dist/latest-staging.json (so verify and data can be rehearsed on a Mac). SITE defaults to
 # https://installkosmos.com. Work goes under WORK (default a new temp folder). Exit 0 only when every leg asked for
 # passed; each leg ends with one "LEG <name>: PASS" or "LEG <name>: FAIL <why>" line.
 set -uo pipefail
 LEG="${1:-}"; PLATFORM="${2:-linux}"; SITE="${SITE:-https://installkosmos.com}"
-case "$LEG" in verify|data|update|all) ;; *) echo "usage: $0 <verify|data|update|all> [linux|mac]" >&2; exit 2 ;; esac
+case "$LEG" in verify|data|update|verb|all) ;; *) echo "usage: $0 <verify|data|update|verb|all> [linux|mac]" >&2; exit 2 ;; esac
 case "$PLATFORM" in linux) PP=latest-linux.json; SP=latest-linux-staging.json ;; mac) PP=latest.json; SP=latest-staging.json ;;
   *) echo "platform must be linux or mac" >&2; exit 2 ;; esac
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -46,7 +48,7 @@ fetch() {  # <pointer file> <label>; leaves $W/<label>/ unpacked and $W/<label>.
   printf '%s\n%s\n' "$W/dl/$a" "$W/dl/$m" > "$W/$lb.files"
   echo "$lb: $(cat "$W/$lb.ver") ($a, sha matches the pointer)"
 }
-if [ "$LEG" != update ]; then
+if [ "$LEG" != update ] && [ "$LEG" != verb ]; then
   fetch "$PP" prod || { fail fetch "prod"; exit 1; }
   fetch "$SP" staging || { fail fetch "staging"; exit 1; }
   PV="$(cat "$W/prod.ver")"; SV="$(cat "$W/staging.ver")"; SSHA="$(field sha256 "$W/staging.json")"
@@ -118,6 +120,24 @@ leg_data() (  # a subshell: the sandbox env stays in it
   if [ "$bad" = 0 ]; then checked data "$SV" "$SSHA"; echo "LEG data: PASS"; else echo "LEG data: FAIL a boot or a read above"; exit 1; fi
 )
 
+# ---- a board under systemd, shared by update and verb; both set a local `port` -------------------------------------
+# The version the ANSWERING PROCESS loaded (its x-kosmos-board header, read from its package.json at boot). The
+# page's kosmos-version meta is read from disk per request, so an old process would name new files.
+ver() { curl -s -m 5 -D - -o /dev/null "http://127.0.0.1:$port/" | tr -d '\r' | sed -n 's/^[xX]-[kK]osmos-[bB]oard: *\([^@+]*\).*/\1/p' | head -1; }
+bpid() { systemctl --user show -p MainPID --value kosmos-board.service 2>/dev/null; }
+# The process listening on the port is systemd's board or a child of it, so the header read below is that board's.
+ours() {
+  local l q i
+  l="$(ss -ltnpH "sport = :$port" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)"; q="$l"
+  for i in 1 2 3 4 5 6; do [ -n "$q" ] && [ "$q" != 0 ] || return 1; [ "$q" = "$1" ] && return 0; q="$(awk '/^PPid:/{print $2}' "/proc/$q/status" 2>/dev/null)"; done
+  return 1
+}
+# As linux-family-install-7281.yml: the unit and the board systemd runs carry the dead beacon, so it is not counted.
+beacon() {
+  grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$HOME/.config/systemd/user/kosmos-board.service" \
+    && tr '\0' '\n' < "/proc/$(bpid)/environ" | grep -xF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" > /dev/null
+}
+
 # ---- update (Linux, CI only) ---------------------------------------------------------------------------------------
 leg_update() {
   [ "$PLATFORM" = linux ] && [ "$(uname -s)" = Linux ] || { fail update "runs only on Linux"; return; }
@@ -132,22 +152,6 @@ leg_update() {
   KOSMOS_RELEASE_BASE="$SITE/dist" sh "$W/setup.sh" > "$W/setup.log" 2>&1 || { tail -20 "$W/setup.log"; fail update "the prod install failed"; return; }
   for _ in $(seq 1 60); do curl -fsS -m 3 -o /dev/null "http://127.0.0.1:$port/api/health" && { up=1; break; }; sleep 2; done
   [ -n "$up" ] || { tail -20 "$W/setup.log"; fail update "the prod install's board never answered"; return; }
-  # The version the ANSWERING PROCESS loaded (its x-kosmos-board header, read from its package.json at boot). The
-  # page's kosmos-version meta is read from disk per request, so an old process would name new files.
-  ver() { curl -s -m 5 -D - -o /dev/null "http://127.0.0.1:$port/" | tr -d '\r' | sed -n 's/^[xX]-[kK]osmos-[bB]oard: *\([^@+]*\).*/\1/p' | head -1; }
-  bpid() { systemctl --user show -p MainPID --value kosmos-board.service 2>/dev/null; }
-  # The process listening on the port is systemd's board or a child of it, so the header read below is that board's.
-  ours() {
-    local l q i
-    l="$(ss -ltnpH "sport = :$port" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)"; q="$l"
-    for i in 1 2 3 4 5 6; do [ -n "$q" ] && [ "$q" != 0 ] || return 1; [ "$q" = "$1" ] && return 0; q="$(awk '/^PPid:/{print $2}' "/proc/$q/status" 2>/dev/null)"; done
-    return 1
-  }
-  # As linux-family-install-7281.yml: the unit and the board systemd runs carry the dead beacon, so it is not counted.
-  beacon() {
-    grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$HOME/.config/systemd/user/kosmos-board.service" \
-      && tr '\0' '\n' < "/proc/$(bpid)/environ" | grep -xF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" > /dev/null
-  }
   got="$(ver)"; pid0="$(bpid)"; echo "  installed from /setup: $got (systemd MainPID $pid0)"
   [ "$got" = "$pv" ] || { fail update "/setup installed '$got', not prod's $pv"; return; }
   ours "$pid0" || { fail update "the process answering port $port is not systemd's board ($pid0)"; return; }
@@ -188,10 +192,86 @@ leg_update() {
   pass update
 }
 
+# ---- verb (Linux, CI only): #7935's `kosmos update --if-newer --install`, #7941 ------------------------------------
+# It runs from the INSTALLED CLI, so the old side must carry it. Two modes:
+#   VERB_OLD=<version>  the real one: the staging installer pinned to that older build, then the verb updates it to the
+#                       staged build. The old side's app and CLI are that build's; the installer that laid them down is
+#                       today's. A release check names the previous cut here (kosmos#7981: "a 0.7.89 board updates to
+#                       0.7.90 and comes back up").
+#   unset               on the staged build alone: as served it must answer `current`; then with the installed
+#                       package.json stamped older its own installer really runs, over the same bytes. That reaches the
+#                       install path before a later cut exists, and it is not an update between two builds.
+leg_verb() {
+  [ "$PLATFORM" = linux ] && [ "$(uname -s)" = Linux ] || { fail verb "runs only on Linux"; return; }
+  [ -n "${CI:-}" ] && [ -n "${GITHUB_ACTIONS:-}" ] || { fail verb "refusing: it installs Kosmos for real under systemd; it runs on GitHub Actions only"; return; }
+  local port="${KOSMOS_PORT:-16180}" root tok sv got pid0 pid1 up="" home cli pkg said rc old="${VERB_OLD:-}" want
+  curl -fsS -m 30 "$SITE/dist/$SP" -o "$W/staging-ptr.json" || { fail verb "no $SP is served"; return; }
+  sv="$(field version "$W/staging-ptr.json")"; [ -n "$sv" ] || { fail verb "the staging pointer names no version"; return; }
+  [ "$old" != "$sv" ] || { fail verb "VERB_OLD is the staged build $sv: there is no update to check"; return; }
+  want="${old:-$sv}"
+  curl -fsSL "$SITE/setup-staging" -o "$W/setup-staging.sh" || { fail verb "could not fetch $SITE/setup-staging"; return; }
+  [ "$(sha "$W/setup-staging.sh")" = "$(field setup_sha256 "$W/staging-ptr.json")" ] || { fail verb "the served /setup-staging does not hash to the staging pointer's setup_sha256"; return; }
+  echo "  staged: $sv ($(field sha256 "$W/staging-ptr.json")), old side: ${old:-the same build, stamped}"
+  KOSMOS_PINNED_VERSION="$old" KOSMOS_UPDATE_CHANNEL=staging KOSMOS_RELEASE_BASE="$SITE/dist" sh "$W/setup-staging.sh" > "$W/setup-staging.log" 2>&1 \
+    || { tail -20 "$W/setup-staging.log"; fail verb "the staging install failed"; return; }
+  for _ in $(seq 1 60); do curl -fsS -m 3 -o /dev/null "http://127.0.0.1:$port/api/health" && { up=1; break; }; sleep 2; done
+  [ -n "$up" ] || { tail -20 "$W/setup-staging.log"; fail verb "the staging install's board never answered"; return; }
+  got="$(ver)"; pid0="$(bpid)"; echo "  installed from /setup-staging: $got (systemd MainPID $pid0)"
+  [ "$got" = "$want" ] || { fail verb "/setup-staging installed '$got', not $want"; return; }
+  ours "$pid0" || { fail verb "the process answering port $port is not systemd's board ($pid0)"; return; }
+  [ -n "${AGENT_WORKFORCE_CREATED_URL:-}" ] && beacon || { fail verb "the board does not carry the dead install beacon (it would count as an install)"; return; }
+  home="$HOME/.local/share/kosmos"; cli="$home/bin/kosmos"; pkg="$home/app/package.json"
+  [ -x "$cli" ] && [ -f "$pkg" ] || { fail verb "no installed CLI at $cli or package.json at $pkg"; return; }
+  root="$HOME/Library/Application Support/Kosmos"; tok="$(cat "$root/board.token" 2>/dev/null)"
+  [ -n "$tok" ] || { fail verb "no board.token at $root"; return; }
+  api() { curl -s -m 30 -H "x-kosmos-board-token: $tok" -H 'content-type: application/json' "$@"; }
+  api -X POST "http://127.0.0.1:$port/api/projects" --data '{"name":"Masterclass prep"}' > /dev/null
+  case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail verb "could not add a project"; return ;; esac
+
+  if [ -z "$old" ]; then
+    said="$(KOSMOS_RELEASE_BASE="$SITE/dist" "$cli" update --if-newer 2>&1)"; rc=$?; echo "  as served: rc=$rc: $said"
+    [ "$rc" = 0 ] && [ "$(printf '%s\n' "$said" | tail -1)" = "current $sv" ] || { fail verb "with nothing newer it did not answer current $sv"; return; }
+    [ "$(bpid)" = "$pid0" ] || { fail verb "with nothing newer the board restarted anyway"; return; }
+
+    # app/ is left read-only by design (#4449): lifted for the stamp alone, so the installer meets it as a person's would.
+    chmod u+w "$home/app" "$pkg" || { fail verb "could not lift the read-only app for the stamp"; return; }
+    sed -i 's/"version": *"'"$sv"'"/"version": "0.0.1"/' "$pkg"   # gnu-ok: this leg refuses to run off Linux
+    chmod a-w "$home/app" "$pkg"
+    grep -q '"version": "0.0.1"' "$pkg" || { fail verb "the stamp did not apply to $pkg"; return; }
+  fi
+  said="$(KOSMOS_RELEASE_BASE="$SITE/dist" "$cli" update --if-newer --install 2>&1)"; rc=$?; echo "  $([ -n "$old" ] && echo "from $old" || echo "stamped older"), --install: rc=$rc: $said"
+  [ "$rc" = 0 ] && [ "$(printf '%s\n' "$said" | tail -1)" = "updated $sv" ] || { tail -30 "$home/logs/install.log" 2>/dev/null; fail verb "it did not answer updated $sv"; return; }
+  grep -E 'on disk now|Updating it in place|pausing' "$home/logs/install.log" 2>/dev/null | tail -4 | sed 's/^/  install.log: /'
+  for _ in $(seq 1 60); do pid1="$(bpid)"; [ -n "$pid1" ] && [ "$pid1" != 0 ] && [ "$pid1" != "$pid0" ] && [ "$(ver)" = "$sv" ] && break; sleep 2; done
+  got="$(ver)"; pid1="$(bpid)"; echo "  after the verb: $got, systemd MainPID $pid1, package.json $(field version "$pkg")"
+  [ "$got" = "$sv" ] || { fail verb "the answering board loaded '$got', not $sv"; return; }
+  [ "$(field version "$pkg")" = "$sv" ] || { fail verb "the installer did not put $sv back on disk"; return; }
+  [ ! -w "$home/app" ] || { fail verb "the installer left app/ writable"; return; }
+  [ "$(systemctl --user is-active kosmos-board.service)" = active ] || { fail verb "systemd does not run the board"; return; }
+  [ -n "$pid1" ] && [ "$pid1" != 0 ] && [ "$pid1" != "$pid0" ] || { fail verb "systemd's board process did not change ($pid0 -> $pid1)"; return; }
+  ours "$pid1" || { fail verb "the process answering port $port is not systemd's board ($pid1)"; return; }
+  beacon || { fail verb "the updated board does not carry the dead install beacon"; return; }
+  case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail verb "the project was not kept"; return ;; esac
+  grep -qx staging "$root/source-channel" || { fail verb "the channel is now '$(cat "$root/source-channel" 2>/dev/null)', not staging"; return; }
+  # Coming back up means staying up: under Restart=always a build that dies after boot would pass every check above.
+  # Read after the update, since the installer's own restart is not a crash. Logged, so an early one can be seen.
+  local restarts; restarts="$(systemctl --user show -p NRestarts --value kosmos-board.service 2>/dev/null)"
+  case "$restarts" in ''|*[!0-9]*) fail verb "systemd gave no restart count ('$restarts'), so staying up cannot be checked"; return ;; esac
+  echo "  systemd restart count after the update: $restarts"
+  sleep 30
+  [ "$(bpid)" = "$pid1" ] || { fail verb "the updated board did not stay up: MainPID $pid1 is now $(bpid)"; return; }
+  [ "$(systemctl --user show -p NRestarts --value kosmos-board.service 2>/dev/null)" = "$restarts" ] || { fail verb "systemd restarted the updated board in the 30 s after it came up"; return; }
+  [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/api/health")" = 200 ] || { fail verb "the updated board stopped answering health"; return; }
+  [ "$(ver)" = "$sv" ] || { fail verb "30 s later the answering board loaded '$(ver)', not $sv"; return; }
+  [ -n "$old" ] && echo "  measured: $old updated to $sv, and still up 30 s later" || echo "  measured: the install path on $sv, STAMPED older: not an update between two builds"
+  pass verb
+}
+
 case "$LEG" in
   verify) leg_verify ;;
   data) leg_data || fails=$((fails + 1)) ;;
   update) leg_update ;;
+  verb) leg_verb ;;
   all) leg_verify; leg_data || fails=$((fails + 1))
        if [ "$PLATFORM" = linux ]; then leg_update; else echo "LEG update: SKIPPED (Linux only)"; fi ;;
 esac

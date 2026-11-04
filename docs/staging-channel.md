@@ -66,6 +66,11 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
 4. **Promote.** First, when staging carries a Linux build, run the two Linux check workflows from main and wait for
    both to go green (kosmos#7942; this Mac cannot boot the Linux build, so GitHub's ubuntu-24.04 runners do):
    `gh workflow run linux-family-install-7281.yml -f channel=staging` and `gh workflow run linux-promote-check-7933.yml`.
+   A release check also runs the update a person's Linux board takes, from the previous cut to this one (kosmos#7981):
+   `gh workflow run linux-promote-check-7933.yml -f old_version=<previous cut>`. A plain dispatch does not run it, and
+   nothing makes you run it: the promote's gate does not ask. The previous cut must be 0.7.89 or later, since an older
+   build's CLI refuses this update, and its download must still be served. If either is not so, the run goes red.
+   A red run of this form does not vouch for the build, so the plain dispatch is still what a promote needs.
    The promote refuses to move `latest-linux.json` unless both recorded the exact staged Linux sha
    (`tools/linux-check-runs.sh`); `--skip-linux-check` overrides it loudly, and `--force` never does. Records are
    kept 90 days and only a build staging serves can be checked, so a rollback (`--version`) to an older build has
