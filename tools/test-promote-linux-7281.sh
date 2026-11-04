@@ -274,7 +274,7 @@ chk "7942: saying so" grep -qF "REFUSED: the Linux check runs are not both green
 chk "7942: latest.json was not written" [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ]
 chk "7942: nor latest-linux.json" [ ! -e "$S/dist/latest-linux.json" ]
 S="$(e2esite lc-hold 9.9.9)"
-chk "7942: a lookup that cannot tell holds" [ "$(CHECK_RC=2 e2e "$S")" = "rc=1" ]
+chk "7942: a lookup that cannot tell holds (exit 2, not a refusal)" [ "$(CHECK_RC=2 e2e "$S")" = "rc=2" ]
 chk "7942: as a HOLD" grep -qF "HOLD: could not read the Linux check runs" "$T/e2e/out.log"
 chk "7942: and wrote nothing" [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ]
 S="$(e2esite lc-force 9.9.9)"
@@ -289,6 +289,16 @@ S="$(e2esite lc-maconly 9.9.9)"; git -C "$S" rm -q dist/latest-linux-staging.jso
 chk "7942 CONTROL: a promote that moves no Linux pointer asks for no Linux runs" [ "$(CHECK_RC=1 e2e "$S" --skip-linux-check)" = "rc=0" ]
 chk "7942: it asked for nothing" [ ! -s "$T/e2e/check.args" ]
 chk "7942: and says the skip had nothing to skip" grep -qF "has nothing to skip" "$T/e2e/out.log"
+# A named promote asks for the Linux build committed with it, not what staging names now.
+S="$(e2esite lc-named 9.9.8)"; C998="$(git -C "$S" rev-parse HEAD)"; e2eaddcut "$S" 9.9.9; : > "$T/e2e/check.args"
+L998="$(git -C "$S" show "$C998:dist/latest-linux-staging.json" | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([0-9a-f]*\)".*/\1/p' | head -1)"
+chk "7942 named CONTROL: the committed and the current Linux builds differ" [ -n "$L998" ] && [ "$L998" != "$(lsha "$S")" ]
+chk "7942 named: a green named promote exits 0" [ "$(e2e "$S" --version 9.9.8)" = "rc=0" ]
+chk "7942 named: the lookup was asked for the COMMITTED Linux build" [ "$(cat "$T/e2e/check.args")" = "9.9.8 $L998" ]
+S="$(e2esite lc-named-red 9.9.8)"; e2eaddcut "$S" 9.9.9
+chk "7942 named: a red named promote refuses" [ "$(CHECK_RC=1 e2e "$S" --version 9.9.8)" = "rc=1" ]
+chk "7942 named: and says a build staging moved past may need --skip-linux-check" grep -qF "is a named promote" "$T/e2e/out.log"
+chk "7942 named: latest.json was not written" [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ]
 chk "7942: promote-channel.sh's default lookup is the shipped tools/linux-check-runs.sh" grep -qF 'tools/linux-check-runs.sh}"' "$HERE/tools/promote-channel.sh"
 
 echo "test-promote-linux-7281: $PASS passed, $FAIL failed"

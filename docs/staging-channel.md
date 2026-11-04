@@ -67,7 +67,9 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
    both to go green (kosmos#7942; this Mac cannot boot the Linux build, so GitHub's ubuntu-24.04 runners do):
    `gh workflow run linux-family-install-7281.yml -f channel=staging` and `gh workflow run linux-promote-check-7933.yml`.
    The promote refuses to move `latest-linux.json` unless both recorded the exact staged Linux sha
-   (`tools/linux-check-runs.sh`); `--skip-linux-check` overrides it loudly, and `--force` never does.
+   (`tools/linux-check-runs.sh`); `--skip-linux-check` overrides it loudly, and `--force` never does. Records are
+   kept 90 days and only a build staging serves can be checked, so a rollback (`--version`) to an older build has
+   none and needs `--skip-linux-check`, with the reason in the promote report.
    Then `tools/promote-channel.sh <site-checkout> <that-board's-port>` points `latest.json`
    at the same bytes `latest-staging.json` names, gated on (a) the served sha matching, (b) the
    board-reachability gate passing, and (c) the agent-spawn gate passing. Either gate: exit 1

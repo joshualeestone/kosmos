@@ -94,7 +94,9 @@
 #     gh workflow run linux-family-install-7281.yml -f channel=staging
 #     gh workflow run linux-promote-check-7933.yml
 # --skip-linux-check promotes without them, and says so in a banner when it starts and again in the closing lines. It
-# is separate from --force on purpose: --force is for the Mac gates, and passing it never skips this.
+# is separate from --force on purpose: --force is for the Mac gates, and passing it never skips this. Not both green
+# exits 1 (a refusal); the runs could not be read exits 2 (a HOLD). Records are kept 90 days, so a named promote or
+# rollback of an older build has none and needs --skip-linux-check.
 #   (the Windows gate has no command override: it is always tools/win-staging-verified.sh)
 set -uo pipefail
 
@@ -343,8 +345,12 @@ if [ "$FAMILY" = mac ] && [ "$PROMOTE_LINUX" = yes ]; then
     $LINUX_CHECK_CMD "$V" "$_lc_sha"; _lc_rc=$?
     case "$_lc_rc" in
       0) LINUX_CHECK_SAID="linux check runs green for $_lc_sha" ;;
-      1) echo "promote-channel: REFUSED: the Linux check runs are not both green for $V ($_lc_sha). Nothing was written. (--skip-linux-check overrides, loudly.)" >&2; exit 1 ;;
-      *) echo "promote-channel: HOLD: could not read the Linux check runs for $V ($_lc_sha) (exit $_lc_rc). Nothing was written. (--skip-linux-check overrides, loudly.)" >&2; exit 1 ;;
+      1) echo "promote-channel: REFUSED: the Linux check runs are not both green for $V ($_lc_sha). Nothing was written. (--skip-linux-check overrides, loudly.)" >&2
+         # A named promote (a rollback, or a build staging has moved past) cannot be checked now: the workflows check
+         # what staging serves, and records are kept 90 days. Say so, so the remedy above is not a dead end.
+         [ -z "$NAMED_VERSION" ] || echo "promote-channel: $V is a named promote: if it is no longer what staging serves and has no record from when it was (records are kept 90 days), it cannot be checked now, and --skip-linux-check is the way through (say why in the promote report)." >&2
+         exit 1 ;;
+      *) echo "promote-channel: HOLD: could not read the Linux check runs for $V ($_lc_sha) (exit $_lc_rc). Nothing was written. (--skip-linux-check overrides, loudly.)" >&2; exit 2 ;;
     esac
   fi
 elif [ "$SKIP_LINUX_CHECK" = 1 ]; then
