@@ -3150,6 +3150,15 @@ section("native board loop: connecting")
         c.unattach(kept, for: "dana")
         check(c.attachedPreviews.isEmpty, "the x (or Remove) drops the copy with the file")
 
+        // kosmos#7944 review 3: the copy is made after the file is on the composer, and kept only if it still waits there.
+        let latePicture = Board.AttachedPicture(large: realJPEG(), small: realJPEG())
+        c.keepPicture(latePicture, for: kept, epoch: c.chatEpoch)
+        check(c.attachedPreviews.isEmpty, "a copy that finishes after its file was taken off is not kept")
+        c.keepPicture(latePicture, for: attached()[0].id, epoch: c.chatEpoch - 1)
+        check(c.attachedPreviews.isEmpty, "nor one from before another account or computer")
+        c.keepPicture(latePicture, for: attached()[0].id, epoch: c.chatEpoch)
+        check(c.attachedPreviews[attached()[0].id] != nil, "CONTROL: a file still waiting, same chats, keeps it")
+
         // Sent with no words: the names are the words, the ids ride along, and the composer is free again.
         let deckId = attached()[0].id
         await c.post("  ", files: attached(), to: dana)

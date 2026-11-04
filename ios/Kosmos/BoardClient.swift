@@ -842,20 +842,24 @@ final class BoardClient: ObservableObject {
         switch result {
         case .added(let a):
             guard attached[session]?.contains(where: { $0.id == a.id }) != true else { return }
-            // kosmos#7944: the copy is made AFTER the upload, so nothing waits between the guard above the upload and
-            // the upload itself (review 1: an account switch or the x in that wait would still have sent the file).
-            // The phone's copy is still here (it goes when this add ends), and the guard is asked again after it.
-            var picture: Board.AttachedPicture?
-            if let pictureFile {
-                picture = await Self.offMain { Board.attachedPicture(of: pictureFile) }
-                guard epoch == chatEpoch, addGeneration[session, default: 0] == generation,
-                      attached[session]?.contains(where: { $0.id == a.id }) != true else { return }   // review 2: asked again after the wait
-            }
-            if let picture { attachedPreviews[a.id] = picture }   // before the file, so the prune keeps it
             attached[session, default: []].append(a)
+            // kosmos#7944: the picture's copy for the composer is made AFTER the file is on the composer (review 3: made
+            // before, the x on "Adding a file..." during it dropped a file the Mac already had), and after the upload
+            // (review 1: nothing waits between the guard above the upload and the upload). The phone's copy is still
+            // here: it goes when this add ends. keepPicture decides whether the copy is still wanted.
+            if let pictureFile, let picture = await Self.offMain({ Board.attachedPicture(of: pictureFile) }) {
+                keepPicture(picture, for: a.id, epoch: epoch)
+            }
         case .refused(let why):
             attachLine[session] = why
         }
+    }
+
+    /// kosmos#7944: keeps a picture's composer copy only if its file is still waiting on a composer under the same
+    /// chats (`epoch`): taken off, sent, or another account or computer meanwhile, and it is dropped.
+    func keepPicture(_ picture: Board.AttachedPicture, for id: String, epoch: Int) {
+        guard epoch == chatEpoch, attached.values.contains(where: { $0.contains { $0.id == id } }) else { return }
+        attachedPreviews[id] = picture
     }
 
     // A copy can wait on Files fetching a file from the cloud for as long as that takes: on a dispatch thread, so it
