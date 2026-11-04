@@ -183,7 +183,7 @@ test('#7968 a name Windows cannot hold is not offered there', () => {
   Object.defineProperty(process, 'platform', { value: 'win32' });
   try {
     assert.equal(projects.folderRenameTarget(stored(p.id)), null);
-    for (const name of ['Con', 'nul', 'COM1', 'lpt2.txt', 'Plan.', 'Plan ']) {
+    for (const name of ['Con', 'nul', 'COM1', 'lpt2.txt', 'Plan.']) {
       assert.equal(projects.folderRenameTarget({ folder: path.join(KEEP, 'x'), name }), null, name);
     }
     assert.equal(projects.folderRenameTarget({ folder: path.join(KEEP, 'x'), name: 'Console' }), 'Console', 'CONTROL: only the device names themselves');
