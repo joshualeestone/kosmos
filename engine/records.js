@@ -233,4 +233,4 @@ function renderList(out, { projectId, projectName } = {}) {
   return [head, ...lines].join('\n');
 }
 
-module.exports = { list, set, remove, setLabel, renderList, ageWords, keyOf, today, ageDays, STALE_DAYS, NAME_MAX, STATUS_MAX, SOURCE_MAX, ROWS_MAX };
+module.exports = { list, set, remove, setLabel, renderList, ageWords, keyOf, today, ageDays, STALE_DAYS, NAME_MAX, STATUS_MAX, SOURCE_MAX, LABEL_MAX, ROWS_MAX };
