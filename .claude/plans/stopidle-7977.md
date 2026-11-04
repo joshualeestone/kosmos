@@ -23,9 +23,11 @@ precedence change status.js already raised rather than took); counting a placed 
 Weakest premise: that the five family-board agents (non-Claude runners) fail this way; their selfreports would show it.
 
 ## Measured on the branch
-report-hook-turnend-7977.test.js 8/8 (incl. a failed-save 'not recorded' that IS retried and noted; a test
-binding the hook's phrase to selfreport.js's skipped:waiting answers) (retry delay 1.5 s, 2.5 s settle, for a loaded machine; the seventh binds
-the hook's 'not recorded' match to install/kosmos's own sentence): success sends once; the hook returns at once while the send takes 2 s; a lost
-first send is retried; a refusal is not; a newer event cancels the retry; two lost sends leave the one line. Mutants,
-each red on its own test: the token check removed, the refusal check removed, the output held open.
+report-hook-turnend-7977.test.js 8/8: (1) a send that goes through is sent once, no note; (2) the hook returns at once
+while the send takes 2 s; (3) a send the board never answered is retried, a landing retry leaves no note; (4) the
+board's deliberate keep ("did not overwrite") is neither retried nor noted; (5) a newer event of the pane cancels the
+retry; (6) two lost sends leave one line (time, pane, exit code, the CLI's first line, its indent stripped); (7) a
+"not recorded" for another reason (a failed save) IS retried and noted; (8) the hook's phrase is bound to every
+skipped:'waiting' answer in engine/selfreport.js. Mutants, each red on its own test: token check removed, the skip
+removed, output held open, the old broad 'not recorded' match restored.
 report-hook-auto-1453.test.js counts report_turn_end as a report call (floor 8). Ten sibling hook test files pass.

@@ -16,15 +16,15 @@ const HOOK = path.join(__dirname, 'install', 'kosmos-report-hook.sh');
 const SB = fs.mkdtempSync(path.join(os.tmpdir(), 'rhte-'));
 const LOG = path.join(SB, 'calls.log');
 const MODE = path.join(SB, 'mode');      // "<fails-left> <unreached|refused> <sleep-seconds>"
-const CLI = path.join(SB, 'kosmos');
+const CLI = path.join(SB, 'kosmos');   // indents its lines by two spaces, as install/kosmos's say() does
 const NOTE = path.join(SB, 'kosmos-report-throttle', 'turn-end-failures.log');
 fs.writeFileSync(CLI, '#!/bin/bash\n'
   + '{ printf "%s|" "$@"; printf "\\n"; } >> "' + LOG + '"\n'
   + '[ "$1" = report ] && [ -z "${2:-}" ] && { echo "started working idle needs_you blocked stopped"; exit 0; }\n'
   + 'if [ "$1" = report ] && [ "$2" = idle ]; then read n kind wait < "' + MODE + '"; sleep "${wait:-0}";\n'
   + '  if [ "$n" -gt 0 ]; then echo "$((n-1)) $kind 0" > "' + MODE + '";\n'
-  + '    case "$kind" in waiting) echo "That was not recorded: it is waiting on a person (needs_you), so an automatic idle did not overwrite that." ;;\n'
-  + '      unsaved) echo "That was not recorded: we could not save that report." ;; *) echo "Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
+  + '    case "$kind" in waiting) echo "  That was not recorded: it is waiting on a person (needs_you), so an automatic idle did not overwrite that." ;;\n'
+  + '      unsaved) echo "  That was not recorded: we could not save that report." ;; *) echo "  Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
   + 'exit 0\n');
 fs.chmodSync(CLI, 0o755);
 
