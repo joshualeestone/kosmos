@@ -63,6 +63,7 @@ leg_verify() {
   head -c "$(( $(wc -c < "$tb") / 2 ))" "$tb" > "$W/dl/cut.tar.gz"
   o="$("$N" "$V" "$m" "$m.sig" "$W/dl/cut.tar.gz" - "$SV" "$W/prod" 2>&1)"; rc=$?; echo "  CONTROL cut tarball: rc=$rc $o"
   [ "$rc" -ne 0 ] && printf '%s' "$o" | grep -q 'does not match' || { fail verify "CONTROL: a cut tarball was not refused for its hash"; return; }
+  case "$SV" in *[!0-9.]*|.*|*.|*..*) fail verify "staging version '$SV' is not plain x.y.z, so the control cannot name the next one"; return ;; esac
   next="${SV%.*}.$(( 10#${SV##*.} + 1 ))"
   o="$("$N" "$V" "$m" "$m.sig" "$tb" - "$next" "$W/prod" 2>&1)"; rc=$?; echo "  CONTROL as $next: rc=$rc $o"
   [ "$rc" -ne 0 ] && printf '%s' "$o" | grep -qF "not $next" || { fail verify "CONTROL: the manifest was not refused as $next"; return; }
@@ -147,15 +148,21 @@ leg_update() {
   [ "$got" = "$pv" ] || { fail update "/setup installed '$got', not prod's $pv"; return; }
   ours "$pid0" || { fail update "the process answering port $port is not systemd's board ($pid0)"; return; }
   [ -n "${AGENT_WORKFORCE_CREATED_URL:-}" ] && beacon || { fail update "the prod board does not carry the dead install beacon (it would count as an install)"; return; }
+  # Linux keeps the data folder at this path too (setup.sh writes it there).
   root="$HOME/Library/Application Support/Kosmos"; tok="$(cat "$root/board.token" 2>/dev/null)"
   [ -n "$tok" ] || { fail update "no board.token at $root"; return; }
   api() { curl -s -m 30 -H "x-kosmos-board-token: $tok" -H 'content-type: application/json' "$@"; }
   api -X POST "http://127.0.0.1:$port/api/projects" --data '{"name":"Masterclass prep"}' > /dev/null
   case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail update "could not add a project to the prod install"; return ;; esac
+  # The board's own check needs the channel at staging to offer the staged version; the stamp is then put back, so the
+  # check after the installer reads the INSTALLER's stamp, not this one.
+  local stamp0; stamp0="$(cat "$root/source-channel" 2>/dev/null)"
+  [ "$stamp0" = prod ] || { fail update "the prod install stamped '$stamp0', not prod"; return; }
   echo staging > "$root/source-channel"
   # Only the check: pressing the board's own Update is refused on Linux today (#7935), and once it is not it would race
   # the installer below.
   echo "  board's own check: $(api -X POST "http://127.0.0.1:$port/api/update/check" --data '{}' | head -c 300)"
+  printf '%s\n' "$stamp0" > "$root/source-channel"
   curl -fsSL "$SITE/setup-staging" -o "$W/setup-staging.sh" || { fail update "could not fetch $SITE/setup-staging"; return; }
   KOSMOS_UPDATE_CHANNEL=staging KOSMOS_RELEASE_BASE="$SITE/dist" sh "$W/setup-staging.sh" > "$W/setup-staging.log" 2>&1 \
     || { tail -20 "$W/setup-staging.log"; fail update "/setup-staging over the prod install failed"; return; }
