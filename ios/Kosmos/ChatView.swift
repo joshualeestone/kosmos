@@ -86,6 +86,7 @@ struct ChatView: View {
     @State private var epoch = 0
     @State private var lastPendingCount = 0
     @State private var keepNewestInView = true
+    @State private var boxAskedAt: Date?   // kosmos#7420: the last did-show or box change that asked the settled looks
     @State private var kbSettleTick = 0   // kosmos#7817/#7420: the latest settle ask or will-hide; older looks stand down
     // kosmos#7016: a lasting choice pressed once (armed until a second press, another press, 15 s, or leaving the chat),
     // the line a press left for its question (not sure it went, or the Mac's refusal), and the line over the composer
@@ -942,6 +943,8 @@ struct ChatView: View {
     static let fadeHeight: CGFloat = 18
     // The list's padding above its first row and below the end marker; settledPutBack allows for it at the end (#7420).
     static let listPadV: CGFloat = 12
+    // kosmos#7420 review 6: how long a box change still counts for a later settle ask (past the last look, 1.2 s).
+    static let boxAskCarries: Double = 1.5
 
     // kosmos#7265: iOS 18 reports the scroll phase, which tells the person's scroll from rows moving under them.
     static var followsScrollPhase: Bool { if #available(iOS 18.0, *) { return true } else { return false } }
@@ -1037,7 +1040,10 @@ struct ChatView: View {
     // boxMoved: a did-show or a box change, the asks after which the box can cover the newest message.
     private func settleAtNewest(_ proxy: ScrollViewProxy, boxMoved: Bool) {
         kbSettleTick &+= 1
-        let tick = kbSettleTick, chatAt = epoch, listAt = listEpoch
+        // Review 6: a thread read inside a box change's looks replaces them, and keeps that the box moved.
+        if boxMoved { boxAskedAt = Date() }
+        let moved = boxMoved || (boxAskedAt.map { Date().timeIntervalSince($0) < Self.boxAskCarries } ?? false)
+        let tick = kbSettleTick, chatAt = epoch, listAt = listEpoch, boxMoved = moved
         for at in Self.keyboardSettleLooks {
             DispatchQueue.main.asyncAfter(deadline: .now() + at) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: boxMoved) }
         }
@@ -1058,6 +1064,8 @@ struct ChatView: View {
             let short = scrollBox.shortOfEnd() ?? 0
             if place == "within", !endVisible || onScreen.isEmpty || (boxMoved && short > Double(Self.listPadV) + 4) {
                 if atBottom, !personScrolling, !scrollBox.underFinger {
+                    // Review 6: a list just rebuilt is laying out and goes to its newest itself; neither arm acts in its grace.
+                    if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
                     if onScreen.isEmpty {
                         // kosmos#7420 (build 34, Josh 21:33): going to the newest by id against the inflated estimate landed in
                         // the same undrawn stretch; the rebuild (recoverEmpty) measures the list again and drew rows each time.
@@ -1067,7 +1075,6 @@ struct ChatView: View {
                         // Review 3: nor with the end showing (a pending bubble can fill the list), nor with the app not active,
                         // as diagCheck. It spends recoverEmpty's own per-open budget (rebuildsMax).
                         guard !endVisible, scenePhase == .active, !(thread?.rows.isEmpty ?? true), endSeen || diagEverDrew else { return }
-                        if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
                         Self.trace("keyboard settled: within, nothing drawn, rebuilt")
                         recoverEmpty(proxy)
                     } else {
