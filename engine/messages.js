@@ -1846,7 +1846,7 @@ function heldReceipt(toName, id, at, heldUntil, duplicate, behind, signin, more)
     because: behind
       ? 'held: ' + toName + (more.behindInput === true ? ' still has messages kept while its input box held text not yet sent'
         : ' still has messages kept from while it was out of usage') + '; Kosmos types this one after them'
-        + (more.behindInput === true ? ', or, after 2 hours with the box still full, drops it and tells you' : '')   // kosmos#7936 review 1
+        + (more.behindInput === true && more.task !== true ? ', or, after 2 hours with the box still full, drops it and tells you' : '')   // kosmos#7936 review 1
       : input ? 'held: ' + toName + "'s input box holds text not yet sent; Kosmos types it once the box is clear, or, after 2 hours with the box still full, drops it and tells you"   // #6774, #7936
       : signin ? 'held: ' + toName + ' is signed out; Kosmos types it once it is signed in again'   // #5948
       : 'held: ' + toName + ' is out of usage' + (heldUntil ? ' until ' + heldUntil : '') + '; Kosmos types it after the reset',
@@ -1955,7 +1955,7 @@ function keepTaskLine(toName, line, roster, from, about, where) {
     }
     const until = !behind && Date.parse(hold.limitReset) > Date.parse(at) ? hold.limitReset : null;
     // heldReceipt is `kosmos msg`'s answer (could_not, held: true); the task route reports the row state instead.
-    return { ...heldReceipt(toName, id, at, until, false, behind, hold.heldFor === 'signin', { behindInput }), state: HELD_STATE };
+    return { ...heldReceipt(toName, id, at, until, false, behind, hold.heldFor === 'signin', { behindInput, task: true }), state: HELD_STATE };   // kosmos#7936: a task line keeps the day
   } catch {
     return decided ? { state: chat.DELIVERY.COULD_NOT, because: toName + (behindNow ? (behindInputNow ? ' still has messages kept while its input box held text not yet sent' : ' still has messages kept from while it was out of usage') : signinNow ? ' is signed out' : ' is out of usage')
       + ', and Kosmos could not keep this one for it, so it was not told' } : null;
