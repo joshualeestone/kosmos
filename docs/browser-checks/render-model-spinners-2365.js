@@ -154,6 +154,21 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     return { side: cv.width, want, litA: a.n, litB: b.n, changed: a.sum !== b.sum, oldDotsShown: dot ? getComputedStyle(dot).display !== 'none' : false, wasRunning, stopped, reattachedTurns };
   });
   const orb = await orbRead(page);
+  // On a gold button it is drawn in the button's ink (--spin-dot), so it shows on the gold.
+  const onGold = await page.evaluate(async () => {
+    const frames = (n) => new Promise((res) => { let k = 0; const f = () => (++k < n ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:400px;top:10px;z-index:99999';
+    host.innerHTML = '<button class="btn" type="button">' + LOAD_SPIN_HTML.replace('--sz:14px', '--sz:32px') + ' Adding</button>';
+    document.body.appendChild(host);
+    await frames(6);
+    const cv = host.querySelector('canvas.korb');
+    if (!cv || !cv.width) { host.remove(); return { error: 'no drawn canvas on the gold button' }; }
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0, r = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 60) { n++; r += d[i]; }
+    host.remove();
+    return { avgRed: n ? Math.round(r / n) : -1 };
+  });
   // Drawn on its FIRST frame (round 5: 2 to 3 blank frames, a blink each time a list repaints a spinner).
   const firstFrame = await page.evaluate(async () => {
     const host = document.createElement('div');
@@ -171,27 +186,43 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const calmPage = await browser.newPage({ viewport: { width: 900, height: 800 }, reducedMotion: 'reduce' });
   await calmPage.goto('file://' + PAGE);
   const calm = await orbRead(calmPage);
-  // A still orb whose size changes (zoom, another screen, a new --sz) is drawn again at the new size after a resize.
-  const calmResize = await calmPage.evaluate(async () => {
+  /* A still orb after a browser zoom or a move to a denser screen: its CSS size does not change (so the size watcher
+     cannot see it), only the pixel density does, and the orb must be drawn again at the new density. Round 7: the
+     earlier arm changed --sz, which the size watcher catches alone, so it passed with the resize listener deleted. */
+  const calmMk = await calmPage.evaluate(async () => {
     const frames = (n) => new Promise((res) => { let k = 0; const f = () => (++k < n ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
     const host = document.createElement('div');
+    window.__korbDensityHost = host;   // the arm's own element, kept by reference (no page id)
     host.style.cssText = 'position:fixed;left:200px;top:10px;z-index:99999';
     host.innerHTML = LOAD_SPIN_HTML.replace('--sz:14px', '--sz:24px');
     document.body.appendChild(host);
     await frames(8);
-    const span = host.querySelector('.spin.spin-sweep'), cv = span.querySelector('canvas.korb');
-    const before = cv.width;
-    span.style.setProperty('--sz', '40px');
-    window.dispatchEvent(new Event('resize'));
-    await frames(8);
-    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
-    let lit = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 20) lit++;
-    return { before, after: cv.width, want: Math.round(40 * (window.devicePixelRatio || 1)), lit };
+    const cv = host.querySelector('canvas.korb');
+    return cv ? { before: cv.width, dpr: window.devicePixelRatio || 1 } : { error: 'no canvas.korb in the still spinner' };
   });
+  let calmResize = calmMk;
+  if (!calmMk.error) {
+    const cdp = await calmPage.context().newCDPSession(calmPage);
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 900, height: 800, deviceScaleFactor: calmMk.dpr * 2, mobile: false });
+    calmResize = await calmPage.evaluate(async (was) => {
+      const frames = (n) => new Promise((res) => { let k = 0; const f = () => (++k < n ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
+      // Headless emulation changes the density but fires neither resize nor the density query's change (measured);
+      // a real zoom fires resize, so that is fired here. The density query itself cannot be driven headless.
+      window.dispatchEvent(new Event('resize'));
+      await new Promise((res) => setTimeout(res, 200)); await frames(8);
+      const cv = window.__korbDensityHost && window.__korbDensityHost.querySelector('canvas.korb');
+      if (!cv) return { error: 'the still spinner lost its canvas' };
+      const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let lit = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 20) lit++;
+      return { before: was.before, after: cv.width, want: Math.round(24 * (window.devicePixelRatio || 1)), dpr: window.devicePixelRatio, lit };
+    }, calmMk);
+  }
 
   await browser.close();
 
   const orbProblems = [];
+  if (onGold.error) orbProblems.push('orb on a gold button: ' + onGold.error);
+  else if (!(onGold.avgRed >= 0 && onGold.avgRed < 90)) orbProblems.push('orb on a gold button: drawn in gold (average red ' + onGold.avgRed + '), not the button\'s dark ink, so it vanishes on the gold');
   if (!(firstFrame.lit > 40)) orbProblems.push('orb: not drawn on its first frame (' + (firstFrame.why || firstFrame.lit + ' drawn pixels') + '), so it blinks in');
   if (orb.error) orbProblems.push('orb: ' + orb.error);
   else {
@@ -209,8 +240,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (calm.changed) orbProblems.push('orb (reduced motion): the drawing still moves');
     if (calm.wasRunning) orbProblems.push('orb (reduced motion): the loop was still running with the still orb showing');
   }
-  if (calmResize.after !== calmResize.want) orbProblems.push('orb (reduced motion): after a resize it is still drawn at ' + calmResize.after + ' px, not ' + calmResize.want);
-  if (!(calmResize.lit > 40)) orbProblems.push('orb (reduced motion): after a resize the canvas is blank (' + calmResize.lit + ' drawn pixels)');
+  if (calmResize.error) orbProblems.push('orb (reduced motion, density change): ' + calmResize.error);
+  else {
+    if (calmResize.after !== calmResize.want) orbProblems.push('orb (reduced motion): after a zoom or denser screen it is still drawn at ' + calmResize.after + ' px, not ' + calmResize.want);
+    if (!(calmResize.lit > 40)) orbProblems.push('orb (reduced motion): after a zoom or denser screen the canvas is blank (' + calmResize.lit + ' drawn pixels)');
+  }
 
   const problems = orbProblems.slice();
   if (r.error) problems.push(r.error);
@@ -247,4 +281,4 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     process.exit(1);
   }
   console.log('render-model-spinners-2365: the Choose-a-Model system-working waiting states (download/install/sign-in-completing + the OpenAI Adding validate) show Mona\'s .spin-sweep loading dots (8 dots, no Kosmos icon); the user-action wait (browser sign-in) correctly shows neither.');
-})();
+})().catch((e) => { console.error('FAIL  render-model-spinners-2365 threw: ' + ((e && e.message) || e)); process.exit(1); });

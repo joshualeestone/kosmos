@@ -46936,7 +46936,7 @@ const KORB = (() => {
      Colour is read on first sight and about once a second, so a spinner moved into a gold button recolours within a
      second; no site moves a live spinner today. */
   const shown = new Set();
-  let running = false, t0 = 0, last = -1e9, ticks = 0, sizeStale = false, stillPts = null;
+  let running = false, t0 = 0, last = -1e9, ticks = 0, sizeStale = false, stillPts = null, warned = false;
   const stillDots = () => stillPts || (stillPts = place(0));   // the still frame (K facing), worked out once
   /* Draws one spinner's canvas; a canvas with no 2d context (the engine refused one) is skipped, never thrown on. */
   function draw1(s, pts) {
@@ -46950,7 +46950,7 @@ const KORB = (() => {
   }
   function frame(now) {
     try {
-      for (const s of shown) if (!s.isConnected) { shown.delete(s); seen.delete(s); if (io) io.unobserve(s); }   // put back later, it is watched afresh
+      for (const s of shown) if (!s.isConnected) { shown.delete(s); seen.delete(s); if (io) io.unobserve(s); if (ro) ro.unobserve(s); }   // put back later, it is watched afresh
       if (!shown.size) { running = false; return; }
       if (now - last < 30) { requestAnimationFrame(frame); return; }   // about 30 a second: the turn is slow, and it halves the cost
       last = now; ticks++;
@@ -46961,6 +46961,7 @@ const KORB = (() => {
       requestAnimationFrame(frame);
     } catch (e) {
       running = false;   // never left marked running with no frame queued: the next show or change starts it again
+      if (!warned) { warned = true; try { console.warn('KOSMOS loading orb: a frame failed', e); } catch (x) { /* no console */ } }
     }
   }
   function start() { if (running) return; running = true; if (!t0) t0 = performance.now(); requestAnimationFrame(frame); }
@@ -46987,15 +46988,19 @@ const KORB = (() => {
     if (fresh.length) firstAll(fresh);
   };
   /* Forget what each shown orb was drawn with, so the next pass draws it again; starts the loop if one is showing. */
-  const forget = (colour) => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) { c.korbKey = ''; if (colour) c.korbColour = ''; } } if (shown.size) start(); };
+  // Every attached canvas, shown or not, so a hidden still orb is right when it next shows.
+  const forget = (colour) => { if (all) for (const s of all) { const c = s.querySelector(':scope > canvas.korb'); if (c) { c.korbKey = ''; if (colour) c.korbColour = ''; } } if (shown.size) start(); };
   // A spinner's own size changing (a new --sz, a layout change), not only the window's: read it again and redraw.
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { sizeStale = true; forget(false); }) : null;
   if (typeof IntersectionObserver === 'function' && typeof MutationObserver === 'function' && typeof document !== 'undefined') {
     io = new IntersectionObserver((entries) => {
       for (const e of entries) {
-        if (e.isIntersecting) { shown.add(e.target); const c = e.target.querySelector('canvas.korb'); if (c) c.korbKey = ''; }
-        else { shown.delete(e.target); if (!e.target.isConnected) { seen.delete(e.target); io.unobserve(e.target); } }   // gone while hidden: let it go
+        if (e.isIntersecting) { shown.add(e.target); sizeStale = true; const c = e.target.querySelector('canvas.korb'); if (c) c.korbKey = ''; }   // re-read its size on showing (a zoom while it was hidden)
+        else { shown.delete(e.target); if (!e.target.isConnected) { seen.delete(e.target); io.unobserve(e.target); if (ro) ro.unobserve(e.target); } }   // gone while hidden: let it go
       }
+      // A spinner revealed (its hidden removed) whose canvas was never drawn: draw it now, not a frame later.
+      const undrawn = entries.filter((e) => e.isIntersecting && !(e.target.querySelector('canvas.korb') || {}).width).map((e) => e.target);
+      if (undrawn.length) firstAll(undrawn);
       if (shown.size) start();
     });
     all = document.getElementsByClassName('spin-sweep');
@@ -47007,9 +47012,17 @@ const KORB = (() => {
     const themeWatch = new MutationObserver(recolour);
     // Only the theme switch (data-theme on <html>): the app writes other classes and styles there all the time.
     themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    // A resize or browser zoom: read every size again and redraw. A move to a screen of another density may not fire
-    // resize; a turning orb picks that up within a second (the size is re-read about once a second).
+    // A resize or browser zoom: read every size again and redraw.
     window.addEventListener('resize', () => { sizeStale = true; forget(false); });
+    // A change of pixel density (a move to another screen, some zooms) need not fire resize: a query on the current
+    // density does, and is set up again for the new one each time (review round 7).
+    const watchDensity = () => {
+      try {
+        matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)')
+          .addEventListener('change', () => { sizeStale = true; forget(false); watchDensity(); }, { once: true });
+      } catch (e) { /* older engines: the once-a-second size read covers a turning orb */ }
+    };
+    watchDensity();
     try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', recolour); } catch (e) { /* older engines */ }
     try { calmQuery.addEventListener('change', () => forget(false)); } catch (e) { /* older engines: the next show redraws */ }
     // The letter cuts take a moment to work out: do it while the page is idle, not when a loading state first shows.
