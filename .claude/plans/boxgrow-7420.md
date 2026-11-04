@@ -7,7 +7,8 @@ simulator does not reproduce the blank) and guarded by the room logic checks and
 
 ## What it does (ios/Kosmos/ChatView.swift)
 - settleAtNewest(): the settled looks #7817 ran after a keyboard did-show now also run after a box-height change at the newest (it
-  used to stop at "not followed") and after keepAtEnd (the whole window landing).
+  used to stop at "not followed") and after keepAtEnd: every thread read while the chat is kept at the newest (the whole
+  window landing is one), so a reader at the newest gets the two looks after each arriving message too.
 - At each look, at the newest with nobody scrolling: past the end -> put back (as before); within with NOTHING drawn -> rebuild the
   list (recoverEmpty, with its limits; build 34 showed the id jump lands in the inflated estimate's undrawn stretch); within, drawn, but
   the newest not showing (end marker gone, or ScrollBox.shortOfEnd() > 2 pt) -> goNewest by id. A reader higher up is never moved.
