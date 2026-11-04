@@ -154,6 +154,10 @@
      flagged rather than silently taken. */
   --k-optline: #82878f;
   --gold: #d6a62e; --gold-bright: #e3b341; --gold-deep: #b88920;
+  /* kosmos#7896: the loading orb's gold. --gold is about 2.1:1 on the light grounds, under the 3:1 a graphic needs
+     (WCAG 1.4.11). #9c741b is the iPhone orb's light gold (kosmos#7034's adaptive star gold), measured on every light
+     ground: page #faf9f7 4.05, card #ffffff 4.26, sunken #f4f2ee 3.81, side #ebe8e2 3.52. Dark keeps --gold. */
+  --spin-gold: #9c741b;
   /* ⚠️ THE EDGE OF A GOLD BUTTON, AND IT IS A CONTRAST FLOOR RATHER THAN A
      PREFERENCE (kosmos#1044). `.uprime` painted its border the same colour as
      its fill, and `--gold-bright` measures 1.95:1 against a white card and
@@ -292,6 +296,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    --spin-gold: var(--gold);   /* kosmos#7896: the orb's gold is the bright one on a dark ground */
     /* kosmos#976: the light red is 2.69:1 here. This one clears 4.5 on every
        dark ground, elevated cards included. */
     --danger: #ff6b5e;
@@ -3153,7 +3158,7 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    until the script runs. Reduced motion calms to one slow pulse
    (no travel), so it still says "working" without the movement. */
 .spin { position: relative; display: inline-block; width: var(--sz); height: var(--sz); flex: none;
-        vertical-align: -0.18em; --sz: 16px; --dot: calc(var(--sz)*0.19); --spin-dot: var(--gold); }
+        vertical-align: -0.18em; --sz: 16px; --dot: calc(var(--sz)*0.19); --spin-dot: var(--spin-gold, var(--gold)); }
 .spin i { position: absolute; inset: 0; }
 .spin i::before { content: ""; position: absolute; top: 0; left: 50%; width: var(--dot); height: var(--dot);
         margin-left: calc(var(--dot)/-2); border-radius: 50%; background: var(--spin-dot); }
@@ -11724,6 +11729,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* Written by tools/sync-forced-theme.js from the prefers-color-scheme
    blocks above. Edit those; run the tool; commit both. */
 :root[data-theme="dark"] {
+    --spin-gold: var(--gold);   /* kosmos#7896: the orb's gold is the bright one on a dark ground */
     /* kosmos#976: the light red is 2.69:1 here. This one clears 4.5 on every
        dark ground, elevated cards included. */
     --danger: #ff6b5e;
