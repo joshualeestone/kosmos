@@ -26003,16 +26003,17 @@ function machineCpuWords(pct) {
 }
 /* The agent's own page. "this computer's memory", not "memory": the panel below this one is headed Memory and is about what
    the agent remembers (Mona Lisa, #7978). What is left running gets its own sentence, ending on what the person can do. Not
-   "left by an earlier run": a server a live agent started with nohup is parentless too. */
+   "left by an earlier run", and not "end it": a server a live agent started with nohup on purpose is parentless too, so the
+   question goes to the agent, who knows. Under the size the card flags, and not busy, it is not worth a sentence. */
 function machineLine(a) {
   const m = a && a.machine;
   if (!m || typeof m !== 'object' || !machineSize(m.memMb)) return '';
   let line = 'Uses ' + machineSize(m.memMb) + ' of this computer\u2019s memory and ' + machineCpuWords(m.cpuPct) + '.';
   const l = m.left;
-  if (l && l.name) {
+  if (l && l.name && (Number(m.leftMemMb) >= MACHINE_LEFT_MIN_MB || Number(l.cpuPct) >= MACHINE_BUSY_CPU)) {
     const age = Number(l.days) >= 1 ? ', for ' + (l.days === 1 ? 'a day' : l.days + ' days') : '';
     line += (l.how === 'folder' ? ' Probably this agent\u2019s, since it sits in its folder, and still running after what started it ended: ' : ' Still running after what started it ended: ')
-      + l.name + ', ' + machineSize(l.memMb) + age + ' (process ' + l.pid + '). Kosmos does not stop it for you: ask this agent to end process ' + l.pid + ', or restart your computer.';
+      + l.name + ', ' + machineSize(l.memMb) + age + ' (process ' + l.pid + '). Kosmos does not stop it for you: ask this agent whether it still needs process ' + l.pid + '.';
   } else if (m.top && m.top.name && Number(m.processes) > 1) {
     line += ' Largest: ' + m.top.name + ', ' + machineSize(m.top.memMb) + '.';
   }

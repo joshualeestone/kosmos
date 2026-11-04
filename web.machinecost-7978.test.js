@@ -44,7 +44,7 @@ test('one process needs no "largest"', () => {
 });
 
 test('what is left running gets its own sentence, with its age and process, and ends on what the person can do', () => {
-  assert.equal(machineLine({ machine: leftover }), 'Uses 7 GB of this computer\u2019s memory and about one processor. Still running after what started it ended: bash, 6.5 GB, for 14 days (process 4242). Kosmos does not stop it for you: ask this agent to end process 4242, or restart your computer.');
+  assert.equal(machineLine({ machine: leftover }), 'Uses 7 GB of this computer\u2019s memory and about one processor. Still running after what started it ended: bash, 6.5 GB, for 14 days (process 4242). Kosmos does not stop it for you: ask this agent whether it still needs process 4242.');
 });
 
 test('a leftover smaller than what runs now is still named, so the card and the page agree', () => {
@@ -52,6 +52,12 @@ test('a leftover smaller than what runs now is still named, so the card and the 
   assert.equal(machineFlag({ machine: m }), '400 MB left running');
   assert.match(machineLine({ machine: m }), /Still running after what started it ended: node, 400 MB \(process 50\)\./);
   assert.doesNotMatch(machineLine({ machine: m }), /Largest/);
+});
+
+test('a small quiet leftover is not worth a sentence, and a busy small one is', () => {
+  const small = { memMb: 300, cpuPct: 1, processes: 2, leftMemMb: 41, top: null, left: { name: 'node', memMb: 41, cpuPct: 1, days: 0, pid: 7 } };
+  assert.doesNotMatch(machineLine({ machine: small }), /Still running/);
+  assert.match(machineLine({ machine: { ...small, left: { ...small.left, cpuPct: 95 } } }), /Still running after what started it ended: node, 41 MB \(process 7\)/);
 });
 
 test('found by its folder, it says probably, because that is weaker than a name', () => {

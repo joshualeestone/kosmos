@@ -13,17 +13,20 @@
  *      for. It still carries KOSMOS_AGENT_SESSION from the pane it was born in (agent-supervisor.sh), which names the agent
  *      with no guessing. Only large ones are asked, by the whole subtree: a small wrapper can hold a large child.
  *      A process that names nobody is not an agent's (a browser, the person's own apps) and is never shown.
- *      🛑 NEVER KOSMOS ITSELF. The page tells the person to have this process ended, so the board, anything above it, the
- *      tunnel and tmux are never candidates. tmux above all: it is parentless and every pane is its child, so by subtree
+ *      🛑 NEVER KOSMOS ITSELF. The page names this process and asks whether it is still needed, so the board, anything above
+ *      it, the tunnel and tmux are never candidates, and on a Mac neither is anything launchd runs (a supervisor, another
+ *      Kosmos's board, a scheduled job): if that list cannot be read, the folder clue is not used. tmux above all: it is parentless and every pane is its child, so by subtree
  *      it is the largest "leftover" on the computer, and one agent would be charged for all of them. A subtree also stops
  *      at any pane's tree, for the same reason.
  *   3. 🛑 macOS HIDES THE ENVIRONMENT OF ITS OWN BINARIES. Measured 11-04: `ps -E` returned the variable for node and a
  *      Homebrew python and NOTHING for /bin/bash, /bin/zsh, /bin/sh and /bin/sleep. So a leftover SHELL, the case that
- *      prompted this, could never be named that way, and a table-driven test would not have seen it. When the environment
- *      names nobody on a Mac, the clue is the working folder: inside exactly one agent's pane folder. Weaker than a name,
- *      so it is marked (how: 'folder') per process. A shell that changed folder is not found: a stated limit. A pane in
- *      the home folder is no clue, since everything is under it. `comm` is argv0, so a path cannot tell which road
- *      (measured: a bash from PATH reads `bash`): the environment is simply asked first.
+ *      prompted this, could never be named that way, and a table-driven test would not have seen it. ONLY when the
+ *      environment is truly hidden, the clue is the working folder: inside exactly one agent's pane folder. An environment
+ *      that reads and lacks the variable means not an agent's, wherever it sits: another Kosmos's board started from an
+ *      agent's folder is exactly that. Weaker than a name, so it is marked (how: 'folder') per process. A shell that changed
+ *      folder is not found: a stated limit. A pane in the home folder or above it is no clue, since it would claim everything.
+ *      `comm` is argv0, so a path cannot tell hidden from not (measured: a bash from PATH reads `bash`): `ps -E` is compared
+ *      with plain `ps`, and nothing past the arguments means hidden. That also stops an argument posing as the variable.
  *
  * 🔑 THE ENVIRONMENT IS READ FOR ONE NAME AND THEN DROPPED. An environment holds keys. Nothing else in it is kept, logged
  * or returned. `ps -E` prints the arguments first, so the LAST match is the environment's.
@@ -51,7 +54,7 @@ const LEFT_MIN_CPU = 25;
 const LEFT_MAX_ASKED = 12;   // a child process or two each: a bound, on a machine that may already be struggling
 const ASK_BUDGET_MS = 30000; // and a shared limit: a sample that takes minutes would outlive read's three rounds and blank every card
 const SESSION_IN_ENV = /(?:^|\s)KOSMOS_AGENT_SESSION=(\S+)/g;
-const NO_SERVER = /no server running|error connecting|server exited/i;
+const NO_SERVER = /no server running|error connecting/i;   // not "server exited": with a socket on disk that is a version wall, not an empty server (status.js)
 const PANE_LIST = '#{session_name}\t#{pane_pid}\t#{pane_current_path}';
 const PS_ARGS = ['-A', '-o', 'pid=', '-o', 'ppid=', '-o', 'rss=', '-o', 'pcpu=', '-o', 'etime=', '-o', 'comm='];
 
@@ -80,12 +83,13 @@ function parsePanes(text) {
 /* session -> its panes' folders, leaving out the home folder and the root, which would claim everything. */
 function parseFolders(text, home) {
   const folders = new Map();
-  const skip = new Set(['/', String(home || '').replace(/\/+$/, '')]);
+  const h = String(home || '').replace(/\/+$/, '');
+  const skips = (dir) => dir === '/' || dir === h || h.startsWith(dir + '/');   // the home folder or above it
   for (const line of String(text || '').split('\n')) {
     const m = /^([^\t]+)\t\d+\t(.+)$/.exec(line);
     if (!m) continue;
     const dir = m[2].replace(/\/+$/, '');
-    if (!dir || skip.has(dir)) continue;
+    if (!dir || skips(dir)) continue;
     if (!folders.has(m[1])) folders.set(m[1], new Set());
     folders.get(m[1]).add(dir);
   }
@@ -213,11 +217,12 @@ function costBySession(panes, procs, leftOwners) {
   const sessions = new Set([...panes.keys(), ...[...owners.values()].map((o) => o.session)]);
   for (const session of sessions) {
     const leftRows = [];
-    const lefts = [];
+    const counted = new Set();
     for (const [pid, o] of owners) {
       if (o.session !== session) continue;
-      lefts.push(pid);
-      for (const p of under([pid], procs, kids, inPanes)) leftRows.push({ p, how: o.how });
+      for (const p of under([pid], procs, kids, inPanes)) {
+        if (!counted.has(p.pid)) { counted.add(p.pid); leftRows.push({ p, how: o.how }); }
+      }
     }
     const seen = new Set();
     const rows = [...under(panes.get(session) || [], procs, kids), ...leftRows.map((r) => r.p)].filter((p) => !seen.has(p.pid) && seen.add(p.pid));
@@ -242,24 +247,55 @@ function runDetail(cmd, args, execImpl, env) {
 }
 const CENV = () => ({ ...process.env, LC_ALL: 'C' });
 
-/* The one variable, from one process's environment, or null. Nothing else leaves this function. */
-async function sessionOfPid(pid, deps) {
+/* What a process's environment says: { session, hidden }. session is the one variable or null, and nothing else leaves this
+   function. hidden: the environment could not be read at all, which is the only case the folder clue is for. */
+async function askEnv(pid, deps) {
   const d = deps || {};
   const platform = d.platform || process.platform;
   try {
-    if (platform === 'linux') {
-      const read1 = (d.readFile || fs.promises.readFile)(`/proc/${pid}/environ`, 'utf8');
-      let cap;
-      const text = await Promise.race([read1, new Promise((r) => { cap = setTimeout(() => r(''), CMD_TIMEOUT_MS); if (cap.unref) cap.unref(); })]);
-      clearTimeout(cap);
-      const m = /(?:^|\0)KOSMOS_AGENT_SESSION=([^\0]+)/.exec(text);
-      return m ? m[1] : null;
+    if (platform !== 'linux') {
+      const [plain, withEnv] = await Promise.all([
+        runDetail('ps', ['-ww', '-o', 'command=', '-p', String(pid)], d.exec, CENV()),
+        runDetail('ps', ['-Eww', '-o', 'command=', '-p', String(pid)], d.exec, CENV()),
+      ]);
+      const a = String(plain.out || '').replace(/\s+$/, '');
+      const b = String(withEnv.out || '').replace(/\s+$/, '');
+      // No read, or the process changed between the two: nothing is known, so nobody is named and no folder is guessed.
+      if (!a || !b.startsWith(a)) return { session: null, hidden: false };
+      const env = b.slice(a.length);
+      if (!env.trim()) return { session: null, hidden: true };
+      const all = [...env.matchAll(SESSION_IN_ENV)];
+      return { session: all.length ? all[all.length - 1][1] : null, hidden: false };
     }
-    const { out } = await runDetail('ps', ['-Eww', '-o', 'command=', '-p', String(pid)], d.exec, CENV());
-    if (!out) return null;
-    const all = [...out.matchAll(SESSION_IN_ENV)];
-    return all.length ? all[all.length - 1][1] : null;
+    return { session: await sessionOfPid(pid, d), hidden: false };
+  } catch { return { session: null, hidden: false }; }
+}
+
+/* The variable alone. Linux reads it from /proc, where every process of this user's can be read. */
+async function sessionOfPid(pid, deps) {
+  const d = deps || {};
+  const platform = d.platform || process.platform;
+  if (platform !== 'linux') return (await askEnv(pid, d)).session;
+  try {
+    const read1 = (d.readFile || fs.promises.readFile)(`/proc/${pid}/environ`, 'utf8');
+    let cap;
+    const text = await Promise.race([read1, new Promise((r) => { cap = setTimeout(() => r(''), CMD_TIMEOUT_MS); if (cap.unref) cap.unref(); })]);
+    clearTimeout(cap);
+    const m = /(?:^|\0)KOSMOS_AGENT_SESSION=([^\0]+)/.exec(text);
+    return m ? m[1] : null;
   } catch { return null; }
+}
+
+/* The pids launchd runs on a Mac, or null when the list could not be read. `launchctl list`: pid, status, label. */
+async function launchdPids(deps) {
+  const { out } = await runDetail('launchctl', ['list'], (deps || {}).exec, CENV());
+  if (out === null) return null;
+  const pids = new Set();
+  for (const line of out.split('\n')) {
+    const m = /^(\d+)\s/.exec(line);
+    if (m) pids.add(Number(m[1]));
+  }
+  return pids;
 }
 
 /* A process's working folder, or null. */
@@ -284,11 +320,13 @@ async function sample(deps) {
   const folders = parseFolders(tmux.out, d.home === undefined ? os.homedir() : d.home);
   const leftOwners = new Map();
   const askUntil = Date.now() + (d.askBudgetMs || ASK_BUDGET_MS);
+  const jobs = platform === 'darwin' ? await launchdPids(d) : null;
   for (const c of leftCandidates(procs, inTrees, d.selfPid)) {
     if (Date.now() > askUntil) break;   // the largest were asked first; the rest wait for the next sample
-    const named = await sessionOfPid(c.pid, d);
-    if (named) { leftOwners.set(c.pid, { session: named, how: null }); continue; }
-    if (platform !== 'darwin') continue;
+    if (jobs && jobs.has(c.pid)) continue;
+    const said = await askEnv(c.pid, d);
+    if (said.session) { leftOwners.set(c.pid, { session: said.session, how: null }); continue; }
+    if (!said.hidden || platform !== 'darwin' || !jobs) continue;
     const inFolder = sessionForFolder(await cwdOfPid(c.pid, d), folders);
     if (inFolder) leftOwners.set(c.pid, { session: inFolder, how: 'folder' });
   }
@@ -335,4 +373,4 @@ function readAgent(name, sessionToName, now) {
 
 function resetForTest() { last = null; lastAt = 0; running = false; }
 
-module.exports = { PANE_LIST, PS_ARGS, parseFolders, sessionForFolder, cwdOfPid, parsePs, parsePanes, daysOf, nameOf, leftCandidates, costBySession, sessionOfPid, sample, tick, start, read, readAgent, resetForTest, SAMPLE_MS, LEFT_MIN_KB, LEFT_MIN_CPU, LEFT_MAX_ASKED };
+module.exports = { PANE_LIST, PS_ARGS, parseFolders, sessionForFolder, cwdOfPid, askEnv, launchdPids, parsePs, parsePanes, daysOf, nameOf, leftCandidates, costBySession, sessionOfPid, sample, tick, start, read, readAgent, resetForTest, SAMPLE_MS, LEFT_MIN_KB, LEFT_MIN_CPU, LEFT_MAX_ASKED };
