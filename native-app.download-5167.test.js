@@ -91,8 +91,8 @@ test('#5167: both ways a navigation becomes a download hand it to this delegate 
 test('#5167: the destination is Downloads through downloadDestination, never replacing a file', () => {
   const b = body('func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,');
   assert.match(b, /FileManager\.default\.urls\(for: \.downloadsDirectory, in: \.userDomainMask\)/);
-  // kosmos#7952: 8 with the busy (429) answer, said even on a Files list.
-  assert.equal((b.match(/completionHandler\(/g) || []).length, 8, 'a destination path that never answers WebKit leaves the download hanging');
+  // kosmos#7952: 9 with the refused (401/403) answer, said even on a Files list, and the busy (429) one.
+  assert.equal((b.match(/completionHandler\(/g) || []).length, 9, 'a destination path that never answers WebKit leaves the download hanging');
   assert.doesNotMatch(b, /logLine\([^\n]*dest\.path/, 'the log line carries the full path, home folder and user name included');
 });
 
@@ -124,7 +124,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 34[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 35[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -307,9 +307,8 @@ test('#5167 (2026-10-27): every policy refusal is said, and a computer the perso
 test('kosmos#7952 review 1: only a download the board page itself asked for is marked same-origin', () => {
   const nav = SRC.slice(SRC.indexOf('if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,'));
   const branch = nav.slice(0, nav.indexOf('if navigationAction.shouldPerformDownload {'));
-  assert.match(branch, /let source = navigationAction\.sourceFrame as WKFrameInfo\?\n/, 'the frame that asked is not the SOURCE frame (a target frame can be the top)');
-  assert.match(branch, /let byPage = source\.map \{ downloadAskedByPage\(frameIsMain: \$0\.isMainFrame, frameProtocol: \$0\.securityOrigin\.protocol,/);
-  assert.match(branch, /\} \?\? false\n/, 'no source frame must read as not the page');
+  assert.match(branch, /let source = navigationAction\.sourceFrame\n/, 'the page check reads some frame other than the one that ASKED (the source frame)');
+  assert.match(branch, /let byPage = source\.isMainFrame\n\s+&& downloadAskedByPage\(frameIsMain: true, frameProtocol: source\.securityOrigin\.protocol,/, 'a frame inside the page is no longer refused on being a frame alone');
   const guard = branch.indexOf('guard byPage else');
   assert.ok(guard > 0, 'the marked download is no longer behind the page check');
   const starts = SRC.split('startDownload(using:').length - 1;
