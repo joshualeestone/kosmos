@@ -27,7 +27,7 @@ fs.writeFileSync(CLI, '#!/bin/bash\n'
   + 'exit 0\n');
 fs.chmodSync(CLI, 0o755);
 
-const ENV = { KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off', KOSMOS_REPORT_RETRY_S: '0.4', TMUX_PANE: '%7' };
+const ENV = { KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off', KOSMOS_REPORT_RETRY_S: '1.5', TMUX_PANE: '%7' };
 function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
 function hook(event) {
   const t0 = Date.now();
@@ -39,7 +39,9 @@ function hook(event) {
 function setup(mode) { fs.writeFileSync(LOG, ''); fs.writeFileSync(MODE, mode); fs.rmSync(NOTE, { force: true }); }
 const idle = () => fs.readFileSync(LOG, 'utf8').split('\n').filter((l) => l.startsWith('report|idle|'));
 const note = () => (fs.existsSync(NOTE) ? fs.readFileSync(NOTE, 'utf8') : null);
-function settle(n) { for (let i = 0; i < 100 && idle().length < n; i++) sleepMs(50); sleepMs(900); }
+/* Waits for n idle calls (at most 8 s), then 2.5 s more: past the 1.5 s retry delay with room for a loaded machine, so a
+   retry that should not happen has had time to. */
+function settle(n) { for (let i = 0; i < 160 && idle().length < n; i++) sleepMs(50); sleepMs(2500); }
 
 test('CONTROL: a turn end that goes through is sent once, and leaves no note', () => {
   setup('0 unreached 0'); hook('Stop'); settle(1);
@@ -78,4 +80,10 @@ test('two lost sends leave one line: the time, the pane, the exit code and the C
   const lines = (note() || '').split('\n').filter(Boolean);
   assert.equal(lines.length, 1, String(note()));
   assert.match(lines[0], /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ pane _7: idle not delivered after a retry \(exit 1\): Kosmos is not reachable right now\.$/);
+});
+
+test('the hook keys on the CLI\'s own refusal words, so a reworded CLI cannot quietly turn refusals into retries', () => {
+  const cli = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
+  assert.match(cli, /That was not recorded: /, 'install/kosmos still says "That was not recorded" for a board refusal');
+  assert.match(fs.readFileSync(HOOK, 'utf8'), /grep -qi 'not recorded'/, 'the hook matches it, any case');
 });

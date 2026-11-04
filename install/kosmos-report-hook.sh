@@ -336,7 +336,7 @@ MARK="$THROTTLE_DIR/$PANE_KEY"
 # kosmos#7977: this pane's last Stop, while its turn-end report may still be retried. Any other event of the pane
 # removes it, which cancels that retry (report_turn_end).
 STOP_TOKEN="$MARK.stop"
-[ "$EVENT" = Stop ] || rm -f "$STOP_TOKEN" 2>/dev/null || true
+[ "$EVENT" = Stop ] || [ ! -e "$STOP_TOKEN" ] || rm -f "$STOP_TOKEN" 2>/dev/null || true
 
 # ⚠️ NON-BLOCKING, and the reason is the update window: the CLI's report is
 # a curl with a 15-second ceiling, and a board that is down, refusing, or
@@ -354,11 +354,12 @@ report() { [ -n "$KOSMOS" ] && ( "$KOSMOS" report "$@" >/dev/null 2>&1 </dev/nul
 # honest unknown). Measured 11-04: a Stop hook ran, 304 ms, no hook error, and its idle never reached the board, and
 # nothing said why, because report() discards everything. So this one send:
 #   - runs detached with ALL its output on /dev/null, like report(), so the hook never waits on the board;
-#   - is tried again once, a moment later, only when the board did not answer at all. A board that answered "That was
-#     not recorded" (an agent waiting on a person keeps its deliberate state) is not a lost send: no retry, no note;
-#   - is not tried again if any other hook event of this pane came after this Stop (STOP_TOKEN, which every other
-#     event removes below), so a late idle can never overwrite the next turn's working, a permission prompt, or a
-#     SessionEnd's stopped;
+#   - is tried again once, a moment later, when the CLI failed for any reason other than the board's own "not
+#     recorded" answer (an agent waiting on a person keeps its deliberate state: no retry, no note). So a refusal of
+#     another kind (a token, the board not running) is retried and noted too, which is harmless;
+#   - does not START a retry if any other hook event of this pane came after this Stop (STOP_TOKEN, which every other
+#     event removes below). A retry already sending can still arrive after a newer report, as the single send always
+#     could; the token only keeps a stale idle from being started late;
 #   - after a second lost send, leaves one line: the time, the pane, the exit code and the CLI's own first line (no
 #     command text or tool input, the #1099 rule above), in turn-end-failures.log in the throttle folder.
 report_turn_end() {
@@ -367,11 +368,11 @@ report_turn_end() {
   printf '%s\n' "$$" > "$STOP_TOKEN" 2>/dev/null || true
   ( {
       _out=$("$KOSMOS" report "$@" 2>&1 </dev/null); _rc=$?
-      if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -q 'not recorded'; then
+      if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -qi 'not recorded'; then
         sleep "${KOSMOS_REPORT_RETRY_S:-2}"
         if [ "$(cat "$STOP_TOKEN" 2>/dev/null)" = "$$" ]; then
           _out=$("$KOSMOS" report "$@" 2>&1 </dev/null); _rc=$?
-          if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -q 'not recorded'; then
+          if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -qi 'not recorded'; then
             printf '%s pane %s: %s not delivered after a retry (exit %s): %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
               "$PANE_KEY" "$1" "$_rc" "$(printf '%s' "$_out" | head -1 | cut -c1-160)" >> "$THROTTLE_DIR/turn-end-failures.log"
           fi
