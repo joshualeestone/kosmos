@@ -125,7 +125,7 @@ const USAGE = {
     '      --clear                                                  take the built mark off',
     '      --file <path>                                            send the delivered file\'s fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent\'s mark keeps it, your own mark without --file drops it',
     '      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes',
-    '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it',
+    '  kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]  say what finished means for it, or --check <number> "<wording>" to change one',
     '      --clear                                                  take its checks off',
     '  kosmos task hold <project-id> <task-number>                   put it on hold (Kosmos stops nudging anyone about it or handing it out)',
     '      [--until-task <n> | --until <date or time>]                 ...and say what it waits for; Kosmos tells its owner once it has happened',
@@ -1830,11 +1830,27 @@ async function taskBuilt(ctx, args) {
 
 /* #5152 slice 1, as install/kosmos cmd_task done-when: set what finished means for a task (1 to 3 checks, each one
    argument), or take them off with --clear. The agent token names who changed it. */
-const DONE_WHEN_USAGE = 'Usage: kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]   (or --clear)';
+const DONE_WHEN_USAGE = 'Usage: kosmos task done-when <project-id> <task-number> "<check>" ["<check>" ["<check>"]]   (or --clear, or --check <number> "<wording>" to change one)';
 async function taskDoneWhen(ctx, args) {
   const [project, num] = args;
   if (!project || !num || args.length < 3) { ctx.err(DONE_WHEN_USAGE); return 2; }
   if (!/^[0-9]+$/.test(num)) { ctx.err(TASK_NUMBER_NOT_A_NUMBER); return 2; }
+  /* #7990, as install/kosmos: --check <number> "<wording>" changes that one check. Exactly those two after it. */
+  if (args[2] === '--check') {
+    if (args.length !== 5) { ctx.err(DONE_WHEN_USAGE); return 2; }
+    if (!/^[0-9]+$/.test(args[3])) { ctx.err('The check number must be a number, as kosmos task list shows them.'); return 2; }
+    const one = String(args[4]).replace(/[\t\r\n]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');
+    if (!one.trim()) { ctx.err('Each check has to say something. ' + DONE_WHEN_USAGE); return 2; }
+    const r1 = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/done-when', { check: Number(args[3]), text: one, from_pane: '' });
+    if (!r1.reached) {
+      return r1.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
+        : ctx.unreachable('change that task');
+    }
+    if (r1.json && r1.json.task) { ctx.out('Changed done-when check ' + args[3] + ' on task ' + num + ' on ' + project + '. See them with: kosmos task list ' + project); return 0; }
+    if (ctx.refusedBy(r1)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r1) + '.'); return 1; }
+    ctx.err('Kosmos gave an answer we could not read when changing that task.');
+    return 1;
+  }
   let clear = false, past = false;
   const checks = [];
   for (const a of args.slice(2)) {

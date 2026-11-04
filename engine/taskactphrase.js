@@ -45,7 +45,11 @@ function phrase(ev, nameOfMember, opts) {
     case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
     case 'due-cleared': return 'Due date cleared';
     // #5152: what finished means for the task, set or taken off (by an agent, named, or from the screen).
-    case 'done-when-set': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + own(ev.doneWhen) : ''); }
+    case 'done-when-set': {
+      const who = ev.person ? YOU : nameOf(ev.by);
+      if (ev.changedCheck) return (who ? who + ' changed' : 'Changed') + ' done-when check ' + ev.changedCheck + (ev.was ? ', from: ' + own(ev.was) : '') + (ev.doneWhen ? '. Now: ' + own(ev.doneWhen) : '');
+      return (who ? who + ' set' : 'Set') + ' what done means' + (ev.doneWhen ? ': ' + own(ev.doneWhen) : '');
+    }
     case 'done-when-cleared': { const who = ev.person ? YOU : nameOf(ev.by); return (who ? who + ' took' : 'Took') + ' off what done means'; }
     // kosmos#7180: a hold that waits for something says what (ev.until: "task #12" or a time).
     case 'hold-set': return (ev.via === 'agent' ? 'Put on hold by an agent' : 'Put on hold')

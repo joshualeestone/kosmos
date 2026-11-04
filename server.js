@@ -25329,15 +25329,21 @@ const server = http.createServer(async (req, res) => {
     readBody(req).then((raw) => {
       let body = null;
       try { body = JSON.parse(raw || 'null'); } catch { body = null; }
-      if (!body || typeof body !== 'object' || Array.isArray(body) || !('doneWhen' in body)) {
+      if (!body || typeof body !== 'object' || Array.isArray(body) || (!('doneWhen' in body) && !('check' in body))) {
         sendJson(res, 400, { error: 'we could not read that request' }); return;
+      }
+      // #7990: { check: <number>, text: "<wording>" } changes that one, and cannot be sent with the whole set.
+      if ('check' in body && ('doneWhen' in body || typeof body.text !== 'string')) {
+        sendJson(res, 400, { error: 'one check takes its number and its new wording, and nothing else' }); return;
       }
       const viaScreen = isViaScreen(req, body);
       const who = processCaller(req, body, safeRoster(), viaScreen, 'the task was not changed');
       const refusal = who.refusal || notOnProjectRefusal(who, id, 'change its tasks', 'the task was not changed', 'change a task');
       if (refusal) { sendJson(res, refusal[0], { error: refusal[1] }); return; }
       try {
-        const t = tasks.setDoneWhen(id, taskDoneWhen[2], body.doneWhen, { by: who.card ? who.card.sessionName : null, person: viaScreen });
+        const whoSet = { by: who.card ? who.card.sessionName : null, person: viaScreen };
+        const t = 'check' in body ? tasks.setDoneWhenCheck(id, taskDoneWhen[2], body.check, body.text, whoSet)
+          : tasks.setDoneWhen(id, taskDoneWhen[2], body.doneWhen, whoSet);
         sendJson(res, 200, { task: t });
       } catch (err) {
         const msg = String((err && err.message) || '');

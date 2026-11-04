@@ -290,3 +290,42 @@ test('review 5: a forged mark in a task sentence stays on the task\'s own line; 
   await withStub(async (port) => check((await sh(port, home, ['task', 'list', 'p5152'])).out));
   check((await win(['task', 'list', 'p5152'])).out);
 });
+
+// #7990: both CLIs send one check by number, and refuse a wrong call before any request.
+test('#7990 --check sends that one check, on both CLIs', async () => {
+  await withStub(async (port, seen) => {
+    const home = makeHome();
+    const r = await sh(port, home, ['task', 'done-when', 'p7990', '4', '--check', '02', 'it "works"\tnow']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /Changed done-when check 02 on task 4/);
+    const b = seen.find((x) => /done-when/.test(x.route)).body;
+    assert.equal(b.check, 2);
+    assert.equal(b.text, 'it "works" now');
+    assert.equal('doneWhen' in b, false);
+  });
+  const w = await win(['task', 'done-when', 'p7990', '4', '--check', '02', 'it "works"\tnow']);
+  assert.equal(w.code, 0, w.out);
+  const wb = w.calls.find((c) => /done-when/.test(c.route)).body;
+  assert.equal(wb.check, 2);
+  assert.equal(wb.text, 'it "works" now');
+  assert.equal('doneWhen' in wb, false);
+});
+
+test('#7990 a wrong --check call is refused before any request, on both CLIs', async () => {
+  for (const args of [
+    ['task', 'done-when', 'p7990', '4', '--check'],
+    ['task', 'done-when', 'p7990', '4', '--check', '2'],
+    ['task', 'done-when', 'p7990', '4', '--check', 'two', 'x'],
+    ['task', 'done-when', 'p7990', '4', '--check', '2', 'x', 'y'],
+    ['task', 'done-when', 'p7990', '4', '--check', '2', '   '],
+  ]) {
+    await withStub(async (port, seen) => {
+      const r = await sh(port, makeHome(), args);
+      assert.equal(r.code, 2, JSON.stringify(args) + r.out);
+      assert.equal(seen.filter((x) => /done-when/.test(x.route)).length, 0, JSON.stringify(args));
+    });
+    const w = await win(args);
+    assert.equal(w.code, 2, JSON.stringify(args) + w.out);
+    assert.equal(w.calls.filter((c) => /done-when/.test(c.route)).length, 0, JSON.stringify(args));
+  }
+});

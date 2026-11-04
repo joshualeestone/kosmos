@@ -1385,10 +1385,41 @@ function setDue(projectId, n, dueDate) {
  * set are refused (403) to every other caller until the person changes or clears them.
  * Returns the task as stored. Throws with a sentence; `err.status` 409 for a closed task.
  */
-function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {}) {
+function setDoneWhen(projectId, n, doneWhen, opts = {}) {
   const problem = doneWhenProblem(doneWhen);
   if (problem) throw new Error(problem);
   const next = doneWhenValue(doneWhen);
+  return changeDoneWhen(projectId, n, () => next, opts);
+}
+
+/* #7990: change one check by its number, leaving the others as they are, so a colleague who marked against them can see
+   which one moved. The number is read inside the write, against the checks as they are then. Nothing here touches a
+   built mark: its note is free text, tied to no check by number. The transcript says which check changed and from what. */
+function setDoneWhenCheck(projectId, n, check, text, opts = {}) {
+  const number = Number(check);
+  if (!Number.isInteger(number) || number < 1) throw new Error('the check number has to be 1 or more, as kosmos task list shows them');
+  const problem = doneWhenProblem([text]);
+  if (problem) throw new Error(problem);
+  const wording = doneWhenValue([text])[0];
+  let was = null;
+  return changeDoneWhen(projectId, n, (before) => {
+    if (!before) {
+      const e = new Error('that task has no done-when checks to change yet');
+      e.status = 409;
+      throw e;
+    }
+    if (number > before.length) {
+      const e = new Error(`that task has ${before.length} done-when ${before.length === 1 ? 'check' : 'checks'}, so there is no check ${number}`);
+      e.status = 409;
+      throw e;
+    }
+    was = before[number - 1];
+    return before.map((c, i) => (i === number - 1 ? wording : c));
+  }, opts, () => ({ changedCheck: number, was }));
+}
+
+function changeDoneWhen(projectId, n, nextFrom, { by = null, person = false } = {}, recordExtra = null) {
+  let next;
   let changed;
   let didChange = false;
   projects.mutate(projectId, (p) => {
@@ -1412,6 +1443,7 @@ function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {})
        a gate keyed on "is the assignee" would read as protection it cannot give. Every change is in the transcript with
        who made it, and the list says who set the checks now. */
     const before = Array.isArray(t.doneWhen) && t.doneWhen.length ? t.doneWhen : null;
+    next = nextFrom(before);
     didChange = JSON.stringify(before) !== JSON.stringify(next);
     changed = { ...t, doneWhen: next };
     /* Whose they are now: the person's when the person set them (even the same list an agent wrote: saving it is the
@@ -1428,7 +1460,7 @@ function setDoneWhen(projectId, n, doneWhen, { by = null, person = false } = {})
   });
   if (didChange) {
     taskchat.record(projectId, changed.number, next
-      ? { kind: 'done-when-set', doneWhen: doneWhenWords(next), ...(person ? { person: true } : doneWhenSetter(by) ? { by: doneWhenSetter(by) } : {}) }
+      ? { kind: 'done-when-set', doneWhen: doneWhenWords(next), ...(recordExtra ? recordExtra() : {}), ...(person ? { person: true } : doneWhenSetter(by) ? { by: doneWhenSetter(by) } : {}) }
       : { kind: 'done-when-cleared', ...(person ? { person: true } : doneWhenSetter(by) ? { by: doneWhenSetter(by) } : {}) });
   }
   return changed;
@@ -2687,6 +2719,6 @@ function nearOpen(p, made, { windowMs = NEAR_TASK_WINDOW_MS } = {}) {
 
 module.exports = { runBefore, create, close, reopen, REOPEN_WHY_MAX, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
   taskState, heldForPersonCount, waitingOnPerson, waitingOnOf, askingWithoutTask, waitingSinceOf, lastActivityOf, TASKS_TAB_MIN, parentProblem, parentOf, childrenOf, subtaskProgress, treeOf, ownerIn, rootIn, treeHolders, setParent, tasksEverCreated, tasksTabShown, claimWho,
-  partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
+  setDoneWhenCheck, partsOf, progressOf, whoOf, LIST_GROUPS, listGroup, inListOrder, closedAtOf, leftUnder, retireOffers, agentOnlyHistory, addPart, assignPart, markMoveTold, setPartClosed, setDue, dueProblem, setDoneWhen, doneWhenProblem, DONE_WHEN_MAX, DONE_CHECK_MAX, say, isOnHold, setOnHold, holdUntilOf, holdUntilState, HOLD_UNTIL_MAX_MS,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR, setPartsLimitForTests,
   SENTENCE_MAX, DETAIL_MAX, MESSAGE_MAX, WHO_MAX, fitTitle, setBuilt, clearBuilt, BUILT_NOTE_MAX, LANDED_FIELDS, landedValue, forAgent, sameTextOpen, nearOpen, isNearTitle, NEAR_TASK_WINDOW_MS, setRepeat, setReviewer, reviewerProblem, recordRun, versusTold, setTold };
