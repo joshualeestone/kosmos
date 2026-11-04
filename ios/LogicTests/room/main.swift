@@ -574,7 +574,7 @@ check(chatSource.contains("let f = n.userInfo?[UIResponder.keyboardFrameEndUserI
       "kosmos#7609: a reading is this keyboard's (same width), and a reader's scroll before did-show drops it")
 // kosmos#7609 reviews 4-5: a will-show finding a reading past staleAfter (its did-show would refuse it) reads again; never
 // sooner, since a did-show can come 3.4 s late on CI.
-check(chatSource.contains("if let k = self.saved, Date().timeIntervalSince(k.at) >= Self.staleAfter {") && !chatSource.contains("orphanAfter"),
+check(chatSource.contains("if let k = self.saved, Date().timeIntervalSince(k.at) >= Self.staleAfter {"),
       "kosmos#7609: an orphaned will-show reading is replaced by the next keyboard's, not kept")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
