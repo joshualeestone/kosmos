@@ -380,7 +380,7 @@ struct BoardStates<Empty: View>: View {
             VStack(spacing: 12) {
                 message("Allow this iPhone on \(mac).",
                         detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.")
-                ProgressView().accessibilityLabel("Waiting for your Mac")
+                KosmosOrb(label: "Waiting for your Mac")
             }
             .accessibilityElement(children: .combine)
             // The code is spelled out character by character, as the gate page reads it.
@@ -389,7 +389,7 @@ struct BoardStates<Empty: View>: View {
         case .connecting(let mac):
             VStack(spacing: 12) {
                 message("Connecting to \(mac).", detail: "This can take a moment, for example just after your Mac starts.")
-                ProgressView().accessibilityLabel("Waiting for your Mac")
+                KosmosOrb(label: "Waiting for your Mac")
             }
         case .denied(let mac):
             message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)
@@ -425,7 +425,7 @@ struct BoardStates<Empty: View>: View {
     // First connect, nothing shown yet (spec frame 3).
     private var reaching: some View {
         VStack(spacing: 8) {
-            ProgressView()
+            KosmosOrb()
             Text("Reaching your computer\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

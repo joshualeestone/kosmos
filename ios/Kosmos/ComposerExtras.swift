@@ -31,7 +31,7 @@ struct ComposerMicButton: View {
         let on = dictation.active
         Button(action: action) {
             Group {
-                if dictation.finishing { ProgressView().controlSize(.small) }
+                if dictation.finishing { KosmosOrb(size: 16) }
                 else {
                     Image(systemName: on ? "stop.circle.fill" : "mic")
                         .font(.system(size: 20))

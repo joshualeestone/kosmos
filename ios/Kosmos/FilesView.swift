@@ -27,7 +27,7 @@ struct FilesView: View {
             }
             switch read {
             case nil:
-                Section { ProgressView() }
+                Section { KosmosOrb() }
             case .noAnswer?:
                 Section { Text(Board.filesCannotRead).foregroundColor(Palette.secondary) }
             case .refused(let why)?:
@@ -147,7 +147,7 @@ struct FilesRow: View {
                     if !meta.isEmpty { Text(meta).font(.footnote).foregroundColor(Palette.secondary) }
                 }
                 Spacer(minLength: 8)
-                if opening { ProgressView() }
+                if opening { KosmosOrb() }
             }
         }
         .accessibilityElement(children: .combine)

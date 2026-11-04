@@ -843,7 +843,7 @@ struct ChatView: View {
                     Text(Shell.macUnreachableTitle(client.failingMacName)).font(.headline).foregroundColor(Palette.primary)
                     WayThroughRow(text: Text("Open this chat on your computer's board \u{203A}"), action: openOnBoard)
                 } else {
-                    ProgressView()
+                    KosmosOrb()
                     Text("Loading the conversation\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
                 }
                 Spacer()
@@ -1370,7 +1370,7 @@ struct ChatView: View {
         Group {
             if earlier.loading {
                 HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
+                    KosmosOrb(size: 16)
                     Text("Loading earlier messages\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
@@ -1799,7 +1799,7 @@ struct ChatView: View {
                 if uploadingHere > 0 {
                     HStack(spacing: 6) {
                         HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
+                            KosmosOrb(size: 16)
                             Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
                                 .font(.footnote).foregroundColor(Palette.secondary)
                         }
