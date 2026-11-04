@@ -65,3 +65,9 @@ No BLOCKERs or WARNINGs; every FIXED claim above checked true in the code. Conve
   still fails loudly, and the browser closes at the end of the run.
 - [NIT] only the "into" direction of a switch is tested --> left: leaving runs through the same symmetric watchers.
 - [NIT] the plan's Tests section listed five states only --> FIXED (above).
+
+## Surface gate (#2518), found by full validation
+The gate maps the tokens 'firstrun' and 'plus-active' (both in lines this branch adds, the --spin-gold declarations
+and a comment) to four checks about those screens' layout and colour, not the spinner. All four RAN GREEN on this
+branch (render-layer-gutter-4494, render-firstrun-choice-4356, render-plus-gutter-4542, render-plus-blue-1615, each
+rc 0), so they carry per-check Browser-check-surface trailers rather than edits.
