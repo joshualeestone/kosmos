@@ -1,7 +1,7 @@
 # msgnoreply-7893: kosmos msg --no-reply (kosmos#7893)
 
-Builds on #7886 item 3 (PR #7903, merged), which gives every direct message the answer line
-"to answer, if it needs one, run: kosmos msg --in-reply-to <id> <sender>". Built stacked on it, rebased onto main after it merged.
+Stacked on dmreply-7886 (#7886 item 3), which gives every direct message the answer line
+"to answer, if it needs one, run: kosmos msg --in-reply-to <id> <sender>". Rebase onto main once that merges.
 
 ## The change
 - `kosmos msg --no-reply` (leading, any order with --in-reply-to and --stdin) in both CLIs sends
