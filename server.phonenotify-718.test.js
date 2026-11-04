@@ -1043,9 +1043,12 @@ test('#7915 a held needs_you does not buzz; asking it for real then does; held i
     assert.equal(held.json.note, selfreport.NEEDS_YOU_HELD_NOTE, 'the held question is told it is held');
     assert.equal(selfreport.read(WHO).held, true);
     assert.equal(sent.length, 0, 'a held question buzzed the phone');
+    const show = await call('GET', '/api/report?as=text', { headers: h });
+    assert.match(show.text, /You are currently: needs_you \(held until the person is back\)\./, '`kosmos report show` says it is held: ' + show.text);
     const asked = await report(h, 'needs_you');   // the same question, now asked
     assert.equal(asked.json.note, selfreport.NEEDS_YOU_ASK_NOTE, 'CONTROL: an unheld question gets the asking note');
     assert.equal(selfreport.read(WHO).held, false);
+    assert.doesNotMatch((await call('GET', '/api/report?as=text', { headers: h })).text, /held/, 'CONTROL: report show after asking');
     assert.equal(sent.length, 1, 'asking a held question for real did not buzz');
     assert.equal(sent[0].body.kind, 'needs_you');
     const off = await call('POST', '/api/report', { headers: h, body: { state: 'working', text: 'x', held: true } });

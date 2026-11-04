@@ -2,8 +2,8 @@
 require('../test-support/tmpscope');   // kosmos#5334: this process's temp folders, removed when it exits
 /* kosmos#7915 (#7886 item 7): a person told an agent to hold its questions until they were back, and its needs_you
    kept being followed up. `kosmos report needs_you --held` keeps the question on the board with `held: true`. These pin
-   each place that reads it: the store, the stale rule, the card (engine and page words), the Recommender and the note
-   that rides the person's next message. Every arm has an unheld control that must still behave as before. */
+   each place that reads it: the store, the stale rule, the card (engine and page words) and the note that rides the
+   person's next message. The built card and the Recommender are in status.heldq-7915.test.js (real cards). Every arm has an unheld control that must still behave as before. */
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -14,7 +14,6 @@ const assert = require('node:assert/strict');
 const selfreport = require('./selfreport');
 const status = require('./status');
 const cardlabel = require('./cardlabel');
-const recommender = require('./recommender');
 const chat = require('./chat');
 
 test('the store keeps held only on a needs_you that says so, and read gives it back', () => {
@@ -87,12 +86,6 @@ test('the word: "Question held" on the engine copy and the page, calm, and the p
     + '\nreturn { stateCopyOf };')();
   assert.deepEqual(stateCopyOf(HELD), { label: cardlabel.QUESTION_HELD, attn: false });
   assert.equal(stateCopyOf(PLAIN).label, 'Question', 'CONTROL');
-});
-
-test('the Recommender does not convene peers on a held question', () => {
-  const row = { sessionName: 's', name: 'S', state: 'needs_you', stateReportedBy: 'agent', stateProject: 'p1', because: 'q' };
-  assert.ok(recommender.stuckRow(row), 'CONTROL: the unheld question is one it may help with');
-  assert.equal(recommender.stuckRow({ ...row, stateHeld: true }), null);
 });
 
 test('the note on the person\'s next message: held says they are back; unheld is unchanged', () => {

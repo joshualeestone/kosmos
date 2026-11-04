@@ -172,3 +172,35 @@ test('#5943 review 3: the asking reminder comes from the board, so every CLI pri
   const win = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
   assert.match(win, /\.note/, 'the Windows CLI prints the report note');
 });
+
+/* kosmos#7915: a question HELD until the person is back gets the held note on their next message (the route passes
+   held through to chat.dmStandingQuestionNote); the same agent with the question asked for real gets the open note. */
+test('#7915 the person\'s next message carries the held note for a held question, the open note once it is asked', async () => {
+  const board = fleet.install([fleet.agent('holder', { state: 'idle', displayName: 'Holder' })]);
+  const sends = [];
+  chat.setRunner((args) => {
+    sends.push(args);
+    if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
+    return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
+  });
+  chat.setDryRun(false);
+  try {
+    const Q = 'Which logo goes on the site?';
+    assert.equal(selfreport.record('holder', { state: 'needs_you', because: Q, held: true }).recorded, true);
+    sends.length = 0;
+    assert.equal((await say('holder', 'I am back.')).status, 200);
+    const typed = pastedChunks(sends).join('');
+    assert.ok(typed.includes('I am back.'), 'control: the message was typed: ' + typed);
+    assert.ok(typed.includes('[kosmos] you held a question until this person was back, and they are writing to you now: "' + Q + '"'), 'no held note: ' + typed);
+    assert.ok(!typed.includes('is still open on the board'), 'the open note rode a held question: ' + typed);
+    // Asked for real: a new ask, so the open note rides the next message.
+    assert.equal(selfreport.record('holder', { state: 'needs_you', because: Q }).recorded, true);
+    sends.length = 0;
+    assert.equal((await say('holder', 'Go on then.')).status, 200);
+    const asked = pastedChunks(sends).join('');
+    assert.ok(asked.includes('[kosmos] your question to this person is still open on the board: "' + Q + '"'), 'CONTROL: no open note: ' + asked);
+  } finally {
+    try { selfreport.record('holder', { state: 'working', because: 'test over' }); } catch { /* best effort */ }
+    board.restore();
+  }
+});
