@@ -2,18 +2,18 @@
 pre_challenge: true
 method: challenge-loop
 branch: manualtoast-7938
-diff_hash: d407a09df2f01feb0587cce8b04b970d1c27b34ccba742d2dc0d7b34c0a8e11c
+diff_hash: 11f31f479f1a70d1dab01a49d5bcb1da3b9d6543f0f844c241edb0686256b453
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-04T15:06:13Z
-iterations: 3
+timestamp: 2026-11-04T16:40:39Z
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3
-**Converged:** Yes (round 3 found wording only, fixed; no new defect in kind)
+**Iterations:** 4
+**Converged:** Yes (round 4, narrow, on the Linux rule after the rebase on #7935, found nothing)
 **Fixed:** all findings that changed behaviour | **Deferred:** 1 (by design, stated in the plan) | **Asked (awaiting user):** 0
 
 Validation: the full suite ran on this diff (rebased on main fcb5f253bf, 08:5x to 09:04 CST). Its one red was
@@ -55,3 +55,7 @@ Converged: no new finding in kind.
 ### Strengths
 - The test lifts the real renderUpdateToast from the page, with a control that fails on main
 - The install offer's chip and button are untouched; the two offers are exclusive in the engine
+
+#### Iteration 4
+**Reviewer model:** sonnet
+No issues found in this diff (narrow: the chip following the Linux command offer). web.* 3639/3639 after the rebase; the full suite was not rerun locally, CI runs it.
