@@ -62,7 +62,7 @@ test('#7938: an install offer keeps its own chip and Update button, whatever the
   assert.doesNotMatch(t.html, /in Settings|Kosmos computer/);
 });
 
-test('#7938: Later on that version quiets the manual chip too; an update under way shows nothing', () => {
+test('#7938: a Later already stored for that version (from an earlier install offer) quiets the manual chip; an update under way shows nothing', () => {
   assert.equal(toast({ manual: MANUAL, later: '0.7.89' }).html, '');
   assert.equal(toast({ manual: MANUAL, updating: true }).html, '');
   assert.notEqual(toast({ manual: MANUAL, later: '0.7.88' }).html, '', 'CONTROL: Later on another version does not quiet it');

@@ -26,7 +26,7 @@ offer's own chip and Update button are unchanged.
 - Review 1: kplusRemote, not offlineRemoteView (false on Windows, the platform a manual offer comes from), and copy short
   enough for the pill (it does not wrap above 480px, and the stack is 460px at most); measured in a browser.
 - Review 2:
-  - the chip names Settings, Updates (44 characters; the browser measurement says whether it fits the pill);
+  - the chip names Settings, Updates (43 characters, remote 42; the browser measurement says whether it fits the pill);
   - deferred, by design: the chip cannot be dismissed. Neither can the install chip from the toast; #3955 (Josh's mock A)
     moved Later off the chip, and the manual offer has no confirm dialog to carry one;
   - the toast and the Settings card keep the same "complete manual offer" condition, each commented to the other and
@@ -38,5 +38,5 @@ offer's own chip and Update button are unchanged.
 web.manualtoast-7938.test.js (the real renderUpdateToast lifted from the page): the manual chip and its wording, no
 button, the remote wording, the install offer unchanged, Later and updating, redraw only on a new version, both callers,
 a missing download, the text length, the shared condition.
-Control: on main's web/index.html the new tests fail. Existing toast tests (web.reload-toast, web.noise2-6533,
+Control: on main's web/index.html the manual-arm tests fail (the no-offer and install-offer tests pass there by design). Existing toast tests (web.reload-toast, web.noise2-6533,
 web.win32-board-copy) pass.
