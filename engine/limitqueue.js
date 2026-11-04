@@ -374,8 +374,7 @@ function sweepHooks({ chat, messages }) {
       messages.tellHeldDropped(e, r, short).catch(() => { /* recorded */ });
     },
     /* kosmos#7936: a `kosmos msg` still held behind an input box (shortHold): its sender is told once, in its own pane.
-       Review 1: told only when it lands; a sender whose own pane holds the line (a menu, its own box) is tried again at
-       the next sweep, a minute on, until the message is typed or dropped. */
+       A notice that does not land calls forgetTold, so the sweep may try it again (see STILL_RETRY_MS). */
     onStillHeld: (e, r, dropAt) => {
       if (e.kind) return;
       messages.tellHeldStill(e, r, dropAt).then((v) => {
