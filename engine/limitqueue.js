@@ -21,7 +21,10 @@ const DROP_AFTER_MS = 24 * 60 * 60 * 1000;
 const INPUT_DROP_AFTER_MS = 2 * 60 * 60 * 1000;
 const STILL_HELD_TELL_MS = 10 * 60 * 1000;
 function shortHold(e) { return !!e && e.input === true && !e.kind; }
-function dropAfter(e) { return shortHold(e) ? INPUT_DROP_AFTER_MS : DROP_AFTER_MS; }
+/* Review 1: only while the box is the reason. An agent out of usage or signed out since (limited: its queue is not
+   released on that account) keeps the day, so a reset that comes later still types it. */
+function dropAfter(e, limited) { return shortHold(e) && !limited ? INPUT_DROP_AFTER_MS : DROP_AFTER_MS; }
+function forgetTold(id) { toldStill.delete(id); }
 // Ids whose sender was told they are still held (in memory: a restart may tell a sender once more, the stated cost).
 const toldStill = new Set();
 const MAX_KEPT = 200;   // per agent, from all senders together
@@ -221,7 +224,7 @@ async function flush(roster, opts) {
   // Only this run frees the guard: a stuck run that finishes late must not clear a newer run's.
   try { return await flushOnce(roster, opts); } finally { if (runToken === mine) flushingSince = 0; }
 }
-async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, onStuck, onStillHeld, now = Date.now() }) {
+async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, onStuck, onStillHeld, isLimited, now = Date.now() }) {
   const out = [];
   for (const name of names()) {
     try {
@@ -231,18 +234,21 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         kept.push(e);
       }
       const live = [];
+      // kosmos#7936 review 1: an agent held on its usage or sign-in as well keeps the day for its input-held messages.
+      let limited = false;
+      try { const c = kept.some(shortHold) && isLimited ? resolveCard(roster, name) : null; limited = !!(c && isLimited(c, roster)); } catch { limited = false; }
       for (const e of kept) {
         // Its reset, or when it arrived if the reset cannot be read: nothing is kept for ever.
         const reset = Number.isFinite(Date.parse(e.reset)) ? Date.parse(e.reset) : Date.parse(e.at);
         // Being typed this moment (a run that outlived the guard): not dropped under it.
         if (claimedNow(e.id)) { live.push(e); continue; }
-        if (!Number.isFinite(reset) || now - reset > dropAfter(e)) {
+        if (!Number.isFinite(reset) || now - reset > dropAfter(e, limited)) {
           if (!remove(name, e.id)) done.add(e.id);
           toldStill.delete(e.id);
           try { if (onDropped) onDropped(e, roster); } catch { /* the drop stands */ }
         } else {
           // kosmos#7936: once, STILL_HELD_TELL_MS in, the sender hears it is still held and when it would drop.
-          if (shortHold(e) && now - reset >= STILL_HELD_TELL_MS && !toldStill.has(e.id)) {
+          if (shortHold(e) && !limited && now - reset >= STILL_HELD_TELL_MS && !toldStill.has(e.id)) {
             toldStill.add(e.id);
             try { if (onStillHeld) onStillHeld(e, roster, new Date(reset + INPUT_DROP_AFTER_MS).toISOString()); } catch { /* told or not, it stays kept */ }
           }
@@ -272,6 +278,7 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
           break;
         }
         if (!remove(name, e.id)) done.add(e.id);
+        toldStill.delete(e.id);   // kosmos#7936 review 1: no longer kept, so nothing to remember
         try { if (onDelivered) onDelivered(e, v); } catch { /* it was typed */ }
         /* #7212: why it was held, so the log says the true reason (a held input box is not a usage limit). */
         out.push({ name, id: e.id, state, why: heldWhy(e) });
@@ -337,11 +344,20 @@ function sweepHooks({ chat, messages }) {
       if (e.kind === TASK_KIND) { messages.tellTaskLineDropped(e, r).catch(() => { /* the drop stands */ }); return; }
       messages.tellHeldDropped(e, r).catch(() => { /* recorded */ });
     },
-    // kosmos#7936: a `kosmos msg` still held behind an input box (shortHold): its sender is told once, in its own pane.
-    onStillHeld: (e, r, dropAt) => { if (!e.kind) messages.tellHeldStill(e, r, dropAt).catch(() => { /* it stays kept */ }); },
+    /* kosmos#7936: a `kosmos msg` still held behind an input box (shortHold): its sender is told once, in its own pane.
+       Review 1: told only when it lands; a sender whose own pane holds the line (a menu, its own box) is tried again at
+       the next sweep, a minute on, until the message is typed or dropped. */
+    onStillHeld: (e, r, dropAt) => {
+      if (e.kind) return;
+      messages.tellHeldStill(e, r, dropAt).then((v) => {
+        if (!v || (v.state !== chat.DELIVERY.PLACED && v.state !== chat.DELIVERY.UNCONFIRMED)) forgetTold(e.id);
+      }).catch(() => { forgetTold(e.id); });
+    },
+    // Review 1: on usage or sign-in as well, so the 2-hour drop is for a box that is the only reason left.
+    isLimited: (card, roster) => !chat.limitQueueReleased(card, roster),
   };
 }
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); toldStill.clear(); flushingSince = 0; }
 
-module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, dropAfter, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
+module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, dropAfter, forgetTold, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
