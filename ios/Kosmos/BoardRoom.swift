@@ -867,7 +867,7 @@ extension Board {
     // Restarting > none. None when nothing is running or the agents could not be read (#4730).
     // kosmos#7918 (pjPillOf, #7916): when every one of those questions is held until the person is back, Question held.
     static func projectWord(_ p: ProjectRow, agentsUnreadable: Bool) -> ProjectWord? {
-        if !agentsUnreadable && p.needsYou > 0 && p.needsYouQuestions == p.needsYou && p.needsYouHeld == p.needsYou { return .questionHeld }
+        if !agentsUnreadable && p.needsYou > 0 && p.needsYouQuestions == p.needsYou && p.needsYouHeld == p.needsYou && p.heldForYou == 0 { return .questionHeld }   // #7916: not over a task held for you
         if !agentsUnreadable && p.needsYou > 0 && p.needsYouQuestions == p.needsYou { return .question }
         if !agentsUnreadable && p.needsYou > 0 { return .issue }
         // kosmos#7797: pjPillOf's hold for the person, a calm Question that needs no roster.
