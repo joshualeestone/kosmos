@@ -31,15 +31,14 @@
  *   - shipping kosmos-se in the app bundle and any caller. Nothing outside the test calls this file yet.
  *   - choosing the helper. runHelper runs the path it is given; the bundle slice must resolve kosmos-se itself
  *     (the signed app's own copy), never take the path from anything a page or the coordinator supplies.
- *   - an asynchronous call for the admin screen. runHelper blocks its caller, and a presence key's sign blocks on the
- *     person, so the screen must run it off the board's event loop; and the prompt should name the action (an
- *     LAContext reason string), which kosmos-se does not pass yet.
+ *   - the prompt naming the action (an LAContext reason string), which kosmos-se does not pass yet. (createKey,
+ *     publicKey and sign are asynchronous since #7892, so a presence key waiting on the person holds no event loop.)
  * A key's access control is fixed when the key is made, so createKey makes a `presence` key (Touch ID or password on
  * every signature) unless told otherwise; see native-se/main.swift for what is and is not measured about that.
  */
 
 const crypto = require('node:crypto');
-const { execFileSync } = require('node:child_process');
+const { execFile } = require('node:child_process');
 
 const TAGS = {
   change: 'kosmos-escrowd-roster-change v1',
@@ -279,15 +278,42 @@ function prepare(action, bytes) {
   return prepared;
 }
 
+/* kosmos#7892: what a screen may say when kosmos-se fails. A child-process error's message carries the helper's path,
+   its argv and its stderr, so it is never passed on. kosmos-se writes one line, "kosmos-se: <why>", and every <why>
+   it can write is listed here (seadmin-7116.test.js holds this list to native-se/main.swift); a line not on it, or
+   no line, becomes the generic sentence. The one <why> with a variable tail (the Enclave's own description after
+   "refused to make a key") is matched by its fixed start, and only the fixed start is shown. */
+const HELPER_SAYS = [
+  'cannot read the key file', 'the key file is not a plain file', 'the key file belongs to someone else',
+  'the key file is readable by others (it must be 0600)', "this Mac's Secure Enclave cannot open that key file",
+  'the message is too long to be an escrowd action', 'this Mac has no Secure Enclave',
+  'cannot make the access control for a presence key', 'the key file already exists', 'cannot create the key file',
+  'cannot write the key file', 'refusing to sign bytes that are not an escrowd admin action',
+  'the Secure Enclave refused to sign',
+];
+const HELPER_SAYS_PREFIX = ['the Secure Enclave refused to make a key'];
+const HELPER_GENERIC = 'the admin key helper failed';
+function helperSentence(stderr) {
+  const line = String(stderr || '').split('\n').find((l) => l.startsWith('kosmos-se: '));
+  const why = line ? line.slice('kosmos-se: '.length).trim() : '';
+  if (HELPER_SAYS.includes(why)) return why;
+  return HELPER_SAYS_PREFIX.find((p) => why.startsWith(p + ' (') || why === p) || HELPER_GENERIC;
+}
+
+// Async (#7892): a presence key's signature waits on the person, so the board's event loop must not.
 function runHelper(helper, args, input) {
-  if (typeof helper !== 'string' || !helper) throw new Error('no kosmos-se helper was named');
-  try {
-    return execFileSync(helper, args, { input: input || Buffer.alloc(0), stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: HELPER_TIMEOUT_MS }).toString('utf8').trim();
-  } catch (e) {
-    if (e.code === 'ETIMEDOUT') throw new Error('kosmos-se did not finish in time (a presence key waits for the person)');
-    throw e;
-  }
+  if (typeof helper !== 'string' || !helper) return Promise.reject(new Error('no kosmos-se helper was named'));
+  return new Promise((resolve, reject) => {
+    const child = execFile(helper, args, { timeout: HELPER_TIMEOUT_MS, encoding: 'buffer', maxBuffer: 1 << 16 },
+      (err, stdout, stderr) => {
+        if (!err) return resolve(stdout.toString('utf8').trim());
+        if (err.killed || err.signal === 'SIGTERM') return reject(new Error('kosmos-se did not finish in time (a presence key waits for the person)'));
+        if (err.code === 'ENOENT' || err.code === 'EACCES') return reject(new Error('the admin key helper is not installed'));
+        reject(new Error(helperSentence(stderr)));
+      });
+    child.stdin.on('error', () => {});   // a helper that exits before reading its input is reported by its exit
+    child.stdin.end(input || Buffer.alloc(0));
+  });
 }
 function hexOf(out, what) {
   if (!/^([0-9a-f]{2})+$/.test(out)) throw new Error(`kosmos-se did not print a ${what}`);
@@ -298,24 +324,24 @@ function hexOf(out, what) {
  * Make this Mac's Secure Enclave admin key; returns its 65-byte public key. Refuses if keyFile exists. `presence:
  * false` makes a key any program running as this user can sign with; it exists for tests, where nobody can answer.
  */
-function createKey({ helper, keyFile, presence = true }) {
-  return key(hexOf(runHelper(helper, ['create', keyFile, presence === false ? 'none' : 'presence']), 'public key'));
+async function createKey({ helper, keyFile, presence = true }) {
+  return key(hexOf(await runHelper(helper, ['create', keyFile, presence === false ? 'none' : 'presence']), 'public key'));
 }
-function publicKey({ helper, keyFile }) {
-  return key(hexOf(runHelper(helper, ['pub', keyFile]), 'public key'));
+async function publicKey({ helper, keyFile }) {
+  return key(hexOf(await runHelper(helper, ['pub', keyFile]), 'public key'));
 }
 
 /**
  * Sign what prepare() decoded and showed, with the Enclave key; returns the DER signature escrowd's verify_se takes.
  * `expectedKey` is the 65-byte public key this Mac enrolled as its admin key; a key file holding any other refuses.
  */
-function sign(prepared, { helper, keyFile, expectedKey }) {
+async function sign(prepared, { helper, keyFile, expectedKey }) {
   const message = PREPARED.get(prepared);
   if (!message) throw new Error('sign takes only what prepare returned');
   const expected = key(expectedKey);
-  const pub = publicKey({ helper, keyFile });
+  const pub = await publicKey({ helper, keyFile });
   if (!pub.equals(Buffer.from(expected))) throw new Error('the key file holds a different key from the enrolled one');
-  const der = hexOf(runHelper(helper, ['sign', keyFile], message), 'signature');
+  const der = hexOf(await runHelper(helper, ['sign', keyFile], message), 'signature');
   const jwk = { kty: 'EC', crv: 'P-256', x: pub.subarray(1, 33).toString('base64url'),
     y: pub.subarray(33, 65).toString('base64url') };
   if (!crypto.verify('sha256', message, { key: crypto.createPublicKey({ key: jwk, format: 'jwk' }), dsaEncoding: 'der' }, der)) {
@@ -329,5 +355,5 @@ module.exports = {
   encodeChange, encodeCancel, encodeReviewerEnrol, encodeReviewerRevoke,
   decodeChange, decodeCancel, decodeReviewerEnrol, decodeReviewerRevoke,
   adminFingerprint, reviewerFingerprint, fingerprintDisplay,
-  prepare, createKey, publicKey, sign, shownText,
+  prepare, createKey, publicKey, sign, shownText, HELPER_SAYS, HELPER_SAYS_PREFIX, helperSentence,
 };

@@ -12,10 +12,14 @@ measured without a person at the screen.
    letters cannot imitate an escape. Mixed scripts (Latin with Cyrillic, say) are kept but marked; Japanese's Han,
    Hiragana and Katakana together count as one. `decoded` stays raw: what is signed is the bytes.
 
+2. **Signing off the event loop.** `runHelper` is async (execFile, stdin written then closed); `createKey`,
+   `publicKey` and `sign` return promises. Measured with a stand-in that sleeps 400 ms: the event loop keeps ticking.
+3. **Helper errors as fixed sentences.** `HELPER_SAYS` lists every refusal `kosmos-se` writes (a test holds it to
+   `native-se/main.swift` both ways); anything else is "the admin key helper failed", a missing helper is "not
+   installed". No path, argv or stderr reaches a caller.
+
 ## Next, in order
 
-2. Signing off the event loop: an async `runHelper` (execFile), with `sign`/`createKey`/`publicKey` async.
-3. The helper's errors mapped to fixed sentences; never `e.message` (path, argv, stderr).
 4. WARNING 2: the screen's wording around the prompt must not promise approving means signed.
 5. LAContext reason string in `kosmos-se` (Swift), naming the action.
 6. Gate needing a person: a presence key made from inside the app. Park needs-operator when it is the only one left.

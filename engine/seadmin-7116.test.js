@@ -124,16 +124,16 @@ if (FAKE_DIR) {
     `case "$1" in sign) echo ${badSig} ;; *) echo ${APPLE.key} ;; esac\n`, { mode: 0o755 });
 }
 
-test('#7116: createKey asks for a presence key unless a caller says presence: false', { skip: FAKE ? false : 'needs a POSIX shell' }, () => {
+test('#7116: createKey asks for a presence key unless a caller says presence: false', { skip: FAKE ? false : 'needs a POSIX shell' }, async () => {
   const argv = path.join(FAKE_DIR, 'argv');
   fs.rmSync(argv, { force: true });
-  assert.ok(se.createKey({ helper: FAKE, keyFile: '/k1' }).equals(FAKE_PUB));
-  se.createKey({ helper: FAKE, keyFile: '/k2', presence: false });
+  assert.ok((await se.createKey({ helper: FAKE, keyFile: '/k1' })).equals(FAKE_PUB));
+  await se.createKey({ helper: FAKE, keyFile: '/k2', presence: false });
   assert.deepStrictEqual(fs.readFileSync(argv, 'utf8').trim().split('\n'), ['create /k1 presence', 'create /k2 none']);
 });
 
-test('#7116: sign refuses a signature that does not verify under the helper\'s own key', { skip: FAKE ? false : 'needs a POSIX shell' }, () => {
-  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: FAKE, keyFile: '/k1', expectedKey: FAKE_PUB }), /does not verify/);
+test('#7116: sign refuses a signature that does not verify under the helper\'s own key', { skip: FAKE ? false : 'needs a POSIX shell' }, async () => {
+  await assert.rejects(se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: FAKE, keyFile: '/k1', expectedKey: FAKE_PUB }), /does not verify/);
 });
 
 // Part 2: the real Enclave.
@@ -164,34 +164,35 @@ test.after(() => {
   if (FAKE_DIR) fs.rmSync(FAKE_DIR, { recursive: true, force: true });
 });
 
-test('#7116: a key made in the Enclave signs every pinned action, and the signature verifies under its own key only', { skip: SKIP }, () => {
+test('#7116: a key made in the Enclave signs every pinned action, and the signature verifies under its own key only', { skip: SKIP }, async () => {
   whole();
   const keyFile = path.join(DIR, 'admin');
-  const pub = se.createKey({ helper: HELPER, keyFile, presence: false });
+  const pub = await se.createKey({ helper: HELPER, keyFile, presence: false });
   assert.strictEqual(fs.statSync(keyFile).mode & 0o777, 0o600, 'the key file is 0600');
-  assert.ok(pub.equals(se.publicKey({ helper: HELPER, keyFile })), 'pub reads back the key create printed');
-  const otherPub = se.publicKey({ helper: HELPER, keyFile: path.join(DIR, 'probe') });
+  assert.ok(pub.equals(await se.publicKey({ helper: HELPER, keyFile })), 'pub reads back the key create printed');
+  const otherPub = await se.publicKey({ helper: HELPER, keyFile: path.join(DIR, 'probe') });
   for (const [name, action] of Object.entries(ACTION_OF)) {
     const msg = hex(V.bytes[name]);
     const callers = Buffer.from(msg);
     const shown = se.prepare(action, callers);
     callers.fill(0);                       // changed after the screen: the signature must still be over what was shown
-    const der = se.sign(shown, { helper: HELPER, keyFile, expectedKey: pub });
+    const der = await se.sign(shown, { helper: HELPER, keyFile, expectedKey: pub });
     assert.ok(verifyDer(pub, msg, der), name);
     assert.ok(!verifyDer(otherPub, msg, der), `${name} under another key`);
   }
   // The same key file, but the screen expects the other key: refused before anything is signed.
-  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: HELPER, keyFile, expectedKey: otherPub }),
+  await assert.rejects(se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: HELPER, keyFile, expectedKey: otherPub }),
     /different key from the enrolled one/);
-  assert.throws(() => se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: HELPER, keyFile }), /65 bytes/,
+  await assert.rejects(se.sign(se.prepare('cancel', hex(V.bytes.cancel)), { helper: HELPER, keyFile }), /65 bytes/,
     'no expected key is a refusal, not a pass');
 });
 
-test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are not an admin action even when called directly', { skip: SKIP }, () => {
+test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are not an admin action even when called directly', { skip: SKIP }, async () => {
   whole();
   const keyFile = path.join(DIR, 'probe');
   const before = fs.readFileSync(keyFile);
-  assert.throws(() => se.createKey({ helper: HELPER, keyFile, presence: false }), /already exists/);
+  await assert.rejects(se.createKey({ helper: HELPER, keyFile, presence: false }), (e) => e.message === 'the key file already exists',
+    'the helper\'s refusal reaches the caller as its own fixed sentence, nothing more');
   assert.ok(fs.readFileSync(keyFile).equals(before), 'the existing key is untouched');
   const hash = crypto.createHash('sha256').update(hex(V.bytes.cancel)).digest();
   const direct = spawnSync(HELPER, ['sign', keyFile], { input: hash });
@@ -209,8 +210,8 @@ test('#7116: kosmos-se refuses to overwrite a key, and refuses bytes that are no
   assert.match(over.stderr.toString(), /too long/);
   // And seadmin.sign signs nothing prepare() did not make, before the helper is ever asked.
   const dead = { helper: '/nonexistent/kosmos-se', keyFile };
-  assert.throws(() => se.sign({ ...se.prepare('cancel', hex(V.bytes.cancel)) }, dead), /only what prepare returned/);
-  assert.throws(() => se.sign(hex(V.bytes.cancel), dead), /only what prepare returned/);
+  await assert.rejects(se.sign({ ...se.prepare('cancel', hex(V.bytes.cancel)) }, dead), /only what prepare returned/);
+  await assert.rejects(se.sign(hex(V.bytes.cancel), dead), /only what prepare returned/);
 });
 
 test('#7116: kosmos-se refuses a key file that is readable by others, or is a symlink, and makes no key without a policy', { skip: SKIP }, () => {
@@ -243,7 +244,7 @@ test('#7116: a key made under a strict umask is still exactly 0600 and opens', {
   assert.strictEqual(spawnSync(HELPER, ['pub', keyFile]).status, 0);
 });
 
-test('#7116: sign signs the bytes prepare was given, not bytes changed afterwards, and prepare takes only bytes', () => {
+test('#7116: sign signs the bytes prepare was given, not bytes changed afterwards, and prepare takes only bytes', async () => {
   const bytes = Buffer.from(hex(V.bytes.cancel));
   const shown = se.prepare('cancel', bytes);
   bytes[bytes.length - 1] ^= 1;          // the caller changes its buffer after the screen was shown
@@ -260,7 +261,7 @@ test('#7116: sign signs the bytes prepare was given, not bytes changed afterward
     // The stand-in records what it was handed: the bytes as shown, not the caller's changed buffer. (Its signature is
     // another key's, so sign then refuses it, after the helper was asked.)
     fs.rmSync(path.join(FAKE_DIR, 'stdin'), { force: true });
-    assert.throws(() => se.sign(shown, { helper: FAKE, keyFile: '/k1', expectedKey: FAKE_PUB }), /does not verify/);
+    await assert.rejects(se.sign(shown, { helper: FAKE, keyFile: '/k1', expectedKey: FAKE_PUB }), /does not verify/);
     assert.ok(fs.readFileSync(path.join(FAKE_DIR, 'stdin')).equals(hex(V.bytes.cancel)), 'the helper got the shown bytes');
   }
   for (const notBytes of ['kosmos-escrowd-roster-cancel v1', [1, 2], new ArrayBuffer(4)]) {
@@ -304,4 +305,52 @@ test('#7892: nested decoded text is escaped too (an admin id and a reviewer name
   assert.strictEqual(p.shown.change.admin.adminId, 'adm\\u{202E}in');
   assert.strictEqual(p.unusual, true);
   assert.strictEqual(p.decoded.change.admin.adminId, 'adm‮in', 'the raw decode is unchanged: what is signed is the bytes');
+});
+
+test('#7892: every refusal kosmos-se can write is on the list a screen may show, and nothing else is', () => {
+  const swift = fs.readFileSync(path.join(ROOT, 'native-se/main.swift'), 'utf8');
+  const literal = [...swift.matchAll(/fail\("((?:[^"\\]|\\.)*)"/g)].map((m) => m[1].replace(/\\\(.*\)$/, '').replace(/ \($/, '').trim());
+  const ternary = [...swift.matchAll(/\? "([^"]+)" : "([^"]+)"/g)].flatMap((m) => [m[1], m[2]]);
+  const said = new Set([...literal, ...ternary]);
+  assert.ok(said.size >= 10, 'CONTROL: found only ' + said.size + ' refusals in main.swift');
+  const listed = new Set([...se.HELPER_SAYS, ...se.HELPER_SAYS_PREFIX]);
+  assert.deepStrictEqual([...said].filter((w) => !listed.has(w)).sort(), [], 'kosmos-se writes a refusal the list does not have');
+  assert.deepStrictEqual([...listed].filter((w) => !said.has(w)).sort(), [], 'the list has a refusal kosmos-se never writes');
+});
+
+test('#7892: a helper failure reaches the caller as a fixed sentence, never its path, argv or stderr', { skip: FAKE ? false : 'needs a POSIX shell' }, async () => {
+  const say = (body) => { const f = path.join(FAKE_DIR, 'say-' + crypto.randomBytes(4).toString('hex')); fs.writeFileSync(f, '#!/bin/sh\n' + body + '\n', { mode: 0o755 }); return f; };
+  const secret = '/Users/someone/Library/secret-key-file';
+  // A listed refusal: exactly its sentence.
+  await assert.rejects(se.publicKey({ helper: say('echo "kosmos-se: the key file belongs to someone else" >&2; exit 1'), keyFile: secret }),
+    (e) => e.message === 'the key file belongs to someone else');
+  // The one with a variable tail: only its fixed start.
+  await assert.rejects(se.createKey({ helper: say('echo "kosmos-se: the Secure Enclave refused to make a key (' + secret + ')" >&2; exit 1'), keyFile: secret }),
+    (e) => e.message === 'the Secure Enclave refused to make a key');
+  // Anything else: the generic sentence, with nothing of the path, the argv or the stderr.
+  for (const body of ['echo "' + secret + ' exploded" >&2; exit 1', 'echo "kosmos-se: ' + secret + '" >&2; exit 4', 'exit 1', 'kill -9 $$']) {
+    await assert.rejects(se.publicKey({ helper: say(body), keyFile: secret }), (e) => {
+      assert.strictEqual(e.message, 'the admin key helper failed', body);
+      return true;
+    });
+  }
+  // A helper that is not there: named as not installed, without its path.
+  await assert.rejects(se.publicKey({ helper: path.join(FAKE_DIR, 'no-such-helper'), keyFile: secret }),
+    (e) => e.message === 'the admin key helper is not installed');
+  // CONTROL: a helper that answers well still works through the same call.
+  assert.ok((await se.publicKey({ helper: FAKE, keyFile: '/k1' })).equals(FAKE_PUB));
+});
+
+test('#7892: signing does not hold the event loop while the helper waits (a presence key waits on the person)', { skip: FAKE ? false : 'needs a POSIX shell' }, async () => {
+  const slow = path.join(FAKE_DIR, 'slow-se');
+  fs.writeFileSync(slow, '#!/bin/sh\nsleep 0.4\necho ' + APPLE.key + '\n', { mode: 0o755 });
+  let ticks = 0;
+  const timer = setInterval(() => { ticks += 1; }, 20);
+  try {
+    const t0 = Date.now();
+    const pub = await se.publicKey({ helper: slow, keyFile: '/k1' });
+    assert.ok(Date.now() - t0 >= 350, 'CONTROL: the stand-in did not wait');
+    assert.ok(pub.equals(FAKE_PUB));
+    assert.ok(ticks >= 5, 'the event loop ran ' + ticks + ' times in 400 ms of helper time');
+  } finally { clearInterval(timer); }
 });
