@@ -237,6 +237,7 @@ render-refreshlogin-5407
 render-remote-file-download-5165
 render-remove-force-2651
 render-rename-4421
+render-rename-folder-7968
 render-rename-followups-4423
 render-restart-kloader-2831
 render-restart-screen-4343
