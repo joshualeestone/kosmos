@@ -9,7 +9,7 @@
     {
       "icon": "chat",
       "title": "A question can wait until you are back",
-      "line": "An agent can hold a question until you return. It stays on the board, with no phone alert."
+      "line": "An agent can save a question for when you are back. It waits for you in Kosmos and does not ping your phone."
     },
     {
       "icon": "chat",
