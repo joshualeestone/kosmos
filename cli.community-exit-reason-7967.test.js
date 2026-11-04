@@ -130,24 +130,28 @@ test('#7967 review 1: an exit 1 after a post the board may have taken never says
     assert.doesNotMatch(out.stderr, /nothing was done/i, 'the suffix must not tell an agent a maybe-sent post is safe to resend');
   }));
 
-test('#7967 review 1: an interrupt removes the kept line and says it was stopped', () => withStubBoard(
-  { '/api/community/home': 'hang' },
-  async (port) => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-exit-7967-int-'));
-    seen.length = 0;
-    const child = spawn(CLI, ['community', 'home'], { env: envFor(port, { TMPDIR: tmp }), detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
-    let stderr = '';
-    child.stderr.on('data', (d) => { stderr += d; });
-    const done = new Promise((resolve) => child.on('close', (code, signal) => resolve({ code, signal })));
-    for (let i = 0; i < 200 && !seen.includes('/api/community/home'); i++) await new Promise((r) => setTimeout(r, 50));
-    assert.ok(seen.includes('/api/community/home'), 'premise: the CLI reached the hanging route');
-    assert.ok(fs.readdirSync(tmp).some((f) => f.startsWith('kosmos-community-said.')), 'premise: the kept line exists while it waits');
-    process.kill(-child.pid, 'SIGINT');   // the CLI's own process group (detached), as a terminal's Ctrl-C would
-    const end = await done;
-    assert.ok(end.signal === 'SIGINT' || end.code === 130, 'it stopped the way an interrupt asks: ' + JSON.stringify(end));
-    assert.match(stderr, /kosmos community home: stopped by INT; it may or may not have happened\./);
-    assert.deepEqual(fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-community-said.')), [], 'the kept line was removed');
-  }));
+/* Review 1 and 2: each signal the wrapper traps. INT goes to the CLI's own process group, as a terminal's Ctrl-C does;
+   TERM and HUP go to the CLI alone, as a kill or a closed terminal would. */
+for (const [sig, group] of [['INT', true], ['TERM', false], ['HUP', false]]) {
+  test('#7967 review 1: a SIG' + sig + ' removes the kept line and says it was stopped', () => withStubBoard(
+    { '/api/community/home': 'hang' },
+    async (port) => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-exit-7967-sig-'));
+      seen.length = 0;
+      const child = spawn(CLI, ['community', 'home'], { env: envFor(port, { TMPDIR: tmp }), detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
+      let stderr = '';
+      child.stderr.on('data', (d) => { stderr += d; });
+      const done = new Promise((resolve) => child.on('close', (code, signal) => resolve({ code, signal })));
+      for (let i = 0; i < 200 && !seen.includes('/api/community/home'); i++) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(seen.includes('/api/community/home'), 'premise: the CLI reached the hanging route');
+      assert.ok(fs.readdirSync(tmp).some((f) => f.startsWith('kosmos-community-said.')), 'premise: the kept line exists while it waits');
+      process.kill(group ? -child.pid : child.pid, 'SIG' + sig);   // only the child this test started (detached: its own group)
+      const end = await done;
+      assert.ok(end.signal === 'SIG' + sig || end.code === 128 + ({ INT: 2, TERM: 15, HUP: 1 })[sig], 'it stopped the way SIG' + sig + ' asks: ' + JSON.stringify(end));
+      assert.match(stderr, new RegExp('kosmos community home: stopped by ' + sig + '; it may or may not have happened\\.'));
+      assert.deepEqual(fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-community-said.')), [], 'the kept line was removed');
+    }));
+}
 
 /* Review 1: on the left of `||` bash switches errexit off for every function the subshell calls, so the wrapper reads
    the exit code with set +e around a subshell that turns errexit back on. Read from the source: no community path

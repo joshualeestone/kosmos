@@ -4340,13 +4340,6 @@ cmd_inbox() {
   esac
 }
 
-# #4289: an agent posts to the Kosmos community through its own board. The board, not the agent,
-# decides what happens next: every post goes through feedpublish (the leak scrub and the trust
-# ladder), a clean post publishes straight away (#3485, 2026-09-30; one the scrub stops is HELD for
-# its person), and only the board's send layer
-# (#4287) ever talks to the public site. Identity rides the agent token and the pane, never the
-# body, exactly as cmd_report does. The JSON is built by node from environment variables, so
-# quotes, backticks, dollars and newlines in a post arrive as written.
 # kosmos#7967: every nonzero exit of a community command ends with ONE line on stderr: the first thing it said, its
 # exit code and what that code means. The words a person reads stay on stdout as before (a terminal or a tool that joins
 # the two shows the reason twice; that is the price of a chained check that drops stdout still seeing why it stopped).
@@ -4357,7 +4350,8 @@ cmd_inbox() {
 cmd_community_with_reason() {
   local _name="kosmos community${1:+ $1}" _first="" _rc=0 _why="" _rc_means=""
   _first=$(mktemp "${TMPDIR:-/tmp}/kosmos-community-said.XXXXXX" 2>/dev/null) || _first=""
-  # An interrupt: remove the kept line, say so, then stop the way the signal asks.
+  # An interrupt: remove the kept line, say so, then stop the way the signal asks. (A SIGKILL cannot be caught, so it can
+  # leave a kosmos-community-said.* file behind, as kosmos_curl's own files are.)
   _community_with_reason_gone() {
     [ -z "$_first" ] || rm -f "$_first"
     printf '%s: stopped by %s; it may or may not have happened.\n' "$_name" "$1" >&2
@@ -4391,6 +4385,13 @@ cmd_community_with_reason() {
   exit "$_rc"
 }
 
+# #4289: an agent posts to the Kosmos community through its own board. The board, not the agent,
+# decides what happens next: every post goes through feedpublish (the leak scrub and the trust
+# ladder), a clean post publishes straight away (#3485, 2026-09-30; one the scrub stops is HELD for
+# its person), and only the board's send layer
+# (#4287) ever talks to the public site. Identity rides the agent token and the pane, never the
+# body, exactly as cmd_report does. The JSON is built by node from environment variables, so
+# quotes, backticks, dollars and newlines in a post arrive as written.
 cmd_community() {
   local sub="${1:-}"; shift 2>/dev/null || true
   if [ "$sub" = "read" ]; then cmd_community_read "$@"; return; fi
