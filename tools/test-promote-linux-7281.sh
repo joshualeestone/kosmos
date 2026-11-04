@@ -268,6 +268,7 @@ S="$(e2esite lc-go 9.9.9)"; : > "$T/e2e/check.args"
 chk "7942 CONTROL: green check runs promote" [ "$(e2e "$S")" = "rc=0" ]
 chk "7942: the lookup was asked for the exact Linux build (version and its sha256)" [ "$(cat "$T/e2e/check.args")" = "9.9.9 $(lsha "$S")" ]
 chk "7942: and the closing lines say the runs were green" grep -qF "linux check runs green for $(lsha "$S")" "$T/e2e/out.log"
+chk "7942: a lookup replaced by KOSMOS_PROMOTE_LINUX_CHECK_CMD is said loudly" grep -qF "!!! KOSMOS_PROMOTE_LINUX_CHECK_CMD is set" "$T/e2e/out.log"
 S="$(e2esite lc-red 9.9.9)"
 chk "7942: a missing or red check run refuses" [ "$(CHECK_RC=1 e2e "$S")" = "rc=1" ]
 chk "7942: saying so" grep -qF "REFUSED: the Linux check runs are not both green for 9.9.9" "$T/e2e/out.log"
