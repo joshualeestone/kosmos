@@ -24,6 +24,9 @@ button keeps the button's ink.
   dark, forced dark on a light system, and the Kosmos+ navy in light (#d6a62e).
   Control: main's web/index.html fails both light states (it draws the old gold, r213 g164 b42). Mutants: the navy
   line removed fails only the navy state; the system-dark line removed fails only system dark.
+- Also (rounds 2 and 3): a spinner inside #firstrun on a dark system reads --spin-dot #9c741b; a still orb
+  (reduced motion) is redrawn from the deep gold to --gold on a switch to the dark theme and on going into Kosmos+.
+  Mutants: the #firstrun pin removed, the theme watcher removed, the plus-active watcher removed: each fails its arm.
 
 ## Review rounds
 
@@ -55,3 +58,10 @@ button keeps the button's ink.
 - [NIT] `if (document.body)` hid a dependency --> FIXED: a comment says KORB runs inside <body>.
 - [NIT] inkOf's fallback for an unreadable --spin-dot is still #d6a62e --> left: it is the fallback for a broken
   value, the same in both themes, and never reached with the tokens defined.
+
+#### Iteration 4 (final whole-branch read)
+No BLOCKERs or WARNINGs; every FIXED claim above checked true in the code. Converged.
+- [NIT] a throw in calmSwitch or the dark-page block leaves a page open until the browser closes --> left: the check
+  still fails loudly, and the browser closes at the end of the run.
+- [NIT] only the "into" direction of a switch is tested --> left: leaving runs through the same symmetric watchers.
+- [NIT] the plan's Tests section listed five states only --> FIXED (above).
