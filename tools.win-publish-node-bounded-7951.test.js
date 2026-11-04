@@ -18,7 +18,7 @@ const { spawnSync, spawn } = require('node:child_process');
 // Runs PowerShell with a stdin nobody closes, which is what a child inheriting it would wait on. Resolves when it exits.
 function runHoldingStdin(ps, args, limitMs) {
   return new Promise((resolve) => {
-    const child = spawn(ps, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(ps, args, { env: PS_ENV, stdio: ['pipe', 'pipe', 'pipe'] });
     let out = ''; let err = '';
     child.stdout.on('data', (d) => { out += d; });
     child.stderr.on('data', (d) => { err += d; });
@@ -30,6 +30,11 @@ function runHoldingStdin(ps, args, limitMs) {
     });
   });
 }
+
+// Off Windows pwsh keeps a startup profile under this folder, and a damaged shared one makes every start crash (#6352).
+const CACHE = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-7951-cache-'));
+const PS_ENV = { ...process.env, XDG_CACHE_HOME: CACHE };
+test.after(() => { fs.rmSync(CACHE, { recursive: true, force: true }); });
 
 const SCRIPT = path.join(__dirname, 'tools', 'windows', 'publish-r2.ps1');
 
@@ -59,6 +64,8 @@ $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '6'
 $res.hang = Row (Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)"))
 $res.bigstdin = Row (Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000))
 $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '120'
+# Something node started keeps its output open after node has exited 0: the handle inheritance is Windows's own.
+$res.held = Row (Invoke-NodeBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},8000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
 $res.nostart = Row (Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @())
 # The form publish-r2.ps1 starts git with, and the form it used to start node with.
 $res.emptypipe = @(@() | & $node -e "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})") -join ' '
@@ -68,7 +75,7 @@ $res.limit = Get-NodeTimeoutSec
 `;
 
 function runtimes() {
-  const have = (exe) => spawnSync(exe, ['-NoProfile', '-Command', '1'], { stdio: 'ignore' }).status === 0;
+  const have = (exe) => spawnSync(exe, ['-NoProfile', '-Command', '1'], { env: PS_ENV, stdio: 'ignore' }).status === 0;
   const list = [];
   if (process.platform === 'win32') list.push('powershell.exe');
   if (have('pwsh')) list.push('pwsh');
@@ -91,7 +98,8 @@ for (const ps of RUNTIMES) {
       const args = ['-NoProfile', '-NonInteractive'];
       if (process.platform === 'win32') args.push('-ExecutionPolicy', 'Bypass');
       args.push('-File', harness, SCRIPT, process.execPath, dir, out);
-      const run = await runHoldingStdin(ps, args, 400000);
+      // Under the 60 s tools/windows-tests.js gives one test, so a wedged harness is killed rather than orphaned.
+      const run = await runHoldingStdin(ps, args, 55000);
       assert.ok(fs.existsSync(out), `harness wrote nothing: status ${run.status} signal ${run.signal} ${run.err}`);
       const res = JSON.parse(fs.readFileSync(out, 'utf8'));
 
@@ -102,6 +110,8 @@ for (const ps of RUNTIMES) {
       assert.deepStrictEqual(res.exit4, { rc: 4, out: 'one two', undecided: '' }, 'an exit code comes back');
       assert.deepStrictEqual(res.hang, { rc: 98, out: 'PASS', undecided: 'it did not finish within 6 seconds and was stopped' }, 'a printed PASS that never exits is stopped');
       assert.strictEqual(res.bigstdin.rc, 98, 'a stdin node never reads cannot outlast the limit');
+      assert.strictEqual(res.held.rc, 97, 'exit 0 with its output held open is not a pass');
+      assert.ok(res.held.undecided, 'and it says so');
       assert.strictEqual(res.nostart.rc, 99, 'a node that does not start');
       assert.ok(res.nostart.undecided, 'and it says so');
       assert.strictEqual(res.emptypipe, 'EOF', 'the form git is started with closes stdin');

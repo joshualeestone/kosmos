@@ -247,7 +247,7 @@ function Get-SetupAtCommit([string] $Commit) {
   $psi.UseShellExecute = $false; $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
   $proc = [Diagnostics.Process]::Start($psi)
   try {
-    $proc.StandardInput.Close()
+    try { $proc.StandardInput.Close() } catch { }
     $errTask = $proc.StandardError.ReadToEndAsync()
     $ms = New-Object IO.MemoryStream
     try { $proc.StandardOutput.BaseStream.CopyTo($ms); $proc.WaitForExit(); $b = $ms.ToArray() } finally { $ms.Dispose() }
@@ -283,7 +283,7 @@ function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $Stdi
   $psi.StandardOutputEncoding = $Utf8; $psi.StandardErrorEncoding = $Utf8
   $p = New-Object Diagnostics.Process
   $p.StartInfo = $psi
-  try { [void] $p.Start() } catch { return @{ Rc = 99; Out = ''; Undecided = "node did not start: $($_.Exception.Message)" } }
+  try { [void] $p.Start() } catch { $p.Dispose(); return @{ Rc = 99; Out = ''; Undecided = "node did not start: $($_.Exception.Message)" } }
   try {
     $outTask = $p.StandardOutput.ReadToEndAsync(); $errTask = $p.StandardError.ReadToEndAsync()
     $limit = Get-NodeTimeoutSec
