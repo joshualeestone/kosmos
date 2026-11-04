@@ -598,11 +598,11 @@ check(chatSource.contains("let short = scrollBox.shortOfEnd() ?? 0\n            
       "kosmos#7420: a blank at the newest is put back by id once settled, and the whole window landing at the newest asks the settled look")
 check(chatSource.contains("UIResponder.keyboardWillHideNotification)) { _ in\n                    // kosmos#7817/#7420: a keyboard going down (on screen or not) cancels every settled look still waiting.\n                    kbSettleTick &+= 1; boxAskedAt = nil\n"),
       "kosmos#7817: a keyboard going down cancels a put-back still waiting, on screen or not")
-// kosmos#7817 (11-03, build 29 blanked a long chat): a release build never follows the box's growth; only the Debug switch does.
 // kosmos#7609 (main run 41700157014): the sample scroll-up rests once the end has gone (polled, 5 s at most), not on a clock.
 check(chatSource.contains("DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { sampleScrollRest(tries: 0) }")
       && chatSource.contains("if endVisible, tries < 25 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { sampleScrollRest(tries: tries + 1) }; return }"),
       "kosmos#7609: the sample scroll-up's rest waits for the end to leave the screen")
+// kosmos#7817 (11-03, build 29 blanked a long chat): a release build never follows the box's growth; only the Debug switch does.
 check(chatSource.contains("    static let followsBox: Bool = {\n        #if DEBUG\n        return ProcessInfo.processInfo.environment[\"KOSMOS_SAMPLE_BOXFOLLOW\"] == \"1\"\n        #else\n        return false\n        #endif\n    }()"),
       "kosmos#7817: the box follow is off in a release build")
 check(chatSource.contains(".onChange(of: stripHeight) { _ in\n                    guard visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }\n                    guard Self.followsBox else {") && chatSource.contains("Self.trace(\"box height changed, settling at the newest\") }\n                        settleAtNewest(proxy, boxMoved: true)\n                        return"),
