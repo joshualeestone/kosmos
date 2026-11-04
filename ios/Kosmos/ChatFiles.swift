@@ -181,6 +181,7 @@ struct AttachedPreview: View {
     let preview: Data
     let remove: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var decoded: UIImage?
     // The danger red of the light theme in both: white on it is about 6.6:1, where the dark theme's lighter red
     // (dangerWord, made for words on a dark ground) would put white under 3:1.
     static let removeFill = Color(red: 0xb3 / 255, green: 0x26 / 255, blue: 0x1e / 255)
@@ -190,7 +191,7 @@ struct AttachedPreview: View {
             Text(name).font(.headline).foregroundColor(Palette.primary)
                 .lineLimit(2).truncationMode(.middle)
                 .accessibilityAddTraits(.isHeader)
-            if let image = UIImage(data: preview) {
+            if let image = decoded ?? UIImage(data: preview) {
                 Image(uiImage: image).resizable().scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -211,6 +212,8 @@ struct AttachedPreview: View {
             .accessibilityIdentifier("attached-preview-remove")
         }
         .padding(.horizontal, 20).padding(.top, 24).padding(.bottom, 12)
+        // Decoded once, off the draw (review 4), as the composer's square is.
+        .task { decoded = UIImage(data: preview)?.preparingForDisplay() }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .background(Palette.ground.ignoresSafeArea())
