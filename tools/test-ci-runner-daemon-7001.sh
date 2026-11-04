@@ -252,7 +252,7 @@ fixture; run pgpark FX_PGREP_FAIL_PARKED=1 -- --apply daemon
 fixture; run suppadmin FX_GROUPS="staff everyone admin" -- --apply daemon
 [ "$(rc suppadmin)" = 1 ] && has suppadmin "is in the admin group" && untouched && pass "a CI user in admin (not as primary group) refuses" || fail "suppadmin: rc $(rc suppadmin) $(cat "$T/suppadmin.out")"
 fixture; run linkput FX_MV_PLIST_FAIL=1 FX_LINK_ON_MV=1 -- --apply daemon
-[ "$(rc linkput)" = 1 ] && has linkput "could not put $AG back (nothing was loaded): sudo -u kosmos-ci test ! -e $AG && sudo test -s $RA.retired-" && ! has linkput "back where it was" && [ ! -e "$H/LA.real/$LABEL.plist" ] && ls "$RA".retired-* >/dev/null 2>&1 \
+[ "$(rc linkput)" = 1 ] && has linkput "could not put $AG back (nothing was loaded): sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-" && ! has linkput "back where it was" && [ ! -e "$H/LA.real/$LABEL.plist" ] && ls "$RA".retired-* >/dev/null 2>&1 \
   && pass "a LaunchAgents dir swapped for a symlink mid-run: root does not write the agent back through it" || fail "linkput: rc $(rc linkput) $(cat "$T/linkput.out")"
 fixture; printf 'x\n' > "$(DP)"; run replace -- --apply daemon
 [ "$(rc replace)" = 0 ] && has replace "note:   replacing $(DP)" && pass "an unloaded wrong daemon plist is replaced, and said" || fail "replace: rc $(rc replace) $(cat "$T/replace.out")"
@@ -299,7 +299,7 @@ fixture; run mkdirlink FX_LINK_ON_MKDIR=1 -- --apply daemon
 # 2: an empty retired file (left by a printed move-aside whose copy failed) is never the one named or put back.
 fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; : > "$RA.retired-20261103T000001Z"; run emptyret -- --apply daemon
 [ "$(rc emptyret)" = 1 ] && has emptyret "parked at $RA.retired-20261103T000000Z" && ! has emptyret 20261103T000001Z \
-  && has emptyret "sudo -u kosmos-ci test ! -e $AG && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { if sudo test -e $RA.retired-20261103T000000Z; then if ! sudo -u kosmos-ci test -e $AG; then echo 'NOT finished; nothing was written" \
+  && has emptyret "sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-20261103T000000Z && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { if sudo test -e $RA.retired-20261103T000000Z; then if ! sudo -u kosmos-ci test -e $AG; then if sudo test -s $RA.retired-20261103T000000Z; then echo 'NOT finished; $RA.retired-20261103T000000Z is kept and not empty, but $AG was not written" \
   && pass "an empty retired file is skipped, and the printed put-back removes the retired copy only after a compare" || fail "emptyret: rc $(rc emptyret) $(cat "$T/emptyret.out")"
 # 2: the printed put-back, run in a shell with no pipefail, keeps the retired file when the copy fails. These arms run
 # the printed text with sudo stripped (or a sudo shim): they pin the && / || flow, not the privilege split.
@@ -325,18 +325,25 @@ cp "$AG" "$T/agent.good"; rm -f "$AG"; : > "$RF"; PBOUT="$(sh -c "$PBS" 2>&1)"
 cp "$T/agent.good" "$RF"; rm -f "$AG"
 printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = rm ] && exit 1\nexec "$@"\n' > "$T/pbbin/sudo"
 PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
-[ "$PBOUT" = "put back, but $RF could not be removed: sudo rm $RF" ] && cmp -s "$AG" "$T/agent.good" && cmp -s "$RF" "$T/agent.good" \
+[ "$PBOUT" = "put back, but $RF was not removed: sudo rm $RF" ] && cmp -s "$AG" "$T/agent.good" && cmp -s "$RF" "$T/agent.good" \
   && pass "#7887: a good copy whose final rm fails says it is put back and names the rm, not a failed copy" || fail "pbrm: [$PBOUT]"
 rm -f "$AG"; printf '#!/bin/sh\nexit 1\n' > "$T/pbbin/sudo"
 PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
 [ "$PBOUT" = "nothing done: $RF is not there (already put back, or never parked), or the check could not run" ] && [ ! -e "$AG" ] && cmp -s "$RF" "$T/agent.good" \
   && pass "#7887: a sudo that does not run reads as could-not-check, never as already done, and nothing moves" || fail "pbnosudo: [$PBOUT]"
-MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
-[ "$MVOUT" = "nothing done: $AG is not there (already moved aside), or the check could not run" ] && pass "#7887: the printed move-aside, with a sudo that does not run, says the check could not run" || fail "mvnosudo: [$MVOUT]"
+# A good retired file whose agent cannot be written (its folder is gone): the line says so, and does not blame R.
+rm -f "$AG"; cp "$T/agent.good" "$RF"; /bin/mv "$H/Library/LaunchAgents" "$H/LA.away"; PBOUT="$(sh -c "$PBS" 2>&1 | tail -n 1)"; /bin/mv "$H/LA.away" "$H/Library/LaunchAgents"
+[ "$PBOUT" = "NOT finished; $RF is kept and not empty, but $AG was not written: its folder is missing or not writable, or a step did not run; paste this again once that is fixed" ] && cmp -s "$RF" "$T/agent.good" \
+  && pass "#7887: a good retired file whose agent cannot be written is not blamed for it" || fail "pbnofolder: [$PBOUT]"
+# Who runs each probe is part of the text: the printed failure branch, as the operator sees it, with its sudo.
+grep -q -F "elif sudo -u kosmos-ci test -s $AG && sudo cat $RF | sudo -u kosmos-ci cmp -s - $AG; then echo 'put back, but $RF was not removed: sudo rm $RF';" "$T/emptyret.out" \
+  && pass "#7887: the printed failure branch reads the agent as the CI user and the retired file as root" || fail "pbwho: $(grep -o 'elif .\{0,160\}' "$T/emptyret.out" | head -1)"
+cp "$T/agent.good" "$AG"; MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
+[ "$MVOUT" = "nothing done: $AG is not there (already moved aside), or the check could not run" ] && cmp -s "$AG" "$T/agent.good" && pass "#7887: the printed move-aside, with a sudo that does not run, says the check could not run" || fail "mvnosudo: [$MVOUT]"
 rm -f "$RF" "$T/agent.good"
 # 2: the stage's own put-back, when the copy comes out short, keeps the retired file and prints how to put it back.
 fixture; run teeshort FX_MV_PLIST_FAIL=1 FX_TEE_SHORT=1 -- --apply daemon
-[ "$(rc teeshort)" = 1 ] && has teeshort "could not put $AG back (nothing was loaded): sudo -u kosmos-ci test ! -e $AG && sudo test -s $RA.retired-" && [ -s "$(ls "$RA".retired-* 2>/dev/null | head -n 1)" ] \
+[ "$(rc teeshort)" = 1 ] && has teeshort "could not put $AG back (nothing was loaded): sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-" && [ -s "$(ls "$RA".retired-* 2>/dev/null | head -n 1)" ] \
   && [ "$(wc -c < "$(ls "$RA".retired-* | head -n 1)")" -gt 20 ] && [ ! -e "$AG" ] && pass "a short copy on the stage's own put-back keeps the retired file and removes the short agent" || fail "teeshort: rc $(rc teeshort) $(cat "$T/teeshort.out")"
 # kosmos#7887: and the put-back that line prints really puts the agent back from that state.
 TPB="$(sed -n 's/.*could not put .* back (nothing was loaded): //p' "$T/teeshort.out")"
