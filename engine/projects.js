@@ -3450,7 +3450,9 @@ function folderRenameOffer(project) {
   const want = folderRenameTarget(project);
   if (!want) return null;
   if (folderState(project.folder).state !== FOLDER.READABLE) return null;
-  return nothingAt(path.join(path.dirname(project.folder), want)) ? want : null;
+  const target = path.join(path.dirname(project.folder), want);
+  if (!nothingAt(target) || readAll().some((p) => p.id !== project.id && p.folder === target)) return null;
+  return want;
 }
 
 const pathHolds = (outer, inner) => inner === outer || inner.startsWith(outer + path.sep);
@@ -3474,12 +3476,12 @@ function renameFolderToName(id, { busy = [], homes = [], stuckOnOldFolder = [] }
   if (homes.some((h) => holdsAny(h, folderState(h).real))) throw refused('an agent lives in this folder, so it stays where it is');
   const nested = all.find((p) => p.id !== id && typeof p.folder === 'string' && holdsAny(p.folder, folderState(p.folder).real));
   if (nested) throw refused('the project "' + nested.name + '" is inside this folder, so it stays where it is');
-  if (stuckOnOldFolder.length) throw refused(stuckOnOldFolder.join(', ') + ' runs on Gemini, which keeps the folder it started with. Stop that agent first, then rename the folder');
-  if (busy.length) throw refused(busy.join(', ') + (busy.length === 1 ? ' is' : ' are') + ' in the middle of something on this project. Try again once ' + (busy.length === 1 ? 'that agent is' : 'they are') + ' idle');
+  if (stuckOnOldFolder.length) throw refused(andList(stuckOnOldFolder) + (stuckOnOldFolder.length === 1 ? ' runs on Gemini, which keeps the folder it started with. Stop that agent first' : ' run on Gemini, which keeps the folder it started with. Stop them first') + ', then rename the folder');
+  if (busy.length) throw refused(andList(busy) + (busy.length === 1 ? ' is' : ' are') + ' in the middle of something on this project. Try again once ' + (busy.length === 1 ? 'that agent is' : 'they are') + ' idle');
   const target = path.join(path.dirname(self.folder), want);
-  if (!nothingAt(target) || all.some((p) => p.id !== id && p.folder === target)) {
-    throw refused('there is already a folder called ' + want);
-  }
+  const holder = all.find((p) => p.id !== id && p.folder === target);
+  if (holder) throw refused('the project "' + holder.name + '" uses the name ' + want + ' for its folder');
+  if (!nothingAt(target)) throw refused('there is already a folder called ' + want);
   try { fs.renameSync(self.folder, target); } catch {
     throw refused('that folder could not be renamed. Something may have it open, so close it and try again');
   }

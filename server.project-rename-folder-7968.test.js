@@ -117,6 +117,29 @@ test('#7968 a dangling symlink at that name is not replaced', () => {
   assert.equal(stored(p.id).folder, path.join(KEEP, 'Starter Link'));
 });
 
+test('#7968 a home or a project reaching inside the folder through a symlink is seen as inside', () => {
+  const p = renamed('Starter Real', 'Real Name');
+  const home = path.join(p.folder, 'agenthome');
+  fs.mkdirSync(home);
+  const viaLink = path.join(SANDBOX, 'link-to-home');
+  fs.symlinkSync(home, viaLink);
+  assert.throws(() => projects.renameFolderToName(p.id, { homes: [viaLink] }), /an agent lives in this folder/);
+  const nestedLink = path.join(SANDBOX, 'link-to-nested');
+  fs.symlinkSync(home, nestedLink);
+  projects.create({ name: 'Linked Inner', folder: nestedLink });
+  assert.throws(() => projects.renameFolderToName(p.id), /the project "Linked Inner" is inside this folder/);
+  assert.equal(stored(p.id).folder, path.join(KEEP, 'Starter Real'));
+});
+
+test('#7968 another project recorded at that name, its folder gone: not offered, and the refusal names it', () => {
+  const ghost = projects.create({ name: 'Ghost Plan' });
+  fs.rmSync(ghost.folder, { recursive: true });
+  const p = renamed('Starter Ghost', 'Ghost Plan');
+  assert.equal(offered(p.id), null);
+  assert.throws(() => projects.renameFolderToName(p.id), /the project "Ghost Plan" uses the name Ghost Plan for its folder/);
+  assert.equal(stored(p.id).folder, path.join(KEEP, 'Starter Ghost'));
+});
+
 test('#7968 a member working, or an agent living in or holding the folder, is refused and nothing moves', () => {
   const p = renamed('Starter Four', 'Fourth Name');
   const old = path.join(KEEP, 'Starter Four');
@@ -188,12 +211,10 @@ test('#7968 a stopped agent living in the folder refuses it too, which the board
   const b = fleet.install([]);
   t.after(() => b.restore());
   const p = renamed('Stopped Home', 'Stopped Other');
-  const WORKERS = process.env.AGENT_WORKFORCE_WORKERS;
   const home = path.join(p.folder, 'agenthome');
   fs.mkdirSync(home);
-  require('./engine/store').writeProfile('offl', { name: 'offl', dir: home });
+  store.writeProfile('offl', { name: 'offl', dir: home });
   assert.equal(create.workerDir('offl'), home, 'CONTROL: the profile records its home there');
-  assert.ok(WORKERS);
   const r = await put(p.id, { renameFolder: true }, SCREEN);
   assert.equal(r.status, 409, JSON.stringify(await r.clone().json()));
   assert.match((await r.json()).error, /an agent lives in this folder/);
@@ -279,5 +300,6 @@ test('#7968 the page offers it only with an answer to give, and sends it alone',
   assert.match(page, /id="pjs-rename-folder" hidden/);
   assert.match(page, /rf\.hidden = !p\.folderRenameTo;/);
   assert.match(page, /JSON\.stringify\(\{ renameFolder: true \}\)/);
-  assert.match(page, /e\.status === 500 \? t \+ '\.' : 'Not changed: '/);
+  assert.match(page, /e\.status >= 400 && e\.status < 500\) \{ said\.textContent = 'Not changed: '/);
+  assert.match(page, /Kosmos did not answer, so we cannot say whether the folder changed/);
 });
