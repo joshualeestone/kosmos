@@ -78,7 +78,7 @@ test('#7030 reasonOf on real rows: each reason the phone has a sentence for', as
   assert.equal(on({ running: false }), 'other', 'not running');
   assert.equal(on({ state: 'rate_limited' }), 'other', 'a rate limit not counted as stuck');
   assert.equal(on({ state: 'blocked' }), 'other');
-  assert.deepEqual([...cardlabel.NEEDS_REASONS].sort(), ['crash_loop', 'gave_up', 'other', 'own_bound', 'permission', 'question',
+  assert.deepEqual([...cardlabel.NEEDS_REASONS].sort(), ['crash_loop', 'gave_up', 'held', 'other', 'own_bound', 'permission', 'question',
     'restart_failed', 'stuck_auth', 'stuck_rate', 'trust', 'waiting']);
 });
 
@@ -187,4 +187,17 @@ test('#7030 /api/status: an unreadable projects file still answers, with no proj
     assert.equal(s.counts.projectsUnread, 0);
     assert.equal(s.agents.find((a) => a.sessionName === 'quin').needsReason, 'waiting');
   } finally { board.restore(); fs.chmodSync(f, 0o600); }
+});
+
+/* kosmos#7924: a held question (`kosmos report needs_you --held`) is the 'held' reason on Today, by projects.heldOwnQuestion,
+   so the phone says "Held until you are back." under the card word Question held; a red agent and an asked one do not. */
+test('#7924 reasonOf: a held own question is held; asked, red or not the agent\'s own is not', async () => {
+  const r = await realRow();
+  const on = (fields) => reason({ ...r, ...fields });
+  const held = { state: 'needs_you', stateReportedBy: 'agent', stateHeld: true };
+  assert.equal(on(held), 'held');
+  assert.equal(on({ ...held, stateHeld: false }), 'question', 'CONTROL: asked');
+  assert.equal(on({ ...held, crashLoop: { looping: true } }), 'crash_loop', 'a crash loop is never calmly held');
+  assert.equal(on({ ...held, disruption: { failed: true } }), 'restart_failed', 'nor a failed restart');
+  assert.notEqual(on({ ...held, stateReportedBy: 'auto' }), 'held', 'a hook-written wait is never held');
 });

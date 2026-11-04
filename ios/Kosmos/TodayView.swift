@@ -259,7 +259,7 @@ private struct NeedsYouCard: View {
     private var word: String { stale ? Board.statusWord(agent) : Board.toneWord(agent) }   // kosmos#7342: never a red Idle or Working (keyed on the tone it is drawn in)
     private var why: (sentence: String, action: Board.TodayAction) { Board.todayReason(agent) }
     private var meta: String? {
-        let parts = [agent.stateProjectName, ago(agent.waitingSince)].compactMap { $0 }
+        let parts = [agent.stateProjectName, ago(Board.todayWaitingSince(agent))].compactMap { $0 }
         return parts.isEmpty ? nil : parts.joined(separator: " \u{00B7} ")
     }
 
@@ -300,7 +300,7 @@ private struct NeedsYouCard: View {
         .onTapGesture(perform: open)
         // One element: "Cleo, Question, Launch the spring catalogue, 3 minutes ago. Waiting for your answer."
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel([agent.name, word, agent.stateProjectName, ago(agent.waitingSince)].compactMap { $0 }.joined(separator: ", ")
+        .accessibilityLabel([agent.name, word, agent.stateProjectName, ago(Board.todayWaitingSince(agent))].compactMap { $0 }.joined(separator: ", ")
                             + ". " + why.sentence + (stale ? " Not updating." : ""))
         .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the chat")

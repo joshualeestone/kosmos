@@ -76,7 +76,7 @@ test('the word: "Question held" on the engine copy and the page, calm, and the p
   assert.equal(cardlabel.labelOf(PLAIN), 'Question', 'CONTROL');
   assert.equal(cardlabel.labelOf({ state: 'needs_you', stateReportedBy: 'auto', stateHeld: true }), 'Issue', 'only the agent\'s own question is held');
   assert.equal(cardlabel.toneOf(HELD, true), 'asked');
-  assert.equal(cardlabel.reasonOf(HELD, true), 'question');
+  assert.equal(cardlabel.reasonOf(HELD, true), 'held', '#7924: Today says it is held');
   const PAGE = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   const grab = (re, what) => { const m = PAGE.match(re); assert.ok(m, 'CONTROL: ' + what + ' was not found in the page'); return m[0]; };
   const { stateCopyOf } = new Function(

@@ -16,6 +16,7 @@ extension Board {
     // Mac older than #7030), is worded generally, never as a question.
     static let todayWhy: [String: (String, TodayAction)] = [
         "question": ("Waiting for your answer.", .answer),
+        "held": ("Held until you are back.", .answer),   // kosmos#7924: the board's PJ_NEEDS_WHY.held
         "permission": ("Waiting for you to allow or deny something.", .answer),
         "waiting": ("Waiting for you. Open it to see what it shows.", .open),
         "restart_failed": ("Kosmos restarted it, and it did not come back.", .open),
@@ -27,6 +28,11 @@ extension Board {
         "own_bound": ("Kosmos could not get it going, and stopped trying. Open it to see what it shows.", .open),
         "other": ("Kosmos needs you to look at it.", .open),
     ]
+
+    // kosmos#7924: how long it has waited, or nil when its question is held until the person is back (no age presses it).
+    static func todayWaitingSince(_ agent: Agent) -> Date? {
+        agent.needsReason == "held" ? nil : agent.waitingSince
+    }
 
     static func todayReason(_ agent: Agent) -> (sentence: String, action: TodayAction) {
         let (sentence, action) = todayWhy[agent.needsReason ?? "other"] ?? todayWhy["other"]!
