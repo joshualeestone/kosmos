@@ -484,6 +484,13 @@ test('#7892: a zero-width joiner or non-joiner inside a Persian or Indic word is
     assert.strictEqual(org.normalize('NFC'), org, 'CONTROL: NFC leaves ' + JSON.stringify(org) + ' alone');
     assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
   }
+  // A non-joining letter (Joining_Type U: hamza U+0621, high hamza alef U+0674) on either side of a ZWNJ: it changes
+  // nothing, so it is escaped and marked.
+  for (const [org, want] of [['ب\u200Cء', 'ب\\u{200C}ء'], ['ء\u200Cب', 'ء\\u{200C}ب'],
+    ['ب\u200Cٴ', 'ب\\u{200C}ٴ']])
+    assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // The first letter of the accepted Arabic range (U+0620, D) joins both ways: kept.
+  assert.deepStrictEqual(shownOrg('ؠ\u200Cب'), ['ؠ\u200Cب', false], 'U+0620');
   // Sinhala keeps only the ZWJ: a ZWNJ after al-lakuna changes nothing, so it is escaped and marked.
   assert.deepStrictEqual(shownOrg('\u0D9A\u0DCA\u200C\u0DC2'), ['\u0D9A\u0DCA\\u{200C}\u0DC2', true], 'Sinhala ZWNJ');
   // A known false positive, pinned so it is a decision: a harakah AFTER the ZWNJ is not skipped, so the joiner is

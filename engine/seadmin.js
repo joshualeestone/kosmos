@@ -250,12 +250,12 @@ function scriptOf(ch) {
 // joins forward and one that joins back (harakat may sit before the ZWNJ, not after it). Anywhere else it is escaped
 // and marked as before: after an alef or a tatweel, between letters that join anyway, in Indic text with no virama, in
 // a Latin name, between two scripts. The scripts are deliberately partial: Tamil is left out (no half forms, so a
-// joiner after its virama changes nothing), as are Syriac, Mongolian, N'Ko, Thaana and the rest; Sinhala keeps only
-// the ZWJ (a conjunct forms only on ZWJ, so a ZWNJ after al-lakuna changes nothing). Known residuals: a letter with no
-// half form (Devanagari nga, Telugu ka) looks the same with a ZWJ, a ZWNJ or neither after its virama, in any font,
-// and a font that draws no conjunct shows the spellings alike; both are allowed by ContextJ and are not marked here. Known false positives
-// (marked, never hidden): a nukta before the virama, Bengali ya-phala (ra, ZWJ, virama, ya), a chillu at the end of a
-// word, and a mark after the ZWNJ.
+// joiner after its virama changes nothing), as are Syriac, Mongolian, N'Ko, Thaana and the rest; Sinhala keeps only the
+// ZWJ (a conjunct forms only on ZWJ, so a ZWNJ after al-lakuna changes nothing). Known residuals: a letter with no half
+// form (Devanagari nga, Telugu ka) looks the same with a ZWJ, a ZWNJ or neither after its virama, in any font; so does
+// a ZWNJ in a pair that never forms a conjunct; and a font that draws no conjunct shows the spellings alike; both are
+// allowed by ContextJ and are not marked here. Known false positives (marked, never hidden): a nukta before the virama,
+// Bengali ya-phala (ra, ZWJ, virama, ya), a chillu at the end of a word, and a mark after the ZWNJ.
 const VIRAMAS = [['Devanagari', '\u094D'], ['Bengali', '\u09CD'], ['Gurmukhi', '\u0A4D'], ['Gujarati', '\u0ACD'],
   ['Oriya', '\u0B4D'], ['Telugu', '\u0C4D'], ['Kannada', '\u0CCD'], ['Malayalam', '\u0D4D'], ['Sinhala', '\u0DCA', 'zwj']]
   .map(([name, v, only]) => [new RegExp('^\\p{Script=' + name + '}$', 'u'), v, only]);
