@@ -134,32 +134,44 @@ test('ps\'s elapsed shapes, and a program name without its folder', () => {
   assert.equal(mc.nameOf('-zsh'), 'zsh');
 });
 
-test('the environment gives one name; an argument cannot pose as it; on Linux it reads NUL-separated', async () => {
-  const exec = (cmd, args, opts, cb) => cb(null, 'node x API_KEY=sk-secret KOSMOS_AGENT_SESSION=angel OTHER=1\n', '');
-  assert.equal(await mc.sessionOfPid(5, { platform: 'darwin', exec }), 'angel');
-  const argFirst = (cmd, args, opts, cb) => cb(null, 'node KOSMOS_AGENT_SESSION=spoof KOSMOS_AGENT_SESSION=angel\n', '');
-  assert.equal(await mc.sessionOfPid(5, { platform: 'darwin', exec: argFirst }), 'angel', 'ps -E prints the arguments first: the last is the environment');
-  const none = (cmd, args, opts, cb) => cb(null, 'node x API_KEY=sk-secret\n', '');
-  assert.equal(await mc.sessionOfPid(5, { platform: 'darwin', exec: none }), null, 'control: no variable, no owner');
+/* ps as a Mac answers: plain is the arguments, -E is the arguments and then the environment, if any can be read. */
+const psAnswer = (cmdline, env = '') => (cmd, args, opts, cb) => cb(null, (args.includes('-Eww') ? (env ? cmdline + ' ' + env : cmdline) : cmdline) + '\n', '');
+
+test('the environment gives one name, hidden is told from absent, and an argument cannot pose as it', async () => {
+  const ask = (cmdline, env) => mc.askEnv(5, { platform: 'darwin', exec: psAnswer(cmdline, env) });
+  assert.deepEqual(await ask('node x', 'API_KEY=sk-secret KOSMOS_AGENT_SESSION=angel OTHER=1'), { session: 'angel', hidden: false });
+  assert.deepEqual(await ask('node x', 'API_KEY=sk-secret'), { session: null, hidden: false }, 'readable, and not an agent\'s');
+  assert.deepEqual(await ask('/bin/bash x', ''), { session: null, hidden: true }, 'nothing past the arguments: hidden');
+  assert.deepEqual(await ask('/bin/bash -c KOSMOS_AGENT_SESSION=sam ./job.sh', ''), { session: null, hidden: true }, 'review: an argument on a hidden process names nobody');
+  assert.deepEqual(await ask('node KOSMOS_AGENT_SESSION=spoof', 'KOSMOS_AGENT_SESSION=angel'), { session: 'angel', hidden: false }, 'the arguments are not read at all');
+  const gone = (cmd, args, opts, cb) => cb(new Error('no such process'), '', '');
+  assert.deepEqual(await mc.askEnv(5, { platform: 'darwin', exec: gone }), { session: null, hidden: false }, 'no reading is not hidden: no folder is guessed');
+  let n = 0;
+  const changed = (cmd, args, opts, cb) => cb(null, n++ === 0 ? 'one\n' : 'two KOSMOS_AGENT_SESSION=x\n', '');
+  assert.deepEqual(await mc.askEnv(5, { platform: 'darwin', exec: changed }), { session: null, hidden: false }, 'a process that changed between the two reads: nothing known');
+});
+
+test('on Linux it reads NUL-separated, and a failed read names nobody', async () => {
   const readFile = async () => 'API_KEY=sk-secret\0KOSMOS_AGENT_SESSION=raph\0';
   assert.equal(await mc.sessionOfPid(5, { platform: 'linux', readFile }), 'raph');
   assert.equal(await mc.sessionOfPid(5, { platform: 'linux', readFile: async () => { throw new Error('gone'); } }), null);
 });
 
 /* A fake of the four commands a sample runs. */
-function fakeExec({ tmux = pane('angel', 10), ps, env = 'node\n', lsof = '' }) {
+function fakeExec({ tmux = pane('angel', 10), ps, cmdline = 'x', env = '', lsof = '', launchctl = '-\t0\tcom.example\n' }) {
   return (cmd, args, opts, cb) => {
     if (typeof tmux === 'object' && cmd === 'tmux') return cb(new Error('failed'), '', tmux.err);
     if (cmd === 'tmux') return cb(null, tmux, '');
     if (cmd === 'lsof') return cb(null, lsof, '');
+    if (cmd === 'launchctl') return launchctl === null ? cb(new Error('no'), '', '') : cb(null, launchctl, '');
     if (args.includes('-A')) return ps === null ? cb(new Error('no'), '', '') : cb(null, ps, '');
-    return cb(null, env, '');
+    return cb(null, (args.includes('-Eww') && env ? cmdline + ' ' + env : cmdline) + '\n', '');
   };
 }
 const zsh10 = `${row(10, 1, 2048, 0, '01:00', 'zsh')}\n`;
 
 test('a sample holds no environment value at all', async () => {
-  const got = await mc.sample({ platform: 'darwin', exec: fakeExec({ ps: `${zsh10}${row(50, 1, GB, 0, '01:00', 'node')}\n`, env: 'node API_KEY=sk-secret KOSMOS_AGENT_SESSION=angel\n' }) });
+  const got = await mc.sample({ platform: 'darwin', exec: fakeExec({ ps: `${zsh10}${row(50, 1, GB, 0, '01:00', 'node')}\n`, env: 'API_KEY=sk-secret KOSMOS_AGENT_SESSION=angel' }) });
   assert.equal(got.angel.leftMemMb, 1024);
   assert.doesNotMatch(JSON.stringify(got), /secret|API_KEY/);
 });
@@ -177,7 +189,7 @@ test('a folder names one agent, the deepest; a tie or the home folder names nobo
   assert.equal(mc.sessionForFolder(null, f), null);
 });
 
-test('a parentless process the environment cannot name is asked for its folder on a Mac, whatever its name reads (review: comm is argv0)', async () => {
+test('a hidden environment is asked for its folder, whatever its name reads (review: comm is argv0)', async () => {
   for (const comm of ['/bin/bash', 'bash', '-zsh']) {
     const got = await mc.sample({ platform: 'darwin', home: '/Users/me', exec: fakeExec({ ps: `${zsh10}${row(50, 1, GB, 99, '14-00:00:00', comm)}\n`, lsof: 'p50\nfcwd\nn/w/a/sub\n' }) });
     assert.equal(got.angel.left.how, 'folder', comm);
@@ -185,11 +197,44 @@ test('a parentless process the environment cannot name is asked for its folder o
   }
   const elsewhere = await mc.sample({ platform: 'darwin', home: '/Users/me', exec: fakeExec({ ps: `${zsh10}${row(50, 1, GB, 99, '01:00', 'bash')}\n`, lsof: 'p50\nfcwd\nn/Users/me/x\n' }) });
   assert.equal(elsewhere.angel.left, null, 'control: outside every agent\'s folder, nobody\'s');
-  const named = await mc.sample({ platform: 'darwin', home: '/Users/me', exec: fakeExec({ ps: `${zsh10}${row(50, 1, GB, 0, '01:00', 'node')}\n`, env: 'node KOSMOS_AGENT_SESSION=raph\n', lsof: 'p50\nfcwd\nn/w/a\n' }) });
-  assert.equal(named.raph.left.how, undefined, 'named outright: the environment wins, and it is not marked');
-  assert.equal(named.angel.left, null);
-  const linux = await mc.sample({ platform: 'linux', home: '/h', readFile: async () => 'X=1\0', exec: fakeExec({ ps: `${zsh10}${row(50, 1, GB, 0, '01:00', 'bash')}\n`, lsof: 'p50\nfcwd\nn/w/a\n' }) });
+});
+
+test('BLOCKER from review: a readable environment with no variable is never named by its folder, like another Kosmos\'s board', async () => {
+  const got = await mc.sample({ platform: 'darwin', home: '/Users/me', exec: fakeExec({ ps: `${zsh10}${row(200, 1, GB, 0, '01:00', 'node')}\n`, cmdline: 'node server.js', env: 'PATH=/bin HOME=/Users/me', lsof: 'p200\nfcwd\nn/w/a\n' }) });
+  assert.equal(got.angel.left, null);
+  assert.equal(got.angel.memMb, 2, 'and it is not charged');
+});
+
+test('anything launchd runs is never named, and if that list cannot be read the folder clue is not used', async () => {
+  const ps = `${zsh10}${row(300, 1, GB, 0, '01:00', '/bin/bash')}\n`;
+  const lsof = 'p300\nfcwd\nn/w/a\n';
+  const asJob = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps, lsof, launchctl: '300\t0\tcom.kosmos.angel\n' }) });
+  assert.equal(asJob.angel.left, null, 'a supervisor or a scheduled job');
+  const unknown = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps, lsof, launchctl: null }) });
+  assert.equal(unknown.angel.left, null, 'the list could not be read: no guess');
+  const notAJob = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps, lsof }) });
+  assert.equal(notAJob.angel.left.how, 'folder', 'control: not a job, it is named');
+  const named = await mc.sample({ platform: 'darwin', home: '/h', exec: fakeExec({ ps: `${zsh10}${row(60, 1, GB, 0, '01:00', 'node')}\n`, env: 'KOSMOS_AGENT_SESSION=raph', launchctl: null }) });
+  assert.equal(named.raph.left.how, undefined, 'a name needs no list, and is not marked');
+  const linux = await mc.sample({ platform: 'linux', home: '/h', readFile: async () => 'X=1\0', exec: fakeExec({ ps, lsof }) });
   assert.equal(linux.angel.left, null, 'Linux can read every environment, so no folder guess there');
+});
+
+test('a pane above the home folder claims nothing', () => {
+  const f = mc.parseFolders('a\t1\t/Users\nb\t2\t/Users/me/work\n', '/Users/me');
+  assert.equal(mc.sessionForFolder('/Users/other/x', f), null);
+  assert.equal(mc.sessionForFolder('/Users/me/work/x', f), 'b', 'control: below it still counts');
+});
+
+test('a tmux that says the server exited is not an empty board (a version wall, status.js)', async () => {
+  assert.equal(await mc.sample({ platform: 'darwin', exec: fakeExec({ ps: zsh10, tmux: { err: 'server exited unexpectedly' } }) }), null);
+});
+
+test('nested owners count a process once', () => {
+  const procs = table(row(50, 1, GB, 0, '01:00', 'a'), row(51, 50, GB, 0, '01:00', 'b'));
+  const out = mc.costBySession(new Map(), procs, owners([50, 'x'], [51, 'x']));
+  assert.equal(out.x.leftMemMb, 2048);
+  assert.equal(out.x.memMb, 2048);
 });
 
 test('a tmux that failed is no reading, and keeps the last good one; no server is a true empty (review)', async () => {
@@ -321,6 +366,11 @@ async function waitFor(fn, ms = 8000) {
   }
 }
 
+test('REAL: launchctl answers on this computer and its pids parse', { skip: process.platform !== 'darwin' }, async () => {
+  const pids = await mc.launchdPids();
+  assert.ok(pids instanceof Set, 'the list was read');
+});
+
 test('REAL: on this computer, a parentless node is named by its environment and a parentless shell by its folder', { skip: process.platform !== 'darwin' }, async () => {
   const dir = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'mc-real-7978-')));
   const start = (cmd) => Number(spawnSync('/bin/sh', ['-c', `${cmd} >/dev/null 2>&1 & echo $!`], { cwd: dir, encoding: 'utf8', timeout: 5000, env: { ...process.env, KOSMOS_AGENT_SESSION: 'real-7978' } }).stdout.trim());
@@ -330,16 +380,16 @@ test('REAL: on this computer, a parentless node is named by its environment and 
   let kids = [];
   try {
     assert.ok(node > 1 && shell > 1);
-    assert.equal(await waitFor(() => mc.sessionOfPid(node)), 'real-7978', 'polled: exec may not have happened yet on a loaded machine');
+    assert.equal(await waitFor(async () => (await mc.askEnv(node)).session), 'real-7978', 'polled: exec may not have happened yet on a loaded machine');
     for (const pid of [node, shell]) assert.equal(spawnSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }).stdout.trim(), '1', 'control: it has no parent');
     assert.equal(await waitFor(() => mc.cwdOfPid(shell)), dir);
     kids = shellKids();
     assert.equal(mc.sessionForFolder(await mc.cwdOfPid(shell), mc.parseFolders(`real-7978\t1\t${dir}\n`, '/nowhere')), 'real-7978');
-    assert.equal(await mc.sessionOfPid(shell), null, 'the measured reason for the folder road: if this goes green, macOS changed');
+    assert.deepEqual(await mc.askEnv(shell), { session: null, hidden: true }, 'the measured reason for the folder road: if this changes, macOS changed');
     const none = spawn(process.execPath, ['-e', 'setTimeout(()=>{},60000)'], { env: { PATH: process.env.PATH }, stdio: 'ignore' });
     try {
       await new Promise((r) => { setTimeout(r, 500); });
-      assert.equal(await mc.sessionOfPid(none.pid), null, 'control: a process with no such variable names nobody');
+      assert.deepEqual(await mc.askEnv(none.pid), { session: null, hidden: false }, 'control: readable, with no such variable: nobody, and no folder guess');
     } finally { none.kill(); }
   } finally {
     kids = kids.length ? kids : shellKids();

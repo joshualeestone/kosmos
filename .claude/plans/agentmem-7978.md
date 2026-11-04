@@ -29,6 +29,10 @@ The new tests run a REAL tmux on a private socket, outside a pane, under a C loc
 Fixed: the board could be charged to an agent if started from its pane, and the page would then say to end it; the running list row's flag was an eighth grid child; a slow machine's sample could outlast read's limit (now a shared 30 s budget, largest first). Found while fixing these, and mine: sizing by subtree made tmux's server, parentless and above every pane, the largest "leftover", which could charge one agent for all of them. The board, what is above it, the tunnel and tmux are now never candidates, and a subtree stops at a pane.
 Stated and left: two sessions mapping to one name in readAgent take the first; a wrapper at AGENT_WORKFORCE_TMUX_BIN that refuses -u leaves the feature blank.
 
+## Review 3 (blind, opus, aimed at what the page may name)
+Blocker fixed: an environment that reads and lacks the variable was also sent to the folder clue, so another Kosmos's board or a service in an agent's folder could be named. Now `ps -E` is compared with plain `ps`: nothing past the arguments means hidden, and only that takes the folder road, which also stops an argument posing as the variable. Anything launchd runs is never named, and with no list the folder clue is off. The sentence asks whether the process is still needed rather than saying to end it, since a nohup server may be deliberate; "or restart your computer" went with it. A floor on the sentence; a pane above the home folder is no clue; "server exited" is not an empty board; nested owners count once.
+Stated and left: a later variable whose value contains the name could pose as it. Requires a person's own env value to hold that exact text.
+
 ## Design (Mona Lisa)
 "left running" on the card; "this computer's memory" on the page, since the panel below is headed Memory; the leftover its own sentence, ending on what the person can do; processors in whole numbers.
 
