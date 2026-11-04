@@ -1081,9 +1081,10 @@ agent_file_ok() { agent_path_safe && [ -f "$agent" ] && ! [ "$agent" -ef "$dplis
 # home (tee as $CI_USER), so root never writes into, or opens, a path a job controls. An operator's shell has no
 # pipefail, so a cat that fails still lets tee succeed: the retired copy is removed only when the agent is not empty and
 # the CI user finds it byte for byte the same. It refuses when an agent is already there (a second paste, or a svc.sh
-# install), so it never writes over one. The last words say which way it went. The failure line names the agent for
-# removal only while the retired file is still there to paste again from, so it never advises removing the only good
-# copy; with the retired file gone it says nothing was done.
+# install), so it never writes over one. The last words say which way it went. The failure lines advise removing the
+# agent only when the retired file is still there to paste again from (and only when the two differ), so they never
+# advise removing the only good copy. "put back, but R was not removed" means the agent now equals R, whether this paste
+# wrote it or it was already there.
 put_back_cmd() {
   local r="$1" u="$CI_USER" a="$agent" go why
   go="sudo -u $u test ! -e $a && sudo test -f $r && sudo test -s $r && sudo cat $r | sudo -u $u tee $a >/dev/null && sudo -u $u test -s $a && sudo cat $r | sudo -u $u cmp -s - $a && sudo rm $r && echo 'put back'"
@@ -1092,7 +1093,7 @@ put_back_cmd() {
   # last rm did not run or failed. Another agent: the copy failed, or a newer install. An empty agent is never "the
   # same": a cat that failed would compare empty with empty. No retired file found: a probe that fails because sudo
   # did not run (a cancelled password prompt) reads the same, so it says so.
-  why="if sudo test -e $r; then if ! sudo -u $u test -e $a; then if sudo test -s $r; then echo 'NOT finished; $r is kept and not empty, but $a was not written: its folder is missing or not writable, or a step did not run (a refused password prompt); paste this again once that is fixed'; else echo 'NOT finished; nothing was written: $r is kept, and is empty or could not be read (look at it: sudo ls -l $r)'; fi; elif sudo -u $u test -s $a && sudo cat $r | sudo -u $u cmp -s - $a; then echo 'put back, but $r was not removed: sudo rm $r'; else echo 'NOT finished; $r is kept. $a is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $r back anyway: sudo -u $u rm $a, then paste this again'; fi; else echo 'nothing done: $r is not there (already put back, or never parked), or the check could not run'; fi"
+  why="if sudo test -f $r; then if ! sudo -u $u test -e $a; then if sudo test -s $r; then echo 'NOT finished; $r is kept and not empty, but $a was not written: its folder is missing or not writable, or a step did not run (a refused password prompt); paste this again once that is fixed'; else echo 'NOT finished; nothing was written: $r is kept, and is empty or could not be read (look at it: sudo ls -l $r)'; fi; elif sudo -u $u test -s $a && sudo cat $r | sudo -u $u cmp -s - $a; then echo 'put back, but $r was not removed: sudo rm $r'; else echo 'NOT finished; $r is kept. $a is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $r back anyway: sudo -u $u rm $a, then paste this again'; fi; elif sudo test -e $r; then echo 'nothing done: $r is not a plain file (a folder?): give the parked file itself'; else echo 'nothing done: $r is not there (already put back, or never parked), or the check could not run'; fi"
   printf '%s' "$go || { $why; }"
 }
 # put_back <retired>: the same, done by the stage (as root).

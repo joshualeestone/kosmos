@@ -55,3 +55,13 @@ name the wrong cause. That needs a sudo that fails half way through one paste.
 - Nits taken: "was not removed" (it also fires on a re-paste where rm never ran); `test -f R` before anything is
   copied (a directory passes `test -s`); the long comment wrapped; a pin on the printed failure branch with its real
   sudo text, so who runs each probe cannot change unseen (the stripped-sudo arms cannot see it).
+
+## Challenge round 2 (sonnet, whole branch), fixed in the next commit
+- A folder typed as the retired path stopped the paste at `test -f`, but the failure branch tested only `-e`, so it
+  said the agent could not be written. The outer probe is now `test -f`, and a new arm says "R is not a plain file
+  (a folder?)". Arm pbdir; red with the old probe.
+- The header comment of put_back_cmd described only the old failure lines; it now says when removal is advised and
+  what "put back, but R was not removed" means.
+- The who-runs-each-probe pin now covers the outer probes too (pbwho2).
+- Not changed: the move-aside's "not there (already moved aside), or the check could not run" (a refused sudo with the
+  agent still there is covered by the second clause).

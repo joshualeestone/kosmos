@@ -299,7 +299,7 @@ fixture; run mkdirlink FX_LINK_ON_MKDIR=1 -- --apply daemon
 # 2: an empty retired file (left by a printed move-aside whose copy failed) is never the one named or put back.
 fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; : > "$RA.retired-20261103T000001Z"; run emptyret -- --apply daemon
 [ "$(rc emptyret)" = 1 ] && has emptyret "parked at $RA.retired-20261103T000000Z" && ! has emptyret 20261103T000001Z \
-  && has emptyret "sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-20261103T000000Z && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { if sudo test -e $RA.retired-20261103T000000Z; then if ! sudo -u kosmos-ci test -e $AG; then if sudo test -s $RA.retired-20261103T000000Z; then echo 'NOT finished; $RA.retired-20261103T000000Z is kept and not empty, but $AG was not written" \
+  && has emptyret "sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-20261103T000000Z && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { if sudo test -f $RA.retired-20261103T000000Z; then if ! sudo -u kosmos-ci test -e $AG; then if sudo test -s $RA.retired-20261103T000000Z; then echo 'NOT finished; $RA.retired-20261103T000000Z is kept and not empty, but $AG was not written" \
   && pass "an empty retired file is skipped, and the printed put-back removes the retired copy only after a compare" || fail "emptyret: rc $(rc emptyret) $(cat "$T/emptyret.out")"
 # 2: the printed put-back, run in a shell with no pipefail, keeps the retired file when the copy fails. These arms run
 # the printed text with sudo stripped (or a sudo shim): they pin the && / || flow, not the privilege split.
@@ -338,6 +338,14 @@ rm -f "$AG"; cp "$T/agent.good" "$RF"; /bin/mv "$H/Library/LaunchAgents" "$H/LA.
 # Who runs each probe is part of the text: the printed failure branch, as the operator sees it, with its sudo.
 grep -q -F "elif sudo -u kosmos-ci test -s $AG && sudo cat $RF | sudo -u kosmos-ci cmp -s - $AG; then echo 'put back, but $RF was not removed: sudo rm $RF';" "$T/emptyret.out" \
   && pass "#7887: the printed failure branch reads the agent as the CI user and the retired file as root" || fail "pbwho: $(grep -o 'elif .\{0,160\}' "$T/emptyret.out" | head -1)"
+# A directory typed as the retired file: the line says it is not a plain file, not that the agent could not be written.
+rm -f "$AG"; mkdir -p "$T/notafile"; PBD="$(printf '%s' "$PBS" | sed "s#$RF#$T/notafile#g")"; PBOUT="$(sh -c "$PBD" 2>&1 | tail -n 1)"
+[ "$PBOUT" = "nothing done: $T/notafile is not a plain file (a folder?): give the parked file itself" ] && [ ! -e "$AG" ] && [ -d "$T/notafile" ] \
+  && pass "#7887: a folder given as the retired file says it is not a plain file" || fail "pbdir: [$PBOUT]"
+rmdir "$T/notafile"
+# And who runs the outer probes, as the operator sees them.
+grep -q -F "|| { if sudo test -f $RF; then if ! sudo -u kosmos-ci test -e $AG; then if sudo test -s $RF; then" "$T/emptyret.out" \
+  && pass "#7887: the outer probes of the printed failure branch run as root on the retired file and as the CI user on the agent" || fail "pbwho2: $(grep -o '|| { if .\{0,140\}' "$T/emptyret.out" | head -1)"
 cp "$T/agent.good" "$AG"; MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
 [ "$MVOUT" = "nothing done: $AG is not there (already moved aside), or the check could not run" ] && cmp -s "$AG" "$T/agent.good" && pass "#7887: the printed move-aside, with a sudo that does not run, says the check could not run" || fail "mvnosudo: [$MVOUT]"
 rm -f "$RF" "$T/agent.good"
