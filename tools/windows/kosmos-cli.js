@@ -2380,6 +2380,7 @@ async function feedbackWrite(ctx, args) {
     args = t;
   }
   let body = args.join(' ');
+  let unchangedDay = null;
   if (unchangedAsked) {
     if (bf.file !== null) { ctx.err('--unchanged takes a short line, not --body-file, so nothing was saved.'); return 2; }
     let u;
@@ -2390,6 +2391,7 @@ async function feedbackWrite(ctx, args) {
     if (u && u.why === 'today') { ctx.err('You already saved a report today, so nothing was changed. To change it, write the whole report again.'); return 2; }
     if (!u || !u.ok) { ctx.err('There is no earlier report of yours to point back to, so nothing was saved. Write today\'s report instead.'); return 2; }
     body = u.body;
+    unchangedDay = u.day;   // saved under the day it checked (review round 2)
   } else if (bf.file !== null) {
     if (args.length) { ctx.err('Give the report as words or in --body-file, not both, so nothing was saved.'); return 2; }
     const got = bodyFromFile(ctx, bf.file, 'Nothing was saved');
@@ -2408,7 +2410,7 @@ async function feedbackWrite(ctx, args) {
   }
   let date;
   // kosmos#5317, as install/kosmos: this agent's own section of the day, so a second agent does not replace the first.
-  try { const fb = ctx.engine('feedback'); date = fb.write(body, { from: typeof fb.writer === 'function' ? fb.writer(ctx.env) : null }).date; } catch (e) {
+  try { const fb = ctx.engine('feedback'); date = fb.write(body, { from: typeof fb.writer === 'function' ? fb.writer(ctx.env) : null, ...(unchangedDay ? { date: unchangedDay } : {}) }).date; } catch (e) {
     ctx.err('We could not save that report (' + String((e && e.message) || e) + ').');
     return 1;
   }

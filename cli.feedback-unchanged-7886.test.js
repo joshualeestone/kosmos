@@ -124,11 +124,12 @@ test('kosmos#7886 item 6 (Mac): --unchanged is taken after the words too, and re
   assert.match(fs.readFileSync(path.join(fbDir(h.data), today[0]), 'utf8'), /Nothing new since my report of 2020-01-02\. one thing/, 'the first --unchanged report was replaced');
 });
 
-test('kosmos#7886 item 6 (Windows): --unchanged after the words, and the today refusal', async () => {
+test('kosmos#7886 item 6 (Windows): --unchanged after the words, saved under the day checked, and the today refusal', async () => {
   const written = [];
+  const dates = [];
   let why = null;
-  const engine = { feedback: { write: (b) => { written.push(b); return { ok: true }; }, writer: () => null,
-    unchanged: (from, note) => (why ? { ok: false, why } : { ok: true, since: OLD, body: 'Nothing new since my report of ' + OLD + '.' + (note ? ' ' + note : '') }) } };
+  const engine = { feedback: { write: (b, o) => { written.push(b); dates.push(o && o.date); return { ok: true }; }, writer: () => null,
+    unchanged: (from, note) => (why ? { ok: false, why } : { ok: true, since: OLD, day: '2026-11-03', body: 'Nothing new since my report of ' + OLD + '.' + (note ? ' ' + note : '') }) } };
   const go = async (argv) => {
     const err = [];
     const code = await cli.main(argv, { env: {}, engine, readStdin: () => ({ text: '', ended: true }), out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
@@ -136,6 +137,7 @@ test('kosmos#7886 item 6 (Windows): --unchanged after the words, and the today r
   };
   assert.equal((await go(['feedback', 'write', 'one', 'thing', '--unchanged'])).code, 0);
   assert.deepEqual(written, ['Nothing new since my report of ' + OLD + '. one thing']);
+  assert.deepEqual(dates, ['2026-11-03'], 'not saved under the day the engine checked');
   why = 'today';
   const t = await go(['feedback', 'write', '--unchanged']);
   assert.equal(t.code, 2);

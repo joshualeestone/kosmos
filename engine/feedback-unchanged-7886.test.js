@@ -34,7 +34,7 @@ test('the newest earlier report is chosen, the writer is matched without case, a
   fb.write('second', { from: 'leo', date: '2026-10-30' });
   fb.write('   ', { from: 'leo', date: '2026-11-01' });
   const u = fb.unchanged('LEO', 'one thing', TODAY);
-  assert.deepEqual(u, { ok: true, since: '2026-10-30', body: 'Nothing new since my report of 2026-10-30. one thing' });
+  assert.deepEqual(u, { ok: true, since: '2026-10-30', day: TODAY, body: 'Nothing new since my report of 2026-10-30. one thing' });
 });
 
 test('a report already saved today is refused, so --unchanged never replaces it', () => {

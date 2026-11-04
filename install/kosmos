@@ -5572,7 +5572,7 @@ cmd_feedback() {
   esac
   case "$sub" in
     write)
-      local body _fb_unchanged=0
+      local body _fb_unchanged=0 _fb_day=""
       # kosmos#7886 item 6: --unchanged anywhere before a bare --, as `kosmos task ran` takes it.
       local _fb_a _fb_rest=() _fb_dd=0
       for _fb_a in "$@"; do
@@ -5587,7 +5587,8 @@ cmd_feedback() {
       fi
       if [ "$_fb_unchanged" = 1 ]; then
         # kosmos#7886 item 6: --unchanged points back to this writer's own latest earlier report (engine/feedback.unchanged),
-        # with any words added to it. No earlier report: refused, nothing saved. Exit 4 from node means none.
+        # with any words added to it. Node exits 4 for no earlier report, 5 for a report already saved today, and 1 if
+        # the reports cannot be read; each refuses and saves nothing. It prints the day it checked, then the body.
         if [ -n "$KOSMOS_BODY_FILE" ]; then say "--unchanged takes a short line, not --body-file, so nothing was saved."; exit 2; fi
         local _u_rc=0
         body="$(KOSMOS_FEEDBACK_NOTE="$*" "$NODE" -e '
@@ -5595,11 +5596,12 @@ cmd_feedback() {
           const u = fb.unchanged(fb.writer(process.env), process.env.KOSMOS_FEEDBACK_NOTE || "");
           if (u && u.why === "today") process.exit(5);
           if (!u || !u.ok) process.exit(4);
-          process.stdout.write(u.body);
+          process.stdout.write(u.day + "\n" + u.body);
         ' "$KOSMOS_HOME/app")" || _u_rc=$?
         if [ "$_u_rc" -eq 5 ]; then say "You already saved a report today, so nothing was changed. To change it, write the whole report again."; exit 2; fi
         if [ "$_u_rc" -eq 4 ]; then say "There is no earlier report of yours to point back to, so nothing was saved. Write today's report instead."; exit 2; fi
         if [ "$_u_rc" -ne 0 ]; then say "We could not read your earlier reports, so nothing was saved."; exit 1; fi
+        _fb_day="${body%%$'\n'*}"; body="${body#*$'\n'}"   # saved under the day it checked (review round 2)
       elif [ -n "$KOSMOS_BODY_FILE" ]; then [ $# -eq 0 ] || _body_file_and_words "feedback write" "Usage: kosmos feedback write [--body-file <file>] [text]      (or pipe the report in on stdin; --unchanged [text] when nothing is new)"; _read_body_file written; body="$KOSMOS_BODY_TEXT"; elif [ $# -gt 0 ]; then body="$*"; else body="$(cat)"; fi   # kosmos#5970
       if [ -z "$(printf '%s' "$body" | tr -d '[:space:]')" ]; then
         say "Nothing to write: a feedback report needs a body (pass it as an argument, or pipe it in on stdin)."
@@ -5610,12 +5612,12 @@ cmd_feedback() {
       # "It stays on this computer." (true when #2158 wrote it, stale once sending shipped), and a user's agent took
       # that to mean the report never reached the team. Exit 3 is "not saved"; anything after the save cannot be.
       local fb_msg fb_rc
-      fb_msg="$(KOSMOS_FEEDBACK_BODY="$body" "$NODE" -e '
+      fb_msg="$(KOSMOS_FEEDBACK_BODY="$body" KOSMOS_FEEDBACK_DAY="$_fb_day" "$NODE" -e '
         const app = process.argv[1];
         let d;
         /* kosmos#5317: written as the section of the day for THIS agent (its token, else its tmux window), so a second agent
            the same day no longer replaces the report the first agent wrote. */
-        try { const fb = require(app + "/engine/feedback"); d = fb.write(process.env.KOSMOS_FEEDBACK_BODY || "", { from: fb.writer(process.env) }).date; } catch { process.exit(3); }
+        try { const fb = require(app + "/engine/feedback"); d = fb.write(process.env.KOSMOS_FEEDBACK_BODY || "", { from: fb.writer(process.env), ...(process.env.KOSMOS_FEEDBACK_DAY ? { date: process.env.KOSMOS_FEEDBACK_DAY } : {}) }).date; } catch { process.exit(3); }
         if (!d) process.exit(3);
         process.stdout.write("SAVED\n");   /* review 3: proof of the save; without it the CLI says not saved */
         let fbs;
