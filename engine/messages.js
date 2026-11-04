@@ -1884,7 +1884,7 @@ async function tellHeldDropped(entry, roster, short) {
    pane, that it has not arrived, why, and when it is dropped, while the round it belongs to is still open. */
 async function tellHeldStill(entry, roster, dropAt) {
   const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' is still held: ' + entry.to + "'s input box"
-    + ' holds text not yet sent. Kosmos types it once the box is clear, or drops it at ' + dropAt + ' and tells you.'
+    + ' holds text not yet sent. Kosmos types it once the box is clear, or drops it at ' + dropAt + ' if the box is still full then, and tells you.'
     + ' Do not re-send; if it cannot wait, reach someone else.';
   try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }
 }

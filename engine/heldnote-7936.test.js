@@ -84,7 +84,7 @@ test('#7936: an input-held message: its sender is told once, ten minutes in, tha
     assert.equal(lines.length, 1, 'the sender was not told it is still held');
     const dropAt = new Date(at + limitqueue.INPUT_DROP_AFTER_MS).toISOString();
     assert.match(lines[0], /Your message m7936 to casey is still held: casey's input box holds text not yet sent\./);
-    assert.ok(lines[0].includes('drops it at ' + dropAt), lines[0]);
+    assert.ok(lines[0].includes('drops it at ' + dropAt + ' if the box is still full then, and tells you.'), lines[0]);
     await sweep(board, at + limitqueue.STILL_HELD_TELL_MS + 5 * MIN);
     assert.equal(tmux.pastedTo('leo').length, 1, 'told twice');
     assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7936'], 'still kept after the notice');
@@ -166,7 +166,7 @@ test('#7936 review 3: a caller that passes no boxIsReason keeps the day', async 
   });
 });
 
-test('#7936 review 1: a still-held notice that does not land is tried again at the next sweep, and not after it lands', async () => {
+test('#7936: a still-held notice that does not land is tried again after STILL_RETRY_MS, not sooner, and not after it lands', async () => {
   await withFleet(async (board) => {
     const at = Date.now() - limitqueue.STILL_HELD_TELL_MS - MIN;
     const iso = new Date(at).toISOString();

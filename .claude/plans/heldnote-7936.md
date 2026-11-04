@@ -66,6 +66,10 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
   - the board's first sweep for an agent starts the clock, so a restart never drops a message on sight;
   - known cost, not changed: the box is read for boxIsReason and again by isReleased each minute, only for agents
     holding such a message.
+- Review 5: the still-held notice's drop time is hedged ("if the box is still full then"), since the clock can restart
+  after the notice. Accepted, not changed: a box holding an earlier Kosmos line that did not send also reads as text,
+  so it counts as the box being the reason (the sentence stays true); the retry stamp uses the real clock where the sweep
+  passes `now` (the same in production); a notice that fails after its message left the queue leaves one map entry.
 
 ## Tests
 
