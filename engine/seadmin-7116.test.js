@@ -294,6 +294,14 @@ test('#7892: prepare gives the screen escaped text, so hidden or look-alike char
   // Characters that draw as a blank or a box are escaped (braille blank, object replacement, replacement character).
   for (const [org, want] of [['Acme\u2800', 'Acme\\u{2800}'], ['\uFFFCAcme', '\\u{FFFC}Acme'], ['Ac\uFFFDme', 'Ac\\u{FFFD}me']])
     assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // Spaces that do not show: at the start, at the end, or a second in a row. One space between words is the control.
+  for (const [org, want] of [['Acme ', 'Acme\\u{0020}'], [' Acme', '\\u{0020}Acme'], ['Acme  Inc', 'Acme \\u{0020}Inc']])
+    assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  assert.deepStrictEqual(shownOrg('Acme Inc'), ['Acme Inc', false], 'CONTROL: one space between words');
+  // Letters of the Common script (the Japanese long-vowel mark, the Arabic tatweel) are no one script's, so they do not
+  // make an ordinary name read as mixed.
+  for (const org of ['コーヒー株式会社', 'اـل'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
   // Fullwidth letters look like ASCII ones and change under NFKC: kept as they are, but marked.
   assert.deepStrictEqual(shownOrg('\uFF21BC'), ['\uFF21BC', true], 'fullwidth A');
   // A stack of three combining marks is marked even where NFC leaves it alone; two (as in Devanagari) are not.
@@ -358,6 +366,8 @@ test('#7892: a helper failure reaches the caller as a fixed sentence, never its 
   await assert.rejects(se.publicKey({ helper: noExec, keyFile: secret }), (e) => e.message === 'the admin key helper cannot be run');
   await assert.rejects(se.publicKey({ helper: say('head -c 70000 /dev/zero | tr "\\0" x >&2; exit 1'), keyFile: secret }),
     (e) => e.message === 'the admin key helper failed');
+  // An argument execFile itself refuses (a NUL in the key path) throws with the argument in its message: generic.
+  await assert.rejects(se.publicKey({ helper: FAKE, keyFile: secret + '\u0000k' }), (e) => e.message === 'the admin key helper failed');
   // A helper that is not there: named as not installed, without its path.
   await assert.rejects(se.publicKey({ helper: path.join(FAKE_DIR, 'no-such-helper'), keyFile: secret }),
     (e) => e.message === 'the admin key helper is not installed');

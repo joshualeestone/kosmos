@@ -49,6 +49,16 @@ measured without a person at the screen.
   the maxBuffer comment names the Node version it was measured on. Kept: the plan's numbering; the kosmos-se reason
   order (gate 6).
 
+## Review round 3 (opus)
+
+- WARNING: leading, trailing and doubled ASCII spaces passed. Fixed: written as \u{0020} and marked; one space between
+  words is the control.
+- WARNING: Common-script letters (the Japanese long-vowel mark, the Arabic tatweel) made ordinary names read as
+  mixed. Fixed: Common and Inherited letters count as no script; tests for a katakana company name and a tatweel.
+- NITs fixed: the header points screens at `shown`; a synchronous execFile throw (NUL in a path) is the generic
+  sentence, tested; no stdin after a failed spawn is guarded; lone surrogates are escaped; the unused exports
+  `shownText` and `helperSentence` are gone; the comment says `unusual` means "look closer", not "suspicious".
+
 ## Weakest premise
 
 That the script list in `scriptOf` covers the mixed-script look-alikes that matter, and, larger, that the screen shows the fingerprint wherever one exists, since one-script look-alikes are not marked. A letter from a script not on the list

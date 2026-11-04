@@ -10,8 +10,9 @@
  * DECODE bytes you were given and check the tag is the action the person chose; show the decoded target; compute the
  * challenge yourself; never sign a hash, a challenge or an opaque blob from the coordinator. So:
  *   - prepare(action, bytes) decodes under THAT action's tag only (another action's bytes refuse, as do short,
- *     malformed or trailing bytes) and returns what a screen must show: the decoded fields and, for an admin add or a
- *     reviewer enrolment, the fingerprint computed here from the decoded bytes;
+ *     malformed or trailing bytes) and returns what a screen must show: `shown` (the decoded text, escaped, with
+ *     `unusual`; never the raw `decoded` strings) and, for an admin add or a reviewer enrolment, the fingerprint
+ *     computed here from the decoded bytes;
  *   - sign(prepared, opts) takes ONLY an object prepare() returned, and signs the copy of the bytes it holds, so what
  *     is signed is what the screen was shown. It hands that RAW message to kosmos-se (Apple's message mode, which
  *     is what verify_se checks). No digest ever crosses into the signer, and the signature is checked against the
@@ -212,31 +213,36 @@ function fingerprintDisplay(fp) {
    - text that changes under NFC or NFKC is marked unusual: "Cafe" with a combining accent looks like "Café" with a
      precomposed one, and fullwidth "ＡBC" like "ABC";
    - more than two combining marks in a row mark it unusual (a stack can hide or imitate a letter);
+   - a space at the start or end, or a second space in a row, is written as \u{0020} and marks it unusual;
    - a backslash is written as \\, so a name that spells "\u{202E}" in plain letters cannot pass for an escaped one;
    - letters from more than one script (Latin with Cyrillic or Greek, say) are left as they are but mark the text
      unusual, since look-alike letters are the other way to fake a name. Latin with Han ("Kosmos 株式会社") is marked
      too: cautious, and pinned by a test.
-   `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in one script that looks like
+   `unusual` means "look closer", not "suspicious": it is cautious, so some ordinary names carry it (pointed Hebrew,
+   decomposed Hangul, Latin with Han). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in one script that looks like
    another (all-Cyrillic "АВС" for Latin "ABC") is not marked. For an admin add or a reviewer enrolment the
    fingerprint is the defence; for an org name on a cancel or a revoke nothing here is. */
-const ESCAPED = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}\u2800\uFFFC\uFFFD]|(?! )\p{Zs}/u;
+const ESCAPED = /[\p{Cs}\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}\u2800\uFFFC\uFFFD]|(?! )\p{Zs}/u;
 const SCRIPTS = ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana', 'Hangul', 'Arabic',
   'Hebrew', 'Devanagari', 'Thai'].map((name) => [name, new RegExp('\\p{Script=' + name + '}', 'u')]);
 function scriptOf(ch) {
-  if (!/\p{L}/u.test(ch)) return null;
+  // A Common or Inherited letter (the Japanese long-vowel mark, the Arabic tatweel) belongs to no one script.
+  if (!/\p{L}/u.test(ch) || /[\p{Script=Common}\p{Script=Inherited}]/u.test(ch)) return null;
   const hit = SCRIPTS.find(([, re]) => re.test(ch));
   return hit ? hit[0] : 'other';
 }
 function shownText(s) {
   let text = '', unusual = s !== s.normalize('NFC') || s !== s.normalize('NFKC') || /\p{M}{3}/u.test(s);
   const scripts = new Set();
-  for (const ch of s) {
-    if (ch === '\\') { text += '\\\\'; continue; }
-    if (ESCAPED.test(ch)) { text += '\\u{' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '}'; unusual = true; continue; }
+  const chars = [...s];
+  chars.forEach((ch, i) => {
+    if (ch === ' ' && (i === 0 || i === chars.length - 1 || chars[i - 1] === ' ')) { text += '\\u{0020}'; unusual = true; return; }
+    if (ch === '\\') { text += '\\\\'; return; }
+    if (ESCAPED.test(ch)) { text += '\\u{' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '}'; unusual = true; return; }
     const sc = scriptOf(ch);
     if (sc) scripts.add(sc);
     text += ch;
-  }
+  });
   // Japanese writes Han, Hiragana and Katakana together; that alone is not a look-alike.
   const mixed = [...scripts].filter((x) => !['Han', 'Hiragana', 'Katakana'].includes(x)).length + (['Han', 'Hiragana', 'Katakana'].some((x) => scripts.has(x)) ? 1 : 0);
   if (mixed > 1) unusual = true;
@@ -314,7 +320,9 @@ function helperSentence(stderr) {
 function runHelper(helper, args, input) {
   if (typeof helper !== 'string' || !helper) return Promise.reject(new Error('no kosmos-se helper was named'));
   return new Promise((resolve, reject) => {
-    const child = execFile(helper, args, { timeout: HELPER_TIMEOUT_MS, encoding: 'buffer', maxBuffer: 1 << 16 },
+    let child;
+    // An invalid argument (a NUL in a path, say) makes execFile THROW, and its message carries the argument: generic.
+    try { child = execFile(helper, args, { timeout: HELPER_TIMEOUT_MS, encoding: 'buffer', maxBuffer: 1 << 16 },
       (err, stdout, stderr) => {
         if (!err) return resolve(stdout.toString('utf8').trim());
         // Over maxBuffer: on Node 26.8.1 on this Mac `killed` was unset here (measured 11-03; other versions may
@@ -325,7 +333,9 @@ function runHelper(helper, args, input) {
         if (err.code === 'ENOENT') return reject(new Error('the admin key helper is not installed'));
         if (err.code === 'EACCES') return reject(new Error('the admin key helper cannot be run'));
         reject(new Error(helperSentence(stderr)));
-      });
+      }); } catch { return reject(new Error(HELPER_GENERIC)); }
+    // No stdin when the spawn itself failed (EMFILE, say): the callback reports it.
+    if (!child.stdin) return;
     child.stdin.on('error', () => {});   // a helper that exits before reading its input is reported by its exit
     child.stdin.end(input || Buffer.alloc(0));
   });
@@ -370,5 +380,5 @@ module.exports = {
   encodeChange, encodeCancel, encodeReviewerEnrol, encodeReviewerRevoke,
   decodeChange, decodeCancel, decodeReviewerEnrol, decodeReviewerRevoke,
   adminFingerprint, reviewerFingerprint, fingerprintDisplay,
-  prepare, createKey, publicKey, sign, shownText, HELPER_SAYS, HELPER_SAYS_PREFIX, helperSentence,
+  prepare, createKey, publicKey, sign, HELPER_SAYS, HELPER_SAYS_PREFIX,
 };
