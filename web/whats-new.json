@@ -2,19 +2,19 @@
   "version": "0.7.89",
   "highlights": [
     {
+      "icon": "spark",
+      "title": "A new loading mark",
+      "line": "The Kosmos orb replaces the loading dots."
+    },
+    {
       "icon": "swarm",
       "title": "Starred agents stay on top",
-      "line": "Agents you star stay at the top of the list, even as it updates live."
+      "line": "Agents you star stay at the top of the list, even as it updates."
     },
     {
       "icon": "chat",
       "title": "A plain web address gets a preview",
-      "line": "Type an address like example.com in chat and it gets a link preview, as a full https link already did."
-    },
-    {
-      "icon": "spark",
-      "title": "A new loading mark",
-      "line": "While something loads, you see the Kosmos orb."
+      "line": "Type example.com in a chat and it gets a preview, just as a full link does."
     },
     {
       "icon": "shield",
