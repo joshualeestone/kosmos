@@ -30,6 +30,11 @@ Stacked on heldq-7915 until it merges; then rebased onto origin/main.
   include held. Changing the key touches the dismissal route and the phone's own key; recorded on kosmos#7916 as a
   follow-up rather than changed in the last review round.
 
+- Open at the review cap (round 8): Today. cardlabel.reasonOf gives a held question the 'question' reason, so the
+  Today card (the page's PJ_NEEDS_WHY via needsReason, and the phone's todayWhy) says "Waiting for your answer" under
+  the card word "Question held". Fixing it means a held reason in reasonOf, NEEDS_REASONS and the phone's todayWhy
+  together; recorded on kosmos#7916 as the next follow-up.
+
 ## Rejected
 Leaving a held question out of the counts: while the person is away, the count is where it stays visible.
 
