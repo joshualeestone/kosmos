@@ -1330,21 +1330,10 @@ sweep_dead_stages() {
   done
 }
 
-# #7981: tmux is looked for outside Kosmos's own folder. Run from the installed CLI, that folder is on PATH, and the link
-# in it is what gets replaced below, so finding it there links it to itself.
 setup_linux_tmux() {
   local dest="$1"
-  local tmux_bin="" outside="" dir saved_ifs own
-  # Physical folders: the CLI and this installer can spell one home differently (a link, a trailing slash).
-  own="$(CDPATH= cd "$dest/bin" 2>/dev/null && pwd -P)"
-  saved_ifs="$IFS"; IFS=:; set -f
-  for dir in $PATH; do
-    [ -n "$own" ] && [ "$(CDPATH= cd "$dir" 2>/dev/null && pwd -P)" = "$own" ] || outside="${outside:+$outside:}$dir"
-  done
-  set +f; IFS="$saved_ifs"
-  # An empty PATH would search the current folder.
-  outside="${outside:-/nonexistent}"
-  tmux_bin="$(PATH="$outside"; command -v tmux 2>/dev/null || true)"
+  local tmux_bin=""
+  tmux_bin="$(command -v tmux 2>/dev/null || true)"
   if [ -z "$tmux_bin" ]; then
     if command -v apt-get >/dev/null 2>&1; then
       if [ "$(/usr/bin/id -u 2>/dev/null || echo 1)" -eq 0 ]; then
@@ -1352,7 +1341,7 @@ setup_linux_tmux() {
       elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
         sudo apt-get update -qq && sudo apt-get install -y -qq tmux >/dev/null 2>&1 || true
       fi
-      tmux_bin="$(PATH="$outside"; command -v tmux 2>/dev/null || true)"
+      tmux_bin="$(command -v tmux 2>/dev/null || true)"
     fi
   fi
   if [ -z "$tmux_bin" ] || ! { [ -f "$tmux_bin" ] && [ -x "$tmux_bin" ]; }; then
@@ -1360,6 +1349,12 @@ setup_linux_tmux() {
     return 1
   fi
   mkdir -p "$dest/bin" || return 1
+  # #7981: run from the installed CLI, Kosmos's own folder is first on PATH, so what was found can be this very link.
+  # Replacing it would link it to itself. Whatever the spelling or the hops, if it is already that file, it stays.
+  if [ "$tmux_bin" -ef "$dest/bin/tmux" ]; then
+    info "keeping tmux at $tmux_bin"
+    return 0
+  fi
   rm -f "$dest/bin/tmux"
   ln -s "$tmux_bin" "$dest/bin/tmux" || return 1
   if ! { [ -f "$dest/bin/tmux" ] && [ -x "$dest/bin/tmux" ]; }; then
