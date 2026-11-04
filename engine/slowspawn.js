@@ -22,6 +22,7 @@ const NAMES = ['execFileSync', 'execSync', 'spawnSync'];
 const SLOW_MS = 1000;
 const MAX_PER_MINUTE = 20;
 const MAX_FRAMES = 14;   // six stopped inside snapshot() on the live board, short of the timer that called it (#7693, 11-01)
+let blocked = 0;   // every wrapped call's time, quick ones too: engine/loopheld.js says how much of a stall this explains
 
 // The program's name only. A shell's first argument is a whole command line (execSync, or any call with the shell
 // option), which can open with a secret or a quoted path, so none of it is logged.
@@ -60,6 +61,7 @@ function install(cp, opts = {}) {
       } finally {
         try {
           const took = now() - began;
+          blocked += took;
           if (took >= SLOW_MS) {
             const at = now();
             if (at - windowAt >= 60000) { windowAt = at; inWindow = 0; }
@@ -73,4 +75,4 @@ function install(cp, opts = {}) {
   }
 }
 
-module.exports = { install, programOf, framesOf, SLOW_MS, MAX_PER_MINUTE, MAX_FRAMES };
+module.exports = { install, programOf, framesOf, blockedMs: () => blocked, SLOW_MS, MAX_PER_MINUTE, MAX_FRAMES };
