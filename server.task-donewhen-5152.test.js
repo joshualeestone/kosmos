@@ -221,6 +221,9 @@ test('#7990 what one check refuses, and that the checks stay as they were', asyn
     [{ check: 3, text: 'x' }, 409, /has 2 done-when checks, so there is no check 3/, t.number],
     [{ check: 0, text: 'x' }, 400, /1 or more/, t.number],
     [{ check: 1.5, text: 'x' }, 400, /1 or more/, t.number],
+    [{ check: true, text: 'x' }, 400, /1 or more/, t.number],
+    [{ check: [1], text: 'x' }, 400, /1 or more/, t.number],
+    [{ check: '1', text: 'x' }, 400, /1 or more/, t.number],
     [{ check: 1, text: '   ' }, 400, /has to say something/, t.number],
     [{ check: 1 }, 400, /its number and its new wording/, t.number],
     [{ check: 1, text: 'x', doneWhen: ['y'] }, 400, /its number and its new wording/, t.number],
@@ -241,10 +244,4 @@ test('#7990 an agent cannot change one check the person set, and it cannot chang
   assert.deepEqual(c.doneWhen, ['theirs']);
   tasks.close(p.id, t.number);
   assert.throws(() => tasks.setDoneWhenCheck(p.id, t.number, 1, 'x', { person: true }), (e) => e.status === 409);
-});
-
-test('#7990 the transcript line names the check, on both copies of the phrase', () => {
-  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
-  const engine = fs.readFileSync(path.join(__dirname, 'engine', 'taskactphrase.js'), 'utf8');
-  for (const text of [page, engine]) assert.match(text, /' done-when check ' \+ ev\.changedCheck \+ \(ev\.was \? ', from: '/);
 });

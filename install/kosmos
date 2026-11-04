@@ -6037,8 +6037,10 @@ cmd_task() {
       # #7990: --check <number> "<wording>" changes that one check. Exactly those two after it.
       if [ "${3:-}" = "--check" ]; then
         [ "$#" = 5 ] || { say "$_dusage"; exit 2; }
-        case "${4:-}" in ''|*[!0-9]*) say "The check number must be a number, as kosmos task list shows them."; exit 2 ;; esac
+        # One digit, and no arithmetic: a task holds up to 3, and a huge number would wrap round to a real check.
+        case "${4:-}" in [1-9]) ;; *) say "The check number must be the one kosmos task list shows, like 1 or 2."; exit 2 ;; esac
         [ -n "$(printf '%s' "${5:-}" | tr -d '[:space:]\001-\037\177')" ] || { say "Each check has to say something. $_dusage"; exit 2; }
+        case "${5:-}" in --|--[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) say "That looks like an option, not a check's wording. To take the checks off, use --clear on its own. $_dusage"; exit 2 ;; esac
       else
       local _d _dpast=0 _dclear=0 _dn=0
       for _d in "${@:3}"; do
@@ -6776,7 +6778,7 @@ cmd_task() {
       local _tok=""
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
       local _list="null"; [ "$clear" = true ] || _list="[$checks]"
-      local _dbody="\"doneWhen\":$_list"; [ -z "$_one" ] || _dbody="\"check\":$((10#$_one)),\"text\":$checks"
+      local _dbody="\"doneWhen\":$_list"; [ -z "$_one" ] || _dbody="\"check\":$_one,\"text\":$checks"
       local rc=0 body
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/done-when" \
         -H 'content-type: application/json' \
@@ -6785,7 +6787,7 @@ cmd_task() {
       case "$body" in
         '{"task":'*)
           if [ "$clear" = true ]; then say "Took the done-when checks off task $num on ${project:-the project}."
-          elif [ -n "$_one" ]; then say "Changed done-when check $_one on task $num on ${project:-the project}. See them with: kosmos task list ${project:-<project-id>}"
+          elif [ -n "$_one" ]; then say "Done-when check $_one on task $num on ${project:-the project} now reads as you wrote it. See them with: kosmos task list ${project:-<project-id>}"
           else say "Task $num on ${project:-the project} is done when its checks are met. See them with: kosmos task list ${project:-<project-id>}"; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')

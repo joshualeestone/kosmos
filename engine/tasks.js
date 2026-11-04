@@ -1396,8 +1396,8 @@ function setDoneWhen(projectId, n, doneWhen, opts = {}) {
    which one moved. The number is read inside the write, against the checks as they are then. Nothing here touches a
    built mark: its note is free text, tied to no check by number. The transcript says which check changed and from what. */
 function setDoneWhenCheck(projectId, n, check, text, opts = {}) {
-  const number = Number(check);
-  if (!Number.isInteger(number) || number < 1) throw new Error('the check number has to be 1 or more, as kosmos task list shows them');
+  const number = check;
+  if (typeof number !== 'number' || !Number.isInteger(number) || number < 1) throw new Error('the check number has to be 1 or more, as kosmos task list shows them');
   const problem = doneWhenProblem([text]);
   if (problem) throw new Error(problem);
   const wording = doneWhenValue([text])[0];
