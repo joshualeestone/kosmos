@@ -1747,6 +1747,7 @@ async function gatherCaptures() {
   clearTimeout(timer);
   return { out, texts, at, budget };
 }
+const slowSnapshotLine = require('./loopheld').perMinute((line) => console.warn(line));
 async function snapshotUnheld() {
   if (paneCapture) return snapshot();   // a test seam, or a Windows board's own capture
   if (!gathering) {
@@ -1763,7 +1764,7 @@ async function snapshotUnheld() {
     gathered = null;
     // #7693: this part holds the board, once per waiting request, and the spawn log cannot see it (file reads).
     const took = Date.now() - began;
-    if (took >= 1000) console.warn('[slow-snapshot] ' + took + ' ms');
+    if (took >= 1000) slowSnapshotLine('[slow-snapshot] ' + took + ' ms');
   }
 }
 
