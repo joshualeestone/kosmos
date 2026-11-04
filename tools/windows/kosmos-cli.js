@@ -513,6 +513,9 @@ async function verbMsg(ctx, args) {
   }
   const to = args.shift();
   let text = args.join(' ');
+  /* #7893 round 3, as install/kosmos: a leading flag after the agent is told where it goes, not called unknown. */
+  const late = args.find((a) => a === '--no-reply' || a === '--in-reply-to' || (typeof a === 'string' && a.startsWith('--in-reply-to=')));
+  if (late) { ctx.err(late.split('=')[0] + ' must come before the agent name: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>'); return 2; }
   if (!fromStdin && args.includes('--stdin')) { ctx.err('--stdin must come before the agent name: kosmos msg --stdin <agent>, with the message piped in.'); return 2; }
   /* kosmos#4889, as install/kosmos. */
   if (to && /^--[A-Za-z]/.test(to)) { refuseOption(ctx, 'msg', USAGE.msg, to, 'target'); return 2; }

@@ -2724,6 +2724,15 @@ cmd_msg() {
   to="${1:-}"
   case "$to" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option msg "Usage: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>" "$to" target ;; esac   # kosmos#4889
   shift 2>/dev/null || true
+  # #7893 round 3: a leading flag typed after the agent is told where it goes; called an unknown option, it would read
+  # as "this flag does not exist" while the usage lists it. Same tradeoff as the --stdin scan below.
+  for _a in "$@"; do
+    case "$_a" in
+      --no-reply|--in-reply-to|--in-reply-to=*)
+        say "${_a%%=*} must come before the agent name: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>"
+        exit 2 ;;
+    esac
+  done
   if [ "$from_stdin" = 1 ]; then
     if [ -n "$to" ] && [ $# -gt 0 ]; then
       say "Give the message on stdin OR as arguments, not both: kosmos msg --stdin <agent> < message.md"

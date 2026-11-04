@@ -225,3 +225,17 @@ test('#7893: msg --no-reply sends reply_expected:false; without it the field is 
   assert.equal(plain.code, 0, plain.stdout + plain.stderr);
   assert.equal('reply_expected' in seen[2], false);
 }));
+
+/* #7893 round 3: --no-reply or --in-reply-to typed after the agent is told to come first, never called unknown. */
+test('#7893: a leading flag typed after the agent is told where it goes, and nothing is sent', () => withStubBoard(async (port, seen) => {
+  for (const args of [['msg', 'leo', 'deployed', '--no-reply'], ['msg', 'leo', '--in-reply-to', 'm4', 'ok'], ['msg', 'leo', '--in-reply-to=m4', 'ok']]) {
+    const r = await runCli(args, envFor(port));
+    assert.equal(r.code, 2, args.join(' '));
+    assert.match(r.stdout, /^\s*--(no-reply|in-reply-to) must come before the agent name: kosmos msg \[--no-reply\]/m, args.join(' ') + ': ' + r.stdout);
+    assert.doesNotMatch(r.stdout, /is not an option/);
+  }
+  const piped = await runCli(['msg', '--stdin', 'leo', '--no-reply'], envFor(port), 'x\n');
+  assert.equal(piped.code, 2);
+  assert.match(piped.stdout, /--no-reply must come before the agent name/, 'not the stdin-or-arguments refusal');
+  assert.equal(seen.length, 0);
+}));
