@@ -74339,11 +74339,6 @@ function paintSettingsFacts(p) {
   state.textContent = fl.bad ? fl.text : '';
   state.className = 'pj-folder-state' + (fl.bad ? ' bad' : '');
   /* kosmos#5340: offered only when the folder is not there (moved, removed, or on a drive that is not connected). */
-  const rf = document.getElementById('pjs-rename-folder');
-  if (rf) {
-    rf.hidden = !(p.folderRenameTo && p.folderState && p.folderState.state === 'readable');
-    if (!rf.hidden) document.getElementById('pjs-rename-folder-text').textContent = 'This project\'s folder is still called ' + base + '. You can rename it to ' + p.folderRenameTo + '.';
-  }
   const mv = document.getElementById('pjs-move');
   if (mv) {
     /* Review 1: also when a file sits where the folder was (just as stuck). And a path typed, or a sentence said, for
@@ -74354,6 +74349,15 @@ function paintSettingsFacts(p) {
       mv.dataset.project = p.id;
       document.getElementById('pjs-move-path').value = '';
       document.getElementById('pjs-move-msg').textContent = '';
+    }
+  }
+  const rf = document.getElementById('pjs-rename-folder');   // #7968
+  if (rf) {
+    rf.hidden = !(p.folderRenameTo && p.folderState && p.folderState.state === 'readable');
+    if (!rf.hidden) {
+      const called = String(p.folder).split(/[\\/]/).filter(Boolean).pop();
+      document.getElementById('pjs-rename-folder-text').textContent = 'This project\'s folder is still called ' + called + '. You can rename it to '
+        + p.folderRenameTo + '. Anything outside Kosmos that uses the old name, like a shortcut or a script, will stop working.';
     }
   }
 }
@@ -85312,17 +85316,21 @@ document.getElementById('pjs-rename-folder-btn').addEventListener('click', async
       body: JSON.stringify({ renameFolder: true }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || 'we could not rename it');
+    if (!res.ok) { const e = new Error(body.error || 'we could not rename it'); e.status = res.status; throw e; }
     if (!(await loadProjects())) await loadProjects();
     if (PJ_CURRENT !== p.id) return;
     const total = Number(body.members) || 0, reached = Number(body.reached) || 0, notUpdated = Number(body.notUpdated) || 0;
-    let line = 'Done. The folder is now called ' + want + '.';
+    let line = (PJ_READ_FAILED ? 'Done, but we could not re-read your projects just then.' : 'Done.') + ' The folder is now called ' + want + '.';
     if (total > 0) line += ' Told ' + reached + ' of ' + total + (total === 1 ? ' agent' : ' agents') + ' on this project.';
     if (notUpdated > 0) line += ' Kosmos could not update the instructions for ' + notUpdated + ' of them; each one\'s page says why.';
     said.textContent = line;
+    // The button hides now: the keyboard goes to the next control, not the page.
+    if (document.activeElement === document.body || document.activeElement === btn) pjsMoveDoneFocus(said);
   } catch (e) {
     if (PJ_CURRENT !== p.id) return;
-    said.textContent = 'Not changed: ' + String((e && e.message) || 'we could not rename it') + '.';
+    const t = String((e && e.message) || 'we could not rename it');
+    // A 500 here says itself what did and did not change, and "Not changed" could be false.
+    said.textContent = e && e.status === 500 ? t + '.' : 'Not changed: ' + t + '.';
   } finally {
     btn.disabled = false;
   }

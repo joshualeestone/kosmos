@@ -22930,7 +22930,9 @@ const server = http.createServer(async (req, res) => {
             throw blind;
           }
           const mine = (projects.readAll().find((p) => p.id === id) || {}).agents || [];
-          const busy = roster.filter((c) => c && mine.includes(c.sessionName) && c.state === STATE.WORKING).map((c) => c.name || c.sessionName);
+          /* Anything but idle or stopped: an agent paused at a question or a rate limit is mid-turn, and when it resumes it
+             can write to the old path. A state nobody can read counts too. */
+          const busy = roster.filter((c) => c && mine.includes(c.sessionName) && c.state !== STATE.IDLE && c.state !== STATE.STOPPED).map((c) => c.name || c.sessionName);
           const homes = roster.filter((c) => c && c.sessionName).map((c) => create.workerDir(c.sessionName));
           await answerFolderMoved(projects.renameFolderToName(id, { busy, homes }));
           return;
