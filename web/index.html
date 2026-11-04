@@ -18301,7 +18301,7 @@ window.kosmosMeasureScrollbarWidth();
       </div>
       <!-- kosmos#7968: the project has a new name and its folder still has the old one. Offered, never done by itself. -->
       <div id="pjs-rename-folder" hidden>
-        <p class="fhint" id="pjs-rename-folder-text"></p>
+        <p class="fhint" id="pjs-rename-folder-text" tabindex="-1"></p>
         <button class="btn" id="pjs-rename-folder-btn" type="button">Rename the folder</button>
       </div>
       <!-- Outside the form: the form hides once the folder is there again, and the sentence saying so must stay seen. -->
@@ -74742,7 +74742,11 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
         const offer = fresh.name !== p.name && fresh.folderRenameTo ? document.getElementById('pjs-rename-folder') : null;
         if (offer && !offer.hidden) {
           offer.scrollIntoView({ block: 'center' });
-          document.getElementById('pjs-rename-folder-btn').focus({ preventScroll: true });
+          // The sentence, not the button: a second press of Save's key must not rename a folder. "Saved." goes here too,
+          // since the line beside Save is now out of view.
+          const said = document.getElementById('pjs-rename-folder-text');
+          said.textContent = 'Saved. ' + said.textContent;
+          said.focus({ preventScroll: true });
         } else btn.__navTimer = setTimeout(() => {
           if (PJ_VIEW === 'settings' && PJ_CURRENT === savedId && pjById(PJ_CURRENT)
               && !document.getElementById('panel-projects').hidden) {
