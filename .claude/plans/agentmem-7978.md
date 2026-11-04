@@ -21,5 +21,12 @@ A leftover like the one that prompted this, about 6.5 GB and a full core for 14 
 - Weakest premise: the folder clue. A shell that changed folder, or whose agent's pane is elsewhere, is not found. Tied folders and the home folder name nobody, so it stays silent rather than blaming the wrong agent. The CPU figure is ps's own, a decaying average on a Mac, so a brief burst can flag for a minute.
 - Not on Windows: no tmux or ps, so the page shows nothing. A removed agent's leftovers show nowhere, since there is no card.
 
+## Review 1 (blind, opus): two blockers
+As first written it showed nothing on a normal board, with every test green, because each test stubbed the seam that was wrong. (1) LC_ALL=C on tmux outside a pane turned the format's tabs to underscores: 0 of 20 panes. Now `tmux -u`, with ps alone under C. (2) The route read by `sessionName`; samples are keyed by the raw session. Also fixed: a bare-name shell missed the folder road (comm is argv0); a small wrapper with a large child was invisible (now by subtree); the not-running row and card had no line, which I had claimed they did; the card could say left running while the page did not; a failed tmux replaced a good sample; a stuck child could end sampling; "folder" evidence lost to a named process beside it; apps crowding the candidates; an argument posing as the variable; systemd --user orphans; the list view; the words "left by an earlier run", false for a nohup server.
+The new tests run a REAL tmux on a private socket, outside a pane, under a C locale, through the real sample and read, with a control that the locale really does eat the tabs.
+
+## Design (Mona Lisa)
+"left running" on the card; "this computer's memory" on the page, since the panel below is headed Memory; the leftover its own sentence, ending on what the person can do; processors in whole numbers.
+
 ## Tests
 `engine/machinecost-7978.test.js`, including real parentless processes on this computer: a node named by its environment, a shell by its folder, and a control that macOS still hides the shell's environment. `web.machinecost-7978.test.js`: the words and each threshold's edge, read from the page. Shots through mobile-shots.js, each with a verify step.

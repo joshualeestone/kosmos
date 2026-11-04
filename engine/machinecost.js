@@ -3,27 +3,36 @@
  * #7978 item 1: what each agent's processes hold on this computer, for the board to show. Show only: nothing here stops
  * or changes a process. A leftover shell held about 6.5 GB and a full core for 14 days with nobody seeing it.
  *
+ * Keyed by the RAW tmux session (angel-discord, or ava+qa in a named world), which is what the supervisor exports and tmux
+ * lists. A status row's `sessionName` is that name with those parts stripped; its `session` is this key.
+ *
  * WHICH PROCESSES ARE AN AGENT'S.
  *   1. Its pane's process tree. By tree and not by terminal: measured on a real board 11-04, an agent's tool children are
  *      mostly not on its terminal (1468 MB by tree, 405 MB by terminal).
- *   2. A process left behind, whose parent died, so it hangs off init and is in no tree. That may be the very leak this
- *      exists for. It still carries KOSMOS_AGENT_SESSION from the pane it was born in (agent-supervisor.sh), which names
- *      the agent with no guessing. Only large ones are asked, since reading an environment costs a process each.
- *      A process with no such variable is not an agent's (a browser, the person's own apps) and is never shown.
- *   3. 🛑 EXCEPT THAT macOS HIDES THE ENVIRONMENT OF ITS OWN BINARIES. Measured 11-04: `ps -E` returned the variable for
- *      node and a Homebrew python and NOTHING for /bin/bash, /bin/zsh, /bin/sh and /bin/sleep. So a leftover SHELL, the
- *      case that prompted this, could never be named that way, and a table-driven test would not have seen it. For those
- *      alone (under /bin or /usr/bin) the clue is the process's working folder: inside exactly one agent's pane folder.
- *      Weaker than a name, so it is marked (how: 'folder'). A shell that changed folder is not found: a stated limit. A
- *      pane sitting in the home folder is no clue, since everything is under it.
+ *   2. A process whose parent died, so it is in no tree, and whatever runs under it. That may be the very leak this exists
+ *      for. It still carries KOSMOS_AGENT_SESSION from the pane it was born in (agent-supervisor.sh), which names the agent
+ *      with no guessing. Only large ones are asked, by the whole subtree: a small wrapper can hold a large child.
+ *      A process that names nobody is not an agent's (a browser, the person's own apps) and is never shown.
+ *   3. 🛑 macOS HIDES THE ENVIRONMENT OF ITS OWN BINARIES. Measured 11-04: `ps -E` returned the variable for node and a
+ *      Homebrew python and NOTHING for /bin/bash, /bin/zsh, /bin/sh and /bin/sleep. So a leftover SHELL, the case that
+ *      prompted this, could never be named that way, and a table-driven test would not have seen it. When the environment
+ *      names nobody on a Mac, the clue is the working folder: inside exactly one agent's pane folder. Weaker than a name,
+ *      so it is marked (how: 'folder') per process. A shell that changed folder is not found: a stated limit. A pane in
+ *      the home folder is no clue, since everything is under it. `comm` is argv0, so a path cannot tell which road
+ *      (measured: a bash from PATH reads `bash`): the environment is simply asked first.
  *
  * 🔑 THE ENVIRONMENT IS READ FOR ONE NAME AND THEN DROPPED. An environment holds keys. Nothing else in it is kept, logged
- * or returned, and the regex takes only that one variable's value.
+ * or returned. `ps -E` prints the arguments first, so the LAST match is the environment's.
  *
  * 🔑 NEVER ON THE BOARD'S THREAD. Everything runs through async execFile on its own timer, and readers get the last
  * finished sample. A blocking `ps` here would be the stall #7693 measures. A status read never starts one.
  *
- * Not on Windows: there is no tmux or ps there, so `read` answers null and the page shows nothing.
+ * 🔑 THE LOCALE. ps gets LC_ALL=C, since some locales print its CPU figure with a comma. tmux must NOT: outside a pane,
+ * without a UTF-8 locale, it turns the format's tabs into underscores (status.js says so; measured here too: 0 of 20
+ * panes parsed), and from inside a pane it does not, so any run from a terminal looks fine. `-u` makes it hold anyway.
+ *
+ * Linux: orphans go to the nearest subreaper, so a parent that is `systemd --user` counts as no parent. pcpu there is a
+ * lifetime average. Not on Windows: there is no tmux or ps, so `read` answers null and the page shows nothing.
  */
 
 const { execFile } = require('node:child_process');
@@ -35,10 +44,13 @@ const CMD_TIMEOUT_MS = 10000;
 // Large enough to ask a parentless process whose it is. Below this a leftover is not what anyone is looking for.
 const LEFT_MIN_KB = 200 * 1024;
 const LEFT_MIN_CPU = 25;
-const LEFT_MAX_ASKED = 12;   // one child process each: a bound, on a machine that may already be struggling
-const SESSION_IN_ENV = /(?:^|\s)KOSMOS_AGENT_SESSION=([^\s]+)/;
+const LEFT_MAX_ASKED = 12;   // a child process or two each: a bound, on a machine that may already be struggling
+const SESSION_IN_ENV = /(?:^|\s)KOSMOS_AGENT_SESSION=(\S+)/g;
+const NO_SERVER = /no server running|error connecting|server exited/i;
+const PANE_LIST = '#{session_name}\t#{pane_pid}\t#{pane_current_path}';
+const PS_ARGS = ['-A', '-o', 'pid=', '-o', 'ppid=', '-o', 'rss=', '-o', 'pcpu=', '-o', 'etime=', '-o', 'comm='];
 
-/* `ps -axo pid=,ppid=,rss=,pcpu=,etime=,comm=`. comm can hold spaces, so it is the last field. */
+/* The columns in PS_ARGS. comm can hold spaces, so it is the last field. */
 function parsePs(text) {
   const procs = new Map();
   for (const line of String(text || '').split('\n')) {
@@ -49,8 +61,7 @@ function parsePs(text) {
   return procs;
 }
 
-/* `tmux list-panes -a -F PANE_LIST`. A session can have several panes: all of them count. The folder is last, and can hold spaces. */
-const PANE_LIST = '#{session_name}\t#{pane_pid}\t#{pane_current_path}';
+/* PANE_LIST's output. A session can have several panes: all of them count. The folder is last, and can hold spaces. */
 function parsePanes(text) {
   const panes = new Map();
   for (const line of String(text || '').split('\n')) {
@@ -89,8 +100,6 @@ function sessionForFolder(cwd, folders) {
   }
   return best.length === 1 ? best[0] : null;
 }
-/* A binary macOS hides the environment of. */
-function envHidden(comm, platform) { return platform === 'darwin' && /^\/(?:usr\/)?bin\//.test(String(comm || '')); }
 
 /* ps's elapsed time, [[dd-]hh:]mm:ss, in whole days. Null when it is not that shape. */
 function daysOf(etime) {
@@ -129,63 +138,88 @@ function under(roots, procs, kids) {
   return out;
 }
 
-/* The parentless processes worth asking about, largest first: nobody's tree holds them. */
+/* A parent gone: init, or on Linux a user's systemd, which adopts orphans. Apps a person opened are not asked about. */
+function parentless(p, procs) {
+  if (p.ppid === 1) return true;
+  const parent = procs.get(p.ppid);
+  return Boolean(parent) && nameOf(parent.comm) === 'systemd';
+}
+function isSystemApp(comm) { return /^\/(?:System|Applications|Library)\//.test(String(comm || '')); }
+
+/* The parentless processes worth asking about, largest subtree first: nobody's tree holds them. Each carries its subtree's
+   size, so a 2 MB shell wrapping a 6 GB child is asked about. */
 function leftCandidates(procs, inTrees) {
-  return [...procs.values()]
-    .filter((p) => p.ppid === 1 && !inTrees.has(p.pid) && (p.rssKb >= LEFT_MIN_KB || p.cpu >= LEFT_MIN_CPU))
-    .sort((a, b) => b.rssKb - a.rssKb)
-    .slice(0, LEFT_MAX_ASKED);
+  const kids = processKids(procs);
+  const out = [];
+  for (const p of procs.values()) {
+    if (p.pid === 1 || inTrees.has(p.pid) || !parentless(p, procs) || isSystemApp(p.comm) || nameOf(p.comm) === 'systemd') continue;
+    const rows = under([p.pid], procs, kids);
+    const kb = rows.reduce((n, r) => n + r.rssKb, 0);
+    const cpu = rows.reduce((n, r) => n + r.cpu, 0);
+    if (kb >= LEFT_MIN_KB || cpu >= LEFT_MIN_CPU) out.push({ pid: p.pid, comm: p.comm, kb, cpu });
+  }
+  return out.sort((a, b) => b.kb - a.kb).slice(0, LEFT_MAX_ASKED);
 }
 
-/* One agent's numbers. `left` is the set of pids that were left behind. */
-function summarize(rows, left, how) {
-  let kb = 0;
-  let cpu = 0;
-  let leftKb = 0;
-  let top = null;
-  for (const p of rows) {
-    kb += p.rssKb;
-    cpu += p.cpu;
-    if (left.has(p.pid)) leftKb += p.rssKb;
-    if (!top || p.rssKb > top.rssKb) top = p;
-  }
+function brief(p, how) {
+  return { name: nameOf(p.comm), memMb: Math.round(p.rssKb / 1024), cpuPct: Math.round(p.cpu), days: daysOf(p.etime), pid: p.pid, ...(how ? { how } : {}) };
+}
+
+/* One agent's numbers. `left` is the largest process left behind, apart from `top`, so the page can name it even when
+   something the agent is running now is larger. */
+function summarize(rows, leftRows) {
+  const largest = (list) => list.reduce((a, b) => (!a || b.p.rssKb > a.p.rssKb ? b : a), null);
+  const leftPids = new Set(leftRows.map((r) => r.p.pid));
+  const top = largest(rows.map((p) => ({ p })));
+  const left = largest(leftRows);
   return {
-    memMb: Math.round(kb / 1024),
-    cpuPct: Math.round(cpu),
+    memMb: Math.round(rows.reduce((n, p) => n + p.rssKb, 0) / 1024),
+    cpuPct: Math.round(rows.reduce((n, p) => n + p.cpu, 0)),
     processes: rows.length,
-    leftMemMb: Math.round(leftKb / 1024),
-    top: top ? { name: nameOf(top.comm), memMb: Math.round(top.rssKb / 1024), cpuPct: Math.round(top.cpu), days: daysOf(top.etime), left: left.has(top.pid), pid: top.pid, ...(left.has(top.pid) && how === 'folder' ? { how } : {}) } : null,
+    leftMemMb: Math.round(leftRows.reduce((n, r) => n + r.p.rssKb, 0) / 1024),
+    top: top ? { ...brief(top.p), wasLeft: leftPids.has(top.p.pid) } : null,
+    left: left ? brief(left.p, left.how) : null,
   };
 }
 
 /**
- * Pure: session name -> numbers. `leftOwners` is pid -> session for the parentless processes whose environment named one.
- * A left-behind process and whatever runs under it are that agent's too, counted once however they are reached.
+ * Pure: raw session -> numbers. `leftOwners` is pid -> { session, how } for the parentless processes that named one (how is
+ * 'folder' when only the folder did). A left-behind process and whatever runs under it are that agent's too, counted once.
  */
-function costBySession(panes, procs, leftOwners, leftHow) {
+function costBySession(panes, procs, leftOwners) {
   const kids = processKids(procs);
   const out = {};
   const owners = leftOwners || new Map();
-  const sessions = new Set([...panes.keys(), ...owners.values()]);
+  const sessions = new Set([...panes.keys(), ...[...owners.values()].map((o) => o.session)]);
   for (const session of sessions) {
-    const roots = panes.get(session) || [];
-    const lefts = [...owners].filter(([, s]) => s === session).map(([pid]) => pid);
-    const leftRows = under(lefts, procs, kids);
-    const leftPids = new Set(leftRows.map((p) => p.pid));
-    const rows = under([...roots, ...lefts], procs, kids);
-    const byFolder = lefts.length > 0 && lefts.every((pid) => leftHow && leftHow.get(pid) === 'folder');
-    if (rows.length) out[session] = summarize(rows, leftPids, byFolder ? 'folder' : null);
+    const leftRows = [];
+    const lefts = [];
+    for (const [pid, o] of owners) {
+      if (o.session !== session) continue;
+      lefts.push(pid);
+      for (const p of under([pid], procs, kids)) leftRows.push({ p, how: o.how });
+    }
+    const rows = under([...(panes.get(session) || []), ...lefts], procs, kids);
+    if (rows.length) out[session] = summarize(rows, leftRows);
   }
   return out;
 }
 
-function run(cmd, args, execImpl) {
+/* A command's output, or null when it failed. Answers by its own timer too: execFile's callback waits for the pipes to
+   close, so a child stuck on a dead mount could otherwise end sampling for good. */
+function runDetail(cmd, args, execImpl, env) {
   return new Promise((resolve) => {
-    // LC_ALL=C: some locales print ps's CPU figure with a comma, which would parse as nothing.
-    (execImpl || execFile)(cmd, args, { encoding: 'utf8', timeout: CMD_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024, env: { ...process.env, LC_ALL: 'C' } },
-      (err, stdout) => resolve(err ? null : String(stdout)));
+    let settled = false;
+    const done = (v) => { if (!settled) { settled = true; clearTimeout(timer); resolve(v); } };
+    const timer = setTimeout(() => done({ out: null, err: 'timed out' }), CMD_TIMEOUT_MS + 2000);
+    if (timer.unref) timer.unref();
+    try {
+      (execImpl || execFile)(cmd, args, { encoding: 'utf8', timeout: CMD_TIMEOUT_MS, killSignal: 'SIGKILL', maxBuffer: 16 * 1024 * 1024, env: env || process.env },
+        (err, stdout, stderr) => done(err ? { out: null, err: String(stderr || '') } : { out: String(stdout), err: '' }));
+    } catch { done({ out: null, err: 'could not start' }); }
   });
 }
+const CENV = () => ({ ...process.env, LC_ALL: 'C' });
 
 /* The one variable, from one process's environment, or null. Nothing else leaves this function. */
 async function sessionOfPid(pid, deps) {
@@ -197,43 +231,42 @@ async function sessionOfPid(pid, deps) {
       const m = /(?:^|\0)KOSMOS_AGENT_SESSION=([^\0]+)/.exec(text);
       return m ? m[1] : null;
     }
-    const text = await run('ps', ['-Eww', '-o', 'command=', '-p', String(pid)], d.exec);
-    const m = text ? SESSION_IN_ENV.exec(text) : null;
-    return m ? m[1] : null;
+    const { out } = await runDetail('ps', ['-Eww', '-o', 'command=', '-p', String(pid)], d.exec, CENV());
+    if (!out) return null;
+    const all = [...out.matchAll(SESSION_IN_ENV)];
+    return all.length ? all[all.length - 1][1] : null;
   } catch { return null; }
 }
 
 /* A process's working folder, or null. */
 async function cwdOfPid(pid, deps) {
-  const text = await run('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], (deps || {}).exec);
-  const m = text ? /^n(.+)$/m.exec(text) : null;
+  const { out } = await runDetail('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], (deps || {}).exec, CENV());
+  const m = out ? /^n(.+)$/m.exec(out) : null;
   return m ? m[1] : null;
 }
 
-/* One sample: session -> numbers, or null when it could not be read (a reading that failed is not "using nothing"). */
+/* One sample: raw session -> numbers, or null when it could not be read: a reading that failed is not "using nothing", and
+   a failed tmux must not replace a good sample with one that has no panes. A tmux with no server is a true empty. */
 async function sample(deps) {
   const d = deps || {};
   const platform = d.platform || process.platform;
-  const panesText = await run(d.tmuxBin || process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux', ['list-panes', '-a', '-F', PANE_LIST], d.exec);
-  const psText = await run('ps', ['-axo', 'pid=,ppid=,rss=,pcpu=,etime=,comm='], d.exec);
-  if (psText === null) return null;
-  const panes = parsePanes(panesText);
-  const procs = parsePs(psText);
-  const kids = processKids(procs);
-  const inTrees = new Set(under([...panes.values()].flat(), procs, kids).map((p) => p.pid));
-  const folders = parseFolders(panesText, d.home === undefined ? os.homedir() : d.home);
+  const tmux = await runDetail(d.tmuxBin || process.env.AGENT_WORKFORCE_TMUX_BIN || 'tmux', ['-u', 'list-panes', '-a', '-F', PANE_LIST], d.exec);
+  if (tmux.out === null && !NO_SERVER.test(tmux.err)) return null;
+  const ps = await runDetail('ps', PS_ARGS, d.exec, CENV());
+  if (ps.out === null) return null;
+  const panes = parsePanes(tmux.out);
+  const procs = parsePs(ps.out);
+  const inTrees = new Set(under([...panes.values()].flat(), procs, processKids(procs)).map((p) => p.pid));
+  const folders = parseFolders(tmux.out, d.home === undefined ? os.homedir() : d.home);
   const leftOwners = new Map();
-  const leftHow = new Map();
-  for (const p of leftCandidates(procs, inTrees)) {
-    if (envHidden(p.comm, platform)) {
-      const session = sessionForFolder(await cwdOfPid(p.pid, d), folders);
-      if (session) { leftOwners.set(p.pid, session); leftHow.set(p.pid, 'folder'); }
-      continue;
-    }
-    const session = await sessionOfPid(p.pid, d);
-    if (session) leftOwners.set(p.pid, session);
+  for (const c of leftCandidates(procs, inTrees)) {
+    const named = await sessionOfPid(c.pid, d);
+    if (named) { leftOwners.set(c.pid, { session: named, how: null }); continue; }
+    if (platform !== 'darwin') continue;
+    const inFolder = sessionForFolder(await cwdOfPid(c.pid, d), folders);
+    if (inFolder) leftOwners.set(c.pid, { session: inFolder, how: 'folder' });
   }
-  return costBySession(panes, procs, leftOwners, leftHow);
+  return costBySession(panes, procs, leftOwners);
 }
 
 let last = null;
@@ -258,12 +291,22 @@ function start(deps) {
   return timer;
 }
 
-/* What the page gets for one agent: the last sample, or null. A sample older than three rounds is not offered as now. */
+/* What the page gets for one agent, by its raw session: the last sample, or null. Older than three rounds is not now. */
 function read(session, now) {
   if (!last || (now === undefined ? Date.now() : now) - lastAt > 3 * SAMPLE_MS) return null;
   return Object.prototype.hasOwnProperty.call(last, session) ? last[session] : null;
 }
 
+/* The same for an agent with no session (a not-running row has only its name): what it left behind, if anything. nameOf
+   is launchidentity.agentNameFromSession bound to this board's world, so another Kosmos's same-named agent is not it. */
+function readAgent(name, sessionToName, now) {
+  if (!last) return null;
+  for (const session of Object.keys(last)) {
+    if (sessionToName(session) === name) return read(session, now);
+  }
+  return null;
+}
+
 function resetForTest() { last = null; lastAt = 0; running = false; }
 
-module.exports = { PANE_LIST, parseFolders, sessionForFolder, envHidden, cwdOfPid, parsePs, parsePanes, daysOf, nameOf, leftCandidates, costBySession, sessionOfPid, sample, tick, start, read, resetForTest, SAMPLE_MS, LEFT_MIN_KB, LEFT_MIN_CPU, LEFT_MAX_ASKED };
+module.exports = { PANE_LIST, PS_ARGS, parseFolders, sessionForFolder, cwdOfPid, parsePs, parsePanes, daysOf, nameOf, leftCandidates, costBySession, sessionOfPid, sample, tick, start, read, readAgent, resetForTest, SAMPLE_MS, LEFT_MIN_KB, LEFT_MIN_CPU, LEFT_MAX_ASKED };

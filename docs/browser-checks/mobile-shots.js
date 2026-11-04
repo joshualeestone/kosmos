@@ -1138,7 +1138,7 @@ const SCREENS = [
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
   } },
-  /* kosmos#7978: what an agent's processes hold. One agent carries a left-behind process, so its card and its page say so;
+  /* kosmos#7978: what an agent's processes hold. One agent carries a process left running, so its card and its page say so;
      the status read is stubbed (a throwaway board has no such process), and only for this screen. */
   { name: 'agent-machine-7978', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
     await page.route('**/api/status*', async (r) => {
@@ -1149,8 +1149,8 @@ const SCREENS = [
         try { body = await res.json(); } catch { body = null; }
         if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
         for (const c of body.agents) {
-          if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, left: true, pid: 4242 } };
-          else c.machine = { memMb: 480, cpuPct: 12, processes: 6, leftMemMb: 0, top: { name: 'node', memMb: 300, cpuPct: 10, days: 0, left: false, pid: 11 } };
+          if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242, wasLeft: true }, left: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 } };
+          else c.machine = { memMb: 480, cpuPct: 12, processes: 6, leftMemMb: 0, top: { name: 'node', memMb: 300, cpuPct: 10, days: 0, pid: 11, wasLeft: false }, left: null };
         }
         await r.fulfill({ response: res, body: JSON.stringify(body) });
       } catch { /* the page closed at teardown (#6022) */ }
@@ -1161,7 +1161,7 @@ const SCREENS = [
     const n = await page.locator('.amachine').count();
     if (n !== 1) throw new Error('expected one agent flagged, saw ' + n);
     const t = await page.locator('.amachine').first().innerText();
-    if (t !== '6.5 GB left behind') throw new Error('the card said: ' + t);
+    if (t !== '6.5 GB left running') throw new Error('the card said: ' + t);
   }, after: async (page) => { await page.unroute('**/api/status*'); } },
   { name: 'agent-machine-page-7978', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
     await page.route('**/api/status*', async (r) => {
@@ -1171,7 +1171,7 @@ const SCREENS = [
         let body = null;
         try { body = await res.json(); } catch { body = null; }
         if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
-        for (const c of body.agents) if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, left: true, pid: 4242 } };
+        for (const c of body.agents) if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242, wasLeft: true }, left: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 } };
         await r.fulfill({ response: res, body: JSON.stringify(body) });
       } catch { /* the page closed at teardown (#6022) */ }
     });
@@ -1180,7 +1180,7 @@ const SCREENS = [
     await page.locator('#d-machine').scrollIntoViewIfNeeded();
   }, verify: async (page) => {
     const t = await page.locator('#d-machine').innerText();
-    if (!/Left behind by an earlier run: bash, 6\.5 GB, running for 14 days \(process 4242\)/.test(t)) throw new Error('the page said: ' + t);
+    if (!/Still running after what started it ended: bash, 6\.5 GB, for 14 days \(process 4242\)/.test(t)) throw new Error('the page said: ' + t);
   }, after: async (page) => { await page.unroute('**/api/status*'); } },
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);

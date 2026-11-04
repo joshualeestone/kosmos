@@ -3302,6 +3302,7 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
 /* #7978: inside the model line, so the card's grid gains no row; on a line of its own, and only when out of the ordinary. */
 .acard .amachine { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }
+.lrow .amachine { font-weight: 600; color: var(--k-ink); }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
    the absence of one. Mona Lisa's spec (#184) is `--space-3`.
    ⚠️ MEASURE THE SPACE BUDGET, NOT THE ELEMENT — her rule, and the thing to
@@ -23824,6 +23825,7 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></div>${typeof starBtn === 'function' ? starBtn(a) : ''}
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate ${split ? 'st-unknown' : 'st-stopped'}"${split ? '' : pillTitle(offlineNote(a))}>${split ? GLYPH.unknown : GLYPH.stopped}<b>${split ? STATE_COPY.unknown.label : 'Not running'}</b>${split ? '' : pillVh(offlineNote(a))}</div>
+    ${machineFlag(a) ? '<div class="amodel">' + machineFlagHtml(a) + '</div>' : ''}
   </div>`;
   }
   /* ⚠️ THE PACK'S CARD (stage 3). Column order: gauge -> name -> state pill
@@ -24024,7 +24026,7 @@ function lrow(a) {
       <div class="lname"><b><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button></b>${typeof starBtn === 'function' ? starBtn(a) : ''}</div>
       <div class="ltitle">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
       <div class="lstate ${a.jobRunningUnseen === true ? 'st-unknown' : 'st-stopped'}"${a.jobRunningUnseen === true ? '' : pillTitle(offlineNote(a))}>${a.jobRunningUnseen === true ? GLYPH.unknown + STATE_COPY.unknown.label : GLYPH.stopped + 'Not running'}${a.jobRunningUnseen === true ? '' : pillVh(offlineNote(a))}</div>
-      <div class="ltask"></div>
+      <div class="ltask">${machineFlagHtml(a)}</div>
       <div class="lmodel"></div>
       <div class="lmem"></div>
     </div>`;
@@ -24070,7 +24072,7 @@ function lrow(a) {
          it is an action, not status text (#6400: the Answer link went; the row itself answers). This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${pillVh(lsay)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${pillTitle(lsay)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    ${lrowTask(taskLine(a, { card: true }))}
+    ${lrowTask(taskLine(a, { card: true }))}${machineFlag(a) ? '<div class="ltask">' + machineFlagHtml(a) + '</div>' : ''}
     <div class="lmodel">${lmodelCell(a)}</div>
     <div class="lmem">${mem}</div>
   </div>`;
@@ -25996,21 +25998,23 @@ function machineCpuWords(pct) {
   const n = Number(pct);
   if (!Number.isFinite(n)) return '';
   if (n < 100) return Math.round(n) + '% of one processor';
-  const count = Math.round(n / 10) / 10;
-  return 'about ' + count + (count === 1 ? ' processor' : ' processors');
+  const count = Math.round(n / 100);
+  return count <= 1 ? 'about one processor' : 'about ' + count + ' processors';
 }
-/* The agent's own page: the numbers, then the largest process, or the one left behind. */
+/* The agent's own page. "this computer's memory", not "memory": the panel below this one is headed Memory and is about what
+   the agent remembers (Mona Lisa, #7978). What is left running gets its own sentence, ending on what the person can do. Not
+   "left by an earlier run": a server a live agent started with nohup is parentless too. */
 function machineLine(a) {
   const m = a && a.machine;
   if (!m || typeof m !== 'object' || !machineSize(m.memMb)) return '';
-  let line = 'Using ' + machineSize(m.memMb) + ' of memory and ' + machineCpuWords(m.cpuPct) + ' on this computer.';
-  const t = m.top;
-  if (t && t.name && t.left) {
-    const age = Number(t.days) >= 1 ? ', running for ' + (t.days === 1 ? 'a day' : t.days + ' days') : '';
-    line += (t.how === 'folder' ? ' Probably left behind by an earlier run, since it sits in this agent\u2019s folder: ' : ' Left behind by an earlier run: ')
-      + t.name + ', ' + machineSize(t.memMb) + age + ' (process ' + t.pid + '). Kosmos only shows this; it is still running.';
-  } else if (t && t.name && Number(m.processes) > 1) {
-    line += ' Largest: ' + t.name + ', ' + machineSize(t.memMb) + '.';
+  let line = 'Uses ' + machineSize(m.memMb) + ' of this computer\u2019s memory and ' + machineCpuWords(m.cpuPct) + '.';
+  const l = m.left;
+  if (l && l.name) {
+    const age = Number(l.days) >= 1 ? ', for ' + (l.days === 1 ? 'a day' : l.days + ' days') : '';
+    line += (l.how === 'folder' ? ' Probably this agent\u2019s, since it sits in its folder, and still running after what started it ended: ' : ' Still running after what started it ended: ')
+      + l.name + ', ' + machineSize(l.memMb) + age + ' (process ' + l.pid + '). Kosmos does not stop it for you: ask this agent to end process ' + l.pid + ', or restart your computer.';
+  } else if (m.top && m.top.name && Number(m.processes) > 1) {
+    line += ' Largest: ' + m.top.name + ', ' + machineSize(m.top.memMb) + '.';
   }
   return line;
 }
@@ -26018,7 +26022,7 @@ function machineLine(a) {
 function machineFlag(a) {
   const m = a && a.machine;
   if (!m || typeof m !== 'object') return '';
-  if (Number(m.leftMemMb) >= MACHINE_LEFT_MIN_MB) return machineSize(m.leftMemMb) + ' left behind';
+  if (Number(m.leftMemMb) >= MACHINE_LEFT_MIN_MB) return machineSize(m.leftMemMb) + ' left running';
   if (Number(m.memMb) >= MACHINE_BIG_MB) return 'Using ' + machineSize(m.memMb);
   if (Number(m.cpuPct) >= MACHINE_BUSY_CPU) return 'Using ' + machineCpuWords(m.cpuPct);
   return '';

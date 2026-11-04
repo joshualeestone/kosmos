@@ -7827,7 +7827,7 @@ const server = http.createServer(async (req, res) => {
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
         plannedModelName: plannedFor(a),
-        machine: a.isNamedOurs ? machinecost.read(a.sessionName) : null,   // #7978: the last sample's memory and CPU; never starts a read
+        machine: a.isNamedOurs ? machinecost.read(a.session) : null,   // #7978: the last sample, by the raw session; never starts a read
         settingModelName: settingGeminiModel(a, geminiSeen),   // #5804, #5811
         /* #4416: the RAW model id the job starts it on, for the OpenAI picker's current choice. It used to read
            plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
@@ -8043,6 +8043,8 @@ const server = http.createServer(async (req, res) => {
                    #668 row too: it answers "is there a pane here to act on",
                    and there is not. */
                 running: false,
+                /* #7978: a stopped agent can still have left something running, which is when this matters most. */
+                machine: machinecost.readAgent(k.name, (s) => launchidentity.agentNameFromSession(s, launchidentity.currentWorldId())),
                 /* #5154 slice A: stated on the offline row too. Between crashes a looping agent can have no session
                    at all, which is exactly when this row is the one the board draws. */
                 crashLoop: crashloop.read(k.name),
