@@ -792,7 +792,7 @@ struct RoomView: View {
             // kosmos#7690: which row the id anchor holds, so a jump can be read against it. Sample rows only.
             .onChange(of: roomPosition) { now in if RoomStore.sample { ChatView.trace("room anchor \(now ?? "none")") } }
             // kosmos#7645 review 2: where each room launch starts in the shared trace file, as the chat's "chat shown" and
-            // "chat back" (review 3). Not in the diagnostic ring.
+            // "chat back" (review 3). These two stay out of the diagnostic ring.
             .onAppear {
                 guard RoomStore.sample else { return }
                 if !sampleShownOnce { sampleShownOnce = true; ChatView.trace("room shown", ring: false) } else { ChatView.trace("room back", ring: false) }
@@ -881,8 +881,9 @@ struct RoomView: View {
             // flash does not set), acted on once it is up. Not animated under the anchor, as the DM.
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 keepNewestOnKeyboard = visible && holdAtEnd && !searchMode
-                // kosmos#7645 review 4: what decided it, so a lost newest post can be read from the trace.
-                ChatView.trace("room: keyboard will-show, keep newest \(keepNewestOnKeyboard) (visible \(visible), at end \(holdAtEnd), search \(searchMode))")
+                // kosmos#7645 review 4: what decided it, so a lost newest post can be read from the trace (the Debug file only:
+                // ring false keeps it out of the shareable diagnostic, where it would push a scroll event out, review 5).
+                ChatView.trace("room: keyboard will-show, keep newest \(keepNewestOnKeyboard) (visible \(visible), at end \(holdAtEnd), search \(searchMode))", ring: false)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                 guard keepNewestOnKeyboard, visible else { return }

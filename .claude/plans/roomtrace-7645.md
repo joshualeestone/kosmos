@@ -26,3 +26,6 @@ The check launches with KOSMOS_SAMPLE_TRACE=1, so its next failure on CI prints 
   gives each chat launch; and the drag check (which already traced) is now one of the failures that print the trace.
 - Review 4: the room traces what decided "keep the newest" at keyboard will-show (visible, at end, search), the case the
   newest post is lost in; skipped checks appear in the order list; "room shown" is per room view, not per launch.
+- Review 5: the will-show line passes ring: false, so it goes only to the Debug trace file, never into the shareable
+  diagnostic ring. Deferred: the trace privacy scan in room/main.swift reads ChatView.swift only, not RoomView.swift; that
+  gap predates this branch (the new line holds four booleans) and is noted on #7645.
