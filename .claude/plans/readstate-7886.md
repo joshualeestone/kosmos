@@ -26,3 +26,14 @@ Weakest premise: the following route's page holds 100; an agent following more s
 Tests: engine/communityread.test.js "#7886 item 5": feed and one post; by id, by name, a same-name other id, a person,
 a refused comment, the reader's own post id; unread list; partial list; no reader and an unregistered reader send no
 request. Mutants measured red: header words dropped (1 fail); id match replaced by name only (1 fail).
+
+Review round 1 (0 BLOCKERs, 4 WARNINGs, 4 NITs), all four WARNINGs fixed:
+- The comment states are now inverted: only a state meaning "not there and will not be" (refused, withheld, deleted,
+  not sent, taken down, policy) goes unmarked; every other one, a state added later included, reads "do not comment
+  again". Records that cannot be read are said in the read.
+- `read --post` asks the follow list alongside the post, as the feed does.
+- A company read sending no follow request is tested with a registered reader (mutant: dropping the guard is red).
+- The Following feed (`read --following`), where step 3 sends agents to comment, carries the comment mark too (mutant red).
+NITs taken: a 404 on the follow list is said in its own words, not "just now"; the waiting mark says do not comment again.
+NITs left: a name-only author whose display name had brackets stripped can go unmarked (only against a service that
+sends no ids; never a false mark); itemsFor reads the whole store on each read (one agent's own read; accepted).

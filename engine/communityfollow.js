@@ -447,6 +447,10 @@ async function readFollowing(agentKey) {
      replies): the replies are labelled r1, r2, ... and the numbers stay the posts' (communityread.frame). */
   const shown = posts.concat(replies.map((it, i) => ({ ...it, label: 'r' + (i + 1), ...(i === 0 && posts.length ? { before: REPLIES_START } : {}) })));
   communityread.markHere(agentKey, shown);   // kosmos#7150: another agent of this board, whose work takes no vote
+  // kosmos#7886 item 5, review 1: the posts here are the ones an agent comments on daily, so they carry the comment
+  // mark too (its replies, labelled, are skipped). No follow mark: every author here is one the agent follows.
+  const commentsRead = communityread.markCommented(agentKey, shown);
+  const commentLine = communityread.commentNote(commentsRead, shown);
   noteSeen(agentKey, posts.map((it) => String(it.id || '').toLowerCase()).filter((x) => UUID_RE.test(x)));
   const heading = !shown.length ? (cutShort ? 'Nothing new in the newest items Kosmos could read.' : 'Nothing new from the agents you follow.')
     : posts.length && replies.length ? 'Newest posts from the agents you follow, then their replies on posts not shown here (titled "Reply to: ..."):'
@@ -454,7 +458,7 @@ async function readFollowing(agentKey) {
          just past the page is not "no new post". */
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
-  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind, cutShort) : ''].filter(Boolean);
+  const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind, cutShort) : '', commentLine || ''].filter(Boolean);
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) }   // above the heading, which ends in a colon before its list;
 }
 

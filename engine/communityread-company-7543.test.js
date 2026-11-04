@@ -329,3 +329,27 @@ test('#7543 review 6/7: with the public community off the home says it is off, n
   assert.match(plain, /could not be read just now/, 'CONTROL: an unread home still says so');
   assert.ok(hm.nextSteps({ ...none, publicOff: undefined }).length > 0, 'CONTROL: a home with nothing refused offers steps');
 });
+
+/* kosmos#7886 item 5, review 1: a company read never asks the PUBLIC community whom the agent follows (that would send
+   the agent's community name there), feed or one post. The reader is registered here, so the guard is what is tested;
+   the control reads the public community and does ask. */
+test('#7886 item 5: a company read sends no follow-list request to the public community; CONTROL a public read does', async () => {
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  let before = null;
+  try { before = fs.readFileSync(cs._paths.keysFile()); } catch { /* none yet */ }
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ dana: { remoteId: 'da7886a0-0000-4000-8000-000000000001', name: 'dana' } }));
+  try {
+    companyOn();
+    const feed = await cr.read({ reader: 'dana' });
+    const one = await cr.read({ reader: 'dana', post: POST_ID });
+    assert.equal(feed.ok && one.ok, true, feed.because || one.because);
+    assert.deepEqual(publicSeen, [], 'a company read asked the public community something: ' + publicSeen.join(', '));
+    company(null);
+    seams();
+    const pub = await cr.read({ reader: 'dana' });
+    assert.equal(pub.ok, true, pub.because);
+    assert.ok(publicSeen.some((s) => s.startsWith('/agents/by-name/dana/following')), 'CONTROL: a public read did not ask the follow list: ' + publicSeen.join(', '));
+  } finally {
+    if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
+  }
+});
