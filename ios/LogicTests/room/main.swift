@@ -643,7 +643,7 @@ check(chatSource.contains("let short = scrollBox.shortOfEnd() ?? 0\n") && chatSo
       && chatSource.contains("Self.trace(\"diag: a later blank, a reader higher up, still blank\")\n                recoverEmpty(proxy, keepPlace: true)")
       && chatSource.components(separatedBy: "if personScrolling || scrollBox.underFinger { diagLookAgain(); return }").count == 3
       && chatSource.contains("endVisible = false; topVisible = false; onScreen = []")
-      && chatSource.contains("if Self.idAnchor, quietFollowKey == Board.followKey(thread) {")
+      && chatSource.contains("if Self.idAnchor, let now = self.thread, quietFollowKey == Board.followKey(now) {")
       && chatSource.contains("if Self.idAnchor, quietFollowKey == key { return }")
       && chatSource.contains("quietFollowKey = quiet ? Board.followKey(fresh) : nil\n                thread = fresh")
       && chatSource.contains("if atBottom && endSeen && !topVisible && !searching { quietFollowKey = nil; keepAtEndTick += 1 }")

@@ -47,6 +47,11 @@ anchor, so the person sees rows again. Josh's phone is the test (the simulator n
 - Review 7 (blind, opus), fixed, all in the quiet read: a new message above the Mac's untimed question row was not followed
   (last row AND last dated row must both be unchanged; TestFlight 40 had this and was not offered); a chat still opening read
   as at its end (endSeen required); a let-go anchor holds nothing (anchor must be "end"). Two false comments corrected.
+- Review 8 (blind, opus), fixed: the keepAtEnd handler compared against the previous body's copy of the thread, so a read
+  that added rows under the same newest row (a small page, then the whole window: the jump on open) still moved the list.
+  It now reads self.thread. Reasoned from source and the repo's own use of the same capture; not run on a device. Round 8 is
+  the cap and the fix is one line with no open BLOCKER, so no round 9. Weakest premise: the quiet read itself is unmeasured on
+  a phone. Josh's capture on the next build decides: its trace says "keepAtEnd: the newest row unchanged and drawn, not moved".
 - Review 5, accepted and stated: the catch-up after the box takes the end marker off screen stays (a move 0.3 s after the
   keystroke, about every second line). Rejected removing it: the newest line would stay hidden behind the box, and Josh's
   capture on TestFlight 39 is what measures it. The chat still has no behaviour test for a blank (the simulator never

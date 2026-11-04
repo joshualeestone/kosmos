@@ -751,7 +751,8 @@ struct ChatView: View {
                 .onChange(of: keepAtEndTick) { _ in
                     // kosmos#7420 review 5: a read that left the same newest row at a drawn end moves nothing. The settled look
                     // stays, so a read that left the list blank or past its end is still put right.
-                    if Self.idAnchor, quietFollowKey == Board.followKey(thread) {
+                    // Review 8: self.thread, the chat's state: a bare `thread` here is the previous body's copy, from before this read.
+                    if Self.idAnchor, let now = self.thread, quietFollowKey == Board.followKey(now) {
                         Self.trace("keepAtEnd: the newest row unchanged and drawn, not moved")
                         settleAtNewest(proxy, boxMoved: false)
                         return
