@@ -19,7 +19,7 @@
     {
       "icon": "tasks",
       "title": "A project's folder can follow its name",
-      "line": "When you rename a project, Kosmos can offer to rename the folder it made for it to match."
+      "line": "After you rename a project, its settings offer to rename the folder Kosmos made for it to match."
     },
     {
       "icon": "shield",
