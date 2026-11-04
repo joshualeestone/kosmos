@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win-setup-ps1-promote-7883
-diff_hash: d3e75a723e085969edb2d5cfc37de2ec771762516feb0cbb820b46566cc53076
+diff_hash: 2a6b7e466b5104df0b2ad833642b6c91aa71b15d1574a102713c87d85f71036b
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-04T00:12:20Z
+timestamp: 2026-11-04T00:34:44Z
 iterations: 5
 converged: true
 ---
@@ -68,6 +68,10 @@ converged: true
   without the build commit refuses the whole release (documented in the header; skip-installer alternative to
   decide), W2 a zip with no source_sha has its installer taken on its sidecar, NIT1 rollback note, NIT2 harness
   compares against the working file, NIT3 a source_dirty NOTICE.
+- After review, CI fix (mechanical, behaviour-preserving): tools.ps-execpolicy-6569.test.js flags any code line
+  naming a .ps1 without -ExecutionPolicy. The installer is data here, never run, so its name now lives in two
+  constants ($SetupName, $SetupExt), which are listed in that test's REVIEWED with why. The on-box run was repeated
+  after the change: every case gives the same result and the same output text.
 
 ### Final Ledger
 
@@ -99,3 +103,4 @@ None.
 ### Validation
 - Windows PowerShell 5.1 on the Windows box, through the script's own test transport: stage and promote order, pins, contents, refusals, interrupted replace, promote re-check against git, all as recorded in the plan. The bash harness needs pwsh and python3, not on this box; macOS CI runs it.
 - tools/test-gnu-only-forms-6808.sh: all passed.
+- CI round 1: tools.ps-execpolicy-6569.test.js flagged the installer's name as a script launch; it is data, now two constants on the test's REVIEWED list. Behaviour unchanged (on-box run repeated).
