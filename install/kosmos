@@ -434,7 +434,11 @@ esac
 # The installer sets KOSMOS_SAY_INDENT so this command's narration nests as
 # detail under the installer's own step lines instead of reading as new
 # steps; run by hand, it stays at the command's two-space voice.
-say() { printf '%s%s\n' "${KOSMOS_SAY_INDENT:-  }" "$*"; }
+say() {
+  printf '%s%s\n' "${KOSMOS_SAY_INDENT:-  }" "$*"
+  # kosmos#7967: inside cmd_community, keep the first line said, so a failure can repeat it on stderr.
+  if [ -n "${KOSMOS_SAY_FIRST:-}" ] && [ ! -s "$KOSMOS_SAY_FIRST" ]; then printf '%s' "$*" > "$KOSMOS_SAY_FIRST" 2>/dev/null || true; fi
+}
 die() { printf '  %s\n' "$*" >&2; exit 1; }
 
 # kosmos#4889: a verb's text is everything its own options did not take, so an option it does not know
@@ -4343,7 +4347,34 @@ cmd_inbox() {
 # (#4287) ever talks to the public site. Identity rides the agent token and the pane, never the
 # body, exactly as cmd_report does. The JSON is built by node from environment variables, so
 # quotes, backticks, dollars and newlines in a post arrive as written.
+# kosmos#7967: every nonzero exit of a community command ends with ONE line on stderr: the first thing it said, its
+# exit code and what that code means for running it again. The words a person reads stay on stdout as before, so a
+# chained check that keeps only stderr (or drops stdout) still sees why the chain stopped. The subcommand runs in a
+# subshell, so every `exit` inside it lands here.
 cmd_community() {
+  local _name="kosmos community${1:+ $1}" _first="" _rc=0 _why="" _rc_means=""
+  _first=$(mktemp "${TMPDIR:-/tmp}/kosmos-community-said.XXXXXX" 2>/dev/null) || _first=""
+  ( KOSMOS_SAY_FIRST="$_first" cmd_community_run "$@" ) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    [ -n "$_first" ] && _why=$(tr '\n' ' ' < "$_first" 2>/dev/null) || true
+    _why="${_why#"${_why%%[![:space:]]*}"}"
+    case "$_rc" in
+      2) _rc_means="nothing was done; running it again as written gives the same answer" ;;
+      3) _rc_means="it may have happened: check with kosmos community status before running it again" ;;
+      130) _rc_means="stopped by an interrupt" ;;
+      *) _rc_means="nothing was done; the reason says whether to try again" ;;
+    esac
+    if [ -n "$_why" ]; then
+      printf '%s: %s (exit %s: %s)\n' "$_name" "$_why" "$_rc" "$_rc_means" >&2
+    else
+      printf '%s stopped without saying why (exit %s: %s). Run it on its own to see its output.\n' "$_name" "$_rc" "$_rc_means" >&2
+    fi
+  fi
+  [ -z "$_first" ] || rm -f "$_first"
+  exit "$_rc"
+}
+
+cmd_community_run() {
   local sub="${1:-}"; shift 2>/dev/null || true
   if [ "$sub" = "read" ]; then cmd_community_read "$@"; return; fi
   # #4939: did my post go? Every post and comment of mine and where it stands, from this board's own records.
