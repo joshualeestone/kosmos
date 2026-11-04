@@ -19,7 +19,7 @@ they are smaller."
 - Whether a cold signed-in launch going still orb (#7945) then dots should match is Josh's one-line call.
 
 ## Steps
-1. SweepLogic + SweepDots + the three sites. done
+1. SweepLogic + SweepDots; the two Agents-tab sites (after review 1). done
 2. ios/LogicTests/run-sweep.sh + CI step; a counter-clockwise mutant fails it. done
 3. Simulator SDK build, as ios.yml runs it: `xcodebuild -project Kosmos.xcodeproj -target Kosmos -sdk iphonesimulator
    -configuration Debug CODE_SIGNING_ALLOWED=NO build` (SYMROOT outside the worktree): BUILD SUCCEEDED. done

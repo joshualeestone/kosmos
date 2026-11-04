@@ -30,7 +30,7 @@ struct SweepDots: View {
         }
         .frame(width: side, height: side)
         if let label {
-            drawn.accessibilityElement().accessibilityLabel(Text(label)).accessibilityAddTraits(reduceMotion ? [] : .updatesFrequently)
+            drawn.accessibilityElement().accessibilityLabel(Text(label)).accessibilityAddTraits(.updatesFrequently)   // it moves with Reduce Motion too (the pulse)
         } else {
             drawn.accessibilityHidden(true)
         }

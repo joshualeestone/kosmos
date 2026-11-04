@@ -23,6 +23,10 @@ func pct(_ x: Double) -> String { String(Int((x * 100).rounded())) }
 func missingPins(_ page: String) -> [String] {
     var want = [
         "--dot: calc(var(--sz)*\(SweepLogic.dotShare))",
+        // Each dot sits at the top of its rotator, centred: the ring SweepLogic.dots places them on.
+        "position: absolute; top: 0; left: 50%; width: var(--dot); height: var(--dot);",
+        // Reduce Motion: no scale (SweepLogic's 1.0) and the pulse's resting opacity.
+        "transform: none !important; opacity: \(css(SweepLogic.calmHigh)); }",
         ".spin-sweep i::before { animation: sweepLite \(css(SweepLogic.loop))s ease-in-out infinite; opacity: \(css(SweepLogic.restOpacity)); }",
         "@keyframes sweepLite { 0%, \(pct(SweepLogic.restFrom))%, 100% { opacity: \(css(SweepLogic.restOpacity)); transform: scale(\(css(SweepLogic.restScale))); } "
             + "\(pct(SweepLogic.peakAt))% { opacity: \(css(SweepLogic.litOpacity)); transform: scale(\(css(SweepLogic.litScale))); } }",
