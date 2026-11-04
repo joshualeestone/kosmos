@@ -111,6 +111,7 @@ const ALSO_ROOT = ['cli.world-outbox-1704.test.js', 'engine.boardauth-1946.test.
 
 // Test files that branch on a win32 host but are not run on Windows, each with why.
 const HOST_BRANCH_EXCLUDED = {
+  'engine/machinecost-7978.test.js': 'its win32 branches only skip: the module does not run on Windows, which has no tmux or ps (#7978)',
   'engine/store.mode-hardening-1760.test.js': 'its win32 branch skips every arm: it checks POSIX file modes (the data root 0700, the message log 0600), which Windows does not have; chmod there only toggles read-only (#1760).',
   'engine/store.chmod-retry-7554.test.js': 'its win32 branch skips every arm: it checks POSIX file modes (whether the data root is tightened to 0700 after an EBUSY, EPERM or EACCES chmod), which Windows does not have (#7554)',
   'server.builtcommit-7508.test.js': 'its win32 branches only skip the Mac CLI arms (install/kosmos is a bash script, which a Windows runner does not run); the Windows CLI arms of the same file drive tools/windows/kosmos-cli.js through its own entry point with real git, and run on every host (#7508)',
