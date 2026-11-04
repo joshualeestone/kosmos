@@ -274,6 +274,16 @@ promote; rc=$?; refuses_clean "#7890 an installer that is neither the build's co
 # And a HEAD git cannot read (no git at all on PATH; node kept) is refused with git's reason, never as a wrong-bytes claim.
 mkdir -p "$TMP/nogit"; ln -sf "$(command -v node)" "$TMP/nogit/node"
 cp "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; cp "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
+# #7959: a git that hangs during a promote, which runs while publish.lock is held: stopped at the limit, refused as a read
+# that decided nothing, says why, and the lock is released. Node kept, so the failure can only be git's.
+mkdir -p "$TMP/hanggit"; ln -sf "$(command -v node)" "$TMP/hanggit/node"
+printf '#!/bin/sh\nexec /bin/sleep 60\n' > "$TMP/hanggit/git"; chmod +x "$TMP/hanggit/git"
+t0=$(date +%s); rc=0; ( PATH="$TMP/hanggit"; promote -NodeTimeoutSec 5 ) || rc=$?; took=$(( $(date +%s) - t0 ))
+refuses_clean "#7959 a git that hangs in a promote: refused, nothing written" "git cannot say which commit HEAD i"
+grep -qF "git: it did not finish within 5 seconds and was stopped" "$TMP/out" && pass "#7959 and it says git was stopped" || fail "#7959 the stop was not said: $(tail -3 "$TMP/out")"
+[ "$took" -lt 45 ] && pass "#7959 at the limit, not at git's own end (${took}s; git would sleep 60)" || fail "#7959 took ${took}s"
+[ -e "$FAKE/publish.lock" ] && fail "#7959 publish.lock was left held" || pass "#7959 publish.lock is released"
+grep -q '^PUT publish\.lock ' "$FAKE/.calls" && pass "#7959 control: the lock had been taken, so its release means something" || fail "#7959 control: the run never took the lock, so this proves nothing"
 # Only node on PATH, so no host's git is found ($PWSH is an absolute path).
 rc=0; ( PATH="$TMP/nogit"; promote ) || rc=$?; refuses_clean "#7890 a HEAD git cannot read: refused, saying git cannot say which commit HEAD is" "git cannot say which commit HEAD is (git is not installed"
 mv "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; mv "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
@@ -775,44 +785,44 @@ cat > "$TMP/bounded.ps1" <<'PSEOF'
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 $NodeTimeoutSec = 8
-Import-FromScript $args[0] @('ConvertTo-NativeArg', 'Invoke-NodeBounded') @('Utf8')
+Import-FromScript $args[0] @('ConvertTo-NativeArg', 'Invoke-ChildBounded') @('Utf8')
 $node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
 # Stdin reaches EOF even though this pwsh's own stdin is held open by the caller.
-$r = Invoke-NodeBounded $node @('-e', "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})")
+$r = Invoke-ChildBounded $node @('-e', "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})")
 "eof=$($r.Out) rc=$($r.Rc) undecided=[$($r.Undecided)]"
 # Arguments arrive byte for byte.
 $weird = @('a b', 'q"uote', 'trail\', 'sp ace\', '', 'back\\"slash', 'plain')
-$r = Invoke-NodeBounded $node (@('-e', 'console.log(JSON.stringify(process.argv.slice(1)))') + $weird)
+$r = Invoke-ChildBounded $node (@('-e', 'console.log(JSON.stringify(process.argv.slice(1)))') + $weird)
 "args_same=$(($r.Out | ConvertFrom-Json | ConvertTo-Json -Compress) -ceq ($weird | ConvertTo-Json -Compress))"
 # Stdin text arrives as UTF-8 and the answer comes back as UTF-8.
-$r = Invoke-NodeBounded $node @('-', 'one', 'two') "console.log('argc '+process.argv.length)"
+$r = Invoke-ChildBounded $node @('-', 'one', 'two') "console.log('argc '+process.argv.length)"
 "script=$($r.Out)"
-$r = Invoke-NodeBounded $node @('-') "console.log('$([char]0xe9)')"
+$r = Invoke-ChildBounded $node @('-') "console.log('$([char]0xe9)')"
 "utf8=$([int][char]$r.Out[0])"
 # An exit code comes back, and two lines join.
-$r = Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)")
+$r = Invoke-ChildBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)")
 "rc4=$($r.Rc) out=$($r.Out) undecided=[$($r.Undecided)]"
 # A node that prints a pass and never exits is stopped, and does not read as a pass.
 $NodeTimeoutSec = 4
 $t0 = Get-Date
-$r = Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)")
+$r = Invoke-ChildBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)")
 "hang rc=$($r.Rc) out=$($r.Out) quick=$(((Get-Date) - $t0).TotalSeconds -lt 20) undecided=[$($r.Undecided)]"
 # A node that never reads a stdin too big for the pipe: the write is under the limit as well.
 $t0 = Get-Date
-$r = Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000)
+$r = Invoke-ChildBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000)
 "bigstdin rc=$($r.Rc) quick=$(((Get-Date) - $t0).TotalSeconds -lt 20)"
 # Something node started that keeps the pipe open: exit 0 must not pass with its output missing.
 $sh = Join-Path $args[2] 'holdpipe.sh'
 "#!/bin/sh`necho PASS`nperl -e 'select(undef, undef, undef, 12)' &`nexit `$1`n" | Set-Content -NoNewline -LiteralPath $sh
 chmod +x $sh
 $NodeTimeoutSec = 20
-$r = Invoke-NodeBounded $sh @('0')
+$r = Invoke-ChildBounded $sh @('0')
 "held rc=$($r.Rc) undecided=[$($r.Undecided)]"
 # And a non-zero exit: rc 1 is an accepted verdict from ships-checker, and this one's text was never read.
-$r = Invoke-NodeBounded $sh @('1')
+$r = Invoke-ChildBounded $sh @('1')
 "heldnonzero rc=$($r.Rc) undecided=[$(if ($r.Undecided) { 'yes' })]"
 # A program that does not exist does not start, and that is not exit 0.
-$r = Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @()
+$r = Invoke-ChildBounded (Join-Path $args[2] 'no-such-node') @()
 "nostart rc=$($r.Rc) undecided=[$(if ($r.Undecided) { 'yes' })]"
 PSEOF
 # The pipe from sleep is what holds this pwsh's stdin open, the shape the card measured.

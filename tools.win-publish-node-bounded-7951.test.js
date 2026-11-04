@@ -51,7 +51,7 @@ const HARNESS = String.raw`
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($args[0], [ref]$null, [ref]$null)
-foreach ($f in 'ConvertTo-NativeArg', 'Invoke-NodeBounded') {
+foreach ($f in 'ConvertTo-NativeArg', 'Invoke-ChildBounded') {
   $d = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $f }, $true) | Select-Object -First 1
   . ([scriptblock]::Create($d.Extent.Text.Replace("function $f", "function global:$f")))
 }
@@ -63,23 +63,32 @@ $res = @{}
 function Row($r) { @{ rc = $r.Rc; out = $r.Out; undecided = $r.Undecided } }
 if ($args[4] -ceq 'waits') {
   $NodeTimeoutSec = 5
-  $res.hang = Row (Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)"))
+  $res.hang = Row (Invoke-ChildBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)"))
   $NodeTimeoutSec = 3
-  $res.bigstdin = Row (Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000))
+  $res.bigstdin = Row (Invoke-ChildBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000))
+  # #7959: a raw read that never ends is stopped too, and hands back no partial bytes that could be taken for the file.
+  $r = Invoke-ChildBounded $node @('-e', "process.stdout.write('part');setInterval(()=>{},1000)") -Raw
+  $res.rawhang = @{ rc = $r.Rc; undecided = $r.Undecided; bytesEmptyOrNull = ($null -eq $r.Bytes -or $r.Rc -ne 0) }
   $NodeTimeoutSec = 120
   # Something node started keeps its output open after node has exited 0: the handle inheritance is Windows's own.
-  $res.held = Row (Invoke-NodeBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},10000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
+  $res.held = Row (Invoke-ChildBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},10000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
 } else {
-  $res.eof = Row (Invoke-NodeBounded $node @('-e', "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})"))
-  $r = Invoke-NodeBounded $node (@('-e', 'console.log(Buffer.from(JSON.stringify(process.argv.slice(1))).toString("base64"))') + $weird)
+  $res.eof = Row (Invoke-ChildBounded $node @('-e', "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})"))
+  $r = Invoke-ChildBounded $node (@('-e', 'console.log(Buffer.from(JSON.stringify(process.argv.slice(1))).toString("base64"))') + $weird)
   $res.args = Row $r
   $res.want = $weird
-  $res.script = Row (Invoke-NodeBounded $node @('-', 'one', 'two') "console.log('argc '+process.argv.length)")
-  $res.utf8 = Row (Invoke-NodeBounded $node @('-') "console.log(process.argv.length, '$([char]0xe9)'.codePointAt(0), '$([char]0xe9)')")
-  $res.exit4 = Row (Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)"))
-  $res.nostart = Row (Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @())
-  # The form publish-r2.ps1 starts git with.
-  $res.emptypipe = @(@() | & $node -e "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})") -join ' '
+  $res.script = Row (Invoke-ChildBounded $node @('-', 'one', 'two') "console.log('argc '+process.argv.length)")
+  $res.utf8 = Row (Invoke-ChildBounded $node @('-') "console.log(process.argv.length, '$([char]0xe9)'.codePointAt(0), '$([char]0xe9)')")
+  $res.exit4 = Row (Invoke-ChildBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)"))
+  $res.nostart = Row (Invoke-ChildBounded (Join-Path $args[2] 'no-such-node') @())
+  # #7959: -Raw keeps every byte: a NUL, CRLF, and bytes that are not UTF-8, as an installer read from git must. Decoded, 0xFF would change.
+  $r = Invoke-ChildBounded $node @('-e', "process.stdout.write(Buffer.from([0,255,13,10,128,65,10]))") -Raw
+  $res.raw = @{ rc = $r.Rc; out = $r.Out; undecided = $r.Undecided; bytes = @($r.Bytes | ForEach-Object { [int] $_ }) }
+  $r = Invoke-ChildBounded $node @('-e', "process.stdout.write(Buffer.from([255]))")
+  $res.notraw = @{ out = $r.Out; hasBytes = ($null -ne $r.Bytes) }
+  # #7959: -HoldStderr hands back what git says about a commit it cannot read, for the refusal to quote.
+  $r = Invoke-ChildBounded $node @('-e', "console.error('fatal: not a tree');process.exit(128)") -HoldStderr
+  $res.held128 = @{ rc = $r.Rc; err = $r.Err.Trim(); undecided = $r.Undecided }
 }
 [IO.File]::WriteAllText($args[3], ($res | ConvertTo-Json -Depth 4), $Utf8)
 `;
@@ -99,7 +108,7 @@ test('CI has both PowerShells to test with', { skip: process.platform !== 'win32
   assert.deepStrictEqual(RUNTIMES, ['powershell.exe', 'pwsh'], 'this job is the only place these functions run on Windows, so a missing runtime is a failure, not a skip');
 });
 
-if (!RUNTIMES.length) test('Invoke-NodeBounded', { skip: 'pwsh is not installed here, so it did not run on this computer' }, () => {});
+if (!RUNTIMES.length) test('Invoke-ChildBounded', { skip: 'pwsh is not installed here, so it did not run on this computer' }, () => {});
 
 // A real Ctrl+C reaches a console, not a signal, so this arm is off Windows; the waits it pins are the same code.
 test('Ctrl+C is not held off by the limit, and takes node with it', { skip: process.platform === 'win32' || !RUNTIMES.includes('pwsh') }, async () => {
@@ -109,7 +118,7 @@ test('Ctrl+C is not held off by the limit, and takes node with it', { skip: proc
     const pidFile = path.join(dir, 'node.pid');
     fs.writeFileSync(harness, HARNESS.slice(0, HARNESS.indexOf('$res = @{}')) + String.raw`
 $NodeTimeoutSec = 40
-[void] (Invoke-NodeBounded $node @('-e', "require('fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000)", $args[2]))
+[void] (Invoke-ChildBounded $node @('-e', "require('fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000)", $args[2]))
 `);
     const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', harness, SCRIPT, process.execPath, pidFile], { env: PS_ENV, stdio: 'ignore' });
     const gone = new Promise((resolve) => child.on('exit', resolve));
@@ -149,7 +158,7 @@ for (const ps of RUNTIMES) {
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   };
 
-  test(`Invoke-NodeBounded under ${ps}`, async () => {
+  test(`Invoke-ChildBounded under ${ps}`, async () => {
     const res = await harnessRun('answers');
     assert.deepStrictEqual(res.eof, { rc: 0, out: 'EOF', undecided: '' }, 'node sees EOF on its stdin');
     assert.deepStrictEqual(JSON.parse(Buffer.from(res.args.out, 'base64').toString()), res.want, 'arguments arrive byte for byte');
@@ -158,13 +167,18 @@ for (const ps of RUNTIMES) {
     assert.deepStrictEqual(res.exit4, { rc: 4, out: 'one two', undecided: '' }, 'an exit code comes back');
     assert.strictEqual(res.nostart.rc, 99, 'a node that does not start');
     assert.ok(res.nostart.undecided, 'and it says so');
-    assert.strictEqual(res.emptypipe, 'EOF', 'the form git is started with closes stdin');
+    assert.deepStrictEqual(res.raw, { rc: 0, out: '', undecided: '', bytes: [0, 255, 13, 10, 128, 65, 10] }, 'raw: every byte, exactly');
+    assert.strictEqual(res.notraw.hasBytes, false, 'control: no raw bytes unless asked for');
+    assert.notStrictEqual(res.notraw.out, '\xff', 'control: decoded, that byte does not survive, which is why -Raw exists');
+    assert.deepStrictEqual(res.held128, { rc: 128, err: 'fatal: not a tree', undecided: '' }, 'held stderr comes back, and a refusal by git is an answer');
   });
 
-  test(`Invoke-NodeBounded stops what does not finish, under ${ps}`, async () => {
+  test(`Invoke-ChildBounded stops what does not finish, under ${ps}`, async () => {
     const res = await harnessRun('waits');
     assert.deepStrictEqual(res.hang, { rc: 98, out: 'PASS', undecided: 'it did not finish within 5 seconds and was stopped' }, 'a printed PASS that never exits is stopped');
     assert.strictEqual(res.bigstdin.rc, 98, 'a stdin node never reads cannot outlast the limit');
+    assert.strictEqual(res.rawhang.rc, 98, 'a raw read that never ends is stopped');
+    assert.ok(res.rawhang.undecided, 'and says so');
     assert.strictEqual(res.held.rc, 97, 'exit 0 with its output held open is not a pass');
     assert.ok(res.held.undecided, 'and it says so');
   });
