@@ -165,6 +165,7 @@ const USAGE = {
   ].join('\n'),
   feedback: [
     'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)',
+    '       kosmos feedback write --unchanged [text]  (nothing new since your last report; any text is added to it)',
     '       kosmos feedback show [YYYY-MM-DD]  (defaults to today)',
     '       kosmos feedback list',
     '       kosmos feedback day                (your own day on this computer, for writing the report)',
@@ -2365,6 +2366,9 @@ async function agentRoleDraft(ctx, args) {
    the report store is local (engine/feedback.js), so they work with no board. */
 const FEEDBACK_WRITE_USAGE = 'Usage: kosmos feedback write [text]      (or --body-file <file>, or pipe the report in on stdin)';
 async function feedbackWrite(ctx, args) {
+  /* kosmos#7886 item 6, as install/kosmos: --unchanged, first, points back to this writer's latest earlier report. */
+  const unchangedAsked = args[0] === '--unchanged';
+  if (unchangedAsked) args = args.slice(1);
   const bf = takeBodyFile(ctx, FEEDBACK_WRITE_USAGE, args);   // #5946
   if (!bf) return 2;
   args = bf.args;
@@ -2374,7 +2378,16 @@ async function feedbackWrite(ctx, args) {
     args = t;
   }
   let body = args.join(' ');
-  if (bf.file !== null) {
+  if (unchangedAsked) {
+    if (bf.file !== null) { ctx.err('--unchanged takes a short line, not --body-file, so nothing was saved.'); return 2; }
+    let u;
+    try { const fb = ctx.engine('feedback'); u = fb.unchanged(typeof fb.writer === 'function' ? fb.writer(ctx.env) : null, body); } catch (e) {
+      ctx.err('We could not read your earlier reports (' + String((e && e.message) || e) + '), so nothing was saved.');
+      return 1;
+    }
+    if (!u || !u.ok) { ctx.err('There is no earlier report of yours to point back to, so nothing was saved. Write today\'s report instead.'); return 2; }
+    body = u.body;
+  } else if (bf.file !== null) {
     if (args.length) { ctx.err('Give the report as words or in --body-file, not both, so nothing was saved.'); return 2; }
     const got = bodyFromFile(ctx, bf.file, 'Nothing was saved');
     if (got.code !== undefined) return got.code;

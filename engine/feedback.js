@@ -378,4 +378,26 @@ function reportsForTriage(opts) {
   return { ok: true, reports, notes, read: dir() };
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
+/**
+ * kosmos#7886 item 6: the body for `kosmos feedback write --unchanged`. On a stretch where nothing changed, the honest
+ * report was yesterday's repeated. This points back to the writer's own latest earlier report instead, by its date,
+ * with an optional line of its own. A writer with no earlier report has nothing to point back to: { ok: false }, and
+ * the CLIs refuse rather than save a report that refers to nothing.
+ */
+function unchanged(from, note, date) {
+  const day = date ? assertDate(date) : today();
+  const key = writerKey(from).toLowerCase();
+  for (const d of list()) {
+    if (d >= day) continue;
+    const raw = read(d);
+    if (raw == null) continue;
+    if (sections(stripFrontmatter(raw)).some((x) => x.key.toLowerCase() === key && x.text.trim())) {
+      const extra = String(note == null ? '' : note).trim();
+      return { ok: true, since: d, body: 'Nothing new since my report of ' + d + '.' + (extra ? ' ' + extra : '') };
+    }
+  }
+  return { ok: false };
+}
+const UNCHANGED_NONE = 'There is no earlier report of yours to point back to, so nothing was saved. Write today\'s report instead.';
+
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, UNCHANGED_NONE, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
