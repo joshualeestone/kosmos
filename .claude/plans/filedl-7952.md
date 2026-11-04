@@ -20,9 +20,12 @@ Consequences handled:
 - such a download carries no `download` name from the page, so a web page answered for it counts as the file only
   when sent as an attachment (downloadsStartedHere); every board file route sends an attachment name, so no saved
   name changes;
-- Download folder's refusal is said by the page (pageSaysDownloadRefusal), as a file's is;
-- review 1: a busy computer (429) is always said by the app, because the page's look answers at the click and the
-  download starts only after the Allow question.
+- review 3: a refusal of the download itself (401, 403) is always said by the app, even on a Files list: the page's
+  look is a fetch, which the tunnel can let in where it does not let the download in, so the look may say nothing.
+  Without that, the weakest premise below failing would turn Josh's "the answer was 403" into silence;
+- Download folder's refusals stay the app's to say, as on main (review 3 undid a review 1 change that left a busy
+  answer after the Allow question unsaid); a folder that is busy is said in its own words;
+- review 2: an allowed download whose page commits before its start on the next turn is not started, and said.
 
 Rejected: changing the tunnel's fail-closed rule (right for browsers; a relay release); fetching into a blob (whole
 folder zips in memory, and the app refuses blob downloads by design).
@@ -36,11 +39,12 @@ Folder rows have none; at the computer itself nothing changes. Not on the narrow
 that is not previewed already downloads (kept small on purpose).
 
 ## 3. The Allow wording (Mac app)
-"Neither answer is permanent: it lasts until you quit Kosmos, and after Don't Allow, View > Reload asks you again."
+"Neither answer is permanent: each lasts until you quit Kosmos, and after Don't Allow, View > Reload asks you again."
 
 ## Tests
-- mode selftest +10 rows (224), live download selftest +2 rows (34): the page's own download says same-origin, a
-  frame's is never marked; each red under its mutation (header not set; page check forced true).
+- mode selftest +10 rows (224), live download selftest +3 rows (35): the page's own download says same-origin, a
+  frame's is never marked, a commit before the start voids it; each red under its mutation (header not set; page
+  check forced true; the start's page check removed).
 - native-app.download-5167.test.js: a source pin that the one startDownload sits after the page check, from the
   source frame.
 - web.filebrowser-6724.test.js: the button over Kosmos+, none at the computer, the click handler order, rowKey.
