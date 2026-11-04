@@ -386,10 +386,11 @@ function record(sessionName, entry) {
     owner,
     until: capped(entry.until, CAPS.until),
     /* #7915: a question held until the person returns (`kosmos report needs_you --held`). Kept only on a needs_you
-       and only when true, so every other line is unchanged; read() exposes it. While it stands the phone does not
+       and only when true, and never on an automatic write (a hook cannot hold a question), so every other line is
+       unchanged; read() exposes it. While it stands the phone does not
        buzz, the Recommender does not convene, the card says it is held, and the next direct message from the person
        carries a note saying they are back. */
-    held: state === 'needs_you' && entry.held === true ? true : undefined,
+    held: state === 'needs_you' && entry.held === true && entry.auto !== true ? true : undefined,
     /* #763: the project this report is about (a project id), when the agent
        says. A needs_you that names one lights that project alone; one that
        names none lights no project and is read on the Agents page. */

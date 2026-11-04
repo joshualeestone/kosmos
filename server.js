@@ -18795,6 +18795,10 @@ const server = http.createServer(async (req, res) => {
           const bad = new Error('--held goes only with needs_you: it holds a question until the person is back');
           bad.status = 400; throw bad;
         }
+        if (body.held === true && body.auto === true) {
+          const bad = new Error('--held is for a question you hold yourself, so it takes no --auto');
+          bad.status = 400; throw bad;
+        }
         const roster = safeRoster();
         if (roster === null) {
           sendJson(res, 200, { recorded: false, because: 'we could not check which agents are running, so we could not tell who this is from' });
