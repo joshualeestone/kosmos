@@ -14,7 +14,7 @@ struct KosmosApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     // kosmos#7684: once, before any view reads it, a sort saved before this build is forgotten (Board.resetOldAgentSort).
-    init() { Board.resetOldAgentSort(UserDefaults.standard) }
+    init() { Board.resetOldAgentSort(UserDefaults.standard); OrbLogic.warm() }   // kosmos#7896: the orb's dots and letter cuts, built off the main thread
 
     var body: some Scene {
         WindowGroup {

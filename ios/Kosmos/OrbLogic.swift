@@ -107,6 +107,18 @@ enum OrbLogic {
     /// The still frame (the K facing) for Reduce Motion, worked out once.
     static let stillDots: [Placed] = place(0)
 
+    /// Every orb on screen in one frame shares one placing (review round 2: each did its own). The time is rounded to a
+    /// 30th of a second, the orb's frame rate, so orbs drawn in the same frame ask for the same t. Main thread only, as
+    /// SwiftUI draws.
+    private static var lastT = Double.nan, lastPts: [Placed] = []
+    static func placeShared(_ t: Double) -> [Placed] {
+        let q = (t * 30).rounded() / 30
+        if q != lastT { lastT = q; lastPts = place(q) }
+        return lastPts
+    }
+    /// Builds the dots and the letter cuts away from the main thread, so the first orb shown does not stall a frame.
+    static func warm() { DispatchQueue.global(qos: .utility).async { _ = built.dots.count; _ = cuts.count; _ = stillDots.count } }
+
     /// One circle to fill, in points within a square of side `side`.
     struct Circle { let cx: Double; let cy: Double; let radius: Double }
     static let steps = 8
