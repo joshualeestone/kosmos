@@ -1054,8 +1054,15 @@ struct ChatView: View {
             // (simulator, 11-03: the end marker counts as showing behind the box, so the offset short of the end is asked too)
             if place == "within", !endVisible || onScreen.isEmpty || (scrollBox.shortOfEnd() ?? 0) > 2 {
                 if atBottom, !personScrolling, !scrollBox.underFinger {
-                    Self.trace(onScreen.isEmpty ? "settled: within, nothing drawn, back to the newest" : "settled: the newest not showing, back to it")
-                    goNewest(proxy)
+                    if onScreen.isEmpty {
+                        // kosmos#7420 (build 34, Josh 21:33): going to the newest by id against the inflated estimate landed in
+                        // the same undrawn stretch; the rebuild (recoverEmpty) measures the list again and drew rows each time.
+                        Self.trace("settled: within, nothing drawn, rebuilt")
+                        recoverEmpty(proxy)
+                    } else {
+                        Self.trace("settled: the newest not showing, back to it")
+                        goNewest(proxy)
+                    }
                 } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn") }
             } else if place != "within" { Self.trace("keyboard settled: \(place)") }
             return
