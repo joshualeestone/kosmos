@@ -2,7 +2,7 @@
 
 The iPhone mirrors what #7916 does on the web page (Renet's branch heldcount-7916, plan .claude/plans/heldcount-7916.md).
 
-## The split with #7916 (as of heldcount-7916 at 6424c0c36c)
+## The split with #7916 (as of heldcount-7916 at 937f76544c)
 #7916 marks a held question in four web places: pjPillOf (`summary.needsYouHeld`), tskAskRow
 (`askingWithoutTask[].held`), tskRow's wait and who lines (`waitingOn[].held`, engine/tasks.js waitingOnOf) and
 pjNeedsNotice (a member's `stateHeld`); pjAlsoWhy words the also-rows, which the phone does not have.
@@ -19,6 +19,8 @@ pjNeedsNotice (a member's `stateHeld`); pjAlsoWhy words the also-rows, which the
   keeps its words. Held means something only on a question.
 - **The room's needs-you notice** (ios/Kosmos/BoardRoom.swift `needsNotice`, mirroring pjNeedsNotice): a member's
   `stateHeld` is read with `isTrue`; a held question reads "Held until you are back." with Answer.
+- **Two small pieces on the ask row (round 3):** `askWait` takes its words from `needsWhy["held"]` instead of a literal, and a
+  test pins that a held ask with no known start still says held (`heldNoStart`). The ask row itself is on #7916.
 
 ## Built on #7916 from this branch's first commits (for the record)
 - **Project pill** (`projectWord`, pjPillOf): `.questionHeld`, "Question held", calm, when needsYou == needsYouQuestions
