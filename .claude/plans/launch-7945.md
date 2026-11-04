@@ -38,6 +38,12 @@ first screen's loading mark.
   renderer's golds differ, so changing the palette cannot quietly bring a flash back. Controls: ground's light side
   changed to 0xffffff fails, starGold's dark side changed by one fails, an unchanged copy passes. The launch checks run
   before the orb suite, so its VERDICT line is the last one printed.
+- The pixel check allows one channel in 50,000 off by more than 8 levels. Control: a single 2 px dot painted on the
+  1x light PNG fails it (16 channels; the earlier budget of one in 1,000, 57 channels, would have passed it). A first
+  try at this control used ffmpeg's drawbox, which left the transparent pixels unchanged, so it passed for the wrong
+  reason; the dot is painted with CoreGraphics instead and the file confirmed changed.
+- The launch checks also fail if AppTabs.todayTab is turned on in shipped builds (control: it fails), since the launch
+  ground assumes a native first screen; a palette line the check cannot read prints its own VERDICT (control).
 
 ## Not measured
 A real iPhone. iOS caches launch screens per app: a phone that already had the navy one may show it once more

@@ -6,7 +6,8 @@ import ImageIO
 //   render <out-dir> <side-pt>          writes the six PNGs (ios/tools/render-launch-orb.sh)
 //   render --check <set-dir> <side-pt>  compares them, decoded, with the committed ones (ios/LogicTests/run-orb.sh)
 // The check compares PIXELS, not file bytes: another macOS or Xcode can encode the same picture differently, and
-// can anti-alias an edge a step apart, so a channel may differ by a few levels. A changed orb moves whole dots.
+// can anti-alias an edge a step apart, so a channel may differ by a few levels. Beyond that it allows almost nothing:
+// one 2 px dot added to a 1x picture fails it.
 
 let args = Array(CommandLine.arguments.dropFirst())
 let checking = args.first == "--check"
@@ -57,8 +58,8 @@ for (name, rgb) in golds {
       let a = pixels(image), b = pixels(have)
       var far = 0
       for i in 0..<a.count where abs(Int(a[i]) - Int(b[i])) > 8 { far += 1 }
-      // An edge a step apart moves a few channels a few levels; a changed orb moves whole dots (hundreds of channels).
-      if far > a.count / 1000 { print("STALE  \(file): \(far) channels differ by more than 8 levels"); stale += 1 }
+      // An edge a step apart moves a channel a few levels, not 8; one channel in 50,000 is room for a stray edge.
+      if far > a.count / 50000 { print("STALE  \(file): \(far) channels differ by more than 8 levels"); stale += 1 }
     } else {
       let d = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)!
       CGImageDestinationAddImage(d, image, nil)
