@@ -22898,7 +22898,9 @@ function asSentence(s) {
    never-recorded agent, so the sentence is written once, in modelLine. */
 function lmodelCell(a) {
   const line = tileModelLine(a);
-  return line === modelLine({ neverRecorded: true }) ? '<span class="vh">' + esc(line) + '</span>' : esc(line);
+  // #7978: in this cell, never as its own: the row's grid has exactly seven children.
+  const flag = typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : '';
+  return (line === modelLine({ neverRecorded: true }) ? '<span class="vh">' + esc(line) + '</span>' : esc(line)) + flag;
 }
 /* #6716 (Josh: "I am not sure why it doesnt recognize Renet's model"): the TILE's and the list row's model line. Where
    modelLine has nothing to name (it would say "Made before Kosmos recorded this" or "Unknown Model"), the model the
@@ -24074,7 +24076,7 @@ function lrow(a) {
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${pillVh(lsay)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${pillTitle(lsay)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
     ${lrowTask(taskLine(a, { card: true }))}
-    <div class="lmodel">${lmodelCell(a)}${typeof machineFlagHtml === 'function' ? machineFlagHtml(a) : ''}</div>
+    <div class="lmodel">${lmodelCell(a)}</div>
     <div class="lmem">${mem}</div>
   </div>`;
 }

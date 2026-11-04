@@ -1179,12 +1179,10 @@ const SCREENS = [
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('.lrow .amachine', { state: 'visible', timeout: 15000 });
   }, verify: async (page) => {
-    // The review's worry: an eighth grid child, or a line clipped to nothing. Seven children, and the words fit their cell.
-    const got = await page.locator('.lrow .amachine').first().evaluate((el) => {
-      const row = el.closest('.lrow');
-      return { kids: row.children.length, width: el.getBoundingClientRect().width, clipped: el.scrollWidth > el.clientWidth + 1 };
-    });
-    if (got.kids !== 7) throw new Error('the list row has ' + got.kids + ' children');
+    // The review's worry: the flag as a grid child of its own, or clipped to nothing. It sits in the model cell, and fits it.
+    // Not a count of the row's children: another feature can add one for a moment (seen once in twelve shots).
+    const got = await page.locator('.lrow .amachine').first().evaluate((el) => ({ parent: el.parentElement.className, width: el.getBoundingClientRect().width, clipped: el.scrollWidth > el.clientWidth + 1, kids: [...el.closest('.lrow').children].map((c) => c.className) }));
+    if (got.parent !== 'lmodel') throw new Error('the flag is not in the model cell: ' + JSON.stringify(got));
     if (got.width < 60 || got.clipped) throw new Error('the line does not fit: ' + JSON.stringify(got));
   }, after: async (page) => { await page.unroute('**/api/status*'); } },
   { name: 'agent-machine-page-7978', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {

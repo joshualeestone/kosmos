@@ -345,13 +345,13 @@ test('REAL status row: its session finds the sample and its sessionName does not
       (async () => {
         await mc.tick();
         const a = (status.snapshot().agents || []).find((x) => x.session === 'ava-discord');
-        process.stdout.write('\\nJOIN ' + JSON.stringify(a ? { sessionName: a.sessionName, ours: a.isNamedOurs, bySession: Boolean(mc.read(a.session)), byName: Boolean(mc.read(a.sessionName)) } : null) + '\\n');
+        process.stdout.write('\\nJOIN ' + JSON.stringify(a ? { shown: a.sessionName, ours: a.isNamedOurs, bySession: Boolean(mc.read(a.session)), byName: Boolean(mc.read(a.sessionName)) } : null) + '\\n');
         process.exit(0);
       })();`;
     const r = spawnSync(process.execPath, ['-e', script], { env, encoding: 'utf8', timeout: 45000 });
     const m = /^JOIN (.*)$/m.exec(r.stdout || '');
     assert.ok(m, `no join printed: ${(r.stderr || '').slice(-400)}`);
-    assert.deepEqual(JSON.parse(m[1]), { sessionName: 'ava', ours: true, bySession: true, byName: false });
+    assert.deepEqual(JSON.parse(m[1]), { shown: 'ava', ours: true, bySession: true, byName: false });
   } finally { killServerAt(real, sock); }
 });
 
