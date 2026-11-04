@@ -117,7 +117,7 @@ test('both handlers check before sending, and route the engine refusal to the fi
   // Widen the window past that addition but still within the one handler (it
   // runs ~6870 chars to the next listener), so it cannot spill into and
   // false-match pjs-chats-reveal.
-  assert.match(save.slice(0, 5000), /\/description\/i\.test\(got\.error\)/,
+  assert.match(save.slice(0, 5200), /\/description\/i\.test\(got\.error\)/,
     'a description refusal from the engine still lands under the button');
   const create = PAGE.slice(PAGE.indexOf("getElementById('pj-create').addEventListener"));
   assert.match(create.slice(0, 2000), /pjDescTooLong\(/, 'the create no longer pre-checks');

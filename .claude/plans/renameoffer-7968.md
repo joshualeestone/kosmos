@@ -7,6 +7,6 @@ A Save that changed the name, when the offer now applies, stays on settings, bri
 
 ## Decisions
 - **Call: stay and show it, rather than move the offer up the page or into the project page.** The offer only matters at this moment. Rejected: a permanent place near the name field, which would push the form down for a rare act; and a line on the project page, which adds a second place to offer one thing.
-- **Call: focus goes to the sentence, not the button,** so a second press of Save's key cannot rename a folder. It starts with "Saved.", since the line beside Save is out of view. A later repaint drops that word, which is fine by then.
+- **Call: focus goes to the sentence, not the button,** so a second press of Save's key cannot rename a folder. "Saved." goes in the message line by the offer, which a repaint does not write, since the line beside Save is out of view.
 - **Weakest premise:** that a person understands the page stayed on purpose. The sentence is meant to say enough.
 - **What would change my mind:** a person pressing nothing and not knowing they can leave. The back control is the page's usual one.
