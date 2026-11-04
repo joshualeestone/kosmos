@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// kosmos#7896 (Josh 2026-11-03: the KOSMOS orb replaces the spinner everywhere, "on the mobile apps" too): the app's
-/// loading mark, in place of ProgressView. The geometry is OrbLogic (the desktop's, same seed). About 30 frames a second
+/// loading mark, in place of ProgressView. The geometry is OrbLogic (the desktop's, same seed). 15 frames a second
 /// (the .animation schedule pauses with the app in the background; whether it also pauses for a view kept alive out of
 /// sight is not verified here); with Reduce Motion on, one still frame with the K facing. VoiceOver hears it as
 /// "Loading" unless a caller gives its own label, as ProgressView sites did. Orbs on screen in the same frame share one placing,
@@ -18,6 +18,7 @@ struct KosmosOrb: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.isEnabled) private var isEnabled   // inside a disabled Button it dims with the label beside it
 
     var body: some View {
         Group {
@@ -33,6 +34,7 @@ struct KosmosOrb: View {
             }
         }
         .frame(width: size, height: size)
+        .opacity(isEnabled ? 1 : 0.4)
         .accessibilityElement()
         .accessibilityLabel(Text(label))
         .accessibilityAddTraits(reduceMotion ? [] : .updatesFrequently)

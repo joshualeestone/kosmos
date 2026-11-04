@@ -80,7 +80,7 @@ enum OrbLogic {
     static func place(_ t: Double) -> [Placed] {
         let a = 2 * Double.pi * t / period, ca = cos(a), sa = sin(a), ph = a
         let pha = a + Double.pi / 2, step = floor(pha / Double.pi), into = pha - step * Double.pi
-        let cur = ((Int(step) % 6) + 6) % 6, prev = (cur + 5) % 6, wNew = min(1, into / 0.5)
+        let cur = letter(at: t), prev = (cur + 5) % 6, wNew = min(1, into / 0.5)   // the same letter(at:) the tests check
         var out: [Placed] = []
         out.reserveCapacity(count)
         for d in built.dots {
