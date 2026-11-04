@@ -42,6 +42,8 @@ anchor, so the person sees rows again. Josh's phone is the test (the simulator n
   same newest row at a drawn, settled end no longer moves the list, on the keepAtEnd or the follow route (iOS 17+). The
   settled look stays, so a read that leaves it blank or past its end is put right. Would change my mind: a capture showing
   the list drifting off its end after such a read. (4) A rebuild clears topVisible.
+- Review 6 (blind, sonnet), fixed: a finger arriving inside the later blank's confirm wait dropped the look for good; it now
+  takes the same retry. quietFollowKey is cleared with the chat's reset (no wrong match could be built; tidy).
 - Review 5, accepted and stated: the catch-up after the box takes the end marker off screen stays (a move 0.3 s after the
   keystroke, about every second line). Rejected removing it: the newest line would stay hidden behind the box, and Josh's
   capture on TestFlight 39 is what measures it. The chat still has no behaviour test for a blank (the simulator never
