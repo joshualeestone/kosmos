@@ -30,9 +30,14 @@ main's CI traces, a source check pins both, and the PR's own CI ui tests job pas
 ## Decided
 
 - 6 s, not 4: the measured 3.4 s came from a runner shared with other jobs, and a phone under load can be slower. Rejected
-  removing the limit: it is the only guard against a reading from a will-show whose did-show never came.
-- Weakest premise: that will-hide always arrives between two keyboards. If it did not, a 6 s window holds an older
-  reading a little longer; the settle still checks the row agrees with the list before moving anything.
+  removing the limit: it still bounds a reading whose did-show never came, for a keyboard of the same width.
+- Review 1: a longer window keeps an orphaned reading longer (a will-show with no did-show, an iPad's floating keyboard,
+  where will-hide is not guaranteed), and the usual put-back (holdTarget) does not check the row agrees with the list. So:
+  the reading keeps its will-show's keyboard frame, and a did-show of a keyboard of another WIDTH skips it (width only: one
+  keyboard's height flips, 380 and 608 on Josh's phone, #7817); and the reader's own scroll (a finger) between will-show
+  and did-show drops the reading.
+- Weakest premise: that a floating and a docked keyboard always differ in width. A docked keyboard after an orphaned
+  docked will-show (same width, no will-hide) still gets the older reading, within 6 s.
 
 ## Tests
 

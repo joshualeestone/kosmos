@@ -2896,7 +2896,7 @@ struct KeyboardHold: UIViewRepresentable {
                 DispatchQueue.main.async { self?.putBack(CGFloat(r.content)) }
             })
         }
-        func standDown() { saved = nil; lastJump = nil; appMovedAt = Date(); endGuard(); settleToken &+= 1 }
+        func standDown() { saved = nil; savedKeyboard = nil; lastJump = nil; appMovedAt = Date(); endGuard(); settleToken &+= 1 }
         // Review 2: a page landing above moves the offset by its height with nothing moving on the screen: not the keyboard's jump.
         func pageLanded() { lastJump = nil; appMovedAt = Date() }
         // The reader's row, its place in the content and the scroll offset when the keyboard started to show, the rows above
@@ -2904,6 +2904,8 @@ struct KeyboardHold: UIViewRepresentable {
         // reading for a later one).
         typealias Reading = (row: String, content: CGFloat, offset: CGFloat, above: Int, width: CGFloat, at: Date)
         private var saved: Reading?
+        // kosmos#7609 review 1: the keyboard frame that reading's will-show announced (its width tells a floating keyboard from a docked one).
+        private var savedKeyboard: CGRect?
         private var observers: [NSObjectProtocol] = []
         private weak var scroll: UIScrollView?
         // The reading being held after did-show, and until when; the row's moves are answered only meanwhile.
@@ -3022,6 +3024,10 @@ struct KeyboardHold: UIViewRepresentable {
             scroll = up as? UIScrollView
             lastJump = nil
             offsetWatch = scroll?.observe(\.contentOffset, options: [.old, .new]) { [weak self] v, c in
+                // kosmos#7609 review 1: the reader's own scroll between will-show and did-show is their new place: the reading goes.
+                if let self, self.saved != nil, v.isTracking || v.isDragging {
+                    self.saved = nil; self.savedKeyboard = nil; ChatView.trace("keyboard hold: the reader scrolled before did-show, dropped"); return
+                }
                 guard let self, let a = c.oldValue?.y, let b = c.newValue?.y, !self.keyboardUp, self.saved == nil, self.guarding == nil,
                       !v.isTracking, !v.isDragging, !v.isDecelerating else { return }
                 let now = Date()
@@ -3096,7 +3102,7 @@ struct KeyboardHold: UIViewRepresentable {
             }
             #endif
             let nc = NotificationCenter.default
-            observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
+            observers.append(nc.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] n in
                 guard let self, let sv = self.scroll else { return }
                 let jump = self.lastJump; self.lastJump = nil   // used once, whatever happens below
                 if !self.keyboardUp { self.settleToken &+= 1; self.replaced = false }   // a new keyboard: a settle still waiting belongs to the one before
@@ -3127,16 +3133,24 @@ struct KeyboardHold: UIViewRepresentable {
                 }
                 if back != 0 { ChatView.trace("keyboard hold: read before a jump of \(Int(back))") }
                 self.saved = (r.id, CGFloat(reading.content), sv.contentOffset.y - CGFloat(back), self.above, sv.bounds.width, Date()); self.keptScreenTop = CGFloat(r.top)
+                self.savedKeyboard = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
                 ChatView.trace("keyboard hold: held row at \(Int(reading.content)) in the content, \(Int(r.top)) on the screen, band \(Int(top)) to \(Int(bottom))")
                 ChatView.trace("keyboard hold: chose \(Self.sampleRows(rows, held: r.id))")
             })
-            observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] _ in
+            observers.append(nc.addObserver(forName: UIResponder.keyboardDidShowNotification, object: nil, queue: .main) { [weak self] n in
                 self?.keyboardUp = true
                 guard let self, let kept = self.saved else { return }
-                self.saved = nil
+                let announced = self.savedKeyboard
+                self.saved = nil; self.savedKeyboard = nil
                 guard let rows = self.rows else { return }
+                // kosmos#7609 review 1: a will-show with no did-show (an iPad's floating keyboard) leaves its reading; a later keyboard
+                // of another width (docked, full width) is not that one, however recent. Width only: the height of one keyboard
+                // flips (380 and 608 on Josh's phone, #7817) and must not drop its own hold.
+                if let a = announced, let f = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect, abs(a.width - f.width) > 0.5 {
+                    ChatView.trace("keyboard hold: skipped, another keyboard's reading"); return
+                }
                 // kosmos#7645: 1.3 s on CI's runner once; kosmos#7609 (main run 41780837713, 11-04): 3.4 s on a busy runner, and the
-                // 3 s limit then dropped the whole correction. A will-hide already clears another keyboard's reading (saved = nil).
+                // 3 s limit then dropped the whole correction. Kept as a backstop, past the frame check above.
                 guard Date().timeIntervalSince(kept.at) < Self.staleAfter else { ChatView.trace("keyboard hold: skipped, stale"); return }
                 // 10-30 measured: iOS 26 moves it more than once after did-show, so for a short window every move of the
                 // reader's row is put back, as long as nothing else is moving the list.
@@ -3180,7 +3194,7 @@ struct KeyboardHold: UIViewRepresentable {
             })
             // A keyboard that hides before it finished showing leaves nothing held.
             observers.append(nc.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
-                self?.saved = nil; self?.lastJump = nil; self?.endGuard(); self?.settleToken &+= 1; self?.keyboardUp = false; self?.replaced = false
+                self?.saved = nil; self?.savedKeyboard = nil; self?.lastJump = nil; self?.endGuard(); self?.settleToken &+= 1; self?.keyboardUp = false; self?.replaced = false
             })
         }
     }
