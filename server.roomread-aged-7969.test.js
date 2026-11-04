@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 const { start, server } = require('./server');
 const fleet = require('./test-support/fleet');
 const messages = require('./engine/messages');
+const CLAIMER = 'claimseat';
 const projects = require('./engine/projects');
 const sendertoken = require('./engine/sendertoken');
 
@@ -34,14 +35,14 @@ const DAY = 24 * 60 * 60 * 1000;
 function newRoom(name) {
   const p = projects.create({ name });
   projects.writeAll(projects.readAll().map((q) => (q.id === p.id ? { ...q, createdAt: '2020-01-01T00:00:00.000Z' } : q)));
-  for (const n of [ME, POSTER]) projects.addAgent(p.id, n, roster);
+  for (const n of [ME, POSTER, CLAIMER]) projects.addAgent(p.id, n, roster);
   return p.id;
 }
 
 test.before(async () => {
   await start(0);
   base = `http://127.0.0.1:${server.address().port}`;
-  roster = fleet.install([ME, POSTER].map((n) => fleet.agent(n, { state: 'idle' }))).agents;
+  roster = fleet.install([ME, POSTER, CLAIMER].map((n) => fleet.agent(n, { state: 'idle' }))).agents;
 });
 test.after(() => { try { server.close(); } catch { /* down */ } fs.rmSync(SANDBOX, { recursive: true, force: true }); });
 
@@ -60,7 +61,7 @@ const room = async (project, query) => {
 };
 const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + ']') && !l.startsWith('[kosmos]'));
 const AGED = (n) => '[kosmos] ' + n + (n === 1 ? ' older post' : ' older posts') + ' that asked you something, more than 3 days ago and not from the person, '
-  + (n === 1 ? 'is' : 'are') + ' not listed. Add --all to list ' + (n === 1 ? 'it' : 'them') + ' too.';
+  + (n === 1 ? 'is' : 'are') + ' not listed. Add --all to list ' + (n === 1 ? 'it' : 'them') + ' too (if your kosmos command does not take --all yet, update Kosmos).';
 
 test('kosmos#7969: an agent\'s ask older than 3 days is counted under the list, not in it; a recent one is listed', async () => {
   const pid = newRoom('Aged7969a');
@@ -111,3 +112,30 @@ test('kosmos#7969: when every open ask is older, the head still says it is the f
   assert.ok(e.text.includes('Waiting on an answer from you: nothing in this room.\n') && !e.text.includes('older post'), e.text);
 });
 
+test('kosmos#7969 review 1: claimed and older asks with nothing recent: the head does not say nothing else waits', async () => {
+  const pid = newRoom('Aged7969g');
+  const claimed = ask(pid, 1 * DAY, { to: [ME, CLAIMER], mentioned: [ME, CLAIMER] });
+  append({ kind: 'reaction', project: pid, of: claimed, at: new Date(Date.now() - DAY + 60000).toISOString(), emoji: '\u{1F64B}', op: 'add', from: CLAIMER, claim: true });
+  ask(pid, 5 * DAY);
+  const r = await room(pid, '&unanswered=1');
+  assert.ok(r.text.includes('Waiting on an answer from you: nothing else from the last 3 days waiting on you in this room; the ask below is claimed'),
+    'the head says nothing else waits while older asks are counted below it:\n' + r.text);
+  assert.ok(r.text.includes(AGED(1) + '\n'), r.text);
+  // CONTROL: claimed with nothing older keeps the #7848 sentence.
+  const pid2 = newRoom('Aged7969h');
+  const c2 = ask(pid2, 1 * DAY, { to: [ME, CLAIMER], mentioned: [ME, CLAIMER] });
+  append({ kind: 'reaction', project: pid2, of: c2, at: new Date(Date.now() - DAY + 60000).toISOString(), emoji: '\u{1F64B}', op: 'add', from: CLAIMER, claim: true });
+  const r2 = await room(pid2, '&unanswered=1');
+  assert.ok(r2.text.includes('Waiting on an answer from you: nothing else waiting on you in this room; the ask below is claimed'), r2.text);
+});
+
+test('kosmos#7969 review 1: -n caps the recent asks; the count says only those, and the older ones are counted apart', async () => {
+  const pid = newRoom('Aged7969i');
+  ask(pid, 4 * DAY);
+  const a = ask(pid, 2 * DAY);
+  const b = ask(pid, 1 * DAY);
+  const r = await room(pid, '&unanswered=1&n=1');
+  assert.match(r.text, /^Waiting on an answer from you: 2 posts in this room .*; the newest is below:$/m, 'the older ask was counted with the recent ones:\n' + r.text);
+  assert.ok(listed(r.text, b) && !listed(r.text, a), 'CONTROL: -n 1 shows the newest only:\n' + r.text);
+  assert.ok(r.text.includes(AGED(1) + '\n'), r.text);
+});
