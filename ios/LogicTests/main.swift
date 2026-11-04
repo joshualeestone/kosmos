@@ -953,6 +953,9 @@ do {
     check(heldOnly.count == 1 && Board.todayReason(heldOnly[0]) == ("Held until you are back.", .answer), "kosmos#7924: a held question on Today, in the board's words")
     check(heldOnly.count == 1 && Board.todayWaitingSince(heldOnly[0]) == nil, "kosmos#7924: and no age presses it")
     check(Board.todayWaitingSince(one("cleo")) != nil, "kosmos#7924 control: an asked question keeps its age")
+    // A held question sorts after every wait that presses (it has no age here), even one that began later.
+    let mixed = Board.parseAgents(Data(#"{"agents":[{"sessionName":"hal","name":"Hal","state":"needs_you","cardWord":"Question held","cardTone":"asked","needsReason":"held","waitingSince":"2026-10-24T01:00:00.000Z"},{"sessionName":"zed","name":"Zed","state":"needs_you","cardWord":"Question","cardTone":"asked","needsReason":"question","waitingSince":"2026-10-24T05:00:00.000Z"}]}"#.utf8)) ?? []
+    check(Board.today(agents: mixed, tasks: []).needsYou.map(\.session) == ["zed", "hal"], "kosmos#7924: a held question sorts after a pressing one: \(Board.today(agents: mixed, tasks: []).needsYou.map(\.session))")
     check(Board.todayWhy["permission"]?.0 == "Waiting for you to allow or deny something.", "the spec's permission words")
     check(Board.todayWhy["waiting"]?.0 == "Waiting for you. Open it to see what it shows.", "the spec's words for a wait read off the screen")
     check(Board.todayWhy["restart_failed"]?.0 == "Kosmos restarted it, and it did not come back.", "pjAlsoWhy's words for a failed restart")

@@ -8,6 +8,14 @@ returns a new `held` reason for a calm held own question, by projects.heldOwnQue
 reads), and the phone's todayWhy says "Held until you are back." (the board's PJ_NEEDS_WHY.held), with no age
 (Board.todayWaitingSince). A crash-looping or failed-restart agent keeps its red reason; an asked one stays question.
 
+Order (review 1): a held question has no age on Today, so it sorts with the unknown starts, after every wait that
+presses (TodayLogic.today uses todayWaitingSince).
+
+Accepted cost (review 1): a phone built before this change has no "held" in todayWhy, so it words a held question
+generally ("Kosmos needs you to look at it.", Open), the documented fallback for a reason it does not know, until it
+updates. Rejected: keeping "question" on the wire until the phone can say it understands "held" (a version handshake
+for one sentence).
+
 ## Rejected
 Leaving a held question off Today: the person would have nowhere on the phone's front screen that it still waits.
 
