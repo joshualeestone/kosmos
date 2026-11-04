@@ -32,7 +32,7 @@ missing=""; told=0
 # <artifact prefix> <workflow file>: prints why it does not count, or nothing when it does. Exit 2 = cannot tell.
 one() {
   local name="$1-$V-$SHA" file="$2" ids id run concl event from hsha branch path cmp unknown=0
-  ids="$("$GH" api "repos/$REPO/actions/artifacts?name=$name&per_page=30" --jq '.artifacts[] | select(.expired == false) | .workflow_run.id' 2>/dev/null)" \
+  ids="$("$GH" api "repos/$REPO/actions/artifacts?name=$name&per_page=100" --jq '.artifacts[] | select(.expired == false) | .workflow_run.id' 2>/dev/null)" \
     || { echo "linux-check-runs: GitHub did not answer for the artifact $name" >&2; return 2; }
   [ -n "$ids" ] || { echo "no green run of $file has checked $V ($SHA)"; return 0; }
   while IFS= read -r id; do
@@ -52,7 +52,8 @@ one() {
       # A TAG can be named main, and a dispatch on it reports head_branch main too. So the commit the run ran must be
       # on this repository's main: identical to it, or behind it (main has moved on since). Anything else, no.
       case "$hsha" in *[!0-9a-f]*|'') continue ;; esac
-      cmp="$("$GH" api "repos/$REPO/compare/$hsha...main" --jq '.status' 2>/dev/null)" \
+      # heads/main, not main: with a tag called main, git resolves the bare name to the TAG, which compares identical.
+      cmp="$("$GH" api "repos/$REPO/compare/$hsha...heads/main" --jq '.status' 2>/dev/null)" \
         || { echo "linux-check-runs: GitHub did not answer whether $hsha is on main" >&2; unknown=1; continue; }
       case "$cmp" in identical|ahead) echo "ok $file run $id"; return 0 ;; esac
     fi

@@ -111,6 +111,9 @@ chk "no gh -> 2" [ "$(KOSMOS_GH=/nonexistent/gh bash "$HERE/tools/linux-check-ru
 chk "a sha that is not 64 hex -> 2, before asking GitHub" [ "$(run "$V" "${SHA:0:12}")" = 2 ]
 chk "a version that is not plain -> 2" [ "$(run "9.9.9;x" "$SHA")" = 2 ]
 chk "the artifact query asks for the exact name" grep -qF 'actions/artifacts?name=$name' "$HERE/tools/linux-check-runs.sh"
+# The fake keys the compare on the sha alone, so the ref it compares against is pinned by its text: heads/main, never a
+# bare main (with a tag called main, git resolves the bare name to the tag, which compares identical to itself).
+chk "the compare is against heads/main, not a bare main" grep -qF 'compare/$hsha...heads/main' "$HERE/tools/linux-check-runs.sh"
 
 echo "test-linux-check-runs-7942: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
