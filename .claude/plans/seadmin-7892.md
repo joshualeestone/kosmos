@@ -103,6 +103,14 @@ measured without a person at the screen.
   as a known false positive); it needs per-script rules and the review cap is near.
 - NITs fixed: within-Japanese look-alikes named as not marked; the HELPER_SAYS comment names the literal ternary.
 
+## Review round 8 (sonnet, whole branch) and the stop
+
+- No BLOCKER. WARNING 1 is gate 6 (the prompt text has not been seen), already open below. WARNING 2: more ordinary
+  names carry `unusual` than the comment said; the comment now lists them. CONVENTION: the long lines I wrote are
+  wrapped (the rest are #7116's or regexes).
+- **Stopped at round 8 under Splinter's 8-round rule (no BLOCKER open).** Leftovers go to #7892's card: un-escaping
+  ZWNJ/ZWJ inside Persian and Indic words; the ENOENT wording for a helper whose loader is missing; gate 6.
+
 ## Weakest premise
 
 That the script list in `scriptOf` covers the mixed-script look-alikes that matter, and, larger, that the screen shows the fingerprint wherever one exists, since one-script look-alikes are not marked. A letter from a script not on the list

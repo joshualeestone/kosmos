@@ -224,13 +224,15 @@ function fingerprintDisplay(fp) {
      are left as they are but mark the text unusual, since look-alike letters are the other way to fake a name. Han,
      Hiragana, Katakana and Hangul count as one, and Latin with them is not marked ("NTTデータ", "Kosmos 株式会社" are
      ordinary company names); both are pinned by tests.
-   `unusual` means "look closer", not "suspicious": it is cautious, so some ordinary names carry it (an emoji with
-   its variation selector, a Persian or Indic word with a zero-width joiner or non-joiner: those are escaped too). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in one script
-   that looks like another (all-Cyrillic "АВС" for Latin "ABC") is not marked, nor are dash and slash look-alikes, nor two
-   scripts that are both off SCRIPTS (each counts as "other"), nor look-alikes inside Japanese (Katakana エ and Han
-   工). \p{Cs} cannot arrive through prepare (the decoder
-   refuses ill-formed UTF-8); it is in ESCAPED for any other caller. For an admin add or a reviewer enrolment the
-   fingerprint is the defence; for an org name on a cancel or a revoke nothing here is. */
+   `unusual` means "look closer", not "suspicious", and it is not rare: it is cautious, so ordinary names carry it too
+   (an emoji with its variation selector, a Persian or Indic word with a zero-width joiner or non-joiner, which are
+   escaped; a superscript, a circled number or a Roman-numeral character; half-width katakana; decomposed Hangul; a mark
+   after a hyphen or a digit). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in
+   one script that looks like another (all-Cyrillic "АВС" for Latin "ABC") is not marked, nor are dash and slash
+   look-alikes, nor two scripts that are both off SCRIPTS (each counts as "other"), nor look-alikes inside Japanese
+   (Katakana エ and Han 工). \p{Cs} cannot arrive through prepare (the decoder refuses ill-formed UTF-8); it is in ESCAPED
+   for any other caller. For an admin add or a reviewer enrolment the fingerprint is the defence; for an org name on a
+   cancel or a revoke nothing here is. */
 const ESCAPED = /[\p{Cs}\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}\u2800\uFFFC\uFFFD]|(?! )\p{Zs}/u;
 const SCRIPTS = ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana', 'Hangul', 'Arabic',
   'Hebrew', 'Devanagari', 'Thai'].map((name) => [name, new RegExp('\\p{Script=' + name + '}', 'u')]);
@@ -242,13 +244,20 @@ function scriptOf(ch) {
   return hit ? hit[0] : 'other';
 }
 function shownText(s) {
-  let text = '', unusual = s !== s.normalize('NFC') || [...s].some((c) => /[\p{L}\p{N}]/u.test(c) && c !== c.normalize('NFKC')) || /\p{M}{3}|\p{Me}|[\u0334-\u0338\u20D2\u20D3\u20D8-\u20DA\u20E5\u20E6\u20EA\u20EB]|(?:^|[^\p{L}\p{M}])\p{M}/u.test(s);
+  let text = '';
+  let unusual = s !== s.normalize('NFC')
+    || [...s].some((c) => /[\p{L}\p{N}]/u.test(c) && c !== c.normalize('NFKC'))
+    || /\p{M}{3}|\p{Me}|[\u0334-\u0338\u20D2\u20D3\u20D8-\u20DA\u20E5\u20E6\u20EA\u20EB]|(?:^|[^\p{L}\p{M}])\p{M}/u.test(s);
   const scripts = new Set();
   const chars = [...s];
   chars.forEach((ch, i) => {
-    if (ch === ' ' && (i === 0 || i === chars.length - 1 || chars[i - 1] === ' ')) { text += '\\u{0020}'; unusual = true; return; }
+    if (ch === ' ' && (i === 0 || i === chars.length - 1 || chars[i - 1] === ' ')) {
+      text += '\\u{0020}'; unusual = true; return;
+    }
     if (ch === '\\') { text += '\\\\'; return; }
-    if (ESCAPED.test(ch)) { text += '\\u{' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '}'; unusual = true; return; }
+    if (ESCAPED.test(ch)) {
+      text += '\\u{' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '}'; unusual = true; return;
+    }
     const sc = scriptOf(ch);
     if (sc) scripts.add(sc);
     text += ch;
@@ -308,13 +317,14 @@ function prepare(action, bytes) {
   return prepared;
 }
 
-/* kosmos#7892: what a screen may say when kosmos-se fails. A child-process error's message carries the helper's path,
-   its argv and its stderr, so it is never passed on. kosmos-se writes one line, "kosmos-se: <why>", and every
-   literal <why> it can write is listed here (seadmin-7116.test.js holds this list to native-se/main.swift, and
-   fails on any fail() whose argument is not a literal, a ternary of two literals, or `usage`); a line not on it, or no line, becomes the generic
-   sentence, its usage line included. The one <why> with a variable tail (the Enclave's own description after
-   "refused to make a key") is matched by its fixed start, and only the fixed start is shown. A person cancelling
-   Touch ID also reads "the Secure Enclave refused to sign": the screen cannot tell that from a fault. */
+/* kosmos#7892: what a screen may say when kosmos-se fails. A child-process error's message carries the helper's
+   path, its argv and its stderr, so it is never passed on. kosmos-se writes one line, "kosmos-se: <why>", and every
+   literal <why> it can write is listed here (seadmin-7116.test.js holds this list to native-se/main.swift, and fails
+   on any fail() whose argument is not a literal, a ternary of two literals, or `usage`); a line not on it, or no
+   line, becomes the generic sentence, its usage line included. The one <why> with a variable tail (the Enclave's own
+   description after "refused to make a key") is matched by its fixed start, and only the fixed start is shown. A
+   person cancelling Touch ID also reads "the Secure Enclave refused to sign": the screen cannot tell that from a
+   fault. */
 const HELPER_SAYS = [
   'cannot read the key file', 'the key file is not a plain file', 'the key file belongs to someone else',
   'the key file is readable by others (it must be 0600)', "this Mac's Secure Enclave cannot open that key file",
