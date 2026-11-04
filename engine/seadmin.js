@@ -206,10 +206,12 @@ function fingerprintDisplay(fp) {
    the screen shows instead of the raw string:
    - every control, format (bidi overrides and isolates, zero-width characters, the BOM, the soft hyphen), line or
      paragraph separator, private-use or unassigned code point, every default-ignorable code point (variation
-     selectors, the combining grapheme joiner, the Hangul fillers: invisible marks and letters), and every space
+     selectors, the combining grapheme joiner, the Hangul fillers: invisible marks and letters), the characters that
+     draw as a blank or a box (U+2800 braille blank, U+FFFC object replacement, U+FFFD replacement), and every space
      other than U+0020, is written as \u{XXXX}, and the text is marked unusual;
-   - text not in Unicode's composed form (NFC) is marked unusual: "Cafe" with a combining accent and "Café" with a
-     precomposed one look the same and are different bytes;
+   - text that changes under NFC or NFKC is marked unusual: "Cafe" with a combining accent looks like "Café" with a
+     precomposed one, and fullwidth "ＡBC" like "ABC";
+   - more than two combining marks in a row mark it unusual (a stack can hide or imitate a letter);
    - a backslash is written as \\, so a name that spells "\u{202E}" in plain letters cannot pass for an escaped one;
    - letters from more than one script (Latin with Cyrillic or Greek, say) are left as they are but mark the text
      unusual, since look-alike letters are the other way to fake a name. Latin with Han ("Kosmos 株式会社") is marked
@@ -217,7 +219,7 @@ function fingerprintDisplay(fp) {
    `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in one script that looks like
    another (all-Cyrillic "АВС" for Latin "ABC") is not marked. For an admin add or a reviewer enrolment the
    fingerprint is the defence; for an org name on a cancel or a revoke nothing here is. */
-const ESCAPED = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}]|(?! )\p{Zs}/u;
+const ESCAPED = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}\u2800\uFFFC\uFFFD]|(?! )\p{Zs}/u;
 const SCRIPTS = ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana', 'Hangul', 'Arabic',
   'Hebrew', 'Devanagari', 'Thai'].map((name) => [name, new RegExp('\\p{Script=' + name + '}', 'u')]);
 function scriptOf(ch) {
@@ -226,7 +228,7 @@ function scriptOf(ch) {
   return hit ? hit[0] : 'other';
 }
 function shownText(s) {
-  let text = '', unusual = s !== s.normalize('NFC');
+  let text = '', unusual = s !== s.normalize('NFC') || s !== s.normalize('NFKC') || /\p{M}{3}/u.test(s);
   const scripts = new Set();
   for (const ch of s) {
     if (ch === '\\') { text += '\\\\'; continue; }
@@ -246,6 +248,7 @@ function shownFields(decoded) {
   let unusual = false;
   const walk = (v) => {
     if (typeof v === 'string') { const s = shownText(v); unusual = unusual || s.unusual; return s.text; }
+    if (Array.isArray(v)) return Object.freeze(v.map(walk).filter((w) => w !== undefined));
     if (v && typeof v === 'object' && !(v instanceof Uint8Array)) {
       const out = {};
       for (const [k, x] of Object.entries(v)) { const w = walk(x); if (w !== undefined) out[k] = w; }
@@ -314,8 +317,9 @@ function runHelper(helper, args, input) {
     const child = execFile(helper, args, { timeout: HELPER_TIMEOUT_MS, encoding: 'buffer', maxBuffer: 1 << 16 },
       (err, stdout, stderr) => {
         if (!err) return resolve(stdout.toString('utf8').trim());
-        // Over maxBuffer: on Node 26 `killed` is unset here (measured), so this reaches the generic sentence either way; the
-        // check keeps it from reading as a timeout on a runtime that does set `killed`.
+        // Over maxBuffer: on Node 26.8.1 on this Mac `killed` was unset here (measured 11-03; other versions may
+        // differ), so this reaches the generic sentence either way; the check keeps it from reading as a timeout on a
+        // runtime that does set `killed`.
         if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return reject(new Error(HELPER_GENERIC));
         if (err.killed) return reject(new Error('kosmos-se did not finish in time (a presence key waits for the person)'));
         if (err.code === 'ENOENT') return reject(new Error('the admin key helper is not installed'));

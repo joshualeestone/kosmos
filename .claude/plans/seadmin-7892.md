@@ -39,6 +39,16 @@ measured without a person at the screen.
   but keeps an overflow from reading as a timeout elsewhere. Not taken: choosing the prompt reason before `load` in
   kosmos-se; the context is a reference read at signing, and only gate 6 can show the prompt either way.
 
+## Review round 2 (sonnet)
+
+- WARNING: blank-looking characters (U+2800, U+FFFC, U+FFFD) passed. Fixed: escaped, with test rows.
+- WARNING: fullwidth and other compatibility look-alikes passed. Fixed: text that changes under NFKC is marked.
+- WARNING: stacked combining marks. Fixed: three or more in a row mark the text; the test uses an NFC-stable stack
+  (x with three accents) so only this rule can catch it, and Devanagari's two marks are the control.
+- NITs fixed: arrays in a decoded value stay arrays in `shown` (no decoder returns one yet, so no test exercises it);
+  the maxBuffer comment names the Node version it was measured on. Kept: the plan's numbering; the kosmos-se reason
+  order (gate 6).
+
 ## Weakest premise
 
 That the script list in `scriptOf` covers the mixed-script look-alikes that matter, and, larger, that the screen shows the fingerprint wherever one exists, since one-script look-alikes are not marked. A letter from a script not on the list

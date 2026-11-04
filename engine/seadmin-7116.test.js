@@ -291,6 +291,16 @@ test('#7892: prepare gives the screen escaped text, so hidden or look-alike char
   // The same letters in two Unicode forms: a combining accent is marked, the precomposed one is not.
   assert.deepStrictEqual(shownOrg('Cafe\u0301'), ['Cafe\u0301', true], 'a decomposed accent');
   assert.deepStrictEqual(shownOrg('Caf\u00E9'), ['Caf\u00E9', false], 'CONTROL: the composed form');
+  // Characters that draw as a blank or a box are escaped (braille blank, object replacement, replacement character).
+  for (const [org, want] of [['Acme\u2800', 'Acme\\u{2800}'], ['\uFFFCAcme', '\\u{FFFC}Acme'], ['Ac\uFFFDme', 'Ac\\u{FFFD}me']])
+    assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // Fullwidth letters look like ASCII ones and change under NFKC: kept as they are, but marked.
+  assert.deepStrictEqual(shownOrg('\uFF21BC'), ['\uFF21BC', true], 'fullwidth A');
+  // A stack of three combining marks is marked even where NFC leaves it alone; two (as in Devanagari) are not.
+  const stack = 'x\u0301\u0302\u0303';
+  assert.strictEqual(stack.normalize('NFC'), stack, 'CONTROL: NFC leaves this stack alone, so only the mark rule can catch it');
+  assert.strictEqual(shownOrg(stack)[1], true, 'three marks');
+  assert.deepStrictEqual(shownOrg('\u0915\u093F\u0902'), ['\u0915\u093F\u0902', false], 'CONTROL: two marks in Devanagari');
   // Latin with Han is marked: cautious, and pinned so a change to it is a decision.
   assert.deepStrictEqual(shownOrg('Kosmos \u682A\u5F0F\u4F1A\u793E'), ['Kosmos \u682A\u5F0F\u4F1A\u793E', true]);
   // Two orgs that render the same raw are told apart once shown.
