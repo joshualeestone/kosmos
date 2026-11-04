@@ -306,7 +306,7 @@ fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"
 PB="$(sed -n 's/.*put it back and run this again: //p' "$T/emptyret.out")"; RF="$RA.retired-20261103T000000Z"
 mkdir -p "$T/pbbin"; printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = cat ] && exit 1\nexec "$@"\n' > "$T/pbbin/sudo"; chmod 755 "$T/pbbin/sudo"
 PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
-[ -n "$PB" ] && [ -s "$RF" ] && [ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $RF back anyway: sudo -u kosmos-ci rm $AG, then paste this again" ] && [ -f "$AG" ] && [ ! -s "$AG" ] && pass "the printed put-back, with a cat that fails, keeps the retired file" || fail "pbfail: [$PB] retired $(ls -l "$RF" 2>&1)"
+[ -n "$PB" ] && [ -s "$RF" ] && [ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $RF back anyway, first move $AG aside with the move-aside this stage prints (run it again without --apply), then paste this again" ] && [ -f "$AG" ] && [ ! -s "$AG" ] && pass "the printed put-back, with a cat that fails, keeps the retired file" || fail "pbfail: [$PB] retired $(ls -l "$RF" 2>&1)"
 rm -f "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 [ "$PBOUT" = "put back" ] && [ ! -e "$RF" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && pass "and with a copy that works, the agent is back and the retired file gone" || fail "pbok: [$PB] agent $(ls -l "$AG" 2>&1)"
 PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
@@ -314,7 +314,7 @@ PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')
   && pass "the printed put-back pasted again refuses and leaves the agent it put back" || fail "pbtwice: [$PBOUT] agent $(ls -l "$AG" 2>&1)"
 # An agent already there (a svc.sh install) with the retired copy still parked: the put-back never writes over it.
 cp "$AG" "$RF"; printf 'reinstalled\n' > "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-[ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $RF back anyway: rm $AG, then paste this again" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
+[ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $RF back anyway, first move $AG aside with the move-aside this stage prints (run it again without --apply), then paste this again" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
   && pass "the printed put-back refuses when an agent is already there, and keeps both files" || fail "pbover: [$PBOUT] agent $(cat "$AG" 2>&1)"
 # kosmos#7887: the printed put-back names what is actually there when it fails. Each arm builds the state, runs the
 # printed text, and checks the last line and that no file was lost.
@@ -358,7 +358,7 @@ MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
 [ "$MVOUT" = "moved aside, but $AG was not removed: sudo -u kosmos-ci rm $AG" ] && cmp -s "$AG" "$T/agent.good" && cmp -s "$D9" "$T/agent.good" \
   && pass "#7887: a move-aside whose final rm fails says it is moved aside and names the rm" || fail "mvrm: [$MVOUT]"
 : > "$D9"; MVOUT="$(sh -c "$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-[ "$MVOUT" = "NOT finished; $AG is not removed. $D9 is there and not the same as it (empty, or cut short): rm $D9, then paste this again" ] && cmp -s "$AG" "$T/agent.good" \
+[ "$MVOUT" = "NOT finished; $AG is not removed. $D9 is there and not the same as it (a copy cut short, or an earlier parked copy); keep it under another name: mv $D9 $D9.earlier, then paste this again" ] && cmp -s "$AG" "$T/agent.good" \
   && pass "#7887: a move-aside onto a different file at its name keeps the agent and names that file" || fail "mvdiff: [$MVOUT]"
 rm -f "$D9" "$AG"
 rm -f "$RF" "$T/agent.good"
