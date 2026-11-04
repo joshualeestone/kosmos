@@ -60,7 +60,7 @@ TWO MODES.
     pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion 0.6.94 -ApprovedSha <sha> -ApprovalRef <ref>
 
   -DryRun on either mode does every read and check and prints what it would write, writing nothing.
-  -NodeTimeoutSec <n> gives each node check n seconds, up to 600 (default 300). A check past that refuses as undecided.
+  -NodeTimeoutSec <n> gives each node check and each git read n seconds, up to 600 (default 300). One past that refuses as undecided.
 
 WHICH READS DECIDE. Every read that decides whether to write (does this version exist, what does
 prod name, what is staged) is a SIGNED read of the bucket itself, so an edge that is challenging or
@@ -244,18 +244,21 @@ function Get-GitBlobSha([byte[]] $Bytes) {
 function Get-SetupAtCommit([string] $Commit) {
   $g = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $g) { return @{ Bytes = $null; Error = 'git is not installed' } }
-  $psi = New-Object Diagnostics.ProcessStartInfo $g.Source
-  $psi.Arguments = '-C "' + $PSScriptRoot.TrimEnd([char]92, [char]47) + '" cat-file blob ' + $Commit + ':tools/windows/' + $SetupName
-  $psi.UseShellExecute = $false; $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
-  $proc = [Diagnostics.Process]::Start($psi)
-  try {
-    try { $proc.StandardInput.Close() } catch { }
-    $errTask = $proc.StandardError.ReadToEndAsync()
-    $ms = New-Object IO.MemoryStream
-    try { $proc.StandardOutput.BaseStream.CopyTo($ms); $proc.WaitForExit(); $b = $ms.ToArray() } finally { $ms.Dispose() }
-    if ($proc.ExitCode -ne 0) { return @{ Bytes = $null; Error = $errTask.Result.Trim() } }
-    @{ Bytes = $b; Error = '' }
-  } finally { $proc.Dispose() }
+  # #7959: under the same limit as node. A promote runs this holding publish.lock, so a git that hangs would hold it too.
+  $r = Invoke-ChildBounded $g.Source @('-C', $PSScriptRoot.TrimEnd([char]92, [char]47), 'cat-file', 'blob', ($Commit + ':tools/windows/' + $SetupName)) -Raw -HoldStderr
+  if ($r.Undecided) { return @{ Bytes = $null; Error = "git: $($r.Undecided)" } }
+  if ($r.Rc -ne 0) { return @{ Bytes = $null; Error = $r.Err.Trim() } }
+  @{ Bytes = $r.Bytes; Error = '' }
+}
+# #7959: one line of git's output, '' on any failure, under the same limit. A git that was stopped says so, since '' alone
+# would read as "git cannot say": the refusals that follow are still right, because a stopped git decided nothing.
+function Get-GitLine([string[]] $GitArgs) {
+  $g = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $g) { return '' }
+  $r = Invoke-ChildBounded $g.Source (@('-C', $PSScriptRoot.TrimEnd([char]92, [char]47)) + $GitArgs) -HoldStderr
+  if ($r.Undecided) { [Console]::Error.WriteLine("publish-r2: git: $($r.Undecided)"); return '' }
+  if ($r.Rc -ne 0 -or -not $r.Out) { return '' }
+  (($r.Out -split ' ')[0]).Trim()
 }
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
 function Get-NodeExe { Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1 }
@@ -264,11 +267,13 @@ function ConvertTo-NativeArg([string] $a) {
   if ($a -and $a -notmatch '[\s"]') { return $a }
   '"' + (($a -replace '(\\*)"', '$1$1\"') -replace '(\\+)\z', '$1$1') + '"'
 }
-# #7951: runs node with its own stdin (StdinText, then closed) and a time limit covering the stdin write too. `& node`
-# inherits this process's stdin: launched from Git Bash, a node had printed its verdict and never exited, and a prod
-# promote sat holding publish.lock for 10 minutes. Returns @{ Rc; Out; Undecided }. Out is its STDOUT lines joined by
-# spaces. Undecided is '' for a run that reached an answer, otherwise why it did not (Rc is then 97, 98 or 99).
-function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $StdinText = '') {
+# #7951: runs a child (node, and git since #7959) with its own stdin (StdinText, then closed) and a time limit covering the
+# stdin write too. `& node` inherits this process's stdin: launched from Git Bash, a node had printed its verdict and never
+# exited, and a prod promote sat holding publish.lock for 10 minutes. Returns @{ Rc; Out; Bytes; Err; Undecided }. Out is its
+# STDOUT lines joined by spaces. -Raw: STDOUT's exact bytes in Bytes instead, since decoding would change them (Out is ''),
+# and Bytes is $null otherwise. -HoldStderr: its STDERR comes back in Err rather than to this script's own. Undecided is ''
+# for a run that reached an answer, otherwise why it did not (Rc is then 97, 98 or 99).
+function Invoke-ChildBounded([string] $Exe, [string[]] $Arguments, [string] $StdinText = '', [switch] $Raw, [switch] $HoldStderr) {
   $psi = New-Object Diagnostics.ProcessStartInfo
   $psi.FileName = $Exe
   $psi.Arguments = @($Arguments | ForEach-Object { ConvertTo-NativeArg $_ }) -join ' '
@@ -279,9 +284,11 @@ function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $Stdi
   $psi.StandardOutputEncoding = $Utf8; $psi.StandardErrorEncoding = $Utf8
   $p = New-Object Diagnostics.Process
   $p.StartInfo = $psi
-  try { [void] $p.Start() } catch { $p.Dispose(); return @{ Rc = 99; Out = ''; Undecided = "node did not start: $($_.Exception.Message)" } }
+  try { [void] $p.Start() } catch { $p.Dispose(); return @{ Rc = 99; Out = ''; Bytes = $null; Err = ''; Undecided = "it did not start: $($_.Exception.Message)" } }
   try {
-    $outTask = $p.StandardOutput.ReadToEndAsync(); $errTask = $p.StandardError.ReadToEndAsync()
+    $ms = $null
+    if ($Raw) { $ms = New-Object IO.MemoryStream; $outTask = $p.StandardOutput.BaseStream.CopyToAsync($ms) } else { $outTask = $p.StandardOutput.ReadToEndAsync() }
+    $errTask = $p.StandardError.ReadToEndAsync()
     $limit = $NodeTimeoutSec
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $left = { [Math]::Max(0, ($limit * 1000) - [int] $clock.ElapsedMilliseconds) }
@@ -303,10 +310,15 @@ function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $Stdi
     }
     # Bounded: something node started can hold the pipe open after node has gone.
     $text = ''; $whole = $false
-    try { if ($outTask.Wait(5000)) { $text = $outTask.Result; $whole = $true } } catch { }
+    try { if ($outTask.Wait(5000)) { if (-not $Raw) { $text = $outTask.Result }; $whole = $true } } catch { }
     if (-not $whole -and -not $undecided) { $rc = 97; $undecided = 'it exited, but its output never closed, so its verdict was not read' }
-    try { if ($errTask.Wait(1000) -and $errTask.Result) { [Console]::Error.Write($errTask.Result) } } catch { }
-    @{ Rc = $rc; Out = (@($text -split '\r?\n' | Where-Object { $_ -ne '' }) -join ' '); Undecided = $undecided }
+    $errText = ''
+    try { if ($errTask.Wait(1000)) { $errText = [string] $errTask.Result } } catch { }
+    if ($errText -and -not $HoldStderr) { [Console]::Error.Write($errText) }
+    $bytes = $null
+    if ($Raw -and $whole) { $bytes = $ms.ToArray() }
+    if ($ms) { $ms.Dispose() }
+    @{ Rc = $rc; Out = (@($text -split '\r?\n' | Where-Object { $_ -ne '' }) -join ' '); Bytes = $bytes; Err = $errText; Undecided = $undecided }
   } finally {
     # Reached with node still running only when the wait was interrupted (Ctrl+C).
     try { if (-not $p.HasExited) { $p.Kill() } } catch { }
@@ -320,7 +332,7 @@ function Invoke-WinManifest([string[]] $Arguments) {
   $node = Get-NodeExe
   if (-not $node) { Refuse "node (an executable, not a .cmd shim) is required to check the signed release manifest (#6466). Nothing was written." }
   $js = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-release-manifest.js'
-  $r = Invoke-NodeBounded $node.Source (@($js) + $Arguments)
+  $r = Invoke-ChildBounded $node.Source (@($js) + $Arguments)
   if ($r.Undecided) { Refuse "the manifest check ($($Arguments[0])) decided nothing about this build: $($r.Undecided)$(if ($r.Out) { " (it had printed: $($r.Out))" }). Run it again. Nothing was written." }
   @{ Rc = $r.Rc; Out = $r.Out }
 }
@@ -788,12 +800,6 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   if (-not $ForSigning) {
     $git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $git) { Refuse "git is needed to read the committed installer script. Nothing was written." }
-    # One line of git's output, '' on any failure. Stop would turn git's stderr into a terminating error on 5.1.
-    function Get-GitLine([string[]] $GitArgs) {
-      $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-      try { $o = @(@() | & $git.Source -C $PSScriptRoot @GitArgs 2>$null); if ($LASTEXITCODE -ne 0 -or $o.Count -eq 0) { return '' }; return "$($o[0])".Trim() }
-      finally { $ErrorActionPreference = $prev }
-    }
     if ($BuiltFrom) {
       $got = Get-SetupAtCommit $BuiltFrom
       if ($null -eq $got.Bytes) { Refuse "$ZipPath was built from $BuiltFrom, and this repository cannot read tools/windows/$SetupName at that commit ($($got.Error)). Fetch it (git fetch origin), then stage again. Nothing was written." }
@@ -1085,11 +1091,8 @@ $SetupSource = 'none'; $SetupLeft = ''; $SetupHead = ''
 function Get-LiveSetupSha { $live = Get-Object $SetupName; if ($live) { Sha256-Bytes $live.Bytes } else { 'absent' } }
 # The commit HEAD names, for the approval line (setup_head), or 'unknown'.
 function Get-SetupHeadCommit {
-  $g = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $g) { return 'unknown' }
-  $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-  try { $o = @(@() | & $g.Source -C $PSScriptRoot rev-parse HEAD 2>$null); if ($LASTEXITCODE -ne 0 -or $o.Count -eq 0) { return 'unknown' }; return "$($o[0])".Trim() }
-  finally { $ErrorActionPreference = $prev }
+  $line = Get-GitLine @('rev-parse', 'HEAD')
+  if ($line) { $line } else { 'unknown' }
 }
 if ($stagedSetup -or $stagedSetupSide) {
   if (-not ($stagedSetup -and $stagedSetupSide)) { Refuse "the bucket holds only one of $SetupVersioned and its .sha256. Re-stage with this script. Nothing was written." }
@@ -1147,8 +1150,8 @@ if (problems.length) { console.log('AMBIGUOUS ' + problems.join('; ')); process.
 console.log((verdict === 'pass' ? 'PASS ' : 'FAIL ') + sha + ' ' + file); process.exit(verdict === 'pass' ? 0 : 4);
 '@
 # The script goes to node on STDIN (`node -`), so there is no temp file another process could swap.
-# Both directions UTF-8 (Invoke-NodeBounded), and a limit (#7951): a stopped run decided nothing, whatever it printed.
-$vr = Invoke-NodeBounded $nodeExe.Source @('-', $spec, $ApprovedVersion, $ApprovedSha) $verdictJs
+# Both directions UTF-8 (Invoke-ChildBounded), and a limit (#7951): a stopped run decided nothing, whatever it printed.
+$vr = Invoke-ChildBounded $nodeExe.Source @('-', $spec, $ApprovedVersion, $ApprovedSha) $verdictJs
 $verdict = $vr.Out; $rc = $vr.Rc
 if ($vr.Undecided) { Refuse "the verification record check decided nothing: $($vr.Undecided)$(if ($verdict) { " (it had printed: $verdict)" }). Run it again. Nothing was written." }
 if ($rc -ne 0) { Refuse "the verification record does not pass ($verdict) (exit $rc). Verify the staged build on this PC first (node tools/win-staging-verify.js). Nothing was written." }
