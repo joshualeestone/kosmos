@@ -2,12 +2,12 @@
 pre_challenge: true
 method: challenge-loop
 branch: heldios-7918
-diff_base: origin/heldcount-7916 (stacked; 937f76544c)
-diff_hash: 3ff9278b8cae049bf702abd6e7977426437e63c16e5682c1ad140966461f64b2
-diff_hash_note: the gate hashes origin/main...HEAD, which on this stacked branch also holds heldcount-7916 (937f76544c), reviewed by its own loop. This loop reviewed only origin/heldcount-7916...HEAD (sha256 26811e7a66f8fa7195e2ac52a6d7ad76bc58f3a3281539bb0e7c87df5ef73a4f). After #7916 merges, rebase onto main and re-hash.
+diff_base: origin/main (after #7916 merged as 048176fc1a)
+diff_hash: d4f59a231e7f63351d69f95a2a5898dfb6c4dd75cf0aee4270da22612ea5a1cc
+diff_hash_note: rebased onto main after #7916 merged; the ios/ diff is byte-identical to the one reviewed in round 4 (git patch-id dfcba01bcb82 before and after).
 validation: passed (iOS LogicTests, all eight runners that compile the changed files; ios.board-parity-7084 11/11)
 subdir_audit: not run (iOS-only diff plus its plan)
-timestamp: 2026-11-04T09:47:50Z
+timestamp: 2026-11-04T13:28:54Z
 iterations: 4
 converged: true
 ---
@@ -49,7 +49,7 @@ parity note that needs no change.
 - [NIT] a held task row with no known start shows no line --> parity with the web, no change
 
 ### Validation
-On a2d3b3930b, a still tree: room 825/825, tasks 139/139, main 1917/1917, actions 99/99, newtask 108/108, taskpage
+On main after #7916 (a still tree): room 830/830, tasks 139/139, main 1918/1918, actions 99/99, newtask 108/108, taskpage
 112/112, files 119/119, settings 42/42; ios.board-parity-7084.test.js 11/11. Mutants: removing the task-row held arm
 (2 fails) or the needs-notice held arm (1 fail) goes red. The full node suite was not run: the diff is Swift and a plan,
 and a release cut (0.7.88) was in progress; iOS CI runs on the PR.
