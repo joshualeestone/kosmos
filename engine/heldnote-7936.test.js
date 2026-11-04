@@ -132,11 +132,12 @@ test('#7936 review 1: an agent on a usage limit as well keeps the day: no 2-hour
     const at = Date.now() - limitqueue.INPUT_DROP_AFTER_MS - MIN;
     const iso = new Date(at).toISOString();
     limitqueue.add('casey', { id: 'm7940', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
-    await sweep(board, Date.now(), { isLimited: () => true });
+    const seen = Date.now();
+    await sweep(board, seen, { isLimited: () => true });
     assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7940'], 'dropped at 2 hours while the agent is limited');
     assert.deepEqual(tmux.pastedTo('leo'), [], 'told about the input box while the agent is limited');
-    await sweep(board, Date.now(), { isLimited: () => false });
-    assert.deepEqual(limitqueue.list('casey'), [], 'CONTROL: with the limit gone the same message drops at 2 hours');
+    await sweep(board, seen + limitqueue.INPUT_DROP_AFTER_MS + MIN, { isLimited: () => false });
+    assert.deepEqual(limitqueue.list('casey'), [], 'CONTROL: with the limit gone the same message drops 2 hours after it ended');
   });
 });
 
@@ -165,5 +166,46 @@ test('#7936 review 1: a still-held notice that does not land is tried again at t
     await sweep(board, Date.now() + 2 * MIN, {}, fake);
     await sweep(board, Date.now() + 3 * MIN, {}, fake);
     assert.equal(tries.length, 3, 'tried again after it landed');
+  });
+});
+
+test('#7936 review 2: a card that cannot be read counts as limited, so a doubt keeps the day', async () => {
+  await withFleet(async (board, tmux) => {
+    const iso = new Date(Date.now() - limitqueue.INPUT_DROP_AFTER_MS - MIN).toISOString();
+    limitqueue.add('casey', { id: 'm7942', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
+    await sweep(board, Date.now(), { resolveCard: () => null });
+    assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7942'], 'dropped at 2 hours with no card to judge');
+    await sweep(board, Date.now(), { isLimited: () => { throw new Error('no verdict'); } });
+    assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7942'], 'dropped at 2 hours when the verdict threw');
+    assert.deepEqual(tmux.pastedTo('leo'), [], 'a notice went out on a doubt');
+  });
+});
+
+test('#7936 review 2: after a limit ends, the 2 hours count from when the box became the only reason', async () => {
+  await withFleet(async (board, tmux) => {
+    const t0 = Date.now() - 5 * 60 * MIN;   // kept 5 hours ago
+    const iso = new Date(t0).toISOString();
+    limitqueue.add('casey', { id: 'm7943', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
+    const limitEnd = Date.now() - 30 * MIN;
+    await sweep(board, limitEnd, { isLimited: () => true });   // the last sweep that saw casey limited
+    await sweep(board, Date.now(), { isLimited: () => false });
+    assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7943'], 'dropped though the box has been the only reason for 30 minutes');
+    const lines = tmux.pastedTo('leo');
+    assert.equal(lines.length, 1, 'the sender was not told once the box was the only reason for 10 minutes');
+    assert.ok(lines[0].includes('drops it at ' + new Date(limitEnd + limitqueue.INPUT_DROP_AFTER_MS).toISOString()), lines[0]);
+    await sweep(board, limitEnd + limitqueue.INPUT_DROP_AFTER_MS + MIN, { isLimited: () => false });
+    assert.deepEqual(limitqueue.list('casey'), [], 'CONTROL: 2 hours after the limit ended it drops');
+  });
+});
+
+test('#7936 review 2: a message typed in the same sweep gets no still-held notice', async () => {
+  await withFleet(async (board) => {
+    const iso = new Date(Date.now() - limitqueue.STILL_HELD_TELL_MS - MIN).toISOString();
+    limitqueue.add('casey', { id: 'm7944', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
+    const tries = [];
+    const fake = { ...messages, tellHeldStill: async (e) => { tries.push(e.id); return { state: chat.DELIVERY.PLACED }; } };
+    await sweep(board, Date.now(), { isReleased: () => true, deliver: async () => ({ state: chat.DELIVERY.PLACED }) }, fake);
+    assert.deepEqual(limitqueue.list('casey'), [], 'CONTROL: the message was typed in this sweep');
+    assert.deepEqual(tries, [], 'a still-held notice followed a message just typed');
   });
 });

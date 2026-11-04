@@ -42,10 +42,16 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
   - the notice counts as told only when it lands (placed or unconfirmed), otherwise the next sweep tries again;
   - a message kept behind an input-held one names the 2 hours in its receipt and the CLI lines (bash and Windows);
   - the tests drive the board's own sweepHooks, not a copy of them.
+- Review 2:
+  - a card that cannot be read or judged counts as limited (a doubt keeps the day);
+  - the 2 hours count from the last sweep that saw the agent limited (in memory: after a restart, from arrival);
+  - still-held notices are said after the sweep's typing, only for messages still kept;
+  - the drop notice says "two hours" only when the 2-hour rule dropped it (the sweep passes `short`);
+  - the told set is cleared on every removal path.
 
 ## Tests
 
-engine/heldnote-7936.test.js (9 tests, through limitqueue.sweepHooks): the limited case and its control, isLimited's
+engine/heldnote-7936.test.js (12 tests, through limitqueue.sweepHooks): the limited case and its control, isLimited's
 wiring, the notice retried until it lands; the notice at 10 min (none at 9, once only, still kept, nothing typed into the box); the
 drop at 2 h with its wording, a usage-limit hold of the same age kept (control); dropAfter by kind; the receipt and
 CLI wording; the unanswered header. Control: with the drop back on DROP_AFTER_MS the 2-hour test fails. Existing:
