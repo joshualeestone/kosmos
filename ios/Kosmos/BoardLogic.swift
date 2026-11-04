@@ -963,7 +963,8 @@ enum Board {
     }
 
     // A live update changes rows in place and never moves them under the person's thumb: the shown order is kept,
-    // a row that is gone is dropped, and a new agent joins at the end (new ones sorted among themselves).
+    // a row that is gone is dropped, and a new agent joins at the end (new ones sorted among themselves), except that a
+    // starred newcomer joins the starred rows at the top (kosmos#7684).
     // kosmos#7421 review 2: the newcomers at the end are put in the chosen order among themselves (sort nil: the older
     // status order, for callers that pick none).
     static func keepingOrder(_ shown: [Agent], with fresh: [Agent], stars: Set<String>? = nil, sort: AgentSort? = nil,
@@ -972,9 +973,8 @@ enum Board {
         let kept = shown.compactMap { byKey[$0.session] }
         let known = Set(shown.map(\.session))
         let newcomers = fresh.filter { !known.contains($0.session) }
-        // kosmos#7684 (Josh 11-03 19:00: "starred agents should always be on top no matter the sort"): the one move a live
-        // update makes is a star's. Starred rows lead, each group in the order it was shown (stars read after the list was
-        // first sorted, or a starred agent that joins later, would otherwise sit below unstarred ones until a re-sort).
+        // kosmos#7684 (Josh 11-03 19:00: "starred agents should always be on top no matter the sort"): a starred agent that
+        // joins on a live update goes up with the starred rows instead of below every unstarred one. Each group keeps its order.
         let ordered = kept + (sort.map { agentOrder(newcomers, sort: $0, projects: projects, stars: stars) } ?? sorted(newcomers, stars: stars))
         return starredFirst(ordered, stars: stars)
     }
