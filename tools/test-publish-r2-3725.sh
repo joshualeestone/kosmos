@@ -327,6 +327,20 @@ PYEOF
 fake -Zip "$TMP/s43.zip"; rc=$?
 if [ "$rc" -eq 0 ] && grep -qF "was built from a tree with uncommitted changes (manifest.json source_dirty)" "$TMP/out" && cmp -s "$FAKE/setup-9.9.43.ps1" "$TMP/setup-head.ps1"; then pass "#7890 a zip built from a dirty tree stages with the committed installer, and says it was dirty"
 else fail "#7890 dirty build: rc=$rc $(tail -2 "$TMP/out")"; fi
+# kosmos#7890: staging a zip that names no commit compares the ONE read of setup.ps1 with HEAD's blob. Run a copy of the
+# script from a scratch repository whose working setup.ps1 has an uncommitted edit: it is refused before any write.
+# (Control: the same copy with a clean working file stages, so the refusal is about the edit.)
+REPO7890="$TMP/repo7890"; rm -rf "${REPO7890:?}"; mkdir -p "$REPO7890/tools"
+cp -R "$HERE/windows" "$HERE/lib" "$REPO7890/tools/"
+git -C "$REPO7890" init -q && git -C "$REPO7890" -c user.email=t@t -c user.name=t add -A >/dev/null && git -C "$REPO7890" -c user.email=t@t -c user.name=t commit -q -m fixture >/dev/null
+fake7890() { : > "$FAKE/.calls"; KOSMOS_PUBLISH_R2_FAKE_DIR="$FAKE" KOSMOS_WIN_VERIFY_DIR="$VDIR" KOSMOS_WIN_PROMOTE_LOG="$ALOG" "$PWSH" -NoProfile -File "$REPO7890/tools/windows/publish-r2.ps1" -CredentialFile "$TMP/cred.env" "$@" > "$TMP/out" 2>&1; }
+mkzip "$TMP/s44.zip" 9.9.44 S44
+printf '\n# an uncommitted edit\n' >> "$REPO7890/tools/windows/setup.ps1"
+fake7890 -Zip "$TMP/s44.zip"; rc=$?; refuses_clean "#7890 staging with an uncommitted edit to setup.ps1 (no source commit): refused, nothing written" "is not byte for byte the script committed at this tree's HEAD"
+git -C "$REPO7890" cat-file blob HEAD:tools/windows/setup.ps1 > "$REPO7890/tools/windows/setup.ps1"
+fake7890 -Zip "$TMP/s44.zip"; rc=$?
+if [ "$rc" -eq 0 ] && cmp -s "$FAKE/setup-9.9.44.ps1" "$TMP/setup-head.ps1"; then pass "#7890 control: the same scratch copy with a clean setup.ps1 stages"
+else fail "#7890 scratch-repo control: rc=$rc $(tail -2 "$TMP/out")"; fi
 cp "$TMP/stg7883.keep" "$FAKE/latest-win-staging.json"
 # -ReplaceVersioned never replaces what prod names.
 fake -Zip "$TMP/b.zip" -ReplaceVersioned; rc=$?; refuses_clean "-ReplaceVersioned refuses the version prod names" "PROD's latest-win.json names"
