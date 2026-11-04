@@ -766,12 +766,25 @@ struct RoomView: View {
                             atBottom = true; endShown = true
                             endShows &+= 1
                             let shows = endShows
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { if endShown && endShows == shows { holdAtEnd = true } }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                if endShown && endShows == shows {
+                                    holdAtEnd = true
+                                    #if DEBUG
+                                    if RoomStore.sample { ChatView.trace("room: end held", ring: false) }   // kosmos#7645 review 6
+                                    #endif
+                                }
+                            }
                             // The end of the room is really on screen: only now may the top ask for older pages (the
                             // spinner at the top has had its chance to leave the screen in the same layout).
                             if !settledAtBottom && !rows.isEmpty { DispatchQueue.main.async { settledAtBottom = true } }
                         }
-                        .onDisappear { atBottom = false; endShown = false; holdAtEnd = false; endShows &+= 1 }
+                        .onDisappear {
+                            atBottom = false; endShown = false; holdAtEnd = false; endShows &+= 1
+                            #if DEBUG
+                            // kosmos#7645 review 6: what clears holdAtEnd, so a will-show reading "at end false" can be traced to it.
+                            if RoomStore.sample { ChatView.trace("room: end gone", ring: false) }
+                            #endif
+                        }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 8)
                 // kosmos#7654 part 2: the DM's keyboard hold (kosmos#7609/#7645): with the anchor holding the bottom edge, a reader
@@ -881,9 +894,11 @@ struct RoomView: View {
             // flash does not set), acted on once it is up. Not animated under the anchor, as the DM.
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 keepNewestOnKeyboard = visible && holdAtEnd && !searchMode
+                #if DEBUG
                 // kosmos#7645 review 4: what decided it, so a lost newest post can be read from the trace (the Debug file only:
                 // ring false keeps it out of the shareable diagnostic, where it would push a scroll event out, review 5).
                 ChatView.trace("room: keyboard will-show, keep newest \(keepNewestOnKeyboard) (visible \(visible), at end \(holdAtEnd), search \(searchMode))", ring: false)
+                #endif
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                 guard keepNewestOnKeyboard, visible else { return }

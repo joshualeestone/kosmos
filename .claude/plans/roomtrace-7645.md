@@ -29,3 +29,5 @@ The check launches with KOSMOS_SAMPLE_TRACE=1, so its next failure on CI prints 
 - Review 5: the will-show line passes ring: false, so it goes only to the Debug trace file, never into the shareable
   diagnostic ring. Deferred: the trace privacy scan in room/main.swift reads ChatView.swift only, not RoomView.swift; that
   gap predates this branch (the new line holds four booleans) and is noted on #7645.
+- Review 6: the end marker traces "room: end held" (holdAtEnd set) and "room: end gone" (cleared), Debug and sample rooms
+  only, out of the ring, so an "at end false" at will-show can be traced to its cause; the order list keeps class names.
