@@ -106,10 +106,10 @@ param(
   # must then ALREADY END IN the prefix (the bucket's public URL + "/_selftest/abc"): names are
   # appended to it as they are, so the served checks read the prefixed objects.
   [string] $KeyPrefix = '',
+  # #7951: seconds one node check may take.
+  [ValidateRange(1, 600)] [int] $NodeTimeoutSec = 300,
   # Removes a publish.lock left by a run that died (it says whose and when), then proceeds.
   # Only when no other run of this script is active.
-  # #7951: seconds one node check may take. Capped so several in a row stay under the 35 minutes after which -BreakLock can take this run's lock.
-  [ValidateRange(1, 600)] [int] $NodeTimeoutSec = 300,
   [switch] $BreakLock,
   [switch] $DryRun
 )
