@@ -1871,11 +1871,11 @@ function logHeldDropped(entry) {
 }
 /* A dropped message's sender was told it was accepted, so it is told, in its own pane, that it never arrived. Through
    the automatic gate (held or refused there, the dropped row still records it). */
-async function tellHeldDropped(entry, roster) {
+async function tellHeldDropped(entry, roster, short) {
   logHeldDropped(entry);
   unspill(entry.spill);   // a long message's file, kept only for the line that was never typed
-  // kosmos#7936: one kept behind an input box is dropped after two hours, and says so.
-  const kept = entry.input === true && !entry.kind ? 'for two hours while its input box held text not yet sent' : 'for a day';
+  // kosmos#7936: one dropped on the 2-hour rule says so (review 2: `short` from the sweep, false when the day applied).
+  const kept = short === true ? 'for two hours while its input box held text not yet sent' : 'for a day';
   const line = '[from Kosmos] Your message ' + entry.id + ' to ' + entry.to + ' was never delivered: Kosmos kept it ' + kept
     + ' and could not type it. Send it again, or to someone else, if it still matters.';
   try { return await chat.deliverAutomaticAsync(entry.from, line, roster); } catch { return null; }

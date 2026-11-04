@@ -567,7 +567,7 @@ test('#5805 2a review 15: the board wires the sweep to the automatic gate, the r
   const body = lq.slice(at, lq.indexOf('\nfunction ', at + 1));   // the whole function, however long it grows
   for (const want of [/chat\.deliverAutomaticAsync\(n, env, r, undefined, undefined, /,   // kosmos#7406: an agent's line may ask for the per-account cap
       /isReleased: \(card, roster, live\) => chat\.limitQueueReleased\(card, roster\)/,   // #6774: and the box rule
-     /messages\.logHeldDelivered\(e, v\)/, /messages\.tellHeldDropped\(e, r\)/]) {
+     /messages\.logHeldDelivered\(e, v\)/, /messages\.tellHeldDropped\(e, r(, short)?\)/]) {
     assert.match(body, want);
   }
 });
