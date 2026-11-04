@@ -242,3 +242,9 @@ test('#7936 review 4: after a board restart the first sweep starts the clock: an
     assert.deepEqual(limitqueue.list('casey'), [], 'CONTROL: 2 hours after the restart it drops');
   });
 });
+
+test('#7936 review 6: a task line kept behind an input-held message is not promised the 2-hour drop (it keeps the day)', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'messages.js'), 'utf8');
+  assert.ok(src.includes("{ behindInput, task: true }), state: HELD_STATE };"), 'the task route marks its receipt as a task line');
+  assert.ok(src.includes("more.behindInput === true && more.task !== true ? ', or, after 2 hours with the box still full, drops it and tells you' : ''"), 'the clause is not for task lines');
+});

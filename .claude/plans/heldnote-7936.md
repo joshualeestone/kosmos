@@ -70,10 +70,11 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
   after the notice. Accepted, not changed: a box holding an earlier Kosmos line that did not send also reads as text,
   so it counts as the box being the reason (the sentence stays true); the retry stamp uses the real clock where the sweep
   passes `now` (the same in production); a notice that fails after its message left the queue leaves one map entry.
+- Review 6: a task line kept behind an input-held message gets no 2-hour clause in its receipt (it keeps the day).
 
 ## Tests
 
-engine/heldnote-7936.test.js (13 tests, through limitqueue.sweepHooks): the not-only-the-box case and its control,
+engine/heldnote-7936.test.js (14 behaviour and source tests, besides the sandbox check, through limitqueue.sweepHooks): the not-only-the-box case and its control,
 boxIsReason's wiring (four cases), a caller with no boxIsReason, the notice retried until it lands; the notice at 10 min (none at 9, once only, still kept, nothing typed into the box); the
 drop at 2 h with its wording, a usage-limit hold of the same age kept (control); dropAfter by kind; the receipt and
 CLI wording; the unanswered header. Control: with the drop back on DROP_AFTER_MS the 2-hour test fails. Existing:
