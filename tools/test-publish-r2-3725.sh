@@ -332,7 +332,11 @@ else fail "#7890 dirty build: rc=$rc $(tail -2 "$TMP/out")"; fi
 # (Control: the same copy with a clean working file stages, so the refusal is about the edit.)
 REPO7890="$TMP/repo7890"; rm -rf "${REPO7890:?}"; mkdir -p "$REPO7890/tools"
 cp -R "$HERE/windows" "$HERE/lib" "$REPO7890/tools/"
-git -C "$REPO7890" init -q && git -C "$REPO7890" -c user.email=t@t -c user.name=t add -A >/dev/null && git -C "$REPO7890" -c user.email=t@t -c user.name=t commit -q -m fixture >/dev/null
+ln -s "$HERE/../engine" "$REPO7890/engine"   # tools/lib/win-release-manifest.js loads engine/ modules; without them its check crashes
+cp "$TMP/setup-head.ps1" "$REPO7890/tools/windows/setup.ps1"   # seeded from HEAD's blob, never this checkout's working file
+GITF=(-c user.email=t@t -c user.name=t -c core.hooksPath=/dev/null -c commit.gpgsign=false)
+git -C "$REPO7890" init -q && git -C "$REPO7890" "${GITF[@]}" add -A >/dev/null && git -C "$REPO7890" "${GITF[@]}" commit -q -m fixture >/dev/null
+[ -n "$(git -C "$REPO7890" rev-parse --verify -q HEAD)" ] || fail "#7890 the scratch repository has no commit, so its tests below test nothing"
 fake7890() { : > "$FAKE/.calls"; KOSMOS_PUBLISH_R2_FAKE_DIR="$FAKE" KOSMOS_WIN_VERIFY_DIR="$VDIR" KOSMOS_WIN_PROMOTE_LOG="$ALOG" "$PWSH" -NoProfile -File "$REPO7890/tools/windows/publish-r2.ps1" -CredentialFile "$TMP/cred.env" "$@" > "$TMP/out" 2>&1; }
 mkzip "$TMP/s44.zip" 9.9.44 S44
 printf '\n# an uncommitted edit\n' >> "$REPO7890/tools/windows/setup.ps1"

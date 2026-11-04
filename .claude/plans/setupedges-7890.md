@@ -35,5 +35,11 @@ leaves setup.ps1 as it is: that is the rollback case of item 5.)
 **Weakest premise:** that HEAD at promote time is a fair witness for a zip that names no commit. It is only used when the
 zip names none, and a mismatch publishes nothing.
 
+## Known limit
+A zip that names no commit, refused at -Promote because HEAD has moved since staging: the commit staging used is only in
+the staging run's own output, not in the bucket, so another PC may not find it; the other fix (a new build) always
+works. Recording it durably (a sidecar or object metadata) is left for a later change; such zips are rare, since the
+build stamps source_sha.
+
 ## Tests
-tools/test-publish-r2-3725.sh: 127 checks pass (6 new for #7890: head, commit, refused not-HEAD, refused no-git, none with setup_left, dirty). Mutants on the unverified refusal and the dirty notice each fail it. Needs pwsh and python3 (macOS CI runs it).
+tools/test-publish-r2-3725.sh: 129 checks pass (8 new for #7890: head, commit, refused not-HEAD, refused no-git, none with setup_left, dirty, and a scratch-repo staging refusal with its clean control). Mutants on the unverified refusal and the dirty notice each fail it. Needs pwsh and python3 (macOS CI runs it).
