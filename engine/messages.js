@@ -2630,6 +2630,12 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
   const mentioned = operator === true ? atNamed.mentioned : addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from, { raw: text });
   /* Round 1: @all is a broadcast, not a request to each member, so a swarm switched off here still needs its own name. */
   const namedHere = operator === true ? atNamed.mentioned : addressedMembers(cleaned, recipients, roster, atNamed.mentioned, from, { all: false, raw: text });
+  /* kosmos#7886 item 2: whether the person's post is open to any member's claim, read by the claim guard's own rule
+     (claimAskedMembers) on the row this post becomes. Only then does the whole-room envelope say to claim it first. Not
+     in a room shared with another computer (a claim there is this computer's alone), and not when no reply is wanted. */
+  const claimOpen = operator === true && replyExpected !== false && federated !== true
+    && claimAskedMembers({ text: stored, from, mentioned: [...atNamed.mentioned], ambiguousMentions: [...ambiguousWords],
+      ...(answered ? { replyTo: answered.id } : {}) }, log, projectId, recipients).length === 0;
   const note4653 = ambiguous.size ? ambiguousNote(ambiguous, atNamed.mentioned, shown) : '';
   const projectsMod = require('./projects');   // lazy: projects requires this module
   const offInProject = projectsMod.swarmOffSet(projectId);
@@ -3053,14 +3059,9 @@ function sendPostWithDelivery({ fromPane, sender: resolvedSender, senderByToken,
     const wrap = (b) => (operator === true
       ? (mentioned.has(name)
         ? '[message from your operator \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
-        /* kosmos#7886 item 2: five agents answered one fresh whole-room question within a minute. A post that names
-           nobody says, beside its answer command, to claim first when one agent should do the work. Not on a post that
-           names someone, nor on a reply to an agent's post (react's claim guard holds either for the member asked), not
-           in a room shared with another computer (a claim there is this computer's alone), and not when no reply is
-           wanted. */
+        /* kosmos#7886 item 2: five agents answered one fresh whole-room question within a minute (claimOpen, above). */
         : '[from your operator in project ' + shownProjectAs + ' \u00b7 ' + id + answers + ' \u00b7 for the whole room' + answer
-          + (replyExpected === false || mentioned.size > 0 || federated || (answered && answered.operator !== true) ? ''
-            : ' \u00b7 if it asks for work one of you should do, claim it first: kosmos claim ' + projectId + ' ' + id)
+          + (claimOpen ? ' \u00b7 if it asks for work one of you should do, claim it first: kosmos claim ' + projectId + ' ' + id : '')
           + ']')
       : (askedHere
         ? '[message from your colleague ' + from + ' \u00b7 ' + id + answers + ' \u00b7 project ' + shownProjectAs + answer + ']'
@@ -3946,6 +3947,28 @@ const ROOM_ASK = /\b(everyone|everybody|all of you|each of you|the rest of you|y
    bob). Not ROOM_ASK, which is about who must ANSWER ("confirm", "reply" ask the named member too), and not "?":
    "@bob can you do X?" asks bob. A pattern always misses some phrasings, which is why the asked members hold a post only
    for CLAIM_ASKED_MINUTES (react): a wrong lock costs at most that long. */
+/* kosmos#7886 item 2: who a post ASKS for the claim guard, in one place, so react() and the whole-room envelope (which
+   tells members to claim first only when this is empty) cannot disagree. Moved unchanged from react(); the comment
+   above its call there says what counts as asked. `post` is a room row, or the row a post is about to become. */
+function claimAskedMembers(post, rows, projectId, roomNow) {
+  const asksRoom = (text, names) => {
+    if (typeof text !== 'string') return false;
+    const t = text.replace(/(^|[.!?;:\n]\s*)(?:(?:hey|hi there|hi|hello|thanks so much|thanks|thank you|ok|okay|so|now|and|but|also|then|great|good morning|morning|yo)[,!]?\s+)?(?:@[\w-]+(?:\.[\w-]+)*[\s,:!\u2013\u2014-]*)+/gi, '$1NAMED ');
+    return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t));
+  };
+  const askedSet = new Set();
+  const named = namedIn(post);   // kosmos#7246 round 7: a header name is asked, as an @-name is
+  const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
+  if (named.length) {
+    if (!unclear && !asksRoom(post.text, true)) for (const n of named) askedSet.add(n);
+  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text, false)) {
+    const answered = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === post.replyTo);
+    // The person's post has no session author ('you' is never a room member), so only an agent's post asks its author.
+    if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from && answered.from !== post.from) askedSet.add(answered.from);
+  }
+  const asked = [...askedSet].filter((n) => !Array.isArray(roomNow) || roomNow.includes(n));
+  return asked;
+}
 const CLAIM_ASKED_MINUTES = 30;   // #6952: how long a post's asked members have first call on it
 // The start of a clause: the text's start, or after . ! ? ; : , a new line, a dash or an opening parenthesis (#6957 review 2).
 const CLAIM_LEAD = "(?:^|[.!?;:,(\\n\\u2013\\u2014-]\\s*)(?:(?:now|so|and|but|ok|okay|also|then|great|thanks)[,!]?\\s+)?";
@@ -4142,22 +4165,7 @@ function react({ project, of, emoji, from, operator, members, claim }) {
      read as the start of a clause either. "Need someone
      to..." is no room ask at all: said to bob, or in a reply to his post, it is bob's (review 2), and a post naming
      nobody is open anyway. */
-  const asksRoom = (text, names) => {
-    if (typeof text !== 'string') return false;
-    const t = text.replace(/(^|[.!?;:\n]\s*)(?:(?:hey|hi there|hi|hello|thanks so much|thanks|thank you|ok|okay|so|now|and|but|also|then|great|good morning|morning|yo)[,!]?\s+)?(?:@[\w-]+(?:\.[\w-]+)*[\s,:!\u2013\u2014-]*)+/gi, '$1NAMED ');
-    return CLAIM_ROOM_ASK.test(t) || (!names && CLAIM_GROUP_ASK.test(t));
-  };
-  const askedSet = new Set();
-  const named = namedIn(post);   // kosmos#7246 round 7: a header name is asked, as an @-name is
-  const unclear = Array.isArray(post.ambiguousMentions) && post.ambiguousMentions.length > 0;
-  if (named.length) {
-    if (!unclear && !asksRoom(post.text, true)) for (const n of named) askedSet.add(n);
-  } else if (typeof post.replyTo === 'string' && !asksRoom(post.text, false)) {
-    const answered = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === post.replyTo);
-    // The person's post has no session author ('you' is never a room member), so only an agent's post asks its author.
-    if (answered && answered.operator !== true && typeof answered.from === 'string' && answered.from && answered.from !== post.from) askedSet.add(answered.from);
-  }
-  const asked = [...askedSet].filter((n) => !Array.isArray(roomNow) || roomNow.includes(n));
+  const asked = claimAskedMembers(post, rows, projectId, roomNow);
   /* The asked members have first call, for CLAIM_ASKED_MINUTES from the post (review 7). After that, with none of them
      holding it, anyone may claim it: a request the pattern misread, or one its asked member never got to, is not held
      forever. */
