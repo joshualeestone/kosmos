@@ -707,6 +707,7 @@ extension Board {
     // counts here, with the board's reason and action words, and the key Dismiss sends.
     static let needsWhy: [String: (why: String, act: String)] = [
         "question": ("Waiting for your answer.", "Answer"),
+        "held": ("Held until you are back.", "Answer"),   // kosmos#7916: the board's PJ_NEEDS_WHY.held
         "trust": ("Waiting for you to approve it before it can start.", "Open"),
         "gave_up": ("Lost its connection, and Kosmos stopped trying to reconnect it.", "Open"),
         "crash_loop": ("Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.", "Open"),
