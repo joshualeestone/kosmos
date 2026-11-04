@@ -441,3 +441,19 @@ test('#7892: two signs asked for at once run one after the other, so two prompts
   await assert.rejects(se.sign(se.prepare('cancel', hex(V.bytes.cancel)), opts));
   assert.strictEqual(fs.readFileSync(log, 'utf8').trim().split('\n').length, 6);
 });
+
+test('#7892: a zero-width joiner or non-joiner inside a Persian or Indic word is spelling, kept and not marked', () => {
+  const shownOrg = (org) => { const p = se.prepare('cancel', se.encodeCancel(org, 'roster-change', Buffer.alloc(16, 7))); return [p.shown.org, p.unusual]; };
+  // Persian "mi" + ZWNJ + "khaham", and Hindi ka + virama + ZWJ + ssa (a half form): as they are, not marked.
+  for (const org of ['\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645', '\u0915\u094D\u200D\u0937'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
+  // Everywhere else it is still escaped and marked: in a Latin name, between two scripts, at either end of a word,
+  // and between letters of a script that does not join.
+  for (const [org, want] of [
+    ['Ac\u200Cme', 'Ac\\u{200C}me'],
+    ['\u0645\u200CA', '\u0645\\u{200C}A'],
+    ['\u0645\u06CC\u200C', '\u0645\u06CC\\u{200C}'],
+    ['\u200C\u0645\u06CC', '\\u{200C}\u0645\u06CC'],
+    ['\u0410\u200D\u0411', '\u0410\\u{200D}\u0411'],
+  ]) assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+});

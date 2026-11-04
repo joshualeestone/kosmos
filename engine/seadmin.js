@@ -225,14 +225,13 @@ function fingerprintDisplay(fp) {
      Hiragana, Katakana and Hangul count as one, and Latin with them is not marked ("NTTデータ", "Kosmos 株式会社" are
      ordinary company names); both are pinned by tests.
    `unusual` means "look closer", not "suspicious", and it is not rare: it is cautious, so ordinary names carry it too
-   (an emoji with its variation selector, a Persian or Indic word with a zero-width joiner or non-joiner, which are
-   escaped; a superscript, a circled number or a Roman-numeral character; half-width katakana; decomposed Hangul; a mark
-   after a hyphen or a digit). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in
-   one script that looks like another (all-Cyrillic "АВС" for Latin "ABC") is not marked, nor are dash and slash
-   look-alikes, nor two scripts that are both off SCRIPTS (each counts as "other"), nor look-alikes inside Japanese
-   (Katakana エ and Han 工). \p{Cs} cannot arrive through prepare (the decoder refuses ill-formed UTF-8); it is in ESCAPED
-   for any other caller. For an admin add or a reviewer enrolment the fingerprint is the defence; for an org name on a
-   cancel or a revoke nothing here is. */
+   (an emoji with its variation selector, which is escaped; a superscript, a circled number or a Roman-numeral
+   character; half-width katakana; decomposed Hangul; a mark after a hyphen or a digit). `unusual: false` does NOT mean
+   a name cannot imitate another. A name written wholly in one script that looks like another (all-Cyrillic "АВС" for
+   Latin "ABC") is not marked, nor are dash and slash look-alikes, nor two scripts that are both off SCRIPTS (each
+   counts as "other"), nor look-alikes inside Japanese (Katakana エ and Han 工). \p{Cs} cannot arrive through prepare (the
+   decoder refuses ill-formed UTF-8); it is in ESCAPED for any other caller. For an admin add or a reviewer enrolment
+   the fingerprint is the defence; for an org name on a cancel or a revoke nothing here is. */
 const ESCAPED = /[\p{Cs}\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}\u2800\uFFFC\uFFFD]|(?! )\p{Zs}/u;
 const SCRIPTS = ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana', 'Hangul', 'Arabic',
   'Hebrew', 'Devanagari', 'Thai'].map((name) => [name, new RegExp('\\p{Script=' + name + '}', 'u')]);
@@ -242,6 +241,19 @@ function scriptOf(ch) {
   if (!/[\p{L}\p{Nd}]/u.test(ch) || /[\p{Script=Common}\p{Script=Inherited}]/u.test(ch)) return null;
   const hit = SCRIPTS.find(([, re]) => re.test(ch));
   return hit ? hit[0] : 'other';
+}
+// kosmos#7892: Persian, Arabic-script and Indic words use the zero-width non-joiner and joiner as spelling (Persian
+// "mi" + U+200C + "khaham", Hindi half forms). One of them is kept as it is, and does not mark the text, only BETWEEN
+// two letters of the same one of these scripts (marks such as a virama may sit between the letter and it). Anywhere
+// else it is escaped and marked as before: in a Latin name, between two scripts, at either end of a word.
+const JOINING = ['Arabic', 'Syriac', 'Devanagari', 'Bengali', 'Gurmukhi', 'Gujarati', 'Oriya', 'Tamil', 'Telugu',
+  'Kannada', 'Malayalam', 'Sinhala'].map((name) => [name, new RegExp('^\\p{Script=' + name + '}$', 'u')]);
+function joinerInWord(chars, i) {
+  let b = i - 1;
+  while (b >= 0 && /\p{M}/u.test(chars[b])) b -= 1;
+  const before = chars[b], after = chars[i + 1];
+  if (!before || !after || !/\p{L}/u.test(before) || !/\p{L}/u.test(after)) return false;
+  return JOINING.some(([, re]) => re.test(before) && re.test(after));
 }
 function shownText(s) {
   let text = '';
@@ -255,6 +267,7 @@ function shownText(s) {
       text += '\\u{0020}'; unusual = true; return;
     }
     if (ch === '\\') { text += '\\\\'; return; }
+    if ((ch === '\u200C' || ch === '\u200D') && joinerInWord(chars, i)) { text += ch; return; }   // kosmos#7892
     if (ESCAPED.test(ch)) {
       text += '\\u{' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '}'; unusual = true; return;
     }
