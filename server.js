@@ -6636,8 +6636,8 @@ const NOT_ON_PROJECT_FIX = messages.NOT_ON_PROJECT_FIX;
    to tell a board that ignored the flag (an older one, which sends the whole room) from one that applied it. */
 const UNANSWERED_HEAD = 'Waiting on an answer from you: ';
 /* kosmos#7969 (the 0.7.88 cross-seat report: 39, 41 and 102 old posts on three seats' --unanswered): an agent's ask older
-   than this is counted, not listed, unless the reader adds --all. Measured on one seat in a busy room: 168 listed, every
-   one of the 150 matched older than 3 days. The person's asks never age out. */
+   than this is counted, not listed, unless the reader adds --all. Measured on one seat in a busy room: of the 168 it
+   listed, the 150 whose rows were found in the store were all older than 3 days. The person's asks never age out. */
 const UNANSWERED_DAYS = 3;
 /* kosmos#5752 slice 3: a refused task write is also a row in the project's room, so the person sees it without the agent
    having to say so, and can add the agent from that row. `doing` is what the agent tried, in the row's words. */
@@ -23721,8 +23721,8 @@ const server = http.createServer(async (req, res) => {
         /* kosmos#7969: the older asks are said, never dropped silently, with the way to see them. */
         const agedLine = agedAsks
           ? '[kosmos] ' + agedAsks + (agedAsks === 1 ? ' older post' : ' older posts') + ' that asked you something, more than '
-            + UNANSWERED_DAYS + ' days ago and not from the person, ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed. '
-            + 'Add --all to list ' + (agedAsks === 1 ? 'it' : 'them') + ' too (if your kosmos command does not take --all yet, update Kosmos).\n'
+            + UNANSWERED_DAYS + ' days old, ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). '
+            + 'Add --all to list ' + (agedAsks === 1 ? 'it' : 'them') + ' too.\n'
           : '';
         res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + agedLine);
         return;

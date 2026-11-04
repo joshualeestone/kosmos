@@ -5365,7 +5365,7 @@ cmd_room() {
       --all) _all=1 ;;
       -n|--limit) _ngiven=1; _n="${1:-}"; shift 2>/dev/null || true ;;
       --limit=*)  _ngiven=1; _n="${_arg#--limit=}" ;;
-      # Any other word is the project, even one starting with "-": Kosmos makes ids like "-drafts" from a name
+      # Any other word (but the flags above, --all among them) is the project, even one starting with "-": Kosmos makes ids like "-drafts" from a name
       # like "- drafts" (store.safeKey keeps a leading hyphen), and those rooms were readable before (review 2).
       *)  if [ -z "$project" ]; then project="$_arg"; else say "kosmos room reads one project at a time."; exit 2; fi ;;
     esac

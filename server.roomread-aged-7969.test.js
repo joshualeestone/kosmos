@@ -60,8 +60,8 @@ const room = async (project, query) => {
   return { status: res.status, text: await res.text() };
 };
 const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + ']') && !l.startsWith('[kosmos]'));
-const AGED = (n) => '[kosmos] ' + n + (n === 1 ? ' older post' : ' older posts') + ' that asked you something, more than 3 days ago and not from the person, '
-  + (n === 1 ? 'is' : 'are') + ' not listed. Add --all to list ' + (n === 1 ? 'it' : 'them') + ' too (if your kosmos command does not take --all yet, update Kosmos).';
+const AGED = (n) => '[kosmos] ' + n + (n === 1 ? ' older post' : ' older posts') + ' that asked you something, more than 3 days old, '
+  + (n === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). Add --all to list ' + (n === 1 ? 'it' : 'them') + ' too.';
 
 test('kosmos#7969: an agent\'s ask older than 3 days is counted under the list, not in it; a recent one is listed', async () => {
   const pid = newRoom('Aged7969a');
@@ -138,4 +138,14 @@ test('kosmos#7969 review 1: -n caps the recent asks; the count says only those, 
   assert.match(r.text, /^Waiting on an answer from you: 2 posts in this room .*; the newest is below:$/m, 'the older ask was counted with the recent ones:\n' + r.text);
   assert.ok(listed(r.text, b) && !listed(r.text, a), 'CONTROL: -n 1 shows the newest only:\n' + r.text);
   assert.ok(r.text.includes(AGED(1) + '\n'), r.text);
+});
+
+test('kosmos#7969 review 2: an older ask the reader already answered by id is not counted as waiting', async () => {
+  const pid = newRoom('Aged7969j');
+  const answered = ask(pid, 5 * DAY);
+  ask(pid, 6 * DAY);
+  append({ id: 'm7969r', kind: 'post', from: ME, to: [POSTER], project: pid, text: 'here you go', replyTo: answered,
+    at: new Date(Date.now() - 4 * DAY).toISOString(), outcomes: {} });
+  const r = await room(pid, '&unanswered=1');
+  assert.ok(r.text.includes(AGED(1) + '\n'), 'an answered older ask is still counted as waiting:\n' + r.text);
 });
