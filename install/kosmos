@@ -440,7 +440,7 @@ say() {
   if [ -n "${_KOSMOS_SAY_KEEP:-}" ] && [ -z "${_KOSMOS_SAID_FIRST:-}" ]; then _KOSMOS_SAID_FIRST="$*"; fi
 }
 unset _KOSMOS_SAY_KEEP _KOSMOS_SAID_FIRST _KOSMOS_COMMUNITY_NAME   # kosmos#7967: only the community wrapper sets them
-die() { printf '  %s\n' "$*" >&2; exit 1; }
+die() { [ -z "${_KOSMOS_SAY_KEEP:-}" ] || [ -n "${_KOSMOS_SAID_FIRST:-}" ] || _KOSMOS_SAID_FIRST="$*"; printf '  %s\n' "$*" >&2; exit 1; }   # kosmos#7967: the community line repeats it
 
 # kosmos#4889: a verb's text is everything its own options did not take, so an option it does not know
 # (`report working --bogusflag x`, `report needs_you --clear`) used to become the text, exit 0, and the
@@ -4352,6 +4352,8 @@ cmd_inbox() {
 # shape broke a signal: a trap made TERM wait for the request, no trap left the subshell posting after a kill, and a
 # background job could not take Ctrl-C (bash 3.2 cannot un-ignore SIGINT there). Only an exit in this shell writes the
 # line (BASH_SUBSHELL 0): an exit inside $(...) is that subshell's own. A stop by errexit or by a signal writes none.
+# A function named exit is honoured outside POSIX mode only; under POSIXLY_CORRECT the builtin runs and no line is
+# written, nothing else changes.
 # cmd_community keeps its name: the Windows parity guard reads its subcommands from it.
 cmd_community_with_reason() {
   # A --help re-dispatch (above) runs the bare verb for its usage and maps its exit 2 to success: no failure line there.
@@ -4361,7 +4363,9 @@ cmd_community_with_reason() {
   _KOSMOS_SAID_FIRST=""
   exit() {
     local _rc="${1-$?}"
-    if [ "${BASH_SUBSHELL:-0}" -eq 0 ] && [ "$_rc" -ne 0 ]; then _community_reason_line "$_rc"; fi
+    # `|| true`: under set -e a write to a closed or full stderr would end this function before the real exit, and
+    # an exit 3 (may have happened: do not send again) would leave as a 1 (review 6).
+    if [ "${BASH_SUBSHELL:-0}" -eq 0 ] && [ "$_rc" -ne 0 ]; then _community_reason_line "$_rc" || true; fi
     builtin exit "$_rc"
   }
   cmd_community "$@"
@@ -4377,9 +4381,9 @@ _community_reason_line() {   # <exit code>
     *) _means="the line says whether running it again is safe" ;;
   esac
   if [ -n "$_why" ]; then
-    printf '%s: %s (exit %s: %s)\n' "$_KOSMOS_COMMUNITY_NAME" "$_why" "$_rc" "$_means" >&2
+    printf '%s: %s (exit %s: %s)\n' "$_KOSMOS_COMMUNITY_NAME" "$_why" "$_rc" "$_means" >&2 || true
   else
-    printf '%s stopped without saying why (exit %s). Run it on its own to see its output.\n' "$_KOSMOS_COMMUNITY_NAME" "$_rc" >&2
+    printf '%s stopped without saying why (exit %s). Run it on its own to see its output.\n' "$_KOSMOS_COMMUNITY_NAME" "$_rc" >&2 || true
   fi
 }
 

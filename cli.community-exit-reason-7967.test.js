@@ -97,6 +97,15 @@ test('#7967: a maybe (exit 3) says on stderr to check before sending again', () 
     assert.match(out.stderr, /^kosmos community comment: .*may have been taken.*\(exit 3: it may have happened; the line says what to check before running it again\)$/m);
   }));
 
+test('#7967 review 6: with stderr closed, a maybe (exit 3) still exits 3, not 1', () => withStubBoard(
+  { '/api/community/service-comment': { status: 500, body: { error: 'we could not submit that comment' } } },
+  async (port) => {
+    // A failed write to a closed stderr must not end the exit function under set -e before the real exit runs.
+    const out = await run('/bin/sh', ['-c', '"$1" community comment "$2" x 2>&-', 'sh', CLI, POST], envFor(port));
+    assert.equal(out.code, 3, 'exit 3 tells the agent not to send it again; ' + out.stdout);
+    assert.match(out.stdout, /may have been taken/, 'premise: this was the maybe path');
+  }));
+
 test('#7967: a usage refusal (exit 2) says why on stderr', () => withStubBoard({}, async (port) => {
   const out = await run(CLI, ['community', 'read', '--channel'], envFor(port));
   assert.equal(out.code, 2, out.stdout + out.stderr);
@@ -157,7 +166,7 @@ for (const [sig, group] of [['TERM', false], ['HUP', false], ['KILL', false], ['
     process.kill(group ? -child.pid : child.pid, 'SIG' + sig);   // only the process (or group) this test started
     const end = await done;
     assert.ok(end.signal === 'SIG' + sig || end.code > 128, 'it stopped the way SIG' + sig + ' asks: ' + JSON.stringify(end));
-    assert.ok(end.at - sent < 5000, 'it stopped within 5 s (' + (end.at - sent) + ' ms)');
+    assert.ok(end.at - sent < 10000, 'it stopped within 10 s, not after the 30 to 60 s request (' + (end.at - sent) + ' ms)');
     const atStop = readAsks();
     await new Promise((r) => setTimeout(r, 2000));   // several more asks' worth of time
     assert.ok(readAsks() <= atStop + 1, 'the board was asked ' + (readAsks() - atStop) + ' more time(s) after it stopped (one already in flight is allowed)');

@@ -25,6 +25,9 @@ drops stdout therefore stops with stderr empty. The Windows CLI already writes t
   on main, which the tests check one by one.
 - Review 5 also found: the global --help re-dispatch runs the bare verb (exit 2 by design, mapped to 0) and got the
   line too. It now passes KOSMOS_HELP_REDISPATCH=1 to that child, and the wrapper adds no line there.
+- Review 6: the line's write cannot change the exit code (`|| true`: under set -e a write to a closed or full stderr
+  would have ended the function before the real exit, turning an exit 3 into a 1); `die` records its line too, so a
+  path that uses it gets its own words repeated, not "stopped without saying why".
 - stdout is unchanged, so every existing test and any script reading stdout behaves as before.
 - Rejected: moving each failure `say` to stderr (dozens of sites, each a chance to miss one, and it would change stdout
   that tests and scripts read); a per-exit-code table of retry advice for exit 1 (the reason already carries it).
@@ -44,3 +47,4 @@ drops stdout therefore stops with stderr empty. The Windows CLI already writes t
 3. Signals: TERM, HUP, KILL to the command and INT to its group each stop it within 5 s with the board asked nothing
    more; a Ctrl-C during a hanging request leaves the group empty (fails on round 4's code, passes on main and here);
    the wrapper has no subshell, background job or trap. done
+4. Review 6: with stderr closed an exit 3 stays 3 (fails with the `|| true`s removed). done
