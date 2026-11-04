@@ -22935,8 +22935,8 @@ const server = http.createServer(async (req, res) => {
           /* Anything but idle or stopped: an agent paused at a question or a rate limit is mid-turn, and when it resumes it
              can write to the old path. A state nobody can read counts too. */
           const busy = roster.filter((c) => c && mine.includes(c.sessionName) && c.state !== STATE.IDLE && c.state !== STATE.STOPPED).map((c) => c.name || c.sessionName);
-          // Gemini's workspace is fixed at launch (geminidirs.js), so a running one could not write to the new place.
-          const stuckOnOldFolder = roster.filter((c) => c && mine.includes(c.sessionName) && c.state !== STATE.STOPPED && c.runner === 'gemini').map((c) => c.name || c.sessionName);
+          // Off Windows, Gemini's workspace is fixed at launch (geminidirs.js), so a running one could not write to the new place.
+          const stuckOnOldFolder = process.platform === 'win32' ? [] : roster.filter((c) => c && mine.includes(c.sessionName) && c.state !== STATE.STOPPED && c.runner === 'gemini').map((c) => c.name || c.sessionName);
           const homes = [...everyAgent].map((n) => create.workerDir(n));
           await answerFolderMoved(projects.renameFolderToName(id, { busy, homes, stuckOnOldFolder }));
           return;
