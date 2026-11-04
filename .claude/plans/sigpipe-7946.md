@@ -6,14 +6,19 @@
   message argument, `r.out`) was EMPTY: it exited 141 in 940 ms having said nothing, so before line ~7440, the first
   line that prints. Exit 141 as a CODE (not a signal) means bash itself exited with a pipeline's 141 under
   `set -euo pipefail` (line 28): a pipeline member took SIGPIPE.
-- A bash -x trace of the real remove path (stub board) lists every executed source line (156). The only pipelines
-  with a reader that can exit before its producer is done are the four `printf '%s\n' "$rm_plan" | head -n 1 | cut`
-  reads (lines 7431-7432). The node readers, `tail -n +2` and `cut` all read to the end.
+- A bash -x trace of the real remove path (stub board) lists the main shell's executed lines (156). It does NOT see
+  kosmos_curl, _kosmos_curl_once, kosmos_board_proven or kosmos_loopback_route (their trace goes to /dev/null with
+  `2>/dev/null`); review round 1 read those by hand: their pipelines read to the end or are guarded, and every call sits
+  under `|| rc=$?`, so a 141 there becomes rc=141 and say_unreached prints a line (never a silent exit). So the only
+  unguarded early-reader pipelines before the DELETE are the four `printf '%s\n' "$rm_plan" | head -n 1 | cut` reads
+  (lines 7431-7432). The node readers, `tail -n +2` and `cut` all read to the end.
 
 ## What I could NOT show (the weakest premise)
-That those four reads are what took SIGPIPE on CI. On this Mac, bash 3.2's printf writes the small plan in one
-write (0/300 SIGPIPE against a one-byte reader; a two-write control 300/300), and 0/12000 runs under load 10-16 and
-0/300 real CLI runs in parallel reproduced it. So the fix removes the only candidate the trace shows, but the CI cause
+That those four reads are what took SIGPIPE on CI. Not reproduced here: 0/12000 runs of the reads under load 10-16
+and 0/300 real CLI runs 12 at once. My "printf writes once" measurement does not settle it: review round 1 showed a
+four-printf producer into `head -n 1` also took SIGPIPE 0/1500, so that instrument cannot see a multi-write producer
+at this race's rate (my 300/300 control used a sleep between writes, which forces it). The reads stay the only
+unguarded candidate; their guilt is unmeasured either way. So the fix removes the only candidate the trace shows, but the CI cause
 may be elsewhere (something before the plan read, or a runner-specific difference).
 
 ## Built
@@ -23,8 +28,12 @@ may be elsewhere (something before the plan read, or a runner-specific differenc
 - cli.agent-remove-7362.test.js:
   - the `.`/`..` Mac controls now assert the control call's exit code (0) and carry its output in both messages, so
     the next red names where the CLI stopped instead of `0 !== 1`;
-  - #7946: a structural test that the remove block has no pipeline into head, grep -q, an exiting awk or a quitting
-    sed; its control proves the pattern catches the removed shape and each early reader, and passes a full reader.
+  - the partial-removal test and the two "removal reached/was sent" controls carry the CLI's exit code and output;
+  - #7946: a structural test (`earlyReaders`) that the remove CASE's request code (not the argument parsing, the
+    health check or kosmos_curl, read by hand above) has no pipeline into head, read, grep -q/-m/--quiet/--max-count,
+    a quitting sed or an awk that exits outside END. Continued lines are joined, `||` is not a pipe, and env,
+    assignments, `command`, a path, quotes and `{`/`(` are read past. Controls: 21 early shapes caught (review 1's
+    misses among them) and 9 full readers passed (its false positives among them).
 
 ## Decided
 - Not a SIGPIPE trap: trapping PIPE would hide a real early exit elsewhere; removing the pipe is the file's convention.
@@ -33,4 +42,6 @@ may be elsewhere (something before the plan read, or a runner-specific differenc
 
 ## Tests
 `node --test cli.agent-remove-7362.test.js`: 23/23. Mutant: main's install/kosmos with the new test fails exactly
-the #7946 check (22/23). Full validation: see the proof.
+the #7946 check (22/23). Here-strings vs pure expansion (review 1 NIT): kept cut, since cut prints a tab-free line
+whole for every field and expansion would need to copy that rule; review 1 measured the new reads equal to the old
+across empty, no-newline, no-tab, empty-field, trailing-tab, CR and glob inputs, and a missing TMPDIR. Full validation: see the proof.

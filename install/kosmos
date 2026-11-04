@@ -7429,7 +7429,7 @@ cmd_agent() {
       # everything: GET .../removal is the plan, DELETE .../removal does it. Never ?force=1: that override is the
       # person's, on the board. The plan is a read the board token opens, so it goes with board_token whatever
       # KOSMOS_AGENT_TOKEN_ONLY says; the removal goes as the agent, as the board's token-only rules expect.
-      local rm_name="$1" rm_path rm_plan rm_label rm_ok rm_why rm_back rm_parsed rm_out rm_because rm_end
+      local rm_name="$1" rm_path rm_plan rm_head rm_label rm_ok rm_why rm_back rm_parsed rm_out rm_because rm_end
       local _rmparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
       rm_path=$(KOSMOS_RM_NAME="$rm_name" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RM_NAME))') || { say "We could not use that name."; exit 1; }
       body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 15 "$URL/api/agent/$rm_path/removal" 2>/dev/null) || rc=$?
@@ -7441,7 +7441,7 @@ cmd_agent() {
       # kosmos#7946: no `printf | head -n 1` here. head exits on its first line, and under pipefail and set -e a
       # producer that takes SIGPIPE ends the whole command with 141 before anything is sent or said (seen on macOS CI).
       # The first line comes from parameter expansion, and cut reads a here-string: no pipe for an early reader to close.
-      local rm_head="${rm_plan%%$'\n'*}"
+      rm_head="${rm_plan%%$'\n'*}"
       rm_ok=$(cut -f1 <<<"$rm_head"); rm_label=$(cut -f2 <<<"$rm_head")
       rm_why=$(cut -f3 <<<"$rm_head"); rm_back=$(cut -f4 <<<"$rm_head")
       if [ "$rm_ok" != ok ]; then
