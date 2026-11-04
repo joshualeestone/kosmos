@@ -121,3 +121,11 @@ test('#7936: the send receipt for an input-held message names the two-hour drop'
   const cli = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
   assert.ok(cli.includes('Kosmos types it once the box is clear, or drops it after 2 hours and tells you; do not re-send.'), 'CLI wording');
 });
+
+test('#7936 item 2: the unanswered list names the flag kosmos post takes (--in-reply-to), never --reply-to', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const cli = fs.readFileSync(path.join(__dirname, '..', 'install', 'kosmos'), 'utf8');
+  assert.ok(/kosmos post \[--no-reply\] \[--in-reply-to <id>\]/.test(cli), 'CONTROL: post takes --in-reply-to');
+  assert.ok(src.includes("no post of yours cites it by id with --in-reply-to)"), 'the header names --in-reply-to');
+  assert.ok(!src.includes("cites it by id with --reply-to)"), 'the header still names --reply-to');
+});
