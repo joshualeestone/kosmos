@@ -46892,7 +46892,7 @@ const KORB = (() => {
   function paint(g, side, pts, colour) {
     g.clearRect(0, 0, side, side);
     g.fillStyle = colour;
-    const R = side * 0.46, CAM = 6, px = side * 0.009;   // dots scale with the orb; at spinner sizes most sit at the 0.35 px floor, and many blend into a clear letter
+    const R = side * 0.46, CAM = 6, px = side * 0.009;   // dots scale with the orb; at spinner sizes each is held at the 0.35 px floor, so the letter comes from how many there are, not their size
     for (const grp of groups) grp.length = 0;
     for (const [X, Y, Z, r, vis] of pts) {
       const f = CAM / (CAM + Z), front = Math.max(0, Math.min(1, (1 - Z) / 2));
@@ -46938,11 +46938,17 @@ const KORB = (() => {
   const shown = new Set();
   let running = false, t0 = 0, last = -1e9, ticks = 0, sizeStale = false, stillPts = null, warned = false;
   const stillDots = () => stillPts || (stillPts = place(0));   // the still frame (K facing), worked out once
+  /* The spinner's --spin-dot (gold, or ink on a gold button), or gold if it is missing or not a colour the canvas can
+     use (an unreadable value would silently draw black). */
+  const inkOf = (s) => {
+    const v = getComputedStyle(s).getPropertyValue('--spin-dot').trim();
+    try { return v && (typeof CSS === 'undefined' || CSS.supports('color', v)) ? v : '#d6a62e'; } catch (e) { return '#d6a62e'; }
+  };
   /* Draws one spinner's canvas; a canvas with no 2d context (the engine refused one) is skipped, never thrown on. */
   function draw1(s, pts) {
     const cv = fit(s), g = cv.getContext('2d');
     if (!g) return;
-    if (!cv.korbColour || ticks % 30 === 0) cv.korbColour = getComputedStyle(s).getPropertyValue('--spin-dot').trim() || '#d6a62e';
+    if (!cv.korbColour || ticks % 30 === 0) cv.korbColour = inkOf(s);
     const key = pts === stillPts ? 'still ' + cv.korbColour + ' ' + cv.width : '';
     if (key && cv.korbKey === key) return;   // still: drawn once per colour and size, then left alone
     paint(g, cv.width, pts, cv.korbColour);
@@ -46975,7 +46981,9 @@ const KORB = (() => {
     const laid = fresh.filter((s) => s.getClientRects().length);
     if (!laid.length) return;
     if (!t0) t0 = performance.now();
-    const pts = still() ? stillDots() : place((performance.now() - t0) / 1000);
+    let pts;
+    try { pts = still() ? stillDots() : place((performance.now() - t0) / 1000); }
+    catch (e) { for (const s of fresh) s.classList.remove('korb-on'); return; }   // could not place the dots: show the old ones, not a blank
     for (const s of laid) { try { draw1(s, pts); } catch (e) { /* this one waits for the loop */ } }
   }
   let io = null;
