@@ -5592,8 +5592,8 @@ cmd_feedback() {
         if [ -n "$KOSMOS_BODY_FILE" ]; then say "--unchanged takes a short line, not --body-file, so nothing was saved."; exit 2; fi
         local _u_rc=0
         body="$(KOSMOS_FEEDBACK_NOTE="$*" "$NODE" -e '
-          const fb = require(process.argv[1] + "/engine/feedback");
-          const u = fb.unchanged(fb.writer(process.env), process.env.KOSMOS_FEEDBACK_NOTE || "");
+          let u;   /* review round 3: a read that throws exits 1 quietly, so only the sentence below is shown */
+          try { const fb = require(process.argv[1] + "/engine/feedback"); u = fb.unchanged(fb.writer(process.env), process.env.KOSMOS_FEEDBACK_NOTE || ""); } catch { process.exit(1); }
           if (u && u.why === "today") process.exit(5);
           if (!u || !u.ok) process.exit(4);
           process.stdout.write(u.day + "\n" + u.body);

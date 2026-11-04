@@ -65,7 +65,8 @@ test('kosmos#7886 item 6 (Mac): --unchanged points back to the last earlier repo
   const today = reports(h.data).filter((n) => n !== OLD + '.md');
   assert.equal(today.length, 1, 'no report saved for today: ' + JSON.stringify(reports(h.data)));
   const body = fs.readFileSync(path.join(fbDir(h.data), today[0]), 'utf8');
-  assert.match(body, new RegExp('Nothing new since my report of ' + OLD + '\\. one new thing'));
+  // Anchored on the whole stored text after the front matter, so a leaked first line (the day) would turn it red.
+  assert.match(body, new RegExp('\\n---\\nNothing new since my report of ' + OLD + '\\. one new thing\\n$'), JSON.stringify(body));
   assert.doesNotMatch(body, /the earlier report/, 'the earlier report was copied instead of pointed to');
   // CONTROL: the plain write path is untouched (the same harness saves ordinary words).
   const plain = await run(['feedback', 'write', 'an ordinary report'], h);
@@ -93,7 +94,7 @@ test('kosmos#7886 item 6 (Windows): --unchanged writes the engine\'s pointer, an
   };
   const go = async (argv) => {
     const err = [];
-    const code = await cli.main(argv, { env: {}, engine, readStdin: () => ({ text: 'stdin must not be read', ended: true }),
+    const code = await cli.main(argv, { env: {}, engine, readStdin: () => { throw new Error('stdin was read on --unchanged'); },
       out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call expected'); } });
     return { code, err: err.join('\n') };
   };
@@ -121,7 +122,7 @@ test('kosmos#7886 item 6 (Mac): --unchanged is taken after the words too, and re
   assert.equal(again.code, 2, again.both);
   assert.match(again.both, /You already saved a report today, so nothing was changed/);
   const today = reports(h.data).filter((n) => n !== OLD + '.md');
-  assert.match(fs.readFileSync(path.join(fbDir(h.data), today[0]), 'utf8'), /Nothing new since my report of 2020-01-02\. one thing/, 'the first --unchanged report was replaced');
+  assert.match(fs.readFileSync(path.join(fbDir(h.data), today[0]), 'utf8'), /\n---\nNothing new since my report of 2020-01-02\. one thing\n$/, 'the first --unchanged report was replaced');
 });
 
 test('kosmos#7886 item 6 (Windows): --unchanged after the words, saved under the day checked, and the today refusal', async () => {
@@ -132,7 +133,7 @@ test('kosmos#7886 item 6 (Windows): --unchanged after the words, saved under the
     unchanged: (from, note) => (why ? { ok: false, why } : { ok: true, since: OLD, day: '2026-11-03', body: 'Nothing new since my report of ' + OLD + '.' + (note ? ' ' + note : '') }) } };
   const go = async (argv) => {
     const err = [];
-    const code = await cli.main(argv, { env: {}, engine, readStdin: () => ({ text: '', ended: true }), out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
+    const code = await cli.main(argv, { env: {}, engine, readStdin: () => { throw new Error('stdin was read on --unchanged'); }, out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
     return { code, err: err.join('\n') };
   };
   assert.equal((await go(['feedback', 'write', 'one', 'thing', '--unchanged'])).code, 0);
