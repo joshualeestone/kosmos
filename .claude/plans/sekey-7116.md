@@ -52,4 +52,5 @@ file this user owns, refused otherwise) is what the tests use and is not accepta
 - [x] review round 4: the stand-in records the bytes it was handed (shown = signed on every machine); xcrun's reason in the skip. Deferred to the bundle/screen gate: resolving the helper path itself.
 - [x] review round 5: deleted an overclaiming custody sentence (0600 keeps out other users only); prepared.decoded re-read fresh from the held bytes on every access.
 - [x] review round 6: sign() requires the enrolled public key and refuses a key file holding another. Deferred with reason: a structural decode inside kosmos-se (a same-user process can read the blob and sign with CryptoKit itself, so the helper's fence is a second line only; the presence prompt is the control).
+- [x] round 7: nits only (converged). Final validation then failed 1 of 26881: windows-tests-1777 read the stand-in's `process.platform === 'win32'` as a host branch nothing runs on Windows. Fixed by testing for /bin/sh, which is what the stand-in needs.
 - [ ] challenge-loop, validation, PR

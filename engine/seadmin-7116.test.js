@@ -113,7 +113,7 @@ test('#7116: the committed Apple Secure Enclave signatures verify over their pin
 
 // A stand-in for kosmos-se: records its arguments, prints a fixed public key, and answers sign with a signature made by
 // a DIFFERENT key, so sign() must refuse it.
-const FAKE_DIR = process.platform === 'win32' ? null : fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-se-fake-7116-'));
+const FAKE_DIR = fs.existsSync('/bin/sh') ? fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-se-fake-7116-')) : null;
 let FAKE = null;
 const FAKE_PUB = Buffer.from(APPLE.key, 'hex');
 if (FAKE_DIR) {
