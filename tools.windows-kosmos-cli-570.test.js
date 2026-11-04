@@ -1077,6 +1077,7 @@ test('#7893: Windows msg tells a leading flag typed after the agent where it goe
   const lateBoth = await run(['msg', 'leo', 'hi', '--no-reply', '--stdin'], placed);
   assert.equal(lateBoth.code, 2); assert.equal(lateBoth.calls.length, 0);
   assert.match(lateBoth.err, /--no-reply must come before the agent name/, 'the same sentence as install/kosmos');
+  assert.doesNotMatch(lateBoth.err, /put -- before it/, 'a late --stdin too: the tip would only lead to the --stdin refusal');
   // Round 4: after the #4889 -- escape the words are the message, and are sent as written.
   const escaped = await run(['msg', 'leo', '--', '--in-reply-to', 'm4', 'answers', 'it'], placed);
   assert.equal(escaped.code, 0, escaped.err);
@@ -1085,4 +1086,5 @@ test('#7893: Windows msg tells a leading flag typed after the agent where it goe
   const bogus = await run(['msg', '--bogus', '--no-reply', 'hi'], placed);
   assert.equal(bogus.code, 2);
   assert.doesNotMatch(bogus.err, /must come before the agent name/);
+  assert.match(bogus.err, /--bogus is not an option/);
 });

@@ -2731,8 +2731,9 @@ cmd_msg() {
     case "$_a" in
       --) break ;;
       --no-reply|--in-reply-to|--in-reply-to=*)
-        # With --stdin the words after the agent are never message text, so the -- tip would lead to a second refusal.
-        if [ "$from_stdin" = 1 ]; then _tip=""; else _tip="  (to say ${_a%%=*} in the message, put -- before it)"; fi
+        # With --stdin (leading or late) the words after the agent are never message text, so the -- tip would lead
+        # to a second refusal.
+        if [ "$from_stdin" = 1 ] || printf '%s\n' "$@" | grep -qx -- '--stdin'; then _tip=""; else _tip="  (to say ${_a%%=*} in the message, put -- before it)"; fi
         say "${_a%%=*} must come before the agent name: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>${_tip}"
         exit 2 ;;
     esac

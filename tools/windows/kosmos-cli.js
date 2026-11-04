@@ -519,7 +519,7 @@ async function verbMsg(ctx, args) {
      where it goes, not called unknown; the scan stops at --, the #4889 escape for words that start with --. */
   const beforeEscape = args.indexOf('--') === -1 ? args : args.slice(0, args.indexOf('--'));
   const late = beforeEscape.find((a) => a === '--no-reply' || a === '--in-reply-to' || (typeof a === 'string' && a.startsWith('--in-reply-to=')));
-  if (late) { const f = late.split('=')[0]; ctx.err(f + ' must come before the agent name: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>' + (fromStdin ? '' : '  (to say ' + f + ' in the message, put -- before it)')); return 2; }
+  if (late) { const f = late.split('=')[0]; ctx.err(f + ' must come before the agent name: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>' + (fromStdin || args.includes('--stdin') ? '' : '  (to say ' + f + ' in the message, put -- before it)')); return 2; }
   // After the scan, as install/kosmos orders it (#7893 round 5): a late --stdin is checked last.
   if (!fromStdin && args.includes('--stdin')) { ctx.err('--stdin must come before the agent name: kosmos msg --stdin <agent>, with the message piped in.'); return 2; }
   if (!fromStdin) { const t = textArgs(ctx, 'msg', USAGE.msg, args); if (!t) return 2; args = t; text = t.join(' '); }
