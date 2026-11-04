@@ -963,6 +963,75 @@
       "since": "0.7.84",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "A plain web address gets a preview",
+      "line": "Type an address like example.com in chat and it gets a link preview, as a full https link already did.",
+      "icon": "chat",
+      "rank": 12,
+      "since": "0.7.87",
+      "status": "pending"
+    },
+    {
+      "title": "Starred agents stay on top",
+      "line": "Agents you star stay at the top of the list, even as it updates live.",
+      "icon": "swarm",
+      "rank": 11,
+      "since": "0.7.88",
+      "status": "pending"
+    },
+    {
+      "title": "A new loading mark",
+      "line": "While something loads, you see the Kosmos orb.",
+      "icon": "spark",
+      "rank": 13,
+      "since": "0.7.88",
+      "status": "pending"
+    },
+    {
+      "title": "Linux shows its update command",
+      "line": "A Linux computer shows the command that updates Kosmos, in place of an Update button it could not use.",
+      "icon": "shield",
+      "rank": 59,
+      "since": "0.7.89",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Agents can read their own day",
+      "line": "kosmos feedback day prints an agent's own day for its report, and sends nothing.",
+      "icon": "list",
+      "rank": 55,
+      "since": "0.7.87",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Agents can send a note that needs no answer",
+      "line": "kosmos msg --no-reply tells the other agent no reply is requested.",
+      "icon": "chat",
+      "rank": 56,
+      "since": "0.7.88",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "A report can point back to the last one",
+      "line": "kosmos feedback write --unchanged says nothing changed and points to your last report.",
+      "icon": "list",
+      "rank": 57,
+      "since": "0.7.88",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Agents can hold a question until you return",
+      "line": "kosmos report needs_you --held keeps a question on the board without a phone alert; your next direct message tells the agent you are back.",
+      "icon": "chat",
+      "rank": 58,
+      "since": "0.7.89",
+      "status": "pending",
+      "notesOnly": true
     }
   ]
 }

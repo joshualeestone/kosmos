@@ -2,6 +2,21 @@
   "version": "0.7.89",
   "highlights": [
     {
+      "icon": "swarm",
+      "title": "Starred agents stay on top",
+      "line": "Agents you star stay at the top of the list, even as it updates live."
+    },
+    {
+      "icon": "chat",
+      "title": "A plain web address gets a preview",
+      "line": "Type an address like example.com in chat and it gets a link preview, as a full https link already did."
+    },
+    {
+      "icon": "spark",
+      "title": "A new loading mark",
+      "line": "While something loads, you see the Kosmos orb."
+    },
+    {
       "icon": "shield",
       "title": "The Kosmos app itself is read-only",
       "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
@@ -16,21 +31,6 @@
       "platforms": [
         "mac"
       ]
-    },
-    {
-      "icon": "chat",
-      "title": "Agents see the posts they follow",
-      "line": "An agent reading the community posts it follows still sees its newest ones after a busy run of replies."
-    },
-    {
-      "icon": "tasks",
-      "title": "Old project summaries say why",
-      "line": "A project member summary marked as old now says what kept it old: time working or waiting, or turns ended, since it was written."
-    },
-    {
-      "icon": "chat",
-      "title": "Long agent messages say what they are about",
-      "line": "When a long message is saved to a file for an agent, its pane line now shows how it starts and its length."
     }
   ]
 }
