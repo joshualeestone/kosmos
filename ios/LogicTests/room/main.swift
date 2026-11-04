@@ -1100,6 +1100,17 @@ let one = Board.needsNotice([Board.ProjectMember(session: "cleo", name: "cleo", 
                                                   needsYouKey: nil, because: "Which cover photo?")], names: ["cleo": "Cleo"])
 check(one?.head == "Cleo needs you on this project." && one?.namedInHead == "cleo", "one: the head names it, and its row does not again")
 check(one?.rows.first?.key == "question:Which cover photo?", "no key from the route: built as the engine builds it")
+// kosmos#7918 (pjNeedsNotice, #7916): a held question says held; Answer stays its action.
+var heldMember = Board.ProjectMember(session: "cleo", name: "cleo", hasAvatar: false, provider: nil, needsYouHere: "question", needsYouKey: nil, because: "Which cover?")
+heldMember.stateHeld = true
+let heldNotice = Board.needsNotice([heldMember])
+check(heldNotice?.rows.first.map { $0.why == "Held until you are back." && $0.act == "Answer" } == true, "a held question: held, and Answer")
+check(one?.rows.first?.why == "Waiting for your answer.", "control: an unheld question keeps its words")
+var heldTrustMember = Board.ProjectMember(session: "rex", name: "rex", hasAvatar: false, provider: nil, needsYouHere: "trust")
+heldTrustMember.stateHeld = true
+check(Board.needsNotice([heldTrustMember])?.rows.first?.why == "Waiting for you to approve it before it can start.", "control: held means something only on a question")
+let heldMembers = Board.parseProjects(Data(#"{"projects":[{"id":"h","name":"H","agents":[{"sessionName":"a","needsYouHere":"question","stateHeld":true},{"sessionName":"b","needsYouHere":"question","stateHeld":1},{"sessionName":"c","needsYouHere":"question"}]}]}"#.utf8))?.projects.first?.members ?? []
+check(heldMembers.map(\.stateHeld) == [true, false, false], "a member's stateHeld is read only from a JSON true")
 let longEmoji = String(repeating: "😀", count: 200)
 let longKeyed = Board.needsNotice([Board.ProjectMember(session: "cleo", name: "cleo", hasAvatar: false, provider: nil, needsYouHere: "question",
                                                         needsYouKey: nil, because: longEmoji)])
