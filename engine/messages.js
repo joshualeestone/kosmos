@@ -3469,6 +3469,8 @@ function blockBody() {
     'the project is told of it in a short note, and a colleague who is idle',
     'may not be woken for it: name whoever you need an answer from.',
     '',
+    /* The sample quotes the envelope as typed, which names bare `kosmos` as the room and operator envelopes do; the
+       command list above uses `cli` because it is a command to run, not a quotation. */
     'Messages from colleagues arrive marked "[message from your colleague',
     '<name> \u00b7 m<number> \u00b7 to answer, if it needs one, run: kosmos msg --in-reply-to',
     'm<number> <name>]"; one that answers yours also says "answers m<number>".',
