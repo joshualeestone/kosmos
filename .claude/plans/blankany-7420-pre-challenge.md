@@ -21,11 +21,45 @@ Run on the rebased tree instead: typecheck Release and DEBUG clean; all 11 ios/L
 server.ios-routes-6838.test.js 5/5. Not verified: on a phone. The blank never shows in the simulator; only Josh's phone shows
 it. TestFlight 42 carries this code and is with him.
 
-### Per-Iteration Breakdown (detail in the plan and in each commit message)
+### Per-Iteration Breakdown (rounds 1 to 4 as recorded in the plan and commits; reviewers' MAJOR is written WARNING)
 
-- Rounds 1 to 4: first-try rebuild whatever the anchor; guards re-read after the wait; the quieter moves after Josh's 08:26 report.
-- Round 5 (opus): a later blank for a reader higher up was never rebuilt; a look under a scroll moved the reader; a thread read still moved a drawn list; stale topVisible; false comments. Fixed.
-- Round 6 (sonnet): a finger during the confirm wait dropped the look. Fixed.
-- Round 7 (opus): a new message above the untimed question row was not followed (my regression, in TestFlight 40); a chat still opening read as at its end; a let-go anchor. Fixed.
-- Round 8 (opus): the handler compared the previous body's thread, so a read adding rows still moved the list. Fixed.
-- Round 9 (sonnet, narrow): no findings.
+#### Iteration 1
+- [WARNING] a reader higher up rebuilt by a list empty for an instant --> FIXED (blankConfirm)
+
+#### Iteration 2
+- [WARNING] the confirm wait did not re-read the guards; keepPlace jumped by id when the budget was spent --> FIXED
+
+#### Iteration 3
+**Reviewer model:** opus
+- [WARNING] findings on the first-try rebuild, recorded in the plan --> FIXED
+
+#### Iteration 4
+**Reviewer model:** sonnet
+- [WARNING] two costs of the quieter moves --> DEFERRED, accepted and stated in the plan
+
+#### Iteration 5
+**Reviewer model:** opus
+- [WARNING] a later blank for a reader higher up was never rebuilt --> FIXED
+- [WARNING] a look under a scroll moved the reader and spent the first try --> FIXED
+- [WARNING] a thread read still moved a drawn list --> FIXED
+- [WARNING] the catch-up after the box hides the newest remains --> DEFERRED, stated in the plan; Josh's capture measures it
+- [NIT] stale topVisible after a rebuild; three false comments --> FIXED
+
+#### Iteration 6
+**Reviewer model:** sonnet
+- [WARNING] a finger during the confirm wait dropped the look for good --> FIXED
+- [NIT] quietFollowKey not cleared with the chat's reset --> FIXED
+
+#### Iteration 7
+**Reviewer model:** opus
+- [WARNING] a new message above the untimed question row was not followed (my regression, in TestFlight 40) --> FIXED
+- [WARNING] a chat still opening read as at its end --> FIXED
+- [NIT] a let-go anchor holds nothing; two false comments --> FIXED
+
+#### Iteration 8
+**Reviewer model:** opus
+- [WARNING] the handler compared the previous body's thread, so a read adding rows still moved the list --> FIXED
+
+#### Iteration 9
+**Reviewer model:** sonnet
+No issues found (narrow confirmation of iteration 8's fix and the quiet read's routes).
