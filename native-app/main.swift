@@ -6646,9 +6646,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     func saved(_ name: String) -> Bool { FileManager.default.fileExists(atPath: dl.appendingPathComponent(name).path) }
     func all7952() -> [String] { ((try? FileManager.default.contentsOfDirectory(atPath: dl.path)) ?? []).sorted() }   // kosmos#7952: every saved name
     /* A click that should save a file waits for that file (up to 5s), so a busy build box cannot fail a
-       good product on a fixed sleep. One that should save nothing waits 2s, and a same-origin download
-       clicked LAST is waited for before the folder is read, so a late file from an earlier click is
-       already there to be counted. */
+       good product on a fixed sleep. One that should save nothing waits 2s. The folder is read only after
+       the arms that follow (kosmos#7952's, then the question arms) and their waits, so a late file from an
+       earlier click is already there to be counted. */
     func click(_ id: String, expect: String? = nil, then: @escaping () -> Void) {
         load {
             web.evaluateJavaScript("document.getElementById('\(id)').click()") { _, _ in }
@@ -8021,7 +8021,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 226   // kosmos#7952: +12 (+2 isFolderDownload), (2 download-folder says rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 226   // kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
