@@ -37,7 +37,7 @@ const MANUAL = { version: '0.7.89', download: 'https://example.invalid/kosmos-0.
 
 test('#7938: a manual offer with no install offer shows the chip, says where to install it, and has no button', () => {
   const t = toast({ manual: MANUAL });
-  assert.match(t.html, /<span class="uchip-t">An update is available in Settings<\/span>/);
+  assert.match(t.html, /<span class="uchip-t">An update is available in Settings, Updates<\/span>/);
   assert.match(t.html, /class="uchip noact"/, 'the no-button chip lost its even padding class');
   assert.doesNotMatch(t.html, /<button/, 'the manual chip offers a button');
   assert.deepEqual(t.buttons, [], 'a listener was wired');
@@ -95,4 +95,9 @@ test('#7938 review 1: the chip text stays short enough for the pill (the stack i
     assert.ok(m, 'no chip text');
     assert.ok(m[1].length <= 45, 'chip text too long for the pill: ' + m[1].length + ' chars: ' + m[1]);
   }
+});
+
+test('#7938 review 2: the toast and the Settings card ask the same rule for a complete manual offer', () => {
+  const rule = 'manual && manual.version && manual.download';
+  assert.equal(SCRIPT.split(rule).length - 1, 2, 'the toast and the card no longer share the rule');
 });
