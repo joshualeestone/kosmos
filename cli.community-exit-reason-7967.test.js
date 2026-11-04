@@ -45,6 +45,8 @@ function withStubBoard(replies, fn) {
     const route = (req.url || '').split('?')[0];
     const reply = replies[route];
     if (reply === 'hang') { seen.push(route); return; }
+    if (reply === 'slow202') { seen.push(route); setTimeout(() => { res.writeHead(202, { 'content-type': 'application/json' }); res.end('{}'); }, 300); return; }
+    if (typeof reply === 'function') { let b = ''; req.on('data', (d) => { b += d; }).on('end', () => { seen.push(route); const r = reply(b); res.writeHead(r.status, { 'content-type': 'application/json' }); res.end(JSON.stringify(r.body)); }); return; }
     if (reply === 'cut') { seen.push(route); req.resume(); req.on('end', () => req.socket.destroy()); return; }
     if (reply) {
       res.writeHead(reply.status, { 'content-type': 'application/json' });
@@ -169,15 +171,50 @@ test('#7967: a Ctrl-C (SIGINT to the process group) stops it at once', () => wit
     assert.ok(end.at - sent < 5000, 'it stopped within 5 s (' + (end.at - sent) + ' ms)');
   }));
 
-/* Review 1 and 3: errexit stays on inside the subcommand (set +e around the subshell; on the left of `||` bash turns it
-   off for everything it calls), and the trap is the subshell's own, never this shell's. Read from the source: no
-   community path fails unguarded today, so no run of the CLI can show the first. */
-test('#7967 review 1: the community subcommands still run with errexit on, and only the subshell traps', () => {
+/* Review 4: a TERM to the command alone stops the subcommand too, so it starts nothing more. A read asks again while the
+   board answers 202 (still reading): before the fix the outer shell died and the subcommand kept asking. */
+test('#7967 review 4: after a SIGTERM to the command, the board is asked nothing more', () => withStubBoard(
+  { '/api/community/read': 'slow202' },
+  async (port) => {
+    seen.length = 0;
+    const child = spawn(CLI, ['community', 'read'], { env: envFor(port, { KOSMOS_READ_ASKS: '50' }), detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
+    const done = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })));
+    for (let i = 0; i < 200 && seen.filter((r) => r === '/api/community/read').length < 2; i++) await new Promise((r) => setTimeout(r, 50));
+    assert.ok(seen.filter((r) => r === '/api/community/read').length >= 2, 'premise: the read was asking again');
+    process.kill(child.pid, 'SIGTERM');   // only the process this test started
+    const end = await done;
+    assert.ok(end.signal === 'SIGTERM' || end.code === 143, JSON.stringify(end));
+    const atStop = seen.length;
+    await new Promise((r) => setTimeout(r, 3000));   // ten more asks' worth of time
+    assert.ok(seen.length <= atStop + 1, 'the board was asked ' + (seen.length - atStop) + ' more time(s) after the command was stopped (one already in flight is allowed)');
+  }));
+
+test('#7967 review 4: a post body piped on stdin still reaches the board (the background job is handed stdin)', () => {
+  const bodies = [];
+  return withStubBoard(
+    { '/api/community/post': (b) => { bodies.push(b); return { status: 200, body: { ok: true, status: 'published', id: 'p1' } }; } },
+    async (port) => {
+      const out = await new Promise((resolve, reject) => {
+        const c = execFile(CLI, ['community', 'post'], { env: envFor(port), timeout: 30000 }, (err, stdout, stderr) => {
+          if (err && typeof err.code !== 'number') { reject(err); return; }
+          resolve({ code: err ? err.code : 0, stdout, stderr });
+        });
+        c.stdin.end('a body from stdin 7967');
+      });
+      assert.equal(bodies.length, 1, 'premise: the post was sent once: ' + out.stdout + out.stderr);
+      assert.match(bodies[0], /a body from stdin 7967/, 'the piped words reached the board');
+      assert.equal(out.code, 0, out.stdout + out.stderr);
+    });
+});
+
+/* Review 1, 3 and 4: errexit stays on inside the subcommand, and the subcommand runs in the background with this shell
+   waiting (a trap interrupts `wait`; it would not interrupt a foreground subshell). Read from the source: no community
+   path fails unguarded today, so no run of the CLI can show the first. */
+test('#7967 review 1: the community subcommands still run with errexit on, in a background job that is waited on', () => {
   const src = fs.readFileSync(CLI, 'utf8');
   const open = src.indexOf('\ncmd_community_with_reason() {\n');
   assert.ok(open >= 0, 'premise: the wrapper was found');
-  const body = src.slice(open, src.indexOf('\n}\n', open));
-  assert.match(body, /\n {2}set \+e\n {2}\( set -e; [^\n]*trap [^\n]*EXIT; cmd_community "\$@" \)\n {2}_rc=\$\?\n {2}set -e\n/);
+  const body = src.slice(open, src.indexOf('\n}\n', open + 1) + 1);
+  assert.match(body, /\n {2}\( trap - INT; set -e; [^\n]*cmd_community "\$@" \) <&0 &\n {2}_pid=\$!\n {2}set \+e\n {2}wait "\$_pid"\n {2}_rc=\$\?\n {2}set -e\n/);
   assert.doesNotMatch(body, /cmd_community "\$@" \) \|\|/, 'a subshell on the left of || runs with errexit off');
-  assert.equal(body.split('\n').filter((l) => /\btrap\b/.test(l) && !/^ {2}\( set -e;/.test(l)).length, 0, 'a trap in this shell would hold a TERM until the request ends');
 });

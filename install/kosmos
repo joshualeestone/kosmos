@@ -436,10 +436,11 @@ esac
 # steps; run by hand, it stays at the command's two-space voice.
 say() {
   printf '%s%s\n' "${KOSMOS_SAY_INDENT:-  }" "$*"
-  # kosmos#7967: inside cmd_community_with_reason, keep the first line said, so a failure can repeat it on stderr.
-  if [ -n "${_KOSMOS_SAY_KEEP:-}" ] && [ -z "${_KOSMOS_SAID_FIRST:-}" ]; then _KOSMOS_SAID_FIRST="$*"; fi
+  # kosmos#7967: inside cmd_community_with_reason, keep the first line said (a file, so a say inside $(...) counts too),
+  # so a failure can repeat it on stderr.
+  if [ -n "${_KOSMOS_SAID_FILE:-}" ] && [ ! -s "$_KOSMOS_SAID_FILE" ]; then printf '%s' "$*" > "$_KOSMOS_SAID_FILE" 2>/dev/null || true; fi
 }
-unset _KOSMOS_SAY_KEEP _KOSMOS_SAID_FIRST   # kosmos#7967: only the community wrapper sets them, never the environment
+unset _KOSMOS_SAID_FILE   # kosmos#7967: only the community wrapper sets it, never the environment
 die() { printf '  %s\n' "$*" >&2; exit 1; }
 
 # kosmos#4889: a verb's text is everything its own options did not take, so an option it does not know
@@ -4347,36 +4348,50 @@ cmd_inbox() {
 # cmd_community keeps its name: the Windows parity guard reads its subcommands from it.
 # The suffix never says whether anything happened: an exit 1 can follow a post the board may have taken (a cut answer),
 # so whether to run it again is the line's own to say.
-# How (review rounds 1 and 3): the subcommand runs in a subshell whose own EXIT trap prints the line. This shell holds
-# no trap at all, because bash runs a trap only after the foreground command returns: a trap here (EXIT included,
-# measured) made a TERM or HUP sent to this command wait for the whole request. Without one, those stop it at once, as
-# before; a request already sent may still finish, as before. errexit stays on inside: the exit code is read with
-# set +e around the subshell, not with `||`, which would turn errexit off for everything the subcommand calls.
-# A signal that kills the command (Ctrl-C, a TERM) prints no line, as before: bash runs no EXIT trap for an untrapped
-# signal, and whoever sent it knows why it stopped.
-_community_reason_line() {   # <exit code> <command name>; runs as the subshell's EXIT trap
-  local _rc="$1" _name="$2" _why="${_KOSMOS_SAID_FIRST:-}" _means=""
-  [ "$_rc" -ne 0 ] || return 0
-  _why="${_why//$'\n'/ }"
-  _why="${_why#"${_why%%[![:space:]]*}"}"
-  _why="${_why%"${_why##*[![:space:]]}"}"
-  case "$_rc" in
-    2) _means="refused; the line says why" ;;
-    3) _means="it may have happened; the line says what to check before running it again" ;;
-    *) _means="the line says whether running it again is safe" ;;
-  esac
-  if [ -n "$_why" ]; then
-    printf '%s: %s (exit %s: %s)\n' "$_name" "$_why" "$_rc" "$_means" >&2
-  else
-    printf '%s stopped without saying why (exit %s). Run it on its own to see its output.\n' "$_name" "$_rc" >&2
-  fi
-}
+# How (review rounds 1, 3 and 4): the subcommand runs in a BACKGROUND subshell that this shell `wait`s on, because bash
+# runs a trap only after a foreground command returns (a foreground subshell made a TERM wait for the whole request),
+# and a trap interrupts `wait` at once. On INT, TERM or HUP this shell stops the subshell (which holds no trap, so it
+# stops at once and starts nothing more, as the single shell before #7967 did; a request already sent may still finish,
+# as before), removes the kept line and re-raises the signal. A signal prints no line: whoever sent it knows why.
+# The subshell resets INT, which bash ignores in a background job, so a Ctrl-C still reaches what it runs; `<&0` hands
+# it stdin, which a background job would otherwise not get (a post body is read from there). errexit stays on inside
+# it, and its exit code is read with set +e around `wait`, never with `||`.
 cmd_community_with_reason() {
-  local _rc=0 _name="kosmos community${1:+ $1}"
+  local _rc=0 _name="kosmos community${1:+ $1}" _first="" _pid="" _why="" _means=""
+  _first=$(umask 077; mktemp "${TMPDIR:-/tmp}/kosmos-community-said.XXXXXX" 2>/dev/null) || _first=""
+  _community_with_reason_gone() {   # <signal>
+    if [ -n "$_pid" ]; then kill -TERM "$_pid" 2>/dev/null || true; wait "$_pid" 2>/dev/null || true; fi
+    [ -z "$_first" ] || rm -f "$_first"
+    trap - "$1"
+    kill -s "$1" "$$"
+  }
+  trap '_community_with_reason_gone INT' INT
+  trap '_community_with_reason_gone TERM' TERM
+  trap '_community_with_reason_gone HUP' HUP
+  ( trap - INT; set -e; _KOSMOS_SAID_FILE="$_first"; cmd_community "$@" ) <&0 &
+  _pid=$!
   set +e
-  ( set -e; _KOSMOS_SAY_KEEP=1; _KOSMOS_SAID_FIRST=""; trap '_community_reason_line "$?" "$_name"' EXIT; cmd_community "$@" )
+  wait "$_pid"
   _rc=$?
   set -e
+  _pid=""
+  trap - INT TERM HUP
+  if [ "$_rc" -ne 0 ]; then
+    if [ -n "$_first" ]; then _why=$(tr '\n' ' ' < "$_first" 2>/dev/null) || _why=""; fi
+    _why="${_why#"${_why%%[![:space:]]*}"}"
+    _why="${_why%"${_why##*[![:space:]]}"}"
+    case "$_rc" in
+      2) _means="refused; the line says why" ;;
+      3) _means="it may have happened; the line says what to check before running it again" ;;
+      *) _means="the line says whether running it again is safe" ;;
+    esac
+    if [ -n "$_why" ]; then
+      printf '%s: %s (exit %s: %s)\n' "$_name" "$_why" "$_rc" "$_means" >&2
+    else
+      printf '%s stopped without saying why (exit %s). Run it on its own to see its output.\n' "$_name" "$_rc" >&2
+    fi
+  fi
+  [ -z "$_first" ] || rm -f "$_first"
   exit "$_rc"
 }
 
