@@ -307,8 +307,9 @@ test('#5167 (2026-10-27): every policy refusal is said, and a computer the perso
 test('kosmos#7952 review 1: only a download the board page itself asked for is marked same-origin', () => {
   const nav = SRC.slice(SRC.indexOf('if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,'));
   const branch = nav.slice(0, nav.indexOf('if navigationAction.shouldPerformDownload {'));
-  assert.match(branch, /let source = navigationAction\.sourceFrame\n/, 'the frame that asked is not the SOURCE frame (a target frame can be the top)');
-  assert.match(branch, /let byPage = downloadAskedByPage\(frameIsMain: source\.isMainFrame, frameProtocol: source\.securityOrigin\.protocol,/);
+  assert.match(branch, /let source = navigationAction\.sourceFrame as WKFrameInfo\?\n/, 'the frame that asked is not the SOURCE frame (a target frame can be the top)');
+  assert.match(branch, /let byPage = source\.map \{ downloadAskedByPage\(frameIsMain: \$0\.isMainFrame, frameProtocol: \$0\.securityOrigin\.protocol,/);
+  assert.match(branch, /\} \?\? false\n/, 'no source frame must read as not the page');
   const guard = branch.indexOf('guard byPage else');
   assert.ok(guard > 0, 'the marked download is no longer behind the page check');
   const starts = SRC.split('startDownload(using:').length - 1;
