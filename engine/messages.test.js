@@ -711,6 +711,9 @@ test('the colleagues block teaches the command and the colleague-vs-operator dis
     'the block does not teach the overheard-message posture (the project-room groundwork)');
   assert.match(body, /kosmos post <project-id>/, 'the block does not teach the room command');
   assert.match(body, /Mention @<their-name>/, 'the block does not teach how addressing works in a room');
+  // #7886 item 3: how to answer a colleague's direct message, and what its answer line does and does not mean.
+  assert.match(body, /msg --in-reply-to <id> <name>/, 'the block does not teach answering a direct message');
+  assert.match(body, /direct message carries the line whether or not it needs an\s+answer/, 'the block does not say what a direct message\'s answer line means');
   // The same splice create.js runs at birth: the block lands between its
   // markers and a re-splice replaces rather than duplicates.
   const once = projects.spliceBlock('# leo\n\ntheir words\n', body, messages.START, messages.END);

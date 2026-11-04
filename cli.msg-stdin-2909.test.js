@@ -207,5 +207,8 @@ test('#7886 CONTROL: without --in-reply-to no in_reply_to is sent; a missing id 
   const flag = await runCli(['msg', '--in-reply-to', '--stdin', 'leo'], envFor(port), 'x');
   assert.equal(flag.code, 2);
   assert.match(flag.stdout, /--in-reply-to needs a message id/);
+  const eqFlag = await runCli(['msg', '--in-reply-to=--stdin', 'leo', 'hi'], envFor(port));
+  assert.equal(eqFlag.code, 2);
+  assert.match(eqFlag.stdout, /--in-reply-to needs a message id/);
   assert.equal(seen.length, 1);
 }));

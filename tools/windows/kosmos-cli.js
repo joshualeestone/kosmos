@@ -502,7 +502,7 @@ async function verbMsg(ctx, args) {
     }
     if (typeof args[0] === 'string' && args[0].startsWith('--in-reply-to=')) {
       inReplyTo = args.shift().slice('--in-reply-to='.length);
-      if (!inReplyTo) { ctx.err('Usage: --in-reply-to needs a message id, like m12'); return 2; }
+      if (!inReplyTo || inReplyTo.startsWith('--')) { ctx.err('Usage: --in-reply-to needs a message id, like m12'); return 2; }
       continue;
     }
     break;
