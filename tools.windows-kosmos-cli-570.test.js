@@ -435,7 +435,7 @@ test('react: /api/react with project, post id and emoji, and the agent hears WHI
 test('report: the flags become fields; a blocked report with nothing to act on is refused locally (#2001)', async () => {
   const r = await run(['report', 'blocked', '--on', 'the deploy', '--owner', 'baron', 'waiting'], () => ({ body: { recorded: true } }));
   assert.equal(r.code, 0);
-  assert.deepEqual(r.calls[0].body, { state: 'blocked', text: 'waiting', on: 'the deploy', owner: 'baron', until: '', project: '', auto: false, from_pane: '' });
+  assert.deepEqual(r.calls[0].body, { state: 'blocked', text: 'waiting', on: 'the deploy', owner: 'baron', until: '', project: '', auto: false, held: false, from_pane: '' });   // #7915: held always sent
   const empty = await run(['report', 'needs_you']);
   assert.equal(empty.code, 2);
   assert.equal(empty.calls.length, 0);

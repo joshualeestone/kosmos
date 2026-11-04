@@ -1000,6 +1000,8 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       'awaitingApproval',
       /* #7786: whether an idle agent has launched and never taken a turn. One boolean, nothing identifying. */
       'neverTurned',
+      /* #7915: whether the agent's own question is held until the person is back. One boolean, nothing identifying. */
+      'stateHeld',
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     /* #2698: avatarVer is a PINNED NUMBER (category 1), forced to a constant in
