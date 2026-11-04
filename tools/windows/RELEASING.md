@@ -234,8 +234,8 @@ pinned private key means installs refuse updates until Kosmos is installed afres
   (or `KOSMOS_WIN_PROMOTE_LOG`), in `promote-channel.sh`'s line format with `path=promote-r2`
   (not `path=promote`) plus `bucket=` and `prefix=`, so a self-test never reads as a real promote.
   It also names the installer (#7883, #7890): `setup_sha256=` (or `none`), and `setup_source=`: `commit` (read again
-  at the commit the zip records), `head` (the zip records none; checked against the promoting checkout's HEAD, named by
-  `setup_head=`), or `none` (no installer staged; `setup_left=` is the sha of the setup.ps1 left live, or `absent`).
+  at the commit the zip records), `head` (the zip records none; the staged bytes equal the promoting checkout's HEAD blob, the
+  commit named by `setup_head=`; that is byte-equality only, not proof it was the commit staging used), or `none` (no installer staged; `setup_left=` is the sha of the setup.ps1 left live, or `absent`).
   A Windows promote from the PC is therefore NOT in the Mac's log. The durable record of the go
   is his message itself, which the log line names by `approval_ref`.
 - **R2 enforces the three conditional writes this script relies on** (measured 2026-09-25 against

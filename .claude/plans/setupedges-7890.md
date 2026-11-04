@@ -29,8 +29,9 @@ Follow-ups to #7891 (publish-r2.ps1 carries setup.ps1). Items 1 and 2 need other
 
 ## Choice made against the card's first option
 For item 3's promote side the card offered "compare it to a HEAD blob at promote time, or leave setup.ps1 untouched with
-a NOTICE". HEAD's blob is used; leaving setup.ps1 untouched was dropped in review (round 1), since it promotes an app whose
-installer stays older, the outcome item 4 refuses. A refusal names its fix.
+a NOTICE". HEAD's blob is used; leaving setup.ps1 untouched for an installer that FAILS that check was dropped in review (round 1),
+since it promotes an app whose installer stays older, the outcome item 4 refuses. (A build staged with NO installer still
+leaves setup.ps1 as it is: that is the rollback case of item 5.)
 **Weakest premise:** that HEAD at promote time is a fair witness for a zip that names no commit. It is only used when the
 zip names none, and a mismatch publishes nothing.
 
