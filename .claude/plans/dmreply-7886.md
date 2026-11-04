@@ -15,6 +15,15 @@ A direct message arrives as `[message from your colleague <name> · m<id>]` with
 2. The direct-message envelope ends with ` · to answer, run: kosmos msg --in-reply-to <id> <sender>`, the sender
    being its session name (what `kosmos msg` takes).
 
+## Decided in review
+- A message that itself answers another (sent with --in-reply-to) carries no answer line, as a room answer is not
+  invited to reply (#7246), so each answer does not ask for one more round. The instruction block says so, and that a
+  new question goes without --in-reply-to.
+- A sender name with a space is single-quoted in the answer line (the charset gate allows a space and no quote).
+- The longer prefix moves a message near chat's typing cap to an Inbox file a little sooner (spillsAt measures the
+  whole prefix); accepted.
+- Not done: a sender name starting with -- (the CLIs refuse it as an option); needs a deliberately odd session name.
+
 ## Rejected
 - Teaching `kosmos post --in-reply-to <dm id>` to forward to msg: two verbs for one act, and post's project
   argument would have to become optional.
