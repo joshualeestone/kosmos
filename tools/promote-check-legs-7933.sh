@@ -235,7 +235,7 @@ leg_verb() {
 
     # app/ is left read-only by design (#4449): lifted for the stamp alone, so the installer meets it as a person's would.
     chmod u+w "$home/app" "$pkg" || { fail verb "could not lift the read-only app for the stamp"; return; }
-    sed -i 's/"version": *"'"$sv"'"/"version": "0.0.1"/' "$pkg"
+    sed -i 's/"version": *"'"$sv"'"/"version": "0.0.1"/' "$pkg"   # gnu-ok: this leg refuses to run off Linux
     chmod a-w "$home/app" "$pkg"
     grep -q '"version": "0.0.1"' "$pkg" || { fail verb "the stamp did not apply to $pkg"; return; }
   fi
