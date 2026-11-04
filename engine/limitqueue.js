@@ -5,7 +5,7 @@
  *
  * messages.sendWithDelivery keeps a message here when chat.limitHeldVerdict holds its recipient; the board's minute
  * sweep (flush) types the kept messages in order once the recipient's card reads released, and drops one still kept
- * DROP_AFTER_MS past its reset. One small file per agent under the store. Never throws.
+ * DROP_AFTER_MS past its reset (a `kosmos msg` held only by its recipient's input box: INPUT_DROP_AFTER_MS, kosmos#7936). One small file per agent under the store. Never throws.
  */
 
 const crypto = require('node:crypto');
@@ -21,10 +21,14 @@ const DROP_AFTER_MS = 24 * 60 * 60 * 1000;
 const INPUT_DROP_AFTER_MS = 2 * 60 * 60 * 1000;
 const STILL_HELD_TELL_MS = 10 * 60 * 1000;
 function shortHold(e) { return !!e && e.input === true && !e.kind; }
-/* Review 1: only while the box is the reason. An agent out of usage or signed out since (limited: its queue is not
-   released on that account) keeps the day, so a reset that comes later still types it. */
+/* Reviews 1-3: only while the box is the reason (`limited` false: the agent's queue is released on usage and sign-in,
+   and its box reads text). Anything else, or a doubt, keeps the day, so a reset that comes later still types it. */
 function dropAfter(e, limited) { return shortHold(e) && !limited ? INPUT_DROP_AFTER_MS : DROP_AFTER_MS; }
-function forgetTold(id) { toldStill.delete(id); }
+/* Review 3: a notice that did not land is tried again no sooner than this, so Kosmos's own retries never make up a
+   sender's stall streak (deliverystreak: 3 failures within 30 minutes). */
+const STILL_RETRY_MS = 15 * 60 * 1000;
+const stillTriedAt = new Map();   // id -> when a notice that did not land was tried
+function forgetTold(id, at = Date.now()) { toldStill.delete(id); stillTriedAt.set(String(id), at); }
 // Ids whose sender was told they are still held (in memory: a restart may tell a sender once more, the stated cost).
 const toldStill = new Set();
 // kosmos#7936 review 2: agent -> the last sweep that saw it limited (in memory: after a restart the 2 hours count from arrival).
@@ -211,7 +215,7 @@ const HELD_FOR = { input: 'once its input box was empty', signin: 'once it was s
 function deliveredLine(d) {
   return 'limit-queue: ' + d.name + ' was given held message ' + d.id + ' ' + (HELD_FOR[d.why] || HELD_FOR.limit) + ', delivery=' + d.state + '\n';
 }
-/* The minute sweep. For each agent with kept messages: drop those DROP_AFTER_MS past their reset (onDropped); then,
+/* The minute sweep. For each agent with kept messages: drop those past their reset by dropAfter (onDropped); then,
    when `isReleased(card, roster, live)` (the card for the agent in `roster`, and the messages still kept), type the
    rest in order with `deliver`. A message typed (placed or unconfirmed) is removed and reported (onDelivered); the
    first that is not stops that agent's run and stays. Returns [{ name, id, state, why }] for what was typed. */
@@ -226,22 +230,24 @@ async function flush(roster, opts) {
   // Only this run frees the guard: a stuck run that finishes late must not clear a newer run's.
   try { return await flushOnce(roster, opts); } finally { if (runToken === mine) flushingSince = 0; }
 }
-async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, onStuck, onStillHeld, isLimited, now = Date.now() }) {
+async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, onStuck, onStillHeld, boxIsReason, now = Date.now() }) {
   const out = [];
   for (const name of names()) {
     const due = [];   // kosmos#7936: still-held notices, said once this agent's typing is over
+    let released = false;
     try {
       const kept = [];
       for (const e of list(name)) {
-        if (done.has(e.id)) { if (remove(name, e.id)) done.delete(e.id); toldStill.delete(e.id); continue; }   // typed or dropped already
+        if (done.has(e.id)) { if (remove(name, e.id)) done.delete(e.id); toldStill.delete(e.id); stillTriedAt.delete(String(e.id)); continue; }   // typed or dropped already
         kept.push(e);
       }
       const live = [];
-      /* kosmos#7936 review 1: an agent held on its usage or sign-in as well keeps the day for its input-held messages.
-         Review 2: a card that cannot be read or judged counts as limited too, so a doubt keeps the day. */
-      let limited = false;
+      /* kosmos#7936: the 2-hour rule applies only while the box is the reason (boxIsReason). Review 1: an agent held on its
+         usage or sign-in as well keeps the day; review 2: so does a card that cannot be read or judged; review 3: so does
+         a box that reads empty or unread (a backlog draining, a menu up) and a caller that passes no boxIsReason. */
+      let limited = true;
       if (kept.some(shortHold)) {
-        try { const c = isLimited ? resolveCard(roster, name) : null; limited = !isLimited ? false : (!c || !!isLimited(c, roster)); } catch { limited = true; }
+        try { const c = boxIsReason ? resolveCard(roster, name) : null; limited = !(c && boxIsReason(c, roster)); } catch { limited = true; }
         if (limited) limitedSeen.set(name, now);
       }
       // Review 2: the 2 hours count from when the box became the only reason (the last sweep that saw the agent limited).
@@ -251,22 +257,24 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         const reset = Number.isFinite(Date.parse(e.reset)) ? Date.parse(e.reset) : Date.parse(e.at);
         // Being typed this moment (a run that outlived the guard): not dropped under it.
         if (claimedNow(e.id)) { live.push(e); continue; }
-        const short = shortHold(e) && !limited;
+        const short = shortHold(e) && !limited && Number.isFinite(reset);   // review 3: never "two hours" for a bad reset
         const from = short ? Math.max(reset, seen) : reset;
         if (!Number.isFinite(reset) || now - from > dropAfter(e, limited)) {
           if (!remove(name, e.id)) done.add(e.id);
-          toldStill.delete(e.id);
+          toldStill.delete(e.id); stillTriedAt.delete(String(e.id));
           try { if (onDropped) onDropped(e, roster, short); } catch { /* the drop stands */ }
         } else {
           // kosmos#7936: once, STILL_HELD_TELL_MS in, the sender hears it is still held and when it would drop; said after
           // this sweep's typing (review 2), only for a message still kept, so it never follows the message itself.
-          if (short && now - from >= STILL_HELD_TELL_MS && !toldStill.has(e.id)) due.push({ e, dropAt: new Date(from + INPUT_DROP_AFTER_MS).toISOString() });
+          if (short && now - from >= STILL_HELD_TELL_MS && !toldStill.has(e.id)
+            && !(now - (stillTriedAt.get(String(e.id)) || -Infinity) < STILL_RETRY_MS)) due.push({ e, dropAt: new Date(from + INPUT_DROP_AFTER_MS).toISOString() });
           live.push(e);
         }
       }
       if (!live.length) continue;
       const card = resolveCard(roster, name);
       if (!card || !isReleased(card, roster, live)) continue;
+      released = true;   // review 3: the box read clear this sweep, so it is not the reason for what is left
       let typedNow = 0;
       for (const e of live) {
         // Claimed by a run that outlived the guard: this agent waits, so nothing is typed ahead of it.
@@ -287,7 +295,7 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
           break;
         }
         if (!remove(name, e.id)) done.add(e.id);
-        toldStill.delete(e.id);   // kosmos#7936 review 1: no longer kept, so nothing to remember
+        toldStill.delete(e.id); stillTriedAt.delete(String(e.id));   // kosmos#7936: no longer kept, nothing to remember
         try { if (onDelivered) onDelivered(e, v); } catch { /* it was typed */ }
         /* #7212: why it was held, so the log says the true reason (a held input box is not a usage limit). */
         out.push({ name, id: e.id, state, why: heldWhy(e) });
@@ -296,7 +304,7 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       }
     } catch { /* this agent's messages stay for the next minute */ } finally {
       // kosmos#7936 review 2: only for a message still kept after this sweep's typing (typed or dropped meanwhile: none).
-      if (due.length && onStillHeld) {
+      if (due.length && onStillHeld && !released) {
         const still = readEntries(name);
         for (const d of due) {
           if (!still.ok || done.has(d.e.id) || !still.entries.some((x) => x.id === d.e.id) || toldStill.has(d.e.id)) continue;
@@ -370,13 +378,13 @@ function sweepHooks({ chat, messages }) {
       if (e.kind) return;
       messages.tellHeldStill(e, r, dropAt).then((v) => {
         if (!v || (v.state !== chat.DELIVERY.PLACED && v.state !== chat.DELIVERY.UNCONFIRMED)) forgetTold(e.id);
-      }).catch(() => { forgetTold(e.id); });
+      }).catch(() => { forgetTold(e.id); });   // tried again no sooner than STILL_RETRY_MS
     },
-    // Review 1: on usage or sign-in as well, so the 2-hour drop is for a box that is the only reason left.
-    isLimited: (card, roster) => !chat.limitQueueReleased(card, roster),
+    // Reviews 1-3: released on usage and sign-in, and the box reads text: the box is the only reason left.
+    boxIsReason: (card, roster) => chat.limitQueueReleased(card, roster) && chat.inputBoxReads(card) === 'text',
   };
 }
 
-function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); toldStill.clear(); limitedSeen.clear(); flushingSince = 0; }
+function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); toldStill.clear(); limitedSeen.clear(); stillTriedAt.clear(); flushingSince = 0; }
 
-module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, dropAfter, forgetTold, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
+module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, STILL_RETRY_MS, dropAfter, forgetTold, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
