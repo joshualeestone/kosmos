@@ -994,14 +994,14 @@ struct ChatView: View {
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
-    // and where the scroll was after it. Later empty lists in the same chat are put right (past the end only) without a report.
+    // and where the scroll was after it. Later empty lists in the same chat are put right without a report (see below).
     // Nothing leaves the phone unless the person shares it.
     private func diagCapture(_ proxy: ScrollViewProxy, why: String, count: Int, recover: Bool = true) {
         guard visible, scenePhase == .active else { return }
         // kosmos#7420 (build 22, 10-30): reported once per chat. A later empty list (or the same one at the 1.5 s check) is
         // put right only as Board.emptyRecovery says: past the content's end, or (build 24) rebuilt when within the content
-        // at the newest. Nobody scrolling either way, and a later look never moves a reader higher up (the first try, the
-        // reported blank, rebuilds whatever the anchor, TestFlight 37). A later reading reaches here only through
+        // at the newest. Nobody scrolling either way. The first try, the reported blank, rebuilds whatever the anchor
+        // (TestFlight 37), and a later blank for a reader higher up does so once it holds still (below). A later reading reaches here only through
         // diagCheck, which asks for no row counted, the end not showing, the top not showing and nobody scrolling.
         // Review 5: a blank that comes after the first try, for a reader higher up, is still a blank: rebuilt if it holds
         // still for blankConfirm, as the settled look does, so a list empty for an instant moves nobody.
@@ -2276,8 +2276,8 @@ struct ChatView: View {
                 // kosmos#7810: only from a whole window read in this open (a kept copy or a small page is not one).
                 if !Self.sampleNoKeep, wasFull { earlier = Board.carryDropped(earlier, previous: thread, fresh: fresh) }   // NOKEEP: the control
                 // kosmos#7420 review 5: read before the new rows land, as pinned is.
-                let quiet = Self.idAnchor && Board.readLeavesDrawnEndAlone(lastBefore: thread?.rows.last?.id, lastAfter: fresh.rows.last?.id, pinned: pinned,
-                                                                            endVisible: endVisible, drawn: !onScreen.isEmpty, settled: settledAtEnd)
+                let quiet = Self.idAnchor && Board.readLeavesDrawnEndAlone(before: thread, after: fresh, pinned: pinned, endVisible: endVisible, endSeen: endSeen,
+                                                                            anchorAtEnd: positionId == "end", drawn: !onScreen.isEmpty, settled: settledAtEnd)
                 quietFollowKey = quiet ? Board.followKey(fresh) : nil
                 thread = fresh; recomputeHiddenHeads()
                 if pinned { keepAtEndTick += 1 }

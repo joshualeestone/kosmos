@@ -1274,6 +1274,23 @@ do {
     let newUnderQuestion = Board.Thread(rows: [r("a", "T1"), r("b", "T2"), r("c", "T3"), r("q", nil)], olderCount: 5)
     check(Board.followKey(withQuestion) != Board.followKey(newUnderQuestion), "a new message above the Mac's untimed question row moves the key")
     check(Board.followKey(before) == Board.followKey(Board.Thread(rows: [r("a", "T1"), r("b", "T2")], olderCount: 5)), "the same conversation read again does not")
+    // kosmos#7420 review 5 and 7: a read moves a drawn list only when the end of the list changed, or the list is not held there.
+    let quietRead = { (from: Board.Thread?, to: Board.Thread, pinned: Bool, end: Bool, seen: Bool, anchored: Bool, drawn: Bool, settled: Bool) in
+        Board.readLeavesDrawnEndAlone(before: from, after: to, pinned: pinned, endVisible: end, endSeen: seen, anchorAtEnd: anchored, drawn: drawn, settled: settled)
+    }
+    let olderLanded = Board.Thread(rows: [r("z", "T0"), r("a", "T1"), r("b", "T2")], olderCount: 4)
+    check(quietRead(before, before, true, true, true, true, true, true), "the same newest row at a drawn, settled end: not moved")
+    check(quietRead(before, olderLanded, true, true, true, true, true, true), "older rows landing above the same newest row: not moved")
+    check(!quietRead(before, shifted, true, true, true, true, true, true), "a new newest row is followed")
+    check(!quietRead(withQuestion, newUnderQuestion, true, true, true, true, true, true), "a new message above the untimed question row is followed")
+    check(!quietRead(before, withQuestion, true, true, true, true, true, true), "a question row arriving last is followed")
+    check(!quietRead(nil, before, true, true, true, true, true, true), "the first rows of a chat are followed")
+    check(!quietRead(before, before, false, true, true, true, true, true), "a reader who is not kept at the newest is not this case")
+    check(!quietRead(before, before, true, false, true, true, true, true), "the end not showing: taken back")
+    check(!quietRead(before, before, true, true, false, true, true, true), "a chat whose end was never drawn is still taken there")
+    check(!quietRead(before, before, true, true, true, false, true, true), "with the anchor let go nothing holds the list: put back")
+    check(!quietRead(before, before, true, true, true, true, false, true), "nothing drawn: not left alone")
+    check(!quietRead(before, before, true, true, true, true, true, false), "a chat still opening is still taken to the newest")
 }
 
 section("native chat: what a send's answer means")
@@ -5642,17 +5659,6 @@ do {
           "TestFlight 37: the reported blank is rebuilt for a reader higher up too; a later automatic look leaves them")
     check(Board.emptyRecovery(later: true, place: "past the end", scrolling: false, atNewest: true) == .backInsideThenNewest
           && Board.emptyRecovery(later: false, place: nil, scrolling: false, atNewest: true) == .newest, "outside the content or unread: as before")
-    // kosmos#7420 review 5: a read moves a drawn list only when the end of the list changed, or the list is not drawn there.
-    let quietRead = { (before: String?, after: String?, pinned: Bool, end: Bool, drawn: Bool, settled: Bool) in
-        Board.readLeavesDrawnEndAlone(lastBefore: before, lastAfter: after, pinned: pinned, endVisible: end, drawn: drawn, settled: settled)
-    }
-    check(quietRead("a", "a", true, true, true, true), "the same newest row at a drawn, settled end: not moved")
-    check(!quietRead("a", "b", true, true, true, true), "a new newest row is followed")
-    check(!quietRead(nil, "a", true, true, true, true), "the first rows of a chat are followed")
-    check(!quietRead("a", "a", false, true, true, true), "a reader who is not kept at the newest is not this case")
-    check(!quietRead("a", "a", true, false, true, true), "the end not showing: taken back")
-    check(!quietRead("a", "a", true, true, false, true), "nothing drawn: not left alone")
-    check(!quietRead("a", "a", true, true, true, false), "a chat still opening is still taken to the newest")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
