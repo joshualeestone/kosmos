@@ -9,8 +9,9 @@ import SwiftUI
 struct KosmosOrb: View {
     /// The circle's side in points. 20 is a regular ProgressView; 16 and 36 stand for .small and .large.
     var size: CGFloat = 20
-    /// The star's gold (kosmos#7034): deep gold in light, which holds 3:1 on the light grounds where the bright gold
-    /// measures about 2.1:1, and the bright gold in dark. A caller on a coloured ground passes its own.
+    /// The star's gold (kosmos#7034): deep gold in light, a COLOUR that holds 3:1 on the light grounds where the bright
+    /// gold measures about 2.1:1, and the bright gold in dark. The orb as drawn (sparse, partly transparent dots) reads
+    /// fainter than its colour; how faint at 16 pt on a device is not measured. A caller on a coloured ground passes its own.
     var colour: Color = Palette.starGold
     /// What VoiceOver says for it. Sites that labelled their ProgressView pass that label here, rather than stacking a
     /// second accessibilityLabel on top of this one.
@@ -32,7 +33,7 @@ struct KosmosOrb: View {
                 }
             }
         }
-        .frame(width: size, height: size)   // observed, not enforced: the Canvas fills an explicit colour, so a disabled Button does not dim it (those are disabled because they are working; round 6)
+        .frame(width: size, height: size)   // expected, not measured: the Canvas fills an explicit colour, so a disabled Button does not dim it (those are disabled because they are working; round 6)
         .accessibilityElement()
         .accessibilityLabel(Text(label))
         .accessibilityAddTraits(reduceMotion ? [] : .updatesFrequently)
