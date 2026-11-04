@@ -61,6 +61,8 @@ if (require.main === module) {
 /* #7693: after the log stamp and before the engine modules copy these functions: a blocking child process
    over a second writes its caller to board.log. See engine/slowspawn.js. Only when this file IS the board. */
 if (require.main === module) require('./engine/slowspawn').install(require('node:child_process'));
+/* #7978: what each agent's processes hold, sampled off the board's thread on a timer of its own. See engine/machinecost.js. */
+if (require.main === module) setImmediate(() => { try { require('./engine/machinecost').start(); } catch (e) { console.error('machinecost: not started: ' + (e && e.message)); } });
 /* #7693: the whole of any stall over two seconds, which is what slowspawn cannot see. See engine/loopheld.js. */
 if (require.main === module) require('./engine/loopheld').watch({ blockedMs: require('./engine/slowspawn').blockedMs });
 /* #5450: who started this board (install/kosmos board-run and start), taken out of the environment before anything
@@ -265,6 +267,7 @@ let SETTINGS_LEFTOVERS = null;
 let LAST_SURVEY = null;
 const firstrun = require('./engine/firstrun');
 const platformGate = require('./engine/platform');
+const machinecost = require('./engine/machinecost');   // #7978
 const cloudMachine = require('./engine/cloudmachine');   // kosmos#4903 S5
 /* win32-board-copy: the page's platform fact. The page needs it before any signed-in
    API answers (the not-signed-in panel is painted exactly when /api/* refuses), so the
@@ -7824,6 +7827,7 @@ const server = http.createServer(async (req, res) => {
         // and null travels as null: the screen must not be able to tell a
         // missing job from a default.
         plannedModelName: plannedFor(a),
+        machine: a.isNamedOurs ? machinecost.read(a.sessionName) : null,   // #7978: the last sample's memory and CPU; never starts a read
         settingModelName: settingGeminiModel(a, geminiSeen),   // #5804, #5811
         /* #4416: the RAW model id the job starts it on, for the OpenAI picker's current choice. It used to read
            plannedModelName, which was the raw id only because non-Claude ids were shown raw; now they are named in
