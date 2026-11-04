@@ -151,6 +151,10 @@ if (!SKIP) {
 if (!SKIP && !BROKEN) {
   const probe = spawnSync(HELPER, ['create', path.join(DIR, 'probe'), 'none'], { encoding: 'utf8' });
   if (probe.status === 3) SKIP = 'this Mac has no Secure Enclave';
+  // errSecInteractionNotAllowed (-25308): this SESSION cannot reach the Enclave (a runner started over ssh, with no
+  // login session; measured on the kosmos-ci2 runner 11-03). Like "no Enclave", it says nothing about kosmos-se, so it
+  // skips; every other create failure is still BROKEN and fails each test by name.
+  else if (probe.status === 1 && /OSStatus error -25308\b/.test(String(probe.stderr))) SKIP = 'this session cannot use the Secure Enclave (OSStatus -25308: no login session)';
   else if (probe.status !== 0) BROKEN = 'kosmos-se create failed: ' + firstLine(probe.stderr);
 }
 // Run first in every Part 2 test, so a broken build or key fails each one by name rather than the whole file.
