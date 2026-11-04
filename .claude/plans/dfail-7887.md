@@ -92,3 +92,20 @@ name the wrong cause. That needs a sudo that fails half way through one paste.
 - Not changed: the order of the two hedges in "not there (...), or the check could not run"; a dangling symlink at the
   agent path in a pasted command (the stage refuses one before printing; a job changing it between print and paste is
   the accepted race).
+
+## Challenge round 5 (opus, whole branch, no plan file), fixed in the next commit
+- BLOCKER, mine from round 4: the put-back's "agent differs" line sent the operator to "the move-aside this stage
+  prints", which no state that prints a put-back ever prints, and which cannot move an empty agent anyway; pbfail
+  pinned that dead end because no arm followed the advice. Now split: an EMPTY agent is to be removed (it holds
+  nothing; pbfail, then pbok follows it); a non-empty different agent gets an inline command that moves it, as the
+  CI user, to $CI_HOME/<label>.plist.newer (outside LaunchAgents, so a login never loads it), only if that name is
+  free. pbover pins it; pbfollow follows it and puts the parked agent back with the newer one kept; pbnoclobber shows
+  the rename never overwrites.
+- The move-aside's `.earlier` rename is guarded with `test ! -e`, and says to rerun the stage for a new stamp if that
+  name is taken too (an unguarded mv destroyed a parked copy in the reviewer's run). mvfollow follows it.
+- "nothing was copied ... paste this again" could loop forever; it now says to look at the folder as root if it fails
+  the same way.
+- The dir seams must be absolute paths, and the refusal names the variable (reldir; quotedir asserts the name).
+- The header comment states the exact rule: removal only for an empty file, or one with a non-empty byte-identical
+  twin; a file that differs is renamed to a name checked free first.
+- Lesson: an arm that pins advice text is not a test of the advice. The follow-through arms are.
