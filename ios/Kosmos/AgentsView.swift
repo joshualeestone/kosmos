@@ -389,7 +389,7 @@ struct BoardStates<Empty: View>: View {
         case .connecting(let mac):
             VStack(spacing: 12) {
                 message("Connecting to \(mac).", detail: "This can take a moment, for example just after your Mac starts.")
-                KosmosOrb(label: "Waiting for your Mac")
+                SweepDots(label: "Waiting for your Mac")   // kosmos#7954: the same wait as `reaching`, so the same dots
             }
         case .denied(let mac):
             message("\(mac) did not allow this iPhone.", detail: "You can allow it in Kosmos on your computer, under Remote access, then try again.", retry: true)

@@ -130,8 +130,8 @@ struct SettingsView: View {
             switch load {
             case .reading:
                 HStack(spacing: 10) {
-                    SweepDots()   // kosmos#7954: the same wait as the Agents tab's, so the same dots and words
-                    Text("Connecting\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
+                    KosmosOrb().accessibilityHidden(true)
+                    Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
                 }
             case .signedOut:
                 Text("Sign in to Kosmos+ first, then your computer's phone settings show here.")
