@@ -769,5 +769,81 @@ fake -Zip "$SDIR/kosmos-win-x64.zip" -Sig "$SDIR/missing.sig"; rc=$?
 refuses_clean "#6466 a -Sig that is not a file is refused, nothing written" "no such signature file"
 rm -f "$FAKE/publish.lock"
 
+# 7951: node runs with its own stdin and a time limit. Measured on the real functions, not a copy.
+cat > "$TMP/bounded.ps1" <<'PSEOF'
+. $args[1]
+$FakeDir = 'test'; $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '8'
+Import-FromScript $args[0] @('Get-NodeTimeoutSec', 'ConvertTo-NativeArg', 'Invoke-NodeBounded') @('Utf8')
+$node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
+# Stdin reaches EOF even though this pwsh's own stdin is held open by the caller.
+$r = Invoke-NodeBounded $node @('-e', "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})")
+"eof=$($r.Out) rc=$($r.Rc) timedout=$($r.TimedOut)"
+# Arguments arrive byte for byte.
+$weird = @('a b', 'q"uote', 'trail\', 'sp ace\', '', 'back\\"slash', 'plain')
+$r = Invoke-NodeBounded $node (@('-e', 'console.log(JSON.stringify(process.argv.slice(1)))') + $weird)
+"args_same=$(($r.Out | ConvertFrom-Json | ConvertTo-Json -Compress) -ceq ($weird | ConvertTo-Json -Compress))"
+# Stdin text arrives as UTF-8 and the answer comes back as UTF-8.
+$r = Invoke-NodeBounded $node @('-') "console.log('café '+process.argv.length)"
+"script=$($r.Out)"
+$r = Invoke-NodeBounded $node @('-') "console.log('$([char]0xe9)')"
+"utf8=$([int][char]$r.Out[0])"
+# An exit code comes back, and two lines join.
+$r = Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)")
+"rc4=$($r.Rc) out=$($r.Out) timedout=$($r.TimedOut)"
+# A node that prints a pass and never exits is stopped, and does not read as a pass.
+$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '2'
+$t0 = Get-Date
+$r = Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)")
+"hang rc=$($r.Rc) timedout=$($r.TimedOut) out=$($r.Out) quick=$(((Get-Date) - $t0).TotalSeconds -lt 20)"
+# The seam belongs to the test transport: without a fake bucket the real limit stands.
+$FakeDir = $null
+"limit=$(Get-NodeTimeoutSec)"
+$FakeDir = 'test'
+# Something node started that keeps the pipe open: exit 0 must not pass with its output missing.
+$sh = Join-Path $args[2] 'holdpipe.sh'
+"#!/bin/sh`necho PASS`nsleep 30 &`nexit 0`n" | Set-Content -NoNewline -LiteralPath $sh
+chmod +x $sh
+$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '20'
+$r = Invoke-NodeBounded $sh @()
+"held rc=$($r.Rc) timedout=$($r.TimedOut)"
+# A program that does not exist does not start, and that is not exit 0.
+$r = Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @()
+"nostart rc=$($r.Rc)"
+PSEOF
+# The pipe from sleep is what holds this pwsh's stdin open, the shape the card measured.
+o="$(sleep 15 | "$PWSH" -NoProfile -File "$TMP/bounded.ps1" "$PS1" "$TMP/load.ps1" "$TMP" 2>&1)"
+want7951() { case "$o" in *"$2"*) pass "#7951 $1" ;; *) fail "#7951 $1 (wanted: $2) got: $o" ;; esac; }
+want7951 "node sees EOF on stdin while this script's own stdin stays open" "eof=EOF rc=0 timedout=False"
+want7951 "arguments with spaces, quotes, trailing backslashes and an empty one arrive byte for byte" "args_same=True"
+want7951 "the script given on stdin runs" "script=caf"
+want7951 "stdin text and stdout are both UTF-8" "utf8=233"
+want7951 "an exit code comes back and output lines join" "rc4=4 out=one two timedout=False"
+want7951 "a node that printed PASS and never exits is stopped, with a non-zero rc, inside the bound" "hang rc=98 timedout=True out=PASS quick=True"
+want7951 "the timeout seam does nothing without the test transport" "limit=300"
+want7951 "exit 0 with its output still held open is not a pass" "held rc=97 timedout=False"
+want7951 "a node that does not start is not a pass" "nostart rc=99"
+
+# The whole script: a fake node on PATH prints the passing verdict and hangs, at each kind of caller.
+HANGBIN="$TMP/hangbin"; mkdir -p "$HANGBIN"
+REALNODE="$(command -v node)"
+cat > "$HANGBIN/node" <<NODEEOF
+#!/bin/sh
+# Hangs only on the verb under test; everything else is the real node.
+case "\$*" in
+  *"\$HANG_ON"*) echo "kosmos-win-x64.zip matches the signed manifest"; exec sleep 300 ;;
+esac
+exec "$REALNODE" "\$@"
+NODEEOF
+chmod +x "$HANGBIN/node"
+rm -f "$FAKE/publish.lock"
+: > "$FAKE/.calls"
+t0=$SECONDS
+HANG_ON=ships-checker PATH="$HANGBIN:$PATH" KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC=2 fake -Zip "$SDIR/kosmos-win-x64.zip" -Sig "$SDIR/sent.sig"; rc=$?
+took=$((SECONDS - t0))
+refuses_clean "#7951 a manifest check that hangs is refused as a time-out, nothing written" "timed out after 2 seconds"
+case "$(cat "$TMP/out")" in *"does not check out"*) fail "#7951 a hang must not read as a failed check" ;; *) pass "#7951 a hang does not read as a failed check" ;; esac
+[ "$took" -lt 60 ] && pass "#7951 the hang was stopped inside the bound (${took}s)" || fail "#7951 the hang ran ${took}s"
+[ ! -e "$FAKE/publish.lock" ] && pass "#7951 the stopped run leaves no lock" || fail "#7951 the stopped run left publish.lock"
+
 [ "$fails" -eq 0 ] && { echo "test-publish-r2-3725: all passed"; exit 0; }
 echo "test-publish-r2-3725: $fails failed"; exit 1

@@ -255,18 +255,67 @@ function Get-SetupAtCommit([string] $Commit) {
 }
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
 function Get-NodeExe { Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1 }
+# #7951: how long one node check may take before it is stopped. The checks take seconds; the zip is read whole, so this
+# leaves room for a slow disk. Well under the 35 minutes after which -BreakLock may take the lock of a run like this one.
+function Get-NodeTimeoutSec {
+  if ($FakeDir -and $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC) { return [int] $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC }
+  300
+}
+# One argument as a Windows command line needs it (.NET parses the same rules elsewhere): 5.1 has no ArgumentList.
+function ConvertTo-NativeArg([string] $a) {
+  if ($a -and $a -notmatch '[\s"]') { return $a }
+  '"' + (($a -replace '(\\*)"', '$1$1\"') -replace '(\\+)\z', '$1$1') + '"'
+}
+# #7951: runs node with its own stdin (StdinText, then closed) and a time limit. `& node` inherits this process's stdin:
+# launched from Git Bash, a node had printed its verdict and never exited, and a prod promote sat holding publish.lock
+# for 10 minutes. Returns @{ Rc; Out; TimedOut }, Out being its STDOUT lines joined by spaces. Rc is never 0 unless node
+# exited 0 and its output is whole: 97 output never closed, 98 stopped, 99 did not start.
+function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $StdinText = '') {
+  $psi = New-Object Diagnostics.ProcessStartInfo
+  $psi.FileName = $Exe
+  $psi.Arguments = @($Arguments | ForEach-Object { ConvertTo-NativeArg $_ }) -join ' '
+  # A .NET process starts in the .NET current directory, which does not follow Set-Location; `&` used the location.
+  $psi.WorkingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath
+  $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+  $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
+  $psi.StandardOutputEncoding = $Utf8; $psi.StandardErrorEncoding = $Utf8
+  $p = New-Object Diagnostics.Process
+  $p.StartInfo = $psi
+  try { [void] $p.Start() } catch { return @{ Rc = 99; Out = "node did not start: $($_.Exception.Message)"; TimedOut = $false } }
+  try {
+    $outTask = $p.StandardOutput.ReadToEndAsync(); $errTask = $p.StandardError.ReadToEndAsync()
+    # Bytes on the base stream: 5.1 has no StandardInputEncoding. A node that exits without reading it is its own answer.
+    try {
+      $in = $Utf8.GetBytes($StdinText)
+      if ($in.Length) { $p.StandardInput.BaseStream.Write($in, 0, $in.Length) }
+      $p.StandardInput.Close()
+    } catch { }
+    $limit = Get-NodeTimeoutSec
+    $timedOut = -not $p.WaitForExit($limit * 1000)
+    if ($timedOut) {
+      try { $p.Kill() } catch { }
+      [void] $p.WaitForExit(5000)
+      $rc = 98
+    } else { $rc = $p.ExitCode }
+    # Bounded: something node started can hold the pipe open after node has gone.
+    $text = ''; $whole = $false
+    try { if ($outTask.Wait(5000)) { $text = $outTask.Result; $whole = $true } } catch { }
+    if (-not $whole -and $rc -eq 0) { $rc = 97 }
+    try { if ($errTask.Wait(1000) -and $errTask.Result) { [Console]::Error.Write($errTask.Result) } } catch { }
+    @{ Rc = $rc; Out = (@($text -split '\r?\n' | Where-Object { $_ -ne '' }) -join ' '); TimedOut = $timedOut; TimeoutSec = $limit }
+  } finally { $p.Dispose() }
+}
 # #6466: tools/lib/win-release-manifest.js, run with node. It prints its one-line verdict on STDOUT (stderr from a
 # native command can turn into a terminating error under Stop on 5.1); returns @{ Rc; Out }.
+# #7951: a check that had to be stopped decided nothing, whatever it printed, so it refuses here rather than reading as
+# a verdict at each caller. Every caller is before the run's first write.
 function Invoke-WinManifest([string[]] $Arguments) {
   $node = Get-NodeExe
   if (-not $node) { Refuse "node (an executable, not a .cmd shim) is required to check the signed release manifest (#6466). Nothing was written." }
   $js = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-release-manifest.js'
-  $prevEnc = [Console]::OutputEncoding
-  # A command that never ran as a process leaves $LASTEXITCODE as it was, so it is set first: never read as a pass.
-  $global:LASTEXITCODE = 99
-  try { [Console]::OutputEncoding = $Utf8; $out = (& $node.Source $js @Arguments) -join ' '; $rc = $LASTEXITCODE }
-  finally { [Console]::OutputEncoding = $prevEnc }
-  @{ Rc = $rc; Out = $out }
+  $r = Invoke-NodeBounded $node.Source (@($js) + $Arguments)
+  if ($r.TimedOut) { Refuse "the manifest check ($($Arguments[0])) timed out after $($r.TimeoutSec) seconds and was stopped, so it decided nothing (it had printed: $($r.Out)). Run it again. Nothing was written." }
+  @{ Rc = $r.Rc; Out = $r.Out }
 }
 
 # ---------- credentials -------------------------------------------------------------------------
@@ -696,18 +745,18 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   }
   $ManifestBytes = $null; $SigBytes = $null; $SigFromBucket = $false
   $checker = Invoke-WinManifest @('ships-checker', $ZipPath)
-  if ($checker.Rc -ne 0 -and $checker.Rc -ne 1) { Refuse "could not tell whether the updater inside $ZipPath checks signed release manifests ($($checker.Out)). Nothing was written." }
+  if ($checker.Rc -ne 0 -and $checker.Rc -ne 1) { Refuse "could not tell whether the updater inside $ZipPath checks signed release manifests ($($checker.Out)) (exit $($checker.Rc)). Nothing was written." }
   $hasM = Test-Path -LiteralPath $ManifestPath -PathType Leaf
   $hasS = Test-Path -LiteralPath $SigPath -PathType Leaf
   if ($ForSigning) {
     if (-not $hasM) { Refuse "-ForSigning needs the manifest the build wrote beside the zip ($ManifestName), and there is none. Rebuild with tools/build-kosmos-windows.sh. Nothing was written." }
     $mc = Invoke-WinManifest @('check-unsigned', $ManifestPath, $ZipPath, $Version, $Arch)
-    if ($mc.Rc -ne 0) { Refuse "the manifest $ManifestName does not describe this zip ($($mc.Out)), so it must not be signed. Nothing was written." }
+    if ($mc.Rc -ne 0) { Refuse "the manifest $ManifestName does not describe this zip ($($mc.Out)) (exit $($mc.Rc)), so it must not be signed. Nothing was written." }
     $ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath)
     Say "manifest for signing: $($mc.Out)"
   } elseif ($hasM -and $hasS) {
     $mc = Invoke-WinManifest @('check', $ManifestPath, $SigPath, $ZipPath, $Version, $Arch)
-    if ($mc.Rc -ne 0) { Refuse "the signed release manifest $ManifestName does not check out against this zip ($($mc.Out)). Nothing was written." }
+    if ($mc.Rc -ne 0) { Refuse "the signed release manifest $ManifestName does not check out against this zip ($($mc.Out)) (exit $($mc.Rc)). Nothing was written." }
     $ManifestBytes = [IO.File]::ReadAllBytes($ManifestPath); $SigBytes = [IO.File]::ReadAllBytes($SigPath)
     Say "signed manifest: $($mc.Out)"
   } elseif ($hasM) {
@@ -782,7 +831,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       [IO.File]::WriteAllBytes((Join-Path $sdir "$ManifestName.sig"), $bucketSig.Bytes)
       $mc = Invoke-WinManifest @('check', $ManifestPath, (Join-Path $sdir "$ManifestName.sig"), $ZipPath, $Version, $Arch)
     } finally { Remove-Item -LiteralPath $sdir -Recurse -Force -ErrorAction SilentlyContinue }
-    if ($mc.Rc -ne 0) { Refuse "the $ManifestName.sig in the bucket does not check out against this zip and its manifest ($($mc.Out)). Nothing was written." }
+    if ($mc.Rc -ne 0) { Refuse "the $ManifestName.sig in the bucket does not check out against this zip and its manifest ($($mc.Out)) (exit $($mc.Rc)). Nothing was written." }
     $SigBytes = $bucketSig.Bytes
     Say "signed manifest (its .sig from the bucket): $($mc.Out)"
   }
@@ -996,7 +1045,7 @@ if ($stagedManifest -or $stagedSig) {
     [IO.File]::WriteAllBytes((Join-Path $mdir $Versioned), $staged.Bytes)
     $mc = Invoke-WinManifest @('check', (Join-Path $mdir $ManifestName), (Join-Path $mdir "$ManifestName.sig"), (Join-Path $mdir $Versioned), $ApprovedVersion, $Arch)
   } finally { Remove-Item -LiteralPath $mdir -Recurse -Force -ErrorAction SilentlyContinue }
-  if ($mc.Rc -ne 0) { Refuse "the staged signed manifest does not check out against the staged zip ($($mc.Out)). Nothing was written." }
+  if ($mc.Rc -ne 0) { Refuse "the staged signed manifest does not check out against the staged zip ($($mc.Out)) (exit $($mc.Rc)). Nothing was written." }
   Say "signed manifest: $($mc.Out)"
   # Installs fetch both through installkosmos.com. A site deploy since the stage could have dropped the redirect that
   # serves them, and prod's installs would then refuse this update, so they are read back again before prod moves.
@@ -1090,15 +1139,12 @@ const { problems, verdict } = spec.validateRecord(record, { version: wantVersion
 if (problems.length) { console.log('AMBIGUOUS ' + problems.join('; ')); process.exit(3); }
 console.log((verdict === 'pass' ? 'PASS ' : 'FAIL ') + sha + ' ' + file); process.exit(verdict === 'pass' ? 0 : 4);
 '@
-$prevEnc = [Console]::OutputEncoding
-$rc = -1
 # The script goes to node on STDIN (`node -`), so there is no temp file another process could swap.
-# Both directions UTF-8: $OutputEncoding is what PowerShell writes to node's STDIN (5.1
-# defaults it to a legacy code page), [Console]::OutputEncoding what it reads back.
-$prevPipeEnc = $OutputEncoding
-try { [Console]::OutputEncoding = $Utf8; $OutputEncoding = $Utf8; $verdict = ($verdictJs | & $nodeExe.Source - $spec $ApprovedVersion $ApprovedSha) -join ' '; $rc = $LASTEXITCODE }
-finally { [Console]::OutputEncoding = $prevEnc; $OutputEncoding = $prevPipeEnc }
-if ($rc -ne 0) { Refuse "the verification record does not pass ($verdict). Verify the staged build on this PC first (node tools/win-staging-verify.js). Nothing was written." }
+# Both directions UTF-8 (Invoke-NodeBounded), and a limit (#7951): a stopped run decided nothing, whatever it printed.
+$vr = Invoke-NodeBounded $nodeExe.Source @('-', $spec, $ApprovedVersion, $ApprovedSha) $verdictJs
+$verdict = $vr.Out; $rc = $vr.Rc
+if ($vr.TimedOut) { Refuse "the verification record check timed out after $($vr.TimeoutSec) seconds and was stopped, so it decided nothing (it had printed: $verdict). Run it again. Nothing was written." }
+if ($rc -ne 0) { Refuse "the verification record does not pass ($verdict) (exit $rc). Verify the staged build on this PC first (node tools/win-staging-verify.js). Nothing was written." }
 $recordSha = ($verdict -split ' ')[1]; $recordPath = ($verdict -split ' ', 3)[2]
 Say "verification record: $verdict"
 
