@@ -27,7 +27,7 @@ struct FilesView: View {
             }
             switch read {
             case nil:
-                Section { KosmosOrb() }
+                Section { HStack { Spacer(); KosmosOrb(); Spacer() } }
             case .noAnswer?:
                 Section { Text(Board.filesCannotRead).foregroundColor(Palette.secondary) }
             case .refused(let why)?:

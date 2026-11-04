@@ -310,7 +310,7 @@ struct NewAgentView: View {
                     HStack { Text(NewTeam.Words.teamsUnread).foregroundColor(Palette.secondary); Spacer()
                         Button(NewTeam.Words.tryAgain) { Task { await loadTeams() } } }
                 } else {
-                    KosmosOrb()
+                    HStack { Spacer(); KosmosOrb(); Spacer() }
                 }
             }
             if let detail, detail.key == teamKey {
@@ -341,7 +341,7 @@ struct NewAgentView: View {
                     if detailFailed {
                         HStack { Text(NewTeam.Words.teamsUnread).foregroundColor(Palette.secondary); Spacer()
                             Button(NewTeam.Words.tryAgain) { if let k = teamKey { Task { await loadDetail(k) } } } }
-                    } else { KosmosOrb() }
+                    } else { HStack { Spacer(); KosmosOrb(); Spacer() } }
                 }
             }
             if let teamMessage {
@@ -1121,7 +1121,7 @@ struct NewAgentView: View {
                 Spacer()
                 Button(NewTeam.Words.tryAgain) { Task { await loadCatalogue() } }.disabled(loading)
             } else {
-                KosmosOrb()
+                HStack { Spacer(); KosmosOrb(); Spacer() }
             }
         }
     }

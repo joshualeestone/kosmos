@@ -14,7 +14,7 @@ Decided:
 - Mapping: ProgressView() to KosmosOrb() (20 pt); .controlSize(.small) to size 16; .controlSize(.large) to size 36;
   .tint(X) to colour: X (white and card tints on coloured grounds kept); .accessibilityLabel(X) to label: X, passed
   in rather than stacked, so VoiceOver says exactly what each site said. Default label "Loading".
-- Colour: Palette.starGold (deep gold #9c741b in light, which holds 3:1 on the light grounds where the desktop's
+- Colour: Palette.starGold (deep gold #9c741b in light, a colour that holds 3:1 on the light grounds (the drawn orb, sparse and partly transparent, reads fainter; not measured) where the desktop's
   #d6a62e measures about 2.1:1; bright gold in dark), as the star did for the same reason (kosmos#7034). Review round 1.
   The desktop's dots have the same light-ground contrast gap; recorded on the card, not changed in this slice.
 - Orbs on screen in one frame share one placing (time rounded to the 15 fps frame), as the desktop does (round 2);
@@ -24,7 +24,8 @@ Decided:
   thread at launch (OrbLogic.warm), so the first orb shown does not stall a frame.
 - VoiceOver: the orb is hidden wherever text beside it, or the button it sits in, says what is happening (15 sites), and says "Loading" (or the
   site's own label) where it stands alone.
-- List and Form rows (7 sites) keep a bare orb, not wrapped to centre: a row lays out its content from the leading
+- List and Form rows (7 sites): centred in the row with Spacers, as RoomView's loaders are (after review round 8, unreviewed;
+  raised in five rounds; centred reads right whichever way the old spinner sat). Earlier reasoning, kept for the record: a row lays out its content from the leading
   edge, and the bare ProgressView there was the same kind of fixed-size leaf. Reasoned, not measured on a device:
   if a screenshot shows the old spinner centred there, wrap those 7 in Spacers.
 - Time is wrapped to the 27 s loop before the trigonometry (the clock's seconds are too large for it).

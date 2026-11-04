@@ -188,7 +188,7 @@ struct AgentInfoView: View {
     @ViewBuilder private var filesPart: some View {
         if filesRead == .hidden {
             Section {
-                if filesLoaded { Text(Board.filesAgentEmpty).foregroundColor(Palette.secondary) } else { KosmosOrb() }
+                if filesLoaded { Text(Board.filesAgentEmpty).foregroundColor(Palette.secondary) } else { HStack { Spacer(); KosmosOrb(); Spacer() } }
             } header: { label(Board.filesTitle) }
         } else {
             FilesSection(client: client, session: agent.session, state: filesRead, opener: filesOpener, openOnBoard: openOnBoard)
@@ -295,14 +295,14 @@ struct AgentInfoView: View {
         if let reason {
             Text(reason).foregroundColor(Palette.secondary)
         } else {
-            KosmosOrb()
+            HStack { Spacer(); KosmosOrb(); Spacer() }
         }
     }
     @ViewBuilder private var unread: some View {
         if readFailed {
             Text("We cannot read this right now.").foregroundColor(Palette.secondary)
         } else {
-            KosmosOrb()
+            HStack { Spacer(); KosmosOrb(); Spacer() }
         }
     }
 
