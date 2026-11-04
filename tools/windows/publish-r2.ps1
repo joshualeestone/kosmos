@@ -49,7 +49,8 @@ TWO MODES.
   only then latest-win.json becomes the staging pointer's bytes verbatim, LAST (of the release).
   kosmos#7883: after it, the build's staged setup-<v>.ps1 becomes setup.ps1 (and its .sha256), the script
   installkosmos.com/setup.ps1 serves, so the installer moves with the Windows promote. A build staged
-  without one leaves setup.ps1 as it is.
+  without one leaves setup.ps1 as it is. Both modes read the installer from git at the commit the zip records
+  (manifest.json source_sha), so the checkout they run from must contain that commit (git fetch origin).
 
     pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion 0.6.94 -ApprovedSha <sha> -ApprovalRef <ref>
 
@@ -188,7 +189,6 @@ function New-SigV4Authorization([string] $Method, [string] $HostName, [string] $
   "AWS4-HMAC-SHA256 Credential=$AccessKey/$scope, SignedHeaders=$signed, Signature=$(Hex (Hmac $k $toSign))"
 }
 
-# An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
 # kosmos#7883: the commit a Windows zip was built from (its root manifest.json, tools/build-kosmos-windows.sh), or ''
 # when it records none. Takes the zip's bytes, so staging (a file) and -Promote (the staged object) read it the same way.
 function Get-ZipSourceSha([byte[]] $ZipBytes) {
@@ -213,12 +213,15 @@ function Get-SetupAtCommit([string] $Commit) {
   $psi.Arguments = '-C "' + $PSScriptRoot.TrimEnd([char]92, [char]47) + '" cat-file blob ' + $Commit + ':tools/windows/setup.ps1'
   $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
   $proc = [Diagnostics.Process]::Start($psi)
-  $errTask = $proc.StandardError.ReadToEndAsync()
-  $ms = New-Object IO.MemoryStream
-  try { $proc.StandardOutput.BaseStream.CopyTo($ms); $proc.WaitForExit(); $b = $ms.ToArray() } finally { $ms.Dispose() }
-  if ($proc.ExitCode -ne 0) { return @{ Bytes = $null; Error = $errTask.Result.Trim() } }
-  @{ Bytes = $b; Error = '' }
+  try {
+    $errTask = $proc.StandardError.ReadToEndAsync()
+    $ms = New-Object IO.MemoryStream
+    try { $proc.StandardOutput.BaseStream.CopyTo($ms); $proc.WaitForExit(); $b = $ms.ToArray() } finally { $ms.Dispose() }
+    if ($proc.ExitCode -ne 0) { return @{ Bytes = $null; Error = $errTask.Result.Trim() } }
+    @{ Bytes = $b; Error = '' }
+  } finally { $proc.Dispose() }
 }
+# An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
 function Get-NodeExe { Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1 }
 # #6466: tools/lib/win-release-manifest.js, run with node. It prints its one-line verdict on STDOUT (stderr from a
 # native command can turn into a terminating error under Stop on 5.1); returns @{ Rc; Out }.
@@ -779,6 +782,14 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       $setupExistingSha = Sha256-Bytes $setupExisting.Bytes
       if ($setupExistingSha -cne $SetupSha) {
         $zipChanging = [bool]($existing -and (Sha256-Bytes $existing.Bytes) -cne $Sha)
+        # Review 4: finishing a -ReplaceVersioned that died after its zip but before this write. The zip is then
+        # already the new one, but an installer read from the zip's own recorded commit is still pinned by the zip's
+        # sha, so with -ReplaceVersioned it may follow, never for the version prod names.
+        if (-not $zipChanging -and $ReplaceVersioned -and $BuiltFrom) {
+          $pf7883 = if ($prodNamed) { Read-PointerFields $prodNamed.Bytes } else { $null }
+          if ($prodNamed -and (-not $pf7883 -or $pf7883.versioned -ceq $Versioned)) { Refuse "$SetupVersioned belongs to the version PROD's latest-win.json names (or prod cannot be read), so -ReplaceVersioned cannot change it. Bump the version. Nothing was written." }
+          $zipChanging = $true
+        }
         if (-not $zipChanging) { Refuse "$SetupVersioned is already in the bucket with DIFFERENT bytes ($setupExistingSha; these are $SetupSha), and its zip is not being replaced. The installer changes only with its build: bump the version, or replace the zip itself (-ReplaceVersioned) if this version was never promoted. Nothing was written." }
         Say "NOTICE -ReplaceVersioned: $SetupVersioned changes from $setupExistingSha to $SetupSha"
       }

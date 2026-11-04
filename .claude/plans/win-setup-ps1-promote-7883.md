@@ -77,3 +77,11 @@ via tools/lib/win-staging-record.js):
   .FileSystem, so the promote's zip read crashed (UNEXPECTED); it is now loaded explicitly. Also caught: a regex
   `\z` lost its backslash in an edit script, which made source_sha never match; fixed, and every added line with
   a backslash was re-checked.
+- Round 4 (blind reviewer): 0 BLOCKER, 4 WARNING, 4 NIT. Fixed: W1 a -ReplaceVersioned that died after its zip PUT
+  can now be finished (with -ReplaceVersioned, when the installer comes from the zip's own recorded commit, never
+  for prod's version); measured on-box (refused without the switch, finished with it). W3 the header says both
+  modes need the zip's source commit in the checkout. NIT1 the node comment is back on Get-NodeExe. NIT3 the git
+  process is disposed. Not taken, for the follow-up card: W2 the site redirect of /setup.ps1 (Baron's half; after
+  it, add a site-address served check), W4 log the setup.ps1 sha left live on a rollback, NIT2 hash the exact bytes
+  read on the no-source_sha path, NIT4 mark the no-source_sha installer unverified in the approval line, and on-box
+  V2 running the staged setup-<v>.ps1.
