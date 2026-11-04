@@ -311,7 +311,7 @@ check(Board.projectWord(heldQ(2, q: 2, held: 2), agentsUnreadable: false) == .qu
 check(Board.projectWordText(.questionHeld) == "Question held", "in the board's words")
 check(Board.projectWord(heldQ(2, q: 2, held: 1), agentsUnreadable: false) == .question, "control: one of two held is still the plain Question")
 check(Board.projectWord(heldQ(2, q: 1, held: 1), agentsUnreadable: false) == .issue, "control: an Issue among them is still Issue")
-check(Board.projectWord(heldQ(2, q: 2, held: 2), agentsUnreadable: true) != .questionHeld, "control: agents unreadable, no held word")
+check(Board.projectWord(heldQ(2, q: 2, held: 2), agentsUnreadable: true) == nil, "control: agents unreadable, no word at all (not Question held)")
 let heldParsed = Board.parseProjects(Data(#"{"projects":[{"id":"h","name":"H","summary":{"needsYou":1,"needsYouQuestions":1,"needsYouHeld":1}},{"id":"o","name":"O","summary":{"needsYou":1,"needsYouQuestions":1}},{"id":"t","name":"T","summary":{"needsYou":1,"needsYouQuestions":1,"needsYouHeld":true}}]}"#.utf8))?.projects ?? []
 check(heldParsed.map { Board.projectWord($0, agentsUnreadable: false) } == [.questionHeld, .question, .question],
       "summary.needsYouHeld is read; a board older than #7916 (no field) and a non-number read the plain Question: \(heldParsed.map { Board.projectWord($0, agentsUnreadable: false) })")
