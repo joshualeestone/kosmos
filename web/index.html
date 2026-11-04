@@ -74357,7 +74357,7 @@ function paintSettingsFacts(p) {
     if (!rf.hidden) {
       const called = String(p.folder).split(/[\\/]/).filter(Boolean).pop();
       document.getElementById('pjs-rename-folder-text').textContent = 'This project\'s folder is called ' + called + '. You can rename it to '
-        + p.folderRenameTo + ' to match. Anything outside Kosmos that uses the old name, like a shortcut or a script, will stop working.';
+        + p.folderRenameTo + ' to match. Anything outside Kosmos that uses the old name, like a shortcut, a script or a terminal open in it, will stop working.';
     }
   }
 }

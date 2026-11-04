@@ -1460,7 +1460,7 @@ function describe(project, roster, all) {
     // only side that knows where the root is.
     folderInKosmos: typeof project.folder === 'string'
       && path.dirname(project.folder) === projectsRoot(),
-    folderRenameTo: folderRenameOffer(project),   // #7968
+    folderRenameTo: folderRenameOffer(project, all),   // #7968
     taskCounter: project.taskCounter || 0,
     agents: members,
     // Who this project's thread opens on. Published rather than left to the
@@ -3445,13 +3445,21 @@ function nothingAt(target) {
   try { fs.lstatSync(target); return false; } catch (e) { return e.code === 'ENOENT'; }
 }
 
-/* The offer the page shows: the same, but not when another folder already has the name, which could only be refused. */
-function folderRenameOffer(project) {
+// A project whose record holds that path, whatever the case: a disk may not care, and the folder may not be there.
+const recordedAt = (all, id, target) => all.find((p) => p.id !== id && typeof p.folder === 'string' && p.folder.toLowerCase() === target.toLowerCase());
+
+// A folder that is itself a link: a rename would rename the link and leave the real folder's name as it was.
+function isLink(folder) {
+  try { return fs.lstatSync(folder).isSymbolicLink(); } catch { return false; }
+}
+
+/* The offer the page shows: the same, but not when it could only be refused. `all` is what describe already read. */
+function folderRenameOffer(project, all) {
   const want = folderRenameTarget(project);
   if (!want) return null;
-  if (folderState(project.folder).state !== FOLDER.READABLE) return null;
+  if (folderState(project.folder).state !== FOLDER.READABLE || isLink(project.folder)) return null;
   const target = path.join(path.dirname(project.folder), want);
-  if (!nothingAt(target) || readAll().some((p) => p.id !== project.id && p.folder === target)) return null;
+  if (!nothingAt(target) || recordedAt(all, project.id, target)) return null;
   return want;
 }
 
@@ -3468,6 +3476,7 @@ function renameFolderToName(id, { busy = [], homes = [], stuckOnOldFolder = [] }
   if (!want) throw new Error('there is no new name to give this folder');
   const now = folderState(self.folder);
   if (now.state !== FOLDER.READABLE) throw new Error('we cannot get to this project\'s folder to rename it');
+  if (isLink(self.folder)) throw new Error('this project\'s folder is a link to a folder somewhere else, so it keeps its name');
   const refused = (message) => { const e = new Error(message); e.status = 409; return e; };
   // Both spellings of each side: a path through a symlink, or one that is not there yet, has no real form to compare.
   const spellings = (given, real) => (real && real !== given ? [given, real] : [given]);
@@ -3479,7 +3488,7 @@ function renameFolderToName(id, { busy = [], homes = [], stuckOnOldFolder = [] }
   if (stuckOnOldFolder.length) throw refused(andList(stuckOnOldFolder) + (stuckOnOldFolder.length === 1 ? ' runs on Gemini, which keeps the folder it started with. Stop that agent first' : ' run on Gemini, which keeps the folder it started with. Stop them first') + ', then rename the folder');
   if (busy.length) throw refused(andList(busy) + (busy.length === 1 ? ' is' : ' are') + ' in the middle of something on this project. Try again once ' + (busy.length === 1 ? 'that agent is' : 'they are') + ' idle');
   const target = path.join(path.dirname(self.folder), want);
-  const holder = all.find((p) => p.id !== id && p.folder === target);
+  const holder = recordedAt(all, id, target);
   if (holder) throw refused('the project "' + holder.name + '" uses the name ' + want + ' for its folder');
   if (!nothingAt(target)) throw refused('there is already a folder called ' + want);
   try { fs.renameSync(self.folder, target); } catch {
