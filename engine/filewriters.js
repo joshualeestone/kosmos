@@ -157,15 +157,12 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
   } catch { return false; }
 }
 
-/* kosmos#7989: the note another agent's write of an owned file leaves in the project's room, for the agents (the
-   person's room view leaves agent notes out). Names are session names, as the record keeps them. Best-effort: a note
-   that cannot be written changes nothing about the write. */
 /* The file's name is an agent's choice (or an archive's), so it is quoted, cut, its brackets (fullwidth and CJK ones too)
    made round, and invisible characters (tag characters, variation selectors, fillers) removed: a name must never spell
    a marker in a line that speaks in Kosmos's voice (as the room's text view does for an outside row, server.js, kind
    'external'). Line and paragraph separators and direction controls go too, so it cannot break or reorder the line. */
 function quotedName(name) {
-  const s = String(name || '')
+  const s = String(name || '').toWellFormed()   // review 8: no lone surrogate half reaches the log (#7108)
     .replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u115f\u1160\u180e\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu, ' ')
     .replace(/[\[\uff3b\u3010\u3014\u3016\u3018\u301a]/g, '(').replace(/[\]\uff3d\u3011\u3015\u3017\u3019\u301b]/g, ')').replace(/"/g, "'");
   const cut = require('./textcut').cutUnits(s, NOTICE_NAME_MAX);
@@ -177,9 +174,8 @@ function ownerNoticeText({ name, owner, writer }) {
     + 'A notice, not a lock: ' + owner + ', read it again before you build on what you last saw in it. For the next hour, '
     + 'Kosmos will not post a separate notice for each other file ' + writer + ' changes that you were the first seen changing.';
 }
-const HELD_BACK_TEXT = 'More shared files were changed by an agent other than the first one seen changing them than Kosmos '
-  + 'notes in an hour, so it is holding back further notices like these for now. Read a shared file again before you build '
-  + 'on what you last saw in it.';
+const HELD_BACK_TEXT = 'Kosmos has posted its limit of file-owner notices in this room for the hour and is holding back the '
+  + 'rest for now. Read a shared file again before you build on what you last saw in it.';
 /* Whether `owner` is on the project, asked only when a notice is due. The members are kept for ROOTS_TTL_MS, as the roots
    are, since a departed owner's or a full room's writes ask again on every edit; so for up to that long an owner who just
    left may get one notice, and one who just joined gets none (the next write after it does). An unreadable list is no. */
@@ -195,6 +191,9 @@ function onProject(projectId, owner, now = Date.now()) {
     return Boolean(agents && agents.includes(owner));
   } catch { return false; }
 }
+/* kosmos#7989: the note another agent's write of an owned file leaves in the project's room, for the agents (the
+   person's room view leaves agent notes out). Names are session names, as the record keeps them. Best-effort: a note
+   that cannot be written changes nothing about the write. */
 function ownerNotice(n) {
   try {
     const messages = require('./messages');
