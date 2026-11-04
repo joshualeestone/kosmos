@@ -790,6 +790,8 @@ struct RoomView: View {
             #if DEBUG
             // kosmos#7690: which row the id anchor holds, so a jump can be read against it. Sample rows only.
             .onChange(of: roomPosition) { now in if RoomStore.sample { ChatView.trace("room anchor \(now ?? "none")") } }
+            // kosmos#7645 review 2: where each room launch starts in the shared trace file (the chat writes "chat shown").
+            .onAppear { if RoomStore.sample { ChatView.trace("room shown") } }
             // kosmos#7645, KOSMOS_SAMPLE_ROOM_SCROLLUP=<n> (with the room samples): 3 s after opening, the n-th row from the
             // end leaves the end, as a reader scrolled up would (nothing in the simulator can drag here; on iOS 26 and later the id
             // anchor holds it at the BOTTOM of the screen, earlier ones put it at the top), then a marker

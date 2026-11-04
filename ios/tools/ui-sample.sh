@@ -35,9 +35,9 @@ classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpens
 # kosmos#7420: the box growing then sending in that long chat is in ChatOpensAtNewestUITests for the same reason.
 # KeyboardSlideUITests' third check (read higher up) used to wait on a clock and flake under load; Mona Lisa's #7627
 # (kbrested-7609) replaced the wait with a marker, so the whole class runs here again. It records the chat's scroll events
-# (KOSMOS_SAMPLE_TRACE=1): when it fails, the last of them are printed below while the simulator still exists.
-# RoomKeyboardUITests' read-higher-up check (#7690) appends to the SAME file, so the dump below names which of the two
-# ran, and prints the whole file when the DM check failed and the room check ran after it.
+# (KOSMOS_SAMPLE_TRACE=1): when it fails, the trace is printed below while the simulator still exists. RoomKeyboardUITests'
+# checks (#7690, #7645) append to the SAME file, so the dump prints the whole file and names every keyboard check that ran,
+# in order; each launch starts at its own "chat shown" or "room shown" line.
 skip=""
 if [ "$(defaults read com.apple.iphonesimulator ConnectHardwareKeyboard 2>/dev/null)" = 1 ]; then
   echo "FAIL  ui-sample: the Simulator's hardware keyboard is on (ConnectHardwareKeyboard), which hides the on-screen keyboard" >&2
@@ -102,20 +102,19 @@ dm_check="KeyboardSlideUITests testReadHigherUpStaysWhereItWas"
 room_check="RoomKeyboardUITests testRoomReadHigherUpStaysWhereItWas"
 # kosmos#7645: and the room's newest-above-the-box check, which traces too since 11-04.
 room_newest="RoomKeyboardUITests testRoomNewestStaysAboveTheBox"
-if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest)\]' failed" "$log"; then
+room_drag="RoomKeyboardUITests testRoomReadHigherUpAfterADragStaysWhereItWas"
+if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest|$room_drag)\]' failed" "$log"; then
   app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
-    ran=""; for c in "$dm_check" "$room_newest" "$room_check"; do
-      grep -q -E "^Test Case '-\[KosmosUITests\.$c\]' (passed|failed)" "$log" && ran="$ran, ${c#* }"
-    done
-    ran="${ran#, }"
+    # Every check of the two keyboard classes, in the order the log has them, with its result (not all of them trace).
+    ran="$(grep -o -E "^Test Case '-\[KosmosUITests\.(KeyboardSlideUITests|RoomKeyboardUITests) [A-Za-z0-9_]+\]' (passed|failed)" "$log" \
+      | sed -E "s/^.* ([A-Za-z0-9_]+)\]' (passed|failed)$/\1 \2/" | paste -sd ',' - | sed 's/,/, /g')"
     lines="$(wc -l < "$data/Documents/trace.txt" | tr -d ' ')"
     # One file, appended by every traced launch (XCTest runs the classes in name order and each class's checks in name
-    # order), so a tail can hold only the checks after the one that failed (#7645 review 1): always the whole file. Each
-    # launch starts at its own "chat shown" or room line.
-    echo "  the app's whole scroll trace, $lines lines (one file; of the traced checks, these ran, in this order: $ran):"
+    # order), so a tail can hold only the checks after the one that failed (#7645 review 1): always the whole file.
+    echo "  the app's whole scroll trace, $lines lines, one file for every traced launch; keyboard checks in the order they ran: $ran"
     sed 's/^/    /' "$data/Documents/trace.txt"
   else
     echo "  (no scroll trace from the app)"
