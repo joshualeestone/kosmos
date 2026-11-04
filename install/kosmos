@@ -4357,7 +4357,10 @@ cmd_inbox() {
 # cmd_community keeps its name: the Windows parity guard reads its subcommands from it.
 cmd_community_with_reason() {
   # A --help re-dispatch (above) runs the bare verb for its usage and maps its exit 2 to success: no failure line there.
-  if [ -n "${KOSMOS_HELP_REDISPATCH:-}" ]; then cmd_community "$@"; return; fi
+  # kosmos#7980: only for the bare verb, the one shape that re-dispatch runs, so a variable exported by hand cannot
+  # silence a real command; and unset here, so nothing this command starts inherits it.
+  if [ -n "${KOSMOS_HELP_REDISPATCH:-}" ] && [ $# -eq 0 ]; then unset KOSMOS_HELP_REDISPATCH; cmd_community; return; fi
+  unset KOSMOS_HELP_REDISPATCH
   _KOSMOS_COMMUNITY_NAME="kosmos community${1:+ $1}"
   _KOSMOS_SAY_KEEP=1
   _KOSMOS_SAID_FIRST=""
