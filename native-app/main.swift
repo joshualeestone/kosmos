@@ -3820,7 +3820,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 DispatchQueue.main.async {
                     guard self.pageCommits == commits, self.committedPageURL == page else {
                         logLine("#7952: the page changed before an allowed download started, so it was not started")
-                        self.tellDownloadFailed("The page changed before the file was saved, so it was not saved. Try again.")
+                        self.tellDownloadFailed("The page changed before the download began, so the file was not saved. Try again.")
                         return
                     }
                     webView.startDownload(using: request) { self.downloadsStartedHere.add($0); $0.delegate = self }
@@ -6457,6 +6457,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=foreignatt href=http://localhost:\(port)/att2>e</a>"
                 + "<a id=last href=/last.txt download>f</a>"
                 + "<a id=startvoid href=/start-void.txt download>v</a>"
+                + "<a id=refused href=/refused.txt download>w</a>"
+                + "<a id=htmlpage href=/htmlpage download=report.pdf>x</a>"
+                + "<a id=busyzip href=/api/agent/ana/files/download-folder?dir= download=Files.zip>y</a>"
                 + "<a id=askno href=/asked-no.txt download>m</a>"
                 + "<a id=empty href=/empty>o</a>"
                 + "<a id=gone href=/gone download=gone.pptx>r</a>"
@@ -6490,6 +6493,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         case "/gone": return "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/empty": return "HTTP/1.1 204 No Content\r\nContent-Disposition: attachment; filename=\"empty.txt\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/missing2": return "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 4\r\nConnection: close\r\n\r\nboom"
+        case "/refused.txt": return "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
+        case "/htmlpage":
+            let page = "<!doctype html><title>Sign in</title>"
+            return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
+        case "/api/agent/ana/files/download-folder": return "HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
         case "/missing": return "HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found"
         case "/redir2": return "HTTP/1.1 302 Found\r\nLocation: /ok2.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/redir": return "HTTP/1.1 302 Found\r\nLocation: http://localhost:\(port)/redirected.txt\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -6636,6 +6644,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         poll(150)
     }
     func saved(_ name: String) -> Bool { FileManager.default.fileExists(atPath: dl.appendingPathComponent(name).path) }
+    func all7952() -> [String] { ((try? FileManager.default.contentsOfDirectory(atPath: dl.path)) ?? []).sorted() }   // kosmos#7952: every saved name
     /* A click that should save a file waits for that file (up to 5s), so a busy build box cannot fail a
        good product on a fixed sleep. One that should save nothing waits 2s, and a same-origin download
        clicked LAST is waited for before the folder is read, so a late file from an earlier click is
@@ -6664,7 +6673,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         // about the mark only: the page's own download and the voided start. Every other arm runs the path this
         // computer's own board ships on, WebKit's own download.
         func mark(_ on: Bool, then: @escaping () -> Void) { AppDelegate.markBoardDownloadsForSelftest = on; then() }
-        mark(true) { click("same", expect: "same.txt") { mark(false) { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { click("frames") { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { mark(true) { click("startvoid") { mark(false) { askArm { modalArm { settled {
+        mark(true) { click("same", expect: "same.txt") { mark(false) { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { mark(true) { click("frames") { mark(false) { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { mark(true) { click("startvoid") { click("refused") { click("htmlpage") { mark(false) { click("busyzip") { askArm { modalArm { settled {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             // The per-computer question (a Kosmos+ name's holder runs its tunnel), driven directly: no Kosmos+
@@ -6695,7 +6704,15 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("modal-void.txt") && voided.count == 1,
                 "AN ALLOW GIVEN WHILE THE PAGE COMMITTED AGAIN IS VOID: nothing saved, and said once (\(voided.count))")
             row(saved("modal-yes.txt"), "asked fresh, the real question's Allow saves")
-            let notStarted = told.filter { $0.contains("The page changed before the file was saved") }
+            let refusedSaid = told.filter { $0.contains("The download was refused (the answer was 403)") }
+            row(!saved("refused.txt") && refusedSaid.count == 1,
+                "kosmos#7952: A REFUSED (403) DOWNLOAD THE APP STARTED IS SAID, once, and saves nothing (\(refusedSaid.count))")
+            row(!saved("report.pdf") && !all7952().contains { $0.hasSuffix(".html") },
+                "kosmos#7952: A WEB PAGE ANSWERED FOR A DOWNLOAD THE APP STARTED IS NOT SAVED, under any name (saw: \(all7952().joined(separator: ", ")))")
+            let busySaid = told.filter { $0.contains("Another folder is still downloading") }
+            row(!saved("Files.zip") && busySaid.count == 1,
+                "kosmos#7952: A BUSY DOWNLOAD FOLDER (429) IS SAID IN ITS OWN WORDS, once (\(busySaid.count))")
+            let notStarted = told.filter { $0.contains("The page changed before the download began") }
             row(!saved("start-void.txt") && heads["/start-void.txt"] == nil && notStarted.count == 1,
                 "kosmos#7952: A PAGE THAT COMMITS BEFORE AN ALLOWED DOWNLOAD STARTS VOIDS IT: nothing asked, nothing saved, said once (\(notStarted.count))")
             row(saved("same.txt"), "a same-origin <a download> is saved")
@@ -6720,9 +6737,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["asked-yes.txt", "att.txt", "framed.txt", "last.txt", "modal-yes.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            let fails = failures()
-            row(fails.count == 4 && voided.count == 1 && notStarted.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
-                "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, a web page answered for a file, the voided Allow, the voided start) (failures \(fails.count): \(fails.joined(separator: " | ")))")
+            let fails = failures()   // kosmos#7952: +3 (the voided start, the refused 403, the busy folder) and the web page
+            row(fails.count == 7 && voided.count == 1 && notStarted.count == 1 && refusedSaid.count == 1 && busySaid.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
+                "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, two web pages answered for a file, the voided Allow, the voided start, the refused download, the busy folder) (failures \(fails.count): \(fails.joined(separator: " | ")))")
             let refused = refusals()
             let heard = " (asked \(requested.count): \(requested.joined(separator: " | ")))"
             row(refusalAsked("This page is not a board Kosmos saves files from"), "A REFUSAL IS SAID, NOT ONLY LOGGED: the page that is not a board" + heard)
@@ -6744,11 +6761,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 35   // kosmos#7952: +3 (start voided by a commit); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 38   // kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } } } } } } } } } } } } } } }
+        } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
