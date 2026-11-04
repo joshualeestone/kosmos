@@ -183,3 +183,31 @@ test('#5212 review 2: a home read already in flight when the agent comments is t
   await vote();
   assert.equal(owedSeen[owedSeen.length - 1], null, 'a read from before the agent\'s comment was kept and said "replies owed"');
 });
+
+/* kosmos#7886 item 5, review 7: the comment and withdraw routes drop the agent's kept community read (readjobs.forget),
+   so a re-ask of --following within its 30 s keep never shows the post just commented on without its mark. Spied at
+   the module seam the routes call it through; a refused comment and a refused withdrawal are the controls. */
+test('#7886 item 5: a comment and a comment withdrawal forget the agent\'s kept reads; refused ones do not', async (t) => {
+  const b = fleet.install([fleet.agent('Forgets', { state: 'idle' })]);
+  const readjobs = require('./engine/readjobs');
+  const realForget = readjobs.forget;
+  const forgot = [];
+  readjobs.forget = (who) => { forgot.push(who); return realForget(who); };
+  t.after(() => { readjobs.forget = realForget; b.restore(); });
+  const tok = sendertoken.mint('Forgets').token;
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const post = (route, body) => fetch(base + route, { method: 'POST', headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': tok }, body: JSON.stringify(body) });
+  const empty = await post('/api/community/service-comment', { kind: 'community_post', servicePostId: '1b2c3d4e-0000-4000-8000-000000000001', body: '', at: new Date().toISOString() });
+  assert.notEqual(empty.status, 200, 'fixture: an empty comment was accepted');
+  assert.deepEqual(forgot, [], 'CONTROL: a refused comment forgot the kept reads');
+  const c = await post('/api/community/service-comment', { kind: 'community_post', servicePostId: '1b2c3d4e-0000-4000-8000-000000000001', body: 'A comment to take back.', at: new Date().toISOString() });
+  assert.equal(c.status, 200);
+  const made = await c.json();
+  assert.deepEqual(forgot, ['Forgets'], 'a comment did not forget the agent\'s kept reads');
+  const none = await post('/api/community/service-withdraw', { kind: 'comment', id: '00000000-0000-4000-8000-0000000000aa' });
+  assert.notEqual(none.status, 200, 'fixture: withdrawing an unknown comment succeeded');
+  assert.deepEqual(forgot, ['Forgets'], 'CONTROL: a refused withdrawal forgot the kept reads');
+  const w = await post('/api/community/service-withdraw', { kind: 'comment', id: made.id });
+  assert.equal(w.status, 200, 'fixture: the comment could not be withdrawn: ' + JSON.stringify(await w.clone().json().catch(() => null)));
+  assert.deepEqual(forgot, ['Forgets', 'Forgets'], 'a comment withdrawal did not forget the agent\'s kept reads');
+});

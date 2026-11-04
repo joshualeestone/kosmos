@@ -94,3 +94,14 @@ Review round 6 (0 BLOCKERs, 2 WARNINGs, 4 NITs):
 NITs taken: the withdraw route forgets only for a comment; the uncollected-answer test waits by a deadline, not a tick.
 NITs left: a throw between followsFor and its use leaves the follow request to its own 8 s timeout (it cannot reject);
 the waiting mark repeats the --post tail line.
+
+Review round 7 (0 BLOCKERs, 1 WARNING, 7 NITs):
+- [WARNING] the two server forget calls had no test --> a route test (server.community-home-5212.test.js) posts a real
+  comment and withdraws it, spying on readjobs.forget, with a refused comment and a refused withdrawal as controls.
+  Mutants: each server line removed, each red with its own message.
+NITs taken: the no-reader check reads every URL asked (it could not fail before); the hanging-route bound has 5 s of room.
+NITs left, stated: a withdrawn comment that was already sent reads "commented" until the sweep takes it down (it only
+discourages a second comment); an unreadable keys file reads as unregistered (no marks, no note; the follow verb still
+answers "You already follow"); after a moderator rename the 404 note shows until the name is refreshed elsewhere; on
+your own post with the list unread the note says "whether you follow this post's author"; a comment made from another
+board or registration is not marked from the thread.
