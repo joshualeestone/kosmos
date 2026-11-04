@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: roomscan-7645
-diff_hash: d3aa79ef9f29cc24eac8c98794bd7bfeb90fa4161b19b5781f0b65cea36dba3c
+diff_hash: 27e1b69e6b316c08905507411687c58472b32a4983a28b74d5d6b6625c0b4031
 validation: not run (one Swift source-check file; the full suite reads no Swift); iOS room and logic suites run directly, both pass
 subdir_audit: passed
 timestamp: 2026-11-04T10:54:47Z
@@ -17,8 +17,9 @@ converged: true
 **Total findings:** 9 (0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 6 NITs)
 **Fixed:** 6 | **Deferred:** 3 | **Asked (awaiting user):** 0
 
-Stacked on roomtrace-7645 (PR #7925); the diff_hash is taken against origin/main, as the gate takes it, so it covers both
-branches. Reviews covered only this branch's commits (`diff roomtrace-7645...HEAD`); roomtrace-7645 has its own proof.
+Was stacked on roomtrace-7645 (PR #7925). After #7925 merged (11-04 05:56), this branch was rebased onto main
+(`rebase --onto origin/main roomtrace-7645`): the reviewed commits are unchanged, and the diff_hash is recomputed against
+origin/main, which now holds only this branch's change. Room suite after the rebase: 817/817.
 
 **Validation, stated as it happened.** This branch changes ios/LogicTests/room/main.swift and its plan. The full suite
 runs no Swift, so it was not run. Run directly on this commit: run-room.sh PASS 813/813, run.sh PASS 1918/1918. A control,
