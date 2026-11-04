@@ -1,0 +1,22 @@
+# tmuxlink-7981: the Linux installer links its own tmux onto itself when run from the installed CLI
+
+Card: #7981. Found by the verb leg on a real board (run 41917651504). `kosmos update --if-newer --install` aborts and leaves the board stopped, once anything newer is served.
+
+## Change
+`setup_linux_tmux` looks for tmux on a PATH with its own `$dest/bin` removed. Nothing else in the installer changes, and `install/kosmos:299` stays: the CLI needs that PATH for everything else.
+
+## Decisions
+- **Call: fix the installer, not the CLI's PATH.** The verb downloads the target build's installer, so a fixed installer reaches boards already on 0.7.89. A CLI fix would not reach them, because the old side's CLI is what runs. Rejected: scrubbing PATH in `cmd_update`, for that reason.
+- **Call: when no other tmux exists, refuse before touching the link.** As before, with the working link left alone.
+
+## Weakest premise
+That a fixed setup.sh in 0.7.90 repairs a 0.7.89 board, since the 0.7.89 CLI still does the running. Read from `cmd_update` and `run-setup`, not measured. Splinter's requirement measures it: a real 0.7.89 board updating to 0.7.90 and coming back up, in that release's checks.
+
+## What would change my mind
+That measurement failing. Then 0.7.89 boards need their own way out.
+
+## Measured
+tools/test-setup-linux-tmux-7981.sh runs the real function under `sh`. Before the fix it failed with the card's exact error, so the mechanism is reproduced, not only read. It runs on macOS here; CI's Linux shards run it too.
+
+## Not measured
+The whole path on Linux with this fix: the served installer is what a real board runs, and this cannot be served before a cut.

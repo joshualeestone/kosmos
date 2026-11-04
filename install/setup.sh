@@ -1330,10 +1330,17 @@ sweep_dead_stages() {
   done
 }
 
+# #7981: tmux is looked for outside Kosmos's own folder. Run from the installed CLI, that folder is on PATH, and the link
+# in it is what gets replaced below, so finding it there links it to itself.
 setup_linux_tmux() {
   local dest="$1"
-  local tmux_bin=""
-  tmux_bin="$(command -v tmux 2>/dev/null || true)"
+  local tmux_bin="" outside="" dir saved_ifs
+  saved_ifs="$IFS"; IFS=:
+  for dir in $PATH; do
+    [ "$dir" = "$dest/bin" ] || outside="${outside:+$outside:}$dir"
+  done
+  IFS="$saved_ifs"
+  tmux_bin="$(PATH="$outside"; command -v tmux 2>/dev/null || true)"
   if [ -z "$tmux_bin" ]; then
     if command -v apt-get >/dev/null 2>&1; then
       if [ "$(/usr/bin/id -u 2>/dev/null || echo 1)" -eq 0 ]; then
@@ -1341,7 +1348,7 @@ setup_linux_tmux() {
       elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
         sudo apt-get update -qq && sudo apt-get install -y -qq tmux >/dev/null 2>&1 || true
       fi
-      tmux_bin="$(command -v tmux 2>/dev/null || true)"
+      tmux_bin="$(PATH="$outside"; command -v tmux 2>/dev/null || true)"
     fi
   fi
   if [ -z "$tmux_bin" ] || ! { [ -f "$tmux_bin" ] && [ -x "$tmux_bin" ]; }; then
