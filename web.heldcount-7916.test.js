@@ -51,7 +51,7 @@ test('#7916: a project whose every waiting question is held says Question held, 
 const tskAskRow = new Function(
   'const esc = (s) => String(s); const pjChainText = (c) => c; const tskChainOf = (a) => a.projectName;'
   + ' const tskAgentName = (w) => w; const agoWords = (ms) => Math.round(ms / 3600e3) + ' + "' hours ago'" + ';\n'
-  + slice('function tskAskRow(') + '\nreturn tskAskRow;')();
+  + slice('const PJ_NEEDS_WHY = ') + '\n' + slice('function tskAskRow(') + '\nreturn tskAskRow;')();
 
 test('#7916: a held question on Tasks says it is held, with no age pressing it', () => {
   const now = Date.parse('2026-11-04T12:00:00Z');
@@ -61,4 +61,17 @@ test('#7916: a held question on Tasks says it is held, with no age pressing it',
   assert.doesNotMatch(held, /Waiting for your answer/);
   const asked = tskAskRow({ who: 'cleo', projectId: 'p1', projectName: 'Launch', waitingSince: since }, now);
   assert.match(asked, /Waiting for your answer for 72 hours\./, 'CONTROL: an asked question keeps its age');
+});
+
+// eslint-disable-next-line no-new-func
+const pjNeedsNotice = new Function(slice('function esc(') + '\n' + slice('const PJ_NEEDS_WHY = ') + '\n'
+  + slice('function pjAlsoWhy(') + '\n' + slice('function pjNeedsNotice(') + '\nreturn pjNeedsNotice;')();
+
+test('#7916: the project page\'s needs list words a held member as held, an asked one as waiting', () => {
+  const m = (sessionName, name, stateHeld) => ({ sessionName, name, needsYouHere: 'question', present: true, stateHeld });
+  const held = pjNeedsNotice([m('cleo', 'Cleo', true)]);
+  assert.match(held, /Held until you are back\./);
+  assert.doesNotMatch(held, /Waiting for your answer/);
+  const asked = pjNeedsNotice([m('cleo', 'Cleo', false)]);
+  assert.match(asked, /Waiting for your answer\./, 'CONTROL');
 });

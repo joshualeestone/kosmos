@@ -2307,6 +2307,7 @@ function waitingOnOf(task, roster, members) {
   return cardsNeedingPerson(task, roster, members).map((card) => ({
     who: card.sessionName,
     reason: projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, task.projectId) || 'other',
+    ...(card.state === 'needs_you' && card.stateHeld === true ? { held: true } : {}),   // #7916: a question held until the person is back
   }));
 }
 

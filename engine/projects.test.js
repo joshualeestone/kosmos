@@ -3153,9 +3153,10 @@ test('#5688: needsYouReason names each condition needsPerson counts, and none it
   assert.equal(r({ state: 'needs_trust', tied: false }), null, 'a pane it cannot tie to this agent');
 });
 
-test('#7916: a held question carries stateHeld onto the member and counts in needsYouHeld; an asked one does not (real data path)', () => {
+test('#7916: a held question carries stateHeld onto the member and counts in needsYouHeld; an asked one does not (real data path)', (t) => {
   const selfreport = require('./selfreport');
   const q = projects.create({ name: 'Signage', folder: folder('signage-7916'), agents: ['claudebot', 'mara'] });
+  t.after(() => { for (const n of ['claudebot', 'mara']) selfreport.record(n, { state: 'working', because: 'test over' }); });
   assert.equal(selfreport.record('claudebot', { state: 'needs_you', because: 'Which sign?', project: q.id, held: true }).recorded, true);
   assert.equal(selfreport.record('mara', { state: 'needs_you', because: 'Which font?', project: q.id }).recorded, true);
   const roster = cards([fleet.agent('claudebot', { state: 'needs_you' }), fleet.agent('mara', { state: 'needs_you' })]);
@@ -3171,5 +3172,4 @@ test('#7916: a held question carries stateHeld onto the member and counts in nee
   assert.equal(selfreport.record('mara', { state: 'needs_you', because: 'Which font?', project: q.id, held: true }).recorded, true);
   const all = projects.list(cards([fleet.agent('claudebot', { state: 'needs_you' }), fleet.agent('mara', { state: 'needs_you' })])).find((p) => p.id === q.id);
   assert.equal(all.summary.needsYouHeld, 2);
-  for (const n of ['claudebot', 'mara']) selfreport.record(n, { state: 'working', because: 'test over' });
 });

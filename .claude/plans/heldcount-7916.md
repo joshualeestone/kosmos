@@ -12,6 +12,11 @@ Stacked on heldq-7915 until it merges; then rebased onto origin/main.
   (server.js DM route); an unheld words-less question is unchanged (no note).
 - Kept: needsYou, the Dock badge and Today still count a held question (#7915's "nothing is lost").
 
+- Round 1 review: the project page's needs list and a task row that carries the question say held too
+  (PJ_NEEDS_WHY.held; waitingOnOf adds `held: true`, only when true); an owner-only held question is quoted as
+  "a question for <owner>".
+- Not here: the iPhone app (project pill, Tasks rows) needs its own build and LogicTests, so it is kosmos#7918.
+
 ## Rejected
 Leaving a held question out of the counts: while the person is away, the count is where it stays visible.
 

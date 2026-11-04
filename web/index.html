@@ -68503,6 +68503,7 @@ function pjNoticeStill(r, projectId) {
    board keeps it per member and reason (engine/projects.js dismissNeeds), and a changed reason brings the row back. */
 const PJ_NEEDS_WHY = {
   question: ['Waiting for your answer.', 'Answer'],   // not "about this project": the project can be inferred from membership
+  held: ['Held until you are back.', 'Answer'],   // #7916: the agent holds its question until the person is back (--held)
   trust: ['Waiting for you to approve it before it can start.', 'Open'],
   gave_up: ['Lost its connection, and Kosmos stopped trying to reconnect it.', 'Open'],
   crash_loop: ['Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.', 'Open'],
@@ -68570,7 +68571,7 @@ function pjNeedsNotice(roster, redHere) {
   // #7108: cut on a code-point boundary, as the engine's needsKeyWords (a trailing half of an emoji is dropped).
   const keyWords = (t) => { const w = String(t || '').slice(0, 300); const c = w.charCodeAt(w.length - 1); return c >= 0xD800 && c <= 0xDBFF ? w.slice(0, -1) : w; };
   const keyOf = (m) => m.needsYouKey || (m.needsYouHere === 'question' ? 'question:' + keyWords(m.because) : m.needsYouHere);
-  const counted = rows.map((m) => { const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other; return line(m, why, act, keyOf(m)); }).join('');
+  const counted = rows.map((m) => { const [why, act] = (m.needsYouHere === 'question' && m.stateHeld === true ? PJ_NEEDS_WHY.held : PJ_NEEDS_WHY[m.needsYouHere]) || PJ_NEEDS_WHY.other; /* #7916: a held question says held */ return line(m, why, act, keyOf(m)); }).join('');
   const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act, 'elsewhere'); }).join('');
   const n = rows.length || also.length;
   const who = n === 1 ? esc(nameOf((rows.length ? rows : also)[0])) + ' needs you' : n + ' agents need you';
@@ -70910,12 +70911,14 @@ function tskRow(t, at) {
     : askOnly
       ? '<div class="why tsk-waiting tsk-waiting-who">'
         + esc(whoWaits.filter((w, i, all) => all.findIndex((x) => x.who === w.who) === i).map((w) => tskAgentName(w.who)).join(', ')) + ': '
-        + (waitWords === 'just now' ? 'Just started waiting for your answer.'
+        /* #7916: every question here held until the person is back: say so, with no age pressing it. */
+        + (whoWaits.every((w) => w.held === true) ? PJ_NEEDS_WHY.held[0]
+          : waitWords === 'just now' ? 'Just started waiting for your answer.'
           : PJ_NEEDS_WHY.question[0].replace(/\.$/, '') + ' for ' + esc(waitWords.replace(/ ago$/, '')) + '.')
         + '</div>'
       : '<div class="why tsk-waiting">' + (waitWords === 'just now' ? 'Just started waiting on you' : 'Waiting on you for ' + esc(waitWords.replace(/ ago$/, ''))) + '</div>';
   const whoLine = !whoWaits.length || askOnly ? ''
-    : '<div class="why tsk-waiting-who">' + whoWaits.map((w) => esc(tskAgentName(w.who)) + ': ' + esc((Object.prototype.hasOwnProperty.call(PJ_NEEDS_WHY, w.reason) ? PJ_NEEDS_WHY[w.reason] : PJ_NEEDS_WHY.other)[0])).join(' ') + '</div>';
+    : '<div class="why tsk-waiting-who">' + whoWaits.map((w) => esc(tskAgentName(w.who)) + ': ' + esc((w.held === true ? PJ_NEEDS_WHY.held : Object.prototype.hasOwnProperty.call(PJ_NEEDS_WHY, w.reason) ? PJ_NEEDS_WHY[w.reason] : PJ_NEEDS_WHY.other)[0])).join(' ') + '</div>';
   /* kosmos#7788: an agent held this task for the person (`kosmos task hold --for-you`), so it sits in Needs Your
      Decision (tasks.taskState). The row says what it waits on, in the agent's words, and how it clears. */
   const forYouLine = t.state === 'decision' && t.onHold === true && t.onHoldForPerson === true
@@ -70999,7 +71002,7 @@ function tskAskRow(a, now) {
   const about = typeof a.projectName === 'string' && a.projectName ? ' asks about ' + pjChainText(tskChainOf(a)) : ' asks you something';
   const ago = typeof a.waitingSince === 'string' ? agoWords(now - Date.parse(a.waitingSince)) : '';
   /* #7916: a question the agent holds until the person is back is not pressed on them: no age, and it says so. */
-  const wait = a.held === true ? 'Held until you are back.' : !ago ? '' : ago === 'just now' ? 'Just started waiting for your answer.' : 'Waiting for your answer for ' + ago.replace(/ ago$/, '') + '.';
+  const wait = a.held === true ? PJ_NEEDS_WHY.held[0] : !ago ? '' : ago === 'just now' ? 'Just started waiting for your answer.' : 'Waiting for your answer for ' + ago.replace(/ ago$/, '') + '.';
   return '<div class="tsk-ask" data-ask="' + esc(a.who) + '"><span aria-hidden="true"></span><div class="t">'
     + '<span class="tsk-ask-l"><b>' + esc(tskAgentName(a.who)) + '</b>' + esc(about) + '</span>'
     + (wait ? '<div class="why tsk-waiting">' + esc(wait) + '</div>' : '')

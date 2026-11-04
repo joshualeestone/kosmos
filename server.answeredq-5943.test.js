@@ -223,7 +223,14 @@ test('#7916 a held question filed with only --on still gets the held note, quoti
     const typed = pastedChunks(sends).join('');
     assert.ok(typed.includes('Back now.'), 'control: the message was typed: ' + typed);
     assert.ok(typed.includes('[kosmos] you held a question until this person was back, and they are writing to you now: "the logo choice"'), 'no held note: ' + typed);
+    // Held with only --owner: quoted as a question for them, not as if the owner were the question.
+    assert.equal(selfreport.record('onholder', { state: 'working', because: 'between asks' }).recorded, true);   // a new ask, not the same run
+    assert.equal(selfreport.record('onholder', { state: 'needs_you', owner: 'the designer', held: true }).recorded, true);
+    sends.length = 0;
+    assert.equal((await say('onholder', 'Here again.')).status, 200);
+    assert.ok(pastedChunks(sends).join('').includes('they are writing to you now: "a question for the designer"'), pastedChunks(sends).join(''));
     // CONTROL: the same --on-only question NOT held gets no note (no words to quote, as before).
+    assert.equal(selfreport.record('onholder', { state: 'working', because: 'between asks' }).recorded, true);
     assert.equal(selfreport.record('onholder', { state: 'needs_you', on: 'the font choice' }).recorded, true);
     sends.length = 0;
     assert.equal((await say('onholder', 'And this?')).status, 200);
