@@ -31,7 +31,7 @@ const stillTriedAt = new Map();   // id -> when a notice that did not land was t
 function forgetTold(id, at = Date.now()) { toldStill.delete(id); stillTriedAt.set(String(id), at); }
 // Ids whose sender was told they are still held (in memory: a restart may tell a sender once more, the stated cost).
 const toldStill = new Set();
-// kosmos#7936 review 2: agent -> the last sweep that saw it limited (in memory: after a restart the 2 hours count from arrival).
+// kosmos#7936: agent -> the last sweep at which its box was not the only reason (or the board's first sweep for it).
 const limitedSeen = new Map();
 const MAX_KEPT = 200;   // per agent, from all senders together
 const MAX_PER_SENDER = 20;   // per agent per sender: one sender in a loop cannot crowd out the others
@@ -248,7 +248,9 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       let limited = true;
       if (kept.some(shortHold)) {
         try { const c = boxIsReason ? resolveCard(roster, name) : null; limited = !(c && boxIsReason(c, roster)); } catch { limited = true; }
-        if (limited) limitedSeen.set(name, now);
+        // Review 4: and the first sweep since the board started counts as such a moment, so a restart never drops
+        // a message the moment it sees the box (its 2 hours and its notice start then).
+        if (limited || !limitedSeen.has(name)) limitedSeen.set(name, now);
       }
       // Review 2: the 2 hours count from when the box became the only reason (the last sweep that saw the agent limited).
       const seen = limitedSeen.get(name) || 0;

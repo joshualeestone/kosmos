@@ -19,12 +19,16 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
 
 ## Change
 
-- engine/limitqueue.js: `INPUT_DROP_AFTER_MS` (2 h, the room's own HELD_TELL_MAX_MS) and `STILL_HELD_TELL_MS` (10 min).
-  `dropAfter(e)`: 2 h for a `kosmos msg` kept for the box (input: true, no kind), a day otherwise. The sweep calls
-  `onStillHeld(e, roster, dropAt)` once per entry (in memory) STILL_HELD_TELL_MS after its reset.
-- engine/messages.js: `tellHeldStill` types the notice into the sender's pane; `tellHeldDropped` says "for two hours
-  while its input box held text not yet sent" for those; the receipt adds "or drops it after 2 hours and tells you".
-- install/kosmos and tools/windows/kosmos-cli.js: the CLI's held line names the 2 hours.
+- engine/limitqueue.js: `INPUT_DROP_AFTER_MS` (2 h, the room's own HELD_TELL_MAX_MS), `STILL_HELD_TELL_MS` (10 min),
+  `STILL_RETRY_MS` (15 min). Per agent, the sweep asks the hooks' `boxIsReason` (queue released on usage and sign-in, and
+  the box reads text); `dropAfter(e, limited)` is 2 h for a `kosmos msg` kept for the box (input: true, no kind) while the
+  box is the reason, a day otherwise. The 2 hours and the 10-minute notice count from the later of the message's reset and
+  the last sweep at which the box was not the only reason (or the board's first sweep for that agent). `onStillHeld` is
+  called after the sweep's typing, for messages still kept, once (retried no sooner than 15 min if it did not land).
+- engine/messages.js: `tellHeldStill` types the notice into the sender's pane; `tellHeldDropped(entry, roster, short)`
+  says "for two hours while its input box held text not yet sent" when the 2-hour rule dropped it; the receipts (direct,
+  and kept behind such a message) add "or, after 2 hours with the box still full, drops it and tells you".
+- install/kosmos and tools/windows/kosmos-cli.js: the CLI's two input-hold lines say the same.
 - server.js: the unanswered header (and a comment) name `--in-reply-to`.
 
 ## Decided
@@ -56,6 +60,12 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
   - a notice that did not land is tried again no sooner than STILL_RETRY_MS (15 min), so Kosmos's own retries cannot
     make up a sender's stall streak (3 failures within 30 minutes);
   - a bad reset is never told as "two hours"; the file's doc comments name the 2-hour rule.
+- Review 4:
+  - the receipts say "after 2 hours with the box still full", since the clock restarts while the box is not the only
+    reason (a flapping box can keep a message toward the day, never less);
+  - the board's first sweep for an agent starts the clock, so a restart never drops a message on sight;
+  - known cost, not changed: the box is read for boxIsReason and again by isReleased each minute, only for agents
+    holding such a message.
 
 ## Tests
 

@@ -2900,9 +2900,9 @@ cmd_msg() {
       case "$body" in
         # #6774: behind messages any of which were kept for a stuck input box.
         *'"behindFor":"input"'*|*'"behindFor": "input"'*)
-          say "Held for $to: it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them, or drops it after 2 hours and tells you. Do not re-send." ;;   # kosmos#7936
+          say "Held for $to: it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them, or, after 2 hours with the box still full, drops it and tells you. Do not re-send." ;;   # kosmos#7936
         *'"behind":true'*|*'"behind": true'*) say "Held for $to: it still has messages kept from while it was out of usage, and Kosmos types this one after them. Do not re-send." ;;
-        *'"heldFor":"input"'*|*'"heldFor": "input"'*) say "Held for $to: its input box holds text not yet sent. Kosmos types it once the box is clear, or drops it after 2 hours and tells you; do not re-send." ;;   # #6774, #7936
+        *'"heldFor":"input"'*|*'"heldFor": "input"'*) say "Held for $to: its input box holds text not yet sent. Kosmos types it once the box is clear, or, after 2 hours with the box still full, drops it and tells you; do not re-send." ;;   # #6774, #7936
         *'"heldFor":"signin"'*|*'"heldFor": "signin"'*) say "Held for $to: it is signed out. Kosmos types it once it is signed in again; do not re-send." ;;   # #5948
         *)
           held_until=$(printf '%s' "$body" | sed -n 's/.*"heldUntil":"\([^"]*\)".*/\1/p')

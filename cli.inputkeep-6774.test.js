@@ -84,13 +84,13 @@ for (const [label, run] of [['bash', runCli], ['Windows', runWinCli]]) {
   test(`#6774: ${label} kosmos msg says a message held for a stuck input box is held and why, not to re-send, and exits 0`, () => withStubBoard(async (port) => {
     const out = await run(['msg', 'casey', 'go ahead'], envFor(port));
     assert.equal(out.code, 0, out.stdout + out.stderr);
-    assert.match(out.stdout, /Held for casey: its input box holds text not yet sent\. Kosmos types it once the box is clear, or drops it after 2 hours and tells you; do not re-send\./);
+    assert.match(out.stdout, /Held for casey: its input box holds text not yet sent\. Kosmos types it once the box is clear, or, after 2 hours with the box still full, drops it and tells you; do not re-send\./);
     assert.doesNotMatch(out.stdout + out.stderr, /out of usage|Not delivered/);
   }, INPUT));
   test(`#6774: ${label} kosmos msg words one behind messages kept for the box as that`, () => withStubBoard(async (port) => {
     const out = await run(['msg', 'casey', 'and another'], envFor(port));
     assert.equal(out.code, 0, out.stdout + out.stderr);
-    assert.match(out.stdout, /Held for casey: it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them, or drops it after 2 hours and tells you\. Do not re-send\./);
+    assert.match(out.stdout, /Held for casey: it still has messages kept while its input box held text not yet sent, and Kosmos types this one after them, or, after 2 hours with the box still full, drops it and tells you\. Do not re-send\./);
   }, BEHIND_INPUT));
   test(`#6774 CONTROL: ${label} kosmos msg still words one behind a usage-limit backlog as before`, () => withStubBoard(async (port) => {
     const out = await run(['msg', 'casey', 'and another'], envFor(port));
