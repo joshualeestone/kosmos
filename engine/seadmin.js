@@ -204,6 +204,53 @@ function fingerprintDisplay(fp) {
   return [h.slice(0, 8), h.slice(8, 16), h.slice(16, 24), h.slice(24, 32)].join(' ');
 }
 
+/* kosmos#7892 (round-8 WARNING 1 of #7116): decoded text goes on the screen that asks a person to sign, and the only
+   check on it is valid UTF-8, so a hostile coordinator could make two orgs or admins look alike. shownText() is what
+   the screen shows instead of the raw string:
+   - every control, format (bidi overrides and isolates, zero-width characters, the BOM, the soft hyphen), line or
+     paragraph separator, private-use or unassigned code point, and every space other than U+0020, is written as
+     \u{XXXX}, and the text is marked unusual;
+   - a backslash is written as \\, so a name that spells "\u{202E}" in plain letters cannot pass for an escaped one;
+   - letters from more than one script (Latin with Cyrillic or Greek, say) are left as they are but mark the text
+     unusual, since look-alike letters are the other way to fake a name. */
+const ESCAPED = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}]|(?! )\p{Zs}/u;
+function scriptOf(ch) {
+  const m = /\p{L}/u.test(ch) && ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana',
+    'Hangul', 'Arabic', 'Hebrew', 'Devanagari', 'Thai'].find((s) => new RegExp('\\p{Script=' + s + '}', 'u').test(ch));
+  return m || (/\p{L}/u.test(ch) ? 'other' : null);
+}
+function shownText(s) {
+  let text = '', unusual = false;
+  const scripts = new Set();
+  for (const ch of s) {
+    if (ch === '\\') { text += '\\\\'; continue; }
+    if (ESCAPED.test(ch)) { text += '\\u{' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '}'; unusual = true; continue; }
+    const sc = scriptOf(ch);
+    if (sc) scripts.add(sc);
+    text += ch;
+  }
+  // Japanese writes Han, Hiragana and Katakana together; that alone is not a look-alike.
+  const mixed = [...scripts].filter((x) => !['Han', 'Hiragana', 'Katakana'].includes(x)).length + (['Han', 'Hiragana', 'Katakana'].some((x) => scripts.has(x)) ? 1 : 0);
+  if (mixed > 1) unusual = true;
+  return { text, unusual };
+}
+// Every string in a decoded action, as shownText() writes it; bytes and other values are left out (the screen shows
+// those as hex or fingerprints). `unusual` is true when any one string is.
+function shownFields(decoded) {
+  let unusual = false;
+  const walk = (v) => {
+    if (typeof v === 'string') { const s = shownText(v); unusual = unusual || s.unusual; return s.text; }
+    if (v && typeof v === 'object' && !(v instanceof Uint8Array)) {
+      const out = {};
+      for (const [k, x] of Object.entries(v)) { const w = walk(x); if (w !== undefined) out[k] = w; }
+      return Object.freeze(out);
+    }
+    return undefined;
+  };
+  const fields = walk(decoded);
+  return { fields, unusual };
+}
+
 const DECODERS = { change: decodeChange, cancel: decodeCancel, reviewerEnrol: decodeReviewerEnrol,
   reviewerRevoke: decodeReviewerRevoke };
 
@@ -222,7 +269,9 @@ function prepare(action, bytes) {
   } else if (action === 'reviewerEnrol') {
     fingerprint = fingerprintDisplay(reviewerFingerprint(decoded.org, decoded));
   }
-  const prepared = Object.freeze(Object.defineProperties({ action, fingerprint, challenge: sha256(message).toString('hex') }, {
+  const shown = shownFields(decoded);   // #7892: what the screen shows in place of the raw strings
+  const prepared = Object.freeze(Object.defineProperties({ action, fingerprint, challenge: sha256(message).toString('hex'),
+    shown: shown.fields, unusual: shown.unusual }, {
     // Read fresh from the held copy every time, so nothing a caller does to one read changes the next.
     decoded: { get: () => DECODERS[action](Buffer.from(message)), enumerable: true },
   }));
@@ -280,5 +329,5 @@ module.exports = {
   encodeChange, encodeCancel, encodeReviewerEnrol, encodeReviewerRevoke,
   decodeChange, decodeCancel, decodeReviewerEnrol, decodeReviewerRevoke,
   adminFingerprint, reviewerFingerprint, fingerprintDisplay,
-  prepare, createKey, publicKey, sign,
+  prepare, createKey, publicKey, sign, shownText,
 };

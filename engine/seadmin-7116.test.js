@@ -267,3 +267,41 @@ test('#7116: sign signs the bytes prepare was given, not bytes changed afterward
     assert.throws(() => se.prepare('cancel', notBytes), /are bytes/);
   }
 });
+
+test('#7892: prepare gives the screen escaped text, so hidden or look-alike characters cannot make two names look the same', () => {
+  // The pinned vectors are plain text: shown matches decoded, and nothing is unusual.
+  const plain = se.prepare('change', hex(V.bytes.changeAdd));
+  assert.strictEqual(plain.shown.org, V.org);
+  assert.strictEqual(plain.shown.change.admin.adminId, plain.decoded.change.admin.adminId);
+  assert.strictEqual(plain.unusual, false, 'CONTROL: the pinned add reads as unusual');
+  assert.ok(Object.isFrozen(plain.shown) && Object.isFrozen(plain.shown.change.admin), 'shown can be changed by a caller');
+  assert.strictEqual(plain.shown.change.admin.key, undefined, 'bytes are shown as hex or fingerprints, never as text');
+
+  const shownOrg = (org) => { const p = se.prepare('cancel', se.encodeCancel(org, 'roster-change', Buffer.alloc(16, 7))); return [p.shown.org, p.unusual]; };
+  // A right-to-left override, a zero-width space, a BOM, a soft hyphen, a control character, a no-break space.
+  for (const [org, want] of [
+    ['Acme‮evil', 'Acme\\u{202E}evil'], ['Ac​me', 'Ac\\u{200B}me'], ['﻿Acme', '\\u{FEFF}Acme'],
+    ['Ac­me', 'Ac\\u{00AD}me'], ['Acme\u0007', 'Acme\\u{0007}'], ['Acme Inc', 'Acme\\u{00A0}Inc'],
+    ['Acme Inc', 'Acme\\u{2028}Inc'], ['Acme\u{E000}', 'Acme\\u{E000}'],
+  ]) assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // Two orgs that render the same raw are told apart once shown.
+  assert.notStrictEqual(shownOrg('Acme')[0], shownOrg('Ac​me')[0]);
+  // A name spelling an escape in plain letters cannot pass for a real escape.
+  assert.deepStrictEqual(shownOrg('Acme\\u{202E}'), ['Acme\\\\u{202E}', false]);
+  assert.notStrictEqual(shownOrg('Acme\\u{202E}')[0], shownOrg('Acme‮')[0]);
+  // Look-alike letters: a Cyrillic a in a Latin name is kept as it is but marked.
+  assert.deepStrictEqual(shownOrg('Acmе'), ['Acmе', true]);
+  assert.deepStrictEqual(shownOrg('Αcme'), ['Αcme', true], 'a Greek capital alpha');
+  // Ordinary names are not unusual: accents, one other script, Japanese's three scripts together, plain spaces.
+  for (const org of ['Café Zürich', 'Москва ООО', '株式会社カオス', 'ひらがな会社', 'Acme Inc.', 'O\'Neil & Co'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], org);
+});
+
+test('#7892: nested decoded text is escaped too (an admin id and a reviewer name)', () => {
+  const add = se.decodeChange(hex(V.bytes.changeAdd));
+  const bytes = se.encodeChange(add.org, add.generation, { kind: 'add', admin: { ...add.change.admin, adminId: 'adm‮in' } }, add.nonce);
+  const p = se.prepare('change', bytes);
+  assert.strictEqual(p.shown.change.admin.adminId, 'adm\\u{202E}in');
+  assert.strictEqual(p.unusual, true);
+  assert.strictEqual(p.decoded.change.admin.adminId, 'adm‮in', 'the raw decode is unchanged: what is signed is the bytes');
+});
