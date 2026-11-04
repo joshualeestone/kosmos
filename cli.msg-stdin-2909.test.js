@@ -96,7 +96,7 @@ test('#2909: msg --stdin refusals send nothing (args too, trailing flag, empty p
   assert.match(empty.stdout, /nothing was piped in: kosmos msg --stdin <agent>/);
   const noAgent = await runCli(['msg', '--stdin'], envFor(port), 'x');
   assert.equal(noAgent.code, 2);
-  assert.match(noAgent.stdout, /Usage: kosmos msg \[--in-reply-to <id>\] \[--stdin\]/);
+  assert.match(noAgent.stdout, /Usage: kosmos msg \[--no-reply\] \[--in-reply-to <id>\] \[--stdin\]/);
   assert.equal(seen.length, 0);
 }));
 
@@ -136,7 +136,7 @@ test('#2909: a 2 MB piped msg body reaches the board (curl on stdin, not argv)',
 }));
 
 test('#2909: the msg usage line is the same sentence in install/kosmos and the Windows CLI', () => {
-  const bash = fs.readFileSync(CLI, 'utf8').match(/say "(Usage: kosmos msg \[--in-reply-to <id>\] \[--stdin\][^"]*)"/);
+  const bash = fs.readFileSync(CLI, 'utf8').match(/say "(Usage: kosmos msg \[--no-reply\] \[--in-reply-to <id>\] \[--stdin\][^"]*)"/);
   assert.ok(bash, 'install/kosmos must carry the msg usage line');
   assert.equal(bash[1].replace(/\\\$/g, '$'), require('./tools/windows/kosmos-cli').USAGE.msg);
 });
@@ -211,4 +211,17 @@ test('#7886 CONTROL: without --in-reply-to no in_reply_to is sent; a missing id 
   assert.equal(eqFlag.code, 2);
   assert.match(eqFlag.stdout, /--in-reply-to needs a message id/);
   assert.equal(seen.length, 1);
+}));
+
+/* #7893: kosmos msg --no-reply sends reply_expected:false, in any order with the other leading flags. */
+test('#7893: msg --no-reply sends reply_expected:false; without it the field is absent', () => withStubBoard(async (port, seen) => {
+  const fyi = await runCli(['msg', '--no-reply', 'leo', 'deployed'], envFor(port));
+  assert.equal(fyi.code, 0, fyi.stdout + fyi.stderr);
+  assert.deepEqual([seen[0].to, seen[0].text, seen[0].reply_expected], ['leo', 'deployed', false]);
+  const mixed = await runCli(['msg', '--in-reply-to', 'm4', '--stdin', '--no-reply', 'leo'], envFor(port), 'thanks\n');
+  assert.equal(mixed.code, 0, mixed.stdout + mixed.stderr);
+  assert.deepEqual([seen[1].text, seen[1].in_reply_to, seen[1].reply_expected], ['thanks', 'm4', false]);
+  const plain = await runCli(['msg', 'leo', 'a question'], envFor(port));
+  assert.equal(plain.code, 0, plain.stdout + plain.stderr);
+  assert.equal('reply_expected' in seen[2], false);
 }));

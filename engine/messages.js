@@ -1494,7 +1494,7 @@ function recentSameSend(log, atIso, isSame) {
   return null;
 }
 
-function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyTo }, roster, deliverToPane) {
+function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyTo, replyExpected }, roster, deliverToPane) {
   const at = new Date().toISOString();
   /* #570: a route that already resolved the sender from an AGENT TOKEN passes it
      here (a Windows agent has no pane to derive one from). Without one, the pane
@@ -1718,11 +1718,15 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
      nothing on the board to show it. "if it needs one" is in the line itself, not only in the colleagues block (which
      few agents carry), so an answer does not read as an order to answer again. */
   const sayFrom = /\s/.test(from) ? "'" + from + "'" : from;
+  /* #7893: `kosmos msg --no-reply` (reply_expected:false) says so in place of the answer line, as a room post's
+     --no-reply does (#2908); set only by the caller, never inferred from the words. */
   const prefix = '[message from your colleague ' + from
     + ' \u00b7 ' + id
     + (replyTo ? ' \u00b7 answers ' + replyTo : '')
-    + ' \u00b7 to answer, if it needs one, run: kosmos msg --in-reply-to ' + id + ' ' + sayFrom
+    + (replyExpected === false ? ' \u00b7 FYI, no reply requested'
+      : ' \u00b7 to answer, if it needs one, run: kosmos msg --in-reply-to ' + id + ' ' + sayFrom)
     + '] ';
+  const ackRow = replyExpected === false ? { replyExpected: false } : {};
   let body = cleaned;
   let spillFile = null;
   if (spillsAt(prefix + cleaned)) {
@@ -1768,7 +1772,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     }
     // The printed reset while it is ahead; past it (the card still reads capped) no time is promised.
     const until = Date.parse(limitHold.limitReset) > Date.parse(at) ? limitHold.limitReset : null;
-    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: until });
+    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, ...ackRow, at, state: HELD_STATE, heldUntil: until });
     return heldReceipt(toName, id, at, until, false, limitHold.behind === true, limitHold.heldFor === 'signin',
       { behindInput: limitHold.behind === true && waiting.some((e) => e.input === true) });   // the same rule as the flag
   }
@@ -1781,7 +1785,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
       const limitqueue = require('./limitqueue');
       const why = limitqueue.addOrWhy(qName, { id, from, envelope, at, reset: at, key: msgKey, spill: spillFile, input: true });
       if (!why) {
-        appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: HELD_STATE, heldUntil: null });
+        appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, ...ackRow, at, state: HELD_STATE, heldUntil: null });
         return heldReceipt(toName, id, at, null, false, false, false, { input: true });
       }
       unspill(spillFile);
@@ -1805,7 +1809,7 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     const isQueued = sent.queued === true;
     /* #6249: a line the board saw left in the recipient's input box, unsent, says so in the log and the answer. */
     const unsent = sent.unsubmitted === true ? { unsubmitted: true } : {};
-    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, at, state: sent.state, ...(isQueued ? { queued: true } : {}), ...unsent });
+    appendLog({ kind: 'message', id, from, to: toName, text: cleaned, in_reply_to: replyTo, ...ackRow, at, state: sent.state, ...(isQueued ? { queued: true } : {}), ...unsent });
     if (sent.unsubmitted === true && Number.isInteger(sent.unsentSeq)) noteUnsent(sent.unsentSeq, { id, from, to: toName });   // #6256 item 2
     return { state: sent.state, ...(isQueued ? { queued: true } : {}), ...unsent, ...(sent.paneNote ? { paneNote: sent.paneNote } : {}), because: sent.because || null, id, at };
   };
@@ -3458,7 +3462,9 @@ function blockBody() {
     'what it says. From a room or from a person, a message with no such line is',
     'not waiting on you.',
     'A colleague\'s direct message carries the line whether or not it needs an',
-    'answer: answer it when you have something to add.',
+    'answer (unless its sender marked it "FYI, no reply requested"): answer it',
+    'when you have something to add. To send one that needs no answer, add',
+    '--no-reply to kosmos msg.',
     '',
     'If one of these commands fails in your shell, tell your operator in',
     'your own words rather than staying silent. The message never arrived,',

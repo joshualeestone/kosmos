@@ -474,6 +474,19 @@ test('#2908: POST /api/post refuses a non-boolean reply_expected with 400; boole
   assert.notEqual(omitted.status, 400, 'omitting reply_expected must be accepted (current behavior)');
 });
 
+// #7893: /api/msg validates reply_expected the same way (kosmos msg --no-reply sends false).
+test('#7893: POST /api/msg refuses a non-boolean reply_expected with 400; boolean/omitted passes validation', async () => {
+  const badString = await postJson('/api/msg', { to: 'nobody-7893', text: 'y', reply_expected: 'false' });
+  assert.equal(badString.status, 400, 'a STRING reply_expected must be refused, not coerced');
+  assert.match(badString.body, /reply_expected must be true or false/);
+  const badNumber = await postJson('/api/msg', { to: 'nobody-7893', text: 'y', reply_expected: 0 });
+  assert.equal(badNumber.status, 400, 'a NUMERIC reply_expected must be refused too');
+  const okBool = await postJson('/api/msg', { to: 'nobody-7893', text: 'y', reply_expected: false });
+  assert.notEqual(okBool.status, 400, 'a boolean reply_expected must pass validation');
+  const omitted = await postJson('/api/msg', { to: 'nobody-7893', text: 'y' });
+  assert.notEqual(omitted.status, 400, 'omitting reply_expected must be accepted');
+});
+
 // #1704 slice 2: the /api/worlds registry routes (sandboxed via AGENT_WORKFORCE_DATA above).
 test('#1704: GET /api/worlds lists the default world; POST creates one without switching', async () => {
   const before = JSON.parse((await req('/api/worlds')).body);
