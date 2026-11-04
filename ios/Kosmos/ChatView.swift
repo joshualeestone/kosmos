@@ -803,6 +803,9 @@ struct ChatView: View {
                     if visible { settleAtNewest(proxy, boxMoved: true) }
                     // Only the chat on screen: another tab can keep a chat alive under it.
                     guard keepNewestInView, visible else { return }
+                    // kosmos#7420 (Josh 11-04 08:26, "jumping around ... when I type"): a list already at its end is not moved
+                    // again; the keyboard's height flips (345, 380, 608) each sent a did-show and each one scrolled.
+                    if let s = scrollBox.shortOfEnd(), s <= Double(Self.listPadV) + 4 { Self.trace("keyboard shown, at the newest already"); return }
                     Self.trace("keyboard shown, to the newest")
                     // kosmos#7344: re-setting an anchor that already reads "end" does not move the thread, so scroll to it.
                     // Not animated under the anchor, as goNewest is (the side lock, #7574, relies on that).
@@ -1078,7 +1081,10 @@ struct ChatView: View {
             // TestFlight 37 (Josh 11-04 08:07): a list with NOTHING drawn is rebuilt whatever the anchor, since a blank
             // screen keeps no place worth holding. Review 5: the short-of-end test only after the box moved.
             let short = scrollBox.shortOfEnd() ?? 0
-            if place == "within", !endVisible || onScreen.isEmpty || (boxMoved && short > Double(Self.listPadV) + 4) {
+            // kosmos#7420 (Josh 11-04 08:26, jumping on open and while typing): a drawn list is moved only after a keyboard or
+            // box change (boxMoved) and only with its end gone; the short-of-end move (a delayed follow of every new line of
+            // the box) is gone, and a thread read moves a drawn list no more. A list with nothing drawn is still rebuilt.
+            if place == "within", (boxMoved && !endVisible) || onScreen.isEmpty {
                 if atBottom || (onScreen.isEmpty && !Self.sampleNoRebuild), !personScrolling, !scrollBox.underFinger {
                     // Review 6: a list just rebuilt is laying out and goes to its newest itself; neither arm acts in its grace.
                     if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
@@ -1136,7 +1142,10 @@ struct ChatView: View {
     private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false, keepPlace: Bool = false) {
         let scrolling = personScrolling || scrollBox.underFinger
         var wrote = false
-        switch Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling, atNewest: atBottom, canRebuild: !Self.sampleNoRebuild) {
+        let decided = Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling, atNewest: atBottom, canRebuild: !Self.sampleNoRebuild)
+        // Review 3: a reader higher up (keepPlace) is acted on only by a rebuild; any other outcome would jump them by id.
+        if keepPlace, decided != .rebuild { Self.trace("diag: empty, a reader higher up left (no rebuild)"); return }
+        switch decided {
         case .none: return
         case .rebuild:
             let now = Date()

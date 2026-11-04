@@ -41,3 +41,12 @@ still leaves a reader higher up. room/main.swift pins the settled arm. Typecheck
   a reader higher up rebuilt by a settled look is not sent to the newest by id (keepPlace). Accepted and stated: a rebuild
   sets atBottom true; if the rebuilt list never reaches its end it stays true (the keyboard hold stands down, a new message
   moves the list) until the person scrolls or the end shows, which on a blank screen costs nothing.
+- Review 3: a reader higher up (keepPlace) is acted on only by a rebuild; any other outcome after the 0.5 s wait leaves
+  them (it would jump by id).
+- Josh 11-04 08:26 on TestFlight 38, "jumping around a lot when I come into a chat and when I type": quieter moves.
+  (a) The short-of-end move is gone: it was a delayed follow of every new line of the box, the follow #7817 turned off.
+  (b) A drawn list is moved by a settled look only after a keyboard or box change and only with its end gone; a thread
+  read moves a drawn list no more. (c) The did-show "to the newest" is skipped when the list already sits at its end (the
+  keyboard's 345/380/608 flips each sent a did-show and each one scrolled). A blank list is still rebuilt. The same 08:26
+  capture showed a 4.3x inflated estimate (132901 vs 30753 measured after the rebuild): the rebuild worked; its move is
+  part of the jump a person sees, the accepted cost of a blank.
