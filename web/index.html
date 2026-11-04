@@ -69616,8 +69616,9 @@ function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   /* #6483: only agents' own questions (the engine's needsYouQuestions) read as the agent card reads them, a calm
      "Question" with its "?" and no red; anything else that needs the person is still the red Issue. */
-  /* #7916: and when every one of those questions is held until the person is back, it says so, as the agent card does. */
-  if (!unreadable && s.needsYou && s.needsYouQuestions === s.needsYou && s.needsYouHeld === s.needsYou) return { cls: 'question', glyph: GLYPH.question, label: 'Question held' };
+  /* #7916: and when every one of those questions is held until the person is back, it says so, as the agent card does,
+     unless a task waits on the person's decision too (heldForYou below): then it is the plain Question. */
+  if (!unreadable && s.needsYou && s.needsYouQuestions === s.needsYou && s.needsYouHeld === s.needsYou && !(s.heldForYou > 0)) return { cls: 'question', glyph: GLYPH.question, label: 'Question held' };
   if (!unreadable && s.needsYou && s.needsYouQuestions === s.needsYou) return { cls: 'question', glyph: GLYPH.question, label: 'Question' };
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
   /* kosmos#7797: a task an agent held for the person waits on their answer, so the card reads the calm Question; a

@@ -42,8 +42,12 @@ test('#7916: a project whose every waiting question is held says Question held, 
   assert.equal(pjPillOf(proj({ needsYou: 2, needsYouQuestions: 1, needsYouHeld: 1 }), false).label, 'Issue');
   // An older board with no needsYouHeld keeps Question.
   assert.equal(pjPillOf(proj({ needsYou: 1, needsYouQuestions: 1 }), false).label, 'Question');
-  // A roster the page cannot read claims neither.
+  // A roster the page cannot read claims neither: no label at all (the #4730 rule), the same answer as with no hold.
+  assert.equal(pjPillOf(proj({ needsYou: 1, needsYouQuestions: 1, needsYouHeld: 1 }), true).label,
+    pjPillOf(proj({ needsYou: 1, needsYouQuestions: 1 }), true).label);
   assert.notEqual(pjPillOf(proj({ needsYou: 1, needsYouQuestions: 1, needsYouHeld: 1 }), true).label, 'Question held');
+  // A task held for the person's decision (#7797) keeps the plain Question over held questions.
+  assert.equal(pjPillOf(proj({ needsYou: 1, needsYouQuestions: 1, needsYouHeld: 1, heldForYou: 1 }), false).label, 'Question');
 });
 
 // tskAskRow, with the page's own helpers it calls stubbed to plain text (they are tested where they live).

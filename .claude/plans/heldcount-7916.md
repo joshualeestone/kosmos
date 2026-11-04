@@ -23,6 +23,13 @@ Stacked on heldq-7915 until it merges; then rebased onto origin/main.
   stateHeld), stacked on this branch and merged right after it. heldios-7918.md's line about waitingOn was written
   before round 1 here and is superseded by this paragraph.
 
+- Round 7: the project pill says Question held only when no task waits on the person's decision too (heldForYou),
+  on the page and the phone.
+- Accepted residual (round 7): a held row the person dismisses on the project page stays dismissed if the agent then
+  asks the same words for real, because the dismissal key (projects.needsDismissKey, 'question:' + its words) does not
+  include held. Changing the key touches the dismissal route and the phone's own key; recorded on kosmos#7916 as a
+  follow-up rather than changed in the last review round.
+
 ## Rejected
 Leaving a held question out of the counts: while the person is away, the count is where it stays visible.
 
