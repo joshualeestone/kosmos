@@ -11,8 +11,8 @@
 #           and win32, so their own /api/update refuses; see #7935). The project is kept, and systemd runs a new
 #           board process that loaded the staged version. Linux only: it installs for real under systemd, so it refuses to run outside CI.
 #
-#   verb    #7935's `kosmos update --if-newer --install` run from a staged install (#7941), see leg_verb. Not in `all`:
-#           until a later cut is served it can only run stamped, so it is no part of what a promote requires.
+#   verb    #7935's `kosmos update --if-newer --install` run from an installed board (#7941), see leg_verb. Not in
+#           `all`, and no part of the #7942 record.
 #   bash tools/promote-check-legs-7933.sh <verify|data|update|verb|all> [linux|mac]
 # PLATFORM picks the pointers: linux reads dist/latest-linux.json and dist/latest-linux-staging.json; mac reads
 # dist/latest.json and dist/latest-staging.json (so verify and data can be rehearsed on a Mac). SITE defaults to
@@ -193,24 +193,29 @@ leg_update() {
 }
 
 # ---- verb (Linux, CI only): #7935's `kosmos update --if-newer --install`, #7941 ------------------------------------
-# It runs from the INSTALLED CLI, so the old side must carry it, and until a later cut exists nothing newer is served
-# to update to. So this runs it twice on the staged build: as served, where it must answer `current`; then with the
-# installed package.json stamped older, so its own check finds the staged build newer and its own installer really
-# runs. The stamp is the one thing that differs from a real update: the bytes it installs are the build it replaced.
-# Once a later cut is served, a real run is old side = this build, new side = that one.
+# It runs from the INSTALLED CLI, so the old side must carry it. Two modes:
+#   VERB_OLD=<version>  the real one: the staging installer pinned to that older build, then the verb updates it to the
+#                       staged build. The old side's app and CLI are that build's; the installer that laid them down is
+#                       today's. A release check names the previous cut here (kosmos#7981: "a 0.7.89 board updates to
+#                       0.7.90 and comes back up").
+#   unset               on the staged build alone: as served it must answer `current`; then with the installed
+#                       package.json stamped older its own installer really runs, over the same bytes. That reaches the
+#                       install path before a later cut exists, and it is not an update between two builds.
 leg_verb() {
   [ "$PLATFORM" = linux ] && [ "$(uname -s)" = Linux ] || { fail verb "runs only on Linux"; return; }
   [ -n "${CI:-}" ] && [ -n "${GITHUB_ACTIONS:-}" ] || { fail verb "refusing: it installs Kosmos for real under systemd; it runs on GitHub Actions only"; return; }
-  local port="${KOSMOS_PORT:-16180}" root tok sv got pid0 pid1 up="" home cli pkg said rc
+  local port="${KOSMOS_PORT:-16180}" root tok sv got pid0 pid1 up="" home cli pkg said rc old="${VERB_OLD:-}" want
   curl -fsS -m 30 "$SITE/dist/$SP" -o "$W/staging-ptr.json" || { fail verb "no $SP is served"; return; }
   sv="$(field version "$W/staging-ptr.json")"; [ -n "$sv" ] || { fail verb "the staging pointer names no version"; return; }
+  [ "$old" != "$sv" ] || { fail verb "VERB_OLD is the staged build $sv: there is no update to check"; return; }
+  want="${old:-$sv}"
   curl -fsSL "$SITE/setup-staging" -o "$W/setup-staging.sh" || { fail verb "could not fetch $SITE/setup-staging"; return; }
-  KOSMOS_UPDATE_CHANNEL=staging KOSMOS_RELEASE_BASE="$SITE/dist" sh "$W/setup-staging.sh" > "$W/setup-staging.log" 2>&1 \
+  KOSMOS_PINNED_VERSION="$old" KOSMOS_UPDATE_CHANNEL=staging KOSMOS_RELEASE_BASE="$SITE/dist" sh "$W/setup-staging.sh" > "$W/setup-staging.log" 2>&1 \
     || { tail -20 "$W/setup-staging.log"; fail verb "the staging install failed"; return; }
   for _ in $(seq 1 60); do curl -fsS -m 3 -o /dev/null "http://127.0.0.1:$port/api/health" && { up=1; break; }; sleep 2; done
   [ -n "$up" ] || { tail -20 "$W/setup-staging.log"; fail verb "the staging install's board never answered"; return; }
   got="$(ver)"; pid0="$(bpid)"; echo "  installed from /setup-staging: $got (systemd MainPID $pid0)"
-  [ "$got" = "$sv" ] || { fail verb "/setup-staging installed '$got', not $sv"; return; }
+  [ "$got" = "$want" ] || { fail verb "/setup-staging installed '$got', not $want"; return; }
   ours "$pid0" || { fail verb "the process answering port $port is not systemd's board ($pid0)"; return; }
   home="$HOME/.local/share/kosmos"; cli="$home/bin/kosmos"; pkg="$home/app/package.json"
   [ -x "$cli" ] && [ -f "$pkg" ] || { fail verb "no installed CLI at $cli or package.json at $pkg"; return; }
@@ -220,6 +225,7 @@ leg_verb() {
   api -X POST "http://127.0.0.1:$port/api/projects" --data '{"name":"Masterclass prep"}' > /dev/null
   case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail verb "could not add a project"; return ;; esac
 
+  if [ -z "$old" ]; then
   said="$("$cli" update --if-newer 2>&1)"; rc=$?; echo "  as served: rc=$rc: $said"
   [ "$rc" = 0 ] && [ "$(printf '%s\n' "$said" | tail -1)" = "current $sv" ] || { fail verb "with nothing newer it did not answer current $sv"; return; }
   [ "$(bpid)" = "$pid0" ] || { fail verb "with nothing newer the board restarted anyway"; return; }
@@ -229,8 +235,9 @@ leg_verb() {
   sed -i 's/"version": *"'"$sv"'"/"version": "0.0.1"/' "$pkg"
   chmod a-w "$home/app" "$pkg"
   grep -q '"version": "0.0.1"' "$pkg" || { fail verb "the stamp did not apply to $pkg"; return; }
-  said="$("$cli" update --if-newer --install 2>&1)"; rc=$?; echo "  stamped older, --install: rc=$rc: $said"
-  [ "$rc" = 0 ] && [ "$(printf '%s\n' "$said" | tail -1)" = "updated $sv" ] || { tail -30 "$home/logs/install.log" 2>/dev/null; fail verb "stamped older, it did not answer updated $sv"; return; }
+  fi
+  said="$("$cli" update --if-newer --install 2>&1)"; rc=$?; echo "  $([ -n "$old" ] && echo "from $old" || echo "stamped older"), --install: rc=$rc: $said"
+  [ "$rc" = 0 ] && [ "$(printf '%s\n' "$said" | tail -1)" = "updated $sv" ] || { tail -30 "$home/logs/install.log" 2>/dev/null; fail verb "it did not answer updated $sv"; return; }
   grep -E 'on disk now|Updating it in place|pausing' "$home/logs/install.log" 2>/dev/null | tail -4 | sed 's/^/  install.log: /'
   for _ in $(seq 1 60); do pid1="$(bpid)"; [ -n "$pid1" ] && [ "$pid1" != 0 ] && [ "$pid1" != "$pid0" ] && [ "$(ver)" = "$sv" ] && break; sleep 2; done
   got="$(ver)"; pid1="$(bpid)"; echo "  after the verb: $got, systemd MainPID $pid1, package.json $(field version "$pkg")"
