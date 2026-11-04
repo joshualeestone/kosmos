@@ -286,7 +286,7 @@ S="$(e2esite lc-skip 9.9.9)"; : > "$T/e2e/check.args"
 chk "7942: --skip-linux-check promotes with red runs" [ "$(CHECK_RC=1 e2e "$S" --skip-linux-check)" = "rc=0" ]
 chk "7942: without asking for the runs" [ ! -s "$T/e2e/check.args" ]
 chk "7942: loudly when it starts" grep -qF -- "!!! --skip-linux-check: Linux 9.9.9 ($(lsha "$S")) goes to prod WITHOUT its check runs." "$T/e2e/out.log"
-chk "7942: and again in the closing lines" grep -qF "!!! LINUX CHECK RUNS SKIPPED (--skip-linux-check): Linux 9.9.9 went to prod" "$T/e2e/out.log"
+chk "7942: and again in the closing lines" grep -qF "!!! LINUX CHECK RUNS SKIPPED (--skip-linux-check): Linux 9.9.9 was promoted without" "$T/e2e/out.log"
 chk "7942: and latest-linux.json moved" cmp -s "$S/dist/latest-linux-staging.json" "$S/dist/latest-linux.json"
 S="$(e2esite lc-maconly 9.9.9)"; git -C "$S" rm -q dist/latest-linux-staging.json; git -C "$S" commit -qm "no linux"; : > "$T/e2e/check.args"
 chk "7942 CONTROL: a promote that moves no Linux pointer asks for no Linux runs" [ "$(CHECK_RC=1 e2e "$S" --skip-linux-check)" = "rc=0" ]
