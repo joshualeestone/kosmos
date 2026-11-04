@@ -68503,6 +68503,7 @@ function pjNoticeStill(r, projectId) {
    board keeps it per member and reason (engine/projects.js dismissNeeds), and a changed reason brings the row back. */
 const PJ_NEEDS_WHY = {
   question: ['Waiting for your answer.', 'Answer'],   // not "about this project": the project can be inferred from membership
+  held: ['Held until you are back.', 'Answer'],   // #7916: the agent holds its question until the person is back (--held)
   trust: ['Waiting for you to approve it before it can start.', 'Open'],
   gave_up: ['Lost its connection, and Kosmos stopped trying to reconnect it.', 'Open'],
   crash_loop: ['Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.', 'Open'],
@@ -68538,7 +68539,7 @@ function pjKeepOpenFocus(box, paint) {
 function pjAlsoWhy(m) {
   if (m.restartFailed) return ['Kosmos restarted it, and it did not come back.', 'Open'];
   if (m.crashLoop && m.crashLoop.looping === true) return [PJ_NEEDS_WHY.crash_loop[0], 'Open'];
-  if (m.state === 'needs_you' && m.stateProject) return ['Waiting for your answer about another project.', 'Answer'];
+  if (m.state === 'needs_you' && m.stateProject) return m.stateHeld === true ? ['Held until you are back, about another project.', 'Answer'] : ['Waiting for your answer about another project.', 'Answer'];   // #7916
   // Review 1: a needs-you naming no project (often read off its screen) is not known to be about another project.
   if (m.state === 'needs_you') return ['Waiting for you. It did not say which project.', 'Open'];
   // #5154 slice B: AFTER the needs_you branches (precedence, parallel to stateReason): a Kosmos give-up only
@@ -68570,7 +68571,7 @@ function pjNeedsNotice(roster, redHere) {
   // #7108: cut on a code-point boundary, as the engine's needsKeyWords (a trailing half of an emoji is dropped).
   const keyWords = (t) => { const w = String(t || '').slice(0, 300); const c = w.charCodeAt(w.length - 1); return c >= 0xD800 && c <= 0xDBFF ? w.slice(0, -1) : w; };
   const keyOf = (m) => m.needsYouKey || (m.needsYouHere === 'question' ? 'question:' + keyWords(m.because) : m.needsYouHere);
-  const counted = rows.map((m) => { const [why, act] = PJ_NEEDS_WHY[m.needsYouHere] || PJ_NEEDS_WHY.other; return line(m, why, act, keyOf(m)); }).join('');
+  const counted = rows.map((m) => { const [why, act] = (m.needsYouHere === 'question' && m.stateHeld === true ? PJ_NEEDS_WHY.held : PJ_NEEDS_WHY[m.needsYouHere]) || PJ_NEEDS_WHY.other; /* #7916: a held question says held */ return line(m, why, act, keyOf(m)); }).join('');
   const extra = also.map((m) => { const [why, act] = pjAlsoWhy(m); return line(m, why, act, 'elsewhere'); }).join('');
   const n = rows.length || also.length;
   const who = n === 1 ? esc(nameOf((rows.length ? rows : also)[0])) + ' needs you' : n + ' agents need you';
@@ -69615,6 +69616,9 @@ function pjPillOf(p, unreadable) {
   const s = p.summary || {};
   /* #6483: only agents' own questions (the engine's needsYouQuestions) read as the agent card reads them, a calm
      "Question" with its "?" and no red; anything else that needs the person is still the red Issue. */
+  /* #7916: and when every one of those questions is held until the person is back, it says so, as the agent card does,
+     unless a task waits on the person's decision too (heldForYou below): then it is the plain Question. */
+  if (!unreadable && s.needsYou && s.needsYouQuestions === s.needsYou && s.needsYouHeld === s.needsYou && !(s.heldForYou > 0)) return { cls: 'question', glyph: GLYPH.question, label: 'Question held' };
   if (!unreadable && s.needsYou && s.needsYouQuestions === s.needsYou) return { cls: 'question', glyph: GLYPH.question, label: 'Question' };
   if (!unreadable && s.needsYou) return { cls: 'attn', glyph: '<span class="haz" aria-hidden="true">!</span>', label: 'Issue' };
   /* kosmos#7797: a task an agent held for the person waits on their answer, so the card reads the calm Question; a
@@ -70902,18 +70906,21 @@ function tskRow(t, at) {
      It carries both classes (it is the age line and the who line). Today the route sends an age only for question rows
      (engine/tasks.js waitingSinceOf: every card NEEDS_YOU, whose reason is always 'question'), so this is the age
      wording in practice; the #5942 two-line form below is kept only for an age beside another reason, which the
-     route does not send now. A row with no known start keeps the who line alone. */
+     route does not send now. A row with no known start keeps the who line alone. #7916: a question every asker holds
+     until the person is back says "<name>: Held until you are back." instead, with no age. */
   const askOnly = !!waitWords && whoWaits.length > 0 && whoWaits.every((w) => w.reason === 'question');
   const waitLine = !waitWords ? ''
     : askOnly
       ? '<div class="why tsk-waiting tsk-waiting-who">'
         + esc(whoWaits.filter((w, i, all) => all.findIndex((x) => x.who === w.who) === i).map((w) => tskAgentName(w.who)).join(', ')) + ': '
-        + (waitWords === 'just now' ? 'Just started waiting for your answer.'
+        /* #7916: every question here held until the person is back: say so, with no age pressing it. */
+        + (whoWaits.every((w) => w.held === true && w.reason === 'question') ? PJ_NEEDS_WHY.held[0]
+          : waitWords === 'just now' ? 'Just started waiting for your answer.'
           : PJ_NEEDS_WHY.question[0].replace(/\.$/, '') + ' for ' + esc(waitWords.replace(/ ago$/, '')) + '.')
         + '</div>'
       : '<div class="why tsk-waiting">' + (waitWords === 'just now' ? 'Just started waiting on you' : 'Waiting on you for ' + esc(waitWords.replace(/ ago$/, ''))) + '</div>';
   const whoLine = !whoWaits.length || askOnly ? ''
-    : '<div class="why tsk-waiting-who">' + whoWaits.map((w) => esc(tskAgentName(w.who)) + ': ' + esc((Object.prototype.hasOwnProperty.call(PJ_NEEDS_WHY, w.reason) ? PJ_NEEDS_WHY[w.reason] : PJ_NEEDS_WHY.other)[0])).join(' ') + '</div>';
+    : '<div class="why tsk-waiting-who">' + whoWaits.map((w) => esc(tskAgentName(w.who)) + ': ' + esc((w.held === true && w.reason === 'question' ? PJ_NEEDS_WHY.held : Object.prototype.hasOwnProperty.call(PJ_NEEDS_WHY, w.reason) ? PJ_NEEDS_WHY[w.reason] : PJ_NEEDS_WHY.other)[0])).join(' ') + '</div>';
   /* kosmos#7788: an agent held this task for the person (`kosmos task hold --for-you`), so it sits in Needs Your
      Decision (tasks.taskState). The row says what it waits on, in the agent's words, and how it clears. */
   const forYouLine = t.state === 'decision' && t.onHold === true && t.onHoldForPerson === true
@@ -70996,7 +71003,8 @@ function tskAskRow(a, now) {
   /* The route names the project as it names a task row's (projectName, projectPath), so this works before the Projects list is read. */
   const about = typeof a.projectName === 'string' && a.projectName ? ' asks about ' + pjChainText(tskChainOf(a)) : ' asks you something';
   const ago = typeof a.waitingSince === 'string' ? agoWords(now - Date.parse(a.waitingSince)) : '';
-  const wait = !ago ? '' : ago === 'just now' ? 'Just started waiting for your answer.' : 'Waiting for your answer for ' + ago.replace(/ ago$/, '') + '.';
+  /* #7916: a question the agent holds until the person is back is not pressed on them: no age, and it says so. */
+  const wait = a.held === true ? PJ_NEEDS_WHY.held[0] : !ago ? '' : ago === 'just now' ? 'Just started waiting for your answer.' : 'Waiting for your answer for ' + ago.replace(/ ago$/, '') + '.';
   return '<div class="tsk-ask" data-ask="' + esc(a.who) + '"><span aria-hidden="true"></span><div class="t">'
     + '<span class="tsk-ask-l"><b>' + esc(tskAgentName(a.who)) + '</b>' + esc(about) + '</span>'
     + (wait ? '<div class="why tsk-waiting">' + esc(wait) + '</div>' : '')

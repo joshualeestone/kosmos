@@ -244,3 +244,29 @@ test('#6492: a question row with a known start says it once: "<name>: Waiting fo
     assert.doesNotMatch(noStart, /class="why tsk-waiting"/);
   } finally { Date.now = realNow; }
 });
+
+/* kosmos#7916: a question the agent holds until the person is back (`kosmos report needs_you --held`) is said as held on
+   its task row, with no age pressing it, in both line shapes. An asked question beside it keeps the old words. */
+test('#7916: a held question on a task row says "<name>: Held until you are back.", with or without a known start', () => {
+  const PJW = SCRIPT.match(/const PJ_NEEDS_WHY = \{[\s\S]*?\n\};/);
+  const AGO = new Function(page.liftAll(SCRIPT, ['agoWords']) + '\nreturn agoWords;')();
+  const realNow = Date.now;
+  Date.now = () => Date.parse('2026-10-12T16:00:00Z');
+  try {
+    const row = (over) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', PJW[0] + '\n' + GROUPS + '\n' + FNS + '\nreturn tskRow;')(
+      { sel: new Set(), by: 'status' }, [REX], (s) => String(s), AGO, (x) => x.projectId + '#' + x.number)(T(over));
+    const name = new Function('LAST', page.liftAll(SCRIPT, ['tskAgentName']) + '\nreturn tskAgentName;')([REX])('rex');
+    const aged = row({ state: 'decision', waitingSince: '2026-10-12T13:00:00Z', waitingOn: [{ who: 'rex', reason: 'question', held: true }] });
+    assert.ok(aged.includes('>' + name + ': Held until you are back.</div>'), aged);
+    assert.doesNotMatch(aged, /Waiting for your answer|Waiting on you/);
+    const unaged = row({ state: 'decision', waitingOn: [{ who: 'rex', reason: 'question', held: true }] });
+    assert.ok(unaged.includes('<div class="why tsk-waiting-who">' + name + ': Held until you are back.</div>'), unaged);
+    // A held flag beside a reason that is not a question never hides that reason (the engine sends none; the page guards too).
+    const crash = row({ state: 'decision', waitingOn: [{ who: 'rex', reason: 'crash_loop', held: true }] });
+    assert.doesNotMatch(crash, /Held until you are back/, crash);
+    assert.match(crash, /keeps restarting it/);
+    // CONTROL: the same row asked keeps its age.
+    const asked = row({ state: 'decision', waitingSince: '2026-10-12T13:00:00Z', waitingOn: [{ who: 'rex', reason: 'question' }] });
+    assert.ok(asked.includes(name + ': Waiting for your answer for 3 hours.</div>'), asked);
+  } finally { Date.now = realNow; }
+});

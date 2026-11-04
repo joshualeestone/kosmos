@@ -940,7 +940,7 @@ struct ProjectRowView: View {
 
     private func wordColor(_ w: Board.ProjectWord) -> Color {
         switch w {
-        case .question: return Palette.askedWord
+        case .question, .questionHeld: return Palette.askedWord   // kosmos#7918: held is calm, as Question is
         case .issue: return Palette.dangerWord
         case .working: return Palette.dot(.working)
         case .paused, .restarting: return Palette.secondary

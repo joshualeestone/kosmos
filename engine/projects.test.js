@@ -3152,3 +3152,29 @@ test('#5688: needsYouReason names each condition needsPerson counts, and none it
   assert.equal(r({ state: 'needs_trust', present: false }), null, 'a member Kosmos cannot see');
   assert.equal(r({ state: 'needs_trust', tied: false }), null, 'a pane it cannot tie to this agent');
 });
+
+test('#7916: a held question carries stateHeld onto the member and counts in needsYouHeld; an asked one does not (real data path)', (t) => {
+  const selfreport = require('./selfreport');
+  const q = projects.create({ name: 'Signage', folder: folder('signage-7916'), agents: ['claudebot', 'mara'] });
+  t.after(() => { for (const n of ['claudebot', 'mara']) selfreport.record(n, { state: 'working', because: 'test over' }); });
+  assert.equal(selfreport.record('claudebot', { state: 'needs_you', because: 'Which sign?', project: q.id, held: true }).recorded, true);
+  assert.equal(selfreport.record('mara', { state: 'needs_you', because: 'Which font?', project: q.id }).recorded, true);
+  const roster = cards([fleet.agent('claudebot', { state: 'needs_you' }), fleet.agent('mara', { state: 'needs_you' })]);
+  const row = projects.list(roster).find((p) => p.id === q.id);
+  const members = {};
+  for (const a of row.agents) members[a.sessionName] = a;
+  assert.equal(members.claudebot.stateHeld, true);
+  assert.equal(members.mara.stateHeld, false, 'CONTROL: the asked question is not held');
+  assert.equal(row.summary.needsYou, 2, 'a held question is still counted, so nothing is lost while the person is away');
+  assert.equal(row.summary.needsYouQuestions, 2);
+  assert.equal(row.summary.needsYouHeld, 1);
+  // A held agent in a crash loop is not held on the member (so the project's needs list does not call it calm).
+  const looping = projects.list(cards([fleet.agent('claudebot', { state: 'needs_you' }), fleet.agent('mara', { state: 'needs_you' })])
+    .map((c) => (c.sessionName === 'claudebot' ? { ...c, crashLoop: { looping: true } } : c))).find((p) => p.id === q.id);
+  assert.equal(looping.agents.find((a) => a.sessionName === 'claudebot').stateHeld, false);
+  assert.equal(looping.summary.needsYouHeld, 0);
+  // Held both: the project's every waiting question is held.
+  assert.equal(selfreport.record('mara', { state: 'needs_you', because: 'Which font?', project: q.id, held: true }).recorded, true);
+  const all = projects.list(cards([fleet.agent('claudebot', { state: 'needs_you' }), fleet.agent('mara', { state: 'needs_you' })])).find((p) => p.id === q.id);
+  assert.equal(all.summary.needsYouHeld, 2);
+});

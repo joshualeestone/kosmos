@@ -73,6 +73,8 @@ extension Board {
         let projectName: String?
         let projectPath: [String]
         let waitingSince: String?
+        // kosmos#7918 (#7916's askingWithoutTask `held`): the agent holds this question until the person is back.
+        var held = false
         var id: String { "ask:" + who }
     }
 
@@ -138,7 +140,7 @@ extension Board {
             guard let who = str(a, "who") else { return nil }
             return Asking(who: who, projectId: str(a, "projectId"), projectName: str(a, "projectName"),
                           projectPath: (a["projectPath"] as? [Any])?.compactMap { $0 as? String } ?? [],
-                          waitingSince: str(a, "waitingSince"))
+                          waitingSince: str(a, "waitingSince"), held: isTrue(a["held"]))
         } ?? []
         return TasksRead(tasks: tasks, rosterUnknown: (obj["rosterUnreadable"] as? Bool) == true, asking: asking)
     }
@@ -208,6 +210,8 @@ enum Tasks {
         name(a.who) + ((a.projectName ?? "").isEmpty ? " asks you something" : " asks about " + chainText(a.projectPath + [a.projectName ?? ""]))
     }
     static func askWait(_ a: Board.Asking, now: Date) -> String {
+        // kosmos#7918 (tskAskRow, #7916): a held question is not pressed on the person: no age, and it says so.
+        if a.held { return "Held until you are back." }
         let wait = ago(a.waitingSince, now: now)
         if wait.isEmpty { return "" }
         return wait == "just now" ? "Just started waiting for your answer." : "Waiting for your answer for " + wait.replacingOccurrences(of: " ago", with: "") + "."
@@ -439,6 +443,7 @@ enum Tasks {
     // PJ_NEEDS_WHY's sentences (the first of each pair), for a decision row's who line.
     static let needsWhy: [String: String] = [
         "question": "Waiting for your answer.",
+        "held": "Held until you are back.",   // kosmos#7916: the board's PJ_NEEDS_WHY.held
         "trust": "Waiting for you to approve it before it can start.",
         "gave_up": "Lost its connection, and Kosmos stopped trying to reconnect it.",
         "crash_loop": "Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.",

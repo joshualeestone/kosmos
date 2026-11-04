@@ -305,6 +305,18 @@ func held(_ needs: Int = 0, q: Int = 0, paused: Bool = false) -> Board.ProjectRo
 check(Board.projectWord(held(paused: true), agentsUnreadable: false) == .question, "a hold for you: Question, above Paused")
 check(Board.projectWord(held(), agentsUnreadable: true) == .question, "and with the agents unreadable (the hold needs none)")
 check(Board.projectWord(held(1, q: 0), agentsUnreadable: false) == .issue, "control: a member's Issue outranks it")
+// kosmos#7918 (pjPillOf, #7916): every waiting question held until the person is back reads Question held, calm.
+func heldQ(_ needs: Int, q: Int, held h: Int) -> Board.ProjectRow { var p = proj(needs, q: q, working: 1); p.needsYouHeld = h; return p }
+check(Board.projectWord(heldQ(2, q: 2, held: 2), agentsUnreadable: false) == .questionHeld, "every question held: Question held")
+check(Board.projectWordText(.questionHeld) == "Question held", "in the board's words")
+check(Board.projectWord(heldQ(2, q: 2, held: 1), agentsUnreadable: false) == .question, "control: one of two held is still the plain Question")
+check(Board.projectWord(heldQ(2, q: 1, held: 1), agentsUnreadable: false) == .issue, "control: an Issue among them is still Issue")
+check(Board.projectWord(heldQ(2, q: 2, held: 2), agentsUnreadable: true) == nil, "control: agents unreadable, no word at all (not Question held)")
+var heldWithTask = heldQ(2, q: 2, held: 2); heldWithTask.heldForYou = 1
+check(Board.projectWord(heldWithTask, agentsUnreadable: false) == .question, "#7916: a task held for your decision keeps the plain Question over held questions")
+let heldParsed = Board.parseProjects(Data(#"{"projects":[{"id":"h","name":"H","summary":{"needsYou":1,"needsYouQuestions":1,"needsYouHeld":1}},{"id":"o","name":"O","summary":{"needsYou":1,"needsYouQuestions":1}},{"id":"t","name":"T","summary":{"needsYou":1,"needsYouQuestions":1,"needsYouHeld":true}}]}"#.utf8))?.projects ?? []
+check(heldParsed.map { Board.projectWord($0, agentsUnreadable: false) } == [.questionHeld, .question, .question],
+      "summary.needsYouHeld is read; a board older than #7916 (no field) and a non-number read the plain Question: \(heldParsed.map { Board.projectWord($0, agentsUnreadable: false) })")
 check(Board.projectWord(proj(working: 1, restarting: 1), agentsUnreadable: false) == .working, "Working above Restarting")
 check(Board.projectWord(proj(restarting: 1), agentsUnreadable: false) == .restarting, "Restarting")
 check(Board.projectWord(proj(2, working: 1), agentsUnreadable: true) == nil, "agents unreadable: no word that could not be read")
@@ -518,7 +530,9 @@ let chatSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmo
 // kosmos#7420 diagnostic (source checks): the record holds numbers and event names, never what was written. Every trace
 // line is checked for the fields that carry words (a message's text, a name, the draft).
 // kosmos#7420 build 16: ChatView.trace( too (SideScrollLock writes from outside the view), so no writer is missed.
-let traceLines = chatSource.components(separatedBy: "\n").filter { $0.contains("Self.trace(") || $0.contains("ChatView.trace(") }
+// kosmos#7645: and the room's (RoomView writes through ChatView.trace), read here before roomSource is declared below.
+let roomTraceSource = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+let traceLines = (chatSource + "\n" + roomTraceSource).components(separatedBy: "\n").filter { $0.contains("Self.trace(") || $0.contains("ChatView.trace(") }
 // Review 1: an allow-list, not a ban-list. Every value a trace line puts in the record is one of these numbers, yes/no
 // flags or fixed words; anything new (an id, a session, a name) fails here until it is judged and added.
 let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a, b)", "waited", "personScrolling", "scrollBox.underFinger", "place", "Int(back)", "tall", "inset", "sized", "now ?? \"none\"", "Self.sampleRows(rows, held: r.id)", "Self.sampleRows(rows, held: kept.row)", "Int(reading.content)", "Int(r.content)", "Int(r.top)", "Int(top)", "Int(bottom)", "self.scroll.map { Self.numbers($0) } ?? \"no scroll\"", "atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
@@ -531,7 +545,8 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "Board.anchorKind(positionId)",   // kosmos#7645: the anchor's kind (none, end, top, a message), never its id
     "Self.numbers(sv)",   // kosmos#7645 round 4: the scroll's offset, content height and showing height, in points
     "Self.heightLine(v, rows: r)",   // kosmos#7420: content height, offset and the drawn rows' places, in points and a count
-    "Int(short)"]   // kosmos#7420 review 3: how far the scroll is short of the content's end, in points
+    "Int(short)",   // kosmos#7420 review 3: how far the scroll is short of the content's end, in points
+    "keepNewestOnKeyboard", "visible", "holdAtEnd", "searchMode"]   // kosmos#7645: the room's keyboard will-show, yes/no only
 // kosmos#7420: Self.heightLine is admitted by name, so its body is pinned: Int(...) point values, a count and fixed words.
 check(chatSource.contains("\"content \\(Int(size)), y \\(Int(sv.contentOffset.y)), drawn \\(at.count), from \\(Int(first)) to \\(Int(last)), past last \\(Int(size - last))\""), "kosmos#7420: the height line in the record is points and a count and nothing else")
 // kosmos#7645: Self.numbers(sv) is admitted by name, so its body is pinned here: three Int(...) point values and fixed words. Change
@@ -548,6 +563,9 @@ for l in traceLines {
     }
 }
 let strayValues = tracedValues.filter { !allowedInTrace.contains($0) }
+// kosmos#7645 review 1: the room half of the scan must have read something, or a missing file passes on the chat's lines.
+check(!roomTraceSource.isEmpty && traceLines.contains { $0.contains("ChatView.trace(\"room shown\", ring: false)") },
+      "kosmos#7645: the trace scan read the room's source and holds its own trace call (room shown), not only the chat's")
 check(traceLines.count >= 10 && !tracedValues.isEmpty && strayValues.isEmpty,
       "kosmos#7420: the diagnostic records only allowed numbers and flags (\(tracedValues.count) values; not allowed: \(strayValues))")
 check(!chatSource.contains("keepAnchor scrollTo \\(id)"), "review 1: no message id in the record")

@@ -441,3 +441,76 @@ test('#7892: two signs asked for at once run one after the other, so two prompts
   await assert.rejects(se.sign(se.prepare('cancel', hex(V.bytes.cancel)), opts));
   assert.strictEqual(fs.readFileSync(log, 'utf8').trim().split('\n').length, 6);
 });
+
+test('#7892: a zero-width joiner or non-joiner inside a Persian or Indic word is spelling, kept and not marked', () => {
+  const shownOrg = (org) => { const p = se.prepare('cancel', se.encodeCancel(org, 'roster-change', Buffer.alloc(16, 7))); return [p.shown.org, p.unusual]; };
+  // Persian "mi" + ZWNJ + "khaham", and Hindi ka + virama + ZWJ + ssa (a half form): as they are, not marked.
+  for (const org of ['\u0645\u06CC\u200C\u062E\u0648\u0627\u0647\u0645', '\u0915\u094D\u200D\u0937'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
+  // Everywhere else it is still escaped and marked: in a Latin name, between two scripts, at either end of a word,
+  // and between letters of a script that does not join.
+  for (const [org, want] of [
+    ['Ac\u200Cme', 'Ac\\u{200C}me'],
+    ['\u0645\u200CA', '\u0645\\u{200C}A'],
+    ['\u0645\u06CC\u200C', '\u0645\u06CC\\u{200C}'],
+    ['\u200C\u0645\u06CC', '\\u{200C}\u0645\u06CC'],
+    ['\u0410\u200D\u0411', '\u0410\\u{200D}\u0411'],
+    // Joiners that change nothing on screen (IDNA ContextJ): after an alef, which never joins forward; a ZWJ between
+    // Arabic letters, which join anyway; an Indic joiner with no virama.
+    ['\u0627\u200C\u0628', '\u0627\\u{200C}\u0628'],
+    ['\u0628\u200D\u0628', '\u0628\\u{200D}\u0628'],
+    ['\u0915\u200C\u0937', '\u0915\\u{200C}\u0937'],
+    ['\u0915\u200D\u0937', '\u0915\\u{200D}\u0937'],
+    // Two joining scripts either side, and a virama of another script.
+    ['\u0645\u200C\u0915', '\u0645\\u{200C}\u0915'],
+    ['\u0645\u094D\u200D\u06CC', '\u0645\u094D\\u{200D}\u06CC'],
+    // A tatweel either side (Joining_Type C, not D); dal before (R: never joins forward); a ZWNJ then a ZWJ; a virama
+    // at the very start; Tamil, which has no half forms.
+    ['\u0628\u0640\u200C\u0628', '\u0628\u0640\\u{200C}\u0628'],
+    ['\u0628\u200C\u0640\u0628', '\u0628\\u{200C}\u0640\u0628'],
+    ['\u062F\u200C\u0628', '\u062F\\u{200C}\u0628'],
+    ['\u0628\u200C\u200D\u0628', '\u0628\\u{200C}\\u{200D}\u0628'],
+    ['\u094D\u200D\u0937', '\u094D\\u{200D}\u0937'],
+    ['\u0B95\u0BCD\u200D\u0BB7', '\u0B95\u0BCD\\u{200D}\u0BB7'],
+    // One letter from each R group before a ZWNJ (each never joins forward, so the ZWNJ changes nothing).
+    ['\u0691\u200C\u0628', '\u0691\\u{200C}\u0628'],
+    ['\u06C4\u200C\u0628', '\u06C4\\u{200C}\u0628'],
+    ['\u075B\u200C\u0628', '\u075B\\u{200C}\u0628'],
+  ]) assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // The kept joiner per script (VIRAMAS): a ZWJ half form where the script has them (Gujarati, Malayalam, Sinhala;
+  // Devanagari and Bengali above), a ZWNJ where a ZWJ asks for almost nothing (Gurmukhi, Oriya, Telugu, Kannada), whose
+  // ZWJ is escaped and marked.
+  const half = { gu: ['\u0A95', '\u0ACD', '\u0AB7'], ml: ['\u0D15', '\u0D4D', '\u0D37'], si: ['\u0D9A', '\u0DCA', '\u0DC2'],
+    pa: ['\u0A15', '\u0A4D', '\u0A38'], or: ['\u0B15', '\u0B4D', '\u0B37'], te: ['\u0C15', '\u0C4D', '\u0C37'],
+    kn: ['\u0C95', '\u0CCD', '\u0CB7'] };
+  for (const [key, joiner, kept] of [['gu', '\u200D', true], ['ml', '\u200D', true], ['si', '\u200D', true],
+    ['pa', '\u200C', true], ['or', '\u200C', true], ['te', '\u200C', true], ['kn', '\u200C', true],
+    ['pa', '\u200D', false], ['or', '\u200D', false], ['te', '\u200D', false], ['kn', '\u200D', false]]) {
+    const [k, v, x] = half[key], org = k + v + joiner + x;
+    assert.strictEqual(org.normalize('NFC'), org, 'CONTROL: NFC leaves ' + JSON.stringify(org) + ' alone');
+    const want = kept ? org : k + v + '\\u{200D}' + x;
+    assert.deepStrictEqual(shownOrg(org), [want, !kept], key + ' ' + JSON.stringify(joiner));
+  }
+  // A non-joining letter (Joining_Type U: hamza U+0621, high hamza U+0674) on either side of a ZWNJ: it changes
+  // nothing, so it is escaped and marked.
+  for (const [org, want] of [['\u0628\u200C\u0621', '\u0628\\u{200C}\u0621'], ['\u0621\u200C\u0628', '\u0621\\u{200C}\u0628'],
+    ['\u0628\u200C\u0674', '\u0628\\u{200C}\u0674']])
+    assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // The first letter of the accepted Arabic range (U+0620, D) joins both ways: kept.
+  assert.deepStrictEqual(shownOrg('\u0620\u200C\u0628'), ['\u0620\u200C\u0628', false], 'U+0620');
+  // A virama joiner at the very end of the word (a chillu-style ending) and a superscript alef skipped like a harakah.
+  assert.deepStrictEqual(shownOrg('\u0D28\u0D4D\u200D'), ['\u0D28\u0D4D\\u{200D}', true], 'joiner at the end');
+  assert.deepStrictEqual(shownOrg('\u0628\u0670\u200C\u0628')[0], '\u0628\u0670\u200C\u0628', 'superscript alef before the ZWNJ');
+  // Sinhala keeps only the ZWJ: a ZWNJ after al-lakuna changes nothing, so it is escaped and marked.
+  assert.deepStrictEqual(shownOrg('\u0D9A\u0DCA\u200C\u0DC2'), ['\u0D9A\u0DCA\\u{200C}\u0DC2', true], 'Sinhala ZWNJ');
+  // A known false positive, pinned so it is a decision: a harakah AFTER the ZWNJ is not skipped, so the joiner is
+  // escaped. Only the text half pins joinerInWord here: the flag is also set by the mark-with-no-letter rule.
+  assert.deepStrictEqual(shownOrg('\u0628\u200C\u064E\u0628'), ['\u0628\\u{200C}\u064E\u0628', true]);
+  // More spelling that stays: a ZWNJ before an R letter (beh, ZWNJ, alef), and after Arabic-extended D letters (heh goal
+  // U+06C1, the Arabic Supplement U+0750).
+  for (const org of ['\u0628\u200C\u0627', '\u06C1\u200C\u0628', '\u0750\u200C\u0628'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
+  // More spelling that stays: a Persian ZWNJ after a harakah, and a Bengali ZWNJ after its virama.
+  for (const org of ['\u0628\u064E\u200C\u0628', '\u0995\u09CD\u200C\u09B7'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
+});

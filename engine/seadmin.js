@@ -206,11 +206,12 @@ function fingerprintDisplay(fp) {
 /* kosmos#7892 (round-8 WARNING 1 of #7116): decoded text goes on the screen that asks a person to sign, and the only
    check on it is valid UTF-8, so a hostile coordinator could make two orgs or admins look alike. shownText() is what
    the screen shows instead of the raw string:
-   - every control, format (bidi overrides and isolates, zero-width characters, the BOM, the soft hyphen), line or
-     paragraph separator, private-use or unassigned code point, every default-ignorable code point (variation
-     selectors, the combining grapheme joiner, the Hangul fillers: invisible marks and letters), the characters that
-     draw as a blank or a box (U+2800 braille blank, U+FFFC object replacement, U+FFFD replacement), and every space
-     other than U+0020, is written as \u{XXXX}, and the text is marked unusual;
+   - every control, format (bidi overrides and isolates, zero-width characters, the BOM, the soft hyphen; the one
+     exception is a joiner that spells a word, below), line or paragraph separator, private-use or unassigned code
+     point, every default-ignorable code point (variation selectors, the combining grapheme joiner, the Hangul fillers:
+     invisible marks and letters), the characters that draw as a blank or a box (U+2800 braille blank, U+FFFC object
+     replacement, U+FFFD replacement), and every space other than U+0020, is written as \u{XXXX}, and the text is
+     marked unusual;
    - text that changes under NFC, or a letter or digit that changes under NFKC, is marked unusual: "Cafe" with a
      combining accent looks like "Café" with a precomposed one, and fullwidth "ＡBC" like "ABC" (symbols and
      punctuation, such as "™" or the fullwidth brackets of "（株）", are left alone: they are ordinary in names);
@@ -225,14 +226,13 @@ function fingerprintDisplay(fp) {
      Hiragana, Katakana and Hangul count as one, and Latin with them is not marked ("NTTデータ", "Kosmos 株式会社" are
      ordinary company names); both are pinned by tests.
    `unusual` means "look closer", not "suspicious", and it is not rare: it is cautious, so ordinary names carry it too
-   (an emoji with its variation selector, a Persian or Indic word with a zero-width joiner or non-joiner, which are
-   escaped; a superscript, a circled number or a Roman-numeral character; half-width katakana; decomposed Hangul; a mark
-   after a hyphen or a digit). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in
-   one script that looks like another (all-Cyrillic "АВС" for Latin "ABC") is not marked, nor are dash and slash
-   look-alikes, nor two scripts that are both off SCRIPTS (each counts as "other"), nor look-alikes inside Japanese
-   (Katakana エ and Han 工). \p{Cs} cannot arrive through prepare (the decoder refuses ill-formed UTF-8); it is in ESCAPED
-   for any other caller. For an admin add or a reviewer enrolment the fingerprint is the defence; for an org name on a
-   cancel or a revoke nothing here is. */
+   (an emoji with its variation selector, which is escaped; a superscript, a circled number or a Roman-numeral
+   character; half-width katakana; decomposed Hangul; a mark after a hyphen or a digit). `unusual: false` does NOT mean
+   a name cannot imitate another. A name written wholly in one script that looks like another (all-Cyrillic "АВС" for
+   Latin "ABC") is not marked, nor are dash and slash look-alikes, nor two scripts that are both off SCRIPTS (each
+   counts as "other"), nor look-alikes inside Japanese (Katakana エ and Han 工). \p{Cs} cannot arrive through prepare (the
+   decoder refuses ill-formed UTF-8); it is in ESCAPED for any other caller. For an admin add or a reviewer enrolment
+   the fingerprint is the defence; for an org name on a cancel or a revoke nothing here is. */
 const ESCAPED = /[\p{Cs}\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}\u2800\uFFFC\uFFFD]|(?! )\p{Zs}/u;
 const SCRIPTS = ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana', 'Hangul', 'Arabic',
   'Hebrew', 'Devanagari', 'Thai'].map((name) => [name, new RegExp('\\p{Script=' + name + '}', 'u')]);
@@ -242,6 +242,56 @@ function scriptOf(ch) {
   if (!/[\p{L}\p{Nd}]/u.test(ch) || /[\p{Script=Common}\p{Script=Inherited}]/u.test(ch)) return null;
   const hit = SCRIPTS.find(([, re]) => re.test(ch));
   return hit ? hit[0] : 'other';
+}
+// kosmos#7892: Persian, Arabic-script and Indic words use the zero-width non-joiner and joiner as spelling (Persian
+// "mi" + U+200C + "khaham", Hindi half forms). One of them is kept as it is, and does not mark the text, only where it
+// can change how the word looks, after IDNA's ContextJ rule (RFC 5892 A.1 and A.2): a ZWJ or ZWNJ straight after a
+// virama, with a letter of the virama's script before it and after the joiner; or a ZWNJ between an Arabic letter that
+// joins forward and one that joins back (harakat may sit before the ZWNJ, not after it). Anywhere else it is escaped
+// and marked as before: after an alef or a tatweel, between letters that join anyway, in Indic text with no virama, in
+// a Latin name, between two scripts. The scripts are deliberately partial: Tamil is left out (no half forms), as are
+// Syriac, Mongolian, N'Ko, Thaana and the rest; which joiner each kept script keeps is set in VIRAMAS below. Known
+// residuals, allowed by ContextJ and not marked here: for a letter with no half form (Devanagari nga), a ZWJ after its
+// virama looks the same as no joiner; a ZWNJ looks the same as no joiner in a pair that never forms a conjunct; a
+// joiner before or after an independent vowel or another non-consonant letter of the script (Devanagari A, Om) cannot
+// form a conjunct, and is kept anyway (restricting it needs a per-script consonant table); and a font that draws no
+// conjunct shows the spellings alike. Known false positives (marked, never hidden): a nukta before the virama, Bengali
+// ya-phala (ra, ZWJ, virama, ya), a chillu at the end of a word, and a mark after the ZWNJ. Which joiner a script
+// keeps: both where it has productive half forms or chillus (Devanagari, Bengali, Gujarati, Malayalam); only the ZWNJ
+// where a ZWJ after the virama has almost no half form to ask for (Gurmukhi, Oriya, Telugu, Kannada); only the ZWJ in
+// Sinhala (a conjunct forms only on ZWJ).
+const VIRAMAS = [['Devanagari', '\u094D'], ['Bengali', '\u09CD'], ['Gurmukhi', '\u0A4D', 'zwnj'], ['Gujarati', '\u0ACD'],
+  ['Oriya', '\u0B4D', 'zwnj'], ['Telugu', '\u0C4D', 'zwnj'], ['Kannada', '\u0CCD', 'zwnj'], ['Malayalam', '\u0D4D'],
+  ['Sinhala', '\u0DCA', 'zwj']]
+  .map(([name, v, only]) => [new RegExp('^\\p{Script=' + name + '}$', 'u'), v, only]);
+// Arabic letters by Joining_Type (Unicode ArabicShaping.txt): R joins only to the letter before it, U to neither; every
+// other Arabic letter here is D (both ways). Only these ranges count; anything else is not an Arabic joining letter.
+// The tatweel (U+0640, Joining_Type C) and the superscript alef (U+0670, T) are inside the ranges and are excluded.
+const ARABIC_R = new Set([
+  ...'\u0622\u0623\u0624\u0625\u0627\u0629\u062F\u0630\u0631\u0632\u0648',
+  ...'\u0671\u0672\u0673\u0675\u0676\u0677',
+  ...Array.from({ length: 0x0699 - 0x0688 + 1 }, (_, k) => String.fromCodePoint(0x0688 + k)),
+  ...'\u06C0\u06C3\u06C4\u06C5\u06C6\u06C7\u06C8\u06C9\u06CA\u06CB\u06CD\u06CF\u06D2\u06D3\u06D5\u06EE\u06EF',
+  ...'\u0759\u075A\u075B\u076B\u076C\u0771\u0773\u0774\u0778\u0779']);
+const ARABIC_U = new Set(['\u0621', '\u0674']);
+const arabicLetter = (c) => !!c && c !== '\u0640' && c !== '\u0670'
+  && /^[\u0620-\u064A\u066E-\u06D3\u06D5\u06EE\u06EF\u06FA-\u06FC\u06FF\u0750-\u077F]$/u.test(c);
+const joinsBack = (c) => arabicLetter(c) && !ARABIC_U.has(c);                 // R or D
+const joinsForward = (c) => joinsBack(c) && !ARABIC_R.has(c);                 // D
+function joinerInWord(chars, i) {
+  const prev = chars[i - 1], next = chars[i + 1];
+  if (!prev || !next) return false;
+  const viramaOf = VIRAMAS.find(([, v]) => v === prev);
+  if (viramaOf) {
+    const [re, , only] = viramaOf, base = chars[i - 2];
+    if (only === 'zwj' && chars[i] !== '\u200D') return false;
+    if (only === 'zwnj' && chars[i] !== '\u200C') return false;
+    return !!base && /\p{L}/u.test(base) && re.test(base) && /\p{L}/u.test(next) && re.test(next);
+  }
+  if (chars[i] !== '\u200C') return false;
+  let b = i - 1;
+  while (b >= 0 && /^[\u064B-\u065F\u0670]$/u.test(chars[b])) b -= 1;   // harakat (Joining_Type T)
+  return joinsForward(chars[b]) && joinsBack(next);
 }
 function shownText(s) {
   let text = '';
@@ -255,6 +305,7 @@ function shownText(s) {
       text += '\\u{0020}'; unusual = true; return;
     }
     if (ch === '\\') { text += '\\\\'; return; }
+    if ((ch === '\u200C' || ch === '\u200D') && joinerInWord(chars, i)) { text += ch; return; }   // kosmos#7892
     if (ESCAPED.test(ch)) {
       text += '\\u{' + ch.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '}'; unusual = true; return;
     }

@@ -2304,10 +2304,11 @@ function cardsNeedingPerson(task, roster, members) {
  * it is present by being on the roster and tied by isNamedOurs, which cardsNeedingPerson already required.
  */
 function waitingOnOf(task, roster, members) {
-  return cardsNeedingPerson(task, roster, members).map((card) => ({
-    who: card.sessionName,
-    reason: projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, task.projectId) || 'other',
-  }));
+  return cardsNeedingPerson(task, roster, members).map((card) => {
+    const reason = projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, task.projectId) || 'other';
+    const held = reason === 'question' && projects.heldOwnQuestion(card);   // #7916: never on a red agent
+    return { who: card.sessionName, reason, ...(held ? { held: true } : {}) };
+  });
 }
 
 /**
@@ -2346,6 +2347,7 @@ function askingWithoutTask(rows, roster, scope, projectList, keepArchived) {
     const p = projectId ? byId.get(projectId) : null;
     if (p && p.archived === true && p.id !== keepArchived) continue;
     out.push({ who: card.sessionName, projectId, waitingSince: Number.isFinite(at) ? new Date(at).toISOString() : null,
+      ...(projects.heldOwnQuestion(card) ? { held: true } : {}),   // #7916: held and calm, the one rule (projects.heldOwnQuestion)
       ...(p ? { projectName: p.name == null ? '' : String(p.name), projectPath: projectPathOf(p, byId) } : {}) });
   }
   return out.sort((a, b) => (a.waitingSince === null) - (b.waitingSince === null)

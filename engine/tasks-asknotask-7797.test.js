@@ -93,3 +93,35 @@ test('#7797 final review: a question about an archived project is left out, unle
   assert.equal(tasks.askingWithoutTask([], roster, null, list, 'old').length, 1, 'the door keeps it');
   assert.equal(tasks.askingWithoutTask([], roster, null, [{ ...list[0], archived: false }]).length, 1, 'CONTROL: not archived');
 });
+
+test('#7916: a held question (a real held report) is listed with held:true; an asked one carries no held field', () => {
+  const selfreport = require('./selfreport');
+  assert.equal(selfreport.record('ann', { state: 'needs_you', because: 'Which sign?', held: true }).recorded, true);
+  assert.equal(selfreport.record('bo', { state: 'needs_you', because: 'Which font?' }).recorded, true);
+  try {
+    const board = fleet.install([fleet.agent('ann', { state: 'needs_you' }), fleet.agent('bo', { state: 'needs_you' })], { strict: false });
+    let ann; let bo;
+    try { ann = { ...board.card('ann') }; bo = { ...board.card('bo') }; } finally { board.restore(); }
+    assert.equal(ann.stateHeld, true, 'fixture: the held report reached the real card');
+    assert.equal(bo.stateHeld, false, 'fixture: the asked one did not');
+    const out = tasks.askingWithoutTask([], [ann, bo]);
+    assert.equal(out.find((a) => a.who === 'ann').held, true);
+    assert.equal('held' in out.find((a) => a.who === 'bo'), false, 'CONTROL: an asked question keeps the old shape');
+    // A held agent in a crash loop, or after a failed restart, is not said to be calmly holding.
+    for (const red of [{ crashLoop: { looping: true } }, { disruption: { failed: true } }]) {
+      assert.equal('held' in tasks.askingWithoutTask([], [{ ...ann, ...red }])[0], false, JSON.stringify(red));
+    }
+    // A task row that carries the question carries held too (waitingOnOf), only when held.
+    const p = projects.create({ name: 'Held rows' });
+    for (const a of ['ann', 'bo']) projects.addAgent(p.id, a);
+    tasks.create(p.id, { sentence: 'Ann holds this', who: 'ann' });
+    tasks.create(p.id, { sentence: 'Bo holds this', who: 'bo' });
+    const roster = [{ ...ann, stateProject: p.id }, { ...bo, stateProject: p.id }];
+    const rows = rowsFor(p, roster);
+    const of = (who) => rows.find((r) => r.waitingOn.some((w) => w.who === who)).waitingOn.find((w) => w.who === who);
+    assert.deepEqual(of('ann'), { who: 'ann', reason: 'question', held: true });
+    assert.deepEqual(of('bo'), { who: 'bo', reason: 'question' }, 'CONTROL');
+  } finally {
+    for (const n of ['ann', 'bo']) selfreport.record(n, { state: 'working', because: 'test over' });
+  }
+});
