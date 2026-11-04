@@ -803,7 +803,7 @@ $r = Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000
 "bigstdin rc=$($r.Rc) quick=$(((Get-Date) - $t0).TotalSeconds -lt 20)"
 # Something node started that keeps the pipe open: exit 0 must not pass with its output missing.
 $sh = Join-Path $args[2] 'holdpipe.sh'
-"#!/bin/sh`necho PASS`nsleep 12 &`nexit `$1`n" | Set-Content -NoNewline -LiteralPath $sh
+"#!/bin/sh`necho PASS`nperl -e 'select(undef, undef, undef, 12)' &`nexit `$1`n" | Set-Content -NoNewline -LiteralPath $sh
 chmod +x $sh
 $NodeTimeoutSec = 20
 $r = Invoke-NodeBounded $sh @('0')
@@ -816,7 +816,7 @@ $r = Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @()
 "nostart rc=$($r.Rc) undecided=[$(if ($r.Undecided) { 'yes' })]"
 PSEOF
 # The pipe from sleep is what holds this pwsh's stdin open, the shape the card measured.
-o="$(sleep 15 | "$PWSH" -NoProfile -File "$TMP/bounded.ps1" "$PS1" "$TMP/load.ps1" "$TMP" 2>&1)"
+o="$(perl -e 'select(undef, undef, undef, 15)' | "$PWSH" -NoProfile -File "$TMP/bounded.ps1" "$PS1" "$TMP/load.ps1" "$TMP" 2>&1)"
 want7951() { case "$o" in *"$2"*) pass "#7951 $1" ;; *) fail "#7951 $1 (wanted: $2) got: $o" ;; esac; }
 want7951 "node sees EOF on stdin while this script's own stdin stays open" "eof=EOF rc=0 undecided=[]"
 want7951 "arguments with spaces, quotes, trailing backslashes and an empty one arrive byte for byte" "args_same=True"
@@ -836,7 +836,7 @@ REALNODE="$(command -v node)"
 cat > "$HANGBIN/node" <<NODEEOF
 #!/bin/sh
 case "\$*" in
-  *"\$HANG_ON"*) echo "kosmos-win-x64.zip matches the signed manifest"; exec sleep 300 ;;
+  *"\$HANG_ON"*) echo "kosmos-win-x64.zip matches the signed manifest"; exec perl -e 'select(undef, undef, undef, 300)' ;;
 esac
 exec "$REALNODE" "\$@"
 NODEEOF
@@ -879,15 +879,15 @@ exec "$REALGIT" "\$@"
 GITEOF
 chmod +x "$GITBIN/git"
 rm -f "$TMP/git-stdin-open" "$TMP/git-called"
-sleep 3 | "$GITBIN/git" --version > /dev/null
+perl -e 'select(undef, undef, undef, 3)' | "$GITBIN/git" --version > /dev/null
 if [ -s "$TMP/git-stdin-open" ]; then pass "#7951 control: this git reports a stdin that was held open"; else fail "#7951 control: the instrument did not see a held stdin"; fi
 rm -f "$TMP/git-stdin-open" "$TMP/git-called" "$FAKE/publish.lock"
-sleep 12 | PATH="$GITBIN:$PATH" fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399 -DryRun
+perl -e 'select(undef, undef, undef, 12)' | PATH="$GITBIN:$PATH" fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399 -DryRun
 if grep -q 'cat-file' "$TMP/git-called" 2>/dev/null && grep -q 'rev-parse' "$TMP/git-called" && [ ! -e "$TMP/git-stdin-open" ]; then pass "#7951 a promote's cat-file and rev-parse saw stdin closed, with the run's own stdin held open"
 else fail "#7951 promote git stdin: called=[$(tr '\n' ';' < "$TMP/git-called" 2>/dev/null)] open=[$(tr '\n' ';' < "$TMP/git-stdin-open" 2>/dev/null)] $(tail -1 "$TMP/out")"; fi
 rm -f "$TMP/git-stdin-open" "$TMP/git-called" "$FAKE/publish.lock"
 mkzip "$TMP/g7951.zip" 9.9.51 G
-sleep 12 | PATH="$GITBIN:$PATH" fake -Zip "$TMP/g7951.zip" -DryRun
+perl -e 'select(undef, undef, undef, 12)' | PATH="$GITBIN:$PATH" fake -Zip "$TMP/g7951.zip" -DryRun
 if grep -q 'rev-parse' "$TMP/git-called" 2>/dev/null && [ ! -e "$TMP/git-stdin-open" ]; then pass "#7951 a stage's rev-parse saw stdin closed, with the run's own stdin held open"
 else fail "#7951 stage git stdin: called=[$(tr '\n' ';' < "$TMP/git-called" 2>/dev/null)] open=[$(tr '\n' ';' < "$TMP/git-stdin-open" 2>/dev/null)] $(tail -1 "$TMP/out")"; fi
 rm -f "$FAKE/publish.lock"
