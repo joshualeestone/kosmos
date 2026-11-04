@@ -379,7 +379,7 @@ report_turn_end() {
           _out=$("$KOSMOS" report "$@" 2>&1 </dev/null); _rc=$?
           if [ "$_rc" -ne 0 ] && ! printf '%s' "$_out" | grep -q 'did not overwrite'; then
             printf '%s pane %s: %s not delivered after a retry (exit %s): %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-              "$PANE_KEY" "$1" "$_rc" "$(printf '%s' "$_out" | head -1 | cut -c1-160)" >> "$THROTTLE_DIR/turn-end-failures.log"
+              "$PANE_KEY" "$1" "$_rc" "$(printf '%s' "$_out" | sed 's/^[[:space:]]*//' | head -1 | cut -c1-160)" >> "$THROTTLE_DIR/turn-end-failures.log"
           fi
         fi
       fi
