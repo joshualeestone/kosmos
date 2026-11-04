@@ -62,7 +62,7 @@ test('#7935: a Linux board shows the installer command and no [Update] button', 
   const manual = update.manualOffer();
   assert.ok(manual && manual.command, 'CONTROL: the engine made no Linux offer');
   const els = paint(update.installOffer(), manual);
-  assert.equal(els['upd-line'].textContent, 'Version ' + NEWER + ' is ready. To update, run this in a terminal:');
+  assert.equal(els['upd-line'].textContent, 'Version ' + NEWER + ' is ready. To update, run this in a terminal (Kosmos restarts when it is done):');
   assert.equal(els['upd-btn'].hidden, true, 'the [Update] or Check button is still offered beside the command');
   assert.equal(els['upd-command-row'].hidden, false, 'the command is not shown');
   assert.equal(els['upd-command'].value, manual.command);

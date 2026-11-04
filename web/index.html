@@ -25148,7 +25148,7 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
     /* kosmos#7935: a board that cannot replace itself (Linux). Pressing [Update] only got a refusal, so the newer
        version arrives as the command that installs it: the same installer, run again over this install. Like the
        Windows arm below, it is news a person needs without asking, and the check button stands down. */
-    put(v + 'Version ' + manual.version + ' is ready. To update, run this in a terminal:');
+    put(v + 'Version ' + manual.version + ' is ready. To update, run this in a terminal (Kosmos restarts when it is done):');
     btn.hidden = true;
     btn.dataset.act = 'check';
     if (cmd && cmd.value !== manual.command) { cmd.value = manual.command; if (cmdMsg) cmdMsg.textContent = ''; }

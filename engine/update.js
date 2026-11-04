@@ -554,6 +554,9 @@ let autoFailedAt = 0;
 function autoInstallWouldStart() {
   if (!available()) return false;
   if (!installedRoot()) return false;
+  // kosmos#7935: a board that cannot replace itself (Linux) never starts an install of its own, so it neither asks the
+  // coordinator about a pause nor records a refusal as its last attempt on every look; its card gives the command.
+  if (!platformGate.canSelfInstall(updatePlatform())) return false;
   if (!(autoPref() || {}).on) return false;
   if (autoFailedAt && Date.now() - autoFailedAt < AUTO_RETRY_AFTER) return false;
   /* #6173: not while an account move restarts agents; the install restarts the board, and a board restarted between

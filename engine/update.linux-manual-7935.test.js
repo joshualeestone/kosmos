@@ -92,3 +92,12 @@ test('#7935: a source checkout (no installed root) is offered nothing on Linux, 
   assert.equal(update.manualOffer(), null);
   assert.equal(update.installOffer(), null);
 });
+
+test('#7935: a Linux board never starts an automatic install, so no refusal is recorded on every look', async () => {
+  update.setAutoPref(() => ({ on: true }));
+  try {
+    await look('linux', 'x64');   // refresh() ends in maybeAutoInstall()
+    assert.ok(update.manualOffer(), 'CONTROL: the look saw the newer release');
+    assert.equal(update.lastAttempt(), null, 'a Linux look tried to auto-install and recorded: ' + JSON.stringify(update.lastAttempt()));
+  } finally { update.setAutoPref(null); }
+});

@@ -2630,7 +2630,8 @@ cmd_update() {
   # kosmos#7935: on Linux the board cannot replace itself (engine/platform.js SELF_INSTALL is darwin and win32), so
   # its update card tells the person to run this verb, and the two guards below that leave an update to the board do
   # not apply: the board never runs an installer of its own there, so there is nothing to race, and the person ran
-  # this. The agent refusal above and the install-under-way guard below still hold.
+  # this. The agent refusal above and the install-under-way guard below still hold. Keep this in step with SELF_INSTALL
+  # in engine/platform.js: Linux is the platform it leaves out, and this is the same rule read from uname.
   _board_installs=1
   [ "$(uname -s 2>/dev/null)" = Linux ] && _board_installs=0
   _mode="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _mode=""

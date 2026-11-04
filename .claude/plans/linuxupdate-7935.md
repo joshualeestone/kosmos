@@ -32,6 +32,17 @@ the served installer is what the #7933 leg does successfully.
   making Linux SELF_INSTALL (the board's restart under the Linux supervisor is not measured; this arm stays the
   path until it is).
 
+## Review round 2 (sonnet)
+- WARNING: nothing measures that the real installer, run by the verb over a live Linux board, leaves it serving the
+  new version. Stated as unmeasured (below); asked PigeonPete to run the verb in his #7933 Linux leg after merge.
+- WARNING: no arm for a stopped board on Linux (mode run). Added: the verb installs; CONTROL: the Mac is refused.
+- WARNING: the card did not say the board restarts. Added "(Kosmos restarts when it is done)". Not added: "your agents
+  keep running", true on the Mac but not measured on Linux.
+- WARNING: auto-install on Linux still reached beginInstall and recorded a refusal on every look. Fixed at the source:
+  autoInstallWouldStart() is false off SELF_INSTALL (no pause ask, no attempt); tested through refresh(), mutant red.
+- NIT fixed: the uname rule says to keep in step with SELF_INSTALL. Kept: the hidden button's data-act (as the
+  Windows arm); a stale "Command copied." after a same-command repaint (harmless).
+
 ## Tests
 - cli.update-ifnewer-4382.test.js (new test): with a fake `uname` saying Linux, a board running and mode `run`, the
   verb installs with the board's three variables on prod and on a staging stamp; CONTROL: the real uname refuses; an
@@ -43,5 +54,6 @@ the served installer is what the #7933 leg does successfully.
 - Seven mutants red (shell, engine, board). web, cli, install and engine update tests: 5202 pass, 0 fail.
 
 ## Weakest premise
-That re-running the installer over a Linux install keeps the person's agents and settings, as on the Mac. The #7933
-leg re-runs it and passes, but not with live agents on the board.
+UNMEASURED: that `kosmos update` running the real installer over a live Linux board leaves it serving the new version
+with the person's agents and settings kept. Read from setup.sh (stop marker, kosmos stop, the put-back restart), and
+the #7933 leg re-runs the installer over an install and passes, but nobody has run this verb over a live Linux board.

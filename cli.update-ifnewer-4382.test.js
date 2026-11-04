@@ -392,3 +392,23 @@ test('#7935: on Linux the board cannot install, so a person runs this verb even 
     fs.writeFileSync(MODE, 'connect\n');
   }
 });
+
+test('#7935: on Linux with the board stopped (mode run), the person running the verb installs; the Mac is still refused', async () => {
+  const MODE = path.join(HOME, 'mode');
+  const BIN = path.join(T, 'linux-bin');
+  fs.mkdirSync(BIN, { recursive: true });
+  fs.writeFileSync(path.join(BIN, 'uname'), '#!/bin/sh\necho Linux\n', { mode: 0o755 });
+  try {
+    fs.writeFileSync(MODE, 'run\n');
+    fs.rmSync(path.join(HOME, 'board.pid'), { force: true });
+    reset({ prod: '1.2.0' });
+    const mac = await run(['--if-newer', '--install']);
+    assert.match(mac.last, /^refused\t/, 'CONTROL: a stopped Mac board in run mode is still left to its board');
+    reset({ prod: '1.2.0' });
+    const r = await run(['--if-newer', '--install'], { PATH: BIN + path.delimiter + process.env.PATH });
+    assert.equal(r.last, 'updated 1.2.0', r.stdout + r.stderr);
+    assert.match(ran(), /^installer=setup base=\S+ pointer=prod channel=prod$/m);
+  } finally {
+    fs.writeFileSync(MODE, 'connect\n');
+  }
+});
