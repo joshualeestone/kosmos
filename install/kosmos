@@ -5913,12 +5913,14 @@ _task_check_json() { printf '%s' "$1" | LC_ALL=C tr -d '\001-\010\013\014\016-\0
 # `_bt`/rc idioms as cmd_post, and the same bash-3.2 reason for both.
 cmd_task() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
+  local _tmine=""   # kosmos#7992: `task list --mine` / `task list --all --mine`: only the tasks this agent holds
   case "$sub" in
     ''|help|-h|--help)
       say "Usage: kosmos task <list|add|assign|close|reopen|message|activity|built|done-when|hold|unhold|repeat|ran|told>"
       say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
       say "  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each"
       say "  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first"
+      say "  kosmos task list --mine [--blocked|--built|--stale [<days>]]  the same, only the tasks you hold, in every project you are on"
       say "  kosmos task list <project-id> --stale [<days>]               the same for one project"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
@@ -5956,7 +5958,14 @@ cmd_task() {
     # cmd_post and cmd_room use, so a malformed invocation is named even when the board is stopped
     # (rather than reporting "not running" and hiding the usage).
     list)
-      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built | --stale [<days>]]   (or --all)"; exit 2; }
+      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built | --stale [<days>]]   (or --all, or --mine)"; exit 2; }
+      # kosmos#7992: --mine is --all kept to the tasks this agent holds. `--mine ...` and `--all --mine ...` are the same; the
+      # word is taken out here, so the --all checks below read the rest exactly as they read --all's.
+      if [ "${1:-}" = "--mine" ]; then _tmine=1; shift; set -- --all "$@"
+      elif [ "${1:-}" = "--all" ] && [ "${2:-}" = "--mine" ]; then _tmine=1; shift 2; set -- --all "$@"; fi
+      if [ -n "$_tmine" ]; then
+        case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) say "--mine lists an agent's own tasks, so it needs an agent's token (run it from an agent's session)."; exit 2 ;; esac
+      fi
       # kosmos#7057: --all (every project) and --stale [<days>]; the days are checked here, so only a number reaches the URL.
       if [ "${1:-}" = "--all" ]; then
         # Review 1 (nit 4), as the Windows CLI: an empty word after --all is not "nothing after it".
@@ -6245,6 +6254,7 @@ cmd_task() {
     _xdays=$(printf '%s' "$_xdays" | sed 's/^0*//')   # validated above; leading zeros off, as the Windows CLI reads it
     case "$_xflag" in open) _xq="state=open" ;; blocked) _xq="state=held" ;; built) _xq="state=built" ;; stale) _xq="state=open&quietDays=$_xdays" ;; esac
     if [ -n "$_xproj" ]; then _xq="project=$_xproj&order=state&$_xq"; else _xq="all=1&order=state&$_xq"; fi
+    [ -z "$_tmine" ] || _xq="$_xq&mine=1"   # kosmos#7992
     case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _xtok="$KOSMOS_AGENT_TOKEN" ;; esac   # as list: the agent's own token too
     _xbody=$(kosmos_curl "$_bt" "$_xtok" -sS -m 30 "$URL/api/tasks?$_xq" 2>/dev/null) || _xrc=$?
     [ "$_xrc" -eq 0 ] || { say_unreached "list tasks" "$_xrc"; exit 1; }
@@ -6259,7 +6269,7 @@ cmd_task() {
     _xmod="$(kosmos_engine_module tasklist).js"
     # Review 1 (nit 1), as the Windows CLI's acrossLines check: a module from before kosmos#7057 has no `across` verb.
     { [ -f "$_xmod" ] && grep -q 'acrossLines' "$_xmod"; } || { say "This install of Kosmos cannot list tasks that way yet; update Kosmos." >&2; exit 1; }
-    printf '%s' "$_xbody" | "$_xnode" "$_xmod" across "$_xflag" "$_xproj" "$_xdays"
+    printf '%s' "$_xbody" | "$_xnode" "$_xmod" across "$_xflag" "$_xproj" "$_xdays" ${_tmine:+mine}
     exit $?
   fi
   # #3035: a project id is looked up EXACTLY, never stripped -- room and task share

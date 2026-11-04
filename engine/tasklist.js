@@ -117,6 +117,9 @@ function acrossLines(body, flag, opts = {}) {
   /* As #5705 review 1: an older board ignores what it does not know and answers something else; never pass it off. */
   const older = (what) => ({ lines: ['This board is older than ' + what + ', so it did not list what was asked. Update Kosmos.'], rc: 1 });
   if (every && body.all !== true) return older('--all');
+  /* kosmos#7992: --mine keeps the caller's own tasks; a board that ignored mine=1 sent everyone's, never shown as mine. */
+  const mine = opts.mine === true;
+  if (mine && body.mine !== true) return older('--mine');
   if (stale && body.quietDays !== days) return older('--stale');
   if (body.listState !== group) return older('--' + flag);
   const label = stale ? 'open' : flag;
@@ -124,11 +127,12 @@ function acrossLines(body, flag, opts = {}) {
     + '  ' + ownerOf(x) + '  ' + titleOf(x) + addedByOf(x) + (stale ? '  (' + quietWords(x.lastActivityAt, now) + leftWords(x) + ')' : '')
     + (group === 'built' ? seenWords(x) : ''));
   const n = tasks.length;
-  const what = n + ' ' + label + ' task' + (n === 1 ? '' : 's') + (stale ? ' quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more' : '');
+  const what = n + ' ' + label + ' task' + (n === 1 ? '' : 's') + (mine ? ' of yours' : '') + (stale ? ' quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more' : '');
   if (every) {
     const p = new Set(tasks.map((x) => x.projectId)).size;
     lines.push(n ? what + (stale ? ',' : '') + ' across ' + p + ' project' + (p === 1 ? '' : 's') + '.'
-      : (stale ? 'No open task in any project has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.' : 'No ' + label + ' tasks in any project.'));
+      : mine ? (stale ? 'No open task of yours has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.' : 'No ' + label + ' tasks of yours in any project.')
+        : (stale ? 'No open task in any project has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.' : 'No ' + label + ' tasks in any project.'));
   } else {
     lines.push(n ? what + ' in ' + one(opts.project) + '.'
       : 'No open task in ' + one(opts.project) + ' has been quiet for ' + days + ' day' + (days === 1 ? '' : 's') + ' or more.');
@@ -149,14 +153,14 @@ function acrossLines(body, flag, opts = {}) {
   return { lines, rc: 0 };
 }
 
-/* `node tasklist.js compact <state> <project>` and (kosmos#7057) `node tasklist.js across <flag> <project or ""> [days]`,
-   the board's JSON on stdin (install/kosmos). */
+/* `node tasklist.js compact <state> <project>` and (kosmos#7057) `node tasklist.js across <flag> <project or ""> [days]
+   [mine]` (kosmos#7992: a last word `mine` for --mine), the board's JSON on stdin (install/kosmos). */
 if (require.main === module) {
-  const [verb, state, project, daysArg] = process.argv.slice(2);
+  const [verb, state, project, daysArg, mineArg] = process.argv.slice(2);
   if (verb === 'across' && (COMPACT[state] || state === 'stale')) {
     let body = null;
     try { body = JSON.parse(require('node:fs').readFileSync(0, 'utf8')); } catch { body = null; }
-    const out = acrossLines(body, state, { project: project || '', days: daysArg ? Number(daysArg) : undefined });
+    const out = acrossLines(body, state, { project: project || '', days: daysArg ? Number(daysArg) : undefined, mine: mineArg === 'mine' });
     (out.rc ? process.stderr : process.stdout).write(out.lines.join('\n') + '\n');
     process.exit(out.rc);
   }

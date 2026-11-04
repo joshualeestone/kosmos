@@ -499,7 +499,8 @@ const BLOCK = [
   '**To see what is still open across every project,** run `kosmos task list --all`',
   '(one line each, the project first). `kosmos task list --all --stale` keeps the open',
   'tasks with no activity for a week, quietest first (`--stale 14` for two weeks; or',
-  'name one project in place of `--all`).',
+  'name one project in place of `--all`). `kosmos task list --mine` is the same list',
+  'kept to the tasks you hold, in every project you are on.',
   '',
   '**When it is done, mark it built and say how each check went,** in a short note',
   '(it holds 300 characters):',
@@ -1266,8 +1267,13 @@ function block() {
  *     note that they are back. No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that an agent told to hold its questions reads this bullet then; `kosmos report` usage
  *     names --held too, in both CLIs.
+ *  46. kosmos#7992 item 1 (feedback: to find its own tasks an agent listed every project's and scanned past everyone
+ *     else's). The tasks section names `kosmos task list --mine`, the --all list kept to the tasks the agent holds. No new
+ *     heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent looking for its own tasks reads this paragraph; `kosmos task` help names
+ *     --mine too, in both CLIs.
  */
-const DOCTRINE_VERSION = 45;
+const DOCTRINE_VERSION = 46;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

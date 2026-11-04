@@ -6721,6 +6721,26 @@ function tokenOnlyOnProject(stored, caller) {
   if (caller.byKey) return projectHasAgent(stored, caller.name, true);
   return projectHasAgent(stored, caller.name, false) || (!caller.twins && projectHasAgent(stored, caller.key, false));
 }
+/* kosmos#7992: the agent a request's OWN token names, whatever the board token says (the CLI sends both, so
+   agentTokenOnlyCaller, which steps aside for a valid board token, cannot answer "whose tasks"). GET /api/tasks/mine
+   (kosmos#6506) and GET /api/tasks?all=1&mine=1 key on it. null: the token names nobody (missing, unknown, or an old
+   key-only token whose key another name now holds). */
+function agentTokenCaller(req) {
+  let who = null;
+  try { who = sendertoken.resolveName(req && req.headers && req.headers['x-kosmos-agent-token']); } catch { who = null; }
+  if (!(who && who.ok === true && typeof who.key === 'string')) return null;
+  if (typeof who.name === 'string' && who.name) return { name: who.name, key: who.key, twins: who.twins === true };
+  if (who.twins === true) return null;
+  return { name: who.key, key: who.key, byKey: true };
+}
+/* Does a task holder's name name this caller? The SAME rule tokenOnlyOnProject uses for project membership: a key-only
+   token by its key, a named token by its name or (with no twins) its key. Otherwise a named token whose task was stored
+   under the key spelling would be dropped and read as a false "none open" (kosmos#6506). */
+function heldByCaller(holder, caller) {
+  return caller.byKey
+    ? sameAgentName(holder, caller.name, true)
+    : (sameAgentName(holder, caller.name, false) || (!caller.twins && sameAgentName(holder, caller.key, false)));
+}
 /* #1307: a project webhook's call, POST /hooks/<id>/<secret>. It carries its own secret (checked
    against a hash by engine/webhooks.js in the handler), not the board token, so it is exempt from
    the board-token gate below. ONLY this exact shape. It is NOT in REMOTE_AGENT_ROUTES, so
@@ -22271,8 +22291,10 @@ const server = http.createServer(async (req, res) => {
        tasks with no activity for quietDays days. Both are the cheap list arm's; the Tasks view never sends them. */
     let allProjects = false;
     let quietRaw = null;
+    let mine = false;   // kosmos#7992: with all=1, only the tasks the calling agent holds, across the projects it is on
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
+      mine = q.get('mine') === '1';
       listOrder = q.get('order') === 'state';
       listOnly = q.get('state') || null;
       allProjects = q.get('all') === '1';
@@ -22288,6 +22310,14 @@ const server = http.createServer(async (req, res) => {
     if (allProjects && projectScope) { sendJson(res, 400, { error: 'name one project or ask for all of them, not both' }); return; }
     /* Review 1 (nit 2): all and quietDays are the list's, never the Tasks view's; refused there rather than ignored. */
     if (forTasksView && (allProjects || quietRaw !== null)) { sendJson(res, 400, { error: 'all and quietDays are for the task list, not the Tasks view' }); return; }
+    /* kosmos#7992: mine=1 is an agent's own list across its projects, so it goes with all=1 and needs a token that names
+       an agent (the board token alone names nobody). Refused rather than ignored, so it is never read as the whole list. */
+    let mineCaller = null;
+    if (mine) {
+      if (!allProjects) { sendJson(res, 400, { error: 'mine goes with all: the tasks you hold in every project you are on' }); return; }
+      mineCaller = agentTokenCaller(req);
+      if (!mineCaller) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks' }); return; }
+    }
     const tokenOnly = agentTokenOnlyCaller(req);
     /* kosmos#7057: on its token alone, all=1 is every project the agent is on, each by the per-project rule below (every
        stored record with the id lists it). Never the global set: the projects it could read one at a time, at once. */
@@ -22322,8 +22352,15 @@ const server = http.createServer(async (req, res) => {
     }
     const all = tasks.allTasks(everyProject);
     /* kosmos#7057: all=1 leaves archived projects out, as the Tasks view does, and on an agent token only its projects. */
-    const scoped = projectScope ? all.filter((t) => t.projectId === projectScope)
+    let scoped = projectScope ? all.filter((t) => t.projectId === projectScope)
       : allProjects ? all.filter((t) => !t.projectArchived && (!tokenProjects || tokenProjects.has(t.projectId))) : all;
+    /* kosmos#7992: mine=1 keeps the tasks the caller holds, in the projects it is on (as GET /api/tasks/mine), every
+       group, so --blocked, --built and --stale narrow it the same way they narrow --all. */
+    if (mineCaller) {
+      const onIds = new Set((everyProject || []).filter((x) => tokenOnlyOnProject(x, mineCaller)).map((x) => x && x.id));
+      scoped = scoped.filter((t) => onIds.has(t.projectId)
+        && Array.isArray(t.whoNames) && t.whoNames.some((n) => heldByCaller(n, mineCaller)));
+    }
     /* The fields below cost a board snapshot plus a transcript read per task, so only the
        Tasks view (?view=tasks, which the project View-all door also opens since #3703) pays for
        them: the agents' `kosmos tasks` reads the list as cheaply as before (kosmos#7151: the stale list adds one board
@@ -22357,7 +22394,7 @@ const server = http.createServer(async (req, res) => {
           tasks.retireOffers(quiet, everyProject, () => safeRoster(), (pid, num) => taskchat.read(pid, num))
             .forEach((parent, i) => { quiet[i].leftUnder = parent; });
         } catch { /* no offers */ }
-        sendJson(res, 200, { tasks: quiet, count: quiet.length, project: projectScope, listState: 'open', quietDays: days, ...(allProjects ? { all: true } : {}) });
+        sendJson(res, 200, { tasks: quiet, count: quiet.length, project: projectScope, listState: 'open', quietDays: days, ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });
         return;
       }
       const rows = listOrder || listOnly ? tasks.inListOrder(scoped, listOnly) : scoped;   // #5705
@@ -22373,7 +22410,7 @@ const server = http.createServer(async (req, res) => {
         try { at = t.projectId ? taskseen.seenAt(t.projectId, t.number) : null; } catch { at = null; }
         return Object.assign({}, t, { seenByPerson: at });
       };
-      sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(taskseen ? seenOf : (t) => t), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}) });   // kosmos#4787
+      sendJson(res, 200, { tasks: rows.map(withRepeatWords).map(taskseen ? seenOf : (t) => t), count: rows.length, project: projectScope, ...(listOnly ? { listState: listOnly } : {}), ...(allProjects ? { all: true } : {}), ...(mineCaller ? { mine: true } : {}) });   // kosmos#4787, kosmos#7992
       return;
     }
     /* #3559: the Tasks view groups by WHERE THE WORK IS, and the engine derives
@@ -22496,35 +22533,23 @@ const server = http.createServer(async (req, res) => {
    * agent-token-only caller reaches it; HEAD/writes on this path stay board-gated.
    */
   if (pathname === '/api/tasks/mine' && req.method === 'GET') {
-    let who = null;
-    try { who = sendertoken.resolveName(req && req.headers && req.headers['x-kosmos-agent-token']); } catch { who = null; }
-    if (!(who && who.ok === true && typeof who.key === 'string')) {
+    const caller = agentTokenCaller(req);
+    if (!caller) {
       sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks' });
       return;
     }
-    let caller;
-    if (typeof who.name === 'string' && who.name) caller = { name: who.name, key: who.key, twins: who.twins === true };
-    else if (who.twins === true) { sendJson(res, 403, { error: 'Kosmos could not tell which agent this token belongs to, so it cannot read its tasks' }); return; }
-    else caller = { name: who.key, key: who.key, byKey: true };
 
     let everyProject;
     try { everyProject = projects.readAll(); }
     catch (err) { sendJson(res, 500, { error: String((err && err.message) || 'we cannot read your tasks right now'), projectsUnreadable: true }); return; }
 
     const myIds = new Set((everyProject || []).filter((p) => tokenOnlyOnProject(p, caller)).map((p) => p && p.id));
-    // Match a task's holder the SAME way tokenOnlyOnProject matches project membership: a key-only
-    // token by its key, a named token by its name OR (when it has no twins) its key. Otherwise a
-    // named token whose task was stored under the key spelling would be dropped and read as a false
-    // "none open", an inconsistency between who is on the project and whose tasks are returned.
-    const heldByCaller = (n) => (caller.byKey
-      ? sameAgentName(n, caller.name, true)
-      : (sameAgentName(n, caller.name, false) || (!caller.twins && sameAgentName(n, caller.key, false))));
     const open = tasks.inListOrder(
       tasks.allTasks(everyProject).filter((t) =>
         myIds.has(t.projectId)
         && t.projectArchived !== true                 // an archived project's tasks are not live work (the Tasks view drops them too)
         && tasks.listGroup(t) === 'open'
-        && Array.isArray(t.whoNames) && t.whoNames.some(heldByCaller)),
+        && Array.isArray(t.whoNames) && t.whoNames.some((n) => heldByCaller(n, caller))),
       'open');
     sendJson(res, 200, {
       tasks: open.map((t) => ({ project: t.projectName, projectId: t.projectId, number: t.number, title: String(t.sentence == null ? '' : t.sentence) })),
