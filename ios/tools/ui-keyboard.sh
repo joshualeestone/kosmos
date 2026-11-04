@@ -48,7 +48,7 @@ log="$work/xcodebuild.log"
     -derivedDataPath "$work/dd" -resultBundlePath "$work/result.xcresult" > "$log" 2>&1 )
 rc=$?
 ran="$(grep -c -i -E "Test Case .-\[KosmosUITests\.KeyboardSlideUITests .* (passed|failed)" "$log")"
-if [ "$rc" -eq 0 ] && [ "$ran" -eq 10 ] && ! grep -q -i -E "Test Case .-\[KosmosUITests\.KeyboardSlideUITests .* failed" "$log"; then
+if [ "$rc" -eq 0 ] && [ "$ran" -eq 9 ] && ! grep -q -i -E "Test Case .-\[KosmosUITests\.KeyboardSlideUITests .* failed" "$log"; then
   echo "PASS  ui-keyboard: 9 of 9 keyboard checks passed on a fresh simulator"
   exit 0
 fi

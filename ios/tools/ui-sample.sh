@@ -27,12 +27,12 @@ done
 # Each class and how many tests it holds: a filter that matches nothing also exits 0, so the count is what proves a run.
 # kosmos#7420: KeyboardSlideUITests is 7 (its three rebuild checks and the composer-growth guard joined it; all 7 passed on
 # CI's runner on PR #7692 before this count was raised, the job failing only on the count). kosmos#7817: 9 (the box
-# growing and shrinking at the newest message, and a reader higher up while it grows). kosmos#7420: 10 (the box growing then
-# sending at the newest of the varied long chat).
-classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:10 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3"
+# growing and shrinking at the newest message, and a reader higher up while it grows).
+classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3"
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
 # "Timed out while evaluating UI query" on both CI runs, iOS 26.5, while it passes here). Run it alone on a Mac:
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests
+# kosmos#7420: the box growing then sending in that long chat is in ChatOpensAtNewestUITests for the same reason.
 # KeyboardSlideUITests' third check (read higher up) used to wait on a clock and flake under load; Mona Lisa's #7627
 # (kbrested-7609) replaced the wait with a marker, so the whole class runs here again. It records the chat's scroll events
 # (KOSMOS_SAMPLE_TRACE=1): when it fails, the last of them are printed below while the simulator still exists.
