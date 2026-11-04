@@ -637,6 +637,16 @@ check(chatSource.contains("let short = scrollBox.shortOfEnd() ?? 0\n") && chatSo
       && chatSource.contains("if keepPlace, decided != .rebuild { Self.trace(\"diag: empty, a reader higher up left (no rebuild)\"); return }\n        switch decided {")
       && chatSource.contains("            positionId = nil\n            // TestFlight 37 review 1:") && chatSource.contains("            atBottom = true\n            listEpoch &+= 1") && chatSource.contains("Self.trace(\"keyboard settled: the newest not showing (short \\(Int(short)) pt), back to it\")\n                        // As did-show (#7344): an anchor already reading \"end\" is scrolled to, not only set again.\n                        if Self.idAnchor { proxy.scrollTo(\"end\", anchor: .bottom); positionId = \"end\" } else { goNewest(proxy) }\n                        // Review 7: an id scroll against an estimate can land past the end (build 29's follow); look once more.\n                        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {\n                            settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: false, again: true)")
       && chatSource.contains("guard place == \"past the end\" else {\n            if again { return }")
+      // Review 5: a later blank for a reader higher up is rebuilt once it holds still; a look under a scroll comes back and
+      // never moves anyone; a rebuild clears the top marker; a read that moves nothing is told apart by its followKey.
+      && chatSource.contains("if recover, diagDone, !atBottom, scrollBox.reading()?.place == \"within\" {")
+      && chatSource.contains("Self.trace(\"diag: a later blank, a reader higher up, still blank\")\n                recoverEmpty(proxy, keepPlace: true)")
+      && chatSource.contains("if personScrolling || scrollBox.underFinger {\n            if !diagRetrying {")
+      && chatSource.contains("endVisible = false; topVisible = false; onScreen = []")
+      && chatSource.contains("if Self.idAnchor, quietFollowKey == Board.followKey(thread) {")
+      && chatSource.contains("if Self.idAnchor, quietFollowKey == key { return }")
+      && chatSource.contains("quietFollowKey = quiet ? Board.followKey(fresh) : nil\n                thread = fresh")
+      && chatSource.contains("if atBottom && endSeen && !topVisible && !searching { quietFollowKey = nil; keepAtEndTick += 1 }")
       && chatSource.contains("if Self.idAnchor { goNewest(proxy); settleAtNewest(proxy, boxMoved: false); return }")
       && chatSource.contains(".padding(.vertical, ChatView.listPadV)") && chatSource.contains("static let listPadV: CGFloat = 12") && chatSource.contains("static let boxAskCarries: Double = 1.5"),
       "kosmos#7420: a blank at the newest is put back by id once settled, and the whole window landing at the newest asks the settled look")
