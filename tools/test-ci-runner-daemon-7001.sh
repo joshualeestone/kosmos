@@ -333,7 +333,7 @@ PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
   && pass "#7887: a sudo that does not run reads as could-not-check, never as already done, and nothing moves" || fail "pbnosudo: [$PBOUT]"
 # A good retired file whose agent cannot be written (its folder is gone): the line says so, and does not blame R.
 rm -f "$AG"; cp "$T/agent.good" "$RF"; /bin/mv "$H/Library/LaunchAgents" "$H/LA.away"; PBOUT="$(sh -c "$PBS" 2>&1 | tail -n 1)"; /bin/mv "$H/LA.away" "$H/Library/LaunchAgents"
-[ "$PBOUT" = "NOT finished; $RF is kept and not empty, but $AG was not written: its folder is missing or not writable, or a step did not run; paste this again once that is fixed" ] && cmp -s "$RF" "$T/agent.good" \
+[ "$PBOUT" = "NOT finished; $RF is kept and not empty, but $AG was not written: its folder is missing or not writable, or a step did not run (a refused password prompt); paste this again once that is fixed" ] && cmp -s "$RF" "$T/agent.good" \
   && pass "#7887: a good retired file whose agent cannot be written is not blamed for it" || fail "pbnofolder: [$PBOUT]"
 # Who runs each probe is part of the text: the printed failure branch, as the operator sees it, with its sudo.
 grep -q -F "elif sudo -u kosmos-ci test -s $AG && sudo cat $RF | sudo -u kosmos-ci cmp -s - $AG; then echo 'put back, but $RF was not removed: sudo rm $RF';" "$T/emptyret.out" \
