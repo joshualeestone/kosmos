@@ -5228,8 +5228,8 @@ function dmStandingQuestionNote(question, opts) {
      is the sign they are back, but only the agent can read whether they also said to keep holding. */
   if (opts && opts.held === true) {
     return ' [kosmos] you held a question until this person was back, and they are writing to you now: "' + snippet.replace(/"/g, '\'') + '".'
-      + ' Ask it now if it still stands (run kosmos report needs_you again without --held), unless they said to keep holding;'
-      + ' if it no longer stands, run: kosmos report clear.';
+      + ' If this message answers it, act on the answer and run: kosmos report clear.'
+      + ' Otherwise ask it now (run kosmos report needs_you again without --held), unless they said to keep holding.';
   }
   return ' [kosmos] your question to this person is still open on the board: "' + snippet.replace(/"/g, '\'') + '".'
     + ' If this message answers it, act on the answer and run: kosmos report clear.'

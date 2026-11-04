@@ -28,6 +28,9 @@ test('the store keeps held only on a needs_you that says so, and read gives it b
   assert.equal(selfreport.read('h-work').held, false);
   const raw = fs.readFileSync(selfreport.fileFor('h-work'), 'utf8');
   assert.doesNotMatch(raw, /"held"/, 'a working line carries no held field');
+  // A hook never holds a question: an automatic needs_you drops the flag.
+  assert.equal(selfreport.record('h-auto', { state: 'needs_you', because: 'asking permission', held: true, auto: true }).recorded, true);
+  assert.equal(selfreport.read('h-auto').held, false);
   // Only a true boolean: a truthy string is not a hold.
   assert.equal(selfreport.record('h-str', { state: 'needs_you', because: 'q', held: 'yes' }).recorded, true);
   assert.equal(selfreport.read('h-str').held, false);
@@ -96,6 +99,7 @@ test('the note on the person\'s next message: held says they are back; unheld is
   const held = chat.dmStandingQuestionNote('Which logo?', { held: true });
   assert.match(held, /you held a question until this person was back, and they are writing to you now: "Which logo\?"/);
   assert.match(held, /without --held/);
+  assert.match(held, /If this message answers it, act on the answer and run: kosmos report clear/);
   assert.match(held, /unless they said to keep holding/);
   assert.doesNotMatch(held, /[\u0000-\u001f]/, 'it is typed into a pane');
   const plain = chat.dmStandingQuestionNote('Which logo?');

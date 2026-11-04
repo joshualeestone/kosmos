@@ -1051,6 +1051,9 @@ test('#7915 a held needs_you does not buzz; asking it for real then does; held i
     const off = await call('POST', '/api/report', { headers: h, body: { state: 'working', text: 'x', held: true } });
     assert.equal(off.code, 400);
     assert.match(off.json.error, /--held goes only with needs_you/);
+    const auto = await call('POST', '/api/report', { headers: h, body: { state: 'needs_you', text: 'x', held: true, auto: true } });
+    assert.equal(auto.code, 400);
+    assert.match(auto.json.error, /takes no --auto/);
     const bad = await call('POST', '/api/report', { headers: h, body: { state: 'needs_you', text: 'x', held: 'yes' } });
     assert.equal(bad.code, 400);
     assert.match(bad.json.error, /held must be true or false/);
