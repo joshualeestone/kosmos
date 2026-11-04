@@ -750,7 +750,8 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       # kosmos#7890: one read; these bytes are hashed as a blob and are the bytes staged.
       $SetupBytes = [IO.File]::ReadAllBytes($SetupPath)
       $blobFile = Get-GitBlobSha $SetupBytes
-      if ($blobHead -and $blobHead.Length -ne 40) { Refuse "this repository uses $($blobHead.Length * 4)-bit object ids, and this script compares the installer as a SHA-1 git blob, so it cannot check it here. Stage from a SHA-1 checkout. Nothing was written." }
+      if (-not $blobHead) { Refuse "git cannot read tools/windows/$SetupName at this tree's HEAD, so the installer cannot be checked against it. Stage from a git checkout that has it committed. Nothing was written." }
+      if ($blobHead.Length -ne 40) { Refuse "this repository uses $($blobHead.Length * 4)-bit object ids, and this script compares the installer as a SHA-1 git blob, so it cannot check it here. Stage from a SHA-1 checkout. Nothing was written." }
       if (-not $blobHead -or $blobHead -cne $blobFile) { Refuse "$SetupPath is not byte for byte the script committed at this tree's HEAD (an uncommitted edit, or line endings converted by an older checkout: re-check it out with git rm --cached tools/windows/$SetupName and git checkout -- tools/windows/$SetupName). Nothing was written." }
       Say "NOTICE (#7883): $ZipPath records no source commit (manifest.json source_sha), so the installer staged with it is this tree's HEAD ($head)."
       $SetupFrom = "this tree's HEAD $head"
