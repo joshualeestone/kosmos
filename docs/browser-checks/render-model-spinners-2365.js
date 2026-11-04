@@ -154,6 +154,20 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     return { side: cv.width, want, litA: a.n, litB: b.n, changed: a.sum !== b.sum, oldDotsShown: dot ? getComputedStyle(dot).display !== 'none' : false, wasRunning, stopped, reattachedTurns };
   });
   const orb = await orbRead(page);
+  // Drawn on its FIRST frame (round 5: 2 to 3 blank frames, a blink each time a list repaints a spinner).
+  const firstFrame = await page.evaluate(async () => {
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:300px;top:10px;z-index:99999';
+    host.innerHTML = LOAD_SPIN_HTML;
+    document.body.appendChild(host);
+    await new Promise((res) => requestAnimationFrame(res));
+    const cv = host.querySelector('canvas.korb');
+    if (!cv || !cv.width) return { lit: 0, why: cv ? 'canvas has no size yet' : 'no canvas yet' };
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let lit = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 20) lit++;
+    host.remove();
+    return { lit };
+  });
   const calmPage = await browser.newPage({ viewport: { width: 900, height: 800 }, reducedMotion: 'reduce' });
   await calmPage.goto('file://' + PAGE);
   const calm = await orbRead(calmPage);
@@ -178,6 +192,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   await browser.close();
 
   const orbProblems = [];
+  if (!(firstFrame.lit > 40)) orbProblems.push('orb: not drawn on its first frame (' + (firstFrame.why || firstFrame.lit + ' drawn pixels') + '), so it blinks in');
   if (orb.error) orbProblems.push('orb: ' + orb.error);
   else {
     if (!(orb.litA > 40)) orbProblems.push('orb: the canvas has ' + orb.litA + ' drawn pixels, so no orb was drawn');
