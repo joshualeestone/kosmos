@@ -2346,6 +2346,7 @@ function askingWithoutTask(rows, roster, scope, projectList, keepArchived) {
     const p = projectId ? byId.get(projectId) : null;
     if (p && p.archived === true && p.id !== keepArchived) continue;
     out.push({ who: card.sessionName, projectId, waitingSince: Number.isFinite(at) ? new Date(at).toISOString() : null,
+      ...(card.stateHeld === true ? { held: true } : {}),   // #7916: the agent holds this question until the person is back
       ...(p ? { projectName: p.name == null ? '' : String(p.name), projectPath: projectPathOf(p, byId) } : {}) });
   }
   return out.sort((a, b) => (a.waitingSince === null) - (b.waitingSince === null)
