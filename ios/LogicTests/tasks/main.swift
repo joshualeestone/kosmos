@@ -318,6 +318,9 @@ let heldAskRead = Board.parseTasks(Data((#"{"tasks":[],"askingWithoutTask":[{"wh
 check(heldAskRead.asking.map(\.held) == [true, false, false], "held is read only from a JSON true: \(heldAskRead.asking.map(\.held))")
 check(Tasks.askWait(heldAskRead.asking[0], now: now) == "Held until you are back.", "a held question: no age, and it says so")
 check(Tasks.askWait(heldAskRead.asking[2], now: now) == "Waiting for your answer for 3 minutes.", "control: an unheld one keeps its wait")
+let heldNoStart = Board.parseTasks(Data(#"{"tasks":[],"askingWithoutTask":[{"who":"max","held":true},{"who":"zoe"}]}"#.utf8))!
+check(Tasks.askWait(heldNoStart.asking[0], now: now) == "Held until you are back.", "held with no known start still says held (as tskAskRow)")
+check(Tasks.askWait(heldNoStart.asking[1], now: now) == "", "control: unheld with no start has no line")
 check(page.contains("' asks you something'") && page.contains("' asks about '") && page.contains("'Waiting for your answer for '"), "premise: the board's tskAskRow says the same words")
 
 print("")

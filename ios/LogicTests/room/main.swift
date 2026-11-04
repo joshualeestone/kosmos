@@ -311,6 +311,7 @@ check(Board.projectWord(heldQ(2, q: 2, held: 2), agentsUnreadable: false) == .qu
 check(Board.projectWordText(.questionHeld) == "Question held", "in the board's words")
 check(Board.projectWord(heldQ(2, q: 2, held: 1), agentsUnreadable: false) == .question, "control: one of two held is still the plain Question")
 check(Board.projectWord(heldQ(2, q: 1, held: 1), agentsUnreadable: false) == .issue, "control: an Issue among them is still Issue")
+check(Board.projectWord(heldQ(2, q: 1, held: 2), agentsUnreadable: false) == .issue, "control: held counting all of needsYou still needs every one to be a question (the web's condition)")
 check(Board.projectWord(heldQ(2, q: 2, held: 2), agentsUnreadable: true) == nil, "control: agents unreadable, no word at all (not Question held)")
 var heldWithTask = heldQ(2, q: 2, held: 2); heldWithTask.heldForYou = 1
 check(Board.projectWord(heldWithTask, agentsUnreadable: false) == .question, "#7916: a task held for your decision keeps the plain Question over held questions")
