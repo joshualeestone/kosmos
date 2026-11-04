@@ -116,8 +116,10 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
   /* #7896 (Josh 2026-11-03): the loading mark is now the KOSMOS orb, drawn by KORB into a canvas inside each
      .spin-sweep. The markup check above cannot see that (the eight <i> are still there, hidden), so this reads the
-     DRAWING: the page's own LOAD_SPIN_HTML, put on the page, gets a canvas.korb with gold pixels on it that change
-     between frames, and its old dots are hidden. Then, with reduced motion, it is drawn once and holds still. */
+     DRAWING: the page's own LOAD_SPIN_HTML, put on the page, gets a canvas.korb with drawn pixels (alpha) on it that
+     change between frames, and its old dots are hidden. Then, with reduced motion, it is drawn once and holds still.
+     And the loop STOPS once no spinner is visible: four spinners live hidden in the page, so a loop that only stops
+     when there are none would run forever (review round 1 measured 289 frames in 2 s with nothing showing). */
   const orbRead = async (pg) => pg.evaluate(async () => {
     if (typeof KORB !== 'object' || typeof LOAD_SPIN_HTML !== 'string') return { error: 'KORB or LOAD_SPIN_HTML is missing' };
     const host = document.createElement('div');
@@ -134,7 +136,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await new Promise((res) => setTimeout(res, 400)); await frames(4);
     const b = lit(cv);
     const dot = span.querySelector('i');
-    return { side: cv.width, litA: a.n, litB: b.n, changed: a.sum !== b.sum, oldDotsShown: dot ? getComputedStyle(dot).display !== 'none' : false };
+    const wasRunning = KORB.running();
+    host.style.display = 'none';
+    await new Promise((res) => setTimeout(res, 300)); await frames(6);
+    const stopped = !KORB.running();
+    return { side: cv.width, litA: a.n, litB: b.n, changed: a.sum !== b.sum, oldDotsShown: dot ? getComputedStyle(dot).display !== 'none' : false, wasRunning, stopped };
   });
   const orb = await orbRead(page);
   const calmPage = await browser.newPage({ viewport: { width: 900, height: 800 }, reducedMotion: 'reduce' });
@@ -149,6 +155,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!(orb.litA > 40)) orbProblems.push('orb: the canvas has ' + orb.litA + ' drawn pixels, so no orb was drawn');
     if (!orb.changed) orbProblems.push('orb: the drawing did not change between frames, so it is not turning');
     if (orb.oldDotsShown) orbProblems.push('orb: the old Sweep dots still show beside the orb');
+    if (!orb.wasRunning) orbProblems.push('orb: the loop was not running while a spinner showed (CONTROL for the stop arm)');
+    if (!orb.stopped) orbProblems.push('orb: the loop kept running with no spinner visible (the page keeps four hidden ones)');
   }
   if (calm.error) orbProblems.push('orb (reduced motion): ' + calm.error);
   else {
