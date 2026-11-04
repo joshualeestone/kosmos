@@ -59,6 +59,18 @@ measured without a person at the screen.
   sentence, tested; no stdin after a failed spawn is guarded; lone surrogates are escaped; the unused exports
   `shownText` and `helperSentence` are gone; the comment says `unusual` means "look closer", not "suspicious".
 
+## Review round 4 (sonnet)
+
+- WARNING: the refusal list claimed every <why>, but the usage line is a variable. Fixed: the comment says every
+  literal <why>; a test now fails on any fail() whose argument is not a literal, a literal ternary or `usage`
+  (mutant: fail(why) turns it red).
+- WARNING: the comment said pointed Hebrew is marked; measured false. Fixed by deleting the claim: the comment names
+  only Latin with Han, which a test pins.
+- WARNING: the prompt reason was set after the key was bound. Fixed: kosmos-se sign reads the message and sets the
+  reason before load. Still unmeasured: only gate 6 shows the prompt.
+- NITs fixed: comment wrapped; the arrays note; a cancelled Touch ID reads as "refused to sign" (noted for the
+  screen); dash and slash look-alikes named as not marked.
+
 ## Weakest premise
 
 That the script list in `scriptOf` covers the mixed-script look-alikes that matter, and, larger, that the screen shows the fingerprint wherever one exists, since one-script look-alikes are not marked. A letter from a script not on the list

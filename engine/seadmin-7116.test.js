@@ -338,6 +338,10 @@ test('#7892: every refusal kosmos-se can write is on the list a screen may show,
   const literal = [...swift.matchAll(/fail\("((?:[^"\\]|\\.)*)"/g)].map((m) => m[1].replace(/\\\(.*\)$/, '').replace(/ \($/, '').trim());
   const ternary = [...swift.matchAll(/\? "([^"]+)" : "([^"]+)"/g)].flatMap((m) => [m[1], m[2]]);
   const said = new Set([...literal, ...ternary]);
+  // Every fail( argument is a literal, a literal ternary, or `usage`, so the two lists above see every refusal.
+  const args = [...swift.matchAll(/(?<!func )\bfail\(\s*([^"\s][^,)]*)/g)].map((m) => m[1].trim());
+  assert.ok(swift.includes('fail(usage, 2)'), 'CONTROL: the usage call is where this test expects it');
+  assert.deepStrictEqual([...new Set(args)].filter((a) => a !== 'usage' && !/^[^?]+\?\s*"/.test(a)), [], 'a fail() whose argument the lists cannot read');
   assert.ok(said.size >= 10, 'CONTROL: found only ' + said.size + ' refusals in main.swift');
   const listed = new Set([...se.HELPER_SAYS, ...se.HELPER_SAYS_PREFIX]);
   assert.deepStrictEqual([...said].filter((w) => !listed.has(w)).sort(), [], 'kosmos-se writes a refusal the list does not have');

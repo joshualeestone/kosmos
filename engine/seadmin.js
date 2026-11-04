@@ -218,9 +218,9 @@ function fingerprintDisplay(fp) {
    - letters from more than one script (Latin with Cyrillic or Greek, say) are left as they are but mark the text
      unusual, since look-alike letters are the other way to fake a name. Latin with Han ("Kosmos 株式会社") is marked
      too: cautious, and pinned by a test.
-   `unusual` means "look closer", not "suspicious": it is cautious, so some ordinary names carry it (pointed Hebrew,
-   decomposed Hangul, Latin with Han). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in one script that looks like
-   another (all-Cyrillic "АВС" for Latin "ABC") is not marked. For an admin add or a reviewer enrolment the
+   `unusual` means "look closer", not "suspicious": it is cautious, so some ordinary names carry it (Latin with Han,
+   pinned above). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in one script
+   that looks like another (all-Cyrillic "АВС" for Latin "ABC") is not marked, nor are dash and slash look-alikes. For an admin add or a reviewer enrolment the
    fingerprint is the defence; for an org name on a cancel or a revoke nothing here is. */
 const ESCAPED = /[\p{Cs}\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}\u2800\uFFFC\uFFFD]|(?! )\p{Zs}/u;
 const SCRIPTS = ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana', 'Hangul', 'Arabic',
@@ -254,6 +254,7 @@ function shownFields(decoded) {
   let unusual = false;
   const walk = (v) => {
     if (typeof v === 'string') { const s = shownText(v); unusual = unusual || s.unusual; return s.text; }
+    // An array keeps only its text items, so its indices can differ from decoded's; no decoder returns one today.
     if (Array.isArray(v)) return Object.freeze(v.map(walk).filter((w) => w !== undefined));
     if (v && typeof v === 'object' && !(v instanceof Uint8Array)) {
       const out = {};
@@ -295,10 +296,12 @@ function prepare(action, bytes) {
 }
 
 /* kosmos#7892: what a screen may say when kosmos-se fails. A child-process error's message carries the helper's path,
-   its argv and its stderr, so it is never passed on. kosmos-se writes one line, "kosmos-se: <why>", and every <why>
-   it can write is listed here (seadmin-7116.test.js holds this list to native-se/main.swift); a line not on it, or
-   no line, becomes the generic sentence. The one <why> with a variable tail (the Enclave's own description after
-   "refused to make a key") is matched by its fixed start, and only the fixed start is shown. */
+   its argv and its stderr, so it is never passed on. kosmos-se writes one line, "kosmos-se: <why>", and every
+   literal <why> it can write is listed here (seadmin-7116.test.js holds this list to native-se/main.swift, and
+   fails on any fail() whose argument is not a literal or `usage`); a line not on it, or no line, becomes the generic
+   sentence, its usage line included. The one <why> with a variable tail (the Enclave's own description after
+   "refused to make a key") is matched by its fixed start, and only the fixed start is shown. A person cancelling
+   Touch ID also reads "the Secure Enclave refused to sign": the screen cannot tell that from a fault. */
 const HELPER_SAYS = [
   'cannot read the key file', 'the key file is not a plain file', 'the key file belongs to someone else',
   'the key file is readable by others (it must be 0600)', "this Mac's Secure Enclave cannot open that key file",

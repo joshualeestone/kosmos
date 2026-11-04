@@ -127,14 +127,15 @@ case "pub":
     print(hex(load(path).publicKey.x963Representation))
 case "sign":
     guard args.count == 3 else { fail(usage, 2) }
-    let context = LAContext()
-    let key = load(path, context)
+    // The message and its reason first, so the context carries the reason before the key is ever bound to it.
     let message = readMessage()
     guard let tag = SIGNABLE_TAGS.first(where: { message.starts(with: Data($0.utf8)) }), let reason = SIGN_REASONS[tag] else {
         fail("refusing to sign bytes that are not an escrowd admin action")
     }
-    // The prompt, if the key asks for one, appears at the signature below; the context carries what it says.
+    let context = LAContext()
     context.localizedReason = reason
+    let key = load(path, context)
+    // The prompt, if the key asks for one, appears at the signature below.
     do { print(hex(try key.signature(for: message).derRepresentation)) }
     catch { fail("the Secure Enclave refused to sign") }
 default:
