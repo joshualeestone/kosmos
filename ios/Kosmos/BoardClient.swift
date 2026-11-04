@@ -848,7 +848,8 @@ final class BoardClient: ObservableObject {
             var picture: Board.AttachedPicture?
             if let pictureFile {
                 picture = await Self.offMain { Board.attachedPicture(of: pictureFile) }
-                guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return }
+                guard epoch == chatEpoch, addGeneration[session, default: 0] == generation,
+                      attached[session]?.contains(where: { $0.id == a.id }) != true else { return }   // review 2: asked again after the wait
             }
             if let picture { attachedPreviews[a.id] = picture }   // before the file, so the prune keeps it
             attached[session, default: []].append(a)

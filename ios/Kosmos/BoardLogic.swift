@@ -1763,7 +1763,9 @@ enum Board {
 
     /// Both copies of the picture at `url`, or nil when it is not a picture ImageIO can read (a plain chip then).
     static func attachedPicture(of url: URL) -> AttachedPicture? {
-        guard let large = attachPreview(of: url), let small = attachPreview(of: url, maxPixels: attachThumbnailMaxPixels) else { return nil }
+        // One source for both (review 2): the file is opened once.
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let large = attachPreview(of: source), let small = attachPreview(of: source, maxPixels: attachThumbnailMaxPixels) else { return nil }
         return AttachedPicture(large: large, small: small)
     }
 
@@ -1775,6 +1777,9 @@ enum Board {
     /// when the file is not a picture ImageIO can read (a damaged or unknown file shows as a plain chip, as before).
     static func attachPreview(of url: URL, maxPixels: Int = attachPreviewMaxPixels) -> Data? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+        return attachPreview(of: source, maxPixels: maxPixels)
+    }
+    static func attachPreview(of source: CGImageSource, maxPixels: Int = attachPreviewMaxPixels) -> Data? {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,

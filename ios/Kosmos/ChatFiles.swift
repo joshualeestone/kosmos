@@ -85,11 +85,15 @@ struct FileChip: View {
     var open: (() -> Void)? = nil
     var remove: (() -> Void)? = nil
 
-    private var thumbnail: UIImage? { preview.flatMap { UIImage(data: $0) } }
+    // Decoded once and kept (review 2: the row redraws on every keystroke and upload count); the first draw decodes
+    // it directly so the square shows at once rather than a frame of the plain chip.
+    @State private var decoded: UIImage?
+    private var thumbnail: UIImage? { decoded ?? preview.flatMap { UIImage(data: $0) } }
 
     var body: some View {
         if let open, let thumbnail {
             tile(thumbnail, open: open)
+                .task(id: preview) { decoded = preview.flatMap { UIImage(data: $0)?.preparingForDisplay() } }
         } else {
             chip
         }
@@ -189,7 +193,7 @@ struct AttachedPreview: View {
                 Image(uiImage: image).resizable().scaledToFit()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .accessibilityLabel("The picture, \(name)")
+                    .accessibilityLabel("Picture")   // the name is the heading just above (review 2)
             }
             Button {
                 remove()
