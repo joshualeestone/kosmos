@@ -92,6 +92,9 @@ const PORT = freePort();
         await route.continue();
       } catch { await route.abort().catch(() => {}); }
     });
+    // #7968: a folder already has the new name, so no rename of the folder is on offer and this Save takes the ordinary
+    // path this check is about. A Save that does bring the offer stays on settings: render-rename-folder-7968.js.
+    fs.mkdirSync(path.join(roots.PROJECTS, 'Settings Drive Renamed'), { recursive: true });
     await p.fill('#pjs-name', 'Settings Drive Renamed');
     await p.click('#pjs-save');
     // The Sweep spinner must render in #pjs-save-live WHILE the save is in
