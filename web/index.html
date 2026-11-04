@@ -68539,7 +68539,7 @@ function pjKeepOpenFocus(box, paint) {
 function pjAlsoWhy(m) {
   if (m.restartFailed) return ['Kosmos restarted it, and it did not come back.', 'Open'];
   if (m.crashLoop && m.crashLoop.looping === true) return [PJ_NEEDS_WHY.crash_loop[0], 'Open'];
-  if (m.state === 'needs_you' && m.stateProject) return ['Waiting for your answer about another project.', 'Answer'];
+  if (m.state === 'needs_you' && m.stateProject) return m.stateHeld === true ? ['Held until you are back, about another project.', 'Answer'] : ['Waiting for your answer about another project.', 'Answer'];   // #7916
   // Review 1: a needs-you naming no project (often read off its screen) is not known to be about another project.
   if (m.state === 'needs_you') return ['Waiting for you. It did not say which project.', 'Open'];
   // #5154 slice B: AFTER the needs_you branches (precedence, parallel to stateReason): a Kosmos give-up only
@@ -70905,7 +70905,8 @@ function tskRow(t, at) {
      It carries both classes (it is the age line and the who line). Today the route sends an age only for question rows
      (engine/tasks.js waitingSinceOf: every card NEEDS_YOU, whose reason is always 'question'), so this is the age
      wording in practice; the #5942 two-line form below is kept only for an age beside another reason, which the
-     route does not send now. A row with no known start keeps the who line alone. */
+     route does not send now. A row with no known start keeps the who line alone. #7916: a question every asker holds
+     until the person is back says "<name>: Held until you are back." instead, with no age. */
   const askOnly = !!waitWords && whoWaits.length > 0 && whoWaits.every((w) => w.reason === 'question');
   const waitLine = !waitWords ? ''
     : askOnly

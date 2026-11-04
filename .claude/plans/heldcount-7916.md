@@ -24,7 +24,7 @@ Leaving a held question out of the counts: while the person is away, the count i
 That "Question held" on the project pill is enough without the count changing; a person may still read the count
 as pressing.
 
-## Tests
+## Tests (also engine/tasks-waitingon-6157 and web.tasks-look-3559, the task-row cases)
 engine/projects.test.js (#7916, real projects.list off recorded reports), engine/tasks-asknotask-7797.test.js
 (#7916), web.heldcount-7916.test.js (pjPillOf and tskAskRow lifted from the page), server.answeredq-5943.test.js
 (#7916 on-only held note). Seven mutations, all red.
