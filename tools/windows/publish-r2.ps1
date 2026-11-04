@@ -51,7 +51,8 @@ TWO MODES.
   installkosmos.com/setup.ps1 serves, so the installer moves with the Windows promote. A build staged
   without one leaves setup.ps1 as it is. Both modes read the installer from git at the commit the zip records
   (manifest.json source_sha), so the checkout they run from must contain that commit (git fetch origin).
-  kosmos#7890: a zip that records no commit has its staged installer compared with this tree's HEAD at -Promote;
+  kosmos#7890: a zip that records no commit has its staged installer compared with this tree's HEAD at -Promote
+  (defence in depth: such a zip already fails the verification record's manifest check, so a real release never gets here);
   one that is not HEAD's (or a HEAD git cannot read) is refused, as a missing commit is. Josh's approval line says
   where the installer was checked: setup_source=commit, head (with setup_head=<the commit>), or none (with setup_left=,
   the setup.ps1 left live).
@@ -677,7 +678,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   $BuiltFrom = Get-ZipSourceSha $zipBytesForManifest   # kosmos#7883
   # kosmos#7890: a build from a tree with uncommitted changes is not exactly the commit it names; said, not refused.
   if (Get-ZipSourceDirty $zipBytesForManifest) {
-    Say ("NOTICE (#7890): $ZipPath was built from a tree with uncommitted changes (manifest.json source_dirty), so it is not exactly " + $(if ($BuiltFrom) { "commit $BuiltFrom" } else { 'any one commit' }) + '.' + $(if (-not $ForSigning) { ' The installer staged with it is still the committed script.' } else { '' }))
+    Say ("NOTICE (#7890): $ZipPath was built from a tree with uncommitted changes (manifest.json source_dirty), so it is not exactly " + $(if ($BuiltFrom) { "commit $BuiltFrom" } else { 'any one commit' }) + '.' + $(if (-not $ForSigning) { ' The installer staged with it is still the committed script.' } else { '' }) + ' Its verification record will fail the manifest check (V1 needs a clean build), so it cannot be promoted.')
   }
   $zipBytesForManifest = $null
   Say "staging $Versioned ($Sha) from $ZipPath"
@@ -746,13 +747,14 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       $SetupPath = Join-Path $PSScriptRoot $SetupName
       if (-not (Test-Path -LiteralPath $SetupPath -PathType Leaf)) { Refuse "the installer script $SetupPath is missing. Nothing was written." }
       $head = Get-GitLine @('rev-parse', 'HEAD')
-      $blobHead = Get-GitLine @('rev-parse', "HEAD:./$SetupName")
+      # HEAD resolved once (above), so the blob checked and the commit the NOTICE names are the same commit.
+      $blobHead = if ($head) { Get-GitLine @('rev-parse', "${head}:tools/windows/$SetupName") } else { '' }
       # kosmos#7890: one read; these bytes are hashed as a blob and are the bytes staged.
       $SetupBytes = [IO.File]::ReadAllBytes($SetupPath)
       $blobFile = Get-GitBlobSha $SetupBytes
       if (-not $blobHead) { Refuse "git cannot read tools/windows/$SetupName at this tree's HEAD, so the installer cannot be checked against it. Stage from a git checkout that has it committed. Nothing was written." }
       if ($blobHead.Length -ne 40) { Refuse "this repository uses $($blobHead.Length * 4)-bit object ids, and this script compares the installer as a SHA-1 git blob, so it cannot check it here. Stage from a SHA-1 checkout. Nothing was written." }
-      if (-not $blobHead -or $blobHead -cne $blobFile) { Refuse "$SetupPath is not byte for byte the script committed at this tree's HEAD (an uncommitted edit, or line endings converted by an older checkout: re-check it out with git rm --cached tools/windows/$SetupName and git checkout -- tools/windows/$SetupName). Nothing was written." }
+      if ($blobHead -cne $blobFile) { Refuse "$SetupPath is not byte for byte the script committed at this tree's HEAD (an uncommitted edit, or line endings converted by an older checkout: re-check it out with git rm --cached tools/windows/$SetupName and git checkout -- tools/windows/$SetupName). Nothing was written." }
       Say "NOTICE (#7883): $ZipPath records no source commit (manifest.json source_sha), so the installer staged with it is this tree's HEAD ($head)."
       $SetupFrom = "this tree's HEAD $head"
     }
@@ -1053,7 +1055,7 @@ if ($stagedSetup -or $stagedSetupSide) {
     # outcome the refusal exists to prevent.
     # One commit is both checked and logged: HEAD is resolved first, then read at that commit.
     $SetupHead = Get-SetupHeadCommit
-    if ($SetupHead -eq 'unknown') { Refuse "the staged zip records no source commit, so $SetupVersioned is checked against this tree's HEAD, and git cannot say which commit HEAD is (git is not installed, or this is not a git checkout). Promote from a checkout git can read. Nothing was written." }
+    if ($SetupHead -ceq 'unknown') { Refuse "the staged zip records no source commit, so $SetupVersioned is checked against this tree's HEAD, and git cannot say which commit HEAD is (git is not installed, or this is not a git checkout). Promote from a checkout git can read. Nothing was written." }
     $headSetup = Get-SetupAtCommit $SetupHead
     # What works when it cannot be checked: setup-<v>.ps1 cannot be replaced for a zip that names no commit, so the fix
     # is a checkout whose setup.ps1 is the staged bytes (staging named it as "this tree's HEAD (<sha>)"), or a new build.

@@ -239,8 +239,10 @@ pinned private key means installs refuse updates until Kosmos is installed afres
   A Windows promote from the PC is therefore NOT in the Mac's log. The durable record of the go
   is his message itself, which the log line names by `approval_ref`.
 - **A build from a dirty tree is said at staging** (#7890): when the zip's manifest records `source_dirty: true`, a
-  NOTICE says the build came from a tree with uncommitted changes. It is not refused: the installer staged with it is
-  still the committed script.
+  NOTICE says the build came from a tree with uncommitted changes. Staging goes ahead (the installer staged with it is
+  still the committed script), but the build CANNOT be promoted: its verification record fails the required manifest
+  check, which needs a clean build with a commit. The same holds for a zip that records no commit, so the
+  `setup_source=head` path below is defence in depth that a real release does not reach.
 - **R2 enforces the three conditional writes this script relies on** (measured 2026-09-25 against
   the real bucket): a create with `If-None-Match: *` over an existing key, and a copy with a
   stale `x-amz-copy-source-if-match`, and a PUT with a stale `If-Match`, all fail with
