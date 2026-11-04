@@ -70,6 +70,8 @@ test('kosmos#7989: another agent\'s write leaves one note for the agents, naming
   assert.match(made[0].text, /^kitty was about to change "brief\.md" \(mona was the first agent seen changing it here\)\. A notice, not a lock: mona, /);
   assert.match(made[0].text, /For the next hour, Kosmos will not post a separate notice for each other file kitty changes that you were first to change\.$/);
   assert.equal(made[0].audience, messages.NOTE_AUDIENCE_AGENTS, 'the note is not kept to the agents (the person\'s room view would show it)');
+  // That the room route keeps a note with this audience out of the person's JSON view and in `kosmos room` is pinned at
+  // the route, for a tagged note in any words, in server.projects.test.js ("the brief-pending note reaches the agents").
 });
 
 test('kosmos#7989: the same writer and owner are noticed once an hour; the owner\'s own writes never are; a new writer at once', () => {

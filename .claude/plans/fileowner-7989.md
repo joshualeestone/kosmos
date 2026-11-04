@@ -5,8 +5,8 @@ Split from #7978 item 2 (an agent chased an unexplained "changed after render" t
 ## Decided (reversible; my call)
 - **Owns** = the first agent seen about to change the file here: the agent engine/filewriters.js recorded when the file
   had no record yet (`first`, set once, never moved by a later write). A record from before this change has no owner and
-  gets no notice. A record dropped by KEEP_MS (30 days unwritten) or MAX_ENTRIES (2000) takes its owner with it, so the
-  next writer becomes the owner (accepted: a file nobody touched in a month).
+  gets no notice, so the feature starts with no owners for existing files. Once a record is pruned (KEEP_MS, 30 days
+  unwritten, or MAX_ENTRIES, 2000) its owner goes with it and the next writer becomes the owner (accepted).
 - **The notice:** when another agent is about to change it, a `[kosmos]` note in that project's room for the agents
   (messages.roomNote, NOTE_AUDIENCE_AGENTS: `kosmos room` prints it, the person's room view leaves it out):
   `<writer> was about to change "<file>" (<owner> was the first agent seen changing it here). A notice, not a lock:

@@ -31,8 +31,8 @@ const NOTICE_EVERY_MS = 60 * 60 * 1000;
 /* kosmos#7989: at most this many owner notices in one project's room per NOTICE_EVERY_MS, so a busy room's own posts are not
    pushed out of what `kosmos room` shows by default. */
 const NOTICE_ROOM_MAX = 6;
-/* kosmos#7989: the record's own entry for those notices. A file name never holds a control character (noteWrite refuses
-   one), so this key cannot be a file's. */
+/* kosmos#7989: the record's own entry for those notices. A file's name is derived from its path, and noteWrite refuses a
+   path holding any control character, so this key cannot be a file's. */
 const NOTICES_KEY = '\u0000notices';
 /* kosmos#7989: how much of a file name a notice quotes. */
 const NOTICE_NAME_MAX = 120;
@@ -111,8 +111,8 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
     if (prev && prev.agent === who && since >= 0 && since < REWRITE_MS) return true;
     /* kosmos#7989: the file's owner is the first agent seen about to change it here (`first`): the agent recorded when the
        file had no record yet, set once and never moved by a later write. A record from before this change has no owner,
-       and no notice is made for it. A record dropped by KEEP_MS or MAX_ENTRIES takes its owner with it, so the next
-       writer becomes the owner (stated in the plan). */
+       and no notice is made for it. Once a record has been pruned (KEEP_MS or MAX_ENTRIES, by any later write to the
+       project), its owner goes with it and the next writer becomes the owner; a record still on disk keeps its owner. */
     const first = prev ? (typeof prev.first === 'string' && prev.first ? prev.first : null) : who;
     const entry = { agent: who, at: new Date(now).toISOString() };
     if (first) entry.first = first;
@@ -157,6 +157,7 @@ function quotedName(name) {
   const cut = require('./textcut').cutUnits(s, NOTICE_NAME_MAX);
   return '"' + cut + (cut.length < s.length ? '...' : '') + '"';
 }
+/* The writer and owner are session names, which Kosmos itself makes (letters, digits, - and _), so they are not quoted. */
 function ownerNoticeText({ name, owner, writer }) {
   return writer + ' was about to change ' + quotedName(name) + ' (' + owner + ' was the first agent seen changing it here). '
     + 'A notice, not a lock: ' + owner + ', read it again before you build on what you last saw in it. For the next hour, '
