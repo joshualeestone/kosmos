@@ -325,7 +325,13 @@ const FOLLOWING_ASKED = 100;   // the service's page; past it a followed author 
    "do not comment again", so a new state can only over-warn, never invite a duplicate. */
 const COMMENT_THERE = new Set(['sent', 'sent_refused']);
 const COMMENT_GONE = new Set(['refused', 'refused_empty', 'refused_not_company', 'withheld', 'deleted', 'not_sent',
-  'agent_refused', 'taken_down', 'policy', 'policy_unreadable', 'switch_unreadable']);
+  'agent_refused', 'taken_down', 'policy', 'policy_unreadable', 'switch_unreadable', 'before_on']);
+/* Review 2: the states read as waiting, named, so a test can hold every state communitystatus has words for to exactly
+   one of the three sets: a state added there fails that test until someone decides which it is. */
+const COMMENT_WAITING = new Set(['queued', 'capped', 'name_unclaimed', 'sending', 'held', 'paused', 'address_refused',
+  'company_off', 'public_off', 'policy_waiting', 'unreadable', 'unconfirmed', 'unconfirmed_refused', 'unconfirmed_unasked',
+  'unconfirmed_taken_back']);
+const FOLLOWS_WAIT_MS = 1500;   // review 2: how long a read waits for the follow list once the feed or post has answered
 /** Marks each post in `items` the reader has commented on (`commented`: 'there' or 'waiting'), from this board's own
  *  records of what it sent (communitystatus.itemsFor). Returns false when those records could not be read (the read
  *  then says so, commentNote), else true; no reader: true, with nothing marked. */
@@ -357,12 +363,15 @@ function commentNote(readable, items) {
 /** Who the reader follows, from the public community: { ids, names, partial }; undefined when there is nothing to
  *  check (no reader, or one never registered, which follows nobody); null when it could not be told (no clear answer).
  *  One request; never throws. */
-async function followingOf(reader) {
+async function followingOf(reader, signal) {
   if (typeof reader !== 'string' || !reader) return undefined;
+  try { return await followingAsked(reader, signal); } catch { return null; }   // review 2: never rejects, even unawaited
+}
+async function followingAsked(reader, signal) {
   let me;
   try { me = require('./communityself').stored(reader).name; } catch { return null; }
   if (typeof me !== 'string' || !me) return undefined;   // never registered: it follows nobody, so nothing to say
-  const r = await getJson('/agents/by-name/' + encodeURIComponent(me) + '/following?limit=' + FOLLOWING_ASKED);
+  const r = await getJson('/agents/by-name/' + encodeURIComponent(me) + '/following?limit=' + FOLLOWING_ASKED, null, signal);
   /* Review 1: a 404 is not "just now": the community does not know this agent by the name the board holds (renamed, or
      no longer listed), so every read would repeat a promise of a later check. It is said once in its own words. */
   if (r && r.status === 404) return { unknown: true };
@@ -376,6 +385,19 @@ async function followingOf(reader) {
     if (typeof a.name === 'string' && a.name) names.add(nameKey(a.name));
   });
   return { ids, names, partial: Boolean(r.json.next_cursor) || list.length > FOLLOWING_ASKED };
+}
+/** Starts the follow-list request for a read (none for a company read) and returns a function that, called once the
+ *  read's own answer is in, waits at most FOLLOWS_WAIT_MS more for it and then stops it: the mark is a nicety, so a slow
+ *  follow route costs the read at most that, and then reads as "could not check just now" (null). Review 2. */
+function followsFor(reader, company) {
+  if (company) return async () => undefined;
+  const ctl = new AbortController();
+  const asked = followingOf(reader, ctl.signal);
+  return async () => {
+    let timer = null;
+    const late = new Promise((res) => { timer = setTimeout(() => res(null), FOLLOWS_WAIT_MS); });
+    try { return await Promise.race([asked, late]); } finally { clearTimeout(timer); ctl.abort(); }
+  };
 }
 /** Marks each post whose author the reader follows (`following`). A person's post is never marked (people are not
  *  followed here); an author with an id is matched by id, one without by name as the follow verb compares names. */
@@ -527,7 +549,7 @@ async function read(opts = {}) {
     const id = String(opts.post).trim();
     if (!UUID_RE.test(id)) return { ok: false, because: 'a post id looks like 1b2c3d4e-0000-0000-0000-000000000000' };
     // kosmos#7886 item 5, review 1: the follow list is asked alongside the post, as the feed does (public only).
-    const followsAsked = company ? Promise.resolve(undefined) : followingOf(opts.reader);
+    const followsAsked = followsFor(opts.reader, company);
     const r = await get('/posts/' + encodeURIComponent(id.toLowerCase()));
     if (r.status === 404) return { ok: false, because: 'there is no such post' };
     if (r.status === 410) return { ok: false, because: 'that post was taken down' };
@@ -546,7 +568,7 @@ async function read(opts = {}) {
     markHere(opts.reader, [it], thread.comments);
     // kosmos#7886 item 5: whether the reader already follows the author or commented here, before it acts.
     const commentsRead = markCommented(opts.reader, [it]);
-    const follows = await followsAsked;   // follows are the public community's
+    const follows = await followsAsked();   // follows are the public community's
     markFollowing(follows, [it]);
     const text = frame([it], null, thread, company);
     const tail = [ownWaitingOn(opts.reader, id.toLowerCase()), followNote(follows, [it]), commentNote(commentsRead, [it])].filter(Boolean);
@@ -557,7 +579,7 @@ async function read(opts = {}) {
   if (!ch.ok) return { ok: false, because: ch.because };
   const q = '?limit=' + MAX_ITEMS + (ch.slug ? '&channel=' + encodeURIComponent(ch.slug) : '') + (older ? '&cursor=' + encodeURIComponent(older) : '');
   // kosmos#7886 item 5: the follow list is asked alongside the feed, so the read takes no longer for it.
-  const followsAsked = company ? Promise.resolve(undefined) : followingOf(opts.reader);
+  const followsAsked = followsFor(opts.reader, company);
   const r = await get((company ? '/feed' : '/posts/feed') + q);   // kosmos#7543: the space's feed is /spaces/{org}/feed
   /* A place with the right shape that the service does not recognise (mistyped, cut short, from an older service) is
      the reader's mistake, not the service failing: say so, so it is not retried as an outage. */
@@ -567,11 +589,12 @@ async function read(opts = {}) {
   const items = posts.slice(0, MAX_ITEMS).map((p) => itemOf(p)).filter(Boolean);
   markHere(opts.reader, items);
   const commentsRead = markCommented(opts.reader, items);
-  const follows = await followsAsked;
+  const follows = await followsAsked();
   markFollowing(follows, items);
   const next = typeof r.json.next_cursor === 'string' && CURSOR_RE.test(r.json.next_cursor) ? r.json.next_cursor : '';
   const note = [followNote(follows, items), commentNote(commentsRead, items)].filter(Boolean).join('\n');
-  const heading = (older ? 'Older posts' : 'Newest posts') + (ch.slug ? ' in ' + ch.slug : '') + ':' + (note ? '\n' + note : '');
+  // Review 2: the note sits above the heading, whose colon introduces the list (as readFollowing places its lines).
+  const heading = (note ? note + '\n' : '') + (older ? 'Older posts' : 'Newest posts') + (ch.slug ? ' in ' + ch.slug : '') + ':';
   return { ok: true, count: items.length, text: frame(items, heading, null, company) + '\n\n' + feedFooter(ch.spec, next, company, Boolean(opts.public && scope.company)) };
 }
 
@@ -1585,4 +1608,4 @@ async function repliesFor(sessionName, opts) {
 function setFetcher(f) { fetcher = f; }
 function setTimeoutMs(ms) { timeoutMs = ms; }
 
-module.exports = { COMMENTED_MARK, COMMENT_WAITING_MARK, FOLLOWING_MARK, FOLLOWING_ASKED, markCommented, commentNote, followingOf, markFollowing, followNote, postsToRead, postActivity, REPLIES_OLDER_MAX, HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
+module.exports = { COMMENTED_MARK, COMMENT_WAITING_MARK, COMMENT_THERE, COMMENT_GONE, COMMENT_WAITING, FOLLOWS_WAIT_MS, FOLLOWING_MARK, FOLLOWING_ASKED, markCommented, commentNote, followingOf, markFollowing, followNote, postsToRead, postActivity, REPLIES_OLDER_MAX, HERE_MARK, markHere, REPLIES_TEXT_BUDGET, OWED_TEXT_BUDGET, shownWithin, replySizeOf, THREADS_MAX, REPLY_PAGES_MAX, REPLY_PAGES_AT_ONCE, ROUND2_START_MS, SEEN_MAX, MARK_HOLD_MAX, editedOf, PERSON_MARK, PERSON_POSTED, PERSON_OWED, personOwed, PERSONS_MAX, POST_COMMENT_CAP, QUOTED_REPLY, CURSOR_RE, feedFooter, getJson, authorOf, RULE_TAIL, read, readReplies, freshReplies, marksStamp, FRESH_WAIT_MS, READ_WAIT_MS, NO_ANSWER_STOP, FRESH_DOWN_PASSES, FRESH_PACE_MS, FIRST_LOOK_EDGE_MS, readingNow, _freshDownReset: () => postDown.clear(), REPLIES_HEADING, UNDER_COMMENT, REPLIES_POSTS, REPLIES_FIRST_DAYS, frame, scrub, itemOf, commentOf, COMMENT_CAP, COMMENTS_ASKED, COMMENTS_HEADING, THREAD_READ_CAP, REPLIES_SHOWN, readCapped, QUOTE, RESPONSE_CAP, channelSlug, setFetcher, publicReadRefusal, setSpaceFetcher: (f) => { spaceFetcher = f || null; }, COMPANY_RULE, COMPANY_HEADING, setTimeoutMs, MAX_ITEMS, TITLE_CAP, BODY_CAP, POST_BODY_CAP, FRAME_OPEN, FRAME_CLOSE, FRAME_RULE };
