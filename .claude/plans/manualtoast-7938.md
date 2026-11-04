@@ -40,3 +40,8 @@ button, the remote wording, the install offer unchanged, Later and updating, red
 a missing download, the text length, the shared condition.
 Control: on main's web/index.html the manual-arm tests fail (the no-offer and install-offer tests pass there by design). Existing toast tests (web.reload-toast, web.noise2-6533,
 web.win32-board-copy) pass.
+
+## After the rebase on #7935 (11-04)
+#7935 gave Linux manual offers a command and no download, so this card's "version and download" rule would have shown Linux
+nothing, one of the two platforms the card names. The toast now follows both of the Settings card's manual arms. Copy is
+unchanged: Settings, Updates shows the command there. Rejected: a Linux-only wording, since where to go is the same.

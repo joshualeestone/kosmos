@@ -85,7 +85,13 @@ test('#7938: both callers pass the manual offer to the toast', () => {
   assert.ok(SCRIPT.includes('renderUpdateToast(out.offer, out.manual);'), 'the update check');
 });
 
-test('#7938 review 1: a manual offer without a download link shows nothing (the card has no manual arm for it)', () => {
+test('#7938: a Linux manual offer, which carries a command and no download (#7935), shows the chip too', () => {
+  const t = toast({ manual: { version: '0.7.89', command: 'curl -fsSL https://example.invalid/install.sh | bash' } });
+  assert.match(t.html, /<span class="uchip-t">An update is available in Settings, Updates<\/span>/);
+  assert.doesNotMatch(t.html, /curl|example\.invalid/, 'the command itself stays on the Settings card');
+});
+
+test('#7938 review 1: a manual offer with neither a download nor a command shows nothing (the card has no manual arm for it)', () => {
   assert.equal(toast({ manual: { version: '0.7.89' } }).html, '');
 });
 
@@ -98,6 +104,7 @@ test('#7938 review 1: the chip text stays short enough for the pill (the stack i
 });
 
 test('#7938 review 2: the toast and the Settings card ask the same rule for a complete manual offer', () => {
-  const rule = 'manual && manual.version && manual.download';
-  assert.equal(SCRIPT.split(rule).length - 1, 2, 'the toast and the card no longer share the rule');
+  assert.ok(SCRIPT.includes('} else if (manual && manual.version && manual.command) {'), 'the card has no command arm');
+  assert.ok(SCRIPT.includes('} else if (manual && manual.version && manual.download) {'), 'the card has no download arm');
+  assert.ok(SCRIPT.includes('manual && manual.version && (manual.command || manual.download) ? manual : null'), 'the toast does not follow both arms');
 });
