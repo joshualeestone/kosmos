@@ -54,3 +54,10 @@ alarming policy error." It names neither the script nor the runner.
 - [WARNING] the code comment did not say that scripts carrying the mark of the web now run --> FIXED: said, on purpose.
 - [NIT] "runs no scripts" about the sign-in child was reasoned --> FIXED: "is not expected to".
 - [NIT] the control count predated iteration 1 --> RE-MEASURED: still exactly the 3 tests.
+
+#### Iteration 4 (final whole-branch read)
+No BLOCKERs or WARNINGs; every FIXED claim above checked true in the code. Converged.
+- [NIT] the 6569 header says "measured on the Windows CI runner" before that run exists --> to check after the PR's
+  Windows CI run: its log must show the arm RAN, not skipped.
+- [NIT] the mark-of-the-web paragraph belongs in the PR body --> it is there.
+- [NIT] the Claude Code PowerShell arm's flag is redundant with the variable --> left; its comment says so.
