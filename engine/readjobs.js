@@ -19,7 +19,13 @@ const KEEP_MS = 3 * 60 * 1000;
 const RESEND_MS = 30 * 1000;
 const MAX_JOBS = 200;
 
-const jobs = new Map();   // key -> { promise, done, value, doneAt }
+const jobs = new Map();   // key -> { promise, done, value, doneAt, gen }
+/* kosmos#7886 item 5, review 6: per reader, how many times forget() has run. A job remembers the count at its start, so
+   a Following read already running when the reader commented is handed out once (it is the only copy of what it marked
+   seen) but never kept for a re-ask: its answer predates the comment. */
+const gens = new Map();
+const readerOf = (key) => { const i = String(key).indexOf('\n'); return i < 0 ? String(key) : String(key).slice(0, i); };
+const genOf = (reader) => gens.get(reader) || 0;
 
 function sweep(now) {
   for (const [k, j] of jobs) if (j.done && (now - j.doneAt > KEEP_MS || (j.handedAt && now - j.handedAt > RESEND_MS))) jobs.delete(k);
@@ -42,7 +48,7 @@ function ask(key, run, waitMs = soonWaitMs, now = Date.now(), { resend = () => f
   sweep(now);
   let job = jobs.get(key);
   if (!job) {
-    job = { done: false, value: null, doneAt: 0, startedAt: now };
+    job = { done: false, value: null, doneAt: 0, startedAt: now, gen: genOf(readerOf(key)) };
     /* Review 1: a read that fails is finished too (value null), so it is never left "still reading" for good. */
     const finish = (value) => { job.done = true; job.value = value; job.doneAt = Date.now(); };
     job.promise = Promise.resolve().then(run).then(finish, () => finish(null));
@@ -54,6 +60,7 @@ function ask(key, run, waitMs = soonWaitMs, now = Date.now(), { resend = () => f
        read that marked what it showed, answered well); anything else, a failure above all, is read afresh next time. */
     let again = false;
     try { again = resend(job.value) === true; } catch { again = false; }
+    if (again && job.gen < genOf(readerOf(key)) && isFollowing(key)) again = false;   // review 6: started before a forget
     if (!again) { if (jobs.get(key) === job) jobs.delete(key); }
     else if (!job.handedAt) job.handedAt = Date.now();
     return { done: true, value: job.value };
@@ -79,13 +86,18 @@ function worthResending(asked, value) {
  *  (a replies read's shown marks, the Following feed's seen posts), so dropping it would lose those for good; and a
  *  replies answer carries no comment mark. Those keep their answer, and are at worst 30 s stale on a re-ask. */
 function forget(reader) {
-  const prefix = String(reader) + '\n';
+  const r = String(reader);
+  gens.set(r, genOf(r) + 1);   // review 6: a Following read running now is not kept after its one hand-out
   for (const [k, j] of [...jobs]) {
-    if (!k.startsWith(prefix) || !j.done || !j.handedAt) continue;
-    let asked;
-    try { asked = new URLSearchParams(k.slice(prefix.length)); } catch { continue; }
-    if (asked.get('following') === '1') jobs.delete(k);
+    if (readerOf(k) !== r || !j.done || !j.handedAt) continue;
+    if (isFollowing(k)) jobs.delete(k);
   }
 }
+/* Whether a kept key asks the Following feed (the only kept answer that carries the comment mark). */
+function isFollowing(key) {
+  const k = String(key); const i = k.indexOf('\n');
+  if (i < 0) return false;
+  try { return new URLSearchParams(k.slice(i + 1)).get('following') === '1'; } catch { return false; }
+}
 
-module.exports = { ask, forget, worthResending, SOON_WAIT_MS, KEEP_MS, RESEND_MS, MAX_JOBS, setSoonWaitMs: (ms) => { soonWaitMs = ms; }, _reset: () => jobs.clear(), _size: () => jobs.size };
+module.exports = { _doneFor: (key) => { const j = jobs.get(key); return j ? j.done : undefined; }, ask, forget, worthResending, SOON_WAIT_MS, KEEP_MS, RESEND_MS, MAX_JOBS, setSoonWaitMs: (ms) => { soonWaitMs = ms; }, _reset: () => { jobs.clear(); gens.clear(); }, _size: () => jobs.size };

@@ -136,9 +136,38 @@ test('#7886 item 5: forget drops one reader\'s handed-out Following answer only'
   const first = await rj.ask('bo\nfollowing=1', slow, 10, undefined, keep);
   assert.equal(first.done, false, 'fixture: the slow read finished at once');
   release();
-  await new Promise((r) => setImmediate(r));
+  // Review 6: wait for the job to finish by a deadline, not one tick (a run awaiting a timer would outlast a tick).
+  for (let i = 0; i < 100 && rj._doneFor('bo\nfollowing=1') !== true; i += 1) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(rj._doneFor('bo\nfollowing=1'), true, 'fixture: the slow read never finished');
   rj.forget('bo');
   const later = await rj.ask('bo\nfollowing=1', run, 1000, undefined, keep);
   assert.equal(later.done && later.value.body.slow, true, 'an uncollected answer was dropped by forget');
+  rj._reset();
+});
+
+// Review 6: a Following read already RUNNING when the reader comments is handed out once (it is the only copy of what
+// it marked seen) but not kept for a re-ask, whose answer would predate the comment.
+test('#7886 item 5: a Following read running at a forget is handed out once, then read afresh', async () => {
+  const rj = require('./readjobs');
+  rj._reset();
+  let runs = 0; let release;
+  const keep = { resend: () => true };
+  const slow = () => new Promise((res) => { release = () => { runs += 1; res({ status: 200, body: { n: runs } }); }; });
+  const run = async () => { runs += 1; return { status: 200, body: { n: runs } }; };
+  const got = await rj.ask('cy\nfollowing=1', slow, 10, undefined, keep);   // nothing released yet: still reading
+  assert.equal(got.done, false, 'fixture: the first ask did not return still-reading');
+  assert.equal(typeof release, 'function', 'fixture: the read never started');
+  rj.forget('cy');   // the reader comments while the read runs
+  release();
+  for (let i = 0; i < 100 && rj._doneFor('cy\nfollowing=1') !== true; i += 1) await new Promise((r) => setTimeout(r, 5));
+  const handed = await rj.ask('cy\nfollowing=1', run, 1000, undefined, keep);
+  assert.equal(handed.done && handed.value.body.n, 1, 'the running read\'s answer was lost (it is the only copy)');
+  const again = await rj.ask('cy\nfollowing=1', run, 1000, undefined, keep);
+  assert.equal(again.value.body.n, 2, 'a read that started before the comment was kept and handed out again');
+  // CONTROL: with no forget, the same answer is kept for a re-ask.
+  rj._reset(); runs = 0;
+  await rj.ask('dee\nfollowing=1', run, 1000, undefined, keep);
+  const kept = await rj.ask('dee\nfollowing=1', run, 1000, undefined, keep);
+  assert.equal(kept.value.body.n, 1, 'CONTROL: a kept answer was not reused');
   rj._reset();
 });
