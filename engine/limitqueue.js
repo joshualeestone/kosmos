@@ -24,11 +24,19 @@ function shortHold(e) { return !!e && e.input === true && !e.kind; }
 /* Reviews 1-3: only while the box is the reason (`limited` false: the agent's queue is released on usage and sign-in,
    and its box reads text). Anything else, or a doubt, keeps the day, so a reset that comes later still types it. */
 function dropAfter(e, limited) { return shortHold(e) && !limited ? INPUT_DROP_AFTER_MS : DROP_AFTER_MS; }
-/* Review 3: a notice that did not land is tried again no sooner than this, so Kosmos's own retries never make up a
-   sender's stall streak (deliverystreak: 3 failures within 30 minutes). */
+/* A notice that did not land is tried again no sooner than STILL_RETRY_MS. Review 7: and a sender with
+   STILL_FAILS_MAX notices that did not land gets no more (the drop notice still comes), so Kosmos's own notices add at
+   most that many failures to its delivery streak, under the 3 a stall alert needs (deliverystreak.stallOf). A notice
+   that lands clears its sender's count. */
 const STILL_RETRY_MS = 15 * 60 * 1000;
+const STILL_FAILS_MAX = 2;
 const stillTriedAt = new Map();   // id -> when a notice that did not land was tried
-function forgetTold(id, at = Date.now()) { toldStill.delete(id); stillTriedAt.set(String(id), at); }
+const senderFails = new Map();    // sender -> notices to it that did not land, since the last that did
+function forgetTold(id, at = Date.now(), from) {
+  toldStill.delete(id); stillTriedAt.set(String(id), at);
+  if (from !== undefined) senderFails.set(String(from), (senderFails.get(String(from)) || 0) + 1);
+}
+function stillLanded(from) { senderFails.delete(String(from)); }
 // Ids whose sender was told they are still held (in memory: a restart may tell a sender once more, the stated cost).
 const toldStill = new Set();
 // kosmos#7936: agent -> the last sweep at which its box was not the only reason (or the board's first sweep for it).
@@ -308,9 +316,12 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
       // kosmos#7936 review 2: only for a message still kept after this sweep's typing (typed or dropped meanwhile: none).
       if (due.length && onStillHeld && !released) {
         const still = readEntries(name);
+        const saidTo = new Set();   // review 7: one notice per sender per sweep, so each failure is counted before the next
         for (const d of due) {
+          if (saidTo.has(String(d.e.from))) continue;
           if (!still.ok || done.has(d.e.id) || !still.entries.some((x) => x.id === d.e.id) || toldStill.has(d.e.id)) continue;
-          toldStill.add(d.e.id);
+          if ((senderFails.get(String(d.e.from)) || 0) >= STILL_FAILS_MAX) continue;   // review 7
+          toldStill.add(d.e.id); saidTo.add(String(d.e.from));
           try { onStillHeld(d.e, roster, d.dropAt); } catch { toldStill.delete(d.e.id); }
         }
       }
@@ -374,18 +385,19 @@ function sweepHooks({ chat, messages }) {
       messages.tellHeldDropped(e, r, short).catch(() => { /* recorded */ });
     },
     /* kosmos#7936: a `kosmos msg` still held behind an input box (shortHold): its sender is told once, in its own pane.
-       A notice that does not land calls forgetTold, so the sweep may try it again (see STILL_RETRY_MS). */
+       A notice that does not land calls forgetTold (see STILL_RETRY_MS and STILL_FAILS_MAX). */
     onStillHeld: (e, r, dropAt) => {
       if (e.kind) return;
       messages.tellHeldStill(e, r, dropAt).then((v) => {
-        if (!v || (v.state !== chat.DELIVERY.PLACED && v.state !== chat.DELIVERY.UNCONFIRMED)) forgetTold(e.id);
-      }).catch(() => { forgetTold(e.id); });   // tried again no sooner than STILL_RETRY_MS
+        if (!v || (v.state !== chat.DELIVERY.PLACED && v.state !== chat.DELIVERY.UNCONFIRMED)) forgetTold(e.id, undefined, e.from);
+        else stillLanded(e.from);
+      }).catch(() => { forgetTold(e.id, undefined, e.from); });
     },
     // Reviews 1-3: released on usage and sign-in, and the box reads text: the box is the only reason left.
     boxIsReason: (card, roster) => chat.limitQueueReleased(card, roster) && chat.inputBoxReads(card) === 'text',
   };
 }
 
-function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); toldStill.clear(); limitedSeen.clear(); stillTriedAt.clear(); flushingSince = 0; }
+function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); toldStill.clear(); limitedSeen.clear(); stillTriedAt.clear(); senderFails.clear(); flushingSince = 0; }
 
-module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, STILL_RETRY_MS, dropAfter, forgetTold, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
+module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, STILL_RETRY_MS, STILL_FAILS_MAX, dropAfter, forgetTold, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
