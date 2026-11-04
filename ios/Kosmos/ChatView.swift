@@ -1047,14 +1047,15 @@ struct ChatView: View {
         guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching else { return }
         let place = scrollBox.reading()?.place ?? "unread"
         guard place == "past the end" else {
-            // kosmos#7420 (build 33, 18:51): within the content, nothing drawn, while the chat is at the newest message: the
-            // estimate's stretch with no rows. Put the newest back by id (never a distance), unless a finger or the reader
-            // moved; a reader higher up (atBottom false) is never moved. A drawn list says nothing.
-            if place == "within", onScreen.isEmpty {
+            // kosmos#7420 (build 33, 18:51): within the content while the chat is at the newest message, but the end is not
+            // showing: nothing drawn (the estimate's stretch with no rows), or the newest behind the grown box (the simulator,
+            // 11-03: 19 pt under it). Put the newest back by id (never a distance), unless a finger or the reader moved; a
+            // reader higher up (atBottom false) is never moved. With the end showing there is nothing to do.
+            if place == "within", !endVisible || onScreen.isEmpty {
                 if atBottom, !personScrolling, !scrollBox.underFinger {
-                    Self.trace("settled: within, nothing drawn, back to the newest")
+                    Self.trace(onScreen.isEmpty ? "settled: within, nothing drawn, back to the newest" : "settled: the newest not showing, back to it")
                     goNewest(proxy)
-                } else { Self.trace("keyboard settled: within, nothing drawn") }
+                } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn") }
             } else if place != "within" { Self.trace("keyboard settled: \(place)") }
             return
         }
