@@ -9,13 +9,17 @@
  * visibly something slowspawn cannot see.
  *
  * It logs numbers only. Lines are capped per minute so a stalled machine does not also fill the log.
+ *
+ * A timer cannot tell a held thread from a computer asleep: on a Mac this clock keeps counting through sleep (libuv
+ * uses mach_continuous_time), so a short nap reads as a stall. A gap past ASLEEP_MS is more likely sleep and says it
+ * cannot tell, rather than being dropped, since the longest real stall is the one this most needs to report.
  */
 
 const TICK_MS = 500;
 const HELD_MS = 2000;       // late by this much: the board answered nobody for that long
-const ASLEEP_MS = 300000;   // a gap this long is the computer sleeping, not the board held
+const ASLEEP_MS = 300000;   // a gap this long is more likely the computer sleeping than the board held
 const MAX_PER_MINUTE = 10;
-const monotonic = () => Math.round(performance.now());   // not the wall clock: a clock step is not a stall, and a sleep does not count
+const monotonic = () => Math.round(performance.now());   // not the wall clock: a clock step is not a stall
 
 // A logger that writes at most `max` lines a minute, so a stalled machine does not also fill the log.
 function perMinute(log, max = MAX_PER_MINUTE, now = monotonic) {
@@ -43,7 +47,9 @@ function watch(opts = {}) {
       if (last !== null) {
         const late = at - last - TICK_MS;
         // Capped at the stall: the window also holds the half second before it, when a quick command may have run.
-        if (late >= HELD_MS && late < ASLEEP_MS) log(`[loop-held] ${late} ms, ${Math.min(blocked - blockedAt, late)} ms of it in blocking commands`);
+        // Floored at 0: slowspawn times with the wall clock, which can step back during a command.
+        if (late >= ASLEEP_MS) log(`[loop-held] gap ${late} ms, a sleeping computer or a very long stall`);
+        else if (late >= HELD_MS) log(`[loop-held] ${late} ms, ${Math.max(0, Math.min(blocked - blockedAt, late))} ms of it in blocking commands`);
       }
       last = at;
       blockedAt = blocked;
