@@ -33,6 +33,9 @@ Stated and left: two sessions mapping to one name in readAgent take the first; a
 Blocker fixed: an environment that reads and lacks the variable was also sent to the folder clue, so another Kosmos's board or a service in an agent's folder could be named. Now `ps -E` is compared with plain `ps`: nothing past the arguments means hidden, and only that takes the folder road, which also stops an argument posing as the variable. Anything launchd runs is never named, and with no list the folder clue is off. The sentence asks whether the process is still needed rather than saying to end it, since a nohup server may be deliberate; "or restart your computer" went with it. A floor on the sentence; a pane above the home folder is no clue; "server exited" is not an empty board; nested owners count once.
 Stated and left: a later variable whose value contains the name could pose as it. Requires a person's own env value to hold that exact text.
 
+## Review 4 (blind, sonnet, confirming)
+Fixed: a launchctl list cut short that still exits 0 read as "no jobs". Now it needs its header and a running job, and on a Mac with no list nothing is named in that sample (a named process could be launchd's). Stated and left: a sample whose list failed or whose ask budget ran out still replaces the last good one, so a "left running" line can drop for one round. It comes back at the next sample, and never names the wrong thing.
+
 ## Design (Mona Lisa)
 "left running" on the card; "this computer's memory" on the page, since the panel below is headed Memory; the leftover its own sentence, ending on what the person can do; processors in whole numbers.
 

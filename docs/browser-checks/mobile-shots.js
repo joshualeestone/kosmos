@@ -1163,6 +1163,30 @@ const SCREENS = [
     const t = await page.locator('.acard .amachine').first().innerText();
     if (t !== '6.5 GB left running') throw new Error('the card said: ' + t);
   }, after: async (page) => { await page.unroute('**/api/status*'); } },
+  { name: 'agent-machine-list-7978', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/api/status*', async (r) => {
+      try {
+        if (r.request().method() !== 'GET') { await r.continue(); return; }
+        const res = await r.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
+        for (const c of body.agents) if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 }, left: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 } };
+        await r.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await page.reload();
+    await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
+    await page.waitForSelector('.lrow .amachine', { state: 'visible', timeout: 15000 });
+  }, verify: async (page) => {
+    // The review's worry: an eighth grid child, or a line clipped to nothing. Seven children, and the words fit their cell.
+    const got = await page.locator('.lrow .amachine').first().evaluate((el) => {
+      const row = el.closest('.lrow');
+      return { kids: row.children.length, width: el.getBoundingClientRect().width, clipped: el.scrollWidth > el.clientWidth + 1 };
+    });
+    if (got.kids !== 7) throw new Error('the list row has ' + got.kids + ' children');
+    if (got.width < 60 || got.clipped) throw new Error('the line does not fit: ' + JSON.stringify(got));
+  }, after: async (page) => { await page.unroute('**/api/status*'); } },
   { name: 'agent-machine-page-7978', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
     await page.route('**/api/status*', async (r) => {
       try {

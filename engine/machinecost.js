@@ -15,7 +15,7 @@
  *      A process that names nobody is not an agent's (a browser, the person's own apps) and is never shown.
  *      🛑 NEVER KOSMOS ITSELF. The page names this process and asks whether it is still needed, so the board, anything above
  *      it, the tunnel and tmux are never candidates, and on a Mac neither is anything launchd runs (a supervisor, another
- *      Kosmos's board, a scheduled job): if that list cannot be read, the folder clue is not used. tmux above all: it is parentless and every pane is its child, so by subtree
+ *      Kosmos's board, a scheduled job): if that list cannot be read, no leftover is named in that sample. tmux above all: it is parentless and every pane is its child, so by subtree
  *      it is the largest "leftover" on the computer, and one agent would be charged for all of them. A subtree also stops
  *      at any pane's tree, for the same reason.
  *   3. 🛑 macOS HIDES THE ENVIRONMENT OF ITS OWN BINARIES. Measured 11-04: `ps -E` returned the variable for node and a
@@ -286,16 +286,17 @@ async function sessionOfPid(pid, deps) {
   } catch { return null; }
 }
 
-/* The pids launchd runs on a Mac, or null when the list could not be read. `launchctl list`: pid, status, label. */
+/* The pids launchd runs on a Mac, or null when the list could not be read. `launchctl list`: a PID Status Label header, then
+   pid, status, label. A short read that exits 0 is not "no jobs": without the header and a running job, it is no list. */
 async function launchdPids(deps) {
   const { out } = await runDetail('launchctl', ['list'], (deps || {}).exec, CENV());
-  if (out === null) return null;
+  if (out === null || !/^PID\s+Status\s+Label/.test(out)) return null;
   const pids = new Set();
   for (const line of out.split('\n')) {
     const m = /^(\d+)\s/.exec(line);
     if (m) pids.add(Number(m[1]));
   }
-  return pids;
+  return pids.size ? pids : null;
 }
 
 /* A process's working folder, or null. */
@@ -321,12 +322,14 @@ async function sample(deps) {
   const leftOwners = new Map();
   const askUntil = Date.now() + (d.askBudgetMs || ASK_BUDGET_MS);
   const jobs = platform === 'darwin' ? await launchdPids(d) : null;
-  for (const c of leftCandidates(procs, inTrees, d.selfPid)) {
+  // On a Mac with no list, nothing is named: a process with the variable could still be something launchd runs.
+  const candidates = platform === 'darwin' && !jobs ? [] : leftCandidates(procs, inTrees, d.selfPid);
+  for (const c of candidates) {
     if (Date.now() > askUntil) break;   // the largest were asked first; the rest wait for the next sample
     if (jobs && jobs.has(c.pid)) continue;
     const said = await askEnv(c.pid, d);
     if (said.session) { leftOwners.set(c.pid, { session: said.session, how: null }); continue; }
-    if (!said.hidden || platform !== 'darwin' || !jobs) continue;
+    if (!said.hidden || platform !== 'darwin') continue;
     const inFolder = sessionForFolder(await cwdOfPid(c.pid, d), folders);
     if (inFolder) leftOwners.set(c.pid, { session: inFolder, how: 'folder' });
   }
