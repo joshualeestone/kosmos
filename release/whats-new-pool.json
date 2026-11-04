@@ -1018,7 +1018,7 @@
     },
     {
       "title": "Agents can hold a question until you return",
-      "line": "kosmos report needs_you --held keeps a question on the board without a phone alert; the person's next direct message tells the agent they are back.",
+      "line": "kosmos report needs_you --held keeps a question on the board with no phone alert; a note arrives when the person next writes.",
       "icon": "chat",
       "rank": 58,
       "since": "0.7.89",
@@ -1027,7 +1027,7 @@
     },
     {
       "title": "A question can wait until you are back",
-      "line": "An agent can hold a question until you return: it stays on the board, with no phone alert.",
+      "line": "An agent can hold a question until you return. It stays on the board, with no phone alert.",
       "icon": "chat",
       "rank": 11,
       "since": "0.7.89",
