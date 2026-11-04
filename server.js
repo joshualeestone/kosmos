@@ -23698,9 +23698,11 @@ const server = http.createServer(async (req, res) => {
           : lines.length ? UNANSWERED_HEAD + openAsks + (openAsks === 1 ? ' post' : ' posts')
             + ' in this room (each asked you something, and no post of yours cites it by id with --in-reply-to)'   // kosmos#7936: post's flag
             + (openAsks > tail.length ? (tail.length === 1 ? '; the newest is below' : '; the newest ' + tail.length + ' are below') : '') + ':\n'
-          : rec.ok === false ? UNANSWERED_HEAD + 'none found, but this room could not be read, so that may be wrong.\n'
+          : rec.ok === false ? UNANSWERED_HEAD + 'none found' + (agedAsks ? ' from the last ' + UNANSWERED_DAYS + ' days' : '')   // kosmos#7969
+            + ', but this room could not be read, so that may be wrong.\n'
           : agedAsks && !claimedAsks.length ? UNANSWERED_HEAD + 'nothing from the last ' + UNANSWERED_DAYS + ' days in this room.\n'   // kosmos#7969
-          : claimedAsks.length ? UNANSWERED_HEAD + 'nothing else waiting on you in this room; '   // kosmos#7848
+          : claimedAsks.length ? UNANSWERED_HEAD + 'nothing else ' + (agedAsks ? 'from the last ' + UNANSWERED_DAYS + ' days ' : '')   // kosmos#7848, #7969
+            + 'waiting on you in this room; '
             + (claimedAsks.length === 1 ? 'the ask below is claimed by another agent it also asked.\n' : 'the asks named below are claimed by agents they also asked.\n')
           : UNANSWERED_HEAD + 'nothing in this room.\n';
         /* kosmos#7848: the asks left out because another agent they asked has claimed them, newest last, so the reader can
@@ -23720,7 +23722,7 @@ const server = http.createServer(async (req, res) => {
         const agedLine = agedAsks
           ? '[kosmos] ' + agedAsks + (agedAsks === 1 ? ' older post' : ' older posts') + ' that asked you something, more than '
             + UNANSWERED_DAYS + ' days ago and not from the person, ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed. '
-            + 'Add --all to list ' + (agedAsks === 1 ? 'it' : 'them') + ' too.\n'
+            + 'Add --all to list ' + (agedAsks === 1 ? 'it' : 'them') + ' too (if your kosmos command does not take --all yet, update Kosmos).\n'
           : '';
         res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + agedLine);
         return;
