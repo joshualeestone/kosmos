@@ -107,6 +107,16 @@ test('#7968 a folder already called that is refused, with both folders untouched
   assert.equal(fs.readFileSync(path.join(KEEP, 'Taken Name', 'theirs.txt'), 'utf8'), 'theirs');
 });
 
+test('#7968 a dangling symlink at that name is not replaced', () => {
+  const p = renamed('Starter Link', 'Link Name');
+  const at = path.join(KEEP, 'Link Name');
+  fs.symlinkSync(path.join(SANDBOX, 'nowhere'), at);
+  assert.equal(offered(p.id), null);
+  assert.throws(() => projects.renameFolderToName(p.id), /already a folder called Link Name/);
+  assert.equal(fs.lstatSync(at).isSymbolicLink(), true);
+  assert.equal(stored(p.id).folder, path.join(KEEP, 'Starter Link'));
+});
+
 test('#7968 a member working, or an agent living in or holding the folder, is refused and nothing moves', () => {
   const p = renamed('Starter Four', 'Fourth Name');
   const old = path.join(KEEP, 'Starter Four');
