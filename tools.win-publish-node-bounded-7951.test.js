@@ -68,7 +68,7 @@ if ($args[4] -ceq 'waits') {
   $res.bigstdin = Row (Invoke-ChildBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000))
   # #7959: a raw read that never ends is stopped too, and hands back no partial bytes that could be taken for the file.
   $r = Invoke-ChildBounded $node @('-e', "process.stdout.write('part');setInterval(()=>{},1000)") -Raw
-  $res.rawhang = @{ rc = $r.Rc; undecided = $r.Undecided; bytesEmptyOrNull = ($null -eq $r.Bytes -or $r.Rc -ne 0) }
+  $res.rawhang = @{ rc = $r.Rc; undecided = $r.Undecided; noBytes = ($null -eq $r.Bytes) }
   $NodeTimeoutSec = 120
   # Something node started keeps its output open after node has exited 0: the handle inheritance is Windows's own.
   $res.held = Row (Invoke-ChildBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},10000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
@@ -89,6 +89,8 @@ if ($args[4] -ceq 'waits') {
   # #7959: -HoldStderr hands back what git says about a commit it cannot read, for the refusal to quote.
   $r = Invoke-ChildBounded $node @('-e', "console.error('fatal: not a tree');process.exit(128)") -HoldStderr
   $res.held128 = @{ rc = $r.Rc; err = $r.Err.Trim(); undecided = $r.Undecided }
+  $r = Invoke-ChildBounded $node @('-e', "process.stdout.write('part');process.exit(3)") -Raw
+  $res.rawfail = @{ rc = $r.Rc; noBytes = ($null -eq $r.Bytes) }
 }
 [IO.File]::WriteAllText($args[3], ($res | ConvertTo-Json -Depth 4), $Utf8)
 `;
@@ -171,6 +173,7 @@ for (const ps of RUNTIMES) {
     assert.strictEqual(res.notraw.hasBytes, false, 'control: no raw bytes unless asked for');
     assert.notStrictEqual(res.notraw.out, '\xff', 'control: decoded, that byte does not survive, which is why -Raw exists');
     assert.deepStrictEqual(res.held128, { rc: 128, err: 'fatal: not a tree', undecided: '' }, 'held stderr comes back, and a refusal by git is an answer');
+    assert.deepStrictEqual(res.rawfail, { rc: 3, noBytes: true }, 'a raw read that failed hands back no bytes either');
   });
 
   test(`Invoke-ChildBounded stops what does not finish, under ${ps}`, async () => {
@@ -179,6 +182,7 @@ for (const ps of RUNTIMES) {
     assert.strictEqual(res.bigstdin.rc, 98, 'a stdin node never reads cannot outlast the limit');
     assert.strictEqual(res.rawhang.rc, 98, 'a raw read that never ends is stopped');
     assert.ok(res.rawhang.undecided, 'and says so');
+    assert.strictEqual(res.rawhang.noBytes, true, 'the bytes it had printed are not handed back as the file');
     assert.strictEqual(res.held.rc, 97, 'exit 0 with its output held open is not a pass');
     assert.ok(res.held.undecided, 'and it says so');
   });

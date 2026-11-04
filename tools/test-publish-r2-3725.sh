@@ -284,6 +284,13 @@ grep -qF "git: it did not finish within 5 seconds and was stopped" "$TMP/out" &&
 [ "$took" -lt 45 ] && pass "#7959 at the limit, not at git's own end (${took}s; git would sleep 60)" || fail "#7959 took ${took}s"
 [ -e "$FAKE/publish.lock" ] && fail "#7959 publish.lock was left held" || pass "#7959 publish.lock is released"
 grep -q '^PUT publish\.lock ' "$FAKE/.calls" && pass "#7959 control: the lock had been taken, so its release means something" || fail "#7959 control: the run never took the lock, so this proves nothing"
+# The read the card is about: git answers which commit, then hangs reading the installer, under the lock.
+printf '#!/bin/sh\ncase "$*" in *rev-parse*) echo 1111111111111111111111111111111111111111; exit 0 ;; esac\nexec /bin/sleep 60\n' > "$TMP/hanggit/git"
+rc=0; ( PATH="$TMP/hanggit"; promote -NodeTimeoutSec 5 ) || rc=$?
+refuses_clean "#7959 a git that hangs reading the installer in a promote: refused, nothing written" "git: it did not finish within 5 seconds and was stopped"
+grep -qF "Run it again." "$TMP/out" && pass "#7959 and it says to run it again" || fail "#7959 the fix named was not a rerun: $(tail -2 "$TMP/out")"
+[ -e "$FAKE/publish.lock" ] && fail "#7959 that read left publish.lock held" || pass "#7959 that read released publish.lock"
+grep -q '^PUT publish\.lock ' "$FAKE/.calls" && pass "#7959 control: it held the lock during that read" || fail "#7959 control: that run never took the lock"
 # Only node on PATH, so no host's git is found ($PWSH is an absolute path).
 rc=0; ( PATH="$TMP/nogit"; promote ) || rc=$?; refuses_clean "#7890 a HEAD git cannot read: refused, saying git cannot say which commit HEAD is" "git cannot say which commit HEAD is (git is not installed"
 mv "$TMP/setup-ver.keep" "$FAKE/setup-9.9.1.ps1"; mv "$TMP/setup-side.keep" "$FAKE/setup-9.9.1.ps1.sha256"
@@ -301,6 +308,11 @@ with zipfile.ZipFile(sys.argv[1], 'a') as z:
     z.writestr('manifest.json', '{"product":"kosmos","source_sha":"%s"}' % ('0' * 40))
 PYEOF
 fake -Zip "$TMP/s41.zip"; rc=$?; refuses_clean "#7883 a zip built from another commit: refused, nothing written" "was built from 0000000000000000000000000000000000000000"
+# #7959: the same read with git hanging, for a zip that names its commit: a rerun is the fix, not a fetch. The other two
+# arms of this path differ only in their words, which this checks the wording of.
+rc=0; ( PATH="$TMP/hanggit"; fake -Zip "$TMP/s41.zip" -NodeTimeoutSec 5 ) || rc=$?
+refuses_clean "#7959 a git that hangs reading a named commit in a stage: refused, nothing written" "git: it did not finish within 5 seconds and was stopped"
+if grep -qF "Run it again." "$TMP/out" && ! grep -qF "Fetch it" "$TMP/out"; then pass "#7959 and it says to run it again, not to fetch"; else fail "#7959 the fix named for a stop: $(tail -2 "$TMP/out")"; fi
 # Control: the same check passes for a zip built from this tree's HEAD.
 mkzip "$TMP/s42.zip" 9.9.42 S42
 python3 - "$TMP/s42.zip" "$(git -C "$HERE" rev-parse HEAD)" <<'PYEOF'
