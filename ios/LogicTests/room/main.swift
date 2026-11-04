@@ -562,6 +562,13 @@ check(chatSource.contains("guard Date().timeIntervalSince(kept.at) < Self.staleA
       && chatSource.contains("if !relooked, Date() < until { self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true, relooked: true); return }")
       && !chatSource.contains("if !retried, Date() < until { self.settleOnScreen("),
       "kosmos#7609: the hold survives a slow did-show, and every correction is looked at once more")
+// kosmos#7609 review 1: the longer window does not hand one keyboard's reading to another (by width, never by height), and the
+// reader's own scroll between will-show and did-show drops the reading.
+check(chatSource.contains("let f = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect, abs(a.width - f.width) > 0.5 {")
+      && chatSource.contains("self.savedKeyboard = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect")
+      && chatSource.contains("if let self, self.saved != nil, v.isTracking || v.isDragging {\n                    self.saved = nil; self.savedKeyboard = nil;")
+      && chatSource.contains("self?.saved = nil; self?.savedKeyboard = nil; self?.lastJump = nil"),
+      "kosmos#7609: a reading is this keyboard's (same width), and a reader's scroll before did-show drops it")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
 check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
