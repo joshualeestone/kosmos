@@ -5032,3 +5032,28 @@ test('kosmos#7886 item 2: no claim line on a post with no reply wanted, in a sha
     for (const s of roomwideSince(n)) assert.doesNotMatch(s.text, /claim it first/, 'a reply to an agent\'s post told the others to claim it');
   });
 });
+
+test('kosmos#7886 item 2: the claim line and the claim guard agree, post by post', () => {
+  withFleet(room3(), (board) => {
+    let tmux = arm([]);
+    const lastPostId = () => messages.record().rows.filter((m) => m.kind === 'post').at(-1).id;
+    const carries = (from) => tmux.pastedSends().slice(from).filter((s) => s.text.startsWith('[from your operator in project henderson-lease'))
+      .map((s) => /claim it first/.test(s.text));
+    const tryClaim = (of, who) => messages.react({ project: 'henderson-lease', of, from: who, members: MEMBERS, claim: 'claim' });
+    const cases = [
+      // [text, a whole-room member who is not named, whether the post is open]
+      ['@leo status on the lease?', 'april', false],
+      ['@leo is out today, can someone take the lease renewal?', 'april', true],
+      ['can someone renew the lease?', 'april', true],
+    ];
+    for (const [text, who, open] of cases) {
+      const n = tmux.pastedSends().length;
+      messages.sendPost({ operator: true, project: 'henderson-lease', text }, board.agents, MEMBERS);
+      const lines = carries(n);
+      assert.ok(lines.length > 0, 'no whole-room envelope for: ' + text);
+      assert.ok(lines.every((c) => c === open), (open ? 'missing' : 'unwanted') + ' claim line for: ' + text);
+      const r = tryClaim(lastPostId(), who);
+      assert.equal(Boolean(r && r.ok), open, 'the claim guard disagrees with the envelope for: ' + text + ' ' + JSON.stringify(r));
+    }
+  });
+});
