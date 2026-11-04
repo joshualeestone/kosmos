@@ -61,6 +61,8 @@ if (require.main === module) {
 /* #7693: after the log stamp and before the engine modules copy these functions: a blocking child process
    over a second writes its caller to board.log. See engine/slowspawn.js. Only when this file IS the board. */
 if (require.main === module) require('./engine/slowspawn').install(require('node:child_process'));
+/* #7693: the whole of any stall over two seconds, which is what slowspawn cannot see. See engine/loopheld.js. */
+if (require.main === module) require('./engine/loopheld').watch({ blockedMs: require('./engine/slowspawn').blockedMs });
 /* #5450: who started this board (install/kosmos board-run and start), taken out of the environment before anything
    can start a process that would inherit it (the log stamp above starts none; #4199 keeps it right after the bootstrap); engine/restartnote.js atStart reads these values. (engine/worldenv.js
    froze a copy of the environment above; its only reader takes paths from it and starts nothing.) */

@@ -1758,7 +1758,13 @@ async function snapshotUnheld() {
   const got = await gathering;
   await new Promise((resolve) => { setImmediate(resolve); });   // requests sharing a gather each take their own turn of the loop
   gathered = { ...got, held: new Set() };
-  try { return snapshot(); } finally { gathered = null; }
+  const began = Date.now();
+  try { return snapshot(); } finally {
+    gathered = null;
+    // #7693: this part holds the board, once per waiting request, and the spawn log cannot see it (file reads).
+    const took = Date.now() - began;
+    if (took >= 1000) console.warn('[slow-snapshot] ' + took + ' ms');
+  }
 }
 
 /* The reader of the live input box in an ANSI capture (capture-pane -e); engine/chat.js uses it to confirm a line was
