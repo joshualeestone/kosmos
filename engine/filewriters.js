@@ -9,6 +9,9 @@
  * names that agent only when the file's last change came within WRITE_WINDOW_MS after the record (or SLACK_MS before
  * it). The record is made before the edit, so it is a heuristic: see the plan's weakest premise.
  *
+ * kosmos#7989: it also keeps each file's owner (the first agent seen about to change it) and, when another agent is
+ * about to change it, writes a notice in the project's room for the agents (ownerNotice), throttled under NOTICES_KEY.
+ *
  * One small JSON file per project under the store. Never throws.
  */
 
@@ -25,6 +28,9 @@ const ROOTS_TTL_MS = 10 * 1000;
 /* kosmos#7989: at most one owner notice per writer and owner in a project in this long, so a writer changing a whole
    folder of one agent's files leaves one note, not one per file. */
 const NOTICE_EVERY_MS = 60 * 60 * 1000;
+/* kosmos#7989: at most this many owner notices in one project's room per NOTICE_EVERY_MS, so a busy room's own posts are not
+   pushed out of what `kosmos room` shows by default. */
+const NOTICE_ROOM_MAX = 6;
 /* kosmos#7989: the record's own entry for those notices. A file name never holds a control character (noteWrite refuses
    one), so this key cannot be a file's. */
 const NOTICES_KEY = '\u0000notices';
@@ -112,19 +118,21 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
     if (first) entry.first = first;
     /* kosmos#7989: another agent about to change an owned file is said in the project's room, at most once per writer and
        owner per NOTICE_EVERY_MS (NOTICES_KEY keeps when each pair was last said; stamped before the note is written, so
-       a note that fails silences that pair for the hour, the quiet direction). A notice, not a lock: nothing is refused. */
+       a note that fails, or one skipped because the owner is no longer on the project, silences that pair for the hour, the
+       quiet direction), and at most NOTICE_ROOM_MAX pairs per project in that time. A notice, not a lock: nothing is refused. */
     let notice = null;
     const book = rec[NOTICES_KEY] && typeof rec[NOTICES_KEY] === 'object' && rec[NOTICES_KEY].by && typeof rec[NOTICES_KEY].by === 'object'
       ? { ...rec[NOTICES_KEY].by } : {};
+    for (const k of Object.keys(book)) if (!(now - Date.parse(book[k]) < NOTICE_EVERY_MS)) delete book[k];
     if (first && first !== who) {
       const pair = who + '\u0000' + first;
       const last = Date.parse(book[pair]);
-      if (!(Number.isFinite(last) && now - last >= 0 && now - last < NOTICE_EVERY_MS)) {
+      const roomFull = Object.keys(book).length >= NOTICE_ROOM_MAX;
+      if (!roomFull && !(Number.isFinite(last) && now - last >= 0 && now - last < NOTICE_EVERY_MS)) {
         notice = { projectId: at.projectId, name: at.name, owner: first, writer: who };
         book[pair] = entry.at;
       }
     }
-    for (const k of Object.keys(book)) if (!(now - Date.parse(book[k]) < NOTICE_EVERY_MS)) delete book[k];
     if (Object.keys(book).length) rec[NOTICES_KEY] = { at: entry.at, by: book }; else delete rec[NOTICES_KEY];
     rec[at.name] = entry;
     const kept = Object.entries(rec)
@@ -151,8 +159,8 @@ function quotedName(name) {
 }
 function ownerNoticeText({ name, owner, writer }) {
   return writer + ' was about to change ' + quotedName(name) + ' (' + owner + ' was the first agent seen changing it here). '
-    + 'A notice, not a lock: ' + owner + ', read it again before you build on what you last saw in it. Other files of yours '
-    + writer + ' changes in the next hour are not noticed one by one.';
+    + 'A notice, not a lock: ' + owner + ', read it again before you build on what you last saw in it. For the next hour, '
+    + 'Kosmos will not post a separate notice for each other file ' + writer + ' changes that you were first to change.';
 }
 function ownerNotice(n) {
   try {
@@ -186,4 +194,4 @@ function annotate(projectId, files, nameOf = (s) => s) {
   });
 }
 
-module.exports = { noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, ownerNoticeText, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS };
+module.exports = { noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, ownerNoticeText, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS, NOTICE_ROOM_MAX };
