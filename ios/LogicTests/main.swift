@@ -3138,7 +3138,14 @@ section("native board loop: connecting")
         }
         await c.attach(.photo(load: { ("Photo 2026-11-04 at 08.27.39.jpg", realJPEG()) }), epoch: c.chatEpoch, to: dana)
         let kept = attached().last!.id
-        check(attached().count == 2 && (c.attachedPreviews[kept]?.count ?? 0) > 0, "a real photo waiting on the composer keeps a copy to show")
+        check(attached().count == 2 && (c.attachedPreviews[kept]?.large.count ?? 0) > 0, "a real photo waiting on the composer keeps a copy to show")
+        if let small = c.attachedPreviews[kept]?.small, let src = CGImageSourceCreateWithData(small as CFData, nil),
+           let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any] {
+            let w = props[kCGImagePropertyPixelWidth] as? Int ?? 0, h = props[kCGImagePropertyPixelHeight] as? Int ?? 0
+            check(max(w, h) == Board.attachThumbnailMaxPixels && min(w, h) >= 168, "and a small one for its square: 336 px long, at least 168 short (\(w)x\(h))")
+        } else {
+            check(false, "and a small one for its square: 336 px long, at least 168 short (none kept)")
+        }
         check(c.attachedPreviews[attached()[0].id] == nil, "CONTROL: the PDF beside it keeps none")
         c.unattach(kept, for: "dana")
         check(c.attachedPreviews.isEmpty, "the x (or Remove) drops the copy with the file")

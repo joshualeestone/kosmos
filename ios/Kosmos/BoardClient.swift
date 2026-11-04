@@ -748,8 +748,8 @@ final class BoardClient: ObservableObject {
             if kept.count != attachedPreviews.count { attachedPreviews = kept }
         }
     }
-    /// kosmos#7944: a small JPEG of each picture waiting on a composer, by its id (Board.attachPreview).
-    @Published private(set) var attachedPreviews: [String: Data] = [:]
+    /// kosmos#7944: each picture waiting on a composer, by its id, as two small JPEGs (Board.attachedPicture).
+    @Published private(set) var attachedPreviews: [String: Board.AttachedPicture] = [:]
     @Published private(set) var uploading: [String: Int] = [:]
     // kosmos#7682: moved on by cancelAdding and forgetChats, per chat, so an add from before a cancel neither counts nor lands.
     private var addGeneration: [String: Int] = [:]
@@ -814,15 +814,12 @@ final class BoardClient: ObservableObject {
         // cancelled this chat's adds (kosmos#7682): the pick is dropped.
         guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return }
         let result: Board.UploadResult
-        var preview: Data?
+        var pictureFile: URL?   // kosmos#7944: a picture, whose copy for the composer is made once it is added
         switch prepared {
         case .refused(let why):
             result = .refused(why)
         case .ready(let file, let name, let type, let size):
-            // kosmos#7944: read while the phone's copy is still here (it goes once this add ends).
-            if Board.isPreviewableImage(type: type, name: name) {
-                preview = await Self.offMainData { Board.attachPreview(of: file) }
-            }
+            if Board.isPreviewableImage(type: type, name: name) { pictureFile = file }
             if sample {
                 // The sample chats (a Debug build only): added at once, so a screenshot never shows a real Mac's file.
                 result = .added(Board.Attached(id: String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(24)), name: name))
@@ -844,23 +841,25 @@ final class BoardClient: ObservableObject {
         guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return }
         switch result {
         case .added(let a):
-            if attached[session]?.contains(where: { $0.id == a.id }) != true {
-                if let preview { attachedPreviews[a.id] = preview }   // before the file, so the prune keeps it
-                attached[session, default: []].append(a)
+            guard attached[session]?.contains(where: { $0.id == a.id }) != true else { return }
+            // kosmos#7944: the copy is made AFTER the upload, so nothing waits between the guard above the upload and
+            // the upload itself (review 1: an account switch or the x in that wait would still have sent the file).
+            // The phone's copy is still here (it goes when this add ends), and the guard is asked again after it.
+            var picture: Board.AttachedPicture?
+            if let pictureFile {
+                picture = await Self.offMain { Board.attachedPicture(of: pictureFile) }
+                guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return }
             }
+            if let picture { attachedPreviews[a.id] = picture }   // before the file, so the prune keeps it
+            attached[session, default: []].append(a)
         case .refused(let why):
             attachLine[session] = why
         }
     }
 
     // A copy can wait on Files fetching a file from the cloud for as long as that takes: on a dispatch thread, so it
-    // never holds one of the few threads Swift's tasks share.
-    nonisolated private static func offMainData(_ work: @escaping @Sendable () -> Data?) async -> Data? {
-        await withCheckedContinuation { done in
-            DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) }
-        }
-    }
-    nonisolated private static func offMain(_ work: @escaping @Sendable () -> Board.Prepared) async -> Board.Prepared {
+    // never holds one of the few threads Swift's tasks share. (kosmos#7944: a picture's composer copy runs here too.)
+    nonisolated private static func offMain<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T {
         await withCheckedContinuation { done in
             DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) }
         }
@@ -1491,7 +1490,7 @@ final class BoardClient: ObservableObject {
         // KOSMOS_SAMPLE_ATTACHED=1 (kosmos#7071): two files waiting on Dana's composer, one on its way, and a message of
         // files only still sending, for the screenshots (nothing on the build Mac can tap the picker).
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ATTACHED"] == "1" {
-            attachedPreviews["00000000000000000000000b"] = Board.sampleAttachPreview()   // kosmos#7944
+            attachedPreviews["00000000000000000000000b"] = Board.sampleAttachPreview().map { Board.AttachedPicture(large: $0, small: $0) }   // kosmos#7944
             // kosmos#7944: the photo first, so the composer's screenshot shows its picture beside the plain chip.
             attached["dana"] = [Board.Attached(id: "00000000000000000000000b", name: "Photo 2026-10-24 at 18.30.05.jpg"),
                                 Board.Attached(id: "00000000000000000000000a", name: "Catalogue pages 1-8.pdf")]

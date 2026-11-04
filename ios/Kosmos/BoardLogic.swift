@@ -1752,6 +1752,21 @@ enum Board {
     }
     #endif
 
+    /// kosmos#7944: a waiting picture as the composer keeps it: `large` for the sheet, `small` for its 56 pt square
+    /// (decoded on every draw of the row, so it is kept small rather than scaled down from `large` each time).
+    struct AttachedPicture: Equatable, Sendable {
+        let large: Data
+        let small: Data
+    }
+    /// The small one's longest side: 56 pt at 3x is 168 px, and a square crops a 4:3 picture's long side, so twice that.
+    static let attachThumbnailMaxPixels = 336
+
+    /// Both copies of the picture at `url`, or nil when it is not a picture ImageIO can read (a plain chip then).
+    static func attachedPicture(of url: URL) -> AttachedPicture? {
+        guard let large = attachPreview(of: url), let small = attachPreview(of: url, maxPixels: attachThumbnailMaxPixels) else { return nil }
+        return AttachedPicture(large: large, small: small)
+    }
+
     /// The longest side of the kept picture, in pixels: sharp across a phone's width at 3x (1290 px on the widest),
     /// and about 0.2 to 0.5 MB as a JPEG, so ten waiting files stay small.
     static let attachPreviewMaxPixels = 1600

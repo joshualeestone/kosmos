@@ -1284,7 +1284,7 @@ struct RoomView: View {
                     .padding(.horizontal, 6)
                 }
                 ForEach(attachedHere) { a in
-                    FileChip(name: a.name, preview: client.attachedPreviews[a.id], open: { previewing = a },
+                    FileChip(name: a.name, preview: client.attachedPreviews[a.id]?.small, open: { previewing = a },
                              remove: { client.unattach(a.id, for: attachKey) })
                 }
             }
@@ -1294,9 +1294,14 @@ struct RoomView: View {
         .padding(.horizontal, 12)
         // kosmos#7944: a waiting picture, tapped (as in an agent's chat).
         .sheet(item: $previewing) { a in
-            if let data = client.attachedPreviews[a.id] {
-                AttachedPreview(name: a.name, preview: data, remove: { client.unattach(a.id, for: attachKey) })
+            if let picture = client.attachedPreviews[a.id] {
+                AttachedPreview(name: a.name, preview: picture.large, remove: { client.unattach(a.id, for: attachKey) })
             }
+        }
+        // kosmos#7944 review 1: the sheet closes if its file leaves the composer while it is open (a send from another
+        // place, or another account or computer), rather than staying open and empty.
+        .onChange(of: previewing.map { client.attachedPreviews[$0.id] != nil } ?? true) { still in
+            if !still { previewing = nil }
         }
     }
 

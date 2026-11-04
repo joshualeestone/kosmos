@@ -26,12 +26,12 @@ final class AttachedPreviewUITests: XCTestCase {
         let remove = app.buttons["attached-preview-remove"]
         XCTAssertTrue(remove.waitForExistence(timeout: 5), "the preview did not open")
         XCTAssertTrue(app.staticTexts[photo].exists, "the preview does not name the file")
-        sleep(1)
+        sleep(1)   // the sheet's slide up, for the screenshot only
         shot(app, "preview-open")
         remove.tap()
-        XCTAssertFalse(remove.waitForExistence(timeout: 3), "the preview stayed after Remove")
-        sleep(1)
-        XCTAssertFalse(app.buttons["Remove \(photo)"].exists, "the photo is still waiting after Remove")
+        let gone = NSPredicate(format: "exists == false")
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: gone, evaluatedWith: remove)], timeout: 5), .completed, "the preview stayed after Remove")
+        XCTAssertEqual(XCTWaiter.wait(for: [expectation(for: gone, evaluatedWith: open)], timeout: 5), .completed, "the photo is still waiting after Remove")
         XCTAssertTrue(app.buttons["Remove Catalogue pages 1-8.pdf"].exists, "CONTROL: Remove took the other file too")
         shot(app, "after-remove")
     }

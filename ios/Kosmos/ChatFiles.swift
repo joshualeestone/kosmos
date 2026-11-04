@@ -125,12 +125,14 @@ struct FileChip: View {
                         .frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .offset(x: 14, y: -14)
+                // Centred ON the corner (review 1: set in by 8 pt, its 44 pt place covered a third of the picture, and a
+                // tap meant to open it removed it). A quarter of that place is over the picture, as in Josh's reference.
+                .offset(x: 22, y: -22)
                 .accessibilityLabel("Remove \(name)")
             }
         }
-        // Room for the x past the corner, so the row does not clip it.
-        .padding(.top, 8).padding(.trailing, 8)
+        // The whole 44 pt place inside the row: a scroll view takes no taps outside itself.
+        .padding(.top, 22).padding(.trailing, 22)
     }
 
     /// The picture's square in the composer, in points (Josh's reference: about a seventh of the screen's width).
