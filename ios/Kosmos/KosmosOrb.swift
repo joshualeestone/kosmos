@@ -32,7 +32,7 @@ struct KosmosOrb: View {
                 }
             }
         }
-        .frame(width: size, height: size)   // not dimmed in a disabled Button: those are disabled because they are working (round 6)
+        .frame(width: size, height: size)   // observed, not enforced: the Canvas fills an explicit colour, so a disabled Button does not dim it (those are disabled because they are working; round 6)
         .accessibilityElement()
         .accessibilityLabel(Text(label))
         .accessibilityAddTraits(reduceMotion ? [] : .updatesFrequently)
