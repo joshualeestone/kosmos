@@ -5,8 +5,9 @@
 # linux-family-install-7281.yml; run both for a promote check:
 #     gh workflow run linux-family-install-7281.yml -f channel=staging
 #     gh workflow run linux-promote-check-7933.yml
-# Not on pull requests: it reads the live site, so a PR cannot change what it tests. A promote does not wait for it:
-# tools/promote-channel.sh runs neither workflow, so the #7777 check runs them by hand and cites the runs. The legs are
+# Not on pull requests: it reads the live site, so a PR cannot change what it tests. A promote needs it: a green run
+# from main records the build it checked (the record job below), and tools/promote-channel.sh refuses to move
+# latest-linux.json without that record and linux-family-install-7281.yml's for the same sha (kosmos#7942). The legs are
 # tools/promote-check-legs-7933.sh (verify and data also run on a Mac: `bash tools/promote-check-legs-7933.sh data mac`).
 
 name: linux-promote-check
@@ -114,6 +115,9 @@ jobs:
           case "$VS" in *[!0-9a-f]*|'') echo "FAIL: the verify leg recorded no sha" >&2; exit 1 ;; esac
           [ "${#VS}" = 64 ] && [ -n "$VV" ] || { echo "FAIL: the verify leg recorded no build" >&2; exit 1; }
           [ "$VV $VS" = "$DV $DS" ] && [ "$VV $VS" = "$UV $US" ] || { echo "FAIL: the legs checked different builds; nothing is recorded" >&2; exit 1; }
+          # The update leg read the pointer before its installer did: a re-cut in between would change the bytes.
+          now="$(curl -fsS -m 30 https://installkosmos.com/dist/latest-linux-staging.json)"
+          printf '%s' "$now" | grep -qF "\"$VS\"" || { echo "FAIL: the staging pointer no longer names $VS; nothing is recorded" >&2; exit 1; }
           mkdir -p "$RUNNER_TEMP/record"
           printf '{"workflow":"linux-promote-check-7933.yml","version":"%s","sha256":"%s","run":"%s"}\n' "$VV" "$VS" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/record/checked.json"
           echo "name=linux-promote-check-$VV-$VS" >> "$GITHUB_OUTPUT"
@@ -121,4 +125,4 @@ jobs:
         with:
           name: ${{ steps.same.outputs.name }}
           path: ${{ runner.temp }}/record/checked.json
-          retention-days: 30
+          retention-days: 90

@@ -10,7 +10,7 @@ V=9.9.9; SHA="$(printf 'build' | shasum -a 256 | awk '{print $1}')"; OTHER="$(pr
 FX="$T/fx"; mkdir -p "$FX"
 # The fake gh: `gh api <path> --jq <expr>` prints what the fixture for that path holds (the jq result itself).
 # artifacts?name=<n>  -> $FX/art-<n> (one run id per line; absent = no artifact)  | $FX/art-down makes it fail
-# runs/<id>           -> $FX/run-<id> ("<conclusion> <branch> <path>")            | $FX/run-down makes it fail
+# runs/<id>           -> $FX/run-<id> ("<conclusion> <event> <repo> <branch> <path>")            | $FX/run-down makes it fail
 cat > "$T/gh" <<FAKE
 #!/usr/bin/env bash
 [ "\$1" = api ] || exit 9
@@ -24,7 +24,7 @@ chmod +x "$T/gh"
 run() { KOSMOS_GH="$T/gh" KOSMOS_GH_REPO=o/r bash "$HERE/tools/linux-check-runs.sh" "$@" > "$T/out" 2>&1; echo $?; }
 reset() { rm -f "$FX"/*; }
 green() {  # <prefix> <file> <run id>: an artifact for the exact build from a successful main run of that workflow
-  echo "$3" > "$FX/art-$1-$V-$SHA"; echo "success main .github/workflows/$2" > "$FX/run-$3"
+  echo "$3" > "$FX/art-$1-$V-$SHA"; echo "success workflow_dispatch o/r main .github/workflows/$2" > "$FX/run-$3"
 }
 
 reset; green linux-family-install linux-family-install-7281.yml 11; green linux-promote-check linux-promote-check-7933.yml 22
@@ -43,25 +43,35 @@ mv "$FX/art-linux-promote-check-$V-$SHA" "$FX/art-linux-promote-check-$V-$OTHER"
 chk "green runs of ANOTHER build of the same version do not count -> 1" [ "$(run "$V" "$SHA")" = 1 ]
 
 reset; green linux-family-install linux-family-install-7281.yml 11; green linux-promote-check linux-promote-check-7933.yml 22
-echo "failure main .github/workflows/linux-promote-check-7933.yml" > "$FX/run-22"
+echo "failure workflow_dispatch o/r main .github/workflows/linux-promote-check-7933.yml" > "$FX/run-22"
 chk "an artifact whose run failed afterwards does not count -> 1" [ "$(run "$V" "$SHA")" = 1 ]
-chk "saying it exists but not from a successful run" grep -q 'exists, but not from a successful run of linux-promote-check-7933.yml on main' "$T/out"
+chk "saying it exists but not from a successful dispatch" grep -q 'exists, but not from a successful dispatch of linux-promote-check-7933.yml on o/r' "$T/out"
 
 reset; green linux-family-install linux-family-install-7281.yml 11; green linux-promote-check linux-promote-check-7933.yml 22
-echo "success linux-promote-ci-x .github/workflows/linux-promote-check-7933.yml" > "$FX/run-22"
+echo "success workflow_dispatch o/r linux-promote-ci-x .github/workflows/linux-promote-check-7933.yml" > "$FX/run-22"
 chk "a green run on another branch does not count -> 1" [ "$(run "$V" "$SHA")" = 1 ]
 
 reset; green linux-family-install linux-family-install-7281.yml 11; green linux-promote-check linux-promote-check-7933.yml 22
-echo "success main .github/workflows/linux-family-install-7281.yml" > "$FX/run-22"
+echo "success workflow_dispatch o/r main .github/workflows/linux-family-install-7281.yml" > "$FX/run-22"
 chk "an artifact of the right name from ANOTHER workflow does not count -> 1" [ "$(run "$V" "$SHA")" = 1 ]
 
 reset; green linux-family-install linux-family-install-7281.yml 11; green linux-promote-check linux-promote-check-7933.yml 22
-echo "success main .github/workflows/linux-promote-check-7933.yml@refs/heads/main" > "$FX/run-22"
+echo "success workflow_dispatch o/r main .github/workflows/linux-promote-check-7933.yml@refs/heads/main" > "$FX/run-22"
 chk "a workflow path with an @ref suffix still counts -> 0" [ "$(run "$V" "$SHA")" = 0 ]
 
 reset; green linux-family-install linux-family-install-7281.yml 11; green linux-promote-check linux-promote-check-7933.yml 22
-printf '21\n22\n' > "$FX/art-linux-promote-check-$V-$SHA"; echo "failure main .github/workflows/linux-promote-check-7933.yml" > "$FX/run-21"
+printf '21\n22\n' > "$FX/art-linux-promote-check-$V-$SHA"; echo "failure workflow_dispatch o/r main .github/workflows/linux-promote-check-7933.yml" > "$FX/run-21"
 chk "one failed and one green run of the same build: the green one counts -> 0" [ "$(run "$V" "$SHA")" = 0 ]
+
+reset; green linux-family-install linux-family-install-7281.yml 11; green linux-promote-check linux-promote-check-7933.yml 22
+echo "success pull_request someone/fork main .github/workflows/linux-promote-check-7933.yml" > "$FX/run-22"
+chk "a fork's pull-request run from ITS main does not count -> 1" [ "$(run "$V" "$SHA")" = 1 ]
+reset; green linux-family-install linux-family-install-7281.yml 11; green linux-promote-check linux-promote-check-7933.yml 22
+echo "success push o/r main .github/workflows/linux-promote-check-7933.yml" > "$FX/run-22"
+chk "a push run (not a dispatch) does not count -> 1" [ "$(run "$V" "$SHA")" = 1 ]
+reset; green linux-family-install linux-family-install-7281.yml 11; green linux-promote-check linux-promote-check-7933.yml 22
+echo "success workflow_dispatch someone/fork main .github/workflows/linux-promote-check-7933.yml" > "$FX/run-22"
+chk "a dispatch from another repository does not count -> 1" [ "$(run "$V" "$SHA")" = 1 ]
 
 reset; green linux-family-install linux-family-install-7281.yml 11; green linux-promote-check linux-promote-check-7933.yml 22; touch "$FX/art-down"
 chk "GitHub not answering for an artifact -> 2 (cannot tell)" [ "$(run "$V" "$SHA")" = 2 ]

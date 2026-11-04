@@ -129,7 +129,7 @@ jobs:
         with:
           name: ${{ steps.record.outputs.name }}
           path: ${{ runner.temp }}/record/checked.json
-          retention-days: 30
+          retention-days: 90
 
       - name: Put the system node back (the runner is discarded, but say so plainly)
         if: always()
