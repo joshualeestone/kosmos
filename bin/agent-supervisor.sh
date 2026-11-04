@@ -1395,6 +1395,14 @@ if [ -z "$adopt" ]; then
     _GROK_PREFIX=()
     _GROK_ACCT="${GROK_HOME:-${AGENT_WORKFORCE_GROK_HOME:-${AGENT_WORKFORCE_HOME:-$HOME}/.grok}}"
     [ -z "${GROK_HOME:-}" ] && PANE_ENV+=(-e "GROK_HOME=$_GROK_ACCT")
+    # #7976: grok's report hooks, before every launch and not only at birth: a wiped home, a new account home, or a file
+    # from before a later hook otherwise reports nothing, with no sign of why (agy does the same, #4043). Our own file, so
+    # the person's other hooks are untouched. Best-effort, never blocks launch; stderr (why not) goes to the agent log.
+    _GROK_BRIDGE="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/grok-report-bridge.js"
+    if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/groksettings.js" ] && [ -f "$_GROK_BRIDGE" ]; then
+      "$NODE_BIN" "$_eng/groksettings.js" "$_GROK_ACCT/hooks/kosmos-report-bridge.json" "$_GROK_BRIDGE" || true
+    fi
+    unset _GROK_BRIDGE
     _GROK_KIND=""
     if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/grokaccounts.js" ]; then
       # The account's authMode, or nothing. A function, so its early return is legal:
