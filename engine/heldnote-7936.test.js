@@ -63,10 +63,11 @@ test.beforeEach(() => {
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
 /* The board's own hooks (limitqueue.sweepHooks, as server.js passes them), with the box never clearing (isReleased
-   false: nothing is typed) and, where a test says so, `isLimited` or the messages module swapped. The tellers type
+   false: nothing is typed), the box taken as the reason (boxIsReason true) unless a test says otherwise, and, where
+   a test says so, the messages module swapped. The tellers type
    asynchronously, so the sweep waits a turn for their pastes. */
 async function sweep(board, now, extra = {}, msgs = messages) {
-  await limitqueue.flush(board.agents, { ...limitqueue.sweepHooks({ chat, messages: msgs }), isReleased: () => false, now, ...extra });
+  await limitqueue.flush(board.agents, { ...limitqueue.sweepHooks({ chat, messages: msgs }), isReleased: () => false, boxIsReason: () => true, now, ...extra });
   for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
 }
 const MIN = 60e3;
@@ -127,27 +128,40 @@ test('#7936 item 2: the unanswered list names the flag kosmos post takes (--in-r
   assert.ok(!src.includes("cites it by id with --reply-to)"), 'the header still names --reply-to');
 });
 
-test('#7936 review 1: an agent on a usage limit as well keeps the day: no 2-hour drop, no "input box" notice', async () => {
+test('#7936 reviews 1-3: while the box is not the only reason (a limit, a box read empty or unread), the day applies and no notice goes', async () => {
   await withFleet(async (board, tmux) => {
     const at = Date.now() - limitqueue.INPUT_DROP_AFTER_MS - MIN;
     const iso = new Date(at).toISOString();
     limitqueue.add('casey', { id: 'm7940', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
     const seen = Date.now();
-    await sweep(board, seen, { isLimited: () => true });
+    await sweep(board, seen, { boxIsReason: () => false });
     assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7940'], 'dropped at 2 hours while the agent is limited');
     assert.deepEqual(tmux.pastedTo('leo'), [], 'told about the input box while the agent is limited');
-    await sweep(board, seen + limitqueue.INPUT_DROP_AFTER_MS + MIN, { isLimited: () => false });
+    await sweep(board, seen + limitqueue.INPUT_DROP_AFTER_MS + MIN, { boxIsReason: () => true });
     assert.deepEqual(limitqueue.list('casey'), [], 'CONTROL: with the limit gone the same message drops 2 hours after it ended');
   });
 });
 
-test('#7936 review 1: the board passes isLimited as "its queue is not released on usage or sign-in"', () => {
+test('#7936 review 3: the board passes boxIsReason as "released on usage and sign-in, and the box reads text"', () => {
   const hooks = limitqueue.sweepHooks({ chat, messages });
-  const real = chat.limitQueueReleased;
+  const rel = chat.limitQueueReleased, reads = chat.inputBoxReads;
   try {
-    chat.limitQueueReleased = () => true; assert.equal(hooks.isLimited({ sessionName: 'casey' }, []), false);
-    chat.limitQueueReleased = () => false; assert.equal(hooks.isLimited({ sessionName: 'casey' }, []), true);
-  } finally { chat.limitQueueReleased = real; }
+    const cases = [[true, 'text', true], [true, 'empty', false], [true, 'unread', false], [false, 'text', false]];
+    for (const [released, box, want] of cases) {
+      chat.limitQueueReleased = () => released; chat.inputBoxReads = () => box;
+      assert.equal(hooks.boxIsReason({ sessionName: 'casey' }, []), want, JSON.stringify({ released, box }));
+    }
+  } finally { chat.limitQueueReleased = rel; chat.inputBoxReads = reads; }
+});
+
+test('#7936 review 3: a caller that passes no boxIsReason keeps the day', async () => {
+  await withFleet(async (board) => {
+    const iso = new Date(Date.now() - limitqueue.INPUT_DROP_AFTER_MS - MIN).toISOString();
+    limitqueue.add('casey', { id: 'm7945', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
+    const hooks = limitqueue.sweepHooks({ chat, messages }); delete hooks.boxIsReason;
+    await limitqueue.flush(board.agents, { ...hooks, isReleased: () => false, now: Date.now() });
+    assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7945'], 'dropped at 2 hours with no box verdict');
+  });
 });
 
 test('#7936 review 1: a still-held notice that does not land is tried again at the next sweep, and not after it lands', async () => {
@@ -161,10 +175,12 @@ test('#7936 review 1: a still-held notice that does not land is tried again at t
     await sweep(board, Date.now(), {}, fake);
     assert.deepEqual(tries, ['m7941'], 'not tried');
     await sweep(board, Date.now() + MIN, {}, fake);
+    assert.deepEqual(tries, ['m7941'], 'tried again within STILL_RETRY_MS (a stall streak of Kosmos\'s own retries)');
+    await sweep(board, Date.now() + limitqueue.STILL_RETRY_MS + MIN, {}, fake);
     assert.deepEqual(tries, ['m7941', 'm7941'], 'a notice that did not land was not tried again');
     answer = { state: chat.DELIVERY.PLACED };
-    await sweep(board, Date.now() + 2 * MIN, {}, fake);
-    await sweep(board, Date.now() + 3 * MIN, {}, fake);
+    await sweep(board, Date.now() + 2 * limitqueue.STILL_RETRY_MS + 2 * MIN, {}, fake);
+    await sweep(board, Date.now() + 3 * limitqueue.STILL_RETRY_MS + 3 * MIN, {}, fake);
     assert.equal(tries.length, 3, 'tried again after it landed');
   });
 });
@@ -173,9 +189,9 @@ test('#7936 review 2: a card that cannot be read counts as limited, so a doubt k
   await withFleet(async (board, tmux) => {
     const iso = new Date(Date.now() - limitqueue.INPUT_DROP_AFTER_MS - MIN).toISOString();
     limitqueue.add('casey', { id: 'm7942', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
-    await sweep(board, Date.now(), { resolveCard: () => null });
+    await sweep(board, Date.now(), { resolveCard: () => null, boxIsReason: () => true });
     assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7942'], 'dropped at 2 hours with no card to judge');
-    await sweep(board, Date.now(), { isLimited: () => { throw new Error('no verdict'); } });
+    await sweep(board, Date.now(), { boxIsReason: () => { throw new Error('no verdict'); } });
     assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7942'], 'dropped at 2 hours when the verdict threw');
     assert.deepEqual(tmux.pastedTo('leo'), [], 'a notice went out on a doubt');
   });
@@ -187,13 +203,13 @@ test('#7936 review 2: after a limit ends, the 2 hours count from when the box be
     const iso = new Date(t0).toISOString();
     limitqueue.add('casey', { id: 'm7943', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
     const limitEnd = Date.now() - 30 * MIN;
-    await sweep(board, limitEnd, { isLimited: () => true });   // the last sweep that saw casey limited
-    await sweep(board, Date.now(), { isLimited: () => false });
+    await sweep(board, limitEnd, { boxIsReason: () => false });   // the last sweep that saw casey limited
+    await sweep(board, Date.now(), { boxIsReason: () => true });
     assert.deepEqual(limitqueue.list('casey').map((e) => e.id), ['m7943'], 'dropped though the box has been the only reason for 30 minutes');
     const lines = tmux.pastedTo('leo');
     assert.equal(lines.length, 1, 'the sender was not told once the box was the only reason for 10 minutes');
     assert.ok(lines[0].includes('drops it at ' + new Date(limitEnd + limitqueue.INPUT_DROP_AFTER_MS).toISOString()), lines[0]);
-    await sweep(board, limitEnd + limitqueue.INPUT_DROP_AFTER_MS + MIN, { isLimited: () => false });
+    await sweep(board, limitEnd + limitqueue.INPUT_DROP_AFTER_MS + MIN, { boxIsReason: () => true });
     assert.deepEqual(limitqueue.list('casey'), [], 'CONTROL: 2 hours after the limit ended it drops');
   });
 });

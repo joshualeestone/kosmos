@@ -38,7 +38,7 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
 - The "told" set is in memory: a board restart within the window may tell a sender a second time (stated cost).
 - Review 1:
   - only while the box is the reason: an agent out of usage or signed out as well (its queue not released on that
-    account, the hooks' `isLimited`) keeps the day and gets no "input box" notice, so a later reset still types it;
+    account) keeps the day and gets no "input box" notice, so a later reset still types it;
   - the notice counts as told only when it lands (placed or unconfirmed), otherwise the next sweep tries again;
   - a message kept behind an input-held one names the 2 hours in its receipt and the CLI lines (bash and Windows);
   - the tests drive the board's own sweepHooks, not a copy of them.
@@ -47,12 +47,20 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
   - the 2 hours count from the last sweep that saw the agent limited (in memory: after a restart, from arrival);
   - still-held notices are said after the sweep's typing, only for messages still kept;
   - the drop notice says "two hours" only when the 2-hour rule dropped it (the sweep passes `short`);
-  - the told set is cleared on every removal path.
+  - the told set is cleared on every removal path the sweep has (task lines and a person's DMs never enter it).
+- Review 3:
+  - the rule's test is direct: `boxIsReason` (the agent's queue released on usage and sign-in, AND its box reads text).
+    A box that reads empty or unread (a backlog draining, a menu or quota hold), a missing card, a throw, or a caller
+    that passes no boxIsReason all keep the day;
+  - no notice in a sweep that found the agent released (its box read clear);
+  - a notice that did not land is tried again no sooner than STILL_RETRY_MS (15 min), so Kosmos's own retries cannot
+    make up a sender's stall streak (3 failures within 30 minutes);
+  - a bad reset is never told as "two hours"; the file's doc comments name the 2-hour rule.
 
 ## Tests
 
-engine/heldnote-7936.test.js (12 tests, through limitqueue.sweepHooks): the limited case and its control, isLimited's
-wiring, the notice retried until it lands; the notice at 10 min (none at 9, once only, still kept, nothing typed into the box); the
+engine/heldnote-7936.test.js (13 tests, through limitqueue.sweepHooks): the not-only-the-box case and its control,
+boxIsReason's wiring (four cases), a caller with no boxIsReason, the notice retried until it lands; the notice at 10 min (none at 9, once only, still kept, nothing typed into the box); the
 drop at 2 h with its wording, a usage-limit hold of the same age kept (control); dropAfter by kind; the receipt and
 CLI wording; the unanswered header. Control: with the drop back on DROP_AFTER_MS the 2-hour test fails. Existing:
 limitmsg-5805, limittask-5805, inputkeep-6774 (engine, server, cli), limitdm-5805, agyhold-deliver-4588,
