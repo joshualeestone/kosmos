@@ -5218,12 +5218,19 @@ function dmQuestionTold(agent, askedAt, nowMs) {
 function markDmQuestionTold(agent, askedAt, nowMs) {
   DM_QUESTION_TOLD.set(String(agent), { askedAt: String(askedAt), at: Number.isFinite(nowMs) ? nowMs : Date.now() });
 }
-function dmStandingQuestionNote(question) {
+function dmStandingQuestionNote(question, opts) {
   if (typeof question !== 'string' || !question.trim()) return '';
   const words = question.replace(new RegExp(DM_PANE_UNSAFE.source, 'g'), ' ').replace(/[\s\u0000-\u001f\u007f]+/g, ' ').trim();
   const chars = Array.from(words);
   const snippet = chars.length > DM_QUESTION_SNIPPET ? chars.slice(0, DM_QUESTION_SNIPPET).join('').trimEnd() + '…' : words;
   if (!snippet) return '';
+  /* #7915: the agent held this question until the person was back (`kosmos report needs_you --held`). A message from them
+     is the sign they are back, but only the agent can read whether they also said to keep holding. */
+  if (opts && opts.held === true) {
+    return ' [kosmos] you held a question until this person was back, and they are writing to you now: "' + snippet.replace(/"/g, '\'') + '".'
+      + ' Ask it now if it still stands (run kosmos report needs_you again without --held), unless they said to keep holding;'
+      + ' if it no longer stands, run: kosmos report clear.';
+  }
   return ' [kosmos] your question to this person is still open on the board: "' + snippet.replace(/"/g, '\'') + '".'
     + ' If this message answers it, act on the answer and run: kosmos report clear.'
     + ' If it does not, leave it open and tell them what you still need (or report the new question instead).';

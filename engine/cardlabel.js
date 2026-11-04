@@ -28,6 +28,10 @@ const STATE_COPY = Object.freeze({
   needs_trust: 'Waiting on a trust prompt',
 });
 
+/* #7915: the agent's own question, held until the person is back (`kosmos report needs_you --held`). Calm, and the
+   phone's tone is a question's (toneOf), so it reads as a question waiting rather than one being pressed. */
+const QUESTION_HELD = 'Question held';
+
 function restartingLabel(a) {
   const cause = a && a.disruption && a.disruption.cause;
   const base = cause === 'model' ? (a.modelName ? 'Switching to ' + a.modelName : 'Switching model')
@@ -51,6 +55,7 @@ function labelOf(a) {
   if (a && a.deliveryStall) return 'Messages stuck';   // #7212 slice 2: the page's stateCopyOf, as the crash loop above
   if (a && a.state === 'idle' && a.neverTurned === true) return 'Not started yet';   // #7786: the page's stateCopyOf
   if (a && a.state === 'restarting') return restartingLabel(a);
+  if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent' && a.stateHeld === true) return QUESTION_HELD;   // #7915
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
   // #6091: the card is on its permission prompt (status.awaitingApprovalOf), as the page's stateCopyOf.
   if (a && a.state === 'needs_you' && a.awaitingApproval === true) return STATE_COPY.approval;
@@ -76,7 +81,7 @@ function toneOf(a, needsPerson) {
   const looping = Boolean(a && a.crashLoop && a.crashLoop.looping === true);
   if (!offline && !looping && !needsPerson && !known) return 'quiet';
   const word = labelOf(a);
-  if (word === STATE_COPY.question) return 'asked';
+  if (word === STATE_COPY.question || word === QUESTION_HELD) return 'asked';
   if (NEEDS_YOU_WORDS.has(word) || needsPerson) return 'needs_you';
   if (word === STATE_COPY.working) return 'working';
   return 'quiet';
@@ -132,4 +137,4 @@ function standingFor(ageMs) {
   return days >= 2 ? days + ' days' : 'over a day';
 }
 
-module.exports = { labelOf, toneOf, reasonOf, NEEDS_REASONS, cardLine, standingFor, STATE_COPY, NEEDS_YOU_WORDS };
+module.exports = { labelOf, toneOf, reasonOf, NEEDS_REASONS, cardLine, standingFor, STATE_COPY, NEEDS_YOU_WORDS, QUESTION_HELD };

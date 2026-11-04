@@ -166,7 +166,9 @@ test('#5943 review 3: the asking reminder comes from the board, so every CLI pri
   assert.doesNotMatch(selfreport.NEEDS_YOU_ASK_NOTE, /["\\]/, 'the bash CLI reads `note` with a sed that stops at a quote');
   assert.match(selfreport.NEEDS_YOU_ASK_NOTE, /Can you undo it before anyone acts on it\?/);
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
-  assert.match(src, /if \(body\.state === 'needs_you' && body\.auto !== true\) note = selfreport\.NEEDS_YOU_ASK_NOTE;/);
+  // #7915: a held question gets its own note (NEEDS_YOU_HELD_NOTE) in the same place; an unheld one still this one.
+  assert.match(src, /if \(body\.state === 'needs_you' && body\.auto !== true\) note = body\.held === true \? selfreport\.NEEDS_YOU_HELD_NOTE : selfreport\.NEEDS_YOU_ASK_NOTE;/);
+  assert.doesNotMatch(selfreport.NEEDS_YOU_HELD_NOTE, /["\\]/, 'the bash CLI reads `note` with a sed that stops at a quote');
   const win = fs.readFileSync(path.join(__dirname, 'tools', 'windows', 'kosmos-cli.js'), 'utf8');
   assert.match(win, /\.note/, 'the Windows CLI prints the report note');
 });

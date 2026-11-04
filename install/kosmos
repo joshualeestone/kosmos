@@ -4072,22 +4072,23 @@ cmd_report() {
     # are back at it. `clear` is that, by a name a person or an agent would guess.
     clear) _clear=1; shift 2>/dev/null || true; set -- working "$@" ;;
   esac
-  local state text body because note on="" owner="" until="" project="" auto=0
+  local state text body because note on="" owner="" until="" project="" auto=0 held=0
   state="${1:-}"
   shift 2>/dev/null || true
   # Bash 3.2 flag loop: the three optional fields blocked carries, and the
   # project a report is about (#763). Anything else is the sentence.
   while [ $# -gt 0 ]; do
     case "$1" in
-      --on)    _opt_value report --on "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [text]"; on="${2:-}";    shift 2 2>/dev/null || break ;;
-      --owner) _opt_value report --owner "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [text]"; owner="${2:-}"; shift 2 2>/dev/null || break ;;
-      --until) _opt_value report --until "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [text]"; until="${2:-}"; shift 2 2>/dev/null || break ;;
-      --project) _opt_value report --project "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [text]"; project="${2:-}"; shift 2 2>/dev/null || break ;;
+      --on)    _opt_value report --on "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [text]"; on="${2:-}";    shift 2 2>/dev/null || break ;;
+      --owner) _opt_value report --owner "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [text]"; owner="${2:-}"; shift 2 2>/dev/null || break ;;
+      --until) _opt_value report --until "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [text]"; until="${2:-}"; shift 2 2>/dev/null || break ;;
+      --project) _opt_value report --project "${2:-}" "Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [text]"; project="${2:-}"; shift 2 2>/dev/null || break ;;
       --auto)  auto=1;          shift 1 2>/dev/null || break ;;
+      --held)  held=1;          shift 1 2>/dev/null || break ;;   # #7915: a question held until the person is back
       *) break ;;
     esac
   done
-  local _use="Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]"
+  local _use="Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [what you want to say about it]"
   # Review 1: an option of report's own given last with no value (`report blocked --on`) is left here by the loop's
   # `shift 2 || break`; say what it needs rather than calling it unknown.
   # (Not `case "${1:-}"`: the verbs-parity test reads that shape as a subcommand list.)
@@ -4103,6 +4104,11 @@ cmd_report() {
     say "kosmos report clear is something you do yourself, so it takes no --auto."
     exit 2
   fi
+  # #7915: --held means something only on a needs_you. Refused here before the network (the board refuses it too).
+  if [ "$held" = 1 ] && [ "$state" != needs_you ]; then
+    say "--held goes only with needs_you: kosmos report needs_you --held '<your question>' holds a question until the person is back."
+    exit 2
+  fi
   if [ -z "$state" ]; then
     say "$_use"
     say "  kosmos report show     (what the board has for you now; kosmos report status is the same)"
@@ -4110,6 +4116,7 @@ cmd_report() {
     # kosmos#6683: what --until does to the day-old reminder (engine/selfreport.js untilDefers).
     say "  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC)."
     say "  --until in words (\"the owner says\"): no stale reminder at all. Anything else with a number in it: as if no --until."
+    say "  --held (needs_you only): the person asked you to hold questions until they are back. Nothing buzzes; you are told when they next write."
     exit 2
   fi
   # #2001: blocked and needs_you are the only two states that exist to SUMMON A
@@ -4185,7 +4192,7 @@ cmd_report() {
   fi
   body=$(kosmos_curl "$_bt" "$_tok" -sS -m "$_post_m" -X POST "$URL/api/report" \
     -H 'content-type: application/json' \
-    --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"project\":\"$esc_project\",\"auto\":$([ "$auto" = 1 ] && printf 'true' || printf 'false'),\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
+    --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"project\":\"$esc_project\",\"auto\":$([ "$auto" = 1 ] && printf 'true' || printf 'false'),\"held\":$([ "$held" = 1 ] && printf 'true' || printf 'false'),\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say_unreached "record that" "$?" write
     exit 1
   }

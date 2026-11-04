@@ -22471,6 +22471,9 @@ function stateCopyOf(a) {
   // #2808 class 2: a deliberate agent question reads "Question", attn:false (calm), not
   // the red "Issue". The predicate is byte-identical to cardStOf's above (inlined, not
   // shared, so this painter stays self-contained for eval-extraction), so label and card agree.
+  /* #7915: the agent holds its question until the person is back (`kosmos report needs_you --held`); engine/cardlabel.js
+     QUESTION_HELD is the same word. Calm, like Question. */
+  if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent' && a.stateHeld === true) return { label: 'Question held', attn: false };
   if (a && a.state === 'needs_you' && a.stateReportedBy === 'agent') return STATE_COPY.question;
   // #6091: the card is on its permission prompt (status.awaitingApprovalOf, read from the screen before the report).
   if (a && a.state === 'needs_you' && a.awaitingApproval === true) return STATE_COPY.approval;

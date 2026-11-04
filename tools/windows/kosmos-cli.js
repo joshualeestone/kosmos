@@ -96,7 +96,7 @@ const USAGE = {
   react: 'Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   claim: 'Usage: kosmos claim <project-id> <post-id> [--release]   (the post id is in brackets before each post in kosmos room, e.g. [m3])',
   records: 'Usage: kosmos records <project-id> | kosmos records set <project-id> "<name>" [--status "<status>"] [--confirmed YYYY-MM-DD] [--source "<link or file>"] | kosmos records remove <project-id> "<name>" | kosmos records label <project-id> "<what the rows are>"',
-  report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.',
+  report: 'Usage: kosmos report <started|working|idle|needs_you|blocked|stopped> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [what you want to say about it]\n  kosmos report show     (what the board has for you now; kosmos report status is the same)\n  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)\n  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC).\n  --until in words ("the owner says"): no stale reminder at all. Anything else with a number in it: as if no --until.\n  --held (needs_you only): the person asked you to hold questions until they are back. Nothing buzzes; you are told when they next write.',
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   fingerprint: 'Usage: kosmos fingerprint <file> [expected]   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: sha256:<hex> is the plain sha256 of the file, what shasum prints; pdf-normalized:<hex> is a PDF with its creation and change dates and document ID left out, so the same source rendered twice matches, and is not what shasum prints; a PDF over 64 MB is hashed as plain bytes. With an expected value it compares like with like and says which kind: a bare 64-hex value or sha256: is checked against the plain sha256)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
@@ -964,16 +964,17 @@ async function reportShow(ctx) {
 
 async function verbReport(ctx, args, opts) {
   const state = args.shift();
-  const f = { on: '', owner: '', until: '', project: '', auto: false };
+  const f = { on: '', owner: '', until: '', project: '', auto: false, held: false };
   while (args.length) {
     const a = args[0];
     if (a === '--auto') { f.auto = true; args.shift(); continue; }
+    if (a === '--held') { f.held = true; args.shift(); continue; }   // #7915, as install/kosmos
     const m = /^--(on|owner|until|project)$/.exec(a);
     if (!m) break;
     args.shift();
     /* kosmos#4889 review 1, as install/kosmos: an option given last with no value says what it needs. */
     if (!args.length) { ctx.err(a + ' needs a value: ' + USAGE.report.split('\n')[0]); return 2; }
-    if (optValueRefused(ctx, a, args[0], 'Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--auto] [text]')) return 2;
+    if (optValueRefused(ctx, a, args[0], 'Usage: kosmos report <state> [--on <what>] [--owner <who>] [--until <when>] [--project <project-id>] [--held] [--auto] [text]')) return 2;
     f[m[1]] = args.shift() || '';
   }
   /* kosmos#4889, as install/kosmos: the card's own case was `report needs_you --clear`; #4891 added the verb for it. */
@@ -984,6 +985,8 @@ async function verbReport(ctx, args, opts) {
      from the parsed flag, as on the Mac, so a note that mentions --auto is still a note. */
   if (opts && opts.clear && f.auto) { ctx.err('kosmos report clear is something you do yourself, so it takes no --auto.'); return 2; }
   const text = left.join(' ');
+  /* #7915, as install/kosmos: --held means something only on a needs_you. */
+  if (f.held && state !== 'needs_you') { ctx.err('--held goes only with needs_you: kosmos report needs_you --held \'<your question>\' holds a question until the person is back.'); return 2; }
   if (!state) { ctx.err(USAGE.report); return 2; }
   /* #2001, as install/kosmos: the two states that summon a person need something
      a person can act on. */
@@ -991,7 +994,7 @@ async function verbReport(ctx, args, opts) {
     ctx.err('A \'' + state + '\' report needs at least one of --on <what>, --owner <who>, or a note: that state summons a person, and an empty one names nothing to act on.');
     return 2;
   }
-  const r = await ctx.call('POST', '/api/report', { state, text, on: f.on, owner: f.owner, until: f.until, project: f.project, auto: f.auto, from_pane: '' });
+  const r = await ctx.call('POST', '/api/report', { state, text, on: f.on, owner: f.owner, until: f.until, project: f.project, auto: f.auto, held: f.held, from_pane: '' });
   if (!r.reached) return ctx.unreachable('record that');
   /* Dropped, not kept: a state this agent was in while its Kosmos was closed is
      stale by the time it opens. Exit 0, because nothing went wrong. */

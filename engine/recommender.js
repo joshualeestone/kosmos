@@ -61,6 +61,8 @@ function stuckRow(a) {
   if (!a || !a.sessionName) return null;
   if (!STUCK_STATES.has(a.state)) return null;
   if (a.stateReportedBy !== 'agent') return null;
+  // #7915: a question the agent holds until the person is back is not stuck; convening peers on it is following it up.
+  if (a.stateHeld === true) return null;
   if (typeof a.stateProject !== 'string' || !a.stateProject) return null;
   // A project carried forward from an EARLIER report (selfreport's projectInferred) is not one
   // the agent named for this question; asking in that room could ask the wrong people.

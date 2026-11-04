@@ -132,6 +132,9 @@ const BLOCK = [
   '  test, or for what only they have: a password, a payment, a sign-in, a',
   '  preference about their own business. Every question you raise is one more',
   '  thing a person has to stop and answer.',
+  '  **If the person asked you to hold questions until they are back**, add',
+  '  `--held`: the question stays on the board, nothing follows it up, and you',
+  '  are told when they next write to you.',
   '',
   '⚠️ **Neither of these means you have stopped, and they used to say so.** Both',
   'were once described as things you do AFTER stopping, which made stopping the',
@@ -1257,8 +1260,14 @@ function block() {
  *     32 an agent's EDITED copy of that section is not re-offered it.
  *     WEAKEST PREMISE, NAMED: that agents read the bracket; the envelope carries the command for every direct
  *     message, so the doctrine line is the second place, not the only one.
+ *  45. kosmos#7915 (#7886 item 7: a person told an agent to hold its questions until they were back, and its needs_you
+ *     kept being followed up). The needs_you bullet names `--held`: the question stays on the board as "Question
+ *     held", no phone buzz, no Recommender, no stale reminder, and the next direct message from the person carries a
+ *     note that they are back. No new heading, so as in 32 an agent's EDITED copy of that section is not re-offered it.
+ *     WEAKEST PREMISE, NAMED: that an agent told to hold its questions reads this bullet then; `kosmos report` usage
+ *     names --held too, in both CLIs.
  */
-const DOCTRINE_VERSION = 44;
+const DOCTRINE_VERSION = 45;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each
