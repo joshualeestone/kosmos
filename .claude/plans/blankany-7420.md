@@ -37,3 +37,7 @@ anchor, so the person sees rows again. Josh's phone is the test (the simulator n
 ## Tests
 LogicTests main.swift: the first empty-within list rebuilds whatever the anchor; the no-rebuild control; a later look
 still leaves a reader higher up. room/main.swift pins the settled arm. Typecheck Release and DEBUG.
+- Review 2: the delayed confirm reads every guard again (app active, rows, the rebuild grace too). With the budget spent,
+  a reader higher up rebuilt by a settled look is not sent to the newest by id (keepPlace). Accepted and stated: a rebuild
+  sets atBottom true; if the rebuilt list never reaches its end it stays true (the keyboard hold stands down, a new message
+  moves the list) until the person scrolls or the end shows, which on a blank screen costs nothing.
