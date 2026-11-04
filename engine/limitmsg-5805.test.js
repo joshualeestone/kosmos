@@ -316,7 +316,7 @@ test('#5805 2a review 3: a send to a released agent with kept messages still wai
     await limitqueue.flush(board.agents, opts());
     const typed = tmux.pastedTo('casey');
     assert.equal(typed.length, 2);
-    assert.match(typed[0], new RegExp(first + ' · to answer, run: kosmos msg --in-reply-to ' + first + ' [a-z]+\\]'));
+    assert.match(typed[0], new RegExp(first + ' · to answer, if it needs one, run: kosmos msg --in-reply-to ' + first + ' [a-z]+\\]'));
     assert.match(bare(typed[1]), /\] two$/);
   });
 });

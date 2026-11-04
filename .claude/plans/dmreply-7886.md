@@ -12,7 +12,7 @@ A direct message arrives as `[message from your colleague <name> · m<id>]` with
 1. `kosmos msg` takes a leading `--in-reply-to <id>` (with or without `--stdin`, either order) and sends
    `in_reply_to`. Both CLIs: install/kosmos and tools/windows/kosmos-cli.js (parity, done Mac-side per the 09-28
    scope note; Homer asked to confirm one real run, not gating).
-2. The direct-message envelope ends with ` · to answer, run: kosmos msg --in-reply-to <id> <sender>`, the sender
+2. The direct-message envelope ends with ` · to answer, if it needs one, run: kosmos msg --in-reply-to <id> <sender>`, the sender
    being its session name (what `kosmos msg` takes).
 
 ## Decided in review
