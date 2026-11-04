@@ -87,7 +87,7 @@ test('#7362 Mac: a refused plan prints the board\'s reason and sends no DELETE',
 
 test('#7362 Mac: a partial removal exits non-zero and says partly', () => withStub([200, PLAN], PARTIAL, async (port, seen) => {
   const r = await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
-  assert.equal(r.code, 1, r.out);
+  assert.equal(r.code, 1, 'exit ' + r.code + ' (141 is SIGPIPE under pipefail); the CLI said: ' + r.out);   // #7946
   assert.equal(deletes(seen).length, 1);
   assert.match(r.out, /Only partly removed: Sally Sales is off the board, but we could not shut it down, so it is still going\./);
   assert.doesNotMatch(r.out, /can be put back/);
@@ -255,7 +255,7 @@ test('#7362 review 1: a connection dropped after the removal was sent says it MA
 
 test('#7362 review 2 Mac: a removal that threw partway (500 {error, detail}) says it MAY be partly removed, exit 3', () => withStub([200, PLAN], [500, { error: 'the removal failed partway and we cannot tell you how far it got', detail: 'boom' }], async (port, seen) => {
   const r = await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
-  assert.equal(deletes(seen).length, 1, 'CONTROL: the removal was sent');
+  assert.equal(deletes(seen).length, 1, 'CONTROL: the removal was sent; the CLI exited ' + r.code + ' and said: ' + r.out);   // #7946
   assert.equal(r.code, 3, r.out);
   assert.match(r.out, /Sally Sales may be partly removed: the removal failed partway/);
   assert.doesNotMatch(r.out, /did not remove/);
@@ -271,7 +271,7 @@ test('#7362 review 2 Mac: a connection dropped after the removal was sent says i
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   try {
     const r = await cli(srv.address().port, ['agent', 'remove', 'Sally Sales', '--yes']);
-    assert.equal(deleted, 1, 'CONTROL: the removal reached the board');
+    assert.equal(deleted, 1, 'CONTROL: the removal reached the board; the CLI exited ' + r.code + ' and said: ' + r.out);   // #7946
     assert.equal(r.code, 3, r.out);
     assert.match(r.out, /Sally Sales may have been removed; look at the board/);
   } finally { srv.closeAllConnections(); await new Promise((r) => srv.close(r)); }
@@ -298,21 +298,54 @@ for (const dot of ['.', '..']) {
 }
 
 /* kosmos#7946: on macOS CI the CLI exited 141 (SIGPIPE under `set -euo pipefail`) with no output, before the DELETE,
-   in three runs on three unrelated PRs. The remove path keeps no pipeline whose reader can exit before its producer is
-   done (head, grep -q, an awk that exits, a sed that quits), so no producer can take SIGPIPE there. */
-const EARLY_READER = /\|\s*(?:LC_ALL=\S+\s+)?(?:head\b|grep\s+(?:-[a-zA-Z]*q|--quiet)|sed\s+-n\s+'?\d*q|awk\b[^|]*\bexit\b)/;
-test('#7946: install/kosmos agent remove has no pipeline into an early-exiting reader (control: the old shape is caught)', () => {
+   on unrelated PRs. The remove case's request code keeps no pipeline whose reader can exit before its producer is done,
+   so no producer there can take SIGPIPE. earlyReaders() finds such pipelines: continued lines are joined, each line is
+   split on real pipes (`|` and `|&`, never `||`), and the reader is read past env, assignments, `command`, a path,
+   quotes and a `{` or `(`. Early: head, read, grep -q / -m / --quiet / --max-count, a sed that quits, an awk that
+   exits outside END. */
+function earlyReaders(text) {
+  const joined = text.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
+    .replace(/\\\n\s*/g, ' ').replace(/(\|&?)\s*\n\s*/g, '$1 ');
+  const hits = [];
+  for (const line of joined.split('\n')) {
+    const code = line.replace(/\s#\s.*$/, '');
+    const parts = code.split(/(?<!\|)\|&?(?!\|)/);
+    for (const seg of parts.slice(1)) {
+      let r = seg.trim().replace(/^[{(]\s*/, '');
+      for (;;) {
+        const t = r.replace(/^(?:env\s+|command\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)/, '');
+        if (t === r) break;
+        r = t;
+      }
+      r = r.replace(/^["']/, '').replace(/^(?:\/[\w.-]+)*\//, '');
+      const word = (r.match(/^[\w.-]+/) || [''])[0];
+      const rest = r.slice(word.length);
+      const early = word === 'head' || word === 'read'
+        || (word === 'grep' && /\s(?:-[a-zA-Z]*[qm]|--quiet\b|--max-count\b)/.test(rest))
+        || (word === 'sed' && /(?:^|[\s';{])\d*q\b|;\s*q\s*;?\s*}/.test(rest))
+        || (word === 'awk' && /\bexit\b/.test(rest.replace(/\bEND\s*\{[^}]*\}/g, '')));
+      if (early) hits.push(line.trim());
+    }
+  }
+  return hits;
+}
+test('#7946: install/kosmos agent remove\'s request code has no pipeline into an early-exiting reader (controls: each early shape is caught, each full reader passes)', () => {
   const src = fs.readFileSync(CLI, 'utf8');
   const start = src.indexOf("      # kosmos#7362: through the board's own Remove");
   const end = src.indexOf('\n  esac\n}', start);
   assert.ok(start > 0 && end > start, 'the remove block was found');
   const block = src.slice(start, end);
   assert.match(block, /-X DELETE "\$URL\/api\/agent\/\$rm_path\/removal"/, 'the block is the remove path (it sends the DELETE)');
-  const hits = block.split('\n').filter((l) => !/^\s*#/.test(l) && EARLY_READER.test(l));
-  assert.deepEqual(hits, [], 'a pipeline here can end the CLI with 141 before the DELETE');
-  // CONTROL: the shape #7946 removed, and the other early readers, are each caught; a full reader is not.
-  for (const bad of [`rm_ok=$(printf '%s\\n' "$rm_plan" | head -n 1 | cut -f1)`, `printf '%s' "$x" | grep -q y`, `printf x | LC_ALL=C head -c 3`,
-    `printf x | awk '{ exit }'`, `printf x | sed -n 1q`]) assert.match(bad, EARLY_READER, bad);
-  for (const ok of [`printf '%s' "$body" | "$_node" -e "$p"`, `printf '%s\\n' "$rm_plan" | tail -n +2 | while IFS= read -r _l; do say "$_l"; done`,
-    `rm_out=$(printf '%s' "$rm_parsed" | cut -f1)`]) assert.doesNotMatch(ok, EARLY_READER, ok);
+  assert.deepEqual(earlyReaders(block), [], 'a pipeline here can end the CLI with 141 before the DELETE');
+  const early = [`rm_ok=$(printf '%s\\n' "$rm_plan" | head -n 1 | cut -f1)`, `printf '%s' "$x" | grep -q y`, `printf x | LC_ALL=C head -c 3`,
+    `printf x | awk '{ exit }'`, `printf x | sed -n 1q`, `printf x | sed 1q`, `printf x | sed -e 1q`, `printf x | sed -n '1{p;q;}'`,
+    `printf x | { read -r a; echo "$a"; }`, `printf x | IFS= read -r a`, `printf x | grep -m1 y`, `printf x | grep --max-count=1 y`,
+    `printf x | grep -E -q y`, `printf x | /usr/bin/head -n 1`, `printf x | "head" -n 1`, `printf x | command head -n 1`,
+    `printf x | env LC_ALL=C head -n 1`, `printf x | LC_ALL=C LANG=C head -n 1`, `printf x |& head -n 1`, `printf x |\n  head -n 1`,
+    `printf x \\\n  | head -n 1`];
+  for (const bad of early) assert.equal(earlyReaders(bad).length, 1, 'not caught: ' + bad);
+  const full = [`printf '%s' "$body" | "$_node" -e "$p"`, `printf '%s\\n' "$rm_plan" | tail -n +2 | while IFS= read -r _l; do say "$_l"; done`,
+    `rm_out=$(printf '%s' "$rm_parsed" | cut -f1)`, `foo || head -n1 f`, `printf x | awk '{n++} END {exit n==0}'`, `printf x | awk 'END{exit 1}'`,
+    `case "$a" in ''|*[!0-9]*) ;; esac`, `x=$(cat f)   # not: printf | head`, `rm_ok=$(cut -f1 <<<"$rm_head")`];
+  for (const ok of full) assert.deepEqual(earlyReaders(ok), [], 'false positive: ' + ok);
 });
