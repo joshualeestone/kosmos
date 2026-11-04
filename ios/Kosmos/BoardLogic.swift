@@ -972,7 +972,11 @@ enum Board {
         let kept = shown.compactMap { byKey[$0.session] }
         let known = Set(shown.map(\.session))
         let newcomers = fresh.filter { !known.contains($0.session) }
-        return kept + (sort.map { agentOrder(newcomers, sort: $0, projects: projects, stars: stars) } ?? sorted(newcomers, stars: stars))
+        // kosmos#7684 (Josh 11-03 19:00: "starred agents should always be on top no matter the sort"): the one move a live
+        // update makes is a star's. Starred rows lead, each group in the order it was shown (stars read after the list was
+        // first sorted, or a starred agent that joins later, would otherwise sit below unstarred ones until a re-sort).
+        let ordered = kept + (sort.map { agentOrder(newcomers, sort: $0, projects: projects, stars: stars) } ?? sorted(newcomers, stars: stars))
+        return starredFirst(ordered, stars: stars)
     }
 
     // #7034 (#6719 on the phone): the person's starred agents, by session name, as the board keeps them
