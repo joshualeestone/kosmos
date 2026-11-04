@@ -234,17 +234,39 @@ test('#7936 review 2: after a limit ends, the 2 hours count from when the box be
   });
 });
 
-test('#7936 review 7: a sender with STILL_FAILS_MAX notices that did not land gets no more, so it cannot reach a stall alert', async () => {
+test('#7936 reviews 7-8: no still-held notice while one more failure could make the sender\'s stall alert; a delivery that lands lifts it', async () => {
+  const ds = require('./deliverystreak');
+  await withFleet(async (board) => {
+    ds.reset('leo');
+    const at = Date.now() - limitqueue.STILL_HELD_TELL_MS - MIN;
+    const iso = new Date(at).toISOString();
+    limitqueue.add('casey', { id: 'm7950', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
+    await sweep(board, at, { boxIsReason: () => true });
+    const tries = [];
+    const fake = { ...messages, tellHeldStill: async (e) => { tries.push(e.id); return { state: chat.DELIVERY.PLACED }; } };
+    for (let k = 0; k < ds.STALL_MIN_FAILS - 1; k++) ds.note('leo', { state: 'could_not', because: 'held: a menu is up' });
+    assert.equal(ds.failCount('leo'), ds.STALL_MIN_FAILS - 1, 'CONTROL: the streak holds the failures the test noted');
+    await sweep(board, Date.now(), {}, fake);
+    assert.deepEqual(tries, [], 'a notice went out that could make the stall alert');
+    ds.note('leo', { state: 'placed' });   // a delivery to leo lands: its streak ends
+    await sweep(board, Date.now() + MIN, {}, fake);
+    assert.deepEqual(tries, ['m7950'], 'no notice once the streak ended');
+    ds.reset('leo');
+  });
+});
+
+test('#7936 review 7: one still-held notice per sender per sweep, across every recipient', async () => {
   await withFleet(async (board) => {
     const at = Date.now() - limitqueue.STILL_HELD_TELL_MS - MIN;
     const iso = new Date(at).toISOString();
-    for (const id of ['m7950', 'm7951', 'm7952']) limitqueue.add('casey', { id, from: 'leo', envelope: id, at: iso, reset: iso, input: true });
+    for (const id of ['m7951', 'm7952']) limitqueue.add('casey', { id, from: 'leo', envelope: id, at: iso, reset: iso, input: true });
     await sweep(board, at, { boxIsReason: () => true });
     const tries = [];
-    const fake = { ...messages, tellHeldStill: async (e) => { tries.push(e.id); return { state: chat.DELIVERY.COULD_NOT, because: 'held: a menu is up' }; } };
-    for (let k = 0; k < 6; k++) await sweep(board, Date.now() + k * limitqueue.STILL_RETRY_MS, {}, fake);
-    assert.ok(tries.length >= 1, 'CONTROL: a notice was tried');
-    assert.ok(tries.length <= limitqueue.STILL_FAILS_MAX, 'more failed notices than STILL_FAILS_MAX to one sender: ' + tries.join(','));
+    const fake = { ...messages, tellHeldStill: async (e) => { tries.push(e.id); return { state: chat.DELIVERY.PLACED }; } };
+    await sweep(board, Date.now(), {}, fake);
+    assert.equal(tries.length, 1, 'more than one notice to one sender in a sweep: ' + tries.join(','));
+    await sweep(board, Date.now() + MIN, {}, fake);
+    assert.equal(tries.length, 2, 'CONTROL: the second message is told at the next sweep');
   });
 });
 

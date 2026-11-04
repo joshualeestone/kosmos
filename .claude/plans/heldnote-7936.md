@@ -71,14 +71,21 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
   passes `now` (the same in production); a notice that fails after its message left the queue leaves one map entry.
 - Review 6: a task line kept behind an input-held message gets no 2-hour clause in its receipt (it keeps the day).
 - Review 7: spacing alone did not keep Kosmos's notices under a stall alert (deliverystreak.stallOf: 3 failures over a
-  streak of 30 minutes; one notice retried at 0, 15 and 30 reaches it, and several messages from one sender add up). A
-  sender with STILL_FAILS_MAX (2) notices that did not land gets no more until one lands; the drop notice still comes. The
-  "keeps the day" tests were rebuilt so the first-sweep rule cannot pass them on its own: each starts the clock at
-  arrival with the box as the reason, then reports the limit or the doubt; a mutation with boxIsReason ignored fails them.
+  streak of 30 minutes; one notice retried at 0, 15 and 30 reaches it, and several messages from one sender add up). One
+  notice per sender per sweep, across every recipient. The "keeps the day" tests were rebuilt so the first-sweep rule
+  cannot pass them on its own: each starts the clock at arrival with the box as the reason, then reports the limit or the
+  doubt; a mutation with boxIsReason ignored turns all four red.
+- Review 8: review 7's own fix (a per-sender count of notices that did not land) could block a sender for good, since
+  only a notice that landed cleared it and none was sent. Replaced by the streak itself: a notice goes only while the
+  sender's deliverystreak.failCount (every failure kind, unconfirmed included, any recipient) is at least two short of
+  STALL_MIN_FAILS, so it cannot make the third; any delivery that lands ends the streak and lifts it. An unconfirmed
+  notice no longer counts as told.
+- Review loop: 8 rounds is the cap, but round 8 found a defect in round 7's fix (a sender could be blocked for good),
+  so one more round reviews that fix before the PR.
 
 ## Tests
 
-engine/heldnote-7936.test.js (14 behaviour and source tests, besides the sandbox check, through limitqueue.sweepHooks): the not-only-the-box case and its control,
+engine/heldnote-7936.test.js (17 behaviour and source tests, besides the sandbox check, through limitqueue.sweepHooks): the not-only-the-box case and its control,
 boxIsReason's wiring (four cases), a caller with no boxIsReason, the notice retried until it lands; the notice at 10 min (none at 9, once only, still kept, nothing typed into the box); the
 drop at 2 h with its wording, a usage-limit hold of the same age kept (control); dropAfter by kind; the receipt and
 CLI wording; the unanswered header. Control: with the drop back on DROP_AFTER_MS the 2-hour test fails. Existing:
