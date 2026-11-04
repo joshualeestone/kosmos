@@ -3298,6 +3298,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    surviving rule would still draw a line under markup that no longer exists. */
 /* The role sits directly under the name as one unit (Josh's regroup). */
 .acard .ameta { font-weight: 600; color: var(--k-ink); font-size: .8125rem; margin-top: 1px; }
+/* #7978: inside the model line, so the card's grid gains no row; on a line of its own, and only when out of the ordinary. */
+.acard .amachine { display: block; font-weight: 600; color: var(--k-ink); margin-top: 2px; }
 /* Josh, 2026-08-19: "a tiny bit more. Not crazy." One pixel is not a gap, it is
    the absence of one. Mona Lisa's spec (#184) is `--space-3`.
    ⚠️ MEASURE THE SPACE BUDGET, NOT THE ELEMENT — her rule, and the thing to
@@ -13746,6 +13748,7 @@ window.kosmosMeasureScrollbarWidth();
     <p class="runnow" id="d-runson"></p>
     <p class="dhint" id="d-runson-why" hidden></p>
     <p class="dhint" id="d-health" hidden></p>
+    <p class="dhint" id="d-machine" hidden></p>
     <div class="msteps" role="group" aria-label="Change what this agent runs on" style="margin-top:12px;">
       <div class="frow">
         <!-- kosmos#990 (Josh, 2026-08-26): "prepopulate that with what it is
@@ -23861,7 +23864,7 @@ function card(a) {
     <div class="ameta">${esc((typeof SWARMS_ON !== 'undefined' && SWARMS_ON && Object.prototype.hasOwnProperty.call(a, 'swarm') && a.swarm) ? 'Swarm · ' + swarmStatusWords(a) : roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a, say) : pillTitle(say)}>${glyphOf(a)}<b>${esc(copy.label)}</b>${pillVh(say)}</div>
     ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
-    <div class="amodel">${esc(tileModelLine(a))}</div>
+    <div class="amodel">${esc(tileModelLine(a))}${machineFlagHtml(a)}</div>
     <div class="atask">${esc(taskLine(a, { card: true }))}</div>
   </div>`;
 }
@@ -25977,6 +25980,52 @@ const HEALTH_QUIET_MS = 3600e3;   // see healthLine: how recent a sighting "no p
    "no problem showing" would be false there. Not 'connection_lost' either: beside a lost connection, "no problem
    showing" reads as a clean bill of health. Such an agent shows only the time. */
 const HEALTH_READ_STATES = new Set(['working', 'idle', 'needs_you', 'rate_limited', 'auth_failed']);
+/* #7978 item 1: what an agent's processes hold on this computer (engine/machinecost.js). Show only: nothing here stops
+   anything. Unknown (Windows, no sample yet, or an agent whose reading failed) says nothing, never a guessed zero. */
+const MACHINE_BIG_MB = 4096;      // past what a working agent normally holds, measured 200 MB to 2.2 GB on a busy board 11-04
+const MACHINE_BUSY_CPU = 90;      // about a whole processor
+const MACHINE_LEFT_MIN_MB = 200;  // engine/machinecost.js LEFT_MIN_KB: smaller leftovers are not asked about
+function machineSize(mb) {
+  const n = Number(mb);
+  if (!Number.isFinite(n) || n < 0) return '';
+  return n < 1024 ? Math.round(n) + ' MB' : (Math.round((n / 1024) * 10) / 10) + ' GB';
+}
+function machineCpuWords(pct) {
+  const n = Number(pct);
+  if (!Number.isFinite(n)) return '';
+  if (n < 100) return Math.round(n) + '% of one processor';
+  const count = Math.round(n / 10) / 10;
+  return 'about ' + count + (count === 1 ? ' processor' : ' processors');
+}
+/* The agent's own page: the numbers, then the largest process, or the one left behind. */
+function machineLine(a) {
+  const m = a && a.machine;
+  if (!m || typeof m !== 'object' || !machineSize(m.memMb)) return '';
+  let line = 'Using ' + machineSize(m.memMb) + ' of memory and ' + machineCpuWords(m.cpuPct) + ' on this computer.';
+  const t = m.top;
+  if (t && t.name && t.left) {
+    const age = Number(t.days) >= 1 ? ', running for ' + (t.days === 1 ? 'a day' : t.days + ' days') : '';
+    line += (t.how === 'folder' ? ' Probably left behind by an earlier run, since it sits in this agent\u2019s folder: ' : ' Left behind by an earlier run: ')
+      + t.name + ', ' + machineSize(t.memMb) + age + ' (process ' + t.pid + '). Kosmos only shows this; it is still running.';
+  } else if (t && t.name && Number(m.processes) > 1) {
+    line += ' Largest: ' + t.name + ', ' + machineSize(t.memMb) + '.';
+  }
+  return line;
+}
+/* The card: only what is out of the ordinary, so a figure there means look at this. '' for everything else. */
+function machineFlag(a) {
+  const m = a && a.machine;
+  if (!m || typeof m !== 'object') return '';
+  if (Number(m.leftMemMb) >= MACHINE_LEFT_MIN_MB) return machineSize(m.leftMemMb) + ' left behind';
+  if (Number(m.memMb) >= MACHINE_BIG_MB) return 'Using ' + machineSize(m.memMb);
+  if (Number(m.cpuPct) >= MACHINE_BUSY_CPU) return 'Using ' + machineCpuWords(m.cpuPct);
+  return '';
+}
+function machineFlagHtml(a) {
+  const f = machineFlag(a);
+  return f ? '<span class="amachine">' + esc(f) + '</span>' : '';
+}
+
 function healthLine(a, nowMs) {
   const lw = a && a.lastWorked;
   if (!lw || typeof lw !== 'object') return '';
@@ -45260,6 +45309,8 @@ function paintDetailState(card) {
      sign-in or usage problem. */
   const dhealth = document.getElementById('d-health');
   if (dhealth) { dhealth.textContent = healthLine(a, Date.now()); dhealth.hidden = !dhealth.textContent; }
+  const dmachine = document.getElementById('d-machine');   // #7978
+  if (dmachine) { dmachine.textContent = machineLine(a); dmachine.hidden = !dmachine.textContent; }
   /* #3958 (review): the screen-said evidence and the re-auth button follow the poll with the
      pill. Painted FIRST, so a missing #d-task or #d-state cannot stop them. Painted only by openDetail they froze while the pill went live, so a page opened on a
      working agent that then hit auth_failed said so in the pill with no "Sign in again" beside it. */

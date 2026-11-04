@@ -1138,6 +1138,50 @@ const SCREENS = [
     await page.click('button.vt[data-layout="list"][aria-label="Show agents as a list"]');
     await page.waitForSelector('button.vt[data-layout="list"][aria-pressed="true"][aria-label="Show agents as a list"]', { timeout: 5000 });
   } },
+  /* kosmos#7978: what an agent's processes hold. One agent carries a left-behind process, so its card and its page say so;
+     the status read is stubbed (a throwaway board has no such process), and only for this screen. */
+  { name: 'agent-machine-7978', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/api/status*', async (r) => {
+      try {
+        if (r.request().method() !== 'GET') { await r.continue(); return; }
+        const res = await r.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
+        for (const c of body.agents) {
+          if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, left: true, pid: 4242 } };
+          else c.machine = { memMb: 480, cpuPct: 12, processes: 6, leftMemMb: 0, top: { name: 'node', memMb: 300, cpuPct: 10, days: 0, left: false, pid: 11 } };
+        }
+        await r.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await page.reload();
+    await page.waitForSelector('.amachine', { state: 'visible', timeout: 15000 });
+  }, verify: async (page) => {
+    const n = await page.locator('.amachine').count();
+    if (n !== 1) throw new Error('expected one agent flagged, saw ' + n);
+    const t = await page.locator('.amachine').first().innerText();
+    if (t !== '6.5 GB left behind') throw new Error('the card said: ' + t);
+  }, after: async (page) => { await page.unroute('**/api/status*'); } },
+  { name: 'agent-machine-page-7978', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
+    await page.route('**/api/status*', async (r) => {
+      try {
+        if (r.request().method() !== 'GET') { await r.continue(); return; }
+        const res = await r.fetch();
+        let body = null;
+        try { body = await res.json(); } catch { body = null; }
+        if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
+        for (const c of body.agents) if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, left: true, pid: 4242 } };
+        await r.fulfill({ response: res, body: JSON.stringify(body) });
+      } catch { /* the page closed at teardown (#6022) */ }
+    });
+    await at(page, '?tab=detail&agent=' + data.chatAgent + '&sec=model');
+    await page.waitForSelector('#d-machine', { state: 'visible', timeout: 15000 });
+    await page.locator('#d-machine').scrollIntoViewIfNeeded();
+  }, verify: async (page) => {
+    const t = await page.locator('#d-machine').innerText();
+    if (!/Left behind by an earlier run: bash, 6\.5 GB, running for 14 days \(process 4242\)/.test(t)) throw new Error('the page said: ' + t);
+  }, after: async (page) => { await page.unroute('**/api/status*'); } },
   { name: 'agent-page', owner: 'Raiden', go: async (page, data) => {
     await at(page, '?agent=' + data.chatAgent);
     await page.waitForSelector('#panel-detail', { state: 'visible', timeout: 5000 });
