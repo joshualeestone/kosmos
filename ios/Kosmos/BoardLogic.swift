@@ -536,8 +536,14 @@ enum Board {
     // kosmos#7420 review 5 (Josh 11-04 08:26, jumping on open): a thread read that leaves the same newest row at the end of a
     // list already drawn there changes nothing the reader is waiting for (a status, a settled row, older rows landing above),
     // and on iOS 17+ the anchor on the end marker holds the list by itself. Moving it again is the jump.
-    static func readLeavesDrawnEndAlone(lastBefore: String?, lastAfter: String?, pinned: Bool, endVisible: Bool, drawn: Bool, settled: Bool) -> Bool {
-        pinned && lastBefore != nil && lastBefore == lastAfter && endVisible && drawn && settled
+    // Review 7: the same last row AND the same last dated row, since the Mac's untimed question row stays last while a new
+    // message lands above it (followKey's case). endSeen: endVisible starts true before any end was drawn. anchorAtEnd: with
+    // the anchor let go nothing holds the list.
+    static func readLeavesDrawnEndAlone(before: Thread?, after: Thread, pinned: Bool, endVisible: Bool, endSeen: Bool,
+                                        anchorAtEnd: Bool, drawn: Bool, settled: Bool) -> Bool {
+        guard let before, let last = before.rows.last?.id, last == after.rows.last?.id,
+              before.rows.last(where: { $0.atRaw != nil })?.id == after.rows.last(where: { $0.atRaw != nil })?.id else { return false }
+        return pinned && endVisible && endSeen && anchorAtEnd && drawn && settled
     }
 
     // kosmos#7678: the in-chat actions panel. Never taller than the room between the top of the messages and the keyboard.
