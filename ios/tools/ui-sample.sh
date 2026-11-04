@@ -110,7 +110,7 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
     # Every check of the two keyboard classes, in the order the log has them, with its result (not all of them trace).
     order="$(grep -o -E "^Test Case '-\[KosmosUITests\.(KeyboardSlideUITests|RoomKeyboardUITests) [A-Za-z0-9_]+\]' (passed|failed|skipped)" "$log" \
-      | sed -E "s/^.* ([A-Za-z0-9_]+)\]' (passed|failed|skipped)$/\1 \2/" | paste -sd ',' - | sed 's/,/, /g')"
+      | sed -E "s/^.*\.([A-Za-z0-9_]+) ([A-Za-z0-9_]+)\]' (passed|failed|skipped)$/\1.\2 \3/" | paste -sd ',' - | sed 's/,/, /g')"
     lines="$(wc -l < "$data/Documents/trace.txt" | tr -d ' ')"
     # One file, appended by every traced launch (XCTest runs the classes in name order and each class's checks in name
     # order), so a tail can hold only the checks after the one that failed (#7645 review 1): always the whole file.
