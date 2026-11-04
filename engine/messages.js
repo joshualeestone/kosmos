@@ -3475,7 +3475,6 @@ function blockBody() {
     '',
     '    ' + cli + ' msg --no-reply <their-name> "what you want to tell them"',
     '',
-    '',
     'If one of these commands fails in your shell, tell your operator in',
     'your own words rather than staying silent. The message never arrived,',
     'and a command that never ran leaves no trace for anyone to find.',

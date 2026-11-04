@@ -2725,11 +2725,13 @@ cmd_msg() {
   case "$to" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option msg "Usage: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>" "$to" target ;; esac   # kosmos#4889
   shift 2>/dev/null || true
   # #7893 round 3: a leading flag typed after the agent is told where it goes; called an unknown option, it would read
-  # as "this flag does not exist" while the usage lists it. Same tradeoff as the --stdin scan below.
+  # as "this flag does not exist" while the usage lists it. It stops at --, the #4889 escape for words that start with
+  # --, so `kosmos msg leo -- --no-reply is the new flag` still sends those words.
   for _a in "$@"; do
     case "$_a" in
+      --) break ;;
       --no-reply|--in-reply-to|--in-reply-to=*)
-        say "${_a%%=*} must come before the agent name: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>"
+        say "${_a%%=*} must come before the agent name: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>  (to say ${_a%%=*} in the message, put -- before it)"
         exit 2 ;;
     esac
   done
