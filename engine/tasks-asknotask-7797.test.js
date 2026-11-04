@@ -107,6 +107,10 @@ test('#7916: a held question (a real held report) is listed with held:true; an a
     const out = tasks.askingWithoutTask([], [ann, bo]);
     assert.equal(out.find((a) => a.who === 'ann').held, true);
     assert.equal('held' in out.find((a) => a.who === 'bo'), false, 'CONTROL: an asked question keeps the old shape');
+    // A held agent in a crash loop, or after a failed restart, is not said to be calmly holding.
+    for (const red of [{ crashLoop: { looping: true } }, { disruption: { failed: true } }]) {
+      assert.equal('held' in tasks.askingWithoutTask([], [{ ...ann, ...red }])[0], false, JSON.stringify(red));
+    }
     // A task row that carries the question carries held too (waitingOnOf), only when held.
     const p = projects.create({ name: 'Held rows' });
     for (const a of ['ann', 'bo']) projects.addAgent(p.id, a);
