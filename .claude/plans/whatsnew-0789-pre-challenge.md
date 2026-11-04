@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: whatsnew-0789
-diff_hash: 044ef761ce97b19e501f0a017df686897144bd046720fa2e26efb05b430f4bef
-validation: passed (Mortals, entry status clean, hash 044ef761ce97, base ed0c805648)
+diff_hash: d02a5a4fea4244185b1ca565c51ec733113cbfaca5b20cad5ba6cf2dee5e2f4b
+validation: passed (Mortals, full suite: 27042 tests, 0 failed, shell 4/4 shards green, entry status clean, on hash 044ef761ce97; only this plan file was added after it)
 subdir_audit: passed
 timestamp: 2026-11-04T18:58:55Z
 iterations: 1
