@@ -85,6 +85,17 @@ test('#7935: a repaint after the update clears the command (the row does not sti
   assert.equal(els['upd-command-msg'].textContent, '', '"Command copied." stayed under a card with no command');
 });
 
+test('#7935: the copy result survives the poll repainting the same command, and goes when the command changes', async () => {
+  await linuxLook();
+  const manual = update.manualOffer();
+  const els = paint(null, manual);
+  els['upd-command-msg'].textContent = 'Command copied.';
+  paint(null, manual, els);   // the five-second poll, same command
+  assert.equal(els['upd-command-msg'].textContent, 'Command copied.', 'the poll wiped the copy result under the same command');
+  paint(null, { ...manual, command: manual.command + ' x' }, els);
+  assert.equal(els['upd-command-msg'].textContent, '', 'a result stayed beside a different command');
+});
+
 test('#7935: focus on Check moves to the command field, not to the page, when Check is hidden', async () => {
   await linuxLook();
   const els = paint(null, update.manualOffer(), null, 'upd-btn');

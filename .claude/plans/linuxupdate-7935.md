@@ -58,6 +58,14 @@ the served installer is what the #7933 leg does successfully.
   this computer". Not taken: a KOSMOS_HOME exported in the person's shell (pre-existing, and the command names the
   script by this install's path).
 
+## Review round 4 (sonnet)
+- WARNING: the round-3 clear ran on every paint, so the five-second poll wiped "Command copied." (and the how-to-copy
+  hint) while the same command still showed, and its comment said otherwise. Fixed: the result is kept while the
+  same command shows and cleared otherwise; a repaint test pins both, and both mutants (always clear, never clear)
+  are red.
+- NITs: the unmeasured premise is now named beside the arm in the code, not only in this plan. Not taken: a test
+  pinning SELF_INSTALL to the shell's Linux rule (Linux is the only platform off SELF_INSTALL that Kosmos supports).
+
 ## Tests
 - cli.update-ifnewer-4382.test.js (new test): with a fake `uname` saying Linux, a board running and mode `run`, the
   verb installs with the board's three variables on prod and on a staging stamp; CONTROL: the real uname refuses; an

@@ -25125,7 +25125,10 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
   const cmd = document.getElementById('upd-command');
   if (cmdRow) cmdRow.hidden = true;
   const cmdMsg = document.getElementById('upd-command-msg');
-  if (cmdMsg) cmdMsg.textContent = '';   // the copy result belongs to the command; the arm below keeps it while it shows
+  /* The copy result belongs to the command it was for: kept across the poll's repaints while that same command shows
+     (the command arm below is the only one that shows it, and only when there is no in-app offer), cleared otherwise. */
+  const sameCommand = !(offer && offer.version) && manual && manual.command && cmd && cmd.value === manual.command;
+  if (cmdMsg && !sameCommand) cmdMsg.textContent = '';
   /* win32-update-rollback (S5, #3017): the Roll back button is ORTHOGONAL to the offer/manual arms
      below -- a person may have an update to install AND a kept build to go back to, or be up to date
      with a kept build. It shows whenever the status carries a rollback offer (win32-only), labelled
@@ -25152,7 +25155,10 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
   } else if (manual && manual.version && manual.command) {
     /* kosmos#7935: a board that cannot replace itself (Linux). Pressing [Update] only got a refusal, so the newer
        version arrives as the command that installs it: the same installer, run again over this install. Like the
-       Windows arm below, it is news a person needs without asking, and the check button stands down. */
+       Windows arm below, it is news a person needs without asking, and the check button stands down.
+       ⚠️ Unmeasured on Linux: that the verb, run over a live board, leaves it serving the new version (the #7933 leg is
+       to confirm it once a staging cut carries this). "Kosmos restarts" is what the installer does; it is not
+       promised here that the agents carry on. */
     put(v + 'Version ' + manual.version + ' is ready. To update, run this in a terminal on this computer (Kosmos restarts when it is done):');
     btn.hidden = true;
     btn.dataset.act = 'check';
