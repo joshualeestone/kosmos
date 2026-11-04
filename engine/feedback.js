@@ -385,7 +385,8 @@ function reportsForTriage(opts) {
  * - The writer's OWN section only (the same key match write() uses), so one agent's report is never claimed by another.
  * - An earlier BARE pointer is followed to the report it names, so a run of unchanged days all point at the real report.
  *   A pointer with a line added carries something new that day, so it is pointed at, not skipped.
- * - Refused ({ ok: false, why: 'today' }) when the writer already saved a report today: write() would replace it.
+ * - Refused ({ ok: false, why: 'today' }) when the writer already saved a different report today: write() would replace
+ *   it. The same pointer again is allowed, so a send that failed can be retried with the same command.
  * - Refused ({ ok: false, why: 'none' }) with no earlier report to point back to. A named agent whose only earlier
  *   report predates #5317 (stored with no section marker, so it is the unnamed section) is refused too: the safe way.
  * `day` is the date it checked; the CLIs save under it, so a run across midnight cannot check one day and replace another.
@@ -403,7 +404,7 @@ function unchanged(from, note, date) {
     const s = sections(stripFrontmatter(raw)).find((x) => x.key.toLowerCase() === key && x.text.trim());
     return s ? s.text : null;
   };
-  if (mineOn(day) != null) return { ok: false, why: 'today' };
+  const already = mineOn(day);
   for (const d of list()) {
     if (d >= day) continue;
     const text = mineOn(d);
@@ -411,9 +412,13 @@ function unchanged(from, note, date) {
     const m = text.trim().match(POINTER_RE);
     const since = m && m[1] < d ? m[1] : d;
     const extra = String(note == null ? '' : note).trim();
-    return { ok: true, since, day, body: 'Nothing new since my report of ' + since + '.' + (extra ? ' ' + extra : '') };
+    const body = 'Nothing new since my report of ' + since + (extra ? ', except: ' + extra : '.');
+    /* Today's report is replaced only when it IS this same pointer: a send that failed or waited says to write the same
+       report again, and that must work for --unchanged too (review round 5). Anything else saved today is refused. */
+    if (already != null && already.trim() !== body) return { ok: false, why: 'today' };
+    return { ok: true, since, day, body };
   }
-  return { ok: false, why: 'none' };
+  return already != null ? { ok: false, why: 'today' } : { ok: false, why: 'none' };
 }
 
 module.exports = { dir, dateKey, isDateKey, today, pathFor, write, writer, unchanged, sections, forSend, sendBody, read, readBody, stripFrontmatter, frontmatterDate, has, list, reportsForTriage, samePath, shellArg };
