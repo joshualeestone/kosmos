@@ -243,15 +243,15 @@ function Get-GitBlobSha([byte[]] $Bytes) {
 # and re-encode them). Returns @{ Bytes; Error }: Bytes is $null when git cannot read it, and Error says why.
 function Get-SetupAtCommit([string] $Commit) {
   $g = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $g) { return @{ Bytes = $null; Error = 'git is not installed' } }
+  if (-not $g) { return @{ Bytes = $null; Error = 'git is not installed'; Stopped = $false } }
   # #7959: under the same limit as node. A promote runs this holding publish.lock, so a git that hangs would hold it too.
   $r = Invoke-ChildBounded $g.Source @('-C', $PSScriptRoot.TrimEnd([char]92, [char]47), 'cat-file', 'blob', ($Commit + ':tools/windows/' + $SetupName)) -Raw -HoldStderr
-  if ($r.Undecided) { return @{ Bytes = $null; Error = "git: $($r.Undecided)" } }
-  if ($r.Rc -ne 0) { return @{ Bytes = $null; Error = $r.Err.Trim() } }
-  @{ Bytes = $r.Bytes; Error = '' }
+  if ($r.Undecided) { return @{ Bytes = $null; Error = "git: $($r.Undecided)"; Stopped = $true } }
+  if ($r.Rc -ne 0) { return @{ Bytes = $null; Error = $r.Err.Trim(); Stopped = $false } }
+  @{ Bytes = $r.Bytes; Error = ''; Stopped = $false }
 }
-# #7959: one line of git's output, '' on any failure, under the same limit. A git that was stopped says so, since '' alone
-# would read as "git cannot say": the refusals that follow are still right, because a stopped git decided nothing.
+# #7959: the first word of git's output (the callers read one hex id), '' on any failure, under the same limit. A git that
+# was stopped says so here, since '' alone reads as "git cannot say"; the refusals that follow also name it as a cause.
 function Get-GitLine([string[]] $GitArgs) {
   $g = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $g) { return '' }
@@ -316,7 +316,8 @@ function Invoke-ChildBounded([string] $Exe, [string[]] $Arguments, [string] $Std
     try { if ($errTask.Wait(1000)) { $errText = [string] $errTask.Result } } catch { }
     if ($errText -and -not $HoldStderr) { [Console]::Error.Write($errText) }
     $bytes = $null
-    if ($Raw -and $whole) { $bytes = $ms.ToArray() }
+    # Only a run that finished and exited 0: bytes from a stopped or failed read must never be taken for the file.
+    if ($Raw -and $whole -and -not $undecided -and $rc -eq 0) { $bytes = $ms.ToArray() }
     if ($ms) { $ms.Dispose() }
     @{ Rc = $rc; Out = (@($text -split '\r?\n' | Where-Object { $_ -ne '' }) -join ' '); Bytes = $bytes; Err = $errText; Undecided = $undecided }
   } finally {
@@ -802,7 +803,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     if (-not $git) { Refuse "git is needed to read the committed installer script. Nothing was written." }
     if ($BuiltFrom) {
       $got = Get-SetupAtCommit $BuiltFrom
-      if ($null -eq $got.Bytes) { Refuse "$ZipPath was built from $BuiltFrom, and this repository cannot read tools/windows/$SetupName at that commit ($($got.Error)). Fetch it (git fetch origin), then stage again. Nothing was written." }
+      if ($null -eq $got.Bytes) { Refuse "$ZipPath was built from $BuiltFrom, and this repository cannot read tools/windows/$SetupName at that commit ($($got.Error)). $(if ($got.Stopped) { 'Run it again.' } else { 'Fetch it (git fetch origin), then stage again.' }) Nothing was written." }
       $SetupBytes = [byte[]]$got.Bytes
       $SetupFrom = "the build's commit $BuiltFrom"
     } else {
@@ -814,7 +815,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       # kosmos#7890: one read; these bytes are hashed as a blob and are the bytes staged.
       $SetupBytes = [IO.File]::ReadAllBytes($SetupPath)
       $blobFile = Get-GitBlobSha $SetupBytes
-      if (-not $blobHead) { Refuse "git cannot read tools/windows/$SetupName at this tree's HEAD, so the installer cannot be checked against it. Stage from a git checkout that has it committed. Nothing was written." }
+      if (-not $blobHead) { Refuse "git cannot read tools/windows/$SetupName at this tree's HEAD, so the installer cannot be checked against it. Stage from a git checkout that has it committed, or run it again if git was stopped at the limit. Nothing was written." }
       if ($blobHead.Length -ne 40) { Refuse "this repository uses $($blobHead.Length * 4)-bit object ids, and this script compares the installer as a SHA-1 git blob, so it cannot check it here. Stage from a SHA-1 checkout. Nothing was written." }
       if ($blobHead -cne $blobFile) { Refuse "$SetupPath is not byte for byte the script committed at this tree's HEAD (an uncommitted edit, or line endings converted by an older checkout: re-check it out with git rm --cached tools/windows/$SetupName and git checkout -- tools/windows/$SetupName). Nothing was written." }
       Say "NOTICE (#7883): $ZipPath records no source commit (manifest.json source_sha), so the installer staged with it is this tree's HEAD ($head)."
@@ -1104,7 +1105,7 @@ if ($stagedSetup -or $stagedSetupSide) {
   $promoteFrom = Get-ZipSourceSha $staged.Bytes
   if ($promoteFrom) {
     $want = Get-SetupAtCommit $promoteFrom
-    if ($null -eq $want.Bytes) { Refuse "the staged zip was built from $promoteFrom, and this repository cannot read tools/windows/$SetupName at that commit ($($want.Error)), so the staged installer cannot be checked. Fetch it (git fetch origin), then promote again. Nothing was written." }
+    if ($null -eq $want.Bytes) { Refuse "the staged zip was built from $promoteFrom, and this repository cannot read tools/windows/$SetupName at that commit ($($want.Error)), so the staged installer cannot be checked. $(if ($want.Stopped) { 'Run it again.' } else { 'Fetch it (git fetch origin), then promote again.' }) Nothing was written." }
     if ((Sha256-Bytes ([byte[]]$want.Bytes)) -cne $SetupSha) { Refuse "$SetupVersioned in the bucket ($SetupSha) is not tools/windows/$SetupName at $promoteFrom, the commit the approved zip was built from ($(Sha256-Bytes ([byte[]]$want.Bytes))). Re-stage with this script. Nothing was written." }
     Say "installer: $SetupVersioned ($SetupSha) is tools/windows/$SetupName at the approved build's commit $promoteFrom; it becomes $SetupName after latest-win.json"
     $SetupSource = 'commit'
@@ -1114,12 +1115,12 @@ if ($stagedSetup -or $stagedSetupSide) {
     # outcome the refusal exists to prevent.
     # One commit is both checked and logged: HEAD is resolved first, then read at that commit.
     $SetupHead = Get-SetupHeadCommit
-    if ($SetupHead -ceq 'unknown') { Refuse "the staged zip records no source commit, so $SetupVersioned is checked against this tree's HEAD, and git cannot say which commit HEAD is (git is not installed, or this is not a git checkout). Promote from a checkout git can read. Nothing was written." }
+    if ($SetupHead -ceq 'unknown') { Refuse "the staged zip records no source commit, so $SetupVersioned is checked against this tree's HEAD, and git cannot say which commit HEAD is (git is not installed, this is not a git checkout, or git was stopped at the limit). Promote from a checkout git can read, or run it again if it was stopped. Nothing was written." }
     $headSetup = Get-SetupAtCommit $SetupHead
     # What works when it cannot be checked: setup-<v>.ps1 cannot be replaced for a zip that names no commit, so the fix
     # is a checkout whose setup.ps1 is the staged bytes (staging named it as "this tree's HEAD (<sha>)"), or a new build.
     $fix = "Promote from a checkout of the commit staging named for it (its NOTICE says this tree's HEAD and the commit), or rebuild under a new version."
-    if ($null -eq $headSetup.Bytes) { Refuse "the staged zip records no source commit, so $SetupVersioned is checked against this tree's HEAD, and git cannot read tools/windows/$SetupName there ($($headSetup.Error)). $fix Nothing was written." }
+    if ($null -eq $headSetup.Bytes) { Refuse "the staged zip records no source commit, so $SetupVersioned is checked against this tree's HEAD, and git cannot read tools/windows/$SetupName there ($($headSetup.Error)). $(if ($headSetup.Stopped) { 'Run it again.' } else { $fix }) Nothing was written." }
     if ((Sha256-Bytes ([byte[]]$headSetup.Bytes)) -cne $SetupSha) { Refuse "the staged zip records no source commit, and $SetupVersioned ($SetupSha) is not tools/windows/$SetupName at this tree's HEAD $SetupHead ($(Sha256-Bytes ([byte[]]$headSetup.Bytes))), so it cannot be checked. $fix Nothing was written." }
     $SetupSource = 'head'
     Say "installer: $SetupVersioned ($SetupSha) is tools/windows/$SetupName at this tree's HEAD $SetupHead (the staged zip records no source commit); it becomes $SetupName after latest-win.json"
