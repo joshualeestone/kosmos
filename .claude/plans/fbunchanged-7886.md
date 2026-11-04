@@ -17,7 +17,9 @@ Decided:
 - `--unchanged` is taken anywhere before a bare `--`, as `kosmos task ran` takes it (review round 1).
 Known limit, kept: the team sees each day's writers as "Report 1", "Report 2" (forSend strips names), so on a day with
 several writers the pointer names the day, not which report of it. Fixing it needs a stable per-writer label that is
-not a name; out of scope here.
+not a name; out of scope here. And it cannot know whether that earlier report was sent (sending switched off, or a
+send that failed), so the team may get a pointer to a report it never received (review round 2). Both CLIs save under
+the day the engine checked, so a run across midnight cannot refuse on one day and replace another.
 - `--unchanged` comes first and takes words, not `--body-file`: it is a short line by design. Stdin is not read.
 Rejected: a flag on the collector side to collapse repeated reports; that changes what reaches the team and needs the
 collector, and the honest fix is at the writer.

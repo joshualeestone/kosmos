@@ -387,8 +387,10 @@ function reportsForTriage(opts) {
  * - Refused ({ ok: false, why: 'today' }) when the writer already saved a report today: write() would replace it.
  * - Refused ({ ok: false, why: 'none' }) with no earlier report to point back to. A named agent whose only earlier
  *   report predates #5317 (stored with no section marker, so it is the unnamed section) is refused too: the safe way.
- * Known limit: the team sees each day's writers as "Report 1", "Report 2" (forSend), so on a day with several writers
- * the pointer names the day, not which report of it.
+ * `day` is the date it checked; the CLIs save under it, so a run across midnight cannot check one day and replace another.
+ * Known limits: the team sees each day's writers as "Report 1", "Report 2" (forSend), so on a day with several writers
+ * the pointer names the day, not which report of it; and it cannot know whether that earlier report was sent (sending
+ * switched off, or a send that failed), so the team may get a pointer to a report it never received.
  */
 const POINTER_RE = /^Nothing new since my report of (\d{4}-\d{2}-\d{2})\./;
 function unchanged(from, note, date) {
@@ -408,7 +410,7 @@ function unchanged(from, note, date) {
     const m = text.match(POINTER_RE);
     const since = m && m[1] < d ? m[1] : d;
     const extra = String(note == null ? '' : note).trim();
-    return { ok: true, since, body: 'Nothing new since my report of ' + since + '.' + (extra ? ' ' + extra : '') };
+    return { ok: true, since, day, body: 'Nothing new since my report of ' + since + '.' + (extra ? ' ' + extra : '') };
   }
   return { ok: false, why: 'none' };
 }
