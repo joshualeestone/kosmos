@@ -155,16 +155,20 @@ test('#7936 review 7: CONTROL for the test above: the box the reason throughout,
   });
 });
 
-test('#7936 review 3: the board passes boxIsReason as "released on usage and sign-in, and the box reads text"', () => {
-  const hooks = limitqueue.sweepHooks({ chat, messages });
-  const rel = chat.limitQueueReleased, reads = chat.inputBoxReads;
-  try {
-    const cases = [[true, 'text', true], [true, 'empty', false], [true, 'unread', false], [false, 'text', false]];
-    for (const [released, box, want] of cases) {
-      chat.limitQueueReleased = () => released; chat.inputBoxReads = () => box;
-      assert.equal(hooks.boxIsReason({ sessionName: 'casey' }, []), want, JSON.stringify({ released, box }));
-    }
-  } finally { chat.limitQueueReleased = rel; chat.inputBoxReads = reads; }
+test('#7936 review 3: the board passes boxIsReason as "released on usage and sign-in, and the box reads text"', async () => {
+  await withFleet(async (board) => {
+    const hooks = limitqueue.sweepHooks({ chat, messages });
+    const card = chat.resolveCard(board.agents, 'casey');   // a real card from test-support/fleet
+    assert.ok(card, 'CONTROL: the fleet has casey');
+    const rel = chat.limitQueueReleased, reads = chat.inputBoxReads;
+    try {
+      const cases = [[true, 'text', true], [true, 'empty', false], [true, 'unread', false], [false, 'text', false]];
+      for (const [released, box, want] of cases) {
+        chat.limitQueueReleased = () => released; chat.inputBoxReads = () => box;
+        assert.equal(hooks.boxIsReason(card, board.agents), want, JSON.stringify({ released, box }));
+      }
+    } finally { chat.limitQueueReleased = rel; chat.inputBoxReads = reads; }
+  });
 });
 
 test('#7936 review 3: a caller that passes no boxIsReason keeps the day', async () => {
