@@ -23446,7 +23446,7 @@ const server = http.createServer(async (req, res) => {
           const reader = senderFromAgentToken(req, null, safeRoster());
           readerName = reader && reader.ok && reader.card && typeof reader.card.sessionName === 'string' ? reader.card.sessionName : null;
         } catch { readerName = null; }
-        /* #4926: a post the reader answered by id (--reply-to) says so, so an agent in a long session that reads the room
+        /* #4926: a post the reader answered by id (--in-reply-to) says so, so an agent in a long session that reads the room
            again can tell the asks it already answered from new ones (Josh's 0.7.83 report, #7784 item 4: answered posts
            came back as if new). Post id -> the reader's answering post ids, oldest first. */
         const answeredBy = new Map();
