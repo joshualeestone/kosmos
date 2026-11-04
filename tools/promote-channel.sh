@@ -73,13 +73,13 @@
 # instead the artifact is re-verified right before the first write.
 #
 # Usage:
-#   tools/promote-channel.sh <site-checkout> [port] [--force]
+#   tools/promote-channel.sh <site-checkout> [port] [--force] [--skip-linux-check]
 #     [port]  the port the experience gate should probe (the fresh staging board's port,
 #             which is per-account and usually NOT 16180). Also settable via KOSMOS_PORT.
 #             Give the port so a wrong-port HOLD does not push you toward --force, which
 #             bypasses the gate entirely.
 #   tools/promote-channel.sh <site-checkout> [port] --version <V> [--sha <sha256 prefix>] [--commit <site sha>]
-#                            [--allow-older] [--force]
+#                            [--allow-older] [--force] [--skip-linux-check]
 #             promote V from its own staging commit, whatever staging names now (see above)
 #   tools/promote-channel.sh <site-checkout> --family win --approved-version <V> \
 #       --approved-sha <sha256> --approval-ref <Slack message ts or permalink>
