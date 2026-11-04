@@ -193,6 +193,13 @@ signed again (an old `.sig` no longer verifies, and the stage refuses it).
    pwsh tools\windows\publish-r2.ps1 -Promote -ApprovedVersion <v> -ApprovedSha <sha> -ApprovalRef '<Slack ts or permalink>'
    ```
 
+## A check that "decided nothing" (#7951)
+
+Each node check has 5 minutes and runs with stdin closed. A check that goes past that is stopped and the run refuses,
+saying it "decided nothing". That is not a verdict on the build, and nothing was written, so run it again. A stopped
+check can leave a `kosmos-winmanifest-*` or `kosmos-winchecker-*` folder in `%TEMP%`, which is safe to delete. If it
+happens again on the same build, the check itself is stuck: file a card rather than retrying.
+
 ## What the installed copy checks before an update runs (#6466)
 
 The in-app update (`engine/win32update.js`, run by the INSTALLED copy) reads the pointer, then the

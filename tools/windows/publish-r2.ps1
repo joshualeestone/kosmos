@@ -74,6 +74,7 @@ environment variables of the same names. The secret is never printed.
 TESTING. KOSMOS_PUBLISH_R2_FAKE_DIR=<dir> makes a local directory the bucket (and the served
 base) and logs every request to <dir>/.calls; tools/test-publish-r2-3725.sh drives the gates and
 the write order through it. Nothing is published in that mode, and it says so on stderr.
+KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC=<n> shortens the node check limit, in that mode only.
 
 Windows x64 only: every Windows redirect on the site is x64. Versions are x.y.z, what the updater
 accepts. Exit codes: 0 done (or dry run clean), 1 refused or failed. PowerShell 5.1 and 7.
@@ -243,9 +244,10 @@ function Get-SetupAtCommit([string] $Commit) {
   if (-not $g) { return @{ Bytes = $null; Error = 'git is not installed' } }
   $psi = New-Object Diagnostics.ProcessStartInfo $g.Source
   $psi.Arguments = '-C "' + $PSScriptRoot.TrimEnd([char]92, [char]47) + '" cat-file blob ' + $Commit + ':tools/windows/' + $SetupName
-  $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
+  $psi.UseShellExecute = $false; $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
   $proc = [Diagnostics.Process]::Start($psi)
   try {
+    $proc.StandardInput.Close()
     $errTask = $proc.StandardError.ReadToEndAsync()
     $ms = New-Object IO.MemoryStream
     try { $proc.StandardOutput.BaseStream.CopyTo($ms); $proc.WaitForExit(); $b = $ms.ToArray() } finally { $ms.Dispose() }
@@ -266,10 +268,10 @@ function ConvertTo-NativeArg([string] $a) {
   if ($a -and $a -notmatch '[\s"]') { return $a }
   '"' + (($a -replace '(\\*)"', '$1$1\"') -replace '(\\+)\z', '$1$1') + '"'
 }
-# #7951: runs node with its own stdin (StdinText, then closed) and a time limit. `& node` inherits this process's stdin:
-# launched from Git Bash, a node had printed its verdict and never exited, and a prod promote sat holding publish.lock
-# for 10 minutes. Returns @{ Rc; Out; TimedOut }, Out being its STDOUT lines joined by spaces. Rc is never 0 unless node
-# exited 0 and its output is whole: 97 output never closed, 98 stopped, 99 did not start.
+# #7951: runs node with its own stdin (StdinText, then closed) and a time limit covering the stdin write too. `& node`
+# inherits this process's stdin: launched from Git Bash, a node had printed its verdict and never exited, and a prod
+# promote sat holding publish.lock for 10 minutes. Returns @{ Rc; Out; Undecided }. Out is its STDOUT lines joined by
+# spaces. Undecided is '' for a run that reached an answer, otherwise why it did not (Rc is then 97, 98 or 99).
 function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $StdinText = '') {
   $psi = New-Object Diagnostics.ProcessStartInfo
   $psi.FileName = $Exe
@@ -281,40 +283,43 @@ function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $Stdi
   $psi.StandardOutputEncoding = $Utf8; $psi.StandardErrorEncoding = $Utf8
   $p = New-Object Diagnostics.Process
   $p.StartInfo = $psi
-  try { [void] $p.Start() } catch { return @{ Rc = 99; Out = "node did not start: $($_.Exception.Message)"; TimedOut = $false } }
+  try { [void] $p.Start() } catch { return @{ Rc = 99; Out = ''; Undecided = "node did not start: $($_.Exception.Message)" } }
   try {
     $outTask = $p.StandardOutput.ReadToEndAsync(); $errTask = $p.StandardError.ReadToEndAsync()
-    # Bytes on the base stream: 5.1 has no StandardInputEncoding. A node that exits without reading it is its own answer.
+    $limit = Get-NodeTimeoutSec
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $left = { [Math]::Max(0, ($limit * 1000) - [int] $clock.ElapsedMilliseconds) }
+    # Bytes on the base stream: 5.1 has no StandardInputEncoding. A node that exits without reading it throws here, and
+    # its exit is still waited for below.
+    $written = $true
     try {
       $in = $Utf8.GetBytes($StdinText)
-      if ($in.Length) { $p.StandardInput.BaseStream.Write($in, 0, $in.Length) }
-      $p.StandardInput.Close()
+      if ($in.Length) { $written = $p.StandardInput.BaseStream.WriteAsync($in, 0, $in.Length).Wait((& $left)) }
+      if ($written) { $p.StandardInput.Close() }
     } catch { }
-    $limit = Get-NodeTimeoutSec
-    $timedOut = -not $p.WaitForExit($limit * 1000)
-    if ($timedOut) {
+    $undecided = ''
+    if ($written -and $p.WaitForExit((& $left))) { $rc = $p.ExitCode } else {
       try { $p.Kill() } catch { }
       [void] $p.WaitForExit(5000)
-      $rc = 98
-    } else { $rc = $p.ExitCode }
+      $rc = 98; $undecided = "it did not finish within $limit seconds and was stopped"
+    }
     # Bounded: something node started can hold the pipe open after node has gone.
     $text = ''; $whole = $false
     try { if ($outTask.Wait(5000)) { $text = $outTask.Result; $whole = $true } } catch { }
-    if (-not $whole -and $rc -eq 0) { $rc = 97 }
+    if (-not $whole -and $rc -eq 0) { $rc = 97; $undecided = 'it exited, but its output never closed, so its verdict was not read' }
     try { if ($errTask.Wait(1000) -and $errTask.Result) { [Console]::Error.Write($errTask.Result) } } catch { }
-    @{ Rc = $rc; Out = (@($text -split '\r?\n' | Where-Object { $_ -ne '' }) -join ' '); TimedOut = $timedOut; TimeoutSec = $limit }
+    @{ Rc = $rc; Out = (@($text -split '\r?\n' | Where-Object { $_ -ne '' }) -join ' '); Undecided = $undecided }
   } finally { $p.Dispose() }
 }
-# #6466: tools/lib/win-release-manifest.js, run with node. It prints its one-line verdict on STDOUT (stderr from a
-# native command can turn into a terminating error under Stop on 5.1); returns @{ Rc; Out }.
-# #7951: a check that had to be stopped decided nothing, whatever it printed, so it refuses here rather than reading as
-# a verdict at each caller. Every caller is before the run's first write.
+# #6466: tools/lib/win-release-manifest.js, run with node. It prints its one-line verdict on STDOUT; returns @{ Rc; Out }.
+# #7951: a check that reached no answer decided nothing about the build, whatever it printed, so it refuses here rather
+# than reading as a verdict at each caller. Every caller is before the run's first write.
 function Invoke-WinManifest([string[]] $Arguments) {
   $node = Get-NodeExe
   if (-not $node) { Refuse "node (an executable, not a .cmd shim) is required to check the signed release manifest (#6466). Nothing was written." }
   $js = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-release-manifest.js'
   $r = Invoke-NodeBounded $node.Source (@($js) + $Arguments)
-  if ($r.TimedOut) { Refuse "the manifest check ($($Arguments[0])) timed out after $($r.TimeoutSec) seconds and was stopped, so it decided nothing (it had printed: $($r.Out)). Run it again. Nothing was written." }
+  if ($r.Undecided) { Refuse "the manifest check ($($Arguments[0])) decided nothing about this build: $($r.Undecided) (it had printed: $($r.Out)). Run it again. Nothing was written." }
   @{ Rc = $r.Rc; Out = $r.Out }
 }
 
@@ -784,7 +789,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     # One line of git's output, '' on any failure. Stop would turn git's stderr into a terminating error on 5.1.
     function Get-GitLine([string[]] $GitArgs) {
       $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-      try { $o = @(& $git.Source -C $PSScriptRoot @GitArgs 2>$null); if ($LASTEXITCODE -ne 0 -or $o.Count -eq 0) { return '' }; return "$($o[0])".Trim() }
+      try { $o = @(@() | & $git.Source -C $PSScriptRoot @GitArgs 2>$null); if ($LASTEXITCODE -ne 0 -or $o.Count -eq 0) { return '' }; return "$($o[0])".Trim() }
       finally { $ErrorActionPreference = $prev }
     }
     if ($BuiltFrom) {
@@ -1081,7 +1086,7 @@ function Get-SetupHeadCommit {
   $g = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $g) { return 'unknown' }
   $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
-  try { $o = @(& $g.Source -C $PSScriptRoot rev-parse HEAD 2>$null); if ($LASTEXITCODE -ne 0 -or $o.Count -eq 0) { return 'unknown' }; return "$($o[0])".Trim() }
+  try { $o = @(@() | & $g.Source -C $PSScriptRoot rev-parse HEAD 2>$null); if ($LASTEXITCODE -ne 0 -or $o.Count -eq 0) { return 'unknown' }; return "$($o[0])".Trim() }
   finally { $ErrorActionPreference = $prev }
 }
 if ($stagedSetup -or $stagedSetupSide) {
@@ -1127,7 +1132,7 @@ $nodeExe = Get-NodeExe
 if (-not $nodeExe) { Refuse "node (an executable, not a .cmd shim) is required to validate the verification record. Nothing was written." }
 if (-not (Test-Path -LiteralPath $spec)) { Refuse "the record spec $spec is missing. Nothing was written." }
 $verdictJs = @'
-// Any crash says why on STDOUT (the only stream read), as AMBIGUOUS, so a refusal is never blank.
+// Any crash says why on STDOUT (where the verdict is read), as AMBIGUOUS, so a refusal is never blank.
 process.on('uncaughtException', (e) => { console.log('AMBIGUOUS node crashed: ' + (e && e.message)); process.exit(3); });
 const [specFile, wantVersion, wantSha] = process.argv.slice(2);   // `node - a b c`: argv[1] is '-'
 const spec = require(specFile); const fs = require('node:fs');
@@ -1143,7 +1148,7 @@ console.log((verdict === 'pass' ? 'PASS ' : 'FAIL ') + sha + ' ' + file); proces
 # Both directions UTF-8 (Invoke-NodeBounded), and a limit (#7951): a stopped run decided nothing, whatever it printed.
 $vr = Invoke-NodeBounded $nodeExe.Source @('-', $spec, $ApprovedVersion, $ApprovedSha) $verdictJs
 $verdict = $vr.Out; $rc = $vr.Rc
-if ($vr.TimedOut) { Refuse "the verification record check timed out after $($vr.TimeoutSec) seconds and was stopped, so it decided nothing (it had printed: $verdict). Run it again. Nothing was written." }
+if ($vr.Undecided) { Refuse "the verification record check decided nothing: $($vr.Undecided) (it had printed: $verdict). Run it again. Nothing was written." }
 if ($rc -ne 0) { Refuse "the verification record does not pass ($verdict) (exit $rc). Verify the staged build on this PC first (node tools/win-staging-verify.js). Nothing was written." }
 $recordSha = ($verdict -split ' ')[1]; $recordPath = ($verdict -split ' ', 3)[2]
 Say "verification record: $verdict"
