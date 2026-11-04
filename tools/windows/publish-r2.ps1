@@ -1050,11 +1050,15 @@ if ($stagedSetup -or $stagedSetupSide) {
     # kosmos#7890: the zip names no commit to read the installer from, so it is checked against this tree's HEAD. One
     # that cannot be checked is refused, as a missing commit is: promoting the app while setup.ps1 stays older is the
     # outcome the refusal exists to prevent.
-    $headSetup = Get-SetupAtCommit 'HEAD'
-    if ($null -eq $headSetup.Bytes) { Refuse "the staged zip records no source commit, so $SetupVersioned is checked against this tree's HEAD, and git cannot read tools/windows/$SetupName there ($($headSetup.Error)). Promote from the checkout that staged it. Nothing was written." }
-    if ((Sha256-Bytes ([byte[]]$headSetup.Bytes)) -cne $SetupSha) { Refuse "the staged zip records no source commit, and $SetupVersioned ($SetupSha) is not tools/windows/$SetupName at this tree's HEAD ($(Sha256-Bytes ([byte[]]$headSetup.Bytes))), so it cannot be checked. Promote from the checkout that staged it, or re-stage it from this one. Nothing was written." }
+    # One commit is both checked and logged: HEAD is resolved first, then read at that commit.
+    $SetupHead = Get-SetupHeadCommit
+    $headSetup = if ($SetupHead -ne 'unknown') { Get-SetupAtCommit $SetupHead } else { Get-SetupAtCommit 'HEAD' }
+    # What works when it cannot be checked: setup-<v>.ps1 cannot be replaced for a zip that names no commit, so the fix
+    # is a checkout whose setup.ps1 is the staged bytes (staging named it as "this tree's HEAD (<sha>)"), or a new build.
+    $fix = "Promote from a checkout of the commit staging named for it (its NOTICE says this tree's HEAD and the commit), or rebuild under a new version."
+    if ($null -eq $headSetup.Bytes) { Refuse "the staged zip records no source commit, so $SetupVersioned is checked against this tree's HEAD, and git cannot read tools/windows/$SetupName there ($($headSetup.Error)). $fix Nothing was written." }
+    if ((Sha256-Bytes ([byte[]]$headSetup.Bytes)) -cne $SetupSha) { Refuse "the staged zip records no source commit, and $SetupVersioned ($SetupSha) is not tools/windows/$SetupName at this tree's HEAD $SetupHead ($(Sha256-Bytes ([byte[]]$headSetup.Bytes))), so it cannot be checked. $fix Nothing was written." }
     $SetupSource = 'head'
-    $SetupHead = (Get-SetupHeadCommit)
     Say "installer: $SetupVersioned ($SetupSha) is tools/windows/$SetupName at this tree's HEAD $SetupHead (the staged zip records no source commit); it becomes $SetupName after latest-win.json"
   }
 } else {

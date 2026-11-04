@@ -8,8 +8,8 @@ Follow-ups to #7891 (publish-r2.ps1 carries setup.ps1). Items 1 and 2 need other
    At -Promote, the staged copy is compared with this tree's HEAD blob (`git cat-file blob HEAD:tools/windows/setup.ps1`):
    - equal: it is published, and the approval line says `setup_source=head`;
    - not equal, or a HEAD git cannot read: REFUSED before any write, as a missing commit is (item 4's reason: prod
-     must not move to an app whose installer stays older). The refusal says to promote from the checkout that staged it
-     or re-stage. The approval line for a `head` promote records the witness commit (`setup_head=`).
+     must not move to an app whose installer stays older). The refusal says what works: a checkout of the commit staging
+     named for it, or a new build (re-staging cannot replace setup-<v>.ps1 for a zip that names no commit). The approval line for a `head` promote records the witness commit (`setup_head=`).
    A zip that records its commit keeps #7891's check and says `setup_source=commit`.
 5. **A build staged without an installer** (a rollback to an older build): the line records `setup_left=<sha>` of the
    setup.ps1 it leaves live (or `absent`), with `setup_source=none`.
