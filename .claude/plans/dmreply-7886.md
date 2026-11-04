@@ -16,9 +16,10 @@ A direct message arrives as `[message from your colleague <name> · m<id>]` with
    being its session name (what `kosmos msg` takes).
 
 ## Decided in review
-- A message that itself answers another (sent with --in-reply-to) carries no answer line, as a room answer is not
-  invited to reply (#7246), so each answer does not ask for one more round. The instruction block says so, and that a
-  new question goes without --in-reply-to.
+- Every direct message carries the answer line, an answer included. Round 1 dropped it on answers (as a room answer
+  is not invited to reply, #7246); round 3 showed that stalls a thread silently: a reply that asks a question back
+  read as waiting on nobody. The pair valve and the five-round rule bound the extra rounds. The instruction block
+  says, in one place, that on a direct message the line says how to answer, not that an answer is owed.
 - A sender name with a space is single-quoted in the answer line (the charset gate allows a space and no quote).
 - The longer prefix moves a message near chat's typing cap to an Inbox file a little sooner (spillsAt measures the
   whole prefix); accepted.
