@@ -1071,11 +1071,12 @@ struct ChatView: View {
             // kosmos#7420 (build 33, 18:51): within the content at the newest message, with the end not showing, nothing drawn
             // (the estimate's stretch with no rows), or the offset short of the end by more than the list's own bottom
             // padding (the simulator, 11-03: the newest 19 pt under the grown box while the end marker read as showing).
-            // A reader higher up (atBottom false), a finger or a reader's scroll is never moved. Review 5: the short-of-end
-            // test only after the box moved, so a reader who nudged up a little (end marker still showing) is left there.
+            // A drawn list is moved only for a reader at the newest (atBottom); a finger or a reader's scroll is never moved.
+            // TestFlight 37 (Josh 11-04 08:07): a list with NOTHING drawn is rebuilt whatever the anchor, since a blank
+            // screen keeps no place worth holding. Review 5: the short-of-end test only after the box moved.
             let short = scrollBox.shortOfEnd() ?? 0
             if place == "within", !endVisible || onScreen.isEmpty || (boxMoved && short > Double(Self.listPadV) + 4) {
-                if atBottom, !personScrolling, !scrollBox.underFinger {
+                if atBottom || onScreen.isEmpty, !personScrolling, !scrollBox.underFinger {
                     // Review 6: a list just rebuilt is laying out and goes to its newest itself; neither arm acts in its grace.
                     if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
                     if onScreen.isEmpty {
@@ -1100,7 +1101,7 @@ struct ChatView: View {
                             settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: false, again: true)
                         }
                     }
-                } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn") }
+                } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn, under a scroll") }
             } else if place != "within" { Self.trace("keyboard settled: \(place)") }
             return
         }
@@ -1116,7 +1117,7 @@ struct ChatView: View {
     private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false) {
         let scrolling = personScrolling || scrollBox.underFinger
         var wrote = false
-        switch Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling, atNewest: atBottom && !Self.sampleNoRebuild) {
+        switch Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling, atNewest: atBottom, canRebuild: !Self.sampleNoRebuild) {
         case .none: return
         case .rebuild:
             let now = Date()
@@ -1126,7 +1127,7 @@ struct ChatView: View {
                 return
             }
             rebuilds.append(now)
-            Self.trace("diag: empty within the content at the newest, list rebuilt (\(rebuilds.count) this chat open)")
+            Self.trace("diag: empty within the content (at newest \(atBottom)), list rebuilt (\(rebuilds.count) this chat open)")
             // As a chat opens (measured 10-31, iOS 26.5 and 27): the new list starts with no anchor, so its first rows are
             // drawn, and the end is asked for once it exists (goNewest), since without that ask it stayed at its top (the
             // chat open's own goNewest did not move it). Created already anchored on "end", a long list on iOS 27 opened on
