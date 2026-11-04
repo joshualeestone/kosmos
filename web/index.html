@@ -74737,7 +74737,13 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
         // cog): a timer-initiated navigation must not leave focus on the now-hidden
         // Save button and drop it to <body> for a keyboard/screen-reader user.
         const savedId = fresh.id;
-        btn.__navTimer = setTimeout(() => {
+        /* #7968: a Save that gave the project a new name is the moment its folder offer matters, and the offer sits far
+           below this button. So this one stays here and brings it into view, rather than moving away in a second. */
+        const offer = fresh.name !== p.name && fresh.folderRenameTo ? document.getElementById('pjs-rename-folder') : null;
+        if (offer && !offer.hidden) {
+          offer.scrollIntoView({ block: 'center' });
+          document.getElementById('pjs-rename-folder-btn').focus({ preventScroll: true });
+        } else btn.__navTimer = setTimeout(() => {
           if (PJ_VIEW === 'settings' && PJ_CURRENT === savedId && pjById(PJ_CURRENT)
               && !document.getElementById('panel-projects').hidden) {
             pjView('one');
