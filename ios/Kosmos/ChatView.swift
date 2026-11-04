@@ -788,7 +788,8 @@ struct ChatView: View {
                     guard visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
                     guard Self.followsBox else {
                         // kosmos#7420 (Josh's phone, build 33, 18:51): unfollowed, two lines of growth left the list on a stretch
-                        // its estimate had no rows for. Once the layout settles, the settled look puts the newest back (settledPutBack).
+                        // its estimate had no rows for. Once the layout settles, the settled look rebuilds a blank list or brings the newest
+                        // back if its end is gone (settledPutBack).
                         if Self.diagRing.last?.hasSuffix("box height changed, settling at the newest") != true { Self.trace("box height changed, settling at the newest") }
                         settleAtNewest(proxy, boxMoved: true)
                         return
@@ -1074,9 +1075,8 @@ struct ChatView: View {
         let place = scrollBox.reading()?.place ?? "unread"
         guard place == "past the end" else {
             if again { return }
-            // kosmos#7420 (build 33, 18:51): within the content at the newest message, with the end not showing, nothing drawn
-            // (the estimate's stretch with no rows), or the offset short of the end by more than the list's own bottom
-            // padding (the simulator, 11-03: the newest 19 pt under the grown box while the end marker read as showing).
+            // kosmos#7420 (build 33, 18:51): within the content, with nothing drawn (the estimate's stretch with no rows), or at
+            // the newest after a keyboard or box change with the end gone. The offset short of the end is only traced.
             // A drawn list is moved only for a reader at the newest (atBottom); a finger or a reader's scroll is never moved.
             // TestFlight 37 (Josh 11-04 08:07): a list with NOTHING drawn is rebuilt whatever the anchor, since a blank
             // screen keeps no place worth holding. Review 5: the short-of-end test only after the box moved.

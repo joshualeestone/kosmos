@@ -50,3 +50,8 @@ still leaves a reader higher up. room/main.swift pins the settled arm. Typecheck
   keyboard's 345/380/608 flips each sent a did-show and each one scrolled). A blank list is still rebuilt. The same 08:26
   capture showed a 4.3x inflated estimate (132901 vs 30753 measured after the rebuild): the rebuild worked; its move is
   part of the jump a person sees, the accepted cost of a blank.
+- Review 4, accepted and stated: (1) without the short-of-end move, a newest left under a grown box with its end marker
+  still reading as showing (19 pt, seen only in the simulator, 11-03) is not corrected; that move was the delayed follow
+  behind "jumping while I type", the worse failure on the phone. (2) The did-show skip trusts the insets at did-show:
+  Josh's 08:07 capture shows the keyboard already in the bottom inset then (insets 113/442). The +4 pt over the list's
+  12 pt bottom padding can hide up to 4 pt of the newest; accepted.
