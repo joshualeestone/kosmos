@@ -7,8 +7,13 @@ at 18:08:18Z (transcript stop_hook_summary, 304 ms, no hook error) and no idle a
 so the cause of the lost send is unrecorded. Vivienne shows the healthy pair (working, idle 10 s later).
 
 ## Finished looks like
-The Stop hook's idle report is retried once on failure, and a second failure writes one line (time, event, exit
-code, no command text) to $THROTTLE_DIR/turn-end-failures.log. Every other report is unchanged.
+The Stop hook's idle report runs detached (the hook never waits on it). If the board did not answer, it is tried once
+more, but only if no other hook event of the same pane came after the Stop (a per-pane STOP_TOKEN every other event
+removes), so a late idle never overwrites the next turn's working, a permission prompt or a SessionEnd's stopped. A board
+that answered "not recorded" (an agent waiting on a person keeps its deliberate state) is not retried or noted. A second
+lost send writes one line (time, pane, exit code, the CLI's first line; no command text) to
+$THROTTLE_DIR/turn-end-failures.log. Every other report is unchanged. The Windows node hook is out of scope (the
+symptom is the Mac board's honest-unknown).
 
 ## Call
 Retry plus a note in the hook. Rejected: letting an idle screen outrank a stale working report on a Mac (the fleet-wide
@@ -16,5 +21,7 @@ precedence change status.js already raised rather than took); counting a placed 
 Weakest premise: that the five family-board agents (non-Claude runners) fail this way; their selfreports would show it.
 
 ## Measured on the branch
-report-hook-turnend-7977.test.js: 3/3 (success sends once, no note; fail-then-succeed sends twice, no note; fail twice:
-two tries and one note line). Mutant (one-shot send restored): 2 of 3 fail. Ten sibling hook test files pass.
+report-hook-turnend-7977.test.js 6/6: success sends once; the hook returns at once while the send takes 2 s; a lost
+first send is retried; a refusal is not; a newer event cancels the retry; two lost sends leave the one line. Mutants,
+each red on its own test: the token check removed, the refusal check removed, the output held open.
+report-hook-auto-1453.test.js counts report_turn_end as a report call (floor 8). Ten sibling hook test files pass.
