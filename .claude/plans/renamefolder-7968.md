@@ -17,6 +17,9 @@ Card: #7968. A project given a real name keeps its starter folder name, so a per
 ## Weakest premise
 "Busy" comes from the board's card state, a reading at one moment. An agent can start working right after it. Homes are read from every known agent, stopped ones too. The typed line and rewritten instructions are then all that tell a running one, and a stray recreated folder is the worst outcome: visible and harmless to the work already moved.
 
+## Backups
+Read, not run. The offer only applies directly under the projects root, which is one backup root (`backuptick.js`), so the next snapshot lists the new path and older snapshots keep the old one. The `elsewhere/<id>` root is for folders outside it and cannot arise here.
+
 ## Stale paths that stay stale
 Past room notes, receipts, undo records and agents' own notes keep the old path. A folder move has the same limit today. Undo flags those files as moved rather than restoring them.
 

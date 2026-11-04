@@ -3440,12 +3440,17 @@ function folderRenameTarget(project) {
   return want.toLowerCase() === path.basename(project.folder).toLowerCase() ? null : want;
 }
 
+// Nothing at all at that path. folderState reads a dangling symlink as missing, and a rename would replace it.
+function nothingAt(target) {
+  try { fs.lstatSync(target); return false; } catch (e) { return e.code === 'ENOENT'; }
+}
+
 /* The offer the page shows: the same, but not when another folder already has the name, which could only be refused. */
 function folderRenameOffer(project) {
   const want = folderRenameTarget(project);
   if (!want) return null;
   if (folderState(project.folder).state !== FOLDER.READABLE) return null;
-  return folderState(path.join(path.dirname(project.folder), want)).state === FOLDER.MISSING ? want : null;
+  return nothingAt(path.join(path.dirname(project.folder), want)) ? want : null;
 }
 
 const pathHolds = (outer, inner) => inner === outer || inner.startsWith(outer + path.sep);
@@ -3472,8 +3477,7 @@ function renameFolderToName(id, { busy = [], homes = [], stuckOnOldFolder = [] }
   if (stuckOnOldFolder.length) throw refused(stuckOnOldFolder.join(', ') + ' runs on Gemini, which keeps the folder it started with. Stop that agent first, then rename the folder');
   if (busy.length) throw refused(busy.join(', ') + (busy.length === 1 ? ' is' : ' are') + ' in the middle of something on this project. Try again once ' + (busy.length === 1 ? 'that agent is' : 'they are') + ' idle');
   const target = path.join(path.dirname(self.folder), want);
-  const there = folderState(target);
-  if (there.state !== FOLDER.MISSING || all.some((p) => p.id !== id && p.folder === target)) {
+  if (!nothingAt(target) || all.some((p) => p.id !== id && p.folder === target)) {
     throw refused('there is already a folder called ' + want);
   }
   try { fs.renameSync(self.folder, target); } catch {
