@@ -31,14 +31,16 @@ command -v "$GH" >/dev/null 2>&1 || { echo "linux-check-runs: $GH is not install
 missing=""; told=0
 # <artifact prefix> <workflow file>: prints why it does not count, or nothing when it does. Exit 2 = cannot tell.
 one() {
-  local name="$1-$V-$SHA" file="$2" ids id run concl event from hsha branch path cmp
+  local name="$1-$V-$SHA" file="$2" ids id run concl event from hsha branch path cmp unknown=0
   ids="$("$GH" api "repos/$REPO/actions/artifacts?name=$name&per_page=30" --jq '.artifacts[] | select(.expired == false) | .workflow_run.id' 2>/dev/null)" \
     || { echo "linux-check-runs: GitHub did not answer for the artifact $name" >&2; return 2; }
   [ -n "$ids" ] || { echo "no green run of $file has checked $V ($SHA)"; return 0; }
   while IFS= read -r id; do
     case "$id" in ''|*[!0-9]*) continue ;; esac
+    # One run GitHub cannot answer for (a 404, a commit since removed) is not a verdict on the others: keep looking,
+    # and say "cannot tell" only if no run qualified.
     run="$("$GH" api "repos/$REPO/actions/runs/$id" --jq '.conclusion + " " + .event + " " + .head_repository.full_name + " " + .head_sha + " " + .head_branch + " " + .path' 2>/dev/null)" \
-      || { echo "linux-check-runs: GitHub did not answer for run $id" >&2; return 2; }
+      || { echo "linux-check-runs: GitHub did not answer for run $id" >&2; unknown=1; continue; }
     concl="${run%% *}"; run="${run#* }"; event="${run%% *}"; run="${run#* }"; from="${run%% *}"; run="${run#* }"
     hsha="${run%% *}"; run="${run#* }"; branch="${run%% *}"; path="${run#* }"
     # .path can carry an @ref suffix ("…/x.yml@refs/heads/main"): when it does it must name main itself.
@@ -51,10 +53,11 @@ one() {
       # on this repository's main: identical to it, or behind it (main has moved on since). Anything else, no.
       case "$hsha" in *[!0-9a-f]*|'') continue ;; esac
       cmp="$("$GH" api "repos/$REPO/compare/$hsha...main" --jq '.status' 2>/dev/null)" \
-        || { echo "linux-check-runs: GitHub did not answer whether $hsha is on main" >&2; return 2; }
+        || { echo "linux-check-runs: GitHub did not answer whether $hsha is on main" >&2; unknown=1; continue; }
       case "$cmp" in identical|ahead) echo "ok $file run $id"; return 0 ;; esac
     fi
   done <<< "$ids"
+  [ "$unknown" = 0 ] || return 2
   echo "the artifact $name exists, but not from a successful dispatch of $file on $REPO's main"
 }
 for pair in "linux-family-install linux-family-install-7281.yml" "linux-promote-check linux-promote-check-7933.yml"; do
