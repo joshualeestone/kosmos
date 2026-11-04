@@ -354,7 +354,7 @@ function syncDir(dir) {
  *
  * `opts.ownTempsOnly` (#5434 slice 3): before writing, reap only this file's own dead temps rather
  * than sweeping the whole folder once per process. For a folder Kosmos does not own. Not cached: it
- * reads the folder on every save, which is fine at a once-per-birth call rate.
+ * reads the folder on every save, which is fine at a once-per-birth or once-per-launch call rate (an unchanged file returns before saving).
  *
  * `mode` null or undefined WITH `opts.umaskDefault` (#5434 slice 3): create at the process umask
  * default (0666 less the umask) and set no mode, exactly as a plain writeFileSync would. This is

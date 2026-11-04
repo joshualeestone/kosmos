@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Prepare a Grok agent's report hooks at birth (#3391): the lifecycle hooks that
+ * Prepare a Grok agent's report hooks, at birth (#3391) and before every launch (#7976): the lifecycle hooks that
  * make the agent self-report to the board with NO pane scraping. This is the Grok
  * analog of engine/geminisettings.js, with two grok-specific simplifications
  * measured against grok 1.0.41 on 2026-09-23:
@@ -27,8 +27,8 @@
  * also load the person's ~/.claude or ~/.cursor setup. This module only writes our own
  * grok hook file.
  *
- * ⚠️ ZERO ENGINE DEPENDENCIES beyond node builtins, deliberately: create.js calls
- * this at birth and passes every path, so nothing here resolves a home.
+ * ⚠️ ZERO ENGINE DEPENDENCIES beyond node builtins, deliberately: create.js at birth and
+ * the supervisor at launch pass every path, so nothing here resolves a home.
  */
 
 const fs = require('node:fs');
@@ -133,7 +133,7 @@ function entryIsOurs(entry) {
  * Ensure our grok report-hook file at hookFilePath wires every lifecycle event to
  * the bridge, and (#5812, not on win32) the PreToolUse tool hook. Idempotent by content (we own the file). Returns { prepared:true,
  * changed } or { prepared:false, because } in a sentence -- never throws for an
- * expected shape, because the caller (create.js at birth) fails soft: a hook file it
+ * expected shape, because both callers (create.js, the supervisor) fail soft: a hook file it
  * could not prepare costs the agent a self-report, not its existence, which is the
  * pre-#3391 world, not a corruption.
  * `opts` ({ platform, node }) picks the command form, see commandFor; both default

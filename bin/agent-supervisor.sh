@@ -1334,10 +1334,10 @@ if [ -z "$adopt" ]; then
     launch_pane "$CLAUDE" --approval-mode yolo --skip-trust -m "$GEMINI_MODEL" ${GEMINI_INCLUDE[@]+"${GEMINI_INCLUDE[@]}"} || exit 1
   elif [ "$RUNNER" = grok ]; then
     # #3391: the Grok runner. Like gemini, self-reporting is NOT a launch flag (as
-    # codex's notify is) -- Grok Build has its own hook system, and engine/create.js
-    # wrote the report hooks into the agent's own grok hook file at birth
-    # ($GROK_HOME/hooks/kosmos-report-bridge.json -> bin/grok-report-bridge.js). Those
-    # persist across restarts, so this (re)launch needs only to start the pane.
+    # codex's notify is) -- Grok Build has its own hook system, and the report hooks live in
+    # the agent's own grok hook file ($GROK_HOME/hooks/kosmos-report-bridge.json ->
+    # bin/grok-report-bridge.js). engine/create.js writes it at birth, and #7976 below puts it
+    # right before every launch, since a home can be wiped or the file can predate a hook.
     #   --permission-mode bypassPermissions
     #   --always-approve     : auto-approve all tools (the codex --dangerously-bypass /
     #                          claude --dangerously-skip / gemini yolo analog), so an
@@ -1401,6 +1401,8 @@ if [ -z "$adopt" ]; then
     _GROK_BRIDGE="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)/grok-report-bridge.js"
     if [ -n "$_eng" ] && [ -n "$NODE_BIN" ] && [ -f "$_eng/groksettings.js" ] && [ -f "$_GROK_BRIDGE" ]; then
       "$NODE_BIN" "$_eng/groksettings.js" "$_GROK_ACCT/hooks/kosmos-report-bridge.json" "$_GROK_BRIDGE" || true
+    else
+      say "$SESSION: #7976: grok report hooks not checked (the engine, node or the report bridge was not found)"
     fi
     unset _GROK_BRIDGE
     _GROK_KIND=""

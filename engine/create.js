@@ -7015,8 +7015,8 @@ function createAgentInner(opts) {
        turned off at launch (agent-supervisor.sh, win32keyed.js), so a grok agent does not
        run the person's Claude Code or Cursor hooks. (Hooks configured in the grok home itself still run; for a
        default-account agent that home is the person's ~/.grok.)
-       #7976: a WIPED ~/.grok no longer loses
-       the hook file: the supervisor puts it back before every launch. (Gemini still has this residual, #3136.) */
+       #7976: on a Mac or Linux, a WIPED ~/.grok no longer loses the hook file: the supervisor puts it back before every
+       launch. Windows still has this residual, and so does Gemini (#3136). */
     if (provider === 'xai') {
       try {
         const groksettings = require('./groksettings');
