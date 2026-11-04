@@ -207,11 +207,11 @@ function fingerprintDisplay(fp) {
    check on it is valid UTF-8, so a hostile coordinator could make two orgs or admins look alike. shownText() is what
    the screen shows instead of the raw string:
    - every control, format (bidi overrides and isolates, zero-width characters, the BOM, the soft hyphen; the one
-     exception is a joiner that spells a word, below), line or
-     paragraph separator, private-use or unassigned code point, every default-ignorable code point (variation
-     selectors, the combining grapheme joiner, the Hangul fillers: invisible marks and letters), the characters that
-     draw as a blank or a box (U+2800 braille blank, U+FFFC object replacement, U+FFFD replacement), and every space
-     other than U+0020, is written as \u{XXXX}, and the text is marked unusual;
+     exception is a joiner that spells a word, below), line or paragraph separator, private-use or unassigned code
+     point, every default-ignorable code point (variation selectors, the combining grapheme joiner, the Hangul fillers:
+     invisible marks and letters), the characters that draw as a blank or a box (U+2800 braille blank, U+FFFC object
+     replacement, U+FFFD replacement), and every space other than U+0020, is written as \u{XXXX}, and the text is
+     marked unusual;
    - text that changes under NFC, or a letter or digit that changes under NFKC, is marked unusual: "Cafe" with a
      combining accent looks like "Café" with a precomposed one, and fullwidth "ＡBC" like "ABC" (symbols and
      punctuation, such as "™" or the fullwidth brackets of "（株）", are left alone: they are ordinary in names);
@@ -250,13 +250,15 @@ function scriptOf(ch) {
 // joins forward and one that joins back (harakat may sit before the ZWNJ, not after it). Anywhere else it is escaped
 // and marked as before: after an alef or a tatweel, between letters that join anyway, in Indic text with no virama, in
 // a Latin name, between two scripts. The scripts are deliberately partial: Tamil is left out (no half forms, so a
-// joiner after its virama changes nothing), as are Syriac, Mongolian, N'Ko, Thaana and the rest. Known residual: in
-// the scripts kept, a font that draws no conjunct or half form shows the two spellings alike. Known false positives
+// joiner after its virama changes nothing), as are Syriac, Mongolian, N'Ko, Thaana and the rest; Sinhala keeps only
+// the ZWJ (a conjunct forms only on ZWJ, so a ZWNJ after al-lakuna changes nothing). Known residuals: a letter with no
+// half form (Devanagari nga, Telugu ka) looks the same with a ZWJ, a ZWNJ or neither after its virama, in any font,
+// and a font that draws no conjunct shows the spellings alike; both are allowed by ContextJ and are not marked here. Known false positives
 // (marked, never hidden): a nukta before the virama, Bengali ya-phala (ra, ZWJ, virama, ya), a chillu at the end of a
 // word, and a mark after the ZWNJ.
 const VIRAMAS = [['Devanagari', '\u094D'], ['Bengali', '\u09CD'], ['Gurmukhi', '\u0A4D'], ['Gujarati', '\u0ACD'],
-  ['Oriya', '\u0B4D'], ['Telugu', '\u0C4D'], ['Kannada', '\u0CCD'], ['Malayalam', '\u0D4D'], ['Sinhala', '\u0DCA']]
-  .map(([name, v]) => [new RegExp('^\\p{Script=' + name + '}$', 'u'), v]);
+  ['Oriya', '\u0B4D'], ['Telugu', '\u0C4D'], ['Kannada', '\u0CCD'], ['Malayalam', '\u0D4D'], ['Sinhala', '\u0DCA', 'zwj']]
+  .map(([name, v, only]) => [new RegExp('^\\p{Script=' + name + '}$', 'u'), v, only]);
 // Arabic letters by Joining_Type (Unicode ArabicShaping.txt): R joins only to the letter before it, U to neither; every
 // other Arabic letter here is D (both ways). Only these ranges count; anything else is not an Arabic joining letter.
 // The tatweel (U+0640, Joining_Type C) and the superscript alef (U+0670, T) are inside the ranges and are excluded.
@@ -276,7 +278,8 @@ function joinerInWord(chars, i) {
   if (!prev || !next) return false;
   const viramaOf = VIRAMAS.find(([, v]) => v === prev);
   if (viramaOf) {
-    const [re] = viramaOf, base = chars[i - 2];
+    const [re, , only] = viramaOf, base = chars[i - 2];
+    if (only === 'zwj' && chars[i] !== '\u200D') return false;
     return !!base && /\p{L}/u.test(base) && re.test(base) && /\p{L}/u.test(next) && re.test(next);
   }
   if (chars[i] !== '\u200C') return false;

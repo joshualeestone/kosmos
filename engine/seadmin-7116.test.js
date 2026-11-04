@@ -477,8 +477,6 @@ test('#7892: a zero-width joiner or non-joiner inside a Persian or Indic word is
     ['\u06C4\u200C\u0628', '\u06C4\\u{200C}\u0628'],
     ['\u075B\u200C\u0628', '\u075B\\u{200C}\u0628'],
   ]) assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
-  // More spelling that stays: a ZWNJ before an R letter (beh, ZWNJ, alef), and one after an Arabic-extended D letter
-  // (heh goal U+06C1).
   // One half form per kept virama script (letter, virama, ZWJ, letter): each is spelling and stays.
   for (const [k, v, s] of [['\u0A15', '\u0A4D', '\u0A38'], ['\u0A95', '\u0ACD', '\u0AB7'], ['\u0B15', '\u0B4D', '\u0B37'],
     ['\u0C15', '\u0C4D', '\u0C37'], ['\u0C95', '\u0CCD', '\u0CB7'], ['\u0D15', '\u0D4D', '\u0D37'], ['\u0D9A', '\u0DCA', '\u0DC2']]) {
@@ -486,8 +484,13 @@ test('#7892: a zero-width joiner or non-joiner inside a Persian or Indic word is
     assert.strictEqual(org.normalize('NFC'), org, 'CONTROL: NFC leaves ' + JSON.stringify(org) + ' alone');
     assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
   }
-  // A known false positive, pinned so it is a decision: a harakah AFTER the ZWNJ is not skipped, so it is marked.
+  // Sinhala keeps only the ZWJ: a ZWNJ after al-lakuna changes nothing, so it is escaped and marked.
+  assert.deepStrictEqual(shownOrg('\u0D9A\u0DCA\u200C\u0DC2'), ['\u0D9A\u0DCA\\u{200C}\u0DC2', true], 'Sinhala ZWNJ');
+  // A known false positive, pinned so it is a decision: a harakah AFTER the ZWNJ is not skipped, so the joiner is
+  // escaped. Only the text half pins joinerInWord here: the flag is also set by the mark-with-no-letter rule.
   assert.deepStrictEqual(shownOrg('\u0628\u200C\u064E\u0628'), ['\u0628\\u{200C}\u064E\u0628', true]);
+  // More spelling that stays: a ZWNJ before an R letter (beh, ZWNJ, alef), and after Arabic-extended D letters (heh goal
+  // U+06C1, the Arabic Supplement U+0750).
   for (const org of ['\u0628\u200C\u0627', '\u06C1\u200C\u0628', '\u0750\u200C\u0628'])
     assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
   // More spelling that stays: a Persian ZWNJ after a harakah, and a Bengali ZWNJ after its virama.
