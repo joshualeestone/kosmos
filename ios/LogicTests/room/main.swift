@@ -551,6 +551,9 @@ for l in traceLines {
     }
 }
 let strayValues = tracedValues.filter { !allowedInTrace.contains($0) }
+// kosmos#7645 review 1: the room half of the scan must have read something, or a missing file passes on the chat's lines.
+check(!roomTraceSource.isEmpty && roomTraceSource.components(separatedBy: "\n").contains { $0.contains("ChatView.trace(") },
+      "kosmos#7645: the trace scan read the room's source and found its trace lines")
 check(traceLines.count >= 10 && !tracedValues.isEmpty && strayValues.isEmpty,
       "kosmos#7420: the diagnostic records only allowed numbers and flags (\(tracedValues.count) values; not allowed: \(strayValues))")
 check(!chatSource.contains("keepAnchor scrollTo \\(id)"), "review 1: no message id in the record")
