@@ -19,3 +19,5 @@ Card: kosmos#7980 (follow-up to #7967, from its review rounds 6 to 8).
 1. The wrapper change in install/kosmos. done
 2. Tests in cli.community-exit-reason-7967.test.js; each fails on its mutant (the `$# -eq 0` dropped; the
    BASH_SUBSHELL check dropped). done
+3. Review 1 nits: a child of the command does not inherit the marker (fails with the unset removed); the comment says
+   the re-dispatch is below; the test cutter checks the end of each function too. done
