@@ -207,6 +207,40 @@ test('#7968 a difference of case alone is not offered: the folder is already rec
   assert.throws(() => projects.renameFolderToName(lease.id), /no new name/);
 });
 
+test('#7968 a folder that is itself a link is not offered and not renamed: the real folder would keep its name', () => {
+  const real = path.join(HOME, 'Real Work');
+  fs.mkdirSync(real, { recursive: true });
+  const link = path.join(KEEP, 'Linked Start');
+  fs.symlinkSync(real, link);
+  const p = projects.create({ name: 'Linked Start', folder: link });
+  projects.edit(p.id, { name: 'Linked Other' });
+  assert.equal(projects.folderRenameTarget(stored(p.id)), 'Linked Other', 'CONTROL: only the link stops it');
+  assert.equal(offered(p.id), null);
+  assert.throws(() => projects.renameFolderToName(p.id), /is a link to a folder somewhere else/);
+  assert.equal(fs.lstatSync(link).isSymbolicLink(), true);
+});
+
+test('#7968 another project recorded at that name in another case counts too', () => {
+  const ghost = projects.create({ name: 'case ghost' });
+  fs.rmSync(ghost.folder, { recursive: true });
+  const p = renamed('Starter Case', 'Case Ghost');
+  assert.equal(offered(p.id), null);
+  assert.throws(() => projects.renameFolderToName(p.id), /the project "case ghost" uses the name Case Ghost/);
+});
+
+test('#7968 a list reads the projects file once, not once a project', () => {
+  for (const n of ['Read One', 'Read Two', 'Read Three']) renamed(n + ' Start', n);
+  const realRead = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = function counted(file, ...rest) {
+    if (String(file).endsWith('projects.json')) reads += 1;
+    return realRead.call(fs, file, ...rest);
+  };
+  try { assert.ok(projects.list().length > 3); } finally { fs.readFileSync = realRead; }
+  assert.ok(reads > 0, 'CONTROL: the counter saw the file');
+  assert.ok(reads < projects.readAll().length, `read ${reads} times for ${projects.readAll().length} projects`);
+});
+
 test('#7968 a stopped agent living in the folder refuses it too, which the board alone cannot see', async (t) => {
   const b = fleet.install([]);
   t.after(() => b.restore());

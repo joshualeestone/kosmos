@@ -79,7 +79,7 @@ const PORT = freePort();
     await openSettings('Launch Plan');
     await p.waitForSelector('#pjs-rename-folder', { state: 'visible', timeout: 8000 });
     const offer = (await shown(p.locator('#pjs-rename-folder-text'))).trim();
-    chk(offer === 'This project\'s folder is called Starter Name. You can rename it to Launch Plan to match. Anything outside Kosmos that uses the old name, like a shortcut or a script, will stop working.',
+    chk(offer === 'This project\'s folder is called Starter Name. You can rename it to Launch Plan to match. Anything outside Kosmos that uses the old name, like a shortcut, a script or a terminal open in it, will stop working.',
       'the offer names both folder names and what stops working', JSON.stringify(offer));
 
     // A folder made under that name after the page offered it: refused in plain words, nothing moves.
