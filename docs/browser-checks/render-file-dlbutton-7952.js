@@ -11,6 +11,8 @@
  *   R2  a click on the button for a picture (which the row itself would preview) makes the BROWSER download that file
  *       from its download route, and opens no preview;
  *   R3  the button's spoken name says what it downloads;
+ *   R4  from the keyboard: the button takes focus and Enter downloads its file;
+ *   P1  at phone width (390 px) the button is as big as the row's tap target (44 px) and stays on screen;
  *   L1  CONTROL at the computer (127.0.0.1): no file row has a download button. This is the arm that keeps R1 from
  *       passing on a page that draws the button everywhere.
  * Against web/index.html from before #7952, R1 to R3 FAIL (no button is drawn):
@@ -37,9 +39,9 @@ const AGENT = 'ana';
 const BROWSE = { ok: true, dir: '', stamp: 's7952', dirs: [{ name: 'reports', modified: '2026-11-01T10:00:00Z' }],
   files: [{ name: 'chart.png', size: 2048, modified: '2026-11-03T10:00:00Z' }, { name: 'notes.docx', size: 4096, modified: '2026-11-02T10:00:00Z' }] };
 
-async function openPage(engine, origin) {
+async function openPage(engine, origin, viewport = { width: 1280, height: 800 }) {
   const browser = await pw[engine].launch({ headless: process.env.HEADED === '0' });
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, acceptDownloads: true });
+  const ctx = await browser.newContext({ viewport, acceptDownloads: true });
   const pg = await ctx.newPage();
   const asked = [];
   const errors = [];
@@ -129,7 +131,30 @@ async function runRemote(engine) {
     const got = asked.includes(mark);
     say(got, engine + ' R2: the button for a picture downloads it from its download route', JSON.stringify(asked));
     say(!asked.some((a) => /\/files\/preview/.test(a)), engine + ' R2: and opens no preview', JSON.stringify(asked));
+    asked.length = 0;
+    await pg.focus('.pj-doc-dl[data-dl="notes.docx"]');
+    const focused = await pg.evaluate(() => document.activeElement && document.activeElement.dataset && document.activeElement.dataset.dl);
+    await pg.keyboard.press('Enter');
+    const kmark = (engine === 'webkit' ? 'ANCHOR ' : 'DOWNLOAD ') + '/api/agent/' + AGENT + '/files/download?name=notes.docx';
+    const kuntil = Date.now() + 4000;
+    while (Date.now() < kuntil && !asked.includes(kmark)) await pg.waitForTimeout(50);
+    say(focused === 'notes.docx' && asked.includes(kmark), engine + ' R4: the button takes focus and Enter downloads its file', JSON.stringify({ focused, asked }));
     say(errors.length === 0, engine + ' R*: the page threw nothing', JSON.stringify(errors));
+  } finally {
+    await browser.close();
+  }
+}
+
+async function runPhone(engine) {
+  const { browser, pg, errors } = await openPage(engine, 'http://kosmos-remote.test', { width: 390, height: 844 });
+  try {
+    const files = (await measure(pg)).filter((r) => r.doc);
+    const vw = await pg.evaluate(() => document.documentElement.clientWidth);
+    const right = await pg.evaluate(() => Math.max(...[...document.querySelectorAll('.pj-doc-dl')].map((b) => b.getBoundingClientRect().right)));
+    say(files.length === 2 && files.every((r) => r.dl && r.dl.w >= 44 && r.dl.h >= 44 && r.dl.right && r.dl.level),
+      engine + ' P1: at phone width each button is a 44 px tap target at its row\'s right', JSON.stringify(files.map((r) => r.dl)));
+    say(Number.isFinite(right) && right <= vw + 1, engine + ' P1: and stays on screen', 'right ' + right + ', width ' + vw);
+    say(errors.length === 0, engine + ' P*: the page threw nothing', JSON.stringify(errors));
   } finally {
     await browser.close();
   }
@@ -155,6 +180,7 @@ async function runLocal(engine) {
   console.log = (...a) => { if (String(a[0]).startsWith('FAIL')) failed = true; real(...a); };
   for (const engine of ENGINES) {
     try { await runRemote(engine); } catch (e) { say(false, engine + ' remote arm threw', String(e && e.message)); }
+    try { await runPhone(engine); } catch (e) { say(false, engine + ' phone arm threw', String(e && e.message)); }
     try { await runLocal(engine); } catch (e) { say(false, engine + ' local arm threw', String(e && e.message)); }
   }
   console.log = real;

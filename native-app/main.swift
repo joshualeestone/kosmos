@@ -3789,10 +3789,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                make differ from its link. */
             // Marked only when the page's own main frame asked, at the page's own origin (downloadAskedByPage): never for
             // a frame inside it (another site's, or a sandboxed preview), whose download keeps WebKit's own unmarked one.
-            let source = navigationAction.sourceFrame
-            let byPage = downloadAskedByPage(frameIsMain: source.isMainFrame, frameProtocol: source.securityOrigin.protocol,
-                                             frameHost: source.securityOrigin.host, framePort: source.securityOrigin.port,
-                                             page: committedPageURL)
+            // Optional on purpose (review 2): declared nonnull, but a programmatic navigation has been seen without one;
+            // no source frame is not the page.
+            let source = navigationAction.sourceFrame as WKFrameInfo?
+            let byPage = source.map { downloadAskedByPage(frameIsMain: $0.isMainFrame, frameProtocol: $0.securityOrigin.protocol,
+                                                          frameHost: $0.securityOrigin.host, framePort: $0.securityOrigin.port,
+                                                          page: committedPageURL) } ?? false
             guard byPage else {
                 mayDownload(file: nil) { decisionHandler($0 ? .download : .cancel) }
                 return
@@ -3802,8 +3804,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 decisionHandler(.cancel)
                 guard yes, let self, let webView else { return }
                 let request = sameOriginDownloadRequest(asked)
+                // Review 2: the page as it was when the answer came; a commit before the start voids it, as one during
+                // the question does (mayDownload), so a marked request never goes out for a page no longer showing.
+                let commits = self.pageCommits, page = self.committedPageURL
                 // On the next turn: WebKit starts no download from inside its own policy callback (measured).
-                DispatchQueue.main.async { webView.startDownload(using: request) { self.downloadsStartedHere.add($0); $0.delegate = self } }
+                DispatchQueue.main.async {
+                    guard self.pageCommits == commits, self.committedPageURL == page else {
+                        logLine("#7952: the page changed before an allowed download started, so it was not started")
+                        self.tellDownloadFailed("The page changed before the file was saved, so it was not saved. Try again.")
+                        return
+                    }
+                    webView.startDownload(using: request) { self.downloadsStartedHere.add($0); $0.delegate = self }
+                }
             }
             return
         }
