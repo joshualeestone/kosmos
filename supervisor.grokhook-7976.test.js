@@ -33,13 +33,14 @@ fs.writeFileSync(FAKE_GROK, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
 let n = 0;
 /* One launch, with a home of its own so no case reads another's file. `grokHome`: a per-account agent's home, or null for
    a default agent (<AGENT_WORKFORCE_HOME>/.grok). */
-function run({ grokHome = null, runner = 'grok', model = 'grok-4.6', root = null } = {}) {
+function run({ grokHome = null, runner = 'grok', model = 'grok-4.6', root = null, sup = null } = {}) {
   const home = root || nodePath.join(SANDBOX, `h${++n}`);
   fs.mkdirSync(home, { recursive: true });
   const rec = nodePath.join(SANDBOX, `rec-${++n}.txt`);
-  const env = { PATH: process.env.PATH, HOME: home, REC: rec, AGENT_WORKFORCE_HOME: home, AGENT_WORKFORCE_DATA: nodePath.join(home, 'data') };
+  // TMPDIR: without it the child's temp root differs from this sandbox's, and the ephemeral-path refusal reads the bridge wrongly.
+  const env = { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR || '', HOME: home, REC: rec, AGENT_WORKFORCE_HOME: home, AGENT_WORKFORCE_DATA: nodePath.join(home, 'data') };
   if (grokHome) env.GROK_HOME = grokHome;
-  const r = spawnSync('/bin/bash', [SUP, `agent-g${n}`, home, FAKE_GROK, FAKE_TMUX, '', model, runner], { env, encoding: 'utf8', timeout: 30000 });
+  const r = spawnSync('/bin/bash', [sup || SUP, `agent-g${n}`, home, FAKE_GROK, FAKE_TMUX, '', model, runner], { env, encoding: 'utf8', timeout: 30000 });
   return { home, code: r.status, out: (r.stdout || '') + (r.stderr || ''), argv: fs.existsSync(rec) ? fs.readFileSync(rec, 'utf8') : '' };
 }
 const hooksOf = (dir) => JSON.parse(fs.readFileSync(nodePath.join(dir, 'hooks', FILE), 'utf8')).hooks;
@@ -102,9 +103,33 @@ test('CONTROL: another runner writes no grok hook file', () => {
   assert.equal(fs.existsSync(nodePath.join(r.home, '.grok', 'hooks', FILE)), false);
 });
 
-test('the file written at launch is the one birth writes, so the two cannot drift', () => {
+/* The layout agents really run: the supervisor and bridge copied into a bin folder with no engine beside them, which finds
+   the engine through its engine-path pointer. A checkout hides this, since engine/ sits beside bin/ there. */
+function installed({ bridge = true } = {}) {
+  const dir = nodePath.join(SANDBOX, `install-${++n}`, 'bin');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.copyFileSync(SUP, nodePath.join(dir, 'agent-supervisor.sh'));
+  if (bridge) fs.copyFileSync(BRIDGE, nodePath.join(dir, 'grok-report-bridge.js'));
+  fs.writeFileSync(nodePath.join(dir, 'engine-path'), nodePath.join(__dirname, 'engine') + '\n');
+  return { sup: nodePath.join(dir, 'agent-supervisor.sh'), bridge: nodePath.join(fs.realpathSync.native(dir), 'grok-report-bridge.js') };
+}
+
+test('in the installed layout the hooks point at the installed bridge, and birth would change nothing', () => {
   const settings = require('./engine/groksettings');
-  const r = run();
-  const want = settings.desiredContent(BRIDGE, { platform: process.platform, node: null });
-  assert.deepEqual(hooksOf(nodePath.join(r.home, '.grok')), want.hooks);
+  const inst = installed();
+  const r = run({ sup: inst.sup });
+  assert.match(r.argv, /new-session/, r.out);
+  const hookFile = nodePath.join(r.home, '.grok', 'hooks', FILE);
+  assert.ok(hooksOf(nodePath.join(r.home, '.grok')).Stop[0].hooks[0].command.includes(inst.bridge));
+  // Birth writes this same file with this same bridge (create.js grokBridgePath: <support>/bin), so the two never rewrite each other.
+  assert.deepEqual(settings.ensurePrepared(hookFile, inst.bridge), { prepared: true, changed: false });
+  assert.deepEqual(settings.ensurePrepared(hookFile, BRIDGE).changed, true, 'control: another bridge path would change it');
+});
+
+test('with no bridge to point at, the launch goes on and says so, rather than reporting nothing with no sign', () => {
+  const inst = installed({ bridge: false });
+  const r = run({ sup: inst.sup });
+  assert.match(r.argv, /new-session/, r.out);
+  assert.match(r.out, /grok report hooks not checked \(the engine, node or the report bridge was not found\)/);
+  assert.equal(fs.existsSync(nodePath.join(r.home, '.grok', 'hooks', FILE)), false);
 });

@@ -19,5 +19,8 @@ The supervisor runs `engine/groksettings.js` before every grok launch, on `$_GRO
 - Weakest premise: nobody has read the five-family seat. This fixes the file being missing or old. **It does not fix the other way a line goes stale:** a deliberate `blocked` or `needs_you` is by design not overwritten by automatic reports (#900, #1949), so a diagnostic filed that way stays until the agent clears it. If that seat's line was that, this changes nothing, and the age already says so honestly. What would settle it: that seat's file `selfreports/<name>.jsonl` (the last row's `by` and `state`) and whether its hook file exists.
 - Not changed: Windows (per-turn runs, its hook file written at birth only, not measured here) and Gemini's same residual (#3136). The first report after an upgrade needs a restart of the agent, since this runs at launch.
 
+## Review 1 (blind, opus)
+No blocker or major. Fixed: comments left saying "at birth" only; a comment false on Windows; a skip that logged nothing (the very silence this ends); a test that compared the writer with itself, replaced by one in the installed layout; the test's temp root.
+
 ## Tests
 `supervisor.grokhook-7976.test.js` executes the shipped supervisor. With the launch step made a no-op, 6 of 7 fail and the other-runner control passes.
