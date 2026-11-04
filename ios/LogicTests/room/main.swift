@@ -572,6 +572,9 @@ check(chatSource.contains("let f = n.userInfo?[UIResponder.keyboardFrameEndUserI
       && chatSource.contains("observers = []; saved = nil; savedKeyboard = nil; endGuard()")
       && chatSource.contains("self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true, relooked: relooked) }"),
       "kosmos#7609: a reading is this keyboard's (same width), and a reader's scroll before did-show drops it")
+// kosmos#7609 review 4: a will-show finding a reading older than orphanAfter (its did-show never came) reads again.
+check(chatSource.contains("if let k = self.saved, Date().timeIntervalSince(k.at) >= Self.orphanAfter {") && chatSource.contains("static let orphanAfter: TimeInterval = 3"),
+      "kosmos#7609: an orphaned will-show reading is replaced by the next keyboard's, not kept")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
 check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")

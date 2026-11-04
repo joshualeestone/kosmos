@@ -2822,7 +2822,8 @@ struct KeyboardHold: UIViewRepresentable {
         // (Board.settleOffset). Not under a finger, and not once earlier messages landed or the width changed since the reading
         // (putBack's own stand-downs). A row not drawn yet is tried again every 0.1 s until `until`, the end of the hold's
         // window; a correction (a first try's or a retry's) is looked at once more (relooked); once settled the hold guards the
-        // row again until then (iOS 26 moves the list more than once after did-show), with its own end timer. The chat reads its newest again (onPutBack) after the first try however it ends, dropped
+        // row again until then (iOS 26 moves the list more than once after did-show), with its own end timer.
+        // The chat reads its newest again (onPutBack) after the first try however it ends, dropped
         // included, since the placing itself may have shown the end, and after any try that moved the list.
         // relooked: the one look after a correction has been asked (kosmos#7609: a retry's correction had none).
         private func settleOnScreen(_ id: String, above: Int, width: CGFloat, want: CGFloat, until: Date, retried: Bool = false, relooked: Bool = false) {
@@ -2926,6 +2927,8 @@ struct KeyboardHold: UIViewRepresentable {
         static let window: TimeInterval = 1.5
         // How old a will-show reading may be at its did-show (kosmos#7609: measured 3.4 s on CI).
         static let staleAfter: TimeInterval = 6
+        // A will-show this long after a reading with no did-show reads again (one keyboard's own will-shows come within 0.3 s, #7817).
+        static let orphanAfter: TimeInterval = 3
         // kosmos#7690: a move this large with no finger on the list, this soon before will-show, was not the reader's.
         static let jumpSize: CGFloat = 100
         static let jumpWindow: TimeInterval = 0.25
@@ -3115,7 +3118,11 @@ struct KeyboardHold: UIViewRepresentable {
                 guard let self, let sv = self.scroll else { return }
                 let jump = self.lastJump; self.lastJump = nil   // used once, whatever happens below
                 if !self.keyboardUp { self.settleToken &+= 1; self.replaced = false }   // a new keyboard: a settle still waiting belongs to the one before
-                // A will-show while a reading waits for its did-show keeps that reading.
+                // A will-show while a reading waits for its did-show keeps that reading, unless that reading is older than
+                // orphanAfter: its did-show never came (kosmos#7609 review 4), so this keyboard reads afresh.
+                if let k = self.saved, Date().timeIntervalSince(k.at) >= Self.orphanAfter {
+                    self.saved = nil; self.savedKeyboard = nil; ChatView.trace("keyboard hold: an old reading with no did-show, read again")
+                }
                 guard self.saved == nil, self.hold, !sv.isTracking, !sv.isDragging, !sv.isDecelerating else { return }
                 ChatView.trace("keyboard hold: will-show \(Self.numbers(sv))")
                 // The top of what shows, below the top inset (the bar), in window points: the same space as RowTop's .global for
@@ -3155,7 +3162,7 @@ struct KeyboardHold: UIViewRepresentable {
                 // kosmos#7609 review 1: a reading whose will-show announced a keyboard of another width is not used. Width only: the
                 // height of one keyboard flips (380 and 608 on Josh's phone, #7817) and must not drop its own hold.
                 if let a = announced, let f = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect, abs(a.width - f.width) > 0.5 {
-                    ChatView.trace("keyboard hold: skipped, a keyboard of another width"); return
+                    ChatView.trace("keyboard hold: skipped, the keyboard's width changed"); return
                 }
                 // kosmos#7645: 1.3 s on CI's runner once; kosmos#7609 (main run 41780837713, 11-04): 3.4 s on a busy runner, and the
                 // 3 s limit then dropped the whole correction. Kept as a backstop, past the frame check above.

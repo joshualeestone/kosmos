@@ -38,8 +38,12 @@ main's CI traces, a source check pins both, and the PR's own CI ui tests job pas
   and did-show drops the reading.
 - Review 3: that an iPad floating keyboard sends a will-show with no did-show is review 1's reading of an older comment, not
   a measurement; the width check is a guard that cannot harm an iPhone (its keyboard is always full width), nothing more.
+- Review 4: a will-show that finds a reading older than orphanAfter (3 s, its did-show never came) takes a new reading,
+  so an orphaned reading cannot reach a later keyboard of the same width. One keyboard's own repeat will-shows come within
+  0.3 s (#7817), so they keep the first. A rotation between will-show and did-show also changes the keyboard's width and
+  skips the hold, as putBack already stands down on a width change.
 - Weakest premise: that a floating and a docked keyboard always differ in width. A docked keyboard after an orphaned
-  docked will-show (same width, no will-hide) still gets the older reading, within 6 s. And a will-show or did-show
+  docked will-show (same width, no will-hide) still gets the older reading if its will-show comes within orphanAfter (3 s). And a will-show or did-show
   without a keyboard frame skips the width check (fails open to the 6 s limit).
 - Review 2, deferred by design: a drag starting between will-show and did-show drops the reading (nothing in the app sets
   isTracking/isDragging, so only a finger can). The room checks are text pins; the behaviour is CI's ui tests job.
