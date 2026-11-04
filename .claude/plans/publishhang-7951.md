@@ -7,6 +7,7 @@ Card: #7951. A prod promote from Git Bash sat 10 minutes holding publish.lock: t
 - Both node call sites use it: `Invoke-WinManifest` and the verification-record verdict.
 - A run that reached no answer (stopped, output never closed, did not start) refuses as "decided nothing", never as "does not check out", and never counts as a pass even if it printed one.
 - Every other refusal names the exit code.
+- Waits are short and repeated so Ctrl+C still works, and an interrupted run takes node with it. The lock an interrupted run holds is not new here: -BreakLock is the existing way out.
 
 ## Decisions
 - **Call:** a hung check that printed PASS still refuses. Rejected: trusting the printed verdict, because a killed process has no exit code and the printed line is not the decision.
@@ -23,10 +24,10 @@ A Windows run where the hang survives closed stdin, or a real check that legitim
 Git gets a closed stdin as well, because the stated mechanism (a child inheriting Git Bash's stdin) applies to any child. No time limit on git: rejected as scope, since nothing has seen git hang, and Get-SetupAtCommit reads raw bytes through its own stream. If git hangs, this card's symptom returns with no message. #7959 is that follow-up.
 
 ## Kill
-Kill() stops node and not anything node started: 5.1 has no tree kill. Nothing these checks run starts a child. If one did, the output wait is bounded at 5 seconds and the run is still undecided.
+Kill() stops node and not anything node started: 5.1 has no tree kill. The checks start no child, though a node installed as a shim (Volta, Chocolatey) might, leaving it running. Either way the output wait is bounded at 5 seconds and the run is still undecided.
 
 ## Where this is measured
-tools.win-publish-node-bounded-7951.test.js runs the real functions in CI's windows job under powershell.exe and pwsh, including Windows argument rules, and prints whether the old form hangs with a stdin held open there. The bash suite covers the gates, on pwsh only.
+tools.win-publish-node-bounded-7951.test.js runs the real functions in CI's windows job under powershell.exe and pwsh, including Windows argument rules, and logs (MEASURED: lines, which tools/windows-tests.js now echoes on a pass) whether the old form hangs with a stdin held open there. **That job is advisory and gates nothing, and it is the only run under 5.1: read its result before merging, and record it on the PR.** The bash suite covers the gates, on pwsh only.
 
 ## Not measured
 The hang on the release PC itself, launched from Git Bash.

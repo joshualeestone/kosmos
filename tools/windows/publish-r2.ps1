@@ -289,16 +289,18 @@ function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $Stdi
     $limit = Get-NodeTimeoutSec
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $left = { [Math]::Max(0, ($limit * 1000) - [int] $clock.ElapsedMilliseconds) }
+    # Short waits, not one long one: PowerShell cannot act on Ctrl+C during a blocking .NET call.
+    $waitFor = { param($until) while (-not (& $until 250)) { if ((& $left) -le 0) { return $false } }; $true }
     # Bytes on the base stream: 5.1 has no StandardInputEncoding. A node that exits without reading it throws here, and
     # its exit is still waited for below.
     $written = $true
     try {
       $in = $Utf8.GetBytes($StdinText)
-      if ($in.Length) { $written = $p.StandardInput.BaseStream.WriteAsync($in, 0, $in.Length).Wait((& $left)) }
+      if ($in.Length) { $w = $p.StandardInput.BaseStream.WriteAsync($in, 0, $in.Length); $written = & $waitFor { param($ms) $w.Wait($ms) } }
       if ($written) { $p.StandardInput.Close() }
     } catch { }
     $undecided = ''
-    if ($written -and $p.WaitForExit((& $left))) { $rc = $p.ExitCode } else {
+    if ($written -and (& $waitFor { param($ms) $p.WaitForExit($ms) })) { $rc = $p.ExitCode } else {
       try { $p.Kill() } catch { }
       [void] $p.WaitForExit(5000)
       $rc = 98; $undecided = "it did not finish within $limit seconds and was stopped"
@@ -309,7 +311,11 @@ function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $Stdi
     if (-not $whole -and -not $undecided) { $rc = 97; $undecided = 'it exited, but its output never closed, so its verdict was not read' }
     try { if ($errTask.Wait(1000) -and $errTask.Result) { [Console]::Error.Write($errTask.Result) } } catch { }
     @{ Rc = $rc; Out = (@($text -split '\r?\n' | Where-Object { $_ -ne '' }) -join ' '); Undecided = $undecided }
-  } finally { $p.Dispose() }
+  } finally {
+    # Reached with node still running only when the wait was interrupted (Ctrl+C).
+    try { if (-not $p.HasExited) { $p.Kill() } } catch { }
+    $p.Dispose()
+  }
 }
 # #6466: tools/lib/win-release-manifest.js, run with node. It prints its one-line verdict on STDOUT; returns @{ Rc; Out }.
 # #7951: a check that reached no answer decided nothing about the build, whatever it printed, so it refuses here rather
@@ -319,7 +325,7 @@ function Invoke-WinManifest([string[]] $Arguments) {
   if (-not $node) { Refuse "node (an executable, not a .cmd shim) is required to check the signed release manifest (#6466). Nothing was written." }
   $js = Join-Path (Split-Path -Parent $PSScriptRoot) 'lib/win-release-manifest.js'
   $r = Invoke-NodeBounded $node.Source (@($js) + $Arguments)
-  if ($r.Undecided) { Refuse "the manifest check ($($Arguments[0])) decided nothing about this build: $($r.Undecided) (it had printed: $($r.Out)). Run it again. Nothing was written." }
+  if ($r.Undecided) { Refuse "the manifest check ($($Arguments[0])) decided nothing about this build: $($r.Undecided)$(if ($r.Out) { " (it had printed: $($r.Out))" }). Run it again. Nothing was written." }
   @{ Rc = $r.Rc; Out = $r.Out }
 }
 
@@ -1148,7 +1154,7 @@ console.log((verdict === 'pass' ? 'PASS ' : 'FAIL ') + sha + ' ' + file); proces
 # Both directions UTF-8 (Invoke-NodeBounded), and a limit (#7951): a stopped run decided nothing, whatever it printed.
 $vr = Invoke-NodeBounded $nodeExe.Source @('-', $spec, $ApprovedVersion, $ApprovedSha) $verdictJs
 $verdict = $vr.Out; $rc = $vr.Rc
-if ($vr.Undecided) { Refuse "the verification record check decided nothing: $($vr.Undecided) (it had printed: $verdict). Run it again. Nothing was written." }
+if ($vr.Undecided) { Refuse "the verification record check decided nothing: $($vr.Undecided)$(if ($verdict) { " (it had printed: $verdict)" }). Run it again. Nothing was written." }
 if ($rc -ne 0) { Refuse "the verification record does not pass ($verdict) (exit $rc). Verify the staged build on this PC first (node tools/win-staging-verify.js). Nothing was written." }
 $recordSha = ($verdict -split ' ')[1]; $recordPath = ($verdict -split ' ', 3)[2]
 Say "verification record: $verdict"

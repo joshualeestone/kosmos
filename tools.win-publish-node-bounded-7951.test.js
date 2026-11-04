@@ -65,7 +65,7 @@ $res.hang = Row (Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterv
 $res.bigstdin = Row (Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000))
 $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '120'
 # Something node started keeps its output open after node has exited 0: the handle inheritance is Windows's own.
-$res.held = Row (Invoke-NodeBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},7000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
+$res.held = Row (Invoke-NodeBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},10000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
 $res.nostart = Row (Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @())
 # The form publish-r2.ps1 starts git with, and the form it used to start node with.
 $res.emptypipe = @(@() | & $node -e "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})") -join ' '
@@ -89,6 +89,34 @@ test('there is a PowerShell to test with on Windows, under both names', { skip: 
 });
 
 if (!RUNTIMES.length) test('Invoke-NodeBounded', { skip: 'pwsh is not installed here, so it did not run on this computer' }, () => {});
+
+// A real Ctrl+C reaches a console, not a signal, so this arm is off Windows; the waits it pins are the same code.
+test('Ctrl+C is not held off by the limit, and takes node with it', { skip: process.platform === 'win32' || !RUNTIMES.includes('pwsh') }, async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-7951-'));
+  try {
+    const harness = path.join(dir, 'int.ps1');
+    const pidFile = path.join(dir, 'node.pid');
+    fs.writeFileSync(harness, HARNESS.slice(0, HARNESS.indexOf('$res = @{}')) + String.raw`
+$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '40'
+[void] (Invoke-NodeBounded $node @('-e', "require('fs').writeFileSync(process.argv[1],String(process.pid));setInterval(()=>{},1000)", $args[2]))
+`);
+    const child = spawn('pwsh', ['-NoProfile', '-NonInteractive', '-File', harness, SCRIPT, process.execPath, pidFile], { env: PS_ENV, stdio: 'ignore' });
+    const gone = new Promise((resolve) => child.on('exit', resolve));
+    const until = Date.now() + 20000;
+    while (!fs.existsSync(pidFile) && Date.now() < until) await new Promise((r) => setTimeout(r, 100));
+    assert.ok(fs.existsSync(pidFile), 'node never started');
+    await new Promise((r) => setTimeout(r, 300));
+    const sent = Date.now();
+    child.kill('SIGINT');
+    const timer = setTimeout(() => child.kill('SIGKILL'), 25000);
+    await gone;
+    clearTimeout(timer);
+    assert.ok(Date.now() - sent < 15000, `pwsh took ${Date.now() - sent} ms to stop after SIGINT, under a 40 s limit`);
+    const nodePid = Number(fs.readFileSync(pidFile, 'utf8'));
+    await new Promise((r) => setTimeout(r, 300));
+    assert.throws(() => process.kill(nodePid, 0), /ESRCH/, 'the node it started is gone');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 
 for (const ps of RUNTIMES) {
   test(`Invoke-NodeBounded under ${ps}`, async () => {
@@ -132,7 +160,7 @@ for (const ps of RUNTIMES) {
       if (process.platform === 'win32') args.push('-ExecutionPolicy', 'Bypass');
       args.push('-File', f, process.execPath);
       const run = await runHoldingStdin(ps, args, 30000);
-      console.log(`#7951 measurement ${ps} on ${process.platform}: old form ${run.finished ? 'exited' : 'still running after 30 s'}; printed: ${run.out.trim().replace(/\s+/g, ' ')}`);
+      console.log(`MEASURED: #7951 ${ps} on ${process.platform}: old form ${run.finished ? 'exited' : 'still running after 30 s'}; printed: ${run.out.trim().replace(/\s+/g, ' ')}`);
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
   });
 }

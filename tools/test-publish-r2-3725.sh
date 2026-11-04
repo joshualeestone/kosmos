@@ -793,7 +793,7 @@ $r = Invoke-NodeBounded $node @('-') "console.log('$([char]0xe9)')"
 $r = Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)")
 "rc4=$($r.Rc) out=$($r.Out) undecided=[$($r.Undecided)]"
 # A node that prints a pass and never exits is stopped, and does not read as a pass.
-$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '2'
+$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '4'
 $t0 = Get-Date
 $r = Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)")
 "hang rc=$($r.Rc) out=$($r.Out) quick=$(((Get-Date) - $t0).TotalSeconds -lt 20) undecided=[$($r.Undecided)]"
@@ -807,7 +807,7 @@ $FakeDir = $null
 $FakeDir = 'test'
 # Something node started that keeps the pipe open: exit 0 must not pass with its output missing.
 $sh = Join-Path $args[2] 'holdpipe.sh'
-"#!/bin/sh`necho PASS`nsleep 8 &`nexit `$1`n" | Set-Content -NoNewline -LiteralPath $sh
+"#!/bin/sh`necho PASS`nsleep 12 &`nexit `$1`n" | Set-Content -NoNewline -LiteralPath $sh
 chmod +x $sh
 $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '20'
 $r = Invoke-NodeBounded $sh @('0')
@@ -827,7 +827,7 @@ want7951 "arguments with spaces, quotes, trailing backslashes and an empty one a
 want7951 "the script given on stdin runs" "script=argc 4"
 want7951 "stdin text and stdout are both UTF-8" "utf8=233"
 want7951 "an exit code comes back and output lines join" "rc4=4 out=one two undecided=[]"
-want7951 "a node that printed PASS and never exits is stopped, with a non-zero rc, inside the bound" "hang rc=98 out=PASS quick=True undecided=[it did not finish within 2 seconds and was stopped]"
+want7951 "a node that printed PASS and never exits is stopped, with a non-zero rc, inside the bound" "hang rc=98 out=PASS quick=True undecided=[it did not finish within 4 seconds and was stopped]"
 want7951 "the timeout seam does nothing without the test transport" "limit=300"
 want7951 "a stdin node never reads cannot outlast the limit" "bigstdin rc=98 quick=True"
 want7951 "exit 0 with its output still held open is not a pass, and says why" "held rc=97 undecided=[it exited, but its output never closed, so its verdict was not read]"
