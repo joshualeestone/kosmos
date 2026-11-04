@@ -61,7 +61,8 @@ for (name, rgb) in golds {
       if far > a.count / 1000 { print("STALE  \(file): \(far) channels differ by more than 8 levels"); stale += 1 }
     } else {
       let d = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)!
-      CGImageDestinationAddImage(d, image, nil); CGImageDestinationFinalize(d)
+      CGImageDestinationAddImage(d, image, nil)
+      guard CGImageDestinationFinalize(d) else { print("could not write \(url.path)"); exit(1) }
     }
   }
 }
