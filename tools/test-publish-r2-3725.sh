@@ -774,8 +774,8 @@ cat > "$TMP/bounded.ps1" <<'PSEOF'
 . $args[1]
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version 2.0
-$FakeDir = 'test'; $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '8'
-Import-FromScript $args[0] @('Get-NodeTimeoutSec', 'ConvertTo-NativeArg', 'Invoke-NodeBounded') @('Utf8')
+$NodeTimeoutSec = 8
+Import-FromScript $args[0] @('ConvertTo-NativeArg', 'Invoke-NodeBounded') @('Utf8')
 $node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
 # Stdin reaches EOF even though this pwsh's own stdin is held open by the caller.
 $r = Invoke-NodeBounded $node @('-e', "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})")
@@ -793,7 +793,7 @@ $r = Invoke-NodeBounded $node @('-') "console.log('$([char]0xe9)')"
 $r = Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)")
 "rc4=$($r.Rc) out=$($r.Out) undecided=[$($r.Undecided)]"
 # A node that prints a pass and never exits is stopped, and does not read as a pass.
-$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '4'
+$NodeTimeoutSec = 4
 $t0 = Get-Date
 $r = Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)")
 "hang rc=$($r.Rc) out=$($r.Out) quick=$(((Get-Date) - $t0).TotalSeconds -lt 20) undecided=[$($r.Undecided)]"
@@ -801,15 +801,11 @@ $r = Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},10
 $t0 = Get-Date
 $r = Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000)
 "bigstdin rc=$($r.Rc) quick=$(((Get-Date) - $t0).TotalSeconds -lt 20)"
-# The seam belongs to the test transport: without a fake bucket the real limit stands.
-$FakeDir = $null
-"limit=$(Get-NodeTimeoutSec)"
-$FakeDir = 'test'
 # Something node started that keeps the pipe open: exit 0 must not pass with its output missing.
 $sh = Join-Path $args[2] 'holdpipe.sh'
 "#!/bin/sh`necho PASS`nsleep 12 &`nexit `$1`n" | Set-Content -NoNewline -LiteralPath $sh
 chmod +x $sh
-$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '20'
+$NodeTimeoutSec = 20
 $r = Invoke-NodeBounded $sh @('0')
 "held rc=$($r.Rc) undecided=[$($r.Undecided)]"
 # And a non-zero exit: rc 1 is an accepted verdict from ships-checker, and this one's text was never read.
@@ -828,7 +824,6 @@ want7951 "the script given on stdin runs" "script=argc 4"
 want7951 "stdin text and stdout are both UTF-8" "utf8=233"
 want7951 "an exit code comes back and output lines join" "rc4=4 out=one two undecided=[]"
 want7951 "a node that printed PASS and never exits is stopped, with a non-zero rc, inside the bound" "hang rc=98 out=PASS quick=True undecided=[it did not finish within 4 seconds and was stopped]"
-want7951 "the timeout seam does nothing without the test transport" "limit=300"
 want7951 "a stdin node never reads cannot outlast the limit" "bigstdin rc=98 quick=True"
 want7951 "exit 0 with its output still held open is not a pass, and says why" "held rc=97 undecided=[it exited, but its output never closed, so its verdict was not read]"
 want7951 "a non-zero exit with its output held open is not a verdict either" "heldnonzero rc=97 undecided=[yes]"
@@ -846,11 +841,14 @@ esac
 exec "$REALNODE" "\$@"
 NODEEOF
 chmod +x "$HANGBIN/node"
-hung() { HANG_ON="$1" PATH="$HANGBIN:$PATH" KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC=2 fake "${@:2}"; }
+hung() { HANG_ON="$1" PATH="$HANGBIN:$PATH" fake -NodeTimeoutSec 2 "${@:2}"; }
 held_clean() { # <label>: the run took publish.lock, then gave it back
   if grep -q '^PUT publish\.lock ' "$FAKE/.calls" && grep -q '^DELETE publish\.lock' "$FAKE/.calls" && [ ! -e "$FAKE/publish.lock" ]; then pass "$1"
   else fail "$1: lock=$(ls "$FAKE/publish.lock" 2>/dev/null) calls=$(grep 'publish\.lock' "$FAKE/.calls" | tr '\n' ';')"; fi
 }
+fake -Zip "$TMP/a.zip" -NodeTimeoutSec 601 -DryRun; rc=$?
+if [ "$rc" -ne 0 ] && [ "$(writes)" -eq 0 ] && grep -q 'NodeTimeoutSec' "$TMP/out"; then pass "#7951 a limit past the cap is refused, nothing written"; else fail "#7951 limit cap: rc=$rc $(tail -1 "$TMP/out")"; fi
+if grep -q '\[int\] \$NodeTimeoutSec = 300,' "$PS1"; then pass "#7951 the limit is 300 seconds unless someone names another"; else fail "#7951 the default limit moved"; fi
 rm -f "$FAKE/publish.lock"
 t0=$SECONDS
 hung ships-checker -Zip "$SDIR/kosmos-win-x64.zip" -Sig "$SDIR/sent.sig"; rc=$?

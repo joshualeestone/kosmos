@@ -60,6 +60,7 @@ TWO MODES.
     pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion 0.6.94 -ApprovedSha <sha> -ApprovalRef <ref>
 
   -DryRun on either mode does every read and check and prints what it would write, writing nothing.
+  -NodeTimeoutSec <n> gives each node check n seconds, up to 600 (default 300). A check past that refuses as undecided.
 
 WHICH READS DECIDE. Every read that decides whether to write (does this version exist, what does
 prod name, what is staged) is a SIGNED read of the bucket itself, so an edge that is challenging or
@@ -74,7 +75,6 @@ environment variables of the same names. The secret is never printed.
 TESTING. KOSMOS_PUBLISH_R2_FAKE_DIR=<dir> makes a local directory the bucket (and the served
 base) and logs every request to <dir>/.calls; tools/test-publish-r2-3725.sh drives the gates and
 the write order through it. Nothing is published in that mode, and it says so on stderr.
-KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC=<n> shortens the node check limit, in that mode only.
 
 Windows x64 only: every Windows redirect on the site is x64. Versions are x.y.z, what the updater
 accepts. Exit codes: 0 done (or dry run clean), 1 refused or failed. PowerShell 5.1 and 7.
@@ -108,6 +108,8 @@ param(
   [string] $KeyPrefix = '',
   # Removes a publish.lock left by a run that died (it says whose and when), then proceeds.
   # Only when no other run of this script is active.
+  # #7951: seconds one node check may take. Capped so several in a row stay under the 35 minutes after which -BreakLock can take this run's lock.
+  [ValidateRange(1, 600)] [int] $NodeTimeoutSec = 300,
   [switch] $BreakLock,
   [switch] $DryRun
 )
@@ -257,12 +259,6 @@ function Get-SetupAtCommit([string] $Commit) {
 }
 # An executable node, not a node.cmd shim (cmd.exe would mangle the script's arguments).
 function Get-NodeExe { Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -notmatch '\.(cmd|bat)\z' } | Select-Object -First 1 }
-# #7951: how long one node check may take before it is stopped. The checks take seconds; the zip is read whole, so this
-# leaves room for a slow disk. Well under the 35 minutes after which -BreakLock may take the lock of a run like this one.
-function Get-NodeTimeoutSec {
-  if ($FakeDir -and $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC) { return [int] $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC }
-  300
-}
 # One argument as a Windows command line needs it (.NET parses the same rules elsewhere): 5.1 has no ArgumentList.
 function ConvertTo-NativeArg([string] $a) {
   if ($a -and $a -notmatch '[\s"]') { return $a }
@@ -286,7 +282,7 @@ function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $Stdi
   try { [void] $p.Start() } catch { $p.Dispose(); return @{ Rc = 99; Out = ''; Undecided = "node did not start: $($_.Exception.Message)" } }
   try {
     $outTask = $p.StandardOutput.ReadToEndAsync(); $errTask = $p.StandardError.ReadToEndAsync()
-    $limit = Get-NodeTimeoutSec
+    $limit = $NodeTimeoutSec
     $clock = [Diagnostics.Stopwatch]::StartNew()
     $left = { [Math]::Max(0, ($limit * 1000) - [int] $clock.ElapsedMilliseconds) }
     # Short waits, not one long one: PowerShell cannot act on Ctrl+C during a blocking .NET call.
