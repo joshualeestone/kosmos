@@ -25064,7 +25064,7 @@ function renderUpdateToast(u, manual) {
   }
   /* kosmos#7938: a newer version with only a manual offer (Windows in a folder the updater refuses, Linux) used to show
      nothing outside Settings. It gets the same chip, saying where it is installed, and no button: nothing here installs. */
-  const m = !(u && u.version) && manual && manual.version && manual.download ? manual : null;   // as paintUpdateCard's manual arm
+  const m = !(u && u.version) && manual && manual.version && manual.download ? manual : null;   // paintUpdateCard's manual-arm rule, keep the two alike
   if (UPDATING_NOW || (!(u && u.version) && !m) || updateLaterSuppresses(m ? m.version : u.version)) {
     slot.innerHTML = ''; delete slot.dataset.v; return;
   }
@@ -25077,7 +25077,7 @@ function renderUpdateToast(u, manual) {
     slot.dataset.v = key;
     slot.innerHTML = '<div class="uchip noact" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<span class="uchip-t">' + (remote ? 'Install the update on your Kosmos computer' : 'An update is available in Settings') + '</span>'
+      + '<span class="uchip-t">' + (remote ? 'Install the update on your Kosmos computer' : 'An update is available in Settings, Updates') + '</span>'
       + '</div>';
     return;
   }
@@ -25200,7 +25200,7 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
     if (cmdRow) cmdRow.hidden = false;
     // As the Windows arm: focus resting on Check goes to the field, not to <body>, when Check is hidden.
     if (checkHadFocus && !remote && cmd && typeof cmd.focus === 'function') cmd.focus();   // a hidden field cannot take it
-  } else if (manual && manual.version && manual.download) {
+  } else if (manual && manual.version && manual.download) {   // kosmos#7938: renderUpdateToast uses this rule too, keep the two alike
     /* 🛑 WINDOWS, BEFORE THE IN-APP UPDATER IS ARMED (win32-update-check). A Windows bundle
        cannot take the install offer above (the install route refuses there), so a newer Windows
        build arrives as `manual`, and this arm is what stands where the false "Up to date." used

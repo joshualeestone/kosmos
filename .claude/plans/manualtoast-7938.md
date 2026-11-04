@@ -12,7 +12,7 @@ offer's own chip and Update button are unchanged.
 
 ## Change
 - web/index.html: renderUpdateToast(u, manual). With no install offer and a complete manual one (version and download,
-  as the Settings card's manual arm), the chip reads "An update is available in Settings" (over Kosmos+, kplusRemote:
+  as the Settings card's manual arm), the chip reads "An update is available in Settings, Updates" (over Kosmos+, kplusRemote:
   "Install the update on your Kosmos computer"). Later on that version quiets it, an update under way hides it, as for
   the offer. Keyed per version and place. `.uchip.noact`: even padding, since there is no button (and at 480px or less).
 - Both callers pass the manual offer: the status read (data.updateManual) and the update check (out.manual).
@@ -25,11 +25,18 @@ offer's own chip and Update button are unchanged.
   manualOffer() needs it true (server.js calls them mutually exclusive). Were both set, the install offer wins.
 - Review 1: kplusRemote, not offlineRemoteView (false on Windows, the platform a manual offer comes from), and copy short
   enough for the pill (it does not wrap above 480px, and the stack is 460px at most); measured in a browser.
-- Weakest premise: that "in Settings" is enough of a pointer without naming Updates; the Updates card is where the
-  version line sits, and naming it made the pill too long.
+- Review 2:
+  - the chip names Settings, Updates (44 characters; the browser measurement says whether it fits the pill);
+  - deferred, by design: the chip cannot be dismissed. Neither can the install chip from the toast; #3955 (Josh's mock A)
+    moved Later off the chip, and the manual offer has no confirm dialog to carry one;
+  - the toast and the Settings card keep the same "complete manual offer" condition, each commented to the other and
+    pinned by a test (a shared helper broke the card's existing lifted-function tests, which lift the painter alone).
+- Weakest premise: that a chip which cannot be dismissed, until the update is installed by hand, is acceptable on
+  Windows. It is the same persistence the install chip has.
 
 ## Tests
 web.manualtoast-7938.test.js (the real renderUpdateToast lifted from the page): the manual chip and its wording, no
-button, the remote wording, the install offer unchanged, Later and updating, redraw only on a new version, both callers.
+button, the remote wording, the install offer unchanged, Later and updating, redraw only on a new version, both callers,
+a missing download, the text length, the shared condition.
 Control: on main's web/index.html the new tests fail. Existing toast tests (web.reload-toast, web.noise2-6533,
 web.win32-board-copy) pass.
