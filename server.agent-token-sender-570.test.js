@@ -130,6 +130,20 @@ test('#2908: reply_expected threads route -> sendRoomPostAsAgent -> sendPost, AN
   assert.match(drain, /replyExpected: entry\.body\.reply_expected/, 'the outbox drain must forward reply_expected, or a kept --no-reply post replays reply-required');
 });
 
+test('#7893: reply_expected threads /api/msg -> messages.send, AND the outbox drain forwards it', () => {
+  /* The same wiring-assertion approach as #2908 above; the envelope for replyExpected:false is proven against
+     messages.send in engine/messages.test.js. This pins the threading, the drain included: a kept
+     `kosmos msg --no-reply` that drains without the field reaches its recipient as an answer-me message. */
+  const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const route = src.slice(src.indexOf("pathname === '/api/msg'"), src.indexOf("pathname === '/api/post'"));
+  assert.ok(route.length > 0, 'the /api/msg route slice is empty: the anchors moved');
+  assert.match(route, /'reply_expected' in body && typeof body\.reply_expected !== 'boolean'/);
+  assert.match(route, /replyExpected: body\.reply_expected/);
+  const drain = src.slice(src.indexOf('deliverMsg: (entry) =>'), src.indexOf('deliverPost: (entry) =>'));
+  assert.ok(drain.length > 0, 'the deliverMsg slice is empty: the anchors moved');
+  assert.match(drain, /replyExpected: entry\.body\.reply_expected/, 'the outbox drain must forward reply_expected for a kept msg');
+});
+
 test('sendPost and send use a sender the route already resolved, and resolve from the pane otherwise', (t) => {
   /* The card comes from test-support/fleet, never typed by hand (fixture-discipline). */
   const board = fleet.install([fleet.agent('leo', { state: 'idle' })]);

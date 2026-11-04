@@ -1619,7 +1619,11 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
   /* #5805 slice 2a: the queue is keyed by the agent the message routes to (its card's own name), so two spellings the
      router folds together share one queue and its order. */
   const qName = limitQueueName(toName, roster);
-  const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo);
+  /* #7893: the flag is part of the match. Unlike a room post (where a copy differing only in a flag is the same post
+     again), the same words resent WITHOUT --no-reply after an FYI is the sender changing their mind: folding it would
+     leave the recipient holding only the FYI form, with no command to answer. */
+  const sameMsg = recentSameSend(log, at, (r) => r.kind === 'message' && r.from === from && r.to === toName && r.text === cleaned && (r.in_reply_to || null) === replyTo
+    && (r.replyExpected === false) === (replyExpected === false));
   /* #5805 slice 2a: the same send again while its first copy is still kept for an agent out of usage answers with
      that copy's held receipt; nothing is kept twice. */
   if (sameMsg && sameMsg.state === HELD_STATE) {
@@ -3462,9 +3466,9 @@ function blockBody() {
     'what it says. From a room or from a person, a message with no such line is',
     'not waiting on you.',
     'A colleague\'s direct message carries the line whether or not it needs an',
-    'answer (unless its sender marked it "FYI, no reply requested"): answer it',
-    'when you have something to add. To send one that needs no answer, add',
-    '--no-reply to kosmos msg.',
+    'answer: answer it when you have something to add. One its sender marked',
+    '"FYI, no reply requested" carries no command and expects no answer. To',
+    'send one like that yourself, add --no-reply to kosmos msg.',
     '',
     'If one of these commands fails in your shell, tell your operator in',
     'your own words rather than staying silent. The message never arrived,',
