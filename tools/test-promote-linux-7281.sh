@@ -280,6 +280,8 @@ chk "7942: as a HOLD" grep -qF "HOLD: could not read the Linux check runs" "$T/e
 chk "7942: and wrote nothing" [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ]
 S="$(e2esite lc-force 9.9.9)"
 chk "7942: --force does not skip the Linux check runs" [ "$(CHECK_RC=1 e2e "$S" --force)" = "rc=1" ]
+S="$(e2esite lc-force-hold 9.9.9)"
+chk "7942: --force does not pass a HOLD either" [ "$(CHECK_RC=2 e2e "$S" --force)" = "rc=2" ]
 S="$(e2esite lc-skip 9.9.9)"; : > "$T/e2e/check.args"
 chk "7942: --skip-linux-check promotes with red runs" [ "$(CHECK_RC=1 e2e "$S" --skip-linux-check)" = "rc=0" ]
 chk "7942: without asking for the runs" [ ! -s "$T/e2e/check.args" ]
