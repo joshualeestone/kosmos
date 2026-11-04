@@ -34,6 +34,10 @@ first screen's loading mark.
   tolerance, so another toolchain's encoding does not fail it; a changed orb does). CI runs it.
   Controls: a swapped PNG fails (63718 channels off); OrbLogic's seed 7 changed to 8 fails all six (23912 to
   228027 channels off); the real orb passes.
+- run-orb.sh also reads Palette.ground and Palette.starGold from AgentsView.swift and fails if LaunchBackground or the
+  renderer's golds differ, so changing the palette cannot quietly bring a flash back. Controls: ground's light side
+  changed to 0xffffff fails, starGold's dark side changed by one fails, an unchanged copy passes. The launch checks run
+  before the orb suite, so its VERDICT line is the last one printed.
 
 ## Not measured
 A real iPhone. iOS caches launch screens per app: a phone that already had the navy one may show it once more
