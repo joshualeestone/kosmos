@@ -702,7 +702,7 @@ const NEEDS_YOU_ASK_NOTE = 'Before a person has to answer this: can you undo it 
   + 'When they answer, wherever they answer, run: kosmos report clear.';
 /* #7915: said back on `kosmos report needs_you --held`. Same rule as above: no quote or backslash. */
 const NEEDS_YOU_HELD_NOTE = 'Held: the board shows this question as held until the person is back, and nothing buzzes or follows it up. '
-  + 'When they next write to you, you are told; ask it then by running kosmos report needs_you again without --held, '
+  + 'When they next message you directly, you are told; ask it then by running kosmos report needs_you again without --held, '
   + 'or keep holding it if they say so. When it is settled, run: kosmos report clear.';
 const BLOCKED_PERSON_NOTE = 'Note: that owner looks like a person, and blocked is never followed up or escalated. '
   + 'If a person must decide or act, report it this way instead, and Kosmos follows it up: kosmos report needs_you \'<your question>\'';

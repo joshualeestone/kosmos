@@ -4111,7 +4111,7 @@ cmd_report() {
     # kosmos#6683: what --until does to the day-old reminder (engine/selfreport.js untilDefers).
     say "  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC)."
     say "  --until in words (\"the owner says\"): no stale reminder at all. Anything else with a number in it: as if no --until."
-    say "  --held (needs_you only): the person asked you to hold questions until they are back. Nothing buzzes; you are told when they next write."
+    say "  --held (needs_you only): the person asked you to hold questions until they are back. Nothing buzzes; you are told when they next message you directly."
     exit 2
   fi
   # #7915: --held means something only on a needs_you. Refused here before the network (the board refuses it too).
