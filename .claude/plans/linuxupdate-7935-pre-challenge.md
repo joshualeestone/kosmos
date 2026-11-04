@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: linuxupdate-7935
-diff_hash: f2bde6a2e4bf5a6feac470c8266869367486b93e391627cdabbcd65899ffb9fa
+diff_hash: 7d64309856261e5a0a420ecca7ebe18ae1638d69f96b005bc62e86acdefc58b4
 validation: local (web*, cli.*, install.* and engine/update* tests, 594 files, run from the worktree root: 5212 pass, 0 fail, 6 skipped, on e94278fec6, the head rebased onto origin/main); the full suite runs on the PR's CI
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-04T13:24:05Z
@@ -17,7 +17,7 @@ converged: false
 **Total actionable findings:** 1 BLOCKER, 22 WARNINGs, 0 CONVENTIONs (plus NITs)
 **Fixed:** 1 BLOCKER, 16 WARNINGs | **Kept and stated (decided, with reasons):** 6 WARNINGs | **Asked:** 0
 
-The last suite ran on e94278fec6 (the head this proof covers, rebased onto origin/main).
+The last suite ran on e94278fec6 (rebased onto origin/main). After it, two CI fixes outside the review loop: the browser-check gate trailers (an empty commit) and tmpscope in engine/update.linux-manual-7935.test.js (CI's #4273 leak check); this hash covers them.
 
 ### Per-Iteration Breakdown
 
