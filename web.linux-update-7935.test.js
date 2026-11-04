@@ -21,7 +21,7 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SCRIPT = page.scriptOf(PAGE);
 const NEWER = '99.0.0';
 
-function paint(offer, manual, kept, focusedId) {
+function paint(offer, manual, kept, focusedId, remote = false) {
   const els = kept || {
     'upd-line': { textContent: '' },
     'upd-btn': { textContent: '', dataset: {}, hidden: false, disabled: false },
@@ -36,9 +36,9 @@ function paint(offer, manual, kept, focusedId) {
   };
   const doc = { activeElement: focusedId ? els[focusedId] : null, getElementById: (id) => els[id] || null, querySelector: () => ({ getAttribute: () => '0.0.0' }) };
   // eslint-disable-next-line no-new-func
-  new Function('document', 'UPD_ASKED', 'UPD_CHECKING', 'ENGINE_STALE', 'OFFER', 'MANUAL',
+  new Function('document', 'UPD_ASKED', 'UPD_CHECKING', 'ENGINE_STALE', 'OFFER', 'MANUAL', 'offlineRemoteView',
     page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'paintUpdateCard'])
-    + '\npaintUpdateCard("0.0.0", OFFER, { looked: true, reached: true, readable: true }, MANUAL, "prod", null);')(doc, false, false, null, offer, manual);
+    + '\npaintUpdateCard("0.0.0", OFFER, { looked: true, reached: true, readable: true }, MANUAL, "prod", null);')(doc, false, false, null, offer, manual, () => remote);
   return els;
 }
 
@@ -96,6 +96,15 @@ test('#7935: the copy result survives the poll repainting the same command, and 
   assert.equal(els['upd-command-msg'].textContent, '', 'a result stayed beside a different command');
 });
 
+test('#7935: over Kosmos+ the line says where to run it, not "this computer"', async () => {
+  await linuxLook();
+  const els = paint(null, update.manualOffer(), null, null, true);
+  assert.equal(els['upd-line'].textContent, 'Version ' + NEWER + ' is ready. To update, open Settings, Updates on your Kosmos computer and run the command it shows there.');
+  assert.doesNotMatch(els['upd-line'].textContent, /this computer/);
+  // CONTROL: the local view keeps "on this computer".
+  assert.match(paint(null, update.manualOffer())['upd-line'].textContent, /on this computer/);
+});
+
 test('#7935: focus on Check moves to the command field, not to the page, when Check is hidden', async () => {
   await linuxLook();
   const els = paint(null, update.manualOffer(), null, 'upd-btn');
@@ -105,16 +114,19 @@ test('#7935: focus on Check moves to the command field, not to the page, when Ch
 });
 
 test('#7935: the markup: a read-only field described by the status line, a Copy button, a status for its result', () => {
-  assert.match(PAGE, /<div class="frow" id="upd-command-row" hidden>/);
+  assert.match(PAGE, /<div class="frow" id="upd-command-row" hidden data-remote-hide>/);
   assert.match(PAGE, /<input class="tk-inp upd-command" id="upd-command" type="text" readonly spellcheck="false" aria-label="The command that updates Kosmos" aria-describedby="upd-line">/);
-  assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-command-copy">Copy<\/button>/);
-  assert.match(PAGE, /<p class="dhint" id="upd-command-msg" role="status"><\/p>/);
+  assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-command-copy" aria-label="Copy the update command">Copy<\/button>/);
+  assert.match(PAGE, /<p class="dhint" id="upd-command-msg" role="status" data-remote-hide><\/p>/);
   assert.match(SCRIPT, /getElementById\('upd-command-copy'\)\.addEventListener\('click', updCopyCommand\)/);
   // The automatic-update switch promises installs a Linux board never makes, so it is hidden there (as on Windows).
   assert.match(PAGE, /<div class="setrow" id="auto-row" style="margin-top:12px;" data-win-hide data-linux-hide>/);
   assert.match(PAGE, /<p class="dhint" id="auto-msg" role="status" style="margin:8px 0 0;" data-win-hide data-linux-hide><\/p>/);
   assert.match(PAGE, /html\[data-kosmos-platform="linux"\] \[data-linux-hide\] \{ display: none !important; \}/, 'CONTROL: the Linux hide rule');
-  assert.match(PAGE, /#upd-command-msg:empty \{ display: none; \}/);
+  // Empty, it takes no room but stays rendered: a live region that is display:none when its text lands may never speak.
+  assert.match(PAGE, /#upd-command-msg:empty \{ margin: 0; \}/);
+  assert.doesNotMatch(PAGE, /#upd-command-msg:empty \{[^}]*display: none/);
+  assert.match(PAGE, /html\[data-kplus-remote\] \[data-remote-hide\] \{ display: none !important; \}/, 'CONTROL: the remote hide rule');
 });
 
 /* The REAL updCopyCommand and the page's copy helpers, against a stub document: execCommand copies or refuses, the

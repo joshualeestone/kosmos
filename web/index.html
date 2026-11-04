@@ -10744,8 +10744,9 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 /* The manual update offer's numbered steps (W-25). */
 .upd-manual-steps { margin: 8px 0 0; padding-left: 1.4em; }
 /* kosmos#7935: the Linux update command, in a read-only field (focusable, so a keyboard can select and copy it); its
-   copy line takes no room while empty. */
-#upd-command-msg:empty { display: none; }
+   copy line takes no room while empty but stays in the accessibility tree (a live region that is not rendered when
+   its text arrives may never be announced). */
+#upd-command-msg:empty { margin: 0; }
 .upd-command { font-family: var(--font-mono); min-width: 0; flex: 1 1 auto; }
 .upd-manual-steps li { margin: 2px 0; }
 .fr-code-row { display: flex; gap: var(--space-4); margin-top: var(--space-4); flex-wrap: wrap; }
@@ -19892,11 +19893,11 @@ window.kosmosMeasureScrollbarWidth();
       <ol class="dhint upd-manual-steps" id="upd-manual-steps" hidden></ol>
       <!-- kosmos#7935: a board that cannot replace itself (Linux) is updated by re-running its installer; the
            manual arm shows that command here. -->
-      <div class="frow" id="upd-command-row" hidden>
+      <div class="frow" id="upd-command-row" hidden data-remote-hide>
         <input class="tk-inp upd-command" id="upd-command" type="text" readonly spellcheck="false" aria-label="The command that updates Kosmos" aria-describedby="upd-line">
-        <button class="btn-quiet" type="button" id="upd-command-copy">Copy</button>
+        <button class="btn-quiet" type="button" id="upd-command-copy" aria-label="Copy the update command">Copy</button>
       </div>
-      <p class="dhint" id="upd-command-msg" role="status"></p>
+      <p class="dhint" id="upd-command-msg" role="status" data-remote-hide></p>
       <p class="dhint" id="upd-open-folder-msg" role="status" hidden></p>
       <!-- 🛑 THIS ROW USED TO BE A SWITCH THAT COULD NOT MOVE. It read "Tell me
            when there is a new version", with a hint underneath admitting
@@ -25159,7 +25160,12 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
        ⚠️ Unmeasured on Linux: that the verb, run over a live board, leaves it serving the new version (the #7933 leg is
        to confirm it once a staging cut carries this). "Kosmos restarts" is what the installer does; it is not
        promised here that the agents carry on. */
-    put(v + 'Version ' + manual.version + ' is ready. To update, run this in a terminal on this computer (Kosmos restarts when it is done):');
+    /* Over Kosmos+ (a phone) this is not the computer to type into, and the row (a path with the person's user name)
+       is remote-hidden: the line says where to go instead, as the restart toast does (offlineRemoteView). */
+    const remote = typeof offlineRemoteView === 'function' && offlineRemoteView();
+    put(v + 'Version ' + manual.version + ' is ready. ' + (remote
+      ? 'To update, open Settings, Updates on your Kosmos computer and run the command it shows there.'
+      : 'To update, run this in a terminal on this computer (Kosmos restarts when it is done):'));
     btn.hidden = true;
     btn.dataset.act = 'check';
     if (cmd && cmd.value !== manual.command) cmd.value = manual.command;

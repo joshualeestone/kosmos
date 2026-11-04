@@ -320,9 +320,9 @@ function updateCommand() {
 
 function manualOffer() {
   if (updatePlatform() !== 'win32') {
-    // kosmos#7935: an installed board on a platform that cannot replace itself is told the command, not offered a
-    // button. A source checkout (no installedRoot) gets nothing, as before.
-    if (platformGate.canSelfInstall(updatePlatform()) || !installedRoot()) return null;
+    // kosmos#7935: an installed Linux board (which cannot replace itself) is told the command, not offered a button.
+    // Linux by name, because install/kosmos waives its board guards for Linux only; a source checkout gets nothing.
+    if (updatePlatform() !== 'linux' || platformGate.canSelfInstall('linux') || !installedRoot()) return null;
     const newer = available();
     const command = updateCommand();
     return newer && command ? { version: newer.version, command } : null;

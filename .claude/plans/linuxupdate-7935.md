@@ -66,6 +66,18 @@ the served installer is what the #7933 leg does successfully.
 - NITs: the unmeasured premise is now named beside the arm in the code, not only in this plan. Not taken: a test
   pinning SELF_INSTALL to the shell's Linux rule (Linux is the only platform off SELF_INSTALL that Kosmos supports).
 
+## Review round 5 (opus)
+- WARNING: over Kosmos+ the row told a phone to run a command "on this computer" and showed the box's home path.
+  Fixed: the row and its copy line are data-remote-hide, and the remote line says to run it from Settings, Updates
+  on the Kosmos computer (offlineRemoteView, as the restart toast); a test pins both views.
+- WARNING: with no install offer a Linux board shows no update toast. Not built here: Windows' manual offer has the
+  same gap, so it is one follow-up for both, kosmos#7938. (What this change removed was a toast whose button only
+  led to a refusal.)
+- WARNING: `:empty { display: none }` on a live region can stop it being announced. Fixed: `:empty { margin: 0 }`,
+  so it stays rendered; the test refuses display:none there.
+- NITs fixed: the Copy button is named "Copy the update command"; the command arm is gated on Linux by name (a
+  freebsd board gets nothing; that mutant is red). Kept: the hidden button's data-act (as the Windows arm).
+
 ## Tests
 - cli.update-ifnewer-4382.test.js (new test): with a fake `uname` saying Linux, a board running and mode `run`, the
   verb installs with the board's three variables on prod and on a staging stamp; CONTROL: the real uname refuses; an

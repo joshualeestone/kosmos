@@ -101,3 +101,11 @@ test('#7935: a Linux board never starts an automatic install, so no refusal is r
     assert.equal(update.lastAttempt(), null, 'a Linux look tried to auto-install and recorded: ' + JSON.stringify(update.lastAttempt()));
   } finally { update.setAutoPref(null); }
 });
+
+test('#7935: a platform off SELF_INSTALL that is not Linux gets no command (install/kosmos waives its guards for Linux only)', async () => {
+  await look('linux', 'x64');
+  assert.ok(update.manualOffer(), 'CONTROL: the newer release is in the cache');
+  update.setPlatform('freebsd', 'x64');
+  assert.equal(update.manualOffer(), null, 'a command its CLI would refuse was offered on freebsd');
+  assert.equal(update.installOffer(), null, 'freebsd cannot self-install either');
+});
