@@ -43,9 +43,9 @@ check(same, "t = 27 s draws the same frame as t = 0")
 // The shared placing is the same as a fresh one at the frame's time, and moves on with the time.
 // The shared placing is main-actor isolated; this test's top level is not, so it asks on the main actor (it is on it).
 let (a1, a2) = MainActor.assumeIsolated { (OrbLogic.placeShared(5.001), OrbLogic.placeShared(5.004)) }
-let b = OrbLogic.place((5.001 * 30).rounded() / 30)
+let b = OrbLogic.place((5.001 * 15).rounded() / 15)
 check(a1.count == b.count && zip(a1, b).allSatisfy { $0.x == $1.x && $0.y == $1.y }, "the shared placing equals a fresh one at the same frame")
-check(a2.count == a1.count && zip(a2, a1).allSatisfy { $0.x == $1.x }, "two asks within one 30th of a second get the same frame")
+check(a2.count == a1.count && zip(a2, a1).allSatisfy { $0.x == $1.x }, "two asks within one 15th of a second get the same frame")
 let c1 = MainActor.assumeIsolated { OrbLogic.placeShared(6.5) }
 check(!(c1.count == a1.count && zip(c1, a1).allSatisfy { $0.x == $1.x }), "a later frame is placed afresh")
 

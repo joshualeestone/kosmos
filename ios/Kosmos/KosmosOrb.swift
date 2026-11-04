@@ -24,9 +24,9 @@ struct KosmosOrb: View {
             if reduceMotion {
                 canvas(OrbLogic.stillDots)
             } else {
-                // 30 frames a second, 15 for the small (20 pt and under) ones that sit beside a line of text for minutes
-                // ("Waiting for your Mac"): the turn is slow enough that 15 reads the same, at half the drawing.
-                TimelineView(.animation(minimumInterval: size <= 20 ? 1.0 / 15 : 1.0 / 30)) { context in
+                // 15 frames a second for every orb: the turn is slow enough that 15 reads the same as 30, at half the
+                // drawing, and one rate lets every orb on screen share one placing (review round 4: two rates thrashed it).
+                TimelineView(.animation(minimumInterval: 1.0 / 15)) { context in
                     // Wrapped to the 27 s loop: the clock's seconds are far too large for the turn's trigonometry.
                     canvas(OrbLogic.placeShared(context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: OrbLogic.loop)))
                 }
@@ -46,11 +46,15 @@ struct KosmosOrb: View {
             for (k, group) in groups.enumerated() where !group.isEmpty {
                 var path = Path()
                 for c in group {
-                    // A dot under a pixel across looks the same as a square, and a square is far cheaper to fill: measured
-                    // on a Mac at 3x, the fill fell from 2.6 to 0.64 ms per frame at 16 pt (review round 3: the fill, not
-                    // the placing, is the cost).
-                    let box = CGRect(x: c.cx - c.radius, y: c.cy - c.radius, width: c.radius * 2, height: c.radius * 2)
-                    if c.radius * scale < 1 { path.addRect(box) } else { path.addEllipse(in: box) }
+                    // A dot under 2 pixels across is filled as a square of the SAME AREA (side r times root pi), which is
+                    // far cheaper to fill and paints the same amount of gold: measured on a Mac at 3x, the fill fell from
+                    // 2.6 to 0.64 ms per frame at 16 pt (review round 3: the fill, not the placing, is the cost).
+                    if c.radius * scale < 1 {
+                        let s = c.radius * 1.7724538509055159
+                        path.addRect(CGRect(x: c.cx - s / 2, y: c.cy - s / 2, width: s, height: s))
+                    } else {
+                        path.addEllipse(in: CGRect(x: c.cx - c.radius, y: c.cy - c.radius, width: c.radius * 2, height: c.radius * 2))
+                    }
                 }
                 ctx.opacity = (Double(k) + 0.5) / Double(OrbLogic.steps)
                 ctx.fill(path, with: .color(colour))

@@ -108,12 +108,12 @@ enum OrbLogic {
     static let stillDots: [Placed] = place(0)
 
     /// Every orb on screen in one frame shares one placing (review round 2: each did its own). The time is rounded to a
-    /// 30th of a second, the orb's frame rate, so orbs drawn in the same frame ask for the same t. Main actor, as SwiftUI
+    /// 15th of a second, the orb's frame rate, so orbs drawn in the same frame ask for the same t. Main actor, as SwiftUI
     /// draws (review round 3: unisolated, it would race under a later off-thread caller).
     @MainActor private static var lastT = Double.nan
     @MainActor private static var lastPts: [Placed] = []
     @MainActor static func placeShared(_ t: Double) -> [Placed] {
-        let q = (t * 30).rounded() / 30
+        let q = (t * 15).rounded() / 15
         if q != lastT { lastT = q; lastPts = place(q) }
         return lastPts
     }
