@@ -201,3 +201,28 @@ test('#7924 reasonOf: a held own question is held; asked, red or not the agent\'
   assert.equal(on({ ...held, disruption: { failed: true } }), 'restart_failed', 'nor a failed restart');
   assert.equal(on({ ...held, stateReportedBy: 'auto' }), 'waiting', 'a hook-written wait is never held');
 });
+
+/* kosmos#7924 review 3: end to end, a real held report reaches /api/status as needsReason 'held' (selfreport ->
+   status's stateHeld -> withCardWords), and the same agent asking it for real is 'question'. */
+test('#7924 /api/status: an agent that reported needs_you --held carries needsReason held; asked, question', async () => {
+  const selfreport = require('./engine/selfreport');
+  const board = fleet.install([fleet.agent('hal', { state: 'needs_you' })], { strict: false });
+  try {
+    assert.equal(selfreport.record('hal', { state: 'needs_you', because: 'Which logo?', held: true }).recorded, true);
+    const row = async () => (await (await fetch(base + '/api/status')).json()).agents.find((a) => a.sessionName === 'hal');
+    const held = await row();
+    assert.ok(held, 'CONTROL: hal is on the board');
+    assert.equal(held.stateHeld, true, 'fixture: the held report reached the card');
+    assert.equal(held.needsReason, 'held');
+    assert.equal(held.cardWord, 'Question held');
+    assert.equal(selfreport.record('hal', { state: 'needs_you', because: 'Which logo?' }).recorded, true);
+    assert.equal((await row()).needsReason, 'question', 'CONTROL: asked for real');
+  } finally {
+    try { require('./engine/selfreport').record('hal', { state: 'working', because: 'test over' }); } catch { /* best effort */ }
+    board.restore();
+  }
+});
+
+test('#7924: reasonOf\'s shared rule is there to call (a renamed export would quietly read every held question as asked)', () => {
+  assert.equal(typeof require('./engine/projects').heldOwnQuestion, 'function');
+});
