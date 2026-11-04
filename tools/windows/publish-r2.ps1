@@ -51,6 +51,10 @@ TWO MODES.
   installkosmos.com/setup.ps1 serves, so the installer moves with the Windows promote. A build staged
   without one leaves setup.ps1 as it is. Both modes read the installer from git at the commit the zip records
   (manifest.json source_sha), so the checkout they run from must contain that commit (git fetch origin).
+  kosmos#7890: a zip that records no commit has its staged installer compared with this tree's HEAD at -Promote;
+  one that is not HEAD's (or a HEAD git cannot read) is refused, as a missing commit is. Josh's approval line says
+  where the installer was checked: setup_source=commit, head (with setup_head=<the commit>), or none (with setup_left=,
+  the setup.ps1 left live).
 
     pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion 0.6.94 -ApprovedSha <sha> -ApprovalRef <ref>
 
@@ -223,6 +227,7 @@ function Get-ZipSourceDirty([byte[]] $ZipBytes) {
 }
 # kosmos#7890: git's object id for these exact bytes as a blob (sha1 of "blob <len>", a NUL, then the bytes), so what is
 # compared with HEAD's blob is what is staged, not a second read of the file.
+# Assumes git's default SHA-1 object format; a sha256 repository's 64-hex blob id would not match, and is refused.
 function Get-GitBlobSha([byte[]] $Bytes) {
   $head = [Text.Encoding]::ASCII.GetBytes("blob $($Bytes.Length)" + [char]0)
   $all = New-Object byte[] ($head.Length + $Bytes.Length)
@@ -668,9 +673,13 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
   Assert-Version 'version' $Version
   $Versioned = "kosmos-$Version-win-$Arch.zip"
   $Sha = Sha256-File $ZipPath
-  $BuiltFrom = Get-ZipSourceSha ([IO.File]::ReadAllBytes($ZipPath))   # kosmos#7883
+  $zipBytesForManifest = [IO.File]::ReadAllBytes($ZipPath)   # one read, so both manifest answers come from the same bytes
+  $BuiltFrom = Get-ZipSourceSha $zipBytesForManifest   # kosmos#7883
   # kosmos#7890: a build from a tree with uncommitted changes is not exactly the commit it names; said, not refused.
-  if (Get-ZipSourceDirty ([IO.File]::ReadAllBytes($ZipPath))) { Say "NOTICE (#7890): $ZipPath was built from a tree with uncommitted changes (manifest.json source_dirty), so it is not exactly the commit it names. The installer staged with it is still the committed script." }
+  if (Get-ZipSourceDirty $zipBytesForManifest) {
+    Say ("NOTICE (#7890): $ZipPath was built from a tree with uncommitted changes (manifest.json source_dirty), so it is not exactly " + $(if ($BuiltFrom) { "commit $BuiltFrom" } else { 'any one commit' }) + '.' + $(if (-not $ForSigning) { ' The installer staged with it is still the committed script.' } else { '' }))
+  }
+  $zipBytesForManifest = $null
   Say "staging $Versioned ($Sha) from $ZipPath"
 
   # #6466: the release manifest, beside the zip (tools/build-kosmos-windows.sh writes it there). The key holder signs
@@ -1012,8 +1021,16 @@ $stagedSetupSide = Get-Object "$SetupVersioned.sha256"
 $SetupBytes = $null; $SetupSha = ''
 # kosmos#7890: where the installer that goes up was checked against (commit, head), or why none goes up (unverified,
 # none); and, when setup.ps1 is left as it is, the sha it keeps (setup_left), for the approval line.
-$SetupSource = 'none'; $SetupLeft = ''
+$SetupSource = 'none'; $SetupLeft = ''; $SetupHead = ''
 function Get-LiveSetupSha { $live = Get-Object $SetupName; if ($live) { Sha256-Bytes $live.Bytes } else { 'absent' } }
+# The commit HEAD names, for the approval line (setup_head), or 'unknown'.
+function Get-SetupHeadCommit {
+  $g = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $g) { return 'unknown' }
+  $prev = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { $o = @(& $g.Source -C $PSScriptRoot rev-parse HEAD 2>$null); if ($LASTEXITCODE -ne 0 -or $o.Count -eq 0) { return 'unknown' }; return "$($o[0])".Trim() }
+  finally { $ErrorActionPreference = $prev }
+}
 if ($stagedSetup -or $stagedSetupSide) {
   if (-not ($stagedSetup -and $stagedSetupSide)) { Refuse "the bucket holds only one of $SetupVersioned and its .sha256. Re-stage with this script. Nothing was written." }
   $SetupBytes = [byte[]]$stagedSetup.Bytes; $SetupSha = Sha256-Bytes $SetupBytes
@@ -1029,17 +1046,15 @@ if ($stagedSetup -or $stagedSetupSide) {
     Say "installer: $SetupVersioned ($SetupSha) is tools/windows/$SetupName at the approved build's commit $promoteFrom; it becomes $SetupName after latest-win.json"
     $SetupSource = 'commit'
   } else {
-    # kosmos#7890: the zip names no commit to read the installer from, so it is checked against this tree's HEAD; one
-    # that is not HEAD's cannot be checked, and setup.ps1 is left as it is rather than given bytes nobody can vouch for.
+    # kosmos#7890: the zip names no commit to read the installer from, so it is checked against this tree's HEAD. One
+    # that cannot be checked is refused, as a missing commit is: promoting the app while setup.ps1 stays older is the
+    # outcome the refusal exists to prevent.
     $headSetup = Get-SetupAtCommit 'HEAD'
-    if ($null -ne $headSetup.Bytes -and (Sha256-Bytes ([byte[]]$headSetup.Bytes)) -ceq $SetupSha) {
-      $SetupSource = 'head'
-      Say "installer: $SetupVersioned ($SetupSha) is tools/windows/$SetupName at this tree's HEAD (the staged zip records no source commit); it becomes $SetupName after latest-win.json"
-    } else {
-      $SetupSource = 'unverified'; $SetupLeft = Get-LiveSetupSha
-      Say "NOTICE (#7890): the staged zip records no source commit and $SetupVersioned ($SetupSha) is not tools/windows/$SetupName at this tree's HEAD, so it cannot be checked: $SetupName is left as it is ($SetupLeft)."
-      $SetupBytes = $null; $SetupSha = ''
-    }
+    if ($null -eq $headSetup.Bytes) { Refuse "the staged zip records no source commit, so $SetupVersioned is checked against this tree's HEAD, and git cannot read tools/windows/$SetupName there ($($headSetup.Error)). Promote from the checkout that staged it. Nothing was written." }
+    if ((Sha256-Bytes ([byte[]]$headSetup.Bytes)) -cne $SetupSha) { Refuse "the staged zip records no source commit, and $SetupVersioned ($SetupSha) is not tools/windows/$SetupName at this tree's HEAD ($(Sha256-Bytes ([byte[]]$headSetup.Bytes))), so it cannot be checked. Promote from the checkout that staged it, or re-stage it from this one. Nothing was written." }
+    $SetupSource = 'head'
+    $SetupHead = (Get-SetupHeadCommit)
+    Say "installer: $SetupVersioned ($SetupSha) is tools/windows/$SetupName at this tree's HEAD $SetupHead (the staged zip records no source commit); it becomes $SetupName after latest-win.json"
   }
 } else {
   $SetupLeft = Get-LiveSetupSha
@@ -1086,7 +1101,7 @@ if (-not $again -or (Sha256-Bytes $again.Bytes) -cne (Sha256-Bytes $staging.Byte
 # Josh's go is logged BEFORE any write; a go that is not logged is not given. bucket= and
 # prefix= tell a real promote from a self-test in the one log.
 $Where = "bucket=$Bucket prefix=$(if ($KeyPrefix) { $KeyPrefix } else { '-' })$(if ($FakeDir) { ' transport=test' })"
-Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef record_sha256=$recordSha setup_source=$SetupSource$(if ($SetupLeft) { " setup_left=$SetupLeft" }) setup_sha256=$(if ($null -ne $SetupBytes) { $SetupSha } else { 'none' }) approval=given $Where record=$recordPath"   # record= LAST: the path may hold spaces (promote-channel.sh does the same)
+Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha approval_ref=$ApprovalRef record_sha256=$recordSha setup_source=$SetupSource$(if ($SetupHead) { " setup_head=$SetupHead" })$(if ($SetupLeft) { " setup_left=$SetupLeft" }) setup_sha256=$(if ($null -ne $SetupBytes) { $SetupSha } else { 'none' }) approval=given $Where record=$recordPath"   # record= LAST: the path may hold spaces (promote-channel.sh does the same)
 
 # What prod is BEFORE this promote writes anything, so a promote that finds itself raced can
 # put it back: the pointer, and the alias sidecar (the alias zip is restored from the previous
