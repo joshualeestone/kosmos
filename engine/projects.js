@@ -1055,8 +1055,6 @@ function needsRedElsewhere(m) {
    bring the row straight back, which is the "no way to dismiss it" Josh reported. */
 const NEEDS_GONE_MS = 10 * 60 * 1000;
 
-/* ⚠️ A read that can write: describe() persists `everSeen` upgrades and (#6341) the dismissal upkeep (needsDismissed /
-   needsDismissGone), each by re-reading the store just before writing. */
 /* #6483 (and #7916, which counts the held ones among them): a member that needs the person here for its own question
    (reported by the agent, #2808 class 2), in the agent card's order: a failed restart or a crash loop is red first. One
    predicate for needsYouQuestions and needsYouHeld, so the two counts cannot drift apart. */
@@ -1065,6 +1063,8 @@ function isOwnQuestion(m) {
     && m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true);
 }
 
+/* ⚠️ A read that can write: describe() persists `everSeen` upgrades and (#6341) the dismissal upkeep (needsDismissed /
+   needsDismissGone), each by re-reading the store just before writing. */
 function describe(project, roster, all) {
   const cards = Array.isArray(roster) ? roster : [];
   // ⚠️ Seeing an agent is remembered. `everSeen` was written once, at add time,

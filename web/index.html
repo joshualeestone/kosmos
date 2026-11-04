@@ -70912,13 +70912,13 @@ function tskRow(t, at) {
       ? '<div class="why tsk-waiting tsk-waiting-who">'
         + esc(whoWaits.filter((w, i, all) => all.findIndex((x) => x.who === w.who) === i).map((w) => tskAgentName(w.who)).join(', ')) + ': '
         /* #7916: every question here held until the person is back: say so, with no age pressing it. */
-        + (whoWaits.every((w) => w.held === true) ? PJ_NEEDS_WHY.held[0]
+        + (whoWaits.every((w) => w.held === true && w.reason === 'question') ? PJ_NEEDS_WHY.held[0]
           : waitWords === 'just now' ? 'Just started waiting for your answer.'
           : PJ_NEEDS_WHY.question[0].replace(/\.$/, '') + ' for ' + esc(waitWords.replace(/ ago$/, '')) + '.')
         + '</div>'
       : '<div class="why tsk-waiting">' + (waitWords === 'just now' ? 'Just started waiting on you' : 'Waiting on you for ' + esc(waitWords.replace(/ ago$/, ''))) + '</div>';
   const whoLine = !whoWaits.length || askOnly ? ''
-    : '<div class="why tsk-waiting-who">' + whoWaits.map((w) => esc(tskAgentName(w.who)) + ': ' + esc((w.held === true ? PJ_NEEDS_WHY.held : Object.prototype.hasOwnProperty.call(PJ_NEEDS_WHY, w.reason) ? PJ_NEEDS_WHY[w.reason] : PJ_NEEDS_WHY.other)[0])).join(' ') + '</div>';
+    : '<div class="why tsk-waiting-who">' + whoWaits.map((w) => esc(tskAgentName(w.who)) + ': ' + esc((w.held === true && w.reason === 'question' ? PJ_NEEDS_WHY.held : Object.prototype.hasOwnProperty.call(PJ_NEEDS_WHY, w.reason) ? PJ_NEEDS_WHY[w.reason] : PJ_NEEDS_WHY.other)[0])).join(' ') + '</div>';
   /* kosmos#7788: an agent held this task for the person (`kosmos task hold --for-you`), so it sits in Needs Your
      Decision (tasks.taskState). The row says what it waits on, in the agent's words, and how it clears. */
   const forYouLine = t.state === 'decision' && t.onHold === true && t.onHoldForPerson === true
