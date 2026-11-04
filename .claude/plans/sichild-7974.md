@@ -24,6 +24,8 @@ notices a one-line link; #6873's worry was a parent signing a child's computer i
   and description once pressed, and closed again. All pass. CONTROL: against main's web/index.html the same check
   fails cleanly (12 failures). Found while writing it: inside a closed <details>, Chromium still measures the content
   18px tall (checkVisibility() is false), so the check uses page.isVisible, not its height-based visible().
+- Every sign-in starts with the line closed again (plusSiClear, which Sign out and each entry use). The Sign-out test
+  opens it, signs out, re-enters and asserts it is closed and describes nothing; with the reset removed it fails.
 - render-plus-company-5628.js: an unmanaged computer shows the line, a managed one does not. Pass.
 - Shots: Files/shots-7974 (desktop and iPhone, light and dark). The line is 44pt tall (min-height): the iPhone shots'
   taps<44 count went from 1 to 0 with it. It has its own focus ring, and a managed computer closes it before hiding it.
