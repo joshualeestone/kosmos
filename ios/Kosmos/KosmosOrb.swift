@@ -2,13 +2,16 @@ import SwiftUI
 
 /// kosmos#7896 (Josh 2026-11-03: the KOSMOS orb replaces the spinner everywhere, "on the mobile apps" too): the app's
 /// loading mark, in place of ProgressView. The geometry is OrbLogic (the desktop's, same seed). About 30 frames a second
-/// while it is on screen (SwiftUI stops a TimelineView that is not shown); with Reduce Motion on, one still frame with
-/// the K facing. VoiceOver hears it as "Loading" unless a caller gives its own label, as ProgressView sites did.
+/// (the .animation schedule pauses with the app in the background; whether it also pauses for a view kept alive out of
+/// sight is not verified here); with Reduce Motion on, one still frame with the K facing. VoiceOver hears it as
+/// "Loading" unless a caller gives its own label, as ProgressView sites did. Each orb places its own dots (the desktop
+/// shares one placing across orbs); measured about 0.19 ms per frame for place and grouping on a Mac.
 struct KosmosOrb: View {
     /// The circle's side in points. 20 is a regular ProgressView; 16 and 36 stand for .small and .large.
     var size: CGFloat = 20
-    /// The Kosmos gold (the desktop's --gold); a caller on a coloured ground can pass its own.
-    var colour: Color = Color(red: 0xD6 / 255.0, green: 0xA6 / 255.0, blue: 0x2E / 255.0)
+    /// The star's gold (kosmos#7034): deep gold in light, which holds 3:1 on the light grounds where the bright gold
+    /// measures about 2.1:1, and the bright gold in dark. A caller on a coloured ground passes its own.
+    var colour: Color = Palette.starGold
     /// What VoiceOver says for it. Sites that labelled their ProgressView pass that label here, rather than stacking a
     /// second accessibilityLabel on top of this one.
     var label: String = "Loading"
@@ -30,7 +33,7 @@ struct KosmosOrb: View {
         .frame(width: size, height: size)
         .accessibilityElement()
         .accessibilityLabel(Text(label))
-        .accessibilityAddTraits(.updatesFrequently)
+        .accessibilityAddTraits(reduceMotion ? [] : .updatesFrequently)
     }
 
     private func canvas(_ pts: [OrbLogic.Placed]) -> some View {
