@@ -110,7 +110,7 @@ function reasonOf(a, needsPerson) {
   if (a.running === false && a.needsTrust === true) return 'trust';
   if (a.crashLoop && a.crashLoop.looping === true) return 'crash_loop';
   if (a.state === 'needs_you') {
-    if (a.stateReportedBy === 'agent') return 'question';   // labelOf's order: the card's word is Question
+    if (a.stateReportedBy === 'agent') return 'question';   // labelOf's order: the card's word is Question (or Question held)
     // Mona Lisa, 10-24: a wait read off the screen that is neither the agent's question nor a permission prompt (a Codex
     // hooks screen, the safeguards menu) is 'waiting' ("Waiting for you. Open it to see what it shows."), never
     // "Waiting for your answer.", which would be false there.

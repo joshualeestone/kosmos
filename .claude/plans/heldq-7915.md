@@ -27,7 +27,8 @@ holding if they say so.
 ## Accepted residual (challenge-loop round 1)
 The project card's pill and the need-you counts still count a held question, and the project pill reads the calm
 "Question" (the same calm look as the agent card), not "Question held". The card asked that nothing be lost, and the
-counts are where it stays visible; only the agent card's word changes. Carrying `stateHeld` into
+counts are where it stays visible; only the agent card's word changes. The phone's Today list shows it the same way:
+under the question reason, never pushed. Carrying `stateHeld` into
 projects.js summary and the page's project pill is a follow-up if a person finds the count noisy while away.
 
 ## Weakest premise
