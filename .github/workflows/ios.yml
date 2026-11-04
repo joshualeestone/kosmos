@@ -10,7 +10,7 @@
 # files) passes its suite on macOS,
 # the app compiles and links for the simulator with signing off (Debug and
 # Release), both built apps carry the four permission strings, the app icon and
-# the navy launch screen (#4089), an unsigned device archive builds, the
+# the launch screen (#4089, #7945), an unsigned device archive builds, the
 # exported-app push check can fail as well as pass, archive.sh's signing
 # settings checks refuse what they should, neither the Release app nor the
 # archive carries the App Store screenshot switch (a Release build WITH it is the

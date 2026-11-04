@@ -24,11 +24,13 @@ first screen's loading mark.
 ## Measured
 - Built app: check-app-assets.sh PASS, now also requiring UIImageName = LaunchOrb and LaunchOrb in Assets.car.
 - Recorded a fresh install's launch on an erased iPhone 17e simulator (iOS 27.0), 20 fps frames: light goes from
-  the home screen straight to (247,245,244) with the gold orb, then sign-in on the same ground; dark straight to
+  the home screen straight to (247,245,244) with the gold orb, then sign-in reading the same (247,245,244) (the
+  capture's colour handling of #faf9f7; what matters is that the two frames match); dark straight to
   (11,11,13) with the bright orb, then sign-in. No navy frame in either.
 - CONTROL: the same recording before the simulator was erased showed navy (17,33,61) for about a second, from iOS's
   cached launch snapshot of the old build. So the recording can see navy.
-- ios/tools/render-launch-orb.sh redraws the six PNGs byte for byte from OrbLogic.
+- ios/tools/render-launch-orb.sh draws the six PNGs from OrbLogic, one path per opacity group as KosmosOrb does;
+  LogicTests/run-orb.sh draws them again and fails if the committed ones differ (CI runs it).
 
 ## Not measured
 A real iPhone. iOS caches launch screens per app: a phone that already had the navy one may show it once more

@@ -93,12 +93,12 @@ builds it on GitHub's macOS runner, which has one.
   `LaunchBackground`, the app's own ground (`Palette.ground`: `#faf9f7` light, `#0c0d0f` dark),
   and `LaunchOrb`, the KOSMOS orb's still frame (the one Reduce Motion shows, K facing), 120 pt,
   deep gold `#9c741b` light and `#e3b341` dark (kosmos#7945; it was navy `#17233D`, which flashed
-  before every launch on the light sign-in and Agents screens). The PNGs are drawn by `OrbLogic`
-  itself, so they match the app's orb dot for dot; redraw them with `ios/tools/render-launch-orb.sh`
-  if `OrbLogic`'s seed or drawing changes.
+  before every launch on the light sign-in and Agents screens). The PNGs are drawn from `OrbLogic`
+  as `KosmosOrb` draws its still frame, by `ios/tools/render-launch-orb.sh`; `LogicTests/run-orb.sh`
+  draws them again and fails if the committed ones differ, so redraw them when `OrbLogic` changes.
 - `Kosmos-Info.plist` holds the launch screen (`UILaunchScreen` > `UIColorName =
-  LaunchBackground`, `UIImageName = LaunchOrb`) and `ITSAppUsesNonExemptEncryption = false` (#6262: the app uses only
-  standard HTTPS, and without the key every TestFlight build stops at an export-compliance
+  LaunchBackground`, `UIImageName = LaunchOrb`) and `ITSAppUsesNonExemptEncryption = false`
+  (#6262: the app uses only standard HTTPS, and without the key every TestFlight build stops at an export-compliance
   question). Everything else in the Info.plist is generated from build settings.
 - `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` wires the icon.
 - Compiling the catalog queries the installed iOS simulator runtimes and fails without one (`No

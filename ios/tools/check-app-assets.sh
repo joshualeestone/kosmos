@@ -5,7 +5,7 @@
 #
 #   - Info.plist names the icon (CFBundleIcons > CFBundlePrimaryIcon > CFBundleIconName = AppIcon)
 #     and the launch screen (UILaunchScreen > UIColorName = LaunchBackground, UIImageName = LaunchOrb);
-#   - Assets.car exists and holds both of those names (assetutil reads the compiled catalog);
+#   - Assets.car exists and holds those names (AppIcon, LaunchBackground, LaunchOrb) (assetutil reads the compiled catalog);
 #   - the icon in the repo's catalog is byte-for-byte assets/Kosmos-1024.png, so the artwork has
 #     one source.
 #

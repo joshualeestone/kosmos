@@ -338,7 +338,7 @@ archive.sh uses).
 - **The push check on the exported app is automatic.** `ios/tools/check-ipa-entitlements.sh` runs
   inside `archive.sh`, and nothing uploads unless `aps-environment` reads `production` and the app
   is signed by the team, with the bundle id, in `ios/Signing.xcconfig`.
-- **The app icon and the navy launch screen are in an asset catalog** (`ios/Kosmos/Assets.xcassets`,
+- **The app icon and the launch screen are in an asset catalog** (`ios/Kosmos/Assets.xcassets`,
   icon from `assets/Kosmos-1024.png`). It compiles on GitHub's macOS runner, and iOS CI checks the
   built app carries both. It also compiles on Agent1s, which has an iOS 26.5 simulator runtime
   (#6262).
