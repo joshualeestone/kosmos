@@ -290,7 +290,29 @@ for (const dot of ['.', '..']) {
     const m = await cli(port, ['agent', 'remove', dot, '--yes']);
     assert.equal(m.code, 2, m.out);
     assert.equal(seen.length, 0, 'nothing was sent');
-    await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
-    assert.equal(deletes(seen).length, 1, 'CONTROL: a plain name is sent');
+    // kosmos#7946: the control's own exit code and words, so a red here says where the CLI stopped (it read 0 !== 1).
+    const c = await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
+    assert.equal(c.code, 0, 'CONTROL exit (141 is SIGPIPE under pipefail): ' + c.out);
+    assert.equal(deletes(seen).length, 1, 'CONTROL: a plain name is sent; the CLI said: ' + c.out);
   }));
 }
+
+/* kosmos#7946: on macOS CI the CLI exited 141 (SIGPIPE under `set -euo pipefail`) with no output, before the DELETE,
+   in three runs on three unrelated PRs. The remove path keeps no pipeline whose reader can exit before its producer is
+   done (head, grep -q, an awk that exits, a sed that quits), so no producer can take SIGPIPE there. */
+const EARLY_READER = /\|\s*(?:LC_ALL=\S+\s+)?(?:head\b|grep\s+(?:-[a-zA-Z]*q|--quiet)|sed\s+-n\s+'?\d*q|awk\b[^|]*\bexit\b)/;
+test('#7946: install/kosmos agent remove has no pipeline into an early-exiting reader (control: the old shape is caught)', () => {
+  const src = fs.readFileSync(CLI, 'utf8');
+  const start = src.indexOf("      # kosmos#7362: through the board's own Remove");
+  const end = src.indexOf('\n  esac\n}', start);
+  assert.ok(start > 0 && end > start, 'the remove block was found');
+  const block = src.slice(start, end);
+  assert.match(block, /-X DELETE "\$URL\/api\/agent\/\$rm_path\/removal"/, 'the block is the remove path (it sends the DELETE)');
+  const hits = block.split('\n').filter((l) => !/^\s*#/.test(l) && EARLY_READER.test(l));
+  assert.deepEqual(hits, [], 'a pipeline here can end the CLI with 141 before the DELETE');
+  // CONTROL: the shape #7946 removed, and the other early readers, are each caught; a full reader is not.
+  for (const bad of [`rm_ok=$(printf '%s\\n' "$rm_plan" | head -n 1 | cut -f1)`, `printf '%s' "$x" | grep -q y`, `printf x | LC_ALL=C head -c 3`,
+    `printf x | awk '{ exit }'`, `printf x | sed -n 1q`]) assert.match(bad, EARLY_READER, bad);
+  for (const ok of [`printf '%s' "$body" | "$_node" -e "$p"`, `printf '%s\\n' "$rm_plan" | tail -n +2 | while IFS= read -r _l; do say "$_l"; done`,
+    `rm_out=$(printf '%s' "$rm_parsed" | cut -f1)`]) assert.doesNotMatch(ok, EARLY_READER, ok);
+});
