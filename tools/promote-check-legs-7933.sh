@@ -253,6 +253,14 @@ leg_verb() {
   beacon || { fail verb "the updated board does not carry the dead install beacon"; return; }
   case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail verb "the project was not kept"; return ;; esac
   grep -qx staging "$root/source-channel" || { fail verb "the channel is now '$(cat "$root/source-channel" 2>/dev/null)', not staging"; return; }
+  # Coming back up means staying up: under Restart=always a build that dies after boot would pass every check above.
+  local restarts; restarts="$(systemctl --user show -p NRestarts --value kosmos-board.service 2>/dev/null)"
+  sleep 30
+  [ "$(bpid)" = "$pid1" ] || { fail verb "the updated board did not stay up: MainPID $pid1 is now $(bpid)"; return; }
+  [ "$(systemctl --user show -p NRestarts --value kosmos-board.service 2>/dev/null)" = "$restarts" ] || { fail verb "systemd restarted the updated board in the 30 s after it came up"; return; }
+  [ "$(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/api/health")" = 200 ] || { fail verb "the updated board stopped answering health"; return; }
+  [ "$(ver)" = "$sv" ] || { fail verb "30 s later the answering board loaded '$(ver)', not $sv"; return; }
+  [ -n "$old" ] && echo "  measured: $old updated to $sv, and still up 30 s later" || echo "  measured: the install path on $sv, STAMPED older: not an update between two builds"
   pass verb
 }
 
