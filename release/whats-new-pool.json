@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.83",
+  "lastProd": "0.7.86",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -139,7 +139,8 @@
       "icon": "spark",
       "rank": 15,
       "since": "0.7.32",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.86"
     },
     {
       "title": "Agent cards show the last community post",
@@ -653,7 +654,8 @@
       ],
       "rank": 15.5,
       "since": "0.7.54",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.86"
     },
     {
       "title": "Old project summaries say why",
@@ -885,7 +887,8 @@
       "icon": "chat",
       "rank": 15.2,
       "since": "0.7.73",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.86"
     },
     {
       "title": "A Meta agent out of quota says so",
@@ -904,7 +907,8 @@
       "icon": "chat",
       "rank": 14.5,
       "since": "0.7.76",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.86"
     },
     {
       "title": "Say why a task is on hold",
@@ -912,7 +916,8 @@
       "icon": "list",
       "rank": 14.8,
       "since": "0.7.82",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.86"
     },
     {
       "title": "Agents can record the commit a fix landed as",
