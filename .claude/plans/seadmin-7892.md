@@ -1,6 +1,6 @@
 # seadmin-7892: the admin key screen's groundwork (kosmos#7892)
 
-Built on `sekey-7116` (PR #7902, waiting on the 0.7.87 merge hold); rebase onto main once #7902 merges.
+Built on main after #7902 merged (be6003d4a5); only this card's commits were carried over.
 #7892 lists what #7116's round 8 left for the admin screen slice. This branch takes them in order of what can be
 measured without a person at the screen.
 
@@ -27,7 +27,19 @@ measured without a person at the screen.
 4. WARNING 2: the screen's wording around the prompt must not promise approving means signed. Needs the screen.
 6. Gate needing a person: a presence key made from inside the app. Park needs-operator when it is the only one left.
 
+## Review round 1 (opus)
+
+- BLOCKER: invisible marks and letters (variation selectors, the combining grapheme joiner, Hangul fillers) passed raw.
+  Fixed: `\p{Default_Ignorable_Code_Point}` is escaped too; test rows for U+FE0F, U+034F, U+3164 in a Hangul name.
+- WARNING: NFC vs NFD look the same. Fixed: text not in NFC marks `unusual`; test with a composed control.
+- WARNING: a name wholly in one script can imitate another (all-Cyrillic for Latin). Not fixable by escaping;
+  stated in the doc comment so the screen never reads `unusual: false` as "cannot be a look-alike".
+- Fixed NITs: EACCES has its own sentence; scripts compiled once; Latin with Han pinned as marked; the doc-comment
+  line the earlier edit broke. Kept: the maxBuffer check, which on Node 26 is redundant (measured: `killed` unset)
+  but keeps an overflow from reading as a timeout elsewhere. Not taken: choosing the prompt reason before `load` in
+  kosmos-se; the context is a reference read at signing, and only gate 6 can show the prompt either way.
+
 ## Weakest premise
 
-That the script list in `scriptOf` covers the look-alike cases that matter. A letter from a script not on the list
+That the script list in `scriptOf` covers the mixed-script look-alikes that matter, and, larger, that the screen shows the fingerprint wherever one exists, since one-script look-alikes are not marked. A letter from a script not on the list
 counts as "other", so Latin plus an unlisted script still marks; two unlisted scripts together do not.

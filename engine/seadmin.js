@@ -31,7 +31,7 @@
  *   - shipping kosmos-se in the app bundle and any caller. Nothing outside the test calls this file yet.
  *   - choosing the helper. runHelper runs the path it is given; the bundle slice must resolve kosmos-se itself
  *     (the signed app's own copy), never take the path from anything a page or the coordinator supplies.
- *  * A key's access control is fixed when the key is made, so createKey makes a `presence` key (Touch ID or password on
+ * A key's access control is fixed when the key is made, so createKey makes a `presence` key (Touch ID or password on
  * every signature) unless told otherwise; see native-se/main.swift for what is and is not measured about that.
  */
 
@@ -205,19 +205,28 @@ function fingerprintDisplay(fp) {
    check on it is valid UTF-8, so a hostile coordinator could make two orgs or admins look alike. shownText() is what
    the screen shows instead of the raw string:
    - every control, format (bidi overrides and isolates, zero-width characters, the BOM, the soft hyphen), line or
-     paragraph separator, private-use or unassigned code point, and every space other than U+0020, is written as
-     \u{XXXX}, and the text is marked unusual;
+     paragraph separator, private-use or unassigned code point, every default-ignorable code point (variation
+     selectors, the combining grapheme joiner, the Hangul fillers: invisible marks and letters), and every space
+     other than U+0020, is written as \u{XXXX}, and the text is marked unusual;
+   - text not in Unicode's composed form (NFC) is marked unusual: "Cafe" with a combining accent and "Café" with a
+     precomposed one look the same and are different bytes;
    - a backslash is written as \\, so a name that spells "\u{202E}" in plain letters cannot pass for an escaped one;
    - letters from more than one script (Latin with Cyrillic or Greek, say) are left as they are but mark the text
-     unusual, since look-alike letters are the other way to fake a name. */
-const ESCAPED = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}]|(?! )\p{Zs}/u;
+     unusual, since look-alike letters are the other way to fake a name. Latin with Han ("Kosmos 株式会社") is marked
+     too: cautious, and pinned by a test.
+   `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in one script that looks like
+   another (all-Cyrillic "АВС" for Latin "ABC") is not marked. For an admin add or a reviewer enrolment the
+   fingerprint is the defence; for an org name on a cancel or a revoke nothing here is. */
+const ESCAPED = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}]|(?! )\p{Zs}/u;
+const SCRIPTS = ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana', 'Hangul', 'Arabic',
+  'Hebrew', 'Devanagari', 'Thai'].map((name) => [name, new RegExp('\\p{Script=' + name + '}', 'u')]);
 function scriptOf(ch) {
-  const m = /\p{L}/u.test(ch) && ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana',
-    'Hangul', 'Arabic', 'Hebrew', 'Devanagari', 'Thai'].find((s) => new RegExp('\\p{Script=' + s + '}', 'u').test(ch));
-  return m || (/\p{L}/u.test(ch) ? 'other' : null);
+  if (!/\p{L}/u.test(ch)) return null;
+  const hit = SCRIPTS.find(([, re]) => re.test(ch));
+  return hit ? hit[0] : 'other';
 }
 function shownText(s) {
-  let text = '', unusual = false;
+  let text = '', unusual = s !== s.normalize('NFC');
   const scripts = new Set();
   for (const ch of s) {
     if (ch === '\\') { text += '\\\\'; continue; }
@@ -305,8 +314,12 @@ function runHelper(helper, args, input) {
     const child = execFile(helper, args, { timeout: HELPER_TIMEOUT_MS, encoding: 'buffer', maxBuffer: 1 << 16 },
       (err, stdout, stderr) => {
         if (!err) return resolve(stdout.toString('utf8').trim());
-        if (err.killed || err.signal === 'SIGTERM') return reject(new Error('kosmos-se did not finish in time (a presence key waits for the person)'));
-        if (err.code === 'ENOENT' || err.code === 'EACCES') return reject(new Error('the admin key helper is not installed'));
+        // Over maxBuffer: on Node 26 `killed` is unset here (measured), so this reaches the generic sentence either way; the
+        // check keeps it from reading as a timeout on a runtime that does set `killed`.
+        if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return reject(new Error(HELPER_GENERIC));
+        if (err.killed) return reject(new Error('kosmos-se did not finish in time (a presence key waits for the person)'));
+        if (err.code === 'ENOENT') return reject(new Error('the admin key helper is not installed'));
+        if (err.code === 'EACCES') return reject(new Error('the admin key helper cannot be run'));
         reject(new Error(helperSentence(stderr)));
       });
     child.stdin.on('error', () => {});   // a helper that exits before reading its input is reported by its exit

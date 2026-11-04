@@ -281,15 +281,23 @@ test('#7892: prepare gives the screen escaped text, so hidden or look-alike char
   const shownOrg = (org) => { const p = se.prepare('cancel', se.encodeCancel(org, 'roster-change', Buffer.alloc(16, 7))); return [p.shown.org, p.unusual]; };
   // A right-to-left override, a zero-width space, a BOM, a soft hyphen, a control character, a no-break space.
   for (const [org, want] of [
-    ['Acme‮evil', 'Acme\\u{202E}evil'], ['Ac​me', 'Ac\\u{200B}me'], ['﻿Acme', '\\u{FEFF}Acme'],
-    ['Ac­me', 'Ac\\u{00AD}me'], ['Acme\u0007', 'Acme\\u{0007}'], ['Acme Inc', 'Acme\\u{00A0}Inc'],
-    ['Acme Inc', 'Acme\\u{2028}Inc'], ['Acme\u{E000}', 'Acme\\u{E000}'],
+    ['Acme\u202Eevil', 'Acme\\u{202E}evil'], ['Ac\u200Bme', 'Ac\\u{200B}me'], ['\uFEFFAcme', '\\u{FEFF}Acme'],
+    ['Ac\u00ADme', 'Ac\\u{00AD}me'], ['Acme\u0007', 'Acme\\u{0007}'], ['Acme\u00A0Inc', 'Acme\\u{00A0}Inc'],
+    ['Acme\u2028Inc', 'Acme\\u{2028}Inc'], ['Acme\u{E000}', 'Acme\\u{E000}'],
+    // Invisible marks and letters (default-ignorable): a variation selector, the combining grapheme joiner, a Hangul
+    // filler inside a Hangul name (where the script rule alone would not mark it).
+    ['Acme\uFE0F', 'Acme\\u{FE0F}'], ['Ac\u034Fme', 'Ac\\u{034F}me'], ['\uAC00\u3164\uB098', '\uAC00\\u{3164}\uB098'],
   ]) assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // The same letters in two Unicode forms: a combining accent is marked, the precomposed one is not.
+  assert.deepStrictEqual(shownOrg('Cafe\u0301'), ['Cafe\u0301', true], 'a decomposed accent');
+  assert.deepStrictEqual(shownOrg('Caf\u00E9'), ['Caf\u00E9', false], 'CONTROL: the composed form');
+  // Latin with Han is marked: cautious, and pinned so a change to it is a decision.
+  assert.deepStrictEqual(shownOrg('Kosmos \u682A\u5F0F\u4F1A\u793E'), ['Kosmos \u682A\u5F0F\u4F1A\u793E', true]);
   // Two orgs that render the same raw are told apart once shown.
-  assert.notStrictEqual(shownOrg('Acme')[0], shownOrg('Ac​me')[0]);
+  assert.notStrictEqual(shownOrg('Acme')[0], shownOrg('Ac\u200Bme')[0]);
   // A name spelling an escape in plain letters cannot pass for a real escape.
   assert.deepStrictEqual(shownOrg('Acme\\u{202E}'), ['Acme\\\\u{202E}', false]);
-  assert.notStrictEqual(shownOrg('Acme\\u{202E}')[0], shownOrg('Acme‮')[0]);
+  assert.notStrictEqual(shownOrg('Acme\\u{202E}')[0], shownOrg('Acme\u202E')[0]);
   // Look-alike letters: a Cyrillic a in a Latin name is kept as it is but marked.
   assert.deepStrictEqual(shownOrg('Acmе'), ['Acmе', true]);
   assert.deepStrictEqual(shownOrg('Αcme'), ['Αcme', true], 'a Greek capital alpha');
@@ -300,11 +308,11 @@ test('#7892: prepare gives the screen escaped text, so hidden or look-alike char
 
 test('#7892: nested decoded text is escaped too (an admin id and a reviewer name)', () => {
   const add = se.decodeChange(hex(V.bytes.changeAdd));
-  const bytes = se.encodeChange(add.org, add.generation, { kind: 'add', admin: { ...add.change.admin, adminId: 'adm‮in' } }, add.nonce);
+  const bytes = se.encodeChange(add.org, add.generation, { kind: 'add', admin: { ...add.change.admin, adminId: 'adm\u202Ein' } }, add.nonce);
   const p = se.prepare('change', bytes);
   assert.strictEqual(p.shown.change.admin.adminId, 'adm\\u{202E}in');
   assert.strictEqual(p.unusual, true);
-  assert.strictEqual(p.decoded.change.admin.adminId, 'adm‮in', 'the raw decode is unchanged: what is signed is the bytes');
+  assert.strictEqual(p.decoded.change.admin.adminId, 'adm\u202Ein', 'the raw decode is unchanged: what is signed is the bytes');
 });
 
 test('#7892: every refusal kosmos-se can write is on the list a screen may show, and nothing else is', () => {
@@ -334,6 +342,12 @@ test('#7892: a helper failure reaches the caller as a fixed sentence, never its 
       return true;
     });
   }
+  // A helper that is there but cannot be run (not executable), and one that floods its output past the buffer: each its
+  // own sentence, and neither reads as a timeout.
+  const noExec = path.join(FAKE_DIR, 'no-exec-se'); fs.writeFileSync(noExec, '#!/bin/sh\nexit 0\n', { mode: 0o644 });
+  await assert.rejects(se.publicKey({ helper: noExec, keyFile: secret }), (e) => e.message === 'the admin key helper cannot be run');
+  await assert.rejects(se.publicKey({ helper: say('head -c 70000 /dev/zero | tr "\\0" x >&2; exit 1'), keyFile: secret }),
+    (e) => e.message === 'the admin key helper failed');
   // A helper that is not there: named as not installed, without its path.
   await assert.rejects(se.publicKey({ helper: path.join(FAKE_DIR, 'no-such-helper'), keyFile: secret }),
     (e) => e.message === 'the admin key helper is not installed');
