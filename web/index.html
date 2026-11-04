@@ -1487,6 +1487,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   background: color-mix(in srgb, var(--gold-bright) 16%, var(--bg-elevated));
   border: 1px solid color-mix(in srgb, var(--gold-bright) 55%, transparent);
   font-size: .8125rem; font-weight: 600; white-space: nowrap; color: var(--label); }
+.uchip.noact { padding: 0 12px; }   /* kosmos#7938: the manual-offer chip has no button, so both ends match */
 .uchip .udot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold-bright); flex: 0 0 7px; }
 .uchip button { height: 24px; border: 0; border-radius: 999px; padding: 0 12px; background: var(--gold-bright); color: #14161a;
   font: inherit; font-size: .78rem; font-weight: 700; cursor: pointer; }
@@ -1495,6 +1496,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* Narrow screens (review round 2): the chip may wrap to two lines rather than run off the right edge. */
 @media (max-width: 480px) {
   .uchip { white-space: normal; height: auto; min-height: 30px; padding: 3px 4px 3px 10px; max-width: 100%; }
+  .uchip.noact { padding: 3px 10px; }   /* kosmos#7938: no button, so both ends match here too */
   .uchip .uchip-t { flex: 1 1 auto; min-width: 0; }
   .uchip button { flex: none; }
 }
@@ -25062,20 +25064,20 @@ function renderUpdateToast(u, manual) {
   }
   /* kosmos#7938: a newer version with only a manual offer (Windows in a folder the updater refuses, Linux) used to show
      nothing outside Settings. It gets the same chip, saying where it is installed, and no button: nothing here installs. */
-  const m = !(u && u.version) && manual && manual.version ? manual : null;
+  const m = !(u && u.version) && manual && manual.version && manual.download ? manual : null;   // as paintUpdateCard's manual arm
   if (UPDATING_NOW || (!(u && u.version) && !m) || updateLaterSuppresses(m ? m.version : u.version)) {
     slot.innerHTML = ''; delete slot.dataset.v; return;
   }
   if (m) {
-    /* A Kosmos+ view (a phone) installs nothing itself: it names the computer that does, as the stale chip above does. */
-    const remote = typeof offlineRemoteView === 'function' && offlineRemoteView();
+    /* Over Kosmos+ the person is on another device, so it names the computer that installs (review 1: kplusRemote, not
+       offlineRemoteView, which is false on Windows, the platform a manual offer comes from). */
+    const remote = typeof kplusRemote === 'function' && kplusRemote();
     const key = 'manual:' + m.version + (remote ? ':remote' : '');
     if (slot.dataset.v === key) return;
     slot.dataset.v = key;
-    slot.innerHTML = '<div class="uchip" role="status">'
+    slot.innerHTML = '<div class="uchip noact" role="status">'
       + '<span class="udot" aria-hidden="true"></span>'
-      + '<span class="uchip-t">' + (remote ? 'An update is available: install it on your Kosmos computer, in Settings, Updates'
-        : 'An update is available: Settings, Updates shows how to install it') + '</span>'
+      + '<span class="uchip-t">' + (remote ? 'Install the update on your Kosmos computer' : 'An update is available in Settings') + '</span>'
       + '</div>';
     return;
   }

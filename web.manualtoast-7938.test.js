@@ -3,8 +3,8 @@
 /**
  * kosmos#7938: a board whose newer version comes only as a manual offer (`updateManual`: Windows in a folder the in-app
  * updater refuses, and Linux once its in-app path is off) showed no notice outside Settings, Updates. It now shows the
- * same "An update is available" chip, saying where to install it, with no button: nothing in the toast installs. On a
- * Kosmos+ view it names the Kosmos computer. The install offer, when there is one, keeps its own chip and button.
+ * chip, saying where to install it, with no button: nothing in the toast installs. Over Kosmos+ it names the Kosmos
+ * computer. The install offer, when there is one, keeps its own chip and button.
  *
  *   node --test web.manualtoast-7938.test.js
  */
@@ -25,9 +25,11 @@ function toast({ offer = null, manual = null, later = null, remote = false, upda
     getElementById: (id) => (id === 'utoast-slot' ? slot : { addEventListener: () => buttons.push(id), focus() {}, hidden: true }),
     querySelector: () => ({ getAttribute: () => '0.7.88' }),
   };
-  new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'UPD_CONFIRM_OPENER', 'OFFER', 'ENGINE_STALE', 'offlineRemoteView', 'MANUAL',
-    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateNothingToLose', 'updateSafeReload', 'renderUpdateToast'])
-    + '\nrenderUpdateToast(OFFER, MANUAL);')(doc, (x) => String(x), updating, '0.7.88', (v) => later === v, null, offer, null, () => remote, manual);
+  /* The real kplusRemote too, against the page's address (review 1: the remote arm must be reachable on a Windows board). */
+  const location = { hostname: remote ? 'kosmos.example-kplus.invalid' : '127.0.0.1' };
+  new Function('document', 'esc', 'UPDATING_NOW', 'SERVED_VERSION', 'updateLaterSuppresses', 'UPD_CONFIRM_OPENER', 'OFFER', 'ENGINE_STALE', 'location', 'MANUAL',
+    page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'updateNothingToLose', 'updateSafeReload', 'kplusRemote', 'renderUpdateToast'])
+    + '\nrenderUpdateToast(OFFER, MANUAL);')(doc, (x) => String(x), updating, '0.7.88', (v) => later === v, null, offer, null, location, manual);
   return { html: slot.innerHTML, v: slot.dataset.v, buttons, slot };
 }
 
@@ -35,7 +37,8 @@ const MANUAL = { version: '0.7.89', download: 'https://example.invalid/kosmos-0.
 
 test('#7938: a manual offer with no install offer shows the chip, says where to install it, and has no button', () => {
   const t = toast({ manual: MANUAL });
-  assert.match(t.html, /An update is available: Settings, Updates shows how to install it/);
+  assert.match(t.html, /<span class="uchip-t">An update is available in Settings<\/span>/);
+  assert.match(t.html, /class="uchip noact"/, 'the no-button chip lost its even padding class');
   assert.doesNotMatch(t.html, /<button/, 'the manual chip offers a button');
   assert.deepEqual(t.buttons, [], 'a listener was wired');
   assert.equal(t.v, 'manual:0.7.89');
@@ -47,7 +50,7 @@ test('#7938: CONTROL: no manual offer and no install offer shows nothing (as bef
 
 test('#7938: on a Kosmos+ view the chip names the Kosmos computer', () => {
   const t = toast({ manual: MANUAL, remote: true });
-  assert.match(t.html, /install it on your Kosmos computer, in Settings, Updates/);
+  assert.match(t.html, /Install the update on your Kosmos computer/);
   assert.doesNotMatch(t.html, /<button/);
   assert.equal(t.v, 'manual:0.7.89:remote');
 });
@@ -56,7 +59,7 @@ test('#7938: an install offer keeps its own chip and Update button, whatever the
   const t = toast({ offer: { version: '0.7.89' }, manual: MANUAL });
   assert.match(t.html, /An update is available<\/span>/);
   assert.match(t.html, /id="ut-install"/, 'the install offer lost its button');
-  assert.doesNotMatch(t.html, /Settings, Updates/);
+  assert.doesNotMatch(t.html, /in Settings|Kosmos computer/);
 });
 
 test('#7938: Later on that version quiets the manual chip too; an update under way shows nothing', () => {
@@ -80,4 +83,16 @@ test('#7938: the chip is drawn once per version and place, and goes when the man
 test('#7938: both callers pass the manual offer to the toast', () => {
   assert.ok(SCRIPT.includes('renderUpdateToast(data.update, data.updateManual);'), 'the status read');
   assert.ok(SCRIPT.includes('renderUpdateToast(out.offer, out.manual);'), 'the update check');
+});
+
+test('#7938 review 1: a manual offer without a download link shows nothing (the card has no manual arm for it)', () => {
+  assert.equal(toast({ manual: { version: '0.7.89' } }).html, '');
+});
+
+test('#7938 review 1: the chip text stays short enough for the pill (the stack is 460px at most, the chip does not wrap)', () => {
+  for (const remote of [false, true]) {
+    const m = toast({ manual: MANUAL, remote }).html.match(/<span class="uchip-t">([^<]*)<\/span>/);
+    assert.ok(m, 'no chip text');
+    assert.ok(m[1].length <= 45, 'chip text too long for the pill: ' + m[1].length + ' chars: ' + m[1]);
+  }
 });
