@@ -1043,4 +1043,6 @@ test('#7886: Windows msg --in-reply-to sends in_reply_to, before or after --stdi
   const bare = await run(['msg', '--in-reply-to', '--stdin', 'leo'], placed, undefined, async () => { throw new Error('stdin read after a refused flag'); });
   assert.equal(bare.code, 2); assert.equal(bare.calls.length, 0);
   assert.match(bare.err, /--in-reply-to needs a message id/);
+  const eqFlag = await run(['msg', '--in-reply-to=--stdin', 'leo', 'hi'], placed);
+  assert.equal(eqFlag.code, 2); assert.equal(eqFlag.calls.length, 0);
 });

@@ -2715,7 +2715,7 @@ cmd_msg() {
     case "${1:-}" in
       --stdin) from_stdin=1; shift ;;
       --in-reply-to) in_reply_to="${2:-}"; shift 2 2>/dev/null || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; case "$in_reply_to" in ''|--*) say "Usage: --in-reply-to needs a message id, like m12"; exit 2 ;; esac ;;
-      --in-reply-to=*) in_reply_to="${1#--in-reply-to=}"; [ -n "$in_reply_to" ] || { say "Usage: --in-reply-to needs a message id, like m12"; exit 2; }; shift ;;
+      --in-reply-to=*) in_reply_to="${1#--in-reply-to=}"; case "$in_reply_to" in ''|--*) say "Usage: --in-reply-to needs a message id, like m12"; exit 2 ;; esac; shift ;;
       *) break ;;
     esac
   done

@@ -24,6 +24,8 @@ A direct message arrives as `[message from your colleague <name> · m<id>]` with
 - The longer prefix moves a message near chat's typing cap to an Inbox file a little sooner (spillsAt measures the
   whole prefix); accepted.
 - Not done: a sender name starting with -- (the CLIs refuse it as an option); needs a deliberately odd session name.
+- Follow-up, not done here: a direct message has no "no reply requested" form (rooms have kosmos post --no-reply);
+  a kosmos msg --no-reply would let an FYI say so. Named on #7886.
 
 ## Rejected
 - Teaching `kosmos post --in-reply-to <dm id>` to forward to msg: two verbs for one act, and post's project
