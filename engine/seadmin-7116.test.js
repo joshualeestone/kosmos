@@ -455,5 +455,17 @@ test('#7892: a zero-width joiner or non-joiner inside a Persian or Indic word is
     ['\u0645\u06CC\u200C', '\u0645\u06CC\\u{200C}'],
     ['\u200C\u0645\u06CC', '\\u{200C}\u0645\u06CC'],
     ['\u0410\u200D\u0411', '\u0410\\u{200D}\u0411'],
+    // Joiners that change nothing on screen (IDNA ContextJ): after an alef, which never joins forward; a ZWJ between
+    // Arabic letters, which join anyway; an Indic joiner with no virama.
+    ['\u0627\u200C\u0628', '\u0627\\u{200C}\u0628'],
+    ['\u0628\u200D\u0628', '\u0628\\u{200D}\u0628'],
+    ['\u0915\u200C\u0937', '\u0915\\u{200C}\u0937'],
+    ['\u0915\u200D\u0937', '\u0915\\u{200D}\u0937'],
+    // Two joining scripts either side, and a virama of another script.
+    ['\u0645\u200C\u0915', '\u0645\\u{200C}\u0915'],
+    ['\u0645\u094D\u200D\u06CC', '\u0645\u094D\\u{200D}\u06CC'],
   ]) assert.deepStrictEqual(shownOrg(org), [want, true], JSON.stringify(org));
+  // More spelling that stays: a Persian ZWNJ after a harakah, and a Bengali ZWNJ after its virama.
+  for (const org of ['\u0628\u064E\u200C\u0628', '\u0995\u09CD\u200C\u09B7'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
 });

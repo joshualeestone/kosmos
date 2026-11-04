@@ -206,7 +206,8 @@ function fingerprintDisplay(fp) {
 /* kosmos#7892 (round-8 WARNING 1 of #7116): decoded text goes on the screen that asks a person to sign, and the only
    check on it is valid UTF-8, so a hostile coordinator could make two orgs or admins look alike. shownText() is what
    the screen shows instead of the raw string:
-   - every control, format (bidi overrides and isolates, zero-width characters, the BOM, the soft hyphen), line or
+   - every control, format (bidi overrides and isolates, zero-width characters except a joiner that spells, below; the
+     BOM, the soft hyphen), line or
      paragraph separator, private-use or unassigned code point, every default-ignorable code point (variation
      selectors, the combining grapheme joiner, the Hangul fillers: invisible marks and letters), the characters that
      draw as a blank or a box (U+2800 braille blank, U+FFFC object replacement, U+FFFD replacement), and every space
@@ -243,17 +244,37 @@ function scriptOf(ch) {
   return hit ? hit[0] : 'other';
 }
 // kosmos#7892: Persian, Arabic-script and Indic words use the zero-width non-joiner and joiner as spelling (Persian
-// "mi" + U+200C + "khaham", Hindi half forms). One of them is kept as it is, and does not mark the text, only BETWEEN
-// two letters of the same one of these scripts (marks such as a virama may sit between the letter and it). Anywhere
-// else it is escaped and marked as before: in a Latin name, between two scripts, at either end of a word.
-const JOINING = ['Arabic', 'Syriac', 'Devanagari', 'Bengali', 'Gurmukhi', 'Gujarati', 'Oriya', 'Tamil', 'Telugu',
-  'Kannada', 'Malayalam', 'Sinhala'].map((name) => [name, new RegExp('^\\p{Script=' + name + '}$', 'u')]);
+// "mi" + U+200C + "khaham", Hindi half forms). One of them is kept as it is, and does not mark the text, only where it
+// changes how the word looks, after IDNA's ContextJ rule (RFC 5892 A.1 and A.2): a ZWJ or ZWNJ straight after a
+// virama, with a letter of the virama's script before it and after the joiner; or a ZWNJ between an Arabic letter that
+// joins forward and one that joins back (harakat may sit between). Anywhere else it is escaped and marked as before:
+// after an alef, between letters that join anyway, in Indic text with no virama, in a Latin name, between two scripts.
+// The scripts are deliberately partial (Syriac, Mongolian, N'Ko, Thaana and the rest still escape every joiner).
+const VIRAMAS = [['Devanagari', '\u094D'], ['Bengali', '\u09CD'], ['Gurmukhi', '\u0A4D'], ['Gujarati', '\u0ACD'],
+  ['Oriya', '\u0B4D'], ['Tamil', '\u0BCD'], ['Telugu', '\u0C4D'], ['Kannada', '\u0CCD'], ['Malayalam', '\u0D4D'],
+  ['Sinhala', '\u0DCA']].map(([name, v]) => [new RegExp('^\\p{Script=' + name + '}$', 'u'), v]);
+// Arabic letters by Joining_Type (Unicode ArabicShaping.txt): R joins only to the letter before it, U to neither; every
+// other Arabic letter here is D (both ways). Only these ranges count; anything else is not an Arabic joining letter.
+const ARABIC_R = new Set([...'\u0622\u0623\u0624\u0625\u0627\u0629\u062F\u0630\u0631\u0632\u0648\u0671\u0672\u0673\u0675\u0676\u0677',
+  ...Array.from({ length: 0x0699 - 0x0688 + 1 }, (_, k) => String.fromCodePoint(0x0688 + k)),
+  ...'\u06C0\u06C3\u06C4\u06C5\u06C6\u06C7\u06C8\u06C9\u06CA\u06CB\u06CD\u06CF\u06D2\u06D3\u06D5\u06EE\u06EF',
+  ...'\u0759\u075A\u075B\u076B\u076C\u0771\u0773\u0774\u0778\u0779']);
+const ARABIC_U = new Set(['\u0621', '\u0674']);
+const arabicLetter = (c) => !!c && /^[\u0620-\u064A\u066E-\u06D3\u06D5\u06EE\u06EF\u06FA-\u06FC\u06FF\u0750-\u077F]$/u.test(c);
+const joinsBack = (c) => arabicLetter(c) && !ARABIC_U.has(c);                 // R or D
+const joinsForward = (c) => joinsBack(c) && !ARABIC_R.has(c);                 // D
 function joinerInWord(chars, i) {
+  const prev = chars[i - 1], next = chars[i + 1];
+  if (!prev || !next) return false;
+  const viramaOf = VIRAMAS.find(([, v]) => v === prev);
+  if (viramaOf) {
+    const [re] = viramaOf, base = chars[i - 2];
+    return !!base && /\p{L}/u.test(base) && re.test(base) && /\p{L}/u.test(next) && re.test(next);
+  }
+  if (chars[i] !== '\u200C') return false;
   let b = i - 1;
-  while (b >= 0 && /\p{M}/u.test(chars[b])) b -= 1;
-  const before = chars[b], after = chars[i + 1];
-  if (!before || !after || !/\p{L}/u.test(before) || !/\p{L}/u.test(after)) return false;
-  return JOINING.some(([, re]) => re.test(before) && re.test(after));
+  while (b >= 0 && /^[\u064B-\u065F\u0670]$/u.test(chars[b])) b -= 1;   // harakat (Joining_Type T)
+  return joinsForward(chars[b]) && joinsBack(next);
 }
 function shownText(s) {
   let text = '';
