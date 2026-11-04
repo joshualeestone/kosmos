@@ -16,13 +16,14 @@ ios/LogicTests/room/main.swift: traceLines is built from ChatView.swift plus Roo
 a post id, acceptable because the line is inside #if DEBUG and runs only for RoomStore.sample rooms (sample ids, never a
 person's), not because it is a number. Review 1: the chat traces its own anchor's kind, never its id; the allowlist
 entry is generic, so a future Release line with the same expression would pass too, which is a known limit of the
-name-based list.
+name-based list. The same holds for the new names (visible, searchMode and the rest): Bool in RoomView today, and no
+  ChatView trace interpolates them.
 - A guard that the room half ran: the scanned lines must hold the room's own fixed `room shown` trace call (review 2:
   a bare `ChatView.trace(` text could be a comment).
 - Limit: the scan is line-based, so a trace call split across lines would escape it; every current call is one line.
 
 ## Measured
-- Before: 67 values (the chat's), room lines unscanned. After: 72 values, none stray, room suite 812/812.
+- Before: 67 values (the chat's), room lines unscanned. After: 72 values, none stray, room suite 813/813 (the room-read guard is the extra check).
 - Control (committed first, then reverted): `ChatView.trace("room: end gone \(project.name)", ring: false)` in RoomView
   turns the check red: `not allowed: ["project.name"]`.
 
