@@ -20,7 +20,7 @@ Decided:
   orb per frame at 3x as ellipses, 0.64 ms at 16 pt once sub-pixel dots are filled as squares. Every orb runs at 15 fps
   (round 4: one rate, so orbs of two sizes share one placing). Sub-pixel dots are squares of the same area. The dots and letter cuts are built off the main
   thread at launch (OrbLogic.warm), so the first orb shown does not stall a frame.
-- VoiceOver: the orb is hidden wherever text beside it says what is loading (13 sites), and says "Loading" (or the
+- VoiceOver: the orb is hidden wherever text beside it, or the button it sits in, says what is happening (14 sites), and says "Loading" (or the
   site's own label) where it stands alone.
 - List and Form rows (7 sites) keep a bare orb, not wrapped to centre: a row lays out its content from the leading
   edge, and the bare ProgressView there was the same kind of fixed-size leaf. Reasoned, not measured on a device:

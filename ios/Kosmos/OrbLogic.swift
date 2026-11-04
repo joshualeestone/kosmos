@@ -102,7 +102,7 @@ enum OrbLogic {
         return out
     }
 
-    /// The whole loop: six letters, one per half turn.
+    /// The whole loop: six letters, one per half turn, so three turns (letter(at:) counts the same six).
     static let loop = period * 3
     /// The still frame (the K facing) for Reduce Motion, worked out once.
     static let stillDots: [Placed] = place(0)
