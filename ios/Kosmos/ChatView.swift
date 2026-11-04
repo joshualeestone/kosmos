@@ -86,7 +86,7 @@ struct ChatView: View {
     @State private var epoch = 0
     @State private var lastPendingCount = 0
     @State private var keepNewestInView = true
-    @State private var kbSettleTick = 0   // kosmos#7817: the latest keyboard did-show; an older one's put-back stands down
+    @State private var kbSettleTick = 0   // kosmos#7817/#7420: the latest settle ask or will-hide; older looks stand down
     // kosmos#7016: a lasting choice pressed once (armed until a second press, another press, 15 s, or leaving the chat),
     // the line a press left for its question (not sure it went, or the Mac's refusal), and the line over the composer
     // when a typed send waits for a press in the air.
@@ -747,7 +747,7 @@ struct ChatView: View {
                     Self.trace("keepAtEnd scrollTo end")
                     // kosmos#7420 (build 33, 18:59): the whole window replaced the small first page and was measured again
                     // after this; the content shrank under the offset and left it past the end. Settle and look again.
-                    if Self.idAnchor { goNewest(proxy); settleAtNewest(proxy); return }
+                    if Self.idAnchor { goNewest(proxy); settleAtNewest(proxy, boxMoved: false); return }
                     if !Self.sampleNoKeep {
                         // iOS 16: after the new rows have laid out, and once more a beat later (the else is the debug control).
                         DispatchQueue.main.async { proxy.scrollTo("end", anchor: .bottom) }
@@ -786,9 +786,9 @@ struct ChatView: View {
                     guard visible, atBottom, !searching, !personScrolling, !scrollBox.underFinger else { return }
                     guard Self.followsBox else {
                         // kosmos#7420 (Josh's phone, build 33, 18:51): unfollowed, two lines of growth left the list on a stretch
-                        // its estimate had no rows for. Once the layout settles, the settled look puts the newest back by id.
+                        // its estimate had no rows for. Once the layout settles, the settled look puts the newest back (settledPutBack).
                         if Self.diagRing.last?.hasSuffix("box height changed, settling at the newest") != true { Self.trace("box height changed, settling at the newest") }
-                        settleAtNewest(proxy)
+                        settleAtNewest(proxy, boxMoved: true)
                         return
                     }
                     Self.trace("box height changed, to the newest")
@@ -798,7 +798,7 @@ struct ChatView: View {
                     // kosmos#7817 (Josh 11-03 09:27, build 30): did-show came three times in 0.3 s as the keyboard went 380, 608,
                     // 380, and the chat was left past its end, blank. Once did-show has been quiet, a list past its end is put
                     // back (settledPutBack); asked on every did-show of the chat on screen, since past the end is nobody's place.
-                    if visible { settleAtNewest(proxy) }
+                    if visible { settleAtNewest(proxy, boxMoved: true) }
                     // Only the chat on screen: another tab can keep a chat alive under it.
                     guard keepNewestInView, visible else { return }
                     Self.trace("keyboard shown, to the newest")
@@ -1034,27 +1034,29 @@ struct ChatView: View {
 
     // kosmos#7420: the settled looks, after a keyboard did-show (#7817), a change of the box's height at the newest, or a
     // thread read while the chat is kept at the newest (keepAtEndTick). Each new ask replaces the looks still waiting.
-    private func settleAtNewest(_ proxy: ScrollViewProxy) {
+    // boxMoved: a did-show or a box change, the asks after which the box can cover the newest message.
+    private func settleAtNewest(_ proxy: ScrollViewProxy, boxMoved: Bool) {
         kbSettleTick &+= 1
         let tick = kbSettleTick, chatAt = epoch, listAt = listEpoch
         for at in Self.keyboardSettleLooks {
-            DispatchQueue.main.asyncAfter(deadline: .now() + at) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + at) { settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: boxMoved) }
         }
     }
 
     // kosmos#7817: at a settled look (settleAtNewest), a list read past its end is put back at its end, then at the newest
     // message, unless a search is typed, another ask or a will-hide came, the chat or its list changed, or a finger (or a
     // fling) is on it at that look. kosmos#7420: within the content at the newest, see below.
-    private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int) {
+    private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int, boxMoved: Bool) {
         guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching else { return }
         let place = scrollBox.reading()?.place ?? "unread"
         guard place == "past the end" else {
             // kosmos#7420 (build 33, 18:51): within the content at the newest message, with the end not showing, nothing drawn
             // (the estimate's stretch with no rows), or the offset short of the end by more than the list's own bottom
             // padding (the simulator, 11-03: the newest 19 pt under the grown box while the end marker read as showing).
-            // A reader higher up (atBottom false), a finger or a reader's scroll is never moved.
+            // A reader higher up (atBottom false), a finger or a reader's scroll is never moved. Review 5: the short-of-end
+            // test only after the box moved, so a reader who nudged up a little (end marker still showing) is left there.
             let short = scrollBox.shortOfEnd() ?? 0
-            if place == "within", !endVisible || onScreen.isEmpty || short > Double(Self.listPadV) + 4 {
+            if place == "within", !endVisible || onScreen.isEmpty || (boxMoved && short > Double(Self.listPadV) + 4) {
                 if atBottom, !personScrolling, !scrollBox.underFinger {
                     if onScreen.isEmpty {
                         // kosmos#7420 (build 34, Josh 21:33): going to the newest by id against the inflated estimate landed in
@@ -1070,7 +1072,8 @@ struct ChatView: View {
                         recoverEmpty(proxy)
                     } else {
                         Self.trace("keyboard settled: the newest not showing (short \(Int(short)) pt), back to it")
-                        goNewest(proxy)
+                        // As did-show (#7344): an anchor already reading "end" is scrolled to, not only set again.
+                        if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy) }
                     }
                 } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn") }
             } else if place != "within" { Self.trace("keyboard settled: \(place)") }
