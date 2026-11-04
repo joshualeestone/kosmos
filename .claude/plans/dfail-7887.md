@@ -109,3 +109,15 @@ name the wrong cause. That needs a sudo that fails half way through one paste.
 - The header comment states the exact rule: removal only for an empty file, or one with a non-empty byte-identical
   twin; a file that differs is renamed to a name checked free first.
 - Lesson: an arm that pins advice text is not a test of the advice. The follow-through arms are.
+
+## Challenge round 6 (sonnet, whole branch, no plan file), fixed in the next commit
+- The put-back's rename name `.newer` was fixed, so once taken, following the advice did nothing and the paste looped.
+  It now carries the stamp (`.newer-<stamp>`) and the move-aside's clause: if that name is taken too, run the stage
+  again for a new stamp.
+- "The agent is empty" came from a NEGATED sudo probe, so a probe that could not run read as "empty" and advised
+  removing a non-empty agent. Emptiness is now tested positively (`find A -prune -type f -size 0` must print A). Arm
+  pbfindfail, with a sudo that fails that probe in either form: red with the old negated probe.
+- The move-aside's "nothing was copied" hint names the agent as well as the retired folder (the agent not being a
+  plain file is one cause).
+- Not changed: the hedge order in "not there (...), or the check could not run"; the follow-through arms use the
+  advice as written in the test (the exact-string arms pin the printed text).

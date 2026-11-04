@@ -314,15 +314,23 @@ PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')
   && pass "the printed put-back pasted again refuses and leaves the agent it put back" || fail "pbtwice: [$PBOUT] agent $(ls -l "$AG" 2>&1)"
 # An agent already there (a svc.sh install) with the retired copy still parked: the put-back never writes over it.
 cp "$AG" "$RF"; printf 'reinstalled\n' > "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-[ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it (a copy cut short, or a newer install); to put $RF back anyway, keep that one under another name first: test ! -e $H/$LABEL.plist.newer && mv $AG $H/$LABEL.plist.newer, then paste this again" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
+[ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it (a copy cut short, or a newer install); to put $RF back anyway, keep that one under another name first: test ! -e $H/$LABEL.plist.newer-20261103T000000Z && mv $AG $H/$LABEL.plist.newer-20261103T000000Z, then paste this again (if that name is taken too, run the stage again for a new stamp)" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
   && pass "the printed put-back refuses when an agent is already there, and keeps both files" || fail "pbover: [$PBOUT] agent $(cat "$AG" 2>&1)"
 # kosmos#7887: and the advice works: keep the newer agent under the printed name, paste again, and both are kept.
-NW="$H/$LABEL.plist.newer"; sh -c "test ! -e $NW && mv $AG $NW"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
+NW="$H/$LABEL.plist.newer-20261103T000000Z"; sh -c "test ! -e $NW && mv $AG $NW"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 [ "$PBOUT" = "put back" ] && [ "$(cat "$NW")" = reinstalled ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && [ ! -e "$RF" ] \
   && pass "#7887: following the advice keeps the newer agent and puts the parked one back" || fail "pbfollow: [$PBOUT] newer $(cat "$NW" 2>&1)"
 printf 'other\n' > "$AG"; cp "$AG" "$T/other.bak"; echo x > "$RF"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 sh -c "test ! -e $NW && mv $AG $NW"; [ "$(cat "$NW")" = reinstalled ] && cmp -s "$AG" "$T/other.bak" \
   && pass "#7887: the printed rename never overwrites a name already taken" || fail "pbnoclobber: newer $(cat "$NW" 2>&1) agent $(cat "$AG" 2>&1)"
+# kosmos#7887: a probe that could not run never reads as "the agent is empty": with the emptiness check failing, a
+# non-empty different agent gets the rename advice, never the advice to remove it.
+cp "$AG" "$T/ag.keep"; cp "$RF" "$T/rf.keep2" 2>/dev/null; printf 'other agent\n' > "$AG"; cp "$T/ag.keep" "$RF"
+printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = find ] && exit 1\n[ "$1 $2 $3" = "test -s %s" ] && exit 1\nexec "$@"\n' "$AG" > "$T/pbbin/sudo"
+PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
+case "$PBOUT" in *"keep that one under another name first"*) ok7=1 ;; *) ok7=0 ;; esac
+[ "$ok7" = 1 ] && [ "$(cat "$AG")" = "other agent" ] && pass "#7887: an emptiness probe that could not run never advises removing a non-empty agent" || fail "pbfindfail: [$PBOUT]"
+cp "$T/ag.keep" "$AG"; [ -e "$T/rf.keep2" ] && cp "$T/rf.keep2" "$RF"; rm -f "$T/ag.keep" "$T/rf.keep2"
 rm -f "$NW" "$T/other.bak"; cp "$RF" "$T/rf.keep" 2>/dev/null; printf 'reinstalled\n' > "$AG"; cp "$T/rf.keep" "$RF" 2>/dev/null; rm -f "$T/rf.keep"
 # kosmos#7887: the printed put-back names what is actually there when it fails. Each arm builds the state, runs the
 # printed text, and checks the last line and that no file was lost.
