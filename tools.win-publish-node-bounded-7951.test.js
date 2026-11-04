@@ -60,12 +60,12 @@ $res.want = $weird
 $res.script = Row (Invoke-NodeBounded $node @('-', 'one', 'two') "console.log('argc '+process.argv.length)")
 $res.utf8 = Row (Invoke-NodeBounded $node @('-') "console.log(process.argv.length, '$([char]0xe9)'.codePointAt(0), '$([char]0xe9)')")
 $res.exit4 = Row (Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)"))
-$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '6'
+$env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '4'
 $res.hang = Row (Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)"))
 $res.bigstdin = Row (Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000))
 $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '120'
 # Something node started keeps its output open after node has exited 0: the handle inheritance is Windows's own.
-$res.held = Row (Invoke-NodeBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},8000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
+$res.held = Row (Invoke-NodeBounded $node @('-e', "require('child_process').spawn(process.execPath,['-e','setTimeout(()=>{},7000)'],{stdio:'inherit',detached:true}).unref();console.log('PASS');process.exit(0)"))
 $res.nostart = Row (Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @())
 # The form publish-r2.ps1 starts git with, and the form it used to start node with.
 $res.emptypipe = @(@() | & $node -e "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})") -join ' '
@@ -88,6 +88,8 @@ test('there is a PowerShell to test with on Windows, under both names', { skip: 
   assert.deepStrictEqual(RUNTIMES, ['powershell.exe', 'pwsh'], 'this job is the only place these functions run on Windows, so a missing runtime is a failure, not a skip');
 });
 
+if (!RUNTIMES.length) test('Invoke-NodeBounded', { skip: 'pwsh is not installed here, so it did not run on this computer' }, () => {});
+
 for (const ps of RUNTIMES) {
   test(`Invoke-NodeBounded under ${ps}`, async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-7951-'));
@@ -108,7 +110,7 @@ for (const ps of RUNTIMES) {
       assert.strictEqual(res.script.out, 'argc 4', 'a script given on stdin runs, with its arguments');
       assert.match(res.utf8.out, /233 \u00e9$/, 'UTF-8 both ways');
       assert.deepStrictEqual(res.exit4, { rc: 4, out: 'one two', undecided: '' }, 'an exit code comes back');
-      assert.deepStrictEqual(res.hang, { rc: 98, out: 'PASS', undecided: 'it did not finish within 6 seconds and was stopped' }, 'a printed PASS that never exits is stopped');
+      assert.deepStrictEqual(res.hang, { rc: 98, out: 'PASS', undecided: 'it did not finish within 4 seconds and was stopped' }, 'a printed PASS that never exits is stopped');
       assert.strictEqual(res.bigstdin.rc, 98, 'a stdin node never reads cannot outlast the limit');
       assert.strictEqual(res.held.rc, 97, 'exit 0 with its output held open is not a pass');
       assert.ok(res.held.undecided, 'and it says so');
