@@ -21,5 +21,8 @@ A real 0.7.89 install differing from a pinned one in anything the update reads.
 ## Measured
 On branch runs: run 41917651504 reached the install path stamped and showed #7981. On the current staged installer the stamped run is expected to stay red until a cut carries that fix.
 
+## Limit
+A build that crashes once on its first boot after the update, then recovers, can pass: the restart count is read after the board is back, because the installer's own restart is not a crash. The count is logged. Once the first green shows what a healthy update reads, tighten it to fail above that. Not before: no run has reached this line.
+
 ## Not measured
 Any PASS. The leg has only ever gone red: for #7981, and on 0.7.86's refusal as a control. Everything after the verb has never run in VERB_OLD mode, so read the first green's log line by line. Also not covered: a board with running agents across the update.
