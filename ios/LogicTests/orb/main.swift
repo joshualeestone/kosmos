@@ -43,7 +43,7 @@ check(same, "t = 27 s draws the same frame as t = 0")
 // The shared placing is the same as a fresh one at the frame's time, and moves on with the time.
 let a1 = OrbLogic.placeShared(5.001), a2 = OrbLogic.placeShared(5.004), b = OrbLogic.place((5.001 * 30).rounded() / 30)
 check(a1.count == b.count && zip(a1, b).allSatisfy { $0.x == $1.x && $0.y == $1.y }, "the shared placing equals a fresh one at the same frame")
-check(a2.count == a1.count && zip(a2, a1).allSatisfy { $0.x == $1.x }, "two asks in one frame share it")
+check(a2.count == a1.count && zip(a2, a1).allSatisfy { $0.x == $1.x }, "two asks within one 30th of a second get the same frame")
 let c1 = OrbLogic.placeShared(6.5)
 check(!(c1.count == a1.count && zip(c1, a1).allSatisfy { $0.x == $1.x }), "a later frame is placed afresh")
 
@@ -51,6 +51,8 @@ check(!(c1.count == a1.count && zip(c1, a1).allSatisfy { $0.x == $1.x }), "a lat
 let groups = OrbLogic.groups(still, side: 16, scale: 2)
 let circles = groups.reduce(0) { $0 + $1.count }
 check(groups.count == OrbLogic.steps && circles > 0 && circles <= still.count, "\(circles) circles in \(groups.count) groups")
+check(groups.joined().allSatisfy { $0.radius >= 0.35 / 2 - 1e-12 } && groups.joined().contains { abs($0.radius - 0.35 / 2) < 1e-12 },
+      "every radius at or above the 0.35 px floor, and some at it (a 16 pt orb at 2x)")
 
 print(failures == 0 ? "VERDICT: PASS (orb)" : "VERDICT: FAIL (orb: \(failures) failed)")
 exit(failures == 0 ? 0 : 1)

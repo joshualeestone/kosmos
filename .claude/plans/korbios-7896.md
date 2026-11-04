@@ -15,10 +15,10 @@ Decided:
 - Colour: Palette.starGold (deep gold #9c741b in light, which holds 3:1 on the light grounds where the desktop's
   #d6a62e measures about 2.1:1; bright gold in dark), as the star did for the same reason (kosmos#7034). Review round 1.
   The desktop's dots have the same light-ground contrast gap; recorded on the card, not changed in this slice.
-- Where the row's own text already says what is loading (four combined rows), the orb is hidden from VoiceOver, so it
-  does not say "Loading" twice.
 - Orbs on screen in one frame share one placing (time rounded to the 30 fps frame), as the desktop does (round 2);
-  measured about 0.19 ms per frame for place and grouping on a Mac. The dots and letter cuts are built off the main
+  measured about 0.2 ms per frame for place and grouping on a Mac; the FILL is the cost (round 3): 2.6 to 4 ms per
+  orb per frame at 3x as ellipses, 0.64 ms at 16 pt once sub-pixel dots are filled as squares. Small orbs (20 pt and
+  under) run at 15 fps. The dots and letter cuts are built off the main
   thread at launch (OrbLogic.warm), so the first orb shown does not stall a frame.
 - VoiceOver: the orb is hidden wherever text beside it says what is loading (13 sites), and says "Loading" (or the
   site's own label) where it stands alone.
@@ -29,8 +29,8 @@ Decided:
 Rejected: a GIF or video asset (heavier, no Reduce Motion, blurry at small sizes).
 
 Weakest premise: frame cost and how faint the 16 pt orb reads on an older iPhone, not measured on a device (the Mac
-render at 3x reads). TimelineView
-stops when the view is off screen; the next lever is fewer dots below 20 pt.
+render at 3x reads). the .animation
+schedule pauses with the app in the background (whether it pauses for a view kept alive out of sight is not verified); the next lever is fewer dots below 20 pt.
 
 Tests: ios/LogicTests/run-orb.sh (also pins the desktop's place() at t = 0 and t = 13.37: counts 1627 and 1389 and one
 dot each, red when one current constant changes) (wired into .github/workflows/ios.yml as "Orb logic tests"): 2200 dots and the first
