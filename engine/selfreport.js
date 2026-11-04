@@ -70,8 +70,7 @@ function untilTimeOf(until) {
   return null;
 }
 function untilDefers(rep, now) {
-  /* #7915: a question held until the person is back waits on purpose for as long as they are away, so it is never
-     stale; the next direct message from them is what ends the hold (engine/chat.js dmStandingQuestionNote). */
+  /* #7915: a question held until the person is back waits on purpose, so it is never stale. */
   if (rep && rep.held === true && rep.state === 'needs_you') return true;
   const until = rep && typeof rep.until === 'string' ? rep.until.trim() : '';
   if (!until) return false;
@@ -554,7 +553,9 @@ function latestOf(rows, cut) {
     /* #5943 (with #5942, Mona Lisa): a run is the same state, the same words AND the same project (as carried), so one
        generic sentence filed about project A and later about project B is two asks, not one 10 days old. */
     {
-      const key = row.state + '\u0000' + (typeof row.because === 'string' ? row.because : '') + '\u0000' + (project || '');
+      /* #7915: and whether it is held, so asking a held question for real starts a new ask, dated now. */
+      const key = row.state + '\u0000' + (typeof row.because === 'string' ? row.because : '') + '\u0000' + (project || '')
+        + '\u0000' + (row.state === 'needs_you' && row.held === true ? 'held' : '');
       if (key !== runKey) { runKey = key; runAt = typeof row.at === 'string' ? row.at : null; runFromFirst = parsed === 0; }
       parsed += 1;
     }

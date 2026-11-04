@@ -4104,11 +4104,6 @@ cmd_report() {
     say "kosmos report clear is something you do yourself, so it takes no --auto."
     exit 2
   fi
-  # #7915: --held means something only on a needs_you. Refused here before the network (the board refuses it too).
-  if [ "$held" = 1 ] && [ "$state" != needs_you ]; then
-    say "--held goes only with needs_you: kosmos report needs_you --held '<your question>' holds a question until the person is back."
-    exit 2
-  fi
   if [ -z "$state" ]; then
     say "$_use"
     say "  kosmos report show     (what the board has for you now; kosmos report status is the same)"
@@ -4117,6 +4112,11 @@ cmd_report() {
     say "  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC)."
     say "  --until in words (\"the owner says\"): no stale reminder at all. Anything else with a number in it: as if no --until."
     say "  --held (needs_you only): the person asked you to hold questions until they are back. Nothing buzzes; you are told when they next write."
+    exit 2
+  fi
+  # #7915: --held means something only on a needs_you. Refused here before the network (the board refuses it too).
+  if [ "$held" = 1 ] && [ "$state" != needs_you ]; then
+    say "--held goes only with needs_you: kosmos report needs_you --held '<your question>' holds a question until the person is back."
     exit 2
   fi
   # #2001: blocked and needs_you are the only two states that exist to SUMMON A

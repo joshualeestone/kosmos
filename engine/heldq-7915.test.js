@@ -39,11 +39,23 @@ test('the store keeps held only on a needs_you that says so, and read gives it b
   assert.equal(selfreport.read('h-held').held, false);
 });
 
+test('asking a held question for real is a new ask: askedAt moves; holding it again moves it too; a plain repeat does not', () => {
+  const rows = (name, list) => fs.writeFileSync(selfreport.fileFor(name), list.map((r, i) =>
+    JSON.stringify({ v: 1, by: 'agent', at: new Date(Date.parse('2026-11-01T10:00:00Z') + i * 3600e3).toISOString(), ...r })).join('\n') + '\n');
+  rows('h-run', [{ state: 'needs_you', because: 'Which logo?', held: true }, { state: 'needs_you', because: 'Which logo?', held: true },
+    { state: 'needs_you', because: 'Which logo?' }]);
+  assert.equal(selfreport.read('h-run').askedAt, '2026-11-01T12:00:00.000Z', 'the real ask is dated from when it was asked, not held');
+  rows('h-rehold', [{ state: 'needs_you', because: 'Which logo?' }, { state: 'needs_you', because: 'Which logo?', held: true }]);
+  assert.equal(selfreport.read('h-rehold').askedAt, '2026-11-01T11:00:00.000Z', 'held again is a new hold');
+  rows('h-same', [{ state: 'needs_you', because: 'Which logo?', held: true }, { state: 'needs_you', because: 'Which logo?', held: true }]);
+  assert.equal(selfreport.read('h-same').askedAt, '2026-11-01T10:00:00.000Z', 'CONTROL: re-holding the same question does not re-date it');
+});
+
 test('a held question is never stale; the same question unheld still is', () => {
-  const longAgo = Date.now() + 3 * 24 * 3600 * 1000;
-  assert.equal(selfreport.untilDefers({ state: 'needs_you', held: true }, longAgo), true);
-  assert.equal(selfreport.untilDefers({ state: 'needs_you', held: false }, longAgo), false, 'CONTROL');
-  assert.equal(selfreport.untilDefers({ state: 'blocked', held: true }, longAgo), false, 'held means nothing on blocked');
+  const threeDaysLater = Date.now() + 3 * 24 * 3600 * 1000;
+  assert.equal(selfreport.untilDefers({ state: 'needs_you', held: true }, threeDaysLater), true);
+  assert.equal(selfreport.untilDefers({ state: 'needs_you', held: false }, threeDaysLater), false, 'CONTROL');
+  assert.equal(selfreport.untilDefers({ state: 'blocked', held: true }, threeDaysLater), false, 'held means nothing on blocked');
 });
 
 test('the board card carries stateHeld from the report', () => {
