@@ -23710,6 +23710,8 @@ const server = http.createServer(async (req, res) => {
         /* One line, as every row here is (#314): the name flattened as the post line's claim is; at most -n of them, the
            newest, with how many more. Deliberately NOT dropped from the idle reminder's hold (review 3, reverting review 2):
            the list entry comes back by itself if the claim goes, a dropped reminder never does. */
+        // kosmos#7969: a claimed ask more than UNANSWERED_DAYS old whose claim ends comes back into the count of older
+        // posts below, not the list; "comes back here" stays as it is, since that count is part of this same view.
         const shownClaimed = claimedAsks.slice(-textRows);
         const moreClaimed = claimedAsks.length - shownClaimed.length;
         const claimedLine = claimedAsks.length
@@ -23720,8 +23722,8 @@ const server = http.createServer(async (req, res) => {
           : '';
         /* kosmos#7969: the older asks are said, never dropped silently, with the way to see them. */
         const agedLine = agedAsks
-          ? '[kosmos] ' + agedAsks + (agedAsks === 1 ? ' older post' : ' older posts') + ' that asked you something, more than '
-            + UNANSWERED_DAYS + ' days old, ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). '
+          ? '[kosmos] ' + agedAsks + (agedAsks === 1 ? ' post' : ' posts') + ' that asked you something more than '
+            + UNANSWERED_DAYS + ' days ago ' + (agedAsks === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). '
             + 'Add --all to list ' + (agedAsks === 1 ? 'it' : 'them') + ' too.\n'
           : '';
         res.end(shared + onHold + head + filtered + lines.join('\n') + (lines.length ? '\n' : '') + claimedLine + agedLine);

@@ -60,7 +60,7 @@ const room = async (project, query) => {
   return { status: res.status, text: await res.text() };
 };
 const listed = (text, id) => text.split('\n').some((l) => l.includes('[' + id + ']') && !l.startsWith('[kosmos]'));
-const AGED = (n) => '[kosmos] ' + n + (n === 1 ? ' older post' : ' older posts') + ' that asked you something, more than 3 days old, '
+const AGED = (n) => '[kosmos] ' + n + (n === 1 ? ' post' : ' posts') + ' that asked you something more than 3 days ago '
   + (n === 1 ? 'is' : 'are') + ' not listed (the person\'s asks always are). Add --all to list ' + (n === 1 ? 'it' : 'them') + ' too.';
 
 test('kosmos#7969: an agent\'s ask older than 3 days is counted under the list, not in it; a recent one is listed', async () => {
@@ -83,7 +83,7 @@ test('kosmos#7969: --all lists the older asks too, and says nothing about age', 
   const r = await room(pid, '&unanswered=1&all=1');
   assert.ok(listed(r.text, old) && listed(r.text, fresh), '--all leaves an ask out:\n' + r.text);
   assert.match(r.text, /^Waiting on an answer from you: 2 posts in this room /m);
-  assert.ok(!r.text.includes('older post'), '--all still speaks of older posts:\n' + r.text);
+  assert.ok(!r.text.includes('not listed (the person'), '--all still speaks of older posts:\n' + r.text);
   // CONTROL: `all` alone is not --unanswered (the whole room, as before).
   const plain = await room(pid, '&all=1');
   assert.ok(!plain.text.includes('Waiting on an answer from you: '), 'all=1 without unanswered=1 filtered the room');
@@ -109,7 +109,7 @@ test('kosmos#7969: when every open ask is older, the head still says it is the f
   // CONTROL: a room with no ask at all keeps its own sentence and no age line.
   const empty = newRoom('Aged7969e');
   const e = await room(empty, '&unanswered=1');
-  assert.ok(e.text.includes('Waiting on an answer from you: nothing in this room.\n') && !e.text.includes('older post'), e.text);
+  assert.ok(e.text.includes('Waiting on an answer from you: nothing in this room.\n') && !e.text.includes('not listed (the person'), e.text);
 });
 
 test('kosmos#7969 review 1: claimed and older asks with nothing recent: the head does not say nothing else waits', async () => {
