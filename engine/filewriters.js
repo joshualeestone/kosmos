@@ -28,12 +28,13 @@ const ROOTS_TTL_MS = 10 * 1000;
 /* kosmos#7989: at most one owner notice per writer and owner in a project in this long, so a writer changing a whole
    folder of one agent's files leaves one note, not one per file. */
 const NOTICE_EVERY_MS = 60 * 60 * 1000;
-/* kosmos#7989: at most this many owner notices in one project's room per NOTICE_EVERY_MS, so they take only a few of the
-   rows a room read shows (messages.ROOM_READ_ROWS). Past it, one note says further notices are held back. */
+/* kosmos#7989: at most this many owner notices in one project's room per NOTICE_EVERY_MS (per hour, not overall: a room
+   where agents edit each other's files all day gets up to this many each hour). Past it, one note says further notices
+   are held back. */
 const NOTICE_ROOM_MAX = 6;
-/* kosmos#7989: a session name as Kosmos makes one (create.js NAME_RE is this shape, 2 to 32 long); a name read back from
+/* kosmos#7989: a session name as Kosmos makes one (create.js NAME_RE is this shape; at most 32 long); a name read back from
    the record that is not this shape gets no notice. */
-const SESSION_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
+const SESSION_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 /* kosmos#7989: the record's own entry for those notices. A file's name is derived from its path, and noteWrite refuses a
    path holding any control character, so this key cannot be a file's. */
 const NOTICES_KEY = '\u0000notices';
@@ -159,11 +160,14 @@ function noteWrite(file, who, { now = Date.now(), projects } = {}) {
 /* kosmos#7989: the note another agent's write of an owned file leaves in the project's room, for the agents (the
    person's room view leaves agent notes out). Names are session names, as the record keeps them. Best-effort: a note
    that cannot be written changes nothing about the write. */
-/* The file's name is an agent's choice, so it is quoted, cut, and its square brackets made round: a name must never spell
+/* The file's name is an agent's choice (or an archive's), so it is quoted, cut, its brackets (fullwidth and CJK ones too)
+   made round, and invisible characters (tag characters, variation selectors, fillers) removed: a name must never spell
    a marker in a line that speaks in Kosmos's voice (as the room's text view does for an outside row, server.js, kind
    'external'). Line and paragraph separators and direction controls go too, so it cannot break or reorder the line. */
 function quotedName(name) {
-  const s = String(name || '').replace(/[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, ' ').replace(/\[/g, '(').replace(/\]/g, ')').replace(/"/g, "'");
+  const s = String(name || '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u115f\u1160\u180e\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\u3164\ufe00-\ufe0f\ufeff\uffa0\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu, ' ')
+    .replace(/[\[\uff3b\u3010\u3014\u3016\u3018\u301a]/g, '(').replace(/[\]\uff3d\u3011\u3015\u3017\u3019\u301b]/g, ')').replace(/"/g, "'");
   const cut = require('./textcut').cutUnits(s, NOTICE_NAME_MAX);
   return '"' + cut + (cut.length < s.length ? '...' : '') + '"';
 }
@@ -173,10 +177,12 @@ function ownerNoticeText({ name, owner, writer }) {
     + 'A notice, not a lock: ' + owner + ', read it again before you build on what you last saw in it. For the next hour, '
     + 'Kosmos will not post a separate notice for each other file ' + writer + ' changes that you were the first seen changing.';
 }
-const HELD_BACK_TEXT = 'Many files other agents were first seen changing here have been changed in the last hour, so Kosmos is '
-  + 'holding back further notices of that for now. Read a shared file again before you build on what you last saw in it.';
+const HELD_BACK_TEXT = 'More shared files were changed by an agent other than the first one seen changing them than Kosmos '
+  + 'notes in an hour, so it is holding back further notices like these for now. Read a shared file again before you build '
+  + 'on what you last saw in it.';
 /* Whether `owner` is on the project, asked only when a notice is due. The members are kept for ROOTS_TTL_MS, as the roots
-   are, since a departed owner's or a full room's writes ask again on every edit. An unreadable list is no. */
+   are, since a departed owner's or a full room's writes ask again on every edit; so for up to that long an owner who just
+   left may get one notice, and one who just joined gets none (the next write after it does). An unreadable list is no. */
 let membersCache = { at: 0, byId: new Map() };
 function onProject(projectId, owner, now = Date.now()) {
   try {

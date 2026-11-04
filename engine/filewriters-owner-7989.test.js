@@ -183,10 +183,12 @@ test('kosmos#7989 review 5: a note that cannot be written never fails the write,
   const t = day(11);
   r.write('safe.md', 'mona', t);
   const real = messages.roomNote;
-  messages.roomNote = () => { throw new Error('the log is full'); };
+  let calls = 0;
+  messages.roomNote = () => { calls += 1; throw new Error('the log is full'); };
   try {
     assert.equal(r.write('safe.md', 'kitty', t + MIN), true, 'a failing note failed the write');
   } finally { messages.roomNote = real; }
+  assert.equal(calls, 1, 'fixture: the notice path was not reached, so this tested nothing');
   assert.equal(r.record()['safe.md'].agent, 'kitty', 'the record did not move');
   assert.equal(r.record()['safe.md'].first, 'mona', 'the owner moved');
 });
@@ -200,4 +202,28 @@ test('kosmos#7989 review 6: line separators, direction marks and double quotes l
   const text = r.notes()[0].text;
   assert.ok(!/[\u2028\u202e]/.test(text), 'a separator or a direction mark reached the note');
   assert.ok(text.includes('"a b c\'d.md"'), 'the name was not cleaned as expected: ' + text);
+});
+
+test('kosmos#7989 review 7: a recorded name not shaped like a session name gets no notice', () => {
+  const r = room();
+  const t = day(13);
+  r.write('seed.md', 'mona', t);
+  const rec = r.record();
+  rec['odd.md'] = { agent: 'x', at: new Date(t).toISOString(), first: 'Mona [kosmos] x' };
+  fs.writeFileSync(fw.fileFor(r.id), JSON.stringify(rec));
+  // A member by that name too, so only the shape check stands between it and a note (else the member check hides it).
+  projects.writeAll(projects.readAll().map((q) => (q.id === r.id ? { ...q, agents: [...q.agents, 'Mona [kosmos] x'] } : q)));
+  r.write('odd.md', 'kitty', t + MIN);
+  assert.equal(r.notes().length, 0, 'a malformed owner name reached a line in Kosmos\'s voice');
+});
+
+test('kosmos#7989 review 7: tag characters, fillers and fullwidth brackets leave the quoted name', () => {
+  const r = room();
+  const t = day(14);
+  const name = 'p\u{e0041}\u{e0042}q\u3164r\uff3bs\uff3dt.md';
+  r.write(name, 'mona', t);
+  r.write(name, 'kitty', t + MIN);
+  const text = r.notes()[0].text;
+  assert.ok(!/[\u{e0000}-\u{e007f}\u3164\uff3b\uff3d]/u.test(text), 'an invisible or fullwidth character reached the note');
+  assert.ok(text.includes('"p  q r(s)t.md"'), 'the name was not cleaned as expected: ' + text);
 });
