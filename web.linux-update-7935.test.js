@@ -80,7 +80,7 @@ test('#7935: a repaint after the update clears the command (the row does not sti
   const els = paint(null, update.manualOffer());
   assert.equal(els['upd-command-row'].hidden, false, 'CONTROL: the command was not shown first');
   els['upd-command-msg'].textContent = 'Command copied.';
-  paint({ version: NEWER }, null, els);
+  paint(null, null, els);   // after the update: no offer of either kind, an up-to-date look
   assert.equal(els['upd-command-row'].hidden, true, 'the command row stayed up on the next paint');
   assert.equal(els['upd-command-msg'].textContent, '', '"Command copied." stayed under a card with no command');
 });
@@ -101,6 +101,8 @@ test('#7935: over Kosmos+ the line says where to run it, not "this computer"', a
   const els = paint(null, update.manualOffer(), null, null, true);
   assert.equal(els['upd-line'].textContent, 'Version ' + NEWER + ' is ready. To update, open Settings, Updates on your Kosmos computer and run the command it shows there.');
   assert.doesNotMatch(els['upd-line'].textContent, /this computer/);
+  // Focus on Check is not moved into the field the remote view hides.
+  assert.equal(paint(null, update.manualOffer(), null, 'upd-btn', true)['upd-command'].focused, false, 'focus went into a hidden field');
   // CONTROL: the local view keeps "on this computer".
   assert.match(paint(null, update.manualOffer())['upd-line'].textContent, /on this computer/);
 });

@@ -312,7 +312,8 @@ function rollbackOffer() {
     the channel, the subscription and the base as beginInstall does, checks the installer against its signed manifest
     (never curl | sh, #6468), and runs it over THIS home. --install because the person running it has chosen to. The
     home is quoted, a quote inside it escaped, so the line can be pasted as it is. */
-function updateCommand() {
+function updateCommand(platform = updatePlatform()) {
+  if (platform !== 'linux') return null;   // install/kosmos waives its board guards for Linux only
   const home = installedHomeAsInstalled();
   if (!home) return null;
   return "'" + String(home).replace(/'/g, "'\\''") + "/bin/kosmos' update --if-newer --install";
@@ -702,7 +703,7 @@ function setupUrl() {
  */
 function selfInstallRefusal(platform = updatePlatform()) {
   if (platformGate.canSelfInstall(platform)) return null;
-  const command = updateCommand();
+  const command = updateCommand(platform);
   return 'Kosmos cannot update itself on this platform (' + String(platform) + ').'
     + (command ? ' To update, run this in a terminal: ' + command : '');
 }

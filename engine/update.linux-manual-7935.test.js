@@ -109,3 +109,10 @@ test('#7935: a platform off SELF_INSTALL that is not Linux gets no command (inst
   assert.equal(update.manualOffer(), null, 'a command its CLI would refuse was offered on freebsd');
   assert.equal(update.installOffer(), null, 'freebsd cannot self-install either');
 });
+
+test('#7935: the refusal names the command on Linux only', async () => {
+  await look('linux', 'x64');
+  assert.match(update.selfInstallRefusal('linux'), /To update, run this in a terminal: '/, 'CONTROL: Linux gets the command');
+  assert.doesNotMatch(update.selfInstallRefusal('freebsd'), /kosmos' update/, 'freebsd was given a command its CLI refuses');
+  assert.match(update.selfInstallRefusal('freebsd'), /cannot update itself on this platform \(freebsd\)\.$/);
+});

@@ -25160,8 +25160,9 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
        ⚠️ Unmeasured on Linux: that the verb, run over a live board, leaves it serving the new version (the #7933 leg is
        to confirm it once a staging cut carries this). "Kosmos restarts" is what the installer does; it is not
        promised here that the agents carry on. */
-    /* Over Kosmos+ (a phone) this is not the computer to type into, and the row (a path with the person's user name)
-       is remote-hidden: the line says where to go instead, as the restart toast does (offlineRemoteView). */
+    /* Over Kosmos+ (a phone) this is not the computer to type into, so the row is remote-hidden and the line says where
+       to go instead, as the restart toast does (offlineRemoteView). (The command, with its home path, is still in the
+       status payload a remote viewer reads: it is the person's own install, shown to the person.) */
     const remote = typeof offlineRemoteView === 'function' && offlineRemoteView();
     put(v + 'Version ' + manual.version + ' is ready. ' + (remote
       ? 'To update, open Settings, Updates on your Kosmos computer and run the command it shows there.'
@@ -25171,7 +25172,7 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
     if (cmd && cmd.value !== manual.command) cmd.value = manual.command;
     if (cmdRow) cmdRow.hidden = false;
     // As the Windows arm: focus resting on Check goes to the field, not to <body>, when Check is hidden.
-    if (checkHadFocus && cmd && typeof cmd.focus === 'function') cmd.focus();
+    if (checkHadFocus && !remote && cmd && typeof cmd.focus === 'function') cmd.focus();   // a hidden field cannot take it
   } else if (manual && manual.version && manual.download) {
     /* 🛑 WINDOWS, BEFORE THE IN-APP UPDATER IS ARMED (win32-update-check). A Windows bundle
        cannot take the install offer above (the install route refuses there), so a newer Windows

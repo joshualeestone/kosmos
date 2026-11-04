@@ -87,10 +87,19 @@ the served installer is what the #7933 leg does successfully.
   arm is Linux by name, so a third platform off SELF_INSTALL gets no command rather than one its CLI refuses.
 - NIT fixed: the new CSS rules no longer split the .upd-manual-steps pair.
 
+## Review round 7 (opus)
+- WARNING (kept, stated): the verb over a live Linux board is unmeasured; the card stays open until the #7933 leg
+  runs it (PigeonPete agreed 06:43).
+- NITs fixed: updateCommand is Linux by name and honours the platform it is given, so the refusal never names a
+  command on a platform whose CLI refuses it; focus is not moved into the remote-hidden field; the comment says the
+  command (with its home path) is still in the status payload; the repaint test uses the real after-update paint;
+  the plan's test text matches KOSMOS_PLATFORM.
+
 ## Tests
-- cli.update-ifnewer-4382.test.js (new test): with a fake `uname` saying Linux, a board running and mode `run`, the
-  verb installs with the board's three variables on prod and on a staging stamp; CONTROL: the real uname refuses; an
-  agent and an install under way are still refused.
+- cli.update-ifnewer-4382.test.js (two new tests): with KOSMOS_PLATFORM=Linux, a board running or stopped and mode
+  `run`, the verb installs with the board's three variables on prod and on a staging stamp; CONTROLS: the stand-in
+  board is detected, and KOSMOS_PLATFORM=Darwin (every other call's default) refuses; an agent and an install under
+  way are still refused.
 - engine/update.linux-manual-7935.test.js: no install offer, the command over this home on prod and staging, a quoted
   home, the refusal carries the command, the Mac control, a source checkout offered nothing.
 - web.linux-update-7935.test.js: the real paintUpdateCard on the engine's real offer; focus; a repaint clears the row;
