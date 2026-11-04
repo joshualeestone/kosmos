@@ -642,6 +642,26 @@ test('#5805 2a review 18: a send to a released agent whose queue cannot be read 
   });
 });
 
+/* #7893 round 2: an FYI kept for an agent out of usage, then the same words WITHOUT --no-reply: a new message with the
+   answer line, not the kept FYI's receipt (the kept-copy fold matches on msgKey, which now carries the flag). */
+test('#7893: the same words without --no-reply after a kept FYI are kept as a second message, with the answer line', async () => {
+  await withFleet(AHEAD(), 'rate_limited', async (board) => {
+    const fyi = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'deploy done, can you check it', replyExpected: false }, board.agents);
+    assert.equal(fyi.held, true, JSON.stringify(fyi));
+    // CONTROL: the same FYI again is that kept copy (#5805 slice 2a is unchanged for a true retry).
+    const again = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'deploy done, can you check it', replyExpected: false }, board.agents);
+    assert.equal(again.duplicate, true);
+    assert.equal(again.id, fyi.id);
+    const asked = await messages.sendAsync({ fromPane: '%7', to: 'casey', text: 'deploy done, can you check it' }, board.agents);
+    assert.notEqual(asked.duplicate, true, 'the answer-wanted resend folded into the kept FYI');
+    assert.notEqual(asked.id, fyi.id);
+    const kept = limitqueue.list('casey').map((e) => e.envelope);
+    assert.equal(kept.length, 2, JSON.stringify(kept));
+    assert.match(kept[0], /FYI, no reply requested\] deploy done/);
+    assert.match(kept[1], /to answer, if it needs one, run: kosmos msg --in-reply-to /);
+  });
+});
+
 test('#6065 review 1: a message that fits now but not with the kept note is spilled, so a held copy is still typed later', async () => {
   // Review 3: from the limits themselves. With its ~40-character envelope it fits MAX_TEXT now, but it passes spillLimit()
   // (MAX_TEXT less the kept note), so it must spill; without the reserve it would be typed whole and refused later.

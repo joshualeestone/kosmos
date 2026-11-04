@@ -1642,7 +1642,9 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     }
   }
   if (sameMsg && sameMsg.state !== HELD_STATE && quietSince(log, sameMsg, (r) => r.kind === 'message' && ((r.from === toName && r.to === from) || (r.from === from && r.to === toName)))) return { state: sameMsg.state, because: sameMsg.state === chat.DELIVERY.UNCONFIRMED ? FOLDED_UNCONFIRMED : null, id: sameMsg.id, at: sameMsg.at, duplicate: true, ...(sameMsg.queued === true ? { queued: true } : {}) };
-  const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || ''), cleaned);
+  /* #7893 round 2: the flag is in the key too, so the kept-copy fold (keptEarly) and the in-flight twin keep an FYI and
+     its answer-wanted resend apart, as the recentSameSend match above does. */
+  const msgKey = sendKey('message', from, toName + '\u0000' + (replyTo || '') + (replyExpected === false ? '\u0000fyi' : ''), cleaned);
   // Only the async path waits on an in-flight twin: a synchronous caller (send) expects a receipt, not a promise.
   const msgTwin = deliverToPane !== chat.deliver ? inFlightTwin(msgKey) : null;
   if (msgTwin) return msgTwin.then(asDuplicate);
