@@ -185,7 +185,7 @@ function main(argv) {
     if (!manifestPath || !sigPath || !zipPath) { console.error('usage: win-release-manifest.js check <manifest> <sig> <zip> [<version> [<arch>]]'); return 2; }
     let r;
     try { r = checkZip({ manifestPath, sigPath, zipPath, version, arch: arch || 'x64' }); } catch (e) { r = { code: 2, why: 'could not check the manifest (' + ((e && e.message) || e) + ')' }; }
-    // On STDOUT either way: publish-r2.ps1 reads it, and native stderr can stop a 5.1 script under Stop.
+    // On STDOUT either way: publish-r2.ps1 reads the verdict there.
     console.log(r.why);
     return r.code;
   }
