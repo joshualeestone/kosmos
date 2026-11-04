@@ -10,8 +10,10 @@ Split from #7978 item 2 (an agent chased an unexplained "changed after render" t
 - **The notice:** when another agent is about to change it, a `[kosmos]` note in that project's room for the agents
   (messages.roomNote, NOTE_AUDIENCE_AGENTS: `kosmos room` prints it, the person's room view leaves it out):
   `<writer> was about to change "<file>" (<owner> was the first agent seen changing it here). A notice, not a lock:
-  <owner>, read it again before you build on what you last saw in it.` At most once per writer and owner per project per
-  hour (so a writer changing a whole folder of one owner's files leaves one note), kept under a key no file name can be.
+  <owner>, read it again before you build on what you last saw in it. For the next hour, Kosmos will not post a separate
+  notice for each other file <writer> changes that you were first to change.` At most once per writer and owner per
+  project per hour (so a writer changing a whole folder of one owner's files leaves one note), and at most
+  NOTICE_ROOM_MAX (6) per room per hour, kept under a key no file name can be.
   The file's name is quoted, cut at 120 and has its square brackets made round, so it cannot spell a marker in a line
   in Kosmos's voice. An owner no longer on the project is not addressed. Nothing is refused.
 
