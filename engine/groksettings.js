@@ -233,4 +233,15 @@ function ensurePrepared(hookFilePath, bridgePath, opts) {
   return { prepared: true, changed: true };
 }
 
+/* #7976: the supervisor runs this before every launch of a grok agent, so a wiped home, a new account home or a file from
+   before a later hook is put right. Birth alone left those silent for good. Nothing on stdout; why it could not goes to
+   stderr, the agent's log. Always exit 0: a hook that cannot be written costs a report, never the launch. */
+if (require.main === module) {
+  const [file, bridge] = process.argv.slice(2);
+  let r;
+  try { r = ensurePrepared(file, bridge); } catch (e) { r = { prepared: false, because: String(e && e.message) }; }
+  if (!r.prepared) process.stderr.write('grok report hooks were not put in place (' + r.because + ')\n');
+  process.exit(0);
+}
+
 module.exports = { HOOK_EVENTS, TOOL_EVENT, TOOL_MATCHER, MARKER, commandFor, unsafeForCommand, definitionFor, desiredContent, entryIsOurs, ensurePrepared };

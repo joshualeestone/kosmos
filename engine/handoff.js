@@ -198,8 +198,9 @@ function stateFact(session, now) {
   const when = saneIso(Date.parse(r.at), now);   // same 1970/future floor as the instruction time: never print a bad date
   if (when) {
     parts.push('as of ' + when);
-    /* kosmos#6593 item 2 (Josh's five-model reports on 0.7.59 and 0.7.60): GPT and Grok runners do not report working,
-       so the last hand-written state stays, and a line from two weeks back read like the present. The age is said in
+    /* kosmos#6593 item 2 (Josh's five-model reports on 0.7.59 and 0.7.60): a seat that does not report working leaves
+       its last hand-written state, and a line from two weeks back read like the present. (#7976: grok does report, when
+       its hook file is there, measured on 1.0.41; the supervisor now puts it back at each launch.) The age is said in
        words, and past a day the line says it may not describe now. Kept, not dropped: an old state is still a fact the
        reader can weigh, and leaving it out would read as "never reported". */
     const age = (Number.isFinite(now) ? now : Date.now()) - Date.parse(r.at);
