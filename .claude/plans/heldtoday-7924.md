@@ -16,6 +16,9 @@ generally ("Kosmos needs you to look at it.", Open), the documented fallback for
 updates. Rejected: keeping "question" on the wire until the phone can say it understands "held" (a version handshake
 for one sentence).
 
+Counted (review 3): Today's subhead ("N things need you") still counts a held question, as every count has since
+#7915 (nothing is lost while the person is away); only its card's words and age change.
+
 ## Rejected
 Leaving a held question off Today: the person would have nowhere on the phone's front screen that it still waits.
 
