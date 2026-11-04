@@ -96,6 +96,15 @@ test('#7935: the copy result survives the poll repainting the same command, and 
   assert.equal(els['upd-command-msg'].textContent, '', 'a result stayed beside a different command');
 });
 
+test('#7935: a Check press that lands the command gives the keyboard the command field, not <body>', () => {
+  const handler = page.liftAll(SCRIPT, ['updCheckNowClick']);
+  assert.match(handler, /else if \(cmdRow && !cmdRow\.hidden && cmdField && !remoteView\) cmdField\.focus\(\);/,
+    'a press that lands the Linux command leaves focus nowhere');
+  // CONTROL: the Windows hand-over is still first, and the button's own refocus is still the fallback.
+  assert.match(handler, /if \(shownDownload && !shownDownload\.hidden\) shownDownload\.focus\(\);\n  else if \(cmdRow/);
+  assert.match(handler, /else if \(btn\.dataset\.act !== 'reload'\) btn\.focus\(\);/);
+});
+
 test('#7935: over Kosmos+ the line says where to run it, not "this computer"', async () => {
   await linuxLook();
   const els = paint(null, update.manualOffer(), null, null, true);

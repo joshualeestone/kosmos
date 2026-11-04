@@ -2632,6 +2632,7 @@ cmd_update() {
   # not apply: the board never runs an installer of its own there, so there is nothing to race, and the person ran
   # this. The agent refusal above and the install-under-way guard below still hold. Keep this in step with SELF_INSTALL
   # in engine/platform.js: Linux is the platform it leaves out, and this is the same rule read from uname.
+  # KOSMOS_PLATFORM overrides uname here as everywhere in this file (the tests' seam).
   _board_installs=1
   [ "${KOSMOS_PLATFORM:-$(uname -s 2>/dev/null)}" = Linux ] && _board_installs=0
   _mode="$(cat "$KOSMOS_HOME/mode" 2>/dev/null)" || _mode=""

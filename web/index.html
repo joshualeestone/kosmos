@@ -25404,7 +25404,13 @@ async function updCheckNowClick() {
      Download link that replaced it -- the same hand-over paintUpdateCard makes when a background
      look lands while the button has focus. */
   const shownDownload = document.getElementById('upd-download');
+  /* kosmos#7935: a press that landed the Linux command hid the button too; the keyboard's place is the command field
+     (not over Kosmos+, where that row is hidden and the line says where to go). */
+  const cmdRow = document.getElementById('upd-command-row');
+  const cmdField = document.getElementById('upd-command');
+  const remoteView = typeof offlineRemoteView === 'function' && offlineRemoteView();
   if (shownDownload && !shownDownload.hidden) shownDownload.focus();
+  else if (cmdRow && !cmdRow.hidden && cmdField && !remoteView) cmdField.focus();
   else if (btn.dataset.act !== 'reload') btn.focus();
 }
 document.getElementById('upd-btn').addEventListener('click', updCheckNowClick);

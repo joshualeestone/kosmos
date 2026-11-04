@@ -95,6 +95,16 @@ the served installer is what the #7933 leg does successfully.
   command (with its home path) is still in the status payload; the repaint test uses the real after-update paint;
   the plan's test text matches KOSMOS_PLATFORM.
 
+## Review round 8 (sonnet, whole branch) and the stop
+- WARNING: a keyboard press of Check that lands the command left focus on <body> (the press disables the button, so
+  the paint never saw focus on it). Fixed: the press's refocus gives the command field the keyboard (not over
+  Kosmos+); pinned in the test, beside the Windows hand-over.
+- WARNING (kept, stated): the card's "Kosmos restarts when it is done" rests on the unmeasured live-board run; it is
+  what the installer does, and the measurement is #7933's (PigeonPete).
+- NITs: KOSMOS_PLATFORM named as this file's test seam in the comment. Kept: the remote line's wording; the manualOffer
+  tripwire.
+- **Stopped at round 8 under Splinter's 8-round rule (no BLOCKER open).**
+
 ## Tests
 - cli.update-ifnewer-4382.test.js (two new tests): with KOSMOS_PLATFORM=Linux, a board running or stopped and mode
   `run`, the verb installs with the board's three variables on prod and on a staging stamp; CONTROLS: the stand-in
