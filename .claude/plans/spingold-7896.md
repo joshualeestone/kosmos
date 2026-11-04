@@ -11,13 +11,27 @@ button keeps the button's ink.
   untouched (it sets --spin-dot itself).
 - #9c741b because it is the iPhone orb's light gold (kosmos#7034's adaptive star gold, merged in #7908), so the two
   apps match, and it clears every light ground measured: page #faf9f7 4.05, card #ffffff 4.26, sunken #f4f2ee 3.81,
-  side #ebe8e2 3.52.
+  --k-side #f3f1ec 3.78, --k-side-2 #ebe8e2 3.49.
 - Rejected: --gold-deep #b88920 (2.83 sunken, 2.61 side: fails); --gold-edge #8a6614 (clears more, 4.34 to 5.26, but
   browner, and the iPhone does not use it).
-- Weakest premise: the orb sits on these light grounds only. A spinner inside a dark panel while the app is light
-  would get the deep gold on dark; none is known, and the check reads the page grounds only.
+- Grounds that ignore the theme: the Kosmos+ screen (body.plus-active) is navy in both themes, so it keeps --gold
+  (7.1:1; the deep gold is 3.7 there); the first-run card (#firstrun) is white in both themes, so it pins the deep
+  gold. Weakest premise: no OTHER panel keeps its own ground across themes; round 1 searched and found these two.
 
 ## Tests
-- docs/browser-checks/render-model-spinners-2365.js: a new arm draws an orb with data-theme light, then dark, and
-  reads the drawn pixels' average colour: within 14 per channel of #9c741b (light) and #d6a62e (dark).
-  Control: main's web/index.html swapped in fails the light arm only (drew r213 g164 b42, the old gold).
+- docs/browser-checks/render-model-spinners-2365.js: a new arm draws an orb and reads the drawn pixels' average
+  colour (within 14 per channel) in five states: system light and forced light on a dark system (#9c741b); system
+  dark, forced dark on a light system, and the Kosmos+ navy in light (#d6a62e).
+  Control: main's web/index.html fails both light states (it draws the old gold, r213 g164 b42). Mutants: the navy
+  line removed fails only the navy state; the system-dark line removed fails only system dark.
+
+## Review rounds
+
+#### Iteration 1
+- [WARNING] the Kosmos+ navy screen (body.plus-active) would draw the deep gold in the light theme (3.7, down from 7.1)
+  --> FIXED: body.plus-active keeps --spin-gold: var(--gold); checked by a navy arm (mutant fails it).
+- [WARNING] the arm ran only on a light-scheme page, so system dark and forced light were untested --> FIXED: a
+  dark-scheme page runs both (mutant: the system-dark line removed fails it).
+- [NIT] the side figure named the wrong token --> FIXED (--k-side 3.78, --k-side-2 3.49).
+- [NIT] KORB's comment said gold is the same in both themes --> FIXED.
+- [NIT] #firstrun is white in both themes --> FIXED: it pins the deep gold.
