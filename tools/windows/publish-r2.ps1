@@ -750,6 +750,7 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
       # kosmos#7890: one read; these bytes are hashed as a blob and are the bytes staged.
       $SetupBytes = [IO.File]::ReadAllBytes($SetupPath)
       $blobFile = Get-GitBlobSha $SetupBytes
+      if ($blobHead -and $blobHead.Length -ne 40) { Refuse "this repository uses $($blobHead.Length * 4)-bit object ids, and this script compares the installer as a SHA-1 git blob, so it cannot check it here. Stage from a SHA-1 checkout. Nothing was written." }
       if (-not $blobHead -or $blobHead -cne $blobFile) { Refuse "$SetupPath is not byte for byte the script committed at this tree's HEAD (an uncommitted edit, or line endings converted by an older checkout: re-check it out with git rm --cached tools/windows/$SetupName and git checkout -- tools/windows/$SetupName). Nothing was written." }
       Say "NOTICE (#7883): $ZipPath records no source commit (manifest.json source_sha), so the installer staged with it is this tree's HEAD ($head)."
       $SetupFrom = "this tree's HEAD $head"
@@ -1019,8 +1020,8 @@ $SetupVersioned = "setup-$ApprovedVersion$SetupExt"
 $stagedSetup = Get-Object $SetupVersioned
 $stagedSetupSide = Get-Object "$SetupVersioned.sha256"
 $SetupBytes = $null; $SetupSha = ''
-# kosmos#7890: where the installer that goes up was checked against (commit, head), or why none goes up (unverified,
-# none); and, when setup.ps1 is left as it is, the sha it keeps (setup_left), for the approval line.
+# kosmos#7890: where the installer that goes up was checked (commit or head), or none; setup_head names the HEAD that
+# vouched for a head one, and setup_left the setup.ps1 left live when none goes up. All three go on the approval line.
 $SetupSource = 'none'; $SetupLeft = ''; $SetupHead = ''
 function Get-LiveSetupSha { $live = Get-Object $SetupName; if ($live) { Sha256-Bytes $live.Bytes } else { 'absent' } }
 # The commit HEAD names, for the approval line (setup_head), or 'unknown'.
