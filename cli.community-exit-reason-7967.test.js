@@ -151,6 +151,7 @@ const READ_REPLIES = { '/api/community/read': 'slow202' };   // a read asks agai
 const readAsks = () => seen.filter((r) => r === '/api/community/read').length;
 async function startPollingRead(port) {
   seen.length = 0;
+  // exit code not read (#3628): the exit event's code and signal are asserted together as a stop by a signal, never used as a number
   const child = spawn(CLI, ['community', 'read'], { env: envFor(port, { KOSMOS_READ_ASKS: '50' }), detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
   const done = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal, at: Date.now() })));
   for (let i = 0; i < 200 && readAsks() < 2; i++) await new Promise((r) => setTimeout(r, 50));
@@ -181,6 +182,7 @@ test('#7967 review 5: a Ctrl-C while a request hangs leaves nothing of the comma
   { '/api/community/home': 'hang' },
   async (port) => {
     seen.length = 0;
+    // exit code not read (#3628): the exit event's code and signal are asserted together as a stop by a signal, never used as a number
     const child = spawn(CLI, ['community', 'home'], { env: envFor(port), detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
     const done = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })));
     for (let i = 0; i < 200 && !seen.includes('/api/community/home'); i++) await new Promise((r) => setTimeout(r, 50));
