@@ -2744,7 +2744,7 @@ cmd_msg() {
     text="$*"
   fi
   if [ -z "$to" ] || [ -z "$text" ]; then
-    say "Usage: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and \$ arrive as written)"
+    say "Usage: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>  (--stdin: read the message from stdin, so backticks and \$ arrive as written; --no-reply: they are told no answer is wanted)"
     exit 2
   fi
   # With --stdin the pipe is read BEFORE this check on purpose (as in cmd_post): a live pipe cannot
