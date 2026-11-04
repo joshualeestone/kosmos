@@ -24,7 +24,7 @@ fs.writeFileSync(CLI, '#!/bin/bash\n'
   + 'if [ "$1" = report ] && [ "$2" = idle ]; then read n kind wait < "' + MODE + '"; sleep "${wait:-0}";\n'
   + '  if [ "$n" -gt 0 ]; then echo "$((n-1)) $kind 0" > "' + MODE + '";\n'
   + '    case "$kind" in waiting) echo "  That was not recorded: it is waiting on a person (needs_you), so an automatic idle did not overwrite that." ;;\n'
-  + '      unsaved) echo "  That was not recorded: we could not save that report." ;; down) echo "  Kosmos is not running, so this could not be recorded. Start it with: kosmos start" ;; refused) echo "  Kosmos refused that: this report is not from an agent it knows." ;; *) echo "  Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
+  + '      unsaved) echo "  That was not recorded: we could not save that report." ;; down) echo "  Kosmos is not running, so this could not be recorded. Start it with: kosmos start" ;; refused) echo "  Kosmos refused that: something went wrong." ;; unmatched) echo "  That was not recorded: we could not match that to one of your agents." ;; *) echo "  Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
   + 'exit 0\n');
 fs.chmodSync(CLI, 0o755);
 
@@ -96,7 +96,13 @@ test('the hook keys on the board\'s own words for a deliberate wait, so rewordin
   const waits = src.split("skipped: 'waiting'").length - 1;
   const words = src.split('did not overwrite').length - 1;
   assert.ok(waits >= 3 && words >= waits, 'every skipped:waiting answer says "did not overwrite" (' + words + ' of ' + waits + ')');
-  assert.match(fs.readFileSync(HOOK, 'utf8'), /grep -qE 'did not overwrite\|/, 'and the hook matches that phrase');
+  const hook = fs.readFileSync(HOOK, 'utf8');
+  assert.match(hook, /_TE_KEEP='did not overwrite\|could not match that to one of your agents\|cannot tell which agent'/);
+  const messages = fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8');
+  for (const words of ['could not match that to one of your agents', 'cannot tell which agent']) {
+    assert.ok(messages.includes(words), 'engine/messages.js still says "' + words + '"');
+  }
+  assert.match(fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8'), /Kosmos is not running, so /);
 });
 
 test('a session with no tmux pane (the person\'s own Claude) sends once, as before: no retry, no note', () => {
@@ -105,14 +111,20 @@ test('a session with no tmux pane (the person\'s own Claude) sends once, as befo
   assert.equal(note(), null);
 });
 
-test('Kosmos not running at all is neither retried nor noted', () => {
-  setup('2 down 0'); hook('Stop'); settle(1);
-  assert.equal(idle().length, 1, JSON.stringify(idle()));
+test('Kosmos not running (a board mid-restart reads so) is retried, but not noted', () => {
+  setup('2 down 0'); hook('Stop'); settle(2);
+  assert.equal(idle().length, 2, JSON.stringify(idle()));
   assert.equal(note(), null);
 });
 
-test('a board refusal ("Kosmos refused that"), certain to repeat, is neither retried nor noted', () => {
-  setup('2 refused 0'); hook('Stop'); settle(1);
+test('a "Kosmos refused that" (the route\'s catch-all, maybe a one-off fault) is retried, and noted when it repeats', () => {
+  setup('2 refused 0'); hook('Stop'); settle(2);
+  assert.equal(idle().length, 2, JSON.stringify(idle()));
+  assert.match(String(note()), /\(exit 1\): Kosmos refused that: something went wrong\.$/m);
+});
+
+test('a pane the board cannot tie to an agent is neither retried nor noted: a retry cannot change it', () => {
+  setup('2 unmatched 0'); hook('Stop'); settle(1);
   assert.equal(idle().length, 1, JSON.stringify(idle()));
   assert.equal(note(), null);
 });
