@@ -6457,7 +6457,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 + "<a id=foreignatt href=http://localhost:\(port)/att2>e</a>"
                 + "<a id=last href=/last.txt download>f</a>"
                 + "<a id=startvoid href=/start-void.txt download>v</a>"
-                + "<a id=refused href=/refused.txt download>w</a>"
+                + "<a id=refused href=/api/agent/ana/files/download?name=refused.txt download>w</a>"
                 + "<a id=htmlpage href=/htmlpage download=report.pdf>x</a>"
                 + "<a id=busyzip href=/api/agent/ana/files/download-folder?dir= download=Files.zip>y</a>"
                 + "<a id=askno href=/asked-no.txt download>m</a>"
@@ -6493,7 +6493,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         case "/gone": return "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/empty": return "HTTP/1.1 204 No Content\r\nContent-Disposition: attachment; filename=\"empty.txt\"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
         case "/missing2": return "HTTP/1.1 500 Internal Server Error\r\nContent-Type: text/plain\r\nContent-Length: 4\r\nConnection: close\r\n\r\nboom"
-        case "/refused.txt": return "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
+        case "/api/agent/ana/files/download": return "HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}"
         case "/htmlpage":
             let page = "<!doctype html><title>Sign in</title>"
             return "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: \(page.utf8.count)\r\nConnection: close\r\n\r\n" + page
@@ -6669,11 +6669,12 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         d.badgeOrigin = ("127.0.0.1", Int(p))   // as loadBoard sets it: this page is the board
         // kosmos#7952 review 3: the page commits between an allowed download's answer and its start.
         AppDelegate.beforeAllowedStartForSelftest = { r in if r.url?.path == "/start-void.txt" { d.pageCommits += 1 } }
-        // This loopback page stands in for a Kosmos+ computer's (markBoardDownloadsForSelftest) for the two arms that are
-        // about the mark only: the page's own download and the voided start. Every other arm runs the path this
-        // computer's own board ships on, WebKit's own download.
+        // This loopback page stands in for a Kosmos+ computer's (markBoardDownloadsForSelftest) for the arms about the
+        // mark: the page's own download, the frames, the voided start, the refused download, the web page answered
+        // for one, and the Allow question (askArm). Every other arm runs the path this computer's own board ships on,
+        // WebKit's own download.
         func mark(_ on: Bool, then: @escaping () -> Void) { AppDelegate.markBoardDownloadsForSelftest = on; then() }
-        mark(true) { click("same", expect: "same.txt") { mark(false) { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { mark(true) { click("frames") { mark(false) { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { mark(true) { click("startvoid") { click("refused") { click("htmlpage") { mark(false) { click("busyzip") { askArm { modalArm { settled {
+        mark(true) { click("same", expect: "same.txt") { mark(false) { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { mark(true) { click("frames") { mark(false) { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { mark(true) { click("startvoid") { click("refused") { click("htmlpage") { mark(false) { click("busyzip") { mark(true) { askArm { mark(false) { modalArm { settled {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
             // The per-computer question (a Kosmos+ name's holder runs its tunnel), driven directly: no Kosmos+
@@ -6706,7 +6707,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(saved("modal-yes.txt"), "asked fresh, the real question's Allow saves")
             let refusedSaid = told.filter { $0.contains("The download was refused (the answer was 403)") }
             row(!saved("refused.txt") && refusedSaid.count == 1,
-                "kosmos#7952: A REFUSED (403) DOWNLOAD THE APP STARTED IS SAID, once, and saves nothing (\(refusedSaid.count))")
+                "kosmos#7952: A REFUSED (403) DOWNLOAD THE APP STARTED IS SAID, once, and saves nothing, EVEN ON A FILES ROUTE (\(refusedSaid.count))")
             row(!saved("report.pdf") && !all7952().contains { $0.hasSuffix(".html") },
                 "kosmos#7952: A WEB PAGE ANSWERED FOR A DOWNLOAD THE APP STARTED IS NOT SAVED, under any name (saw: \(all7952().joined(separator: ", ")))")
             let busySaid = told.filter { $0.contains("Another folder is still downloading") }
@@ -6765,7 +6766,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
+        } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
