@@ -9,7 +9,8 @@ http and https; the page load does carry them). The Kosmos+ tunnel presents the 
 same-origin or none (kosmos-relay board_token_allowed, fail closed). A board request with no token is 403 (measured
 with curl). So every download over Kosmos+ from the Mac app reached the board with no token.
 
-Fix: a board download the person allowed AND that the board page's own main frame asked for, at its own origin
+Fix (review 4: on a Kosmos+ computer's page only; this computer's own board keeps WebKit's download, as before):
+a board download the person allowed AND that the board page's own main frame asked for, at its own origin
 (downloadAskedByPage), is cancelled from WebKit's `.download` and started by the app (startDownload) marked
 `Sec-Fetch-Site: same-origin` (sameOriginDownloadRequest). Measured: WebKit keeps that header, the Referer and the
 cookie on startDownload, and starts nothing from inside its own policy callback (so it starts on the next turn).
@@ -20,11 +21,12 @@ Consequences handled:
 - such a download carries no `download` name from the page, so a web page answered for it counts as the file only
   when sent as an attachment (downloadsStartedHere); every board file route sends an attachment name, so no saved
   name changes;
-- review 3: a refusal of the download itself (401, 403) is always said by the app, even on a Files list: the page's
+- review 3/4: a refusal (401, 403) of a download the app started is always said by the app, even on a Files list (a
+  double with the page's line remains when both are refused, accepted): the page's
   look is a fetch, which the tunnel can let in where it does not let the download in, so the look may say nothing.
   Without that, the weakest premise below failing would turn Josh's "the answer was 403" into silence;
 - Download folder's refusals stay the app's to say, as on main (review 3 undid a review 1 change that left a busy
-  answer after the Allow question unsaid); a folder that is busy is said in its own words;
+  answer after the Allow question unsaid); a folder that is busy (the board's ZIP_BUSY, on the folder route only) is said in its own words;
 - review 2: an allowed download whose page commits before its start on the next turn is not started, and said.
 
 Rejected: changing the tunnel's fail-closed rule (right for browsers; a relay release); fetching into a blob (whole
@@ -42,7 +44,8 @@ that is not previewed already downloads (kept small on purpose).
 "Neither answer is permanent: each lasts until you quit Kosmos, and after Don't Allow, View > Reload asks you again."
 
 ## Tests
-- mode selftest +10 rows (224), live download selftest +3 rows (35): the page's own download says same-origin, a
+- mode selftest +12 rows (226), live download selftest +3 rows (35, the loopback page standing in for a Kosmos+
+  computer's through markBoardDownloadsForSelftest): the page's own download says same-origin, a
   frame's is never marked, a commit before the start voids it; each red under its mutation (header not set; page
   check forced true; the start's page check removed).
 - native-app.download-5167.test.js: a source pin that the one startDownload sits after the page check, from the
