@@ -3465,7 +3465,9 @@ function folderRenameOffer(project, all) {
   if (!want) return null;
   if (folderState(project.folder).state !== FOLDER.READABLE || isLink(project.folder)) return null;
   const target = path.join(path.dirname(project.folder), want);
-  if (!nothingAt(target) || recordedAt(all, project.id, target) || projectInside(all, project)) return null;
+  // By spelling alone: this runs on every list, for every project, and the press still does the full check.
+  const inside = all.some((p) => p.id !== project.id && typeof p.folder === 'string' && p.folder.startsWith(project.folder + path.sep));
+  if (inside || !nothingAt(target) || recordedAt(all, project.id, target)) return null;
   return want;
 }
 
@@ -3494,7 +3496,7 @@ function renameFolderToName(id, { busy = [], homes = [], stuckOnOldFolder = [] }
   if (holder) throw refused('the project "' + holder.name + '" uses the name ' + want + ' for its folder');
   if (!nothingAt(target)) throw refused('there is already something called ' + want + ' in that folder');
   try { fs.renameSync(self.folder, target); } catch {
-    throw refused('that folder could not be renamed. Something may have it open, so close it and try again');
+    throw refused('that folder could not be renamed. Something may have it open, or Kosmos may not be allowed to change it');
   }
   try { return mutate(id, (p) => { p.folder = target; return p; }); } catch {
     try { fs.renameSync(target, self.folder); } catch {
