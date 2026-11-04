@@ -165,7 +165,7 @@ else fail "apply: rc $(rc apply) $(cat "$T/apply.out"); $(cat "$D" 2>/dev/null)"
 run again -- daemon
 [ "$(rc again)" = 0 ] && has again "runs as a LaunchDaemon" && ! has again WOULD && pass "a second run says it is done" || fail "again: rc $(rc again) $(cat "$T/again.out")"
 R0="$(ls "$RA".retired-*)"; cp "$R0" "$AG"; run agentback FX_DATE=20261103T000009Z -- daemon
-[ "$(rc agentback)" = 1 ] && has agentback "is back" && has agentback "sudo -u kosmos-ci cat $AG | sudo tee $RA.retired-" && has agentback "&& sudo -u kosmos-ci cat $AG | sudo cmp -s - $RA.retired-" && has agentback "sudo -u kosmos-ci rm $AG && echo 'moved aside' || { sudo -u kosmos-ci test -e $AG && echo 'NOT finished; $AG is not removed. If $RA.retired-" && [ "$(tail -c 4 "$T/agentback.out")" = "; }" ] && ! has agentback "sudo cat $AG |" && ! has agentback "sudo cp" && ! has agentback bootout && pass "only the agent plist back: says move it aside, never a bootout" || fail "agentback: rc $(rc agentback) $(cat "$T/agentback.out")"
+[ "$(rc agentback)" = 1 ] && has agentback "is back" && has agentback "sudo -u kosmos-ci cat $AG | sudo tee $RA.retired-" && has agentback "&& sudo -u kosmos-ci cat $AG | sudo cmp -s - $RA.retired-" && has agentback "sudo -u kosmos-ci rm $AG && echo 'moved aside' || { if sudo -u kosmos-ci test -e $AG; then if sudo test -f $RA.retired-" && [ "$(tail -c 4 "$T/agentback.out")" = "; }" ] && ! has agentback "sudo cat $AG |" && ! has agentback "sudo cp" && ! has agentback bootout && pass "only the agent plist back: says move it aside, never a bootout" || fail "agentback: rc $(rc agentback) $(cat "$T/agentback.out")"
 MV="$(sed -n 's/.*remove the daemon plist): //p' "$T/agentback.out")"
 [ -n "$MV" ] && sh -n -c "$MV" 2>/dev/null && pass "the printed move-aside is the whole rest of its line and parses as one command" || fail "agentback paste: [$MV]"
 # Pasted twice (sudo stripped): the first moves the agent aside, the second refuses and leaves the copy whole.
@@ -302,7 +302,7 @@ fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"
   && has emptyret "sudo -u kosmos-ci test ! -e $AG && sudo test -f $RA.retired-20261103T000000Z && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { if sudo test -f $RA.retired-20261103T000000Z; then if ! sudo -u kosmos-ci test -e $AG; then if sudo test -s $RA.retired-20261103T000000Z; then echo 'NOT finished; $RA.retired-20261103T000000Z is kept and not empty, but $AG was not written" \
   && pass "an empty retired file is skipped, and the printed put-back removes the retired copy only after a compare" || fail "emptyret: rc $(rc emptyret) $(cat "$T/emptyret.out")"
 # 2: the printed put-back, run in a shell with no pipefail, keeps the retired file when the copy fails. These arms run
-# the printed text with sudo stripped (or a sudo shim): they pin the && / || flow, not the privilege split.
+# the printed text with sudo stripped (or a sudo shim): they pin the && / || flow; pbwho and pbwho2 pin who runs each probe.
 PB="$(sed -n 's/.*put it back and run this again: //p' "$T/emptyret.out")"; RF="$RA.retired-20261103T000000Z"
 mkdir -p "$T/pbbin"; printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = cat ] && exit 1\nexec "$@"\n' > "$T/pbbin/sudo"; chmod 755 "$T/pbbin/sudo"
 PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
@@ -339,15 +339,28 @@ rm -f "$AG"; cp "$T/agent.good" "$RF"; /bin/mv "$H/Library/LaunchAgents" "$H/LA.
 grep -q -F "elif sudo -u kosmos-ci test -s $AG && sudo cat $RF | sudo -u kosmos-ci cmp -s - $AG; then echo 'put back, but $RF was not removed: sudo rm $RF';" "$T/emptyret.out" \
   && pass "#7887: the printed failure branch reads the agent as the CI user and the retired file as root" || fail "pbwho: $(grep -o 'elif .\{0,160\}' "$T/emptyret.out" | head -1)"
 # A directory typed as the retired file: the line says it is not a plain file, not that the agent could not be written.
-rm -f "$AG"; mkdir -p "$T/notafile"; PBD="$(printf '%s' "$PBS" | sed "s#$RF#$T/notafile#g")"; PBOUT="$(sh -c "$PBD" 2>&1 | tail -n 1)"
+rm -f "$AG"; mkdir -p "$T/notafile"; PBD="$(printf '%s' "$PBS" | sed "s#$RF#$T/notafile#g")"; PBOUT="$(sh -c "$PBD" 2>&1)"
 [ "$PBOUT" = "nothing done: $T/notafile is not a plain file (a folder?): give the parked file itself" ] && [ ! -e "$AG" ] && [ -d "$T/notafile" ] \
   && pass "#7887: a folder given as the retired file says it is not a plain file" || fail "pbdir: [$PBOUT]"
 rmdir "$T/notafile"
 # And who runs the outer probes, as the operator sees them.
 grep -q -F "|| { if sudo test -f $RF; then if ! sudo -u kosmos-ci test -e $AG; then if sudo test -s $RF; then" "$T/emptyret.out" \
   && pass "#7887: the outer probes of the printed failure branch run as root on the retired file and as the CI user on the agent" || fail "pbwho2: $(grep -o '|| { if .\{0,140\}' "$T/emptyret.out" | head -1)"
-cp "$T/agent.good" "$AG"; MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
+printf '#!/bin/sh\nexit 1\n' > "$T/pbbin/sudo"; cp "$T/agent.good" "$AG"; MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
 [ "$MVOUT" = "nothing done: $AG is not there (already moved aside), or the check could not run" ] && cmp -s "$AG" "$T/agent.good" && pass "#7887: the printed move-aside, with a sudo that does not run, says the check could not run" || fail "mvnosudo: [$MVOUT]"
+# Round 3's BLOCKER: an empty retired file with a good agent in place never advises removing the agent.
+cp "$T/agent.good" "$AG"; : > "$RF"; PBOUT="$(sh -c "$PBS" 2>&1)"
+[ "$PBOUT" = "NOT finished; $RF is empty, so there is nothing to put back: $AG is kept as it is" ] && cmp -s "$AG" "$T/agent.good" \
+  && pass "#7887: an empty retired file with a good agent keeps the agent and never says to remove it" || fail "pbemptyagent: [$PBOUT]"
+# The printed move-aside looks before it names a cause, as the put-back does. Its stamped name is D9.
+rm -f "$D9"; cp "$T/agent.good" "$AG"; printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = rm ] && exit 1\nexec "$@"\n' > "$T/pbbin/sudo"
+MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
+[ "$MVOUT" = "moved aside, but $AG was not removed: sudo -u kosmos-ci rm $AG" ] && cmp -s "$AG" "$T/agent.good" && cmp -s "$D9" "$T/agent.good" \
+  && pass "#7887: a move-aside whose final rm fails says it is moved aside and names the rm" || fail "mvrm: [$MVOUT]"
+: > "$D9"; MVOUT="$(sh -c "$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
+[ "$MVOUT" = "NOT finished; $AG is not removed. $D9 is there and not the same as it (empty, or cut short): rm $D9, then paste this again" ] && cmp -s "$AG" "$T/agent.good" \
+  && pass "#7887: a move-aside onto a different file at its name keeps the agent and names that file" || fail "mvdiff: [$MVOUT]"
+rm -f "$D9" "$AG"
 rm -f "$RF" "$T/agent.good"
 # 2: the stage's own put-back, when the copy comes out short, keeps the retired file and prints how to put it back.
 fixture; run teeshort FX_MV_PLIST_FAIL=1 FX_TEE_SHORT=1 -- --apply daemon
@@ -373,6 +386,9 @@ run pllink -- --apply daemon
 fixture; RL="$H/Library/LaunchAgents/actions.runner.joshualeestone-kosmos-relay.y.plist"; cp "$AG" "$RL"; printf '%s\n' "$RL" > "$R/.service"
 run pllinkctl -- --apply daemon
 [ "$(rc pllinkctl)" = 1 ] && grep -q -F "plutil -extract WorkingDirectory raw -o - $RL" "$LOG" && pass "#7887: CONTROL for pllink: a regular plist at that name is read, and the log shows the read" || fail "pllinkctl: rc $(rc pllinkctl) $(grep plutil "$LOG" | head -3)"
+# kosmos#7887: a retired dir with a quote in its name would turn printed text into code run as root: refused at once.
+fixture; run quotedir "KOSMOS_CI_RETIRED_DIR=$T/it's" -- daemon
+[ "$(rc quotedir)" = 2 ] && has quotedir "may hold only letters" && pass "#7887: a retired dir with a quote in it is refused before anything" || fail "quotedir: rc $(rc quotedir) $(cat "$T/quotedir.out")"
 # NIT: signals are ignored from the first write to the bootstrap.
 fixture; run sigs FX_TERM_ON_MV=1 -- --apply daemon
 [ "$(rc sigs)" = 0 ] && has sigs "Listener pid 7001 under pid 7000" && grep -q "^launchctl bootstrap system" "$LOG" \

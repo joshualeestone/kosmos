@@ -65,3 +65,18 @@ name the wrong cause. That needs a sudo that fails half way through one paste.
 - The who-runs-each-probe pin now covers the outer probes too (pbwho2).
 - Not changed: the move-aside's "not there (already moved aside), or the check could not run" (a refused sudo with the
   agent still there is covered by the second clause).
+
+## Challenge round 3 (opus, whole branch, no plan file), fixed in the next commit
+- BLOCKER: an empty retired file with a good agent in place reached the "not the same" branch, which advised
+  `rm` of the agent; the next paste then stopped on the empty file, and the only good copy was gone. That branch now
+  advises removing the agent only when the retired file is not empty; otherwise it says there is nothing to put back
+  and the agent is kept. Arm pbemptyagent (red without the guard). The header's promise ("never advises removing the
+  only good copy") was false until this.
+- The printed move-aside gets the same look-before-naming branch: with the agent still there, a retired file the same
+  as it says "moved aside, but the agent was not removed" and names the rm; a different one is named for removal; none
+  says nothing was copied. Arms mvrm and mvdiff.
+- KOSMOS_CI_RETIRED_DIR and KOSMOS_CI_DAEMON_DIR are now held to the CI_HOME character rule: both are pasted into root
+  commands, and a quote in one would turn the rest of a printed line into code. Arm quotedir.
+- Test hygiene: the stale "not the privilege split" comment; mvnosudo writes its own sudo stand-in; pbdir compares its
+  whole output.
+- Not changed: pbnofolder keeps `tail -n 1`, because tee's own error line comes first and the operator sees it too.
