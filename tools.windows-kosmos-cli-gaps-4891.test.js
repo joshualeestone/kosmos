@@ -116,6 +116,33 @@ test('#4926 Windows: --unanswered reaches the board as &unanswered=1, as on the 
   }
 });
 
+test('kosmos#7969 Windows: --unanswered --all reaches the board as &unanswered=1&all=1, either side of the project id, as on the Mac', async () => {
+  for (const [argv, want] of [
+    [['room', 'proj', '--unanswered', '--all'], '/api/project/proj/room?as=text&unanswered=1&all=1'],
+    [['room', '--all', '--unanswered', 'proj'], '/api/project/proj/room?as=text&unanswered=1&all=1'],
+    [['room', '--all', 'proj', '-n', '5', '--unanswered'], '/api/project/proj/room?as=text&n=5&unanswered=1&all=1'],
+  ]) {
+    const r = await run(argv, () => ({ body: 'Waiting on an answer from you: nothing in this room.\n' }));
+    assert.equal(r.code, 0, argv.join(' ') + ': ' + r.err);
+    assert.deepEqual(r.calls.map((c) => c.route), [want], argv.join(' '));
+  }
+});
+
+test('kosmos#7969 Windows: --all without --unanswered is refused (exit 2) and asks nothing of the board; --all is never read as the project', async () => {
+  const bare = await run(['room', 'proj', '--all'], () => ({ body: 'the room\n' }));
+  assert.equal(bare.code, 2);
+  assert.equal(bare.err, '--all goes with --unanswered: kosmos room <project-id> --unanswered --all');
+  assert.deepEqual(bare.calls, [], 'a refused --all still reached the board');
+  // Before #7969 the CLI took "--all" as the project and refused a second project word; now the project is "proj".
+  const both = await run(['room', '--unanswered', '--all', 'proj'], () => ({ body: 'Waiting on an answer from you: nothing in this room.\n' }));
+  assert.doesNotMatch(both.err, /reads one project at a time/);
+  // CONTROL: the usage line names the flag, as install/kosmos does.
+  const usage = await run(['room'], () => ({ body: '' }));
+  assert.equal(usage.code, 2);
+  assert.match(usage.err, /\[--unanswered \[--all\]\]/);
+  assert.match(usage.err, /from the last few days \(--all: older ones too\)/);
+});
+
 test('#4926 Windows: --unanswered on a board that ignored it says the answer is the whole room; on one that applied it, nothing extra', async () => {
   const WARN = /does not know --unanswered yet/;
   const old = await run(['room', 'proj', '--unanswered'], () => ({ body: 'the room\n' }));
