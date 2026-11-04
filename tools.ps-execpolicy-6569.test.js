@@ -130,6 +130,8 @@ const REVIEWED = [
   ['engine/win32update.js', "'bin/kosmos.ps1',", 'a file the update must contain; it is checked, not run'],
   ['tools/windows/publish-r2.ps1', 'Say "  pwsh tools/windows/publish-r2.ps1 -Zip $Zip   [-Sig <the .sig file, if it was sent rather than uploaded>]"', 'a printed usage line on the release PC, not a launch'],
   ['tools/windows/publish-r2.ps1', 'Say "  pwsh tools/windows/publish-r2.ps1 -Promote -ApprovedVersion <v from his go> -ApprovedSha <sha from his go> -ApprovalRef <his message\'s Slack ts or permalink>"', 'a printed usage line on the release PC, not a launch'],
+  ['tools/windows/publish-r2.ps1', "$SetupName = 'setup.ps1'", 'kosmos#7883: the one-line installer, uploaded as data to the bucket and never run by this script'],
+  ['tools/windows/publish-r2.ps1', "$SetupExt = '.ps1'", 'kosmos#7883: the extension of the staged installer name setup-<v>.ps1; a name, not a launch'],
 ];
 const reviewed = (rel, text) => REVIEWED.some(([f, t]) => f === rel && t === text);   // review 3: always the exact line, never a whole file
 

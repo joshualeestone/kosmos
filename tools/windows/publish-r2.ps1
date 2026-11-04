@@ -112,6 +112,9 @@ Set-StrictMode -Version 2.0
 Add-Type -AssemblyName System.Net.Http
 Add-Type -AssemblyName System.IO.Compression   # kosmos#7883: ZipArchive over a byte stream (5.1 does not load it with FileSystem)
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+# kosmos#7883: the one-line installer's name, in one place. Kept as data: this script reads and uploads it, never runs it.
+$SetupName = 'setup.ps1'
+$SetupExt = '.ps1'
 $Invariant = [Globalization.CultureInfo]::InvariantCulture
 
 # Anything that goes wrong after latest-win.json is written must say so (set just before it).
@@ -210,7 +213,7 @@ function Get-SetupAtCommit([string] $Commit) {
   $g = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $g) { return @{ Bytes = $null; Error = 'git is not installed' } }
   $psi = New-Object Diagnostics.ProcessStartInfo $g.Source
-  $psi.Arguments = '-C "' + $PSScriptRoot.TrimEnd([char]92, [char]47) + '" cat-file blob ' + $Commit + ':tools/windows/setup.ps1'
+  $psi.Arguments = '-C "' + $PSScriptRoot.TrimEnd([char]92, [char]47) + '" cat-file blob ' + $Commit + ':tools/windows/' + $SetupName
   $psi.UseShellExecute = $false; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.CreateNoWindow = $true
   $proc = [Diagnostics.Process]::Start($psi)
   try {
@@ -702,24 +705,24 @@ if ($PSCmdlet.ParameterSetName -ceq 'Staging') {
     }
     if ($BuiltFrom) {
       $got = Get-SetupAtCommit $BuiltFrom
-      if ($null -eq $got.Bytes) { Refuse "$ZipPath was built from $BuiltFrom, and this repository cannot read tools/windows/setup.ps1 at that commit ($($got.Error)). Fetch it (git fetch origin), then stage again. Nothing was written." }
+      if ($null -eq $got.Bytes) { Refuse "$ZipPath was built from $BuiltFrom, and this repository cannot read tools/windows/$SetupName at that commit ($($got.Error)). Fetch it (git fetch origin), then stage again. Nothing was written." }
       $SetupBytes = [byte[]]$got.Bytes
       $SetupFrom = "the build's commit $BuiltFrom"
     } else {
-      $SetupPath = Join-Path $PSScriptRoot 'setup.ps1'
+      $SetupPath = Join-Path $PSScriptRoot $SetupName
       if (-not (Test-Path -LiteralPath $SetupPath -PathType Leaf)) { Refuse "the installer script $SetupPath is missing. Nothing was written." }
       $head = Get-GitLine @('rev-parse', 'HEAD')
-      $blobHead = Get-GitLine @('rev-parse', 'HEAD:./setup.ps1')
-      $blobFile = Get-GitLine @('hash-object', '--no-filters', '--', 'setup.ps1')
-      if (-not $blobHead -or -not $blobFile -or $blobHead -cne $blobFile) { Refuse "$SetupPath is not byte for byte the script committed at this tree's HEAD (an uncommitted edit, or line endings converted by an older checkout: re-check it out with git rm --cached tools/windows/setup.ps1 and git checkout -- tools/windows/setup.ps1). Nothing was written." }
+      $blobHead = Get-GitLine @('rev-parse', "HEAD:./$SetupName")
+      $blobFile = Get-GitLine @('hash-object', '--no-filters', '--', $SetupName)
+      if (-not $blobHead -or -not $blobFile -or $blobHead -cne $blobFile) { Refuse "$SetupPath is not byte for byte the script committed at this tree's HEAD (an uncommitted edit, or line endings converted by an older checkout: re-check it out with git rm --cached tools/windows/$SetupName and git checkout -- tools/windows/$SetupName). Nothing was written." }
       Say "NOTICE (#7883): $ZipPath records no source commit (manifest.json source_sha), so the installer staged with it is this tree's HEAD ($head)."
       $SetupBytes = [IO.File]::ReadAllBytes($SetupPath)
       $SetupFrom = "this tree's HEAD $head"
     }
     if ($SetupBytes.Length -eq 0) { Refuse "the installer script from $SetupFrom is empty. Nothing was written." }
     $SetupSha = Sha256-Bytes $SetupBytes
-    $SetupVersioned = "setup-$Version.ps1"
-    Say "installer: tools/windows/setup.ps1 from $SetupFrom ($SetupSha), staged as $SetupVersioned"
+    $SetupVersioned = "setup-$Version$SetupExt"
+    Say "installer: tools/windows/$SetupName from $SetupFrom ($SetupSha), staged as $SetupVersioned"
   }
 
   # The versioned name is IMMUTABLE once published (the same promise publish-kosmos-windows.sh
@@ -977,7 +980,7 @@ if ($stagedManifest -or $stagedSig) {
 
 # kosmos#7883: the installer script staged with this build (setup-<v>.ps1 and its sidecar), which becomes setup.ps1
 # once prod names the build. A build staged before staging carried one leaves setup.ps1 as it is, and says so.
-$SetupVersioned = "setup-$ApprovedVersion.ps1"
+$SetupVersioned = "setup-$ApprovedVersion$SetupExt"
 $stagedSetup = Get-Object $SetupVersioned
 $stagedSetupSide = Get-Object "$SetupVersioned.sha256"
 $SetupBytes = $null; $SetupSha = ''
@@ -991,12 +994,12 @@ if ($stagedSetup -or $stagedSetupSide) {
   $promoteFrom = Get-ZipSourceSha $staged.Bytes
   if ($promoteFrom) {
     $want = Get-SetupAtCommit $promoteFrom
-    if ($null -eq $want.Bytes) { Refuse "the staged zip was built from $promoteFrom, and this repository cannot read tools/windows/setup.ps1 at that commit ($($want.Error)), so the staged installer cannot be checked. Fetch it (git fetch origin), then promote again. Nothing was written." }
-    if ((Sha256-Bytes ([byte[]]$want.Bytes)) -cne $SetupSha) { Refuse "$SetupVersioned in the bucket ($SetupSha) is not tools/windows/setup.ps1 at $promoteFrom, the commit the approved zip was built from ($(Sha256-Bytes ([byte[]]$want.Bytes))). Re-stage with this script. Nothing was written." }
-    Say "installer: $SetupVersioned ($SetupSha) is tools/windows/setup.ps1 at the approved build's commit $promoteFrom; it becomes setup.ps1 after latest-win.json"
-  } else { Say "installer: $SetupVersioned ($SetupSha) becomes setup.ps1 after latest-win.json (the staged zip records no source commit, so it is not re-read from git)" }
+    if ($null -eq $want.Bytes) { Refuse "the staged zip was built from $promoteFrom, and this repository cannot read tools/windows/$SetupName at that commit ($($want.Error)), so the staged installer cannot be checked. Fetch it (git fetch origin), then promote again. Nothing was written." }
+    if ((Sha256-Bytes ([byte[]]$want.Bytes)) -cne $SetupSha) { Refuse "$SetupVersioned in the bucket ($SetupSha) is not tools/windows/$SetupName at $promoteFrom, the commit the approved zip was built from ($(Sha256-Bytes ([byte[]]$want.Bytes))). Re-stage with this script. Nothing was written." }
+    Say "installer: $SetupVersioned ($SetupSha) is tools/windows/$SetupName at the approved build's commit $promoteFrom; it becomes $SetupName after latest-win.json"
+  } else { Say "installer: $SetupVersioned ($SetupSha) becomes $SetupName after latest-win.json (the staged zip records no source commit, so it is not re-read from git)" }
 } else {
-  Say "NOTICE (#7883): no $SetupVersioned was staged with this build (it was staged before staging carried one), so setup.ps1 is left as it is: it stays the installer of the build promoted before, which may be newer than this one."
+  Say "NOTICE (#7883): no $SetupVersioned was staged with this build (it was staged before staging carried one), so $SetupName is left as it is: it stays the installer of the build promoted before, which may be newer than this one."
 }
 
 # The verification record for this sha on this PC, validated by the one spec the writer uses.
@@ -1052,8 +1055,8 @@ if (($prodBefore -and -not $prodBefore.ETag) -or ($aliasSideBefore -and -not $al
 # kosmos#7883: setup.ps1 and its sidecar as they are now, so their writes (after the pointer) are pinned to them.
 $setupBefore = $null; $setupSideBefore = $null
 if ($null -ne $SetupBytes) {
-  $setupBefore = Get-Object 'setup.ps1'; $setupSideBefore = Get-Object 'setup.ps1.sha256'
-  if (($setupBefore -and -not $setupBefore.ETag) -or ($setupSideBefore -and -not $setupSideBefore.ETag)) { Refuse "the bucket answered setup.ps1 or setup.ps1.sha256 with no ETag, so this promote cannot pin its writes to them. Nothing was written." }
+  $setupBefore = Get-Object $SetupName; $setupSideBefore = Get-Object "$SetupName.sha256"
+  if (($setupBefore -and -not $setupBefore.ETag) -or ($setupSideBefore -and -not $setupSideBefore.ETag)) { Refuse "the bucket answered $SetupName or $SetupName.sha256 with no ETag, so this promote cannot pin its writes to them. Nothing was written." }
 }
 function Test-StagedIntact {
   $z = Get-Object $Versioned; $zs = Get-Object "$Versioned.sha256"
@@ -1159,7 +1162,7 @@ if (-not $DryRun) {
 }
 if ($DryRun) {
   Put-Object 'latest-win.json' $staging.Bytes $null (Sha256-Bytes $staging.Bytes) 'application/json' $NoCache
-  if ($null -ne $SetupBytes) { Put-Object 'setup.ps1' $SetupBytes $null $SetupSha 'text/plain; charset=utf-8' $NoCache; $ss = New-SidecarBytes $SetupSha 'setup.ps1'; Put-Object 'setup.ps1.sha256' $ss $null (Sha256-Bytes $ss) 'text/plain; charset=utf-8' $NoCache }
+  if ($null -ne $SetupBytes) { Put-Object $SetupName $SetupBytes $null $SetupSha 'text/plain; charset=utf-8' $NoCache; $ss = New-SidecarBytes $SetupSha $SetupName; Put-Object "$SetupName.sha256" $ss $null (Sha256-Bytes $ss) 'text/plain; charset=utf-8' $NoCache }
   Say "DRY RUN complete: nothing was written."; exit 0
 }
 # Pinned to the pointer read at the start (or its absence): a pointer someone else wrote during
@@ -1198,17 +1201,17 @@ Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion
 # the new build: the pair that was live a moment before, not a new script on an old build. Each write is pinned to
 # what this promote read at its start (412: someone else wrote it); a re-run of the full -Promote finishes it.
 if ($null -ne $SetupBytes) {
-  $script:AfterNote = " (latest-win.json was written: prod points at $ApprovedVersion. setup.ps1 or its sidecar may still be the previous ones: re-run the full -Promote to finish.)"
+  $script:AfterNote = " (latest-win.json was written: prod points at $ApprovedVersion. $SetupName or its sidecar may still be the previous ones: re-run the full -Promote to finish.)"
   $setupPin = if ($setupBefore) { @{ 'cache-control' = 'no-cache'; 'if-match' = $setupBefore.ETag } } else { @{ 'cache-control' = 'no-cache'; 'if-none-match' = '*' } }
-  Put-Object 'setup.ps1' $SetupBytes $null $SetupSha 'text/plain; charset=utf-8' $setupPin
-  $setupSide = New-SidecarBytes $SetupSha 'setup.ps1'
+  Put-Object $SetupName $SetupBytes $null $SetupSha 'text/plain; charset=utf-8' $setupPin
+  $setupSide = New-SidecarBytes $SetupSha $SetupName
   $setupSidePin = if ($setupSideBefore) { @{ 'cache-control' = 'no-cache'; 'if-match' = $setupSideBefore.ETag } } else { @{ 'cache-control' = 'no-cache'; 'if-none-match' = '*' } }
-  Put-Object 'setup.ps1.sha256' $setupSide $null (Sha256-Bytes $setupSide) 'text/plain; charset=utf-8' $setupSidePin
-  [void](Assert-Object 'setup.ps1' $SetupSha)
-  [void](Assert-Object 'setup.ps1.sha256' (Sha256-Bytes $setupSide))
+  Put-Object "$SetupName.sha256" $setupSide $null (Sha256-Bytes $setupSide) 'text/plain; charset=utf-8' $setupSidePin
+  [void](Assert-Object $SetupName $SetupSha)
+  [void](Assert-Object "$SetupName.sha256" (Sha256-Bytes $setupSide))
   # installkosmos.com/setup.ps1 is the site's to redirect here; this checks the bucket's own address.
-  Assert-Served 'setup.ps1' $SetupSha -Bucket
-  Assert-Served 'setup.ps1.sha256' (Sha256-Bytes $setupSide) -Bucket
+  Assert-Served $SetupName $SetupSha -Bucket
+  Assert-Served "$SetupName.sha256" (Sha256-Bytes $setupSide) -Bucket
   $script:AfterNote = ''
   Write-ApprovalLine "$(Stamp) family=win path=promote-r2 version=$ApprovedVersion sha256=$ApprovedSha installer=published setup_sha256=$SetupSha $Where" -Outcome
 }

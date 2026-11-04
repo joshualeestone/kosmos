@@ -91,3 +91,7 @@ via tools/lib/win-staging-record.js):
   without the build commit refuses the whole release (documented in the header; skip-installer alternative to
   decide), W2 a zip with no source_sha has its installer taken on its sidecar, NIT1 rollback note, NIT2 harness
   compares against the working file, NIT3 a source_dirty NOTICE.
+- After review, CI fix (mechanical, behaviour-preserving): tools.ps-execpolicy-6569.test.js flags any code line
+  naming a .ps1 without -ExecutionPolicy. The installer is data here, never run, so its name now lives in two
+  constants ($SetupName, $SetupExt), which are listed in that test's REVIEWED with why. The on-box run was repeated
+  after the change: every case gives the same result and the same output text.
