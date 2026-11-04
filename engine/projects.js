@@ -3430,12 +3430,12 @@ function moveFolder(id, folder) {
 }
 
 /* #7968: what a project's folder would be called to match its name, or null when there is nothing to offer: the folder
-   already matches, the name cannot be a folder name, or the folder is not one Kosmos made under its projects root. A
-   folder the person chose stays theirs to name. */
+   already matches, the name cannot be a folder name here, or the folder is not directly under the projects root. */
 function folderRenameTarget(project) {
   if (!project || typeof project.folder !== 'string' || path.dirname(project.folder) !== projectsRoot()) return null;
   let want;
   try { want = folderNameFor(project.name); } catch { return null; }
+  if (process.platform === 'win32' && /[<>"|?*]|[. ]$/.test(want)) return null;
   return want === path.basename(project.folder) ? null : want;
 }
 
@@ -3451,25 +3451,31 @@ function renameFolderToName(id, { busy = [], homes = [] } = {}) {
   const want = folderRenameTarget(self);
   if (!want) throw new Error('there is no new name to give this folder');
   const now = folderState(self.folder);
-  if (now.state !== FOLDER.READABLE) throw new Error('this project\'s folder is not there to rename');
+  if (now.state !== FOLDER.READABLE) throw new Error('we cannot get to this project\'s folder to rename it');
   const refused = (message) => { const e = new Error(message); e.status = 409; return e; };
   // Both spellings of each side: a path through a symlink, or one that is not there yet, has no real form to compare.
   const spellings = (given, real) => (real && real !== given ? [given, real] : [given]);
   const heres = spellings(self.folder, now.real);
-  const overlaps = homes.some((h) => spellings(h, folderState(h).real).some((r) => heres.some((f) => pathHolds(f, r) || pathHolds(r, f))));
-  if (overlaps) throw refused('an agent lives in this folder, so it stays where it is');
-  if (busy.length) throw refused(busy.join(', ') + (busy.length === 1 ? ' is' : ' are') + ' working in this project. Try again when that has finished');
+  const holdsAny = (given, real) => spellings(given, real).some((r) => heres.some((f) => pathHolds(f, r)));
+  if (homes.some((h) => holdsAny(h, folderState(h).real))) throw refused('an agent lives in this folder, so it stays where it is');
+  const nested = all.find((p) => p.id !== id && typeof p.folder === 'string' && holdsAny(p.folder, folderState(p.folder).real));
+  if (nested) throw refused('the project "' + nested.name + '" is inside this folder, so it stays where it is');
+  if (busy.length) throw refused(busy.join(', ') + (busy.length === 1 ? ' is' : ' are') + ' busy on this project. Try again when that has finished');
   const target = path.join(path.dirname(self.folder), want);
   const there = folderState(target);
   const onlyCaseDiffers = there.state !== FOLDER.MISSING && there.real === now.real;
   if ((there.state !== FOLDER.MISSING && !onlyCaseDiffers) || all.some((p) => p.id !== id && p.folder === target)) {
     throw refused('there is already a folder called ' + want);
   }
-  try { fs.renameSync(self.folder, target); } catch (e) {
-    throw refused('that folder could not be renamed, perhaps because something has it open (' + (e.code || e.message) + ')');
+  try { fs.renameSync(self.folder, target); } catch {
+    throw refused('that folder could not be renamed. Something may have it open, so close it and try again');
   }
   try { return mutate(id, (p) => { p.folder = target; return p; }); } catch (e) {
-    fs.renameSync(target, self.folder);
+    try { fs.renameSync(target, self.folder); } catch {
+      const stuck = new Error('the folder was renamed to ' + want + ', but Kosmos could not save that or put it back. Use "Use this location" on this page to point Kosmos at ' + target);
+      stuck.status = 500;
+      throw stuck;
+    }
     throw e;
   }
 }
@@ -4406,7 +4412,7 @@ module.exports = { heldOwnQuestion /* #7916 */, exactPathStat, windowsProjectFol
   joinTaskClaims, swarmOffIn, swarmOffSet, isPaused, isSwarmOff, setSwarmOn, SWARM_OFF_SENTENCE, memberValve, processMemberChanges, ageMemberChangesForTests, MEMBERS_PER_HOUR, toldOverride, tellWriteBecause,
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, DMFILES_START, DMFILES_END, DMFILES_TOP_START, DMFILES_TOP_END, SWARM_START, SWARM_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, COMMUNITY_START, COMMUNITY_END, LANGUAGE_START, LANGUAGE_END, TEAM_START, TEAM_END, CARRIED_NOTES_START, CARRIED_NOTES_END, teamBlockState, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, needsYouReason, needsYouReasonPastUsage, dismissNeeds, NEEDS_REASONS, andList, setRoleHere, ROLE_HERE_MAX, roleHereOf, reviewOnlyHere,
-  list, get, projectsFor, namesFor, create, edit, moveFolder, renameFolderToName, rename, addAgent, removeAgent, remove, mutate,
+  list, get, projectsFor, namesFor, create, edit, moveFolder, renameFolderToName, folderRenameTarget, rename, addAgent, removeAgent, remove, mutate,
   WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   BRIEF_STUB_FILENAME, BRIEF_GOAL_PLACEHOLDER, briefStubContent, seedBriefStub, briefIsPending, BRIEF_PENDING_NOTE, BRIEF_PENDING_NOTES_BEFORE_AUDIENCE,
   BRIEF_DONE_PLACEHOLDER, BRIEF_DONE_PLACEHOLDERS, doneIsPending, doneWrittenIn, doneHeadingIsOwn, doneNotWrittenNote, doneMarkdown, DONE_PENDING_NOTE, BRIEF_AND_DONE_PENDING_NOTE, cleanDone, fillDone, WELCOME_DONE,
