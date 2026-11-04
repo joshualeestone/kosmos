@@ -35,7 +35,7 @@ struct RoomView: View {
     @State private var atBottom = true
     // kosmos#7645: the debug scroll-up (KOSMOS_SAMPLE_ROOM_SCROLLUP) has come to rest; a UI test taps the box only then.
     @State private var sampleScrollRested = false
-    @State private var sampleShownOnce = false   // kosmos#7645: "room shown" once per launch, "room back" after (Debug trace)
+    @State private var sampleShownOnce = false   // kosmos#7645: "room shown" on this view's first appearance, "room back" after (Debug trace)
     // kosmos#7654: the latest opening jump to the end (goEnd); a newer one, or none, stops an older one's retries.
     @State private var endJumps = 0
     // kosmos#7654 part 2 review: the room's own jumps (toEnd, toRow), as the DM's appMoves: part of the hold's moves key so a
@@ -881,6 +881,8 @@ struct RoomView: View {
             // flash does not set), acted on once it is up. Not animated under the anchor, as the DM.
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 keepNewestOnKeyboard = visible && holdAtEnd && !searchMode
+                // kosmos#7645 review 4: what decided it, so a lost newest post can be read from the trace.
+                ChatView.trace("room: keyboard will-show, keep newest \(keepNewestOnKeyboard) (visible \(visible), at end \(holdAtEnd), search \(searchMode))")
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
                 guard keepNewestOnKeyboard, visible else { return }

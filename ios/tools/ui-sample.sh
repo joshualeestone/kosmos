@@ -109,12 +109,12 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
     # Every check of the two keyboard classes, in the order the log has them, with its result (not all of them trace).
-    ran="$(grep -o -E "^Test Case '-\[KosmosUITests\.(KeyboardSlideUITests|RoomKeyboardUITests) [A-Za-z0-9_]+\]' (passed|failed)" "$log" \
-      | sed -E "s/^.* ([A-Za-z0-9_]+)\]' (passed|failed)$/\1 \2/" | paste -sd ',' - | sed 's/,/, /g')"
+    order="$(grep -o -E "^Test Case '-\[KosmosUITests\.(KeyboardSlideUITests|RoomKeyboardUITests) [A-Za-z0-9_]+\]' (passed|failed|skipped)" "$log" \
+      | sed -E "s/^.* ([A-Za-z0-9_]+)\]' (passed|failed|skipped)$/\1 \2/" | paste -sd ',' - | sed 's/,/, /g')"
     lines="$(wc -l < "$data/Documents/trace.txt" | tr -d ' ')"
     # One file, appended by every traced launch (XCTest runs the classes in name order and each class's checks in name
     # order), so a tail can hold only the checks after the one that failed (#7645 review 1): always the whole file.
-    echo "  the app's whole scroll trace, $lines lines, one file for every traced launch; keyboard checks in the order they ran: $ran"
+    echo "  the app's whole scroll trace, $lines lines, one file for every traced launch; keyboard checks in the order they ran: $order"
     sed 's/^/    /' "$data/Documents/trace.txt"
   else
     echo "  (no scroll trace from the app)"
