@@ -1,7 +1,7 @@
 # sigpipe-7946: `kosmos agent remove` (Mac CLI) red on macOS CI, 141 and a lost control request (kosmos#7946)
 
 ## What the evidence says (measured)
-- Three reds on three unrelated PRs (#7934, #7940, #7923), all in cli.agent-remove-7362.test.js's Mac half.
+- Four reds on three unrelated PRs (#7934, #7940, #7923 twice), all in cli.agent-remove-7362.test.js's Mac half.
 - #7940's red (`141 !== 1`, partial removal) printed a generated assertion message, so the CLI's own output (the
   message argument, `r.out`) was EMPTY: it exited 141 in 940 ms having said nothing, so before line ~7440, the first
   line that prints. Exit 141 as a CODE (not a signal) means bash itself exited with a pipeline's 141 under
