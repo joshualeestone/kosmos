@@ -17,8 +17,8 @@ Decided:
   The desktop's dots have the same light-ground contrast gap; recorded on the card, not changed in this slice.
 - Orbs on screen in one frame share one placing (time rounded to the 30 fps frame), as the desktop does (round 2);
   measured about 0.2 ms per frame for place and grouping on a Mac; the FILL is the cost (round 3): 2.6 to 4 ms per
-  orb per frame at 3x as ellipses, 0.64 ms at 16 pt once sub-pixel dots are filled as squares. Small orbs (20 pt and
-  under) run at 15 fps. The dots and letter cuts are built off the main
+  orb per frame at 3x as ellipses, 0.64 ms at 16 pt once sub-pixel dots are filled as squares. Every orb runs at 15 fps
+  (round 4: one rate, so orbs of two sizes share one placing). Sub-pixel dots are squares of the same area. The dots and letter cuts are built off the main
   thread at launch (OrbLogic.warm), so the first orb shown does not stall a frame.
 - VoiceOver: the orb is hidden wherever text beside it says what is loading (13 sites), and says "Loading" (or the
   site's own label) where it stands alone.
@@ -28,9 +28,10 @@ Decided:
 - Time is wrapped to the 27 s loop before the trigonometry (the clock's seconds are too large for it).
 Rejected: a GIF or video asset (heavier, no Reduce Motion, blurry at small sizes).
 
-Weakest premise: frame cost and how faint the 16 pt orb reads on an older iPhone, not measured on a device (the Mac
-render at 3x reads). the .animation
-schedule pauses with the app in the background (whether it pauses for a view kept alive out of sight is not verified); the next lever is fewer dots below 20 pt.
+Weakest premise: frame cost, and how faint the 16 pt orb reads, on an older iPhone; neither is measured on a device
+(the Mac render at 3x reads, and the fill is measured on a Mac). The .animation schedule pauses with the app in the
+background; whether it pauses for a view kept alive out of sight is not verified. The next lever is fewer dots below
+20 pt.
 
 Tests: ios/LogicTests/run-orb.sh (also pins the desktop's place() at t = 0 and t = 13.37: counts 1627 and 1389 and one
 dot each, red when one current constant changes) (wired into .github/workflows/ios.yml as "Orb logic tests"): 2200 dots and the first
