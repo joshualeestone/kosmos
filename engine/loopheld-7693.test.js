@@ -70,6 +70,31 @@ test('lines are capped per minute, and the cap resets', () => {
   assert.equal(lines.length, held.MAX_PER_MINUTE + 1);
 });
 
+test('the blocking time is capped at the stall (the window also holds the half second before it)', () => {
+  const { lines, state, after } = rig();
+  state.blocked = 2300;
+  after(held.TICK_MS + 2000);
+  assert.deepEqual(lines, ['[loop-held] 2000 ms, 2000 ms of it in blocking commands']);
+});
+
+test('perMinute writes up to its cap, then again a minute on', () => {
+  const lines = [];
+  let t = 0;
+  const say = held.perMinute((l) => lines.push(l), 2, () => t);
+  say('a'); say('b'); say('c');
+  assert.deepEqual(lines, ['a', 'b']);
+  t += 59999; say('d');
+  assert.deepEqual(lines, ['a', 'b'], 'control: still inside the minute');
+  t += 1; say('e');
+  assert.deepEqual(lines, ['a', 'b', 'e']);
+});
+
+test('status.js writes its slow snapshot line through the cap', () => {
+  const src = fs.readFileSync(path.join(__dirname, 'status.js'), 'utf8');
+  assert.ok(src.includes("if (took >= 1000) slowSnapshotLine('[slow-snapshot] ' + took + ' ms');"));
+  assert.ok(src.includes("const slowSnapshotLine = require('./loopheld').perMinute("));
+});
+
 test('a failing logger or counter does not reach the board', () => {
   let t = 0;
   const w = held.watch({ log: () => { throw new Error('log'); }, now: () => t, setInterval: () => ({}) });
