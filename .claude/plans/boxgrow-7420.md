@@ -15,7 +15,10 @@ simulator does not reproduce the blank) and guarded by the room logic checks and
   list's bottom padding listPadV + 4 pt) -> scrolled to the end marker by id, as did-show does. A reader higher up (atBottom
   false) is never moved, nor one who nudged up a little after a thread read. The keepAtEnd ask is on the id-anchor path
   (iOS 17+) only; iOS 16 keeps its own two scrollTo calls. A box change counts for boxAskCarries (1.5 s), so a message
-  arriving inside its looks does not drop the box-cover test. Neither arm acts inside a rebuild's grace.
+  arriving inside its looks does not drop the box-cover test. Neither arm acts inside a rebuild's grace. After its id
+  scroll the settled look looks once more (keyboardSettle later) and only puts back a landing past the end: unlike the
+  rejected follow (build 29, a scroll on every wrap with nothing checking where it landed), this scroll runs only when
+  the newest is measured not showing, and its landing is checked.
 - Limits: the looks also run while a chat opens (a pinned read before the end is seen); the rebuild waits for a first
   drawing there, the id scroll does not (it goes where the open is going anyway). Before iOS 18 the end marker leaving
   the screen clears atBottom, so the end-gone arm mostly reaches iOS 18+ (Josh's phone is iOS 26). No CI check exercises
