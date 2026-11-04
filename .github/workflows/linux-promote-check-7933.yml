@@ -1,11 +1,12 @@
 # kosmos#7933: the #7777 promote check's Linux legs, on a STOCK Ubuntu 24.04 (real x86_64, real systemd), against what
 # the site serves: prod's own verifier on the staged Linux tarball (with controls), the data going up to staging and back
-# to prod, and a prod install from the served /setup updated to staging by the served /setup-staging (how a Linux board
-# updates: it does not self-install). The fresh install from /setup-staging is
+# to prod, and a prod install from the served /setup updated in place by the served installer with
+# KOSMOS_UPDATE_CHANNEL=staging (how a Linux board updates: it does not self-install). The fresh install from /setup-staging is
 # linux-family-install-7281.yml; run both for a promote check:
 #     gh workflow run linux-family-install-7281.yml -f channel=staging
 #     gh workflow run linux-promote-check-7933.yml
-# Not on pull requests: it reads the live site, so a PR cannot change what it tests. The legs are
+# Not on pull requests: it reads the live site, so a PR cannot change what it tests. A promote does not wait for it:
+# tools/promote-channel.sh runs neither workflow, so the #7777 check runs them by hand and cites the runs. The legs are
 # tools/promote-check-legs-7933.sh (verify and data also run on a Mac: `bash tools/promote-check-legs-7933.sh data mac`).
 
 name: linux-promote-check
@@ -39,6 +40,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Hide every system node, so the legs run on the builds' own
         run: |
           for n in $( (which -a node nodejs 2>/dev/null || true) | sort -u); do sudo mv "$n" "$n.hidden-7933" && echo "$n" >> "$RUNNER_TEMP/hidden-nodes-7933"; done
@@ -57,6 +60,8 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Hide every system node, so the install must bring its own
         run: |
           for n in $( (which -a node nodejs 2>/dev/null || true) | sort -u); do sudo mv "$n" "$n.hidden-7933" && echo "$n" >> "$RUNNER_TEMP/hidden-nodes-7933"; done

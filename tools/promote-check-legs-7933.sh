@@ -7,7 +7,7 @@
 #   data    prod seeded and booted, then staging, staging again, then prod again, on one sandboxed data set with every
 #           Kosmos service closed; each boot answers health and page with no error lines and the seed reads back
 #   update  a prod install from the served /setup is updated to staging the way a Linux board is: the served
-#           /setup-staging run over it (Linux boards do not self-install: engine/platform.js SELF_INSTALL is darwin
+#           installer run over it with KOSMOS_UPDATE_CHANNEL=staging (Linux boards do not self-install: engine/platform.js SELF_INSTALL is darwin
 #           and win32, so their own /api/update refuses; see #7935). The project is kept, and systemd runs a new
 #           board process that loaded the staged version. Linux only: it installs for real under systemd, so it refuses to run outside CI.
 #
@@ -36,7 +36,7 @@ fetch() {  # <pointer file> <label>; leaves $W/<label>/ unpacked and $W/<label>.
   curl -fsS -m 30 "$SITE/dist/$ptr" -o "$W/$lb.json" || { echo "no $ptr is served"; return 1; }
   a="$(field artifact "$W/$lb.json")"; m="$(field manifest "$W/$lb.json")"; want="$(field sha256 "$W/$lb.json")"
   [ -n "$a" ] && [ -n "$m" ] && [ -n "$want" ] && [ -n "$(field version "$W/$lb.json")" ] || { echo "$ptr has no version, artifact, manifest or sha256"; return 1; }
-  for f in "$a" "$m" "$m.sig"; do curl -fsS -m 300 "$SITE/dist/$f" -o "$W/dl/$f" || { echo "could not fetch $f"; return 1; }; done
+  for f in "$a" "$m" "$m.sig"; do case "$f" in */*|.*) echo "$ptr names '$f', not a plain file name"; return 1 ;; esac; curl -fsS -m 300 "$SITE/dist/$f" -o "$W/dl/$f" || { echo "could not fetch $f"; return 1; }; done
   [ "$(sha "$W/dl/$a")" = "$want" ] || { echo "$a does not hash to the pointer's $want"; return 1; }
   rm -rf "${W:?}/$lb"; mkdir -p "$W/$lb"; tar -xzf "$W/dl/$a" -C "$W/$lb" || { echo "could not unpack $a"; return 1; }
   field version "$W/$lb.json" > "$W/$lb.ver"
@@ -72,7 +72,7 @@ leg_verify() {
 # ---- data --------------------------------------------------------------------------------------------------------
 leg_data() (  # a subshell: the sandbox env stays in it
   SB="$W/sb"; rm -rf "$SB"; mkdir -p "$SB"/{home,data,projects,workers,launch,tmux}
-  PORT="${DATA_PORT:-17641}"; NODE="$W/prod/runtime/bin/node"
+  PORT="${DATA_PORT:-17641}"
   printf '#!/bin/sh\nexit 0\n' > "$SB/tmuxstub"; chmod +x "$SB/tmuxstub"
   export HOME="$SB/home" AGENT_WORKFORCE_DATA="$SB/data" AGENT_WORKFORCE_PROJECTS="$SB/projects" AGENT_WORKFORCE_WORKERS="$SB/workers"
   export AGENT_WORKFORCE_CLAUDE_CONFIG="$SB/claude.json" AGENT_WORKFORCE_LAUNCH="$SB/launch" TMUX_TMPDIR="$SB/tmux" PORT
@@ -86,25 +86,26 @@ leg_data() (  # a subshell: the sandbox env stays in it
     local h pg e api
     # Something else answering on the port would pass every boot below, so it must be free first.
     if curl --noproxy '*' -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/api/health"; then echo "  $2: port $PORT already answers, not this board"; bad=1; return; fi
-    "$NODE" "$W/$1/app/server.js" > "$SB/board-$2.log" 2>&1 & p=$!
+    "$W/$1/runtime/bin/node" "$W/$1/app/server.js" > "$SB/board-$2.log" 2>&1 & p=$!   # each build on its own node
     for _ in $(seq 1 60); do curl --noproxy '*' -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/api/health" && break; kill -0 "$p" 2>/dev/null || break; sleep 1; done
     h="$(curl --noproxy '*' -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/health")"
     pg="$(curl --noproxy '*' -s -m 8 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/")"
     # The running board serves the seed, not only the files reading back through the engine.
-    if curl --noproxy '*' -s -m 8 "http://127.0.0.1:$PORT/api/projects" | grep -q '"name":"Masterclass prep"'; then api=served; else api="NOT served"; bad=1; fi
+    local body; body="$(curl --noproxy '*' -s -m 8 "http://127.0.0.1:$PORT/api/projects")"
+    case "$body" in *'"name":"Masterclass prep"'*) api=served ;; *) api="NOT served"; bad=1 ;; esac
     kill -0 "$p" 2>/dev/null || { echo "  $2: the board died"; bad=1; }
     kill "$p" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8; do kill -0 "$p" 2>/dev/null || break; sleep 1; done
     kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null; wait "$p" 2>/dev/null; p=""
     e="$(grep -ciE 'FAIL|unhandled|uncaught|TypeError|ReferenceError|SyntaxError|EACCES|EADDRINUSE|corrupt' "$SB/board-$2.log")"
     echo "  $2: health $h, page $pg, project $api over /api/projects, error lines $e"
-    [ "$e" = 0 ] || grep -iE 'FAIL|unhandled|uncaught|TypeError|ReferenceError|SyntaxError|EACCES|EADDRINUSE|corrupt' "$SB/board-$2.log" | head -5 | sed 's/^/    /' 
+    [ "$e" = 0 ] || grep -iE 'FAIL|unhandled|uncaught|TypeError|ReferenceError|SyntaxError|EACCES|EADDRINUSE|corrupt' "$SB/board-$2.log" | head -5 | sed 's/^/    /'
     [ "$h" = 200 ] && [ "$pg" = 200 ] && [ "$e" = 0 ] || bad=1
   }
   readback() {  # <build dir> <label>
-    local out; out="$("$NODE" "$HERE/promote-check-seed-7933.js" "$W/$1/app" read 2>&1)"; echo "  $2 read: $out"
+    local out; out="$("$W/$1/runtime/bin/node" "$HERE/promote-check-seed-7933.js" "$W/$1/app" read 2>&1)"; echo "  $2 read: $out"
     [ "$out" = "read projects 1 Masterclass prep:2 held 1" ] || bad=1
   }
-  "$NODE" "$HERE/promote-check-seed-7933.js" "$W/prod/app" seed || { echo "LEG data: FAIL could not seed with prod"; exit 1; }
+  "$W/prod/runtime/bin/node" "$HERE/promote-check-seed-7933.js" "$W/prod/app" seed || { echo "LEG data: FAIL could not seed with prod"; exit 1; }
   boot prod "first-$PV"; readback prod "first-$PV"
   boot staging "then-$SV"; readback staging "then-$SV"
   boot staging "again-$SV"
@@ -130,19 +131,27 @@ leg_update() {
   # page's kosmos-version meta is read from disk per request, so an old process would name new files.
   ver() { curl -s -m 5 -D - -o /dev/null "http://127.0.0.1:$port/" | tr -d '\r' | sed -n 's/^[xX]-[kK]osmos-[bB]oard: *\([^@+]*\).*/\1/p' | head -1; }
   bpid() { systemctl --user show -p MainPID --value kosmos-board.service 2>/dev/null; }
+  # The process listening on the port is systemd's board or a child of it, so the header read below is that board's.
+  ours() {
+    local l q i
+    l="$(ss -ltnpH "sport = :$port" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' | head -1)"; q="$l"
+    for i in 1 2 3 4 5 6; do [ -n "$q" ] && [ "$q" != 0 ] || return 1; [ "$q" = "$1" ] && return 0; q="$(awk '/^PPid:/{print $2}' "/proc/$q/status" 2>/dev/null)"; done
+    return 1
+  }
   # As linux-family-install-7281.yml: the unit and the board systemd runs carry the dead beacon, so it is not counted.
   beacon() {
     grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$HOME/.config/systemd/user/kosmos-board.service" \
-      && tr '\0' '\n' < "/proc/$(bpid)/environ" | grep -qxF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL"
+      && tr '\0' '\n' < "/proc/$(bpid)/environ" | grep -xF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" > /dev/null
   }
   got="$(ver)"; pid0="$(bpid)"; echo "  installed from /setup: $got (systemd MainPID $pid0)"
   [ "$got" = "$pv" ] || { fail update "/setup installed '$got', not prod's $pv"; return; }
+  ours "$pid0" || { fail update "the process answering port $port is not systemd's board ($pid0)"; return; }
   [ -n "${AGENT_WORKFORCE_CREATED_URL:-}" ] && beacon || { fail update "the prod board does not carry the dead install beacon (it would count as an install)"; return; }
   root="$HOME/Library/Application Support/Kosmos"; tok="$(cat "$root/board.token" 2>/dev/null)"
   [ -n "$tok" ] || { fail update "no board.token at $root"; return; }
   api() { curl -s -m 30 -H "x-kosmos-board-token: $tok" -H 'content-type: application/json' "$@"; }
   api -X POST "http://127.0.0.1:$port/api/projects" --data '{"name":"Masterclass prep"}' > /dev/null
-  api "http://127.0.0.1:$port/api/projects" | grep -q '"name":"Masterclass prep"' || { fail update "could not add a project to the prod install"; return; }
+  case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail update "could not add a project to the prod install"; return ;; esac
   echo staging > "$root/source-channel"
   # Only the check: pressing the board's own Update is refused on Linux today (#7935), and once it is not it would race
   # the installer below.
@@ -156,8 +165,10 @@ leg_update() {
   [ "$got" = "$sv" ] || { tail -20 "$HOME/.local/share/kosmos/logs/install.log" 2>/dev/null; fail update "the answering board loaded $got, not $sv"; return; }
   [ "$(systemctl --user is-active kosmos-board.service)" = active ] || { fail update "systemd does not run the updated board"; return; }
   [ -n "$pid1" ] && [ "$pid1" != 0 ] && [ "$pid1" != "$pid0" ] || { fail update "systemd's board process did not change ($pid0 -> $pid1): the board was not restarted"; return; }
+  ours "$pid1" || { fail update "the process answering port $port is not systemd's updated board ($pid1)"; return; }
   beacon || { fail update "the updated board does not carry the dead install beacon"; return; }
-  api "http://127.0.0.1:$port/api/projects" | grep -q '"name":"Masterclass prep"' || { fail update "the project was not kept"; return; }
+  case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail update "the project was not kept"; return ;; esac
+  grep -qx staging "$root/source-channel" || { fail update "the in-place update stamped '$(cat "$root/source-channel" 2>/dev/null)', not staging"; return; }
   pass update
 }
 
