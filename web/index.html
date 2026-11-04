@@ -3148,8 +3148,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
    used for agent restart, not a loader. ONE markup shape sized by --sz:
    <span class="spin spin-sweep" style="--sz:16px"> with eight <i></i>. Each <i> is a rotator;
    its ::before is the dot on the ring, and the dots light one after another around it. Gold by
-   default; on a gold .btn it flips to ink so it stays visible. Kept byte-faithful to the design
-   page so the app and the design record cannot drift. Reduced motion calms to one slow pulse
+   default; on a gold .btn it flips to ink so it stays visible. Since #7896 (Josh 2026-11-03) the
+   KOSMOS orb (KORB, in the script) is drawn over these dots and hides them; they show only until the script runs. Reduced motion calms to one slow pulse
    (no travel), so it still says "working" without the movement. */
 .spin { position: relative; display: inline-block; width: var(--sz); height: var(--sz); flex: none;
         vertical-align: -0.18em; --sz: 16px; --dot: calc(var(--sz)*0.19); --spin-dot: var(--gold); }
@@ -3179,7 +3179,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .spin > canvas.korb { position: absolute; inset: 0; width: 100%; height: 100%; }
 .wake-done { display: inline-block; width: 16px; height: 16px; margin-right: 8px; vertical-align: -0.2em; color: var(--ok); }
 /* Accessibility: honour reduced-motion. Keep ONE calm pulse so the "working" signal
-   survives, but stop the travel that can bother a motion-sensitive reader. */
+   survives, but stop the travel that can bother a motion-sensitive reader. (#7896: this is the dots' rule, before
+   the script runs; KORB draws the orb once and holds it still.) */
 @media (prefers-reduced-motion: reduce) {
   .spin i::before { animation: calmPulse 1.6s ease-in-out infinite !important;
      transform: none !important; opacity: .85; }
@@ -46816,7 +46817,6 @@ function usageHistoryHtml(byDay) {
     + rows.join('');
 }
 let USAGE_BUSY = false;
-/* #5362: the standard loading spinner (Take D Sweep), beside Token Usage's reading line while /api/usage loads. */
 /* #7896 (Josh 2026-11-03: "Let's do it. Can you replace it wherever we have the current spinning one?", "keep it the
    same sized circle"): the loading mark is the KOSMOS orb. Every .spin.spin-sweep keeps its markup, size (--sz) and
    colour (--spin-dot, ink on a gold .btn); this draws the orb into a canvas inside it and the CSS hides the old dots.
@@ -46858,14 +46858,14 @@ const KORB = (() => {
     const c = Math.max(0, Math.min(CN - 1, Math.floor((x + 1) / 2 * CN))), r = Math.max(0, Math.min(CN - 1, Math.floor((y + 1) / 2 * CN)));
     return cuts[i][r * CN + c];
   };
-  /* One frame of the orb at time t (seconds) into a 2d context of side `side` device pixels. */
-  function draw(g, side, t, colour) {
+  /* Where every dot is at time t (seconds): worked out ONCE per frame and shared by every orb on screen. Each entry is
+     [x, y, z, size, visibility] in orb units, sorted far to near. */
+  function place(t) {
     cutsNow();
-    g.clearRect(0, 0, side, side);
     const a = 2 * Math.PI * t / PERIOD, ca = Math.cos(a), sa = Math.sin(a), ph = a;
     const pha = a + Math.PI / 2, step = Math.floor(pha / Math.PI), into = pha - step * Math.PI;
     const cur = ((step % 6) + 6) % 6, prev = (cur + 5) % 6, wNew = Math.min(1, into / 0.5);
-    const R = side * 0.46, CAM = 6, out = [];
+    const out = [];
     for (const d of dots) {
       let ox = d.x, oy = d.y, oz = d.z;
       for (const c of CUR) {
@@ -46880,54 +46880,82 @@ const KORB = (() => {
       if (m > 0) { ox *= mm / m; oy *= mm / m; oz *= mm / m; }
       const vc = Math.max(0, Math.min(1, gap(cur, ox, oy) / 0.035)), vp = Math.max(0, Math.min(1, gap(prev, ox, oy) / 0.035));
       const vis = 1 - Math.max(wNew * (1 - vc), (1 - wNew) * (1 - vp));
-      if (vis <= 0) continue;
-      out.push([ox * ca + oz * sa, oy, -ox * sa + oz * ca, d.r, vis]);
+      if (vis > 0) out.push([ox * ca + oz * sa, oy, -ox * sa + oz * ca, d.r, vis]);
     }
-    out.sort((p, q) => q[2] - p[2]);
+    return out.sort((p, q) => q[2] - p[2]);
+  }
+  /* Those dots into a 2d context of side `side` device pixels, in one colour. */
+  function paint(g, side, pts, colour) {
+    g.clearRect(0, 0, side, side);
     g.fillStyle = colour;
-    const px = side * 0.009;   // a dot is under 2% of the orb, so many small dots blend into a clear letter
-    for (const [X, Y, Z, r, vis] of out) {
+    const R = side * 0.46, CAM = 6, px = side * 0.009;   // a dot is under 2% of the orb, so many small dots blend into a clear letter
+    for (const [X, Y, Z, r, vis] of pts) {
       const f = CAM / (CAM + Z), front = Math.max(0, Math.min(1, (1 - Z) / 2));
       g.globalAlpha = (0.25 + 0.75 * Math.pow(front, 1.4)) * vis;
       g.beginPath(); g.arc(side / 2 + X * R * f, side / 2 + Y * R * f, Math.max(0.35, r * px * f), 0, 6.283); g.fill();
     }
     g.globalAlpha = 1;
   }
+  function draw(g, side, t, colour) { paint(g, side, place(t), colour); }
   const still = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
-  /* Puts a canvas in each .spin-sweep that has none, sized to its --sz at the screen's pixel density. */
+  /* Each spinner's canvas, made on first sight; its backing store follows its laid-out size (offsetWidth, so a
+     scale-in transition does not resize it every frame) times the screen's pixel density. */
   function fit(span) {
     let cv = span.querySelector(':scope > canvas.korb');
-    const sz = span.getBoundingClientRect().width || parseFloat(getComputedStyle(span).width) || 16;
-    const side = Math.max(8, Math.round(sz * (window.devicePixelRatio || 1)));
     if (!cv) { cv = document.createElement('canvas'); cv.className = 'korb'; cv.setAttribute('aria-hidden', 'true'); span.appendChild(cv); span.classList.add('korb-on'); }
-    if (cv.width !== side) { cv.width = side; cv.height = side; cv.dataset.drawn = ''; }
+    const side = Math.max(8, Math.round((span.offsetWidth || 16) * (window.devicePixelRatio || 1)));
+    if (cv.width !== side) { cv.width = side; cv.height = side; cv.korbKey = ''; }
     return cv;
   }
-  let running = false, t0 = 0, last = -1e9;
+  /* Only VISIBLE spinners are drawn, and the loop runs only while one is. Four spinners live hidden in the page from
+     the start, so "is there a spinner" is never the test: an IntersectionObserver says which are showing (hidden,
+     display:none, a closed dialog and off-screen all read as not), and a MutationObserver hands it each new one. */
+  const shown = new Set();
+  let running = false, t0 = 0, last = -1e9, ticks = 0;
   function frame(now) {
-    const spans = document.querySelectorAll('.spin.spin-sweep');
-    if (!spans.length) { running = false; return; }
-    if (now - last < 33) { requestAnimationFrame(frame); return; }   // 30 a second: the turn is slow, and it halves the cost
-    last = now;
-    const t = (now - t0) / 1000, calm = still();
-    for (const s of spans) {
-      if (!s.getClientRects().length) continue;   // hidden: nothing to draw
+    for (const s of shown) if (!s.isConnected) shown.delete(s);
+    if (!shown.size) { running = false; return; }
+    if (now - last < 30) { requestAnimationFrame(frame); return; }   // about 30 a second: the turn is slow, and it halves the cost
+    last = now; ticks++;
+    const calm = still(), pts = calm ? null : place((now - t0) / 1000);
+    for (const s of shown) {
       const cv = fit(s);
-      if (calm && cv.dataset.drawn === '1') continue;
-      const colour = getComputedStyle(s).getPropertyValue('--spin-dot').trim() || '#d6a62e';
-      draw(cv.getContext('2d'), cv.width, calm ? 0 : t, colour);
-      cv.dataset.drawn = '1';
+      if (!cv.korbColour || ticks % 30 === 0) cv.korbColour = getComputedStyle(s).getPropertyValue('--spin-dot').trim() || '#d6a62e';
+      const key = calm ? 'still ' + cv.korbColour : '';
+      if (calm && cv.korbKey === key) continue;   // still: drawn once per colour, then left alone
+      paint(cv.getContext('2d'), cv.width, calm ? place(0) : pts, cv.korbColour);
+      cv.korbKey = key;
     }
+    if (calm) { running = false; return; }   // nothing moves; a change of colour, size or setting starts it again
     requestAnimationFrame(frame);
   }
   function start() { if (running) return; running = true; if (!t0) t0 = performance.now(); requestAnimationFrame(frame); }
-  if (typeof MutationObserver === 'function' && typeof document !== 'undefined') {
-    const go = () => { if (document.querySelector('.spin.spin-sweep')) start(); };
-    new MutationObserver(go).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'class', 'style'] });
-    go();
+  let io = null;
+  const watch = (root) => {
+    if (!io || !root || root.nodeType !== 1) return;
+    if (root.matches && root.matches('.spin.spin-sweep')) io.observe(root);
+    if (root.querySelectorAll) for (const s of root.querySelectorAll('.spin.spin-sweep')) io.observe(s);
+  };
+  if (typeof IntersectionObserver === 'function' && typeof MutationObserver === 'function' && typeof document !== 'undefined') {
+    io = new IntersectionObserver((entries) => {
+      for (const e of entries) { if (e.isIntersecting) { shown.add(e.target); if (e.target.querySelector('canvas.korb')) e.target.querySelector('canvas.korb').korbKey = ''; } else shown.delete(e.target); }
+      if (shown.size) start();
+    });
+    new MutationObserver((recs) => { for (const r of recs) for (const n of r.addedNodes) watch(n); })
+      .observe(document.documentElement, { childList: true, subtree: true });
+    watch(document.documentElement);
+    // A theme change recolours: forget each colour and draw again (a still orb would otherwise keep the old one).
+    const recolour = () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) { c.korbColour = ''; c.korbKey = ''; } } if (shown.size) start(); };
+    const themeWatch = new MutationObserver(recolour);
+    themeWatch.observe(document.documentElement, { attributes: true });
+    if (document.body) themeWatch.observe(document.body, { attributes: true });
+    try { matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) c.korbKey = ''; } if (shown.size) start(); }); } catch (e) { /* older engines: the next show redraws */ }
+    // The letter cuts take a moment to work out: do it while the page is idle, not when a loading state first shows.
+    (window.requestIdleCallback || ((f) => setTimeout(f, 2000)))(() => cutsNow());
   }
-  return { draw, start, letters: WORD.length };
+  return { draw, start, letters: WORD.length, running: () => running };
 })();
+/* #5362: the standard loading spinner (Take D Sweep), beside Token Usage's reading line while /api/usage loads. */
 const LOAD_SPIN_HTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 async function paintUsage() {
   const msg = document.getElementById('usage-msg');
