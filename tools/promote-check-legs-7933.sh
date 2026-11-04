@@ -6,8 +6,10 @@
 #           tarball and the right manifest checked as another version (the controls)
 #   data    prod seeded and booted, then staging, staging again, then prod again, on one sandboxed data set with every
 #           Kosmos service closed; each boot answers health and page with no error lines and the seed reads back
-#   update  a prod install from the served /setup updates itself to staging through its own /api/update, and keeps
-#           its project (Linux only: it installs for real under systemd, so it refuses to run outside CI)
+#   update  a prod install from the served /setup is updated to staging the way a Linux board is: the served
+#           /setup-staging run over it (Linux boards do not self-install; engine/platform.js SELF_INSTALL is darwin
+#           and win32, so their /api/update refuses, which this leg records). The project is kept and systemd runs
+#           the updated board. Linux only: it installs for real under systemd, so it refuses to run outside CI.
 #
 #   bash tools/promote-check-legs-7933.sh <verify|data|update|all> [linux|mac]
 # PLATFORM picks the pointers: linux reads dist/latest-linux.json and dist/latest-linux-staging.json; mac reads
@@ -120,10 +122,14 @@ leg_update() {
   api -X POST "http://127.0.0.1:$port/api/projects" --data '{"name":"Masterclass prep"}' > /dev/null
   api "http://127.0.0.1:$port/api/projects" | grep -q '"name":"Masterclass prep"' || { fail update "could not add a project to the prod install"; return; }
   echo staging > "$root/source-channel"
-  echo "  check: $(api -X POST "http://127.0.0.1:$port/api/update/check" --data '{}' | head -c 300)"
-  echo "  update: $(api -X POST "http://127.0.0.1:$port/api/update" --data '{}' | head -c 300)"
-  for _ in $(seq 1 120); do [ "$(ver)" = "$sv" ] && break; sleep 5; done
-  got="$(ver)"; echo "  after its own update: $got (staging pointer $sv)"
+  echo "  board's own check: $(api -X POST "http://127.0.0.1:$port/api/update/check" --data '{}' | head -c 300)"
+  echo "  board's own update (refused on Linux by design): $(api -X POST "http://127.0.0.1:$port/api/update" --data '{}' | head -c 300)"
+  curl -fsSL "$SITE/setup-staging" -o "$W/setup-staging.sh" || { fail update "could not fetch $SITE/setup-staging"; return; }
+  KOSMOS_UPDATE_CHANNEL=staging KOSMOS_RELEASE_BASE="$SITE/dist" sh "$W/setup-staging.sh" > "$W/setup-staging.log" 2>&1 \
+    || { tail -20 "$W/setup-staging.log"; fail update "/setup-staging over the prod install failed"; return; }
+  grep -E 'on disk now|already|updat' "$W/setup-staging.log" | head -4 | sed 's/^/  setup-staging: /'
+  for _ in $(seq 1 60); do [ "$(ver)" = "$sv" ] && break; sleep 2; done
+  got="$(ver)"; echo "  after /setup-staging over it: $got (staging pointer $sv)"
   [ "$got" = "$sv" ] || { tail -20 "$HOME/.local/share/kosmos/logs/install.log" 2>/dev/null; fail update "the board answers $got, not $sv"; return; }
   [ "$(systemctl --user is-active kosmos-board.service)" = active ] || { fail update "systemd does not run the updated board"; return; }
   api "http://127.0.0.1:$port/api/projects" | grep -q '"name":"Masterclass prep"' || { fail update "the project was not kept"; return; }
