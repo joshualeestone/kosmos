@@ -169,30 +169,43 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     host.remove();
     return { avgRed: n ? Math.round(r / n) : -1 };
   });
-  /* #7896 follow-up: off a gold button the orb is drawn in --spin-gold, the deep gold #9c741b on a light ground (it is
-     3:1 or more on every light ground; --gold is about 2.1:1) and --gold #d6a62e on a dark one. Read per theme, by the
-     colour of the drawn pixels, the same way as the gold-button arm above. */
-  const themeGold = await page.evaluate(async () => {
+  /* #7896 follow-up: off a gold button the orb is drawn in --spin-gold: the deep gold #9c741b on a light ground (3:1 or
+     more on every light ground; --gold is about 2.1:1) and --gold #d6a62e on a dark one, and on the Kosmos+ navy
+     (body.plus-active) in either theme. Read by the colour of the drawn pixels, as the gold-button arm above, in every
+     theme state: system light and forced dark (this light page), system dark and forced light (a dark-scheme page). */
+  const goldIn = (pg, theme, plus) => pg.evaluate(async ([theme, plus]) => {
     const frames = (n) => new Promise((res) => { let k = 0; const f = () => (++k < n ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
-    const html = document.documentElement, was = html.getAttribute('data-theme');
-    const out = {};
-    for (const theme of ['light', 'dark']) {
-      html.setAttribute('data-theme', theme);
-      const host = document.createElement('div');
-      host.style.cssText = 'position:fixed;left:500px;top:10px;z-index:99999';
-      host.innerHTML = LOAD_SPIN_HTML.replace('--sz:14px', '--sz:32px');
-      document.body.appendChild(host);
-      await frames(6);
-      const cv = host.querySelector('canvas.korb');
-      if (!cv || !cv.width) { host.remove(); out[theme] = { error: 'no drawn canvas' }; continue; }
+    const html = document.documentElement, was = html.getAttribute('data-theme'), wasPlus = document.body.classList.contains('plus-active');
+    if (theme === null) html.removeAttribute('data-theme'); else html.setAttribute('data-theme', theme);
+    document.body.classList.toggle('plus-active', !!plus);
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:500px;top:10px;z-index:99999';
+    host.innerHTML = LOAD_SPIN_HTML.replace('--sz:14px', '--sz:32px');
+    document.body.appendChild(host);
+    await frames(6);
+    const cv = host.querySelector('canvas.korb');
+    let out;
+    if (!cv || !cv.width) out = { error: 'no drawn canvas' };
+    else {
       const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
       let n = 0, r = 0, g = 0, b = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 60) { n++; r += d[i]; g += d[i + 1]; b += d[i + 2]; }
-      host.remove();
-      out[theme] = n ? { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n), n } : { error: 'no drawn pixels' };
+      out = n ? { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n), n } : { error: 'no drawn pixels' };
     }
+    host.remove();
+    document.body.classList.toggle('plus-active', wasPlus);
     if (was === null) html.removeAttribute('data-theme'); else html.setAttribute('data-theme', was);
     return out;
-  });
+  }, [theme, plus]);
+  const themeGold = {
+    systemLight: await goldIn(page, null, false),
+    forcedDark: await goldIn(page, 'dark', false),
+    plusLight: await goldIn(page, null, true),
+  };
+  const darkPage = await browser.newPage({ viewport: { width: 900, height: 800 }, colorScheme: 'dark' });
+  await darkPage.goto('file://' + PAGE);
+  themeGold.systemDark = await goldIn(darkPage, null, false);
+  themeGold.forcedLight = await goldIn(darkPage, 'light', false);
+  await darkPage.close();
   // Drawn on its FIRST frame (round 5: 2 to 3 blank frames, a blink each time a list repaints a spinner).
   const firstFrame = await page.evaluate(async () => {
     const host = document.createElement('div');
@@ -249,8 +262,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   else if (!(onGold.avgRed >= 0 && onGold.avgRed < 90)) orbProblems.push('orb on a gold button: drawn in gold (average red ' + onGold.avgRed + '), not the button\'s dark ink, so it vanishes on the gold');
   // Within 14 of the wanted colour on each channel: the canvas blends edges, so the average is near the colour, not on it.
   const near = (got, want) => got && !got.error && Math.abs(got.r - want[0]) <= 14 && Math.abs(got.g - want[1]) <= 14 && Math.abs(got.b - want[2]) <= 14;
-  if (!near(themeGold.light, [0x9c, 0x74, 0x1b])) orbProblems.push('orb, light theme: not the deep gold #9c741b (3:1 on light grounds) but ' + JSON.stringify(themeGold.light));
-  if (!near(themeGold.dark, [0xd6, 0xa6, 0x2e])) orbProblems.push('orb, dark theme: not --gold #d6a62e but ' + JSON.stringify(themeGold.dark));
+  const DEEP = [0x9c, 0x74, 0x1b], GOLD = [0xd6, 0xa6, 0x2e];
+  for (const [state, want, words] of [['systemLight', DEEP, 'light theme (system)'], ['forcedLight', DEEP, 'light theme forced on a dark system'],
+    ['systemDark', GOLD, 'dark theme (system)'], ['forcedDark', GOLD, 'dark theme forced on a light system'], ['plusLight', GOLD, 'Kosmos+ navy in the light theme']]) {
+    if (!near(themeGold[state], want)) orbProblems.push('orb, ' + words + ': not ' + (want === DEEP ? 'the deep gold #9c741b' : '--gold #d6a62e') + ' but ' + JSON.stringify(themeGold[state]));
+  }
   if (!(firstFrame.lit > 40)) orbProblems.push('orb: not drawn on its first frame (' + (firstFrame.why || firstFrame.lit + ' drawn pixels') + '), so it blinks in');
   if (orb.error) orbProblems.push('orb: ' + orb.error);
   else {

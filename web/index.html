@@ -156,7 +156,8 @@
   --gold: #d6a62e; --gold-bright: #e3b341; --gold-deep: #b88920;
   /* kosmos#7896: the loading orb's gold. --gold is about 2.1:1 on the light grounds, under the 3:1 a graphic needs
      (WCAG 1.4.11). #9c741b is the iPhone orb's light gold (kosmos#7034's adaptive star gold), measured on every light
-     ground: page #faf9f7 4.05, card #ffffff 4.26, sunken #f4f2ee 3.81, side #ebe8e2 3.52. Dark keeps --gold. */
+     ground: page #faf9f7 4.05, card #ffffff 4.26, sunken #f4f2ee 3.81, --k-side #f3f1ec 3.78, --k-side-2 #ebe8e2 3.49.
+     Dark keeps --gold, and so does the Kosmos+ navy (body.plus-active); the always-white #firstrun card keeps the deep. */
   --spin-gold: #9c741b;
   /* ⚠️ THE EDGE OF A GOLD BUTTON, AND IT IS A CONTRAST FLOOR RATHER THAN A
      PREFERENCE (kosmos#1044). `.uprime` painted its border the same colour as
@@ -10764,6 +10765,7 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    white flow card on the warm Kosmos ground, gold primaries. Values are the
    pack's own; do not re-derive them from the app tokens. */
 #firstrun {
+  --spin-gold: #9c741b;   /* kosmos#7896: a white card in both themes, so the deep gold (--gold is 2.25:1 on white) */
   /* Single-look, enforced: the ruling above says a white flow card on the
      warm ground in BOTH themes, so the wizard re-pins the k-tokens to the
      pack's light values for its own subtree. Without this the dark
@@ -11988,6 +11990,7 @@ body.plus-active {
   /* --k-* system. --k-bg lifted #070c16 -> #132140 (the gradient's mid navy) so any
      solid --k-bg surface reads navy rather than near-black under the gradient. */
   --k-bg: #132140; --k-surface: #1c2c4f; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
+  --spin-gold: var(--gold);   /* kosmos#7896: navy in both themes, so the bright gold (7.1:1 here; the deep one is 3.7) */
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
   --agent-msg: #1b2a4b;  /* #3267: was var(--k-sunk) = rgba(120,150,200,.08), TRANSLUCENT. The Option A wing (::before, background-color:inherit) OVERLAPS the bubble box, and a translucent fill double-composites in the overlap into the #3130 dark triangle -- the same defect this change fixed for --usermsg-tint. Made SOLID here too: .08 of rgb(120,150,200) pre-composited over navy --k-bg #132140 (mirrors --usermsg-tint navy). #2947 history: navy keeps its bluish inset, cream is out of scope for this world. */
@@ -47020,8 +47023,8 @@ const KORB = (() => {
     all = document.getElementsByClassName('spin-sweep');
     new MutationObserver(watch).observe(document.documentElement, { childList: true, subtree: true });
     watch();
-    // A theme change recolours: forget each colour and draw again. Gold is the same in both themes today, so this is a
-    // safeguard for a theme that changes --gold or --spin-dot, not something either theme needs now.
+    // A theme change recolours: forget each colour and draw again. Needed since #7896's follow-up: --spin-gold is the
+    // deep gold in light and --gold in dark, so a switch must redraw in the new one.
     const recolour = () => forget(true);
     const themeWatch = new MutationObserver(recolour);
     // Only the theme switch (data-theme on <html>): the app writes other classes and styles there all the time.
