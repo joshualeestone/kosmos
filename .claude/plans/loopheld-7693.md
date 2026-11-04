@@ -12,7 +12,7 @@ board.log says how long the board's thread was held in any stall over two second
 - So the blocking commands do not explain the slow requests, and nothing on this board reproduces the reported failure.
 
 ## Change
-- engine/loopheld.js: a half-second timer that fires late writes `[loop-held] N ms, M ms of it in blocking commands`. Numbers only, capped per minute, unref'd. The first tick only sets the clock; a gap of five minutes or more is a sleeping computer.
+- engine/loopheld.js: a half-second timer that fires late writes `[loop-held] N ms, M ms of it in blocking commands`. Numbers only, capped per minute, unref'd. The first tick only sets the clock. A gap of five minutes or more says it may be a sleeping computer, rather than being dropped; a shorter nap on a Mac reads as a stall, which is a stated limit (the clock counts through sleep).
 - engine/slowspawn.js: counts all wrapped time, quick calls too, for that line.
 - engine/status.js snapshotUnheld: `[slow-snapshot] N ms`. Each request sharing a gather runs its own synchronous snapshot, and no log timed that.
 

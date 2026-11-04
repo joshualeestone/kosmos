@@ -54,12 +54,19 @@ test('the first tick sets the clock: the board loading is not a stall', () => {
   assert.equal(lines.length, 1, 'control: the next late tick does log');
 });
 
-test('a gap as long as a sleeping computer is not a stall', () => {
+test('a gap as long as a sleeping computer is still logged, and says it cannot tell', () => {
   const { lines, after } = rig();
   after(held.TICK_MS + held.ASLEEP_MS);
-  assert.deepEqual(lines, []);
+  assert.deepEqual(lines, [`[loop-held] gap ${held.ASLEEP_MS} ms, a sleeping computer or a very long stall`]);
   after(held.TICK_MS + held.ASLEEP_MS - 1);
-  assert.equal(lines.length, 1, 'control: just short of it is logged');
+  assert.match(lines[1], /^\[loop-held\] \d+ ms, 0 ms of it in blocking commands$/, 'control: just short of it reads as a stall');
+});
+
+test('the blocking time never reads below zero, if the wall clock stepped back during a command', () => {
+  const { lines, state, after } = rig();
+  state.blocked = -3000;
+  after(held.TICK_MS + 2000);
+  assert.deepEqual(lines, ['[loop-held] 2000 ms, 0 ms of it in blocking commands']);
 });
 
 test('lines are capped per minute, and the cap resets', () => {
@@ -93,6 +100,8 @@ test('status.js writes its slow snapshot line through the cap', () => {
   const src = fs.readFileSync(path.join(__dirname, 'status.js'), 'utf8');
   assert.ok(src.includes("if (took >= 1000) slowSnapshotLine('[slow-snapshot] ' + took + ' ms');"));
   assert.ok(src.includes("const slowSnapshotLine = require('./loopheld').perMinute("));
+  assert.ok(src.includes('if (paneCapture) return timedSnapshot();'), 'a Windows board is timed too');
+  assert.ok(src.includes('try { return timedSnapshot(); } finally { gathered = null; }'), 'the gathered path is timed and still clears');
 });
 
 test('a failing logger or counter does not reach the board', () => {
