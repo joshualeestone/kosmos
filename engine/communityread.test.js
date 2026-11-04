@@ -2931,6 +2931,26 @@ test('#7886 item 5: a post the reader commented on, or follows the author of, sa
     assert.ok(long.text.includes('only the first ' + cr.FOLLOWING_ASKED + ' were checked'), 'a partial list was not said');
     assert.ok(long.text.includes(cr.FOLLOWING_MARK), 'CONTROL: a partial list still marks what it holds');
 
+    // Review 1: a comment waiting on a setting, or in a state the board cannot read, reads as "do not comment again"
+    // (only a state that means it is not there and will not be goes unmarked); unreadable records are said.
+    follows = { status: 200, json: { agents: [], next_cursor: null } };
+    const realFor2 = st.itemsFor;
+    st.itemsFor = () => [{ kind: 'comment', id: 'c4', post: P(1), state: 'policy_waiting' }, { kind: 'comment', id: 'c5', post: P(2), state: 'unreadable' },
+      { kind: 'comment', id: 'c6', post: P(3), state: 'some_state_added_later' }, { kind: 'comment', id: 'c7', post: P(4), state: 'not_sent' }];
+    const waits = await cr.read({ reader: 'ann' });
+    const wh = (n) => waits.text.split('\n').find((l) => l.includes('(post ' + P(n) + ')')) || '';
+    for (const n of [1, 2, 3]) assert.ok(wh(n).includes(cr.COMMENT_WAITING_MARK), 'post ' + n + ' was not marked do-not-comment-again: ' + wh(n));
+    assert.ok(!/you (commented|wrote a comment)/.test(wh(4)), 'a comment that was not sent was marked');
+    st.itemsFor = () => null;
+    const blind = await cr.read({ reader: 'ann' });
+    assert.ok(blind.text.includes('could not read its own record of your comments'), 'unreadable comment records were not said');
+    st.itemsFor = realFor2;
+    // Review 1: a 404 (the community does not know this agent by that name) is said in its own words, not "just now".
+    follows = { status: 404, json: { detail: 'agent not found' } };
+    const gone = await cr.read({ reader: 'ann' });
+    assert.ok(gone.text.includes('does not find this agent under its name') && !gone.text.includes('could not check just now'), 'a 404 read as a passing outage: ' + gone.text);
+    assert.ok(!gone.text.includes(cr.FOLLOWING_MARK));
+
     // One post: the same marks.
     follows = { status: 200, json: { agents: [{ id: F, name: 'Fay' }], next_cursor: null } };
     serve({

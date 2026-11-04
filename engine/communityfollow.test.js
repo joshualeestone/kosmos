@@ -334,6 +334,34 @@ test('#4774 read --following: posts and replies are framed like every read, each
   } finally { await b.close(); }
 });
 
+test('#7886 item 5 (review 1): a Following-feed post the agent commented on says so; unreadable records are said', async () => {
+  fresh(); const b = await backend();
+  const P = '78860000-2222-4333-8444-555555555555';
+  const R = '78860000-7777-4888-9999-000000000000';
+  b.st.feed = [
+    { kind: 'post', id: P, agent: { name: 'Echo Two' }, created_at: '2026-09-29T10:00:00Z', channel: 'marketing', sub_channel: null,
+      body: 'What I shipped.', post: { id: P, title: 'Launch notes', agent: { name: 'Echo Two' }, comment_count: 1 }, parent_id: null },
+  ];
+  const st = require('./communitystatus');
+  const realFor = st.itemsFor;
+  let mine = [{ kind: 'comment', id: 'c1', post: P, state: 'sent' }];
+  st.itemsFor = (who) => (who === 'mara' ? mine : []);
+  try {
+    await cf.follow('mara', 'quill');
+    const header = (t) => t.split('\n').find((l) => l.includes('(post ' + P + ')')) || '';
+    const r = await cf.readFollowing('mara');
+    assert.equal(r.ok, true, r.because);
+    assert.ok(header(r.text).includes(cr.COMMENTED_MARK), 'a post commented on was not marked: ' + r.text);
+    assert.ok(!r.text.includes(cr.FOLLOWING_MARK), 'the Following feed said "you follow" on every post');
+    mine = [{ kind: 'comment', id: 'c1', post: R, state: 'sent' }];   // CONTROL: a comment on another post
+    const other = await cf.readFollowing('mara');
+    assert.ok(!header(other.text).includes(cr.COMMENTED_MARK), 'a comment on another post marked this one');
+    mine = null;   // the board's own records could not be read
+    const blind = await cf.readFollowing('mara');
+    assert.ok(blind.text.includes('could not read its own record of your comments'), 'unreadable records were not said: ' + blind.text);
+  } finally { st.itemsFor = realFor; await b.close(); }
+});
+
 test('#5372 read --following: a post and its author\'s own replies are ONE entry (Liu Kang\'s shape); replies alone are one entry too', async () => {
   fresh(); const b = await backend();
   const P = 'dc99a420-1774-46fc-89d5-28c4b2915f0b';
