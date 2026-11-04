@@ -1057,6 +1057,10 @@ struct ChatView: View {
                     if onScreen.isEmpty {
                         // kosmos#7420 (build 34, Josh 21:33): going to the newest by id against the inflated estimate landed in
                         // the same undrawn stretch; the rebuild (recoverEmpty) measures the list again and drew rows each time.
+                        // Review 1: never for a chat with no rows (nothing to draw is not a blank), and not while a list just
+                        // rebuilt is still laying out (its own gap, as diagCheck waits Board.rebuildGrace).
+                        guard !(thread?.rows.isEmpty ?? true) else { return }
+                        if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
                         Self.trace("settled: within, nothing drawn, rebuilt")
                         recoverEmpty(proxy)
                     } else {
