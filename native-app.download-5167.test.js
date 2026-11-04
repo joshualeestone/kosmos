@@ -107,7 +107,8 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 214\b/);   // kosmos#5167 (2026-10-27): +9 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
+  assert.match(st, /let expected = 224\b/);   // kosmos#7952: +10 (download-folder says rows, downloadAskedByPage rows, the marked request)
+  // kosmos#5167 (2026-10-27): +9 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
 });
 
 const BUILD = fs.readFileSync(path.join(__dirname, 'tools', 'build-kosmos-bundle.sh'), 'utf8');
@@ -122,7 +123,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 32[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 33[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -271,7 +272,9 @@ test('#5167 core: a policy refusal is SAID (2026-10-27: logged-only read as noth
 test('#5167 core: a page that is not a board cannot save (round 3), and the refusal is said as a refusal', () => {
   const nav = SRC.slice(SRC.indexOf('if navigationAction.shouldPerformDownload, let url = navigationAction.request.url,'));
   assert.match(nav.slice(0, 400), /isBoardPage\(committedPageURL, board: badgeOrigin\), isSameOriginDownload\(url, page: committedPageURL\)/);
-  const refuse = nav.slice(nav.indexOf('if navigationAction.shouldPerformDownload {'), nav.indexOf('decisionHandler(.cancel)'));
+  // kosmos#7952: the refusal branch's own cancel (the saved branch above it now cancels too, before it starts the download itself).
+  const at = nav.indexOf('if navigationAction.shouldPerformDownload {');
+  const refuse = nav.slice(at, nav.indexOf('decisionHandler(.cancel)', at));
   assert.match(refuse, /refusal: true/, 'a not-a-board refusal is said as a failure, or not at all');
 });
 
