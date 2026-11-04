@@ -201,6 +201,7 @@ test('#7915 the person\'s next message carries the held note for a held question
     assert.ok(asked.includes('[kosmos] your question to this person is still open on the board: "' + Q + '"'), 'CONTROL: no open note: ' + asked);
   } finally {
     try { selfreport.record('holder', { state: 'working', because: 'test over' }); } catch { /* best effort */ }
+    chat.setRunner(null);
     board.restore();
   }
 });

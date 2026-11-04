@@ -30,11 +30,10 @@ test.after(() => { fleet.restore(); fs.rmSync(SANDBOX, { recursive: true, force:
 
 test('#7915: a pane card from a held report carries stateHeld and reads Question held; an asked one does not', () => {
   const board = fleet.install([fleet.agent('held', { state: 'idle' }), fleet.agent('asked', { state: 'idle' })]);
-  const keyOf = (n) => (board.agents.find((c) => c.sessionName === n) || {}).sessionName || n;
-  assert.equal(selfreport.record(keyOf('held'), { state: 'needs_you', because: 'Which logo?', held: true, project: 'p1' }).recorded, true);
-  assert.equal(selfreport.record(keyOf('asked'), { state: 'needs_you', because: 'Which logo?', project: 'p1' }).recorded, true);
+  assert.equal(selfreport.record('held', { state: 'needs_you', because: 'Which logo?', held: true, project: 'p1' }).recorded, true);
+  assert.equal(selfreport.record('asked', { state: 'needs_you', because: 'Which logo?', project: 'p1' }).recorded, true);
   const cards = status.snapshot().agents;
-  const of = (n) => cards.find((c) => c.sessionName === keyOf(n)) || {};
+  const of = (n) => cards.find((c) => c.sessionName === n) || {};
   assert.equal(of('held').state, 'needs_you', 'fixture: the held report reached the card');
   assert.equal(of('held').stateHeld, true);
   assert.equal(cardlabel.labelOf(of('held')), 'Question held');

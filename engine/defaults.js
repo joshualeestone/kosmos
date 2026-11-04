@@ -134,7 +134,7 @@ const BLOCK = [
   '  thing a person has to stop and answer.',
   '  **If the person asked you to hold questions until they are back**, put',
   '  `--held` before your question: it stays on the board, nothing buzzes or',
-  '  chases it, and you are told when they next write to you.',
+  '  chases it, and you are told when they next message you directly.',
   '',
   '⚠️ **Neither of these means you have stopped, and they used to say so.** Both',
   'were once described as things you do AFTER stopping, which made stopping the',
