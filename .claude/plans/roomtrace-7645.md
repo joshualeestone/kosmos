@@ -8,8 +8,12 @@ so the trace ui-sample.sh prints on a failure holds nothing from it, and the cau
 The check launches with KOSMOS_SAMPLE_TRACE=1, so its next failure on CI prints its own keyboard-hold lines.
 
 ## Change
-ios/KosmosUITests/RoomKeyboardUITests.swift: the launch passes KOSMOS_SAMPLE_TRACE=1, as its two siblings do. Debug-only
-switch; nothing in the app changes.
+- ios/KosmosUITests/RoomKeyboardUITests.swift: the launch passes KOSMOS_SAMPLE_TRACE=1, as its two siblings do. Debug-only
+  switch; nothing in the app changes.
+- ios/tools/ui-sample.sh (review 1): the trace was printed only when one of the two read-higher-up checks failed, so this
+  check's failure would still print nothing. It now prints on this check's failure too, and always the WHOLE file: the
+  file is appended by every traced launch, and a tail after this check (which runs before the room's read-higher-up check)
+  could hold only the checks after it.
 
 ## Decided
 - Diagnose before fixing: the other room traces in the file come from other checks, and guessing a fix from them would be
