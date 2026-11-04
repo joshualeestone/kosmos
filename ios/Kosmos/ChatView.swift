@@ -1100,10 +1100,13 @@ struct ChatView: View {
                             // Review 1: a reader higher up is rebuilt only if the list is still blank a moment on, so a list
                             // empty for an instant (a row placed by id, a redraw) moves nobody.
                             DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankConfirm) {
+                                // Review 2: every guard the immediate arm has, read again.
                                 guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching, onScreen.isEmpty,
-                                      !endVisible, !personScrolling, !scrollBox.underFinger else { return }
+                                      !endVisible, !personScrolling, !scrollBox.underFinger, scenePhase == .active,
+                                      !(thread?.rows.isEmpty ?? true), !(rebuilds.last.map { Date().timeIntervalSince($0) < Board.rebuildGrace } ?? false)
+                                else { return }
                                 Self.trace("keyboard settled: within, nothing drawn, still blank, rebuilt")
-                                recoverEmpty(proxy)
+                                recoverEmpty(proxy, keepPlace: true)
                             }
                         }
                     } else {
@@ -1115,7 +1118,7 @@ struct ChatView: View {
                             settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: false, again: true)
                         }
                     }
-                } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn, under a scroll") }
+                } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn, left (a scroll, or the no-rebuild control)") }
             } else if place != "within" { Self.trace("keyboard settled: \(place)") }
             return
         }
@@ -1128,7 +1131,9 @@ struct ChatView: View {
     }
 
     // kosmos#7420: an empty list put right as Board.emptyRecovery decides.
-    private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false) {
+    // keepPlace (TestFlight 37 review 2): a reader higher up, rebuilt by a settled look; when no rebuild is left in the
+    // budget it is not sent to the newest by id (that lands in the same undrawn stretch, build 34).
+    private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false, keepPlace: Bool = false) {
         let scrolling = personScrolling || scrollBox.underFinger
         var wrote = false
         switch Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling, atNewest: atBottom, canRebuild: !Self.sampleNoRebuild) {
@@ -1137,7 +1142,7 @@ struct ChatView: View {
             let now = Date()
             if rebuilds.count >= Self.rebuildsMax || rebuilds.last.map({ now.timeIntervalSince($0) < Board.rebuildSpacing }) == true {
                 Self.trace("diag: empty within the content, not rebuilt again (\(rebuilds.count) this chat open)")
-                if !later { goNewest(proxy) }
+                if !later && !keepPlace { goNewest(proxy) }
                 return
             }
             rebuilds.append(now)

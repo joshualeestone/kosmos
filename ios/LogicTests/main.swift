@@ -5600,6 +5600,8 @@ do {
           "kosmos#7420 (TestFlight 37): the first empty list within the content is rebuilt whatever the anchor; unread goes to the newest")
     check(Board.emptyRecovery(later: false, place: "within", scrolling: false, canRebuild: false) == .newest,
           "CONTROL: with the Debug no-rebuild switch the first one goes to the newest as before")
+    check(Board.emptyRecovery(later: true, place: "within", scrolling: false, atNewest: true, canRebuild: false) == .none,
+          "and a later look at the newest does not rebuild with the switch either")
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: false) == .backInsideThenNewest && Board.emptyRecovery(later: false, place: "before the top", scrolling: false) == .backInsideThenNewest,
           "the first one puts a scroll outside its content back first")
     check(Board.emptyRecovery(later: false, place: "past the end", scrolling: true) == .newest, "never moves the scroll under a finger")
