@@ -98,6 +98,7 @@ test('#7968 a folder already called that is refused, with both folders untouched
   const p = renamed('Starter Three', 'Taken Name');
   fs.mkdirSync(path.join(KEEP, 'Taken Name'), { recursive: true });
   fs.writeFileSync(path.join(KEEP, 'Taken Name', 'theirs.txt'), 'theirs');
+  assert.equal(offered(p.id), null, 'a name already taken is not offered');
   const r = await put(p.id, { renameFolder: true }, SCREEN);
   assert.equal(r.status, 409);
   assert.match((await r.json()).error, /already a folder called Taken Name/);
@@ -180,7 +181,13 @@ test('#7968 a name Windows cannot hold is not offered there', () => {
   assert.equal(offered(p.id), 'What? Plan', 'CONTROL: this disk can hold it');
   const real = Object.getOwnPropertyDescriptor(process, 'platform');
   Object.defineProperty(process, 'platform', { value: 'win32' });
-  try { assert.equal(projects.folderRenameTarget(stored(p.id)), null); } finally { Object.defineProperty(process, 'platform', real); }
+  try {
+    assert.equal(projects.folderRenameTarget(stored(p.id)), null);
+    for (const name of ['Con', 'nul', 'COM1', 'lpt2.txt', 'Plan.', 'Plan ']) {
+      assert.equal(projects.folderRenameTarget({ folder: path.join(KEEP, 'x'), name }), null, name);
+    }
+    assert.equal(projects.folderRenameTarget({ folder: path.join(KEEP, 'x'), name: 'Console' }), 'Console', 'CONTROL: only the device names themselves');
+  } finally { Object.defineProperty(process, 'platform', real); }
 });
 
 test('#7968 a folder that cannot be renamed leaves the record as it was, and a record that cannot be saved puts the folder back', () => {

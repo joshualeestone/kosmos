@@ -1460,7 +1460,7 @@ function describe(project, roster, all) {
     // only side that knows where the root is.
     folderInKosmos: typeof project.folder === 'string'
       && path.dirname(project.folder) === projectsRoot(),
-    folderRenameTo: folderRenameTarget(project),   // #7968
+    folderRenameTo: folderRenameOffer(project),   // #7968
     taskCounter: project.taskCounter || 0,
     agents: members,
     // Who this project's thread opens on. Published rather than left to the
@@ -3435,8 +3435,16 @@ function folderRenameTarget(project) {
   if (!project || typeof project.folder !== 'string' || path.dirname(project.folder) !== projectsRoot()) return null;
   let want;
   try { want = folderNameFor(project.name); } catch { return null; }
-  if (process.platform === 'win32' && /[<>"|?*]|[. ]$/.test(want)) return null;
+  if (process.platform === 'win32' && (/[<>"|?*]|[. ]$/.test(want) || /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i.test(want))) return null;
   return want === path.basename(project.folder) ? null : want;
+}
+
+/* The offer the page shows: the same, but not when another folder already has the name, which could only be refused. */
+function folderRenameOffer(project) {
+  const want = folderRenameTarget(project);
+  if (!want) return null;
+  const there = folderState(path.join(path.dirname(project.folder), want));
+  return there.state === FOLDER.MISSING || there.real === folderState(project.folder).real ? want : null;
 }
 
 const pathHolds = (outer, inner) => inner === outer || inner.startsWith(outer + path.sep);
