@@ -24,3 +24,5 @@ The check launches with KOSMOS_SAMPLE_TRACE=1, so its next failure on CI prints 
   drag check and the chat checks whose lines are in the file); the room writes "room shown" when it opens (Debug, sample
   rooms; "room back" on a later appearance, review 3), so each room launch has a start line as the chat's "chat shown"
   gives each chat launch; and the drag check (which already traced) is now one of the failures that print the trace.
+- Review 4: the room traces what decided "keep the newest" at keyboard will-show (visible, at end, search), the case the
+  newest post is lost in; skipped checks appear in the order list; "room shown" is per room view, not per launch.
