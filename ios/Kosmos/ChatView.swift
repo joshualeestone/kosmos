@@ -808,7 +808,7 @@ struct ChatView: View {
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                    // kosmos#7817: a keyboard going down (on screen or not) cancels a put-back still waiting.
+                    // kosmos#7817/#7420: a keyboard going down (on screen or not) cancels every settled look still waiting.
                     kbSettleTick &+= 1
                     if visible { diagKeyboard = 0; Self.trace("keyboard down") }
                 }
@@ -1061,10 +1061,10 @@ struct ChatView: View {
                         // rebuilt is still laying out (its own gap, as diagCheck waits Board.rebuildGrace).
                         guard !(thread?.rows.isEmpty ?? true) else { return }
                         if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
-                        Self.trace("settled: within, nothing drawn, rebuilt")
+                        Self.trace("keyboard settled: within, nothing drawn, rebuilt")
                         recoverEmpty(proxy)
                     } else {
-                        Self.trace("settled: the newest not showing, back to it")
+                        Self.trace("keyboard settled: the newest not showing, back to it")
                         goNewest(proxy)
                     }
                 } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn") }

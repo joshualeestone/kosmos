@@ -92,4 +92,50 @@ final class ChatOpensAtNewestUITests: XCTestCase {
         dana.tap()
         assertOpensOnNewest(app, "second open")
     }
+
+    // kosmos#7420 (Josh's phone, build 33, 11-03 18:51): at the newest with the keyboard up, the box grew two lines and the
+    // chat went blank (content 27302 estimated against 23470 measured). The varied long chat with the small first page is
+    // the sample whose estimate is inflated (measured on the simulator 11-03), so this is the case the uniform chat above
+    // cannot reach. Asks what Josh lost: the newest message on screen, above the box, after the box grows two lines.
+    // Here, not in KeyboardSlideUITests: the 260-message chat is too big for a CI runner to query (see ui-sample.sh), so it
+    // runs on a Mac with this class. The simulator has never shown Josh's blank; it can show the newest left under the box.
+    func testComposerGrowingInAVariedLongChatKeepsTheNewestOnScreen() throws {
+        guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
+        let app = XCUIApplication()
+        app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_OPEN": "dana", "KOSMOS_SAMPLE_LONG": "varied",
+                                 "KOSMOS_SAMPLE_FIRSTPAGE": "1", "KOSMOS_SAMPLE_TRACE": "1", "KOSMOS_SAMPLE_HEIGHT": "1"]
+        app.launch()
+        let box = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Message Dana'")).firstMatch
+        XCTAssertTrue(box.waitForExistence(timeout: 30), "no message box")
+        let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
+        XCTAssertTrue(newest.waitForExistence(timeout: 15), "the long chat did not open at its newest message")
+        KeyboardSlideUITests.settle(newest)
+        Thread.sleep(forTimeInterval: 2)   // the whole window lands a second after the small first page
+        try KeyboardSlideUITests.keyboardUp(app, box, newest, shot: "varied-grow-keyboard-up", test: self)
+        let h0 = box.frame.height
+        for _ in 0..<4 {
+            box.typeText("the catalogue pages need the new photos before Monday and the captions checked again ")
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        XCTAssertGreaterThan(box.frame.height, h0 + 40, "the message box did not grow by at least two lines")
+        Thread.sleep(forTimeInterval: 1.5)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "varied-grow-after"; shot.lifetime = .keepAlways; add(shot)
+        XCTAssertTrue(newest.exists, "the newest message is no longer drawn after the box grew (the blank list)")
+        let f = newest.frame
+        XCTAssertTrue(f.maxY <= box.frame.minY + 2 && f.maxY > 80,
+                      "the newest message is not on screen above the box after it grew: message \(Int(f.minY))-\(Int(f.maxY)), box top \(Int(box.frame.minY))")
+        // Josh's screenshot (18:52) was taken just after sending: the box back to one empty line, the chat blank. So send
+        // (the box shrinks and a new row lands) and ask that the sent message is on screen above the box.
+        let send = app.buttons["composer-send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5), "no send button with words in the box")
+        send.tap()
+        XCTAssertTrue(app.buttons["Dictate a message"].waitForExistence(timeout: 5), "after sending the box did not go back to the microphone")
+        Thread.sleep(forTimeInterval: 1.5)
+        let after = XCTAttachment(screenshot: app.screenshot()); after.name = "varied-grow-sent"; after.lifetime = .keepAlways; add(after)
+        let sent = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "captions checked again")).firstMatch
+        XCTAssertTrue(sent.waitForExistence(timeout: 5), "the sent message is not drawn after sending (the blank list)")
+        let g = sent.frame
+        XCTAssertTrue(g.maxY <= box.frame.minY + 2 && g.maxY > 80,
+                      "the sent message is not on screen above the box: message \(Int(g.minY))-\(Int(g.maxY)), box top \(Int(box.frame.minY))")
+    }
 }
