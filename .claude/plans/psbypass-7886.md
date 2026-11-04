@@ -24,7 +24,8 @@ alarming policy error." It names neither the script nor the runner.
 ## Tests
 - engine/win32launch.test.js, win32-kosmos-shell-5358.test.js, win32keyed.test.js: the three tests that pinned
   "claude unchanged" now pin claude (and no runner) getting Bypass, one key whatever spelling it inherited.
-- Control: main's win32launch.js swapped in fails exactly those 3; the branch passes 126 run (122 pass, 4 skipped).
+- Control (re-measured at iteration 3): main's win32launch.js swapped in fails exactly those 3 (79 pass); the branch
+  passes 124 with 4 skipped (the Windows-only arms, which the Windows CI runner runs).
 
 ## Review rounds
 
@@ -46,3 +47,10 @@ alarming policy error." It names neither the script nor the runner.
 - [NIT] the Claude Code PowerShell arm's flag is now redundant with the variable --> FIXED: the comment says so.
 - [NIT] scope: every program a claude agent starts inherits Bypass (scripts with the mark of the web included) -->
   stated in the PR description; the same posture the four PowerShell runners already have.
+
+#### Iteration 3
+- [WARNING] a runner outside the list (muse) gets nothing, silently --> FIXED: the comment names muse as Mac-only today
+  and says to add it here and to the pinning tests if it ever runs on Windows with PowerShell.
+- [WARNING] the code comment did not say that scripts carrying the mark of the web now run --> FIXED: said, on purpose.
+- [NIT] "runs no scripts" about the sign-in child was reasoned --> FIXED: "is not expected to".
+- [NIT] the control count predated iteration 1 --> RE-MEASURED: still exactly the 3 tests.
