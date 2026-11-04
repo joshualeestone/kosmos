@@ -72,3 +72,13 @@ Review round 4 (1 BLOCKER, 2 WARNINGs, 3 NITs):
 - [WARNING] a withdrawn comment left a kept Following read saying "commented" for up to 30 s --> the withdraw route
   forgets the reader's kept reads too (one line, reasoned like the comment route's).
 NITs taken: dead `list.length > 100` dropped; the 404 note reads "does not know you by the name Kosmos holds for you".
+
+Review round 5 (1 BLOCKER, 0 WARNINGs, 5 NITs):
+- [BLOCKER] forget() dropped every kept read of the agent, including a replies read still running or not yet collected,
+  which is the only copy of the replies it marked shown: a comment in that minute would lose them for good --> forget
+  now drops only a Following answer already HANDED OUT; a running or uncollected read, and every replies read, keep their
+  answer (at worst 30 s stale on a re-ask). Test: replies kept, uncollected kept, another reader kept; mutant red.
+NITs taken: "the 100 you followed most recently" (the service lists newest follow first); the 404 note drops "just now";
+a test that a missing post stops the follow request (mutant without the stop red).
+NITs left: one more public request per read (200/min per address, shared; fine at today's volume); on --post a waiting
+comment is said twice (header mark and the existing tail line; consistent).

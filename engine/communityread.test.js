@@ -2928,7 +2928,7 @@ test('#7886 item 5: a post the reader commented on, or follows the author of, sa
     // A longer list: what was checked is marked, and the read says the rest was not.
     follows = { status: 200, json: { agents: [{ id: F, name: 'Fay' }], next_cursor: 'more' } };
     const long = await cr.read({ reader: 'ann' });
-    assert.ok(long.text.includes('only the first ' + cr.FOLLOWING_ASKED + ' were checked'), 'a partial list was not said');
+    assert.ok(long.text.includes('only the ' + cr.FOLLOWING_ASKED + ' you followed most recently were checked'), 'a partial list was not said');
     assert.ok(long.text.includes(cr.FOLLOWING_MARK), 'CONTROL: a partial list still marks what it holds');
 
     // Review 1: a comment waiting on a setting, or in a state the board cannot read, reads as "do not comment again"
@@ -3019,6 +3019,33 @@ test('#7886 item 5: a hanging follow list does not hold the read, and is stopped
     assert.ok(took >= cr.FOLLOWS_WAIT_MS - 100, 'fixture: the read did not wait for the follow list at all (' + took + ' ms)');
     assert.ok(r.text.includes('could not check just now whether you follow this post\u2019s author'), r.text);
     assert.equal(aborted, true, 'the hanging follow request was not stopped');
+  } finally {
+    cr.setFetcher(null);
+    if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
+  }
+});
+
+/* Review 5: a read that returns before it uses the follow list (no such post) stops the follow request at once. */
+test('#7886 item 5: a missing post stops the follow request it started', async () => {
+  on();
+  fs.mkdirSync(path.dirname(cs._paths.keysFile()), { recursive: true });
+  let before = null;
+  try { before = fs.readFileSync(cs._paths.keysFile()); } catch { /* none yet */ }
+  fs.writeFileSync(cs._paths.keysFile(), JSON.stringify({ hal: { remoteId: 'ba7886a0-0000-4000-8000-000000000002', name: 'hal' } }));
+  let aborted = false; let asked = false;
+  cr.setFetcher(async (url, cap, signal) => {
+    if (!new URL(url).pathname.includes('/following')) return { status: 404, json: { detail: 'not found' } };
+    asked = true;
+    return new Promise((res) => {
+      const stop = setTimeout(() => res({ status: 200, json: { agents: [] } }), 20000);
+      if (signal) signal.addEventListener('abort', () => { aborted = true; clearTimeout(stop); res({ status: 0, json: null }); }, { once: true });
+    });
+  });
+  try {
+    const r = await cr.read({ reader: 'hal', post: '17886000-0000-4000-8000-0000000000ff' });
+    assert.equal(r.ok, false);
+    assert.equal(asked, true, 'fixture: the follow list was never asked');
+    assert.equal(aborted, true, 'a read that returned early left its follow request running');
   } finally {
     cr.setFetcher(null);
     if (before) fs.writeFileSync(cs._paths.keysFile(), before); else fs.rmSync(cs._paths.keysFile(), { force: true });
