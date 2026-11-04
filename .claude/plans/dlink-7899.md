@@ -24,7 +24,10 @@ Addresses #7899 (round 8 WARNINGs of #7887, branch `dfail-7887`, merged as #7900
   the name, or a probe that could not run), so it says "taken or could not be checked".
 - **The rename command is the last thing on its line** (review iteration 1): "then paste this again" and what to do
   when the name is taken come before it, so copying to the end of the line takes the whole command, its failure line
-  included. The put-back's line names the path to replace and says it appears three times in the command.
+  included. Each line ends "The rename: <command>", so the command reads as the thing to paste, not as a step
+  after "run the stage again". The put-back's line names the path to replace "each time it appears" (no count,
+  so adding a probe cannot make it wrong). The follow arms assert a rename that works prints nothing; a mutation
+  making the failure line unconditional turned pbfollow and mvfollow red for that reason.
 - The `.earlier` rename's `test ! -L` guards little: that name is in the root-only retired dir, where a job cannot
   make a link. It is kept so the two renames read alike, not as a defence.
 - NITs on the card (a directory or FIFO at the agent, an unreadable agent leaving an empty retired copy) are not
