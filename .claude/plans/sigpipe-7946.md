@@ -32,8 +32,9 @@ may be elsewhere (something before the plan read, or a runner-specific differenc
   - #7946: a structural test (`earlyReaders`) that the remove CASE's request code (not the argument parsing, the
     health check or kosmos_curl, read by hand above) has no pipeline into head, read, grep -q/-m/--quiet/--max-count,
     a quitting sed or an awk that exits outside END. Continued lines are joined, `||` is not a pipe, and env,
-    assignments, `command`, a path, quotes and `{`/`(` are read past. Controls: 21 early shapes caught (review 1's
-    misses among them) and 9 full readers passed (its false positives among them).
+    assignments, `command`, a path, quotes and `{`/`(` are read past; quoted text is blanked to find pipes and comments
+    (review 2). Controls: 23 early shapes caught (reviews 1 and 2's
+    misses among them) and 12 full readers passed (their false positives among them).
 
 ## Decided
 - Not a SIGPIPE trap: trapping PIPE would hide a real early exit elsewhere; removing the pipe is the file's convention.

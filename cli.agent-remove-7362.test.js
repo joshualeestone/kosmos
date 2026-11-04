@@ -302,15 +302,23 @@ for (const dot of ['.', '..']) {
    so no producer there can take SIGPIPE. earlyReaders() finds such pipelines: continued lines are joined, each line is
    split on real pipes (`|` and `|&`, never `||`), and the reader is read past env, assignments, `command`, a path,
    quotes and a `{` or `(`. Early: head, read, grep -q / -m / --quiet / --max-count, a sed that quits, an awk that
-   exits outside END. */
+   exits outside END. Quoted text is blanked first, so a `|` or `#` inside quotes is not a pipe or a comment.
+   A heuristic, not a shell parser. Known gaps (review 2): a `|` in a case pattern can read as a pipe (none in this
+   block today); a reader behind a wrapper (timeout, exec, xargs) and grep -l / -L are not recognised. */
 function earlyReaders(text) {
   const joined = text.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
     .replace(/\\\n\s*/g, ' ').replace(/(\|&?)\s*\n\s*/g, '$1 ');
   const hits = [];
   for (const line of joined.split('\n')) {
-    const code = line.replace(/\s#\s.*$/, '');
-    const parts = code.split(/(?<!\|)\|&?(?!\|)/);
-    for (const seg of parts.slice(1)) {
+    // Find the pipes and the comment on a copy with quoted text blanked (same length), so a `|` or `#` inside quotes
+    // is neither; then cut the ORIGINAL line there, since a reader's tell (sed '1q', awk '{exit}') is often quoted.
+    const blank = line.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, (q) => q[0] + ' '.repeat(Math.max(0, q.length - 2)) + q.slice(-1));
+    const hash = blank.search(/(?:^|\s)#/);
+    const stop = hash < 0 ? line.length : hash;
+    const cuts = [];
+    for (const m of blank.slice(0, stop).matchAll(/(?<!\|)\|&?(?!\|)/g)) cuts.push([m.index, m.index + m[0].length]);
+    const segs = cuts.map(([, from], i) => line.slice(from, i + 1 < cuts.length ? cuts[i + 1][0] : stop));
+    for (const seg of segs) {
       let r = seg.trim().replace(/^[{(]\s*/, '');
       for (;;) {
         const t = r.replace(/^(?:env\s+|command\s+|[A-Za-z_][A-Za-z0-9_]*=\S*\s+)/, '');
@@ -322,7 +330,7 @@ function earlyReaders(text) {
       const rest = r.slice(word.length);
       const early = word === 'head' || word === 'read'
         || (word === 'grep' && /\s(?:-[a-zA-Z]*[qm]|--quiet\b|--max-count\b)/.test(rest))
-        || (word === 'sed' && /(?:^|[\s';{])\d*q\b|;\s*q\s*;?\s*}/.test(rest))
+        || (word === 'sed' && /(?:^|[\s';{/])\d*q\b|;\s*q\s*;?\s*}/.test(rest))
         || (word === 'awk' && /\bexit\b/.test(rest.replace(/\bEND\s*\{[^}]*\}/g, '')));
       if (early) hits.push(line.trim());
     }
@@ -342,10 +350,11 @@ test('#7946: install/kosmos agent remove\'s request code has no pipeline into an
     `printf x | { read -r a; echo "$a"; }`, `printf x | IFS= read -r a`, `printf x | grep -m1 y`, `printf x | grep --max-count=1 y`,
     `printf x | grep -E -q y`, `printf x | /usr/bin/head -n 1`, `printf x | "head" -n 1`, `printf x | command head -n 1`,
     `printf x | env LC_ALL=C head -n 1`, `printf x | LC_ALL=C LANG=C head -n 1`, `printf x |& head -n 1`, `printf x |\n  head -n 1`,
-    `printf x \\\n  | head -n 1`];
+    `printf x \\\n  | head -n 1`, `echo "a # b" | head -n 1`, `printf x | sed '/a/q'`];
   for (const bad of early) assert.equal(earlyReaders(bad).length, 1, 'not caught: ' + bad);
   const full = [`printf '%s' "$body" | "$_node" -e "$p"`, `printf '%s\\n' "$rm_plan" | tail -n +2 | while IFS= read -r _l; do say "$_l"; done`,
     `rm_out=$(printf '%s' "$rm_parsed" | cut -f1)`, `foo || head -n1 f`, `printf x | awk '{n++} END {exit n==0}'`, `printf x | awk 'END{exit 1}'`,
-    `case "$a" in ''|*[!0-9]*) ;; esac`, `x=$(cat f)   # not: printf | head`, `rm_ok=$(cut -f1 <<<"$rm_head")`];
+    `case "$a" in ''|*[!0-9]*) ;; esac`, `x=$(cat f)   # not: printf | head`, `rm_ok=$(cut -f1 <<<"$rm_head")`,
+    `echo "x | head" | cat`, `say 'pipe into head | read'`, `printf '%s' "$b" | "$_node" -e "let a=b||c|0;"`];
   for (const ok of full) assert.deepEqual(earlyReaders(ok), [], 'false positive: ' + ok);
 });
