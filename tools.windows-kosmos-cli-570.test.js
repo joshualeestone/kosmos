@@ -107,7 +107,7 @@ test('#2909: msg --stdin sends the piped text as written; refusals send nothing;
   const noAgent = await run(['msg', '--stdin'], placed, undefined, async () => { throw new Error('stdin read with no agent'); });
   assert.equal(noAgent.code, 2, 'no agent refuses before reading stdin');
   assert.equal(noAgent.calls.length, 0);
-  assert.match(noAgent.err, /Usage: kosmos msg \[--in-reply-to <id>\] \[--stdin\]/);
+  assert.match(noAgent.err, /Usage: kosmos msg \[--no-reply\] \[--in-reply-to <id>\] \[--stdin\]/);
   const huge = await run(['msg', '--stdin', 'mara'], placed, undefined, async () => ({ text: '"'.repeat(3.5 * 1024 * 1024), ended: true }));
   assert.equal(huge.code, 2, 'an encoded msg body over the board limit is refused before sending');
   assert.equal(huge.calls.length, 0);
@@ -1045,4 +1045,18 @@ test('#7886: Windows msg --in-reply-to sends in_reply_to, before or after --stdi
   assert.match(bare.err, /--in-reply-to needs a message id/);
   const eqFlag = await run(['msg', '--in-reply-to=--stdin', 'leo', 'hi'], placed);
   assert.equal(eqFlag.code, 2); assert.equal(eqFlag.calls.length, 0);
+});
+
+/* #7893: the Windows CLI's msg takes --no-reply as install/kosmos does. */
+test('#7893: Windows msg --no-reply sends reply_expected:false; without it the field is absent', async () => {
+  const placed = () => ({ body: { delivery: { state: 'placed' } } });
+  const fyi = await run(['msg', '--no-reply', 'leo', 'deployed'], placed);
+  assert.equal(fyi.code, 0, fyi.err);
+  assert.deepEqual(fyi.calls[0].body, { to: 'leo', text: 'deployed', from_pane: '', reply_expected: false });
+  const mixed = await run(['msg', '--in-reply-to', 'm4', '--stdin', '--no-reply', 'leo'], placed, undefined, async () => ({ text: 'thanks', ended: true }));
+  assert.equal(mixed.code, 0, mixed.err);
+  assert.equal(mixed.calls[0].body.reply_expected, false);
+  assert.equal(mixed.calls[0].body.in_reply_to, 'm4');
+  const plain = await run(['msg', 'leo', 'a question'], placed);
+  assert.equal('reply_expected' in plain.calls[0].body, false);
 });

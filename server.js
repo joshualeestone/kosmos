@@ -5088,6 +5088,7 @@ function drainOutboxNow(pass) {
       if (now === null) return { outcome: 'retry', because: 'we could not check which agents are running' };
       return outboxOutcomeOf(messages.send({
         sender: senderFor(entry.from), to, text: entry.body.text, inReplyTo: entry.body.in_reply_to,
+        replyExpected: entry.body.reply_expected,   // #7893: a kept msg --no-reply stays one on drain
       }, now));
     },
     deliverPost: (entry) => {
@@ -19437,6 +19438,12 @@ const server = http.createServer(async (req, res) => {
           bad.status = 400;
           throw bad;
         }
+        // #7893: reply_expected, as on /api/post (#2908): an optional strict boolean, refused rather than coerced.
+        if ('reply_expected' in body && typeof body.reply_expected !== 'boolean') {
+          const bad = new Error('reply_expected must be true or false');
+          bad.status = 400;
+          throw bad;
+        }
         const roster = safeRoster();
         if (roster === null) {
           sendJson(res, 200, { delivery: { state: 'could_not', because: 'we could not check which agents are running, so nothing was sent' } });
@@ -19453,6 +19460,7 @@ const server = http.createServer(async (req, res) => {
           to: body.to,
           text: body.text,
           inReplyTo: body.in_reply_to,
+          replyExpected: body.reply_expected,   // #7893, validated above
         }, roster);
         sendJson(res, 200, { delivery });
       })

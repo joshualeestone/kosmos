@@ -267,6 +267,23 @@ test('#7886: an answer cites a message sent to a case variant of the answerer\'s
   });
 });
 
+/* #7893: kosmos msg --no-reply (replyExpected:false) says so in place of the answer line, and the row records it. */
+test('#7893: a direct message marked no-reply says FYI in place of the answer line; the default carries the line', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    let tmux = arm([ok(), ok()]);
+    const fyi = messages.send({ fromPane: '%7', to: 'mara', text: 'deployed, nothing needed', replyExpected: false }, board.agents);
+    assert.equal(fyi.state, chat.DELIVERY.PLACED, fyi.because);
+    assert.equal(tmux.pastedMessages()[0], '[message from your colleague leo \u00b7 m1 \u00b7 FYI, no reply requested] deployed, nothing needed');
+    assert.equal(messages.list('mara')[0].replyExpected, false);
+    tmux = arm([ok(), ok()]);
+    messages.send({ fromPane: '%7', to: 'mara', text: 'a question', replyExpected: true }, board.agents);
+    assert.match(tmux.pastedMessages()[0], /· m2 · to answer, if it needs one, run: kosmos msg --in-reply-to m2 leo\] a question$/,
+      'CONTROL: true (and omitted) keep the answer line');
+    assert.equal('replyExpected' in messages.list('mara')[1], false, 'CONTROL: only false is recorded');
+  });
+});
+
 /* ── the valve ───────────────────────────────────────────────────────────── */
 
 test('the pair valve: the send past the cap is refused with the surface-to-your-operator sentence, logged, and not typed', () => {
@@ -739,6 +756,7 @@ test('the colleagues block teaches the command and the colleague-vs-operator dis
   // #7886 item 3: how to answer a colleague's direct message, and what its answer line does and does not mean.
   assert.match(body, /msg --in-reply-to <id> <name>/, 'the block does not teach answering a direct message');
   assert.match(body, /direct message carries the line whether or not it needs an\s+answer/, 'the block does not say what a direct message\'s answer line means');
+  assert.match(body, /--no-reply\s+to kosmos msg/, 'the block does not teach a direct message that asks for no answer');
   // The same splice create.js runs at birth: the block lands between its
   // markers and a re-splice replaces rather than duplicates.
   const once = projects.spliceBlock('# leo\n\ntheir words\n', body, messages.START, messages.END);
