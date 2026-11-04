@@ -11,8 +11,13 @@ room value fails the check.
 
 ## Change
 ios/LogicTests/room/main.swift: traceLines is built from ChatView.swift plus RoomView.swift; the room's will-show values
-(keepNewestOnKeyboard, visible, holdAtEnd, searchMode, all Bool) are admitted. The room's other interpolated value
-(`now ?? "none"`, a row id) was already admitted for the chat.
+(keepNewestOnKeyboard, visible, holdAtEnd, searchMode, all Bool) are admitted. The room's other interpolated value,
+`now ?? "none"` in "room anchor ...", was admitted with that room line (holdfar-7654) while room lines went unscanned. It is
+a post id, acceptable because the line is inside #if DEBUG and runs only for RoomStore.sample rooms (sample ids, never a
+person's), not because it is a number. Review 1: the chat traces its own anchor's kind, never its id; the allowlist
+entry is generic, so a future Release line with the same expression would pass too, which is a known limit of the
+name-based list.
+- A guard that the room half ran: the room file must be read and hold at least one trace line.
 
 ## Measured
 - Before: 67-ish values, room lines unscanned. After: 72 values, none stray, room suite 812/812.
