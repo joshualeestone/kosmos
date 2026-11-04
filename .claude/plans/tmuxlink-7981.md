@@ -8,6 +8,7 @@ Card: #7981. Found by the verb leg on a real board (run 41917651504). `kosmos up
 ## Decisions
 - **Call: fix the installer, not the CLI's PATH.** The verb downloads the target build's installer, so a fixed installer reaches boards already on 0.7.89. A CLI fix would not reach them, because the old side's CLI is what runs. Rejected: scrubbing PATH in `cmd_update`, for that reason.
 - **Call: `-ef`, not filtering PATH.** My first version filtered PATH by physical folder. Review showed it could not see a link one hop away, ran apt-get and could swap tmux under running agents when its own link was the only one on PATH, and needed globbing, IFS and CDPATH handling. `-ef` needs none of that. dash, bash and busybox have it; POSIX has it since 2024.
+- **Trade-off, on purpose:** once Kosmos's link is the first tmux on PATH, an update from the installed CLI does not move it to a different system tmux, until that tmux is gone. A login-shell update still would. Swapping tmux under running agents is what breaks live servers (`install/kosmos`, on another version being unable to read one).
 - **Limit:** run from a login shell whose PATH has no tmux, a working link is not consulted, and it refuses or uses apt-get, as it always has. Not this card's path.
 
 ## Weakest premise
