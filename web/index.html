@@ -1563,6 +1563,8 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    status reserves no space until it has something to say. */
 .sfoot-live { align-items: center; gap: var(--space-4); }
 #pjs-save-live { margin: 0; min-height: 0; }
+/* #7968: focus lands here from code, on a sentence and not a control; Safari would draw its ring after a mouse click (#4961). */
+#pjs-rename-folder-text:focus { outline: none; }
 #pjs-save-live:empty { display: none; }
 /* Narrow screens drop the update notice's version line. */
 @media (max-width: 720px) {
@@ -74612,6 +74614,7 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
   const live = document.getElementById('pjs-save-live');
   live.textContent = '';
   msg.textContent = '';
+  document.getElementById('pjs-move-msg').textContent = '';   // #7968: a "Saved." left by the offer
   pjFieldOk('pjs-desc', 'pjs-desc-err');
   // #1994: clear a prior parent refusal too, or a red border + aria-invalid
   // left by an earlier refusal would persist on a now-valid field. This save
@@ -74738,15 +74741,14 @@ document.getElementById('pjs-save').addEventListener('click', async () => {
         // Save button and drop it to <body> for a keyboard/screen-reader user.
         const savedId = fresh.id;
         /* #7968: a Save that gave the project a new name is the moment its folder offer matters, and the offer sits far
-           below this button. So this one stays here and brings it into view, rather than moving away in a second. */
-        const offer = fresh.name !== p.name && fresh.folderRenameTo ? document.getElementById('pjs-rename-folder') : null;
+           from this button. So this one stays here and brings it into view, rather than moving away in a second. */
+        const offer = fresh.id === p.id && fresh.name !== p.name && fresh.folderRenameTo ? document.getElementById('pjs-rename-folder') : null;
         if (offer && !offer.hidden) {
           offer.scrollIntoView({ block: 'center' });
-          // The sentence, not the button: a second press of Save's key must not rename a folder. "Saved." goes here too,
-          // since the line beside Save is now out of view.
-          const said = document.getElementById('pjs-rename-folder-text');
-          said.textContent = 'Saved. ' + said.textContent;
-          said.focus({ preventScroll: true });
+          // The sentence, not the button: a second press of Save's key must not rename a folder. "Saved." goes by the
+          // offer too, since the line beside Save is now out of view; a repaint does not write that line.
+          document.getElementById('pjs-move-msg').textContent = 'Saved.';
+          document.getElementById('pjs-rename-folder-text').focus({ preventScroll: true });
         } else btn.__navTimer = setTimeout(() => {
           if (PJ_VIEW === 'settings' && PJ_CURRENT === savedId && pjById(PJ_CURRENT)
               && !document.getElementById('panel-projects').hidden) {
