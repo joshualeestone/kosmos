@@ -80,10 +80,10 @@ function note(name, v, now = Date.now()) {
   } catch { /* the next verdict is noted */ }
 }
 
-/* Wrap a verdict, or a promise of one, so it is noted as it settles; returns what it was given. */
 /* kosmos#7936: how many deliveries to `name` have failed in its current streak (0 with none), so a sender of Kosmos's
    own notices can stay under STALL_MIN_FAILS. */
 function failCount(name) { const s = streaks.get(String(name)); return s ? s.count : 0; }
+/* Wrap a verdict, or a promise of one, so it is noted as it settles; returns what it was given. */
 function noted(name, v) {
   if (v && typeof v.then === 'function') return v.then((x) => { note(name, x); return x; });
   note(name, v);
@@ -468,4 +468,4 @@ function acksDue(ends, now = Date.now()) {
   return out;
 }
 
-module.exports = { failCount, STALL_MIN_FAILS, endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { failCount, endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };

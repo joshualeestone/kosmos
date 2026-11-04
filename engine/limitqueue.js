@@ -24,14 +24,22 @@ function shortHold(e) { return !!e && e.input === true && !e.kind; }
 /* Reviews 1-3: only while the box is the reason (`limited` false: the agent's queue is released on usage and sign-in,
    and its box reads text). Anything else, or a doubt, keeps the day, so a reset that comes later still types it. */
 function dropAfter(e, limited) { return shortHold(e) && !limited ? INPUT_DROP_AFTER_MS : DROP_AFTER_MS; }
-/* A notice that did not land is tried again no sooner than STILL_RETRY_MS. Reviews 7-8: and only while the sender's
-   own delivery streak (deliverystreak.failCount, every failure kind, any recipient) is at least two short of a stall
-   alert's STALL_MIN_FAILS, so a notice failing cannot make the third; any delivery that lands ends the streak. */
+/* A notice that did not land is tried again no sooner than STILL_RETRY_MS. Reviews 7-9: and only while the sender's
+   own delivery streak (deliverystreak.failCount, every failure kind, any recipient) plus its notices still in flight is
+   at least two short of a stall alert's STALL_MIN_FAILS; any delivery that lands ends the streak. */
 const STILL_RETRY_MS = 15 * 60 * 1000;
 const stillTriedAt = new Map();   // id -> when a notice that did not land was tried
+const stillInFlight = new Map();  // sender -> notices sent and not yet answered (review 9)
 function forgetTold(id, at = Date.now()) { toldStill.delete(id); stillTriedAt.set(String(id), at); }
+function inFlight(from, by) {
+  const k = String(from), n = Math.max(0, (stillInFlight.get(k) || 0) + by);
+  if (n) stillInFlight.set(k, n); else stillInFlight.delete(k);
+}
 function streakRoom(from) {
-  try { const d = require('./deliverystreak'); return d.failCount(String(from)) < d.STALL_MIN_FAILS - 1; } catch { return false; }
+  try {
+    const d = require('./deliverystreak');
+    return d.failCount(String(from)) + (stillInFlight.get(String(from)) || 0) < d.STALL_MIN_FAILS - 1;
+  } catch { return false; }
 }
 // Ids whose sender was told they are still held (in memory: a restart may tell a sender once more, the stated cost).
 const toldStill = new Set();
@@ -383,15 +391,17 @@ function sweepHooks({ chat, messages }) {
        A notice that does not land calls forgetTold (see STILL_RETRY_MS and streakRoom). */
     onStillHeld: (e, r, dropAt) => {
       if (e.kind) return;
+      inFlight(e.from, 1);   // review 9: counted against the sender's streak until it is answered
       messages.tellHeldStill(e, r, dropAt).then((v) => {
+        inFlight(e.from, -1);
         if (!v || v.state !== chat.DELIVERY.PLACED) forgetTold(e.id);   // review 8: unconfirmed is not seen to land
-      }).catch(() => { forgetTold(e.id); });
+      }).catch(() => { inFlight(e.from, -1); forgetTold(e.id); });
     },
     // Reviews 1-3: released on usage and sign-in, and the box reads text: the box is the only reason left.
     boxIsReason: (card, roster) => chat.limitQueueReleased(card, roster) && chat.inputBoxReads(card) === 'text',
   };
 }
 
-function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); toldStill.clear(); limitedSeen.clear(); stillTriedAt.clear(); flushingSince = 0; }
+function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); toldStill.clear(); limitedSeen.clear(); stillTriedAt.clear(); stillInFlight.clear(); flushingSince = 0; }
 
 module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, STILL_RETRY_MS, dropAfter, forgetTold, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };

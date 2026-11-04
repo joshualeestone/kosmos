@@ -301,3 +301,43 @@ test('#7936 review 6: a task line kept behind an input-held message is not promi
   assert.ok(src.includes("{ behindInput, task: true }), state: HELD_STATE };"), 'the task route marks its receipt as a task line');
   assert.ok(src.includes("more.behindInput === true && more.task !== true ? ', or, after 2 hours with the box still full, drops it and tells you' : ''"), 'the clause is not for task lines');
 });
+
+test('#7936 review 9: one failure in the sender\'s streak still leaves room for a notice (the boundary is two short)', async () => {
+  const ds = require('./deliverystreak');
+  await withFleet(async (board) => {
+    ds.reset('leo');
+    const at = Date.now() - limitqueue.STILL_HELD_TELL_MS - MIN;
+    const iso = new Date(at).toISOString();
+    limitqueue.add('casey', { id: 'm7953', from: 'leo', envelope: 'x', at: iso, reset: iso, input: true });
+    await sweep(board, at, { boxIsReason: () => true });
+    ds.note('leo', { state: 'could_not', because: 'held: a menu is up' });
+    assert.equal(ds.failCount('leo'), 1, 'CONTROL: one failure noted');
+    const tries = [];
+    const fake = { ...messages, tellHeldStill: async (e) => { tries.push(e.id); return { state: chat.DELIVERY.PLACED }; } };
+    await sweep(board, Date.now(), {}, fake);
+    assert.deepEqual(tries, ['m7953'], 'no notice with only one failure in the streak');
+    ds.reset('leo');
+  });
+});
+
+test('#7936 review 9: a notice still in flight counts against the sender, so the next sweep sends no second one', async () => {
+  const ds = require('./deliverystreak');
+  await withFleet(async (board) => {
+    ds.reset('leo');
+    const at = Date.now() - limitqueue.STILL_HELD_TELL_MS - MIN;
+    const iso = new Date(at).toISOString();
+    for (const id of ['m7954', 'm7955']) limitqueue.add('casey', { id, from: 'leo', envelope: id, at: iso, reset: iso, input: true });
+    await sweep(board, at, { boxIsReason: () => true });
+    ds.note('leo', { state: 'could_not', because: 'held: a menu is up' });   // one failure: room for exactly one more
+    const tries = [];
+    let release;
+    const pending = new Promise((r) => { release = r; });
+    const fake = { ...messages, tellHeldStill: async (e) => { tries.push(e.id); await pending; return { state: chat.DELIVERY.COULD_NOT }; } };
+    await sweep(board, Date.now(), {}, fake);
+    await sweep(board, Date.now() + MIN, {}, fake);
+    assert.equal(tries.length, 1, 'a second notice went out while the first was still in flight: ' + tries.join(','));
+    release();
+    for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
+    ds.reset('leo');
+  });
+});

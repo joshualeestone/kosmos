@@ -80,12 +80,16 @@ Card: kosmos#7936 (feedback collector, 11-04 06:20; Splinter assigned it). Two i
   sender's deliverystreak.failCount (every failure kind, unconfirmed included, any recipient) is at least two short of
   STALL_MIN_FAILS, so it cannot make the third; any delivery that lands ends the streak and lifts it. An unconfirmed
   notice no longer counts as told.
+- Review 9: notices still in flight count against the streak too. Not closed, stated: another delivery to the same
+  sender failing between the check and the notice's own failure can still make a notice the third failure (a small
+  window). Decided: a sender whose streak already holds failures (however old: a streak ends only when a delivery lands)
+  gets no 10-minute notice for that message; it still gets the drop notice, and the next delivery that lands lifts it.
 - Review loop: 8 rounds is the cap, but round 8 found a defect in round 7's fix (a sender could be blocked for good),
-  so one more round reviews that fix before the PR.
+  so round 9 reviewed that fix before the PR.
 
 ## Tests
 
-engine/heldnote-7936.test.js (17 behaviour and source tests, besides the sandbox check, through limitqueue.sweepHooks): the not-only-the-box case and its control,
+engine/heldnote-7936.test.js (18 behaviour and source tests, besides the sandbox check, through limitqueue.sweepHooks): the not-only-the-box case and its control,
 boxIsReason's wiring (four cases), a caller with no boxIsReason, the notice retried until it lands; the notice at 10 min (none at 9, once only, still kept, nothing typed into the box); the
 drop at 2 h with its wording, a usage-limit hold of the same age kept (control); dropAfter by kind; the receipt and
 CLI wording; the unanswered header. Control: with the drop back on DROP_AFTER_MS the 2-hour test fails. Existing:
