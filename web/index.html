@@ -58187,6 +58187,16 @@ function plusSiStage(stage, data) {
    marketing plus a link, guarded), but the click reveals state 2 in place of the
    marketing copy rather than navigating; PLUS_SIGNIN_ACTIVE keeps it there across the
    5s repaint. */
+// kosmos#7974: the email box is described by the child-account advice only while that advice is open.
+function plusSiChildToggle(box) {
+  const input = document.getElementById('plus-signin-email');
+  if (!input) return;
+  if (box.open) input.setAttribute('aria-describedby', 'plus-si-child');
+  else input.removeAttribute('aria-describedby');
+}
+// 'toggle' does not bubble, so it is caught on the way down. Kept out of the company sign-in block, which a unit test
+// lifts into a context with no addEventListener (web.company-signin-5628.test.js).
+document.addEventListener('toggle', (e) => { if (e.target && e.target.id === 'plus-si-childbox') plusSiChildToggle(e.target); }, true);
 /* Start every sign-in from a clean slate: clear the inputs and reset the sub-field
    that plusSiStage reveals conditionally, so a cancel-then-restart cannot leave a stale
    code or a previously-typed name sitting in a later step for a returning person to
@@ -59215,15 +59225,6 @@ function plusCompanySyncResend() {
   const resend = document.getElementById('plus-si-company-resend');
   if (resend) resend.disabled = PLUS_CO_TEXTING || PLUS_CO_FINISHING || Date.now() < PLUS_CO_HOLD_UNTIL;
 }
-// kosmos#7974: the email box is described by the child-account advice only while that advice is open.
-function plusSiChildToggle(box) {
-  const input = document.getElementById('plus-signin-email');
-  if (!input) return;
-  if (box.open) input.setAttribute('aria-describedby', 'plus-si-child');
-  else input.removeAttribute('aria-describedby');
-}
-// 'toggle' does not bubble, so it is caught on the way down.
-document.addEventListener('toggle', (e) => { if (e.target && e.target.id === 'plus-si-childbox') plusSiChildToggle(e.target); }, true);
 async function plusCompanyManaged() {
   let r = null;
   try { const res = await fetch('/api/remote/managed', { cache: 'no-store' }); r = res.ok ? await res.json() : null; } catch { r = null; }

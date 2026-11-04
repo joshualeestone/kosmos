@@ -26,6 +26,9 @@ notices a one-line link; #6873's worry was a parent signing a child's computer i
   18px tall (checkVisibility() is false), so the check uses page.isVisible, not its height-based visible().
 - Every sign-in starts with the line closed again (plusSiClear, which Sign out and each entry use). The Sign-out test
   opens it, signs out, re-enters and asserts it is closed and describes nothing; with the reset removed it fails.
+- Unit suites that read the sign-in code: 12 web.*.test.js files pass (web.company-signin-5628.test.js 18/18). The
+  toggle listener sits beside plusSiClear, not in the company sign-in block, which that test lifts into a context with
+  no addEventListener (review 3 found all 18 failing when it was there).
 - render-plus-company-5628.js: an unmanaged computer shows the line, a managed one does not. Pass.
 - Shots: Files/shots-7974 (desktop and iPhone, light and dark). The line is 44pt tall (min-height): the iPhone shots'
   taps<44 count went from 1 to 0 with it. It has its own focus ring, and a managed computer closes it before hiding it.
