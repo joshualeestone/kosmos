@@ -86,15 +86,25 @@
 #             (only on Josh's go for that exact build; see above)
 # Overrides (mainly for the test):
 #   KOSMOS_PROMOTE_GATE_CMD   the experience gate to run (default: bash <repo>/tools/staging-experience-check.sh)
+#   KOSMOS_PROMOTE_LINUX_CHECK_CMD   the Linux check-runs lookup (default: bash <repo>/tools/linux-check-runs.sh)
+#
+# THE LINUX CHECK RUNS (kosmos#7942). When the promote moves latest-linux.json, both Linux workflows must be green for
+# that exact Linux build (version and sha256), or the promote refuses before any gate or write: this Mac cannot boot
+# the Linux build, so GitHub's ubuntu-24.04 runners do (tools/linux-check-runs.sh says what counts). Run them first:
+#     gh workflow run linux-family-install-7281.yml -f channel=staging
+#     gh workflow run linux-promote-check-7933.yml
+# --skip-linux-check promotes without them, and says so in a banner when it starts and again in the closing lines. It
+# is separate from --force on purpose: --force is for the Mac gates, and passing it never skips this.
 #   (the Windows gate has no command override: it is always tools/win-staging-verified.sh)
 set -uo pipefail
 
-SITE=""; FORCE=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""; NAMED_VERSION=""; NAMED_SHA=""; NAMED_PICK=""; ALLOW_OLDER=0
+SITE=""; FORCE=0; SKIP_LINUX_CHECK=0; PORT=""; FAMILY="mac"; APPROVED_VERSION=""; APPROVED_SHA=""; APPROVAL_REF=""; NAMED_VERSION=""; NAMED_SHA=""; NAMED_PICK=""; ALLOW_OLDER=0
 while [ $# -gt 0 ]; do
   a="$1"; shift
   case "$a" in
     --force) FORCE=1 ;;
     --allow-older) ALLOW_OLDER=1 ;;
+    --skip-linux-check) SKIP_LINUX_CHECK=1 ;;
     --family|--approved-version|--approved-sha|--approval-ref|--version|--sha|--commit)
       [ $# -gt 0 ] || { echo "promote-channel: $a needs a value" >&2; exit 1; }
       case "$a" in
@@ -315,6 +325,31 @@ reject_pathy() { case "$2" in *"/"*|*".."*) echo "promote-channel: $PTR_WORDS's 
 reject_pathy "$ARTIFACT_FIELD" "$ARTIFACT"
 # kosmos#7281: the Linux family moves with the Mac pointer or the promote refuses, decided before any gate or write.
 if [ "$FAMILY" = mac ]; then promote_linux_prepare "$SITE" "$V" "${NAMED_VERSION:+$NAMED_COMMIT}" || exit 1; fi
+# kosmos#7942: both Linux check workflows green for this exact Linux build, or no promote (before any gate or write).
+LINUX_CHECK_SAID=""
+if [ "$FAMILY" = mac ] && [ "$PROMOTE_LINUX" = yes ]; then
+  _lc_sha="$(printf '%s' "$PROMOTE_LINUX_ARTS" | awk '{print $2}')"
+  if [ "$SKIP_LINUX_CHECK" = 1 ]; then
+    LINUX_CHECK_SAID="LINUX CHECK RUNS SKIPPED (--skip-linux-check)"
+    {
+      echo "promote-channel: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+      echo "promote-channel: !!! --skip-linux-check: Linux $V ($_lc_sha) goes to prod WITHOUT its check runs."
+      echo "promote-channel: !!! Nobody has seen this Linux build install, start or update. Say so in the promote report."
+      echo "promote-channel: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+    } >&2
+  else
+    LINUX_CHECK_CMD="${KOSMOS_PROMOTE_LINUX_CHECK_CMD:-bash $(cd "$(dirname "$0")/.." && pwd)/tools/linux-check-runs.sh}"
+    echo "promote-channel: checking the Linux check runs for $V ($_lc_sha): $LINUX_CHECK_CMD"
+    $LINUX_CHECK_CMD "$V" "$_lc_sha"; _lc_rc=$?
+    case "$_lc_rc" in
+      0) LINUX_CHECK_SAID="linux check runs green for $_lc_sha" ;;
+      1) echo "promote-channel: REFUSED: the Linux check runs are not both green for $V ($_lc_sha). Nothing was written. (--skip-linux-check overrides, loudly.)" >&2; exit 1 ;;
+      *) echo "promote-channel: HOLD: could not read the Linux check runs for $V ($_lc_sha) (exit $_lc_rc). Nothing was written. (--skip-linux-check overrides, loudly.)" >&2; exit 1 ;;
+    esac
+  fi
+elif [ "$SKIP_LINUX_CHECK" = 1 ]; then
+  echo "promote-channel: note: --skip-linux-check has nothing to skip (this promote does not move latest-linux.json)" >&2
+fi
 # kosmos#6149 point 1 (after the bare-filename check, before any write): prod must never be pointed at a Mac build older than the setup floor; the installer prod serves beside it is checked below.
 if [ "$FAMILY" = mac ]; then
   . "$(dirname "$0")/lib/setup-floor.sh" || { echo "promote-channel: cannot load tools/lib/setup-floor.sh" >&2; exit 1; }
@@ -849,6 +884,12 @@ else
   [ "$ALLOW_OLDER" = 1 ] || echo "promote-channel: NEXT, once the deploy serves $V: node tools/whats-new-pool.js build <the next cut's version> on a branch, merged to main. It records $V's highlights as shown; until it merges, the next cut stops at its What's New check (kosmos#7349)."
 fi
 echo "   -> $(cat "$SITE/dist/$PROD_NAME")"
+# kosmos#7942: the Linux check runs' outcome, last, so a skip is the last thing on the screen as well as the first.
+if [ "$SKIP_LINUX_CHECK" = 1 ] && [ "$PROMOTE_LINUX" = yes ]; then
+  echo "promote-channel: !!! $LINUX_CHECK_SAID: Linux $V went to prod without a green install, start or update run." >&2
+elif [ -n "$LINUX_CHECK_SAID" ]; then
+  echo "promote-channel: $LINUX_CHECK_SAID"
+fi
 echo "promote-channel: the next site deploy publishes the prod pointer. No rebuild happened."
 [ -n "$SETUP_STAGING" ] && echo "promote-channel: COMMIT setup and setup.sha256 together with $PROD_NAME (#5032): a deploy serves the committed site, and deploy-site.sh refuses a committed /setup that does not hash to the pointer's setup_sha256."
 [ "$PROMOTE_LINUX" != yes ] || echo "promote-channel: COMMIT dist/latest-linux.json in the same commit as $PROD_NAME (kosmos#7281 lockstep)."

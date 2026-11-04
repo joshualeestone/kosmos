@@ -63,7 +63,12 @@ same: flip the pointer back (and, #5032, put back the installer that pointer nam
      - **Residual (the plan's weakest premise):** detection hinges on the board reporting
        `needs_you` for a wedge; the gate is only fully proven on a real fresh machine (Part 2),
        which is why the default stays prod until then.
-4. **Promote.** `tools/promote-channel.sh <site-checkout> <that-board's-port>` points `latest.json`
+4. **Promote.** First, when staging carries a Linux build, run the two Linux check workflows from main and wait for
+   both to go green (kosmos#7942; this Mac cannot boot the Linux build, so GitHub's ubuntu-24.04 runners do):
+   `gh workflow run linux-family-install-7281.yml -f channel=staging` and `gh workflow run linux-promote-check-7933.yml`.
+   The promote refuses to move `latest-linux.json` unless both recorded the exact staged Linux sha
+   (`tools/linux-check-runs.sh`); `--skip-linux-check` overrides it loudly, and `--force` never does.
+   Then `tools/promote-channel.sh <site-checkout> <that-board's-port>` points `latest.json`
    at the same bytes `latest-staging.json` names, gated on (a) the served sha matching, (b) the
    board-reachability gate passing, and (c) the agent-spawn gate passing. Either gate: exit 1
    (provably broken) refuses and is **not** `--force`able; exit 2 (cannot-tell -- e.g. the dev box,
