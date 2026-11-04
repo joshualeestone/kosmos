@@ -47029,6 +47029,14 @@ const KORB = (() => {
     const themeWatch = new MutationObserver(recolour);
     // Only the theme switch (data-theme on <html>): the app writes other classes and styles there all the time.
     themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    // #7896 follow-up: the Kosmos+ screen (body.plus-active) keeps --gold in the light theme, so going in or out of it
+    // recolours too. Only a change in plus-active itself counts: the body's other classes change all the time.
+    if (document.body) {
+      const plusOn = (cls) => /(^|\s)plus-active(\s|$)/.test(cls || '');
+      new MutationObserver((recs) => {
+        for (const r of recs) if (plusOn(r.oldValue) !== document.body.classList.contains('plus-active')) { recolour(); return; }
+      }).observe(document.body, { attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+    }
     // A resize or browser zoom: read every size again and redraw.
     // Named, not an arrow: web.consolidated-breakpoint.test.js finds the LAYOUT handler as the page's arrow-form resize listener.
     const korbResized = () => { sizeStale = true; forget(false); };
