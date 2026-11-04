@@ -105,3 +105,12 @@ discourages a second comment); an unreadable keys file reads as unregistered (no
 answers "You already follow"); after a moderator rename the 404 note shows until the name is refreshed elsewhere; on
 your own post with the list unread the note says "whether you follow this post's author"; a comment made from another
 board or registration is not marked from the thread.
+
+Review round 8, the cap (0 BLOCKERs, 1 WARNING, 6 NITs):
+- [WARNING] a --reply-to answer marked the whole post "check status before writing another", which could stop the agent
+  answering a second person under it --> communitystatus items carry `reply` for a comment with a service parent, and
+  only top-level comments mark the post (test from a real stored reply, with a top-level control; mutant red).
+  UNREVIEWED: made after the eighth round.
+NITs left, stated: a comment moderators took down is unmarked; a one-post feed page gets the singular note; the follow
+list costs one more public request per read (a 429 reads as could not check); the person's discard, release or delete
+of a comment does not drop a kept Following read (30 s at most); "Reply to:" entries carry no comment mark.

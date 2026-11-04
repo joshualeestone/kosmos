@@ -343,6 +343,9 @@ function markCommented(reader, items) {
   const there = new Set(); const waiting = new Set();
   mine.forEach((x) => {
     if (!x || x.kind !== 'comment' || typeof x.post !== 'string') return;
+    /* Review 8: a --reply-to answer to one comment is not a comment on the post: marking the post from it would steer the
+       agent away from answering someone else under the same post. Only top-level comments mark it. */
+    if (x.reply) return;
     const post = x.post.toLowerCase();
     if (COMMENT_THERE.has(x.state)) there.add(post);
     else if (!COMMENT_GONE.has(x.state)) waiting.add(post);

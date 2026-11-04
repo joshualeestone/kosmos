@@ -254,7 +254,7 @@ function itemsFrom(sessionName, { recs, postStatus, commentStatus, base, posts, 
     const state = commentStatus ? stateOf('comment', commentStatus[c.id], c, ctx) : 'unreadable';
     const link = c.space === 'company' ? null : linkFor(state, c.remotePostId);   // kosmos#7543: no public page
     out.push({ kind: 'comment', id: c.id, post: c.remotePostId, title: communitysend.titleFor({ body: c.body }), at: madeAt(c),
-      state, ...(link ? { link } : {}) });
+      state, ...(link ? { link } : {}), ...(c.remoteParentId ? { reply: true } : {}) });   // kosmos#7886 item 5: a --reply-to answer
   }
   // Held or quarantined: the safety check stopped it for the person (feedpublish). Every row, not a capped page. Both
   // read "held", as the post route tells the submitter (which one is never said: not a scrubber oracle). Review 2: a
@@ -262,6 +262,7 @@ function itemsFrom(sessionName, { recs, postStatus, commentStatus, base, posts, 
   for (const r of queue) {
     if (!byAgent(r, sessionName) || (r.entry === 'comment' && !r.remotePostId)) continue;
     out.push({ kind: r.entry === 'comment' ? 'comment' : 'post', id: r.id, ...(r.entry === 'comment' ? { post: r.remotePostId } : {}),
+      ...(r.entry === 'comment' && r.remoteParentId ? { reply: true } : {}),
       title: communitysend.titleFor(r.entry === 'comment' ? { body: r.body } : r), at: madeAt(r), state: 'held' });
   }
   out.sort((a, b) => b.at.localeCompare(a.at));

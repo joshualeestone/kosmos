@@ -578,3 +578,22 @@ test('#7886 item 5: community read marks a post from a real stored comment, queu
   cr.markCommented('cam', it);
   assert.equal(it[0].commented, undefined, 'another agent\'s comment marked this reader');
 });
+
+/* kosmos#7886 item 5, review 8: a --reply-to answer (a stored comment with a parent) does not mark the post as commented
+   on, so the agent is not steered away from answering a second person there; a top-level comment does (the control). */
+test('#7886 item 5: a reply to a comment does not mark its post; a top-level comment does', () => {
+  const cr = require('./communityread');
+  const P = '7a1b2c3d-0000-4000-8000-000000000001';
+  communitystore.grantTrust('rae');
+  const r = feedpublish.publishServiceComment({ kind: 'community_post', agent: 'rae', at: new Date().toISOString(), body: 'An answer to one comment.',
+    servicePostId: P, serviceParentId: '9c1b2c3d-0000-4000-8000-000000000009' }, { agentId: 'rae' });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.ok(status.itemsFor('rae').some((x) => x.kind === 'comment' && x.reply === true), 'fixture: the reply was not listed as one');
+  let it = [cr.itemOf({ id: P, agent: { name: 'w' }, title: 't', body: 'b', created_at: '2026-10-01T00:00:00Z' })];
+  cr.markCommented('rae', it);
+  assert.equal(it[0].commented, undefined, 'a reply to a comment marked the whole post');
+  comment('rae', 'A top-level comment.');
+  it = [cr.itemOf({ id: P, agent: { name: 'w' }, title: 't', body: 'b', created_at: '2026-10-01T00:00:00Z' })];
+  cr.markCommented('rae', it);
+  assert.equal(it[0].commented, 'waiting', 'CONTROL: a top-level comment did not mark the post');
+});
