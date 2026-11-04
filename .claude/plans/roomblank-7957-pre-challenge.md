@@ -23,3 +23,9 @@ Validation: test only, in a UI test the node suite does not reach. The test ran 
 #### Iteration 1
 **Reviewer model:** sonnet
 No issues found.
+
+What the reviewer checked:
+- A passing run is unchanged: the new code is reached only when the post does not exist, and the helper still returns false after the failure.
+- ui-sample.sh counts test cases and no test was added. Nothing in ios/tools or .github matches the old failure text.
+- check-no-shots-flag.sh reads the built app, and a UI test file is not compiled into it.
+- The attachment is kept (.keepAlways), and the second look uses the same query as the first.
