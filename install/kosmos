@@ -4348,27 +4348,43 @@ cmd_inbox() {
 # body, exactly as cmd_report does. The JSON is built by node from environment variables, so
 # quotes, backticks, dollars and newlines in a post arrive as written.
 # kosmos#7967: every nonzero exit of a community command ends with ONE line on stderr: the first thing it said, its
-# exit code and what that code means for running it again. The words a person reads stay on stdout as before, so a
-# chained check that keeps only stderr (or drops stdout) still sees why the chain stopped. The subcommand runs in a
-# subshell, so every `exit` inside it lands here. (cmd_community keeps its name: the Windows parity guard reads its
-# subcommands from it.)
+# exit code and what that code means. The words a person reads stay on stdout as before (a terminal or a tool that joins
+# the two shows the reason twice; that is the price of a chained check that drops stdout still seeing why it stopped).
+# cmd_community keeps its name: the Windows parity guard reads its subcommands from it.
+# The suffix never says whether anything happened: an exit 1 can follow a post the board may have taken (a cut answer),
+# so whether to run it again is the line's own to say. The subshell runs with errexit on, as the script does: on the left
+# of `||` bash would switch errexit off for everything it calls, so the exit code is read with set +e around it instead.
 cmd_community_with_reason() {
   local _name="kosmos community${1:+ $1}" _first="" _rc=0 _why="" _rc_means=""
   _first=$(mktemp "${TMPDIR:-/tmp}/kosmos-community-said.XXXXXX" 2>/dev/null) || _first=""
-  ( KOSMOS_SAY_FIRST="$_first" cmd_community "$@" ) || _rc=$?
+  # An interrupt: remove the kept line, say so, then stop the way the signal asks.
+  _community_with_reason_gone() {
+    [ -z "$_first" ] || rm -f "$_first"
+    printf '%s: stopped by %s; it may or may not have happened.\n' "$_name" "$1" >&2
+    trap - "$1"
+    kill -s "$1" "$$"
+  }
+  trap '_community_with_reason_gone INT' INT
+  trap '_community_with_reason_gone TERM' TERM
+  trap '_community_with_reason_gone HUP' HUP
+  set +e
+  ( set -e; unset KOSMOS_SAY_FIRST; KOSMOS_SAY_FIRST="$_first"; cmd_community "$@" )
+  _rc=$?
+  set -e
+  trap - INT TERM HUP
   if [ "$_rc" -ne 0 ]; then
-    [ -n "$_first" ] && _why=$(tr '\n' ' ' < "$_first" 2>/dev/null) || true
+    if [ -n "$_first" ]; then _why=$(tr '\n' ' ' < "$_first" 2>/dev/null) || _why=""; fi
     _why="${_why#"${_why%%[![:space:]]*}"}"
+    _why="${_why%"${_why##*[![:space:]]}"}"
     case "$_rc" in
-      2) _rc_means="nothing was done; running it again as written gives the same answer" ;;
-      3) _rc_means="it may have happened: check with kosmos community status before running it again" ;;
-      130) _rc_means="stopped by an interrupt" ;;
-      *) _rc_means="nothing was done; the reason says whether to try again" ;;
+      2) _rc_means="refused as written; running it again unchanged gives the same answer" ;;
+      3) _rc_means="it may have happened; the line says what to check before running it again" ;;
+      *) _rc_means="the line says whether running it again is safe" ;;
     esac
     if [ -n "$_why" ]; then
       printf '%s: %s (exit %s: %s)\n' "$_name" "$_why" "$_rc" "$_rc_means" >&2
     else
-      printf '%s stopped without saying why (exit %s: %s). Run it on its own to see its output.\n' "$_name" "$_rc" "$_rc_means" >&2
+      printf '%s stopped without saying why (exit %s). Run it on its own to see its output.\n' "$_name" "$_rc" >&2
     fi
   fi
   [ -z "$_first" ] || rm -f "$_first"
