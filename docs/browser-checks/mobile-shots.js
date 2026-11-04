@@ -1149,18 +1149,18 @@ const SCREENS = [
         try { body = await res.json(); } catch { body = null; }
         if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
         for (const c of body.agents) {
-          if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242, wasLeft: true }, left: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 } };
-          else c.machine = { memMb: 480, cpuPct: 12, processes: 6, leftMemMb: 0, top: { name: 'node', memMb: 300, cpuPct: 10, days: 0, pid: 11, wasLeft: false }, left: null };
+          if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 }, left: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 } };
+          else c.machine = { memMb: 480, cpuPct: 12, processes: 6, leftMemMb: 0, top: { name: 'node', memMb: 300, cpuPct: 10, days: 0, pid: 11 }, left: null };
         }
         await r.fulfill({ response: res, body: JSON.stringify(body) });
       } catch { /* the page closed at teardown (#6022) */ }
     });
     await page.reload();
-    await page.waitForSelector('.amachine', { state: 'visible', timeout: 15000 });
+    await page.waitForSelector('.acard .amachine', { state: 'visible', timeout: 15000 });
   }, verify: async (page) => {
-    const n = await page.locator('.amachine').count();
-    if (n !== 1) throw new Error('expected one agent flagged, saw ' + n);
-    const t = await page.locator('.amachine').first().innerText();
+    const n = await page.locator('.acard .amachine').count();
+    if (n !== 1) throw new Error('expected one card flagged, saw ' + n);
+    const t = await page.locator('.acard .amachine').first().innerText();
     if (t !== '6.5 GB left running') throw new Error('the card said: ' + t);
   }, after: async (page) => { await page.unroute('**/api/status*'); } },
   { name: 'agent-machine-page-7978', owner: 'Angel', noServiceWorker: true, go: async (page, data) => {
@@ -1171,7 +1171,7 @@ const SCREENS = [
         let body = null;
         try { body = await res.json(); } catch { body = null; }
         if (!body || !Array.isArray(body.agents)) { await r.fulfill({ response: res }); return; }
-        for (const c of body.agents) if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242, wasLeft: true }, left: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 } };
+        for (const c of body.agents) if (c.sessionName === data.chatAgent) c.machine = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 }, left: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 } };
         await r.fulfill({ response: res, body: JSON.stringify(body) });
       } catch { /* the page closed at teardown (#6022) */ }
     });

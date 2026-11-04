@@ -21,7 +21,7 @@ test('a pane tree is summed through its children, and each process counted once'
   assert.equal(out.angel.memMb, 501);
   assert.equal(out.angel.cpuPct, 31);
   assert.equal(out.angel.processes, 3);
-  assert.deepEqual(out.angel.top, { name: 'node', memMb: 400, cpuPct: 21, days: 0, pid: 11, wasLeft: false });
+  assert.deepEqual(out.angel.top, { name: 'node', memMb: 400, cpuPct: 21, days: 0, pid: 11 });
   assert.equal(out.angel.left, null);
   assert.equal(out.angel.leftMemMb, 0);
 });
@@ -42,7 +42,7 @@ test('a left-behind process is its agent\'s, with what runs under it, and its ag
   assert.equal(out.angel.processes, 3);
   assert.equal(out.angel.leftMemMb, 6657);
   assert.deepEqual(out.angel.left, { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 50 });
-  assert.equal(out.angel.top.wasLeft, true);
+  assert.equal(out.angel.top.pid, 50);
 });
 
 test('the leftover is named even when something running now is larger (review: the card and the page must agree)', () => {
@@ -85,6 +85,39 @@ test('a small wrapper with a large child is asked about (review: measured 0 cand
   assert.deepEqual(mc.leftCandidates(procs, new Set()).map((p) => p.pid), [50]);
   const out = mc.costBySession(new Map(), procs, owners([50, 'angel']));
   assert.equal(out.angel.left.name, 'node', 'the child is what is named');
+});
+
+test('NEVER Kosmos itself: the board, what is above it, the tunnel and tmux are not candidates, since the page says to end it', () => {
+  const big = mc.LEFT_MIN_KB * 4;
+  const procs = table(row(1, 0, 10, 0, '01:00', 'launchd'), row(70, 1, big, 0, '01:00', 'bash'), row(71, 70, big, 0, '01:00', 'node'), row(80, 1, big, 0, '01:00', '/x/kosmos-tunnel'), row(81, 1, big, 0, '01:00', 'tmux: server'), row(82, 1, big, 0, '01:00', 'tmux'), row(90, 1, big, 0, '01:00', 'node'));
+  assert.deepEqual(mc.leftCandidates(procs, new Set(), 71).map((p) => p.pid), [90], 'the board at 71 and the shell above it, the tunnel and both spellings of tmux are out');
+  assert.equal(mc.leftCandidates(procs, new Set(), 999).map((p) => p.pid).includes(70), true, 'control: with the board elsewhere, that shell is a candidate');
+});
+
+test('tmux, parentless and above every pane, cannot make one agent pay for them all (a subtree stops at a pane)', () => {
+  const procs = table(row(5, 1, 2048, 0, '01:00', 'tmux'), row(10, 5, 3 * 1024 * 1024, 0, '01:00', 'zsh'), row(20, 5, 3 * 1024 * 1024, 0, '01:00', 'zsh'));
+  const panes = mc.parsePanes(pane('a', 10) + pane('b', 20));
+  const inTrees = new Set([10, 20]);
+  assert.deepEqual(mc.leftCandidates(procs, inTrees), [], 'not even by another name');
+  const renamed = table(row(5, 1, 2048, 0, '01:00', 'wrapper'), row(10, 5, 3 * 1024 * 1024, 0, '01:00', 'zsh'), row(20, 5, 3 * 1024 * 1024, 0, '01:00', 'zsh'));
+  assert.deepEqual(mc.leftCandidates(renamed, inTrees), [], 'a parent above panes is sized without them');
+  const out = mc.costBySession(panes, renamed, owners([5, 'a']));
+  assert.equal(out.b.memMb, 3072, 'b keeps its own');
+  assert.equal(out.a.memMb, 3074, 'a pays for its own and the wrapper only');
+  assert.equal(out.a.leftMemMb, 2);
+});
+
+test('the asking stops at its budget, largest first, so a slow machine still gets a sample', async () => {
+  let asked = 0;
+  const exec = (cmd, args, opts, cb) => {
+    if (cmd === 'tmux') return cb(null, pane('angel', 10), '');
+    if (args.includes('-A')) return cb(null, zsh10 + Array.from({ length: 5 }, (_, i) => row(100 + i, 1, GB, 0, '01:00', 'node')).join('\n') + '\n', '');
+    asked += 1;
+    return setTimeout(() => cb(null, 'node\n', ''), 30);
+  };
+  const got = await mc.sample({ platform: 'linux', exec, readFile: async () => { asked += 1; await new Promise((r) => { setTimeout(r, 30); }); return ''; }, askBudgetMs: 40 });
+  assert.ok(got.angel, 'a sample came back');
+  assert.ok(asked >= 1 && asked < 5, `asked ${asked} of 5`);
 });
 
 test('on Linux an orphan adopted by a user\'s systemd counts as parentless, and systemd itself does not', () => {

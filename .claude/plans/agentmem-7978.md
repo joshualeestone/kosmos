@@ -25,6 +25,10 @@ A leftover like the one that prompted this, about 6.5 GB and a full core for 14 
 As first written it showed nothing on a normal board, with every test green, because each test stubbed the seam that was wrong. (1) LC_ALL=C on tmux outside a pane turned the format's tabs to underscores: 0 of 20 panes. Now `tmux -u`, with ps alone under C. (2) The route read by `sessionName`; samples are keyed by the raw session. Also fixed: a bare-name shell missed the folder road (comm is argv0); a small wrapper with a large child was invisible (now by subtree); the not-running row and card had no line, which I had claimed they did; the card could say left running while the page did not; a failed tmux replaced a good sample; a stuck child could end sampling; "folder" evidence lost to a named process beside it; apps crowding the candidates; an argument posing as the variable; systemd --user orphans; the list view; the words "left by an earlier run", false for a nohup server.
 The new tests run a REAL tmux on a private socket, outside a pane, under a C locale, through the real sample and read, with a control that the locale really does eat the tabs.
 
+## Review 2 (blind, sonnet) and what I found reading it
+Fixed: the board could be charged to an agent if started from its pane, and the page would then say to end it; the running list row's flag was an eighth grid child; a slow machine's sample could outlast read's limit (now a shared 30 s budget, largest first). Found while fixing these, and mine: sizing by subtree made tmux's server, parentless and above every pane, the largest "leftover", which could charge one agent for all of them. The board, what is above it, the tunnel and tmux are now never candidates, and a subtree stops at a pane.
+Stated and left: two sessions mapping to one name in readAgent take the first; a wrapper at AGENT_WORKFORCE_TMUX_BIN that refuses -u leaves the feature blank.
+
 ## Design (Mona Lisa)
 "left running" on the card; "this computer's memory" on the page, since the panel below is headed Memory; the leftover its own sentence, ending on what the person can do; processors in whole numbers.
 

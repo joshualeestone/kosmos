@@ -22,8 +22,8 @@ const { machineSize, machineCpuWords, machineLine, machineFlag, machineFlagHtml 
   page.liftAll(SCRIPT, ['machineSize', 'machineCpuWords', 'machineLine', 'machineFlag', 'machineFlagHtml'])
   + '\nreturn { machineSize, machineCpuWords, machineLine, machineFlag, machineFlagHtml };')((x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;'), limit('MACHINE_BIG_MB'), limit('MACHINE_BUSY_CPU'), limit('MACHINE_LEFT_MIN_MB'));
 
-const usual = { memMb: 480, cpuPct: 12, processes: 6, leftMemMb: 0, top: { name: 'node', memMb: 300, cpuPct: 10, days: 0, pid: 11, wasLeft: false }, left: null };
-const leftover = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242, wasLeft: true }, left: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 } };
+const usual = { memMb: 480, cpuPct: 12, processes: 6, leftMemMb: 0, top: { name: 'node', memMb: 300, cpuPct: 10, days: 0, pid: 11 }, left: null };
+const leftover = { memMb: 7136, cpuPct: 112, processes: 7, leftMemMb: 6656, top: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 }, left: { name: 'bash', memMb: 6656, cpuPct: 100, days: 14, pid: 4242 } };
 
 test('sizes and processors read as a person says them', () => {
   assert.equal(machineSize(480), '480 MB');
@@ -48,7 +48,7 @@ test('what is left running gets its own sentence, with its age and process, and 
 });
 
 test('a leftover smaller than what runs now is still named, so the card and the page agree', () => {
-  const m = { memMb: 1100, cpuPct: 0, processes: 2, leftMemMb: 400, top: { name: 'claude', memMb: 700, cpuPct: 0, days: 0, pid: 10, wasLeft: false }, left: { name: 'node', memMb: 400, cpuPct: 0, days: 0, pid: 50 } };
+  const m = { memMb: 1100, cpuPct: 0, processes: 2, leftMemMb: 400, top: { name: 'claude', memMb: 700, cpuPct: 0, days: 0, pid: 10 }, left: { name: 'node', memMb: 400, cpuPct: 0, days: 0, pid: 50 } };
   assert.equal(machineFlag({ machine: m }), '400 MB left running');
   assert.match(machineLine({ machine: m }), /Still running after what started it ended: node, 400 MB \(process 50\)\./);
   assert.doesNotMatch(machineLine({ machine: m }), /Largest/);
@@ -90,7 +90,7 @@ test('the card\'s line is escaped markup, and absent when quiet', () => {
 test('the page wires every place: the running and the not-running card and list row, and the agent\'s own line, as text', () => {
   assert.ok(SCRIPT.includes('<div class="amodel">${esc(tileModelLine(a))}${machineFlagHtml(a)}</div>'), 'running card');
   assert.ok(/acard off notrunning[\s\S]{0,4000}machineFlag\(a\) \? '<div class="amodel">' \+ machineFlagHtml\(a\)/.test(SCRIPT), 'not-running card');
-  assert.ok(SCRIPT.includes('lrowTask(taskLine(a, { card: true }))}${machineFlag(a) ?'), 'running list row');
+  assert.ok(SCRIPT.includes('lrowTask(taskLine(a, { card: true }), machineFlagHtml(a))'), 'running list row: inside the task cell, since the grid has seven children');
   assert.ok(/lrow off notrunning[\s\S]{0,4000}<div class="ltask">\$\{machineFlagHtml\(a\)\}<\/div>/.test(SCRIPT), 'not-running list row');
   assert.ok(SCRIPT.includes('dmachine.textContent = machineLine(a); dmachine.hidden = !dmachine.textContent;'));
   assert.ok(PAGE.includes('<p class="dhint" id="d-machine" hidden></p>'));

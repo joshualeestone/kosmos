@@ -13,6 +13,10 @@
  *      for. It still carries KOSMOS_AGENT_SESSION from the pane it was born in (agent-supervisor.sh), which names the agent
  *      with no guessing. Only large ones are asked, by the whole subtree: a small wrapper can hold a large child.
  *      A process that names nobody is not an agent's (a browser, the person's own apps) and is never shown.
+ *      🛑 NEVER KOSMOS ITSELF. The page tells the person to have this process ended, so the board, anything above it, the
+ *      tunnel and tmux are never candidates. tmux above all: it is parentless and every pane is its child, so by subtree
+ *      it is the largest "leftover" on the computer, and one agent would be charged for all of them. A subtree also stops
+ *      at any pane's tree, for the same reason.
  *   3. 🛑 macOS HIDES THE ENVIRONMENT OF ITS OWN BINARIES. Measured 11-04: `ps -E` returned the variable for node and a
  *      Homebrew python and NOTHING for /bin/bash, /bin/zsh, /bin/sh and /bin/sleep. So a leftover SHELL, the case that
  *      prompted this, could never be named that way, and a table-driven test would not have seen it. When the environment
@@ -45,6 +49,7 @@ const CMD_TIMEOUT_MS = 10000;
 const LEFT_MIN_KB = 200 * 1024;
 const LEFT_MIN_CPU = 25;
 const LEFT_MAX_ASKED = 12;   // a child process or two each: a bound, on a machine that may already be struggling
+const ASK_BUDGET_MS = 30000; // and a shared limit: a sample that takes minutes would outlive read's three rounds and blank every card
 const SESSION_IN_ENV = /(?:^|\s)KOSMOS_AGENT_SESSION=(\S+)/g;
 const NO_SERVER = /no server running|error connecting|server exited/i;
 const PANE_LIST = '#{session_name}\t#{pane_pid}\t#{pane_current_path}';
@@ -122,9 +127,10 @@ function processKids(procs) {
   return kids;
 }
 
-/* Every process under these roots, each once. A table read in one shot can hold a recycled parent, so a cycle must end. */
-function under(roots, procs, kids) {
-  const seen = new Set();
+/* Every process under these roots, each once, not going into `stop`. A table read in one shot can hold a recycled parent,
+   so a cycle must end. */
+function under(roots, procs, kids, stop) {
+  const seen = new Set(stop || []);
   const out = [];
   const stack = [...roots];
   while (stack.length) {
@@ -145,15 +151,29 @@ function parentless(p, procs) {
   return Boolean(parent) && nameOf(parent.comm) === 'systemd';
 }
 function isSystemApp(comm) { return /^\/(?:System|Applications|Library)\//.test(String(comm || '')); }
+/* tmux's server names itself "tmux: server" on some builds, so the first word decides. */
+function isKosmosItself(p, selfChain) {
+  if (selfChain.has(p.pid)) return true;
+  const name = nameOf(p.comm).split(/[\s:]/)[0];
+  return name === 'tmux' || name === 'kosmos-tunnel';
+}
+/* This process and everything above it. */
+function chainOf(pid, procs) {
+  const chain = new Set();
+  let at = pid;
+  while (at && !chain.has(at)) { chain.add(at); const p = procs.get(at); at = p ? p.ppid : 0; }
+  return chain;
+}
 
 /* The parentless processes worth asking about, largest subtree first: nobody's tree holds them. Each carries its subtree's
    size, so a 2 MB shell wrapping a 6 GB child is asked about. */
-function leftCandidates(procs, inTrees) {
+function leftCandidates(procs, inTrees, selfPid = process.pid) {
   const kids = processKids(procs);
+  const selfChain = chainOf(selfPid, procs);
   const out = [];
   for (const p of procs.values()) {
-    if (p.pid === 1 || inTrees.has(p.pid) || !parentless(p, procs) || isSystemApp(p.comm) || nameOf(p.comm) === 'systemd') continue;
-    const rows = under([p.pid], procs, kids);
+    if (p.pid === 1 || inTrees.has(p.pid) || !parentless(p, procs) || isSystemApp(p.comm) || nameOf(p.comm) === 'systemd' || isKosmosItself(p, selfChain)) continue;
+    const rows = under([p.pid], procs, kids, inTrees);
     const kb = rows.reduce((n, r) => n + r.rssKb, 0);
     const cpu = rows.reduce((n, r) => n + r.cpu, 0);
     if (kb >= LEFT_MIN_KB || cpu >= LEFT_MIN_CPU) out.push({ pid: p.pid, comm: p.comm, kb, cpu });
@@ -165,11 +185,10 @@ function brief(p, how) {
   return { name: nameOf(p.comm), memMb: Math.round(p.rssKb / 1024), cpuPct: Math.round(p.cpu), days: daysOf(p.etime), pid: p.pid, ...(how ? { how } : {}) };
 }
 
-/* One agent's numbers. `left` is the largest process left behind, apart from `top`, so the page can name it even when
-   something the agent is running now is larger. */
+/* One agent's numbers. `left` is the largest process left behind, given on its own because `top` can be something the
+   agent is running now, and the page must name it either way. */
 function summarize(rows, leftRows) {
   const largest = (list) => list.reduce((a, b) => (!a || b.p.rssKb > a.p.rssKb ? b : a), null);
-  const leftPids = new Set(leftRows.map((r) => r.p.pid));
   const top = largest(rows.map((p) => ({ p })));
   const left = largest(leftRows);
   return {
@@ -177,7 +196,7 @@ function summarize(rows, leftRows) {
     cpuPct: Math.round(rows.reduce((n, p) => n + p.cpu, 0)),
     processes: rows.length,
     leftMemMb: Math.round(leftRows.reduce((n, r) => n + r.p.rssKb, 0) / 1024),
-    top: top ? { ...brief(top.p), wasLeft: leftPids.has(top.p.pid) } : null,
+    top: top ? brief(top.p) : null,
     left: left ? brief(left.p, left.how) : null,
   };
 }
@@ -190,6 +209,7 @@ function costBySession(panes, procs, leftOwners) {
   const kids = processKids(procs);
   const out = {};
   const owners = leftOwners || new Map();
+  const inPanes = new Set(under([...panes.values()].flat(), procs, kids).map((p) => p.pid));
   const sessions = new Set([...panes.keys(), ...[...owners.values()].map((o) => o.session)]);
   for (const session of sessions) {
     const leftRows = [];
@@ -197,9 +217,10 @@ function costBySession(panes, procs, leftOwners) {
     for (const [pid, o] of owners) {
       if (o.session !== session) continue;
       lefts.push(pid);
-      for (const p of under([pid], procs, kids)) leftRows.push({ p, how: o.how });
+      for (const p of under([pid], procs, kids, inPanes)) leftRows.push({ p, how: o.how });
     }
-    const rows = under([...(panes.get(session) || []), ...lefts], procs, kids);
+    const seen = new Set();
+    const rows = [...under(panes.get(session) || [], procs, kids), ...leftRows.map((r) => r.p)].filter((p) => !seen.has(p.pid) && seen.add(p.pid));
     if (rows.length) out[session] = summarize(rows, leftRows);
   }
   return out;
@@ -227,7 +248,10 @@ async function sessionOfPid(pid, deps) {
   const platform = d.platform || process.platform;
   try {
     if (platform === 'linux') {
-      const text = await (d.readFile || fs.promises.readFile)(`/proc/${pid}/environ`, 'utf8');
+      const read1 = (d.readFile || fs.promises.readFile)(`/proc/${pid}/environ`, 'utf8');
+      let cap;
+      const text = await Promise.race([read1, new Promise((r) => { cap = setTimeout(() => r(''), CMD_TIMEOUT_MS); if (cap.unref) cap.unref(); })]);
+      clearTimeout(cap);
       const m = /(?:^|\0)KOSMOS_AGENT_SESSION=([^\0]+)/.exec(text);
       return m ? m[1] : null;
     }
@@ -259,7 +283,9 @@ async function sample(deps) {
   const inTrees = new Set(under([...panes.values()].flat(), procs, processKids(procs)).map((p) => p.pid));
   const folders = parseFolders(tmux.out, d.home === undefined ? os.homedir() : d.home);
   const leftOwners = new Map();
-  for (const c of leftCandidates(procs, inTrees)) {
+  const askUntil = Date.now() + (d.askBudgetMs || ASK_BUDGET_MS);
+  for (const c of leftCandidates(procs, inTrees, d.selfPid)) {
+    if (Date.now() > askUntil) break;   // the largest were asked first; the rest wait for the next sample
     const named = await sessionOfPid(c.pid, d);
     if (named) { leftOwners.set(c.pid, { session: named, how: null }); continue; }
     if (platform !== 'darwin') continue;
