@@ -443,6 +443,7 @@ enum Tasks {
     // PJ_NEEDS_WHY's sentences (the first of each pair), for a decision row's who line.
     static let needsWhy: [String: String] = [
         "question": "Waiting for your answer.",
+        "held": "Held until you are back.",   // kosmos#7916: the board's PJ_NEEDS_WHY.held
         "trust": "Waiting for you to approve it before it can start.",
         "gave_up": "Lost its connection, and Kosmos stopped trying to reconnect it.",
         "crash_loop": "Kosmos keeps restarting it, and it keeps stopping within a couple of minutes.",
