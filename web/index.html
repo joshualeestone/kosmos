@@ -74425,6 +74425,7 @@ document.getElementById('pj-settings-link').addEventListener('click', () => {
   const p = pjById(PJ_CURRENT);
   if (!p) return;
   paintProjectSettings(p);   // #3134: this cancels any pending save auto-advance (see paintProjectSettings)
+  document.getElementById('pjs-move-msg').textContent = '';   // #7968: coming back, an old "Saved." is not news
   pjView('settings');
   // #3502: the back button is hidden in the consolidated view (removed as redundant), and a
   // display:none element cannot take focus, so focusing it there would strand keyboard focus on
