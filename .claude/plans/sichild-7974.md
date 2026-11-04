@@ -25,4 +25,5 @@ notices a one-line link; #6873's worry was a parent signing a child's computer i
   fails cleanly (12 failures). Found while writing it: inside a closed <details>, Chromium still measures the content
   18px tall (checkVisibility() is false), so the check uses page.isVisible, not its height-based visible().
 - render-plus-company-5628.js: an unmanaged computer shows the line, a managed one does not. Pass.
-- Shots: Files/shots-7974 (desktop and iPhone, light and dark).
+- Shots: Files/shots-7974 (desktop and iPhone, light and dark). The line is 44pt tall (min-height): the iPhone shots'
+  taps<44 count went from 1 to 0 with it. It has its own focus ring, and a managed computer closes it before hiding it.

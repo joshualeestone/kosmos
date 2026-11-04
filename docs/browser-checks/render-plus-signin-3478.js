@@ -207,7 +207,8 @@ const visible = (page, sel) => page.evaluate((s) => {
       // The toggle event comes a moment after the press, so wait for the description rather than read it at once.
       await page.waitForFunction(() => document.getElementById('plus-signin-email').getAttribute('aria-describedby') === 'plus-si-child', null, { timeout: 3000 }).catch(() => {});
       const child = (await page.textContent('#plus-si-child')).trim();
-      chk(child.startsWith("Sign in with your child's account, not with the address you sign in with yourself")
+      chk(await page.isVisible('#plus-si-child')
+          && child.startsWith("Sign in with your child's account, not with the address you sign in with yourself")
           && child.includes('For a child under 13, use an account you make for them, at an email address you read')
           && (await page.getAttribute('#plus-signin-email', 'aria-describedby')) === 'plus-si-child',
         `[${key}] kosmos#6873: pressed, it says a child's computer signs in with the child's account, and describes the box`, child);
