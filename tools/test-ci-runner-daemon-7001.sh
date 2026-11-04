@@ -171,7 +171,7 @@ MV="$(sed -n 's/.*remove the daemon plist): //p' "$T/agentback.out")"
 # Pasted twice (sudo stripped): the first moves the agent aside, the second refuses and leaves the copy whole.
 MVS="$(printf '%s' "$MV" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')"; D9="$RA.retired-20261103T000009Z"
 O1="$(sh -c "$MVS" 2>&1)"; O2="$(sh -c "$MVS" 2>&1)"
-[ "$O1" = "moved aside" ] && [ ! -e "$AG" ] && cmp -s "$R0" "$D9" && [ "$O2" = "nothing done: $AG is not there (already moved aside)" ] && cmp -s "$R0" "$D9" \
+[ "$O1" = "moved aside" ] && [ ! -e "$AG" ] && cmp -s "$R0" "$D9" && [ "$O2" = "nothing done: $AG is not there (already moved aside), or the check could not run" ] && cmp -s "$R0" "$D9" \
   && pass "the printed move-aside pasted twice: moved once, and the second paste leaves the copy whole" || fail "mvtwice: [$O1] [$O2] $(ls -l "$D9" 2>&1)"
 rm -f "$D9" "$AG"
 rm -f "$AG"; grep -v ' 7001 ' "$T/procs" > "$T/procs.x"; mv "$T/procs.x" "$T/procs"; run restarting -- daemon
@@ -299,7 +299,7 @@ fixture; run mkdirlink FX_LINK_ON_MKDIR=1 -- --apply daemon
 # 2: an empty retired file (left by a printed move-aside whose copy failed) is never the one named or put back.
 fixture; mkdir -m 700 "$T/retired"; /bin/mv "$AG" "$RA.retired-20261103T000000Z"; : > "$RA.retired-20261103T000001Z"; run emptyret -- --apply daemon
 [ "$(rc emptyret)" = 1 ] && has emptyret "parked at $RA.retired-20261103T000000Z" && ! has emptyret 20261103T000001Z \
-  && has emptyret "sudo -u kosmos-ci test ! -e $AG && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { sudo test -e $RA.retired-20261103T000000Z && echo 'NOT finished; $RA.retired-20261103T000000Z is kept. $AG is there and not the same as it" \
+  && has emptyret "sudo -u kosmos-ci test ! -e $AG && sudo test -s $RA.retired-20261103T000000Z && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci tee $AG >/dev/null && sudo -u kosmos-ci test -s $AG && sudo cat $RA.retired-20261103T000000Z | sudo -u kosmos-ci cmp -s - $AG && sudo rm $RA.retired-20261103T000000Z && echo 'put back' || { if sudo test -e $RA.retired-20261103T000000Z; then if ! sudo -u kosmos-ci test -e $AG; then echo 'NOT finished; nothing was written" \
   && pass "an empty retired file is skipped, and the printed put-back removes the retired copy only after a compare" || fail "emptyret: rc $(rc emptyret) $(cat "$T/emptyret.out")"
 # 2: the printed put-back, run in a shell with no pipefail, keeps the retired file when the copy fails. These arms run
 # the printed text with sudo stripped (or a sudo shim): they pin the && / || flow, not the privilege split.
@@ -310,16 +310,39 @@ PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
 rm -f "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 [ "$PBOUT" = "put back" ] && [ ! -e "$RF" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && pass "and with a copy that works, the agent is back and the retired file gone" || fail "pbok: [$PB] agent $(ls -l "$AG" 2>&1)"
 PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
-[ "$PBOUT" = "nothing done: $RF is not there (already put back, or never parked)" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] \
+[ "$PBOUT" = "nothing done: $RF is not there (already put back, or never parked), or the check could not run" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] \
   && pass "the printed put-back pasted again refuses and leaves the agent it put back" || fail "pbtwice: [$PBOUT] agent $(ls -l "$AG" 2>&1)"
 # An agent already there (a svc.sh install) with the retired copy still parked: the put-back never writes over it.
 cp "$AG" "$RF"; printf 'reinstalled\n' > "$AG"; PBOUT="$(sh -c "$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
 [ "$PBOUT" = "NOT finished; $RF is kept. $AG is there and not the same as it: a copy that failed (empty, or cut short), or a newer install; to put $RF back anyway: rm $AG, then paste this again" ] && [ "$(cat "$AG")" = reinstalled ] && [ -s "$RF" ] \
   && pass "the printed put-back refuses when an agent is already there, and keeps both files" || fail "pbover: [$PBOUT] agent $(cat "$AG" 2>&1)"
+# kosmos#7887: the printed put-back names what is actually there when it fails. Each arm builds the state, runs the
+# printed text, and checks the last line and that no file was lost.
+PBS="$(printf '%s' "$PB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')"
+cp "$AG" "$T/agent.good"; rm -f "$AG"; : > "$RF"; PBOUT="$(sh -c "$PBS" 2>&1)"
+[ "$PBOUT" = "NOT finished; nothing was written: $RF is kept, and is empty or could not be read (look at it: ls -l $RF)" ] && [ ! -e "$AG" ] && [ -e "$RF" ] \
+  && pass "#7887: an empty retired file typed by hand says nothing was written, not that the agent is there" || fail "pbempty: [$PBOUT] agent $(ls -l "$AG" 2>&1)"
+cp "$T/agent.good" "$RF"; rm -f "$AG"
+printf '#!/bin/sh\n[ "$1" = -u ] && shift 2\n[ "$1" = rm ] && exit 1\nexec "$@"\n' > "$T/pbbin/sudo"
+PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
+[ "$PBOUT" = "put back, but $RF could not be removed: sudo rm $RF" ] && cmp -s "$AG" "$T/agent.good" && cmp -s "$RF" "$T/agent.good" \
+  && pass "#7887: a good copy whose final rm fails says it is put back and names the rm, not a failed copy" || fail "pbrm: [$PBOUT]"
+rm -f "$AG"; printf '#!/bin/sh\nexit 1\n' > "$T/pbbin/sudo"
+PBOUT="$(PATH="$T/pbbin:$PATH" sh -c "$PB" 2>&1)"
+[ "$PBOUT" = "nothing done: $RF is not there (already put back, or never parked), or the check could not run" ] && [ ! -e "$AG" ] && cmp -s "$RF" "$T/agent.good" \
+  && pass "#7887: a sudo that does not run reads as could-not-check, never as already done, and nothing moves" || fail "pbnosudo: [$PBOUT]"
+MVOUT="$(PATH="$T/pbbin:$PATH" sh -c "$MV" 2>&1)"
+[ "$MVOUT" = "nothing done: $AG is not there (already moved aside), or the check could not run" ] && pass "#7887: the printed move-aside, with a sudo that does not run, says the check could not run" || fail "mvnosudo: [$MVOUT]"
+rm -f "$RF" "$T/agent.good"
 # 2: the stage's own put-back, when the copy comes out short, keeps the retired file and prints how to put it back.
 fixture; run teeshort FX_MV_PLIST_FAIL=1 FX_TEE_SHORT=1 -- --apply daemon
 [ "$(rc teeshort)" = 1 ] && has teeshort "could not put $AG back (nothing was loaded): sudo -u kosmos-ci test ! -e $AG && sudo test -s $RA.retired-" && [ -s "$(ls "$RA".retired-* 2>/dev/null | head -n 1)" ] \
   && [ "$(wc -c < "$(ls "$RA".retired-* | head -n 1)")" -gt 20 ] && [ ! -e "$AG" ] && pass "a short copy on the stage's own put-back keeps the retired file and removes the short agent" || fail "teeshort: rc $(rc teeshort) $(cat "$T/teeshort.out")"
+# kosmos#7887: and the put-back that line prints really puts the agent back from that state.
+TPB="$(sed -n 's/.*could not put .* back (nothing was loaded): //p' "$T/teeshort.out")"
+TOUT="$(sh -c "$(printf '%s' "$TPB" | sed 's/sudo -u kosmos-ci //g; s/sudo //g')" 2>&1)"
+[ -n "$TPB" ] && [ "$TOUT" = "put back" ] && [ "$(plutil -extract Label raw -o - "$AG" 2>/dev/null)" = "$LABEL" ] && ! ls "$RA".retired-* >/dev/null 2>&1 \
+  && pass "#7887: the put-back teeshort prints, pasted, puts the agent back" || fail "teeshortpaste: [$TOUT] [$TPB]"
 # 3: a FIFO at the plist name .service gives refuses and does not hang (the alarm in run() fails a hang). The real plutil
 # refuses a FIFO by itself (measured: rc 1, no hang); the plutil stand-in blocks on one, so only runner_plist's own -f
 # check keeps this arm green.
@@ -331,6 +354,10 @@ fixture; RL="$H/Library/LaunchAgents/actions.runner.joshualeestone-kosmos-relay.
 run pllink -- --apply daemon
 [ "$(rc pllink)" = 1 ] && has pllink ".service does not name" && ! grep -q -F "plutil -extract WorkingDirectory raw -o - $RL" "$LOG" && untouched \
   && pass "a symlink at the plist name .service gives is refused before plutil reads it" || fail "pllink: rc $(rc pllink) $(grep plutil "$LOG" | head -3)"
+# kosmos#7887: the positive control for pllink: the same name as a regular file IS read by plutil, and the log records it.
+fixture; RL="$H/Library/LaunchAgents/actions.runner.joshualeestone-kosmos-relay.y.plist"; cp "$AG" "$RL"; printf '%s\n' "$RL" > "$R/.service"
+run pllinkctl -- --apply daemon
+[ "$(rc pllinkctl)" = 1 ] && grep -q -F "plutil -extract WorkingDirectory raw -o - $RL" "$LOG" && pass "#7887: CONTROL for pllink: a regular plist at that name is read, and the log shows the read" || fail "pllinkctl: rc $(rc pllinkctl) $(grep plutil "$LOG" | head -3)"
 # NIT: signals are ignored from the first write to the bootstrap.
 fixture; run sigs FX_TERM_ON_MV=1 -- --apply daemon
 [ "$(rc sigs)" = 0 ] && has sigs "Listener pid 7001 under pid 7000" && grep -q "^launchctl bootstrap system" "$LOG" \
