@@ -8,7 +8,7 @@ Every community failure path does print a reason, but through `say`, which write
 drops stdout therefore stops with stderr empty. The Windows CLI already writes these reasons to stderr (ctx.err).
 
 ## Decided
-- One wrapper in cmd_community, not a patch per exit: the subcommand (now cmd_community_run) runs in a subshell, `say`
+- One wrapper in cmd_community, not a patch per exit: the subcommand (cmd_community, unchanged and run by the new cmd_community_with_reason) runs in a subshell, `say`
   keeps the first line it says in a temp file named by KOSMOS_SAY_FIRST, and on a nonzero exit cmd_community writes ONE
   line to stderr: `kosmos community <sub>: <first line said> (exit N: <what N means for a retry>)`, then exits N.
   Exit 2: running it again as written gives the same answer. Exit 3: it may have happened, check status first.

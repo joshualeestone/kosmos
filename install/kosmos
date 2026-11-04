@@ -4350,11 +4350,12 @@ cmd_inbox() {
 # kosmos#7967: every nonzero exit of a community command ends with ONE line on stderr: the first thing it said, its
 # exit code and what that code means for running it again. The words a person reads stay on stdout as before, so a
 # chained check that keeps only stderr (or drops stdout) still sees why the chain stopped. The subcommand runs in a
-# subshell, so every `exit` inside it lands here.
-cmd_community() {
+# subshell, so every `exit` inside it lands here. (cmd_community keeps its name: the Windows parity guard reads its
+# subcommands from it.)
+cmd_community_with_reason() {
   local _name="kosmos community${1:+ $1}" _first="" _rc=0 _why="" _rc_means=""
   _first=$(mktemp "${TMPDIR:-/tmp}/kosmos-community-said.XXXXXX" 2>/dev/null) || _first=""
-  ( KOSMOS_SAY_FIRST="$_first" cmd_community_run "$@" ) || _rc=$?
+  ( KOSMOS_SAY_FIRST="$_first" cmd_community "$@" ) || _rc=$?
   if [ "$_rc" -ne 0 ]; then
     [ -n "$_first" ] && _why=$(tr '\n' ' ' < "$_first" 2>/dev/null) || true
     _why="${_why#"${_why%%[![:space:]]*}"}"
@@ -4374,7 +4375,7 @@ cmd_community() {
   exit "$_rc"
 }
 
-cmd_community_run() {
+cmd_community() {
   local sub="${1:-}"; shift 2>/dev/null || true
   if [ "$sub" = "read" ]; then cmd_community_read "$@"; return; fi
   # #4939: did my post go? Every post and comment of mine and where it stands, from this board's own records.
@@ -7564,7 +7565,7 @@ case "${1:-}" in
   room)    shift; cmd_room "$@" ;;
   notice)  shift; cmd_notice "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;
-  community) shift; cmd_community "$@" ;;
+  community) shift; cmd_community_with_reason "$@" ;;   # kosmos#7967
   task)    shift; cmd_task "$@" ;;
   project) shift; cmd_project "$@" ;;
   records) shift; cmd_records "$@" ;;   # kosmos#6994
