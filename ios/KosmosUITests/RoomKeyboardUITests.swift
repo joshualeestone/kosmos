@@ -120,7 +120,13 @@ final class RoomKeyboardUITests: XCTestCase {
         if post.exists { return true }
         let rows = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'")).allElementsBoundByIndex
         let seen = rows.map { "\($0.label.prefix(12)) at \(Int($0.frame.minY))" }.joined(separator: ", ")
-        XCTFail("Post 220 was gone \(when); on screen: \(seen)")
+        // kosmos#7957: one empty listing can be a moment in a move, or a room gone blank. A second look says which.
+        Thread.sleep(forTimeInterval: 3)
+        let later = app.staticTexts.matching(NSPredicate(format: "label CONTAINS ' of 220.'")).allElementsBoundByIndex
+        let again = later.map { "\($0.label.prefix(12)) at \(Int($0.frame.minY))" }.joined(separator: ", ")
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot()); shot.name = "room-post-220-gone"; shot.lifetime = .keepAlways
+        XCTContext.runActivity(named: "post 220 gone") { $0.add(shot) }
+        XCTFail("Post 220 was gone \(when); on screen: \(seen); 3 s later: \(again.isEmpty ? "BLANK, no post at all" : again)")
         return false
     }
 
