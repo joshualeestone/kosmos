@@ -284,6 +284,25 @@ test('#7893: a direct message marked no-reply says FYI in place of the answer li
   });
 });
 
+/* #7893 round 1: the flag is part of the duplicate match. The same words resent WITHOUT --no-reply after an FYI are a
+   new message (the sender changed their mind), so the recipient gets the answer line, not a folded FYI. */
+test('#7893: the same words resent without --no-reply after an FYI are sent, with the answer line', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    const tmux = arm([ok(), ok(), ok(), ok(), ok(), ok()]);
+    const fyi = messages.send({ fromPane: '%7', to: 'mara', text: 'deploy done, can you check it', replyExpected: false }, board.agents);
+    // CONTROL first (a later send to mara ends the fold window): the same FYI again is still one message (#4580).
+    const again = messages.send({ fromPane: '%7', to: 'mara', text: 'deploy done, can you check it', replyExpected: false }, board.agents);
+    assert.equal(again.duplicate, true);
+    assert.equal(again.id, fyi.id);
+    assert.equal(tmux.pastedMessages().length, 1, 'the retry typed nothing');
+    const asked = messages.send({ fromPane: '%7', to: 'mara', text: 'deploy done, can you check it' }, board.agents);
+    assert.equal(asked.duplicate, undefined, 'a resend that now wants an answer must not fold into the FYI');
+    assert.notEqual(asked.id, fyi.id);
+    assert.match(tmux.pastedMessages()[1], /to answer, if it needs one, run: kosmos msg --in-reply-to /);
+  });
+});
+
 /* ── the valve ───────────────────────────────────────────────────────────── */
 
 test('the pair valve: the send past the cap is refused with the surface-to-your-operator sentence, logged, and not typed', () => {
