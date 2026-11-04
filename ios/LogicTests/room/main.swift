@@ -556,6 +556,12 @@ check(!chatSource.contains("keepAnchor scrollTo \\(id)"), "review 1: no message 
 check(chatSource.contains("let held = Board.holdRow(rowsNow, back: back, below: Double(top), above: Double(bottom))") && chatSource.contains("back = held.back")
       && chatSource.contains("let r = held.row, let reading = rows.y[r.id]") && !chatSource.contains("Board.readerRow(rowsBefore"),
       "kosmos#7645: the keyboard hold's row comes from Board.holdRow and its offset from the read-back it returns")
+// kosmos#7609 (main runs 41780837713 and 41713564948, 11-04): a did-show 3.4 s after its will-show still corrects, and a
+// retry's correction is looked at once more, as a first try's is (#7654).
+check(chatSource.contains("guard Date().timeIntervalSince(kept.at) < Self.staleAfter else {") && chatSource.contains("static let staleAfter: TimeInterval = 6")
+      && chatSource.contains("if !relooked, Date() < until { self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true, relooked: true); return }")
+      && !chatSource.contains("if !retried, Date() < until { self.settleOnScreen("),
+      "kosmos#7609: the hold survives a slow did-show, and every correction is looked at once more")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
 check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")

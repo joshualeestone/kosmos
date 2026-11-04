@@ -2815,7 +2815,8 @@ struct KeyboardHold: UIViewRepresentable {
         // window; once settled the hold guards the row again until then (iOS 26 moves the list more than once after did-show),
         // with its own end timer. The chat reads its newest again (onPutBack) after the first try however it ends, dropped
         // included, since the placing itself may have shown the end, and after any try that moved the list.
-        private func settleOnScreen(_ id: String, above: Int, width: CGFloat, want: CGFloat, until: Date, retried: Bool = false) {
+        // relooked: the one look after a correction has been asked (kosmos#7609: a retry's correction had none).
+        private func settleOnScreen(_ id: String, above: Int, width: CGFloat, want: CGFloat, until: Date, retried: Bool = false, relooked: Bool = false) {
             let token = settleToken
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
@@ -2831,7 +2832,7 @@ struct KeyboardHold: UIViewRepresentable {
                     ChatView.trace(retried ? "keyboard hold: settle retry, no good reading of the row" : "keyboard hold: settle, no good reading of the row")
                     if Date() >= until { ChatView.trace("keyboard hold: settle gave up") }
                     // A row with no last reading belongs to readings that were cleared (another chat): nothing to settle.
-                    if Date() < until, self.rows?.last[id] != nil { self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true) }
+                    if Date() < until, self.rows?.last[id] != nil { self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true, relooked: relooked) }
                     return
                 }
                 if self.above != above || abs(sv.bounds.width - width) > 0.5 { ChatView.trace("keyboard hold: settle skipped, the list changed"); return }
@@ -2845,7 +2846,8 @@ struct KeyboardHold: UIViewRepresentable {
                                                     viewHeight: Double(sv.bounds.height))
                     sv.contentOffset = CGPoint(x: sv.contentOffset.x, y: CGFloat(target))
                     // kosmos#7654: read once more: on CI's runner a 7 pt correction was undone while the list settled and nothing looked again.
-                    if !retried, Date() < until { self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true); return }
+                    // kosmos#7609 (main run 41713564948): also after a retry's correction (27 pt corrected, 20 pt left, no look).
+                    if !relooked, Date() < until { self.settleOnScreen(id, above: above, width: width, want: want, until: until, retried: true, relooked: true); return }
                 }
                 if Date() < until, self.guarding == nil {
                     // The row's place in the content and the offset as they are now, settled: what the watch keeps from here.
@@ -2911,6 +2913,8 @@ struct KeyboardHold: UIViewRepresentable {
         // kosmos#7645: 1.5 s, not 0.8: on CI's runner did-show came 1.3 s after will-show, and with the anchor let go nothing
         // fights a longer window (a finger or the app's own move still ends it).
         static let window: TimeInterval = 1.5
+        // How old a will-show reading may be at its did-show (kosmos#7609: measured 3.4 s on CI).
+        static let staleAfter: TimeInterval = 6
         // kosmos#7690: a move this large with no finger on the list, this soon before will-show, was not the reader's.
         static let jumpSize: CGFloat = 100
         static let jumpWindow: TimeInterval = 0.25
@@ -3131,8 +3135,9 @@ struct KeyboardHold: UIViewRepresentable {
                 guard let self, let kept = self.saved else { return }
                 self.saved = nil
                 guard let rows = self.rows else { return }
-                // 3 s: on CI's runner did-show came 1.3 s after will-show (kosmos#7645); a reading older than that is another keyboard's.
-                guard Date().timeIntervalSince(kept.at) < 3 else { ChatView.trace("keyboard hold: skipped, stale"); return }
+                // kosmos#7645: 1.3 s on CI's runner once; kosmos#7609 (main run 41780837713, 11-04): 3.4 s on a busy runner, and the
+                // 3 s limit then dropped the whole correction. A will-hide already clears another keyboard's reading (saved = nil).
+                guard Date().timeIntervalSince(kept.at) < Self.staleAfter else { ChatView.trace("keyboard hold: skipped, stale"); return }
                 // 10-30 measured: iOS 26 moves it more than once after did-show, so for a short window every move of the
                 // reader's row is put back, as long as nothing else is moving the list.
                 self.generation &+= 1
