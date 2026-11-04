@@ -687,7 +687,7 @@ struct ChatView: View {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                             if Self.idAnchor { positionId = target } else { proxy.scrollTo(target, anchor: .top) }
                         }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { atBottom = endVisible; sampleScrollRested = true; Self.trace("debug scroll-up rested, atBottom \(endVisible)") }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 3.6) { sampleScrollRest(tries: 0) }
                     }
                     // kosmos#7420: KOSMOS_SAMPLE_REBUILD=1 runs the empty-list recovery 3 s after opening, the reader at the newest
                     // (so the real decision gives .rebuild), then shows a marker with the rebuilds counted. The cause (rows not drawn within
@@ -1033,6 +1033,15 @@ struct ChatView: View {
         // Counted after the last check the rebuild schedules (Board's rebuild timing).
         let after = Board.rebuildGrace + Board.rebuildCheckBump + (Board.diagCheckWaits.max() ?? 0) + 0.9
         DispatchQueue.main.asyncAfter(deadline: .now() + after) { sampleRebuilds = rebuilds.count }
+    }
+    #endif
+
+    #if DEBUG
+    // kosmos#7609 (main run 41700157014): on a slow runner the end still showed 0.6 s after the sample's scroll, so the rest
+    // read atBottom true and the check measured a reader at the newest. The rest waits for the end to go: every 0.2 s, 5 s at most.
+    private func sampleScrollRest(tries: Int) {
+        if endVisible, tries < 25 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { sampleScrollRest(tries: tries + 1) }; return }
+        atBottom = endVisible; sampleScrollRested = true; Self.trace("debug scroll-up rested, atBottom \(endVisible)")
     }
     #endif
 
