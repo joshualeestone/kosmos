@@ -347,7 +347,7 @@ if [ "$FAMILY" = mac ] && [ "$PROMOTE_LINUX" = yes ]; then
     $LINUX_CHECK_CMD "$V" "$_lc_sha"; _lc_rc=$?
     case "$_lc_rc" in
       0) LINUX_CHECK_SAID="linux check runs green for $_lc_sha" ;;
-      1) echo "promote-channel: REFUSED: the Linux check runs are not both green for $V ($_lc_sha). Nothing was written. (--skip-linux-check overrides, loudly.)" >&2
+      1) echo "promote-channel: REFUSED: the Linux check runs are not both green for $V ($_lc_sha), or the lookup failed (its lines above say which). Nothing was written. (--skip-linux-check overrides, loudly.)" >&2
          # A named promote (a rollback, or a build staging has moved past) cannot be checked now: the workflows check
          # what staging serves, and records are kept 90 days. Say so, so the remedy above is not a dead end.
          [ -z "$NAMED_VERSION" ] || echo "promote-channel: $V is a named promote: if it is no longer what staging serves and has no record from when it was (records are kept 90 days), it cannot be checked now, and --skip-linux-check is the way through (say why in the promote report)." >&2

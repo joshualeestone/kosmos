@@ -115,5 +115,15 @@ chk "the artifact query asks for the exact name" grep -qF 'actions/artifacts?nam
 # bare main (with a tag called main, git resolves the bare name to the tag, which compares identical to itself).
 chk "the compare is against heads/main, not a bare main" grep -qF 'compare/$hsha...heads/main' "$HERE/tools/linux-check-runs.sh"
 
+# The contract between the two sides: the names the workflows upload are the names the lookup asks for, and each
+# record is made in the workflow file the lookup requires. The fixtures above build names themselves, so a rename on
+# either side would pass every arm above and make every real promote refuse.
+WF="$HERE/.github/workflows"
+chk "contract: linux-family-install-7281.yml records linux-family-install-<version>-<sha>" grep -qF 'echo "name=linux-family-install-$WANT_VERSION-$WANT_SHA" >> "$GITHUB_OUTPUT"' "$WF/linux-family-install-7281.yml"
+chk "contract: linux-promote-check-7933.yml records linux-promote-check-<version>-<sha>" grep -qF 'echo "name=linux-promote-check-$VV-$VS" >> "$GITHUB_OUTPUT"' "$WF/linux-promote-check-7933.yml"
+chk "contract: the lookup asks for those two prefixes, in those two files" grep -qF 'for pair in "linux-family-install linux-family-install-7281.yml" "linux-promote-check linux-promote-check-7933.yml"; do' "$HERE/tools/linux-check-runs.sh"
+chk "contract: and builds the name as <prefix>-<version>-<sha>" grep -qF 'local name="$1-$V-$SHA"' "$HERE/tools/linux-check-runs.sh"
+chk "contract: both workflows upload the named record" [ "$(grep -c 'name: ${{ steps.record.outputs.name }}\|name: ${{ steps.same.outputs.name }}' "$WF/linux-family-install-7281.yml" "$WF/linux-promote-check-7933.yml" | awk -F: '{s+=$2} END {print s}')" = 2 ]
+
 echo "test-linux-check-runs-7942: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
