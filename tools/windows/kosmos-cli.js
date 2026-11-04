@@ -1838,15 +1838,16 @@ async function taskDoneWhen(ctx, args) {
   /* #7990, as install/kosmos: --check <number> "<wording>" changes that one check. Exactly those two after it. */
   if (args[2] === '--check') {
     if (args.length !== 5) { ctx.err(DONE_WHEN_USAGE); return 2; }
-    if (!/^[0-9]+$/.test(args[3])) { ctx.err('The check number must be a number, as kosmos task list shows them.'); return 2; }
+    if (!/^[1-9]$/.test(args[3])) { ctx.err('The check number must be the one kosmos task list shows, like 1 or 2.'); return 2; }
     const one = String(args[4]).replace(/[\t\r\n]/g, ' ').replace(/[\u0000-\u001f\u007f]/g, '');
     if (!one.trim()) { ctx.err('Each check has to say something. ' + DONE_WHEN_USAGE); return 2; }
+    if (one === '--' || /^--[A-Za-z]/.test(one)) { ctx.err('That looks like an option, not a check\'s wording. To take the checks off, use --clear on its own. ' + DONE_WHEN_USAGE); return 2; }
     const r1 = await ctx.call('POST', '/api/project/' + projectSlug(project) + '/task/' + num + '/done-when', { check: Number(args[3]), text: one, from_pane: '' });
     if (!r1.reached) {
       return r1.timedOut ? maybe(ctx.err, 'Kosmos was slow to answer and we stopped waiting. It may have been done; running it again is safe.')
         : ctx.unreachable('change that task');
     }
-    if (r1.json && r1.json.task) { ctx.out('Changed done-when check ' + args[3] + ' on task ' + num + ' on ' + project + '. See them with: kosmos task list ' + project); return 0; }
+    if (r1.json && r1.json.task) { ctx.out('Done-when check ' + args[3] + ' on task ' + num + ' on ' + project + ' now reads as you wrote it. See them with: kosmos task list ' + project); return 0; }
     if (ctx.refusedBy(r1)) { ctx.err('Kosmos could not change that task: ' + ctx.refusedBy(r1) + '.'); return 1; }
     ctx.err('Kosmos gave an answer we could not read when changing that task.');
     return 1;
