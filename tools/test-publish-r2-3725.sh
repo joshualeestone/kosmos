@@ -772,29 +772,35 @@ rm -f "$FAKE/publish.lock"
 # 7951: node runs with its own stdin and a time limit. Measured on the real functions, not a copy.
 cat > "$TMP/bounded.ps1" <<'PSEOF'
 . $args[1]
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version 2.0
 $FakeDir = 'test'; $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '8'
 Import-FromScript $args[0] @('Get-NodeTimeoutSec', 'ConvertTo-NativeArg', 'Invoke-NodeBounded') @('Utf8')
 $node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
 # Stdin reaches EOF even though this pwsh's own stdin is held open by the caller.
 $r = Invoke-NodeBounded $node @('-e', "process.stdin.on('data',()=>{}).on('end',()=>{console.log('EOF');process.exit(0)})")
-"eof=$($r.Out) rc=$($r.Rc) timedout=$($r.TimedOut)"
+"eof=$($r.Out) rc=$($r.Rc) undecided=[$($r.Undecided)]"
 # Arguments arrive byte for byte.
 $weird = @('a b', 'q"uote', 'trail\', 'sp ace\', '', 'back\\"slash', 'plain')
 $r = Invoke-NodeBounded $node (@('-e', 'console.log(JSON.stringify(process.argv.slice(1)))') + $weird)
 "args_same=$(($r.Out | ConvertFrom-Json | ConvertTo-Json -Compress) -ceq ($weird | ConvertTo-Json -Compress))"
 # Stdin text arrives as UTF-8 and the answer comes back as UTF-8.
-$r = Invoke-NodeBounded $node @('-') "console.log('café '+process.argv.length)"
+$r = Invoke-NodeBounded $node @('-', 'one', 'two') "console.log('argc '+process.argv.length)"
 "script=$($r.Out)"
 $r = Invoke-NodeBounded $node @('-') "console.log('$([char]0xe9)')"
 "utf8=$([int][char]$r.Out[0])"
 # An exit code comes back, and two lines join.
 $r = Invoke-NodeBounded $node @('-e', "console.log('one');console.log('two');process.exit(4)")
-"rc4=$($r.Rc) out=$($r.Out) timedout=$($r.TimedOut)"
+"rc4=$($r.Rc) out=$($r.Out) undecided=[$($r.Undecided)]"
 # A node that prints a pass and never exits is stopped, and does not read as a pass.
 $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '2'
 $t0 = Get-Date
 $r = Invoke-NodeBounded $node @('-e', "console.log('PASS');setInterval(()=>{},1000)")
-"hang rc=$($r.Rc) timedout=$($r.TimedOut) out=$($r.Out) quick=$(((Get-Date) - $t0).TotalSeconds -lt 20)"
+"hang rc=$($r.Rc) out=$($r.Out) quick=$(((Get-Date) - $t0).TotalSeconds -lt 20) undecided=[$($r.Undecided)]"
+# A node that never reads a stdin too big for the pipe: the write is under the limit as well.
+$t0 = Get-Date
+$r = Invoke-NodeBounded $node @('-e', "setInterval(()=>{},1000)") ('x' * 2000000)
+"bigstdin rc=$($r.Rc) quick=$(((Get-Date) - $t0).TotalSeconds -lt 20)"
 # The seam belongs to the test transport: without a fake bucket the real limit stands.
 $FakeDir = $null
 "limit=$(Get-NodeTimeoutSec)"
@@ -805,45 +811,74 @@ $sh = Join-Path $args[2] 'holdpipe.sh'
 chmod +x $sh
 $env:KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC = '20'
 $r = Invoke-NodeBounded $sh @()
-"held rc=$($r.Rc) timedout=$($r.TimedOut)"
+"held rc=$($r.Rc) undecided=[$($r.Undecided)]"
 # A program that does not exist does not start, and that is not exit 0.
 $r = Invoke-NodeBounded (Join-Path $args[2] 'no-such-node') @()
-"nostart rc=$($r.Rc)"
+"nostart rc=$($r.Rc) undecided=[$(if ($r.Undecided) { 'yes' })]"
 PSEOF
 # The pipe from sleep is what holds this pwsh's stdin open, the shape the card measured.
 o="$(sleep 15 | "$PWSH" -NoProfile -File "$TMP/bounded.ps1" "$PS1" "$TMP/load.ps1" "$TMP" 2>&1)"
 want7951() { case "$o" in *"$2"*) pass "#7951 $1" ;; *) fail "#7951 $1 (wanted: $2) got: $o" ;; esac; }
-want7951 "node sees EOF on stdin while this script's own stdin stays open" "eof=EOF rc=0 timedout=False"
+want7951 "node sees EOF on stdin while this script's own stdin stays open" "eof=EOF rc=0 undecided=[]"
 want7951 "arguments with spaces, quotes, trailing backslashes and an empty one arrive byte for byte" "args_same=True"
-want7951 "the script given on stdin runs" "script=caf"
+want7951 "the script given on stdin runs" "script=argc 4"
 want7951 "stdin text and stdout are both UTF-8" "utf8=233"
-want7951 "an exit code comes back and output lines join" "rc4=4 out=one two timedout=False"
-want7951 "a node that printed PASS and never exits is stopped, with a non-zero rc, inside the bound" "hang rc=98 timedout=True out=PASS quick=True"
+want7951 "an exit code comes back and output lines join" "rc4=4 out=one two undecided=[]"
+want7951 "a node that printed PASS and never exits is stopped, with a non-zero rc, inside the bound" "hang rc=98 out=PASS quick=True undecided=[it did not finish within 2 seconds and was stopped]"
 want7951 "the timeout seam does nothing without the test transport" "limit=300"
-want7951 "exit 0 with its output still held open is not a pass" "held rc=97 timedout=False"
-want7951 "a node that does not start is not a pass" "nostart rc=99"
+want7951 "a stdin node never reads cannot outlast the limit" "bigstdin rc=98 quick=True"
+want7951 "exit 0 with its output still held open is not a pass, and says why" "held rc=97 undecided=[it exited, but its output never closed, so its verdict was not read]"
+want7951 "a node that does not start is not a pass" "nostart rc=99 undecided=[yes]"
 
-# The whole script: a fake node on PATH prints the passing verdict and hangs, at each kind of caller.
+# The whole script: a fake node on PATH prints a passing verdict and hangs, at each kind of caller. Everything else goes
+# to the real node, so each arm reaches its own check through the real gates before it.
 HANGBIN="$TMP/hangbin"; mkdir -p "$HANGBIN"
 REALNODE="$(command -v node)"
 cat > "$HANGBIN/node" <<NODEEOF
 #!/bin/sh
-# Hangs only on the verb under test; everything else is the real node.
 case "\$*" in
   *"\$HANG_ON"*) echo "kosmos-win-x64.zip matches the signed manifest"; exec sleep 300 ;;
 esac
 exec "$REALNODE" "\$@"
 NODEEOF
 chmod +x "$HANGBIN/node"
+hung() { HANG_ON="$1" PATH="$HANGBIN:$PATH" KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC=2 fake "${@:2}"; }
+held_clean() { # <label>: the run took publish.lock, then gave it back
+  if grep -q '^PUT publish\.lock ' "$FAKE/.calls" && grep -q '^DELETE publish\.lock' "$FAKE/.calls" && [ ! -e "$FAKE/publish.lock" ]; then pass "$1"
+  else fail "$1: lock=$(ls "$FAKE/publish.lock" 2>/dev/null) calls=$(grep 'publish\.lock' "$FAKE/.calls" | tr '\n' ';')"; fi
+}
 rm -f "$FAKE/publish.lock"
-: > "$FAKE/.calls"
 t0=$SECONDS
-HANG_ON=ships-checker PATH="$HANGBIN:$PATH" KOSMOS_PUBLISH_R2_NODE_TIMEOUT_SEC=2 fake -Zip "$SDIR/kosmos-win-x64.zip" -Sig "$SDIR/sent.sig"; rc=$?
+hung ships-checker -Zip "$SDIR/kosmos-win-x64.zip" -Sig "$SDIR/sent.sig"; rc=$?
 took=$((SECONDS - t0))
-refuses_clean "#7951 a manifest check that hangs is refused as a time-out, nothing written" "timed out after 2 seconds"
-case "$(cat "$TMP/out")" in *"does not check out"*) fail "#7951 a hang must not read as a failed check" ;; *) pass "#7951 a hang does not read as a failed check" ;; esac
-[ "$took" -lt 60 ] && pass "#7951 the hang was stopped inside the bound (${took}s)" || fail "#7951 the hang ran ${took}s"
-[ ! -e "$FAKE/publish.lock" ] && pass "#7951 the stopped run leaves no lock" || fail "#7951 the stopped run left publish.lock"
+refuses_clean "#7951 a manifest check that hangs before the lock refuses as undecided, nothing written" "decided nothing about this build: it did not finish within 2 seconds"
+if grep -qF 'does not check out' "$TMP/out"; then fail "#7951 a hang must not read as a failed check"; else pass "#7951 a hang does not read as a failed check"; fi
+if grep -qF 'it had printed: kosmos-win-x64.zip matches' "$TMP/out"; then pass "#7951 the refusal shows the verdict the stopped check had printed"; else fail "#7951 the printed verdict is missing: $(tail -1 "$TMP/out")"; fi
+if [ "$took" -lt 60 ]; then pass "#7951 the hang was stopped inside the bound (${took}s)"; else fail "#7951 the hang ran ${took}s"; fi
+# The promote's two checks, both while publish.lock is held: the shape the card measured.
+printf '{"manifest":1}\n' > "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json"; printf 'bm90IGEgc2lnbmF0dXJl\n' > "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json.sig"
+hung .manifest.json -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399; rc=$?
+refuses_clean "#7951 a promote's manifest check that hangs refuses as undecided, nothing written" "the manifest check (check) decided nothing about this build"
+held_clean "#7951 that promote gave back the lock it held"
+rm -f "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json" "$FAKE/kosmos-$_ptr_v-win-x64.manifest.json.sig"
+hung win-staging-record -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399; rc=$?
+refuses_clean "#7951 a promote's record check that hangs refuses as undecided, nothing written" "the verification record check decided nothing: it did not finish"
+if grep -qF 'does not pass' "$TMP/out"; then fail "#7951 a hung record check must not read as a failed record"; else pass "#7951 a hung record check does not read as a failed record"; fi
+held_clean "#7951 that promote gave back the lock it held too"
+# Git gets a closed stdin as well: a git that waits on stdin reports it, with this run's stdin held open.
+GITBIN="$TMP/gitbin"; mkdir -p "$GITBIN"; REALGIT="$(command -v git)"
+cat > "$GITBIN/git" <<GITEOF
+#!/bin/bash
+read -r -t 4 _ ; [ \$? -gt 128 ] && echo "\$*" >> "$TMP/git-stdin-open"
+echo "\$*" >> "$TMP/git-called"
+exec "$REALGIT" "\$@"
+GITEOF
+chmod +x "$GITBIN/git"
+rm -f "$TMP/git-stdin-open" "$TMP/git-called" "$FAKE/publish.lock"
+sleep 6 | PATH="$GITBIN:$PATH" fake -Promote -ApprovedVersion "$_ptr_v" -ApprovedSha "$_ptr_sha" -ApprovalRef 1789228393.821399 -DryRun
+if [ -s "$TMP/git-called" ] && [ ! -e "$TMP/git-stdin-open" ]; then pass "#7951 every git this run started saw stdin closed, with the run's own stdin held open"
+else fail "#7951 git stdin: called=$(wc -l < "$TMP/git-called" 2>/dev/null) open=$(cat "$TMP/git-stdin-open" 2>/dev/null) $(tail -1 "$TMP/out")"; fi
+rm -f "$FAKE/publish.lock"
 
 [ "$fails" -eq 0 ] && { echo "test-publish-r2-3725: all passed"; exit 0; }
 echo "test-publish-r2-3725: $fails failed"; exit 1

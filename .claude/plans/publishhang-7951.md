@@ -5,7 +5,7 @@ Card: #7951. A prod promote from Git Bash sat 10 minutes holding publish.lock: t
 ## Change
 - `Invoke-NodeBounded`: node runs through System.Diagnostics.Process with stdin redirected and closed, stdout and stderr drained, and a limit (300 s; a test seam exists only under the fake bucket).
 - Both node call sites use it: `Invoke-WinManifest` and the verification-record verdict.
-- A stopped run refuses as a time-out ("decided nothing"), never as "does not check out", and never counts as a pass even if it printed one.
+- A run that reached no answer (stopped, output never closed, did not start) refuses as "decided nothing", never as "does not check out", and never counts as a pass even if it printed one.
 - Every other refusal names the exit code.
 
 ## Decisions
@@ -19,5 +19,11 @@ The hang is not reproduced. It needs Windows with Git Bash holding stdin. On thi
 ## What would change my mind
 A Windows run where the hang survives closed stdin, or a real check that legitimately passes 300 s.
 
+## Git
+Git gets a closed stdin as well, because the stated mechanism (a child inheriting Git Bash's stdin) applies to any child. No time limit on git: rejected as scope, since nothing has seen git hang, and Get-SetupAtCommit reads raw bytes through its own stream. If git hangs, this card's symptom returns with no message. A follow-up should bound it.
+
+## Where this is measured
+tools.win-publish-node-bounded-7951.test.js runs the real functions in CI's windows job under powershell.exe and pwsh, including Windows argument rules, and prints whether the old form hangs with a stdin held open there. The bash suite covers the gates, on pwsh only.
+
 ## Not measured
-Windows PowerShell 5.1 running these new functions. pwsh on macOS runs them; whether CI's windows job exercises 5.1 is checked before merge.
+The hang on the release PC itself, launched from Git Bash.
