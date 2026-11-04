@@ -85,3 +85,7 @@ via tools/lib/win-staging-record.js):
   it, add a site-address served check), W4 log the setup.ps1 sha left live on a rollback, NIT2 hash the exact bytes
   read on the no-source_sha path, NIT4 mark the no-source_sha installer unverified in the approval line, and on-box
   V2 running the staged setup-<v>.ps1.
+- Round 5 (blind reviewer): 0 BLOCKER, 2 WARNING, 3 NIT. Converged. Not taken, all on #7890: W1 a promoting checkout
+  without the build commit refuses the whole release (documented in the header; skip-installer alternative to
+  decide), W2 a zip with no source_sha has its installer taken on its sidecar, NIT1 rollback note, NIT2 harness
+  compares against the working file, NIT3 a source_dirty NOTICE.
