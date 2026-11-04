@@ -100,25 +100,23 @@ echo "FAIL  ui-sample: $ran of $want ran, $failed failed (xcodebuild exited $rc)
 # #7690: and the long room's own read-higher-up check, which appends to the same file.
 dm_check="KeyboardSlideUITests testReadHigherUpStaysWhereItWas"
 room_check="RoomKeyboardUITests testRoomReadHigherUpStaysWhereItWas"
-if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check)\]' failed" "$log"; then
+# kosmos#7645: and the room's newest-above-the-box check, which traces too since 11-04.
+room_newest="RoomKeyboardUITests testRoomNewestStaysAboveTheBox"
+if grep -q -E "^Test Case '-\[KosmosUITests\.($dm_check|$room_check|$room_newest)\]' failed" "$log"; then
   app="$(find "$work/dd/Build/Products" -maxdepth 2 -name Kosmos.app -type d 2>/dev/null | head -1)"
   bid="$([ -n "$app" ] && /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null)"
   data="$([ -n "$bid" ] && xcrun simctl get_app_container "$udid" "$bid" data 2>/dev/null)"
   if [ -n "$data" ] && [ -s "$data/Documents/trace.txt" ]; then
-    ran=""; for c in "$dm_check" "$room_check"; do
-      grep -q -E "^Test Case '-\[KosmosUITests\.$c\]' (passed|failed)" "$log" && ran="$ran, ${c% *}"
+    ran=""; for c in "$dm_check" "$room_newest" "$room_check"; do
+      grep -q -E "^Test Case '-\[KosmosUITests\.$c\]' (passed|failed)" "$log" && ran="$ran, ${c#* }"
     done
     ran="${ran#, }"
     lines="$(wc -l < "$data/Documents/trace.txt" | tr -d ' ')"
-    # The DM check failed but the room check ran after it (XCTest runs the classes in name order, KeyboardSlide first),
-    # so its own events open the file, followed by the room's: the whole file, never a tail that may miss them.
-    if grep -q -E "^Test Case '-\[KosmosUITests\.$dm_check\]' failed" "$log" && [ "${ran#*RoomKeyboardUITests}" != "$ran" ]; then
-      echo "  the app's whole scroll trace, $lines lines (one file: $ran ran this run, in that order):"
-      sed 's/^/    /' "$data/Documents/trace.txt"
-    else
-      echo "  the app's last 60 of $lines scroll events (one file: $ran ran this run):"
-      tail -60 "$data/Documents/trace.txt" | sed 's/^/    /'
-    fi
+    # One file, appended by every traced launch (XCTest runs the classes in name order and each class's checks in name
+    # order), so a tail can hold only the checks after the one that failed (#7645 review 1): always the whole file. Each
+    # launch starts at its own "chat shown" or room line.
+    echo "  the app's whole scroll trace, $lines lines (one file; of the traced checks, these ran, in this order: $ran):"
+    sed 's/^/    /' "$data/Documents/trace.txt"
   else
     echo "  (no scroll trace from the app)"
   fi
