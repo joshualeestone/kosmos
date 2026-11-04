@@ -13,8 +13,8 @@ drops stdout therefore stops with stderr empty. The Windows CLI already writes t
   shell (BASH_SUBSHELL 0; an exit inside $(...) is that subshell's own) and then runs `builtin exit`. `say` keeps the
   first line it says in a shell variable (never exported; unset at load). The line:
   `kosmos community <sub>: <first line said> (exit N: <what N means>)`. Exit 2: refused, the line says why. Exit 3: it
-  may have happened, the line says what to check. Exit 1 and others: the line says whether running it again is safe.
-  A path that said nothing gets "stopped without saying why". A stop by errexit or by a signal writes no line.
+  may have happened, read the line before running it again. Exit 1 and others: read the line before running it again.
+  A path that said nothing gets "stopped without saying why". A stop by errexit (a closed stdout makes say fail first, for one) or by a signal writes no line, as before.
 - Review 1: the suffix never claims nothing happened. An exit 1 can follow a post the board may have taken (a cut
   answer, say_unreached ... write), so "nothing was done" would invite a duplicate public post.
 - Rounds 1 to 4 ran the command in a subshell, and every shape broke a signal: on the left of `||` errexit went off
@@ -37,14 +37,15 @@ drops stdout therefore stops with stderr empty. The Windows CLI already writes t
   line. To change it, record the last line instead.
 
 ## Not done
-- The Windows CLI: it already puts these on stderr.
+- The Windows CLI: it already puts these on stderr, as the bare reason. The Mac line adds the `kosmos community <sub>:`
+  prefix and the `(exit N: ...)` suffix, so a script matching stderr text sees different lines on the two.
 - `kosmos community bogus` repeats the first usage line (post's), as stdout already does.
 
 ## Steps
 1. The exit function and the say hook in install/kosmos; the --help re-dispatch marked. done
 2. cli.community-exit-reason-7967.test.js: exits 1, 2, 3, success quiet, the chained case, nothing left in TMPDIR, a cut
    post never says nothing happened, a piped body arrives, --help quiet. done
-3. Signals: TERM, HUP, KILL to the command and INT to its group each stop it within 5 s with the board asked nothing
+3. Signals: TERM, HUP, KILL to the command and INT to its group each stop it within 10 s (against a 30 to 60 s request) with the board asked nothing
    more; a Ctrl-C during a hanging request leaves the group empty (fails on round 4's code, passes on main and here);
    the wrapper has no subshell, background job or trap. done
 4. Review 6: with stderr closed an exit 3 stays 3 (fails with the `|| true`s removed). done

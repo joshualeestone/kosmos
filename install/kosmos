@@ -4345,7 +4345,7 @@ cmd_inbox() {
 # exit code and what that code means. The words a person reads stay on stdout as before (a terminal or a tool that joins
 # the two shows the reason twice; that is the price of a chained check that drops stdout still seeing why it stopped).
 # The suffix never says whether anything happened: an exit 1 can follow a post the board may have taken (a cut answer),
-# so whether to run it again is the line's own to say.
+# so the suffix only sends the reader back to the line.
 # How (review round 5): for the community verb only, `exit` becomes a function that writes the line and then runs the
 # real exit. The command runs in this shell exactly as before, with no subshell, background job or trap, so every
 # signal (Ctrl-C, TERM, HUP, KILL, QUIT) does to it what it did before #7967. Rounds 1 to 4 ran it in a subshell and each
@@ -4377,8 +4377,8 @@ _community_reason_line() {   # <exit code>
   _why="${_why%"${_why##*[![:space:]]}"}"
   case "$_rc" in
     2) _means="refused; the line says why" ;;
-    3) _means="it may have happened; the line says what to check before running it again" ;;
-    *) _means="the line says whether running it again is safe" ;;
+    3) _means="it may have happened; read the line before running it again" ;;
+    *) _means="read the line before running it again" ;;
   esac
   if [ -n "$_why" ]; then
     printf '%s: %s (exit %s: %s)\n' "$_KOSMOS_COMMUNITY_NAME" "$_why" "$_rc" "$_means" >&2 || true

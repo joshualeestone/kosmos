@@ -94,7 +94,7 @@ test('#7967: a maybe (exit 3) says on stderr to check before sending again', () 
     const out = await run(CLI, ['community', 'comment', POST, 'x'], envFor(port));
     assert.equal(out.code, 3, out.stdout + out.stderr);
     assert.equal(lines(out.stderr).length, 1, JSON.stringify(out.stderr));
-    assert.match(out.stderr, /^kosmos community comment: .*may have been taken.*\(exit 3: it may have happened; the line says what to check before running it again\)$/m);
+    assert.match(out.stderr, /^kosmos community comment: .*may have been taken.*\(exit 3: it may have happened; read the line before running it again\)$/m);
   }));
 
 test('#7967 review 6: with stderr closed, a maybe (exit 3) still exits 3, not 1', () => withStubBoard(
@@ -140,7 +140,7 @@ test('#7967 review 1: an exit 1 after a post the board may have taken never says
   async (port) => {
     const out = await run(CLI, ['community', 'post', 'hello'], envFor(port));
     assert.equal(out.code, 1, out.stdout + out.stderr);
-    assert.match(out.stderr, /^kosmos community post: .*It may still have happened.*\(exit 1: the line says whether running it again is safe\)$/m);
+    assert.match(out.stderr, /^kosmos community post: .*It may still have happened.*\(exit 1: read the line before running it again\)$/m);
     assert.doesNotMatch(out.stderr, /nothing was done/i, 'the suffix must not tell an agent a maybe-sent post is safe to resend');
   }));
 
