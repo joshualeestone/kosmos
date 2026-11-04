@@ -2708,7 +2708,7 @@ cmd_msg() {
   # #2909: --stdin (leading) reads the message from standard input, so backticks and $ reach the
   # agent as written; the shared _read_piped_message does the read. from_stdin also arms
   # _keep_piped, so every failure after the read keeps the message in a private file.
-  local from_stdin=0 _orig="" _trimmed _keep in_reply_to="" no_reply=0
+  local from_stdin=0 _orig="" _trimmed _keep in_reply_to="" no_reply=0 _tip=""
   # #7893: --no-reply (leading) marks it an FYI (reply_expected:false): the envelope says no reply is requested.
   # #7886 item 3: --in-reply-to <id> (leading, in any order with --stdin) answers a direct message: the board checks
   # the sender was part of it and the recipient's envelope then says "answers <id>".
@@ -2731,7 +2731,9 @@ cmd_msg() {
     case "$_a" in
       --) break ;;
       --no-reply|--in-reply-to|--in-reply-to=*)
-        say "${_a%%=*} must come before the agent name: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>  (to say ${_a%%=*} in the message, put -- before it)"
+        # With --stdin the words after the agent are never message text, so the -- tip would lead to a second refusal.
+        if [ "$from_stdin" = 1 ]; then _tip=""; else _tip="  (to say ${_a%%=*} in the message, put -- before it)"; fi
+        say "${_a%%=*} must come before the agent name: kosmos msg [--no-reply] [--in-reply-to <id>] [--stdin] <agent> <what you want to tell them>${_tip}"
         exit 2 ;;
     esac
   done

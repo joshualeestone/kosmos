@@ -18225,7 +18225,7 @@ const server = http.createServer(async (req, res) => {
   /**
    * --- agent-to-agent messages ---------------------------------------------
    *
-   * POST body: { to, text, from_pane, in_reply_to? }. The sender is NOT in
+   * POST body: { to, text, from_pane, in_reply_to?, reply_expected? }. The sender is NOT in
    * the body -- it is derived from the pane the caller's `kosmos msg` ran
    * inside (engine/messages.resolveSender), which is what keeps the
    * attribution a fact rather than a typed claim. The verdict passes
