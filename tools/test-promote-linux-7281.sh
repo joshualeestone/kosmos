@@ -202,10 +202,13 @@ chk "prepare, unchanged, stage, latest.json, latest-linux.json, the alias, then 
 mkdir -p "$T/e2e/tools"; cp "$HERE/tools/promote-channel.sh" "$T/e2e/tools/"; cp -R "$HERE/tools/lib" "$T/e2e/tools/lib"
 cp "$T/tools/lib/manifest-sign.js" "$T/e2e/tools/lib/manifest-sign.js"
 GSTUB="$T/e2e/gate.sh"; printf '#!/usr/bin/env bash\nexit 0\n' > "$GSTUB"
+# kosmos#7942: the Linux check-runs lookup, stubbed: records what it was asked and answers CHECK_RC (default 0, green).
+CSTUB="$T/e2e/linuxcheck.sh"; printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\nexit "${CHECK_RC:-0}"\n' "$T/e2e/check.args" > "$CSTUB"
 e2e() {   # <site> [args...]: a promote; prints rc=<n>
   ( export KOSMOS_SETUP_FLOOR_TEST=1 KOSMOS_SETUP_FLOOR_LOWER=0.0.0 KOSMOS_PLUS_VERIFY_DIR="$T/e2e/plus" \
       KOSMOS_PROMOTE_GATE_CMD="bash $GSTUB" KOSMOS_PROMOTE_AGENT_GATE_CMD="bash $GSTUB" \
-      KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $GSTUB" KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $GSTUB"
+      KOSMOS_PROMOTE_PLUS_GATE_CMD="bash $GSTUB" KOSMOS_PROMOTE_TUNNEL_GATE_CMD="bash $GSTUB" \
+      KOSMOS_PROMOTE_LINUX_CHECK_CMD="bash $CSTUB"
     bash "$T/e2e/tools/promote-channel.sh" "$@" > "$T/e2e/out.log" 2>&1; echo "rc=$?" )
 }
 e2esite() {   # <name> <version> [linux pointer version]: prod 1.0.0 (Mac only), staging cut <version> with the Linux pair
@@ -258,6 +261,35 @@ chk "e2e named: a --version promote of an earlier cut exits 0" [ "$(e2e "$S" --v
 chk "e2e named: latest.json names 9.9.8" grep -q '"version": *"9.9.8"' "$S/dist/latest.json"
 chk "e2e named: latest-linux.json is the pointer committed with 9.9.8, byte for byte" cmp -s "$T/e2e/ptr-998.json" "$S/dist/latest-linux.json"
 chk "e2e named: staging's Linux pointer still names 9.9.9" grep -q '"version":"9.9.9"' "$S/dist/latest-linux-staging.json"
+
+# kosmos#7942: both Linux check runs must be green for the exact Linux build, or the promote refuses before any write.
+lsha() { sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([0-9a-f]*\)".*/\1/p' "$1/dist/latest-linux-staging.json" | head -1; }
+S="$(e2esite lc-go 9.9.9)"; : > "$T/e2e/check.args"
+chk "7942 CONTROL: green check runs promote" [ "$(e2e "$S")" = "rc=0" ]
+chk "7942: the lookup was asked for the exact Linux build (version and its sha256)" [ "$(cat "$T/e2e/check.args")" = "9.9.9 $(lsha "$S")" ]
+chk "7942: and the closing lines say the runs were green" grep -qF "linux check runs green for $(lsha "$S")" "$T/e2e/out.log"
+S="$(e2esite lc-red 9.9.9)"
+chk "7942: a missing or red check run refuses" [ "$(CHECK_RC=1 e2e "$S")" = "rc=1" ]
+chk "7942: saying so" grep -qF "REFUSED: the Linux check runs are not both green for 9.9.9" "$T/e2e/out.log"
+chk "7942: latest.json was not written" [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ]
+chk "7942: nor latest-linux.json" [ ! -e "$S/dist/latest-linux.json" ]
+S="$(e2esite lc-hold 9.9.9)"
+chk "7942: a lookup that cannot tell holds" [ "$(CHECK_RC=2 e2e "$S")" = "rc=1" ]
+chk "7942: as a HOLD" grep -qF "HOLD: could not read the Linux check runs" "$T/e2e/out.log"
+chk "7942: and wrote nothing" [ "$(cat "$S/dist/latest.json")" = '{"version":"1.0.0"}' ]
+S="$(e2esite lc-force 9.9.9)"
+chk "7942: --force does not skip the Linux check runs" [ "$(CHECK_RC=1 e2e "$S" --force)" = "rc=1" ]
+S="$(e2esite lc-skip 9.9.9)"; : > "$T/e2e/check.args"
+chk "7942: --skip-linux-check promotes with red runs" [ "$(CHECK_RC=1 e2e "$S" --skip-linux-check)" = "rc=0" ]
+chk "7942: without asking for the runs" [ ! -s "$T/e2e/check.args" ]
+chk "7942: loudly when it starts" grep -qF -- "!!! --skip-linux-check: Linux 9.9.9 ($(lsha "$S")) goes to prod WITHOUT its check runs." "$T/e2e/out.log"
+chk "7942: and again in the closing lines" grep -qF "!!! LINUX CHECK RUNS SKIPPED (--skip-linux-check): Linux 9.9.9 went to prod" "$T/e2e/out.log"
+chk "7942: and latest-linux.json moved" cmp -s "$S/dist/latest-linux-staging.json" "$S/dist/latest-linux.json"
+S="$(e2esite lc-maconly 9.9.9)"; git -C "$S" rm -q dist/latest-linux-staging.json; git -C "$S" commit -qm "no linux"; : > "$T/e2e/check.args"
+chk "7942 CONTROL: a promote that moves no Linux pointer asks for no Linux runs" [ "$(CHECK_RC=1 e2e "$S" --skip-linux-check)" = "rc=0" ]
+chk "7942: it asked for nothing" [ ! -s "$T/e2e/check.args" ]
+chk "7942: and says the skip had nothing to skip" grep -qF "has nothing to skip" "$T/e2e/out.log"
+chk "7942: promote-channel.sh's default lookup is the shipped tools/linux-check-runs.sh" grep -qF 'tools/linux-check-runs.sh}"' "$HERE/tools/promote-channel.sh"
 
 echo "test-promote-linux-7281: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

@@ -25,6 +25,9 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 W="${WORK:-$(mktemp -d "${TMPDIR:-/tmp}/promote-legs-7933.XXXXXX")}"; mkdir -p "$W/dl"
 echo "work folder: $W"
 fails=0
+# kosmos#7942: under GitHub Actions each leg that passes writes the build it checked to the step's outputs
+# (<leg>_version, <leg>_sha256), so the workflow records exactly what was tested.
+checked() { [ -n "${GITHUB_OUTPUT:-}" ] || return 0; printf '%s_version=%s\n%s_sha256=%s\n' "$1" "$2" "$1" "$3" >> "$GITHUB_OUTPUT"; }
 pass() { echo "LEG $1: PASS"; }
 fail() { echo "LEG $1: FAIL $2"; fails=$((fails + 1)); }
 field() { sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$2" | head -1; }
@@ -46,7 +49,7 @@ fetch() {  # <pointer file> <label>; leaves $W/<label>/ unpacked and $W/<label>.
 if [ "$LEG" != update ]; then
   fetch "$PP" prod || { fail fetch "prod"; exit 1; }
   fetch "$SP" staging || { fail fetch "staging"; exit 1; }
-  PV="$(cat "$W/prod.ver")"; SV="$(cat "$W/staging.ver")"
+  PV="$(cat "$W/prod.ver")"; SV="$(cat "$W/staging.ver")"; SSHA="$(field sha256 "$W/staging.json")"
   # Staging the same as prod (right after a promote) leaves nothing to check: every leg would pass on one build.
   [ "$PV" != "$SV" ] || { fail fetch "staging and prod are both $PV: there is no jump to check"; exit 1; }
 fi
@@ -67,6 +70,7 @@ leg_verify() {
   next="${SV%.*}.$(( 10#${SV##*.} + 1 ))"
   o="$("$N" "$V" "$m" "$m.sig" "$tb" - "$next" "$W/prod" 2>&1)"; rc=$?; echo "  CONTROL as $next: rc=$rc $o"
   case "$rc:$o" in 0:*) false ;; *"not $next"*) true ;; *) false ;; esac || { fail verify "CONTROL: the manifest was not refused as $next"; return; }
+  checked verify "$SV" "$SSHA"
   pass verify
 }
 
@@ -111,7 +115,7 @@ leg_data() (  # a subshell: the sandbox env stays in it
   boot staging "then-$SV"; readback staging "then-$SV"
   boot staging "again-$SV"
   boot prod "rollback-$PV"; readback prod "rollback-$PV"
-  if [ "$bad" = 0 ]; then echo "LEG data: PASS"; else echo "LEG data: FAIL a boot or a read above"; exit 1; fi
+  if [ "$bad" = 0 ]; then checked data "$SV" "$SSHA"; echo "LEG data: PASS"; else echo "LEG data: FAIL a boot or a read above"; exit 1; fi
 )
 
 # ---- update (Linux, CI only) ---------------------------------------------------------------------------------------
@@ -180,6 +184,7 @@ leg_update() {
   beacon || { fail update "the updated board does not carry the dead install beacon"; return; }
   case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail update "the project was not kept"; return ;; esac
   grep -qx staging "$root/source-channel" || { fail update "the in-place update stamped '$(cat "$root/source-channel" 2>/dev/null)', not staging"; return; }
+  checked update "$sv" "$(field sha256 "$W/staging-ptr.json")"
   pass update
 }
 

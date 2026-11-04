@@ -38,6 +38,11 @@ jobs:
   verify-and-data:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      verify_version: ${{ steps.verify.outputs.verify_version }}
+      verify_sha256: ${{ steps.verify.outputs.verify_sha256 }}
+      data_version: ${{ steps.data.outputs.data_version }}
+      data_sha256: ${{ steps.data.outputs.data_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -48,8 +53,10 @@ jobs:
           if command -v node >/dev/null 2>&1; then echo "FAIL: a system node is still on PATH: $(command -v node)" >&2; exit 1; fi
           echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" >> "$GITHUB_ENV"
       - name: Prod's verifier accepts the staged Linux build, and refuses the controls
+        id: verify
         run: bash tools/promote-check-legs-7933.sh verify linux
       - name: The data goes up to staging and back to prod
+        id: data
         if: success() || failure()
         run: bash tools/promote-check-legs-7933.sh data linux
       - name: Put the system node back
@@ -59,6 +66,9 @@ jobs:
   update:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    outputs:
+      update_version: ${{ steps.update.outputs.update_version }}
+      update_sha256: ${{ steps.update.outputs.update_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -75,7 +85,40 @@ jobs:
           mkdir -p "/run/user/$(id -u)"
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
       - name: A prod install is updated to staging by the served installer and keeps its project
+        id: update
         run: bash tools/promote-check-legs-7933.sh update linux
       - name: Put the system node back
         if: always()
         run: if [ -f "$RUNNER_TEMP/hidden-nodes-7933" ]; then while read -r n; do sudo mv "$n.hidden-7933" "$n" || true; done < "$RUNNER_TEMP/hidden-nodes-7933"; fi
+
+  # kosmos#7942: the record tools/linux-check-runs.sh looks for before a promote moves latest-linux.json. It exists
+  # only when all three legs passed against the live site, on ONE build (each leg read the pointer itself, so a
+  # staging cut landing mid-run would show as two shas, and nothing is recorded).
+  record:
+    needs: [verify-and-data, update]
+    if: success() && github.ref == 'refs/heads/main' && (inputs.site || 'https://installkosmos.com') == 'https://installkosmos.com'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: All three legs checked the same build
+        id: same
+        env:
+          VV: ${{ needs.verify-and-data.outputs.verify_version }}
+          VS: ${{ needs.verify-and-data.outputs.verify_sha256 }}
+          DV: ${{ needs.verify-and-data.outputs.data_version }}
+          DS: ${{ needs.verify-and-data.outputs.data_sha256 }}
+          UV: ${{ needs.update.outputs.update_version }}
+          US: ${{ needs.update.outputs.update_sha256 }}
+        run: |
+          echo "verify $VV $VS"; echo "data   $DV $DS"; echo "update $UV $US"
+          case "$VS" in *[!0-9a-f]*|'') echo "FAIL: the verify leg recorded no sha" >&2; exit 1 ;; esac
+          [ "${#VS}" = 64 ] && [ -n "$VV" ] || { echo "FAIL: the verify leg recorded no build" >&2; exit 1; }
+          [ "$VV $VS" = "$DV $DS" ] && [ "$VV $VS" = "$UV $US" ] || { echo "FAIL: the legs checked different builds; nothing is recorded" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/record"
+          printf '{"workflow":"linux-promote-check-7933.yml","version":"%s","sha256":"%s","run":"%s"}\n' "$VV" "$VS" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/record/checked.json"
+          echo "name=linux-promote-check-$VV-$VS" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.same.outputs.name }}
+          path: ${{ runner.temp }}/record/checked.json
+          retention-days: 30

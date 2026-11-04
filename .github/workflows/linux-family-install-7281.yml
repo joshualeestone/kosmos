@@ -51,6 +51,10 @@ jobs:
           V="$(printf '%s' "$body" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' | head -1)"   # setup.sh's own read
           test -n "$V"
           echo "WANT_VERSION=$V" >> "$GITHUB_ENV"
+          # kosmos#7942: the exact build this run checks, recorded below for tools/promote-channel.sh.
+          SHA="$(printf '%s' "$body" | sed -n 's/.*"sha256"[[:space:]]*:[[:space:]]*"\([0-9a-f]\{64\}\)".*/\1/p' | head -1)"
+          test -n "$SHA"
+          echo "WANT_SHA=$SHA" >> "$GITHUB_ENV"
 
       - name: Hide every system node, so the install must bring its own
         run: |
@@ -108,6 +112,24 @@ jobs:
           if [ -z "$BPID" ] || [ "$BPID" = 0 ]; then echo "FAIL: systemd reports no running board" >&2; exit 1; fi
           BENV="$(tr '\0' '\n' < "/proc/$BPID/environ")"
           grep -qxF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL" <<< "$BENV"
+
+      # kosmos#7942: the record tools/linux-check-runs.sh looks for before a promote moves latest-linux.json. Only a
+      # green staging run against the live site counts, and only if the pointer still names the build installed above.
+      - name: Record the build this run checked (staging, live site)
+        id: record
+        if: success() && github.ref == 'refs/heads/main' && inputs.channel == 'staging' && inputs.site == 'https://installkosmos.com'
+        run: |
+          now="$(curl -fsS -m 30 "${{ inputs.site }}/dist/$PTR")"
+          printf '%s' "$now" | grep -qF "\"$WANT_SHA\"" || { echo "FAIL: the staging pointer moved during this run (it no longer names $WANT_SHA); nothing is recorded" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/record"
+          printf '{"workflow":"linux-family-install-7281.yml","version":"%s","sha256":"%s","run":"%s"}\n' "$WANT_VERSION" "$WANT_SHA" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/record/checked.json"
+          echo "name=linux-family-install-$WANT_VERSION-$WANT_SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        if: success() && steps.record.outputs.name != ''
+        with:
+          name: ${{ steps.record.outputs.name }}
+          path: ${{ runner.temp }}/record/checked.json
+          retention-days: 30
 
       - name: Put the system node back (the runner is discarded, but say so plainly)
         if: always()
