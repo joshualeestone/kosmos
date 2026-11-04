@@ -46911,7 +46911,9 @@ const KORB = (() => {
     g.globalAlpha = 1;
   }
   function draw(g, side, t, colour) { paint(g, side, place(t), colour); }
-  const still = () => { try { return matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } };
+  let calmQuery = null;
+  try { calmQuery = matchMedia('(prefers-reduced-motion: reduce)'); } catch (e) { calmQuery = null; }
+  const still = () => !!(calmQuery && calmQuery.matches);
   /* Each spinner's canvas, made on first sight; its backing store follows its laid-out size (offsetWidth, so a
      scale-in transition does not resize it every frame) times the screen's pixel density. */
   function attach(span) {
@@ -46929,7 +46931,10 @@ const KORB = (() => {
   }
   /* Only VISIBLE spinners are drawn, and the loop runs only while one is. Four spinners live hidden in the page from
      the start, so "is there a spinner" is never the test: an IntersectionObserver says which are showing (hidden,
-     display:none, a closed dialog and off-screen all read as not), and a MutationObserver hands it each new one. */
+     display:none, a closed dialog and off-screen all read as not; visibility:hidden and opacity:0 still read as
+     showing, so a spinner in a faded-out panel keeps the loop going), and a MutationObserver hands it each new one.
+     Colour is read on first sight and about once a second, so a spinner moved into a gold button recolours within a
+     second; no site moves a live spinner today. */
   const shown = new Set();
   let running = false, t0 = 0, last = -1e9, ticks = 0, sizeStale = false;
   function frame(now) {
@@ -46951,12 +46956,23 @@ const KORB = (() => {
     requestAnimationFrame(frame);
   }
   function start() { if (running) return; running = true; if (!t0) t0 = performance.now(); requestAnimationFrame(frame); }
+  /* A new spinner is drawn at once, in this (pre-paint) step, so it shows the orb from its first frame: neither the
+     old dots nor a blank while the loop catches up (review round 5 measured 2 to 3 blank frames, a blink each time a
+     list repaints a spinner already showing). Only when it is laid out; a hidden one waits for the loop. */
+  function first(s) {
+    if (!s.getClientRects().length) return;
+    if (!t0) t0 = performance.now();
+    const cv = fit(s), calm = still();
+    cv.korbColour = getComputedStyle(s).getPropertyValue('--spin-dot').trim() || '#d6a62e';
+    paint(cv.getContext('2d'), cv.width, place(calm ? 0 : (performance.now() - t0) / 1000), cv.korbColour);
+    cv.korbKey = calm ? 'still ' + cv.korbColour : '';
+  }
   let io = null;
   const seen = new WeakSet();
   let all = null;   // the page's live list of .spin-sweep elements, read once per batch of page changes
   const watch = () => {
     if (!io) return;
-    for (const s of all) if (!seen.has(s) && s.classList.contains('spin')) { seen.add(s); attach(s); io.observe(s); }   // canvas in before paint: no flash of the old dots
+    for (const s of all) if (!seen.has(s) && s.classList.contains('spin')) { seen.add(s); attach(s); io.observe(s); first(s); }
   };
   if (typeof IntersectionObserver === 'function' && typeof MutationObserver === 'function' && typeof document !== 'undefined') {
     io = new IntersectionObserver((entries) => {
@@ -46969,19 +46985,21 @@ const KORB = (() => {
     all = document.getElementsByClassName('spin-sweep');
     new MutationObserver(watch).observe(document.documentElement, { childList: true, subtree: true });
     watch();
-    // A theme change recolours: forget each colour and draw again (a still orb would otherwise keep the old one).
+    // A theme change recolours: forget each colour and draw again. Gold is the same in both themes today, so this is a
+    // safeguard for a theme that changes --gold or --spin-dot, not something either theme needs now.
     const recolour = () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) { c.korbColour = ''; c.korbKey = ''; } } if (shown.size) start(); };
     const themeWatch = new MutationObserver(recolour);
     // Only the theme switch (data-theme on <html>): the app writes other classes and styles there all the time.
     themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
-    // A resize, browser zoom or a move to a screen of another density: read every size again and redraw.
+    // A resize or browser zoom: read every size again and redraw. A move to a screen of another density may not fire
+    // resize; a turning orb picks that up within a second (the size is re-read about once a second).
     window.addEventListener('resize', () => { sizeStale = true; for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) c.korbKey = ''; } if (shown.size) start(); });
     try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', recolour); } catch (e) { /* older engines */ }
-    try { matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) c.korbKey = ''; } if (shown.size) start(); }); } catch (e) { /* older engines: the next show redraws */ }
+    try { calmQuery.addEventListener('change', () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) c.korbKey = ''; } if (shown.size) start(); }); } catch (e) { /* older engines: the next show redraws */ }
     // The letter cuts take a moment to work out: do it while the page is idle, not when a loading state first shows.
     (window.requestIdleCallback || ((f) => setTimeout(f, 2000)))(() => cutsNow());
   }
-  return { draw, start, letters: WORD.length, running: () => running };
+  return { draw, running: () => running };   // draw: one frame at time t into a context (for a design harness)
 })();
 /* #5362: the standard loading spinner (Take D Sweep), beside Token Usage's reading line while /api/usage loads. */
 const LOAD_SPIN_HTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';

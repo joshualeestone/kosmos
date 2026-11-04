@@ -170,7 +170,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     span.style.setProperty('--sz', '40px');
     window.dispatchEvent(new Event('resize'));
     await frames(8);
-    return { before, after: cv.width, want: Math.round(40 * (window.devicePixelRatio || 1)) };
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let lit = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 20) lit++;
+    return { before, after: cv.width, want: Math.round(40 * (window.devicePixelRatio || 1)), lit };
   });
 
   await browser.close();
@@ -193,8 +195,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (calm.wasRunning) orbProblems.push('orb (reduced motion): the loop was still running with the still orb showing');
   }
   if (calmResize.after !== calmResize.want) orbProblems.push('orb (reduced motion): after a resize it is still drawn at ' + calmResize.after + ' px, not ' + calmResize.want);
-  {
-  }
+  if (!(calmResize.lit > 40)) orbProblems.push('orb (reduced motion): after a resize the canvas is blank (' + calmResize.lit + ' drawn pixels)');
 
   const problems = orbProblems.slice();
   if (r.error) problems.push(r.error);
