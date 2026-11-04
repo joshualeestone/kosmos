@@ -223,6 +223,9 @@ const visible = (page, sel) => page.evaluate((s) => {
       // rather than a stale one, and (#3796) it tells the engine to drop the held sign-in.
       if (key === 'existing-2fa') {
         await page.fill('#plus-signin-email', 'stale@example.com');
+        // kosmos#7974 review 2: open the child-account line before signing out, to see it come back closed.
+        await page.click('#plus-si-childbox > summary', { timeout: 3000 }).catch(() => {});
+        await page.waitForSelector('#plus-si-child', { state: 'visible', timeout: 3000 }).catch(() => {});
         chk((await page.textContent('#plus-si-cancel')).trim() === 'Cancel', `[${key}] #3796 addendum 4: on the email step (nothing started) the way out reads "Cancel"`, await page.textContent('#plus-si-cancel'));
         const cancelPost = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/remote\/signin-cancel$/.test(r.url()), { timeout: 3000 }).then(() => true, () => false);
         await page.click('#plus-si-cancel');
@@ -233,6 +236,9 @@ const visible = (page, sel) => page.evaluate((s) => {
         await page.waitForSelector('#plus-si-email', { state: 'visible', timeout: 5000 });
         const stale = await page.inputValue('#plus-signin-email');
         chk(stale === '', `[${key}] re-entering the wizard clears the stale field`, JSON.stringify(stale));
+        await page.waitForFunction(() => document.getElementById('plus-signin-email').getAttribute('aria-describedby') === null, null, { timeout: 3000 }).catch(() => {});
+        chk(!(await page.isVisible('#plus-si-child')) && (await page.getAttribute('#plus-signin-email', 'aria-describedby')) === null,
+          `[${key}] kosmos#7974: re-entering the wizard shows the child-account line closed again, describing nothing`);
       }
 
       // #3796 (Josh, 14:00): the email step's copy, a 75% field, and the card centred vertically.

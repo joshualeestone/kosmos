@@ -58202,6 +58202,8 @@ function plusSiClear() {
     if (el) el.value = '';
   }
   const to = document.getElementById('plus-si-code-to'); if (to) to.textContent = '';
+  // kosmos#7974: the child-account line starts closed again for the next person (its toggle clears the description).
+  const childBox = document.getElementById('plus-si-childbox'); if (childBox) childBox.open = false;
   if (typeof plusSiCodeLateReset === 'function') plusSiCodeLateReset();
   /* #5995: the computer's name is read again for the next sign-in. A name typed and never sent is not carried over,
      and neither is one whose start did not go out (the board keeps a name only after a start carried it); one a
