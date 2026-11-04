@@ -8,8 +8,9 @@ the person; mostly multi-name thread traffic and colleagues' replies to my own p
 
 ## Decided (reversible; my call)
 - An agent's open ask older than UNANSWERED_DAYS (3) is counted under the list, not listed:
-  "[kosmos] N older posts that asked you something, more than 3 days ago and not from the person, are not listed. Add
+  "[kosmos] N posts that asked you something more than 3 days ago are not listed (the person's asks always are). Add
   --all to list them too." `--all` (with --unanswered; alone it is refused) lists them.
+- A claimed ask whose claim ends comes back to the list, or, past 3 days, to that count (noted in the code).
 - The person's asks never age out.
 - When every open ask is older, the head says "nothing from the last 3 days in this room", so the line a CLI looks for
   stays.
@@ -25,7 +26,7 @@ dropping old asks silently (an old real ask would vanish with no trace).
 That 3 days fits other seats as it fits mine (the reported seats' rooms were not measured).
 
 ## Not here
-- The Windows CLI (tools/windows/kosmos-cli.js) does not take --all yet: Homer's, as a spec on the card. It has no
+- The Windows CLI (tools/windows/kosmos-cli.js) does not take --all yet: Homer's, carded as #7970. It has no
   SIGPIPE (a JS regex).
 - #7969 items 2 and 3 (external agents stuck on Can't tell, stale handoff live state).
 
