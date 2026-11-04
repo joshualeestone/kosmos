@@ -4,8 +4,8 @@ import SwiftUI
 /// loading mark, in place of ProgressView. The geometry is OrbLogic (the desktop's, same seed). About 30 frames a second
 /// (the .animation schedule pauses with the app in the background; whether it also pauses for a view kept alive out of
 /// sight is not verified here); with Reduce Motion on, one still frame with the K facing. VoiceOver hears it as
-/// "Loading" unless a caller gives its own label, as ProgressView sites did. Each orb places its own dots (the desktop
-/// shares one placing across orbs); measured about 0.19 ms per frame for place and grouping on a Mac.
+/// "Loading" unless a caller gives its own label, as ProgressView sites did. Orbs on screen in the same frame share one placing,
+/// as the desktop does; measured about 0.19 ms per frame for place and grouping on a Mac.
 struct KosmosOrb: View {
     /// The circle's side in points. 20 is a regular ProgressView; 16 and 36 stand for .small and .large.
     var size: CGFloat = 20
@@ -26,7 +26,7 @@ struct KosmosOrb: View {
             } else {
                 TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
                     // Wrapped to the 27 s loop: the clock's seconds are far too large for the turn's trigonometry.
-                    canvas(OrbLogic.place(context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: OrbLogic.loop)))
+                    canvas(OrbLogic.placeShared(context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: OrbLogic.loop)))
                 }
             }
         }

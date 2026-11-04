@@ -827,7 +827,7 @@ struct ProjectsView: View {
             message("We cannot read your projects right now.", "This is not saying you have none, it is saying we cannot see them.")
         } else {
             VStack(spacing: 8) {
-                KosmosOrb()
+                KosmosOrb().accessibilityHidden(true)
                 Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }

@@ -17,11 +17,19 @@ Decided:
   The desktop's dots have the same light-ground contrast gap; recorded on the card, not changed in this slice.
 - Where the row's own text already says what is loading (four combined rows), the orb is hidden from VoiceOver, so it
   does not say "Loading" twice.
-- Each orb places its own dots (the desktop shares one placing); measured about 0.19 ms per frame on a Mac.
+- Orbs on screen in one frame share one placing (time rounded to the 30 fps frame), as the desktop does (round 2);
+  measured about 0.19 ms per frame for place and grouping on a Mac. The dots and letter cuts are built off the main
+  thread at launch (OrbLogic.warm), so the first orb shown does not stall a frame.
+- VoiceOver: the orb is hidden wherever text beside it says what is loading (13 sites), and says "Loading" (or the
+  site's own label) where it stands alone.
+- List and Form rows (7 sites) keep a bare orb, not wrapped to centre: a row lays out its content from the leading
+  edge, and the bare ProgressView there was the same kind of fixed-size leaf. Reasoned, not measured on a device:
+  if a screenshot shows the old spinner centred there, wrap those 7 in Spacers.
 - Time is wrapped to the 27 s loop before the trigonometry (the clock's seconds are too large for it).
 Rejected: a GIF or video asset (heavier, no Reduce Motion, blurry at small sizes).
 
-Weakest premise: frame cost on an older iPhone with several orbs on one screen, not measured on a device. TimelineView
+Weakest premise: frame cost and how faint the 16 pt orb reads on an older iPhone, not measured on a device (the Mac
+render at 3x reads). TimelineView
 stops when the view is off screen; the next lever is fewer dots below 20 pt.
 
 Tests: ios/LogicTests/run-orb.sh (also pins the desktop's place() at t = 0 and t = 13.37: counts 1627 and 1389 and one

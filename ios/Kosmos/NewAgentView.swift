@@ -651,7 +651,7 @@ struct NewAgentView: View {
                         Text(NewAgent.Words.notUp(leadShown(members))).font(.headline)
                         Text(NewAgent.Words.notUpWhy + " " + NewAgent.Words.notUpNext).font(.footnote).foregroundColor(Palette.secondary)
                     } else {
-                        HStack(spacing: 8) { KosmosOrb(); Text(NewAgent.Words.makingNamed(leadShown(members))) }
+                        HStack(spacing: 8) { KosmosOrb().accessibilityHidden(true); Text(NewAgent.Words.makingNamed(leadShown(members))) }
                     }
                 }
             }

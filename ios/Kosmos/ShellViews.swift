@@ -177,7 +177,7 @@ struct DownloadLine: View {
     let cancel: () -> Void
     var body: some View {
         HStack(spacing: 12) {
-            KosmosOrb()
+            KosmosOrb().accessibilityHidden(true)
             Text(Download.getting(name)).font(.subheadline).lineLimit(1).truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button("Cancel", action: cancel).font(.subheadline.weight(.semibold))

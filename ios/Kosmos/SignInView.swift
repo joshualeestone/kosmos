@@ -510,7 +510,7 @@ struct SignInView: View {
                         .foregroundColor(Palette.primary).accessibilityLabel("Code \(matchCode.map { String($0) }.joined(separator: " "))")
                 }
                 line("Your Mac is asking whether to let this iPhone in. Allow it there if it shows this code.")
-                HStack(spacing: 8) { KosmosOrb(); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
+                HStack(spacing: 8) { KosmosOrb().accessibilityHidden(true); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
             } else {
                 line("No computer is connected to this account yet. Set up Kosmos on your Mac, and this iPhone will be asked about there.")
             }
@@ -519,7 +519,7 @@ struct SignInView: View {
             title("Your Mac said no")
             if asking {
                 line("Your Mac did not let this iPhone in before. It is asking again now: if that was a mistake, allow it there, and this screen moves on.")
-                HStack(spacing: 8) { KosmosOrb(); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
+                HStack(spacing: 8) { KosmosOrb().accessibilityHidden(true); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
             } else {
                 line("Your Mac did not let this iPhone in. If that was a mistake, sign in again and it will ask again.")
             }
@@ -561,7 +561,7 @@ struct SignInView: View {
             primary("Confirm", action: model.confirmSetup)
             link("Use a different email", action: model.differentEmail)
         case .done:
-            HStack(spacing: 8) { KosmosOrb(); Text("Signed in").font(.footnote).foregroundColor(Palette.secondary) }
+            HStack(spacing: 8) { KosmosOrb().accessibilityHidden(true); Text("Signed in").font(.footnote).foregroundColor(Palette.secondary) }
         }
     }
 

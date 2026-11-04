@@ -130,7 +130,7 @@ struct SettingsView: View {
             switch load {
             case .reading:
                 HStack(spacing: 10) {
-                    KosmosOrb()
+                    KosmosOrb().accessibilityHidden(true)
                     Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
                 }
             case .signedOut:
