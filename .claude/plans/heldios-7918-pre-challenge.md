@@ -3,7 +3,8 @@ pre_challenge: true
 method: challenge-loop
 branch: heldios-7918
 diff_base: origin/heldcount-7916 (stacked; 937f76544c)
-diff_hash: 26811e7a66f8fa7195e2ac52a6d7ad76bc58f3a3281539bb0e7c87df5ef73a4f
+diff_hash: 3ff9278b8cae049bf702abd6e7977426437e63c16e5682c1ad140966461f64b2
+diff_hash_note: the gate hashes origin/main...HEAD, which on this stacked branch also holds heldcount-7916 (937f76544c), reviewed by its own loop. This loop reviewed only origin/heldcount-7916...HEAD (sha256 26811e7a66f8fa7195e2ac52a6d7ad76bc58f3a3281539bb0e7c87df5ef73a4f). After #7916 merges, rebase onto main and re-hash.
 validation: passed (iOS LogicTests, all eight runners that compile the changed files; ios.board-parity-7084 11/11)
 subdir_audit: not run (iOS-only diff plus its plan)
 timestamp: 2026-11-04T09:47:50Z
