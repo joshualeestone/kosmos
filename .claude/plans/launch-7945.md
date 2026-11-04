@@ -49,6 +49,9 @@ first screen's loading mark.
   Each LaunchOrb entry's file must match its scale too, and a seventh entry fails (controls: 2x/3x swapped, an
   extra entry), and the six must be light and dark at each scale (control: six light entries fail).
 
+- Full validation, first run: 26556 pass, 1 fail. ios.privacy-manifest-7352 requires every Swift folder under ios/ to
+  be an app target; ios/tools (the renderer, a Mac build tool never in an app) is now excluded beside KosmosUITests.
+
 ## Not measured
 A real iPhone. iOS caches launch screens per app: a phone that already had the navy one may show it once more
 until iOS refreshes its snapshot after the update (on the simulator only an erase cleared it).
