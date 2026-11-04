@@ -347,3 +347,48 @@ test('#6781: --install does not pass a pause, an unreachable coordinator does no
   const current = await run(['--if-newer'], { KOSMOS_UPDATE_PAUSE_URL: pauseAnswer('{"updates_paused": true}') });
   assert.equal(current.last, 'current ' + RUNNING, 'a pause does not hide that nothing is newer');
 });
+
+test('#7935: on Linux the board cannot install, so a person runs this verb even with a board running and no connect mode', async () => {
+  const MODE = path.join(HOME, 'mode');
+  const BIN = path.join(T, 'linux-bin');
+  fs.mkdirSync(BIN, { recursive: true });
+  fs.writeFileSync(path.join(BIN, 'uname'), '#!/bin/sh\necho Linux\n', { mode: 0o755 });
+  const linux = { PATH: BIN + path.delimiter + process.env.PATH };
+  const { spawn } = require('node:child_process');
+  // exit code not read (#3628): a stand-in board held open for its pid and command line; it is killed below.
+  const fake = spawn(process.execPath, ['-e', 'setTimeout(()=>{},30000)', path.join(HOME, 'app', 'server.js')], { stdio: 'ignore' });
+  try {
+    fs.writeFileSync(MODE, 'run\n');
+    fs.writeFileSync(path.join(HOME, 'board.pid'), String(fake.pid));
+    // CONTROL: the same computer as a Mac (the real uname) is refused, so the arm below is the Linux rule at work.
+    reset({ prod: '1.2.0' });
+    const mac = await run(['--if-newer', '--install']);
+    assert.equal(mac.code, 3, mac.stdout + mac.stderr);
+    assert.match(mac.last, /^refused\t/);
+    assert.equal(ran(), '');
+    // Linux: installs, through the signed check, with the board's three variables, over this home.
+    reset({ prod: '1.2.0' });
+    const r = await run(['--if-newer', '--install'], linux);
+    assert.equal(r.last, 'updated 1.2.0', r.stdout + r.stderr);
+    assert.match(ran(), /^installer=setup base=file:\/\/\S+ pointer=prod channel=prod$/m);
+    // A staging stamp stays staging (#2969): the verb, not the pasted line, works out the channel.
+    reset({ prod: '1.2.0', staging: '1.3.0', stamp: 'staging' });
+    const st = await run(['--if-newer', '--install'], linux);
+    assert.equal(st.last, 'updated 1.3.0', st.stdout + st.stderr);
+    assert.match(ran(), /^installer=setup-staging base=\S+ pointer=staging channel=staging$/m);
+    // Still never an agent, and never over an install already under way.
+    reset({ prod: '1.2.0' });
+    const a = await run(['--if-newer', '--install'], { ...linux, KOSMOS_AGENT_SESSION: 'someone' });
+    assert.match(a.last, /^refused\tan agent/);
+    fs.mkdirSync(path.join(HOME, 'logs'), { recursive: true });
+    fs.writeFileSync(path.join(HOME, 'logs', 'install.started'), 'now\n');
+    const busy = await run(['--if-newer', '--install'], linux);
+    assert.match(busy.last, /^refused\tan update is already being installed/);
+    assert.equal(ran(), '');
+  } finally {
+    fake.kill();
+    fs.rmSync(path.join(HOME, 'board.pid'), { force: true });
+    fs.rmSync(path.join(HOME, 'logs', 'install.started'), { force: true });
+    fs.writeFileSync(MODE, 'connect\n');
+  }
+});

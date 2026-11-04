@@ -308,10 +308,14 @@ function rollbackOffer() {
   } catch { return null; }
 }
 
-/** kosmos#7935: the command that updates a platform off SELF_INSTALL: the same installer, re-run over the install
-    (it keeps the person's agents and settings). The URL is quoted because setupUrl() carries a ?v= cache-buster. */
-function reinstallCommand() {
-  return "curl -fsSL '" + setupUrl() + "' | sh";
+/** kosmos#7935: the command that updates a board off SELF_INSTALL: this install's own `kosmos update`, which works out
+    the channel, the subscription and the base as beginInstall does, checks the installer against its signed manifest
+    (never curl | sh, #6468), and runs it over THIS home. --install because the person running it has chosen to. The
+    home is quoted, a quote inside it escaped, so the line can be pasted as it is. */
+function updateCommand() {
+  const home = installedHomeAsInstalled();
+  if (!home) return null;
+  return "'" + String(home).replace(/'/g, "'\\''") + "/bin/kosmos' update --if-newer --install";
 }
 
 function manualOffer() {
@@ -320,7 +324,8 @@ function manualOffer() {
     // button. A source checkout (no installedRoot) gets nothing, as before.
     if (platformGate.canSelfInstall(updatePlatform()) || !installedRoot()) return null;
     const newer = available();
-    return newer ? { version: newer.version, command: reinstallCommand() } : null;
+    const command = updateCommand();
+    return newer && command ? { version: newer.version, command } : null;
   }
   const avail = available();
   if (!avail) return null;
@@ -694,8 +699,9 @@ function setupUrl() {
  */
 function selfInstallRefusal(platform = updatePlatform()) {
   if (platformGate.canSelfInstall(platform)) return null;
-  return 'Kosmos cannot update itself on this platform (' + String(platform) + '). To update, run the installer again in a terminal: '
-    + reinstallCommand();
+  const command = updateCommand();
+  return 'Kosmos cannot update itself on this platform (' + String(platform) + ').'
+    + (command ? ' To update, run this in a terminal: ' + command : '');
 }
 
 let installStarted = false;

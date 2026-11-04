@@ -10743,8 +10743,8 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
 .oa-devrow .fr-cmd.devcode-copytext { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 /* The manual update offer's numbered steps (W-25). */
 .upd-manual-steps { margin: 8px 0 0; padding-left: 1.4em; }
-/* kosmos#7935: the Linux update command; selects whole on a click so it can be copied, and wraps on a phone. */
-.upd-command { user-select: all; overflow-wrap: anywhere; font-family: var(--font-mono); }
+/* kosmos#7935: the Linux update command, in a read-only field (focusable, so a keyboard can select and copy it). */
+.upd-command { font-family: var(--font-mono); min-width: 0; flex: 1 1 auto; }
 .upd-manual-steps li { margin: 2px 0; }
 .fr-code-row { display: flex; gap: var(--space-4); margin-top: var(--space-4); flex-wrap: wrap; }
 .fr-code-row input { flex: 1; min-width: 200px; font: var(--text-body) var(--font-mono);
@@ -19890,7 +19890,11 @@ window.kosmosMeasureScrollbarWidth();
       <ol class="dhint upd-manual-steps" id="upd-manual-steps" hidden></ol>
       <!-- kosmos#7935: a board that cannot replace itself (Linux) is updated by re-running its installer; the
            manual arm shows that command here. -->
-      <p class="dhint" id="upd-command-row" hidden><code id="upd-command" class="upd-command"></code></p>
+      <div class="frow" id="upd-command-row" hidden>
+        <input class="tk-inp upd-command" id="upd-command" type="text" readonly spellcheck="false" aria-label="The command that updates Kosmos" aria-describedby="upd-line">
+        <button class="btn-quiet" type="button" id="upd-command-copy">Copy</button>
+      </div>
+      <p class="dhint" id="upd-command-msg" role="status"></p>
       <p class="dhint" id="upd-open-folder-msg" role="status" hidden></p>
       <!-- 🛑 THIS ROW USED TO BE A SWITCH THAT COULD NOT MOVE. It read "Tell me
            when there is a new version", with a hint underneath admitting
@@ -25116,6 +25120,7 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
   const cmdRow = document.getElementById('upd-command-row');
   const cmd = document.getElementById('upd-command');
   if (cmdRow) cmdRow.hidden = true;
+  const cmdMsg = document.getElementById('upd-command-msg');
   /* win32-update-rollback (S5, #3017): the Roll back button is ORTHOGONAL to the offer/manual arms
      below -- a person may have an update to install AND a kept build to go back to, or be up to date
      with a kept build. It shows whenever the status carries a rollback offer (win32-only), labelled
@@ -25146,8 +25151,10 @@ function paintUpdateCard(running, offer, look, manual, channel, rollback = null)
     put(v + 'Version ' + manual.version + ' is ready. To update, run this in a terminal:');
     btn.hidden = true;
     btn.dataset.act = 'check';
-    if (cmd && cmd.textContent !== manual.command) cmd.textContent = manual.command;
+    if (cmd && cmd.value !== manual.command) { cmd.value = manual.command; if (cmdMsg) cmdMsg.textContent = ''; }
     if (cmdRow) cmdRow.hidden = false;
+    // As the Windows arm: focus resting on Check goes to the field, not to <body>, when Check is hidden.
+    if (checkHadFocus && cmd && typeof cmd.focus === 'function') cmd.focus();
   } else if (manual && manual.version && manual.download) {
     /* 🛑 WINDOWS, BEFORE THE IN-APP UPDATER IS ARMED (win32-update-check). A Windows bundle
        cannot take the install offer above (the install route refuses there), so a newer Windows
@@ -74083,6 +74090,23 @@ async function pjsOwnCopy() {
 }
 document.getElementById('pjs-own-add').addEventListener('click', pjsOwnAdd);
 document.getElementById('pjs-own-copy').addEventListener('click', pjsOwnCopy);
+/* kosmos#7935: copy the Linux update command, in the order the invite sheet uses (copyTextOrdered); where the clipboard
+   refuses, the field is selected and the line says how to copy it. */
+async function updCopyCommand() {
+  const field = document.getElementById('upd-command');
+  const msg = document.getElementById('upd-command-msg');
+  const btn = document.getElementById('upd-command-copy');
+  const text = field.value;
+  if (!text) return;
+  let ok = false;
+  try { ok = await copyTextOrdered(text, btn, () => { if (field.value === text) msg.textContent = 'Command copied.'; }); }
+  catch { ok = false; }
+  if (field.value !== text) return;
+  let focused = true;
+  if (!ok) { try { focused = selectForCopy(field, btn); } catch { /* the field is the fallback */ } }
+  msg.textContent = ok ? 'Command copied.' : copyRefusedLine(focused);
+}
+document.getElementById('upd-command-copy').addEventListener('click', updCopyCommand);
 document.getElementById('pjs-hooks').addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (!b) return;

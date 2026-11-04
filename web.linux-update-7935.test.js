@@ -21,7 +21,7 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SCRIPT = page.scriptOf(PAGE);
 const NEWER = '99.0.0';
 
-function paint(offer, manual, kept) {
+function paint(offer, manual, kept, focusedId) {
   const els = kept || {
     'upd-line': { textContent: '' },
     'upd-btn': { textContent: '', dataset: {}, hidden: false, disabled: false },
@@ -31,9 +31,10 @@ function paint(offer, manual, kept) {
     'upd-open-folder': { hidden: true },
     'upd-rollback': { hidden: true, textContent: '', dataset: {} },
     'upd-command-row': { hidden: true },
-    'upd-command': { textContent: '' },
+    'upd-command': { value: '', focused: false, focus() { this.focused = true; } },
+    'upd-command-msg': { textContent: '' },
   };
-  const doc = { activeElement: null, getElementById: (id) => els[id] || null, querySelector: () => ({ getAttribute: () => '0.0.0' }) };
+  const doc = { activeElement: focusedId ? els[focusedId] : null, getElementById: (id) => els[id] || null, querySelector: () => ({ getAttribute: () => '0.0.0' }) };
   // eslint-disable-next-line no-new-func
   new Function('document', 'UPD_ASKED', 'UPD_CHECKING', 'ENGINE_STALE', 'OFFER', 'MANUAL',
     page.liftAll(SCRIPT, [...page.PLATFORM_COPY_FNS, 'bakedVersion', 'pageIsStale', 'paintUpdateCard'])
@@ -64,7 +65,7 @@ test('#7935: a Linux board shows the installer command and no [Update] button', 
   assert.equal(els['upd-line'].textContent, 'Version ' + NEWER + ' is ready. To update, run this in a terminal:');
   assert.equal(els['upd-btn'].hidden, true, 'the [Update] or Check button is still offered beside the command');
   assert.equal(els['upd-command-row'].hidden, false, 'the command is not shown');
-  assert.equal(els['upd-command'].textContent, manual.command);
+  assert.equal(els['upd-command'].value, manual.command);
   assert.equal(els['upd-download'].hidden, true, 'a Windows download link appeared');
 });
 
@@ -82,7 +83,18 @@ test('#7935: a repaint after the update clears the command (the row does not sti
   assert.equal(els['upd-command-row'].hidden, true, 'the command row stayed up on the next paint');
 });
 
-test('#7935: the markup carries the command row, hidden, and its style', () => {
-  assert.match(PAGE, /<p class="dhint" id="upd-command-row" hidden><code id="upd-command" class="upd-command"><\/code><\/p>/);
-  assert.match(PAGE, /\.upd-command \{ user-select: all; overflow-wrap: anywhere; font-family: var\(--font-mono\); \}/);
+test('#7935: focus on Check moves to the command field, not to the page, when Check is hidden', async () => {
+  await linuxLook();
+  const els = paint(null, update.manualOffer(), null, 'upd-btn');
+  assert.equal(els['upd-command'].focused, true, 'focus fell to <body>');
+  const quiet = paint(null, update.manualOffer(), null, null);
+  assert.equal(quiet['upd-command'].focused, false, 'CONTROL: focus is not taken when the person was elsewhere');
+});
+
+test('#7935: the markup: a read-only field described by the status line, a Copy button, a status for its result', () => {
+  assert.match(PAGE, /<div class="frow" id="upd-command-row" hidden>/);
+  assert.match(PAGE, /<input class="tk-inp upd-command" id="upd-command" type="text" readonly spellcheck="false" aria-label="The command that updates Kosmos" aria-describedby="upd-line">/);
+  assert.match(PAGE, /<button class="btn-quiet" type="button" id="upd-command-copy">Copy<\/button>/);
+  assert.match(PAGE, /<p class="dhint" id="upd-command-msg" role="status"><\/p>/);
+  assert.match(SCRIPT, /getElementById\('upd-command-copy'\)\.addEventListener\('click', updCopyCommand\)/);
 });

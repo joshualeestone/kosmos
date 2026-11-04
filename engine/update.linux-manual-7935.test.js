@@ -32,10 +32,12 @@ const manifest = (platform, arch) => platform === 'linux'
   ? { version: NEWER, sha256: 'ab'.repeat(32), artifact: `kosmos-linux-${arch}.tar.gz`, versioned: `kosmos-${NEWER}-linux-${arch}.tar.gz`, arch }
   : { version: NEWER, sha256: 'ab'.repeat(32), artifact: 'kosmos.tar.gz', versioned: `kosmos-${NEWER}.tar.gz` };
 
+let ROOT = null;
 async function look(platform, arch, channel) {
   update.resetCache();
   update.setPlatform(platform, arch);
   const root = installedRoot();
+  ROOT = root;
   update.setInstalledRoot(() => root);
   if (channel) process.env.KOSMOS_UPDATE_CHANNEL = channel;
   update.setFetcher(async () => ({ ok: true, json: async () => manifest(platform, arch) }));
@@ -53,15 +55,23 @@ test('#7935: a Linux board with a newer release gets the installer command, not 
   assert.equal(update.installOffer(), null, 'a Linux board was offered an in-app [Update] it cannot take');
   const manual = update.manualOffer();
   assert.ok(manual && manual.version === NEWER, 'CONTROL: the newer release was not seen at all: ' + JSON.stringify(manual));
-  assert.match(manual.command, /^curl -fsSL 'https:\/\/[^' ]+\/setup\?v=99\.0\.0' \| sh$/, 'the command: ' + manual.command);
+  // This install's own verified verb, over THIS home (never curl | sh, #6468); kosmos update works out the channel.
+  assert.equal(manual.command, "'" + ROOT + "/bin/kosmos' update --if-newer --install");
   assert.equal(manual.download, undefined, 'a Linux offer is a command, not a Windows download');
 });
 
-test('#7935: a staging Linux board is told the staging installer', async () => {
+test('#7935: a staging Linux board gets the same verb (kosmos update follows the stamp; cli test pins it)', async () => {
   await look('linux', 'x64', 'staging');
   const manual = update.manualOffer();
   assert.ok(manual, 'CONTROL: no offer on staging');
-  assert.match(manual.command, /\/setup-staging\?v=99\.0\.0' \| sh$/, 'the staging command: ' + manual.command);
+  assert.equal(manual.command, "'" + ROOT + "/bin/kosmos' update --if-newer --install");
+  assert.doesNotMatch(manual.command, /curl|\| sh/, 'the command pipes a download into a shell');
+});
+
+test('#7935: a home with a quote in it is still one pasteable word', async () => {
+  await look('linux', 'x64');
+  update.setInstalledRoot(() => "/tmp/it's here");
+  assert.equal(update.manualOffer().command, "'/tmp/it'\\''s here/bin/kosmos' update --if-newer --install");
 });
 
 test('#7935: the refusal names the same command, and the Mac is untouched', async () => {
