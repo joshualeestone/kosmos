@@ -24,16 +24,18 @@ fs.writeFileSync(CLI, '#!/bin/bash\n'
   + 'if [ "$1" = report ] && [ "$2" = idle ]; then read n kind wait < "' + MODE + '"; sleep "${wait:-0}";\n'
   + '  if [ "$n" -gt 0 ]; then echo "$((n-1)) $kind 0" > "' + MODE + '";\n'
   + '    case "$kind" in waiting) echo "  That was not recorded: it is waiting on a person (needs_you), so an automatic idle did not overwrite that." ;;\n'
-  + '      unsaved) echo "  That was not recorded: we could not save that report." ;; *) echo "  Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
+  + '      unsaved) echo "  That was not recorded: we could not save that report." ;; down) echo "  Kosmos is not running, so this could not be recorded. Start it with: kosmos start" ;; *) echo "  Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
   + 'exit 0\n');
 fs.chmodSync(CLI, 0o755);
 
 const ENV = { KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off', KOSMOS_REPORT_RETRY_S: '1.5', TMUX_PANE: '%7' };
 function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
-function hook(event) {
+function hook(event, extra = {}) {
   const t0 = Date.now();
+  const env = { ...process.env, ...ENV, ...extra };
+  if (extra.TMUX_PANE === null) delete env.TMUX_PANE;
   const r = cp.spawnSync('bash', [HOOK], { input: JSON.stringify({ hook_event_name: event, session_id: 's', cwd: '/w/a' }),
-    encoding: 'utf8', timeout: 20000, env: { ...process.env, ...ENV } });
+    encoding: 'utf8', timeout: 20000, env });
   assert.equal(r.status, 0, 'the hook always exits 0: ' + r.stderr);
   return Date.now() - t0;
 }
@@ -94,5 +96,17 @@ test('the hook keys on the board\'s own words for a deliberate wait, so rewordin
   const waits = src.split("skipped: 'waiting'").length - 1;
   const words = src.split('did not overwrite').length - 1;
   assert.ok(waits >= 3 && words >= waits, 'every skipped:waiting answer says "did not overwrite" (' + words + ' of ' + waits + ')');
-  assert.match(fs.readFileSync(HOOK, 'utf8'), /grep -q 'did not overwrite'/, 'and the hook matches that phrase');
+  assert.match(fs.readFileSync(HOOK, 'utf8'), /grep -qE 'did not overwrite\|/, 'and the hook matches that phrase');
+});
+
+test('a session with no tmux pane (the person\'s own Claude) sends once, as before: no retry, no note', () => {
+  setup('2 unreached 0'); hook('Stop', { TMUX_PANE: null }); settle(1);
+  assert.equal(idle().length, 1, JSON.stringify(idle()));
+  assert.equal(note(), null);
+});
+
+test('Kosmos not running at all is neither retried nor noted', () => {
+  setup('2 down 0'); hook('Stop'); settle(1);
+  assert.equal(idle().length, 1, JSON.stringify(idle()));
+  assert.equal(note(), null);
 });

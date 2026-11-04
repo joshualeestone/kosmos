@@ -14,7 +14,9 @@ could. Only the board's deliberate keep (an agent waiting on a person or its pro
 not overwrite" it, selfreport.js skipped:'waiting') is neither retried nor noted; every other failure, including a
 "not recorded" for another reason (a failed save), is retried and noted. A second
 lost send writes one line (time, pane, exit code, the CLI's first line; no command text) to
-$THROTTLE_DIR/turn-end-failures.log. Every other report is unchanged. The Windows node hook is out of scope (the
+$THROTTLE_DIR/turn-end-failures.log. Only an agent's pane (TMUX_PANE set) gets the retry and note: the person's own Claude sessions run this hook too
+(shared settings) and are refused every turn, so they keep the single send. Kosmos not running at all is neither
+retried nor noted. Weakest premise: a person's own session inside tmux is treated as an agent. Every other report is unchanged. The Windows node hook is out of scope (the
 symptom is the Mac board's honest-unknown).
 
 ## Call
@@ -23,7 +25,7 @@ precedence change status.js already raised rather than took); counting a placed 
 Weakest premise: that the five family-board agents (non-Claude runners) fail this way; their selfreports would show it.
 
 ## Measured on the branch
-report-hook-turnend-7977.test.js 8/8: (1) a send that goes through is sent once, no note; (2) the hook returns at once
+report-hook-turnend-7977.test.js 10/10 (+ no pane: single send; Kosmos not running: no retry, no note): (1) a send that goes through is sent once, no note; (2) the hook returns at once
 while the send takes 2 s; (3) a send the board never answered is retried, a landing retry leaves no note; (4) the
 board's deliberate keep ("did not overwrite") is neither retried nor noted; (5) a newer event of the pane cancels the
 retry; (6) two lost sends leave one line (time, pane, exit code, the CLI's first line, its indent stripped); (7) a
