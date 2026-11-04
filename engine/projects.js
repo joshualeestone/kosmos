@@ -1041,9 +1041,14 @@ function needsKeyWords(text) {
   // be the same well-formed text it echoes back, or a row could never be dismissed.
   return cutUnits(String(text || '').toWellFormed(), NEEDS_KEY_WORDS);
 }
+/* #7931: a held question (the member's stateHeld, heldOwnQuestion's rule) is kept under 'question-held:', so dismissing
+   the calm "held until you are back" row does not also hide the same words asked for real, nor the reverse. A question
+   that is not held keeps 'question:<words>' exactly, so every dismissal stored before this still means what it meant. */
+const HELD_KEY = 'question-held:';
 function needsDismissKey(reason, m) {
   if (!reason) return null;
-  return reason === 'question' ? 'question:' + needsKeyWords(m && m.because) : reason;
+  if (reason !== 'question') return reason;
+  return (m && m.stateHeld === true ? HELD_KEY : 'question:') + needsKeyWords(m && m.because);
 }
 /* #6341: is this member red here for a reason not counted here (the rows #5692 lists after the counted ones)? */
 function needsRedElsewhere(m) {
@@ -3269,11 +3274,14 @@ function cleanParent(value, childId) {
 const NEEDS_REASONS = ['question', 'trust', 'gave_up', 'crash_loop', 'stuck_auth', 'own_bound', 'other', 'elsewhere'];
 function dismissNeeds(projectId, sessionName, reason) {
   if (typeof sessionName !== 'string' || !sessionName) throw new Error('say which agent to dismiss');
-  // A question's key carries its words ('question:<words>', needsDismissKey); every other reason is the bare reason.
-  const base = typeof reason !== 'string' ? '' : reason.startsWith('question:') ? 'question' : reason;
+  // A question's key carries its words ('question:<words>', or 'question-held:<words>' for a held one, needsDismissKey);
+  // every other reason is the bare reason.
+  // #7931: a held question's key is 'question-held:<words>', under the same cap on its words.
+  const prefix = typeof reason !== 'string' ? '' : reason.startsWith(HELD_KEY) ? HELD_KEY : reason.startsWith('question:') ? 'question:' : '';
+  const base = typeof reason !== 'string' ? '' : prefix ? 'question' : reason;
   // #7108: never a key with half an emoji (it would be stored, and break a strict reader of anything that carries it).
   const ok = typeof reason === 'string' && reason.isWellFormed() && NEEDS_REASONS.includes(base)
-    && (base === 'question' ? reason.startsWith('question:') && reason.length <= 'question:'.length + NEEDS_KEY_WORDS : reason === base);
+    && (base === 'question' ? prefix !== '' && reason.length <= prefix.length + NEEDS_KEY_WORDS : reason === base);
   if (!ok) throw new Error('that is not a reason a project shows');
   const stored = readAll();
   const at = stored.findIndex((p) => p.id === projectId);
