@@ -46823,7 +46823,8 @@ let USAGE_BUSY = false;
    colour (--spin-dot, ink on a gold .btn); this draws the orb into a canvas inside it and the CSS hides the old dots.
    The orb: a ball of gold dots carried by slow currents, its skin held round, turning, with K, O, S, M, O, S cut
    through it one letter per half turn (the wordmark's own dots, chaoskosmos-site kosmos-wordmark.svg; odd letters
-   mirrored so they read from the far side; the O a full open circle), a 27 s loop. Prototype: Mona Lisa's Files,
+   mirrored so they read from the far side; the O a full open circle), a 27 s loop (still, under reduced motion, with
+   the K facing). Prototype: Mona Lisa's Files,
    Orb-KOSMOS-swarm-prototype.html. Small on purpose: fewer dots than the big prototype, each a small share of the orb so
    they blend into a clear letter at 14 to 18 px, and each letter's cut is worked out once, at a coarse resolution. One animation loop draws every visible
    orb and stops when none is visible. Reduced motion: drawn once, still, with the K facing. */
@@ -46885,14 +46886,13 @@ const KORB = (() => {
     }
     return out;
   }
-  /* Those dots into a 2d context of side `side` device pixels, in one colour. */
   /* One colour, so depth order does not show: the dots are grouped by how strongly they show (8 steps) and each group
      is one path and one fill, instead of a fill per dot (review round 2: 2200 fills per orb per frame). */
   const STEPS = 8, groups = Array.from({ length: STEPS }, () => []);
   function paint(g, side, pts, colour) {
     g.clearRect(0, 0, side, side);
     g.fillStyle = colour;
-    const R = side * 0.46, CAM = 6, px = side * 0.009;   // a dot is under 2% of the orb, so many small dots blend into a clear letter
+    const R = side * 0.46, CAM = 6, px = side * 0.009;   // dots scale with the orb; at spinner sizes most sit at the 0.35 px floor, and many blend into a clear letter
     for (const grp of groups) grp.length = 0;
     for (const [X, Y, Z, r, vis] of pts) {
       const f = CAM / (CAM + Z), front = Math.max(0, Math.min(1, (1 - Z) / 2));
@@ -46921,7 +46921,7 @@ const KORB = (() => {
   }
   function fit(span) {
     const cv = attach(span);
-    if (!cv.width || ticks % 30 === 0) {   // the size is read on first sight and about once a second, not every frame
+    if (!cv.width || sizeStale || ticks % 30 === 0) {   // on first sight, after a resize or zoom, and about once a second
       const side = Math.max(8, Math.round((span.offsetWidth || 16) * (window.devicePixelRatio || 1)));
       if (cv.width !== side) { cv.width = side; cv.height = side; cv.korbKey = ''; }
     }
@@ -46931,7 +46931,7 @@ const KORB = (() => {
      the start, so "is there a spinner" is never the test: an IntersectionObserver says which are showing (hidden,
      display:none, a closed dialog and off-screen all read as not), and a MutationObserver hands it each new one. */
   const shown = new Set();
-  let running = false, t0 = 0, last = -1e9, ticks = 0;
+  let running = false, t0 = 0, last = -1e9, ticks = 0, sizeStale = false;
   function frame(now) {
     for (const s of shown) if (!s.isConnected) { shown.delete(s); seen.delete(s); if (io) io.unobserve(s); }   // put back later, it is watched afresh
     if (!shown.size) { running = false; return; }
@@ -46946,7 +46946,8 @@ const KORB = (() => {
       paint(cv.getContext('2d'), cv.width, calm ? place(0) : pts, cv.korbColour);
       cv.korbKey = key;
     }
-    if (calm) { running = false; return; }   // nothing moves; a theme change, the setting, or the spinner showing again redraws it
+    sizeStale = false;
+    if (calm) { running = false; return; }   // nothing moves; a theme change, a resize or zoom, the setting, or showing again redraws it
     requestAnimationFrame(frame);
   }
   function start() { if (running) return; running = true; if (!t0) t0 = performance.now(); requestAnimationFrame(frame); }
@@ -46959,7 +46960,10 @@ const KORB = (() => {
   };
   if (typeof IntersectionObserver === 'function' && typeof MutationObserver === 'function' && typeof document !== 'undefined') {
     io = new IntersectionObserver((entries) => {
-      for (const e of entries) { if (e.isIntersecting) { shown.add(e.target); if (e.target.querySelector('canvas.korb')) e.target.querySelector('canvas.korb').korbKey = ''; } else shown.delete(e.target); }
+      for (const e of entries) {
+        if (e.isIntersecting) { shown.add(e.target); const c = e.target.querySelector('canvas.korb'); if (c) c.korbKey = ''; }
+        else { shown.delete(e.target); if (!e.target.isConnected) { seen.delete(e.target); io.unobserve(e.target); } }   // gone while hidden: let it go
+      }
       if (shown.size) start();
     });
     all = document.getElementsByClassName('spin-sweep');
@@ -46968,9 +46972,10 @@ const KORB = (() => {
     // A theme change recolours: forget each colour and draw again (a still orb would otherwise keep the old one).
     const recolour = () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) { c.korbColour = ''; c.korbKey = ''; } } if (shown.size) start(); };
     const themeWatch = new MutationObserver(recolour);
-    const themeAttrs = { attributes: true, attributeFilter: ['data-theme', 'class', 'style'] };
-    themeWatch.observe(document.documentElement, themeAttrs);
-    if (document.body) themeWatch.observe(document.body, themeAttrs);
+    // Only the theme switch (data-theme on <html>): the app writes other classes and styles there all the time.
+    themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    // A resize, browser zoom or a move to a screen of another density: read every size again and redraw.
+    window.addEventListener('resize', () => { sizeStale = true; for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) c.korbKey = ''; } if (shown.size) start(); });
     try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', recolour); } catch (e) { /* older engines */ }
     try { matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) c.korbKey = ''; } if (shown.size) start(); }); } catch (e) { /* older engines: the next show redraws */ }
     // The letter cuts take a moment to work out: do it while the page is idle, not when a loading state first shows.

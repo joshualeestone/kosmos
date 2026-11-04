@@ -157,6 +157,21 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const calmPage = await browser.newPage({ viewport: { width: 900, height: 800 }, reducedMotion: 'reduce' });
   await calmPage.goto('file://' + PAGE);
   const calm = await orbRead(calmPage);
+  // A still orb whose size changes (zoom, another screen, a new --sz) is drawn again at the new size after a resize.
+  const calmResize = await calmPage.evaluate(async () => {
+    const frames = (n) => new Promise((res) => { let k = 0; const f = () => (++k < n ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;left:200px;top:10px;z-index:99999';
+    host.innerHTML = LOAD_SPIN_HTML.replace('--sz:14px', '--sz:24px');
+    document.body.appendChild(host);
+    await frames(8);
+    const span = host.querySelector('.spin.spin-sweep'), cv = span.querySelector('canvas.korb');
+    const before = cv.width;
+    span.style.setProperty('--sz', '40px');
+    window.dispatchEvent(new Event('resize'));
+    await frames(8);
+    return { before, after: cv.width, want: Math.round(40 * (window.devicePixelRatio || 1)) };
+  });
 
   await browser.close();
 
@@ -176,6 +191,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!(calm.litA > 40)) orbProblems.push('orb (reduced motion): nothing drawn; it should hold still, not vanish');
     if (calm.changed) orbProblems.push('orb (reduced motion): the drawing still moves');
     if (calm.wasRunning) orbProblems.push('orb (reduced motion): the loop was still running with the still orb showing');
+  }
+  if (calmResize.after !== calmResize.want) orbProblems.push('orb (reduced motion): after a resize it is still drawn at ' + calmResize.after + ' px, not ' + calmResize.want);
+  {
   }
 
   const problems = orbProblems.slice();
