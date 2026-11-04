@@ -95,7 +95,6 @@ NAME="${KOSMOS_CI_RUNNER_NAME:-kosmos-ci-agent1s}"
 case "$NAME" in ''|*[!A-Za-z0-9._-]*) echo "refused: KOSMOS_CI_RUNNER_NAME '$NAME' may hold only letters, digits, '.', '_' and '-'" >&2; exit 2 ;; esac
 # CI_HOME goes into pgrep patterns (keepalive): no character there can do more than widen a match ('.').
 case "$CI_HOME" in ''|*[!A-Za-z0-9/._-]*) echo "refused: the CI home may hold only letters, digits, '/', '.', '_' and '-'" >&2; exit 2 ;; esac
-case "$CI_HOME" in /*) ;; *) echo "refused: the CI home '$CI_HOME' must be an absolute path (it is pasted into root commands)" >&2; exit 2 ;; esac
 case "$CI_HOME" in /*) ;; *) echo "refused: the CI home '$CI_HOME' must be an absolute path" >&2; exit 2 ;; esac   # kosmos#7887: it is pasted into root commands
 for _w in KOSMOS_CI_UNLOAD_WAIT_S KOSMOS_CI_START_WAIT_S KOSMOS_CI_STATE_WAIT_S; do
   eval "_v=\${$_w-}"
