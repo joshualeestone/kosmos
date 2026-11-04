@@ -7031,7 +7031,7 @@ test('the msg route derives the sender from the pane, ignores any typed claim, a
     const verdict = JSON.parse(r.body).delivery;
     assert.equal(verdict.state, 'placed', 'the route did not deliver: ' + (verdict.because || ''));
     const typed = pastedChunks(sends);
-    assert.match(typed[0], /^\[message from your colleague leo · m\d+\] route test$/,
+    assert.match(typed[0], /^\[message from your colleague leo · (m\d+) · to answer, run: kosmos msg --in-reply-to \1 leo\] route test$/,
       'the envelope does not carry the derived sender');
 
     const rec = await req('/api/messages?agent=mara');

@@ -113,6 +113,17 @@ test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); }
 
 /* ── who is sending ──────────────────────────────────────────────────────── */
 
+/* #7886 item 3: the answer line quotes a sender name with a space, so a pasted command keeps it one argument. */
+test('#7886: a sender whose name holds a space is quoted in the answer line', () => {
+  withFleet([fleet.agent('mona lisa', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
+    armSender('mona lisa-discord');
+    const tmux = arm([ok(), ok()]);
+    const sent = messages.send({ fromPane: '%7', to: 'mara', text: 'a look please' }, board.agents);
+    assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because);
+    assert.equal(tmux.pastedMessages()[0], "[message from your colleague mona lisa \u00b7 m1 \u00b7 to answer, run: kosmos msg --in-reply-to m1 'mona lisa'] a look please");
+  });
+});
+
 test('the sender is derived from the pane, and the delivered envelope names them with the id', () => {
   withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' })], (board) => {
     armSender('leo-discord');
@@ -222,7 +233,7 @@ test('in_reply_to must be one of our ids: a real one rides the envelope and the 
     tmux = arm([ok(), ok()]);
     const reply = messages.send({ fromPane: '%9', to: 'leo', text: 'second', inReplyTo: 'm1' }, board.agents);
     assert.equal(reply.state, chat.DELIVERY.PLACED);
-    assert.match(tmux.pastedMessages()[0], /· answers m1 · to answer, run: kosmos msg --in-reply-to m2 mara\] second$/,
+    assert.match(tmux.pastedMessages()[0], /· m2 · answers m1\] second$/,
       'the recipient cannot see what this message responds to');
     assert.equal(messages.list('mara')[1].in_reply_to, 'm1');
 
@@ -705,7 +716,8 @@ test('the colleagues block teaches the command and the colleague-vs-operator dis
   const once = projects.spliceBlock('# leo\n\ntheir words\n', body, messages.START, messages.END);
   assert.match(once, /kosmos msg/);
   const twice = projects.spliceBlock(once, body, messages.START, messages.END);
-  assert.equal((twice.match(/kosmos msg/g) || []).length, 1, 'a re-splice duplicated the block');
+  // Counted by the block's own start marker: the block names `kosmos msg` more than once (#7886).
+  assert.equal(twice.split(messages.START).length - 1, 1, 'a re-splice duplicated the block');
 });
 
 /* ── the body is checked as itself (the envelope prefix must not launder it) ── */
@@ -765,7 +777,7 @@ test('in_reply_to must name a real message in the sender\'s own conversation, no
     const own = messages.send({ fromPane: '%5', to: 'mara', text: 'following up', inReplyTo: 'm1' }, board.agents);
     assert.equal(own.state, chat.DELIVERY.PLACED,
       'a genuine reply to your own message got refused');
-    assert.match(tmux2.pastedMessages()[0], /· answers m1 · to answer, run: kosmos msg --in-reply-to m2 rook\] following up$/);
+    assert.match(tmux2.pastedMessages()[0], /· m2 · answers m1\] following up$/);
   });
 });
 
@@ -2177,7 +2189,7 @@ test('a room post is citable by in_reply_to from anyone who was in it, and from 
     const tmux = arm([]);
     const reply = messages.send({ fromPane: '%9', to: 'leo', text: 'reading it now', inReplyTo: post.id }, board.agents);
     assert.equal(reply.state, chat.DELIVERY.PLACED, reply.because || '');
-    assert.match(tmux.pastedMessages()[0], new RegExp('· answers ' + post.id + ' · to answer, run: kosmos msg --in-reply-to m[0-9]+ [a-z]+\\] '),
+    assert.match(tmux.pastedMessages()[0], new RegExp('· answers ' + post.id + '\\] '),
       'the citation did not ride the envelope');
     chat.resetForTests();
     armSender('outsider-discord');
