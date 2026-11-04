@@ -46824,8 +46824,8 @@ let USAGE_BUSY = false;
    The orb: a ball of gold dots carried by slow currents, its skin held round, turning, with K, O, S, M, O, S cut
    through it one letter per half turn (the wordmark's own dots, chaoskosmos-site kosmos-wordmark.svg; odd letters
    mirrored so they read from the far side; the O a full open circle), a 27 s loop (still, under reduced motion, with
-   the K facing). Prototype: Mona Lisa's Files,
-   Orb-KOSMOS-swarm-prototype.html. Small on purpose: fewer dots than the big prototype, each a small share of the orb so
+   the K facing). The prototype Josh chose and its clips are named on card
+   #7896. Small on purpose: fewer dots than the big prototype, each a small share of the orb so
    they blend into a clear letter at 14 to 18 px, and each letter's cut is worked out once, at a coarse resolution. One animation loop draws every visible
    orb and stops when none is visible. Reduced motion: drawn once, still, with the K facing. */
 const KORB = (() => {
@@ -46936,44 +46936,60 @@ const KORB = (() => {
      Colour is read on first sight and about once a second, so a spinner moved into a gold button recolours within a
      second; no site moves a live spinner today. */
   const shown = new Set();
-  let running = false, t0 = 0, last = -1e9, ticks = 0, sizeStale = false;
+  let running = false, t0 = 0, last = -1e9, ticks = 0, sizeStale = false, stillPts = null;
+  const stillDots = () => stillPts || (stillPts = place(0));   // the still frame (K facing), worked out once
+  /* Draws one spinner's canvas; a canvas with no 2d context (the engine refused one) is skipped, never thrown on. */
+  function draw1(s, pts) {
+    const cv = fit(s), g = cv.getContext('2d');
+    if (!g) return;
+    if (!cv.korbColour || ticks % 30 === 0) cv.korbColour = getComputedStyle(s).getPropertyValue('--spin-dot').trim() || '#d6a62e';
+    const key = pts === stillPts ? 'still ' + cv.korbColour + ' ' + cv.width : '';
+    if (key && cv.korbKey === key) return;   // still: drawn once per colour and size, then left alone
+    paint(g, cv.width, pts, cv.korbColour);
+    cv.korbKey = key;
+  }
   function frame(now) {
-    for (const s of shown) if (!s.isConnected) { shown.delete(s); seen.delete(s); if (io) io.unobserve(s); }   // put back later, it is watched afresh
-    if (!shown.size) { running = false; return; }
-    if (now - last < 30) { requestAnimationFrame(frame); return; }   // about 30 a second: the turn is slow, and it halves the cost
-    last = now; ticks++;
-    const calm = still(), pts = calm ? null : place((now - t0) / 1000);
-    for (const s of shown) {
-      const cv = fit(s);
-      if (!cv.korbColour || ticks % 30 === 0) cv.korbColour = getComputedStyle(s).getPropertyValue('--spin-dot').trim() || '#d6a62e';
-      const key = calm ? 'still ' + cv.korbColour : '';
-      if (calm && cv.korbKey === key) continue;   // still: drawn once per colour, then left alone
-      paint(cv.getContext('2d'), cv.width, calm ? place(0) : pts, cv.korbColour);
-      cv.korbKey = key;
+    try {
+      for (const s of shown) if (!s.isConnected) { shown.delete(s); seen.delete(s); if (io) io.unobserve(s); }   // put back later, it is watched afresh
+      if (!shown.size) { running = false; return; }
+      if (now - last < 30) { requestAnimationFrame(frame); return; }   // about 30 a second: the turn is slow, and it halves the cost
+      last = now; ticks++;
+      const calm = still(), pts = calm ? stillDots() : place((now - t0) / 1000);
+      for (const s of shown) draw1(s, pts);
+      sizeStale = false;
+      if (calm) { running = false; return; }   // nothing moves; a theme change, a size change, the setting, or showing again redraws it
+      requestAnimationFrame(frame);
+    } catch (e) {
+      running = false;   // never left marked running with no frame queued: the next show or change starts it again
     }
-    sizeStale = false;
-    if (calm) { running = false; return; }   // nothing moves; a theme change, a resize or zoom, the setting, or showing again redraws it
-    requestAnimationFrame(frame);
   }
   function start() { if (running) return; running = true; if (!t0) t0 = performance.now(); requestAnimationFrame(frame); }
-  /* A new spinner is drawn at once, in this (pre-paint) step, so it shows the orb from its first frame: neither the
+  /* New spinners are drawn at once, in this (pre-paint) step, so each shows the orb from its first frame: neither the
      old dots nor a blank while the loop catches up (review round 5 measured 2 to 3 blank frames, a blink each time a
-     list repaints a spinner already showing). Only when it is laid out; a hidden one waits for the loop. */
-  function first(s) {
-    if (!s.getClientRects().length) return;
+     list repaints a spinner already showing). Writes first (the canvases), then one shared placing of the dots and the
+     reads and draws (review round 6: a list that adds many at once did a full placing and a forced layout for each).
+     Only laid-out ones; a hidden one waits for the loop. */
+  function firstAll(fresh) {
+    for (const s of fresh) attach(s);
+    const laid = fresh.filter((s) => s.getClientRects().length);
+    if (!laid.length) return;
     if (!t0) t0 = performance.now();
-    const cv = fit(s), calm = still();
-    cv.korbColour = getComputedStyle(s).getPropertyValue('--spin-dot').trim() || '#d6a62e';
-    paint(cv.getContext('2d'), cv.width, place(calm ? 0 : (performance.now() - t0) / 1000), cv.korbColour);
-    cv.korbKey = calm ? 'still ' + cv.korbColour : '';
+    const pts = still() ? stillDots() : place((performance.now() - t0) / 1000);
+    for (const s of laid) { try { draw1(s, pts); } catch (e) { /* this one waits for the loop */ } }
   }
   let io = null;
   const seen = new WeakSet();
   let all = null;   // the page's live list of .spin-sweep elements, read once per batch of page changes
   const watch = () => {
     if (!io) return;
-    for (const s of all) if (!seen.has(s) && s.classList.contains('spin')) { seen.add(s); attach(s); io.observe(s); first(s); }
+    const fresh = [];
+    for (const s of all) if (!seen.has(s) && s.classList.contains('spin')) { seen.add(s); io.observe(s); if (ro) ro.observe(s); fresh.push(s); }
+    if (fresh.length) firstAll(fresh);
   };
+  /* Forget what each shown orb was drawn with, so the next pass draws it again; starts the loop if one is showing. */
+  const forget = (colour) => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) { c.korbKey = ''; if (colour) c.korbColour = ''; } } if (shown.size) start(); };
+  // A spinner's own size changing (a new --sz, a layout change), not only the window's: read it again and redraw.
+  const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { sizeStale = true; forget(false); }) : null;
   if (typeof IntersectionObserver === 'function' && typeof MutationObserver === 'function' && typeof document !== 'undefined') {
     io = new IntersectionObserver((entries) => {
       for (const e of entries) {
@@ -46987,15 +47003,15 @@ const KORB = (() => {
     watch();
     // A theme change recolours: forget each colour and draw again. Gold is the same in both themes today, so this is a
     // safeguard for a theme that changes --gold or --spin-dot, not something either theme needs now.
-    const recolour = () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) { c.korbColour = ''; c.korbKey = ''; } } if (shown.size) start(); };
+    const recolour = () => forget(true);
     const themeWatch = new MutationObserver(recolour);
     // Only the theme switch (data-theme on <html>): the app writes other classes and styles there all the time.
     themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     // A resize or browser zoom: read every size again and redraw. A move to a screen of another density may not fire
     // resize; a turning orb picks that up within a second (the size is re-read about once a second).
-    window.addEventListener('resize', () => { sizeStale = true; for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) c.korbKey = ''; } if (shown.size) start(); });
+    window.addEventListener('resize', () => { sizeStale = true; forget(false); });
     try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', recolour); } catch (e) { /* older engines */ }
-    try { calmQuery.addEventListener('change', () => { for (const s of shown) { const c = s.querySelector('canvas.korb'); if (c) c.korbKey = ''; } if (shown.size) start(); }); } catch (e) { /* older engines: the next show redraws */ }
+    try { calmQuery.addEventListener('change', () => forget(false)); } catch (e) { /* older engines: the next show redraws */ }
     // The letter cuts take a moment to work out: do it while the page is idle, not when a loading state first shows.
     (window.requestIdleCallback || ((f) => setTimeout(f, 2000)))(() => cutsNow());
   }
