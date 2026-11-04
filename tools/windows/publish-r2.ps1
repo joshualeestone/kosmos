@@ -306,7 +306,7 @@ function Invoke-NodeBounded([string] $Exe, [string[]] $Arguments, [string] $Stdi
     # Bounded: something node started can hold the pipe open after node has gone.
     $text = ''; $whole = $false
     try { if ($outTask.Wait(5000)) { $text = $outTask.Result; $whole = $true } } catch { }
-    if (-not $whole -and $rc -eq 0) { $rc = 97; $undecided = 'it exited, but its output never closed, so its verdict was not read' }
+    if (-not $whole -and -not $undecided) { $rc = 97; $undecided = 'it exited, but its output never closed, so its verdict was not read' }
     try { if ($errTask.Wait(1000) -and $errTask.Result) { [Console]::Error.Write($errTask.Result) } } catch { }
     @{ Rc = $rc; Out = (@($text -split '\r?\n' | Where-Object { $_ -ne '' }) -join ' '); Undecided = $undecided }
   } finally { $p.Dispose() }
