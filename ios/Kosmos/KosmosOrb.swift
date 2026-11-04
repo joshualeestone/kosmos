@@ -24,7 +24,9 @@ struct KosmosOrb: View {
             if reduceMotion {
                 canvas(OrbLogic.stillDots)
             } else {
-                TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+                // 30 frames a second, 15 for the small (20 pt and under) ones that sit beside a line of text for minutes
+                // ("Waiting for your Mac"): the turn is slow enough that 15 reads the same, at half the drawing.
+                TimelineView(.animation(minimumInterval: size <= 20 ? 1.0 / 15 : 1.0 / 30)) { context in
                     // Wrapped to the 27 s loop: the clock's seconds are far too large for the turn's trigonometry.
                     canvas(OrbLogic.placeShared(context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: OrbLogic.loop)))
                 }
@@ -39,11 +41,16 @@ struct KosmosOrb: View {
     private func canvas(_ pts: [OrbLogic.Placed]) -> some View {
         Canvas { ctx, box in
             let side = Double(min(box.width, box.height))
-            let groups = OrbLogic.groups(pts, side: side, scale: Double(displayScale))
+            let scale = Double(displayScale)
+            let groups = OrbLogic.groups(pts, side: side, scale: scale)
             for (k, group) in groups.enumerated() where !group.isEmpty {
                 var path = Path()
                 for c in group {
-                    path.addEllipse(in: CGRect(x: c.cx - c.radius, y: c.cy - c.radius, width: c.radius * 2, height: c.radius * 2))
+                    // A dot under a pixel across looks the same as a square, and a square is far cheaper to fill: measured
+                    // on a Mac at 3x, the fill fell from 2.6 to 0.64 ms per frame at 16 pt (review round 3: the fill, not
+                    // the placing, is the cost).
+                    let box = CGRect(x: c.cx - c.radius, y: c.cy - c.radius, width: c.radius * 2, height: c.radius * 2)
+                    if c.radius * scale < 1 { path.addRect(box) } else { path.addEllipse(in: box) }
                 }
                 ctx.opacity = (Double(k) + 0.5) / Double(OrbLogic.steps)
                 ctx.fill(path, with: .color(colour))
