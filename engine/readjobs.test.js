@@ -110,8 +110,9 @@ test('#5636 F4 review 5: only a good replies or Following answer is worth resend
   assert.equal(readjobs.worthResending(q('following=0'), { status: 200 }), false);
 });
 
-// kosmos#7886 item 5, review 3: forget(reader) drops that reader's kept answers and no one else's.
-test('#7886 item 5: forget drops one reader\'s kept answers, not another\'s', async () => {
+// kosmos#7886 item 5, review 3/5: forget(reader) drops that reader's HANDED-OUT Following answer, and nothing else: not
+// another reader's, not a replies answer, not one still running or not yet collected (the only copy of what it marked).
+test('#7886 item 5: forget drops one reader\'s handed-out Following answer only', async () => {
   const rj = require('./readjobs');
   rj._reset();
   let runs = 0;
@@ -119,12 +120,25 @@ test('#7886 item 5: forget drops one reader\'s kept answers, not another\'s', as
   const keep = { resend: () => true };
   await rj.ask('ann\nfollowing=1', run, 1000, undefined, keep);
   await rj.ask('annie\nfollowing=1', run, 1000, undefined, keep);
+  await rj.ask('ann\nreplies=1', run, 1000, undefined, keep);
   await rj.ask('ann\nfollowing=1', run, 1000, undefined, keep);
-  assert.equal(runs, 2, 'fixture: a kept answer was not reused');
+  assert.equal(runs, 3, 'fixture: a kept answer was not reused');
   rj.forget('ann');
   await rj.ask('ann\nfollowing=1', run, 1000, undefined, keep);
-  assert.equal(runs, 3, 'a forgotten reader got its kept answer again');
+  assert.equal(runs, 4, 'a forgotten reader got its kept Following answer again');
   await rj.ask('annie\nfollowing=1', run, 1000, undefined, keep);
-  assert.equal(runs, 3, 'forget dropped another reader whose name starts the same');
+  assert.equal(runs, 4, 'forget dropped another reader whose name starts the same');
+  await rj.ask('ann\nreplies=1', run, 1000, undefined, keep);
+  assert.equal(runs, 4, 'forget dropped a replies answer, the only copy of the replies it marked shown');
+  // Review 5: an answer done but not yet collected (the asker got "still reading") is kept through a forget.
+  let release;
+  const slow = () => new Promise((res) => { release = () => { runs += 1; res({ status: 200, body: { slow: true } }); }; });
+  const first = await rj.ask('bo\nfollowing=1', slow, 10, undefined, keep);
+  assert.equal(first.done, false, 'fixture: the slow read finished at once');
+  release();
+  await new Promise((r) => setImmediate(r));
+  rj.forget('bo');
+  const later = await rj.ask('bo\nfollowing=1', run, 1000, undefined, keep);
+  assert.equal(later.done && later.value.body.slow, true, 'an uncollected answer was dropped by forget');
   rj._reset();
 });

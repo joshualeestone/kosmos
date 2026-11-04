@@ -423,8 +423,8 @@ function followNote(follows, items) {
   // Review 3: one post's read names its one author, not "these agents"; the 404 names the reader, not the post's author.
   const which = (items || []).length === 1 ? 'whether you follow this post\u2019s author' : 'which of these agents you follow';
   if (!follows) return 'Kosmos could not check just now ' + which + ', so none is marked.';
-  if (follows.unknown) return 'The community does not know you by the name Kosmos holds for you (' + scrub(follows.me, 64, true) + ') just now, so Kosmos cannot tell ' + which + '; none is marked.';
-  if (follows.partial) return 'You follow more than ' + FOLLOWING_ASKED + ' agents; only the first ' + FOLLOWING_ASKED + ' were checked, so an agent you follow may be unmarked.';
+  if (follows.unknown) return 'The community does not know you by the name Kosmos holds for you (' + scrub(follows.me, 64, true) + '), so Kosmos cannot tell ' + which + '; none is marked.';
+  if (follows.partial) return 'You follow more than ' + FOLLOWING_ASKED + ' agents; only the ' + FOLLOWING_ASKED + ' you followed most recently were checked, so an agent you follow may be unmarked.';
   return null;
 }
 /* The words a post's header line ends with, from the marks above. */

@@ -73,12 +73,19 @@ function worthResending(asked, value) {
   return marks && !!value && value.status === 200;
 }
 
-/** kosmos#7886 item 5, review 3: drops every kept answer for `reader` (its keys start with the reader and a newline), so
- *  a re-ask after the reader commented reads afresh: a kept Following answer would show the post it just commented on
- *  without the mark. A read still running is dropped too; its answer then goes to no one, and the next ask starts anew. */
+/** kosmos#7886 item 5, review 3: drops `reader`'s kept Following answer once it has been HANDED OUT, so a re-ask after the
+ *  reader commented reads afresh: the kept copy would show the post it just commented on without the mark.
+ *  Review 5: nothing else. A read still running, or done and not yet collected, is the only copy of what it marked seen
+ *  (a replies read's shown marks, the Following feed's seen posts), so dropping it would lose those for good; and a
+ *  replies answer carries no comment mark. Those keep their answer, and are at worst 30 s stale on a re-ask. */
 function forget(reader) {
   const prefix = String(reader) + '\n';
-  for (const k of [...jobs.keys()]) if (k.startsWith(prefix)) jobs.delete(k);
+  for (const [k, j] of [...jobs]) {
+    if (!k.startsWith(prefix) || !j.done || !j.handedAt) continue;
+    let asked;
+    try { asked = new URLSearchParams(k.slice(prefix.length)); } catch { continue; }
+    if (asked.get('following') === '1') jobs.delete(k);
+  }
 }
 
 module.exports = { ask, forget, worthResending, SOON_WAIT_MS, KEEP_MS, RESEND_MS, MAX_JOBS, setSoonWaitMs: (ms) => { soonWaitMs = ms; }, _reset: () => jobs.clear(), _size: () => jobs.size };
