@@ -195,3 +195,56 @@ test('review 5: an agent\'s own token cannot touch the person\'s checks, even wh
   }
   assert.deepEqual(storedChecks(id, n), ['the person decides']);
 });
+
+// #7990: one check by its number.
+test('#7990 one check changes by number, the others stay, and the transcript says which and from what', async () => {
+  const p = projects.create({ name: 'One check' });
+  const t = tasks.create(p.id, { sentence: 'a task', doneWhen: ['first', 'second', 'third'], made: { via: 'screen' } });
+  const r = await setDoneWhen(p.id, t.number, { check: 2, text: '  second, corrected  ' }, { 'sec-fetch-site': 'same-origin' });
+  assert.equal(r.status, 200, JSON.stringify(r.json));
+  assert.deepEqual(await listed(p.id, t.number), ['first', 'second, corrected', 'third']);
+  const ev = require('./engine/taskchat').read(p.id, t.number).filter((e) => e.kind === 'done-when-set').pop();
+  assert.equal(ev.changedCheck, 2);
+  assert.equal(ev.was, 'second');
+  assert.match(ev.doneWhen, /2\) second, corrected/);
+  const same = await setDoneWhen(p.id, t.number, { check: 2, text: 'second, corrected' }, { 'sec-fetch-site': 'same-origin' });
+  assert.equal(same.status, 200);
+  assert.equal(require('./engine/taskchat').read(p.id, t.number).filter((e) => e.changedCheck).length, 1, 'the same words record nothing');
+});
+
+test('#7990 what one check refuses, and that the checks stay as they were', async () => {
+  const p = projects.create({ name: 'One refused' });
+  const t = tasks.create(p.id, { sentence: 'a task', doneWhen: ['first', 'second'], made: { via: 'screen' } });
+  const screen = { 'sec-fetch-site': 'same-origin' };
+  const none = tasks.create(p.id, { sentence: 'no checks' });
+  for (const [body, status, why, n] of [
+    [{ check: 3, text: 'x' }, 409, /has 2 done-when checks, so there is no check 3/, t.number],
+    [{ check: 0, text: 'x' }, 400, /1 or more/, t.number],
+    [{ check: 1.5, text: 'x' }, 400, /1 or more/, t.number],
+    [{ check: 1, text: '   ' }, 400, /has to say something/, t.number],
+    [{ check: 1 }, 400, /its number and its new wording/, t.number],
+    [{ check: 1, text: 'x', doneWhen: ['y'] }, 400, /its number and its new wording/, t.number],
+    [{ check: 1, text: 'x' }, 409, /no done-when checks to change yet/, none.number],
+  ]) {
+    const r = await setDoneWhen(p.id, n, body, screen);
+    assert.equal(r.status, status, JSON.stringify([body, r.json]));
+    assert.match(r.json.error, why);
+  }
+  assert.deepEqual(await listed(p.id, t.number), ['first', 'second']);
+});
+
+test('#7990 an agent cannot change one check the person set, and it cannot change a closed task', () => {
+  const p = projects.create({ name: 'One guarded' });
+  const t = tasks.create(p.id, { sentence: 'a task', doneWhen: ['first'], made: { via: 'screen' } });
+  assert.throws(() => tasks.setDoneWhenCheck(p.id, t.number, 1, 'x', { by: 'someone' }), (e) => e.status === 403);
+  const c = tasks.setDoneWhenCheck(p.id, t.number, 1, 'theirs', { person: true });
+  assert.deepEqual(c.doneWhen, ['theirs']);
+  tasks.close(p.id, t.number);
+  assert.throws(() => tasks.setDoneWhenCheck(p.id, t.number, 1, 'x', { person: true }), (e) => e.status === 409);
+});
+
+test('#7990 the transcript line names the check, on both copies of the phrase', () => {
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const engine = fs.readFileSync(path.join(__dirname, 'engine', 'taskactphrase.js'), 'utf8');
+  for (const text of [page, engine]) assert.match(text, /' done-when check ' \+ ev\.changedCheck \+ \(ev\.was \? ', from: '/);
+});

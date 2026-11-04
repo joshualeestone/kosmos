@@ -5885,7 +5885,7 @@ cmd_task() {
       say "      --clear                                                  take the built mark off"
       say "      --file <path>                                            send the delivered file's fingerprint (sha256:, its plain sha256; for a PDF, pdf-normalized:, with its own dates and ID left out) with the mark; another agent's mark keeps it, your own mark without --file drops it"
       say "      --commit <ref>                                           record the commit a code fix landed as (run it in the repository the fix is in); the task keeps it after it closes"
-      say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it"
+      say "  kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]  say what finished means for it, or --check <number> \"<wording>\" to change one"
       say "      --clear                                                  take its checks off"
       say "  kosmos task hold <project-id> <task-number> [--because \"<why>\"]  put it on hold (Kosmos stops nudging anyone about it or handing it out)"
       say "      [--until-task <n> | --until <date or time>]                 ...and say what it waits for; Kosmos tells its owner once it has happened"
@@ -5976,10 +5976,16 @@ cmd_task() {
       [ "$_wantdone" != 1 ] || { say "--done needs a check, in quotes: what will be true when the task is finished."; exit 2; } ;;
     done-when)
       # #5152: <project> <task-number> then 1 to 3 checks, or --clear alone. Checked before the board, as built is.
-      local _dusage="Usage: kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]   (or --clear)"
+      local _dusage="Usage: kosmos task done-when <project-id> <task-number> \"<check>\" [\"<check>\" [\"<check>\"]]   (or --clear, or --check <number> \"<wording>\" to change one)"
       # Review 3: three arguments at least; an empty check is refused below with its own words, as on Windows.
       { [ -n "${1:-}" ] && [ -n "${2:-}" ] && [ "$#" -ge 3 ]; } || { say "$_dusage"; exit 2; }
       case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac
+      # #7990: --check <number> "<wording>" changes that one check. Exactly those two after it.
+      if [ "${3:-}" = "--check" ]; then
+        [ "$#" = 5 ] || { say "$_dusage"; exit 2; }
+        case "${4:-}" in ''|*[!0-9]*) say "The check number must be a number, as kosmos task list shows them."; exit 2 ;; esac
+        [ -n "$(printf '%s' "${5:-}" | tr -d '[:space:]\001-\037\177')" ] || { say "Each check has to say something. $_dusage"; exit 2; }
+      else
       local _d _dpast=0 _dclear=0 _dn=0
       for _d in "${@:3}"; do
         if [ "$_dpast" = 0 ] && [ "$_d" = "--" ]; then _dpast=1; continue; fi
@@ -5992,6 +5998,7 @@ cmd_task() {
       else
         [ "$_dn" -ge 1 ] || { say "$_dusage"; exit 2; }
         [ "$_dn" -le 3 ] || { say "A task holds up to 3 done-when checks. Quote each check, so its words stay together."; exit 2; }
+      fi
       fi ;;
     close)
       local _cusage="Usage: kosmos task close <project-id> <task-number> [<task-number> ...] [--with-built | --replaced-by <task-number>]   (the numbers are shown by kosmos task list; --with-built also closes each one's built subtasks; --replaced-by takes one task)"
@@ -6702,9 +6709,11 @@ cmd_task() {
     done-when)
       # #5152: set what finished means for a task (1 to 3 checks, each one argument), or take it off with --clear.
       # The agent token names who changed it (the pane is the fallback, as for built).
-      local project num clear=false checks="" _w _wpast=0
+      local project num clear=false checks="" _w _wpast=0 _one=""
       project="${1:-}"; num="${2:-}"; shift 2 2>/dev/null || true
+      if [ "${1:-}" = "--check" ]; then _one="$2"; set -- "$3"; fi   # #7990, checked above
       for _w in "$@"; do
+        if [ -n "$_one" ]; then checks="\"$(_task_check_json "$_w")\""; continue; fi
         if [ "$_wpast" = 0 ] && [ "$_w" = "--" ]; then _wpast=1; continue; fi
         if [ "$_wpast" = 0 ] && [ "$_w" = "--clear" ]; then clear=true; continue; fi
         checks="${checks:+$checks,}\"$(_task_check_json "$_w")\""
@@ -6713,14 +6722,16 @@ cmd_task() {
       local _tok=""
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _tok="$KOSMOS_AGENT_TOKEN" ;; esac
       local _list="null"; [ "$clear" = true ] || _list="[$checks]"
+      local _dbody="\"doneWhen\":$_list"; [ -z "$_one" ] || _dbody="\"check\":$((10#$_one)),\"text\":$checks"
       local rc=0 body
       body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/done-when" \
         -H 'content-type: application/json' \
-        --data "{\"doneWhen\":$_list,\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+        --data "{$_dbody,\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "change that task" "$rc" write; exit 1; }
       case "$body" in
         '{"task":'*)
           if [ "$clear" = true ]; then say "Took the done-when checks off task $num on ${project:-the project}."
+          elif [ -n "$_one" ]; then say "Changed done-when check $_one on task $num on ${project:-the project}. See them with: kosmos task list ${project:-<project-id>}"
           else say "Task $num on ${project:-the project} is done when its checks are met. See them with: kosmos task list ${project:-<project-id>}"; fi ;;
         '{"error":'*)
           local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
