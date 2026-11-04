@@ -23,5 +23,8 @@ Past room notes, receipts, undo records and agents' own notes keep the old path.
 ## What would change my mind
 A report of a stray old folder after a rename, or of a rename refused for an agent that was not really working.
 
+## Left as is
+An agent removed from the board is not in the roster, so a home of its inside the folder is not seen. Its agent is gone, so nothing launches from there.
+
 ## Not measured
 On Windows, where an open handle should make the rename fail. It is mapped to a refusal, and tested with a stubbed EBUSY only. A running Gemini member keeps its launch-time workspace until restart, as with a folder move today.

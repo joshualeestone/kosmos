@@ -68,7 +68,6 @@ const PORT = freePort();
     const moved = fixture['Launch Plan'];
     const taken = path.join(roots.PROJECTS, 'Launch Plan');
     fs.writeFileSync(path.join(moved.folder, 'work.txt'), 'mine');
-    fs.mkdirSync(taken);
 
     // CONTROL: a project whose folder matches its name is not offered it.
     await openSettings('Matches Already');
@@ -83,7 +82,8 @@ const PORT = freePort();
     chk(offer === 'This project\'s folder is still called Starter Name. You can rename it to Launch Plan. Anything outside Kosmos that uses the old name, like a shortcut or a script, will stop working.',
       'the offer names both folder names and what stops working', JSON.stringify(offer));
 
-    // A folder already called that: refused in plain words, nothing moves.
+    // A folder made under that name after the page offered it: refused in plain words, nothing moves.
+    fs.mkdirSync(taken);
     await p.click('#pjs-rename-folder-btn');
     await p.waitForFunction(() => /Not changed:/.test(document.getElementById('pjs-move-msg').textContent), null, { timeout: 8000 });
     const refused = (await shown(p.locator('#pjs-move-msg'))).trim();
