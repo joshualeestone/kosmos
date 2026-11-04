@@ -1336,10 +1336,10 @@ setup_linux_tmux() {
   local dest="$1"
   local tmux_bin="" outside="" dir saved_ifs own
   # Physical folders: the CLI and this installer can spell one home differently (a link, a trailing slash).
-  own="$(cd "$dest/bin" 2>/dev/null && pwd -P)"
+  own="$(CDPATH= cd "$dest/bin" 2>/dev/null && pwd -P)"
   saved_ifs="$IFS"; IFS=:; set -f
   for dir in $PATH; do
-    [ -n "$own" ] && [ "$(cd "$dir" 2>/dev/null && pwd -P)" = "$own" ] || outside="${outside:+$outside:}$dir"
+    [ -n "$own" ] && [ "$(CDPATH= cd "$dir" 2>/dev/null && pwd -P)" = "$own" ] || outside="${outside:+$outside:}$dir"
   done
   set +f; IFS="$saved_ifs"
   # An empty PATH would search the current folder.
