@@ -50,6 +50,7 @@ jobs:
       - name: Prod's verifier accepts the staged Linux build, and refuses the controls
         run: bash tools/promote-check-legs-7933.sh verify linux
       - name: The data goes up to staging and back to prod
+        if: success() || failure()
         run: bash tools/promote-check-legs-7933.sh data linux
       - name: Put the system node back
         if: always()
