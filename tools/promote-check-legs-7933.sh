@@ -48,7 +48,7 @@ fetch() {  # <pointer file> <label>; leaves $W/<label>/ unpacked and $W/<label>.
   printf '%s\n%s\n' "$W/dl/$a" "$W/dl/$m" > "$W/$lb.files"
   echo "$lb: $(cat "$W/$lb.ver") ($a, sha matches the pointer)"
 }
-if [ "$LEG" != update ]; then
+if [ "$LEG" != update ] && [ "$LEG" != verb ]; then
   fetch "$PP" prod || { fail fetch "prod"; exit 1; }
   fetch "$SP" staging || { fail fetch "staging"; exit 1; }
   PV="$(cat "$W/prod.ver")"; SV="$(cat "$W/staging.ver")"; SSHA="$(field sha256 "$W/staging.json")"
@@ -210,6 +210,8 @@ leg_verb() {
   [ "$old" != "$sv" ] || { fail verb "VERB_OLD is the staged build $sv: there is no update to check"; return; }
   want="${old:-$sv}"
   curl -fsSL "$SITE/setup-staging" -o "$W/setup-staging.sh" || { fail verb "could not fetch $SITE/setup-staging"; return; }
+  [ "$(sha "$W/setup-staging.sh")" = "$(field setup_sha256 "$W/staging-ptr.json")" ] || { fail verb "the served /setup-staging does not hash to the staging pointer's setup_sha256"; return; }
+  echo "  staged: $sv ($(field sha256 "$W/staging-ptr.json")), old side: ${old:-the same build, stamped}"
   KOSMOS_PINNED_VERSION="$old" KOSMOS_UPDATE_CHANNEL=staging KOSMOS_RELEASE_BASE="$SITE/dist" sh "$W/setup-staging.sh" > "$W/setup-staging.log" 2>&1 \
     || { tail -20 "$W/setup-staging.log"; fail verb "the staging install failed"; return; }
   for _ in $(seq 1 60); do curl -fsS -m 3 -o /dev/null "http://127.0.0.1:$port/api/health" && { up=1; break; }; sleep 2; done
@@ -217,6 +219,7 @@ leg_verb() {
   got="$(ver)"; pid0="$(bpid)"; echo "  installed from /setup-staging: $got (systemd MainPID $pid0)"
   [ "$got" = "$want" ] || { fail verb "/setup-staging installed '$got', not $want"; return; }
   ours "$pid0" || { fail verb "the process answering port $port is not systemd's board ($pid0)"; return; }
+  [ -n "${AGENT_WORKFORCE_CREATED_URL:-}" ] && beacon || { fail verb "the board does not carry the dead install beacon (it would count as an install)"; return; }
   home="$HOME/.local/share/kosmos"; cli="$home/bin/kosmos"; pkg="$home/app/package.json"
   [ -x "$cli" ] && [ -f "$pkg" ] || { fail verb "no installed CLI at $cli or package.json at $pkg"; return; }
   root="$HOME/Library/Application Support/Kosmos"; tok="$(cat "$root/board.token" 2>/dev/null)"
@@ -226,17 +229,17 @@ leg_verb() {
   case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail verb "could not add a project"; return ;; esac
 
   if [ -z "$old" ]; then
-  said="$("$cli" update --if-newer 2>&1)"; rc=$?; echo "  as served: rc=$rc: $said"
-  [ "$rc" = 0 ] && [ "$(printf '%s\n' "$said" | tail -1)" = "current $sv" ] || { fail verb "with nothing newer it did not answer current $sv"; return; }
-  [ "$(bpid)" = "$pid0" ] || { fail verb "with nothing newer the board restarted anyway"; return; }
+    said="$(KOSMOS_RELEASE_BASE="$SITE/dist" "$cli" update --if-newer 2>&1)"; rc=$?; echo "  as served: rc=$rc: $said"
+    [ "$rc" = 0 ] && [ "$(printf '%s\n' "$said" | tail -1)" = "current $sv" ] || { fail verb "with nothing newer it did not answer current $sv"; return; }
+    [ "$(bpid)" = "$pid0" ] || { fail verb "with nothing newer the board restarted anyway"; return; }
 
-  # app/ is left read-only by design (#4449): lifted for the stamp alone, so the installer meets it as a person's would.
-  chmod u+w "$home/app" "$pkg" || { fail verb "could not lift the read-only app for the stamp"; return; }
-  sed -i 's/"version": *"'"$sv"'"/"version": "0.0.1"/' "$pkg"
-  chmod a-w "$home/app" "$pkg"
-  grep -q '"version": "0.0.1"' "$pkg" || { fail verb "the stamp did not apply to $pkg"; return; }
+    # app/ is left read-only by design (#4449): lifted for the stamp alone, so the installer meets it as a person's would.
+    chmod u+w "$home/app" "$pkg" || { fail verb "could not lift the read-only app for the stamp"; return; }
+    sed -i 's/"version": *"'"$sv"'"/"version": "0.0.1"/' "$pkg"
+    chmod a-w "$home/app" "$pkg"
+    grep -q '"version": "0.0.1"' "$pkg" || { fail verb "the stamp did not apply to $pkg"; return; }
   fi
-  said="$("$cli" update --if-newer --install 2>&1)"; rc=$?; echo "  $([ -n "$old" ] && echo "from $old" || echo "stamped older"), --install: rc=$rc: $said"
+  said="$(KOSMOS_RELEASE_BASE="$SITE/dist" "$cli" update --if-newer --install 2>&1)"; rc=$?; echo "  $([ -n "$old" ] && echo "from $old" || echo "stamped older"), --install: rc=$rc: $said"
   [ "$rc" = 0 ] && [ "$(printf '%s\n' "$said" | tail -1)" = "updated $sv" ] || { tail -30 "$home/logs/install.log" 2>/dev/null; fail verb "it did not answer updated $sv"; return; }
   grep -E 'on disk now|Updating it in place|pausing' "$home/logs/install.log" 2>/dev/null | tail -4 | sed 's/^/  install.log: /'
   for _ in $(seq 1 60); do pid1="$(bpid)"; [ -n "$pid1" ] && [ "$pid1" != 0 ] && [ "$pid1" != "$pid0" ] && [ "$(ver)" = "$sv" ] && break; sleep 2; done
@@ -247,6 +250,7 @@ leg_verb() {
   [ "$(systemctl --user is-active kosmos-board.service)" = active ] || { fail verb "systemd does not run the board"; return; }
   [ -n "$pid1" ] && [ "$pid1" != 0 ] && [ "$pid1" != "$pid0" ] || { fail verb "systemd's board process did not change ($pid0 -> $pid1)"; return; }
   ours "$pid1" || { fail verb "the process answering port $port is not systemd's board ($pid1)"; return; }
+  beacon || { fail verb "the updated board does not carry the dead install beacon"; return; }
   case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail verb "the project was not kept"; return ;; esac
   grep -qx staging "$root/source-channel" || { fail verb "the channel is now '$(cat "$root/source-channel" 2>/dev/null)', not staging"; return; }
   pass verb

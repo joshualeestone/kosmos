@@ -117,7 +117,7 @@ jobs:
           sudo systemctl start user@"$(id -u)".service || true
           mkdir -p "/run/user/$(id -u)"
           echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
-      - name: The installed CLI's update verb answers current, then really installs when it finds a newer build
+      - name: The installed CLI's update verb updates a real board (from old_version, or stamped older without it)
         env:
           VERB_OLD: ${{ inputs.old_version }}
         run: bash tools/promote-check-legs-7933.sh verb linux
