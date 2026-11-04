@@ -14,11 +14,15 @@ for (name, rgb) in golds {
     let groups = OrbLogic.groups(OrbLogic.stillDots, side: side, scale: scale)
     for (k, g) in groups.enumerated() where !g.isEmpty {
       let a = (Double(k) + 0.5) / Double(OrbLogic.steps)
-      ctx.setFillColor(CGColor(srgbRed: rgb.0/255, green: rgb.1/255, blue: rgb.2/255, alpha: a))
+      // One path per opacity group, filled once, as KosmosOrb.canvas does: dots that overlap inside a group merge
+      // rather than stacking their alpha (review 1: filled one by one, overlaps came out as darker blotches).
+      let path = CGMutablePath()
       for c in g {
-        if c.radius * scale < 1 { let s = c.radius * 1.7724538509055159; ctx.fill(CGRect(x: c.cx - s/2, y: c.cy - s/2, width: s, height: s)) }
-        else { ctx.fillEllipse(in: CGRect(x: c.cx - c.radius, y: c.cy - c.radius, width: c.radius*2, height: c.radius*2)) }
+        if c.radius * scale < 1 { let s = c.radius * 1.7724538509055159; path.addRect(CGRect(x: c.cx - s/2, y: c.cy - s/2, width: s, height: s)) }
+        else { path.addEllipse(in: CGRect(x: c.cx - c.radius, y: c.cy - c.radius, width: c.radius*2, height: c.radius*2)) }
       }
+      ctx.setFillColor(CGColor(srgbRed: rgb.0/255, green: rgb.1/255, blue: rgb.2/255, alpha: a))
+      ctx.addPath(path); ctx.fillPath(using: .winding)
     }
     let suffix = scale == 1 ? "" : "@\(Int(scale))x"
     let url = URL(fileURLWithPath: "\(out)/launch-orb-\(name)\(suffix).png")

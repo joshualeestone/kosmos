@@ -61,8 +61,8 @@ final class ShellState: ObservableObject {
     func loaded() { failure = nil; retrying = false; autoRetried = false }
 }
 
-// Kosmos navy, the sign-in page's own background (--bg in coordinator signin.html),
-// so the first screen and the launch screen are one surface.
+// Kosmos navy, the board's web pages' own background (--bg in coordinator signin.html). Not the launch screen,
+// which is the native screens' ground (kosmos#7945).
 extension UIColor {
     static let kosmosNavy = UIColor(red: 0x17 / 255.0, green: 0x23 / 255.0, blue: 0x3D / 255.0, alpha: 1)
 }
