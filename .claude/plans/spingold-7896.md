@@ -46,3 +46,12 @@ button keeps the button's ink.
   --spin-dot #9c741b. Mutant (the pin removed): fails it (#d6a62e).
 - [NIT] the arm's restore was not in try/finally --> FIXED.
 - [NIT] plus-active in the dark theme is untested --> left: it resolves to the same --gold as dark itself.
+
+#### Iteration 3
+- [WARNING] a still orb's recolour on a light/dark switch had no arm --> FIXED: one still-orb arm (reduced motion)
+  covers both a switch to the dark theme and going into Kosmos+, on all three channels. Mutant (the theme watcher not
+  observing): fails it (stays r154 g113 b22).
+- [NIT] the plus arm compared red only --> FIXED (all three channels, as the other arms).
+- [NIT] `if (document.body)` hid a dependency --> FIXED: a comment says KORB runs inside <body>.
+- [NIT] inkOf's fallback for an unreadable --spin-dot is still #d6a62e --> left: it is the fallback for a broken
+  value, the same in both themes, and never reached with the tokens defined.
