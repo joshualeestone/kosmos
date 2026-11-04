@@ -92,6 +92,17 @@ measured without a person at the screen.
   generation and reviewer flags are read from `decoded`. Not taken: the `args` regex in the reason test (the table
   lookup is the real guarantee).
 
+## Review round 7 (opus)
+
+- WARNING: digits from another script did not count ("G" + Devanagari zeros + "gle" passed as "Google"). Fixed:
+  non-Common digits count toward the script set; Google and "Acme 2026" are the controls.
+- WARNING: the flag fired on ordinary names ("Acme™", "（株）カオス", "㈱カオス", "NTTデータ"), and a flag that fires on
+  ordinary names stops being read. Decided (reversible, reversing my round-2 pin): NFKC is checked on letters and
+  digits only (fullwidth letters still marked; symbols and punctuation not), and Latin with Han, Hiragana, Katakana
+  or Hangul is not mixed. Rejected for now: un-escaping ZWNJ/ZWJ inside Persian or Indic words (named in the comment
+  as a known false positive); it needs per-script rules and the review cap is near.
+- NITs fixed: within-Japanese look-alikes named as not marked; the HELPER_SAYS comment names the literal ternary.
+
 ## Weakest premise
 
 That the script list in `scriptOf` covers the mixed-script look-alikes that matter, and, larger, that the screen shows the fingerprint wherever one exists, since one-script look-alikes are not marked. A letter from a script not on the list

@@ -315,8 +315,18 @@ test('#7892: prepare gives the screen escaped text, so hidden or look-alike char
   assert.strictEqual(stack.normalize('NFC'), stack, 'CONTROL: NFC leaves this stack alone, so only the mark rule can catch it');
   assert.strictEqual(shownOrg(stack)[1], true, 'three marks');
   assert.deepStrictEqual(shownOrg('\u0915\u093F\u0902'), ['\u0915\u093F\u0902', false], 'CONTROL: two marks in Devanagari');
-  // Latin with Han is marked: cautious, and pinned so a change to it is a decision.
-  assert.deepStrictEqual(shownOrg('Kosmos \u682A\u5F0F\u4F1A\u793E'), ['Kosmos \u682A\u5F0F\u4F1A\u793E', true]);
+  // Latin with Han, Katakana or Hangul is how East Asian companies write their names: not marked (a decision, pinned).
+  // Symbols and punctuation that NFKC changes (a trademark sign, the fullwidth brackets of "(\u682A)") are not marked
+  // either; a fullwidth LETTER is (above).
+  for (const org of ['Kosmos \u682A\u5F0F\u4F1A\u793E', 'NTT\u30C7\u30FC\u30BF', 'Acme\u2122', '\uFF08\u682A\uFF09\u30AB\u30AA\u30B9', '\u3231\u30AB\u30AA\u30B9'])
+    assert.deepStrictEqual(shownOrg(org), [org, false], JSON.stringify(org));
+  // Digits from another script count toward mixing: Devanagari zeros in "Google" are marked; plain "Google" is not.
+  assert.deepStrictEqual(shownOrg('G\u0966\u0966gle'), ['G\u0966\u0966gle', true], 'Devanagari zeros');
+  assert.deepStrictEqual(shownOrg('Acme\u0660'), ['Acme\u0660', true], 'an Arabic-Indic zero');
+  assert.deepStrictEqual(shownOrg('Google'), ['Google', false], 'CONTROL: ASCII digits and letters');
+  assert.deepStrictEqual(shownOrg('Acme 2026'), ['Acme 2026', false], 'CONTROL: ASCII digits are no script');
+  // Cyrillic with Han is still two scripts.
+  assert.strictEqual(shownOrg('\u0410\u682A')[1], true, 'Cyrillic with Han');
   // Two orgs that render the same raw are told apart once shown.
   assert.notStrictEqual(shownOrg('Acme')[0], shownOrg('Ac\u200Bme')[0]);
   // A name spelling an escape in plain letters cannot pass for a real escape.

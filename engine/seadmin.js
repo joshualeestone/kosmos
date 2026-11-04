@@ -211,34 +211,38 @@ function fingerprintDisplay(fp) {
      selectors, the combining grapheme joiner, the Hangul fillers: invisible marks and letters), the characters that
      draw as a blank or a box (U+2800 braille blank, U+FFFC object replacement, U+FFFD replacement), and every space
      other than U+0020, is written as \u{XXXX}, and the text is marked unusual;
-   - text that changes under NFC or NFKC is marked unusual: "Cafe" with a combining accent looks like "Café" with a
-     precomposed one, and fullwidth "ＡBC" like "ABC";
+   - text that changes under NFC, or a letter or digit that changes under NFKC, is marked unusual: "Cafe" with a
+     combining accent looks like "Café" with a precomposed one, and fullwidth "ＡBC" like "ABC" (symbols and
+     punctuation, such as "™" or the fullwidth brackets of "（株）", are left alone: they are ordinary in names);
    - more than two combining marks in a row mark it unusual (a stack can hide or imitate a letter), and so does an
      enclosing mark, an overlay mark (U+0334 to U+0338, U+20D2, U+20D3, U+20D8 to U+20DA, U+20E5, U+20E6, U+20EA,
      U+20EB: "o" with U+0338 draws like "ø"), or a mark with no letter under it (at the start, or after anything that
      is not a letter or a mark);
    - a space at the start or end, or a second space in a row, is written as \u{0020} and marks it unusual;
    - a backslash is written as \\, so a name that spells "\u{202E}" in plain letters cannot pass for an escaped one;
-   - letters from more than one script (Latin with Cyrillic or Greek, say) are left as they are but mark the text
-     unusual, since look-alike letters are the other way to fake a name. Latin with Han ("Kosmos 株式会社") is marked
-     too: cautious, and pinned by a test.
-   `unusual` means "look closer", not "suspicious": it is cautious, so some ordinary names carry it (Latin with Han,
-   pinned above). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in one script
+   - letters or digits from more than one script (Latin with Cyrillic or Greek, say, or Devanagari zeros in "Google")
+     are left as they are but mark the text unusual, since look-alike letters are the other way to fake a name. Han,
+     Hiragana, Katakana and Hangul count as one, and Latin with them is not marked ("NTTデータ", "Kosmos 株式会社" are
+     ordinary company names); both are pinned by tests.
+   `unusual` means "look closer", not "suspicious": it is cautious, so some ordinary names carry it (an emoji with
+   its variation selector, a Persian or Indic word with a zero-width joiner or non-joiner: those are escaped too). `unusual: false` does NOT mean a name cannot imitate another. A name written wholly in one script
    that looks like another (all-Cyrillic "АВС" for Latin "ABC") is not marked, nor are dash and slash look-alikes, nor two
-   scripts that are both off SCRIPTS (each counts as "other"). \p{Cs} cannot arrive through prepare (the decoder
+   scripts that are both off SCRIPTS (each counts as "other"), nor look-alikes inside Japanese (Katakana エ and Han
+   工). \p{Cs} cannot arrive through prepare (the decoder
    refuses ill-formed UTF-8); it is in ESCAPED for any other caller. For an admin add or a reviewer enrolment the
    fingerprint is the defence; for an org name on a cancel or a revoke nothing here is. */
 const ESCAPED = /[\p{Cs}\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}\p{Default_Ignorable_Code_Point}\u2800\uFFFC\uFFFD]|(?! )\p{Zs}/u;
 const SCRIPTS = ['Latin', 'Cyrillic', 'Greek', 'Armenian', 'Cherokee', 'Han', 'Hiragana', 'Katakana', 'Hangul', 'Arabic',
   'Hebrew', 'Devanagari', 'Thai'].map((name) => [name, new RegExp('\\p{Script=' + name + '}', 'u')]);
 function scriptOf(ch) {
-  // A Common or Inherited letter (the Japanese long-vowel mark, the Arabic tatweel) belongs to no one script.
-  if (!/\p{L}/u.test(ch) || /[\p{Script=Common}\p{Script=Inherited}]/u.test(ch)) return null;
+  // Letters and digits only. A Common or Inherited one (the Japanese long-vowel mark, the Arabic tatweel, the ASCII
+  // digits) belongs to no one script.
+  if (!/[\p{L}\p{Nd}]/u.test(ch) || /[\p{Script=Common}\p{Script=Inherited}]/u.test(ch)) return null;
   const hit = SCRIPTS.find(([, re]) => re.test(ch));
   return hit ? hit[0] : 'other';
 }
 function shownText(s) {
-  let text = '', unusual = s !== s.normalize('NFC') || s !== s.normalize('NFKC') || /\p{M}{3}|\p{Me}|[\u0334-\u0338\u20D2\u20D3\u20D8-\u20DA\u20E5\u20E6\u20EA\u20EB]|(?:^|[^\p{L}\p{M}])\p{M}/u.test(s);
+  let text = '', unusual = s !== s.normalize('NFC') || [...s].some((c) => /[\p{L}\p{N}]/u.test(c) && c !== c.normalize('NFKC')) || /\p{M}{3}|\p{Me}|[\u0334-\u0338\u20D2\u20D3\u20D8-\u20DA\u20E5\u20E6\u20EA\u20EB]|(?:^|[^\p{L}\p{M}])\p{M}/u.test(s);
   const scripts = new Set();
   const chars = [...s];
   chars.forEach((ch, i) => {
@@ -249,9 +253,12 @@ function shownText(s) {
     if (sc) scripts.add(sc);
     text += ch;
   });
-  // Japanese writes Han, Hiragana and Katakana together; that alone is not a look-alike.
-  const mixed = [...scripts].filter((x) => !['Han', 'Hiragana', 'Katakana'].includes(x)).length + (['Han', 'Hiragana', 'Katakana'].some((x) => scripts.has(x)) ? 1 : 0);
-  if (mixed > 1) unusual = true;
+  // Japanese and Korean write Han, Hiragana, Katakana and Hangul together, and with Latin; none of that alone is a
+  // look-alike. Any other pair of scripts is.
+  const CJK = ['Han', 'Hiragana', 'Katakana', 'Hangul'];
+  const groups = new Set([...scripts].map((x) => (CJK.includes(x) ? 'CJK' : x)));
+  if (groups.has('CJK') && groups.has('Latin')) groups.delete('Latin');
+  if (groups.size > 1) unusual = true;
   return { text, unusual };
 }
 // Every string in a decoded action, as shownText() writes it; bytes and other values are left out (the screen shows
@@ -304,7 +311,7 @@ function prepare(action, bytes) {
 /* kosmos#7892: what a screen may say when kosmos-se fails. A child-process error's message carries the helper's path,
    its argv and its stderr, so it is never passed on. kosmos-se writes one line, "kosmos-se: <why>", and every
    literal <why> it can write is listed here (seadmin-7116.test.js holds this list to native-se/main.swift, and
-   fails on any fail() whose argument is not a literal or `usage`); a line not on it, or no line, becomes the generic
+   fails on any fail() whose argument is not a literal, a ternary of two literals, or `usage`); a line not on it, or no line, becomes the generic
    sentence, its usage line included. The one <why> with a variable tail (the Enclave's own description after
    "refused to make a key") is matched by its fixed start, and only the fixed start is shown. A person cancelling
    Touch ID also reads "the Secure Enclave refused to sign": the screen cannot tell that from a fault. */
