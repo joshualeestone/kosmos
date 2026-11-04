@@ -1228,6 +1228,7 @@ struct RoomView: View {
 
     @State private var photoPicks: [PhotosPickerItem] = []
     @State private var showPhotos = false
+    @State private var previewing: Board.Attached?   // kosmos#7944: the waiting picture opened from its chip
     @State private var showFiles = false
     @State private var showCamera = false   // kosmos#7596
     // The account or computer the camera was opened under: a photo taken across a switch is never sent under the new one
@@ -1283,13 +1284,20 @@ struct RoomView: View {
                     .padding(.horizontal, 6)
                 }
                 ForEach(attachedHere) { a in
-                    FileChip(name: a.name, remove: { client.unattach(a.id, for: attachKey) })
+                    FileChip(name: a.name, preview: client.attachedPreviews[a.id], open: { previewing = a },
+                             remove: { client.unattach(a.id, for: attachKey) })
                 }
             }
             .padding(.horizontal, 2)
             .frame(minHeight: 44)
         }
         .padding(.horizontal, 12)
+        // kosmos#7944: a waiting picture, tapped (as in an agent's chat).
+        .sheet(item: $previewing) { a in
+            if let data = client.attachedPreviews[a.id] {
+                AttachedPreview(name: a.name, preview: data, remove: { client.unattach(a.id, for: attachKey) })
+            }
+        }
     }
 
     // One at a time, in the order picked, as the chat adds them (its comments say why).
