@@ -1,7 +1,8 @@
 import Foundation
 
 /// kosmos#7896 (Josh 2026-11-03): the KOSMOS orb, the loading mark, in the iPhone app as on the desktop
-/// (web/index.html KORB, the same seed and rules, so both draw the same orb). A ball of gold dots carried by slow
+/// (web/index.html KORB, branch korb-7896 at a73b486bde until it merges; the same seed and rules, so both draw the
+/// same orb; LogicTests pins the desktop's values at two times). A ball of gold dots carried by slow
 /// currents, its skin held round, turning, with K, O, S, M, O, S cut through it one letter per half turn (the
 /// wordmark's own dots; odd letters mirrored so they read from the far side; the O a full open circle). 27 s loop.
 /// Geometry only (no SwiftUI), so LogicTests can run it on a Mac.

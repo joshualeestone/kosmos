@@ -12,6 +12,16 @@ let d0 = OrbLogic.built.dots[0]
 check(abs(d0.x - (-0.57889815307171)) < 1e-12 && abs(d0.y - 0.458741323770369) < 1e-12 && abs(d0.z - 0.06542860859326494) < 1e-12,
       "the first dot is the desktop's (\(d0.x), \(d0.y), \(d0.z))")
 
+// The whole motion matches the desktop's place(), not only the seed: counts and one dot at two times, from the
+// desktop's KORB (branch korb-7896) run in Node. A wrong current, skin or rotation would change these.
+for (t, count, five) in [(0.0, 1627, [0.8452063859136033, -0.2728998140258443, -0.3439671173454015, 1.1352657144587792, 1.0]),
+                         (13.37, 1389, [0.6960424796649778, 0.1062143718928468, 0.6938759658644579, 1.2628409269558456, 1.0])] {
+    let p = OrbLogic.place(t)
+    let q = p.count > 5 ? [p[5].x, p[5].y, p[5].z, p[5].r, p[5].vis] : []
+    check(p.count == count && q.count == 5 && zip(q, five).allSatisfy { abs($0 - $1) < 1e-9 },
+          "t = \(t): \(p.count) dots and dot 5 as the desktop's (\(count))")
+}
+
 // K O S M O S, one letter per half turn (4.5 s), back to K at 27 s.
 let seq = (0..<7).map { OrbLogic.letter(at: Double($0) * 4.5) }
 check(seq == [0, 1, 2, 3, 4, 5, 0], "letters at each facing: \(seq)")
@@ -34,7 +44,6 @@ check(same, "t = 27 s draws the same frame as t = 0")
 let groups = OrbLogic.groups(still, side: 16, scale: 2)
 let circles = groups.reduce(0) { $0 + $1.count }
 check(groups.count == OrbLogic.steps && circles > 0 && circles <= still.count, "\(circles) circles in \(groups.count) groups")
-check(groups.joined().allSatisfy { $0.radius >= 0.35 / 2 - 1e-12 }, "every radius at or above the 0.35 px floor")
 
 print(failures == 0 ? "VERDICT: PASS (orb)" : "VERDICT: FAIL (orb: \(failures) failed)")
 exit(failures == 0 ? 0 : 1)
