@@ -40,6 +40,7 @@ function run(file, args, env) {
 /* A board that answers the community routes with `replies[route]` and the health check with its page. */
 const seen = [];
 function withStubBoard(replies, fn) {
+  const sockets = new Set();
   const server = http.createServer((req, res) => {
     const route = (req.url || '').split('?')[0];
     const reply = replies[route];
@@ -53,10 +54,12 @@ function withStubBoard(replies, fn) {
     res.writeHead(200, { 'content-type': 'text/html' });
     res.end('<title>Kosmos</title>Agent Workforce');
   });
+  server.on('connection', (s) => { sockets.add(s); s.on('close', () => sockets.delete(s)); });
   return new Promise((resolve, reject) => {
     server.listen(0, '127.0.0.1', async () => {
       let failure = null;
       try { await fn(server.address().port); } catch (e) { failure = e; }
+      for (const s of sockets) s.destroy();   // a hanging route's request would hold close() for its whole timeout
       server.close(() => (failure ? reject(failure) : resolve()));
     });
   });
@@ -92,10 +95,10 @@ test('#7967: a maybe (exit 3) says on stderr to check before sending again', () 
     assert.match(out.stderr, /^kosmos community comment: .*may have been taken.*\(exit 3: it may have happened; the line says what to check before running it again\)$/m);
   }));
 
-test('#7967: a usage refusal (exit 2) says on stderr that running it again as written will not help', () => withStubBoard({}, async (port) => {
+test('#7967: a usage refusal (exit 2) says why on stderr', () => withStubBoard({}, async (port) => {
   const out = await run(CLI, ['community', 'read', '--channel'], envFor(port));
   assert.equal(out.code, 2, out.stdout + out.stderr);
-  assert.match(out.stderr, /^kosmos community read: --channel needs a channel, like general or general\/tools\. \(exit 2: refused as written; running it again unchanged gives the same answer\)$/m);
+  assert.match(out.stderr, /^kosmos community read: --channel needs a channel, like general or general\/tools\. \(exit 2: refused; the line says why\)$/m);
 }));
 
 test('#7967: the reported case: a chained check that drops stdout stops, and stderr says why', () => withStubBoard(
@@ -107,12 +110,12 @@ test('#7967: the reported case: a chained check that drops stdout stops, and std
     assert.match(out.stderr, /kosmos community home: Nothing was read/, 'the stopped chain shows why');
   }));
 
-test('#7967: the line the CLI kept to repeat is removed afterwards, on a failure and on a real read', async () => {
+test('#7967: a failure and a real read leave nothing in TMPDIR', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-exit-7967-tmp-'));
   await withStubBoard({ '/api/community/home': { status: 500, body: { error: 'no' } } }, async (port) => {
     const fail = await run(CLI, ['community', 'home'], envFor(port, { TMPDIR: tmp }));
     assert.equal(fail.code, 1, 'premise: this run failed');
-    assert.match(fail.stderr, /kosmos community home: Nothing was read: no\./, 'premise: the kept line was used, so it was made in TMPDIR');
+    assert.match(fail.stderr, /kosmos community home: Nothing was read: no\./, 'premise: the line was printed');
   });
   await withStubBoard({ '/api/community/home': { status: 200, body: { ok: true, text: 'Nothing is waiting.' } } }, async (port) => {
     const ok = await run(CLI, ['community', 'home'], envFor(port, { TMPDIR: tmp }));
@@ -130,37 +133,51 @@ test('#7967 review 1: an exit 1 after a post the board may have taken never says
     assert.doesNotMatch(out.stderr, /nothing was done/i, 'the suffix must not tell an agent a maybe-sent post is safe to resend');
   }));
 
-/* Review 1 and 2: each signal the wrapper traps. INT goes to the CLI's own process group, as a terminal's Ctrl-C does;
-   TERM and HUP go to the CLI alone, as a kill or a closed terminal would. */
-for (const [sig, group] of [['INT', true], ['TERM', false], ['HUP', false]]) {
-  test('#7967 review 1: a SIG' + sig + ' removes the kept line and says it was stopped', () => withStubBoard(
+/* Review 3: this command holds no trap of its own, so a TERM or HUP sent to it alone (a kill, a runner's timeout, a
+   closed terminal) stops it at once, as before #7967; with a trap here it waited for the whole request. The board here
+   never answers, so the request alone would hold it for 60 s. */
+for (const sig of ['TERM', 'HUP']) {
+  test('#7967 review 3: a SIG' + sig + ' sent to the command stops it at once, not after the request', () => withStubBoard(
     { '/api/community/home': 'hang' },
     async (port) => {
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-cli-community-exit-7967-sig-'));
       seen.length = 0;
-      const child = spawn(CLI, ['community', 'home'], { env: envFor(port, { TMPDIR: tmp }), detached: true, stdio: ['ignore', 'ignore', 'pipe'] });
-      let stderr = '';
-      child.stderr.on('data', (d) => { stderr += d; });
-      const done = new Promise((resolve) => child.on('close', (code, signal) => resolve({ code, signal })));
+      const child = spawn(CLI, ['community', 'home'], { env: envFor(port), detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
+      // 'exit' (this process), not 'close': the subcommand's own shell may still hold the pipes while its request ends.
+      const done = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal, at: Date.now() })));
       for (let i = 0; i < 200 && !seen.includes('/api/community/home'); i++) await new Promise((r) => setTimeout(r, 50));
       assert.ok(seen.includes('/api/community/home'), 'premise: the CLI reached the hanging route');
-      assert.ok(fs.readdirSync(tmp).some((f) => f.startsWith('kosmos-community-said.')), 'premise: the kept line exists while it waits');
-      process.kill(group ? -child.pid : child.pid, 'SIG' + sig);   // only the child this test started (detached: its own group)
+      const sent = Date.now();
+      process.kill(child.pid, 'SIG' + sig);   // only the process this test started
       const end = await done;
-      assert.ok(end.signal === 'SIG' + sig || end.code === 128 + ({ INT: 2, TERM: 15, HUP: 1 })[sig], 'it stopped the way SIG' + sig + ' asks: ' + JSON.stringify(end));
-      assert.match(stderr, new RegExp('kosmos community home: stopped by ' + sig + '; it may or may not have happened\\.'));
-      assert.deepEqual(fs.readdirSync(tmp).filter((f) => f.startsWith('kosmos-community-said.')), [], 'the kept line was removed');
+      assert.ok(end.signal === 'SIG' + sig || end.code === 128 + ({ TERM: 15, HUP: 1 })[sig], 'it stopped the way SIG' + sig + ' asks: ' + JSON.stringify(end));
+      assert.ok(end.at - sent < 5000, 'it stopped within 5 s, not after the request (' + (end.at - sent) + ' ms)');
     }));
 }
 
-/* Review 1: on the left of `||` bash switches errexit off for every function the subshell calls, so the wrapper reads
-   the exit code with set +e around a subshell that turns errexit back on. Read from the source: no community path
-   fails unguarded today, so no run of the CLI can show it. */
-test('#7967 review 1: the community subcommands still run with errexit on', () => {
+test('#7967: a Ctrl-C (SIGINT to the process group) stops it at once', () => withStubBoard(
+  { '/api/community/home': 'hang' },
+  async (port) => {
+    seen.length = 0;
+    const child = spawn(CLI, ['community', 'home'], { env: envFor(port), detached: true, stdio: ['ignore', 'ignore', 'ignore'] });
+    const done = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal, at: Date.now() })));
+    for (let i = 0; i < 200 && !seen.includes('/api/community/home'); i++) await new Promise((r) => setTimeout(r, 50));
+    assert.ok(seen.includes('/api/community/home'), 'premise: the CLI reached the hanging route');
+    const sent = Date.now();
+    process.kill(-child.pid, 'SIGINT');   // the CLI's own process group (detached), as a terminal's Ctrl-C would
+    const end = await done;
+    assert.ok(end.signal === 'SIGINT' || end.code === 130, 'it stopped the way an interrupt asks: ' + JSON.stringify(end));
+    assert.ok(end.at - sent < 5000, 'it stopped within 5 s (' + (end.at - sent) + ' ms)');
+  }));
+
+/* Review 1 and 3: errexit stays on inside the subcommand (set +e around the subshell; on the left of `||` bash turns it
+   off for everything it calls), and the trap is the subshell's own, never this shell's. Read from the source: no
+   community path fails unguarded today, so no run of the CLI can show the first. */
+test('#7967 review 1: the community subcommands still run with errexit on, and only the subshell traps', () => {
   const src = fs.readFileSync(CLI, 'utf8');
   const open = src.indexOf('\ncmd_community_with_reason() {\n');
   assert.ok(open >= 0, 'premise: the wrapper was found');
   const body = src.slice(open, src.indexOf('\n}\n', open));
-  assert.match(body, /\n {2}set \+e\n {2}\( set -e; [^\n]*cmd_community "\$@" \)\n {2}_rc=\$\?\n {2}set -e\n/);
+  assert.match(body, /\n {2}set \+e\n {2}\( set -e; [^\n]*trap [^\n]*EXIT; cmd_community "\$@" \)\n {2}_rc=\$\?\n {2}set -e\n/);
   assert.doesNotMatch(body, /cmd_community "\$@" \) \|\|/, 'a subshell on the left of || runs with errexit off');
+  assert.equal(body.split('\n').filter((l) => /\btrap\b/.test(l) && !/^ {2}\( set -e;/.test(l)).length, 0, 'a trap in this shell would hold a TERM until the request ends');
 });

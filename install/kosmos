@@ -436,9 +436,10 @@ esac
 # steps; run by hand, it stays at the command's two-space voice.
 say() {
   printf '%s%s\n' "${KOSMOS_SAY_INDENT:-  }" "$*"
-  # kosmos#7967: inside cmd_community, keep the first line said, so a failure can repeat it on stderr.
-  if [ -n "${KOSMOS_SAY_FIRST:-}" ] && [ ! -s "$KOSMOS_SAY_FIRST" ]; then printf '%s' "$*" > "$KOSMOS_SAY_FIRST" 2>/dev/null || true; fi
+  # kosmos#7967: inside cmd_community_with_reason, keep the first line said, so a failure can repeat it on stderr.
+  if [ -n "${_KOSMOS_SAY_KEEP:-}" ] && [ -z "${_KOSMOS_SAID_FIRST:-}" ]; then _KOSMOS_SAID_FIRST="$*"; fi
 }
+unset _KOSMOS_SAY_KEEP _KOSMOS_SAID_FIRST   # kosmos#7967: only the community wrapper sets them, never the environment
 die() { printf '  %s\n' "$*" >&2; exit 1; }
 
 # kosmos#4889: a verb's text is everything its own options did not take, so an option it does not know
@@ -4345,43 +4346,37 @@ cmd_inbox() {
 # the two shows the reason twice; that is the price of a chained check that drops stdout still seeing why it stopped).
 # cmd_community keeps its name: the Windows parity guard reads its subcommands from it.
 # The suffix never says whether anything happened: an exit 1 can follow a post the board may have taken (a cut answer),
-# so whether to run it again is the line's own to say. The subshell runs with errexit on, as the script does: on the left
-# of `||` bash would switch errexit off for everything it calls, so the exit code is read with set +e around it instead.
+# so whether to run it again is the line's own to say.
+# How (review rounds 1 and 3): the subcommand runs in a subshell whose own EXIT trap prints the line. This shell holds
+# no trap at all, because bash runs a trap only after the foreground command returns: a trap here (EXIT included,
+# measured) made a TERM or HUP sent to this command wait for the whole request. Without one, those stop it at once, as
+# before; a request already sent may still finish, as before. errexit stays on inside: the exit code is read with
+# set +e around the subshell, not with `||`, which would turn errexit off for everything the subcommand calls.
+# A signal that kills the command (Ctrl-C, a TERM) prints no line, as before: bash runs no EXIT trap for an untrapped
+# signal, and whoever sent it knows why it stopped.
+_community_reason_line() {   # <exit code> <command name>; runs as the subshell's EXIT trap
+  local _rc="$1" _name="$2" _why="${_KOSMOS_SAID_FIRST:-}" _means=""
+  [ "$_rc" -ne 0 ] || return 0
+  _why="${_why//$'\n'/ }"
+  _why="${_why#"${_why%%[![:space:]]*}"}"
+  _why="${_why%"${_why##*[![:space:]]}"}"
+  case "$_rc" in
+    2) _means="refused; the line says why" ;;
+    3) _means="it may have happened; the line says what to check before running it again" ;;
+    *) _means="the line says whether running it again is safe" ;;
+  esac
+  if [ -n "$_why" ]; then
+    printf '%s: %s (exit %s: %s)\n' "$_name" "$_why" "$_rc" "$_means" >&2
+  else
+    printf '%s stopped without saying why (exit %s). Run it on its own to see its output.\n' "$_name" "$_rc" >&2
+  fi
+}
 cmd_community_with_reason() {
-  local _name="kosmos community${1:+ $1}" _first="" _rc=0 _why="" _rc_means=""
-  _first=$(mktemp "${TMPDIR:-/tmp}/kosmos-community-said.XXXXXX" 2>/dev/null) || _first=""
-  # An interrupt: remove the kept line, say so, then stop the way the signal asks. (A SIGKILL cannot be caught, so it can
-  # leave a kosmos-community-said.* file behind, as kosmos_curl's own files are.)
-  _community_with_reason_gone() {
-    [ -z "$_first" ] || rm -f "$_first"
-    printf '%s: stopped by %s; it may or may not have happened.\n' "$_name" "$1" >&2
-    trap - "$1"
-    kill -s "$1" "$$"
-  }
-  trap '_community_with_reason_gone INT' INT
-  trap '_community_with_reason_gone TERM' TERM
-  trap '_community_with_reason_gone HUP' HUP
+  local _rc=0 _name="kosmos community${1:+ $1}"
   set +e
-  ( set -e; unset KOSMOS_SAY_FIRST; KOSMOS_SAY_FIRST="$_first"; cmd_community "$@" )
+  ( set -e; _KOSMOS_SAY_KEEP=1; _KOSMOS_SAID_FIRST=""; trap '_community_reason_line "$?" "$_name"' EXIT; cmd_community "$@" )
   _rc=$?
   set -e
-  trap - INT TERM HUP
-  if [ "$_rc" -ne 0 ]; then
-    if [ -n "$_first" ]; then _why=$(tr '\n' ' ' < "$_first" 2>/dev/null) || _why=""; fi
-    _why="${_why#"${_why%%[![:space:]]*}"}"
-    _why="${_why%"${_why##*[![:space:]]}"}"
-    case "$_rc" in
-      2) _rc_means="refused as written; running it again unchanged gives the same answer" ;;
-      3) _rc_means="it may have happened; the line says what to check before running it again" ;;
-      *) _rc_means="the line says whether running it again is safe" ;;
-    esac
-    if [ -n "$_why" ]; then
-      printf '%s: %s (exit %s: %s)\n' "$_name" "$_why" "$_rc" "$_rc_means" >&2
-    else
-      printf '%s stopped without saying why (exit %s). Run it on its own to see its output.\n' "$_name" "$_rc" >&2
-    fi
-  fi
-  [ -z "$_first" ] || rm -f "$_first"
   exit "$_rc"
 }
 
