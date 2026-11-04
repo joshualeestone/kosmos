@@ -1055,9 +1055,6 @@ function needsRedElsewhere(m) {
    bring the row straight back, which is the "no way to dismiss it" Josh reported. */
 const NEEDS_GONE_MS = 10 * 60 * 1000;
 
-/* #6483 (and #7916, which counts the held ones among them): a member that needs the person here for its own question
-   (reported by the agent, #2808 class 2), in the agent card's order: a failed restart or a crash loop is red first. One
-   predicate for needsYouQuestions and needsYouHeld, so the two counts cannot drift apart. */
 /* #7916: a board CARD that is the agent's own question, held until the person is back, and calm by isOwnQuestion's rule
    (no failed restart, no crash loop). The one decision every "held" surface reads: the member's stateHeld below,
    tasks.waitingOnOf and tasks.askingWithoutTask, so a red agent is never said to be calmly holding anywhere. */
@@ -1065,6 +1062,9 @@ function heldOwnQuestion(card) {
   return Boolean(card) && card.state === 'needs_you' && card.stateReportedBy === 'agent' && card.stateHeld === true
     && !(card.disruption && card.disruption.failed === true) && !(card.crashLoop && card.crashLoop.looping === true);
 }
+/* #6483 (and #7916, which counts the held ones among them): a member that needs the person here for its own question
+   (reported by the agent, #2808 class 2), in the agent card's order: a failed restart or a crash loop is red first. One
+   predicate for needsYouQuestions and needsYouHeld, so the two counts cannot drift apart. */
 function isOwnQuestion(m) {
   return m.needsYouHere === 'question' && m.stateReportedBy === 'agent'
     && m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true);

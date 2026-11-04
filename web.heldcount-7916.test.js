@@ -75,3 +75,10 @@ test('#7916: the project page\'s needs list words a held member as held, an aske
   const asked = pjNeedsNotice([m('cleo', 'Cleo', false)]);
   assert.match(asked, /Waiting for your answer\./, 'CONTROL');
 });
+
+test('#7916: a held question about another project is said as held in the project page\'s "also" rows', () => {
+  // eslint-disable-next-line no-new-func
+  const pjAlsoWhy = new Function(slice('const PJ_NEEDS_WHY = ') + '\n' + slice('function pjAlsoWhy(') + '\nreturn pjAlsoWhy;')();
+  assert.deepEqual(pjAlsoWhy({ state: 'needs_you', stateProject: 'other', stateHeld: true }), ['Held until you are back, about another project.', 'Answer']);
+  assert.deepEqual(pjAlsoWhy({ state: 'needs_you', stateProject: 'other' }), ['Waiting for your answer about another project.', 'Answer'], 'CONTROL');
+});
