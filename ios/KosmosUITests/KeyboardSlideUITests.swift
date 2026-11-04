@@ -118,6 +118,32 @@ final class KeyboardSlideUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter().wait(for: [drawn], timeout: 6), .completed, "no message drawn after the message box grew")
     }
 
+    // kosmos#7420 (Josh's phone, build 33, 11-03 18:51): at the newest with the keyboard up, the box grew two lines and the
+    // chat went blank (content 27302 estimated against 23470 measured). The varied long chat with the small first page is
+    // the sample whose estimate is inflated (measured on the simulator 11-03), so this is the case the uniform chat above
+    // cannot reach. Asks what Josh lost: the newest message on screen, above the box, after the box grows two lines.
+    func testComposerGrowingInAVariedLongChatKeepsTheNewestOnScreen() throws {
+        let app = Self.launch(["KOSMOS_SAMPLE_LONG": "varied", "KOSMOS_SAMPLE_FIRSTPAGE": "1", "KOSMOS_SAMPLE_TRACE": "1", "KOSMOS_SAMPLE_HEIGHT": "1"])
+        let box = Self.box(app)
+        let newest = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
+        XCTAssertTrue(newest.waitForExistence(timeout: 15), "the long chat did not open at its newest message")
+        Self.settle(newest)
+        Thread.sleep(forTimeInterval: 2)   // the whole window lands a second after the small first page
+        try Self.keyboardUp(app, box, newest, shot: "varied-grow-keyboard-up", test: self)
+        let h0 = box.frame.height
+        for _ in 0..<4 {
+            box.typeText("the catalogue pages need the new photos before Monday and the captions checked again ")
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        XCTAssertGreaterThan(box.frame.height, h0 + 40, "the message box did not grow by at least two lines")
+        Thread.sleep(forTimeInterval: 1.5)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "varied-grow-after"; shot.lifetime = .keepAlways; add(shot)
+        XCTAssertTrue(newest.exists, "the newest message is no longer drawn after the box grew (the blank list)")
+        let f = newest.frame
+        XCTAssertTrue(f.maxY <= box.frame.minY + 2 && f.maxY > 80,
+                      "the newest message is not on screen above the box after it grew: message \(Int(f.minY))-\(Int(f.maxY)), box top \(Int(box.frame.minY))")
+    }
+
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
     // the reader up the thread 3 s after opening, as a reader's own scroll does.
     func testReadHigherUpStaysWhereItWas() throws {
