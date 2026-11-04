@@ -22674,8 +22674,10 @@ function idleLine(a) {
 }
 /* The list row's task cell. #6716: no sentence sits in it any more (each is its pill's hover), so it holds a task line or
    nothing; #6045's note styling (.lnote) went with the notes. */
-function lrowTask(text) {
-  return '<div class="ltask">' + esc(text || '') + '</div>';
+/* extraHtml: already escaped (#7978's line). Inside this cell: the row's grid has exactly seven children, and an eighth lands in
+   the avatar's column. */
+function lrowTask(text, extraHtml) {
+  return '<div class="ltask">' + esc(text || '') + (extraHtml ? (text ? ' \u00b7 ' : '') + extraHtml : '') + '</div>';
 }
 /* The offline card and list row's one note: rules behind, then not run in N days, whichever apply. */
 function offlineNote(a) {
@@ -24070,7 +24072,7 @@ function lrow(a) {
          it is an action, not status text (#6400: the Answer link went; the row itself answers). This supersedes the #1191
          text line (Josh 2026-08-27) per his own 6.70 direction. -->
     <div class="lstate"${typeof stateReadAttrs === 'function' ? stateReadAttrs(a) : ''}><span class="vh">${glyphOf(a)}${esc(copy.label)}</span>${pillVh(lsay)}<span class="lpill st-${m.st}" aria-hidden="true" data-word="${esc(copy.label)}"${pillTitle(lsay)}>${glyphOf(a)}</span>${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
-    ${lrowTask(taskLine(a, { card: true }))}${machineFlag(a) ? '<div class="ltask">' + machineFlagHtml(a) + '</div>' : ''}
+    ${lrowTask(taskLine(a, { card: true }), machineFlagHtml(a))}
     <div class="lmodel">${lmodelCell(a)}</div>
     <div class="lmem">${mem}</div>
   </div>`;
