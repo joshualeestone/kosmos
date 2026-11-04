@@ -142,6 +142,19 @@ final class KeyboardSlideUITests: XCTestCase {
         let f = newest.frame
         XCTAssertTrue(f.maxY <= box.frame.minY + 2 && f.maxY > 80,
                       "the newest message is not on screen above the box after it grew: message \(Int(f.minY))-\(Int(f.maxY)), box top \(Int(box.frame.minY))")
+        // Josh's screenshot (18:52) was taken just after sending: the box back to one empty line, the chat blank. So send
+        // (the box shrinks and a new row lands) and ask that the sent message is on screen above the box.
+        let send = app.buttons["composer-send"]
+        XCTAssertTrue(send.waitForExistence(timeout: 5), "no send button with words in the box")
+        send.tap()
+        XCTAssertTrue(app.buttons["Dictate a message"].waitForExistence(timeout: 5), "after sending the box did not go back to the microphone")
+        Thread.sleep(forTimeInterval: 1.5)
+        let after = XCTAttachment(screenshot: app.screenshot()); after.name = "varied-grow-sent"; after.lifetime = .keepAlways; add(after)
+        let sent = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "captions checked again")).firstMatch
+        XCTAssertTrue(sent.waitForExistence(timeout: 5), "the sent message is not drawn after sending (the blank list)")
+        let g = sent.frame
+        XCTAssertTrue(g.maxY <= box.frame.minY + 2 && g.maxY > 80,
+                      "the sent message is not on screen above the box: message \(Int(g.minY))-\(Int(g.maxY)), box top \(Int(box.frame.minY))")
     }
 
     // The other half of the spec: a chat read higher up is not pulled to the newest message. KOSMOS_SAMPLE_SCROLLUP moves
