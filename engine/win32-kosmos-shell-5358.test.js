@@ -32,7 +32,7 @@ const { removeTree } = require('../test-support/remove-tree');
 
 const keysOf = (env, name) => Object.keys(env).filter((k) => k.toUpperCase() === name.toUpperCase());
 
-test('#5358: a PowerShell runner\'s policy is ONE key whatever case it arrives in; claude gets none (#3380)', () => {
+test('#5358: a PowerShell runner\'s policy is ONE key whatever case it arrives in, and claude\'s too (#7886 item 9)', () => {
   for (const runner of ['codex', 'gemini', 'grok', 'antigravity']) {
     const env = launcher.childEnv({ psexecutionpolicypreference: 'AllSigned' }, 't', null, 'C:\\K\\bin', runner);
     assert.deepEqual(keysOf(env, 'PSExecutionPolicyPreference'), ['PSExecutionPolicyPreference'], runner + ': one key, spelled as usual');
