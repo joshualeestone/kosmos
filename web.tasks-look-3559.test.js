@@ -261,6 +261,10 @@ test('#7916: a held question on a task row says "<name>: Held until you are back
     assert.doesNotMatch(aged, /Waiting for your answer|Waiting on you/);
     const unaged = row({ state: 'decision', waitingOn: [{ who: 'rex', reason: 'question', held: true }] });
     assert.ok(unaged.includes('<div class="why tsk-waiting-who">' + name + ': Held until you are back.</div>'), unaged);
+    // A held flag beside a reason that is not a question never hides that reason (the engine sends none; the page guards too).
+    const crash = row({ state: 'decision', waitingOn: [{ who: 'rex', reason: 'crash_loop', held: true }] });
+    assert.doesNotMatch(crash, /Held until you are back/, crash);
+    assert.match(crash, /keeps restarting it/);
     // CONTROL: the same row asked keeps its age.
     const asked = row({ state: 'decision', waitingSince: '2026-10-12T13:00:00Z', waitingOn: [{ who: 'rex', reason: 'question' }] });
     assert.ok(asked.includes(name + ': Waiting for your answer for 3 hours.</div>'), asked);

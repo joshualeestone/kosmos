@@ -2304,11 +2304,14 @@ function cardsNeedingPerson(task, roster, members) {
  * it is present by being on the roster and tied by isNamedOurs, which cardsNeedingPerson already required.
  */
 function waitingOnOf(task, roster, members) {
-  return cardsNeedingPerson(task, roster, members).map((card) => ({
-    who: card.sessionName,
-    reason: projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, task.projectId) || 'other',
-    ...(card.state === 'needs_you' && card.stateHeld === true ? { held: true } : {}),   // #7916: a question held until the person is back
-  }));
+  return cardsNeedingPerson(task, roster, members).map((card) => {
+    const reason = projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, task.projectId) || 'other';
+    /* #7916: held only on the agent's own question, by the rule the project pill counts (projects.js isOwnQuestion): an
+       agent in a crash loop or after a failed restart is never said to be calmly holding. */
+    const held = reason === 'question' && card.stateReportedBy === 'agent' && card.stateHeld === true
+      && card.restartFailed !== true && !(card.crashLoop && card.crashLoop.looping === true);
+    return { who: card.sessionName, reason, ...(held ? { held: true } : {}) };
+  });
 }
 
 /**

@@ -97,3 +97,14 @@ test('#6341 review 6: a second, real reason beside a rate limit still names the 
     { ...bo, state: 'working' }, { ...cy, state: 'idle' }];
   assert.deepEqual(tasks.waitingOnOf(t, roster), [{ who: 'ann', reason: 'own_bound' }]);
 });
+
+test('#7916: held rides only on the agent\'s own question; a held agent in a crash loop is not said to be holding', () => {
+  const { p, t } = setup('Held reasons');
+  const [ann, bo] = realCards();
+  const asking = { ...ann, state: 'needs_you', stateProject: p.id, stateReportedBy: 'agent', stateHeld: true };
+  assert.deepEqual(tasks.waitingOnOf(t, [asking]), [{ who: 'ann', reason: 'question', held: true }]);
+  const looping = { ...asking, crashLoop: { looping: true } };
+  assert.deepEqual(tasks.waitingOnOf(t, [looping]), [{ who: 'ann', reason: 'question' }], 'a crash-looping agent was said to be calmly holding');
+  // CONTROL: the same question not held carries no field.
+  assert.deepEqual(tasks.waitingOnOf(t, [{ ...asking, stateHeld: false }, { ...bo, state: 'working' }]), [{ who: 'ann', reason: 'question' }]);
+});
