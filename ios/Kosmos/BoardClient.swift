@@ -737,7 +737,19 @@ final class BoardClient: ObservableObject {
     // Files on the Mac waiting to go with the next message, by agent; files still on their way; and the line under the
     // composer about the last one that could not be added. Dropped with the chats (another account or Mac).
     // kosmos#7093: a project's room keeps its own under Board.roomAttachKey(project), which no agent's name can be.
-    @Published private(set) var attached: [String: [Board.Attached]] = [:]
+    @Published private(set) var attached: [String: [Board.Attached]] = [:] {
+        // kosmos#7944: a picture is kept only while its file waits on a composer. Every way off it (the x, Remove, a
+        // send, forgetting the chats) goes through here, so none can leave one behind. A file put back after a send
+        // that did not go comes back as a plain chip.
+        didSet {
+            guard !attachedPreviews.isEmpty else { return }
+            let waiting = Set(attached.values.joined().map(\.id))
+            let kept = attachedPreviews.filter { waiting.contains($0.key) }
+            if kept.count != attachedPreviews.count { attachedPreviews = kept }
+        }
+    }
+    /// kosmos#7944: a small JPEG of each picture waiting on a composer, by its id (Board.attachPreview).
+    @Published private(set) var attachedPreviews: [String: Data] = [:]
     @Published private(set) var uploading: [String: Int] = [:]
     // kosmos#7682: moved on by cancelAdding and forgetChats, per chat, so an add from before a cancel neither counts nor lands.
     private var addGeneration: [String: Int] = [:]
@@ -802,10 +814,15 @@ final class BoardClient: ObservableObject {
         // cancelled this chat's adds (kosmos#7682): the pick is dropped.
         guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return }
         let result: Board.UploadResult
+        var preview: Data?
         switch prepared {
         case .refused(let why):
             result = .refused(why)
         case .ready(let file, let name, let type, let size):
+            // kosmos#7944: read while the phone's copy is still here (it goes once this add ends).
+            if Board.isPreviewableImage(type: type, name: name) {
+                preview = await Self.offMainData { Board.attachPreview(of: file) }
+            }
             if sample {
                 // The sample chats (a Debug build only): added at once, so a screenshot never shows a real Mac's file.
                 result = .added(Board.Attached(id: String(UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased().prefix(24)), name: name))
@@ -827,7 +844,10 @@ final class BoardClient: ObservableObject {
         guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return }
         switch result {
         case .added(let a):
-            if attached[session]?.contains(where: { $0.id == a.id }) != true { attached[session, default: []].append(a) }
+            if attached[session]?.contains(where: { $0.id == a.id }) != true {
+                if let preview { attachedPreviews[a.id] = preview }   // before the file, so the prune keeps it
+                attached[session, default: []].append(a)
+            }
         case .refused(let why):
             attachLine[session] = why
         }
@@ -835,6 +855,11 @@ final class BoardClient: ObservableObject {
 
     // A copy can wait on Files fetching a file from the cloud for as long as that takes: on a dispatch thread, so it
     // never holds one of the few threads Swift's tasks share.
+    nonisolated private static func offMainData(_ work: @escaping @Sendable () -> Data?) async -> Data? {
+        await withCheckedContinuation { done in
+            DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) }
+        }
+    }
     nonisolated private static func offMain(_ work: @escaping @Sendable () -> Board.Prepared) async -> Board.Prepared {
         await withCheckedContinuation { done in
             DispatchQueue.global(qos: .userInitiated).async { done.resume(returning: work()) }
@@ -1466,8 +1491,10 @@ final class BoardClient: ObservableObject {
         // KOSMOS_SAMPLE_ATTACHED=1 (kosmos#7071): two files waiting on Dana's composer, one on its way, and a message of
         // files only still sending, for the screenshots (nothing on the build Mac can tap the picker).
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_ATTACHED"] == "1" {
-            attached["dana"] = [Board.Attached(id: "00000000000000000000000a", name: "Catalogue pages 1-8.pdf"),
-                                Board.Attached(id: "00000000000000000000000b", name: "Photo 2026-10-24 at 18.30.05.jpg")]
+            attachedPreviews["00000000000000000000000b"] = Board.sampleAttachPreview()   // kosmos#7944
+            // kosmos#7944: the photo first, so the composer's screenshot shows its picture beside the plain chip.
+            attached["dana"] = [Board.Attached(id: "00000000000000000000000b", name: "Photo 2026-10-24 at 18.30.05.jpg"),
+                                Board.Attached(id: "00000000000000000000000a", name: "Catalogue pages 1-8.pdf")]
             uploading["dana"] = 1
             uploading[Board.roomAttachKey("springcatalogue")] = 1   // kosmos#7682: the same in a room
             let sent = [Board.Attached(id: "00000000000000000000000c", name: "Cover draft.png")]

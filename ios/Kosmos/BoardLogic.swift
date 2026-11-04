@@ -1,6 +1,7 @@
 import Foundation
 import UniformTypeIdentifiers
 import CryptoKit
+import ImageIO
 
 // kosmos#6838 slice 1: the native Agents tab's decisions, kept free of UIKit and
 // SwiftUI so ios/LogicTests proves them on a Mac (#718). BoardClient and
@@ -1734,6 +1735,56 @@ enum Board {
     struct Attached: Equatable, Identifiable {
         let id: String
         let name: String
+    }
+
+    // kosmos#7944 (Josh 11-04: tap an image waiting on the composer to see it, with Remove as its only action): which
+    // waiting files get a picture. The phone's own copy goes once the Mac has it, so a small JPEG of it is kept for the
+    // composer instead. By type, or by the name's ending when the type is the generic one.
+    static func isPreviewableImage(type: String, name: String) -> Bool {
+        let t = type.lowercased()
+        if ["image/jpeg", "image/png", "image/heic", "image/heif", "image/gif", "image/webp", "image/tiff", "image/bmp"].contains(t) { return true }
+        if !t.isEmpty && t != "application/octet-stream" { return false }
+        let ext = (name as NSString).pathExtension.lowercased()
+        return ["jpg", "jpeg", "png", "heic", "heif", "gif", "webp", "tif", "tiff", "bmp"].contains(ext)
+    }
+
+    #if DEBUG
+    /// The sample chat's waiting photo (KOSMOS_SAMPLE_ATTACHED): a page proof drawn here, so a screenshot never shows a
+    /// real picture. 1200 by 1600, a cream page with a gold block and lines of "text".
+    static func sampleAttachPreview() -> Data? {
+        let w = 1200, h = 1600
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        ctx.setFillColor(CGColor(red: 0.98, green: 0.96, blue: 0.91, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setFillColor(CGColor(red: 0.61, green: 0.45, blue: 0.11, alpha: 1)); ctx.fill(CGRect(x: 120, y: 900, width: 960, height: 540))
+        ctx.setFillColor(CGColor(red: 0.2, green: 0.2, blue: 0.22, alpha: 1))
+        for i in 0..<10 { ctx.fill(CGRect(x: 120, y: 760 - i * 64, width: i % 4 == 3 ? 560 : 960, height: 22)) }
+        guard let image = ctx.makeImage() else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, nil)
+        return CGImageDestinationFinalize(dest) ? out as Data : nil
+    }
+    #endif
+
+    /// The longest side of the kept picture, in pixels: sharp across a phone's width at 3x (1290 px on the widest),
+    /// and about 0.2 to 0.5 MB as a JPEG, so ten waiting files stay small.
+    static let attachPreviewMaxPixels = 1600
+
+    /// A JPEG of the picture at `url`, its longest side at most `maxPixels`, turned upright as the camera took it. Nil
+    /// when the file is not a picture ImageIO can read (a damaged or unknown file shows as a plain chip, as before).
+    static func attachPreview(of url: URL, maxPixels: Int = attachPreviewMaxPixels) -> Data? {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+        ]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
+        return CGImageDestinationFinalize(dest) ? out as Data : nil
     }
 
     static let maxFiles = 10
