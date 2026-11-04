@@ -1058,6 +1058,13 @@ const NEEDS_GONE_MS = 10 * 60 * 1000;
 /* #6483 (and #7916, which counts the held ones among them): a member that needs the person here for its own question
    (reported by the agent, #2808 class 2), in the agent card's order: a failed restart or a crash loop is red first. One
    predicate for needsYouQuestions and needsYouHeld, so the two counts cannot drift apart. */
+/* #7916: a board CARD that is the agent's own question, held until the person is back, and calm by isOwnQuestion's rule
+   (no failed restart, no crash loop). The one decision every "held" surface reads: the member's stateHeld below,
+   tasks.waitingOnOf and tasks.askingWithoutTask, so a red agent is never said to be calmly holding anywhere. */
+function heldOwnQuestion(card) {
+  return Boolean(card) && card.state === 'needs_you' && card.stateReportedBy === 'agent' && card.stateHeld === true
+    && !(card.disruption && card.disruption.failed === true) && !(card.crashLoop && card.crashLoop.looping === true);
+}
 function isOwnQuestion(m) {
   return m.needsYouHere === 'question' && m.stateReportedBy === 'agent'
     && m.restartFailed !== true && !(m.crashLoop && m.crashLoop.looping === true);
@@ -1179,7 +1186,7 @@ function describe(project, roster, all) {
          still includes a class-2; #6483 added summary.needsYouQuestions, so the project PILL is a
          calm Question when every needs-you member is one. Null when untied. */
       stateReportedBy: (card && card.isNamedOurs) ? (card.stateReportedBy || null) : null,
-      stateHeld: Boolean(card && card.isNamedOurs && card.stateHeld === true),   // #7916: a question held until the person is back, same gate
+      stateHeld: Boolean(card && card.isNamedOurs && heldOwnQuestion(card)),   // #7916: held and calm (heldOwnQuestion), same tie gate
       awaitingApproval: Boolean(card && card.isNamedOurs && card.awaitingApproval === true),   // #6091, same gate
       // The face, gated on tied like every other card-read here: a
       // stranger's pane borrowing the name must not lend the row a
@@ -4339,7 +4346,7 @@ function toldOverride(verdict, sessionName, known) {
   } catch { return verdict; }
 }
 
-module.exports = { exactPathStat, windowsProjectFolderOk, exactOpenedStat, exactOpenedStatAsync,
+module.exports = { heldOwnQuestion /* #7916 */, exactPathStat, windowsProjectFolderOk, exactOpenedStat, exactOpenedStatAsync,
   NOTIFY_LEVELS, notifyLevel,
   changedFileTimes,
   offWriteIsQuiet, WROTE_WHY,

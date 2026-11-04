@@ -2306,10 +2306,7 @@ function cardsNeedingPerson(task, roster, members) {
 function waitingOnOf(task, roster, members) {
   return cardsNeedingPerson(task, roster, members).map((card) => {
     const reason = projects.needsYouReasonPastUsage({ ...card, present: true, tied: true }, task.projectId) || 'other';
-    /* #7916: held only on the agent's own question, by the rule the project pill counts (projects.js isOwnQuestion): an
-       agent in a crash loop or after a failed restart is never said to be calmly holding. */
-    const held = reason === 'question' && card.stateReportedBy === 'agent' && card.stateHeld === true
-      && card.restartFailed !== true && !(card.crashLoop && card.crashLoop.looping === true);
+    const held = reason === 'question' && projects.heldOwnQuestion(card);   // #7916: never on a red agent
     return { who: card.sessionName, reason, ...(held ? { held: true } : {}) };
   });
 }
@@ -2350,7 +2347,7 @@ function askingWithoutTask(rows, roster, scope, projectList, keepArchived) {
     const p = projectId ? byId.get(projectId) : null;
     if (p && p.archived === true && p.id !== keepArchived) continue;
     out.push({ who: card.sessionName, projectId, waitingSince: Number.isFinite(at) ? new Date(at).toISOString() : null,
-      ...(card.stateHeld === true ? { held: true } : {}),   // #7916: the agent holds this question until the person is back
+      ...(projects.heldOwnQuestion(card) ? { held: true } : {}),   // #7916: held and calm, the one rule (projects.heldOwnQuestion)
       ...(p ? { projectName: p.name == null ? '' : String(p.name), projectPath: projectPathOf(p, byId) } : {}) });
   }
   return out.sort((a, b) => (a.waitingSince === null) - (b.waitingSince === null)
