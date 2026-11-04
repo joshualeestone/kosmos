@@ -227,3 +227,12 @@ test('kosmos#7989 review 7: tag characters, fillers and fullwidth brackets leave
   assert.ok(!/[\u{e0000}-\u{e007f}\u3164\uff3b\uff3d]/u.test(text), 'an invisible or fullwidth character reached the note');
   assert.ok(text.includes('"p  q r(s)t.md"'), 'the name was not cleaned as expected: ' + text);
 });
+
+test('kosmos#7989 review 8: a lone surrogate half in a name never reaches the note', () => {
+  const r = room();
+  const t = day(15);
+  const name = 'half\ud83d.md';
+  r.write(name, 'mona', t);
+  r.write(name, 'kitty', t + MIN);
+  assert.ok(r.notes()[0].text.isWellFormed(), 'the note carries half a surrogate pair');
+});
