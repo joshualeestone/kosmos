@@ -183,7 +183,8 @@ test('#2909: msg keeps its existing tab/CR flattening (#1927), so only backticks
 }));
 
 /* #7886 item 3: a direct message's envelope ends "to answer, run: kosmos msg --in-reply-to <id> <sender>"
-   (engine/messages.test.js pins that exact text for m1 from leo); this runs that command. */
+   (engine/messages.test.js pins that exact text for m1 from leo); this runs the same command, typed out here, not
+   taken from an emitted envelope. */
 test('#7886: msg --in-reply-to <id> sends in_reply_to, before or after --stdin', () => withStubBoard(async (port, seen) => {
   const plain = await runCli(['msg', '--in-reply-to', 'm1', 'leo', 'on', 'it'], envFor(port));
   assert.equal(plain.code, 0, plain.stdout + plain.stderr);
