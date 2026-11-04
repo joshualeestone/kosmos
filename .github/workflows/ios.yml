@@ -140,7 +140,8 @@ jobs:
           ios/LogicTests/run-files.sh | tee "$RUNNER_TEMP/files.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/files.log"
 
-      # kosmos#7896: the KOSMOS orb's geometry (the loading mark), its own suite like the others.
+      # kosmos#7896: the KOSMOS orb's geometry (the loading mark), its own suite like the others. kosmos#7945: it
+      # also checks the launch screen against the palette and that its orb PNGs are current.
       - name: Orb logic tests
         run: |
           set -o pipefail
