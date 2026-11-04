@@ -243,6 +243,30 @@ test('in_reply_to must be one of our ids: a real one rides the envelope and the 
   });
 });
 
+/* #7886 item 3: a message sent to a case variant of the name (delivery resolves case, #989) can be answered with the
+   command the recipient's own envelope gives it. */
+test('#7886: an answer cites a message sent to a case variant of the answerer\'s name', () => {
+  withFleet([fleet.agent('leo', { state: 'idle' }), fleet.agent('mara', { state: 'idle' }), fleet.agent('april', { state: 'idle' })], (board) => {
+    armSender('leo-discord');
+    arm([ok(), ok()]);
+    const first = messages.send({ fromPane: '%7', to: 'Mara', text: 'first' }, board.agents);
+    assert.equal(first.state, chat.DELIVERY.PLACED, first.because);
+    chat.resetForTests();
+    armSender('mara-discord');
+    const tmux = arm([ok(), ok()]);
+    const reply = messages.send({ fromPane: '%9', to: 'leo', text: 'second', inReplyTo: first.id }, board.agents);
+    assert.equal(reply.state, chat.DELIVERY.PLACED, reply.because);
+    assert.match(tmux.pastedMessages()[0], new RegExp('· answers ' + first.id + ' · '));
+    // CONTROL: a third agent, who was not part of it, still cannot cite it.
+    chat.resetForTests();
+    armSender('april-discord');
+    arm([ok(), ok()]);
+    const outsider = messages.send({ fromPane: '%11', to: 'leo', text: 'me too', inReplyTo: first.id }, board.agents);
+    assert.equal(outsider.state, chat.DELIVERY.COULD_NOT);
+    assert.match(outsider.because, /own conversation/);
+  });
+});
+
 /* ── the valve ───────────────────────────────────────────────────────────── */
 
 test('the pair valve: the send past the cap is refused with the surface-to-your-operator sentence, logged, and not typed', () => {

@@ -205,7 +205,7 @@ const BLOCK = [
   '**This is a separate act from thinking about the message.** Nothing carries',
   'your reply across for you: `kosmos post <project> "..."` for the room,',
   '`kosmos msg <name> "..."` for one other agent, and to answer an agent\'s',
-  'message, the command at the end of its bracket: `kosmos msg --in-reply-to',
+  'direct message, the command at the end of its bracket: `kosmos msg --in-reply-to',
   '<id> <name> "..."`. If the text holds a `$` or a',
   'backtick, give it on stdin instead (the shell trap under "Send readable',
   'messages"); in PowerShell, use the here-string under "Formatted messages need',

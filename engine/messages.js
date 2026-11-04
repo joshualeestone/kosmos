@@ -1599,8 +1599,12 @@ function sendWithDelivery({ fromPane, sender: resolvedSender, to, text, inReplyT
     // `to` becomes [name, [a,b,c]] and silently fails while looking
     // unchanged.
     const cited = log.find((m) => m && (m.kind === 'message' || m.kind === 'post') && m.id === wanted);
+    /* #7886 item 3: a direct message's `to` is logged as the sender typed it, and delivery resolves case (#989), so
+       `kosmos msg Mara` reaches mara. Resolved the same way here, or mara is refused when she runs the answer command
+       her own envelope gives her. Through resolveCard, never a plain lower-casing: two agents can differ only in case. */
+    const sameAgent = (typed) => typed === from || ((chat.resolveCard(roster, typed) || {}).sessionName === from);
     const citedParty = cited && (from === cited.from
-      || (Array.isArray(cited.to) ? cited.to.includes(from) : cited.to === from));
+      || (Array.isArray(cited.to) ? cited.to.includes(from) : (typeof cited.to === 'string' && sameAgent(cited.to))));
     if (!citedParty) {
       return refuse(toName, 'in_reply_to must name a message from your own conversation');
     }
