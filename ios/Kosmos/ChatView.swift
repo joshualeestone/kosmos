@@ -2813,8 +2813,7 @@ struct KeyboardHold: UIViewRepresentable {
         // (Board.settleOffset). Not under a finger, and not once earlier messages landed or the width changed since the reading
         // (putBack's own stand-downs). A row not drawn yet is tried again every 0.1 s until `until`, the end of the hold's
         // window; a correction (a first try's or a retry's) is looked at once more (relooked); once settled the hold guards the
-        // row again until then (iOS 26 moves the list more than once after did-show),
-        // with its own end timer. The chat reads its newest again (onPutBack) after the first try however it ends, dropped
+        // row again until then (iOS 26 moves the list more than once after did-show), with its own end timer. The chat reads its newest again (onPutBack) after the first try however it ends, dropped
         // included, since the placing itself may have shown the end, and after any try that moved the list.
         // relooked: the one look after a correction has been asked (kosmos#7609: a retry's correction had none).
         private func settleOnScreen(_ id: String, above: Int, width: CGFloat, want: CGFloat, until: Date, retried: Bool = false, relooked: Bool = false) {
@@ -2905,7 +2904,7 @@ struct KeyboardHold: UIViewRepresentable {
         // reading for a later one).
         typealias Reading = (row: String, content: CGFloat, offset: CGFloat, above: Int, width: CGFloat, at: Date)
         private var saved: Reading?
-        // kosmos#7609 review 1: the keyboard frame that reading's will-show announced (its width tells a floating keyboard from a docked one).
+        // kosmos#7609 review 1: the keyboard frame that reading's will-show announced.
         private var savedKeyboard: CGRect?
         private var observers: [NSObjectProtocol] = []
         private weak var scroll: UIScrollView?
@@ -3011,7 +3010,7 @@ struct KeyboardHold: UIViewRepresentable {
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            observers.forEach(NotificationCenter.default.removeObserver); observers = []; saved = nil; endGuard(); settleToken &+= 1
+            observers.forEach(NotificationCenter.default.removeObserver); observers = []; saved = nil; savedKeyboard = nil; endGuard(); settleToken &+= 1
             keyboardUp = false
             #if DEBUG
             heightTimer?.invalidate(); heightTimer = nil
@@ -3144,11 +3143,10 @@ struct KeyboardHold: UIViewRepresentable {
                 let announced = self.savedKeyboard
                 self.saved = nil; self.savedKeyboard = nil
                 guard let rows = self.rows else { return }
-                // kosmos#7609 review 1: a will-show with no did-show (an iPad's floating keyboard) leaves its reading; a later keyboard
-                // of another width (docked, full width) is not that one, however recent. Width only: the height of one keyboard
-                // flips (380 and 608 on Josh's phone, #7817) and must not drop its own hold.
+                // kosmos#7609 review 1: a reading whose will-show announced a keyboard of another width is not used. Width only: the
+                // height of one keyboard flips (380 and 608 on Josh's phone, #7817) and must not drop its own hold.
                 if let a = announced, let f = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect, abs(a.width - f.width) > 0.5 {
-                    ChatView.trace("keyboard hold: skipped, another keyboard's reading"); return
+                    ChatView.trace("keyboard hold: skipped, a keyboard of another width"); return
                 }
                 // kosmos#7645: 1.3 s on CI's runner once; kosmos#7609 (main run 41780837713, 11-04): 3.4 s on a busy runner, and the
                 // 3 s limit then dropped the whole correction. Kept as a backstop, past the frame check above.
