@@ -203,7 +203,7 @@ test('#3874: acctApikeyShow offers the choice only where the subscription is off
 
 test('#3874: people are pointed at Settings\' Add a provider for it, not the guided setup', () => {
   assert.doesNotMatch(PAGE, /Connect on Gemini/);
-  const conn = fs.readFileSync(nodePath.join(__dirname, 'engine', 'connections.js'), 'utf8');
+  const conn = fs.readFileSync(nodePath.join(__dirname, 'engine', 'connectionsguide.js'), 'utf8');
   assert.doesNotMatch(conn, /Connect on Gemini/);
   assert.match(conn, /Grok and Gemini each take a subscription sign-in or a key, all in Settings,/);
   // 5: #4935 adds the team step's model note, the single create's own Antigravity hint word for word.
@@ -211,7 +211,7 @@ test('#3874: people are pointed at Settings\' Add a provider for it, not the gui
 });
 
 test('#3874: the agents\' guide names the Settings button as the page labels it, and first run\'s as it does', () => {
-  const conn = fs.readFileSync(nodePath.join(__dirname, 'engine', 'connections.js'), 'utf8').replace(/',\s*\n\s*'/g, ' ');
+  const conn = fs.readFileSync(nodePath.join(__dirname, 'engine', 'connectionsguide.js'), 'utf8').replace(/',\s*\n\s*'/g, ' ');
   const label = (id) => {
     const m = PAGE.match(new RegExp('id="' + id + '"[^>]*>([^<]+)<'));
     assert.ok(m, '#' + id + ' is gone');
