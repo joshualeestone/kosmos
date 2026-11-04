@@ -2384,8 +2384,8 @@ async function feedbackWrite(ctx, args) {
   if (unchangedAsked) {
     if (bf.file !== null) { ctx.err('--unchanged takes a short line, not --body-file, so nothing was saved.'); return 2; }
     let u;
-    try { const fb = ctx.engine('feedback'); u = fb.unchanged(typeof fb.writer === 'function' ? fb.writer(ctx.env) : null, body); } catch (e) {
-      ctx.err('We could not read your earlier reports (' + String((e && e.message) || e) + '), so nothing was saved.');
+    try { const fb = ctx.engine('feedback'); u = fb.unchanged(typeof fb.writer === 'function' ? fb.writer(ctx.env) : null, body); } catch {
+      ctx.err('We could not read your earlier reports, so nothing was saved.');   // as the Mac: no raw error, which can carry a path
       return 1;
     }
     if (u && u.why === 'today') { ctx.err('You already saved a report today, so nothing was changed. To change it, write the whole report again.'); return 2; }

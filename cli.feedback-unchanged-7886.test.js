@@ -145,3 +145,26 @@ test('kosmos#7886 item 6 (Windows): --unchanged after the words, saved under the
   assert.match(t.err, /You already saved a report today, so nothing was changed/);
   assert.equal(written.length, 1);
 });
+
+test('kosmos#7886 item 6: after a bare --, --unchanged is a word of the report on both CLIs, and a read failure shows no raw error', async () => {
+  const h = makeHome();
+  const mac = await run(['feedback', 'write', '--', 'said', '--unchanged', 'as', 'words'], h);
+  assert.equal(mac.code, 0, mac.both);
+  const saved = reports(h.data);
+  assert.equal(saved.length, 1);
+  assert.match(fs.readFileSync(path.join(fbDir(h.data), saved[0]), 'utf8'), /said --unchanged as words/);
+  const written = [];
+  const engine = { feedback: { write: (b) => { written.push(b); return { ok: true }; }, writer: () => null,
+    unchanged: () => { throw new Error('EACCES: permission denied, open /Users/someone/secret/feedback/2020-01-02.md'); } } };
+  const go = async (argv) => {
+    const err = [];
+    const code = await cli.main(argv, { env: {}, engine, readStdin: () => { throw new Error('stdin read'); }, out: () => {}, err: (s) => err.push(s), fetch: async () => { throw new Error('no board call'); } });
+    return { code, err: err.join('\n') };
+  };
+  assert.equal((await go(['feedback', 'write', '--', 'said', '--unchanged'])).code, 0);
+  assert.deepEqual(written, ['said --unchanged']);
+  const bad = await go(['feedback', 'write', '--unchanged']);
+  assert.equal(bad.code, 1);
+  assert.match(bad.err, /We could not read your earlier reports, so nothing was saved\./);
+  assert.doesNotMatch(bad.err, /Users|EACCES/, 'the raw error reached the person');
+});
