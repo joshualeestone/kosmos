@@ -2821,7 +2821,8 @@ struct KeyboardHold: UIViewRepresentable {
         // against its will-show top `want`; the offset takes up the difference, inside what can be scrolled to
         // (Board.settleOffset). Not under a finger, and not once earlier messages landed or the width changed since the reading
         // (putBack's own stand-downs). A row not drawn yet is tried again every 0.1 s until `until`, the end of the hold's
-        // window; once settled the hold guards the row again until then (iOS 26 moves the list more than once after did-show),
+        // window; a correction (a first try's or a retry's) is looked at once more (relooked); once settled the hold guards the
+        // row again until then (iOS 26 moves the list more than once after did-show),
         // with its own end timer. The chat reads its newest again (onPutBack) after the first try however it ends, dropped
         // included, since the placing itself may have shown the end, and after any try that moved the list.
         // relooked: the one look after a correction has been asked (kosmos#7609: a retry's correction had none).
