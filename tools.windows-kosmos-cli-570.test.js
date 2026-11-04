@@ -1073,4 +1073,12 @@ test('#7893: Windows msg tells a leading flag typed after the agent where it goe
   const piped = await run(['msg', '--stdin', 'leo', '--no-reply'], placed, undefined, async () => ({ text: 'x', ended: true }));
   assert.equal(piped.code, 2); assert.equal(piped.calls.length, 0);
   assert.match(piped.err, /--no-reply must come before the agent name/);
+  // Round 4: after the #4889 -- escape the words are the message, and are sent as written.
+  const escaped = await run(['msg', 'leo', '--', '--in-reply-to', 'm4', 'answers', 'it'], placed);
+  assert.equal(escaped.code, 0, escaped.err);
+  assert.deepEqual(escaped.calls[0].body, { to: 'leo', text: '--in-reply-to m4 answers it', from_pane: '' });
+  // Round 4 NIT: an option in the agent's place is refused as an option first, as install/kosmos does.
+  const bogus = await run(['msg', '--bogus', '--no-reply', 'hi'], placed);
+  assert.equal(bogus.code, 2);
+  assert.doesNotMatch(bogus.err, /must come before the agent name/);
 });

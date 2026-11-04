@@ -238,4 +238,8 @@ test('#7893: a leading flag typed after the agent is told where it goes, and not
   assert.equal(piped.code, 2);
   assert.match(piped.stdout, /--no-reply must come before the agent name/, 'not the stdin-or-arguments refusal');
   assert.equal(seen.length, 0);
+  // Round 4: after the #4889 -- escape the words are the message, and are sent as written.
+  const escaped = await runCli(['msg', 'leo', '--', '--no-reply', 'is', 'the', 'new', 'flag'], envFor(port));
+  assert.equal(escaped.code, 0, escaped.stdout + escaped.stderr);
+  assert.deepEqual([seen[0].text, 'reply_expected' in seen[0]], ['--no-reply is the new flag', false]);
 }));
