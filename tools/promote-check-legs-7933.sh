@@ -35,7 +35,7 @@ fetch() {  # <pointer file> <label>; leaves $W/<label>/ unpacked and $W/<label>.
   local ptr="$1" lb="$2" a m want
   curl -fsS -m 30 "$SITE/dist/$ptr" -o "$W/$lb.json" || { echo "no $ptr is served"; return 1; }
   a="$(field artifact "$W/$lb.json")"; m="$(field manifest "$W/$lb.json")"; want="$(field sha256 "$W/$lb.json")"
-  [ -n "$a" ] && [ -n "$m" ] && [ -n "$want" ] || { echo "$ptr has no artifact, manifest or sha256"; return 1; }
+  [ -n "$a" ] && [ -n "$m" ] && [ -n "$want" ] && [ -n "$(field version "$W/$lb.json")" ] || { echo "$ptr has no version, artifact, manifest or sha256"; return 1; }
   for f in "$a" "$m" "$m.sig"; do curl -fsS -m 300 "$SITE/dist/$f" -o "$W/dl/$f" || { echo "could not fetch $f"; return 1; }; done
   [ "$(sha "$W/dl/$a")" = "$want" ] || { echo "$a does not hash to the pointer's $want"; return 1; }
   rm -rf "${W:?}/$lb"; mkdir -p "$W/$lb"; tar -xzf "$W/dl/$a" -C "$W/$lb" || { echo "could not unpack $a"; return 1; }
@@ -47,6 +47,8 @@ if [ "$LEG" != update ]; then
   fetch "$PP" prod || { fail fetch "prod"; exit 1; }
   fetch "$SP" staging || { fail fetch "staging"; exit 1; }
   PV="$(cat "$W/prod.ver")"; SV="$(cat "$W/staging.ver")"
+  # Staging the same as prod (right after a promote) leaves nothing to check: every leg would pass on one build.
+  [ "$PV" != "$SV" ] || { fail fetch "staging and prod are both $PV: there is no jump to check"; exit 1; }
 fi
 
 # ---- verify ------------------------------------------------------------------------------------------------------
@@ -61,7 +63,7 @@ leg_verify() {
   head -c "$(( $(wc -c < "$tb") / 2 ))" "$tb" > "$W/dl/cut.tar.gz"
   o="$("$N" "$V" "$m" "$m.sig" "$W/dl/cut.tar.gz" - "$SV" "$W/prod" 2>&1)"; rc=$?; echo "  CONTROL cut tarball: rc=$rc $o"
   [ "$rc" -ne 0 ] || { fail verify "CONTROL: a cut tarball was accepted"; return; }
-  next="${SV%.*}.$(( ${SV##*.} + 1 ))"
+  next="${SV%.*}.$(( 10#${SV##*.} + 1 ))"
   o="$("$N" "$V" "$m" "$m.sig" "$tb" - "$next" "$W/prod" 2>&1)"; rc=$?; echo "  CONTROL as $next: rc=$rc $o"
   [ "$rc" -ne 0 ] || { fail verify "CONTROL: the manifest was accepted as $next"; return; }
   pass verify
@@ -78,16 +80,19 @@ leg_data() (  # a subshell: the sandbox env stays in it
   for v in ANTHROPIC_MODELS_URL CLAUDE_DOWNLOAD_BASE CLOUDFLARE_VERIFY_URL COMMUNITY_URL CREATED_URL FEEDBACK_URL GEMINI_MODELS_URL GITHUB_DEVICE_URL GITHUB_TOKEN_URL GITHUB_VERIFY_URL GROK_SUB_MODELS_URL OPENAI_MODELS_URL RELEASE_BASE TUNNEL_COORDINATOR XAI_MODELS_URL; do export "AGENT_WORKFORCE_$v=https://127.0.0.1:9"; done
   export AGENT_WORKFORCE_TMUX_BIN="$SB/tmuxstub" AGENT_WORKFORCE_TUNNEL_RELAY=127.0.0.1:9 KOSMOS_CATALOGUE_BASE=https://127.0.0.1:9 KOSMOS_RELEASE_BASE=https://127.0.0.1:9
   echo '{"internal":true}' > "$SB/data/internal.json"; echo '{}' > "$SB/data/first-run.json"
-  bad=0
+  bad=0; p=""
+  trap '[ -n "$p" ] && kill "$p" 2>/dev/null' EXIT
   boot() {  # <build dir> <label>
-    local p h pg e
+    local h pg e
+    # Something else answering on the port would pass every boot below, so it must be free first.
+    if curl --noproxy '*' -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/api/health"; then echo "  $2: port $PORT already answers, not this board"; bad=1; return; fi
     "$NODE" "$W/$1/app/server.js" > "$SB/board-$2.log" 2>&1 & p=$!
     for _ in $(seq 1 60); do curl --noproxy '*' -s -m 2 -o /dev/null "http://127.0.0.1:$PORT/api/health" && break; sleep 1; done
     h="$(curl --noproxy '*' -s -m 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/health")"
     pg="$(curl --noproxy '*' -s -m 8 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/")"
     kill -0 "$p" 2>/dev/null || { echo "  $2: the board died"; bad=1; }
     kill "$p" 2>/dev/null; for _ in 1 2 3 4 5 6 7 8; do kill -0 "$p" 2>/dev/null || break; sleep 1; done
-    kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null; wait "$p" 2>/dev/null
+    kill -0 "$p" 2>/dev/null && kill -9 "$p" 2>/dev/null; wait "$p" 2>/dev/null; p=""
     e="$(grep -ciE 'FAIL|unhandled|TypeError|ReferenceError|EACCES|corrupt' "$SB/board-$2.log")"
     echo "  $2: health $h, page $pg, error lines $e"
     [ "$h" = 200 ] && [ "$pg" = 200 ] && [ "$e" = 0 ] || bad=1
@@ -108,30 +113,47 @@ leg_data() (  # a subshell: the sandbox env stays in it
 leg_update() {
   [ "$PLATFORM" = linux ] && [ "$(uname -s)" = Linux ] || { fail update "runs only on Linux"; return; }
   [ -n "${CI:-}" ] && [ -n "${GITHUB_ACTIONS:-}" ] || { fail update "refusing: it installs Kosmos for real under systemd; it runs on GitHub Actions only"; return; }
-  local port="${KOSMOS_PORT:-16180}" root tok sv got
+  local port="${KOSMOS_PORT:-16180}" root tok sv pv got pid0 pid1 up=""
   curl -fsS -m 30 "$SITE/dist/$SP" -o "$W/staging-ptr.json" || { fail update "no $SP is served"; return; }
   sv="$(field version "$W/staging-ptr.json")"
+  curl -fsS -m 30 "$SITE/dist/$PP" -o "$W/prod-ptr.json" || { fail update "no $PP is served"; return; }
+  pv="$(field version "$W/prod-ptr.json")"
+  [ -n "$sv" ] && [ -n "$pv" ] && [ "$sv" != "$pv" ] || { fail update "prod '$pv' and staging '$sv': there is no jump to check"; return; }
   curl -fsSL "$SITE/setup" -o "$W/setup.sh" || { fail update "could not fetch $SITE/setup"; return; }
   KOSMOS_RELEASE_BASE="$SITE/dist" sh "$W/setup.sh" > "$W/setup.log" 2>&1 || { tail -20 "$W/setup.log"; fail update "the prod install failed"; return; }
-  for _ in $(seq 1 60); do curl -fsS -m 3 -o /dev/null "http://127.0.0.1:$port/api/health" && break; sleep 2; done
-  ver() { curl -s -m 5 "http://127.0.0.1:$port/" | sed -n 's/.*name="kosmos-version" content="\([^"]*\)".*/\1/p' | head -1; }
-  got="$(ver)"; echo "  installed from /setup: $got"
+  for _ in $(seq 1 60); do curl -fsS -m 3 -o /dev/null "http://127.0.0.1:$port/api/health" && { up=1; break; }; sleep 2; done
+  [ -n "$up" ] || { tail -20 "$W/setup.log"; fail update "the prod install's board never answered"; return; }
+  # The version the ANSWERING PROCESS loaded (its x-kosmos-board header, read from its package.json at boot). The
+  # page's kosmos-version meta is read from disk per request, so an old process would name new files.
+  ver() { curl -s -m 5 -D - -o /dev/null "http://127.0.0.1:$port/" | tr -d '\r' | sed -n 's/^[xX]-[kK]osmos-[bB]oard: *\([^@+]*\).*/\1/p' | head -1; }
+  bpid() { systemctl --user show -p MainPID --value kosmos-board.service 2>/dev/null; }
+  # As linux-family-install-7281.yml: the unit and the board systemd runs carry the dead beacon, so it is not counted.
+  beacon() {
+    grep -qxF "Environment=\"AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL\"" "$HOME/.config/systemd/user/kosmos-board.service" \
+      && tr '\0' '\n' < "/proc/$(bpid)/environ" | grep -qxF "AGENT_WORKFORCE_CREATED_URL=$AGENT_WORKFORCE_CREATED_URL"
+  }
+  got="$(ver)"; pid0="$(bpid)"; echo "  installed from /setup: $got (systemd MainPID $pid0)"
+  [ "$got" = "$pv" ] || { fail update "/setup installed '$got', not prod's $pv"; return; }
+  [ -n "${AGENT_WORKFORCE_CREATED_URL:-}" ] && beacon || { fail update "the prod board does not carry the dead install beacon (it would count as an install)"; return; }
   root="$HOME/Library/Application Support/Kosmos"; tok="$(cat "$root/board.token" 2>/dev/null)"
   [ -n "$tok" ] || { fail update "no board.token at $root"; return; }
   api() { curl -s -m 30 -H "x-kosmos-board-token: $tok" -H 'content-type: application/json' "$@"; }
   api -X POST "http://127.0.0.1:$port/api/projects" --data '{"name":"Masterclass prep"}' > /dev/null
   api "http://127.0.0.1:$port/api/projects" | grep -q '"name":"Masterclass prep"' || { fail update "could not add a project to the prod install"; return; }
   echo staging > "$root/source-channel"
+  # Only the check: pressing the board's own Update is refused on Linux today (#7935), and once it is not it would race
+  # the installer below.
   echo "  board's own check: $(api -X POST "http://127.0.0.1:$port/api/update/check" --data '{}' | head -c 300)"
-  echo "  board's own update (refused on Linux by design): $(api -X POST "http://127.0.0.1:$port/api/update" --data '{}' | head -c 300)"
   curl -fsSL "$SITE/setup-staging" -o "$W/setup-staging.sh" || { fail update "could not fetch $SITE/setup-staging"; return; }
   KOSMOS_UPDATE_CHANNEL=staging KOSMOS_RELEASE_BASE="$SITE/dist" sh "$W/setup-staging.sh" > "$W/setup-staging.log" 2>&1 \
     || { tail -20 "$W/setup-staging.log"; fail update "/setup-staging over the prod install failed"; return; }
   grep -E 'on disk now|already|updat' "$W/setup-staging.log" | head -4 | sed 's/^/  setup-staging: /'
   for _ in $(seq 1 60); do [ "$(ver)" = "$sv" ] && break; sleep 2; done
-  got="$(ver)"; echo "  after /setup-staging over it: $got (staging pointer $sv)"
-  [ "$got" = "$sv" ] || { tail -20 "$HOME/.local/share/kosmos/logs/install.log" 2>/dev/null; fail update "the board answers $got, not $sv"; return; }
+  got="$(ver)"; pid1="$(bpid)"; echo "  after /setup-staging over it: $got (staging pointer $sv), systemd MainPID $pid1"
+  [ "$got" = "$sv" ] || { tail -20 "$HOME/.local/share/kosmos/logs/install.log" 2>/dev/null; fail update "the answering board loaded $got, not $sv"; return; }
   [ "$(systemctl --user is-active kosmos-board.service)" = active ] || { fail update "systemd does not run the updated board"; return; }
+  [ -n "$pid1" ] && [ "$pid1" != 0 ] && [ "$pid1" != "$pid0" ] || { fail update "systemd's board process did not change ($pid0 -> $pid1): the board was not restarted"; return; }
+  beacon || { fail update "the updated board does not carry the dead install beacon"; return; }
   api "http://127.0.0.1:$port/api/projects" | grep -q '"name":"Masterclass prep"' || { fail update "the project was not kept"; return; }
   pass update
 }
@@ -140,7 +162,8 @@ case "$LEG" in
   verify) leg_verify ;;
   data) leg_data || fails=$((fails + 1)) ;;
   update) leg_update ;;
-  all) leg_verify; leg_data || fails=$((fails + 1)); leg_update ;;
+  all) leg_verify; leg_data || fails=$((fails + 1))
+       if [ "$PLATFORM" = linux ]; then leg_update; else echo "LEG update: SKIPPED (Linux only)"; fi ;;
 esac
 echo "promote-check-legs-7933: $fails leg(s) failed"
 [ "$fails" -eq 0 ]
