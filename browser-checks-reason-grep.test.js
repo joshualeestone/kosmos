@@ -481,6 +481,7 @@ const SITE_COUNTS = {
   'render-reassign-update-3050.js': [1, 0],
   'render-reauth-reach-1918.js': [1, 1],
   'render-reboot-note-5359.js': [1, 1],
+  'render-recoveries-5536.js': [1, 0],
   'render-refreshlogin-5407.js': [1, 1],
   'render-reload-toast.js': [1, 0],
   'render-remote-file-download-5165.js': [2, 0],

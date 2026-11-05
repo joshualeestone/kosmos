@@ -44,7 +44,7 @@ test('#5536: Settings lists each recovery as text, given or opened with its coun
   ];
   const v = paint({ enrolled: true, recoveries: recs, recoveriesAt: Date.now() });
   assert.equal(v['plus-org-recoveries'].hidden, false);
-  assert.equal(v['plus-org-recoveries-head'].textContent, 'Reviewers given access to your backup in the last 30 days:',
+  assert.equal(v['plus-org-recoveries-head'].textContent, 'Who was given access to your backup in the last 30 days:',
     'the heading names access: a key given opens nothing by itself');
   assert.equal(v['plus-org-recoveries-more'].hidden, true, 'CONTROL: no recoveriesMore, no more line');
   const lines = v['plus-org-recoveries-list'].children;
@@ -58,11 +58,11 @@ test('#5536: Settings lists each recovery as text, given or opened with its coun
   assert.match(lineText(lines[1]), /^rev opened 1 file from your backup, /);
   assert.match(lineText(lines[2]), /^rev opened files from your backup, /, 'no count reads as files, not a number');
   assert.match(lineText(lines[3]), /^rev was given your backup key, /, 'a key given is not said to open anything');
-  assert.match(lineText(lines[4]), /^A reviewer was given your backup key, /, 'no name is said neutrally, not as a fact about the person');
+  assert.match(lineText(lines[4]), /^Someone was given your backup key, /, 'no name is said neutrally, not as a fact about the person or their role');
   assert.doesNotMatch(lineText(lines[0]), /\d{4}|\d:\d/, 'a line carries a year or a time');
   // A list not confirmed for over a day says when it last was.
   const stale = paint({ enrolled: true, recoveries: recs.slice(0, 1), recoveriesAt: Date.now() - 3 * DAY * 1000 });
-  assert.match(stale['plus-org-recoveries-head'].textContent, /^Reviewers given access to your backup in the last 30 days \(last confirmed [^)]+\):$/);
+  assert.match(stale['plus-org-recoveries-head'].textContent, /^Who was given access to your backup in the last 30 days \(last confirmed [^)]+\):$/);
   // recoveriesMore: the coordinator left older ones out, and the page says so under the list.
   const more = paint({ enrolled: true, recoveries: recs.slice(0, 1), recoveriesMore: true, recoveriesAt: Date.now() });
   assert.equal(more['plus-org-recoveries-more'].hidden, false);

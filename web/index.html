@@ -579,6 +579,9 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   #plus-join .plus-join-next { margin: 6px 0 0; color: var(--k-ink); font-weight: 600; }
   /* While this computer waits to be allowed, the pairing is the page's one job (Josh 11:37). */
   #plus-flow.plus-joining #plus-devices, #plus-flow.plus-joining #plus-org { display: none !important; }
+  /* kosmos#5536: a name the coordinator sends can be one long word; it wraps inside its line, in both lists that show one
+     (render-recoveries-5536 measures the recoveries list at 375 px). */
+  #plus-org-reviewers-list p, #plus-org-recoveries-list p { overflow-wrap: anywhere; }
   /* #4794: a joining computer's code is not worked out yet: a quiet line in the code's place. */
   .askreq .askwait { grid-area: code; color: #9fb0d4; font-size: .85rem; margin: 6px 0 2px; }
   .askreq .btn.quiet, .askreq .btn.quiet:hover { background: none; border: 0; color: #b8c4de; text-decoration: underline; text-underline-offset: 3px; }
@@ -56028,7 +56031,8 @@ function plusOrgRecoveries(st) {
   const at = Number(st.recoveriesAt);
   const stale = Number.isFinite(at) && at > 0 && Date.now() - at > 24 * 3600 * 1000;
   // The heading names access, not opening: a key given opens nothing by itself, and its line says so.
-  document.getElementById('plus-org-recoveries-head').textContent = 'Reviewers given access to your backup in the last ' + PLUS_ORG_RECOVERY_DAYS + ' days'
+  // The coordinator names who acted, not the role they held, so neither the heading nor a line calls them a reviewer.
+  document.getElementById('plus-org-recoveries-head').textContent = 'Who was given access to your backup in the last ' + PLUS_ORG_RECOVERY_DAYS + ' days'
     + (stale ? ' (last confirmed ' + new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ')' : '') + ':';
   for (const r of recs) {
     const line = document.createElement('p');
@@ -56036,7 +56040,7 @@ function plusOrgRecoveries(st) {
     const name = document.createElement('bdi');   // a right-to-left name cannot reorder the sentence around it
     // No name (the coordinator's row has no account, or the name was all invisible characters): said neutrally, never
     // as a fact about the person.
-    name.textContent = typeof r.who === 'string' && r.who ? r.who : 'A reviewer';
+    name.textContent = typeof r.who === 'string' && r.who ? r.who : 'Someone';
     line.appendChild(name);
     line.appendChild(document.createTextNode(plusOrgRecoveryLine(r)));
     list.appendChild(line);
