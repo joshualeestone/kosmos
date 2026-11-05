@@ -29,7 +29,8 @@ function stuckCards(roster, now, stuckMs) {
 
 /**
  * deps: { allowed() -> bool, roster() -> cards, recover(card, since) -> Promise<{ outcome, because?, id? }>,
- *         stuckMs, log(line), now?() }. Returns the tick (async; resolves when this pass is done).
+ *         stuckMs, log(line), now?(), heldBehind?(card) -> bool, noteHeld?(card, now) }. Returns the tick (async;
+ *         resolves when this pass is done).
  */
 function makeTick(deps) {
   const told = new Map();   // sessionName -> 'since|outcome|because' last logged, so a text left in place is said once
@@ -53,6 +54,11 @@ function makeTick(deps) {
       const onBoard = new Set((Array.isArray(roster) ? roster : []).map((c) => c && c.sessionName));
       for (const m of [told, gaveUp, waitedSaid]) for (const k of [...m.keys()]) if (!onBoard.has(k)) m.delete(k);
       for (const card of cards) {
+        /* #8021: messages kept behind a full box never reach a delivery verdict (messages.js keeps them first), so a box
+           that stays full was never a stall: one card sentence, nothing on the phone. Each pass with some kept counts as
+           one verdict, so the stall's line, push and end come from the one place they already do. Before the give-up skip
+           below: a box this sweep gave up on is the one that most needs saying. */
+        try { if (deps.heldBehind && deps.noteHeld && deps.heldBehind(card)) deps.noteHeld(card, now); } catch { /* next pass */ }
         const since = card.unsentInput.since;
         if (gaveUp.get(card.sessionName) === since) continue;
         let r;

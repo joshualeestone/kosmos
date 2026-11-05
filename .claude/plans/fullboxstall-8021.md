@@ -1,0 +1,5 @@
+# fullboxstall-8021: a box that stays full is a stall
+Card #8021. On a throwaway board a seat that ignored Enter stayed full for 63 minutes with no stall line. Traced: the first send is `busy` and skipped by `note()`, and every later one is kept by messages.js before any delivery verdict, so nothing counted. A person away from the board heard nothing: a card sentence and a log line.
+**Call:** each stuck-input pass, for a card with messages kept for this box (`input: true`), notes one `{state:'could_not', inputHeld:true}`. So the existing stall line, push and end apply, with no new path.
+**Rejected:** dropping `busy` in `note()` (it would not reach the messages.js holds, and it was added for a reason). A new push kind (a second path for one fact).
+**Weakest premise:** that the real box state resembles the fake seat's; the cause of a real box that ignores Enter is unknown. A person typing slowly with messages kept for 30 minutes also gets a stall line, which is true: they are not reaching it.
