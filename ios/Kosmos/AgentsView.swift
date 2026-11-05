@@ -190,10 +190,8 @@ struct AgentsView: View {
         guard !client.agents.isEmpty else { return nil }
         // The reaching spinner is only for a first connect with nothing to show yet (spec frame 3); the rule for "not
         // updating" is the client's, shared with the tab badge (kosmos#7342 review 1).
-        switch client.phase {
-        case .starting, .connecting, .unreachable, .live: return client.agentsListStale
-        default: return nil
-        }
+        guard client.phase.keepsList else { return nil }
+        return client.agentsListStale
     }
 
     // kosmos#7120, a Debug build only: KOSMOS_SAMPLE_STALE=1 shows the list as not updating, for its screenshots.

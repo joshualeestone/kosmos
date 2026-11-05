@@ -133,8 +133,8 @@ final class RoomStore: ObservableObject {
         if Self.sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REACHING"] == "1" { return false }
         if Self.sample { list = Board.parseProjects(Data(Self.sampleProjects.utf8)); listState = .shown; return true }
         #endif
-        // Not connected yet (a cold start, or the Mac asking for Allow): still reaching, never "we cannot read your
-        // projects". Signed out, no Mac, or unreachable is a real "cannot read".
+        // Not connected yet (a cold start, or the Mac asking for Allow): still reaching. Signed out, no Mac, or
+        // unreachable is a failed read; the tab then shows the connection screen (kosmos#8054).
         if client.macURL == nil {
             switch client.phase {
             case .starting, .connecting, .waitingForAllow: return false
@@ -828,7 +828,8 @@ struct ProjectsView: View {
                 .scrollContentBackground(.hidden)
                 .refreshable { await store.loadList() }
             }
-        } else if Board.showsConnectionScreen(liveOrStarting: client.phase.liveOrStarting, hasList: false) {
+        } else if Board.showsConnectionScreen(liveOrStarting: client.phase.liveOrStarting, keepsList: client.phase.keepsList,
+                                              hasList: store.list != nil) {
             // kosmos#8054: "We cannot read your projects right now" never said why with no computer to read from.
             BoardStates(client: client, openBoard: openBoard,
                         signedOutDetail: "Your projects show here once you are signed in.") { EmptyView() }

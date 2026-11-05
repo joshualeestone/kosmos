@@ -5929,13 +5929,18 @@ do {
                                        .macRefused(mac: "Studio"), .signInAgain(mac: "Studio"), .signInHere(mac: "Studio"),
                                        .macHeld(mac: "Studio", because: nil)]
     check(liveOrFirst.allSatisfy { $0.liveOrStarting }, "live and the first connect count as live or starting")
-    check(others.allSatisfy { !$0.liveOrStarting }, "every other phase does not (12 of them)")
-    check(others.allSatisfy { Board.showsConnectionScreen(liveOrStarting: $0.liveOrStarting, hasList: false) },
-          "with no list, every other phase shows the connection screen, so no tab waits for good (no Mac, signed out, a Mac asleep)")
-    check(others.allSatisfy { !Board.showsConnectionScreen(liveOrStarting: $0.liveOrStarting, hasList: true) },
-          "a list already shown stays in every phase, as Agents keeps its list")
-    check(liveOrFirst.allSatisfy { !Board.showsConnectionScreen(liveOrStarting: $0.liveOrStarting, hasList: false) },
-          "CONTROL: live or on its first connect, the tab's own wait")
+    check(others.allSatisfy { !$0.liveOrStarting }, "the 12 other phases listed here do not")
+    func shows(_ p: BoardClient.Phase, list: Bool) -> Bool {
+        Board.showsConnectionScreen(liveOrStarting: p.liveOrStarting, keepsList: p.keepsList, hasList: list)
+    }
+    check(others.allSatisfy { shows($0, list: false) },
+          "with no list, each of them shows the connection screen, so no tab waits for good (no Mac, signed out, a Mac asleep)")
+    let keeping: [BoardClient.Phase] = [.connecting(mac: "Studio"), .unreachable(mac: "Studio")]
+    check(keeping.allSatisfy { !shows($0, list: true) }, "a list already shown stays while connecting or unreachable")
+    check(others.filter { !$0.keepsList }.count == 10 && others.filter { !$0.keepsList }.allSatisfy { shows($0, list: true) },
+          "in the 10 others the list gives way to the connection screen, as Agents' list does (shownList)")
+    check(liveOrFirst.allSatisfy { $0.keepsList && !shows($0, list: false) && !shows($0, list: true) },
+          "CONTROL: live or on its first connect, the tab's own list or wait")
 }
 
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")

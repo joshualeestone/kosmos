@@ -46,6 +46,14 @@ final class BoardClient: ObservableObject {
             default: return false
             }
         }
+
+        /// The phases in which a list already on screen stays (kosmos#8054), the ones AgentsView.shownList keeps.
+        var keepsList: Bool {
+            switch self {
+            case .starting, .connecting, .unreachable, .live: return true
+            default: return false
+            }
+        }
     }
 
     // What the client needs from the world, so ios/LogicTests can drive the loop with a fake Mac, clock and waits.

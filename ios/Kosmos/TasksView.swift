@@ -24,7 +24,8 @@ struct TasksTab: View {
         NavigationView {
             Group {
                 // kosmos#8054: the list is read only through a computer this phone is let into (BoardClient.refreshTasks).
-                if Board.showsConnectionScreen(liveOrStarting: client.phase.liveOrStarting, hasList: client.tasksList != nil) {
+                if Board.showsConnectionScreen(liveOrStarting: client.phase.liveOrStarting, keepsList: client.phase.keepsList,
+                                               hasList: client.tasksList != nil) {
                     BoardStates(client: client, openBoard: openBoard,
                                 signedOutDetail: "Your tasks show here once you are signed in.") { EmptyView() }
                 } else {
