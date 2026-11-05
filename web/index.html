@@ -56193,6 +56193,7 @@ function paintReviewerNote() {
    list says who. A row's key is all of its fields, so a row the coordinator lists differently is news again, the safe way.
    It shares the reviewer notice's class for its look (news, not a warning) and that notice's read. */
 const RECOVERY_NOTE_KEY = 'kosmos.recoveriesSeen';
+const RECOVERY_NOTE_SEEN_MAX = 200;   // well above the 50 rows the engine keeps (MAX_RECOVERIES), so no row still listed is dropped
 const RECOVERY_NOTE = { recoveries: null, seen: new Set() };   // seen: this visit's, for when storage refuses
 const recoveryNoteKey = (r) => [r.at, r.what, r.who || '', r.epoch === undefined ? '' : r.epoch, r.count === undefined ? '' : r.count].join('|');
 function recoveryNoteFresh(recs, now) {
@@ -56212,17 +56213,21 @@ function recoveryNoteSeen(recs, now) {
   const fresh = recoveryNoteFresh(recs, now);
   const keep = new Set([...recoveryNoteSeenSet()].filter((k) => Number(k.split('|')[0]) >= now - PLUS_ORG_RECOVERY_DAYS * 86400));
   for (const k of fresh) { keep.add(k); RECOVERY_NOTE.seen.add(k); }
-  // 200 is well above the 50 rows the engine keeps (MAX_RECOVERIES), so no row still listed is dropped.
-  try { localStorage.setItem(RECOVERY_NOTE_KEY, JSON.stringify([...keep].slice(-200))); } catch { /* refused: kept for this visit */ }
+  try { localStorage.setItem(RECOVERY_NOTE_KEY, JSON.stringify([...keep].slice(-RECOVERY_NOTE_SEEN_MAX))); } catch { /* refused: kept for this visit */ }
   const slot = document.getElementById('recovery-slot');
   if (slot) { slot.innerHTML = ''; slot.dataset.v = ''; }
 }
 function recoveryNoteSeenList(st) {
+  // A tab in the background shows nobody anything. This runs again on the page's next repaint.
+  if (document.hidden || !plusOnScreen()) return;
   const box = document.getElementById('plus-org-recoveries');
-  if (!box || box.hidden || !plusOnScreen()) return;
-  const r = box.getBoundingClientRect();
-  // The list's top must be on screen: it is newest first, and up to 50 rows can leave the new one out of view.
-  if (!(r.height > 0) || r.top < 0 || r.top + Math.min(48, r.height) > innerHeight) return;
+  if (!box || box.hidden) return;
+  // The list is newest first, so seen means its first row is on screen, clear of the sticky header. A heading alone is not.
+  const first = box.querySelector('#plus-org-recoveries-list p');
+  if (!first) return;
+  const r = first.getBoundingClientRect();
+  const head = document.querySelector('.apphead');
+  if (!(r.height > 0) || r.top < (head ? head.getBoundingClientRect().bottom : 0) || r.bottom > innerHeight) return;
   if (recoveryNoteUnseen(st && st.recoveries, Date.now() / 1000).length) recoveryNoteSeen(st.recoveries, Date.now() / 1000);
 }
 function paintRecoveryNote() {

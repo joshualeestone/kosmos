@@ -1983,6 +1983,17 @@ const SCREENS = [
     await page.evaluate(() => { REVIEWER_NOTE.at = 0; reviewerNoteMaybe(); });
     await page.waitForSelector('#reviewer-slot .utoast.reviewer-note', { state: 'visible', timeout: 10000 });
   } },
+  /* kosmos#5536: the board's notice that someone was given access to this member's own backup, in the floating stack on
+     the agents tab, with See who and its x. One key given, so it says given; the name is a sample and the notice shows none. */
+  { name: 'recovery-notice', owner: 'Renet Tilley', noServiceWorker: true, go: async (page) => {
+    const recoveries = [{ what: 'key_released', at: Math.floor(Date.now() / 1000) - 3600, who: 'jordan', epoch: 2 }];
+    await orgConnected(page, true, { recoveries });
+    await page.route('**/api/org/grants', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ enrolled: true, kind: 'company', reviewerGrants: [], recoveries }) }));
+    await at(page, '?tab=agents');
+    await page.evaluate(() => { REVIEWER_NOTE.at = 0; reviewerNoteMaybe(); });
+    await page.waitForSelector('#recovery-slot .utoast.recovery-note', { state: 'visible', timeout: 10000 });
+  } },
   /* #5787 (Mona Lisa): the connected Kosmos+ pane, where every sign-in now lands: the connect block (line art, the
      address with Copy, the Scan to connect code, the store buttons greyed with Coming soon) at the top. */
   { name: 'plus-connected', owner: 'Mona Lisa', noServiceWorker: true, go: async (page) => { await orgConnected(page, false); await at(page, '?tab=settings&sec=plus');

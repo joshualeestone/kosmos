@@ -6,7 +6,7 @@
  *   - rows this browser has not seen show ONE notice in the floating stack, with See who and a close, naming nobody;
  *   - its x (from the keyboard) closes it, focus stays on the board, the next read keeps it closed, and a newer row shows
  *     it again (CONTROL: the x is not a permanent mute);
- *   - the reviewer notice beside it closes apart: closing one leaves the other;
+ *   - the reviewer notice beside it closes apart: closing either leaves the other;
  *   - See who opens Settings at Kosmos+ with the recoveries list on screen, and the notice is gone;
  *   - a family and a computer in no company get none; a failed read keeps the notice;
  *   - a list taller than the screen lands on its top with the newest row in view, then counts as seen;
@@ -112,6 +112,14 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-recoverynote-5536 
     const after = await read(page, company([opened(60), opened(DAY), given(2 * DAY)], [grant]));
     chk(after.count === 1 && after.reviewerNotes === 0, `${t} closing the reviewer notice leaves this one up`, JSON.stringify(after));
 
+    const grant2 = { who: 'Lee Park', grantedAt: now - 3600, effectiveAt: now };
+    const both2 = await read(page, company([opened(60), opened(DAY), given(2 * DAY)], [grant, grant2]));
+    await page.click('#recovery-slot button.ux');
+    const after2 = await read(page, company([opened(60), opened(DAY), given(2 * DAY)], [grant, grant2]));
+    chk(both2.count === 1 && both2.reviewerNotes === 1 && after2.count === 0 && after2.reviewerNotes === 1, `${t} closing this one leaves the reviewer notice up`, JSON.stringify({ both2, after2 }));
+    await page.click('#reviewer-slot button.ux');
+    await read(page, company([opened(40), opened(60), opened(DAY), given(2 * DAY)], [grant, grant2]));
+
     STEP = eng + ' see who';
     await page.click('#recovery-slot button[data-recovery-see]');
     await page.waitForTimeout(800);
@@ -174,7 +182,7 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-recoverynote-5536 
     await browser.close();
   }
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
-  const EXPECTED_PER_ENGINE = 16;
+  const EXPECTED_PER_ENGINE = 17;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   clearTimeout(WATCHDOG);
   console.log(`render-recoverynote-5536: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
