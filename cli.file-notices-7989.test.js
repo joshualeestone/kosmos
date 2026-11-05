@@ -108,6 +108,13 @@ test('--help prints the usage and never asks the board, so it cannot take (clear
   assert.equal(seen.length, 0);
 }, { status: 200, text: '' }));
 
+test('--hook against a port with nothing listening says nothing, exits 0, and stays inside its cap', async () => {
+  const closed = await new Promise((resolve) => { const s = http.createServer(); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => resolve(p)); }); });
+  const out = await runCli(['file-notices', '--hook'], envFor(closed));
+  assert.deepEqual([out.code, out.stdout], [0, '']);
+  assert.ok(out.ms < 3000, 'a refused board must not hold the turn past the cap and its retries: ' + out.ms + ' ms');
+});
+
 test('an unknown argument is a usage error before the board is asked', () => withStubBoard(async (port, seen) => {
   const out = await runCli(['file-notices', '--all'], envFor(port));
   assert.equal(out.code, 2);

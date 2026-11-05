@@ -34,7 +34,8 @@ which store.js works out per platform, and a second copy of that in bash is two 
 ## Known limits
 - The queue is emptied before the answer is sent, so an answer the hook never reads (1 s cap on a busy board) loses
   those notices. The project room's note keeps each one. Chosen over handing a notice over twice.
-- A notice can wait up to 5 minutes plus the owner's next turn.
+- A notice can wait up to 5 minutes plus the owner's next turn. The mark is written before the call, because the hook
+  cannot tell a failed call from one with nothing waiting; so a failed call (board restarting) also waits out the 5 minutes.
 - Runners with no hook (Codex, Antigravity, Windows until its twin lands) never take theirs; the file stays, capped at
   10 and expired after a day on read.
 
