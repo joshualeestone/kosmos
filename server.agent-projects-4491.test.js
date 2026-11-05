@@ -277,3 +277,54 @@ test('when the running agents cannot be read, a token makes nothing (503); a cal
   assert.equal(noToken.r.code, 200, 'the person\'s terminal lost project create to an unreadable roster: ' + noToken.r.code + ' ' + noToken.r.text.slice(0, 160));
   assert.deepEqual([stored(noToken.id).agents, stored(noToken.id).made.by], [[], null]);
 });
+
+/* kosmos#7331: an agent that creates a project on a folder spelled as a network share (\\host\share) or an
+ * unplaceable namespace must be refused BEFORE projects.create, because create resolves the folder
+ * (folderState -> realpathOfFolderPath -> fs.realpathSync.native), and resolving a share reaches that host over
+ * SMB -- an NTLM handshake to an attacker-named host, before the project is even made. #7250 closed this same
+ * contact on the attach path; this closes it on create. The gate is spelling-only (winpath.classify, no disk),
+ * viaScreen-scoped (a person at the board is never gated), and does not over-refuse the legitimate local create
+ * (#4740). Proof shape: projects.create is stubbed as a recorder, so a share/unplaceable folder for which it is
+ * NEVER reached is positive proof that realpathSync.native, and so the SMB/NTLM contact, never ran. */
+test('an agent create on a network-share or unplaceable folder is refused before projects.create; a local folder and the person are not (#7331)', async (t) => {
+  const realCreate = projectsEngine.create;
+  const created = [];
+  // Record the folder create was asked for, then throw a sentinel so the reach is observable without making a
+  // project. The handler's .catch turns the throw into a 400, so this never hangs. The refusal arms must leave
+  // `created` empty: that is the proof folderState/realpathSync.native, and the SMB/NTLM contact, never ran.
+  projectsEngine.create = (input) => { created.push(input && input.folder); throw new Error('SENTINEL: projects.create reached'); };
+  t.after(() => { projectsEngine.create = realCreate; });
+
+  const agent = withBoard({ 'x-kosmos-agent-token': mara });
+  const MY_MSG = /on another computer on the network, or names a device, so the project was not made; a project folder there is the person's to add, from Kosmos/;
+
+  // A share spelling: refused, and create is never reached.
+  created.length = 0;
+  const share = await call('POST', '/api/projects', { headers: agent, body: { name: 'Agent On A Share', folder: '\\\\host\\share\\x' } });
+  assert.equal(share.code, 403, 'an agent create on a share was not refused: ' + share.code + ' ' + share.text.slice(0, 160));
+  assert.match(share.text, MY_MSG, 'the refusal is not the share-folder gate: ' + share.text.slice(0, 200));
+  assert.doesNotMatch(share.text, GATE_REFUSAL, 'the 403 is the board gate, so the create handler was never reached');
+  assert.deepEqual(created, [], 'projects.create was reached for a share folder -- realpathSync.native and the SMB/NTLM contact ran');
+
+  // An unplaceable spelling (\\.\GLOBALROOT\...): classify() -> unplaceable; same refusal, same no-reach.
+  created.length = 0;
+  const unplaceable = await call('POST', '/api/projects', { headers: agent, body: { name: 'Agent Unplaceable', folder: '\\\\.\\GLOBALROOT\\x' } });
+  assert.equal(unplaceable.code, 403, 'an agent create on an unplaceable folder was not refused: ' + unplaceable.code + ' ' + unplaceable.text.slice(0, 160));
+  assert.match(unplaceable.text, MY_MSG);
+  assert.deepEqual(created, [], 'projects.create was reached for an unplaceable folder');
+
+  // CONTROL 1: a LOCAL folder is not a network spelling, so an agent create there is NOT refused (the gate must
+  // not over-refuse the legitimate local create of #4740): the gate is skipped and create IS reached.
+  created.length = 0;
+  const localFolder = path.join(SANDBOX, 'local-proj-7331');
+  const local = await call('POST', '/api/projects', { headers: agent, body: { name: 'Agent Local', folder: localFolder } });
+  assert.doesNotMatch(local.text, MY_MSG, 'a local agent create was wrongly refused as a network folder');
+  assert.deepEqual(created, [localFolder], 'the gate blocked a local agent create -- it over-refuses #4740');
+
+  // CONTROL 2: the person at the board (viaScreen) is never gated. Even a share spelling reaches create, exactly
+  // as on main (the person chose that share). The gate is !viaScreen only.
+  created.length = 0;
+  const screen = await call('POST', '/api/projects', { headers: withBoard({ 'sec-fetch-site': 'same-origin', origin: base }), body: { name: 'Person On A Share', folder: '\\\\host\\share\\x' } });
+  assert.doesNotMatch(screen.text, MY_MSG, 'the person at the board was blocked by the agent-only share gate');
+  assert.deepEqual(created, ['\\\\host\\share\\x'], 'a person-via-board create did not reach projects.create for a share folder');
+});
