@@ -20,20 +20,14 @@ struct TasksTab: View {
     @State private var newTaskDraft = NewTask.Draft()   // kept when the sheet closes, as the board keeps its draft
     @State private var newTaskHeld: NewTask.Held?        // words that got "could not tell", kept with the draft
 
-    private var liveOrStarting: Bool {
-        switch client.phase {
-        case .live, .starting: return true
-        default: return false
-        }
-    }
 
     var body: some View {
         NavigationView {
             Group {
                 // kosmos#8054: the list is read only through a computer this phone is let into (BoardClient.refreshTasks).
-                if Board.showsConnectionScreen(liveOrStarting: liveOrStarting, computerLetIn: client.macURL != nil,
-                                               hasList: client.tasksList != nil) {
-                    BoardStates(client: client, openBoard: openBoard) { EmptyView() }
+                if Board.showsConnectionScreen(liveOrStarting: client.phase.liveOrStarting, hasList: client.tasksList != nil) {
+                    BoardStates(client: client, openBoard: openBoard,
+                                signedOutDetail: "Your tasks show here once you are signed in.") { EmptyView() }
                 } else {
                     TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
                               open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },

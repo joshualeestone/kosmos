@@ -38,6 +38,14 @@ final class BoardClient: ObservableObject {
         // sentence when it gave one.
         case macHeld(mac: String, because: String?)
         case live(mac: Board.Mac)
+
+        /// Live, or on its first connect: a list tab shows its own list or wait, not BoardStates (kosmos#8054).
+        var liveOrStarting: Bool {
+            switch self {
+            case .live, .starting: return true
+            default: return false
+            }
+        }
     }
 
     // What the client needs from the world, so ios/LogicTests can drive the loop with a fake Mac, clock and waits.

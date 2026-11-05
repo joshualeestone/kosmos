@@ -349,6 +349,8 @@ struct AgentsView: View {
 struct BoardStates<Empty: View>: View {
     @ObservedObject var client: BoardClient
     let openBoard: () -> Void
+    /// The signed-out line under "Sign in to Kosmos+": each tab names what it shows (kosmos#8054).
+    var signedOutDetail = "Your agents show here once you are signed in."
     @ViewBuilder let empty: () -> Empty
 
     var body: some View {
@@ -384,7 +386,7 @@ struct BoardStates<Empty: View>: View {
                 .navigationBarHidden(true)
         case .signedOut:
             VStack(spacing: 12) {
-                message("Sign in to Kosmos+", detail: "Your agents show here once you are signed in.")
+                message("Sign in to Kosmos+", detail: signedOutDetail)
                 Button { openBoard() } label: { Text("Sign in").foregroundColor(Palette.card) }
                     .buttonStyle(.borderedProminent)
             }

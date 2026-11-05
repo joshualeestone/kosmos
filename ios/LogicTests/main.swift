@@ -4895,26 +4895,6 @@ do {
     check(SignIn.reviewAnswer(status: 401, json: ["error": "this account is being deleted"]) == .refused("This account is being deleted."),
           "CONTROL: a 401 that is not about the password keeps its own sentence")
     check(SignIn.sentence("Done already.") == "Done already." && SignIn.sentence("") == "", "a sentence that already ends is left as it is")
-    // kosmos#8054: when a list tab shows the Agents tab's connection screen instead of its own list.
-    check(Board.showsConnectionScreen(liveOrStarting: false, computerLetIn: false, hasList: false),
-          "no computer let in, not live, no list: the connection screen (no Mac, signed out), never a wait for good")
-    check(!Board.showsConnectionScreen(liveOrStarting: false, computerLetIn: true, hasList: false),
-          "a let-in computer that stops answering keeps the tab's own states")
-    check(!Board.showsConnectionScreen(liveOrStarting: false, computerLetIn: false, hasList: true),
-          "a list already on screen stays, as Agents keeps its list")
-    check(!Board.showsConnectionScreen(liveOrStarting: true, computerLetIn: false, hasList: false),
-          "CONTROL: live or on its first connect, the tab's own wait")
-    // 11-05, a real sign-in: the code steps showed Kosmos+'s words raw ("that code is not right; 4 tries left").
-    check(SignIn.answer(status: 401, json: ["error": "that code is not right; 4 tries left"]) == .refused(message: "That code is not right; 4 tries left.", proofRefused: false),
-          "a wrong code reads as a sentence: a capital and a closing stop")
-    check(SignIn.answer(status: 401, json: ["error": "that code is not what the app shows right now, or it was already used; wait for the next one; 4 tries left"]) == .refused(message: "That code is not what the app shows right now, or it was already used; wait for the next one; 4 tries left.", proofRefused: false),
-          "a wrong authenticator code too")
-    check(SignIn.refusal("a code was sent moments ago; you can ask for another in 55 seconds") == "A code was sent moments ago; you can ask for another in 55 seconds.",
-          "the send-again wait too (start's refusal)")
-    check(SignIn.refusal("That code is not right.") == "That code is not right." && SignIn.refusal(nil) == nil && SignIn.refusal("  ") == nil,
-          "CONTROL: a sentence already tidy is left as it is, and no words stay no words")
-    check(SignIn.answer(status: 200, json: ["second": "sms", "challenge": "c", "sent_to": "ending 42"] as [String: Any]) == .second(kind: "sms", challenge: "c", sentTo: "ending 42"),
-          "CONTROL: where a text went is not a refusal, so it is left as Kosmos+ wrote it")
     check(SignIn.reviewAnswer(status: 403, json: ["error": "this account signs in through its company"]) == .refused("This account signs in through its company."),
           "and so does any other refusal")
     check(SignIn.reviewAnswer(status: 503, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer) && SignIn.reviewAnswer(status: 400, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer),
@@ -5909,6 +5889,39 @@ do {
     check(isRun(failedFirst.items, "a", first: true, last: true), "the message before a failed send keeps its time line when another follows it")
     let empty = Board.chatItems([today], pending: [], now: now, calendar: cal)
     check(empty.items == Board.chatItems([today], now: now, calendar: cal) && empty.places.isEmpty, "with nothing pending, the list is the plain one")
+}
+
+// kosmos#8052: Kosmos+'s refusals on every sign-in step read as sentences.
+do {
+    // 11-05, a real sign-in: the code steps showed Kosmos+'s words raw ("that code is not right; 4 tries left").
+    check(SignIn.answer(status: 401, json: ["error": "that code is not right; 4 tries left"]) == .refused(message: "That code is not right; 4 tries left.", proofRefused: false),
+          "a wrong code reads as a sentence: a capital and a closing stop")
+    check(SignIn.answer(status: 401, json: ["error": "that code is not what the app shows right now, or it was already used; wait for the next one; 4 tries left"]) == .refused(message: "That code is not what the app shows right now, or it was already used; wait for the next one; 4 tries left.", proofRefused: false),
+          "a wrong authenticator code too")
+    check(SignIn.refusal("a code was sent moments ago; you can ask for another in 55 seconds") == "A code was sent moments ago; you can ask for another in 55 seconds.",
+          "the send-again wait too (start's refusal)")
+    check(SignIn.refusal("That code is not right.") == "That code is not right." && SignIn.refusal(nil) == nil && SignIn.refusal("  ") == nil,
+          "CONTROL: a sentence already tidy is left as it is, and no words stay no words")
+    check(SignIn.answer(status: 200, json: ["second": "sms", "challenge": "c", "sent_to": "ending 42"] as [String: Any]) == .second(kind: "sms", challenge: "c", sentTo: "ending 42"),
+          "CONTROL: where a text went is not a refusal, so it is left as Kosmos+ wrote it")
+}
+
+// kosmos#8054: when a list tab (Tasks, Projects) shows the Agents tab's connection screen.
+do {
+    let mac = Board.Mac(name: "Studio", address: "studio.kosmosplus.com", usable: true)
+    let liveOrFirst: [BoardClient.Phase] = [.starting, .live(mac: mac)]
+    let others: [BoardClient.Phase] = [.signedOut, .noMac, .waitingForAllow(mac: "Studio", code: nil), .connecting(mac: "Studio"),
+                                       .denied(mac: "Studio"), .kosmosPlusDown, .kosmosPlusRefused, .unreachable(mac: "Studio"),
+                                       .macRefused(mac: "Studio"), .signInAgain(mac: "Studio"), .signInHere(mac: "Studio"),
+                                       .macHeld(mac: "Studio", because: nil)]
+    check(liveOrFirst.allSatisfy { $0.liveOrStarting }, "live and the first connect count as live or starting")
+    check(others.allSatisfy { !$0.liveOrStarting }, "every other phase does not (12 of them)")
+    check(others.allSatisfy { Board.showsConnectionScreen(liveOrStarting: $0.liveOrStarting, hasList: false) },
+          "with no list, every other phase shows the connection screen, so no tab waits for good (no Mac, signed out, a Mac asleep)")
+    check(others.allSatisfy { !Board.showsConnectionScreen(liveOrStarting: $0.liveOrStarting, hasList: true) },
+          "a list already shown stays in every phase, as Agents keeps its list")
+    check(liveOrFirst.allSatisfy { !Board.showsConnectionScreen(liveOrStarting: $0.liveOrStarting, hasList: false) },
+          "CONTROL: live or on its first connect, the tab's own wait")
 }
 
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
