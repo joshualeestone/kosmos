@@ -21,9 +21,12 @@ Stacked on fileowner-7989 (PR #7999, slice 1: a file's owner, `first`, and the r
   itself, "a link to something that is not there now"). A path on a network mount (/net, /Volumes, /Network, a UNC
   share) that no project lives on is answered as outside without being resolved, since resolving runs on the board's
   one thread. A path that is not UTF-8 is a 400. "Outside" tells a sandboxed agent to give the path as this computer
-  names it.
-- **An older board:** a 404 says the board is older than the command and a restart updates it; a 403 on the agent
-  token adds that it may be that.
+  names it. The mount check is partial (a link to a mount or a mapped drive letter is not caught) and lets through a
+  project whose folder, listed or resolved, is on that mount. After the stat, the file's folder is resolved again and
+  must not have moved, so a folder swapped for a link mid-call says nothing about where it leads.
+- **An older board:** a 404 says the board is older than the command. A 403 on the agent token is checked against GET
+  /api/projects/overview with the same token: answered there means an older board (said, and the board's own words
+  are not printed); refused there means the token, and the board's words and the token hint stand.
 - **Route:** `GET /api/project-file/who?path=<abs>`, answering from engine/filewriters.about (read against the
   projects' folders as they are now). Outside every project it says only `{ ok: false, because: 'outside' }`, nothing
   about the path. A missing or relative path is 400. A cross-site or another computer's page is refused (crossSiteRead),
@@ -43,7 +46,8 @@ row (a list read, not this per-file check); "changed by" wording (the record is 
 ## Weakest premise
 That the record-versus-modification-time comparison is a fair read of who made the last change. The record is made
 before the edit, so a failed edit followed by a person's save inside two minutes reads as "most likely that edit". The
-words say "most likely" and "Kosmos last saw ... about to change it" for that reason.
+words say "most likely" and "Kosmos last saw ... about to change it" for that reason. Also: `..` is folded before
+links are followed (as noteWrite does, so the two agree), so `proj/link/../x` names proj/x, not where the system goes.
 
 ## Known gap
 Slice 1's noteWrite takes the owner from the deepest project's own record, so making a project inside another's folder
