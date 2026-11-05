@@ -222,7 +222,9 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       if (fresh) return ` Before the move it had said it was committed to: ${list.join('; ')}.`;
       const at = Date.parse(rec.reportedAt || '');
       const mins = Number.isFinite(at) && nowMs >= at ? Math.round((nowMs - at) / 60000) : null;
-      const when = mins === null ? 'When it last reported' : mins >= 120 ? `When it last reported, about ${Math.round(mins / 60)} hours before the move` : `When it last reported, ${mins} minutes before the move`;
+      const when = mins === null ? 'When it last reported'
+        : mins >= 48 * 60 ? `When it last reported, about ${Math.round(mins / 1440)} days before the move`
+          : mins >= 120 ? `When it last reported, about ${Math.round(mins / 60)} hours before the move` : `When it last reported, ${mins} minutes before the move`;
       return ` ${when}, it had said it was committed to: ${list.join('; ')}.`;
     } catch { return ''; }
   }
@@ -336,7 +338,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   async function step(deps, nowMs) {
     /* Review round 6: the works-again check needs the switch only as moves do. With the person's switch off it waits,
        and a watch older than a day is closed as not-seen once it is on again. */
-    if (deps.movesOn() !== true || deps.settingOn() !== true) { state.lastMovable = new Set(); return { did: 'off' }; }
+    if (deps.movesOn() !== true || deps.settingOn() !== true) { state.lastMovable = new Set(); state.limitSeenAt = new Map(); return { did: 'off' }; }   // review 6: nor a first sighting from before moves went off
     flush();
     try { readPeople(nowMs); } catch (err) { state.lastMovable = new Set(); return { did: 'unreadable', because: `the record: ${String((err && err.message) || err)}` }; }
     /* The works-again check runs even while moves wait for the record below, so a moved agent's refused first request
@@ -367,8 +369,10 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     state.lastMovableAt = nowMs;
     /* kosmos#8048 review 5: a pane that recovered before its reset (paid credits, another model) keeps its limit line
        until the reset passes (#5031), so it still reads rate_limited while working. Remember when each would-move was
-       first seen at its limit; a working report from the agent itself after that (activity 'working', written by the
-       report route) means it recovered, and the move below is skipped. */
+       first seen at its limit; a tool call the agent itself reported after that (activity 'tool', the hook's PreToolUse
+       report, review 6: a prompt reaching a stuck agent fires a working report too, so that one is not used) means it
+       recovered, and the move below is skipped. Residual: one that recovered before it was first seen and has run no
+       new tool since (a single long one) can still be moved. */
     let cardsNow = [];
     try { const r = deps.roster(); cardsNow = Array.isArray(r) ? r : []; } catch { cardsNow = []; }
     const atLimitNow = new Set(decision.moves.map((x) => x.agent).filter((a) => { const c = cardsNow.find((y) => y && y.sessionName === a); try { return !!c && ab.stoppedAtLimit(c, nowMs); } catch { return false; } }));
