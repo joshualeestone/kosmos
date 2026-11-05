@@ -2540,7 +2540,7 @@ async function agentMove(ctx, args) {
   const said = clause(because);
   const end = /[?!)]$/.test(said) ? '' : '.';
   if (outcome === 'changed') { ctx.out((said || name + ' runs on ' + label + ' now') + end); return 0; }
-  if (outcome === 'pending') return maybe(ctx.err, name + ' is still moving after five minutes. Look at Settings, AI Models to see where it is.');
+  if (outcome === 'pending') return maybe(ctx.err, name + ' is still moving, and Kosmos stopped waiting. Look at Settings, AI Models to see where it is.');
   if (outcome === 'forgotten') return maybe(ctx.err, 'Kosmos restarted during the move and no longer knows how it ended. Settings, AI Models shows which account ' + name + ' is on.');
   if (outcome === 'partial' || outcome === 'stopped' || outcome === 'unknown') { ctx.err('Not fully moved: ' + (said || 'Kosmos did not say how far it got') + end + ' Settings, AI Models shows which account it is on.'); return 1; }
   if (said) { ctx.err('Kosmos did not move ' + name + ': ' + said + end); return 1; }

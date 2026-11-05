@@ -76,6 +76,7 @@ test('kosmos#8048: a folder that cannot be read is "cannot tell", never "nothing
 test('kosmos#8048: the default account is ~/.claude under the given home', () => {
   const home = path.join(TMP, `home-${++n}`);
   fs.mkdirSync(path.join(home, '.claude', 'skills', 'only-main'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'skills', 'only-main', 'SKILL.md'), '# only main\n');
   const acct = folder({ skills: [] });
   assert.deepEqual(carry.losses(null, acct, { home }), { ok: true, skills: ['only-main'], changed: [], hooks: [] });
   assert.deepEqual(carry.losses('', acct, { home }).skills, ['only-main']);
@@ -148,4 +149,20 @@ test('kosmos#8048 review 4: one hook written two ways is not a loss; a missing t
     'CONTROL: a hook with a different argument read as kept');
   assert.deepEqual(carry.losses(folder({ hooks: ['bash gate.sh'] }), folder({ hooks: ['bash /nonexistent-8048/gate.sh'] }), H).hooks, ['gate.sh'],
     'a target whose script is missing read as keeping the gate');
+});
+
+test('kosmos#8048 review 5: shell syntax left in a hook path, a prompt hook, and an empty skill folder on the target are all losses', () => {
+  const src = folder({ settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'bash ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/gate.sh' }] }] } }) });
+  const empty = folder({ settings: '{}' });
+  assert.deepEqual(carry.losses(src, empty, H).hooks, ['gate.sh'], 'a gate spelled with a shell default read as kept when the target has no hooks');
+  assert.deepEqual(carry.losses(src, src, H).hooks, [], 'CONTROL: the same spelling on both sides was not kept');
+  const prompt = (words) => folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'prompt', prompt: words }] }] } }) });
+  assert.deepEqual(carry.losses(prompt('check the work'), empty, H).hooks, ['a prompt hook on Stop'], 'a prompt hook was never compared');
+  assert.deepEqual(carry.losses(prompt('check the work'), prompt('check the work'), H).hooks, [], 'CONTROL: the same prompt hook was not kept');
+  const withSkill = folder({ skills: ['pick-up'] });
+  const hollow = folder({ skills: [] });
+  fs.mkdirSync(path.join(hollow, 'skills', 'pick-up'), { recursive: true });   // the folder, no SKILL.md
+  const l = carry.losses(withSkill, hollow, H);
+  assert.deepEqual([l.skills, l.changed], [['pick-up'], []], 'a skill folder with no SKILL.md on the target read as a different copy, not a loss');
+  assert.equal(carry.loses(l), true);
 });
