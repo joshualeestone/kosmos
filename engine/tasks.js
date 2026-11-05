@@ -944,7 +944,9 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
         ...withoutBuilt(t), builtAt: new Date().toISOString(), builtBy: who,
         ...(isPerson ? { builtByPerson: true } : {}), builtWho,
         ...((t.builtAt && t.builtFreesAll === true) || isPerson ? { builtFreesAll: true } : {}),
-        ...(said ? { builtNote: said } : {}),
+        /* kosmos#8067: another agent's mark with no note of its own keeps the note it joins, since the nudge now sends an agent here
+           to cover its own part. The marker's own bare re-mark still clears a stale note. */
+        ...(said || (t.builtAt && who !== null && !isPerson && (t.builtBy || null) !== who && t.builtNote) ? { builtNote: said || t.builtNote } : {}),
         ...(kept ? { builtFingerprint: kept, builtFingerprintBy: keptBy } : {}),
         // #7508: a mark without --commit keeps a commit already recorded (a checker's mark is not new work).
         ...(landed ? { landedCommit: landed.sha, landedRepo: landed.repo, landedOnRemote: landed.onRemote, landedBy: who, landedAt: new Date().toISOString() } : {}),
