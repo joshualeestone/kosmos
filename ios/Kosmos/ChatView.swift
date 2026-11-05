@@ -1011,8 +1011,9 @@ struct ChatView: View {
         // row leaves too, and that is not a fault.
         // Review 3 and 4: a list never drawn never moved the end marker, so that arm needs no row drawn since the messages
         // arrived more than 2 s ago (never the moment after an account or computer change, before its rows appear).
-        let neverDrew = !endSeen && !diagEverDrew && (diagThreadAt.map { Date().timeIntervalSince($0) > 2 } ?? false)
-        guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || neverDrew, !topVisible, count > 0, thread != nil else { return }
+        // kosmos#7420 (Josh 11-05 12:57): the top marker can read as showing with nothing drawn, so a never-drawn list passes that too.
+        let neverDrew = Board.neverDrew(endSeen: endSeen, everDrew: diagEverDrew, messagesFor: diagThreadAt.map { Date().timeIntervalSince($0) })
+        guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || neverDrew, !topVisible || neverDrew, count > 0, thread != nil else { return }
         // kosmos#7420: a list just rebuilt has no rows for a moment while the new one lays out; that is not an empty list
         // (measured on iOS 27: without this the rebuild's own gap read as empty and rebuilt it again, three times).
         if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
@@ -1170,7 +1171,10 @@ struct ChatView: View {
                         // Review 2: nor while a chat is still opening and has drawn nothing yet (slow, not blank; diagCheck's).
                         // Review 3: nor with the end showing (a pending bubble can fill the list), nor with the app not active,
                         // as diagCheck. It spends recoverEmpty's own per-open budget (rebuildsMax).
-                        guard !endVisible, scenePhase == .active, !(thread?.rows.isEmpty ?? true), endSeen || diagEverDrew else {
+                        // Josh 11-05 12:57: review 2 held for as long as the blank did, about 6.6 s through three looks. Past
+                        // diagCheck's 2 s it is a blank, not a slow open.
+                        guard !endVisible, scenePhase == .active, !(thread?.rows.isEmpty ?? true),
+                              endSeen || diagEverDrew || Board.neverDrew(endSeen: endSeen, everDrew: diagEverDrew, messagesFor: diagThreadAt.map { Date().timeIntervalSince($0) }) else {
                             Self.trace("keyboard settled: within, nothing drawn"); return
                         }
                         if atBottom {

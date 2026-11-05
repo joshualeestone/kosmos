@@ -1,0 +1,14 @@
+# blankopen-7420: a chat that never drew is blank after 2 s (kosmos#7420)
+
+Finished means: Josh's next capture of this shape shows a rebuild within about 4 s of opening, or he stops seeing a blank that
+lasts until something else happens. Simulator cannot show it: no blank on demand.
+
+Measured, Josh's phone 11-05 12:57: chat shown, keyboard flip, three settled looks "within, nothing drawn", none acted; the
+list drew 6.6 s later when the app came back to the front. Cause read from source: the settled look exempts a chat that never
+drew; diagCheck's own 2 s rule was held off by !topVisible (top appeared at open, no line says it left).
+
+Change: one rule, Board.neverDrew, read by both. Rejected: a timer that keeps rebuilding (rebuildsMax already bounds it, and
+this runs on the existing asks); removing the exemption (a normal open draws within 2 s and must not rebuild).
+
+Weakest premise: that topVisible is what held diagCheck off. Reasoned: the capture has no diag line, and it is the guard
+that fits; the top marker's going is not traced. And a rebuild can itself land blank, as at 12:56.
