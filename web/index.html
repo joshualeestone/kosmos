@@ -13624,6 +13624,12 @@ window.kosmosMeasureScrollbarWidth();
              #2456/#2575 reported-question false state. -->
         <button class="btn" id="d-qask-trust-restart" type="button" hidden>Trust &amp; Restart</button>
         <p class="fmsg" id="d-qask-trust-restart-msg" role="status" aria-live="polite"></p>
+        <!-- kosmos#8039: Claude Code's external imports question, answered here without typing into the terminal. Yes is
+             left to its Terminal, as the dialog warns about it. -->
+        <div id="d-qask-imports" hidden>
+          <button class="btn" id="d-qask-imports-no" type="button">Continue without them</button>
+          <p class="fmsg" id="d-qask-imports-msg" role="status" aria-live="polite"></p>
+        </div>
         <!-- #4607: Codex's "Hooks need review", answered here by the person (never by a typed message, #4589). The
              render unhides it only when the thread route sends body.codexHooks. Two choices; leaving it is not
              pressing either. Self-contained, like the Trust & Restart above. -->
@@ -44146,7 +44152,7 @@ async function paintTalk(sessionName, agentName) {
      paint. */
   /* #4607: the box also shows for Codex's hook review (body.codexHooks), a permission decision answered with a
      button, like the folder-trust recovery. */
-  const nowHidden = !(body.asking && (body.answerNote || body.codexHooks));
+  const nowHidden = !(body.asking && (body.answerNote || body.codexHooks || body.importsAsk));
   /**
    * ⚠️ THE RESCUE COMES BEFORE EVERY HIDE IN THIS SECTION, and its first
    * version did not.
@@ -44211,6 +44217,9 @@ async function paintTalk(sessionName, agentName) {
   /* #2129: default the recovery button hidden every paint, so it only shows
      where the branch below explicitly turns it on. */
   if (qTrust) qTrust.hidden = true;
+  const qImports = document.getElementById('d-qask-imports');
+  if (qImports) qImports.hidden = true;
+  if (!(body.asking && body.importsAsk)) { const m = document.getElementById('d-qask-imports-msg'); if (m) m.textContent = ''; }
   const qCodex = document.getElementById('d-qask-codex');
   if (qCodex) qCodex.hidden = true;
   /* A line left from an earlier answer goes with the question it answered (review round 1). */
@@ -44223,6 +44232,10 @@ async function paintTalk(sessionName, agentName) {
        wording Josh removed in #3419) plus the one-click Trust & Restart (#2129). */
     qlab.textContent = name + ' is stuck on a folder-trust prompt. ' + body.answerNote;
     if (qTrust) qTrust.hidden = false;
+  } else if (body.asking && body.importsAsk && qImports) {
+    /* kosmos#8039: it cannot start until this is answered. */
+    qlab.textContent = name + ' cannot start until you answer. Its instructions import files from outside its folder. Continue without them, or open its Terminal to allow them.';
+    qImports.hidden = false;
   } else if (body.asking && body.codexHooks && qCodex) {
     /* #4607: only what the screen says. The count from the menu, the events from the table, the source from one
        hook's page; a missing fact is left out, never guessed. */
@@ -53189,6 +53202,29 @@ document.getElementById('d-qask-trust-restart').addEventListener('click', async 
     if (CURRENT && CURRENT.sessionName === forAgent) {
       msg.textContent = 'We could not reach Kosmos to trust and restart this agent.';
     }
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* kosmos#8039: "Continue without them". Self-contained, with the same capture-and-recheck as the Trust & Restart twin
+   above, so a receipt cannot land under a different agent. The next poll hides the box once the dialog is gone. */
+document.getElementById('d-qask-imports-no').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const btn = document.getElementById('d-qask-imports-no');
+  const msg = document.getElementById('d-qask-imports-msg');
+  btn.disabled = true;
+  msg.textContent = 'Starting it without them…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/decline-imports',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ viaScreen: true }) });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = r.because || r.error || (res.ok ? 'Restarting.' : 'We could not start this agent without them.');
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'We could not reach Kosmos to start this agent.';
   } finally {
     btn.disabled = false;
   }

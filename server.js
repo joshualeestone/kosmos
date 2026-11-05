@@ -106,6 +106,7 @@ const {
      dialog and Enter there picks "No, exit"; see `trustDialogHold` below. */
   trustPrompt,
   TRUST_DIALOG_SENTENCE,
+  importsDialogIn,
   /* #2808 class-1 (c): tell whether a card's stateEvidence is the FOLDER-TRUST dialog,
      the scrape-detected class-1 trigger the invisible auto-handle sweep needs (that
      dialog is not a PermissionRequest, so it has no by:'auto' self-report). */
@@ -10994,6 +10995,41 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* kosmos#8039: "Continue without them" on Claude Code's external imports question. Like Trust & Restart it writes the
+     answer and restarts, and types nothing into the terminal. The screen is read again first, so a press that arrives
+     after the question has gone changes nothing. Only the person's page may answer (#6063: the answer is theirs). */
+  const declineImports = pathname.match(/^\/api\/agent\/([^/]+)\/decline-imports$/);
+  if (declineImports && req.method === 'POST') {
+    const name = decodeSegment(declineImports[1]);
+    if (name === null) { sendJson(res, 400, { ok: false, because: 'that is not a name we can read' }); return; }
+    readBody(req, 4096)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        if (!isViaScreen(req, body)) {
+          process.stdout.write(`decline-imports: refused ${JSON.stringify(name)} (not the person's page)\n`);
+          sendJson(res, 403, { ok: false, because: 'only you can answer this, from the board' });
+          return;
+        }
+        const clean = create.cleanName(name);
+        let view = null;
+        try { view = chat.viewport(clean, safeRoster()); } catch { view = null; }
+        if (!view || typeof view.text !== 'string' || !importsDialogIn(view.text)) {
+          sendJson(res, 409, { ok: false, because: 'it is no longer asking this' });
+          return;
+        }
+        const wrote = create.declineAgentImports(clean);
+        if (wrote.because) { sendJson(res, 400, { ok: false, because: wrote.because }); return; }
+        process.stdout.write(`decline-imports: ${JSON.stringify(clean)} starts without its outside imports\n`);
+        let out;
+        try { out = removal.restart(clean, 'restart', { startIfDead: true, quiet: true }); }
+        catch (err) { sendJson(res, 500, { ok: false, because: 'we could not restart this agent', detail: String((err && err.message) || err) }); return; }
+        sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ok: out.outcome !== removal.OUTCOME.REFUSED, ...out });
+      })
+      .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+
   /**
    * Point an agent at a different model.
    *
@@ -20450,6 +20486,9 @@ const server = http.createServer(async (req, res) => {
       question: guideThread && question && typeof question.text === 'string' ? { ...question, text: guideMasked(guideName, question.text) } : question,
       questionBecause,
       codexHooks, // #4607
+      /* kosmos#8039: Claude Code's external imports question, so the page offers "Continue without them". From the same
+         fresh capture as the question. */
+      importsAsk: !!(asking && card && card.runner === 'claude' && card.reachedByChannel !== true && view && typeof view.text === 'string' && importsDialogIn(view.text)),
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
          route says so up front, in the same sentence the send refusal uses,
