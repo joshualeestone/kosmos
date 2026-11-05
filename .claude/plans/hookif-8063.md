@@ -13,7 +13,7 @@ class, a loss read as none.
    board's plan says it could not check. Before, it was kept on its wiring alone, and review 8 measured `%USERPROFILE%`
    with the script absent on both sides as `hooks: []`.
 3. The skill comparison runs on the board's thread. A file is hashed from its first 1 MB plus its size; one skill reads
-   at most 8 MB, 400 files and 200 folders, and a cut read says so in its sum.
+   at most 8 MB, 400 files and 200 folders (per skill, not per comparison), and a cut read says so in its sum.
 
 ## Not done (cards 4 to 6, low)
 - 4: a different copy of a skill still does not block `--yes` (decided in #8048 review 3).
@@ -44,7 +44,15 @@ class, a loss read as none.
 - Only a regular file is ever opened: a named pipe or device in a skill, or as a hook script, hashes as not a regular
   file instead of blocking the board's thread (mutant hangs, killed by an alarm).
 
+## Review 5 (the agent-folder rule moved, not patched again)
+- Reviews 3 and 5 both got past a cd check from different sides. So the rule changed shape: "reached through the agent
+  folder" is decided by how the path resolved, not by where it landed, and such a script is checked only in one plain
+  invocation (no shell operators, no cd, pushd, -C, --chdir or -c). Anything else is cannot tell.
+- SKILL.md's existence check reads capped.
+
 ## Residual, stated
+- The caps are per skill. A comparison reads up to about 16 MB per skill name on both sides together, and one folder
+  with a huge number of entries is listed whole before its caps apply. Both run on the board's thread.
 - A run field written out at its default on one side (`timeout: 60` against none, `shell: "bash"` against none) reads
   as a difference: a false loss, the safe direction, which asks for --accept-loss.
 - The relative and `$CLAUDE_PROJECT_DIR` resolution rests on the agent's hooks running in `workerDir(name)`: both
