@@ -364,6 +364,9 @@ test('kosmos#8063 review 3: a script found only through the agent folder must be
   const exec = folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'gate.sh', args: ['x'] }] }] } }) });
   assert.equal(carry.losses(exec, none, P).ok, false, 'a bare exec command read as checked with the agent folder named');
   assert.equal(carry.losses(exec, none, H).ok, false, 'a bare exec command read as checked without it');
+  /* Even with a gate.sh sitting in the agent folder: a bare command name is looked up on PATH, never in the folder. */
+  fs.writeFileSync(path.join(project, 'gate.sh'), '#!/bin/sh\n');
+  assert.equal(carry.losses(exec, none, P).ok, false, 'a bare exec command was taken to be the gate.sh in the agent folder');
   /* CONTROL: there, and no cd, it is checked and its loss named. */
   assert.deepEqual(carry.losses(w('bash hooks/g.sh'), none, P).hooks, ['g.sh']);
   /* CONTROL: a full path that is missing still reads as not running here, as before. */
