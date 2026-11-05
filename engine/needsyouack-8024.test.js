@@ -87,6 +87,19 @@ test('an agent cannot acknowledge its own question: no person\'s screen, no ack,
   });
 });
 
+test('a tab in the background moves the cursor but acknowledges nothing', async () => {
+  await withAgent('ack-hidden', async () => {
+    posts.length = 0;
+    await report({ state: 'needs_you', text: 'Are you there?' });
+    const r = await fetch(base + '/api/agent/ack-hidden/seen?hidden=1', { method: 'POST', headers: { 'sec-fetch-site': 'same-origin' } });
+    assert.equal(r.status, 200);
+    assert.equal(acks().length, 0);
+    assert.equal(nya.due('ack-hidden'), true);
+    await seen('ack-hidden');
+    assert.equal(acks().length, 1, 'control: the same agent opened in view is acknowledged');
+  });
+});
+
 test('another agent\'s open does not acknowledge this one, and an ordinary report holds nothing', async () => {
   await withAgent('ack-a', async () => {
     posts.length = 0;
@@ -110,8 +123,9 @@ test('a held question sends no push, so it holds nothing to acknowledge', async 
 
 test('the board and the phone both fire on a due ack, not only on unread replies', () => {
   const page = fs.readFileSync(path.join(__dirname, '..', 'web', 'index.html'), 'utf8');
-  assert.ok(page.includes('if (dmRec && (dmRec.dmUnread > 0 || dmRec.openAckDue === true)) {'));
-  assert.ok(page.includes('dmRec.openAckDue = false;'), 'zeroed, or every poll while the chat is open re-fires');
+  assert.ok(page.includes("if (dmRec && (dmRec.dmUnread > 0 || (dmRec.openAckDue === true && !dmHidden))) {"));
+  assert.ok(page.includes('if (!dmHidden) dmRec.openAckDue = false;'), 'zeroed, or every poll while the chat is open re-fires');
+  assert.ok(page.includes("(dmHidden ? '?hidden=1' : '')"), 'a tab in the background says so');
   const chat = fs.readFileSync(path.join(__dirname, '..', 'ios', 'Kosmos', 'ChatView.swift'), 'utf8');
   assert.ok(chat.includes('guard visible, unreadHere > 0 || ackDue, !seenInFlight else { return }'));
 });
@@ -119,7 +133,12 @@ test('the board and the phone both fire on a due ack, not only on unread replies
 test('the store: a failed hand-over is kept, a week is the limit, and each agent keeps a few', () => {
   nya.remember('s1', 'one', 1000);
   assert.equal(nya.opened('s1', () => false, 2000), 0);
-  assert.equal(nya.due('s1', 2000), true, 'not reached: kept for the next open');
+  assert.equal(nya.due('s1', 2000), false, 'not reached: not due again at once, or every poll would POST');
+  assert.equal(nya.due('s1', 2000 + nya.RETRY_MS), true, 'and due again later');
+  let again = 0;
+  assert.equal(nya.opened('s1', () => { again++; return true; }, 3000), 1, 'a later open still sends it');
+  assert.equal(again, 1);
+  nya.remember('s1', 'one', 1000);
   assert.equal(nya.due('s1', 1000 + nya.KEEP_MS), false, 'past a week: dropped');
   for (let i = 0; i < nya.KEEP_PER_AGENT + 3; i++) nya.remember('s2', 'id' + i, 5000 + i);
   const got = [];

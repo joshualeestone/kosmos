@@ -15,3 +15,8 @@ A report or stuck-terminal needs-you, opened by the person, is acknowledged to t
 
 ## Not verified
 A real row on the live coordinator, the card's own test: that needs a release and a phone. The ack was checked only as far as the request the coordinator's own test matches on.
+
+## Review 1 (blind, sonnet)
+Fixed: an ack that could not go stayed due, so every poll with the chat open would POST for up to a week; it now waits an hour. Mine, against the reviewer's "no new exposure": a chat left open in a background tab would acknowledge a question nobody saw, so a hidden tab moves the cursor and acknowledges nothing.
+Left as decided: a visible page on an unattended computer still counts. The board cannot tell, and an ack costs one email.
+Noted: a forged header from a local script passes the gate; the code calls this advisory, and task seen behaves the same. due() parses a small file per status row; minor at this size.
