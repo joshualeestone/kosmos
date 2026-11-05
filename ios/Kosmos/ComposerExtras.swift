@@ -31,7 +31,7 @@ struct ComposerMicButton: View {
         let on = dictation.active
         Button(action: action) {
             Group {
-                if dictation.finishing { SweepDots(size: 16, scales: false) }   // kosmos#8058: the simple dots, at the fixed size of the icon they stand in for; the button says what is happening
+                if dictation.finishing { SweepDots(size: 16, scales: false) }   // kosmos#8058: the simple dots, at the orb's fixed 16 pt (the icon beside it does not grow either); the button says what is happening
                 else {
                     Image(systemName: on ? "stop.circle.fill" : "mic")
                         .font(.system(size: 20))

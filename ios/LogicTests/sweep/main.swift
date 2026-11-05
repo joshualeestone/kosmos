@@ -126,8 +126,8 @@ check(near(SweepLogic.look(24, dot: 5).opacity, SweepLogic.look(0, dot: 5).opaci
 // not from a directory passed to run-sweep.sh.
 do {
     let sites: [(file: String, has: String, what: String)] = [
-        ("ChatFiles.swift", "case .loading:\n            SweepDots(size: 16, scales: false, framesPerSecond: 15)", "an attachment loading: the dots, fixed 16 pt, 15 a second in the thread"),
-        ("ChatView.swift", "SweepDots(size: 16)   // kosmos#8058: the simple dots; this line is the thread", "Loading earlier messages in a chat"),
+        ("ChatFiles.swift", "case .loading:\n            SweepDots(size: 16, scales: false, framesPerSecond: 15, stillWhenReduced: true)", "an attachment loading: the dots, fixed 16 pt, 15 a second and still with Reduce Motion in the thread"),
+        ("ChatView.swift", "HStack(spacing: 6) {\n                    SweepDots(size: 16)", "Loading earlier messages in a chat"),
         ("ChatView.swift", "HStack(spacing: 6) {\n                            SweepDots(size: 16)", "Adding a file in a chat"),
         ("RoomView.swift", "HStack(spacing: 6) {\n                            SweepDots(size: 16)", "Adding a file in a room"),
         ("ComposerExtras.swift", "if dictation.finishing { SweepDots(size: 16, scales: false) }", "dictation finishing: the dots at the icon's fixed size"),
@@ -139,7 +139,7 @@ do {
         check(!text.isEmpty && text.contains(site.has), site.what + " (" + site.file + ")")
     }
     let room = repoText("ios/Kosmos/RoomView.swift")
-    check(room.components(separatedBy: "HStack { Spacer(); SweepDots(label: \"Loading\", framesPerSecond: 15); Spacer() }").count == 3,
+    check(room.components(separatedBy: "HStack { Spacer(); SweepDots(label: \"Loading\", framesPerSecond: 15, stillWhenReduced: true); Spacer() }").count == 3,
           "a room loading earlier posts, live and in its archive: the dots, 15 a second in the thread (RoomView.swift)")
     let chat = repoText("ios/Kosmos/ChatView.swift")
     check(chat.contains("KosmosOrb().accessibilityHidden(true)\n                    Text(\"Loading the conversation"),
