@@ -1,4 +1,4 @@
-// Browser-check-surface: create-msg acct-claude-msg createSayRefusal
+// Browser-check-surface: create-msg acct-claude-msg createSayRefusal createKeptRestore
 /* kosmos#8040: someone with no model connected presses Create agent. The refusal sits below the button, and the press
  * shows the short progress screen, so the page came back at the top with the words off screen: a dead button. Now the
  * words are in the window at the moment they are said, and their own "Settings, AI Models" goes there. Measured at the
@@ -520,7 +520,9 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await awayAndBack();
       await land();
       l = await line();
-      chk(!l.keyStep && l.text === '', 'late: away and back before it lands, the picker shows no line about a key', JSON.stringify(l));
+      // kosmos#8051 item 3: back at the picker in the same visit, it says the key was not added, naming no key (it was silent).
+      chk(!l.keyStep && l.text === 'The API key you entered was not added. That key was refused.' && l.seen && !l.text.includes(FAKE_KEY),
+        'late: away and back before it lands, the picker says the key was not added, and why, naming no key', JSON.stringify(l));
 
       await press(refused);
       await p.selectOption('#acct-provider-pick', 'openai');
@@ -618,6 +620,38 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.evaluate(() => document.getElementById('rail-agents-new').click());
       await p.waitForTimeout(500);
       chk(await cons() && await p.evaluate(() => document.getElementById('create-name').value === 'Nadia' && !document.getElementById('cstep-name').hidden && !document.getElementById('panel-create').hidden), 'consolidated: coming back, the layout, the step and the name are all there');
+      await p.close();
+    }
+    // kosmos#8051 item 2: a provider picked by hand while a saved Gemini-by-subscription pick's read is still out wins,
+    // and the kept form's account still comes back. Before #8051 the early return skipped the restore.
+    {
+      const A = { dir: '/nowhere/claude-a-8051', email: 'a@example.com', isDefault: true, memoryShared: true, offerable: true, connection: { state: 'connected', badge: 'signed_in' } };
+      const B = { dir: '/nowhere/claude-b-8051', email: 'b@example.com', isDefault: false, memoryShared: true, offerable: true, connection: { state: 'connected', badge: 'signed_in' } };
+      const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+      p.on('pageerror', (e) => errs.push(String(e)));
+      await p.route('**/api/first-run', (r) => r.fulfill({ json: { done: true } }));
+      await p.route(/\/api\/accounts(\?.*)?$/, (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { accounts: [A, B] } }) : r.continue()));
+      let hold = null;
+      await p.route('**/api/antigravity', async (r) => { if (hold) await hold; await r.fulfill({ json: { enabled: true, supported: true, installed: false } }).catch(() => {}); });
+      await toNameStep(p);
+      await p.waitForTimeout(600);
+      await p.selectOption('#create-account', B.dir);
+      await p.dispatchEvent('#create-account', 'change');
+      await p.route('**/api/agents', (r) => (r.request().method() === 'POST' ? r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ outcome: 'refused', because: 'connect one in ' + PLACE }) }) : r.continue()));
+      await pressCreate(p, PLACE);
+      await p.evaluate(() => localStorage.setItem('kosmos.create.provider', 'antigravity'));
+      let release; hold = new Promise((r) => { release = r; });
+      await p.locator('#create-msg button').click();
+      await p.evaluate(() => document.getElementById('new-agent').click());
+      await p.waitForTimeout(400);
+      const during = await p.evaluate(() => typeof CREATE_KEPT === 'number');
+      await p.selectOption('#create-provider', 'anthropic');
+      await p.dispatchEvent('#create-provider', 'change');
+      release();
+      await p.waitForTimeout(900);
+      const st = await p.evaluate(() => ({ prov: document.getElementById('create-provider').value, acct: document.getElementById('create-account').value, name: document.getElementById('create-name').value }));
+      chk(during && st.prov === 'anthropic', '#8051: CONTROL: the provider picked by hand during the read wins', JSON.stringify(st));
+      chk(st.acct === B.dir && st.name === 'Nadia', '#8051: and the kept form still gets its account back', JSON.stringify(st));
       await p.close();
     }
     chk(errs.length === 0, 'no page errors', JSON.stringify(errs));
