@@ -417,7 +417,8 @@ function cleanRecoveries(list) {
     if (!at) continue;
     const who = typeof r.who === 'string' ? r.who.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029\u061c\ufeff\u2060-\u2064\u180e\u00ad\u034f\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu, '').trim().slice(0, 64) : '';
     const epoch = whole(r.epoch);
-    const count = r.what === 'files_opened' ? whole(r.count) : null;
+    // A count of none would say files were opened when none were, so 0 is left out with the rest.
+    const count = r.what === 'files_opened' && whole(r.count) ? whole(r.count) : null;
     out.push({ what: r.what, at, ...(who ? { who } : {}), ...(epoch !== null ? { epoch } : {}), ...(count !== null ? { count } : {}) });
   }
   return out;

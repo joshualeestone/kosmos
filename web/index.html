@@ -20511,7 +20511,7 @@ window.kosmosMeasureScrollbarWidth();
             <p class="fhint" id="plus-org-reviewers-head"></p>
             <div id="plus-org-reviewers-list"></div>
           </div>
-          <!-- kosmos#5536 (#5529): the times this member's own backup was opened, shown to them; built dark until the relay sends it. -->
+          <!-- kosmos#5536 (#5529): the times this member's own backup was given to, or opened by, a reviewer; built dark until the relay sends it. -->
           <div id="plus-org-recoveries" hidden>
             <p class="fhint" id="plus-org-recoveries-head"></p>
             <div id="plus-org-recoveries-list"></div>
@@ -56020,14 +56020,13 @@ function plusOrgRecoveries(st) {
   const more = document.getElementById('plus-org-recoveries-more');
   if (more) {
     more.hidden = !(recs.length && st.recoveriesMore === true);
-    // In the org's own words, as the reviewers heading is (a family has no backup today, so no rows reach one).
-    more.textContent = plusOrgIn(st && st.org, "Older ones are not listed here. Your company's admins can see every one in its log.");
+    more.textContent = 'Older ones are not listed here.';
   }
   if (!recs.length) return;
   const at = Number(st.recoveriesAt);
   const stale = Number.isFinite(at) && at > 0 && Date.now() - at > 24 * 3600 * 1000;
   // The heading names access, not opening: a key given opens nothing by itself, and its line says so.
-  document.getElementById('plus-org-recoveries-head').textContent = 'Reviewers given access to your backup in the last 30 days'
+  document.getElementById('plus-org-recoveries-head').textContent = 'Reviewers given access to your backup in the last ' + PLUS_ORG_RECOVERY_DAYS + ' days'
     + (stale ? ' (last confirmed ' + new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ')' : '') + ':';
   for (const r of recs) {
     const line = document.createElement('p');

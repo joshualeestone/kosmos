@@ -15,7 +15,8 @@ Relay half: kosmos-relay PR #781 (the `recoveries` and `recoveriesMore` fields o
   in a bdi and is written as text. A row with no name reads "A reviewer" (the coordinator sends null for a deleted
   account, which is not the same as leaving). The heading says when the list was last confirmed if that is over a day
   ago. Older than 30 days is dropped by the page. `recoveriesMore` is kept and shown as "Older ones are not listed
-  here. Your company's admins can see every one in its log."
+  here." (A first version also promised the admins can see every one; nothing here shows the admin log keeps them
+  all, so that half was deleted.)
 
 ## Decided
 - A key release says "was given your backup key", not "opened": a key alone opens nothing until a read follows. The
