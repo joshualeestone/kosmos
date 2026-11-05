@@ -9323,6 +9323,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-name .sfoot .field { margin-top: 0; }
 #cstep-name .sfoot #create-go { flex: 0 0 auto; }
 #create-msg .linkish { font-size: inherit; }   /* kosmos#8040: the link in a refusal reads at its sentence's size */
+#cstep-name { padding-bottom: var(--space-7); }   /* kosmos#8040: room under the sentence, or in the consolidated column it ends at the window's very edge */
 /* kosmos#8040: the sample name reads as a name already typed, so "Give the agent a name." looked wrong beside it and the
    press looked like nothing. While the box is refused it shows as what it is: empty. The sample stays for everyone else. */
 #create-name.bad::placeholder { color: transparent; }
@@ -32072,6 +32073,7 @@ function acctPick(which, opts) {
   const sel = document.getElementById('acct-provider-pick');
   if (sel.value !== which) sel.value = which;
   acctAddPickSay('');   // #3939 slice 3c-2: a choice ends what the line beside the picker said (round 3)
+  if (which !== 'claude') { const said = document.getElementById('acct-claude-msg'); if (said) said.textContent = ''; }   // kosmos#8040: it is about a step now put away
   acctMuseShow(which === 'meta');   // #3939: Meta Muse's step, or put away for any other choice
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
@@ -32163,6 +32165,7 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   // Cleared, or (defensively) a disabled "coming" option somehow reached
   // change: no flow is a live provider, so none shows.
   document.getElementById('acct-claude-flow').hidden = true;
+  document.getElementById('acct-claude-msg').textContent = '';   // kosmos#8040: as in acctPick, which this path skips
   document.getElementById('acct-openai-flow').hidden = true;
   acctApikeyShow(null);
   acctQwenShow(false);   // #5977
@@ -66047,6 +66050,7 @@ document.body.addEventListener('input', (e) => {
 });
 
 function openCreate(initialMode) {
+  CREATE_KEPT = false;   // kosmos#8040
   PICKED = null;
   /* #4556: every visit starts on the three-way choice; the first-run import link goes straight to Single. */
   CREATE_PATH = initialMode === 'import' ? 'single' : null;
@@ -66131,7 +66135,7 @@ function openCreate(initialMode) {
 /* #1652: wrapped, not bound bare. openCreate now takes an optional initialMode
    (for the first-run import link); binding it directly would hand the click Event
    in as that arg. */
-document.getElementById('new-agent').addEventListener('click', () => openCreate());
+document.getElementById('new-agent').addEventListener('click', () => createEnter());
 /* #1652/#5: the first-run find-agents "look in my Documents and Downloads" link and
    its delegated #fr-fleet handler were REMOVED on Josh's 0.6.39 ruling (see the
    frPaintFleet create arm). Agents in Documents/Downloads are reached by the
@@ -66143,7 +66147,7 @@ document.getElementById('new-agent').addEventListener('click', () => openCreate(
 /* Delegated: both live inside innerHTML the poll replaces wholesale, so a
    listener bound to the node would be thrown away on the next tick. */
 document.addEventListener('click', (e) => {
-  if (e.target.closest('[data-board-new]')) { openCreate(); return; }
+  if (e.target.closest('[data-board-new]')) { createEnter(); return; }
   /* #718 state 3: a reload is a navigation, which the relay answers with its sign-in page;
      after signing in it sends the person back to the board. */
   if (e.target.closest('[data-device-signin]')) { location.reload(); return; }
@@ -67516,6 +67520,7 @@ async function loadCreateExtras() {
    and people read a dead button. So bring them into view and put the keyboard on them (the button's own focus went when
    it was hidden; the sentence, not the link, so a second press of the key cannot leave the page). Where the sentence
    names Settings, AI Models, those words are the way there. Built as nodes: the sentence is the engine's. */
+var CREATE_KEPT = false;   // the person left by that link, so their next New agent comes back to this form (var: no dead zone)
 function createSayRefusal(text) {
   const msg = document.getElementById('create-msg');
   const place = 'Settings, AI Models';
@@ -67526,11 +67531,42 @@ function createSayRefusal(text) {
     link.type = 'button';
     link.className = 'linkish';
     link.textContent = place;
-    link.addEventListener('click', () => { showTab('settings'); settingsOpen('accounts'); });
+    link.addEventListener('click', () => {
+      CREATE_KEPT = true;
+      if (document.body.classList.contains('consolidated')) {   // #2842: showTab would drop this layout
+        SETTINGS_SEC = 'accounts';
+        openConsolidatedSettings();
+      } else {
+        showTab('settings');
+        settingsOpen('accounts');
+      }
+    });
     msg.replaceChildren(text.slice(0, at), link, text.slice(at + place.length));
   }
   if (msg.scrollIntoView) msg.scrollIntoView({ block: 'center' });
   msg.focus({ preventScroll: true });
+}
+/* kosmos#8040: New agent, after that link. openCreate is what empties the form, so this does not call it: the fields and
+   their state are still here behind the hidden panel. The sentence is over (they went to fix it). What they went to
+   change is read again, so an account just connected can be picked. Any other route to openCreate ends the keeping. */
+function createEnter() {
+  if (!CREATE_KEPT) { openCreate(); return; }
+  CREATE_KEPT = false;
+  document.getElementById('create-msg').textContent = '';
+  cstep('name');
+  if (document.body.classList.contains('consolidated')) openConsolidatedCreate(); else showTab('create');
+  document.getElementById('create-name').focus();
+  const picked = document.getElementById('create-account').value;
+  fetch('/api/accounts', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((out) => {
+    if (!out || !Array.isArray(out.accounts) || CREATE_KEPT) return;
+    CREATE_ACCOUNTS = out.accounts;
+    CREATE_ACCOUNTS_KNOWN = true;
+    CREATE_ACCOUNTS_FAILED = false;
+    fillCreateAccounts();
+    const acct = document.getElementById('create-account');
+    if (picked && [...acct.options].some((o) => o.value === picked && !o.disabled)) acct.value = picked;
+    swarmCreatePaint();
+  }).catch(() => { /* the menu keeps what it showed */ });
 }
 document.getElementById('create-go').addEventListener('click', async () => {
   if (CREATING) return;

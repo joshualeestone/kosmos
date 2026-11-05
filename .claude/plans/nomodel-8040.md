@@ -31,6 +31,10 @@ pjFieldBad. What was missing is that the sample name "Casey" reads as a name alr
 looked wrong beside it. While the box is refused, its placeholder is transparent: no new words, and the sample stays for
 everyone else. The account refusal still needs a second press, which now shows in the window with its link.
 
+Coming back by the link: the form is not rebuilt. `openCreate` is what empties it, so New agent after the link skips it
+(`CREATE_KEPT`, `createEnter`), clears the old sentence, re-reads the accounts, and any other route to `openCreate` ends the
+keeping. Page memory only: a reload starts fresh, and a New agent much later in the same page still returns here.
+
 ## What I rejected
 
 - Restoring the old scroll position after the progress screen. It puts back the button, not the words: below the button at
@@ -41,6 +45,8 @@ everyone else. The account refusal still needs a second press, which now shows i
 - Rewording or removing the "Casey" placeholder. It is Mona Lisa's to word, and hiding it only while refused answers this.
 - Saying the account refusal on the first press alongside the name's. It needs the engine to check both, a bigger change
   for one extra press.
+- Snapshotting the form's fields and restoring them after a reset. A longer list of state to keep in step, for what the hidden
+  panel already holds. `loadCreateExtras` on return, too: it rebuilds the menus that hold their picks.
 - A second message line in the picker for item 2. Two lines for one fact, and OpenAI's shape already answers it.
 - Rewording "so there is nothing to sign in to". Asked not to reword; flagged instead (below).
 
@@ -59,7 +65,8 @@ the box is refused.
 ## Not touched, and why
 
 - Items 3, 4, 5.
-- `#tc-msg`, the Team path's line: left alone, because the card names Create agent and nobody has measured it off screen.
+- `#tc-msg`, the Team path's line: left alone, because the card names Create agent. Reviewed: its sentence has no link, but it is in view.
+- A screen reader may still offer the placeholder "Casey" for a refused box: the CSS hides it from sight only. Mona Lisa's to word.
 - Other "Settings, AI Models" sentences outside New agent (the switch dialog and others) still carry no link.
 - The `role label` branch keeps its focus on the label, as it did. The page gates a blank label before the request, so
   this needs the engine and the page to disagree.
