@@ -198,8 +198,9 @@ final class AttachMenuUITests: XCTestCase {
         XCTAssertLessThan(up, down - 100, "CONTROL: the keyboard did not lift the box")
         app.buttons[label].tap()
         var seen: [CGFloat] = []
+        // Through the swap, and at least four readings: one reading took over a second on a loaded CI runner.
         let end = Date().addingTimeInterval(1.2)
-        while Date() < end { seen.append(box.frame.minY) }
+        while Date() < end || seen.count < 4 { seen.append(box.frame.minY) }
         XCTAssertTrue(panel(app).exists, "the tray did not open")
         XCTAssertFalse(app.keyboards.firstMatch.exists && app.keyboards.firstMatch.isHittable, "the keyboard stayed up")
         XCTAssertGreaterThan(seen.count, 2, "too few readings to mean anything")
@@ -213,7 +214,7 @@ final class AttachMenuUITests: XCTestCase {
         app.buttons["Close photos"].tap()
         seen = []
         let back = Date().addingTimeInterval(1.2)
-        while Date() < back { seen.append(box.frame.minY) }
+        while Date() < back || seen.count < 4 { seen.append(box.frame.minY) }
         for y in seen { XCTAssertEqual(y, up, accuracy: 1.5, "the box moved on the way back: \(seen), kept at \(up)") }
         XCTAssertFalse(panel(app).exists, "the tray stayed under the keyboard")
     }
