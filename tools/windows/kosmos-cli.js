@@ -2508,7 +2508,7 @@ async function agentMove(ctx, args) {
   if (plan.same === true) { ctx.out(name + ' is already on ' + label + '. Nothing was moved.'); return 0; }
   if (plan.ok !== true) ctx.out('Kosmos could not check what ' + name + ' would lose on ' + label + ': ' + (clause(plan.because || '') || 'it did not say why') + '.');
   else if (plan.sentence) ctx.out(plan.sentence);
-  else ctx.out('On ' + label + ' it keeps every skill and hook script it has now (skills and hooks from plugins are not checked).');
+  else ctx.out('On ' + label + ' it keeps every skill and hook script it has now (skills are compared by their SKILL.md; plugins are not checked).');
   ctx.out('Moving restarts ' + name + ' on ' + label + '. Anything it has running stops.');
   /* Review 1: a script cannot read that sentence, so --yes alone never moves an agent into a known loss or an
      unchecked one; nothing is sent. A person at a terminal reads it and answers below. */
@@ -2527,6 +2527,7 @@ async function agentMove(ctx, args) {
   let because = a.because || first.because || first.error || '';
   /* Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s). Review 2: the
      wait is bounded by time, not by tries (a read that times out costs 15 s). */
+  if (outcome === 'pending' && !first.id) outcome = 'unknown';   // review 4: a pending answer with no move id cannot be followed
   const t0 = ctx.now();
   while (outcome === 'pending' && first.id && ctx.now() - t0 < 300000) {
     await ctx.sleep(3000);
