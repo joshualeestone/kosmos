@@ -14,6 +14,10 @@ else says what is loading (a room's earlier posts); hidden where the words besid
 - `ComposerExtras`: dictation finishing, at a fixed size (the icon it stands in for does not grow with text)
 - `ShellViews.DownloadLine`: Getting a file (drawn over the whole app, for any board file)
 
+One behaviour change beyond the look: the dots grow with the person's text size, as the words beside them do,
+where the 16 pt orb kept its size. Dictation's dots are the exception, fixed at the icon's size, so the composer row
+never grows.
+
 Kept as the orb: whole-screen waits (Loading the conversation in an empty chat), and the waits outside chats and
 rooms (sign-in, New agent, Settings, task and project pages), which this card does not ask about.
 
