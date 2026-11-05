@@ -6,16 +6,16 @@ circular dots, as a file uploading does. Read as `SweepDots` (his "simple dots t
 
 ## Change
 
-Small inline waits in chats and rooms: `KosmosOrb` becomes `SweepDots`, keeping each site's VoiceOver label
-(a label where it had one, hidden where the words beside it say what is loading):
+Small inline waits: `KosmosOrb` becomes `SweepDots`. VoiceOver hears the same as before: a label only where nothing
+else says what is loading (a room's earlier posts); hidden where the words beside it, or the row's own label, do:
 - `ChatFiles` attachment loading
 - `ChatView`: Adding a file, Loading earlier messages
 - `RoomView`: Adding a file, earlier posts loading (live and archive)
-- `ComposerExtras`: dictation finishing
-- `ShellViews.DownloadLine`: Getting a file
+- `ComposerExtras`: dictation finishing, at a fixed size (the icon it stands in for does not grow with text)
+- `ShellViews.DownloadLine`: Getting a file (drawn over the whole app, for any board file)
 
-Kept as the orb: whole-screen waits (Loading the conversation in an empty chat) and everything outside chats
-and rooms.
+Kept as the orb: whole-screen waits (Loading the conversation in an empty chat), and the waits outside chats and
+rooms (sign-in, New agent, Settings, task and project pages), which this card does not ask about.
 
 ## Checks
 

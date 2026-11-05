@@ -296,7 +296,7 @@ struct FileCard: View {
     @ViewBuilder private var meta: some View {
         switch state {
         case .loading:
-            SweepDots(size: 16, label: "Loading")   // kosmos#8058 (Josh 11-05): an attachment loading has the simple dots
+            SweepDots(size: 16)   // kosmos#8058 (Josh 11-05): an attachment loading has the simple dots; the card says it is opening
         case .failed:
             Text("Could not open it. Try again.").font(.caption).foregroundColor(Palette.dangerWord).lineLimit(lines)
         case .ready:

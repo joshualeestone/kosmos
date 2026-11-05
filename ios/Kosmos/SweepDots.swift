@@ -3,7 +3,8 @@ import SwiftUI
 /// kosmos#7954 (Josh 2026-11-04: "use our simple dots that go in a circle since they are smaller"): the board's Sweep
 /// loader as its CSS defines it, eight gold dots on a ring lighting one after another (SweepLogic has the numbers). It
 /// stands in for the KOSMOS orb on the first waits to connect (Agents, and Projects since #7945, through ConnectingWait
-/// below); other loading places keep the orb (#7896).
+/// below) and, since #8058 (Josh 11-05), on small inline waits (a file loading or being added, earlier messages, the
+/// Getting a file bar, dictation finishing); whole-screen waits keep the orb (#7896).
 /// With no label it is hidden from VoiceOver, for a place whose words already say what is loading; with one, VoiceOver
 /// reads that label. It grows with the person's text size (unless `scales` is false). Drawn from the clock at 30 frames a second at most, as
 /// WorkingDots is; with Reduce Motion the dots stay where they are and pulse together (#4591: still dots read as frozen).
