@@ -541,6 +541,11 @@ enum Board {
     // refused as "not rebuilt again" (only a trace line says so), leaving the later reads to catch it. The check is on
     // the earliest read to stay on the safe side (rebuildTimingHolds is false then; LogicTests checks it).
     static let rebuildGrace: Double = 1.5
+    // kosmos#7420: a chat that has drawn nothing this long after its messages arrived is blank, not slow to open.
+    static let neverDrewAfter: Double = 2
+    static func neverDrew(endSeen: Bool, everDrew: Bool, messagesFor: Double?) -> Bool {
+        !endSeen && !everDrew && (messagesFor ?? 0) > neverDrewAfter
+    }
     static let rebuildCheckBump: Double = 0.3
     static let rebuildSpacing: Double = 2
     static let diagCheckWaits: [Double] = [0.5, 1.5]
