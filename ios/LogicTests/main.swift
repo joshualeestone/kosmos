@@ -5708,6 +5708,7 @@ do {
     check(Board.rowsAgainstScreen([5], showing: nil) == "row tops 5 to 5, screen unread", "no scroll view says so")
     check(Board.rowsAgainstScreen([5, .nan, .infinity], showing: (top: .nan, bottom: 1)) == "row tops 5 to 5, screen unread", "a broken number never traps a report about a broken scroll")
     check(Board.rowsAgainstScreen([.nan], showing: (top: 1, bottom: 2)) == "no row read its place", "control: nothing finite")
+    check(Board.rowsAgainstScreen([1e300, -1e300], showing: (top: .greatestFiniteMagnitude, bottom: 1)) == "row tops -1000000000000000 to 1000000000000000, screen shows 1000000000000000 to 1", "a huge finite value is clamped, never a crash in the report")
 
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")

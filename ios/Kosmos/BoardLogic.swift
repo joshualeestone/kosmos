@@ -457,10 +457,12 @@ enum Board {
     // sit in the content against what the screen shows, as numbers: a record, which decides nothing. nil readings or a nil
     // screen say so: on iOS below 26 no row reads its place.
     static func rowsAgainstScreen(_ rows: [Double], showing: (top: Double, bottom: Double)?) -> String {
+        // Clamped: Int() traps on a finite value past its range too, and this runs when the scroll is already suspected broken.
+        func n(_ x: Double) -> Int { Int(max(-1e15, min(1e15, x))) }
         let finite = rows.filter(\.isFinite)
         guard let low = finite.min(), let high = finite.max() else { return "no row read its place" }
-        guard let s = showing, s.top.isFinite, s.bottom.isFinite else { return "row tops \(Int(low)) to \(Int(high)), screen unread" }
-        return "row tops \(Int(low)) to \(Int(high)), screen shows \(Int(s.top)) to \(Int(s.bottom))"
+        guard let s = showing, s.top.isFinite, s.bottom.isFinite else { return "row tops \(n(low)) to \(n(high)), screen unread" }
+        return "row tops \(n(low)) to \(n(high)), screen shows \(n(s.top)) to \(n(s.bottom))"
     }
     // kosmos#7654: the tops of the rows whose reading agrees with where the list is: a row at `top` on the screen should sit at
     // offset + (top - bandTop) in the content, where offset is the scroll's plus its top inset. A settled list agrees exactly; 30 pt is
