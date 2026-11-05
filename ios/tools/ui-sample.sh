@@ -3,7 +3,8 @@
 # panel (AttachMenuUITests), the room title check (RoomTitleUITests), the keyboard (KeyboardSlideUITests), a long
 # room opening on its newest post (RoomOpensAtNewestUITests, #7654), the x on an add (StopAddingUITests, #7682) and the
 # keyboard in that long room (RoomKeyboardUITests, #7690), and the launch screen's hand-over to the Connecting wait
-# (LaunchHandoverUITests, #7945). Run by the ios workflow's "ui tests (sample board)" job and by
+# (LaunchHandoverUITests, #7945), and a sent message settling without a step (SendMovesOnceUITests, #7348).
+# Run by the ios workflow's "ui tests (sample board)" job and by
 # hand. Prints PASS, or FAIL with the failing check's own words.
 #
 #
@@ -31,7 +32,8 @@ done
 # growing and shrinking at the newest message, and a reader higher up while it grows).
 # kosmos#7945 follow-up: LaunchHandoverUITests measures that the Connecting wait's ring sits at the screen's centre, where
 # the launch screen draws it, on the Agents tab and on Projects, and at the largest text size (3 checks).
-classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3"
+# kosmos#7348: SendMovesOnceUITests, a send paced as a real Mac answers does not step as it settles (2 checks).
+classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 SendMovesOnceUITests:2"
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
 # "Timed out while evaluating UI query" on both CI runs, iOS 26.5, while it passes here). Run it alone on a Mac:
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests

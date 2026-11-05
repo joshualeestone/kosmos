@@ -2667,6 +2667,33 @@ enum Board {
         var deletable: Bool { switch state { case .failed, .taken, .unconfirmed: return true; default: return false } }
     }
 
+    // kosmos#7348 (Josh 10-27: after a send the conversation crept down in steps). The real rows and the sends a read is
+    // expected to turn into rows are grouped together, so a pending bubble is drawn with the day line and run it will have
+    // and the message before it already ends its run; otherwise that all changes at the read and moves the rows above.
+    // A failed or unconfirmed send may have no row coming, so it and every send drawn after it stay out, and the message
+    // before it keeps its time line. A send with files stands alone, as its row does (a file row is in no run).
+    struct PendingPlace: Equatable { var day: String?; var first: Bool; var last: Bool }
+    static func chatItems(_ rows: [ChatRow], pending: [PendingSend], now: Date, calendar: Calendar) -> (items: [ChatItem], places: [String: PendingPlace]) {
+        let prefix = "pending|"
+        let coming = pending.prefix { $0.state != .unconfirmed && !$0.failed }
+            .map { ChatRow(id: prefix + $0.id, atRaw: nil, at: $0.at, text: $0.text, who: .person, wayThrough: $0.files.isEmpty ? nil : .attachment) }
+        var items: [ChatItem] = []
+        var places: [String: PendingPlace] = [:]
+        var day: String?
+        for item in chatItems(rows + coming, now: now, calendar: calendar) {
+            switch item.kind {
+            case .day(let label):
+                if item.id.hasPrefix("day|" + prefix) { day = label } else { items.append(item) }
+            case .row(let row, let first, let last):
+                if row.id.hasPrefix(prefix) {
+                    places[String(row.id.dropFirst(prefix.count))] = PendingPlace(day: day, first: first, last: last)
+                    day = nil
+                } else { items.append(item) }
+            }
+        }
+        return (items, places)
+    }
+
     // The Mac's answer to a send. POST /api/agent/<name>/thread answers 200 with `delivery` (its `at` is the row it
     // kept) and `recorded` (whether it kept one); a refusal answers 4xx with `{error}`.
     enum SendResult: Equatable { case kept(at: String), keptUndelivered(at: String, note: String), taken, unconfirmed, refused(String?), noAnswer }
