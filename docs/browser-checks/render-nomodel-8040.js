@@ -122,7 +122,7 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       chk(said2.startsWith('There is no Claude account signed in on this computer') && said2.includes(PLACE), size + ': the engine\'s own words are kept, in full', JSON.stringify(said2));
       chk((await seen(p, '#create-msg')).in && (await seen(p, '#create-msg button')).in, size + ': with Claude Code here, the refusal and its link are in the window too');
 
-      // The name left empty (found on the Windows walk): this refusal comes first, and the sample name looks filled in.
+      // The name left empty (found on the Windows walk): this refusal comes first, and the sample name "Casey" looks filled in.
       await toNameStep(p);
       await p.fill('#create-name', '');
       await p.dispatchEvent('#create-name', 'input');
