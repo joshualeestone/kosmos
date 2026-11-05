@@ -32,13 +32,18 @@ looked wrong beside it. While the box is refused, its placeholder is transparent
 everyone else. The account refusal still needs a second press, which now shows in the window with its link.
 
 Coming back by the link: the form is not rebuilt. `openCreate` is what empties it, so New agent after the link skips it
-(`CREATE_KEPT`, `createEnter`), clears the old sentence, re-reads the accounts, and any other route to `openCreate` ends the
+(`CREATE_KEPT`, `createEnter`), clears the old sentence, runs `loadCreateExtras` (what a plain New agent runs), puts back the picks it rebuilt
+its menus over where the provider did not move, and any other route to `openCreate` ends the
 keeping. Page memory only: a reload starts fresh.
 
 The keeping ends 30 minutes after the link (`CREATE_KEPT_MS`). Past that a New agent starts plain. Rejected: clearing on
 leaving Settings, since the way back is leaving Settings and pressing New agent; clearing when a connect succeeds, since the
 person still wants their form back then. Weakest premise: 30 minutes is enough for a sign-in. If not, they retype, which is
 what a plain New agent always did.
+
+A late key answer: when it lands after the person left the key step (dialog closed, another provider, back at the picker) it
+says nothing, except no Claude Code at the picker, where it is true. Residual: away, back and into the key step again while
+one is held: its line lands on a key step, about the earlier press. Left, since a line under a key box about a key is not false.
 
 ## What I rejected
 
@@ -51,7 +56,7 @@ what a plain New agent always did.
 - Saying the account refusal on the first press alongside the name's. It needs the engine to check both, a bigger change
   for one extra press.
 - Snapshotting the form's fields and restoring them after a reset. A longer list of state to keep in step, for what the hidden
-  panel already holds. `loadCreateExtras` on return, too: it rebuilds the menus that hold their picks.
+  panel already holds.
 - A second message line in the picker for item 2. Two lines for one fact, and OpenAI's shape already answers it.
 - Rewording "so there is nothing to sign in to". Asked not to reword; flagged instead (below).
 

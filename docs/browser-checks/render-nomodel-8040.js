@@ -146,7 +146,9 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       chk(back.name === 'Nadia' && back.instr === 'My own instructions, typed before the refusal.', size + ': coming back by the link, the name and the instructions are there', JSON.stringify({ name: back.name, instr: back.instr.slice(0, 30) }));
       chk(back.step && back.panel, size + ': on the same step, not the three-way choice');
       chk(back.msg === '' && back.focus === 'create-name', size + ': the old refusal is gone and the keyboard is at the name', JSON.stringify({ msg: back.msg, focus: back.focus }));
-      chk(back.accounts.some((o) => /kept@example\.com/.test(o.text)), size + ': and the account just connected can be picked', JSON.stringify(back.accounts));
+      await p.waitForFunction(() => [...document.getElementById('create-account').options].some((o) => /kept@example\.com/.test(o.textContent)), null, { timeout: 8000 }).catch(() => {});
+      const pickable = await p.evaluate(() => [...document.getElementById('create-account').options].map((o) => o.textContent));
+      chk(pickable.some((t) => /kept@example\.com/.test(t)), size + ': and the account just connected can be picked', JSON.stringify(pickable));
       fs.rmSync(second, { recursive: true, force: true });
       let sent = null;
       await p.route('**/api/agents', (r) => { if (r.request().method() !== 'POST') return r.continue(); sent = JSON.parse(r.request().postData()); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ outcome: 'refused', because: 'stopped by this check' }) }); });
@@ -333,6 +335,181 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.waitForSelector('#create-name', { state: 'visible', timeout: 8000 });
       const instrAfter = await p.locator('#create-instr').inputValue();
       chk(!instrAfter.includes('typed before the refusal'), 'limit: and the old instructions are gone', JSON.stringify(instrAfter.slice(0, 30)));
+      await p.close();
+    }
+
+    // Coming back after connecting a provider: the form reads what is connected as a plain New agent does, and keeps what was typed.
+    {
+      const TYPED = 'My own instructions, typed before the refusal.';
+      const OPENAI = { provider: 'openai', dir: '/nowhere/openai-kept', email: 'kept@example.com', isDefault: true, memoryShared: true, offerable: true, connection: { state: 'connected', badge: 'signed_in' } };
+      const CLAUDE = { dir: '/nowhere/claude-kept', email: 'claude@example.com', isDefault: true, memoryShared: true, offerable: true, connection: { state: 'connected', badge: 'signed_in' } };
+      const open = async () => {
+        const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+        p.on('pageerror', (e) => errs.push(String(e)));
+        await p.route('**/api/first-run', (r) => r.fulfill({ json: { done: true } }));
+        return p;
+      };
+      const typed = async (p) => { await p.fill('#create-instr', TYPED); await p.dispatchEvent('#create-instr', 'input'); };
+      const leaveConnectAndReturn = async (p, accounts) => {
+        await p.locator('#create-msg button').click();
+        await p.route(/\/api\/accounts(\?.*)?$/, (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { accounts } }) : r.continue()));
+        await p.evaluate(() => document.getElementById('new-agent').click());
+        await p.waitForTimeout(900);
+      };
+      const state = (p) => p.evaluate(() => { const v = (id) => document.getElementById(id).value; const why = document.getElementById('create-model-why'); return { prov: v('create-provider'), acct: v('create-account'), model: v('create-model'), name: v('create-name'), instr: v('create-instr'), reports: v('create-reports'), note: why && !why.hidden ? why.textContent : '', modelOff: document.getElementById('create-model').disabled }; });
+      const pressAndRead = async (p) => {
+        let sent = null;
+        await p.route('**/api/agents', (r) => { if (r.request().method() !== 'POST') return r.continue(); sent = JSON.parse(r.request().postData()); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ outcome: 'refused', because: 'stopped by this check' }) }); });
+        await pressCreate(p, 'Stopped by this check');
+        return sent;
+      };
+
+      // Nothing chosen, Claude refused, an OpenAI account connected: the form opens on it, as a plain New agent would.
+      claudeHere();
+      let p = await open();
+      await toNameStep(p);
+      await typed(p);
+      await pressCreate(p, 'no Claude account');
+      await leaveConnectAndReturn(p, [OPENAI]);
+      let st = await state(p);
+      chk(st.prov === 'openai' && st.acct === OPENAI.dir, 'return: a provider just connected is what the form is on, when none was chosen', JSON.stringify({ prov: st.prov, acct: st.acct }));
+      chk(st.name === 'Nadia' && st.instr === TYPED, 'return: and the name and instructions are kept', JSON.stringify({ name: st.name, instr: st.instr.slice(0, 20) }));
+      let sent = await pressAndRead(p);
+      chk(!!sent && sent.provider === 'openai' && sent.account === OPENAI.dir && sent.name === 'Nadia' && sent.instructions === TYPED, 'return: and Create agent goes out on that account, past the old refusal', JSON.stringify(sent && { provider: sent.provider, account: sent.account }));
+      await p.close();
+
+      // CONTROL: the same answer on a plain New agent gives the same provider and account, so the two paths agree.
+      p = await open();
+      await p.route(/\/api\/accounts(\?.*)?$/, (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { accounts: [OPENAI] } }) : r.continue()));
+      await toNameStep(p);
+      await p.waitForTimeout(600);
+      st = await state(p);
+      chk(st.prov === 'openai' && st.acct === OPENAI.dir, 'return: CONTROL: a plain New agent with that answer reads the same', JSON.stringify({ prov: st.prov, acct: st.acct }));
+      await p.close();
+
+      // Refused on OpenAI by choice, then connected: the model row is the account's, not the signed-out note.
+      p = await open();
+      await p.route('**/api/accounts/openai/models**', (r) => r.fulfill({ json: { ok: true, models: [{ key: 'mock-model', label: 'Mock model' }, { key: 'mock-other', label: 'Mock other' }] } }));
+      await toNameStep(p);
+      await typed(p);
+      await p.selectOption('#create-provider', 'openai');
+      await p.dispatchEvent('#create-provider', 'change');
+      await pressCreate(p, 'no OpenAI sign-in');
+      const noteBefore = (await state(p)).note;
+      chk(/signed in/i.test(noteBefore), 'return: CONTROL: refused on OpenAI, the row says it waits for a sign-in', JSON.stringify(noteBefore));
+      await leaveConnectAndReturn(p, [OPENAI]);
+      st = await state(p);
+      chk(st.prov === 'openai' && st.acct === OPENAI.dir, 'return: refused on OpenAI and connected, the form is on that account', JSON.stringify({ prov: st.prov, acct: st.acct }));
+      chk(!st.modelOff && (await p.evaluate(() => [...document.getElementById('create-model').options].some((o) => o.value === 'mock-model'))) && !/signed in/i.test(st.note), 'return: and the model row offers that account\'s models', JSON.stringify({ note: st.note, modelOff: st.modelOff }));
+      await p.close();
+
+      // A person who chose keeps what they chose: the provider, against a Claude account appearing; and a Claude model and a manager.
+      p = await open();
+      await toNameStep(p);
+      await p.selectOption('#create-provider', 'openai');
+      await p.dispatchEvent('#create-provider', 'change');
+      await pressCreate(p, 'no OpenAI sign-in');
+      await leaveConnectAndReturn(p, [CLAUDE]);
+      st = await state(p);
+      chk(st.prov === 'openai', 'return: a provider chosen by hand is kept, whatever else was connected', JSON.stringify({ prov: st.prov }));
+      await p.close();
+
+      p = await open();
+      await p.route('**/api/status', async (r) => { try { const resp = await r.fetch(); const j = await resp.json(); j.agents = [...(j.agents || []), { name: 'Boss', sessionName: 'boss', state: 'idle' }]; await r.fulfill({ response: resp, json: j }); } catch { /* the page closed while this was in flight (#6022) */ } });
+      await toNameStep(p);
+      await p.waitForFunction(() => [...document.getElementById('create-reports').options].some((o) => o.value === 'boss'), null, { timeout: 10000 }).catch(() => {});
+      const chosenModel = await p.evaluate(() => { const m = document.getElementById('create-model'); const o = [...m.options].find((x) => !x.selected); m.value = o.value; m.dispatchEvent(new Event('change', { bubbles: true })); const rep = document.getElementById('create-reports'); rep.value = 'boss'; return { model: m.value, reports: rep.value }; });
+      await pressCreate(p, 'no Claude account');
+      await leaveConnectAndReturn(p, [CLAUDE]);
+      st = await state(p);
+      chk(st.prov === 'anthropic' && st.model === chosenModel.model, 'return: the model picked by hand is kept', JSON.stringify({ was: chosenModel.model, now: st.model }));
+      chk(chosenModel.reports === 'boss' && st.reports === 'boss', 'return: and so is who it reports to', JSON.stringify({ was: chosenModel.reports, now: st.reports }));
+      await p.close();
+    }
+
+    // A refused key's words that land late say nothing once the person has left the key step.
+    {
+      const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+      p.on('pageerror', (e) => errs.push(String(e)));
+      await p.route('**/api/first-run', (r) => r.fulfill({ json: { done: true } }));
+      claudeHere();
+      await p.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+      await p.evaluate(() => { showTab('settings'); settingsOpen('accounts'); });
+      let release = null;
+      let answer = null;
+      await p.route('**/api/accounts/claude/apikey', async (r) => { try { await new Promise((go) => { release = go; }); await r.fulfill({ status: 400, json: answer }); } catch { /* the page closed while this was held (#6022) */ } });
+      const refused = { error: 'that key was refused' };
+      const noCode = { error: 'we could not find Claude Code on this computer, so there is nothing to sign in to', needsRunner: true, provider: 'claude' };
+      const press = async (a) => {
+        answer = a; release = null;
+        if (await p.isHidden('#acct-add-modal')) await p.click('#acct-add-open');
+        await p.selectOption('#acct-provider-pick', 'claude');
+        await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 });
+        await p.click('#acct-claude-pick-key');
+        await p.fill('#acct-claude-key', FAKE_KEY);
+        await p.click('#acct-claude-go');
+        await p.waitForFunction(() => document.getElementById('acct-claude-msg').textContent === 'Adding…', null, { timeout: 5000 });
+        for (let i = 0; i < 50 && !release; i += 1) await p.waitForTimeout(50);
+      };
+      const land = async () => { release(); await p.waitForTimeout(300); };
+      const line = () => p.evaluate(() => ({ text: document.getElementById('acct-claude-msg').textContent, seen: !!document.getElementById('acct-claude-msg').getClientRects().length, keyStep: !document.getElementById('acct-claude-key-step').hidden }));
+      const awayAndBack = async () => { await p.selectOption('#acct-provider-pick', 'openai'); await p.waitForTimeout(150); await p.selectOption('#acct-provider-pick', 'claude'); await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 }); };
+
+      await press(refused);
+      await land();
+      let l = await line();
+      chk(l.keyStep && /that key was refused/i.test(l.text) && l.seen, 'late: CONTROL: an answer to a person still on the key step shows there', JSON.stringify(l));
+
+      await press(refused);
+      await awayAndBack();
+      await land();
+      l = await line();
+      chk(!l.keyStep && l.text === '', 'late: away and back before it lands, the picker shows no line about a key', JSON.stringify(l));
+
+      await press(refused);
+      await p.selectOption('#acct-provider-pick', 'openai');
+      await p.waitForTimeout(150);
+      await land();
+      await p.selectOption('#acct-provider-pick', 'claude');
+      await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 });
+      l = await line();
+      chk(!l.keyStep && l.text === '', 'late: landing while on another provider, it is not there on the way back', JSON.stringify(l));
+
+      await press(refused);
+      await p.evaluate(() => { closeAcctAdd(); openAcctAdd(); });
+      await p.selectOption('#acct-provider-pick', 'claude');
+      await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 });
+      await land();
+      l = await line();
+      chk(l.text === '', 'late: closed and reopened before it lands, no line', JSON.stringify(l));
+
+      await press(noCode);
+      await land();
+      l = await line();
+      chk(!l.keyStep && /could not find Claude Code/.test(l.text) && l.seen, 'late: CONTROL: no Claude Code still returns to the picker with its line', JSON.stringify(l));
+
+      await press(noCode);
+      await awayAndBack();
+      await land();
+      l = await line();
+      chk(!l.keyStep && /could not find Claude Code/.test(l.text) && l.seen, 'late: and no Claude Code landing at the picker still says so, since it is true there', JSON.stringify(l));
+
+      await press(refused);
+      await p.evaluate(() => { closeAcctAdd(); openAcctAdd(); });
+      await p.selectOption('#acct-provider-pick', 'claude');
+      await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 });
+      await p.click('#acct-claude-pick-key');
+      await land();
+      l = await line();
+      chk(l.keyStep && l.text === '', 'late: and a new visit\'s key step gets no line from the last visit\'s key', JSON.stringify(l));
+
+      await press(noCode);
+      await p.evaluate(() => { closeAcctAdd(); openAcctAdd(); });
+      await p.selectOption('#acct-provider-pick', 'openai');
+      await p.waitForTimeout(150);
+      await land();
+      l = await line();
+      chk(l.text === '' && await p.isVisible('#acct-openai-flow') && await p.isHidden('#acct-claude-flow'), 'late: but it does not pull a person off another provider in a new visit', JSON.stringify(l));
       await p.close();
     }
 
