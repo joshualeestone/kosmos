@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: automoveloss-8048
-diff_hash: ec572232788bb54140500b408f67fa7c55c15e95967a20668c7075f77c1644c2
+diff_hash: d248f2552dd4ef66e987903dba4a06430d3ee5db88460f8d2dabbfb30c0031e9
 validation: local only on 155bded526: engine/automove-7548, engine/autobalance-7152, engine/autobalance-sweep-7152, server.automove-deps-7621, server.autobalance-7152, engine/assigner-failover-5382 (160/160); static guards web.*, fixture-discipline, engine.reachable, tools.browser-check* (3740/3740). The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-05T22:22:54Z
@@ -33,3 +33,9 @@ converged: true
 
 ### Final ledger
 No BLOCKER in either round. Every WARNING fixed with a test red when undone; round 2 clean at BLOCKER and WARNING.
+
+### After convergence
+CI's browser-check gate (#1720) refused the branch: the web/ change had no docs/browser-checks/ assertion, and I had not
+run the gate before pushing. Added the heldLoss case to render-autobalance-7152.js (test only; no product change since
+round 2). It passes in chromium and webkit at 1100 and 390, and is red with the page's held-loss branch removed (4 FAIL).
+Both browser-check gates pass locally under bash -c on the committed tree.
