@@ -26,6 +26,11 @@ engine refusal naming that place gets the link, Claude's and OpenAI's both, and 
 Item 2: move `#acct-claude-msg` to the flow's level, as OpenAI's is. Because it can now outlive the key step, the three
 dialog openers clear it. Its words go through `asSentence`, since the route's sentence starts in lower case.
 
+The empty-name path (from the Windows walk on the card): this refusal comes first, at the field, already in the window by
+pjFieldBad. What was missing is that the sample name "Casey" reads as a name already typed, so "Give the agent a name."
+looked wrong beside it. While the box is refused, its placeholder is transparent: no new words, and the sample stays for
+everyone else. The account refusal still needs a second press, which now shows in the window with its link.
+
 ## What I rejected
 
 - Restoring the old scroll position after the progress screen. It puts back the button, not the words: below the button at
@@ -33,6 +38,9 @@ dialog openers clear it. Its words go through `asSentence`, since the route's se
 - Moving `#create-msg` above the button, or into a fixed banner. That changes a screen Josh cut down on purpose, and needs
   a design call this does not.
 - Focusing the link rather than the sentence. A second press of the key would then leave the page (the #7968 lesson).
+- Rewording or removing the "Casey" placeholder. It is Mona Lisa's to word, and hiding it only while refused answers this.
+- Saying the account refusal on the first press alongside the name's. It needs the engine to check both, a bigger change
+  for one extra press.
 - A second message line in the picker for item 2. Two lines for one fact, and OpenAI's shape already answers it.
 - Rewording "so there is nothing to sign in to". Asked not to reword; flagged instead (below).
 
@@ -54,6 +62,9 @@ to do next: "Sign in with your subscription", just above it, is what installs Cl
   this needs the engine and the page to disagree.
 
 ## The weakest premise
+
+Windows was not run with this fix. It is the same web page and the card's Windows walk measured the same numbers before the
+fix, so a browser check covers its logic, but no one has pressed it there.
 
 That the scroll behaves the same in the real app's window as in headless Chromium. Kosmos's own window was not run: the
 800-tall size is read from source, and a webview's scroll anchoring could differ. `scrollIntoView` and `elementFromPoint`

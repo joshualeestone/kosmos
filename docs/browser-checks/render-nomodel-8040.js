@@ -122,6 +122,33 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       chk(said2.startsWith('There is no Claude account signed in on this computer') && said2.includes(PLACE), size + ': the engine\'s own words are kept, in full', JSON.stringify(said2));
       chk((await seen(p, '#create-msg')).in && (await seen(p, '#create-msg button')).in, size + ': with Claude Code here, the refusal and its link are in the window too');
 
+      // The name left empty (found on the Windows walk): this refusal comes first, and the sample name looks filled in.
+      await toNameStep(p);
+      await p.fill('#create-name', '');
+      await p.dispatchEvent('#create-name', 'input');
+      const sample = () => p.evaluate(() => getComputedStyle(document.getElementById('create-name'), '::placeholder').color);
+      const before = await sample();
+      chk(!/rgba\(.*, 0\)|transparent/.test(before), size + ': CONTROL: before the press the sample name shows, so the next line can fail', before);
+      await p.click('#create-go');
+      await p.waitForFunction(() => /name/.test(document.getElementById('create-name-err').textContent), null, { timeout: 15000 });
+      await p.waitForTimeout(500);
+      const nameSaid = (await p.locator('#create-name-err').innerText()).trim();
+      chk(nameSaid === 'Give the agent a name.', size + ': an empty name is refused in the engine\'s words', JSON.stringify(nameSaid));
+      const nameAt = await seen(p, '#create-name-err');
+      chk(nameAt.in, size + ': and the words are really in the window', JSON.stringify(nameAt));
+      chk((await seen(p, '#create-name')).in, size + ': and so is the box');
+      chk(await p.evaluate(() => { const i = document.getElementById('create-name'); return i.value === '' && document.activeElement === i && i.getAttribute('aria-invalid') === 'true'; }), size + ': the box is empty, marked refused, and the keyboard is in it');
+      const after = await sample();
+      chk(/rgba\(.*, 0\)|transparent/.test(after), size + ': and no sample name shows in it, so it reads as empty', after);
+      chk((await p.locator('#create-msg').textContent()).trim() === '', size + ': CONTROL: this refusal is at the field, not under the button');
+      if (SHOTS) await p.screenshot({ path: path.join(SHOTS, 'empty-name-' + viewport.height + '.png') });
+      // The second press, with a name: the account refusal, in the window, and the name's refusal gone.
+      await p.fill('#create-name', 'Nadia');
+      await p.dispatchEvent('#create-name', 'input');
+      await pressCreate(p, 'no Claude account');
+      chk((await seen(p, '#create-msg')).in && (await seen(p, '#create-msg button')).in, size + ': the second press says the account refusal in the window, with its link');
+      chk((await p.locator('#create-name-err').textContent()).trim() === '' && !(await p.evaluate(() => document.getElementById('create-name').classList.contains('bad'))), size + ': and the name is no longer marked refused');
+
       // OpenAI's own refusal, which the card measured at y=1014.
       await toNameStep(p);
       await p.selectOption('#create-provider', 'openai');
