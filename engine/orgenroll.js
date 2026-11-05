@@ -400,6 +400,29 @@ function cleanReviewerGrants(list) {
   return out.slice(-MAX_REVIEWER_GRANTS);
 }
 
+/* kosmos#5536 (#5529: every recovery is shown to the affected employee): the recoveries of this member's own backup,
+   from the coordinator's full status answer (kosmos-relay #781, `recoveries`), cleaned before they are kept. A row is
+   kept only with one of the two words and a whole `at`; `who` is a name shown as text, so control and direction
+   characters go, as in cleanReviewerGrants; `epoch` and `count` are whole numbers or left out. Newest first, as sent.
+   The relay caps the list at 50 (MEMBER_RECOVERIES_SHOWN_MAX). */
+const MAX_RECOVERIES = 50;
+const RECOVERY_WHATS = new Set(['key_released', 'files_opened']);
+function cleanRecoveries(list) {
+  if (!Array.isArray(list)) return [];
+  const whole = (n) => (Number.isSafeInteger(n) && n >= 0 ? n : null);
+  const out = [];
+  for (const r of list.slice(0, MAX_RECOVERIES)) {
+    if (!r || typeof r !== 'object' || !RECOVERY_WHATS.has(r.what)) continue;
+    const at = whole(r.at);
+    if (!at) continue;
+    const who = typeof r.who === 'string' ? r.who.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029\u061c\ufeff\u2060-\u2064\u180e\u00ad\u034f\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu, '').trim().slice(0, 64) : '';
+    const epoch = whole(r.epoch);
+    const count = r.what === 'files_opened' ? whole(r.count) : null;
+    out.push({ what: r.what, at, ...(who ? { who } : {}), ...(epoch !== null ? { epoch } : {}), ...(count !== null ? { count } : {}) });
+  }
+  return out;
+}
+
 /* The coordinator's public error codes (#5530), said in plain words. The tunnel passes its answer through on the last
    line of `because`, so the code is found anywhere in it; anything unrecognised keeps its own words. */
 const SAY = Object.freeze({
@@ -740,6 +763,12 @@ async function enrollNow(code, accepted, opts) {
     && prior.reviewerGrants.length && Number.isFinite(prior.reviewerGrantsAt)) {
     rec.reviewerGrants = cleanReviewerGrants(prior.reviewerGrants);
     rec.reviewerGrantsAt = prior.reviewerGrantsAt;
+  }
+  // kosmos#5536: the recoveries are kept the same way, for the same company and world, with when they were confirmed.
+  if (prior && prior.world === world && prior.org && prior.org.id === org.id && Array.isArray(prior.recoveries)
+    && prior.recoveries.length && Number.isFinite(prior.recoveriesAt)) {
+    rec.recoveries = cleanRecoveries(prior.recoveries);
+    rec.recoveriesAt = prior.recoveriesAt;
   }
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   /* A print sent and NOT pinned (rollup review 16): the company says the salt is not the one on record, or its binding
@@ -1144,6 +1173,17 @@ async function refreshNow(opts) {
     rec.reviewerGrants = cleanReviewerGrants(before.reviewerGrants);
     rec.reviewerGrantsAt = before.reviewerGrantsAt;
   }
+  /* kosmos#5536: the recoveries of this member's own backup, by the same rule (kosmos-relay #781): [] for none, the field
+     left out only when the coordinator could not read its log, so an answer without it keeps the confirmed list. */
+  if (Array.isArray(d.recoveries)) {
+    const recs = cleanRecoveries(d.recoveries);
+    if (recs.length) rec.recoveries = recs;
+    rec.recoveriesAt = Date.now();
+  } else if (before && before.world === world && before.org && before.org.id === org.id
+    && Array.isArray(before.recoveries) && before.recoveries.length && Number.isFinite(before.recoveriesAt)) {
+    rec.recoveries = cleanRecoveries(before.recoveries);
+    rec.recoveriesAt = before.recoveriesAt;
+  }
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;
   // #5532: the salt belongs to the company its print was pinned for; a different company on the answer drops it (review 11).
@@ -1210,5 +1250,6 @@ module.exports = {
   onEnrollmentEnded,   // #6232 review 10
   ROUTES, WORLD_ID_FILE, ENROLLMENT_FILE, LEAVE_PENDING_FILE, JOIN_UNKNOWN_FILE, CODE, SAY, FAMILY_SAY, inKind, kindHere, kindStrict, kindNow, kindOf, codeOf,
   cleanReviewerGrants, MAX_REVIEWER_GRANTS, // kosmos#6752
+  cleanRecoveries, MAX_RECOVERIES, // kosmos#5536
   worldId, siblingId, SIBLING_ID_FILE, STOPPED_FILE, holdsEnrollment, WORLD_ID, readEnrollment, leavePending, joinUnknown, joinUnknownAge, mayReport, SETTLE_AFTER_MS, stoppedFor, stoppedKind, clearStopped, leaveRefusedFor, leaveRefusedKind, clearLeaveRefused, consentHash, isEnrolledHere, cleanConsent, preview, enroll, leave, refresh, memberCheck, CONSENT_FILE, acceptedConsent, consentWithdrawn, reacceptWords, reportPrint, reviewHere,
 };

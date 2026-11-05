@@ -20511,6 +20511,11 @@ window.kosmosMeasureScrollbarWidth();
             <p class="fhint" id="plus-org-reviewers-head"></p>
             <div id="plus-org-reviewers-list"></div>
           </div>
+          <!-- kosmos#5536 (#5529): the times this member's own backup was opened, shown to them; built dark until the relay sends it. -->
+          <div id="plus-org-recoveries" hidden>
+            <p class="fhint" id="plus-org-recoveries-head"></p>
+            <div id="plus-org-recoveries-list"></div>
+          </div>
           <!-- kosmos#6239: a family's words not accepted on this computer wait for a parent; this opens them (plusOrgFamilyReview). -->
           <div class="frow" id="plus-org-words-row" hidden><button class="btn uprime" type="button" id="plus-org-words">Read the family's words</button></div>
           <div class="frow" id="plus-org-leave-row"><button class="btn" type="button" id="plus-org-leave">Leave company</button></div>
@@ -55968,6 +55973,7 @@ function plusOrgPaint() {
   else if (here && st.wordsNeeded === true) document.getElementById('plus-org-say').textContent = 'This Kosmos is joined to ' + (st.org.name || 'a family account') + '. The family\u2019s words are not accepted on this computer, so it reports nothing until a parent or guardian reads and accepts them.' + (st.reportingRequired === true ? PLUS_ORG_REQUIRED_WAIT_FAMILY : '');   // kosmos#7586 review (Pete): the child card already says so
   else if (here) document.getElementById('plus-org-say').textContent = plusOrgIn(st.org, 'This Kosmos is your work Kosmos for ') + (st.org.name || plusOrgIn(st.org, 'your company')) + plusOrgIn(st.org, '.' + (st.reporting === false ? (st.reportingWait === 'print' ? ' It reports to your company once it has read this computer\'s identity.' : st.reportingWait === 'printError' ? ' It cannot report to your company yet: Kosmos could not check this computer.' : st.reportingWait === 'noReports' ? ' Your company asks it to report nothing.' : ' It reports to your company once Kosmos has your company\'s current terms.') + plusOrgRequiredWait(st) : ''));
   plusOrgReviewers(here ? st : null);   // kosmos#6752
+  plusOrgRecoveries(here ? st : null);   // kosmos#5536
   if (here) reviewerNoteSeenList(st);   // kosmos#6817: the list on screen counts as seen
 }
 /* kosmos#6752: what follows the reviewer's name on one grant's line, leading with what is true now (Mona Lisa's review):
@@ -55987,6 +55993,44 @@ function plusOrgReviewerLine(g, now, fmt) {
   return ', a reviewer since ' + fmt.day(g.effectiveAt);
 }
 const PLUS_ORG_REVIEWER_DAYS = 30;   // the coordinator's window (relay REVIEWER_GRANTS_SHOWN_SECS)
+/* kosmos#5536 (#5529: every recovery is shown to the affected employee unless offboarded): the times this member's own
+   backup key was given to a reviewer, and the files a reviewer then opened, newest first, as the coordinator lists them
+   (kosmos-relay #781). A key given opens nothing by itself, so its line says given, not opened. The page drops rows
+   older than the coordinator's 30 days itself (a refresh that failed keeps the old record), and a list not confirmed
+   for over a day says when it last was, as the reviewers list does. The name is text, never markup. */
+const PLUS_ORG_RECOVERY_DAYS = 30;   // the coordinator's window (relay MEMBER_RECOVERIES_SHOWN_SECS)
+function plusOrgRecoveryLine(r) {
+  const day = new Date(r.at * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  if (r.what === 'files_opened') {
+    const n = Number.isSafeInteger(r.count) && r.count > 0 ? r.count : null;
+    return ' opened ' + (n === null ? 'files from your backup' : n === 1 ? '1 file from your backup' : n + ' files from your backup') + ', ' + day;
+  }
+  return ' was given your backup key, ' + day;
+}
+function plusOrgRecoveries(st) {
+  const box = document.getElementById('plus-org-recoveries');
+  const list = document.getElementById('plus-org-recoveries-list');
+  if (!box || !list) return;
+  const now = Date.now() / 1000;
+  const recs = (st && st.enrolled === true && Array.isArray(st.recoveries) ? st.recoveries : [])
+    .filter((r) => r && Number.isFinite(r.at) && r.at >= now - PLUS_ORG_RECOVERY_DAYS * 86400);
+  list.textContent = '';
+  box.hidden = recs.length === 0;
+  if (!recs.length) return;
+  const at = Number(st.recoveriesAt);
+  const stale = Number.isFinite(at) && at > 0 && Date.now() - at > 24 * 3600 * 1000;
+  document.getElementById('plus-org-recoveries-head').textContent = 'Times your backup was opened in the last 30 days'
+    + (stale ? ' (last confirmed ' + new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ')' : '') + ':';
+  for (const r of recs) {
+    const line = document.createElement('p');
+    line.className = 'fhint';
+    const name = document.createElement('bdi');   // a right-to-left name cannot reorder the sentence around it
+    name.textContent = typeof r.who === 'string' && r.who ? r.who : 'Someone no longer in your company';
+    line.appendChild(name);
+    line.appendChild(document.createTextNode(plusOrgRecoveryLine(r)));
+    list.appendChild(line);
+  }
+}
 function plusOrgReviewers(st) {
   const box = document.getElementById('plus-org-reviewers');
   const list = document.getElementById('plus-org-reviewers-list');
