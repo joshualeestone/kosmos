@@ -20515,7 +20515,7 @@ window.kosmosMeasureScrollbarWidth();
           <div id="plus-org-recoveries" hidden>
             <p class="fhint" id="plus-org-recoveries-head"></p>
             <div id="plus-org-recoveries-list"></div>
-            <p class="fhint" id="plus-org-recoveries-more" hidden>Older ones are not listed here. Your company's admins can see every one in its log.</p>
+            <p class="fhint" id="plus-org-recoveries-more" hidden></p>
           </div>
           <!-- kosmos#6239: a family's words not accepted on this computer wait for a parent; this opens them (plusOrgFamilyReview). -->
           <div class="frow" id="plus-org-words-row" hidden><button class="btn uprime" type="button" id="plus-org-words">Read the family's words</button></div>
@@ -56018,7 +56018,11 @@ function plusOrgRecoveries(st) {
   list.textContent = '';
   box.hidden = recs.length === 0;
   const more = document.getElementById('plus-org-recoveries-more');
-  if (more) more.hidden = !(recs.length && st.recoveriesMore === true);
+  if (more) {
+    more.hidden = !(recs.length && st.recoveriesMore === true);
+    // In the org's own words, as the reviewers heading is (a family has no backup today, so no rows reach one).
+    more.textContent = plusOrgIn(st && st.org, "Older ones are not listed here. Your company's admins can see every one in its log.");
+  }
   if (!recs.length) return;
   const at = Number(st.recoveriesAt);
   const stale = Number.isFinite(at) && at > 0 && Date.now() - at > 24 * 3600 * 1000;

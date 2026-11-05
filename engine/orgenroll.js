@@ -1178,6 +1178,7 @@ async function refreshNow(opts) {
      left out only when the coordinator could not read its log, so an answer without it keeps the confirmed list. */
   if (Array.isArray(d.recoveries)) {
     const recs = cleanRecoveries(d.recoveries);
+    // A list whose every row was malformed is cleaned to none and still counts as read: the coordinator answered.
     if (recs.length) rec.recoveries = recs;
     // `recoveriesMore`: the coordinator left older ones in its window out (it sends at most 50).
     if (recs.length && d.recoveriesMore === true) rec.recoveriesMore = true;
