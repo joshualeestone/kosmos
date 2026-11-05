@@ -201,6 +201,12 @@ function ownerNotice(n) {
     const messages = require('./messages');
     messages.roomNote(n.projectId, n.heldBack ? HELD_BACK_TEXT : ownerNoticeText(n), { audience: messages.NOTE_AUDIENCE_AGENTS });
   } catch { /* the write stands */ }
+  /* kosmos#7989 slice 3: the same notice also waits for the owner itself (engine/filenotices.js), which Kosmos's Claude
+     Code hook hands to it at its next turn. Not the held-back note: that one names no owner. Separate from the room note,
+     so either failing leaves the other. */
+  if (!n.heldBack) {
+    try { require('./filenotices').queue(n.owner, ownerNoticeText(n)); } catch { /* the write stands */ }
+  }
 }
 
 /* The agent that made the change at `modifiedIso`, from its record, or null. */

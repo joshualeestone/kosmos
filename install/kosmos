@@ -4282,6 +4282,56 @@ cmd_report_show() {
   esac
 }
 
+# kosmos#7989 slice 3: take the file-owner notices Kosmos kept for you (another agent changed a project file you were the
+# first seen changing). Taking them clears them. --hook is what Kosmos's Claude Code hook runs on UserPromptSubmit: it
+# prints the hook's JSON only when there is a notice, nothing otherwise, and always exits 0, with a 2 s cap, so a board
+# that is down or slow cannot hold up a turn or show anything to the person.
+cmd_file_notices() {
+  local _hook=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --hook) _hook=1 ;;
+      *) say "kosmos file-notices takes only --hook."; exit 2 ;;
+    esac
+    shift
+  done
+  local _tok=""
+  case "${KOSMOS_AGENT_TOKEN:-}" in
+    ''|*[!0-9a-f]*) ;;
+    *) _tok="$KOSMOS_AGENT_TOKEN" ;;
+  esac
+  local _bt; _bt="$(board_token || true)"
+  local _pane_q; _pane_q=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
+  local _body _rc=0 _code
+  if [ "$_hook" = 1 ]; then
+    _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 2 -X POST -w $'\n%{http_code}' "$URL/api/file-notices/take?as=hook&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+    [ "$_rc" -eq 0 ] || exit 0
+    _code="${_body##*$'\n'}"
+    _body="${_body%$'\n'*}"
+    if [ "$_code" = 200 ]; then
+      case "$_body" in
+        '{"hookSpecificOutput":'*) printf '%s\n' "$_body" ;;
+      esac
+    fi
+    exit 0
+  fi
+  if ! healthy; then
+    say_not_up "your file notices cannot be read"
+    exit 1
+  fi
+  _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 15 -X POST -w $'\n%{http_code}' "$URL/api/file-notices/take?as=text&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
+    say_unreached "read your file notices" "$_rc"
+    exit 1
+  fi
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  printf '%s' "$_body"
+  case "$_code" in
+    4??|5??) token_refused_hint "$_tok" "$_body"; exit 1 ;;   # #5333
+  esac
+}
+
 # #4784: read back your own recent direct messages with the person (`kosmos inbox [--limit N]`). A notice
 # can say the person messaged you while its text never reached this session (a nudge carries none; a paste
 # can be lost); the board keeps every message, so this prints them rather than asking the person to resend.
@@ -5575,6 +5625,7 @@ kosmos_command_list() {
   printf '  kosmos reply         message the person in your conversation with them (an answer, or one you start)\n'
   printf '  kosmos reply-channel say where you answer the person, when it is not kosmos reply\n'
   printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'
+  printf '  kosmos file-notices take the notices Kosmos kept for you when another agent changed a file of yours\n'
   printf '  kosmos react         react to a post in a project room\n'
   printf '  kosmos claim         claim a request in a project room before you take it on\n'
   printf '  kosmos report        say what you are doing: working, blocked, waiting on someone\n'
@@ -5662,6 +5713,10 @@ if [ "$_kosmos_help" = 1 ]; then
     agents)
       # #4891 N9: it fell to the general list below. It takes no arguments and only reads.
       printf 'Usage: kosmos agents   (list the terminal sessions on this computer, as Kosmos'"'"'s own tmux sees them; every agent: kosmos agent list)\n'
+      exit 0 ;;
+    file-notices)
+      # kosmos#7989: not with the read-only group either. Run bare, it takes (clears) your notices.
+      printf 'Usage: kosmos file-notices [--hook]   (take the notices Kosmos kept for you when another agent changed a project file you were the first seen changing; taking them clears them. --hook: what Kosmos'"'"'s own hook runs)\n'
       exit 0 ;;
     inbox)
       # #4784 review 1: NOT with the read-only group below. Run bare, inbox prints the person's private
@@ -7670,6 +7725,7 @@ case "${1:-}" in
   handoff) shift; cmd_handoff "$@" ;;   # kosmos#6506
   fingerprint) shift; cmd_fingerprint "$@" ;;   # kosmos#6849
   inbox)   shift; cmd_inbox "$@" ;;
+  file-notices) shift; cmd_file_notices "$@" ;;
   connections) shift; cmd_connections "$@" ;;
   accounts) cmd_accounts ;;
   whats-new) shift; cmd_whats_new "$@" ;;   # kosmos#7411

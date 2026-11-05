@@ -6377,7 +6377,7 @@ const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
    The /api/team handler re-enforces auth itself (a valid agent token OR the board
    token; no-credential refused on an enforcing board), exactly as report/reply do
    one layer down -- see that handler. */
-const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET /api/inbox']);
+const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET /api/inbox', 'POST /api/file-notices/take']);
 /* #4491 (proof of concept): agent routes a loopback caller may reach with ONLY its own agent
    token, in the `x-kosmos-agent-token` header, instead of the board token. So an agent need not
    hold the person's credential for its everyday verbs, and a request carrying only an agent
@@ -18473,6 +18473,43 @@ const server = http.createServer(async (req, res) => {
         });
       })
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));
+    return;
+  }
+  if (pathname === '/api/file-notices/take' && req.method === 'POST') {
+    /* kosmos#7989 slice 3: `kosmos file-notices`, the caller's own waiting file-owner notices (engine/filenotices.js),
+       handed over once and cleared. A POST because it clears them. The caller is resolved as GET /api/inbox resolves it
+       (token first, then pane; a bare pane is refused on an enforcing board), with no agent parameter, so an agent
+       holding only its own token takes only its own. `as=hook` answers what Kosmos's Claude Code hook prints for
+       UserPromptSubmit (an empty body when there is nothing), `as=text` the lines a person reads, otherwise JSON. */
+    req.resume();
+    let as = null;
+    let fromPane = null;
+    try {
+      const q = new URL(req.url, ROUTING_BASE).searchParams;
+      as = q.get('as');
+      fromPane = q.get('from_pane');
+    } catch { as = null; fromPane = null; }
+    const fail = (status, msg) => {
+      if (as === 'hook') sendText(res, status, '');   // the hook prints nothing on any failure
+      else if (as === 'text') sendText(res, status, msg + '\n');
+      else sendJson(res, status, { ok: false, because: msg });
+    };
+    try {
+      const roster = safeRoster();
+      if (roster === null) { fail(503, 'we could not check which agents are running, so we could not tell who is asking'); return; }
+      const denyPaneFallback = boardAuthState.on
+        && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+      const sender = resolveAgentSender(req, { from_pane: fromPane }, roster, {
+        denyPaneFallback,
+        denyBecause: 'this board only hands an agent its file notices with its own agent token; run `kosmos file-notices` as that agent',
+      });
+      if (!sender.ok) { fail(403, sender.because); return; }
+      const fn = require('./engine/filenotices');
+      const taken = fn.take(sender.card.sessionName);
+      if (as === 'hook') sendText(res, 200, fn.hookJson(taken));
+      else if (as === 'text') sendText(res, 200, (fn.contextText(taken) || 'No file notices are waiting for you.') + '\n');
+      else sendJson(res, 200, { ok: true, notices: taken.notices, dropped: taken.dropped });
+    } catch { fail(500, 'we could not read your file notices just now'); }
     return;
   }
   if (pathname === '/api/inbox' && req.method === 'GET') {
