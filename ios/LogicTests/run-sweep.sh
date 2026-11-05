@@ -80,12 +80,13 @@ render_side=$(grep -oE 'LaunchSweep.imageset" [0-9.]+$' "$here/../tools/render-l
   || { echo "VERDICT: FAIL (the launch mark is drawn at ${render_side:-?} pt but SweepDots' default side is ${side:-?} pt)"; exit 1; }
 # ConnectingWait's code with its // comments removed, so a comment cannot satisfy any of this. Its shape: the ring is the
 # view that is centred (no stack, which would centre ring and words together and put the ring above the launch mark),
-# the words ride in an overlay 8 pt below it, the ring keeps one size at every text size (scales: false, as the launch
-# picture is fixed), and the frame that fills the space is then stretched over the safe areas, in that order.
+# the ring keeps one size at every text size (scales: false, as the launch picture is fixed), the frame fills the space,
+# the words ride in an overlay on that frame (the screen's width, so they wrap at large text sizes) with their top 18 pt
+# below its centre (half the ring, then 8 pt), and the whole is stretched over the safe areas, in that order.
 wait_view=$(awk '/^struct ConnectingWait: View/{on=1} on{print} on&&/^}$/{exit}' "$src/SweepDots.swift" | sed 's#//.*##')
-order=$(printf '%s\n' "$wait_view" | grep -oE 'SweepDots\([^)]*\)|\.overlay\(alignment: \.bottom\)|Text\(words\)|\.alignmentGuide\(\.bottom\) \{ _ in -8 \}|\.frame\(maxWidth: \.infinity, maxHeight: \.infinity\)|\.ignoresSafeArea\(\)|VStack|HStack|ZStack' | tr '\n' '|' || true)
-[ "$order" = 'SweepDots(scales: false)|.overlay(alignment: .bottom)|Text(words)|.alignmentGuide(.bottom) { _ in -8 }|.frame(maxWidth: .infinity, maxHeight: .infinity)|.ignoresSafeArea()|' ] \
-  || { echo "VERDICT: FAIL (ConnectingWait is no longer the ring alone, one size, centred on the screen, words in an overlay 8 pt below it; read: ${order:-nothing}; so it would not sit where the launch mark is)"; exit 1; }
+order=$(printf '%s\n' "$wait_view" | grep -oE 'SweepDots\([^)]*\)|\.overlay\(alignment: [.a-z]+\)|Text\(words\)|\.fixedSize\([^)]*\)|\.alignmentGuide\([^)]*\) \{ _ in -?[0-9]+ \}|\.frame\(maxWidth: \.infinity, maxHeight: \.infinity\)|\.ignoresSafeArea\(\)|VStack|HStack|ZStack' | tr '\n' '|' || true)
+[ "$order" = 'SweepDots(scales: false)|.frame(maxWidth: .infinity, maxHeight: .infinity)|.overlay(alignment: .center)|Text(words)|.fixedSize(horizontal: false, vertical: true)|.alignmentGuide(VerticalAlignment.center) { _ in -18 }|.ignoresSafeArea()|' ] \
+  || { echo "VERDICT: FAIL (ConnectingWait is no longer the ring alone, one size, centred on the screen, words across the screen 8 pt below it; read: ${order:-nothing}; so it would not sit where the launch mark is)"; exit 1; }
 # Both first waits that can follow the launch screen draw it: Agents (its reaching wait) and Projects (a launch from a
 # room notification opens there).
 reaching=$(awk '/private var reaching: some View/{on=1} on{print} on&&/^    }$/{exit}' "$src/AgentsView.swift" | sed 's#//.*##')

@@ -30,8 +30,8 @@ done
 # CI's runner on PR #7692 before this count was raised, the job failing only on the count). kosmos#7817: 9 (the box
 # growing and shrinking at the newest message, and a reader higher up while it grows).
 # kosmos#7945 follow-up: LaunchHandoverUITests measures that the Connecting wait's ring sits at the screen's centre, where
-# the launch screen draws it, on the Agents tab and on Projects (2 checks).
-classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:2"
+# the launch screen draws it, on the Agents tab and on Projects, and at the largest text size (3 checks).
+classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3"
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
 # "Timed out while evaluating UI query" on both CI runs, iOS 26.5, while it passes here). Run it alone on a Mac:
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests

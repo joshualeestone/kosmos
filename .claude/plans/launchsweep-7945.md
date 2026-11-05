@@ -19,7 +19,8 @@ centring the launch image on the space between the bars (a launch image cannot b
 the bars' heights differ by iPhone), so the wait moves to screen centre instead.
 Review 1: the first version showed Reduce Motion's still ring (eight equal dots at .85), which the moving sweep (one
 lit dot, seven faint) would visibly lighten at the handover; now the launch picture is the sweep's first frame.
-Remaining mismatch: with Reduce Motion on, the wait pulses all eight dots together, so it changes look at the handover.
+(With Reduce Motion on, the wait pulses all eight dots together; since review 5 it fades into that pulse from the launch
+frame rather than switching.)
 Weakest premise: that the simulator's handover matches a real iPhone's. (Text size: review 3 made this wait's ring one
 size at every text size; Reduce Motion: review 5 fades it from the launch frame into the pulse.) The bars still appear at the handover (they cannot be on a
 launch screen).
@@ -87,3 +88,14 @@ wait's ignoresSafeArea removed (centre check), a wrong 2x PNG (stale check).
   iOS 27 (ring within 1 pt of the screen's centre). ui-sample.sh counts 2.
 - README: a return from the "Connecting to <Mac>" retry wait to the first wait starts that ring again at the launch
   frame (a new view). SweepDots' doc comment names both first waits.
+
+## Review 7 changes
+- ConnectingWait's words are laid out on the full-screen frame (overlay after the fill frame, a centre guide putting
+  their top 18 pt below the centre), wrap, and keep 24 pt from the edges: at the largest text sizes "Reaching your
+  computer..." would otherwise have run off both edges (pinned to the 20 pt ring with fixedSize()). run-sweep.sh's
+  shape check follows. LaunchHandoverUITests gains a check at the largest accessibility size (words on screen, ring
+  still at the centre); ui-sample.sh counts 3.
+- README: iOS caches launch screens, so a phone updated from an earlier build may show the old one until the cache
+  refreshes (a restart, or delete and reinstall).
+- Noted, not changed: run-sweep.sh's Projects check is textual; the UI check measures it running.
+- Measured: all three UI checks pass (iPhone 17e, iOS 27); control, the round-6 layout at the largest text size: words 481 pt wide from x -45.5 on a 390 pt screen, check FAILS.
