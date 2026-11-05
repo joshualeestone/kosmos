@@ -442,6 +442,22 @@ kosmos_allows() {
   return "$r"
 }
 
+# kosmos#7989 slice 3: whether this pane may ask for its file notices now, at most once per FILE_NOTICE_EVERY seconds (its
+# own mark beside MARK). Unlike heartbeat_due, a mark that cannot be written means no call: the cost lands on the turn.
+FILE_NOTICE_EVERY=300
+file_notices_due() {
+  mkdir -p "$THROTTLE_DIR" 2>/dev/null || return 1
+  local fmark="$MARK.filenotices" now last
+  now=$(date +%s)
+  if [ -f "$fmark" ]; then
+    last=$(cat "$fmark" 2>/dev/null || echo 0)
+    case "$last" in ''|*[!0-9]*) last=0 ;; esac
+    [ $((now - last)) -ge "$FILE_NOTICE_EVERY" ] || return 1
+  fi
+  printf '%s\n' "$now" > "$fmark" 2>/dev/null || return 1
+  return 0
+}
+
 heartbeat_due() {
   mkdir -p "$THROTTLE_DIR" 2>/dev/null || return 0
   if [ -f "$MARK" ]; then
@@ -519,11 +535,13 @@ case "$EVENT" in
   UserPromptSubmit)
     date +%s > "$MARK" 2>/dev/null || true
     report working --auto answering a prompt
-    # kosmos#7989 slice 3: hand this agent the file-owner notices Kosmos kept for it (another agent changed a project file
-    # it was the first seen changing), as context for this turn: Claude Code adds a UserPromptSubmit hook's
+    # kosmos#7989 slice 3: hand this agent the file-owner notices Kosmos kept for it (another agent was about to change a
+    # project file it was the first seen changing), as context for this turn: Claude Code adds a UserPromptSubmit hook's
     # additionalContext to the model and types nothing into the session. The CLI prints only the hook's JSON, and only
-    # when there is a notice, with a 2 s cap; anything else it says is dropped, so the person never sees it.
-    if [ -n "$KOSMOS" ]; then
+    # when there is a notice, with a 1 s cap; anything else it says is dropped, so the person never sees it. The call
+    # holds up the turn (about 100 ms on a live board, measured 11-04), so a pane asks at most once per
+    # FILE_NOTICE_EVERY seconds: a notice is not urgent, and the room note is there meanwhile.
+    if [ -n "$KOSMOS" ] && file_notices_due; then
       FN_OUT=$("$KOSMOS" file-notices --hook </dev/null 2>/dev/null) || FN_OUT=""
       case "$FN_OUT" in
         '{"hookSpecificOutput":'*) printf '%s\n' "$FN_OUT" ;;

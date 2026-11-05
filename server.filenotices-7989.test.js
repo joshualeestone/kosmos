@@ -62,6 +62,10 @@ test('an agent takes its own notices once, and never another agent\'s', async ()
       assert.equal(r.code, 200, r.text);
       assert.deepEqual(r.json.notices.map((n) => n.text), ['nova was about to change "plan.md"']);
       assert.doesNotMatch(r.text, /SECRET FOR NOVA/);
+      fn.queue('leo', 'mona was about to change "b.md"');
+      const text = await post('/api/file-notices/take?as=text', { 'x-kosmos-agent-token': tok });
+      assert.equal(text.code, 200);
+      assert.match(text.text, /^Kosmos file-owner notice .*\n- \S+: mona was about to change "b\.md"\n$/s);
       const again = await post('/api/file-notices/take?as=text', { 'x-kosmos-agent-token': tok });
       assert.equal(again.text, 'No file notices are waiting for you.\n', 'taken once');
       assert.equal(fn.take('nova').notices.length, 1, 'nova\'s are still waiting for nova');
