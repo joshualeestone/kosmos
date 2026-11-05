@@ -223,4 +223,45 @@ function annotate(projectId, files, nameOf = (s) => s) {
   });
 }
 
-module.exports = { noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, ownerNoticeText, HELD_BACK_TEXT, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS, NOTICE_ROOM_MAX };
+/* kosmos#7989 slice 2: what the record says about one file, for `kosmos project who <file>` (filewhoview.renderWho prints
+   it). `file` is an absolute path; it is read against the projects' folders as they are now (not the edit-time cache,
+   since a project made a moment ago must answer). `lastChange` compares the file's modification time with the last
+   record by writerOf's window: 'seen' (the change follows the record), 'after' (it changed later, unseen), 'before' (it
+   has not changed since the record), or null (no record, or no file). `nameOf` gives an agent's display name. Never
+   throws; a path outside every project folder answers { ok: false, because: 'outside' }. */
+function about(file, { projects, nameOf = (s) => s } = {}) {
+  try {
+    if (typeof file !== 'string' || !path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file)) return { ok: false, because: 'path' };
+    const list = Array.isArray(projects) ? projects : require('./projects').readAll();
+    const at = projectOf(file, rootsOf(list));
+    if (!at) return { ok: false, because: 'outside' };
+    const shown = (s) => { try { return nameOf(s) || s; } catch { return s; } };
+    const rec = readRecord(at.projectId);
+    const entry = at.name !== NOTICES_KEY && rec[at.name] && typeof rec[at.name] === 'object' ? rec[at.name] : null;
+    let modified = null;
+    try {
+      const st = fs.statSync(resolved(file));
+      if (st.isFile()) modified = new Date(st.mtimeMs).toISOString();
+    } catch { /* not there */ }
+    const seen = entry && typeof entry.agent === 'string' && entry.agent && Number.isFinite(Date.parse(entry.at)) ? entry : null;
+    let lastChange = null;
+    if (seen && modified) {
+      if (writerOf(seen, modified)) lastChange = 'seen';
+      else lastChange = Date.parse(modified) > Date.parse(seen.at) ? 'after' : 'before';
+    }
+    const project = list.find((p) => p && p.id === at.projectId);
+    return {
+      ok: true,
+      projectId: at.projectId,
+      projectName: project && typeof project.name === 'string' ? project.name : null,
+      name: at.name,
+      exists: Boolean(modified),
+      modified,
+      lastSeen: seen ? { agent: seen.agent, shown: shown(seen.agent), at: seen.at } : null,
+      owner: seen && typeof seen.first === 'string' && seen.first ? { agent: seen.first, shown: shown(seen.first) } : null,
+      lastChange,
+    };
+  } catch { return { ok: false, because: 'unreadable' }; }
+}
+
+module.exports = { about, noteWrite, writerOf, annotate, projectOf, fileFor, resetForTests, ownerNoticeText, HELD_BACK_TEXT, WRITE_WINDOW_MS, SLACK_MS, KEEP_MS, NOTICE_EVERY_MS, NOTICE_ROOM_MAX };
