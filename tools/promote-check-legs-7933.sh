@@ -171,7 +171,9 @@ leg_update() {
   # the installer below.
   local chk; chk="$(api -X POST "http://127.0.0.1:$port/api/update/check" --data '{}')"; echo "  board's own check: ${chk:0:300}"
   # kosmos#7939 (in 0.7.91): a Linux board cannot replace itself, so its own check answers the staged version as a
-  # `manual` command (kosmos update --if-newer --install), never an [Update] `offer`. Either names $sv; nothing else does.
+  # `manual` command (kosmos update --if-newer --install), not an [Update] `offer`. The `offer` arm is kept for a prod
+  # build older than 0.7.91; either way the question is only whether the board sees $sv. This does not guard #7935
+  # coming back (an [Update] on Linux would pass here).
   case "$chk" in *"\"offer\":{\"version\":\"$sv\""*|*"\"manual\":{\"version\":\"$sv\""*) ;; *) fail update "the prod board's own check does not offer $sv, as an offer or its manual command"; return ;; esac
   case "$chk" in *'"channel":"staging"'*) ;; *) fail update "the prod board's own check is not on the staging channel"; return ;; esac
   printf '%s\n' "$stamp0" > "$root/source-channel"
