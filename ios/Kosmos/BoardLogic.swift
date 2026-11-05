@@ -3072,13 +3072,53 @@ extension Board {
     }
 }
 
-// kosmos#7596 (Josh 10-29 21:27 and 21:28): the + panel's choices, Camera, Photos and Files, and when each can be used.
+// kosmos#8045: which tile's tap owns what. A second tap takes back: at once if the file is waiting, and when it lands if it is
+// still on its way. The composer's x (a new generation) lets go of a tile still adding, and a later tap then owns that tile.
+struct TrayTaps: Equatable {
+    enum Tapped: Equatable { case add(number: Int), remove(file: String), letGo }
+    private(set) var picked: [String: String] = [:]   // photo id -> the waiting file its tap made
+    private var adding: [String: Int] = [:]   // photo id -> the tap adding it
+    private var generations: [Int: Int] = [:]   // that tap -> the composer's stop count then
+    private var withdrawn: Set<Int> = []
+    private var taps = 0
+
+    func isAdding(_ photo: String, generation: Int) -> Bool { adding[photo].map { generations[$0] == generation } ?? false }
+    func isChecked(_ photo: String, generation: Int, waiting: [String]) -> Bool {
+        isAdding(photo, generation: generation) || picked[photo].map { waiting.contains($0) } == true
+    }
+    mutating func tap(_ photo: String, generation: Int, waiting: [String]) -> Tapped {
+        if let file = picked[photo], waiting.contains(file) { picked[photo] = nil; return .remove(file: file) }
+        if isAdding(photo, generation: generation), let number = adding[photo] {
+            withdrawn.insert(number)
+            adding[photo] = nil
+            return .letGo
+        }
+        taps += 1
+        adding[photo] = taps
+        generations[taps] = generation
+        return .add(number: taps)
+    }
+    // The add of tap `number` ended. The file to take off the composer, if that tap was taken back.
+    mutating func ended(_ photo: String, number: Int, file: String?) -> String? {
+        generations[number] = nil
+        if withdrawn.remove(number) != nil { return file }
+        guard adding[photo] == number else { return nil }   // a later tap owns the tile
+        adding[photo] = nil
+        picked[photo] = file
+        return nil
+    }
+}
+
+// kosmos#8045: the answer to iOS's photo prompt, as the + tray reads it.
+enum TrayAccess: Equatable { case notAsked, all, limited, off, blocked }
+
+// kosmos#7596 (Josh 10-29 21:27 and 21:28), #8045: the choices beside the + tray's photos, and when each can be used.
 enum AttachChoice: CaseIterable {
     case camera, photos, files
     var title: String {
         switch self {
         case .camera: return "Camera"
-        case .photos: return "Photos"
+        case .photos: return "All photos"
         case .files: return "Files"
         }
     }
@@ -3127,4 +3167,56 @@ extension Board {
         case .unavailable: return "Not available on this device"
         }
     }
+
+    // kosmos#8045: the + tray's recent photos, and what it does at each answer to iOS's photo prompt. The system picker needs
+    // no permission, so every answer still has a way to add a photo.
+    static let trayPhotoCount = 60
+    // The row's words for the system picker: with no grid above it, it is the way to any photo, not "all" of something shown.
+    static func trayPhotosRow(_ access: TrayAccess) -> String { trayShowsGrid(access) ? AttachChoice.photos.title : "Choose photos" }
+    struct TrayLine: Equatable { let words: String; let settings: Bool }
+
+    static func trayShowsGrid(_ access: TrayAccess) -> Bool { access == .all || access == .limited }
+
+    // The line above the tiles. None while iOS is asking, or with the photos showing. One tells the person how to change
+    // the answer; a device that blocks it (Screen Time, a profile) has nothing in Kosmos's Settings page to change.
+    static func trayLine(_ access: TrayAccess, loaded: Bool, count: Int) -> TrayLine? {
+        switch access {
+        case .notAsked: return nil
+        case .all: return loaded && count == 0 ? TrayLine(words: "No photos on this iPhone yet.", settings: false) : nil
+        case .limited:
+            return TrayLine(words: count == 0 && loaded ? "No photos are chosen for Kosmos yet. Choose some in Settings, or pick from All photos."
+                                                        : "Showing only the photos you chose for Kosmos.", settings: true)
+        case .off: return TrayLine(words: "To see your recent photos here, turn on Photos for Kosmos in Settings.", settings: true)
+        case .blocked: return TrayLine(words: "Showing recent photos here is not allowed on this device.", settings: false)
+        }
+    }
+
+    // The bytes a tray photo goes up as: the picture and its turn, and none of its other metadata, so its location stays
+    // behind. A PNG stays a PNG (a screenshot's text survives). A GIF is kept whole: redrawing it would stop it moving.
+    static func trayEncoded(_ data: Data) -> Data? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil), let type = CGImageSourceGetType(source) else { return nil }
+        if (type as String) == UTType.gif.identifier { return data }
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+        let png = (type as String) == UTType.png.identifier
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, (png ? UTType.png : UTType.jpeg).identifier as CFString, 1, nil) else { return nil }
+        var keep: [CFString: Any] = [:]
+        if !png { keep[kCGImageDestinationLossyCompressionQuality] = 0.85 }
+        if let turn = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])?[kCGImagePropertyOrientation] { keep[kCGImagePropertyOrientation] = turn }
+        CGImageDestinationAddImage(dest, image, keep as CFDictionary)
+        return CGImageDestinationFinalize(dest) ? out as Data : nil
+    }
+
+    static func trayPhotoLabel(_ date: Date?, zone: TimeZone = .current) -> String {
+        guard let date else { return "Photo" }
+        trayLabelFormat.timeZone = zone
+        return "Photo, \(trayLabelFormat.string(from: date))"
+    }
+    private static let trayLabelFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US")
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
+    }()
 }

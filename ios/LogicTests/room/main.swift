@@ -1765,29 +1765,30 @@ do {
     check(boardPage.contains("...(provider ? { provider } : {}), ...(account ? { account } : {}), ...(model ? { model } : {})"), "the desktop's tcModel still sends the three this way")
 }
 
-// kosmos#7596 (Josh 10-29 21:28): the + panel offers Camera, Photos and Files, in that order, and nothing else, in a
-// chat and in a project room alike (one shared view).
+// kosmos#8045 (was #7596's panel): the + opens the tray, in a chat and in a project room alike (one shared view). Its camera
+// tile, All photos and Files are the only other ways in.
 let attachSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AttachMenu.swift"), encoding: .utf8)) ?? ""
 let boardLogicSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardLogic.swift"), encoding: .utf8)) ?? ""
 let roomViewSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
-check(attachSrc.contains("ForEach(AttachChoice.allCases, id: \\.self)"), "kosmos#7596: the panel draws every AttachChoice (the choices are tested in LogicTests)")
 check(!attachSrc.contains("Plugins") && !attachSrc.contains("Think harder") && !boardLogicSrc.contains("Think harder"), "kosmos#7596: no Plugins and no Think harder (Josh 21:28)")
-check(chatSource.contains("AttachPlusButton(atLimit: atFileLimit") && roomViewSrc.contains("AttachPlusButton(atLimit: atFileLimit")
+check(chatSource.contains("AttachPlusButton(open: trayOpen &&") && roomViewSrc.contains("AttachPlusButton(open: trayOpen &&")
+      && chatSource.contains("PhotoTray(model: trayModel") && roomViewSrc.contains("PhotoTray(model: trayModel")
       && !chatSource.contains("Label(\"Photo Library\"") && !roomViewSrc.contains("Label(\"Photo Library\""),
-      "kosmos#7596: the chat and the room both use the one panel, and the old menu is gone")
-check(attachSrc.contains(".disabled(off)") && attachSrc.contains("let off = Board.attachRowOff(choice, atLimit: atLimit, camera: camera)"),
-      "kosmos#7596: each row is disabled by Board.attachRowOff (tested in LogicTests)")
+      "kosmos#8045: the chat and the room both use the one tray, and the old menu is gone")
+check(attachSrc.components(separatedBy: "Board.attachRowOff(").count == 3 && attachSrc.components(separatedBy: ".disabled(off)").count == 4,
+      "kosmos#7596: the camera tile and each bottom row are disabled by Board.attachRowOff (tested in LogicTests), and a tile at the limit too")
 // Review 1: the camera is wired in both screens, opened on its own host, and its photo carries the epoch it opened under.
 for (name, src) in [("chat", chatSource), ("room", roomViewSrc)] {
-    check(src.contains("onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } }") && src.contains("case .camera: if cameraEpoch == client.chatEpoch { showCamera = true }")
+    check(src.contains("onCameraTapped: { cameraEpoch = client.chatEpoch }") && src.contains("case .camera: if cameraEpoch == client.chatEpoch { showCamera = true }")
           && src.contains(".background(Color.clear.fullScreenCover(isPresented: $showCamera) {")
           && src.contains("let epoch = cameraEpoch") && src.contains("Task { await addTaken(image, epoch: epoch) }")
           && src.contains("private func addTaken(_ image: UIImage, epoch: Int) async {")
           && src.contains("Task.detached(operation: { image.jpegData(compressionQuality: 0.85) })"),
           "kosmos#7596 review 1: the \(name) opens the camera on its own host, sends its photo under the epoch it opened with, and encodes it off the main thread")
+    // kosmos#8045: the tray closes wherever the emoji panel does, and a tile's photo is read only when its turn comes.
+    check(src.contains("emojiOpen = false; trayOpen = false") && src.contains(".onDisappear { trayOpen = false }") && src.contains("if focused { trayOpen = false }") && src.contains(".modifier(PhotoTrayFollowsKeyboard(") && src.contains("guard let data = await photo.data() else { return nil }"),
+          "kosmos#8045: the \(name)'s tray closes with the emoji panel, and reads a photo's data only inside the add")
 }
-check(attachSrc.contains(".onDisappear {\n                    guard let choice = chosen else { return }"),
-      "kosmos#7596 review 1: a choice is acted on once the panel has gone, never on a timer")
 check(attachSrc.contains("if granted { onChoose(.camera) } else { onCameraDenied() }")
       && chatSource.contains("onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[agent.session] = Board.cameraDeniedLine } }")
       && roomViewSrc.contains("onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[attachKey] = Board.cameraDeniedLine } }"),
@@ -1795,8 +1796,16 @@ check(attachSrc.contains("if granted { onChoose(.camera) } else { onCameraDenied
 check(attachSrc.contains("case .notAllowed: if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }")
       && attachSrc.contains("AVCaptureDevice.requestAccess(for: .video) { granted in"),
       "kosmos#7596 review 1 and 2: a camera Kosmos may not use opens Settings, and one not yet asked about asks before it opens")
-check(attachSrc.contains(".accessibilityHidden(true)   // the name beside it says it once"), "kosmos#7596 review 1: VoiceOver reads each choice once")
-check(attachSrc.contains("context.coordinator.done = done") && attachSrc.contains("Text(note).font(.footnote).foregroundColor(Palette.secondary) }"),
+// kosmos#8045: the only code that reads a photo's bytes is the tile's data closure, so the prompt's sentence stays true.
+check(attachSrc.components(separatedBy: "requestImageDataAndOrientation").count == 2 && attachSrc.contains("}, data: {") && attachSrc.contains("Board.trayEncoded(data)"),
+      "kosmos#8045: one place reads a photo's own data, the closure run on a tap")
+let plistSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos-Info.plist"), encoding: .utf8)) ?? ""
+let pbxSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos.xcodeproj/project.pbxproj"), encoding: .utf8)) ?? ""
+check(plistSrc.contains("PHPhotoLibraryPreventAutomaticLimitedAccessAlert")
+      && pbxSrc.components(separatedBy: "INFOPLIST_KEY_NSPhotoLibraryUsageDescription = \"Kosmos shows your recent photos when you tap + so you can add one to a message. Only the photos you tap leave your iPhone.\"").count == 3,
+      "kosmos#8045: both configurations carry the prompt's plain wording, and iOS's own select-more alert stays off")
+check(attachSrc.contains("Image(systemName: choice.symbol).accessibilityHidden(true)"), "kosmos#7596 review 1: VoiceOver reads each choice once")
+check(attachSrc.contains("context.coordinator.done = done") && attachSrc.contains("Text(note).font(.caption2).foregroundColor(Palette.secondary)"),
       "kosmos#7596 review 4: the camera hands its photo to the screen as it is now, and a row's reason is never dimmed")
 
 // kosmos#7810 (wiring guards, not proof of the screen): the chat asks through the tested threadAsk; earlier pages, the gap

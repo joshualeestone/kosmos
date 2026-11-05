@@ -364,17 +364,18 @@ final class RoomStore: ObservableObject {
     func filesInAir(_ project: String) -> [[Board.Attached]] { (pending[project] ?? []).filter { $0.line == nil && !$0.kept }.map(\.files) }
     // The ids a refused or not-confirmed post put back on the chips, so the room does not announce them as added.
     @Published private(set) var cameBack: [String: Set<String>] = [:]
-    func attach(_ pick: BoardClient.Pick, epoch: Int, to project: String) async {
+    @discardableResult
+    func attach(_ pick: BoardClient.Pick, epoch: Int, to project: String) async -> String? {
         let key = Board.roomAttachKey(project)
         let counted = Board.roomFilesCounted(waiting: client.attached[key]?.count ?? 0, uploading: client.uploading[key] ?? 0,
                                              inAir: filesInAir(project))
-        if let refusal = Board.uploadRefusal(size: nil, waiting: counted) { client.attachLine[key] = refusal; return }
+        if let refusal = Board.uploadRefusal(size: nil, waiting: counted) { client.attachLine[key] = refusal; return nil }
         #if DEBUG
         let sample = Self.sample
         #else
         let sample = false
         #endif
-        await client.attach(pick, epoch: epoch, key: Board.roomAttachKey(project), sample: sample) { mac, name, type in
+        return await client.attach(pick, epoch: epoch, key: Board.roomAttachKey(project), sample: sample) { mac, name, type in
             Board.roomUploadRequest(mac: mac, project: project, name: name, type: type)
         }
     }
