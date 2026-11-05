@@ -4895,6 +4895,17 @@ do {
     check(SignIn.reviewAnswer(status: 401, json: ["error": "this account is being deleted"]) == .refused("This account is being deleted."),
           "CONTROL: a 401 that is not about the password keeps its own sentence")
     check(SignIn.sentence("Done already.") == "Done already." && SignIn.sentence("") == "", "a sentence that already ends is left as it is")
+    // 11-05, a real sign-in: the code steps showed Kosmos+'s words raw ("that code is not right; 4 tries left").
+    check(SignIn.answer(status: 401, json: ["error": "that code is not right; 4 tries left"]) == .refused(message: "That code is not right; 4 tries left.", proofRefused: false),
+          "a wrong code reads as a sentence: a capital and a closing stop")
+    check(SignIn.answer(status: 401, json: ["error": "that code is not what the app shows right now, or it was already used; wait for the next one; 4 tries left"]) == .refused(message: "That code is not what the app shows right now, or it was already used; wait for the next one; 4 tries left.", proofRefused: false),
+          "a wrong authenticator code too")
+    check(SignIn.refusal("a code was sent moments ago; you can ask for another in 55 seconds") == "A code was sent moments ago; you can ask for another in 55 seconds.",
+          "the send-again wait too (start's refusal)")
+    check(SignIn.refusal("That code is not right.") == "That code is not right." && SignIn.refusal(nil) == nil && SignIn.refusal("  ") == nil,
+          "CONTROL: a sentence already tidy is left as it is, and no words stay no words")
+    check(SignIn.answer(status: 200, json: ["second": "sms", "challenge": "c", "sent_to": "ending 42"] as [String: Any]) == .second(kind: "sms", challenge: "c", sentTo: "ending 42"),
+          "CONTROL: where a text went is not a refusal, so it is left as Kosmos+ wrote it")
     check(SignIn.reviewAnswer(status: 403, json: ["error": "this account signs in through its company"]) == .refused("This account signs in through its company."),
           "and so does any other refusal")
     check(SignIn.reviewAnswer(status: 503, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer) && SignIn.reviewAnswer(status: 400, json: [:] as [String: Any]) == .refused(SignIn.reviewNoAnswer),
@@ -4930,7 +4941,7 @@ check(SignIn.answer(status: 200, json: jsonBody(#"{"second":"totp"}"#)) == .unkn
 check(SignIn.answer(status: 200, json: jsonBody(#"{"enrol":true,"token":"enrol-only","sms_available":true}"#)) == .needsSetup(token: "enrol-only", sms: true), "an enrol-only token is never taken as a session")
 check(SignIn.answer(status: 200, json: jsonBody(#"{"enrol":true}"#)) == .unknown, "enrol with no token is not guessed at")
 check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"That code is not right.","code":"bad_code"}"#)) == .refused(message: "That code is not right.", proofRefused: false), "a refusal keeps the coordinator's sentence")
-check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"x","code":"device_proof_refused"}"#)) == .refused(message: "x", proofRefused: true), "a refused proof is told apart")
+check(SignIn.answer(status: 400, json: jsonBody(#"{"error":"x","code":"device_proof_refused"}"#)) == .refused(message: "X.", proofRefused: true), "a refused proof is told apart (its words tidied as every refusal is)")
 check(SignIn.answer(status: 200, json: jsonBody(#"{}"#)) == .unknown && SignIn.answer(status: 500, json: nil) == .refused(message: nil, proofRefused: false), "no token, or no body")
 check(SignIn.companySignInRequired(json: jsonBody(#"{"ok":true,"sso_required":true}"#)) && !SignIn.companySignInRequired(json: jsonBody(#"{"ok":true,"sso_url":"https://x"}"#)), "a company sign-in only when it is required")
 check(SignIn.allowRead(status: 200, json: jsonBody(#"{"device_status":"acked"}"#)) == .status(.acked, matchCode: nil, hasComputer: false), "the Allow, from an answer that is ok")
@@ -5063,7 +5074,7 @@ do {
           "a grant without a usable email is not spent")
     check(SignIn.passkeyFinish(status: 403, json: jsonBody(#"{"error":"your company requires signing in through its own provider","code":"sso_required"}"#)) == .refused(SignIn.passkeyWords.company),
           "a company that requires its own sign-in: the app's sentence, which says what to do here")
-    check(SignIn.passkeyFinish(status: 401, json: jsonBody(#"{"error":"that passkey sign-in did not work. Try again, or sign in with your email"}"#)) == .refused("that passkey sign-in did not work. Try again, or sign in with your email"),
+    check(SignIn.passkeyFinish(status: 401, json: jsonBody(#"{"error":"that passkey sign-in did not work. Try again, or sign in with your email"}"#)) == .refused("That passkey sign-in did not work. Try again, or sign in with your email."),
           "any other refusal: the coordinator's sentence, cleaned as every refusal is")
     check(SignIn.passkeyFinish(status: 500, json: nil) == .refused(SignIn.passkeyWords.failed), "no words at all: the general sentence")
 }

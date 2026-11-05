@@ -181,7 +181,7 @@ enum SignIn {
             let code = body["code"] as? String
             // kosmos#7045: a first company sign-in creates the account, and the terms are agreed on the page.
             if code == "terms_required" { return .needsTerms }
-            return .refused(message: cleanMessage(body["error"]), proofRefused: code == "device_proof_refused")
+            return .refused(message: refusal(body["error"]), proofRefused: code == "device_proof_refused")
         }
         if body["enrol"] as? Bool == true {
             guard let token = body["token"] as? String, !token.isEmpty else { return .unknown }
@@ -323,7 +323,7 @@ enum SignIn {
             return .grant(code, email: email)
         }
         if body?["code"] as? String == "sso_required" { return .refused(passkeyWords.company) }
-        return .refused(cleanMessage(body?["error"]) ?? passkeyWords.failed)
+        return .refused(refusal(body?["error"]) ?? passkeyWords.failed)
     }
 
     /// The page's sentences for passkey sign-in (kosmos-relay signin.html), in the app's words for its own buttons.
@@ -357,6 +357,11 @@ enum SignIn {
     }
 
     /// The coordinator's sentence, kept short and on one line; nil when it sent none.
+    /// Kosmos+'s refusal as a sentence on screen: one line, as cleanMessage, then a capital and a closing stop. Kosmos+
+    /// writes its errors lowercase and unstopped ("that code is not right; 4 tries left"); the password door already
+    /// tidied them (`sentence`), and the code sign-in showed them raw (found on a real sign-in, 11-05).
+    static func refusal(_ value: Any?) -> String? { cleanMessage(value).map(sentence) }
+
     static func cleanMessage(_ value: Any?) -> String? {
         guard let s = value as? String else { return nil }
         let one = s.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
@@ -460,7 +465,7 @@ enum SignIn {
 
     static func enrolled(status: Int, json: Any?) -> Enrolled {
         let body = json as? [String: Any] ?? [:]
-        guard (200..<300).contains(status) else { return .refused(cleanMessage(body["error"]) ?? "That did not work. Try again.") }
+        guard (200..<300).contains(status) else { return .refused(refusal(body["error"]) ?? "That did not work. Try again.") }
         guard body["kind"] as? String == "totp", let link = body["otpauth"] as? String, link.hasPrefix("otpauth://totp/"),
               let secret = body["secret"] as? String, !secret.isEmpty else { return .refused("That did not work. Try again.") }
         return .totp(otpauth: link, secret: secret)

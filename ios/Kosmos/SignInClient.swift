@@ -84,7 +84,7 @@ final class SignInClient {
         let key = try deviceKey()
         let (status, json) = try await post(SignIn.startPath, SignIn.startBody(email: email, deviceID: key.id, deviceName: deviceName))
         guard (200..<300).contains(status) else {
-            throw SignInRefusal(message: SignIn.cleanMessage((json as? [String: Any])?["error"]) ?? "Kosmos+ could not send a code just now. Try again in a minute.")
+            throw SignInRefusal(message: SignIn.refusal((json as? [String: Any])?["error"]) ?? "Kosmos+ could not send a code just now. Try again in a minute.")
         }
         let company = canUseCompanySheet ? SignIn.companySignInURL(json: json, coordinator: coordinator) : nil
         return Started(codeComing: !SignIn.companySignInRequired(json: json), company: company)
@@ -135,7 +135,7 @@ final class SignInClient {
         let (status, json) = try await post(SignIn.passkeyBeginPath, [:])
         if status == 404 { return .off }
         if let offer = SignIn.passkeyOffer(status: status, json: json, coordinator: coordinator) { return .offer(offer) }
-        return .unusable(SignIn.cleanMessage((json as? [String: Any])?["error"]))
+        return .unusable(SignIn.refusal((json as? [String: Any])?["error"]))
     }
 
     /// What Apple's passkey sheet said.
