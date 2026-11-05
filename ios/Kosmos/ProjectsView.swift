@@ -129,6 +129,8 @@ final class RoomStore: ObservableObject {
     @discardableResult
     func loadList() async -> Bool {
         #if DEBUG
+        // kosmos#7945 follow-up: KOSMOS_SAMPLE_REACHING=1 holds the first wait, as on the Agents tab, to measure it.
+        if Self.sample && ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REACHING"] == "1" { return false }
         if Self.sample { list = Board.parseProjects(Data(Self.sampleProjects.utf8)); listState = .shown; return true }
         #endif
         // Not connected yet (a cold start, or the Mac asking for Allow): still reaching, never "we cannot read your

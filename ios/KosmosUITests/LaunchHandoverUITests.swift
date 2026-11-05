@@ -8,14 +8,25 @@ final class LaunchHandoverUITests: XCTestCase {
     override func setUp() { super.setUp(); continueAfterFailure = false }
 
     func testTheWaitToConnectSitsWhereTheLaunchScreenDrawsTheRing() throws {
+        try measure(tab: nil, words: "Connecting\u{2026}")
+    }
+
+    // A launch from a room notification opens on Projects, whose first wait is drawn the same way (ConnectingWait), under
+    // a different bar.
+    func testTheProjectsWaitSitsWhereTheLaunchScreenDrawsTheRing() throws {
+        try measure(tab: "projects", words: "Reaching your computer\u{2026}")
+    }
+
+    private func measure(tab: String?, words: String) throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_REACHING": "1"]
+        if let tab { app.launchEnvironment["KOSMOS_SAMPLE_TAB"] = tab }
         app.launch()
-        let wait = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Connecting\u{2026}")).firstMatch
-        XCTAssertTrue(wait.waitForExistence(timeout: 20), "the wait to connect did not show")
+        let wait = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", words)).firstMatch
+        XCTAssertTrue(wait.waitForExistence(timeout: 20), "the wait (\(words)) did not show")
         let screen = app.windows.firstMatch.frame, frame = wait.frame
-        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "connecting"; shot.lifetime = .keepAlways; add(shot)
+        let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = tab ?? "agents"; shot.lifetime = .keepAlways; add(shot)
         // The element is the ring and the words below it together (accessibilityElement(children: .combine)), so its top
         // is the ring's top and its middle across is the ring's. The ring is 20 pt (SweepDots(scales: false), the launch
         // picture's side), so its centre is 10 pt below that top. Within a point of the screen's centre, where the launch
