@@ -12876,8 +12876,11 @@ const server = http.createServer(async (req, res) => {
       const oe = require('./engine/orgenroll');
       const here = oe.isEnrolledHere();
       const rec = here && isViaScreen(req, {}) ? oe.readEnrollment() : null;
+      // kosmos#5536: the recoveries of this member's own backup, for the board's notice. A family has no backup.
+      const recs = rec && rec.org && rec.org.kind !== 'family' && Array.isArray(rec.recoveries) ? oe.cleanRecoveries(rec.recoveries) : [];
       sendJson(res, 200, { enrolled: here, kind: rec && rec.org ? (rec.org.kind === 'family' ? 'family' : 'company') : null,
-        reviewerGrants: rec && Array.isArray(rec.reviewerGrants) ? oe.cleanReviewerGrants(rec.reviewerGrants) : [] });
+        reviewerGrants: rec && Array.isArray(rec.reviewerGrants) ? oe.cleanReviewerGrants(rec.reviewerGrants) : [],
+        ...(recs.length ? { recoveries: recs } : {}) });
     } catch { sendJson(res, 200, { enrolled: false, kind: null, reviewerGrants: [] }); }
     return;
   }
