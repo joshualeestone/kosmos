@@ -264,7 +264,9 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
        is read (only those: the others are skipped before their record is opened), and the newest entry is the last
        agent seen. Review 3: the owner is from the deepest project's own entry only, the one noteWrite notices from, so
        this never names an owner the notices would not act on; a file whose only entries are an outer project's has no
-       owner here, as noteWrite treats it. An entry older than KEEP_MS before `now` (lapsed, not yet pruned) is not read. */
+       owner here, as noteWrite treats it. An entry older than KEEP_MS before `now` (lapsed, not yet pruned) is not read,
+       although noteWrite still hands its `first` on until the record is pruned (review 7): so after 30 quiet days this can
+       show no owner where the next write's notice names one. The quiet direction, kept on purpose. */
     const entries = [];
     for (const { id, root } of roots) {
       const rel = path.relative(root, abs);
@@ -283,11 +285,15 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
     let notFile = null;
     try {
       // lstat of the resolved path: a link here now was swapped in after it was resolved, and is not followed.
-      const st = fs.lstatSync(abs);
       /* Review 6: lstat refuses a link only in the last part of the path. A folder above it swapped for a link since the
-         path was resolved would point the stat outside the project, so the folder is resolved again here and must not
-         have moved; if it has, nothing about the file is said. */
-      if (fs.realpathSync.native(path.dirname(abs)) !== path.dirname(abs)) return { ok: false, because: 'outside' };
+         path was resolved would point the stat outside the project, so the folder is resolved again, before and after
+         the stat (review 7: one check after leaves a swap-and-back window), and must not have moved; if it has, or
+         cannot be resolved, nothing about the file is said. */
+      const stayed = () => { try { return fs.realpathSync.native(path.dirname(abs)) === path.dirname(abs); } catch { return null; } };
+      const before = stayed();
+      if (before === false) return { ok: false, because: 'outside' };
+      const st = fs.lstatSync(abs);
+      if (stayed() !== true) return { ok: false, because: 'outside' };
       // Review 1: a folder inside a project is not a file that is gone; it has no record of its own.
       if (st.isDirectory()) return { ok: false, because: 'folder' };
       if (st.isFile()) modified = new Date(st.mtimeMs).toISOString();
