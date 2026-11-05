@@ -1,0 +1,47 @@
+# sandboxlogin-8050: a browser check's board never reads this Mac's real keychain
+
+Card: kosmos#8050. Owner: Ice Cream Kitty. Started 2026-11-05 12:5x CST, during the 0.7.92 cut's hold.
+
+## Why
+render-accounts-openai's "every box says Signed in" read the login date of whoever is really signed in on the Mac running
+it, through the default Claude row. That stopped the 0.7.92 cut after 106 minutes for a reason unrelated to the code.
+
+## What changes
+- `engine/loginexpiry.js`: with KOSMOS_BC_LOGIN_UNTIL_MS set, the bare entry answers that date and every other entry
+  answers nothing, and `security` is not run. A value that is not a whole number, or a board with no sandbox home, answers
+  nothing.
+- `tools/browser-checks.sh`: exports it beside the other no-board-may switches, so it covers every board the script boots.
+
+## Decisions (mine, reversible in a commit)
+- **The seam sits in the two keychain readers,** the only places engine/ and server.js run `security`, by grep and now by
+  a test (signing scripts in tools/ run it for other things), and every board browser-checks.sh boots has the variable. Rejected: a seam in claudeloginlive only, which leaves the status
+  snapshot's read.
+- **A fixed date, noon UTC on 2100-01-01,** so a page or a screenshot cannot change with the calendar, or with the
+  timezones the fleet's Macs are in.
+- **Other accounts answer nothing,** as they do now: their entries are named from a sandbox path, so none exists.
+- The checks that test dates inject their own (render-claude-login-green-3997 uses setReaderForTests; render-account-badge-1921,
+  render-refreshlogin-5407, render-acct-modal-trap-7202 and mobile-shots supply their rows), so this takes nothing from them.
+  Read, not run.
+
+## What this does not cover
+- A board that runs the host's real `claude`: `claude auth status` reads the login itself. sb4, the board that failed,
+  has a fake one, so this card's failure is closed. Other boards have no pinned binary, but the engine looks for `claude`
+  under the sandbox home (runners.resolveBin), where none is seeded, so they should not reach the host's. Read, not run.
+- Boards started outside this script: tools/test-install.sh and the other tools/test-*.sh harnesses, mobile-shots.js run
+  alone, and a check run by hand. I know of none that has failed this way; add the export where one does.
+
+## Weakest premise
+That every board this script boots has a sandbox home, which the seam now also requires. The script sets one for the run
+(read, not run). A board without one reads no date, and no check would show that: render-accounts-openai asserts only
+"Signed in". It fails safe, with no date and no "Login expired". A leak onto a real board gives no date, not a false one:
+production has no sandbox home, and a home that is this user's real home or above it, by real path, does not count as
+one. The cost of such a leak is that the board's login notices stop; nothing can export the variable that far.
+
+## Steps
+1. The seam, the export, engine/loginexpiry-sandbox-8050.test.js.
+2. Review, then validation after the 0.7.92 cut (Mortals stays quiet until then).
+3. Seen working, after the cut (the card closes on this, including the read-not-run claims above): "render-accounts-openai green" alone proves nothing, because it also passes without this
+   on a Mac with a fresh login. So run the script from a throwaway copy of this worktree, with a fake `security` first on
+   PATH answering a past date, twice: with the export line deleted in the copy (red on "Login expired"), then as committed
+   (green). Then it lands with the next cut. Merged without this run is words and mechanism only, so the card stays open
+   until it has been seen.
