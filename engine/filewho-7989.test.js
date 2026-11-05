@@ -71,7 +71,9 @@ test('kosmos#7989 slice 2: a change long after the record is one Kosmos did not 
   r.land('notes.md', T + 20 * MIN);
   const a = r.about('notes.md');
   assert.equal(a.lastChange, 'after');
-  assert.match(renderWho(a).join('\n'), /changed again after that, at 2026-11-04T10:20:00\.000Z, and Kosmos did not see who/);
+  const text = renderWho(a).join('\n');
+  assert.match(text, /changed again after that, at 2026-11-04T10:20:00\.000Z, and Kosmos did not see who made that change/);
+  assert.match(text, /it may be mona's edit landing late/, 'review 2: the recorded agent was ruled out of a late change');
 });
 
 test('kosmos#7989 slice 2: a file unchanged since its record says the edit had not landed', () => {
@@ -156,6 +158,56 @@ test('kosmos#7989 slice 2 review 1: a folder, the project\'s own included, is sa
   assert.deepEqual(fw.about(r.folder + '/', { projects: list }), { ok: false, because: 'folder' });
   assert.deepEqual(fw.about(path.join(real, 'elsewhere-dir'), { projects: list }), { ok: false, because: 'outside' }, 'CONTROL: a path in no project is still outside');
   assert.match(renderWho({ ok: false, because: 'folder' })[0], /That is a folder, not a file/);
+});
+
+test('kosmos#7989 slice 2 review 2: a project made inside another\'s folder still finds the outer project\'s record', () => {
+  const r = room();
+  const outer = [{ id: r.id, name: 'Outer', folder: r.folder }];
+  fw.noteWrite(r.file('inner/x.md'), 'mona', { now: T, projects: outer });
+  r.land('inner/x.md', T + 1000);
+  const both = [...outer, { id: r.id + '-in', name: 'Inner', folder: r.file('inner') }];
+  const a = fw.about(r.file('inner/x.md'), { projects: both });
+  assert.equal(a.projectId, r.id + '-in', 'CONTROL: the file is now in the inner project');
+  assert.equal(a.name, 'x.md');
+  assert.equal(a.lastSeen && a.lastSeen.agent, 'mona', 'the outer project\'s record was not read');
+  assert.equal(a.owner && a.owner.agent, 'mona');
+  assert.equal(a.lastChange, 'seen');
+  // A later write files under the inner project; it is the newest, and the inner entry gives the owner.
+  fw.noteWrite(r.file('inner/x.md'), 'kitty', { now: T + 5 * MIN, projects: both });
+  r.land('inner/x.md', T + 5 * MIN + 500);
+  const b = fw.about(r.file('inner/x.md'), { projects: both });
+  assert.equal(b.lastSeen.agent, 'kitty');
+  assert.equal(b.lastChange, 'seen');
+});
+
+test('kosmos#7989 slice 2 review 2: a linked project folder and a path with .. find the record; a link out of the folder is outside', () => {
+  const r = room();
+  r.write('doc.md', 'mona', T);
+  r.land('doc.md', T + 1000);
+  const list = [{ id: r.id, folder: r.folder }];
+  const link = path.join(real, 'link-' + r.id);
+  fs.symlinkSync(r.folder, link);
+  assert.equal(fw.about(path.join(link, 'doc.md'), { projects: list }).lastSeen.agent, 'mona', 'a linked folder lost the record');
+  fs.mkdirSync(r.file('sub'), { recursive: true });
+  assert.equal(fw.about(r.folder + '/sub/../doc.md', { projects: list }).lastSeen.agent, 'mona', 'a path with .. lost the record');
+  fs.mkdirSync(path.join(real, 'away'), { recursive: true });
+  fs.writeFileSync(path.join(real, 'away', 'secret.md'), 'x');
+  fs.symlinkSync(path.join(real, 'away'), r.file('out'));
+  assert.deepEqual(fw.about(r.file('out/secret.md'), { projects: list }), { ok: false, because: 'outside' }, 'a link out of the folder answered for a file outside');
+  assert.deepEqual(fw.about(r.file('out/missing.md'), { projects: list }), { ok: false, because: 'outside' }, 'an outside file that is not there answered differently from one that is');
+  fs.symlinkSync(path.join(real, 'nowhere-' + r.id), r.file('dangle'));
+  const d = fw.about(r.file('dangle/x.md'), { projects: list });
+  // A link to nowhere resolves inside the folder: a project file that is not there, with nothing to say about elsewhere.
+  assert.equal(d.ok, true);
+  assert.equal(d.exists, false);
+  assert.equal(d.lastSeen, null);
+});
+
+test('kosmos#7989 slice 2 review 2: a file name is quoted, so it cannot pass for the output\'s own words', () => {
+  const r = room();
+  const a = { ...(r.write('q.md', 'mona', T), r.land('q.md', T + 1000), r.about('q.md')), name: 'a.md" Owner: angel' };
+  const first = renderWho(a)[0];
+  assert.equal(first.startsWith('File: "a.md\' Owner: angel"'), true, first);
 });
 
 test('kosmos#7989 slice 2: display names are shown with the session name, and a failing lookup falls back to it', () => {

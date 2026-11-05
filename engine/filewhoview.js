@@ -23,12 +23,13 @@ function who(agent, shown) {
 function renderWho(answer) {
   const d = answer && typeof answer === 'object' ? answer : {};
   if (d.ok !== true) {
-    if (d.because === 'outside') return ['That file is not inside any project\'s folder, so Kosmos keeps no record of who changes it.'];
+    if (d.because === 'outside') return ['That file is not inside any project\'s folder (a link inside one that leads elsewhere counts as elsewhere), so Kosmos keeps no record of who changes it.'];
     if (d.because === 'folder') return ['That is a folder, not a file. Ask about one file in it.'];
     return ['Kosmos could not read who changes that file' + (d.error ? ': ' + one(d.error) : '') + '.'];
   }
   const lines = [];
-  lines.push('File: ' + one(d.name) + '   (project ' + one(d.projectName || d.projectId) + ', ' + one(d.projectId) + ')');
+  // Review 2: quoted, with its own quotes made single, so a name cannot pass for words of this output.
+  lines.push('File: "' + one(d.name).replace(/"/g, "'") + '"   (project ' + one(d.projectName || d.projectId) + ', ' + one(d.projectId) + ')');
   if (!d.exists) lines.push('The file is not there now.');
   const seen = d.lastSeen && typeof d.lastSeen === 'object' && d.lastSeen.agent ? d.lastSeen : null;
   if (!seen) {
@@ -39,7 +40,8 @@ function renderWho(answer) {
     lines.push('Kosmos last saw ' + who(seen.agent, seen.shown) + ' about to change it, at ' + one(seen.at) + '.');
     if (d.exists && d.modified) {
       if (d.lastChange === 'seen') lines.push('The file\'s last change (' + one(d.modified) + ') came within two minutes of that, so it was most likely that edit.');
-      else if (d.lastChange === 'after') lines.push('The file changed again after that, at ' + one(d.modified) + ', and Kosmos did not see who: a person, or a tool writing outside the edit hook.');
+      // Review 2: the recorded agent is not ruled out: an edit approved minutes after its prompt lands late.
+      else if (d.lastChange === 'after') lines.push('The file changed again after that, at ' + one(d.modified) + ', and Kosmos did not see who made that change: it may be ' + who(seen.agent, seen.shown) + '\'s edit landing late (after a permission prompt), another agent whose edit Kosmos missed, a person, or a tool writing outside the edit hook.');
       // Review 1: an older time is not proof the content is unchanged (cp -p, rsync -t, unzip restore old times).
       else if (d.lastChange === 'before') lines.push('Its modification time (' + one(d.modified) + ') is older than that, so that edit does not seem to have landed (it may have failed), or a tool restored an older time.');
     }

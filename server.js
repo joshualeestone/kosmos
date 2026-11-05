@@ -24118,17 +24118,6 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  /* --- a project's documents ----------------------------------------------
-   *
-   * Josh, 2026-08-19: "i only want a list of the files and if i click them they
-   * open", covering both what he drops in and what an agent writes to share.
-   *
-   * ⚠️ THE LIST IS A GET AND THE OPEN IS A POST, and that split is the guard
-   * rather than a REST habit. Reading a folder's names is a read. `open` LAUNCHES
-   * things, so it inherits the cross-site guard every other POST here has, and a
-   * page on another site cannot make this machine open a file by embedding a
-   * form. Same reasoning as reveal-folder below it.
-   */
   /* kosmos#7989 slice 2: one project file's record, for `kosmos project who <file>`: the agent Kosmos last saw about to
      change it, its owner, and whether that write is the file's last change (engine/filewriters.about). A read, so a GET;
      it answers only for a path inside a project's folder, as the Documents list's "changed by" does, and says nothing
@@ -24153,6 +24142,17 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  /* --- a project's documents ----------------------------------------------
+   *
+   * Josh, 2026-08-19: "i only want a list of the files and if i click them they
+   * open", covering both what he drops in and what an agent writes to share.
+   *
+   * ⚠️ THE LIST IS A GET AND THE OPEN IS A POST, and that split is the guard
+   * rather than a REST habit. Reading a folder's names is a read. `open` LAUNCHES
+   * things, so it inherits the cross-site guard every other POST here has, and a
+   * page on another site cannot make this machine open a file by embedding a
+   * form. Same reasoning as reveal-folder below it.
+   */
   const docs = pathname.match(/^\/api\/project\/([^/]+)\/documents$/);
   if (docs && (req.method === 'GET' || req.method === 'HEAD')) {
     const id = decodeSegment(docs[1]);

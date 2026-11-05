@@ -49,6 +49,7 @@ function withStub(fn) {
       const u = new URL(req.url, 'http://x');
       if (u.pathname === '/api/project-file/who') {
         const p = u.searchParams.get('path');
+        if (p === '/refused/x') { res.writeHead(403, { 'content-type': 'application/json' }); res.end('{"ok":false,"error":"that request came from another website, so we will not fetch for it"}'); return; }
         const body = p === FILE ? ANSWER : p === '/bad/answer' ? null : { ok: false, because: 'outside' };
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(body ? JSON.stringify(body) : '<html>proxy</html>');
@@ -100,6 +101,9 @@ test('kosmos#7989 slice 2: outside every project exits 1 with the renderer\'s wo
   const bad = await runCli(['project', 'who', '/bad/answer'], env);
   assert.equal(bad.code, 1);
   assert.match(bad.stdout + bad.stderr, /could not read/);
+  const refused = await runCli(['project', 'who', '/refused/x'], env);
+  assert.equal(refused.code, 1, 'review 2: a refusal exited 0');
+  assert.match(refused.stdout, /could not read who changes that file: that request came from another website/);
 }));
 
 test('kosmos#7989 slice 2: no file, two files, or an option is a usage error, before the board is asked', () => withStub(async (env, seen) => {
