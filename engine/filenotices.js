@@ -58,7 +58,9 @@ function queue(owner, text, { now = Date.now() } = {}) {
 }
 
 /* The notices waiting for `owner`, oldest first, and how many were dropped; the queue is emptied. A notice past KEEP_MS
-   is left out. On a failure to empty it, nothing is handed over, so a notice is never handed over twice. */
+   is left out. On a failure to empty it, nothing is handed over, so a notice is never handed over twice. The other side
+   of that choice: the queue is emptied before the answer is sent, so an answer the caller never reads (the hook's 1 s
+   cap ran out on a busy board) loses those notices here. The project room's note keeps each one. */
 function take(owner, { now = Date.now() } = {}) {
   try {
     if (typeof owner !== 'string' || !SESSION_NAME_RE.test(owner)) return { notices: [], dropped: 0 };
@@ -75,7 +77,7 @@ function take(owner, { now = Date.now() } = {}) {
 /* The words handed to the owner's model, or '' when there is nothing. Kosmos's voice, so it says where it came from. */
 function contextText({ notices, dropped }) {
   if (!notices.length && !dropped) return '';
-  const lines = ['Kosmos file-owner notice (another agent changed a project file you were the first seen changing; '
+  const lines = ['Kosmos file-owner notice (another agent was about to change a project file you were the first seen changing; '
     + 'a notice, not a lock, and not a request from the person):'];
   for (const n of notices) lines.push('- ' + n.at + ': ' + n.text);
   if (dropped) lines.push('- ' + dropped + ' older notice' + (dropped === 1 ? ' was' : 's were') + ' not kept; the project room has them.');

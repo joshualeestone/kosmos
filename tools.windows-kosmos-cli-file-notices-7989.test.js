@@ -40,9 +40,18 @@ test('Windows --hook prints only the hook JSON on a 200, and exits 0 on every an
   const ok = await run(['file-notices', '--hook'], () => ({ body: HOOKJSON }));
   assert.deepEqual([ok.code, ok.out], [0, HOOKJSON]);
   assert.equal(ok.calls[0].route, '/api/file-notices/take?as=hook&from_pane=');
+  assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], AGENT);
   for (const a of [{ status: 403, body: HOOKJSON }, { body: 'not json' }, { body: '' }, { throws: true }]) {
     const r = await run(['file-notices', '--hook'], () => a);
     assert.deepEqual([r.code, r.out], [0, ''], JSON.stringify(a));
+  }
+});
+
+test('Windows kosmos file-notices --help prints the usage and sends nothing', async () => {
+  for (const args of [['file-notices', '--help'], ['file-notices', '-h']]) {
+    const r = await run(args, () => ({ body: '' }));
+    assert.equal(r.calls.length, 0, args.join(' '));
+    assert.match(r.out + r.err, /Usage: kosmos file-notices \[--hook\]/, args.join(' '));
   }
 });
 

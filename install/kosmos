@@ -4284,8 +4284,9 @@ cmd_report_show() {
 
 # kosmos#7989 slice 3: take the file-owner notices Kosmos kept for you (another agent changed a project file you were the
 # first seen changing). Taking them clears them. --hook is what Kosmos's Claude Code hook runs on UserPromptSubmit: it
-# prints the hook's JSON only when there is a notice, nothing otherwise, and always exits 0, with a 2 s cap, so a board
-# that is down or slow cannot hold up a turn or show anything to the person.
+# prints the hook's JSON only when there is a notice, nothing otherwise, and always exits 0, with a 1 s cap, so a board
+# that is down or slow cannot hold up a turn for long or show anything to the person. With an agent token it sends only
+# that (the route takes it on loopback), so it does not start node to read the board token on every turn.
 cmd_file_notices() {
   local _hook=0
   while [ $# -gt 0 ]; do
@@ -4300,11 +4301,12 @@ cmd_file_notices() {
     ''|*[!0-9a-f]*) ;;
     *) _tok="$KOSMOS_AGENT_TOKEN" ;;
   esac
-  local _bt; _bt="$(board_token || true)"
+  local _bt=""
+  [ "$_hook" = 1 ] && [ -n "$_tok" ] || _bt="$(board_token || true)"
   local _pane_q; _pane_q=$(printf '%s' "${TMUX_PANE:-}" | sed 's/%/%25/g')
   local _body _rc=0 _code
   if [ "$_hook" = 1 ]; then
-    _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 2 -X POST -w $'\n%{http_code}' "$URL/api/file-notices/take?as=hook&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
+    _body=$(kosmos_curl "$_bt" "$_tok" -sS -m 1 -X POST -w $'\n%{http_code}' "$URL/api/file-notices/take?as=hook&from_pane=$_pane_q" 2>/dev/null) || _rc=$?
     [ "$_rc" -eq 0 ] || exit 0
     _code="${_body##*$'\n'}"
     _body="${_body%$'\n'*}"
@@ -5625,7 +5627,7 @@ kosmos_command_list() {
   printf '  kosmos reply         message the person in your conversation with them (an answer, or one you start)\n'
   printf '  kosmos reply-channel say where you answer the person, when it is not kosmos reply\n'
   printf '  kosmos inbox         read your recent messages with the person (a notice can arrive without them)\n'
-  printf '  kosmos file-notices take the notices Kosmos kept for you when another agent changed a file of yours\n'
+  printf '  kosmos file-notices take the notices Kosmos kept for you when another agent was about to change a file of yours\n'
   printf '  kosmos react         react to a post in a project room\n'
   printf '  kosmos claim         claim a request in a project room before you take it on\n'
   printf '  kosmos report        say what you are doing: working, blocked, waiting on someone\n'
@@ -5716,7 +5718,7 @@ if [ "$_kosmos_help" = 1 ]; then
       exit 0 ;;
     file-notices)
       # kosmos#7989: not with the read-only group either. Run bare, it takes (clears) your notices.
-      printf 'Usage: kosmos file-notices [--hook]   (take the notices Kosmos kept for you when another agent changed a project file you were the first seen changing; taking them clears them. --hook: what Kosmos'"'"'s own hook runs)\n'
+      printf 'Usage: kosmos file-notices [--hook]   (take the notices Kosmos kept for you when another agent was about to change a project file you were the first seen changing; taking them clears them. --hook: what Kosmos'"'"'s own hook runs)\n'
       exit 0 ;;
     inbox)
       # #4784 review 1: NOT with the read-only group below. Run bare, inbox prints the person's private

@@ -18,17 +18,20 @@ const ANSWER = path.join(SB, 'answer.txt');
 const CLI = path.join(SB, 'kosmos');
 /* Speaks `report` (the six words, as the hook's probe expects), records every call, and answers `file-notices` with the
    contents of ANSWER and the exit code in ANSWER.rc. */
-fs.writeFileSync(CLI, '#!/bin/bash\n{ printf "%s|" "$@"; printf "\\n"; } >> "' + LOG + '"\n'
+/* One write per call: the hook runs `report` in the background beside `file-notices`, and two writers appending an
+   argument at a time interleave their lines. */
+fs.writeFileSync(CLI, '#!/bin/bash\nL=$(printf "%s|" "$@")\nprintf "%s\\n" "$L" >> "' + LOG + '"\n'
   + '[ "$1" = report ] && [ -z "${2:-}" ] && echo "started working idle needs_you blocked stopped"\n'
   + 'if [ "$1" = file-notices ]; then cat "' + ANSWER + '"; exit "$(cat "' + ANSWER + '.rc" 2>/dev/null || echo 0)"; fi\nexit 0\n');
 fs.chmodSync(CLI, 0o755);
 
-function run(event, answer, rc = 0) {
+let paneN = 0;
+function run(event, answer, rc = 0, pane = '%fn' + (paneN++)) {
   fs.writeFileSync(LOG, '');
   fs.writeFileSync(ANSWER, answer);
   fs.writeFileSync(ANSWER + '.rc', String(rc));
   const r = cp.spawnSync('bash', [HOOK], { input: JSON.stringify(event), encoding: 'utf8', timeout: 20000,
-    env: { ...process.env, KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off' } });
+    env: { ...process.env, KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off', TMUX_PANE: pane } });
   assert.equal(r.status, 0, 'the hook always exits 0: ' + r.stderr);
   const calls = fs.readFileSync(LOG, 'utf8').split('\n').filter((l) => l.startsWith('file-notices|'));
   return { out: r.stdout, calls };
@@ -46,6 +49,20 @@ test('anything that is not the hook JSON is dropped: nothing, other words, or a 
   assert.equal(run(prompt, '').out, '');
   assert.equal(run(prompt, 'Kosmos is not running here\n').out, '');
   assert.equal(run(prompt, JSONLINE + '\n', 1).out, '', 'a failing CLI says nothing even if it printed the JSON');
+});
+
+test('a pane asks at most once per FILE_NOTICE_EVERY: a second prompt soon after makes no call; a stale mark asks again', () => {
+  const first = run(prompt, JSONLINE + '\n', 0, '%throttle');
+  assert.deepEqual(first.calls, ['file-notices|--hook|']);
+  const second = run(prompt, JSONLINE + '\n', 0, '%throttle');
+  assert.deepEqual(second.calls, [], 'the second prompt within the window does not call');
+  assert.equal(second.out, '');
+  const mark = path.join(SB, 'kosmos-report-throttle', '_throttle.filenotices');
+  assert.ok(fs.existsSync(mark), 'control: the mark is where the test looks: ' + mark);
+  fs.writeFileSync(mark, String(Math.floor(Date.now() / 1000) - 301) + '\n');
+  assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '%throttle').calls, ['file-notices|--hook|'], 'past the window it asks again');
+  fs.writeFileSync(mark, 'garbage\n');
+  assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '%throttle').calls, ['file-notices|--hook|'], 'an unreadable mark is treated as old');
 });
 
 test('no other event asks for file notices', () => {

@@ -3,7 +3,7 @@
 /**
  * kosmos#7989 slice 3: `kosmos file-notices [--hook]` takes the agent's own file-owner notices (POST
  * /api/file-notices/take) with its token and pane. --hook prints only the hook's JSON, only on a 200, and always exits
- * 0, within its 2 s cap. Driven against a stub board.
+ * 0, within its 1 s cap. Driven against a stub board.
  *
  *   node --test cli.file-notices-7989.test.js
  */
@@ -88,9 +88,25 @@ test('--hook says nothing and exits 0 on a refusal, other words, or a board that
   await withStubBoard(async (port) => {
     const out = await runCli(['file-notices', '--hook'], envFor(port));
     assert.deepEqual([out.code, out.stdout], [0, '']);
-    assert.ok(out.ms < 6000, 'the cap holds a turn for about 2 s, not the 15 s a verb waits: ' + out.ms + ' ms');
+    assert.ok(out.ms < 3000, 'the 1 s cap holds a turn for about a second, not the 15 s a verb waits: ' + out.ms + ' ms');
   }, { hang: true });
 });
+
+test('--hook with an agent token sends only the agent token, so no board token is read on every turn', () => withStubBoard(async (port, seen) => {
+  const out = await runCli(['file-notices', '--hook'], envFor(port));
+  assert.equal(out.code, 0);
+  assert.equal(seen[0].headers['x-kosmos-agent-token'], TOKEN);
+  assert.equal(seen[0].headers['x-kosmos-board-token'], undefined);
+}, { status: 200, text: '' }));
+
+test('--help prints the usage and never asks the board, so it cannot take (clear) the notices', () => withStubBoard(async (port, seen) => {
+  for (const args of [['file-notices', '--help'], ['file-notices', '-h']]) {
+    const out = await runCli(args, envFor(port));
+    assert.equal(out.code, 0, args.join(' '));
+    assert.match(out.stdout, /^Usage: kosmos file-notices \[--hook\]/, args.join(' '));
+  }
+  assert.equal(seen.length, 0);
+}, { status: 200, text: '' }));
 
 test('an unknown argument is a usage error before the board is asked', () => withStubBoard(async (port, seen) => {
   const out = await runCli(['file-notices', '--all'], envFor(port));
