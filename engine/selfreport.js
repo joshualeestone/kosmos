@@ -720,5 +720,14 @@ function blockedOwnerNote(state, owner, opts) {
   return isPerson ? BLOCKED_PERSON_NOTE : '';
 }
 
-module.exports = { turnTakenOf, TURN_STATES /* #7786 */, STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, untilTimeOf, untilDefers /* kosmos#6683 */, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
+/* #7756: the lasting record of a question taken back with a reason, for the agent's chat with the person: clearing the
+   card alone left the question simply gone. No reason, no line: a bare clear says nothing to record. */
+function withdrawnLine(question, why) {
+  const reason = typeof why === 'string' ? why.trim() : '';
+  if (!reason) return null;
+  const asked = typeof question === 'string' ? question.trim() : '';
+  return (asked ? 'No longer asking: ' + asked : 'No longer asking my last question.') + '\nWhy: ' + reason;
+}
+
+module.exports = { withdrawnLine, turnTakenOf, TURN_STATES /* #7786 */, STATES, WAITING_ON_A_PERSON, STALE_WAIT_MS, untilTimeOf, untilDefers /* kosmos#6683 */, DIR, NO_READING, TAIL_BYTES, HISTORY_MAX_BYTES, record, read, history, fileFor, isAutoPermissionWait, finalTextClean, finalOf,
   blockedOwnerNote, BLOCKED_PERSON_NOTE, NEEDS_YOU_ASK_NOTE, NEEDS_YOU_HELD_NOTE /* #7915 */ };
