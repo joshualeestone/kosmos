@@ -426,7 +426,8 @@ struct BoardStates<Empty: View>: View {
     // kosmos#7945 follow-up (Josh 11-04, build 43): the ring is centred on the SCREEN, where the launch screen draws
     // the same ring (LaunchSweep, a launch image is always centred on the screen), so launch hands over to this with no
     // jump. Centred between the bars instead, it would sit a few points off, by a different amount on each iPhone. The
-    // words hang below the ring without moving it (ios/LogicTests/run-sweep.sh checks this centring).
+    // words hang below the ring without moving it (ios/LogicTests/run-sweep.sh checks this centring). Today's tab shares
+    // this view (BoardStates), so its wait is centred on the screen too; shipped builds have Today off.
     private var reaching: some View {
         SweepDots()   // kosmos#7954: the board's ring of dots, not the orb; hidden from VoiceOver (the words say what is loading)
             .overlay(alignment: .bottom) {

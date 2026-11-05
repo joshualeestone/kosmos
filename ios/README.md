@@ -91,7 +91,8 @@ builds it on GitHub's macOS runner, which has one.
 - `Kosmos/Assets.xcassets` holds `AppIcon` (a byte-for-byte copy of `assets/Kosmos-1024.png`:
   1024 px, full bleed, no transparency; iOS makes every smaller size from it) and
   `LaunchBackground`, the app's own ground (`Palette.ground`: `#faf9f7` light, `#0c0d0f` dark),
-  and `LaunchSweep`, the Sweep loader's ring of eight dots as Reduce Motion holds it (every dot full size), 20 pt,
+  and `LaunchSweep`, the Sweep loader's ring of eight dots at the moment every `SweepDots` starts on
+  (`SweepLogic.launchAt`: the top dot at its brightest, three trailing), 20 pt,
   deep gold `#9c741b` light and `#e3b341` dark (kosmos#7945; it was navy `#17233D`, which flashed before every
   launch, and then the 120 pt orb, which jumped to the small "Connecting..." ring after it). It is the same ring, the
   same size and the same place as `SweepDots` on the Agents tab's wait to connect, which is centred on the screen
@@ -263,9 +264,10 @@ turns out dead, it posts `{token: null}` (kosmos-relay `apns-718`).
   Safari: a page that opts in with `viewport-fit=cover` (sign-in, the gate) pads for the notch
   itself, and WebKit keeps any other page (the board today) clear of it. Since the tab bar
   (kosmos#6838) the web view ends above it, with navy behind the bar.
-- **Launch screen:** the app's ground with the still orb, from the asset catalog (see "App icon and
-  launch screen" above), so launch hands off to the native sign-in or Agents screen with no change
-  of colour (kosmos#7945). The board pages opened over the tabs keep their navy, so a launch from a
+- **Launch screen:** the app's ground with the Sweep ring's first frame, from the asset catalog (see
+  "App icon and launch screen" above), so launch hands off to the native sign-in or Agents screen
+  with no change of colour (kosmos#7945), and on the Agents tab's wait to connect, to the same ring
+  in the same place starting to move. The board pages opened over the tabs keep their navy, so a launch from a
   notification tap, which opens on a board page, still changes to navy.
 
 ### Tests that run without a simulator

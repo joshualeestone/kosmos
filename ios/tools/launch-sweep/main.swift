@@ -3,8 +3,8 @@ import CoreGraphics
 import ImageIO
 // kosmos#7945 follow-up (Josh 11-04 on build 43: the big launch orb, then a small one, then the app; he wants the one
 // small ring of dots and no jump): draws the launch screen's mark (LaunchSweep.imageset) from SweepLogic itself, the
-// still frame Reduce Motion shows at its strongest (all eight dots full size, calmHigh), at SweepDots' default side,
-// so the launch screen and the Agents tab's "Connecting..." wait show the same ring in the same place. Deep gold
+// sweep at SweepLogic.launchAt (the frame every SweepDots starts on), at SweepDots' default side, so the launch screen
+// is the first frame of the Agents tab's "Connecting..." wait, the same ring in the same place. Deep gold
 // #9c741b (light), #e3b341 (dark), Palette.starGold as SweepDots draws it; 1x 2x 3x.
 //   render <out-dir> <side-pt>          writes the six PNGs (ios/tools/render-launch-sweep.sh)
 //   render --check <set-dir> <side-pt>  compares them, decoded, with the committed ones (ios/LogicTests/run-sweep.sh)
@@ -25,8 +25,7 @@ func draw(_ rgb: (Double, Double, Double), _ scale: Double) -> CGImage {
   let px = Int((side * scale).rounded())
   let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
   ctx.translateBy(x: 0, y: Double(px)); ctx.scaleBy(x: scale, y: -scale)
-  // t = 0 with Reduce Motion: every dot at calmHigh and full size, the ring at rest (SweepLogic.calmOpacity(0)).
-  for d in SweepLogic.dots(0, side: side, reduceMotion: true) {
+  for d in SweepLogic.dots(SweepLogic.launchAt, side: side, reduceMotion: false) {
     ctx.setFillColor(CGColor(srgbRed: rgb.0/255, green: rgb.1/255, blue: rgb.2/255, alpha: d.opacity))
     ctx.fillEllipse(in: CGRect(x: d.x - d.diameter / 2, y: d.y - d.diameter / 2, width: d.diameter, height: d.diameter))
   }

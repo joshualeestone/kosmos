@@ -14,12 +14,15 @@ struct SweepDots: View {
     var label: String? = nil
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .footnote) private var grow: CGFloat = 1
+    /// kosmos#7945 follow-up: the loop runs from when the ring appeared, starting at SweepLogic.launchAt, the frame the
+    /// launch screen shows, so the hand-over from launch is that same picture starting to move.
+    @State private var shownAt = Date()
 
     var body: some View {
         let side = size * grow
         let drawn = TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
             // 24 s holds a whole number of both loops (20 of 1.2 s, 15 of 1.6 s): no jump at the wrap.
-            let t = tl.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 24)
+            let t = (max(0, tl.date.timeIntervalSince(shownAt)) + SweepLogic.launchAt).truncatingRemainder(dividingBy: 24)
             Canvas { ctx, box in
                 for d in SweepLogic.dots(t, side: Double(min(box.width, box.height)), reduceMotion: reduceMotion) {
                     ctx.opacity = d.opacity

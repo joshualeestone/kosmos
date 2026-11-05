@@ -76,10 +76,16 @@ side=$(grep -oE 'var size: CGFloat = [0-9.]+' "$src/SweepDots.swift" | grep -oE 
 render_side=$(grep -oE 'LaunchSweep.imageset" [0-9.]+$' "$here/../tools/render-launch-sweep.sh" | grep -oE '[0-9.]+$' || true)
 [ -n "$side" ] && [ "$side" = "$render_side" ] \
   || { echo "VERDICT: FAIL (the launch mark is drawn at ${render_side:-?} pt but SweepDots' default side is ${side:-?} pt)"; exit 1; }
-reaching=$(awk '/private var reaching: some View/{on=1} on{print} on&&/^    }$/{exit}' "$src/AgentsView.swift")
-printf '%s\n' "$reaching" | grep -q 'SweepDots()' && printf '%s\n' "$reaching" | grep -q '\.ignoresSafeArea()' \
-  || { echo "VERDICT: FAIL (AgentsView's reaching wait no longer draws SweepDots centred on the screen (ignoresSafeArea), so it would not sit where the launch mark is)"; exit 1; }
-echo "ok   the launch mark is SweepDots' $side pt ring, and the wait to connect centres it on the screen as the launch screen does"
+# The wait's code with its // comments removed, so a comment cannot satisfy any of this. Its shape: the ring is the view
+# that is centred (no VStack, which would centre ring and words together and put the ring above the launch mark), the
+# words ride in an overlay, and the frame that fills the space is then stretched over the safe areas, in that order.
+reaching=$(awk '/private var reaching: some View/{on=1} on{print} on&&/^    }$/{exit}' "$src/AgentsView.swift" | sed 's#//.*##')
+order=$(printf '%s\n' "$reaching" | grep -oE 'SweepDots\(\)|\.overlay\(alignment: \.bottom\)|Text\("Connecting|\.frame\(maxWidth: \.infinity, maxHeight: \.infinity\)|\.ignoresSafeArea\(\)|VStack|HStack|ZStack' | tr '\n' '|' || true)
+[ "$order" = 'SweepDots()|.overlay(alignment: .bottom)|Text("Connecting|.frame(maxWidth: .infinity, maxHeight: .infinity)|.ignoresSafeArea()|' ] \
+  || { echo "VERDICT: FAIL (AgentsView's reaching wait is no longer the ring alone centred on the screen, words in an overlay below it; read: ${order:-nothing}; so it would not sit where the launch mark is)"; exit 1; }
+grep -qE 'let t = \(max\(0, tl\.date\.timeIntervalSince\(shownAt\)\) \+ SweepLogic\.launchAt\)' "$src/SweepDots.swift" \
+  || { echo "VERDICT: FAIL (SweepDots no longer starts its loop at SweepLogic.launchAt when it appears, so its first frame is not the launch screen's)"; exit 1; }
+echo "ok   the launch mark is SweepDots' $side pt ring at its first frame, and the wait to connect centres it on the screen as the launch screen does"
 # The launch mark's PNGs, drawn again and compared, decoded, with the committed ones (pixels, with a small tolerance,
 # not file bytes), so a change to SweepLogic cannot leave the launch screen behind (ios/tools/render-launch-sweep.sh).
 xcrun swiftc -O -o "$out/render-launch-sweep" "$src/SweepLogic.swift" "$here/../tools/launch-sweep/main.swift"
