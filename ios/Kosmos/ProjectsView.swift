@@ -826,10 +826,9 @@ struct ProjectsView: View {
         } else if store.listState == .failed {
             message("We cannot read your projects right now.", "This is not saying you have none, it is saying we cannot see them.")
         } else {
-            VStack(spacing: 8) {
-                KosmosOrb().accessibilityHidden(true)
-                Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
-            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            // kosmos#7945 follow-up: a launch from a room notification opens on this tab, so its first wait is drawn as the
+            // launch screen draws its ring (the Agents tab's too), not the orb.
+            ConnectingWait(words: "Reaching your computer\u{2026}")
         }
     }
 

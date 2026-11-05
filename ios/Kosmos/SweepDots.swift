@@ -4,7 +4,7 @@ import SwiftUI
 /// loader as its CSS defines it, eight gold dots on a ring lighting one after another (SweepLogic has the numbers). It
 /// stands in for the KOSMOS orb on the Agents tab's wait to connect; every other loading place keeps the orb (#7896).
 /// With no label it is hidden from VoiceOver, for a place whose words already say what is loading; with one, VoiceOver
-/// reads that label. It grows with the person's text size. Drawn from the clock at 30 frames a second at most, as
+/// reads that label. It grows with the person's text size (unless `scales` is false). Drawn from the clock at 30 frames a second at most, as
 /// WorkingDots is; with Reduce Motion the dots stay where they are and pulse together (#4591: still dots read as frozen).
 struct SweepDots: View {
     /// The ring's side in points at the default text size: the orb's default, which this replaces.
@@ -24,10 +24,9 @@ struct SweepDots: View {
     var body: some View {
         let side = scales ? size * grow : size
         let drawn = TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
-            // 24 s holds a whole number of both loops (20 of 1.2 s, 15 of 1.6 s): no jump at the wrap.
-            let t = (max(0, tl.date.timeIntervalSince(shownAt)) + SweepLogic.launchAt).truncatingRemainder(dividingBy: 24)
+            let elapsed = tl.date.timeIntervalSince(shownAt)
             Canvas { ctx, box in
-                for d in SweepLogic.dots(t, side: Double(min(box.width, box.height)), reduceMotion: reduceMotion) {
+                for d in SweepLogic.shown(elapsed, side: Double(min(box.width, box.height)), reduceMotion: reduceMotion) {
                     ctx.opacity = d.opacity
                     ctx.fill(Path(ellipseIn: CGRect(x: d.x - d.diameter / 2, y: d.y - d.diameter / 2, width: d.diameter, height: d.diameter)),
                              with: .color(colour))
@@ -40,5 +39,27 @@ struct SweepDots: View {
         } else {
             drawn.accessibilityHidden(true)
         }
+    }
+}
+
+/// kosmos#7945 follow-up (Josh 11-04 on build 43: a big launch orb, then a small one): a first wait to connect that can
+/// follow the launch screen, drawn as the launch screen draws it. The ring alone is centred on the SCREEN (a launch image
+/// always is; between the bars it would sit a few points off, differently on each iPhone), at one size whatever the text
+/// size (the launch picture is fixed), with the words 8 pt below it. Used by the Agents tab's wait and the Projects tab's
+/// (a launch from a room notification opens on Projects). run-sweep.sh checks this shape; KosmosUITests/
+/// LaunchHandoverUITests measures the ring at the screen's centre on a running app.
+struct ConnectingWait: View {
+    let words: String
+
+    var body: some View {
+        SweepDots(scales: false)   // hidden from VoiceOver: the words say what is loading
+            .overlay(alignment: .bottom) {
+                Text(words).font(.footnote).foregroundColor(Palette.secondary)
+                    .fixedSize()
+                    .alignmentGuide(.bottom) { _ in -8 }   // its top 8 pt below the ring
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .accessibilityElement(children: .combine)
     }
 }
