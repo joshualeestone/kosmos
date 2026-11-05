@@ -81,9 +81,9 @@ test('kosmos#8048: an agent on the main account, moving to a drifted copy, is to
   const { code, j } = await plan({ name: 'ada', dir: SPARE });
   assert.equal(code, 200);
   assert.deepEqual([j.ok, j.skills, j.hooks], [true, ['design-shots'], ['destructive-cmd-gate.sh']], JSON.stringify(j));
-  assert.equal(j.sentence, 'On that account it would not have the skill design-shots, or the hook destructive-cmd-gate.sh.');
-  // CONTROL: the other way, nothing is lost (the default account is named by giving no dir).
-  const back = await plan({ name: 'bo' });
+  assert.equal(j.sentence, 'On that account it would not have the skill design-shots, or the hook destructive-cmd-gate.sh it has now.');
+  // CONTROL: the other way, nothing is lost.
+  const back = await plan({ name: 'bo', account: 'main' });
   assert.deepEqual([back.j.ok, back.j.skills, back.j.hooks, back.j.sentence], [true, [], [], null], JSON.stringify(back.j));
 });
 
@@ -92,6 +92,7 @@ test('kosmos#8048: an account this board does not have, an API key, or an unknow
   assert.equal((await plan({ name: 'ada', dir: nodePath.join(HOME, '.claude-key') })).code, 200, 'an API key account, which Settings can move to, was refused');
   assert.equal((await plan({ name: 'nobody', dir: SPARE })).code, 404, 'an agent with no launch job was planned');
   assert.equal((await plan({ dir: SPARE })).code, 400);
+  assert.equal((await plan({ name: 'ada' })).code, 400, 'no account and no folder silently meant the main account');
   const same = await plan({ name: 'bo', dir: SPARE });
   assert.deepEqual([same.j.ok, same.j.same], [true, true]);
 });

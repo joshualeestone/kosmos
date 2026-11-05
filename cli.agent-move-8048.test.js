@@ -45,7 +45,7 @@ function withStub({ plan, post = STARTED, progress = DONE }, fn) {
       let reply = null;
       if (req.url.startsWith('/api/agents/account-plan')) reply = plan;
       else if (req.url === '/api/agents/account' && req.method === 'POST') reply = post;
-      else if (req.url.startsWith('/api/agents/account-moves/')) reply = progress;
+      else if (req.url.startsWith('/api/agents/account-moves/')) reply = Array.isArray(progress[0]) ? (progress.length > 1 ? progress.shift() : progress[0]) : progress;
       if (reply) {
         seen.push({ method: req.method, url: req.url, body: raw });
         res.writeHead(reply[0], { 'content-type': 'application/json' });
@@ -79,7 +79,7 @@ test('kosmos#8048 Mac: --yes reads the plan by the account\'s name, moves to its
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
   assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['ada'] }, 'the move was not sent to the plan\'s folder');
-  assert.match(r.out, /On spare it keeps every skill and hook it has now\./);
+  assert.match(r.out, /On spare it keeps every skill and hook script it has now \(skills and hooks from plugins are not checked\)\./);
   assert.match(r.out, /Moving restarts ada on spare\. Anything it has running stops\./);
   assert.match(r.out, /ada runs on spare now\. It is starting again/);
 }));
@@ -155,9 +155,11 @@ const hookStub = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () =>
 async function winRun(port, argv, seams) {
   const out = []; const err = []; const asked = []; const slept = [];
   const s = seams || {};
+  let clock = 0;   // advanced by each wait, so a pending move meets the time bound without real waiting
   const code = await wincli.main(argv, { env: { KOSMOS_AGENT_TOKEN: 'abc123' }, hook: hookStub, url: 'http://127.0.0.1:' + port,
     out: (x) => out.push(x), err: (x) => err.push(x), canAsk: () => s.tty === true,
-    ask: (q) => { asked.push(q); return Promise.resolve(s.answer || ''); }, sleep: (ms) => { slept.push(ms); return Promise.resolve(); } });
+    ask: (q) => { asked.push(q); return Promise.resolve(s.answer || ''); },
+    sleep: (ms) => { slept.push(ms); clock += ms; return Promise.resolve(); }, now: () => clock });
   return { code, out: out.join('\n'), err: err.join('\n'), asked, slept };
 }
 
@@ -168,7 +170,7 @@ test('kosmos#8048 Windows: --yes reads the plan, moves to its folder, waits on t
   assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['ada'] });
   assert.deepEqual(r.slept, [3000], 'the progress was not waited for between reads');
   assert.equal(r.asked.length, 0, '--yes still asked');
-  assert.match(r.out, /On spare it keeps every skill and hook it has now\./);
+  assert.match(r.out, /On spare it keeps every skill and hook script it has now \(skills and hooks from plugins are not checked\)\./);
   assert.match(r.out, /ada runs on spare now\. It is starting again/);
 }));
 
@@ -225,5 +227,28 @@ test('kosmos#8048 Windows: an unknown account, a refusal and a partial move exit
     assert.equal(r.code, 2);
     assert.match(r.err, /Nothing was moved: there is no terminal here to confirm on\. To move ada without being asked, add --yes\./);
     assert.equal(seen.length, 0);
+  });
+});
+
+test('kosmos#8048 review 2 Mac: a poll that meets a restarting board (503) waits through it; only a 404 is "forgotten"', () => withStub({ plan: CLEAN, progress: [[503, { error: 'Kosmos is restarting' }], DONE] }, async (port, seen) => {
+  const r = await cli(port, ['agent', 'move', ' ada ', 'spare', '--yes']);
+  assert.equal(r.code, 0, 'a 503 mid-move was read as forgotten: ' + r.out);
+  assert.match(r.out, /ada runs on spare now/);
+  assert.equal(seen.filter((x) => x.url.startsWith('/api/agents/account-moves/')).length, 2);
+  assert.deepEqual(JSON.parse(posts(seen)[0].body).names, ['ada'], 'the name was not trimmed before the move');
+  assert.match(seen[0].url, /name=ada&/, 'the name was not trimmed before the plan');
+}));
+
+test('kosmos#8048 review 2 Windows: a 503 is waited through; a move still pending at five minutes stops waiting and says so', async () => {
+  await withStub({ plan: CLEAN, progress: [[503, { error: 'Kosmos is restarting' }], DONE] }, async (port) => {
+    const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual(r.slept, [3000, 3000]);
+  });
+  await withStub({ plan: CLEAN, progress: [200, { id: 'mv1', done: false, agents: [{ name: 'ada', outcome: 'pending' }] }] }, async (port) => {
+    const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+    assert.equal(r.code, 3, r.err);
+    assert.equal(r.slept.length, 100, 'the wait was not bounded by time (100 waits of 3 s is 300 s)');
+    assert.match(r.err, /still moving after five minutes/);
   });
 });

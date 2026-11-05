@@ -2488,7 +2488,8 @@ async function agentMove(ctx, args) {
   const yes = args.includes('--yes');
   const acceptLoss = args.includes('--accept-loss');
   const words = args.filter((a) => a !== '--yes' && a !== '--accept-loss');
-  const [name, account] = words;
+  const account = words[1];
+  const name = typeof words[0] === 'string' ? words[0].trim() : words[0];   // review 2: as the board trims it (create.cleanName)
   if (!name || !account) { ctx.err(AGENT_MOVE_USAGE); return 2; }
   for (const w of [name, account]) if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'agent move', AGENT_MOVE_USAGE, w, 'target'); return 2; }
   if (tooManyWords(ctx, 'agent move', 2, AGENT_MOVE_USAGE, words)) return 2;
@@ -2505,7 +2506,7 @@ async function agentMove(ctx, args) {
   if (plan.same === true) { ctx.out(name + ' is already on ' + label + '. Nothing was moved.'); return 0; }
   if (plan.ok !== true) ctx.out('Kosmos could not check what ' + name + ' would lose on ' + label + ': ' + (clause(plan.because || '') || 'it did not say why') + '.');
   else if (plan.sentence) ctx.out(plan.sentence);
-  else ctx.out('On ' + label + ' it keeps every skill and hook it has now.');
+  else ctx.out('On ' + label + ' it keeps every skill and hook script it has now (skills and hooks from plugins are not checked).');
   ctx.out('Moving restarts ' + name + ' on ' + label + '. Anything it has running stops.');
   /* Review 1: a script cannot read that sentence, so --yes alone never moves an agent into a known loss or an
      unchecked one; nothing is sent. A person at a terminal reads it and answers below. */
@@ -2521,8 +2522,10 @@ async function agentMove(ctx, args) {
   let a = (Array.isArray(first.agents) ? first.agents : [])[0] || {};
   let outcome = a.outcome || (first.outcome === 'refused' ? 'refused' : '');
   let because = a.because || first.because || first.error || '';
-  /* Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s). */
-  for (let i = 0; outcome === 'pending' && first.id && i < 110; i += 1) {
+  /* Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s). Review 2: the
+     wait is bounded by time, not by tries (a read that times out costs 15 s). */
+  const t0 = ctx.now();
+  while (outcome === 'pending' && first.id && ctx.now() - t0 < 300000) {
     await ctx.sleep(3000);
     const g = await ctx.call('GET', '/api/agents/account-moves/' + encodeURIComponent(first.id), undefined, { person: true });
     if (g.reached && g.status === 404) { outcome = 'forgotten'; break; }   // review 1: the board restarted and no longer knows the move
@@ -3646,6 +3649,7 @@ async function main(argv, io) {
     })),
     /* kosmos#8048: the wait between reads of a move's progress (agent move); a test seam. */
     sleep: o.sleep || ((ms) => new Promise((res) => setTimeout(res, ms))),
+    now: o.now || (() => Date.now()),   // kosmos#8048: the move's wait is bounded by time; a test seam
     readFile: o.readFile || ((f) => textFileDecoded(fs.readFileSync(f))),   // #4474: agent create --from, by its BOM
     /* #7508: git in this checkout (task built --commit). Its standard output, or a throw; a test seam. */
     git: o.git || ((args) => require('node:child_process').execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000, windowsHide: true })),
