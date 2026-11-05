@@ -128,12 +128,24 @@ test('a typed message is refused at the dialog, and nothing reaches the pane', a
     method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'wait, what files?' }),
   });
   const body = await res.json().catch(() => ({}));
-  assert.match(JSON.stringify(body), /cannot take a message yet/, 'a line typed here would answer the dialog: ' + JSON.stringify(body));
+  assert.match(JSON.stringify(body), /a message typed now would answer No/, 'a line typed here would answer the dialog: ' + JSON.stringify(body));
   fs.writeFileSync(SCREEN, '❯ \n');
   const res2 = await fetch(base + '/api/agent/di-typed/thread', {
     method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'hello' }),
   });
-  assert.doesNotMatch(JSON.stringify(await res2.json().catch(() => ({}))), /cannot take a message yet/, 'CONTROL: refused with no dialog up');
+  assert.doesNotMatch(JSON.stringify(await res2.json().catch(() => ({}))), /a message typed now would answer No/, 'CONTROL: refused with no dialog up');
+});
+
+test('an answer already on file while it still asks: nothing restarts, and it says the answer is not being read', async () => {
+  const dir = account('acct-f');
+  const folder = born('di-already', dir);
+  fs.writeFileSync(nodePath.join(dir, '.claude.json'), JSON.stringify({ projects: { [folder]: { [trust.IMPORTS_KEY]: false, [trust.IMPORTS_SHOWN_KEY]: true } } }), 'utf8');
+  fs.writeFileSync(SCREEN, DIALOG);
+  const before = restarts;
+  const r = await press('di-already');
+  assert.equal(r.status, 409, JSON.stringify(r.body));
+  assert.match(r.body.because, /not being read/);
+  assert.equal(restarts, before, 'it restarted, which only brings the question back');
 });
 
 test('the question has gone: nothing is written and nothing restarts', async () => {

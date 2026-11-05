@@ -108,6 +108,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     chk(/could not reach Kosmos/.test(thrown.msg), `${t} no network is said, not left blank`, thrown.msg);
     const moved = await press({ status: 200, body: { ok: true, because: 'It is starting without those files.' } }, true);
     chk(moved.msg !== 'It is starting without those files.', `${t} an answer after moving to another agent does not land under that one`, moved.msg);
+    chk(moved.disabled === true, `${t} after moving, the late answer leaves the button alone (opening an agent re-enables it)`, String(moved.disabled));
 
     if (process.env.SHOTS) { await paint({ ...base, importsAsk: true }); await page.screenshot({ path: nodePath.join(process.env.SHOTS, `8039-${engine}.png`) }); }
     chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
