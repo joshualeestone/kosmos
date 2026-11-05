@@ -31,7 +31,7 @@ struct ComposerMicButton: View {
         let on = dictation.active
         Button(action: action) {
             Group {
-                if dictation.finishing { KosmosOrb(size: 16) }
+                if dictation.finishing { SweepDots(size: 16, label: "Loading") }   // kosmos#8058: a small wait has the simple dots
                 else {
                     Image(systemName: on ? "stop.circle.fill" : "mic")
                         .font(.system(size: 20))

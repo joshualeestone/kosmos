@@ -414,7 +414,7 @@ struct RoomView: View {
                 Button(Board.Archive.couldNotReadEarlier) { loadArchiveOlder(proxy) }
                     .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
             } else {
-                HStack { Spacer(); KosmosOrb(); Spacer() }
+                HStack { Spacer(); SweepDots(label: "Loading"); Spacer() }   // kosmos#8058: a small wait has the simple dots
                     .onAppear { olderShowing = true; if settledAtBottom { loadArchiveOlder(proxy) } }
                     .onDisappear { olderShowing = false }
             }
@@ -758,7 +758,7 @@ struct RoomView: View {
                             Button("We could not load earlier messages. Try again") { loadOlder(proxy) }
                                 .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
                         } else {
-                            HStack { Spacer(); KosmosOrb(); Spacer() }
+                            HStack { Spacer(); SweepDots(label: "Loading"); Spacer() }   // kosmos#8058: a small wait has the simple dots
                                 .onAppear { olderShowing = true; if settledAtBottom { loadOlder(proxy) } }
                                 .onDisappear { olderShowing = false }
                         }
@@ -1314,7 +1314,7 @@ struct RoomView: View {
                 if uploadingHere > 0 {
                     HStack(spacing: 6) {
                         HStack(spacing: 6) {
-                            KosmosOrb(size: 16).accessibilityHidden(true)   // the text beside it says what is loading
+                            SweepDots(size: 16)   // kosmos#8058: a small wait has the simple dots; unlabelled, as the text beside it says what is loading
                             Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
                                 .font(.footnote).foregroundColor(Palette.secondary)
                         }

@@ -1538,7 +1538,7 @@ struct ChatView: View {
         Group {
             if earlier.loading {
                 HStack(spacing: 6) {
-                    KosmosOrb(size: 16).accessibilityHidden(true)   // the text beside it says what is loading
+                    SweepDots(size: 16)   // kosmos#8058: a small wait has the simple dots; unlabelled, as the text beside it says what is loading
                     Text("Loading earlier messages\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
@@ -1982,7 +1982,7 @@ struct ChatView: View {
                 if uploadingHere > 0 {
                     HStack(spacing: 6) {
                         HStack(spacing: 6) {
-                            KosmosOrb(size: 16).accessibilityHidden(true)   // the text beside it says what is loading
+                            SweepDots(size: 16)   // kosmos#8058: a small wait has the simple dots; unlabelled, as the text beside it says what is loading
                             Text(uploadingHere == 1 ? "Adding a file\u{2026}" : "Adding \(uploadingHere) files\u{2026}")
                                 .font(.footnote).foregroundColor(Palette.secondary)
                         }

@@ -177,7 +177,7 @@ struct DownloadLine: View {
     let cancel: () -> Void
     var body: some View {
         HStack(spacing: 12) {
-            KosmosOrb().accessibilityHidden(true)
+            SweepDots()   // kosmos#8058: a small wait has the simple dots; unlabelled, as the words beside it say what is coming
             Text(Download.getting(name)).font(.subheadline).lineLimit(1).truncationMode(.middle)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Button("Cancel", action: cancel).font(.subheadline.weight(.semibold))
