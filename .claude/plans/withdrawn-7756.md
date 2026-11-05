@@ -14,3 +14,6 @@ An agent that runs `kosmos report clear "why"` over a question leaves a line in 
 ## Weakest premise
 An agent will write a reason. A bare clear still leaves no trace, and an agent whose question was answered may write one too, giving a harmless "no longer asking" line.
 Would change my mind: a person finding the line noisy, or a bare clear hiding a question they wanted.
+
+## Review 1 (blind, sonnet)
+Fixed: a hook's permission wait was copied into the chat, command and all; it now writes no line. A clear that does not say working writes no line.

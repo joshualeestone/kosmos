@@ -18912,7 +18912,8 @@ const server = http.createServer(async (req, res) => {
         let askedBefore = null;   // #7756: the question standing before this report, held or not
         try {
           const prior = selfreport.read(who);
-          if (prior && prior.found === true && prior.state === 'needs_you') askedBefore = { text: prior.because };
+          // Review 1: a hook's permission wait is not a question the agent asked, and its words can hold a command or a path.
+          if (prior && prior.found === true && prior.state === 'needs_you' && !selfreport.isAutoPermissionWait(prior)) askedBefore = { text: prior.because };
           /* #7915: a HELD question was never buzzed, so asking it for real afterwards is the change that buzzes. */
           wasNeedsYou = !!(prior && prior.found === true && prior.state === 'needs_you' && prior.held !== true);
         } catch { /* unknown reads as a change */ }
@@ -18945,7 +18946,7 @@ const server = http.createServer(async (req, res) => {
         /* #7756: `kosmos report clear "why"` over a question: the person sees it closed, not just gone. A line in the agent's
            chat with them, Kosmos's own words in the agent's name (so it is not read as an answer they owe), and no buzz: a
            question going away is nothing to interrupt anyone for. Never fails the report. */
-        if (body.clear === true && body.auto !== true && askedBefore && kept && kept.recorded === true) {
+        if (body.clear === true && body.state === 'working' && body.auto !== true && askedBefore && kept && kept.recorded === true) {
           try {
             const line = selfreport.withdrawnLine(askedBefore.text, said(body.text));
             if (line) keepAgentReply(who, line, undefined, { kosmos: true });

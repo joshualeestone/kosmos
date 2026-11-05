@@ -83,6 +83,25 @@ test('nothing is written where there was no question to take back, or no reason'
   });
 });
 
+test('a permission wait raised by a hook is not copied into the chat', async () => {
+  await withAgent('wd-auto', async () => {
+    await post({ state: 'needs_you', text: 'run rm /Users/someone/secret-folder', auto: true });
+    assert.equal(selfreport.read('wd-auto').state, 'needs_you', 'control: the wait stands');
+    assert.equal(selfreport.isAutoPermissionWait(selfreport.read('wd-auto')), true, 'control: and is the hook kind');
+    await post({ state: 'working', text: 'approved', clear: true });
+    assert.equal(selfreport.read('wd-auto').state, 'working', 'the card cleared');
+    assert.equal(rows('wd-auto').length, 0);
+  });
+});
+
+test('a clear that does not say working writes no line', async () => {
+  await withAgent('wd-state', async () => {
+    await post({ state: 'needs_you', text: 'Which one?' });
+    await post({ state: 'needs_you', text: 'Which one, again?', clear: true });
+    assert.equal(rows('wd-state').length, 0);
+  });
+});
+
 test('words only: nothing here is built from the reason unmasked or empty', () => {
   assert.equal(selfreport.withdrawnLine('Q?', '   '), null);
   assert.equal(selfreport.withdrawnLine('Q?', undefined), null);
