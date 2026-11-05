@@ -2289,7 +2289,10 @@ function pageDrawsButtons(card, sessionName) {
    it and be lost. Nothing is typed; the ending names where the person can answer it. */
 const CLAUDE_IMPORTS_SENTENCE = 'it is asking whether its instructions may import files from outside its folder, and a message typed now would answer No, so we did not type anything; ';
 const importsSentence = (card, sessionName) => CLAUDE_IMPORTS_SENTENCE
-  + (pageDrawsButtons(card, sessionName) ? 'answer it with Continue without them on its page in Kosmos, or in its terminal' : 'answer it in its terminal on the computer it runs on');
+  + (pageDrawsButtons(card, sessionName) && boardCanAnswerImports(sessionName) ? 'answer it with Continue without them on its page in Kosmos, or in its terminal' : 'answer it in its terminal on the computer it runs on');
+function boardCanAnswerImports(sessionName) {
+  try { return require('./create').importsBoardCanAnswer(sessionName); } catch { return false; }
+}
 function claudeMenuRefusal(card, sessionName, roster) {
   if ((DRY_RUN && !runner) || !card || String(card.runner || 'claude') !== 'claude' || card.reachedByChannel === true) return null;
   /* kosmos#8039 review 2 (W4): the imports question draws at startup, before the snapshot sees it, so a just-launched
@@ -2307,7 +2310,7 @@ function claudeMenuRefusal(card, sessionName, roster) {
        PermissionRequest self-report): typing there is the measured #5754 harm, and the report is the evidence. */
     const said = String(card.because || '') + ' ' + String(card.stateEvidence || '');
     /* No capture, so the page has no importsAsk either and draws no button: the terminal ending. */
-    if (card.state === status.STATE.NEEDS_YOU && /import files from outside its folder/.test(said)) return CLAUDE_IMPORTS_SENTENCE + 'answer it in its terminal on the computer it runs on';
+    if (card.state === status.STATE.NEEDS_YOU && said.includes(status.IMPORTS_BECAUSE)) return CLAUDE_IMPORTS_SENTENCE + 'answer it in its terminal on the computer it runs on';
     return card.state === status.STATE.NEEDS_YOU && /\basking permission to use\b/i.test(said) ? CLAUDE_PERMISSION_SENTENCE : null;
   }
   if (status.importsDialogIn(view.text)) return importsSentence(card, sessionName);

@@ -163,6 +163,10 @@ test('an agent folder inside a repository rooted above it: refused with the term
     assert.equal(entry(dir, folder), undefined);
     assert.equal(entry(dir, root), undefined, 'it wrote for the whole repository');
     assert.equal(restarts, before);
+    /* The page does not offer a button the board would refuse. */
+    const th = await (await fetch(base + '/api/agent/di-inrepo/thread')).json();
+    assert.equal(th.asking, true, 'premise: it reads as asking');
+    assert.equal(th.importsAsk, false, 'the box was offered for a folder the press refuses');
   } finally {
     fs.rmSync(nodePath.join(root, '.git'), { recursive: true, force: true });
   }

@@ -53208,6 +53208,8 @@ document.getElementById('d-qask-imports-no').addEventListener('click', async () 
        question can stay on screen for a poll while the restart lands, and a second press there would replace the
        receipt with the already-answered refusal. The paint that sees the question gone re-enables it. */
     if (CURRENT && CURRENT.sessionName === forAgent && !pressedOk) btn.disabled = false;
+    /* If the restart comes back into the same question, no paint ever sees it gone: give the button back after a while. */
+    if (pressedOk) setTimeout(() => { if (CURRENT && CURRENT.sessionName === forAgent) btn.disabled = false; }, 20000);
   }
 });
 

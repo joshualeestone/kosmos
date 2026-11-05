@@ -10378,7 +10378,7 @@ module.exports = { neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, m
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
-  importsDialogIn,
+  importsDialogIn, IMPORTS_BECAUSE,
   TRUST_DIALOG_SENTENCE,
   codexHookReview, // #4589
   codexHookTrustedTable, codexHookSummary, codexHookMenuKeys, codexHookScreenExact, // #4607
