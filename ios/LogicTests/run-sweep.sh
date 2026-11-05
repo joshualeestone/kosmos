@@ -4,6 +4,8 @@
 # Pass a directory to compile the app sources from somewhere else (to run against a broken copy); it must hold
 # SweepLogic.swift, SweepDots.swift, AgentsView.swift (the palette and the wait), ShellLogic.swift and Assets.xcassets,
 # which the launch checks read.
+# The launch renderer and its render script (ios/tools/launch-sweep, render-launch-sweep.sh) are always read from this
+# checkout, whatever directory is passed.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 src="${1:-$here/../Kosmos}"
@@ -78,15 +80,16 @@ render_side=$(grep -oE 'LaunchSweep.imageset" [0-9.]+$' "$here/../tools/render-l
   || { echo "VERDICT: FAIL (the launch mark is drawn at ${render_side:-?} pt but SweepDots' default side is ${side:-?} pt)"; exit 1; }
 # The wait's code with its // comments removed, so a comment cannot satisfy any of this. Its shape: the ring is the view
 # that is centred (no VStack, which would centre ring and words together and put the ring above the launch mark), the
-# words ride in an overlay, and the frame that fills the space is then stretched over the safe areas, in that order.
+# words ride in an overlay 8 pt below it, the ring keeps one size at every text size (scales: false, as the launch
+# picture is fixed), and the frame that fills the space is then stretched over the safe areas, in that order.
 reaching=$(awk '/private var reaching: some View/{on=1} on{print} on&&/^    }$/{exit}' "$src/AgentsView.swift" | sed 's#//.*##')
-order=$(printf '%s\n' "$reaching" | grep -oE 'SweepDots\(\)|\.overlay\(alignment: \.bottom\)|Text\("Connecting|\.frame\(maxWidth: \.infinity, maxHeight: \.infinity\)|\.ignoresSafeArea\(\)|VStack|HStack|ZStack' | tr '\n' '|' || true)
-[ "$order" = 'SweepDots()|.overlay(alignment: .bottom)|Text("Connecting|.frame(maxWidth: .infinity, maxHeight: .infinity)|.ignoresSafeArea()|' ] \
-  || { echo "VERDICT: FAIL (AgentsView's reaching wait is no longer the ring alone centred on the screen, words in an overlay below it; read: ${order:-nothing}; so it would not sit where the launch mark is)"; exit 1; }
+order=$(printf '%s\n' "$reaching" | grep -oE 'SweepDots\([^)]*\)|\.overlay\(alignment: \.bottom\)|Text\("Connecting|\.alignmentGuide\(\.bottom\) \{ _ in -8 \}|\.frame\(maxWidth: \.infinity, maxHeight: \.infinity\)|\.ignoresSafeArea\(\)|VStack|HStack|ZStack' | tr '\n' '|' || true)
+[ "$order" = 'SweepDots(scales: false)|.overlay(alignment: .bottom)|Text("Connecting|.alignmentGuide(.bottom) { _ in -8 }|.frame(maxWidth: .infinity, maxHeight: .infinity)|.ignoresSafeArea()|' ] \
+  || { echo "VERDICT: FAIL (AgentsView's reaching wait is no longer the ring alone, one size, centred on the screen, words in an overlay 8 pt below it; read: ${order:-nothing}; so it would not sit where the launch mark is)"; exit 1; }
 # One place draws the wait (BoardStates' body): two would be two view identities, and a phase change from one to the
 # other mid-wait would restart the loop at its first frame (SweepDots runs from when it appears).
 uses=$(awk '/^struct BoardStates/{on=1} on{print} on&&/^}$/{exit}' "$src/AgentsView.swift" | sed 's#//.*##' \
-  | grep -vE 'private var reaching: some View' | grep -oE '(^|[^A-Za-z_.])reaching([^A-Za-z_]|$)' | wc -l | tr -d ' ' || true)
+  | grep -vE 'private var reaching: some View' | grep -oE '(^|[^A-Za-z_])reaching([^A-Za-z_]|$)' | wc -l | tr -d ' ' || true)
 [ "$uses" = 1 ] \
   || { echo "VERDICT: FAIL (BoardStates draws the wait to connect in ${uses:-?} places, not one, so a change of phase mid-wait restarts its ring)"; exit 1; }
 grep -qE 'let t = \(max\(0, tl\.date\.timeIntervalSince\(shownAt\)\) \+ SweepLogic\.launchAt\)' "$src/SweepDots.swift" \

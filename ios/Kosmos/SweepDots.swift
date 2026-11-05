@@ -12,6 +12,9 @@ struct SweepDots: View {
     var colour: Color = Palette.starGold
     /// What VoiceOver says for it; nil hides it.
     var label: String? = nil
+    /// false keeps `size` at every text size. kosmos#7945 follow-up: the Agents tab's wait to connect, which must match
+    /// the launch screen's fixed 20 pt picture; its words still grow with the text.
+    var scales = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .footnote) private var grow: CGFloat = 1
     /// kosmos#7945 follow-up: the loop runs from when the ring appeared, starting at SweepLogic.launchAt, the frame the
@@ -19,7 +22,7 @@ struct SweepDots: View {
     @State private var shownAt = Date()
 
     var body: some View {
-        let side = size * grow
+        let side = scales ? size * grow : size
         let drawn = TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
             // 24 s holds a whole number of both loops (20 of 1.2 s, 15 of 1.6 s): no jump at the wrap.
             let t = (max(0, tl.date.timeIntervalSince(shownAt)) + SweepLogic.launchAt).truncatingRemainder(dividingBy: 24)

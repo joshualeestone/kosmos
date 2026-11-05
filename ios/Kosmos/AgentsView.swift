@@ -443,7 +443,7 @@ struct BoardStates<Empty: View>: View {
     // words hang below the ring without moving it (ios/LogicTests/run-sweep.sh checks this centring). Today's tab shares
     // this view (BoardStates), so its wait is centred on the screen too; shipped builds have Today off.
     private var reaching: some View {
-        SweepDots()   // kosmos#7954: the board's ring of dots, not the orb; hidden from VoiceOver (the words say what is loading)
+        SweepDots(scales: false)   // kosmos#7954: the board's ring of dots, not the orb; hidden from VoiceOver (the words say what is loading); one size, the launch screen's
             .overlay(alignment: .bottom) {
                 Text("Connecting\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
                     .fixedSize()
