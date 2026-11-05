@@ -1047,7 +1047,10 @@
       "icon": "swarm",
       "rank": 12.8,
       "since": "0.7.91",
-      "status": "pending"
+      "status": "pending",
+      "platforms": [
+        "mac"
+      ]
     },
     {
       "title": "Agents can see who last changed a file",
