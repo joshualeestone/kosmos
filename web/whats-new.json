@@ -24,7 +24,10 @@
     {
       "icon": "swarm",
       "title": "See what each agent is using",
-      "line": "An agent's card shows how much memory and CPU it is holding."
+      "line": "An agent's card shows how much memory and CPU it is holding.",
+      "platforms": [
+        "mac"
+      ]
     }
   ]
 }
