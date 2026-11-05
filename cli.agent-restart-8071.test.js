@@ -40,8 +40,15 @@ function withStub(reply, fn, self = 'me-agent') {
         let b = {}; try { b = JSON.parse(raw || '{}'); } catch { b = {}; }
         const says = (b.from_pane && String(b.from_pane).length) || req.headers['x-kosmos-agent-token'];
         if (self === 'DOWN') { res.writeHead(502, { 'content-type': 'text/html' }); res.end('<html>bad gateway</html>'); return; }   // a board that did not answer
+        /* Review 4: the board's own refusals, word for word (server.js /api/whoami, engine/messages.js resolveSender). */
+        let answer;
+        if (self === 'DEGRADED') answer = { ok: false, because: 'we could not check which agents are running, so we could not tell who you are' };
+        else if (self !== null && says) answer = { ok: true, agent: self };
+        else if (req.headers['x-kosmos-agent-token']) answer = { ok: false, because: 'that agent token does not match any agent here' };
+        else if (b.from_pane) answer = { ok: false, because: 'we could not match that to one of your agents' };
+        else answer = { ok: false, because: 'we cannot tell which agent is sending this. Run it from inside the window that agent is running in (the sender is read from TMUX_PANE, which is not set here).' };
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify(self !== null && says ? { ok: true, agent: self } : { ok: false, because: 'we could not tell who you are' }));
+        res.end(JSON.stringify(answer));
         return;
       }
       if (/^\/api\/agent\/[^/]+\/restart$/.test(req.url)) {
@@ -200,10 +207,10 @@ test('kosmos#8071 review 3: a person in tmux the board does not know goes on; a 
   await withStub(RESTARTED, async (port, seen) => {
     const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined, TMUX_PANE: '%9' });
     assert.equal(r.code, 2, 'a pane caller went on when the board did not answer who it is: ' + r.out);
-    assert.match(r.out, /did not answer who is asking/);
+    assert.match(r.out, /could not say who is asking/);
     const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.equal(w.code, 2, w.err);
-    assert.match(w.err, /did not answer who is asking/, 'Windows misnamed a board that did not answer');
+    assert.match(w.err, /could not say who is asking/, 'Windows misnamed a board that did not answer');
     assert.equal(seen.length, 0);
   }, 'DOWN');
   await withStub(RESTARTED, async (port, seen) => {
@@ -212,3 +219,12 @@ test('kosmos#8071 review 3: a person in tmux the board does not know goes on; a 
     assert.equal(seen.length, 0);
   }, 'me-agent');
 });
+
+test('kosmos#8071 review 4: a board that could not read its roster is not "a person": a pane caller sends nothing', () => withStub(RESTARTED, async (port, seen) => {
+  const r = await cli(port, ['agent', 'restart', 'me-agent', '--yes'], { KOSMOS_AGENT_TOKEN: undefined, TMUX_PANE: '%9' });
+  assert.equal(r.code, 2, 'a pane agent restarted (perhaps itself) while the board could not say who it was: ' + r.out);
+  assert.match(r.out, /could not say who is asking/);
+  assert.equal(seen.length, 0);
+  const person = await cli(port, ['agent', 'restart', 'me-agent', '--yes'], { KOSMOS_AGENT_TOKEN: undefined });
+  assert.equal(person.code, 0, 'CONTROL: a person with no pane and no token was refused: ' + person.out);
+}, 'DEGRADED'));

@@ -7705,20 +7705,22 @@ cmd_agent() {
       # a person (in tmux or not), who goes on. The board could not match the caller's own token: said as that.
       local rs_who="" rs_whorc=0
       rs_who=$(kosmos_curl "$(agent_board_token || true)" "$_rtok" -sS -m 15 -X POST "$URL/api/whoami" -H 'content-type: application/json' -d "{\"from_pane\":\"$rs_esc_pane\"}" 2>/dev/null) || rs_whorc=$?
-      rs_me=$(printf '%s' "$rs_who" | "$_node" -e "$_rsparse"'process.stdout.write(j.ok===true&&typeof j.agent==="string"?one(j.agent):(j.ok===false?"-":""))})' 2>/dev/null) || rs_me=""
-      if [ "$rs_whorc" -ne 0 ] || [ -z "$rs_me" ]; then
-        if [ -n "$_rtok" ] || [ -n "${TMUX_PANE:-}" ]; then
-          say "Nothing was restarted: Kosmos did not answer who is asking, so it cannot rule out that $rs_name is you. Try again in a minute."
-          exit 2
-        fi
-        rs_me="-"
-      fi
-      if [ "$rs_me" = "-" ] && [ -n "$_rtok" ]; then
+      # Reviews 2 to 4: four answers, told apart. NAMED (the board says who is asking). PERSON (its two "not an agent"
+      # answers: a pane it cannot match to an agent, or no pane at all). REFUSED (any other refusal: it could not read
+      # the roster or resolve the pane, or did not recognise a token). NONE (no answer it could read).
+      local rs_cls; rs_cls=$(printf '%s' "$rs_who" | "$_node" -e "$_rsparse"'const b=String(j.because||"");process.stdout.write(j.ok===true&&typeof j.agent==="string"?"N:"+one(j.agent):(j.ok===false?((/^we could not match that to one of your agents/.test(b)||/^we cannot tell which agent is sending this/.test(b))?"P":"R"):""))})' 2>/dev/null) || rs_cls=""
+      [ "$rs_whorc" -eq 0 ] || rs_cls=""
+      rs_me=""; case "$rs_cls" in N:*) rs_me="${rs_cls#N:}" ;; esac
+      if [ -n "$_rtok" ] && { [ "$rs_cls" = P ] || [ "$rs_cls" = R ]; }; then
         say "Nothing was restarted: Kosmos does not recognise this agent's own token, so it cannot rule out that $rs_name is you."
         token_refused_hint "$_rtok" "$rs_who"
         exit 2
       fi
-      if [ -n "$rs_me" ] && [ "$rs_me" != "-" ] && [ "$(printf '%s' "$rs_me" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$rs_name" | tr '[:upper:]' '[:lower:]')" ]; then
+      if { [ -z "$rs_cls" ] || [ "$rs_cls" = R ]; } && { [ -n "$_rtok" ] || [ -n "${TMUX_PANE:-}" ]; }; then
+        say "Nothing was restarted: Kosmos could not say who is asking, so it cannot rule out that $rs_name is you. Try again in a minute."
+        exit 2
+      fi
+      if [ -n "$rs_me" ] && [ "$(printf '%s' "$rs_me" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$rs_name" | tr '[:upper:]' '[:lower:]')" ]; then
         say "Nothing was restarted: $rs_name is you, and restarting yourself ends this session before you see the answer. Use \"Write a handoff, then restart\" on your page instead."
         exit 2
       fi

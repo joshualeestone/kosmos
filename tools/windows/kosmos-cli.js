@@ -2498,16 +2498,21 @@ async function agentRestart(ctx, args) {
   /* Review 1: never yourself (it ends this session before the answer comes back, with no handoff). */
   const me = await ctx.call('POST', '/api/whoami', { from_pane: '' });
   const meName = me.reached && me.json && me.json.ok === true && typeof me.json.agent === 'string' ? me.json.agent : '';
+  /* Review 4, as install/kosmos: only the board's two "not an agent" answers say "a person"; its other refusals (the
+     roster or the pane could not be read) say nothing about who is asking. */
+  const notAnAgent = !!(me.reached && me.json && me.json.ok === false
+    && /^we could not match that to one of your agents|^we cannot tell which agent is sending this/.test(String(me.json.because || '')));
   const hasToken = !!(ctx.env || {}).KOSMOS_AGENT_TOKEN;
-  /* Reviews 2 and 3, as install/kosmos: no answer from a caller with a token might be itself; an answer that does
-     not recognise this agent's own token is said as that; "not an agent" for a caller with no token is a person. */
-  if (hasToken && (!me.reached || !me.json)) {   // no answer, or one that is not the board's
-    ctx.err('Nothing was restarted: Kosmos did not answer who is asking, so it cannot rule out that ' + name + ' is you. Try again in a minute.');
-    return 2;
-  }
-  if (hasToken && !meName) {
+  /* Reviews 2 to 4, as install/kosmos. A token the board did not take (any refusal while one was sent) is said as
+     that. No answer, or a refusal that is not "not an agent", from a caller with a token cannot rule itself out. A
+     caller with no token (a person) goes on. */
+  if (hasToken && me.reached && me.json && me.json.ok === false) {
     ctx.err('Nothing was restarted: Kosmos does not recognise this agent\'s own token, so it cannot rule out that ' + name + ' is you.');
     tokenRefusedHint(ctx, me);
+    return 2;
+  }
+  if (hasToken && !meName && !notAnAgent) {
+    ctx.err('Nothing was restarted: Kosmos could not say who is asking, so it cannot rule out that ' + name + ' is you. Try again in a minute.');
     return 2;
   }
   if (meName && meName.toLowerCase() === name.toLowerCase()) {
