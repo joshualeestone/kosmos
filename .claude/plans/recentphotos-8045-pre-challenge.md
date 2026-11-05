@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: recentphotos-8045
-diff_hash: 0414a704a4fc7a1517632a1c26c32f708c26ede453a29c2d5bc56cf6494122e4
+diff_hash: 95ed96a07ab86567f05223bc59e16f4f86ea066eda337b976c6713cdeed0fc0b
 validation: 8 failures under load, none in files this branch touches; those six files passed alone
 subdir_audit: passed
 timestamp: 2026-11-05T21:36:44Z
@@ -90,6 +90,8 @@ converged: false
 
 #### After the loop
 CI's UI job was red on PR #8065: AttachMenuUITests.testTheBoxHoldsThroughTheSwapInAChat, "too few readings", one reading in 1.2 s on a loaded runner. The check's own floor, not the tray. It now reads for at least 1.2 s and at least four times. Test-only change, no further review round.
+
+Rebased again over #7348 (one conflict in ui-sample.sh's list, both counts kept), so the hash changed; logic suites rerun. CI's UI job had also gone red once on "no on-screen keyboard 20 s after tapping the box" in KeyboardSlideUITests.testRebuiltAfterTheKeyboardWentDown, a test this does not touch; the rerun of that job passed. Not proven to be a flake.
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None.
