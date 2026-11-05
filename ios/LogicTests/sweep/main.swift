@@ -90,6 +90,16 @@ check(calm0.allSatisfy { near($0.opacity, 0.85) && near($0.diameter, side * 0.19
 check(calmMid.allSatisfy { near($0.opacity, 0.4) }, "Reduce Motion: all at .4 halfway through 1.6 s")
 check(zip(calm0, calmMid).allSatisfy { near($0.x, $1.x) && near($0.y, $1.y) && near($0.diameter, $1.diameter) }, "Reduce Motion: nothing moves or grows")
 
+// kosmos#7945 follow-up: the launch frame is dot 0 at its brightest and largest, the three before it trailing (dimmer
+// the further back), dot 1 starting to light, and dots 2 and 3 at rest.
+let launch = SweepLogic.dots(SweepLogic.launchAt, side: side, reduceMotion: false)
+check(near(launch[0].opacity, SweepLogic.litOpacity) && near(launch[0].diameter, side * SweepLogic.dotShare * SweepLogic.litScale),
+      "the launch frame lights dot 0, at the top, at its brightest")
+check(launch[7].opacity > launch[6].opacity && launch[6].opacity > launch[5].opacity && launch[5].opacity > SweepLogic.restOpacity
+      && launch[1].opacity > SweepLogic.restOpacity && launch[1].opacity < launch[7].opacity
+      && near(launch[2].opacity, SweepLogic.restOpacity) && near(launch[3].opacity, SweepLogic.restOpacity),
+      "the launch frame: dots 7, 6, 5 trail behind dot 0, dimming; dot 1 starts to light; dots 2 and 3 at rest")
+
 // The view wraps the clock at 24 s, a whole number of both loops, so the wrap shows no jump.
 check(near(SweepLogic.look(24, dot: 5).opacity, SweepLogic.look(0, dot: 5).opacity) && near(SweepLogic.calmOpacity(24), SweepLogic.calmOpacity(0)),
       "24 s is a whole number of both loops")

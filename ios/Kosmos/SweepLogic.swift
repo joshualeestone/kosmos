@@ -24,6 +24,10 @@ enum SweepLogic {
     static let calmLow = 0.4
     /// A dot's width as a share of the ring's side (the board's --dot: calc(var(--sz)*0.19)).
     static let dotShare = 0.19
+    /// kosmos#7945 follow-up: the moment of the loop the launch screen shows (dot 0, at the top, at its brightest, the
+    /// others trailing behind it), and where every SweepDots starts its loop when it appears, so the launch picture is
+    /// the wait's first frame (ios/tools/launch-sweep draws it; run-sweep.sh checks both use this).
+    static let launchAt = peakAt * loop
 
     struct Dot: Equatable {
         var x: Double        // centre, in the box's points
