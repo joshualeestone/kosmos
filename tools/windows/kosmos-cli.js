@@ -635,10 +635,10 @@ function replyFileAbsolute(file, cwd, p) {
 /* #6726: the second usage line install/kosmos prints for reply (tools.windows-kosmos-cli-reply-file-6726.test.js pins it to install/kosmos's). */
 const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (attach one file from your Files folder, or from inside a project you are on, up to 100 MB: they download it from your conversation)';
 /* #6726 review 8: --file is named (help, and the usage a bare reply prints) only where the board's checks of which
-   files may go have run. On Windows they have not, and #7221 shows the board there resolves a network or device path
-   before refusing it, so on Windows the flag works when typed (the real run needs it) but is not taught, as
-   engine/dmfiles.js leaves it out of the instructions. Keyed on the path rules, so a test drives either side. */
-const replyFileTaught = (rules) => rules.sep !== '\\';
+   files may go have run. Windows held it back until #7221 landed (PR #7243) and one real Windows run attached a file
+   (11-05, on the Windows box, comment on #6726): it is taught on both now, as engine/dmfiles.js teaches it in the
+   instructions. Kept as a function, so a later hold for one side (keyed on the path rules) is a one-line change. */
+const replyFileTaught = () => true;
 /* What --help prints for a verb: its usage, and for reply the --file line too where it is taught, as install/kosmos's
    help does on a Mac. */
 function helpFor(verb, rules = path) { return verb === 'reply' && replyFileTaught(rules) ? USAGE.reply + '\n' + USAGE_REPLY_FILE : USAGE[verb]; }

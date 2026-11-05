@@ -160,14 +160,13 @@ test('#6726 review 1: kosmos reply --help names --file, as install/kosmos\'s hel
   assert.ok(r.out.includes(cli.USAGE_REPLY_FILE), 'reply --help does not show the --file line');
   // Review 14: the one exact pin on reply's help (the sibling help tests compare against helpFor itself).
   assert.equal(r.out.replace(/\n$/, ''), cli.USAGE.reply + '\n' + cli.USAGE_REPLY_FILE);
-  /* Review 8: on Windows it is not named until the board's checks have run there (#7221); the flag still works. */
+  /* Review 8, then 11-05: held back on Windows until #7221 and one real Windows run; taught there now, the same line. */
   const w = await run(['reply', '--help'], kept, undefined, { pathRules: path.win32 });
   assert.equal(w.code, 0, w.err);
-  assert.match(w.out, /Usage: kosmos reply \[--stdin\]/, 'control: the Windows help still prints reply\'s usage');
-  assert.ok(!w.out.includes('--file'), 'Windows help names --file before #7221');
+  assert.equal(w.out.replace(/\n$/, ''), cli.USAGE.reply + '\n' + cli.USAGE_REPLY_FILE, 'the Windows help does not name --file');
   const bare = await run(['reply'], kept, undefined, { pathRules: path.win32 });
   assert.equal(bare.code, 2);
-  assert.ok(!bare.err.includes('--file'), 'the Windows usage names --file before #7221');
+  assert.ok(bare.err.includes(cli.USAGE_REPLY_FILE), 'the Windows usage a bare reply prints does not name --file');
 });
 
 test('#6726: --file after the words is still the flag; past -- it is words', async () => {
