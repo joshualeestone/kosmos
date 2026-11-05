@@ -9323,6 +9323,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-name .sfoot .field { margin-top: 0; }
 #cstep-name .sfoot #create-go { flex: 0 0 auto; }
 #create-msg .linkish { font-size: inherit; }   /* kosmos#8040: the link in a refusal reads at its sentence's size */
+/* kosmos#8040: the sample name reads as a name already typed, so "Give the agent a name." looked wrong beside it and the
+   press looked like nothing. While the box is refused it shows as what it is: empty. The sample stays for everyone else. */
+#create-name.bad::placeholder { color: transparent; }
 /* #3038: the create-agent beacon checkbox, RESTORED (Josh ruled #2623's removal
    was an agent's, not his). Left half of the one-row .sfoot; the button is the
    right half. Self-contained so it cannot be knocked out by an unrelated edit. */
