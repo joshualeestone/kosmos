@@ -88,7 +88,7 @@ function folderSum(root) {
 function skillSums(dir) {
   const out = new Map();
   /* Review 5: a skill folder with no readable SKILL.md is not a skill Claude Code loads, so it is not kept. */
-  for (const n of skillNames(dir)) { if (digest(path.join(dir, 'skills', n, 'SKILL.md'))) out.set(n, folderSum(path.join(dir, 'skills', n))); }   // { sum, cut }
+  for (const n of skillNames(dir)) { if (cappedDigest(path.join(dir, 'skills', n, 'SKILL.md'))) out.set(n, folderSum(path.join(dir, 'skills', n))); }   // { sum, cut }; review 5: capped
   return out;
 }
 function skillNames(dir) {
@@ -167,15 +167,18 @@ function digest(file) {
     return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
   } catch { return null; }
 }
-/* #8063 review 3: a script found only through the agent's folder is certain only when it is there and the command does
-   not change folder first. Missing there, bash may still find it on PATH, or a `cd` may have moved the working folder, so
-   it is not "does not run here": it cannot be checked. A script at a path the hook spells out in full keeps the old
-   reading (missing means it does not run). */
-const CHANGES_FOLDER = /(^|[;&|(]\s*)(cd|pushd)\s/;
-function uncertain(at, sum, project, command) {
-  if (!project || !at) return false;
-  if (!path.resolve(at).startsWith(path.resolve(project) + path.sep)) return false;
-  return sum === null || CHANGES_FOLDER.test(String(command));
+/* #8063 reviews 3 and 5: a script found only through the agent's working folder (`viaProject`: it resolves with the
+   folder named and not without it) is checked only in the plainest shape, an allow-list rather than a list of the ways a
+   command can move its folder: the script must be there, and the command must be one simple invocation with no shell
+   operators, no `cd`/`pushd`, and no -C, --chdir or -c option. Anything else could run another file, so it
+   cannot be checked. A script at a path the hook spells out in full keeps the reading that missing means it does not
+   run. */
+const SIMPLE_COMMAND = /^[^;&|()`<>\n]*$/;   // quotes are allowed: "$CLAUDE_PROJECT_DIR"/x.sh is the documented spelling
+const MOVES_FOLDER = /(^|\s)(cd|pushd|-C|--chdir(=\S*)?|-c)(\s|$)/;
+function uncertain(viaProject, sum, command) {
+  if (!viaProject) return false;
+  const c = String(command);
+  return sum === null || !SIMPLE_COMMAND.test(c) || MOVES_FOLDER.test(c);
 }
 /* #8063 item 3: a file's hash read no further than MAX_FILE_BYTES: { sum, read }, or null when it cannot be read. */
 function cappedDigest(file) {
@@ -235,7 +238,8 @@ function hookEntries(dir, home, project) {
         if (typeof h.command === 'string' && h.command.trim() && Array.isArray(h.args)) {
           const words = [h.command, ...h.args].map((x) => String(x));
           const script = words.find((x) => /\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(x.trim()));
-          const oneX = (x) => x.replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home).split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
+          const oneX = (x) => x.replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, path.resolve(dir))
+            .split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
           const id = script ? script.trim().split(/[\\/]/).pop() : words.join(' ');
           /* Review 3: as in the shell form, a bare name as the command itself is looked up on PATH. */
           const onPath = !!script && script === words[0] && !/[\\/]/.test(script.trim());
@@ -243,7 +247,8 @@ function hookEntries(dir, home, project) {
           const sum = at ? digest(at) : null;
           if (at && sum === null && fs.existsSync(at)) throw new Error(`the hook script ${at} cannot be read`);
           const key = 'exec\n' + words.filter((x) => x !== script).map(oneX).join('\0') + (script ? '\n' + id : '');
-          list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved: !!script && (at === null || uncertain(at, sum, project, '')) });
+          const viaProject = !!project && at !== null && resolveWord(script.trim(), dir, home, null) === null;
+          list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved: !!script && (at === null || uncertain(viaProject, sum, words.join(' '))) });
           continue;
         }
         if (typeof h.command !== 'string' || !h.command.trim()) {
@@ -274,7 +279,8 @@ function hookEntries(dir, home, project) {
         const scriptless = !String(h.command).trim().split(/\s+/).some((x) => /\.(sh|js|mjs|cjs|py|ps1|bat|cmd)["']?$/i.test(x));
         const key = scriptless ? String(h.command).trim().split(/\s+/).map(one).join(' ') : `${id}\n${args}`;
         /* #8063 item 2: a command that names a script this cannot resolve cannot be checked. */
-        const unresolved = !scriptless && (at === null || uncertain(at, sum, project, h.command));
+        const viaProject = !!project && at !== null && scriptPath(h.command, dir, home, null) === null;
+        const unresolved = !scriptless && (at === null || uncertain(viaProject, sum, h.command));
         list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved });
       }
     }
@@ -285,7 +291,7 @@ function hookEntries(dir, home, project) {
 function hookIds(dir, home = os.homedir(), project) { return new Set(hookEntries(dir, home, project).list.map((h) => h.id)); }
 
 /**
- * losses(fromDir, toDir, { home }) -> { ok: true, skills: [names], hooks: [scripts] } (sorted; empty when nothing is
+ * losses(fromDir, toDir, { home, project }) -> { ok: true, skills: [names], hooks: [scripts] } (sorted; empty when nothing is
  * lost), or { ok: false, because } when either folder cannot be read, or { ok: false, because, unchecked, ...the
  * lists } when a hook the agent has now names a script this cannot resolve (#8063). fromDir/toDir: an account folder,
  * or null/'' for the default account. opts: { home, project (the agent's working folder) }.

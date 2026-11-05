@@ -383,3 +383,22 @@ test('kosmos#8063 review 4: a named pipe in a skill or as a hook script is never
   assert.equal(l.ok, true, JSON.stringify(l));
   assert.deepEqual(l.hooks, ['pipe.sh'], 'the hook whose script is a pipe was not named');
 });
+
+test('kosmos#8063 review 5: a script reached through the agent folder is checked only in the plainest command', () => {
+  const w = (cmd) => folder({ settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: cmd }] }] } }) });
+  const none = folder({ settings: '{}' });
+  const project = path.join(TMP, `agent-${++n}`);
+  fs.mkdirSync(path.join(project, 'scripts'), { recursive: true }); fs.writeFileSync(path.join(project, 'scripts', 'g.sh'), '#!/bin/sh\n');
+  const outside = path.join(path.dirname(project), 'scripts'); fs.mkdirSync(outside, { recursive: true }); fs.writeFileSync(path.join(outside, 'g.sh'), '#!/bin/sh\n');
+  const P = { ...H, project };
+  /* Measured by the reviewer: a ../ path after a cd, with the script present, read as nothing lost. */
+  for (const cmd of ['cd "$CLAUDE_CONFIG_DIR/hooks" && bash ../scripts/g.sh', "bash -c 'cd \"$CLAUDE_CONFIG_DIR\" && bash scripts/g.sh'",
+    'env -C /opt bash scripts/g.sh', 'git -C /opt hook run scripts/g.sh', 'bash scripts/g.sh | tee log']) {
+    const l = carry.losses(w(cmd), none, P);
+    assert.equal(l.ok, false, cmd + ' was checked in the agent folder: ' + JSON.stringify(l));
+  }
+  /* CONTROL: the plain shapes, ../ included, are checked, and the loss named. */
+  for (const cmd of ['bash scripts/g.sh', 'bash "$CLAUDE_PROJECT_DIR"/scripts/g.sh', 'bash ../scripts/g.sh']) {
+    assert.deepEqual(carry.losses(w(cmd), none, P).hooks, ['g.sh'], cmd + ' was not checked');
+  }
+});
