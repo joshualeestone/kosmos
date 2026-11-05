@@ -18919,8 +18919,10 @@ const server = http.createServer(async (req, res) => {
         // report, so read what this agent said last before recording this one.
         let wasNeedsYou = false;
         let askedBefore = null;   // #7756: the question standing before this report, held or not
+        let autoWaitAt = null;   // kosmos#8036: when the permission wait standing before this report began, if one did
         try {
           const prior = selfreport.read(who);
+          if (selfreport.isAutoPermissionWait(prior)) autoWaitAt = prior.at;
           // Review 1: a hook's permission wait is not a question the agent asked, and its words can hold a command or a path.
           if (prior && prior.found === true && prior.state === 'needs_you' && !selfreport.isAutoPermissionWait(prior)) askedBefore = { text: prior.because };
           /* #7915: a HELD question was never buzzed, so asking it for real afterwards is the change that buzzes. */
@@ -18952,6 +18954,15 @@ const server = http.createServer(async (req, res) => {
              refused over a standing waiting state; see selfreport.record. */
           auto: body.auto === true,
         });
+        /* kosmos#8036: a permission prompt can pass by itself (it timed out; Josh 11-05: the list said Needs permission and the
+           chat had nothing). If its push went out and nobody opened it, the chat says it has passed, and the coordinator is told so
+           its email does not go. A person who opened it, or was never pushed, gets no line. */
+        if (autoWaitAt && body.state !== 'needs_you' && kept && kept.recorded === true) {
+          try {
+            const nya = require('./engine/needsyouack');
+            if (nya.ended(who, 'report:' + autoWaitAt + ':' + who, (id) => phonenotify.acked(id))) keepAgentReply(who, nya.WAIT_ENDED_LINE, undefined, { kosmos: true });
+          } catch { /* the report still stands */ }
+        }
         /* #7756: `kosmos report clear "why"` over a question: the person sees it closed, not just gone. A line in the agent's
            chat with them, Kosmos's own words in the agent's name (so it is not read as an answer they owe), and no buzz: a
            question going away is nothing to interrupt anyone for. Never fails the report. */
