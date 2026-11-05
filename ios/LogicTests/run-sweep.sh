@@ -83,6 +83,12 @@ reaching=$(awk '/private var reaching: some View/{on=1} on{print} on&&/^    }$/{
 order=$(printf '%s\n' "$reaching" | grep -oE 'SweepDots\(\)|\.overlay\(alignment: \.bottom\)|Text\("Connecting|\.frame\(maxWidth: \.infinity, maxHeight: \.infinity\)|\.ignoresSafeArea\(\)|VStack|HStack|ZStack' | tr '\n' '|' || true)
 [ "$order" = 'SweepDots()|.overlay(alignment: .bottom)|Text("Connecting|.frame(maxWidth: .infinity, maxHeight: .infinity)|.ignoresSafeArea()|' ] \
   || { echo "VERDICT: FAIL (AgentsView's reaching wait is no longer the ring alone centred on the screen, words in an overlay below it; read: ${order:-nothing}; so it would not sit where the launch mark is)"; exit 1; }
+# One place draws the wait (BoardStates' body): two would be two view identities, and a phase change from one to the
+# other mid-wait would restart the loop at its first frame (SweepDots runs from when it appears).
+uses=$(awk '/^struct BoardStates/{on=1} on{print} on&&/^}$/{exit}' "$src/AgentsView.swift" | sed 's#//.*##' \
+  | grep -vE 'private var reaching: some View' | grep -oE '(^|[^A-Za-z_.])reaching([^A-Za-z_]|$)' | wc -l | tr -d ' ' || true)
+[ "$uses" = 1 ] \
+  || { echo "VERDICT: FAIL (BoardStates draws the wait to connect in ${uses:-?} places, not one, so a change of phase mid-wait restarts its ring)"; exit 1; }
 grep -qE 'let t = \(max\(0, tl\.date\.timeIntervalSince\(shownAt\)\) \+ SweepLogic\.launchAt\)' "$src/SweepDots.swift" \
   || { echo "VERDICT: FAIL (SweepDots no longer starts its loop at SweepLogic.launchAt when it appears, so its first frame is not the launch screen's)"; exit 1; }
 echo "ok   the launch mark is SweepDots' $side pt ring at its first frame, and the wait to connect centres it on the screen as the launch screen does"

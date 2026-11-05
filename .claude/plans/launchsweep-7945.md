@@ -10,8 +10,8 @@ The launch screen is the native ground with the Sweep ring at SweepLogic.launchA
 trailing), 20 pt, Palette.starGold, drawn from SweepLogic; every SweepDots starts its loop at that same moment when it
 appears, so the launch picture is the wait's first frame; the Agents tab's wait to connect centres its ring on the
 screen (a launch image is always centred on the screen), with "Connecting..." hanging 8 pt below without moving it.
-Measured in a simulator (iPhone 17 Pro, iOS 27): the ring's box on the launch screen and in the wait is the same to
-within one 3x pixel, light and dark, on the same ground.
+Measured in a simulator (iPhone 17 Pro, iOS 27, Debug with KOSMOS_SAMPLE_AGENTS=1 KOSMOS_SAMPLE_REACHING=1, frames
+taken with simctl io screenshot through the launch, light and dark): see "Measured" below.
 
 ## Call
 Static still frame at the ring's own size and place. Rejected: an animated launch (a launch screen cannot animate);
@@ -42,3 +42,16 @@ wait's ignoresSafeArea removed (centre check), a wrong 2x PNG (stale check).
 - run-sweep.sh: the wait's shape is checked in order with comments stripped (ring, overlay, Connecting, fill frame,
   ignoresSafeArea; no stack), and SweepDots' start at launchAt. Mutants red: the old VStack shape, ignoresSafeArea only in
   a comment, SweepDots on the wall clock, launchAt changed without redrawing (STALE).
+
+## Measured in a simulator (after review 2's fix, iPhone 17 Pro 1206x2622, iOS 27)
+- Launch frames: ring box x 574-629, y 1281-1337 (3x px), centre (601.5, 1309); screen centre (602.5, 1310.5).
+- Wait frames after the handover: box edges move 2-3 px as dots grow and shrink (lit 1.08, rest 0.6), centre within
+  (601-604, 1309-1312) in every frame; same ground (#0c0d0f dark, #faf9f7 light) on both.
+- The first app frame is iOS's cross-fade (launch picture and the moving ring overlaid); the sweep then runs on.
+- First version (before review 1) measured the same way: launch box x 573-632 y 1281-1340, wait within 1 px.
+- Not measured: a real iPhone; larger text sizes; Reduce Motion.
+
+## Review 2 changes
+- BoardStates draws the wait in one place (body: `if waiting { reaching } else { states }`), so starting -> live while
+  waiting keeps one ring and its loop (it restarted at launchAt with two call sites). run-sweep.sh checks one call site;
+  its mutant (reaching back in the .starting arm) is red.
