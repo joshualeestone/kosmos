@@ -46,7 +46,8 @@ struct SweepDots: View {
 /// kosmos#7945 follow-up (Josh 11-04 on build 43: a big launch orb, then a small one): a first wait to connect that can
 /// follow the launch screen, drawn as the launch screen draws it. The ring alone is centred on the SCREEN (a launch image
 /// always is; between the bars it would sit a few points off, differently on each iPhone), at one size whatever the text
-/// size (the launch picture is fixed), with the words 8 pt below it. Used by the Agents tab's wait and the Projects tab's
+/// size (the launch picture is fixed), with the words 8 pt below it, laid out across the screen's width so that at the
+/// largest text sizes they wrap rather than run off its edges. Used by the Agents tab's wait and the Projects tab's
 /// (a launch from a room notification opens on Projects). run-sweep.sh checks this shape; KosmosUITests/
 /// LaunchHandoverUITests measures the ring at the screen's centre on a running app.
 struct ConnectingWait: View {
@@ -54,12 +55,15 @@ struct ConnectingWait: View {
 
     var body: some View {
         SweepDots(scales: false)   // hidden from VoiceOver: the words say what is loading
-            .overlay(alignment: .bottom) {
-                Text(words).font(.footnote).foregroundColor(Palette.secondary)
-                    .fixedSize()
-                    .alignmentGuide(.bottom) { _ in -8 }   // its top 8 pt below the ring
-            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .center) {
+                Text(words).font(.footnote).foregroundColor(Palette.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 24)
+                    // Its top 18 pt below the centre: half the 20 pt ring, then 8 pt. The ring alone is centred.
+                    .alignmentGuide(VerticalAlignment.center) { _ in -18 }
+            }
             .ignoresSafeArea()
             .accessibilityElement(children: .combine)
     }

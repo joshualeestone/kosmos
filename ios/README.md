@@ -102,7 +102,10 @@ builds it on GitHub's macOS runner, which has one.
   in place. Not covered: the rarer "Connecting to <Mac>" wait (a refused hand-off being retried) draws the ring under
   its message, not at the centre, at the text size's scale (and a return from it to the first wait starts that ring
   again at the launch frame, a new view); and a room opened by that notification has its own wait. `KosmosUITests/LaunchHandoverUITests` measures the ring at the
-  screen's centre on a running app, on Agents and on Projects (run by `ios/tools/ui-sample.sh`). The PNGs are drawn from `SweepLogic` by
+  screen's centre on a running app, on Agents and on Projects and at the largest text size (run by
+  `ios/tools/ui-sample.sh`). iOS caches launch screens: a phone updated from an earlier build can keep showing the old
+  one (the 120 pt orb) until the cache refreshes, after a restart or a delete and reinstall, so check a new launch
+  screen on a fresh install. The PNGs are drawn from `SweepLogic` by
   `ios/tools/render-launch-sweep.sh`; `LogicTests/run-sweep.sh` draws them again and fails if the committed ones
   differ, so redraw them when `SweepLogic` changes.
 - `Kosmos-Info.plist` holds the launch screen (`UILaunchScreen` > `UIColorName =

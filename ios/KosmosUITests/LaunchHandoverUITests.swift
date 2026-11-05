@@ -17,11 +17,18 @@ final class LaunchHandoverUITests: XCTestCase {
         try measure(tab: "projects", words: "Reaching your computer\u{2026}")
     }
 
-    private func measure(tab: String?, words: String) throws {
+    // At the largest text size the ring keeps its place and size (the launch picture is fixed) and the longer words wrap
+    // on screen rather than run off its edges.
+    func testAtTheLargestTextSizeTheRingStaysAndTheWordsStayOnScreen() throws {
+        try measure(tab: "projects", words: "Reaching your computer\u{2026}", largestText: true)
+    }
+
+    private func measure(tab: String?, words: String, largestText: Bool = false) throws {
         guard ProcessInfo.processInfo.environment["KOSMOS_UI_PLUS"] == "1" else { throw XCTSkip("set TEST_RUNNER_KOSMOS_UI_PLUS=1") }
         let app = XCUIApplication()
         app.launchEnvironment = ["KOSMOS_SAMPLE_AGENTS": "1", "KOSMOS_SAMPLE_REACHING": "1"]
         if let tab { app.launchEnvironment["KOSMOS_SAMPLE_TAB"] = tab }
+        if largestText { app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"] }
         app.launch()
         let wait = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", words)).firstMatch
         XCTAssertTrue(wait.waitForExistence(timeout: 20), "the wait (\(words)) did not show")
@@ -36,5 +43,6 @@ final class LaunchHandoverUITests: XCTestCase {
         XCTAssertEqual(ring.y, screen.midY, accuracy: 1, "the ring is not at the screen's middle height: wait \(frame), screen \(screen)")
         // The words sit under the ring, not beside or over it: the element runs below the ring.
         XCTAssertGreaterThan(frame.maxY, ring.y + 10 + 8, "the words are not below the ring: wait \(frame)")
+        XCTAssertTrue(frame.minX >= screen.minX && frame.maxX <= screen.maxX, "the words run off the screen: wait \(frame), screen \(screen)")
     }
 }
