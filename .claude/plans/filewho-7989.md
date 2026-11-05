@@ -17,7 +17,13 @@ Stacked on fileowner-7989 (PR #7999, slice 1: a file's owner, `first`, and the r
   project's own entry, the one slice 1's notices act on, so `who` never names an owner the notices would not use (a
   file seen only before its inner project existed shows no owner). Entries older than KEEP_MS are not read.
 - **Paths:** resolved once (links followed), then lstat'ed, so a link swapped in afterwards is not followed. A link out
-  of a project's folder is outside; a dangling link is a project file that is not there.
+  of a project's folder is outside; a dangling link is a project file that is not there (or, when the path is the link
+  itself, "a link to something that is not there now"). A path on a network mount (/net, /Volumes, /Network, a UNC
+  share) that no project lives on is answered as outside without being resolved, since resolving runs on the board's
+  one thread. A path that is not UTF-8 is a 400. "Outside" tells a sandboxed agent to give the path as this computer
+  names it.
+- **An older board:** a 404 says the board is older than the command and a restart updates it; a 403 on the agent
+  token adds that it may be that.
 - **Route:** `GET /api/project-file/who?path=<abs>`, answering from engine/filewriters.about (read against the
   projects' folders as they are now). Outside every project it says only `{ ok: false, because: 'outside' }`, nothing
   about the path. A missing or relative path is 400. A cross-site or another computer's page is refused (crossSiteRead),

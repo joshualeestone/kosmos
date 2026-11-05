@@ -6971,7 +6971,7 @@ cmd_project() {
       say "  kosmos project role <project-id> \"<what you do here>\"         say what you do on this project, 60 characters at most; project show lists it beside you (\"\" clears it)"
       say "  kosmos project remove-member <project-id> \"<name>\" [--yes]   take a member off a project, after a confirm (--yes for scripts)"
       # kosmos#7989 slice 2: Mac only for now, so it is listed after the lines the Windows CLI shares (cli.project-show-4581).
-      say "  kosmos project who <file>                                       one project file: the agent Kosmos last saw changing it, its owner, and whether a change came after that Kosmos did not see"
+      say "  kosmos project who <file>                                       one project file: the agent Kosmos last saw about to change it, its owner, and whether a change came after that Kosmos did not see"
       say "  <folder> is a path on this machine; the project's files live there."
       exit 2 ;;
     list)
@@ -7057,8 +7057,13 @@ cmd_project() {
       # route, so a token-only agent is admitted). The path goes URL-encoded.
       local _wtok="" rc=0 body _node _mod
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _wtok="$KOSMOS_AGENT_TOKEN" ;; esac
-      body=$(kosmos_curl "$_bt" "$_wtok" -sS -m 15 -G --data-urlencode "path=$1" "$URL/api/project-file/who" 2>/dev/null) || rc=$?
+      local _wraw _wcode
+      _wraw=$(kosmos_curl "$_bt" "$_wtok" -sS -m 15 -G --data-urlencode "path=$1" -w $'\n%{http_code}' "$URL/api/project-file/who" 2>/dev/null) || rc=$?
       [ "$rc" -eq 0 ] || { say_unreached "read who changes that file" "$rc"; exit 1; }
+      _wcode=${_wraw##*$'\n'}; body=${_wraw%$'\n'*}
+      # Review 5: a board started before this command has no route (404), and on the agent token alone its gate refuses
+      # (403); its own words would send the agent to `kosmos open`, which cannot help.
+      if [ "$_wcode" = 404 ]; then say "This Kosmos board is older than \`kosmos project who\`, so it cannot answer. Ask your person to restart Kosmos, which updates it."; exit 1; fi
       _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
       _mod="$(kosmos_engine_module filewhoview)"
       # Exit 0 only for an answer about a project file; outside every project, or an answer we cannot read, is 1.
@@ -7073,6 +7078,7 @@ cmd_project() {
       [ -n "$_wout" ] || { say "Kosmos could not print the board's answer about that file."; exit 1; }
       printf '%s\n' "$_wout"
       [ "$_wrc" -eq 0 ] || token_refused_hint "$_wtok" "$body"
+      if [ "$_wcode" = 403 ] && [ -n "$_wtok" ]; then say "If this board was started before \`kosmos project who\` existed, it refuses an agent's own token here; a restart of Kosmos updates it."; fi
       exit "$_wrc"
       ;;
     list|show)

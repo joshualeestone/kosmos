@@ -49,6 +49,8 @@ function withStub(fn) {
       const u = new URL(req.url, 'http://x');
       if (u.pathname === '/api/project-file/who') {
         const p = u.searchParams.get('path');
+        if (p === '/old/board') { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"no such endpoint"}'); return; }
+        if (p === '/old/gate') { res.writeHead(403, { 'content-type': 'application/json' }); res.end('{"error":"this board belongs to the account that started it; open it with `kosmos open`"}'); return; }
         if (p === '/refused/x') { res.writeHead(403, { 'content-type': 'application/json' }); res.end('{"ok":false,"error":"that request came from another website, so we will not fetch for it"}'); return; }
         const body = p === FILE ? ANSWER : p === '/bad/answer' ? null : { ok: false, because: 'outside' };
         res.writeHead(200, { 'content-type': 'application/json' });
@@ -101,6 +103,14 @@ test('kosmos#7989 slice 2: outside every project exits 1 with the renderer\'s wo
   const bad = await runCli(['project', 'who', '/bad/answer'], env);
   assert.equal(bad.code, 1);
   assert.match(bad.stdout + bad.stderr, /could not read/);
+  // Review 5: a board older than the command: a 404 says so; a 403 on the agent token says it may be that.
+  const old = await runCli(['project', 'who', '/old/board'], env);
+  assert.equal(old.code, 1);
+  assert.match(old.stdout, /older than `kosmos project who`/);
+  assert.doesNotMatch(old.stdout, /no such endpoint/);
+  const gate = await runCli(['project', 'who', '/old/gate'], env);
+  assert.equal(gate.code, 1);
+  assert.match(gate.stdout, /started before `kosmos project who` existed/);
   const refused = await runCli(['project', 'who', '/refused/x'], env);
   assert.equal(refused.code, 1, 'review 2: a refusal exited 0');
   assert.match(refused.stdout, /could not read who changes that file: that request came from another website/);
@@ -115,6 +125,6 @@ test('kosmos#7989 slice 2: no file, two files, or an option is a usage error, be
   }
   const help = await runCli(['project', 'who', '-h'], env);
   // Review 3: the help's own line, which the option refusal's Usage line does not contain.
-  assert.match(help.stdout + help.stderr, /the agent Kosmos last saw changing it, its owner/, '-h did not print the help: ' + help.stdout);
+  assert.match(help.stdout + help.stderr, /the agent Kosmos last saw about to change it, its owner/, '-h did not print the help: ' + help.stdout);
   assert.deepEqual(seen, [], 'a usage error still asked the board');
 }));

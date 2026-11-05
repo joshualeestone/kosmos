@@ -23,14 +23,19 @@ function who(agent, shown) {
 function renderWho(answer) {
   const d = answer && typeof answer === 'object' ? answer : {};
   if (d.ok !== true) {
-    if (d.because === 'outside') return ['That file is not inside any project\'s folder (a link inside one that leads elsewhere counts as elsewhere), so Kosmos keeps no record of who changes it.'];
+    // Review 5: "outside" is only that this path, as this computer spells it, is in no project folder Kosmos can see now.
+    if (d.because === 'outside') return ['Kosmos does not see that path inside any project\'s folder on this computer, so it has no record to show (a link inside a folder that leads elsewhere counts as elsewhere). If you work in a sandbox that shows this computer\'s folders under other paths, give the path as this computer names it.'];
     if (d.because === 'folder') return ['That is a folder, not a file. Ask about one file in it.'];
     return ['Kosmos could not read who changes that file' + (d.error ? ': ' + one(d.error) : '') + '.'];
   }
   const lines = [];
   // Review 2: quoted, with its own quotes made single, so a name cannot pass for words of this output.
   lines.push('File: "' + one(d.name).replace(/"/g, "'") + '"   (project ' + one(d.projectName || d.projectId) + ', ' + one(d.projectId) + ')');
-  if (!d.exists) lines.push(d.notFile ? 'That is not an ordinary file (a pipe, a socket or a device), so it has no modification time to compare.' : 'The file is not there now.');
+  if (!d.exists) {
+    lines.push(d.notFile === 'link' ? 'That is a link to something that is not there now.'
+      : d.notFile ? 'That is not an ordinary file (a pipe, a socket or a device), so it has no modification time to compare.'
+        : 'The file is not there now.');
+  }
   const seen = d.lastSeen && typeof d.lastSeen === 'object' && d.lastSeen.agent ? d.lastSeen : null;
   if (!seen) {
     lines.push('Kosmos has no record of any agent changing it.');
@@ -48,7 +53,7 @@ function renderWho(answer) {
     }
   }
   if (d.owner && typeof d.owner === 'object' && d.owner.agent) {
-    lines.push('Owner: ' + who(d.owner.agent, d.owner.shown) + ', the first agent seen changing it here (in the record Kosmos keeps).');
+    lines.push('Owner: ' + who(d.owner.agent, d.owner.shown) + ', the first agent seen about to change it here (in the record Kosmos keeps).');
   } else if (seen) {
     // Review 4: neutral, since a missing owner has more than one cause (a record from before owners, an outer project's).
     lines.push('Owner: none in this project\'s own record.');
