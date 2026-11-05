@@ -1,5 +1,5 @@
 'use strict';
-/* kosmos#7693: four deciding sweeps share one roster reading at most 20 s old, and every send they make reads a fresh one.
+/* kosmos#7693: six sweeps that decide or only tell share one roster reading at most 20 s old, and every send they make reads a fresh one.
    Source-level, since these sweeps are wired inside server.js's start(). */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -7,9 +7,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-test('the shared reading is used by exactly the four deciding sweeps', () => {
+test('the shared reading is used by exactly those six sweeps', () => {
   const uses = [...src.matchAll(/sweepRoster\(\)/g)].length;
-  assert.equal(uses, 4, 'sweepRoster() call sites: ' + uses);
+  assert.equal(uses, 6, 'sweepRoster() call sites: ' + uses);
   assert.match(src, /const SWEEP_ROSTER_TTL_MS = 20 \* 1000;/);
 });
 

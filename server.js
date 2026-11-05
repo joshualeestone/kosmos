@@ -3079,7 +3079,8 @@ function refreshCommunityBlock() {
    old, and their sends read a fresh roster (review 1: an idle card 20 s old would let a line and its Enter land on a
    question menu the agent has since reached; chat.js reads the screen only for a working or needs-you card). The Gemini
    sweep's one key is checked against a fresh capture of the pane already. Most ticks send nothing, so the full capture is
-   paid only when one acts. A failed read is not kept. */
+   paid only when one acts. A failed read is not kept. Two more since (0.7.91, 11-05): the delivery-stall tick and the
+   crashloop, stuck-terminal and own-bounds tick, which only tell the person and never type. A sweep that types reads fresh. */
 const SWEEP_ROSTER_TTL_MS = 20 * 1000;
 let sweepRosterKept = null;   // { at, roster }
 function sweepRoster(now = Date.now()) {
@@ -27911,7 +27912,7 @@ function start(port = PORT) {
       const sayStalls = () => {
         try {
           const ds = require('./engine/deliverystreak');
-          const r = safeRoster();
+          const r = sweepRoster();   // #7693 (0.7.91, 11-05): the largest single blocker; it only tells, never types
           if (!Array.isArray(r) || !r.length) return;
           const names = r.map((c) => c && c.sessionName).filter((n) => typeof n === 'string' && n);
           ds.sweep(names);
@@ -28922,7 +28923,7 @@ function start(port = PORT) {
           // read the stuck sweep is skipped entirely (below) so it never mis-advances an anchor; crashloop is
           // unaffected either way (it reads its own run files, not the roster).
           let roster = null;
-          try { roster = safeRoster(); } catch { /* a snapshot can fail; the stuck sweep skips this tick */ }
+          try { roster = sweepRoster(); } catch { /* a snapshot can fail; the stuck sweep skips this tick. #7693: these only tell, never type */ }
           const names = new Map();
           for (const a of (roster || [])) if (a && a.sessionName) names.set(store.safeKey(a.sessionName), a.name || a.sessionName);
           crashloop.tellLoops({
