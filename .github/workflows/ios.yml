@@ -140,8 +140,7 @@ jobs:
           ios/LogicTests/run-files.sh | tee "$RUNNER_TEMP/files.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/files.log"
 
-      # kosmos#7896: the KOSMOS orb's geometry (the loading mark), its own suite like the others. kosmos#7945: it
-      # also checks the launch screen against the palette and that its orb PNGs are current.
+      # kosmos#7896: the KOSMOS orb's geometry (the loading mark), its own suite like the others.
       - name: Orb logic tests
         run: |
           set -o pipefail
@@ -149,6 +148,8 @@ jobs:
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/orb.log"
 
       # kosmos#7954: the board's Sweep loader (eight dots on a ring) on the first-connect wait, against the board's numbers.
+      # kosmos#7945: it also checks the launch screen (the same ring) against the palette, that its PNGs are current, and
+      # that the wait centres its ring on the screen where the launch screen draws it.
       - name: Sweep dots logic tests
         run: |
           set -o pipefail
