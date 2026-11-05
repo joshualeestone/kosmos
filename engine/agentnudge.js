@@ -163,7 +163,7 @@ function nudgeText(part) {
      finished work, and each new stall repeated it. The mark is on the task and the work is per part (assigner.hasOpenWork), so
      this agent's part really is open: the line says so and names the one command that ends it. Names as the record holds them. */
   const markedBy = m && Array.isArray(m.by) ? plainWords(m.by.map((n) => plainWords(n, 80)).filter(Boolean).join(', '), SENTENCE_CAP) : '';
-  const command = '(kosmos task built ' + (id ? id + ' ' + part.n : '<project-id> <task-number>') + (m && m.checks > 0 ? ' \'<how its checks went>\'' : '') + ')';
+  const command = '(kosmos task built ' + (id ? id + ' ' + part.n : '<project-id> <task-number>') + (m && m.checks > 0 ? ' \'<how its checks went>\'' : ' \'<what you finished>\'') + ')';   // a note of its own: a bare mark would leave the task saying nothing
   /* A mark with no name came from a caller Kosmos could not identify, which can be this agent, so nothing here says it was
      someone else's, and nothing promises the command ends this: from a pane Kosmos cannot name, it would not. */
   const marked = !m ? ''

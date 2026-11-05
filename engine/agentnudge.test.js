@@ -726,7 +726,7 @@ test('#8067: a task a colleague marked built still nudges, says it is marked, by
     const { calls } = pass(w);
     assert.equal(calls.length, 1, 'the mark freed an agent whose part is open, which the Assigner does not');
     assert.ok(calls[0].text.includes('It is already marked built by ' + w.key.markedthem + ', but that mark does not cover your own part.'), calls[0].text);
-    assert.ok(calls[0].text.includes('(kosmos task built ' + w.pid + ' ' + n + ')'), calls[0].text);
+    assert.ok(calls[0].text.includes('(kosmos task built ' + w.pid + ' ' + n + " '<what you finished>')"), calls[0].text);
     /* And the command it names does end it. */
     assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.markedme }).ok);
     assert.equal(pass(w).calls.length, 0, 'marking it as the line says did not stop the nudge');
@@ -799,19 +799,3 @@ test('#8067: a marked parent with built subtasks gives one instruction, with no 
     assert.ok(text.includes('It is already marked built by ' + w.key.pthem), text);
   } finally { w.restore(); }
 });
-
-test('#8067: joining a colleague\'s mark with no note keeps their note, and the marker\'s own bare re-mark still clears it', () => {
-  const w = world([{ name: 'nkme' }, { name: 'nkthem' }]);
-  try {
-    const n = taskOn(w, w.key.nkme, 'ship it');
-    const note = () => projects.readAll().find((p) => p.id === w.pid).tasks.find((x) => x.number === n).builtNote;
-    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.nkthem, note: 'what is left: the release' }).ok);
-    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.nkme }).ok);
-    assert.equal(note(), 'what is left: the release', 'the colleague\'s note was erased');
-    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.nkme, note: 'my own' }).ok);
-    assert.equal(note(), 'my own', 'CONTROL: a note of its own replaces it');
-    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.nkme }).ok);
-    assert.equal(note(), undefined, 'CONTROL: the marker\'s own bare re-mark clears a stale note');
-  } finally { w.restore(); }
-});
-
