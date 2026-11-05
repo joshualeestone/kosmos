@@ -143,13 +143,14 @@ const USAGE = {
     '  (project ids are in your instructions\' Your projects section.)',
   ].join('\n'),
   project: [
-    'Usage: kosmos project <list|show|create|pause|role|remove-member>',
+    'Usage: kosmos project <list|show|who|create|pause|role|remove-member>',
     '  kosmos project list                                             every project: members, model families, tasks',
     '  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member\'s family and summary',
     '  kosmos project create "<name>" <folder> ["<description>"]   make a new project (it shows on your board, tagged as made by you)',
     '  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)',
     '  kosmos project role <project-id> "<what you do here>"         say what you do on this project, 60 characters at most; project show lists it beside you ("" clears it)',
     '  kosmos project remove-member <project-id> "<name>" [--yes]   take a member off a project, after a confirm (--yes for scripts)',
+    '  kosmos project who <file>                                       one project file: the agent Kosmos last saw about to change it, its owner, and whether a change came after that Kosmos did not see',
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
@@ -2244,6 +2245,33 @@ async function projectShow(ctx, args) {
   return projectRead(ctx, '/api/project/' + id + '/overview', 'renderShow');
 }
 
+/* kosmos#7989 slice 2, as install/kosmos cmd_project who: one project file's record from GET /api/project-file/who,
+   printed by engine/filewhoview.js, the renderer the Mac command uses. A path relative to where it runs is made full
+   here. Exit 0 for an answer about a project file, 1 otherwise, 2 for a usage error before the board is asked. */
+async function projectWho(ctx, args) {
+  const usage = 'Usage: kosmos project who <file>   (a path to a file inside a project\'s folder)';
+  if (args.length !== 1 || !args[0]) { ctx.err(usage); return 2; }
+  if (/^-[A-Za-z-]/.test(args[0])) { refuseOption(ctx, 'project who', 'Usage: kosmos project who <file>   (a file starting with - is .\\-name)', args[0], 'target'); return 2; }
+  let file;
+  try { file = require('node:path').resolve(ctx.cwd(), args[0]); } catch (_) { file = args[0]; }
+  const r = await ctx.call('GET', '/api/project-file/who?path=' + encodeURIComponent(file));
+  if (!r.reached) return ctx.unreachable('read who changes that file');
+  /* An older board: no route (404), or, on the agent token alone, its gate refuses (403) where an older board admits
+     the same token on GET /api/projects/overview. A cross-site refusal carries "ok":false and is not this. */
+  if (r.status === 404) { ctx.err('This Kosmos board is older than `kosmos project who`, so it cannot answer. Ask your person to restart Kosmos, which updates it.'); return 1; }
+  if (r.status === 403 && r.json && typeof r.json.error === 'string' && r.json.ok === undefined) {
+    const probe = await ctx.call('GET', '/api/projects/overview');
+    if (probe.reached && probe.status === 200) { ctx.err('This Kosmos board is older than `kosmos project who`, so it refuses an agent\'s own token here. Ask your person to restart Kosmos, which updates it.'); return 1; }
+  }
+  if (!r.json) { ctx.err('Kosmos gave an answer we could not read, so nothing is shown.'); return 1; }
+  let lines;
+  try { lines = ctx.engine('filewhoview').renderWho(r.json); } catch (_) { ctx.err('Kosmos could not print the board\'s answer about that file.'); return 1; }
+  for (const line of lines) ctx.out(line);
+  if (r.json.ok === true) return 0;
+  tokenRefusedHint(ctx, r);
+  return 1;
+}
+
 /* #3734: kosmos agent create / roles, as install/kosmos's cmd_agent: a one-member team (POST /api/team,
    #1279) with this agent's launch token, so the board records who asked and why and runs the new agent
    where the asker runs. */
@@ -3272,7 +3300,7 @@ const SUBCOMMAND_HANDLERS = {
   room: { reopen: roomReopen },
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
-  project: { list: projectList, show: projectShow, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
+  project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
   agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
