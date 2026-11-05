@@ -5745,6 +5745,11 @@ do {
     check(Board.neverDrew(endSeen: false, everDrew: false, messagesFor: 2.1), "nothing drawn 2 s after the messages: blank, whichever check reads it")
     check(!Board.neverDrew(endSeen: false, everDrew: false, messagesFor: 1.9), "CONTROL: still within a normal open")
     check(!Board.neverDrew(endSeen: false, everDrew: false, messagesFor: nil), "CONTROL: no messages yet is not a blank")
+    check(Board.settledBlankActs(endVisible: true, endSeen: false, everDrew: false, messagesFor: 3.2), "the 12:57 capture: end flag still at its start, nothing ever drawn, 3 s on: the look acts")
+    check(!Board.settledBlankActs(endVisible: true, endSeen: false, everDrew: false, messagesFor: 1.9), "CONTROL: the same within a normal open: it waits")
+    check(!Board.settledBlankActs(endVisible: true, endSeen: true, everDrew: true, messagesFor: 9), "CONTROL: the end really showing (a pending bubble can fill the list): it waits")
+    check(Board.settledBlankActs(endVisible: false, endSeen: true, everDrew: true, messagesFor: 9), "a list that drew, with its end gone and nothing on screen: it acts, as before")
+    check(!Board.settledBlankActs(endVisible: false, endSeen: false, everDrew: false, messagesFor: 1), "CONTROL: a new list after a rebuild, within its 2 s: it waits")
     check(!Board.neverDrew(endSeen: true, everDrew: false, messagesFor: 9) && !Board.neverDrew(endSeen: false, everDrew: true, messagesFor: 9), "CONTROL: a list that drew has its own rules")
 
     // Review 3: the box over a chat's life.

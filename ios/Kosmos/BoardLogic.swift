@@ -546,6 +546,11 @@ enum Board {
     static func neverDrew(endSeen: Bool, everDrew: Bool, messagesFor: Double?) -> Bool {
         !endSeen && !everDrew && (messagesFor ?? 0) > neverDrewAfter
     }
+    // Whether a settled look that found nothing drawn acts. endVisible starts true before any end was drawn, so it does not count
+    // against a list that never drew. Otherwise a list that drew, with its end gone (the end can be holding a pending bubble).
+    static func settledBlankActs(endVisible: Bool, endSeen: Bool, everDrew: Bool, messagesFor: Double?) -> Bool {
+        neverDrew(endSeen: endSeen, everDrew: everDrew, messagesFor: messagesFor) || (!endVisible && (endSeen || everDrew))
+    }
     static let rebuildCheckBump: Double = 0.3
     static let rebuildSpacing: Double = 2
     static let diagCheckWaits: [Double] = [0.5, 1.5]
