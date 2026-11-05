@@ -21,7 +21,8 @@ Stacked on fileowner-7989 (PR #7999, slice 1: a file's owner, `first`, and the r
 - **Route:** `GET /api/project-file/who?path=<abs>`, answering from engine/filewriters.about (read against the
   projects' folders as they are now). Outside every project it says only `{ ok: false, because: 'outside' }`, nothing
   about the path. A missing or relative path is 400. A cross-site or another computer's page is refused (crossSiteRead),
-  since unlike the Documents list it answers for paths the list leaves out (.git, .env).
+  since unlike the Documents list it answers for paths the list leaves out (.git, .env). It is an agent-token route
+  (AGENT_TOKEN_ROUTES, GET only), so a token-only agent on an enforcing board can read it, as it can `project show`.
 - **Words:** engine/filewhoview.renderWho, pure, so a Windows CLI can print the same lines. Names and file names go
   through projectview.one (no control, bidi or invisible characters); the file name is quoted with its quotes made
   single. Display names show with the session name beside.
@@ -41,7 +42,9 @@ words say "most likely" and "Kosmos last saw ... about to change it" for that re
 ## Known gap
 Slice 1's noteWrite takes the owner from the deepest project's own record, so making a project inside another's folder
 resets the owner of the files already in it (the next writer becomes owner). `who` reports that faithfully rather than
-papering over it; fixing it belongs in noteWrite.
+papering over it; fixing it belongs in noteWrite. Also slice 1's: noteWrite does not check a previous entry against
+KEEP_MS, so an entry past 30 days and not yet pruned still hands on its `first`; `who` skips it and shows no owner
+where a notice could still name one.
 
 ## Tests
 engine/filewho-7989.test.js (about and renderWho: seen, after, before, owner apart from last writer, no record, a

@@ -264,12 +264,14 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
     const entry = entries.length ? entries[0].e : null;
     const ownEntry = (entries.find((x) => x.deepest) || {}).e || null;
     let modified = null;
+    let notFile = false;
     try {
       // lstat of the resolved path: a link here now was swapped in after it was resolved, and is not followed.
       const st = fs.lstatSync(abs);
       // Review 1: a folder inside a project is not a file that is gone; it has no record of its own.
       if (st.isDirectory()) return { ok: false, because: 'folder' };
       if (st.isFile()) modified = new Date(st.mtimeMs).toISOString();
+      else notFile = true;   // review 4: a pipe, socket or device is there, not gone
     } catch { /* not there */ }
     const seen = entry && typeof entry.agent === 'string' && entry.agent && Number.isFinite(Date.parse(entry.at)) ? entry : null;
     let lastChange = null;
@@ -284,6 +286,7 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
       projectName: project && typeof project.name === 'string' ? project.name : null,
       name: at.name,
       exists: Boolean(modified),
+      ...(notFile ? { notFile: true } : {}),
       modified,
       lastSeen: seen ? { agent: seen.agent, shown: shown(seen.agent), at: seen.at } : null,
       owner: ownEntry && typeof ownEntry.first === 'string' && ownEntry.first ? { agent: ownEntry.first, shown: shown(ownEntry.first) } : null,

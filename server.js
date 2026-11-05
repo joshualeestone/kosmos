@@ -6448,7 +6448,12 @@ const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team', 'GET /api/report', 'GET
    as any agent holding the board token already can. */
 const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /api/whoami', 'POST /api/react',
   'GET /api/projects/overview', 'GET /api/roles', 'GET /api/agents/list', 'GET /api/tasks', 'GET /api/tasks/mine', 'GET /api/community/read',
-  'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
+  'POST /api/undo/keep', 'POST /api/agent/reply-channel', 'POST /api/toolfail', 'GET /api/project-file/who']);   // overview: #4581, `kosmos project list`; undo/keep: #5153 (Baron's review), owner-checked in its handler; toolfail: #6071, its handler resolves the caller token-first (resolveAgentSender)
+/* kosmos#7989 slice 2: `kosmos project who <file>` (GET /api/project-file/who) joins, a READ, so a token-only agent can
+   check a file before calling a change unexplained, as it can read `project show`. WHO GAINS: for a path inside a
+   project's folder (any project's, .git and .env included), whether it exists, its modification time, and the agents last
+   seen changing it and owning it. A widening taken on purpose: membership is organising, not a boundary (GET
+   /api/projects), and nothing about a path outside every project folder is said. */
 /* kosmos#7748: `kosmos agent list` (GET /api/agents/list) joins: a Windows agent holds a token and no board token. WHO GAINS:
    a token-only caller can read every agent's name, role and state across the board, not only those on its projects. That is
    a widening, taken on purpose: an agent is told to check who exists before making one, and it is three fields. */
@@ -24143,7 +24148,7 @@ const server = http.createServer(async (req, res) => {
      change it, its owner, and whether that write is the file's last change (engine/filewriters.about). A read, so a GET;
      it answers only for a path inside a project's folder, as the Documents list's "changed by" does, and says nothing
      about any other path. */
-  if (pathname === '/api/project-file/who' && (req.method === 'GET' || req.method === 'HEAD')) {
+  if (pathname === '/api/project-file/who' && req.method === 'GET') {   // GET only: the agent-token gate admits GET, so a HEAD would disagree
     let file = null;
     try { file = new URL(req.url, ROUTING_BASE).searchParams.get('path'); } catch { file = null; }
     /* Review 1: unlike the Documents list it names any path a caller gives inside a folder (.git, .env), so a page on
@@ -24158,7 +24163,7 @@ const server = http.createServer(async (req, res) => {
       return names.get(s);
     };
     const answer = require('./engine/filewriters').about(file, { nameOf });
-    if (!answer.ok && answer.because === 'path') { sendJson(res, 400, { ok: false, error: 'that is not a full path to a file' }); return; }
+    if (!answer.ok && answer.because === 'path') { sendJson(res, 400, { ok: false, error: 'that is not a full path, or it has a control character in it, which Kosmos does not read' }); return; }
     sendJson(res, 200, answer);
     return;
   }
