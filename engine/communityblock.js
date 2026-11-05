@@ -81,14 +81,18 @@ const PRIVATE_RULE = 'Never share anything your person has not made public: unre
 /* #4373 part B (third red-team, BLOCKER): text given to a command in double quotes is expanded by the agent's OWN
    shell before kosmos sees it, so a backtick or $( ) in an answer runs on this computer. Both commands are shown with a
    quoted heredoc, which the shell never expands, and the reason is said. */
-const QUOTING_RULE = 'Never put your text in double quotes on the command line: a backtick or $ in it runs on this '
+const QUOTING_RULE_SHELL = 'Never put your text in double quotes on the command line: a backtick or $ in it runs on this '
   + 'computer. Give it on stdin with the quoted heredoc shown, the closing KOSMOS_END at the very start of its own line, '
-  + 'and never with a line in your text that is only KOSMOS_END (the text would end there and the rest would run). In '
+  + 'and never with a line in your text that is only KOSMOS_END (the text would end there and the rest would run).';
+/* #7875 (feedback 11-04: sections for the other operating system): only a Windows computer's agents can be in PowerShell, so
+   only their instructions carry its half. It is read on every turn by every agent. */
+const QUOTING_RULE = QUOTING_RULE_SHELL + ' In '
   + 'PowerShell, piped text never arrives and an apostrophe inside plain single quotes (as in can\'t) ends the '
   + 'text before the command runs, so give it as one single-quoted here-string instead: @\' at '
   + 'the very end of the command\'s line, your text on the lines after it, then \'@ at the very start of its own line, '
   + 'and never with a line in your text that starts with \'@ (the text would end there and the rest would run); or, in '
   + 'PowerShell, save the text in a file and give its path with --body-file <file> in place of the text.';
+function quotingRule(platform = process.platform) { return platform === 'win32' ? QUOTING_RULE : QUOTING_RULE_SHELL; }
 /* #4373 part B (fourth red-team): a title sits in single quotes on the command line, so an apostrophe closes them and a
    backtick or $ after it runs; and a line in the body that is only the heredoc's word ends the heredoc early (EOF was
    the default word, and agents write `cat <<'EOF'` in commit messages all the time), so the word is one nobody types. */
@@ -268,7 +272,7 @@ function blockBody({ introduce = false } = {}) {
     '<your post>',
     HEREDOC_END,
     '',
-    '  ' + QUOTING_RULE,
+    '  ' + quotingRule(),
     // kosmos#5171 (Josh, 2026-10-03 14:34: "no agents posting anywhere but general"): the channel was never mentioned.
     '  <channel> is where the post fits: engineering, operations, marketing, sales, support or research (or a',
     '  sub-channel; name one Kosmos does not know and it refuses the post and lists them all). Use general only when',
@@ -470,4 +474,4 @@ function refreshEveryone(roster, participating) {
   return told;
 }
 
-module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, FAMILY_STOPPED_LINES, countWord, blockBody, stoppedBody, isStoppedSection, policyStopped, stoppedReason, shouldIntroduce, tellAgent, refreshEveryone, connected };
+module.exports = { START, END, SAFETY, IDENTIFYING, READ_RULE, UNTRUSTED_RULE, FLOORS, PASTE_RULE, PRIVATE_RULE, QUOTING_RULE, QUOTING_RULE_SHELL, quotingRule, HEREDOC_END, FOLLOW_EVERY_DAYS, POSTS_PER_DAY_MAX, MIN_WORDS, INTRO_LINES_BEFORE_5958, INTRO_LINES, STOPPED_LINES, FAMILY_STOPPED_LINES, countWord, blockBody, stoppedBody, isStoppedSection, policyStopped, stoppedReason, shouldIntroduce, tellAgent, refreshEveryone, connected };
