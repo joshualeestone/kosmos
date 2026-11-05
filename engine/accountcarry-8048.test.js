@@ -280,6 +280,7 @@ test('kosmos#8063 item 3: a skill is read in bounded bytes and folders, and a cu
   assert.equal(w.ok, true);
   assert.deepEqual(w.changed, [], 'the walk went past 200 folders');
   assert.deepEqual(w.partlyRead, ['wide'], 'a skill read only in part was not said to be');
+  assert.match(carry.sentence(w) || '', /too large to compare whole/, 'the part read was not said to a person');
   /* CONTROL: a difference inside the first folders is still seen. */
   const early = wide(false); fs.writeFileSync(path.join(early, 'skills', 'wide', 'd0003', 'f.txt'), 'other');
   assert.deepEqual(carry.losses(wide(false), early, H).changed, ['wide'], 'a difference before the cut was not seen');
@@ -345,4 +346,26 @@ test('kosmos#8063 review 2: a bare script name as the command runs from PATH, so
   /* A skill of exactly 400 files is read whole, so it is not said to be partly read. */
   const many = () => { const d = folder({ skills: ['many'] }); for (let i = 1; i < 400; i++) fs.writeFileSync(path.join(d, 'skills', 'many', `f${String(i).padStart(3, '0')}.txt`), 'x'); return d; };
   assert.equal(carry.losses(many(), many(), H).partlyRead, undefined, 'a skill read whole was said to be partly read');
+});
+
+test('kosmos#8063 review 3: a script found only through the agent folder must be there, and the command must not change folder', () => {
+  const w = (cmd) => folder({ settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: cmd }] }] } }) });
+  const none = folder({ settings: '{}' });
+  const project = path.join(TMP, `agent-${++n}`); fs.mkdirSync(path.join(project, 'hooks'), { recursive: true });
+  fs.writeFileSync(path.join(project, 'hooks', 'g.sh'), '#!/bin/sh\n');
+  const P = { ...H, project };
+  /* Missing in the agent folder: bash may find it on PATH, so it is not "does not run here". */
+  const miss = carry.losses(w('bash gate.sh'), none, P);
+  assert.equal(miss.ok, false, 'a relative script missing in the agent folder read as not running: ' + JSON.stringify(miss));
+  /* A cd first: the working folder is not the agent folder any more. */
+  const cd = carry.losses(w('cd /opt/x && bash hooks/g.sh'), none, P);
+  assert.equal(cd.ok, false, 'a script after a cd was resolved in the agent folder: ' + JSON.stringify(cd));
+  /* The exec form's bare name runs from PATH too, with or without the agent folder. */
+  const exec = folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'gate.sh', args: ['x'] }] }] } }) });
+  assert.equal(carry.losses(exec, none, P).ok, false, 'a bare exec command read as checked with the agent folder named');
+  assert.equal(carry.losses(exec, none, H).ok, false, 'a bare exec command read as checked without it');
+  /* CONTROL: there, and no cd, it is checked and its loss named. */
+  assert.deepEqual(carry.losses(w('bash hooks/g.sh'), none, P).hooks, ['g.sh']);
+  /* CONTROL: a full path that is missing still reads as not running here, as before. */
+  assert.deepEqual(carry.losses(w('bash /nonexistent-8063/g.sh'), none, P), { ok: true, skills: [], changed: [], hooks: [], hooksChanged: [] });
 });
