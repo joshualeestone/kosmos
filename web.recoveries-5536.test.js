@@ -25,7 +25,7 @@ function paint(st) {
   let text = '';
   Object.defineProperty(list, 'textContent', { get: () => text, set: (v) => { text = v; if (v === '') list.children = []; } });
   const document = { getElementById: (id) => els[id] || null, createElement: (tag) => el(tag), createTextNode: (t) => ({ tag: '#text', textContent: t }) };
-  const src = 'const PLUS_ORG_RECOVERY_DAYS = 30;\n' + fn('function plusOrgRecoveryLine(r)') + '\n' + fn('function plusOrgRecoveries(st)');
+  const src = fn('function plusOrgIn(org, text)') + '\nconst PLUS_ORG_RECOVERY_DAYS = 30;\n' + fn('function plusOrgRecoveryLine(r)') + '\n' + fn('function plusOrgRecoveries(st)');
   new Function('document', src + '\nreturn plusOrgRecoveries;')(document)(st);
   return els;
 }
@@ -66,7 +66,10 @@ test('#5536: Settings lists each recovery as text, given or opened with its coun
   // recoveriesMore: the coordinator left older ones out, and the page says so under the list.
   const more = paint({ enrolled: true, recoveries: recs.slice(0, 1), recoveriesMore: true, recoveriesAt: Date.now() });
   assert.equal(more['plus-org-recoveries-more'].hidden, false);
-  assert.match(PAGE, /id="plus-org-recoveries-more" hidden>Older ones are not listed here\. Your company's admins can see every one in its log\.</);
+  assert.equal(more['plus-org-recoveries-more'].textContent, "Older ones are not listed here. Your company's admins can see every one in its log.");
+  const fam = paint({ enrolled: true, org: { kind: 'family' }, recoveries: recs.slice(0, 1), recoveriesMore: true, recoveriesAt: Date.now() });
+  assert.equal(fam['plus-org-recoveries-more'].textContent, "Older ones are not listed here. Your family's admins can see every one in its log.",
+    'a family is told about its own admins, in its own word');
   // CONTROLS: none, only old ones, and a computer not joined show nothing.
   assert.equal(paint({ enrolled: true })['plus-org-recoveries'].hidden, true);
   assert.equal(paint({ enrolled: true, recoveries: [recs[5]] })['plus-org-recoveries'].hidden, true);
