@@ -20,7 +20,15 @@ class, a loss read as none.
 - 5: Windows case-sensitive path compare for "already on that account".
 - 6: `hookId` naming `notes.sh` for `bash -c 'cat notes.sh'` (message only; the comparison is unaffected).
 
+## Review 1
+- The exec form (`command` plus `args`) is compared by its arguments, its script resolved as one word.
+- SKILL.md is hashed first, outside every cap.
+- A hook that cannot be checked no longer hides the known skill and hook losses: they ride beside `ok: false`.
+- `$CLAUDE_PROJECT_DIR` and a relative path resolve in the agent's own folder, which the route passes as `project`.
+- `async: false` and a timeout written as text are the defaults.
+
 ## Residual, stated
+- Any other variable in a hook path (beyond HOME, CLAUDE_CONFIG_DIR and CLAUDE_PROJECT_DIR) still answers cannot tell.
 - A gate whose `if` is wider on the target is also read as not kept (a false loss, the safe direction).
 - Two skills that differ only past the folder or byte cap read as the same copy.
 - Item 2 is strict: an unresolvable path identical on both sides (it may well be the same file) still answers "cannot
