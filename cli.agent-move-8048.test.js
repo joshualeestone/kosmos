@@ -136,3 +136,71 @@ test('kosmos#8048 Mac: no --yes and no terminal, an option-shaped word, a missin
   assert.equal((await cli(port, ['agent', 'move', 'ada', 'spare', '--yes'])).code, 0);
   assert.equal(posts(seen).length, 1);
 }));
+
+/* ── tools/windows/kosmos-cli.js, in process, against the same stub ─────────────── */
+
+const wincli = require('./tools/windows/kosmos-cli');
+const hookStub = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () => 'BOARDTOKEN_test_8048', agentToken: (env) => (/^[0-9a-f]+$/.test(env.KOSMOS_AGENT_TOKEN || '') ? env.KOSMOS_AGENT_TOKEN : null) };
+async function winRun(port, argv, seams) {
+  const out = []; const err = []; const asked = []; const slept = [];
+  const s = seams || {};
+  const code = await wincli.main(argv, { env: { KOSMOS_AGENT_TOKEN: 'abc123' }, hook: hookStub, url: 'http://127.0.0.1:' + port,
+    out: (x) => out.push(x), err: (x) => err.push(x), canAsk: () => s.tty === true,
+    ask: (q) => { asked.push(q); return Promise.resolve(s.answer || ''); }, sleep: (ms) => { slept.push(ms); return Promise.resolve(); } });
+  return { code, out: out.join('\n'), err: err.join('\n'), asked, slept };
+}
+
+test('kosmos#8048 Windows: --yes reads the plan, moves to its folder, waits on the move, and says how it ended', () => withStub({ plan: CLEAN }, async (port, seen) => {
+  const r = await winRun(port, ['agent', 'move', 'ada', 'Spare', '--yes']);
+  assert.equal(r.code, 0, r.err);
+  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
+  assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['ada'] });
+  assert.deepEqual(r.slept, [3000], 'the progress was not waited for between reads');
+  assert.equal(r.asked.length, 0, '--yes still asked');
+  assert.match(r.out, /On spare it keeps every skill and hook it has now\./);
+  assert.match(r.out, /ada runs on spare now\. It is starting again/);
+}));
+
+test('kosmos#8048 Windows: a loss and a "cannot tell" are said before the confirm; anything but y cancels with nothing moved', async () => {
+  await withStub({ plan: LOSES }, async (port, seen) => {
+    const no = await winRun(port, ['agent', 'move', 'ada', 'spare'], { tty: true, answer: 'n' });
+    assert.equal(no.code, 1, no.err);
+    assert.match(no.out, /On that account it would not have the skill design-shots, or the hook destructive-cmd-gate\.sh\./);
+    assert.deepEqual(no.asked, ['Move ada to spare? [y/N] ']);
+    assert.match(no.err, /Cancelled\. Nothing was moved\./);
+    assert.equal(posts(seen).length, 0, 'a cancelled move was sent');
+    const yes = await winRun(port, ['agent', 'move', 'ada', 'spare'], { tty: true, answer: 'y' });
+    assert.equal(yes.code, 0, yes.err);
+    assert.equal(posts(seen).length, 1, 'control: a confirmed move was not sent');
+  });
+  await withStub({ plan: CANNOT }, async (port) => {
+    const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+    assert.match(r.out, /Kosmos could not check what ada would lose on spare: we could not read the skills and hooks of the account it would move to\./);
+    assert.doesNotMatch(r.out, /keeps every skill/, '"cannot tell" read as "nothing lost"');
+  });
+});
+
+test('kosmos#8048 Windows: an unknown account, a refusal and a partial move exit non-zero; no terminal and no --yes sends nothing', async () => {
+  await withStub({ plan: UNKNOWN }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'ada', 'nope', '--yes']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /Kosmos will not move ada: that is not one of the Claude accounts on this computer\./);
+    assert.equal(posts(seen).length, 0);
+  });
+  await withStub({ plan: CLEAN, post: REFUSED }, async (port) => {
+    const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /Kosmos did not move ada: ada is restarting, so it cannot be moved now\./);
+  });
+  await withStub({ plan: CLEAN, progress: HALF }, async (port) => {
+    const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+    assert.equal(r.code, 1);
+    assert.match(r.err, /Not fully moved: ada is saved on spare but did not restart there\. Settings, AI Models shows/);
+  });
+  await withStub({ plan: CLEAN }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'ada', 'spare']);
+    assert.equal(r.code, 2);
+    assert.match(r.err, /Nothing was moved: there is no terminal here to confirm on\. To move ada without being asked, add --yes\./);
+    assert.equal(seen.length, 0);
+  });
+});
