@@ -7696,7 +7696,7 @@ cmd_agent() {
       elif [ -n "$mv_says" ]; then
         say "$mv_says"
       else
-        say "On $mv_label it keeps every skill and hook script it has now (skills are compared by their SKILL.md; plugins are not checked)."
+        say "On $mv_label it keeps every skill and hook script it has now (each skill compared by its whole folder; plugins are not checked)."
       fi
       say "Moving restarts $mv_name on $mv_label. Anything it has running stops."
       # Review 1: a script cannot read that sentence, so --yes alone never moves an agent into a known loss or an

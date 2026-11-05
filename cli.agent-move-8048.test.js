@@ -81,7 +81,7 @@ test('kosmos#8048 Mac: --yes reads the plan by the account\'s name, moves to its
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agents/account-plan?name=ada&account=Spare', 'POST /api/agents/account', 'GET /api/agents/account-moves/mv1']);
   assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['ada'] }, 'the move was not sent to the plan\'s folder');
-  assert.match(r.out, /On spare it keeps every skill and hook script it has now \(skills are compared by their SKILL\.md; plugins are not checked\)\./);
+  assert.match(r.out, /On spare it keeps every skill and hook script it has now \(each skill compared by its whole folder; plugins are not checked\)\./);
   assert.match(r.out, /Moving restarts ada on spare\. Anything it has running stops\./);
   assert.match(r.out, /ada runs on spare now\. It is starting again/);
 }));
@@ -175,7 +175,7 @@ test('kosmos#8048 Windows: --yes reads the plan, moves to its folder, waits on t
   assert.deepEqual(JSON.parse(posts(seen)[0].body), { dir: '/u/.claude-spare', names: ['ada'] });
   assert.deepEqual(r.slept, [3000], 'the progress was not waited for between reads');
   assert.equal(r.asked.length, 0, '--yes still asked');
-  assert.match(r.out, /On spare it keeps every skill and hook script it has now \(skills are compared by their SKILL\.md; plugins are not checked\)\./);
+  assert.match(r.out, /On spare it keeps every skill and hook script it has now \(each skill compared by its whole folder; plugins are not checked\)\./);
   assert.match(r.out, /ada runs on spare now\. It is starting again/);
 }));
 

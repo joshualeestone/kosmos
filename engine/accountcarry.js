@@ -16,6 +16,8 @@
  *    the same event and matcher, the target does not set "disableAllHooks", and the script file (when the command names
  *    a path this can resolve) exists for the target with the same contents (review 1: a name alone could read a gate
  *    that will not fire as kept).
+ *  - Hooks of any other type are compared as written (review 6). A hook whose script is a relative path this cannot
+ *    resolve is kept on a matching wiring alone: named here, not checked.
  *  - Not compared: skills and hooks that come from plugins (enabledPlugins), commands/, agents/, CLAUDE.md, and the
  *    rest of settings.json (permissions, env). Named here, and in the sentence a person reads (sentence() says "skills
  *    and hook scripts"), so nobody reads this as covering them.
@@ -34,10 +36,34 @@ function folderOf(dir, home = os.homedir()) {
 }
 
 /* name -> the SKILL.md's contents hash ('' when it has none), for every skill folder. */
+/* Review 6: a skill is its whole folder (SKILL.md and the scripts and references beside it), hashed by each file's
+   path and contents, at most MAX_SKILL_FILES files deep; a folder past that hashes what it read and says so in its
+   sum, so two such folders differ unless their first files match. */
+const MAX_SKILL_FILES = 400;
+function folderSum(root) {
+  const h = crypto.createHash('sha256');
+  let n = 0;
+  const walk = (rel) => {
+    let entries = [];
+    try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { return; }
+    for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      if (n >= MAX_SKILL_FILES) return;
+      const r = path.join(rel, e.name);
+      let isDir = e.isDirectory();
+      if (!isDir && e.isSymbolicLink()) { try { isDir = fs.statSync(path.join(root, r)).isDirectory(); } catch { isDir = false; } }
+      if (isDir) { walk(r); continue; }
+      n += 1;
+      h.update(r + '\0' + (digest(path.join(root, r)) || 'unreadable') + '\0');
+    }
+  };
+  walk('');
+  if (n >= MAX_SKILL_FILES) h.update('truncated');
+  return h.digest('hex');
+}
 function skillSums(dir) {
   const out = new Map();
   /* Review 5: a skill folder with no readable SKILL.md is not a skill Claude Code loads, so it is not kept. */
-  for (const n of skillNames(dir)) { const d = digest(path.join(dir, 'skills', n, 'SKILL.md')); if (d) out.set(n, d); }
+  for (const n of skillNames(dir)) { if (digest(path.join(dir, 'skills', n, 'SKILL.md'))) out.set(n, folderSum(path.join(dir, 'skills', n))); }
   return out;
 }
 function skillNames(dir) {
@@ -75,7 +101,7 @@ function scriptPath(command, folder, home) {
   for (const w of String(command).trim().split(/\s+/)) {
     let bare = w.replace(/^["']|["']$/g, '');
     if (!/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(bare)) continue;
-    bare = bare.replace(/^~(?=\/)/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, cfg);
+    bare = bare.replace(/^~(?=[\/\\])/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, cfg);   // review 6: ~\ too
     /* Review 5: shell syntax left after the substitutions (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, a brace, a default)
        is a path this cannot resolve, never a path to read: a garbage path would fail to read and be skipped as "does
        not run here", which reads a loss as none. */
@@ -97,7 +123,8 @@ function hookEntries(dir, home) {
   const hooks = j && typeof j === 'object' && j.hooks && typeof j.hooks === 'object' ? j.hooks : {};
   for (const [event, groups] of Object.entries(hooks)) {
     for (const g of Array.isArray(groups) ? groups : []) {
-      const matcher = g && typeof g.matcher === 'string' ? g.matcher : '';
+      /* Review 6: no matcher, "" and "*" all mean every tool to Claude Code. */
+      const matcher = g && typeof g.matcher === 'string' && g.matcher !== '' && g.matcher !== '*' ? g.matcher : '*';
       for (const h of g && Array.isArray(g.hooks) ? g.hooks : []) {
         /* Review 5: a prompt hook (type "prompt", no script) is compared by its event, matcher and words. */
         if (h && h.type === 'prompt' && typeof h.prompt === 'string' && h.prompt.trim()) {
@@ -105,17 +132,33 @@ function hookEntries(dir, home) {
           list.push({ id, wiring: `${event}\n${matcher}\nprompt\n${crypto.createHash('sha256').update(h.prompt.trim()).digest('hex')}`, file: null, sum: null });
           continue;
         }
-        if (!h || typeof h.command !== 'string' || !h.command.trim()) continue;
+        if (!h || typeof h !== 'object') continue;
+        if (typeof h.command !== 'string' || !h.command.trim()) {
+          /* Review 6: any other hook (a type this does not know) is compared as written, never skipped. */
+          const keys = Object.keys(h).sort();
+          const body = JSON.stringify(h, keys);
+          if (body === '{}') continue;
+          list.push({ id: `a ${typeof h.type === 'string' ? h.type : 'untyped'} hook on ${event}`, wiring: `${event}\n${matcher}\nother\n${crypto.createHash('sha256').update(body).digest('hex')}`, file: null, sum: null });
+          continue;
+        }
         const id = hookId(h.command);
         const at = scriptPath(h.command, dir, home);
         /* Review 2: the wiring keeps the command's arguments (`gate.sh pre` and `gate.sh post` are two hooks), with the
            home and folder spellings made one, so the same gate spelled ~ or $HOME still matches. */
         /* Review 4: the spellings made one inside the arguments too (~, $HOME, the folder or $CLAUDE_CONFIG_DIR), so the
            same hook written two ways is not a false loss. */
-        const one = (x) => x.replace(/^["']|["']$/g, '').replace(/^~(?=\/|$)/, '<HOME>').replace(/\$\{?HOME\}?/g, '<HOME>')
-          .replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, '<CFG>').split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
+        /* Review 6: expand first, then name the folder, then the home: `~/.claude-b/x` in account .claude-b is <CFG>/x. */
+        const one = (x) => x.replace(/^["']|["']$/g, '').replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home)
+          .replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, path.resolve(dir)).split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
         const args = String(h.command).trim().split(/\s+/).filter((x) => !/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)["']?$/i.test(x) && !/^(bash|sh|node|python3?|pwsh|powershell)$/.test(x)).map(one).join(' ');
-        list.push({ id, wiring: `${event}\n${matcher}\n${id}\n${args}`, file: at, sum: at ? digest(at) : null });
+        const sum = at ? digest(at) : null;
+        /* Review 6: a script that is there but cannot be read is "cannot tell" for the whole folder, never "does not
+           run here". */
+        if (at && sum === null && fs.existsSync(at)) throw new Error(`the hook script ${at} cannot be read`);
+        /* An inline command (no script) is its own identity: its key is the normalised text, its id the text as written. */
+        const scriptless = id === String(h.command).trim();
+        const key = scriptless ? String(h.command).trim().split(/\s+/).map(one).join(' ') : `${id}\n${args}`;
+        list.push({ id, wiring: `${event}\n${matcher}\n${key}`, file: at, sum });
       }
     }
   }
