@@ -36973,6 +36973,13 @@ document.getElementById('acct-claude-go').addEventListener('click', async () => 
     const keyStep = document.getElementById('acct-claude-key-step');
     const flow = document.getElementById('acct-claude-flow');
     const atPicker = !document.getElementById('acct-claude-pick').hidden;   // round 6: not the subscription step they moved on to
+    /* kosmos#8051 item 3: back at the picker in the same visit, the line still has a place (#acct-claude-msg sits at the
+       flow's level, kosmos#8040 item 2), so it says the key they entered was not added and why, naming no key and asking
+       for no box. A closed dialog or another provider stays silent, as before: there is nowhere true to say it. */
+    if (visit === ACCT_ADD_VISIT && !flow.hidden && keyStep.hidden && atPicker && !(err && err.needsRunner)) {
+      msg.textContent = 'The API key you entered was not added. ' + asSentence(String((err && err.message) || 'We could not add that account.'));
+      return;
+    }
     if (visit !== ACCT_ADD_VISIT || flow.hidden || (keyStep.hidden && !(err && err.needsRunner && atPicker))) {
       /* Round 8: a Claude sign-in that starts meanwhile moves them to the subscription step (acctFlowPaint) without
          clearing the line, which now sits beside the steps. This press's own line goes; a new visit's is not its. */
@@ -67621,13 +67628,17 @@ async function loadCreateExtras(kept) {   // kept: kosmos#8040, the picks to put
       if (pref && pref.provider === 'antigravity') {
         await agyAsk();
         // A reopened form, or a provider the person picked while this read ran, wins (review round 9).
-        if (gen !== EXTRAS_GEN || CREATE_PROVIDER_TOUCHED) return;
+        if (gen !== EXTRAS_GEN) return;
+        /* kosmos#8051 item 2: the provider they picked wins, but a kept form still gets its account and model back
+           where that provider offers them (createKeptRestore reads the provider now selected; it never sets one). */
+        if (CREATE_PROVIDER_TOUCHED) { if (kept) createKeptRestore(kept); return; }
         paintAgyOption(document.getElementById('create-provider'), '');
       }
       // #3939 3c-3b: a saved Meta Muse pick waits for its read the same way.
       if (pref && pref.provider === 'meta') {
         await museCreateAsk();
-        if (gen !== EXTRAS_GEN || CREATE_PROVIDER_TOUCHED) return;
+        if (gen !== EXTRAS_GEN) return;
+        if (CREATE_PROVIDER_TOUCHED) { if (kept) createKeptRestore(kept); return; }   // kosmos#8051 item 2, as above
         paintMuseOption(document.getElementById('create-provider'), '');
       }
       /* The saved provider must (a) name an ENABLED provider option and (b) have a usable
