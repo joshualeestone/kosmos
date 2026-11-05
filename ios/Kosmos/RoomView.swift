@@ -728,7 +728,7 @@ struct RoomView: View {
             roomRebuilds += 1
             ChatView.trace("room: no post drawn after the keyboard hold, list rebuilt")
             endJumps &+= 1; appMoves &+= 1
-            rowTops.reset(); roomDrawn = []; settledAtBottom = false; endShown = false; holdAtEnd = false; atBottom = true
+            rowTops.reset(); roomDrawn = []; settledAtBottom = false; endShown = false; holdAtEnd = true; atBottom = true
             roomPosition = nil
             roomListEpoch &+= 1
             let now = roomListEpoch
@@ -750,7 +750,7 @@ struct RoomView: View {
                     // The top of the room: it leaving the screen after the first layout proves the jump to the newest
                     // row happened, even if the end marker was not reached (estimated row heights; ChatView's rule).
                     Color.clear.frame(height: 1)
-                        .onDisappear { if !rows.isEmpty { settledAtBottom = true } }
+                        .onDisappear { if listAt == roomListEpoch, !rows.isEmpty { settledAtBottom = true } }
                     if let arch = archiveShown {
                         archiveTop(arch, proxy)
                     } else if store.older[project.id]?.cursor != nil && !searchMode {
