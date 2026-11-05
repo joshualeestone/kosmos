@@ -805,7 +805,7 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
     readReport: () => ({ found: true, state: 'working', at: new Date(NOW - 60000).toISOString() }), readHistory });
   const text = v.renderShow({ project: view(() => rows) }).join('\n');
   assert.equal(view(() => rows).members[0].summary.state, 'worked');
-  assert.match(text, /summary: current: 7 min of reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, text);
+  assert.match(text, /summary: not overdue, though past the 4-hour rhythm by the clock: 7 min of reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, text);
   // CONTROL: the same member with no history is the old overdue line, so the line above comes from the history.
   assert.match(v.renderShow({ project: view(() => null) }).join('\n'), /summary: older than the 4-hour rhythm \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m);
   // A caller that supplies its own report reader and no history reader gets none (the view never mixes sources).
@@ -813,7 +813,7 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
   assert.equal(noHist.members[0].summary.state, 'stale');
   // Review 4: no work since reads as such, not "under a minute".
   const zero = v.renderShow({ project: { ...view(() => rows), members: [{ ...view(() => rows).members[0], summary: { ...view(() => rows).members[0].summary, workMinutes: 0 } }] } }).join('\n');
-  assert.match(zero, /summary: current: no reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, zero);
+  assert.match(zero, /summary: not overdue, though past the 4-hour rhythm by the clock: no reported work since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, zero);
   // 0.7.48: a turn-ends-only runner (codex) says what it can know, not a measurement it cannot make.
   const turns = v.renderShow({ project: { ...view(() => rows), members: [{ ...view(() => rows).members[0], summary: { ...view(() => rows).members[0].summary, workMinutes: 0, turnsOnly: true } }] } }).join('\n');
   // End to end: a codex member through overviewOf's whole chain (idleExcused, quietExcused, workExcused, idleNoted).
@@ -823,8 +823,8 @@ test('#5635 F2: a working member woken after a quiet stretch reads current for t
     readHistory: () => { const a = [{ state: 'idle', at: NOW - 320 * 60000 }]; a.truncated = false; return a; } });
   const cxText = v.renderShow({ project: cx }).join('\n');
   assert.equal(cx.members[0].summary.turnsOnly, true, JSON.stringify(cx.members[0].summary));
-  assert.match(cxText, /summary: current: no later turn has ended since it was written/, cxText);
-  assert.match(turns, /summary: current: no later turn has ended since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, turns);
+  assert.match(cxText, /summary: not overdue, though past the 4-hour rhythm by the clock: no later turn has ended since it was written/, cxText);
+  assert.match(turns, /summary: not overdue, though past the 4-hour rhythm by the clock: no later turn has ended since it was written \(summaries\/2026-09-29-11\.md, 5h 31m ago\)$/m, turns);
   assert.ok(![0x2014, 0x2013].some((c) => text.includes(String.fromCharCode(c))), 'a dash in product copy');
 });
 
@@ -913,4 +913,11 @@ test('#6329: a stale summary says which rule kept it stale (reported work past t
   assert.match(line(mixed), /; 4h 52m of reported work since it was written\)$/);
   // Combined with the idle note idleNoted adds: both clauses, in order.
   assert.match(line(Object.assign({}, w, { idleMinutes: 60 })), /; 5h 2m of reported work since it was written; idle since 1h 0m ago\)$/);
+});
+
+test('#5635: a member\'s summary inside the rhythm by the clock still reads plainly current', () => {
+  const line = (ageMinutes) => v.renderShow({ project: { id: 'x', name: 'X', folderStatus: 'ok', members: [{ name: 'A', sessionName: 'a', summary: { state: 'worked', file: 'summaries/s.md', workMinutes: 7, ageMinutes } }] } }).join('\n');
+  assert.match(line(120), /summary: current: 7 min of reported work since it was written/);
+  assert.match(line(240), /summary: current: /, 'exactly at the rhythm is still inside it');
+  assert.match(line(241), /summary: not overdue, though past the 4-hour rhythm by the clock: 7 min of reported work/, 'control: past it, the same member');
 });
