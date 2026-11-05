@@ -53,6 +53,8 @@ struct RoomView: View {
     @State private var holdAtEnd = true
     @State private var keepNewestOnKeyboard = false   // kosmos#7654: as the DM's keepNewestInView
     @State private var rowTops = RowTops()   // kosmos#7654 part 2: the DM's keyboard hold reads the reader's row by this
+    @State private var roomListEpoch = 0   // kosmos#7957: a new epoch is a new list (roomBlankLook)
+    @State private var roomRebuilds = 0   // kosmos#7957: since posts were last drawn
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
     @State private var visible = false
@@ -712,6 +714,24 @@ struct RoomView: View {
         .accessibilityElement(children: .contain)
     }
 
+    // kosmos#7957 (CI, twice on one PR): the hold placed the list by id and the room stayed blank; a second scroll does not help a
+    // list that draws nothing (kosmos#7420), a new one opened at the newest does. A blank screen keeps no place worth holding.
+    private func roomBlankLook() {
+        let at = roomListEpoch
+        DispatchQueue.main.asyncAfter(deadline: .now() + Board.roomBlankLook) {
+            guard at == roomListEpoch else { return }
+            let drawn = rowTops.y.count
+            if drawn > 0 { roomRebuilds = 0; return }
+            guard Board.roomBlankRebuilds(visible: visible, searching: searchMode, scrolling: roomScrolling, drawn: drawn, posts: items.count, rebuilds: roomRebuilds) else { return }
+            roomRebuilds += 1
+            ChatView.trace("room: no post drawn after the keyboard hold, list rebuilt")
+            endJumps &+= 1; appMoves &+= 1
+            rowTops.reset(); settledAtBottom = false
+            if RoomView.idAnchor { roomPosition = "bottom" }
+            roomListEpoch &+= 1
+        }
+    }
+
     private var thread: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -794,13 +814,14 @@ struct RoomView: View {
                 } onRowLost: { id, f in
                     // kosmos#7654 part 2: the anchor let go first, so the scroll position does not pull it elsewhere.
                     if RoomView.idAnchor { roomPosition = nil }
-                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: f)); ChatView.trace("room keyboard hold: placed by id") }
+                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: f)); ChatView.trace("room keyboard hold: placed by id"); roomBlankLook() }
                 })
                 .modifier(PositionTargets(on: RoomView.idAnchor))   // kosmos#7654 part 2
                 .modifier(ContentSpace())   // kosmos#7654 part 2
             }
             .kosmosTopFade(ground: Palette.chatGround)   // kosmos#7346: rows fade under the solid top bar; the lines above the room stay clear
             .modifier(PositionById(on: RoomView.idAnchor, id: $roomPosition))   // kosmos#7654 part 2
+            .id(roomListEpoch)   // kosmos#7957: a new epoch is a new list (roomBlankLook)
             #if DEBUG
             // kosmos#7690: which row the id anchor holds, so a jump can be read against it. Sample rows only.
             .onChange(of: roomPosition) { now in if RoomStore.sample { ChatView.trace("room anchor \(now ?? "none")") } }
