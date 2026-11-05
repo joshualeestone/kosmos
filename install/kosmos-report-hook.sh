@@ -540,9 +540,10 @@ case "$EVENT" in
     # additionalContext to the model and types nothing into the session. The CLI prints only the hook's JSON, and only
     # when there is a notice, with a 1 s cap; anything else it says is dropped, so the person never sees it. The call
     # holds up the turn (about 100 ms on a live board, measured 11-04), so a pane asks at most once per
-    # FILE_NOTICE_EVERY seconds: a notice is not urgent, and the room note is there meanwhile.
+    # FILE_NOTICE_EVERY seconds: a notice is not urgent, and the room note is there meanwhile. The ids it was handed are
+    # kept beside the mark and sent back next time, so the board removes only what this pane received.
     if [ -n "$KOSMOS" ] && file_notices_due; then
-      FN_OUT=$("$KOSMOS" file-notices --hook </dev/null 2>/dev/null) || FN_OUT=""
+      FN_OUT=$("$KOSMOS" file-notices --hook --ack-file "$MARK.filenotices-ack" </dev/null 2>/dev/null) || FN_OUT=""
       case "$FN_OUT" in
         '{"hookSpecificOutput":'*) printf '%s\n' "$FN_OUT" ;;
       esac

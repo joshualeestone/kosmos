@@ -37,11 +37,21 @@ test('Windows kosmos file-notices takes with a POST, the agent token and the tex
 });
 
 test('Windows --hook prints only the hook JSON on a 200, and exits 0 on every answer', async () => {
-  const ok = await run(['file-notices', '--hook'], () => ({ body: HOOKJSON }));
+  const fsm = require('node:fs');
+  const f = require('node:path').join(require('node:os').tmpdir(), 'fn7989w-' + process.pid + '-' + Date.now());
+  const ok = await run(['file-notices', '--hook', '--ack-file', f], () => ({ body: 'ack:aaaaaaaaaaaa\n' + HOOKJSON }));
   assert.deepEqual([ok.code, ok.out], [0, HOOKJSON]);
-  assert.equal(ok.calls[0].route, '/api/file-notices/take?as=hook&from_pane=');
+  assert.equal(ok.calls[0].route, '/api/file-notices/take?as=hook&from_pane=&ack=');
+  assert.equal(fsm.readFileSync(f, 'utf8'), 'aaaaaaaaaaaa\n');
+  const next = await run(['file-notices', '--hook', '--ack-file', f], () => ({ body: '' }));
+  assert.equal(next.calls[0].route, '/api/file-notices/take?as=hook&from_pane=&ack=aaaaaaaaaaaa');
+  assert.equal(fsm.readFileSync(f, 'utf8'), '', 'an empty 200 empties it');
+  fsm.writeFileSync(f, 'aaaaaaaaaaaa\n');
+  await run(['file-notices', '--hook', '--ack-file', f], () => ({ status: 403, body: '' }));
+  assert.equal(fsm.readFileSync(f, 'utf8'), 'aaaaaaaaaaaa\n', 'a refusal leaves it');
+  fsm.rmSync(f, { force: true });
   assert.equal(ok.calls[0].headers['x-kosmos-agent-token'], AGENT);
-  for (const a of [{ status: 403, body: HOOKJSON }, { body: 'not json' }, { body: '' }, { throws: true }]) {
+  for (const a of [{ status: 403, body: 'ack:aaaaaaaaaaaa\n' + HOOKJSON }, { body: HOOKJSON }, { body: 'not json' }, { body: '' }, { throws: true }]) {
     const r = await run(['file-notices', '--hook'], () => a);
     assert.deepEqual([r.code, r.out], [0, ''], JSON.stringify(a));
   }
@@ -51,7 +61,7 @@ test('Windows kosmos file-notices --help prints the usage and sends nothing', as
   for (const args of [['file-notices', '--help'], ['file-notices', '-h']]) {
     const r = await run(args, () => ({ body: '' }));
     assert.equal(r.calls.length, 0, args.join(' '));
-    assert.match(r.out + r.err, /Usage: kosmos file-notices \[--hook\]/, args.join(' '));
+    assert.match(r.out + r.err, /Usage: kosmos file-notices \[--hook \[--ack-file <path>\]\]/, args.join(' '));
   }
 });
 

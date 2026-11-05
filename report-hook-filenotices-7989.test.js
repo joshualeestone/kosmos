@@ -34,14 +34,16 @@ function run(event, answer, rc = 0, pane = '%fn' + (paneN++)) {
     env: { ...process.env, KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off', TMUX_PANE: pane } });
   assert.equal(r.status, 0, 'the hook always exits 0: ' + r.stderr);
   const calls = fs.readFileSync(LOG, 'utf8').split('\n').filter((l) => l.startsWith('file-notices|'));
-  return { out: r.stdout, calls };
+  return { out: r.stdout, calls, pane };
 }
+/* The call the hook makes for `pane`: --hook and its ack file, beside the pane's throttle mark. */
+const callFor = (pane) => 'file-notices|--hook|--ack-file|' + path.join(SB, 'kosmos-report-throttle', pane.replace(/[^A-Za-z0-9_-]/g, '_') + '.filenotices-ack') + '|';
 const JSONLINE = JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Kosmos file-owner notice: x' } });
 const prompt = { hook_event_name: 'UserPromptSubmit', session_id: 's', cwd: '/w' };
 
 test('UserPromptSubmit prints the CLI\'s hook JSON, and asks with --hook', () => {
   const r = run(prompt, JSONLINE + '\n');
-  assert.deepEqual(r.calls, ['file-notices|--hook|']);
+  assert.deepEqual(r.calls, [callFor(r.pane)]);
   assert.equal(r.out, JSONLINE + '\n');
 });
 
@@ -53,16 +55,26 @@ test('anything that is not the hook JSON is dropped: nothing, other words, or a 
 
 test('a pane asks at most once per FILE_NOTICE_EVERY: a second prompt soon after makes no call; a stale mark asks again', () => {
   const first = run(prompt, JSONLINE + '\n', 0, '%throttle');
-  assert.deepEqual(first.calls, ['file-notices|--hook|']);
+  assert.deepEqual(first.calls, [callFor('%throttle')]);
   const second = run(prompt, JSONLINE + '\n', 0, '%throttle');
   assert.deepEqual(second.calls, [], 'the second prompt within the window does not call');
   assert.equal(second.out, '');
   const mark = path.join(SB, 'kosmos-report-throttle', '_throttle.filenotices');
   assert.ok(fs.existsSync(mark), 'control: the mark is where the test looks: ' + mark);
   fs.writeFileSync(mark, String(Math.floor(Date.now() / 1000) - 301) + '\n');
-  assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '%throttle').calls, ['file-notices|--hook|'], 'past the window it asks again');
+  assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '%throttle').calls, [callFor('%throttle')], 'past the window it asks again');
   fs.writeFileSync(mark, 'garbage\n');
-  assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '%throttle').calls, ['file-notices|--hook|'], 'an unreadable mark is treated as old');
+  assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '%throttle').calls, [callFor('%throttle')], 'an unreadable mark is treated as old');
+});
+
+test('a mark that cannot be written means no call: the cost would land on the turn every time', () => {
+  const dir = path.join(SB, 'kosmos-report-throttle');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(path.join(dir, '_nowrite.filenotices'));   // a folder where the mark goes: the write fails
+  const r = run(prompt, JSONLINE + '\n', 0, '%nowrite');
+  assert.deepEqual(r.calls, []);
+  assert.equal(r.out, '');
+  assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '%canwrite').calls, [callFor('%canwrite')], 'control: a writable mark does call');
 });
 
 test('no other event asks for file notices', () => {

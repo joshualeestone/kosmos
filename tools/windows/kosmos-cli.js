@@ -100,7 +100,7 @@ const USAGE = {
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   fingerprint: 'Usage: kosmos fingerprint <file> [expected]   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: sha256:<hex> is the plain sha256 of the file, what shasum prints; pdf-normalized:<hex> is a PDF with its creation and change dates and document ID left out, so the same source rendered twice matches, and is not what shasum prints; a PDF over 64 MB is hashed as plain bytes. With an expected value it compares like with like and says which kind: a bare 64-hex value or sha256: is checked against the plain sha256)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
-  'file-notices': 'Usage: kosmos file-notices [--hook]   (take the notices Kosmos kept for you when another agent was about to change a project file you were the first seen changing; taking them clears them. --hook: what Kosmos\'s own hook runs)',
+  'file-notices': 'Usage: kosmos file-notices [--hook [--ack-file <path>]]   (take the notices Kosmos kept for you when another agent was about to change a project file you were the first seen changing; taking them clears them. --hook: what Kosmos\'s own hook runs; --ack-file: where it keeps the ids it was handed)',
   inbox: 'Usage: kosmos inbox [--limit N] [--unanswered] [--since <time>]   (your recent messages with the person, newest last; 10 by default, 50 at most. --unanswered: only theirs since your last reply. --since: only those at or after a time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22")',
   room: 'Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too); or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, its line breaks kept (agents reading the room see it on one line), at most 4000 characters; <source> names the job, such as "builder alarm")',
@@ -1077,19 +1077,35 @@ async function verbInbox(ctx, args) {
 }
 
 /* kosmos#7989 slice 3, as install/kosmos cmd_file_notices: take the file-owner notices Kosmos kept for you. --hook prints
-   the Claude Code hook's JSON only when there is a notice and always exits 0. */
+   the Claude Code hook's JSON only when there is a notice and always exits 0; --ack-file keeps the ids it was handed and
+   sends them back next time, as on the Mac. One difference, stated: this sends the board token beside the agent token
+   unless KOSMOS_AGENT_TOKEN_ONLY=1, as every verb here does, because here reading it is a file read, not a node start. */
 async function verbFileNotices(ctx, args) {
   let hook = false;
+  let ackFile = null;
   while (args.length) {
     const a = args.shift();
     if (a === '--hook') { hook = true; continue; }
-    ctx.err('kosmos file-notices takes only --hook.');
+    if (a === '--ack-file') { ackFile = args.length ? args.shift() : ''; continue; }
+    ctx.err('kosmos file-notices takes only --hook and --ack-file <path>.');
     return 2;
   }
-  const r = await ctx.call('POST', '/api/file-notices/take?as=' + (hook ? 'hook' : 'text') + '&from_pane=', undefined, hook ? { timeoutMs: 1000 } : undefined);
+  if (ackFile !== null && (!hook || !ackFile)) { ctx.err('--ack-file takes a path, and only with --hook.'); return 2; }
+  let ack = '';
+  if (ackFile) {
+    try { ack = fs.readFileSync(ackFile, 'utf8').slice(0, 400).split('\n')[0]; } catch { ack = ''; }
+    if (/[^0-9a-f,]/.test(ack)) ack = '';
+  }
+  const route = '/api/file-notices/take?as=' + (hook ? 'hook' : 'text') + '&from_pane=' + (hook ? '&ack=' + ack : '');
+  const r = await ctx.call('POST', route, undefined, hook ? { timeoutMs: 1000 } : undefined);
   if (hook) {
-    const t = r.reached && r.status === 200 ? String(r.text || '') : '';
-    if (t.startsWith('{"hookSpecificOutput":')) ctx.out(t);
+    if (!r.reached || r.status !== 200) return 0;
+    const t = String(r.text || '');
+    if (!t) { if (ackFile) { try { fs.writeFileSync(ackFile, ''); } catch { /* sent again next time */ } } return 0; }
+    const m = /^ack:([0-9a-f,]*)\n(\{"hookSpecificOutput":[\s\S]*)$/.exec(t);
+    if (!m) return 0;
+    if (ackFile) { try { fs.writeFileSync(ackFile, m[1] + '\n'); } catch { /* handed over again next time */ } }
+    ctx.out(m[2]);
     return 0;
   }
   if (!r.reached) return ctx.unreachable('read your file notices');

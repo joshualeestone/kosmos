@@ -73,7 +73,13 @@ test('an agent takes its own notices once, and never another agent\'s', async ()
   });
 });
 
-test('as=hook: the UserPromptSubmit JSON when there is a notice, an empty body when there is none or the caller is refused', async () => {
+function hookBody(text) {
+  const m = /^ack:([0-9a-f,]*)\n(.*)$/s.exec(text);
+  assert.ok(m, 'an ack line, then the JSON: ' + JSON.stringify(text));
+  return { ids: m[1] ? m[1].split(',') : [], json: JSON.parse(m[2]) };
+}
+
+test('as=hook: an ack line and the UserPromptSubmit JSON when there is a notice, an empty body when there is none or the caller is refused', async () => {
   boardAuthState.on = true;
   await withBoard(async () => {
     const tok = sendertoken.mint('leo').token;
@@ -81,8 +87,14 @@ test('as=hook: the UserPromptSubmit JSON when there is a notice, an empty body w
       fn.queue('leo', 'nova was about to change "a.md"');
       const r = await post('/api/file-notices/take?as=hook', { 'x-kosmos-agent-token': tok });
       assert.equal(r.code, 200, r.text);
-      assert.equal(r.json.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
-      assert.match(r.json.hookSpecificOutput.additionalContext, /nova was about to change "a\.md"/);
+      const got = hookBody(r.text);
+      assert.equal(got.json.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+      assert.match(got.json.hookSpecificOutput.additionalContext, /nova was about to change "a\.md"/);
+      assert.equal(got.ids.length, 1);
+      const again = await post('/api/file-notices/take?as=hook', { 'x-kosmos-agent-token': tok });
+      assert.deepEqual(hookBody(again.text).ids, got.ids, 'not acknowledged: handed over again');
+      const acked = await post('/api/file-notices/take?as=hook&ack=' + got.ids.join(','), { 'x-kosmos-agent-token': tok });
+      assert.equal(acked.text, '', 'acknowledged: nothing left');
       const none = await post('/api/file-notices/take?as=hook', { 'x-kosmos-agent-token': tok });
       assert.equal(none.code, 200);
       assert.equal(none.text, '');

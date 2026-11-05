@@ -47,10 +47,40 @@ test('past MAX_PENDING the oldest go and are counted', () => {
   assert.match(fn.contextText(got), /3 older notices were not kept; the project room has them\./);
 });
 
-test('a notice older than KEEP_MS is not handed over', () => {
+test('a notice older than KEEP_MS is not handed over, by take or handOver', () => {
+  // Both queued inside the window, so queue's own pruning keeps both; only the read's age filter can leave `old` out.
   fn.queue('ice', 'old', { now: T0 });
-  fn.queue('ice', 'new', { now: T0 + fn.KEEP_MS });
-  assert.deepEqual(fn.take('ice', { now: T0 + fn.KEEP_MS + 1 }).notices.map((n) => n.text), ['new']);
+  fn.queue('ice', 'new', { now: T0 + 1000 });
+  assert.equal(JSON.parse(fs.readFileSync(fn.fileFor('ice'), 'utf8')).notices.length, 2, 'control: both are on disk');
+  assert.deepEqual(fn.take('ice', { now: T0 + fn.KEEP_MS + 500 }).notices.map((n) => n.text), ['new']);
+  fn.queue('ice', 'old', { now: T0 });
+  fn.queue('ice', 'new', { now: T0 + 1000 });
+  assert.deepEqual(fn.handOver('ice', { now: T0 + fn.KEEP_MS + 500 }).notices.map((n) => n.text), ['new']);
+  fn.take('ice');
+});
+
+test('handOver: every waiting notice comes with its id, again until acknowledged, and only an acknowledged one goes', () => {
+  fn.queue('kit', 'a', { now: T0 });
+  fn.queue('kit', 'b', { now: T0 + 1 });
+  const first = fn.handOver('kit', { now: T0 + 2 });
+  assert.deepEqual(first.notices.map((n) => n.text), ['a', 'b']);
+  for (const n of first.notices) assert.match(n.id, fn.ID_RE);
+  assert.notEqual(first.notices[0].id, first.notices[1].id);
+  const lost = fn.handOver('kit', { now: T0 + 3 });
+  assert.deepEqual(lost.notices.map((n) => n.id), first.notices.map((n) => n.id), 'not acknowledged: handed over again');
+  fn.queue('kit', 'c', { now: T0 + 4 });
+  const next = fn.handOver('kit', { ack: [first.notices[0].id, 'ffffffffffff', '../x', 7], now: T0 + 5 });
+  assert.deepEqual(next.notices.map((n) => n.text), ['b', 'c'], 'only the acknowledged a went; a foreign or bad id removes nothing');
+  const last = fn.handOver('kit', { ack: next.notices.map((n) => n.id), now: T0 + 6 });
+  assert.deepEqual(last.notices, []);
+  assert.equal(fs.existsSync(fn.fileFor('kit')), false, 'all acknowledged: the file goes');
+});
+
+test('handOver reports dropped once', () => {
+  for (let i = 0; i < fn.MAX_PENDING + 2; i++) fn.queue('pete', 'n' + i, { now: T0 + i });
+  assert.equal(fn.handOver('pete', { now: T0 + 50 }).dropped, 2);
+  assert.equal(fn.handOver('pete', { now: T0 + 51 }).dropped, 0);
+  fn.take('pete');
 });
 
 test('a name that is not a session name is refused, so no path leaves the folder', () => {

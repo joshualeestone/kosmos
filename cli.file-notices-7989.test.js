@@ -22,6 +22,10 @@ const CLI = path.join(__dirname, 'install', 'kosmos');
 const TOKEN = 'cd'.repeat(16);
 const envFor = (port) => ({ ...process.env, AGENT_WORKFORCE_DATA: DATA, KOSMOS_PORT: String(port), TMUX_PANE: '%7', KOSMOS_AGENT_TOKEN: TOKEN });
 const HOOKJSON = JSON.stringify({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'Kosmos file-owner notice' } });
+const IDS = 'aaaaaaaaaaaa,bbbbbbbbbbbb';
+const HOOKBODY = 'ack:' + IDS + '\n' + HOOKJSON;
+let ackN = 0;
+const ackPath = () => path.join(DATA, 'ack-' + (ackN++));
 
 function runCli(args, env) {
   return new Promise((resolve, reject) => {
@@ -68,23 +72,55 @@ test('bare: a POST with the agent token and the pane, as=text, and the board\'s 
   assert.equal(out.stdout, 'No file notices are waiting for you.\n');
 }, { status: 200, text: 'No file notices are waiting for you.\n' }));
 
-test('--hook prints the JSON on a 200 and exits 0', () => withStubBoard(async (port, seen) => {
-  const out = await runCli(['file-notices', '--hook'], envFor(port));
+test('--hook prints only the JSON on a 200, exits 0, and keeps the ids it was handed in --ack-file', () => withStubBoard(async (port, seen) => {
+  const f = ackPath();
+  const out = await runCli(['file-notices', '--hook', '--ack-file', f], envFor(port));
   assert.equal(out.code, 0);
-  assert.match(seen[0].url, /as=hook/);
+  assert.match(seen[0].url, /as=hook&from_pane=%257&ack=$/, 'no file yet: nothing acknowledged');
   assert.equal(out.stdout, HOOKJSON + '\n');
   assert.equal(out.stderr, '');
-}, { status: 200, text: HOOKJSON }));
+  assert.equal(fs.readFileSync(f, 'utf8'), IDS + '\n');
+  await runCli(['file-notices', '--hook', '--ack-file', f], envFor(port));
+  assert.match(seen[1].url, /&ack=aaaaaaaaaaaa,bbbbbbbbbbbb$/, 'the next call sends them back');
+}, { status: 200, text: HOOKBODY }));
+
+test('--ack-file: emptied on an empty 200, left alone on a refusal or bad answer, and ignored when it holds other characters', async () => {
+  const f = ackPath();
+  fs.writeFileSync(f, IDS + '\n');
+  await withStubBoard(async (port) => {
+    assert.deepEqual((await runCli(['file-notices', '--hook', '--ack-file', f], envFor(port))).stdout, '');
+  }, { status: 403, text: HOOKBODY });
+  assert.equal(fs.readFileSync(f, 'utf8'), IDS + '\n', 'a refusal leaves the ids to send again');
+  await withStubBoard(async (port) => {
+    assert.deepEqual((await runCli(['file-notices', '--hook', '--ack-file', f], envFor(port))).stdout, '');
+  }, { status: 200, text: 'ack:zz\n' + HOOKJSON });
+  assert.equal(fs.readFileSync(f, 'utf8'), IDS + '\n', 'an ack line with other characters is not believed');
+  await withStubBoard(async (port) => {
+    await runCli(['file-notices', '--hook', '--ack-file', f], envFor(port));
+  }, { status: 200, text: '' });
+  assert.equal(fs.readFileSync(f, 'utf8'), '', 'an empty 200: nothing is waiting, nothing to acknowledge');
+  fs.writeFileSync(f, 'x&admin=1\n');
+  await withStubBoard(async (port, seen) => {
+    await runCli(['file-notices', '--hook', '--ack-file', f], envFor(port));
+    assert.match(seen[0].url, /&ack=$/, 'a file holding other characters sends no ack');
+  }, { status: 200, text: '' });
+  await withStubBoard(async (port, seen) => {
+    for (const bad of [['file-notices', '--ack-file', f], ['file-notices', '--hook', '--ack-file']]) {
+      assert.equal((await runCli(bad, envFor(port))).code, 2, bad.join(' '));
+    }
+    assert.equal(seen.length, 0);
+  }, { status: 200, text: '' });
+});
 
 test('--hook says nothing and exits 0 on a refusal, other words, or a board that does not answer in time', async () => {
   await withStubBoard(async (port) => {
     const out = await runCli(['file-notices', '--hook'], envFor(port));
     assert.deepEqual([out.code, out.stdout], [0, '']);
-  }, { status: 403, text: HOOKJSON });
+  }, { status: 403, text: HOOKBODY });
   await withStubBoard(async (port) => {
     const out = await runCli(['file-notices', '--hook'], envFor(port));
     assert.deepEqual([out.code, out.stdout], [0, '']);
-  }, { status: 200, text: 'not json' });
+  }, { status: 200, text: HOOKJSON });   // the JSON without its ack line is not the hook answer
   await withStubBoard(async (port) => {
     const out = await runCli(['file-notices', '--hook'], envFor(port));
     assert.deepEqual([out.code, out.stdout], [0, '']);
@@ -103,7 +139,7 @@ test('--help prints the usage and never asks the board, so it cannot take (clear
   for (const args of [['file-notices', '--help'], ['file-notices', '-h']]) {
     const out = await runCli(args, envFor(port));
     assert.equal(out.code, 0, args.join(' '));
-    assert.match(out.stdout, /^Usage: kosmos file-notices \[--hook\]/, args.join(' '));
+    assert.match(out.stdout, /^Usage: kosmos file-notices \[--hook \[--ack-file <path>\]\]/, args.join(' '));
   }
   assert.equal(seen.length, 0);
 }, { status: 200, text: '' }));
