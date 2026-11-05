@@ -9,7 +9,8 @@
 # hooks on 2026-08-24):
 #   SessionStart      -> started, but ONLY when `source` is `startup` (#1058):
 #                        a compaction or resume must not clear a waiting state
-#   UserPromptSubmit  -> working  "answering a prompt"
+#   UserPromptSubmit  -> working  "answering a prompt"; and, at most every 5 minutes, prints the agent's waiting
+#                        file-owner notices as additionalContext JSON on stdout (kosmos#7989)
 #   PreToolUse        -> working  "running <tool>"  (throttled heartbeat)
 #   PermissionRequest -> needs_you, with the command in the sentence
 #                        (fires BEFORE the box renders; the Notification
@@ -447,18 +448,21 @@ kosmos_allows() {
 # file are keyed by the agent (a hash of its agent token), not the pane: two sessions sharing a pane key (no TMUX_PANE,
 # or the same %N on two tmux servers) would otherwise overwrite each other's acknowledged ids and be handed the same
 # notices again on every call. With no agent token it falls back to the pane key.
+# Worked out only here (UserPromptSubmit), not at the top: the hash is two processes, and every other event (PreToolUse
+# runs on every tool call) has no use for it.
 FILE_NOTICE_EVERY=300
-FN_KEY="$PANE_KEY"
-if [ -n "${KOSMOS_AGENT_TOKEN:-}" ]; then
-  if command -v shasum >/dev/null 2>&1; then _fn_h=$(printf '%s' "$KOSMOS_AGENT_TOKEN" | shasum -a 256 2>/dev/null | cut -c1-16)
-  else _fn_h=$(printf '%s' "$KOSMOS_AGENT_TOKEN" | sha256sum 2>/dev/null | cut -c1-16); fi
-  case "$_fn_h" in ''|*[!0-9a-f]*) ;; *) FN_KEY="agent-$_fn_h" ;; esac
-fi
-FN_MARK="$THROTTLE_DIR/$FN_KEY.filenotices"
+FN_MARK=""
 file_notices_due() {
   # No agent token and no pane (the person's own Claude session): the board cannot tell who is asking, so the call is
   # refused every time; it is not made.
   [ -n "${KOSMOS_AGENT_TOKEN:-}" ] || [ -n "${TMUX_PANE:-}" ] || return 1
+  local _fn_key="$PANE_KEY" _fn_h=""
+  if [ -n "${KOSMOS_AGENT_TOKEN:-}" ]; then
+    if command -v shasum >/dev/null 2>&1; then _fn_h=$(printf '%s' "$KOSMOS_AGENT_TOKEN" | shasum -a 256 2>/dev/null | cut -c1-16)
+    else _fn_h=$(printf '%s' "$KOSMOS_AGENT_TOKEN" | sha256sum 2>/dev/null | cut -c1-16); fi
+    case "$_fn_h" in ''|*[!0-9a-f]*) ;; *) _fn_key="agent-$_fn_h" ;; esac
+  fi
+  FN_MARK="$THROTTLE_DIR/$_fn_key.filenotices"
   mkdir -p "$THROTTLE_DIR" 2>/dev/null || return 1
   local fmark="$FN_MARK" now last
   now=$(date +%s)
