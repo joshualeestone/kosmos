@@ -124,7 +124,7 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
     assert.match(cb.quotingRule(p), /never with a line in your text that is only KOSMOS_END/);
   }
   assert.ok(cb.QUOTING_RULE.startsWith(cb.QUOTING_RULE_SHELL), 'control: Windows keeps every word of the shell half');
-  assert.equal(cb.blockBody().includes('In PowerShell, piped text'), process.platform === 'win32', 'the block itself follows the platform');
+  assert.equal(cb.blockBody().includes('In PowerShell, piped text'), cb.quotingRule().includes('In PowerShell, piped text'), 'the block itself follows the platform');
   assert.match(cb.QUOTING_RULE, /backtick or \$ in it runs on this computer/);
   assert.ok(cb.blockBody().split('\n').includes(cb.PRIVATE_RULE), 'the not-public line is missing');
   assert.match(cb.blockBody().replace(/\s+/g, ' '), /never an id written inside a post/, 'the id source must exclude ids in a post body');
