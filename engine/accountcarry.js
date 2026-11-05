@@ -16,8 +16,10 @@
  *    the same event and matcher, the target does not set "disableAllHooks", and the script file (when the command names
  *    a path this can resolve) exists for the target with the same contents (review 1: a name alone could read a gate
  *    that will not fire as kept).
- *  - Hooks of any other type are compared as written (review 6). A hook whose script is a relative path this cannot
- *    resolve is kept on a matching wiring alone: named here, not checked.
+ *  - Hooks of any other type are compared as written (review 6). A hook's `if`, `timeout`, `async` and `shell` are part
+ *    of its wiring (#8063): a gate with a narrower `if` on the target is not the same gate.
+ *  - A hook whose command names a script this cannot resolve (a relative path, %USERPROFILE%, a path with a space in
+ *    it) cannot be checked, so the whole answer is "cannot tell" (#8063), never kept on its wiring alone.
  *  - Not compared: skills and hooks that come from plugins (enabledPlugins), commands/, agents/, CLAUDE.md, and the
  *    rest of settings.json (permissions, env). Named here, and in the sentence a person reads (sentence() says "skills
  *    and hook scripts"), so nobody reads this as covering them.
@@ -40,29 +42,42 @@ function folderOf(dir, home = os.homedir()) {
    path and contents, at most MAX_SKILL_FILES files deep; a folder past that hashes what it read and says so in its
    sum, so two such folders differ unless their first files match. */
 const MAX_SKILL_FILES = 400;
+/* #8063 item 3: the skill read runs on the board's thread, so it is bounded by folders visited and bytes read, not only
+   files: a file past MAX_FILE_BYTES is hashed by its first MAX_FILE_BYTES and its size, and past MAX_SKILL_BYTES in one
+   skill or MAX_SKILL_DIRS folders the walk stops and the sum says it was cut (two cut folders differ unless what was
+   read matches). */
+const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_SKILL_BYTES = 8 * 1024 * 1024;
+const MAX_SKILL_DIRS = 200;
 function folderSum(root) {
   const h = crypto.createHash('sha256');
   let n = 0;
+  let dirs = 0;
+  let bytes = 0;
+  let cut = false;
   const seen = new Set();   // review 7: real folders already walked, so a link loop ends
   const walk = (rel) => {
     let real = null;
     try { real = fs.realpathSync(path.join(root, rel)); } catch { return; }
     if (seen.has(real)) return;
     seen.add(real);
+    if (++dirs > MAX_SKILL_DIRS) { cut = true; return; }
     let entries = [];
     try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { return; }
     for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
-      if (n >= MAX_SKILL_FILES) return;
+      if (n >= MAX_SKILL_FILES || bytes >= MAX_SKILL_BYTES) { cut = true; return; }
       const r = path.join(rel, e.name);
       let isDir = e.isDirectory();
       if (!isDir && e.isSymbolicLink()) { try { isDir = fs.statSync(path.join(root, r)).isDirectory(); } catch { isDir = false; } }
       if (isDir) { walk(r); continue; }
       n += 1;
-      h.update(r + '\0' + (digest(path.join(root, r)) || 'unreadable') + '\0');
+      const d = cappedDigest(path.join(root, r));
+      bytes += d ? d.read : 0;
+      h.update(r + '\0' + (d ? d.sum : 'unreadable') + '\0');
     }
   };
   walk('');
-  if (n >= MAX_SKILL_FILES) h.update('truncated');
+  if (cut || n >= MAX_SKILL_FILES) h.update('truncated');
   return h.digest('hex');
 }
 function skillSums(dir) {
@@ -124,6 +139,28 @@ function scriptPath(command, folder, home) {
   return null;
 }
 function digest(file) { try { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); } catch { return null; } }
+/* #8063 item 3: a file's hash read no further than MAX_FILE_BYTES: { sum, read }, or null when it cannot be read. */
+function cappedDigest(file) {
+  let fd = null;
+  try {
+    fd = fs.openSync(file, 'r');
+    const size = fs.fstatSync(fd).size;
+    const want = Math.min(size, MAX_FILE_BYTES);
+    const buf = Buffer.alloc(want);
+    let got = 0;
+    while (got < want) { const k = fs.readSync(fd, buf, got, want - got, got); if (k <= 0) break; got += k; }
+    const h = crypto.createHash('sha256').update(buf.subarray(0, got));
+    if (size > MAX_FILE_BYTES) h.update('\0size ' + size);
+    return { sum: h.digest('hex'), read: got };
+  } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
+}
+/* #8063 item 1: the fields beside the command that change when or how a hook runs, as one string in the wiring. */
+const HOOK_RUN_FIELDS = ['if', 'timeout', 'async', 'shell'];
+function runFields(h) {
+  const o = {};
+  for (const k of HOOK_RUN_FIELDS) if (Object.prototype.hasOwnProperty.call(h, k)) o[k] = h[k];
+  return Object.keys(o).length ? '\n' + JSON.stringify(o) : '';
+}
 
 /* Every hook a folder's settings.json wires: { id (script basename), wiring (event + matcher + id), file (resolved for
    this folder, or null), sum (its contents' hash, or null when it cannot be read) }, and whether all hooks are off. */
@@ -146,7 +183,7 @@ function hookEntries(dir, home) {
         /* Review 5: a prompt hook (type "prompt", no script) is compared by its event, matcher and words. */
         if (h && h.type === 'prompt' && typeof h.prompt === 'string' && h.prompt.trim()) {
           const id = `a prompt hook on ${event}`;
-          list.push({ id, wiring: `${event}\n${matcher}\nprompt\n${crypto.createHash('sha256').update(h.prompt.trim()).digest('hex')}`, file: null, sum: null });
+          list.push({ id, wiring: `${event}\n${matcher}\nprompt\n${crypto.createHash('sha256').update(h.prompt.trim()).digest('hex')}${runFields(h)}`, file: null, sum: null });
           continue;
         }
         if (!h || typeof h !== 'object') continue;
@@ -175,7 +212,9 @@ function hookEntries(dir, home) {
         /* An inline command (no script) is its own identity: its key is the normalised text, its id the text as written. */
         const scriptless = id === String(h.command).trim();
         const key = scriptless ? String(h.command).trim().split(/\s+/).map(one).join(' ') : `${id}\n${args}`;
-        list.push({ id, wiring: `${event}\n${matcher}\n${key}`, file: at, sum });
+        /* #8063 item 2: a command that names a script this cannot resolve cannot be checked. */
+        const unresolved = !scriptless && at === null;
+        list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved });
       }
     }
   }
@@ -204,6 +243,10 @@ function losses(fromDir, toDir, opts = {}) {
   const lost = new Set();
   const hookChanged = new Set();
   if (!fh.off) {
+    /* #8063 item 2: a hook the agent has now whose script path cannot be resolved is not one this can check on either
+       side, so the answer is "cannot tell", and a move needs the person to accept the loss. */
+    const unchecked = fh.list.find((h) => h.unresolved);
+    if (unchecked) return { ok: false, because: `we could not check the hook ${unchecked.id}: its script path is not one we can follow` };
     for (const h of fh.list) {
       /* A hook that does not run where the agent is now (its script missing there) is not one it has to lose. */
       if (h.file && h.sum === null) continue;
