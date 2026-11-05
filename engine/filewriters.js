@@ -226,11 +226,11 @@ function annotate(projectId, files, nameOf = (s) => s) {
 /* kosmos#7989 slice 2: what the record says about one file, for `kosmos project who <file>` (filewhoview.renderWho prints
    it). `file` is an absolute path; it is read against the projects' folders as they are now (not the edit-time cache,
    since a project made a moment ago must answer). `lastChange` compares the file's modification time with the last
-   record by writerOf's window: 'seen' (the change follows the record), 'after' (it changed later, unseen), 'before' (it
-   has not changed since the record), or null (no record, or no file). `nameOf` gives an agent's display name. Never
+   record by writerOf's window: 'seen' (the change follows the record), 'after' (it changed later, unseen), 'before' (its
+   modification time is older than the record), or null (no record, or no file). `nameOf` gives an agent's display name. Never
    throws; a path outside every project folder answers { ok: false, because: 'outside' }, and a folder (a project's
    own, or one inside it) { ok: false, because: 'folder' }, said only for a path inside a project. */
-function about(file, { projects, nameOf = (s) => s } = {}) {
+function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
   try {
     if (typeof file !== 'string' || !path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file)) return { ok: false, because: 'path' };
     const list = Array.isArray(projects) ? projects : require('./projects').readAll();
@@ -245,21 +245,24 @@ function about(file, { projects, nameOf = (s) => s } = {}) {
     const shown = (s) => { try { return nameOf(s) || s; } catch { return s; } };
     /* Review 2: a record is filed under the deepest project at the moment of the write, so a project made later inside
        another's folder leaves the file's earlier records under the outer one. Every project whose folder holds the file
-       is read, and the newest entry is the last agent seen. The owner is from the deepest project's own entry when it has
-       one (the record noteWrite notices from), else from that newest entry. */
+       is read (only those: the others are skipped before their record is opened), and the newest entry is the last
+       agent seen. Review 3: the owner is from the deepest project's own entry only, the one noteWrite notices from, so
+       this never names an owner the notices would not act on; a file whose only entries are an outer project's has no
+       owner here, as noteWrite treats it. An entry older than KEEP_MS before `now` (lapsed, not yet pruned) is not read. */
     const entries = [];
     for (const { id, root } of roots) {
       const rel = path.relative(root, abs);
       if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) continue;
       const name = rel.split(path.sep).join('/');
       const e = readRecord(id)[name];
-      if (name !== NOTICES_KEY && e && typeof e === 'object' && typeof e.agent === 'string' && e.agent && Number.isFinite(Date.parse(e.at))) {
+      if (name !== NOTICES_KEY && e && typeof e === 'object' && typeof e.agent === 'string' && e.agent && Number.isFinite(Date.parse(e.at))
+        && now - Date.parse(e.at) <= KEEP_MS) {
         entries.push({ e, deepest: id === at.projectId });
       }
     }
     entries.sort((a, b) => Date.parse(b.e.at) - Date.parse(a.e.at));
     const entry = entries.length ? entries[0].e : null;
-    const ownEntry = (entries.find((x) => x.deepest) || entries[0] || {}).e || null;
+    const ownEntry = (entries.find((x) => x.deepest) || {}).e || null;
     let modified = null;
     try {
       // lstat of the resolved path: a link here now was swapped in after it was resolved, and is not followed.

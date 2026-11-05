@@ -110,8 +110,11 @@ test('kosmos#7989 slice 2: no file, two files, or an option is a usage error, be
   for (const args of [['project', 'who'], ['project', 'who', 'a', 'b'], ['project', 'who', '--json'], ['project', 'who', '-x']]) {
     const out = await runCli(args, env);
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
+    // Review 3: no advice to put -- first, which fails here; the usage says ./-name instead.
+    assert.doesNotMatch(out.stdout, /put -- before it/, args.join(' '));
   }
   const help = await runCli(['project', 'who', '-h'], env);
-  assert.match(help.stdout, /kosmos project who <file>/, '-h did not print the help');
+  // Review 3: the help's own line, which the option refusal's Usage line does not contain.
+  assert.match(help.stdout + help.stderr, /the agent Kosmos last saw changing it, its owner/, '-h did not print the help: ' + help.stdout);
   assert.deepEqual(seen, [], 'a usage error still asked the board');
 }));

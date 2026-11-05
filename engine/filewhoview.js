@@ -43,7 +43,7 @@ function renderWho(answer) {
       // Review 2: the recorded agent is not ruled out: an edit approved minutes after its prompt lands late.
       else if (d.lastChange === 'after') lines.push('The file changed again after that, at ' + one(d.modified) + ', and Kosmos did not see who made that change: it may be ' + who(seen.agent, seen.shown) + '\'s edit landing late (after a permission prompt), another agent whose edit Kosmos missed, a person, or a tool writing outside the edit hook.');
       // Review 1: an older time is not proof the content is unchanged (cp -p, rsync -t, unzip restore old times).
-      else if (d.lastChange === 'before') lines.push('Its modification time (' + one(d.modified) + ') is older than that, so that edit does not seem to have landed (it may have failed), or a tool restored an older time.');
+      else if (d.lastChange === 'before') lines.push('Its modification time (' + one(d.modified) + ') is older than that, so that edit does not seem to have landed (it may have failed), a tool restored an older time, or the folder is on another computer whose clock differs.');
     }
   }
   if (d.owner && typeof d.owner === 'object' && d.owner.agent) {
