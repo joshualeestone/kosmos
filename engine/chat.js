@@ -2306,7 +2306,8 @@ function claudeMenuRefusal(card, sessionName, roster) {
     /* A read that fails is not a refusal (decided), EXCEPT when the card itself says it is asking permission (its
        PermissionRequest self-report): typing there is the measured #5754 harm, and the report is the evidence. */
     const said = String(card.because || '') + ' ' + String(card.stateEvidence || '');
-    if (card.state === status.STATE.NEEDS_YOU && /import files from outside its folder/.test(said)) return importsSentence(card, sessionName);
+    /* No capture, so the page has no importsAsk either and draws no button: the terminal ending. */
+    if (card.state === status.STATE.NEEDS_YOU && /import files from outside its folder/.test(said)) return CLAUDE_IMPORTS_SENTENCE + 'answer it in its terminal on the computer it runs on';
     return card.state === status.STATE.NEEDS_YOU && /\basking permission to use\b/i.test(said) ? CLAUDE_PERMISSION_SENTENCE : null;
   }
   if (status.importsDialogIn(view.text)) return importsSentence(card, sessionName);

@@ -2620,9 +2620,10 @@ const TRUST_PROMPT_MARKER = /^[\s>│├└─*❯›]*Quick safety check:/;
 const CONSENT_PROMPT_CONFIRM = /^Enter to confirm/;
 const CONSENT_PROMPT_EXIT = /^No, exit$/;          // the destructive default, shared with trust
 const CONSENT_PROMPT_ACCEPT = /^Yes\b/;            // "Yes, I accept" / "Yes, continue" / ...
+/* kosmos#8039: the label for Claude Code's external imports question (in the list below). */
+const IMPORTS_BECAUSE = 'it is asking whether its instructions may import files from outside its folder';
 /* Headings that LABEL a recognised dialog for evidence + `because`. NOT the detection
    key (the chrome above is); an unlabelled confirm dialog still reads needs_you, generically. */
-const IMPORTS_BECAUSE = 'it is asking whether its instructions may import files from outside its folder';
 const CONSENT_PROMPT_HEADINGS = Object.freeze([
   /* #6063: Claude Code's question about instructions that import files from outside the agent's folder. The family
      detector already read it as needs_you; this says WHAT it asks. Two rows must agree, because a label is only
