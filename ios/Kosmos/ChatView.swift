@@ -1017,7 +1017,9 @@ struct ChatView: View {
         let neverShown = Board.endNeverShown(endSeen: endSeen, messagesFor: diagThreadAt.map { Date().timeIntervalSince($0) })
         guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || neverShown, !topVisible || neverShown, count > 0, thread != nil else {
             // A capture can then say what held a blank off.
-            if onScreen.isEmpty, visible, count > 0 { Self.trace("diag: blank, not yet acting: end \(endVisible), top \(topVisible), app active \(scenePhase == .active), search \(searchMode)") }
+            if onScreen.isEmpty, visible, count > 0, Self.diagRing.last?.contains("diag: blank, not yet acting") != true {
+                Self.trace("diag: blank, not yet acting: end \(endVisible), top \(topVisible), app active \(scenePhase == .active), search \(searchMode)")
+            }
             return
         }
         // kosmos#7420: a list just rebuilt has no rows for a moment while the new one lays out; that is not an empty list
