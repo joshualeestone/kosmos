@@ -19,10 +19,15 @@ One behaviour change beyond the look: the dots grow with the person's text size,
 where the 16 pt orb kept its size. Dictation's dots are the exception, fixed at the icon's size, so the composer row
 never grows.
 
-Inside a scrolling thread (an attachment loading, earlier messages, a room's earlier posts) the dots draw at 15 frames
-a second, the orb's rate there: a clock-drawn view at 30 in the thread kept it from following new messages (#7427).
+Inside a lazy scrolling thread (an attachment loading in a message, a room's earlier posts) the dots draw at 15 frames
+a second, the orb's rate there (Loading earlier messages in a chat floats over the thread and keeps 30): a clock-drawn view at 30 in the thread kept it from following new messages (#7427).
 With Reduce Motion the dots pulse together rather than hold still (SweepDots' own rule, #4591), where the orb held one
 still frame.
+
+Where the line is: a wait beside the thing it is for (a file, a row, a line of text) takes the dots; a wait that is the
+whole screen or a whole page keeps the orb. Changed beyond chats and rooms for that reason: the Files list row and the
+Getting a file bar. Left as the orb, outside this card's ask: the Trying button on the not-answering page and
+Settings' saving mark; the same rule would cover them if Josh wants.
 
 Kept as the orb: whole-screen waits (Loading the conversation in an empty chat), and the waits outside chats and
 rooms (sign-in, New agent, Settings, task and project pages), which this card does not ask about.

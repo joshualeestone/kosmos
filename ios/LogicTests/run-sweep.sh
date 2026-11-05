@@ -3,7 +3,8 @@
 # It reads web/index.html from KOSMOS_REPO, so ios.board-parity-7084.test.js runs it in the board's own suite too.
 # Pass a directory to compile the app sources from somewhere else (to run against a broken copy); it must hold
 # SweepLogic.swift, SweepDots.swift, AgentsView.swift (the palette and the wait), ShellLogic.swift and Assets.xcassets,
-# which the launch checks read.
+# which the launch checks read. The #8058 small-wait checks read ios/Kosmos from KOSMOS_REPO (this checkout) whatever
+# directory is passed.
 # The launch renderer and its render script (ios/tools/launch-sweep, render-launch-sweep.sh) are always read from this
 # checkout, whatever directory is passed.
 set -euo pipefail
