@@ -63,7 +63,7 @@ test('kosmos#7989 slice 2: an edit that follows its record reads as seen, with i
   const lines = renderWho(a);
   assert.match(lines.join('\n'), /Kosmos last saw mona about to change it/);
   assert.match(lines.join('\n'), /came within two minutes of that, so it was most likely that edit/);
-  assert.match(lines.join('\n'), /Owner: mona, the first agent seen changing it here/);
+  assert.match(lines.join('\n'), /Owner: mona, the first agent seen about to change it here/);
 });
 
 test('kosmos#7989 slice 2: a change long after the record is one Kosmos did not see', () => {
@@ -146,7 +146,7 @@ test('kosmos#7989 slice 2: a path outside every project, a relative path and a c
   assert.deepEqual(fw.about(path.join(real, 'elsewhere', 'a.md'), { projects: list }), { ok: false, because: 'outside' });
   assert.deepEqual(fw.about('relative/a.md', { projects: list }), { ok: false, because: 'path' });
   assert.deepEqual(fw.about(r.file('a\nb.md'), { projects: list }), { ok: false, because: 'path' });
-  assert.match(renderWho({ ok: false, because: 'outside' })[0], /not inside any project's folder/);
+  assert.match(renderWho({ ok: false, because: 'outside' })[0], /does not see that path inside any project's folder on this computer/);
   assert.match(renderWho(null)[0], /could not read/);
 });
 
@@ -191,11 +191,31 @@ test('kosmos#7989 slice 2 review 4: a pipe is said to be no ordinary file, not a
   r.write('pipe', 'mona', T);
   const a = r.about('pipe');
   assert.equal(a.exists, false);
-  assert.equal(a.notFile, true);
+  assert.equal(a.notFile, 'special');
   const text = renderWho(a).join('\n');
   assert.match(text, /not an ordinary file/);
   assert.doesNotMatch(text, /not there now/);
   assert.equal(r.about('gone-for-sure.md').notFile, undefined, 'CONTROL: a missing file is not marked notFile');
+});
+
+test('kosmos#7989 slice 2 review 5: a path on a network mount no project uses is answered without touching it', () => {
+  const r = room();
+  const list = [{ id: r.id, folder: r.folder }];
+  const native = fs.realpathSync.native;
+  const touched = [];
+  fs.realpathSync.native = (p, ...rest) => { touched.push(String(p)); return native(p, ...rest); };
+  try {
+    for (const p of ['/net/somehost/share/a.md', '/Volumes/NoSuchShare-7989/a.md', '/Network/Servers/x/a.md']) {
+      touched.length = 0;
+      assert.deepEqual(fw.about(p, { projects: list }), { ok: false, because: 'outside' }, p);
+      assert.deepEqual(touched.filter((t) => !t.startsWith(real)), [], 'a mount path was resolved: ' + p);
+    }
+    // CONTROL: a project that lives on that mount lets its paths through to be resolved.
+    touched.length = 0;
+    fw.about('/Volumes/NoSuchShare-7989/a.md', { projects: [...list, { id: 'vol', folder: '/Volumes/NoSuchShare-7989/proj' }] });
+    assert.ok(touched.some((t) => t.startsWith('/Volumes/NoSuchShare-7989')), 'CONTROL: a mount a project uses was refused: ' + JSON.stringify(touched));
+  } finally { fs.realpathSync.native = native; }
+  assert.match(renderWho({ ok: false, because: 'outside' })[0], /give the path as this computer names it/);
 });
 
 test('kosmos#7989 slice 2 review 3: an entry past KEEP_MS (lapsed, not yet pruned) is not read', () => {
@@ -229,6 +249,12 @@ test('kosmos#7989 slice 2 review 2: a linked project folder and a path with .. f
   assert.equal(d.ok, true);
   assert.equal(d.exists, false);
   assert.equal(d.lastSeen, null);
+  // Review 5: a link that is itself the path, pointing at nothing, is said to be one.
+  fs.symlinkSync(path.join(real, 'nothing-' + r.id + '.md'), r.file('ghost.md'));
+  const g = fw.about(r.file('ghost.md'), { projects: list, now: T + 60 * MIN });
+  assert.equal(g.notFile, 'link');
+  assert.match(renderWho(g).join('\n'), /a link to something that is not there now/);
+  assert.doesNotMatch(renderWho(g).join('\n'), /pipe, a socket/);
 });
 
 test('kosmos#7989 slice 2 review 2: a file name is quoted, so it cannot pass for the output\'s own words', () => {

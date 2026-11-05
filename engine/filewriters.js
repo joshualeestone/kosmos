@@ -234,9 +234,18 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
   try {
     if (typeof file !== 'string' || !path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file)) return { ok: false, because: 'path' };
     const list = Array.isArray(projects) ? projects : require('./projects').readAll();
-    const roots = rootsOf(list);
+    const roots = rootsOf(list);   // a project's own folder, from the board's list: not a caller's path
+    /* Review 5: a caller picks this path, and resolving it runs on the board's one thread, so a path on a network mount
+       (/net autofs, /Volumes, /Network, a UNC share) that no project lives on is answered as outside before anything
+       touches it: a stalled share would otherwise freeze the board for everyone. */
+    const lexical = path.resolve(file);
+    const mountOf = (p) => { const m = /^(\/(?:net|Volumes|Network)\/[^/]+|\\\\[^\\]+|\/\/[^/]+)/.exec(p); return m ? m[1] : null; };
+    const mount = mountOf(lexical);
+    if (mount && !list.some((p) => p && typeof p.folder === 'string' && (path.resolve(p.folder) + path.sep).startsWith(mount + path.sep))) {
+      return { ok: false, because: 'outside' };
+    }
     // Review 2: resolved once, and every later read uses this, so a link swapped between two reads cannot redirect one.
-    const abs = resolved(file);
+    const abs = resolved(lexical);
     const at = projectOf(abs, roots);
     if (!at) {
       // Review 1: a project's own folder is in no project by projectOf (an empty name), and is not "outside" either.
@@ -264,14 +273,16 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
     const entry = entries.length ? entries[0].e : null;
     const ownEntry = (entries.find((x) => x.deepest) || {}).e || null;
     let modified = null;
-    let notFile = false;
+    let notFile = null;
     try {
       // lstat of the resolved path: a link here now was swapped in after it was resolved, and is not followed.
       const st = fs.lstatSync(abs);
       // Review 1: a folder inside a project is not a file that is gone; it has no record of its own.
       if (st.isDirectory()) return { ok: false, because: 'folder' };
       if (st.isFile()) modified = new Date(st.mtimeMs).toISOString();
-      else notFile = true;   // review 4: a pipe, socket or device is there, not gone
+      // Review 5: a link here is one to nothing (resolved() keeps a dangling link's own path), or one swapped in after
+      // the path was resolved; either way it is not followed. Review 4: a pipe, socket or device is there, not gone.
+      else notFile = st.isSymbolicLink() ? 'link' : 'special';
     } catch { /* not there */ }
     const seen = entry && typeof entry.agent === 'string' && entry.agent && Number.isFinite(Date.parse(entry.at)) ? entry : null;
     let lastChange = null;
@@ -286,7 +297,7 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
       projectName: project && typeof project.name === 'string' ? project.name : null,
       name: at.name,
       exists: Boolean(modified),
-      ...(notFile ? { notFile: true } : {}),
+      ...(notFile ? { notFile } : {}),
       modified,
       lastSeen: seen ? { agent: seen.agent, shown: shown(seen.agent), at: seen.at } : null,
       owner: ownEntry && typeof ownEntry.first === 'string' && ownEntry.first ? { agent: ownEntry.first, shown: shown(ownEntry.first) } : null,

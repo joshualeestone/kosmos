@@ -6452,7 +6452,8 @@ const AGENT_TOKEN_ROUTES = new Set(['POST /api/msg', 'POST /api/post', 'POST /ap
 /* kosmos#7989 slice 2: `kosmos project who <file>` (GET /api/project-file/who) joins, a READ, so a token-only agent can
    check a file before calling a change unexplained, as it can read `project show`. WHO GAINS: for a path inside a
    project's folder (any project's, .git and .env included), whether it exists, its modification time, and the agents last
-   seen changing it and owning it. A widening taken on purpose: membership is organising, not a boundary (GET
+   seen changing it and owning it. The board answers with its own file access, so an agent whose sandbox hides a file
+   (a deny rule on .env, another project's folder) still learns that much about it. A widening taken on purpose: membership is organising, not a boundary (GET
    /api/projects), and nothing about a path outside every project folder is said. */
 /* kosmos#7748: `kosmos agent list` (GET /api/agents/list) joins: a Windows agent holds a token and no board token. WHO GAINS:
    a token-only caller can read every agent's name, role and state across the board, not only those on its projects. That is
@@ -24157,6 +24158,8 @@ const server = http.createServer(async (req, res) => {
     const refusedRead = crossSiteRead(req);
     if (refusedRead) { sendJson(res, 403, { ok: false, error: refusedRead }); return; }
     if (!file) { sendJson(res, 400, { ok: false, error: 'say which file: ?path=<the file\'s full path>' }); return; }
+    // Review 5: percent-encoding that is not UTF-8 arrives as U+FFFD, which would answer about a different path.
+    if (file.includes('\ufffd')) { sendJson(res, 400, { ok: false, error: 'that path did not arrive as text Kosmos can read' }); return; }
     const names = new Map();
     const nameOf = (s) => {
       if (!names.has(s)) names.set(s, require('./engine/status').readIdentity(s).displayName || s);

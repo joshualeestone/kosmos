@@ -107,6 +107,8 @@ test('kosmos#7989 slice 2: outside every project, no path, and a relative path a
   assert.equal(cross.status, 403, 'a page on another site read a file\'s record');
   const sibling = await fetch(base + '/api/project-file/who?path=' + encodeURIComponent(path.join(SANDBOX, 'projects', 'lease', 'terms.md')), { headers: { 'sec-fetch-site': 'same-site' } });
   assert.equal(sibling.status, 403, 'another computer\'s page read a file\'s record');
+  const bad = await fetch(base + '/api/project-file/who?path=%2Ftmp%2F%FF.md');
+  assert.equal(bad.status, 400, 'review 5: a path that is not UTF-8 was answered about another path');
   const rel = await who('lease/terms.md');
   assert.equal(rel.status, 400);
   assert.equal(rel.body.ok, false);
