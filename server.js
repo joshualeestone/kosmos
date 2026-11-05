@@ -23333,7 +23333,9 @@ const server = http.createServer(async (req, res) => {
     }
     /* kosmos#8024: the person has this agent's chat open, so the needs-you pushes it holds are dealt with and their emails
        need not go. Only the person's own screen: an agent posting here would otherwise silence its own email. */
-    if (isViaScreen(req)) { try { require('./engine/needsyouack').opened(name, (id) => phonenotify.acked(id)); } catch { /* emailed as before */ } }
+    /* Review 1: a tab in the background moves the cursor as it always has, but is not the person seeing a question that
+       arrived while it sat there: that is who the email is for. */
+    if (isViaScreen(req)) { try { if (new URL(req.url, ROUTING_BASE).searchParams.get('hidden') !== '1') require('./engine/needsyouack').opened(name, (id) => phonenotify.acked(id)); } catch { /* emailed as before */ } }
     sendJson(res, 200, { seen: at, dmUnread: 0 });
     return;
   }

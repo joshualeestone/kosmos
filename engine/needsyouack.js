@@ -16,6 +16,9 @@ const store = require('./store');
 
 const KEEP_MS = 7 * 24 * 60 * 60 * 1000;
 const KEEP_PER_AGENT = 5;
+// Review 1: an ack that could not go (Kosmos+ off, no token) is not due again for this long, or every poll with the chat open
+// would POST and rewrite this file for up to the week.
+const RETRY_MS = 60 * 60 * 1000;
 function file() { return path.join(store.ROOT, 'needs-you-acks.json'); }
 
 function read(now) {
@@ -52,7 +55,10 @@ function remember(session, id, now = Date.now()) {
 
 /** Whether opening this agent has anything to acknowledge. */
 function due(session, now = Date.now()) {
-  try { return Array.isArray(read(now)[session]); } catch { return false; }
+  try {
+    const rows = read(now)[session];
+    return Array.isArray(rows) && rows.some((r) => !(Number.isFinite(r.tried) && now - r.tried < RETRY_MS));
+  } catch { return false; }
 }
 
 /** The person opened this agent's chat. Acknowledges what is held and forgets what was handed over; one the coordinator
@@ -62,7 +68,7 @@ function opened(session, ack, now = Date.now()) {
     const all = read(now);
     const rows = all[session];
     if (!rows) return 0;
-    const left = rows.filter((r) => ack(r.id) !== true);
+    const left = rows.filter((r) => ack(r.id) !== true).map((r) => ({ ...r, tried: now }));
     const handed = rows.length - left.length;
     if (left.length) all[session] = left; else delete all[session];
     write(all);
@@ -70,4 +76,4 @@ function opened(session, ack, now = Date.now()) {
   } catch { return 0; }
 }
 
-module.exports = { remember, due, opened, file, KEEP_MS, KEEP_PER_AGENT };
+module.exports = { remember, due, opened, file, KEEP_MS, KEEP_PER_AGENT, RETRY_MS };

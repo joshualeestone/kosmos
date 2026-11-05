@@ -43939,11 +43939,12 @@ async function paintTalk(sessionName, agentName) {
   const dmRec = Array.isArray(LAST) ? LAST.find((x) => x && x.sessionName === sessionName) : null;
   /* kosmos#8024: or a needs-you to acknowledge: a question usually comes with no unread reply, so the read alone would miss it.
      openAckDue is zeroed here as dmUnread is, so the next poll's re-run does not re-fire. */
-  if (dmRec && (dmRec.dmUnread > 0 || dmRec.openAckDue === true)) {
+  const dmHidden = document.visibilityState === 'hidden';
+  if (dmRec && (dmRec.dmUnread > 0 || (dmRec.openAckDue === true && !dmHidden))) {
     if (dmRec.dmUnread > 0) unreadEdgeBacklog('dm:' + sessionName, dmRec.dmUnread);   // #3743: these arrive with the edge
     dmRec.dmUnread = 0;
-    dmRec.openAckDue = false;
-    fetch('/api/agent/' + encodeURIComponent(sessionName) + '/seen', { method: 'POST' })
+    if (!dmHidden) dmRec.openAckDue = false;
+    fetch('/api/agent/' + encodeURIComponent(sessionName) + '/seen' + (dmHidden ? '?hidden=1' : ''), { method: 'POST' })
       .then((r) => r.text())
       .catch(() => { /* the next open tells it again */ });
   }
