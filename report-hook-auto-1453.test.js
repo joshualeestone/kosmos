@@ -87,7 +87,8 @@ const CODE = SRC.split('\n').filter((l) => !/^[ \t]*#/.test(l)).join('\n');
    delivery check -- and the character in front of `report` there is the closing
    quote of `"$KOSMOS"`. Neither was in the class, so the call this whole file
    exists to notice was invisible to it for a day. */
-const CALL = /(?:^|[;&|{)("]|\b(?:then|do|else|elif)\b)[ \t]*report[ \t]+([a-z_]+)((?:[ \t][^\n;]*)?)/gm;
+/* kosmos#7977: report_turn_end (the Stop idle, retried once) is a report call too, so both names count. */
+const CALL = /(?:^|[;&|{)("]|\b(?:then|do|else|elif)\b)[ \t]*report(?:_turn_end)?[ \t]+([a-z_]+)((?:[ \t][^\n;]*)?)/gm;
 
 /* 🛑 THE OLD CONTROL HERE WAS A SECOND REGEX SHARING `CALL`'s SEPARATOR CLASS,
    AND THAT MADE IT WORTHLESS. Two patterns built on one mechanism cannot
@@ -136,7 +137,7 @@ const MASKED = CODE
   .replace(/"\$@"/g, '@FORWARDED@')
   .replace(/"[^"\n\\]*"/g, '""');
 
-const OCCUR = /\breport[ \t]+(\S+)/g;
+const OCCUR = /\breport(?:_turn_end)?[ \t]+(\S+)/g;
 
 function classify(tok) {
   if (STATES.includes(tok)) return 'call';
@@ -195,8 +196,8 @@ test('the hook reports at least seven states, so a zero from this file is not si
      call count, so it agreed with a blind matcher instead of contradicting it.
      A minimum, so adding an eighth is not a failure here -- it is a failure
      below, which is where the useful message lives. */
-  assert.ok(found.length >= 7,
-    'found ' + found.length + ' report calls in ' + HOOK + ', expected at least 7. '
+  assert.ok(found.length >= 8,   // kosmos#7977: eight, with report_turn_end's idle counted
+    'found ' + found.length + ' report calls in ' + HOOK + ', expected at least 8. '
     + 'Either the hook moved, or this pattern stopped matching it. Do not relax '
     + 'this to make it pass.');
 });

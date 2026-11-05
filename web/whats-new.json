@@ -1,5 +1,5 @@
 {
-  "version": "0.7.89",
+  "version": "0.7.90",
   "highlights": [
     {
       "icon": "spark",
@@ -17,17 +17,14 @@
       "line": "Type example.com in a chat and it gets a preview, just as a full link does."
     },
     {
-      "icon": "shield",
-      "title": "The Kosmos app itself is read-only",
-      "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "tasks",
+      "title": "A project's folder can follow its name",
+      "line": "After you rename a project, its settings offer to rename the folder Kosmos made for it to match."
     },
     {
       "icon": "shield",
-      "title": "Gemini agents stop updating gemini",
-      "line": "A new Gemini agent stops gemini updating itself unless you allowed it, and on your default Gemini account so does your own.",
+      "title": "The Kosmos app itself is read-only",
+      "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
       "platforms": [
         "mac"
       ]

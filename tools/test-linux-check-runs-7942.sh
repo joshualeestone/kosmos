@@ -124,6 +124,16 @@ chk "contract: linux-promote-check-7933.yml records linux-promote-check-<version
 chk "contract: the lookup asks for those two prefixes, in those two files" grep -qF 'for pair in "linux-family-install linux-family-install-7281.yml" "linux-promote-check linux-promote-check-7933.yml"; do' "$HERE/tools/linux-check-runs.sh"
 chk "contract: and builds the name as <prefix>-<version>-<sha>" grep -qF 'local name="$1-$V-$SHA"' "$HERE/tools/linux-check-runs.sh"
 chk "contract: both workflows upload the named record" [ "$(grep -c 'name: ${{ steps.record.outputs.name }}\|name: ${{ steps.same.outputs.name }}' "$WF/linux-family-install-7281.yml" "$WF/linux-promote-check-7933.yml" | awk -F: '{s+=$2} END {print s}')" = 2 ]
+# kosmos#7941: the update verb stays out of the record and out of an ordinary promote check. If it joined either, every
+# promote would depend on it, and a plain re-dispatch would no longer clear a red one for the reason it was asked.
+PC_YML="$HERE/.github/workflows/linux-promote-check-7933.yml"; PC_LEGS="$HERE/tools/promote-check-legs-7933.sh"
+chk "contract: the record needs only the two legs it records" grep -qF 'needs: [verify-and-data, update]' "$PC_YML"
+chk "contract: the verb job runs only when asked or on a branch push" grep -qF "if: github.event_name == 'push' || inputs.old_version != ''" "$PC_YML"
+chk "contract: the verb reads old_version through the environment, not into the script" grep -qF 'VERB_OLD: ${{ inputs.old_version }}' "$PC_YML"
+PC_ALL="$(sed -n '/^  all) /,/;;$/p' "$PC_LEGS")"
+chk "contract: all does run the update leg (so the next line reads the right block)" grep -q leg_update <<< "$PC_ALL"
+if grep -q leg_verb <<< "$PC_ALL"; then chk "contract: all does not run the verb" false; else chk "contract: all does not run the verb" true; fi
+
 
 echo "test-linux-check-runs-7942: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

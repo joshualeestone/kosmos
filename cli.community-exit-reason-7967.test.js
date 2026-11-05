@@ -233,3 +233,49 @@ test('#7967 review 5: the wrapper runs the command in this shell: no subshell, b
   assert.doesNotMatch(code, /\(\s*[^)]*cmd_community "\$@"/, 'a subshell keeps running after the command is killed');
   assert.doesNotMatch(code, /cmd_community "\$@"[^\n]*&\s*$/m, 'a background job cannot take a Ctrl-C on bash 3.2');
 });
+
+/* kosmos#7980: the --help marker silences only the bare verb (the one shape the re-dispatch runs), so one exported by
+   hand cannot hide a real failure, and nothing the command starts inherits it. */
+test('#7980: an exported KOSMOS_HELP_REDISPATCH does not silence a failing command', () => withStubBoard(
+  { '/api/community/home': { status: 500, body: { error: 'the community is not answering' } } },
+  async (port) => {
+    const out = await run(CLI, ['community', 'home'], envFor(port, { KOSMOS_HELP_REDISPATCH: '1' }));
+    assert.equal(out.code, 1, out.stdout + out.stderr);
+    assert.match(out.stderr, /^kosmos community home: Nothing was read: the community is not answering\./m);
+  }));
+
+/* kosmos#7980: only an exit in the command's own shell writes the line; an exit inside $(...) is that subshell's.
+   No community path ends inside a subshell today, so this drives the REAL functions (cut out of install/kosmos) with a
+   stand-in cmd_community: one exits 5 inside $(...) and then succeeds, the control exits 4 in its own shell. */
+function harness(body, env = {}) {
+  const src = fs.readFileSync(CLI, 'utf8');
+  const cut = (head) => {
+    const i = src.indexOf('\n' + head + '\n'); assert.ok(i >= 0, 'premise: found ' + head);
+    const end = src.indexOf('\n}\n', i + 1); assert.ok(end > i, 'premise: found the end of ' + head);
+    return src.slice(i + 1, end + 2);
+  };
+  const sayLine = src.match(/\nsay\(\) \{\n[\s\S]*?\n\}\n/);
+  assert.ok(sayLine, 'premise: found say()');
+  const script = path.join(DATA, 'harness-' + Math.random().toString(36).slice(2) + '.sh');
+  fs.writeFileSync(script, ['#!/bin/bash', 'set -euo pipefail', sayLine[0], cut('_community_reason_line() {   # <exit code>'),
+    cut('cmd_community_with_reason() {'), 'cmd_community() {', body, '}', 'cmd_community_with_reason home'].join('\n') + '\n');
+  return new Promise((resolve, reject) => {
+    execFile("/bin/bash", [script], { timeout: 10000, env: { ...process.env, AGENT_WORKFORCE_DATA: DATA, ...env } }, (err, stdout, stderr) => {
+      if (err && typeof err.code !== 'number') { reject(err); return; }
+      resolve({ code: err ? err.code : 0, stdout, stderr });
+    });
+  });
+}
+test('#7980: an exit inside $(...) writes no line; an exit in the command\'s own shell does (control)', async () => {
+  const sub = await harness('  x=$(say "inner"; exit 5) || true\n  say "all fine"\n  return 0');
+  assert.equal(sub.code, 0, sub.stdout + sub.stderr);
+  assert.equal(sub.stderr, '', 'an exit inside $(...) wrote a line: ' + JSON.stringify(sub.stderr));
+  const own = await harness('  say "the reason"\n  exit 4');
+  assert.equal(own.code, 4, 'control: the exit code survives');
+  assert.match(own.stderr, /^kosmos community home: the reason \(exit 4: read the line before running it again\)$/m, 'control: an exit in its own shell writes the line');
+});
+test('#7980: a command started by the community verb does not inherit KOSMOS_HELP_REDISPATCH', async () => {
+  const r = await harness('  echo "child sees: $(/bin/bash -c \'echo ${KOSMOS_HELP_REDISPATCH-unset}\')"\n  return 0', { KOSMOS_HELP_REDISPATCH: '1' });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /child sees: unset/, 'the marker reached a child: ' + JSON.stringify(r.stdout));
+});

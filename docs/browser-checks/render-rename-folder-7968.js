@@ -104,6 +104,51 @@ const PORT = freePort();
     chk(!fs.existsSync(moved.folder), 'and the old folder is gone');
     const stored = await p.evaluate(async (id) => { const r = await fetch('/api/project/' + encodeURIComponent(id)); return (await r.json()).project; }, moved.id);
     chk(stored && stored.id === moved.id && stored.folder === taken, 'the same project now records the new folder', JSON.stringify(stored && { id: stored.id, folder: stored.folder }));
+
+    // The path a person takes (#7968, found by a reviewer of What's New): rename on the page and press Save.
+    await p.evaluate(async () => {
+      for (const name of ['Saved Start', 'Offer Showing']) {
+        const r = await fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name }) });
+        if (!r.ok) throw new Error('fixture create failed');
+        if (name === 'Offer Showing') {
+          const j = await r.json(); const made = j.project || j;
+          const e = await fetch('/api/project/' + encodeURIComponent(made.id), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Offer Renamed' }) });
+          if (!e.ok) throw new Error('fixture rename failed');
+        }
+      }
+    });
+    await p.reload({ waitUntil: 'networkidle' });
+    if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
+    // CONTROL: the offer IS showing, and this Save changes no name, so it still returns to the project.
+    await openSettings('Offer Renamed');
+    await p.waitForSelector('#pjs-rename-folder', { state: 'visible', timeout: 8000 });
+    await p.fill('#pjs-desc', 'a description, and nothing else');
+    await p.click('#pjs-save');
+    await p.waitForSelector('#pj-settings-view', { state: 'hidden', timeout: 8000 }).catch(() => {});
+    chk(!(await p.isVisible('#pj-settings-view')), 'CONTROL: with an offer showing, a Save that changes no name still returns to the project');
+    await p.reload({ waitUntil: 'networkidle' });
+    if (await p.isVisible('#firstrun')) await p.keyboard.press('Escape');
+    await openSettings('Saved Start');
+    await p.setViewportSize({ width: 390, height: 700 });   // a phone: the offer is furthest from Save here
+    await p.fill('#pjs-name', 'Saved Other');
+    await p.focus('#pjs-save');
+    await p.keyboard.press('Enter');   // by the key, so the next press is the second press of it
+    await p.waitForFunction(() => !document.getElementById('pjs-rename-folder').hidden, null, { timeout: 8000 });
+    const inView = () => p.evaluate(() => { const r = document.getElementById('pjs-rename-folder-btn').getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight; });
+    await p.waitForFunction(() => document.activeElement === document.getElementById('pjs-rename-folder-text'), null, { timeout: 8000 });
+    chk(await inView(), 'after a Save that renamed it, the offer is on screen, on a phone-sized page');
+    chk((await shown(p.locator('#pjs-move-msg'))).trim() === 'Saved.', 'and it says the Save worked, since that line is out of view');
+    await p.keyboard.press('Enter');
+    await p.waitForTimeout(400);
+    chk(fs.existsSync(path.join(roots.PROJECTS, 'Saved Start')), 'a second press of the key does not rename the folder');
+    await p.waitForTimeout(1600);
+    chk(await p.isVisible('#pj-settings-view') && await inView(), 'and it is still there after the time a Save would have moved away');
+    await p.evaluate(() => { pjView('one'); document.getElementById('pj-settings-link').click(); });
+    await p.waitForSelector('#pjs-rename-folder', { state: 'visible', timeout: 8000 });
+    chk((await p.locator('#pjs-move-msg').textContent()).trim() === '', 'coming back to settings later, the old Saved. is gone and the offer is still there');
+    await p.click('#pjs-rename-folder-btn');
+    await p.waitForFunction(() => /^Done/.test(document.getElementById('pjs-move-msg').textContent), null, { timeout: 8000 });
+    chk(fs.existsSync(path.join(roots.PROJECTS, 'Saved Other')), 'pressing it renames the folder');
     chk(errs.length === 0, 'no page errors', JSON.stringify(errs));
   } catch (e) {
     chk(false, 'the check ran to the end', String((e && e.stack) || e).slice(0, 400));

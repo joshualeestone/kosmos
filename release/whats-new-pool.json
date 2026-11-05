@@ -1032,6 +1032,14 @@
       "rank": 11,
       "since": "0.7.89",
       "status": "pending"
+    },
+    {
+      "title": "A project's folder can follow its name",
+      "line": "After you rename a project, its settings offer to rename the folder Kosmos made for it to match.",
+      "icon": "tasks",
+      "rank": 12.5,
+      "since": "0.7.90",
+      "status": "pending"
     }
   ]
 }

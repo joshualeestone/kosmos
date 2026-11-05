@@ -19,6 +19,10 @@ on:
         description: 'the site to read the pointers and builds from'
         required: true
         default: https://installkosmos.com
+      old_version:
+        description: 'kosmos#7941: also run the update verb from this older build to the staged one (the previous cut, say)'
+        required: false
+        default: ''
   # As linux.yml's linux-ci-*: a push to a linux-promote-ci-* branch runs it before it is on main.
   push:
     branches: ['linux-promote-ci-*']
@@ -88,6 +92,35 @@ jobs:
       - name: A prod install is updated to staging by the served installer and keeps its project
         id: update
         run: bash tools/promote-check-legs-7933.sh update linux
+      - name: Put the system node back
+        if: always()
+        run: if [ -f "$RUNNER_TEMP/hidden-nodes-7933" ]; then while read -r n; do sudo mv "$n.hidden-7933" "$n" || true; done < "$RUNNER_TEMP/hidden-nodes-7933"; fi
+
+  # kosmos#7941: #7935's update verb on a real board. Not needed by `record`: see leg_verb. Only when asked (or on a
+  # linux-promote-ci-* push), so an ordinary promote check is not red for a verb nobody asked about.
+  verb:
+    if: github.event_name == 'push' || inputs.old_version != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Hide every system node, so the install must bring its own
+        run: |
+          for n in $( (which -a node nodejs 2>/dev/null || true) | sort -u); do sudo mv "$n" "$n.hidden-7933" && echo "$n" >> "$RUNNER_TEMP/hidden-nodes-7933"; done
+          if command -v node >/dev/null 2>&1; then echo "FAIL: a system node is still on PATH: $(command -v node)" >&2; exit 1; fi
+          echo "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" >> "$GITHUB_ENV"
+      - name: Prepare the systemd user session (as a person's login has)
+        run: |
+          sudo loginctl enable-linger "$USER" || true
+          sudo systemctl start user@"$(id -u)".service || true
+          mkdir -p "/run/user/$(id -u)"
+          echo "XDG_RUNTIME_DIR=/run/user/$(id -u)" >> "$GITHUB_ENV"
+      - name: The installed CLI's update verb updates a real board (from old_version, or stamped older without it)
+        env:
+          VERB_OLD: ${{ inputs.old_version }}
+        run: bash tools/promote-check-legs-7933.sh verb linux
       - name: Put the system node back
         if: always()
         run: if [ -f "$RUNNER_TEMP/hidden-nodes-7933" ]; then while read -r n; do sudo mv "$n.hidden-7933" "$n" || true; done < "$RUNNER_TEMP/hidden-nodes-7933"; fi

@@ -4356,8 +4356,11 @@ cmd_inbox() {
 # written, nothing else changes.
 # cmd_community keeps its name: the Windows parity guard reads its subcommands from it.
 cmd_community_with_reason() {
-  # A --help re-dispatch (above) runs the bare verb for its usage and maps its exit 2 to success: no failure line there.
-  if [ -n "${KOSMOS_HELP_REDISPATCH:-}" ]; then cmd_community "$@"; return; fi
+  # A --help re-dispatch (below, in the top-level help handling) runs the bare verb for its usage and maps its exit 2 to success: no failure line there.
+  # kosmos#7980: only for the bare verb, the one shape that re-dispatch runs, so a variable exported by hand cannot
+  # silence a real command; and unset here, so nothing this command starts inherits it.
+  if [ -n "${KOSMOS_HELP_REDISPATCH:-}" ] && [ $# -eq 0 ]; then unset KOSMOS_HELP_REDISPATCH; cmd_community; return; fi
+  unset KOSMOS_HELP_REDISPATCH
   _KOSMOS_COMMUNITY_NAME="kosmos community${1:+ $1}"
   _KOSMOS_SAY_KEEP=1
   _KOSMOS_SAID_FIRST=""
@@ -5252,7 +5255,7 @@ cmd_claim() {
 # A subverb wins over a project id spelled the same (as room reopen): a project named set, remove or label cannot be
 # listed from here; the project page shows its records.
 cmd_records() {
-  local usage="Usage: kosmos records <project-id> | kosmos records set <project-id> \"<name>\" [--status \"<status>\"] [--confirmed YYYY-MM-DD] [--source \"<link or file>\"] | kosmos records remove <project-id> \"<name>\" | kosmos records label <project-id> \"<what the rows are>\""
+  local usage="Usage: kosmos records <project-id> | kosmos records set <project-id> \"<name>\" [--status \"<status>\"] [--confirmed YYYY-MM-DD] [--source \"<link or file>\"] | kosmos records remove <project-id> \"<name>\" | kosmos records label <project-id> \"<what the rows are>\". A name can be up to 200 characters, a status 80, a source 500 and a label 40."
   local sub="${1:-}" project name
   [ -n "$sub" ] || { say "$usage"; exit 2; }
   # The words are checked before the board is asked anything, so a mistyped command says how to type it even when
