@@ -269,8 +269,8 @@ test('kosmos#8063 item 3: a skill is read in bounded bytes and folders, and a cu
   /* Same first megabyte, different size: still a different copy. */
   const b = folder({ skills: ['huge'] }); fs.writeFileSync(path.join(b, 'skills', 'huge', 'blob.bin'), Buffer.alloc(2 * 1024 * 1024, 1));
   assert.deepEqual(carry.losses(a, b, H).changed, ['huge'], 'a large file with another size read as the same');
-  /* The walk stops at 200 folders: two skills that differ only in folder 250 read as the same copy. That is the
-     stated cost of the bound, asserted so a lost bound (an unbounded walk on the board's thread) turns this red. */
+  /* The walk stops at 200 folders: two skills that differ only in folder 250 read as the same copy, and are said to be
+     read only in part (review 2), so "same" is not claimed for what was not read. A lost bound turns this red. */
   const wide = (odd) => {
     const d = folder({ skills: ['wide'] });
     for (let i = 0; i < 300; i++) { const f = path.join(d, 'skills', 'wide', 'd' + String(i).padStart(4, '0')); fs.mkdirSync(f); fs.writeFileSync(path.join(f, 'f.txt'), i === 250 && odd ? 'other' : 'same'); }
@@ -279,6 +279,7 @@ test('kosmos#8063 item 3: a skill is read in bounded bytes and folders, and a cu
   const w = carry.losses(wide(false), wide(true), H);
   assert.equal(w.ok, true);
   assert.deepEqual(w.changed, [], 'the walk went past 200 folders');
+  assert.deepEqual(w.partlyRead, ['wide'], 'a skill read only in part was not said to be');
   /* CONTROL: a difference inside the first folders is still seen. */
   const early = wide(false); fs.writeFileSync(path.join(early, 'skills', 'wide', 'd0003', 'f.txt'), 'other');
   assert.deepEqual(carry.losses(wide(false), early, H).changed, ['wide'], 'a difference before the cut was not seen');
@@ -296,6 +297,13 @@ test('kosmos#8063 review 1: the exec form is compared by its arguments, and its 
   assert.deepEqual(carry.losses(a, ex([gate], gate), H).hooks, [], 'CONTROL: the same exec hook was not kept');
   assert.deepEqual(carry.losses(a, ex([other], other), H).hooks, ['gate.js'], 'an exec hook running another script read as kept');
   assert.deepEqual(carry.losses(a, ex([gate, '--strict'], gate), H).hooks, ['gate.js'], 'an exec hook with other arguments read as kept');
+  /* Review 2: a relative exec script with no agent folder is cannot tell; an unreadable one is cannot tell too. */
+  assert.equal(carry.losses(ex(['hooks/gate.js']), ex(['hooks/gate.js']), H).ok, false, 'a relative exec script read as checked');
+  const locked = path.join(TMP, 'exec dir', 'locked.js');
+  const src = ex([locked], locked); fs.chmodSync(locked, 0o000);
+  try {
+    if (process.getuid && process.getuid() !== 0) assert.equal(carry.losses(src, src, H).ok, false, 'an unreadable exec script read as checked');
+  } finally { fs.chmodSync(locked, 0o644); }
 });
 
 test('kosmos#8063 review 1: what is known is said beside a hook that cannot be checked; $CLAUDE_PROJECT_DIR and a relative path resolve in the agent folder', () => {
@@ -323,4 +331,18 @@ test('kosmos#8063 review 1: SKILL.md is read before any cap; written-out default
   assert.deepEqual(carry.losses(h({}), h({ async: false }), H).hooks, [], 'async false read as a different hook');
   assert.deepEqual(carry.losses(h({ timeout: 60 }), h({ timeout: '60' }), H).hooks, [], 'a timeout written as text read as a different hook');
   assert.deepEqual(carry.losses(h({}), h({ async: true }), H).hooks, ['echo hi'], 'CONTROL: async true is still a different hook');
+});
+
+test('kosmos#8063 review 2: a bare script name as the command runs from PATH, so it cannot be checked', () => {
+  const w = (cmd) => folder({ settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: cmd }] }] } }) });
+  const project = path.join(TMP, `agent-${++n}`); fs.mkdirSync(project, { recursive: true }); fs.writeFileSync(path.join(project, 'gate.sh'), '#!/bin/sh\n');
+  for (const opts of [H, { ...H, project }]) {
+    const l = carry.losses(w('gate.sh'), w('gate.sh'), opts);
+    assert.equal(l.ok, false, 'a bare gate.sh read as checked: ' + JSON.stringify(l));
+  }
+  /* CONTROL: bash gate.sh reads its argument from the working folder, so with the agent folder named it is checked. */
+  assert.equal(carry.losses(w('bash gate.sh'), w('bash gate.sh'), { ...H, project }).ok, true);
+  /* A skill of exactly 400 files is read whole, so it is not said to be partly read. */
+  const many = () => { const d = folder({ skills: ['many'] }); for (let i = 1; i < 400; i++) fs.writeFileSync(path.join(d, 'skills', 'many', `f${String(i).padStart(3, '0')}.txt`), 'x'); return d; };
+  assert.equal(carry.losses(many(), many(), H).partlyRead, undefined, 'a skill read whole was said to be partly read');
 });

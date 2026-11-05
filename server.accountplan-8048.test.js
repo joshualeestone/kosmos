@@ -137,3 +137,19 @@ test('kosmos#8048 review 1: an agent whose job spells its folder with a trailing
   const r = await plan({ name: 'cy', account: 'spare' });
   assert.deepEqual([r.code, r.j.same], [200, true], JSON.stringify(r.j));
 });
+
+test('kosmos#8063: the route names the agent folder, so a relative gate there is checked, not cannot tell', async () => {
+  const from = nodePath.join(HOME, '.claude-rel-from'); const to = nodePath.join(HOME, '.claude-rel-to'); const bare = nodePath.join(HOME, '.claude-rel-bare');
+  folder(from, ['pick-up'], ['bash .claude/hooks/g.sh']);
+  folder(to, ['pick-up'], ['bash .claude/hooks/g.sh']);
+  folder(bare, ['pick-up'], []);
+  ROWS.push({ dir: from, isDefault: false, label: 'relfrom', apiKey: false }, { dir: to, isDefault: false, label: 'relto', apiKey: false }, { dir: bare, isDefault: false, label: 'relbare', apiKey: false });
+  JOBS.dee = { configDir: from, runner: 'claude' };
+  const agent = create.workerDir('dee');
+  fs.mkdirSync(nodePath.join(agent, '.claude', 'hooks'), { recursive: true });
+  fs.writeFileSync(nodePath.join(agent, '.claude', 'hooks', 'g.sh'), '#!/bin/sh\n');
+  const kept = await plan({ name: 'dee', dir: to });
+  assert.deepEqual([kept.j.ok, kept.j.hooks], [true, []], 'a relative gate in the agent folder was not checked: ' + JSON.stringify(kept.j));
+  const lost = await plan({ name: 'dee', dir: bare });
+  assert.deepEqual([lost.j.ok, lost.j.hooks], [true, ['g.sh']], 'CONTROL: the same gate missing on the target read as kept: ' + JSON.stringify(lost.j));
+});
