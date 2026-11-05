@@ -1,0 +1,80 @@
+'use strict';
+/* kosmos#8048 item 3: what an agent would lose moving between two Claude account folders. */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const carry = require('./accountcarry');
+
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-carry-8048-'));
+test.after(() => fs.rmSync(TMP, { recursive: true, force: true }));
+let n = 0;
+/* A folder shaped as Claude Code reads one: skills/<name>/SKILL.md, and settings.json's hooks by event. */
+function folder({ skills = [], hooks = [], settings } = {}) {
+  const d = path.join(TMP, `acct-${++n}`);
+  fs.mkdirSync(path.join(d, 'skills'), { recursive: true });
+  for (const s of skills) { fs.mkdirSync(path.join(d, 'skills', s)); fs.writeFileSync(path.join(d, 'skills', s, 'SKILL.md'), '# x\n'); }
+  const body = settings !== undefined ? settings
+    : JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: hooks.map((c) => ({ type: 'command', command: c })) }] } });
+  fs.writeFileSync(path.join(d, 'settings.json'), body);
+  return d;
+}
+
+test('kosmos#8048: the drift measured on Mortals is named: two skills and two gates in the main folder only', () => {
+  const main = folder({ skills: ['pick-up', 'design-shots', 'verify-release'],
+    hooks: ['bash ~/.claude/hooks/user/pre-challenge-gate.sh', 'bash ~/.claude/hooks/user/destructive-cmd-gate.sh', 'bash ~/.claude/hooks/user/vercel-login-gate.sh'] });
+  const acct = folder({ skills: ['pick-up'], hooks: ['bash $HOME/.claude/hooks/user/pre-challenge-gate.sh'] });
+  const l = carry.losses(main, acct);
+  assert.deepEqual(l, { ok: true, skills: ['design-shots', 'verify-release'], hooks: ['destructive-cmd-gate.sh', 'vercel-login-gate.sh'] },
+    'the loss was not named (the pre-challenge gate, spelled with $HOME, must count as kept)');
+  assert.equal(carry.sentence(l), 'On that account it would not have the skills design-shots, verify-release, or the hooks destructive-cmd-gate.sh, vercel-login-gate.sh.');
+  // CONTROL: the other way, nothing the account folder has is missing from the main one.
+  assert.deepEqual(carry.losses(acct, main), { ok: true, skills: [], hooks: [] });
+  assert.equal(carry.sentence(carry.losses(acct, main)), null);
+});
+
+test('kosmos#8048: a linked skills folder (how Agent1s shares one) counts as having them', () => {
+  const main = folder({ skills: ['pick-up', 'design-shots'] });
+  const acct = path.join(TMP, `acct-${++n}`);
+  fs.mkdirSync(acct);
+  fs.symlinkSync(path.join(main, 'skills'), path.join(acct, 'skills'));
+  fs.symlinkSync(path.join(main, 'settings.json'), path.join(acct, 'settings.json'));
+  assert.deepEqual(carry.losses(main, acct), { ok: true, skills: [], hooks: [] }, 'a linked folder read as missing its skills');
+  // Each skill linked on its own (a skills/ folder of links) counts too.
+  const perSkill = path.join(TMP, `acct-${++n}`);
+  fs.mkdirSync(path.join(perSkill, 'skills'), { recursive: true });
+  for (const s of ['pick-up', 'design-shots']) fs.symlinkSync(path.join(main, 'skills', s), path.join(perSkill, 'skills', s));
+  assert.deepEqual(carry.losses(main, perSkill).skills, [], 'skills linked one by one read as missing');
+});
+
+test('kosmos#8048: a folder that cannot be read is "cannot tell", never "nothing lost"', () => {
+  const ok = folder({ skills: ['a'], hooks: ['bash x.sh'] });
+  const broken = folder({ settings: '{ not json' });
+  assert.equal(carry.losses(ok, broken).ok, false, 'a target whose settings do not parse read as safe');
+  assert.match(carry.losses(ok, broken).because, /account it would move to/);
+  assert.equal(carry.losses(broken, ok).ok, false, 'a source whose settings do not parse read as safe');
+  assert.match(carry.losses(broken, ok).because, /account it is on/);
+  const noSkills = path.join(TMP, `acct-${++n}`);
+  fs.mkdirSync(noSkills);
+  fs.writeFileSync(path.join(noSkills, 'skills'), 'a file, not a folder');
+  assert.equal(carry.losses(ok, noSkills).ok, false, 'a skills path that is not a folder read as safe');
+  // CONTROL: a folder with no skills/ and no settings.json at all is readable, and loses everything the source has.
+  const empty = path.join(TMP, `acct-${++n}`);
+  fs.mkdirSync(empty);
+  assert.deepEqual(carry.losses(ok, empty), { ok: true, skills: ['a'], hooks: ['x.sh'] });
+});
+
+test('kosmos#8048: the default account is ~/.claude under the given home', () => {
+  const home = path.join(TMP, `home-${++n}`);
+  fs.mkdirSync(path.join(home, '.claude', 'skills', 'only-main'), { recursive: true });
+  const acct = folder({ skills: [] });
+  assert.deepEqual(carry.losses(null, acct, { home }), { ok: true, skills: ['only-main'], hooks: [] });
+  assert.deepEqual(carry.losses('', acct, { home }).skills, ['only-main']);
+});
+
+test('kosmos#8048: a hook is named by the script it runs; an inline command is its own name', () => {
+  assert.equal(carry.hookId('bash ~/.claude/hooks/user/pre-challenge-gate.sh'), 'pre-challenge-gate.sh');
+  assert.equal(carry.hookId('"$HOME/.claude/hooks/a.js" --flag'), 'a.js');
+  assert.equal(carry.hookId('  echo hi  '), 'echo hi');
+});
