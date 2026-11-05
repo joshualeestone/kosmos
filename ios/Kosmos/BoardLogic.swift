@@ -439,6 +439,12 @@ enum Board {
 
     // kosmos#7645: the chat's id anchor (ChatView.positionId) as the record names it; never a message's id.
     static func anchorKind(_ id: String?) -> String { id == nil ? "none" : id == "end" ? "end" : id == "top" ? "top" : "a message" }
+    // kosmos#7957: a room whose keyboard hold has placed the list by id and then drew no post is opened again at its newest. Only
+    // on the room on screen with posts to show, never in a search or under a person's scroll; twice at most until posts draw again.
+    static let roomBlankLook: Double = 1.0
+    static func roomBlankRebuilds(visible: Bool, searching: Bool, scrolling: Bool, drawn: Int, posts: Int, rebuilds: Int) -> Bool {
+        visible && !searching && !scrolling && drawn == 0 && posts > 0 && rebuilds < 2
+    }
     // kosmos#7645: a keyboard put-back lets the anchor go when it holds a reader's place (a message, or "top"); "end", the
     // keep on the newest message, stays.
     static func letGoAfterPutBack(_ id: String?) -> Bool { id != nil && id != "end" }

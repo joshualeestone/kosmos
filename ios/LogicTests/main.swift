@@ -5710,6 +5710,16 @@ do {
     check(Board.rowsAgainstScreen([.nan], showing: (top: 1, bottom: 2)) == "no row read its place", "control: nothing finite")
     check(Board.rowsAgainstScreen([1e300, -1e300], showing: (top: .greatestFiniteMagnitude, bottom: 1)) == "row tops -1000000000000000 to 1000000000000000, screen shows 1000000000000000 to 1", "a huge finite value is clamped, never a crash in the report")
 
+    // kosmos#7957: a room left blank by the keyboard hold is rebuilt; nothing else is.
+    check(Board.roomBlankRebuilds(visible: true, searching: false, scrolling: false, drawn: 0, posts: 220, rebuilds: 0), "blank with posts: rebuilt")
+    check(!Board.roomBlankRebuilds(visible: true, searching: false, scrolling: false, drawn: 1, posts: 220, rebuilds: 0), "a post drawn: a reader is never moved")
+    check(!Board.roomBlankRebuilds(visible: true, searching: false, scrolling: false, drawn: 0, posts: 0, rebuilds: 0), "an empty room is not blank")
+    check(!Board.roomBlankRebuilds(visible: false, searching: false, scrolling: false, drawn: 0, posts: 220, rebuilds: 0), "another screen on top")
+    check(!Board.roomBlankRebuilds(visible: true, searching: true, scrolling: false, drawn: 0, posts: 220, rebuilds: 0), "a search with no match")
+    check(!Board.roomBlankRebuilds(visible: true, searching: false, scrolling: true, drawn: 0, posts: 220, rebuilds: 0), "under a finger")
+    check(Board.roomBlankRebuilds(visible: true, searching: false, scrolling: false, drawn: 0, posts: 220, rebuilds: 1), "a second try")
+    check(!Board.roomBlankRebuilds(visible: true, searching: false, scrolling: false, drawn: 0, posts: 220, rebuilds: 2), "never a third, so it cannot loop")
+
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
     check(Board.cameraState(available: true, auth: .authorized) == .ready && Board.cameraState(available: true, auth: .notDetermined) == .notAsked,
