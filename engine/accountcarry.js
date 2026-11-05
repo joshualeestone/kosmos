@@ -158,7 +158,15 @@ function resolveWord(word, folder, home, project) {
     return project && !/^~/.test(bare) ? path.join(project, bare) : null;
   }
 }
-function digest(file) { try { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); } catch { return null; } }
+/* #8063 review 4: only a regular file is ever opened. A named pipe or a device would block the board's thread on open or
+   read, so it hashes as what it is, never as its contents. */
+function regularFile(file) { try { return fs.statSync(file).isFile(); } catch { return false; } }
+function digest(file) {
+  try {
+    if (!regularFile(file)) return fs.existsSync(file) ? crypto.createHash('sha256').update('not a regular file').digest('hex') : null;
+    return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+  } catch { return null; }
+}
 /* #8063 review 3: a script found only through the agent's folder is certain only when it is there and the command does
    not change folder first. Missing there, bash may still find it on PATH, or a `cd` may have moved the working folder, so
    it is not "does not run here": it cannot be checked. A script at a path the hook spells out in full keeps the old
@@ -173,6 +181,7 @@ function uncertain(at, sum, project, command) {
 function cappedDigest(file) {
   let fd = null;
   try {
+    if (!regularFile(file)) return fs.existsSync(file) ? { sum: 'not a regular file', read: 0 } : null;
     fd = fs.openSync(file, 'r');
     const size = fs.fstatSync(fd).size;
     const want = Math.min(size, MAX_FILE_BYTES);
