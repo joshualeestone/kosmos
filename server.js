@@ -10806,16 +10806,18 @@ const server = http.createServer(async (req, res) => {
         /* Review 4: without case, as the CLI's own self-check compares (a case-insensitive disk finds the job either way). */
         /* Review 5: removedNames() answers { ok, names }; a list that cannot be read refuses, as remove.js asks of a caller
            that acts (the earlier array read threw, and the catch below hid it). */
-        /* Review 6: an unreadable list refuses with its own words (not "was removed"), and the refusal returns outside
-           any try, so no catch can let a removed agent through to startIfDead. */
-        let gone = null;
+        /* Review 7 (over review 6): a removed list that cannot be read is treated as the board's own listing treats it
+           (readRemoved: empty), so the page's Restart and Start keep working; only an agent the list names is refused.
+           The match ignores case only where the disk does (Mac, Windows): on Linux `leo` and a removed `Leo` are two
+           agents. The refusal returns outside any try, so no catch can let a removed agent through to startIfDead. */
+        let removedNow = false;
         try {
           const r = removal.removedNames();
-          if (!r || r.ok !== true) gone = 'unreadable';
-          else if (removal.isRemoved(name) || (Array.isArray(r.names) && r.names.some((n) => String(n).toLowerCase() === String(name).trim().toLowerCase()))) gone = 'removed';
-        } catch { gone = 'unreadable'; }
-        if (gone === 'removed') { sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${name} was removed, so it is not restarted; put it back from the board first` }); return; }
-        if (gone === 'unreadable') { sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: 'we could not read the list of removed agents, so nothing was restarted' }); return; }
+          const caseless = process.platform === 'darwin' || process.platform === 'win32';
+          removedNow = removal.isRemoved(name) || !!(r && r.ok === true && caseless && Array.isArray(r.names)
+            && r.names.some((n) => String(n).toLowerCase() === String(name).trim().toLowerCase()));
+        } catch { removedNow = false; }
+        if (removedNow) { sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${name} was removed, so it is not restarted; put it back from the board first` }); return; }
         let out;
         // #3410: this IS the "Start this agent" affordance (Mona #3433 reuses this route), so it
         // opts into starting a fully-dead agent (no session) rather than refusing it. The config-
