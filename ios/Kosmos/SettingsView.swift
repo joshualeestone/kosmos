@@ -308,10 +308,10 @@ struct SettingsView: View {
     }
 
     @MainActor private func read() async {
-        // Let the update that first draws this tab finish before any state is set. Signed out or with no computer kept,
-        // nothing below waits, so the state was set inside that update and SwiftUI kept the first draw: the tab said
-        // "Reaching your computer" for ever with no computer to reach (measured 11-05 on a simulator, with a log of each
-        // draw: the state read signedOut, the only draw read reading). With a computer the network wait hid this.
+        // kosmos#8054: without this yield, signed out or with no computer kept (nothing below waits), the tab stayed on
+        // "Reaching your computer" (measured 11-05 on an iOS 27 simulator: a log showed the state set to signedOut and the
+        // only draw after it reading reading). With the yield the right sentence drew 0.23 s later. Why the first set was
+        // not drawn is inferred, not confirmed; the card has the log.
         await Task.yield()
         let started = generation
         if !Self.sample && SessionKeychain.live.load() == nil { mac = nil; load = .signedOut; return }

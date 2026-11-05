@@ -20,21 +20,19 @@ struct TasksTab: View {
     @State private var newTaskDraft = NewTask.Draft()   // kept when the sheet closes, as the board keeps its draft
     @State private var newTaskHeld: NewTask.Held?        // words that got "could not tell", kept with the draft
 
-    /// No list can come: the board is not live and not on its first connect.
-    private var boardNotThere: Bool {
+    private var liveOrStarting: Bool {
         switch client.phase {
-        case .live, .starting: return false
-        default: return true
+        case .live, .starting: return true
+        default: return false
         }
     }
 
     var body: some View {
         NavigationView {
-          // 11-05, a real sign-in with no computer on the account: the list is read only through a computer this phone is
-          // let into (BoardClient.refreshTasks), so with none it never came and "Reading your tasks" stayed for good
-          // (measured: still there at 2 minutes and after a relaunch). Not live and not starting, the tab says what the
-          // Agents tab says for the same state: no Mac, signed out, the Allow, a Mac that does not answer.
-          if boardNotThere {
+          Group {
+          // kosmos#8054: the list is read only through a computer this phone is let into (BoardClient.refreshTasks).
+          if Board.showsConnectionScreen(liveOrStarting: liveOrStarting, computerLetIn: client.macURL != nil,
+                                         hasList: client.tasksList != nil) {
             BoardStates(client: client, openBoard: openBoard) { EmptyView() }
           } else {
             TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
@@ -44,15 +42,17 @@ struct TasksTab: View {
                       refresh: { await client.refreshTasks() },
                       newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
                       notice: notice, switcher: AnyView(MacSwitcher(client: client)))
-                .background(chatLink)
-                .background(taskLink)
-                .sheet(item: $newTaskFor) { start in
-                    NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft,
-                                held: $newTaskHeld, heldFound: heldFound(in:)) { line in
-                        notice = line
-                        Task { await client.refreshTasks() }
-                    }
-                }
+          }
+          }
+          // On the Group, not the list, so a switch to the connection screen and back never drops an open page or sheet.
+          .background(chatLink)
+          .background(taskLink)
+          .sheet(item: $newTaskFor) { start in
+              NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft,
+                          held: $newTaskHeld, heldFound: heldFound(in:)) { line in
+                  notice = line
+                  Task { await client.refreshTasks() }
+              }
           }
         }
         .navigationViewStyle(.stack)

@@ -4895,6 +4895,15 @@ do {
     check(SignIn.reviewAnswer(status: 401, json: ["error": "this account is being deleted"]) == .refused("This account is being deleted."),
           "CONTROL: a 401 that is not about the password keeps its own sentence")
     check(SignIn.sentence("Done already.") == "Done already." && SignIn.sentence("") == "", "a sentence that already ends is left as it is")
+    // kosmos#8054: when a list tab shows the Agents tab's connection screen instead of its own list.
+    check(Board.showsConnectionScreen(liveOrStarting: false, computerLetIn: false, hasList: false),
+          "no computer let in, not live, no list: the connection screen (no Mac, signed out), never a wait for good")
+    check(!Board.showsConnectionScreen(liveOrStarting: false, computerLetIn: true, hasList: false),
+          "a let-in computer that stops answering keeps the tab's own states")
+    check(!Board.showsConnectionScreen(liveOrStarting: false, computerLetIn: false, hasList: true),
+          "a list already on screen stays, as Agents keeps its list")
+    check(!Board.showsConnectionScreen(liveOrStarting: true, computerLetIn: false, hasList: false),
+          "CONTROL: live or on its first connect, the tab's own wait")
     // 11-05, a real sign-in: the code steps showed Kosmos+'s words raw ("that code is not right; 4 tries left").
     check(SignIn.answer(status: 401, json: ["error": "that code is not right; 4 tries left"]) == .refused(message: "That code is not right; 4 tries left.", proofRefused: false),
           "a wrong code reads as a sentence: a capital and a closing stop")
