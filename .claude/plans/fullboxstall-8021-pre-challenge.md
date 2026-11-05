@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: fullboxstall-8021
-diff_hash: ccf39bc0dd160f41d6c18a622903a143aaedb051d2b0cfa09d0317dd098cd5e9
+diff_hash: 689836e6209aa2fd6f6bb65a9a767e1db91d5cd9808dc35fe08c8599e936892e
 validation: partial (the new test file and 225 neighbouring stall tests by hand; the full suite is left to CI)
 subdir_audit: not run (no subdir CLAUDE.md in the diff)
 timestamp: 2026-11-05T09:20:14Z
