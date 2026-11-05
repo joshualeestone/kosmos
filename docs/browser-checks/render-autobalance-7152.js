@@ -78,6 +78,9 @@ const CASES = {
     { kind: 'move', at: now - 8 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'partial' },
     { kind: 'move', at: now - 9 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'stopped' },
     { kind: 'move', at: now - 10 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-gone', toLabel: 'Old', outcome: 'changed', why: WHY }] } },
+  /* kosmos#8048: a target the mover held because the agents would lose skills or hooks there. */
+  heldLoss: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, recent: [
+    { kind: 'held-loss', at: now - 1 * 60e3, pairs: [{ from: '/home/.claude-full', to: '/home/.claude-spare' }, { from: '/home/.claude-full', to: '/home/.claude-x', toLabel: '<b>X</b>' }] }] } },
   /* CONTROL: the same record with moving left out says nothing moves on its own. */
   armedNotRecording: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: false, moving: false, armed: true, recent: [] } },
   movingOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [] } },
@@ -288,6 +291,11 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(mv && mv.length === wantMv.length && wantMv.every((re, i) => re.test(mv[i])), tag + ' the mover: each line said once, newest first, with moves on', JSON.stringify(mv));
       say(r.moving && r.moving.dry === true && r.armedNotRecording && r.armedNotRecording.dry === true && r.movingOff && r.movingOff.dry === false, tag + ' the hint says nothing is moved only on a board whose mover is not armed', JSON.stringify([r.moving && r.moving.dry, r.armedNotRecording && r.armedNotRecording.dry, r.movingOff && r.movingOff.dry]));
       say(r.moving && !r.moving.recentMarkup, tag + ' a name with markup in a move line is shown as text', '');
+      const hl = r.heldLoss && r.heldLoss.recent;
+      say(hl && hl.length === 4 && /^At 11:59\sAM, Kosmos did not move agents from Work to Spare, because on Spare they would not have skills or hooks they have now, or Kosmos could not check\.$/.test(hl[2])
+        && /^At 11:59\sAM, Kosmos did not move agents from Work to <b>X<\/b>, because on <b>X<\/b> they would not have/.test(hl[3]),
+        tag + ' kosmos#8048: a hold because the agents would lose skills or hooks is said, one line per account, markup shown as text', JSON.stringify(hl));
+      say(r.heldLoss && !r.heldLoss.recentMarkup, tag + ' kosmos#8048: a label with markup in a hold line is shown as text', '');
       say(r.movingOff && r.movingOff.recent[0] === NONE, tag + ' CONTROL: without moving, it does not say it moves', JSON.stringify(r.movingOff && r.movingOff.recent));
       /* Review round 6 */
       say(r.movedThenOff && r.movedThenOff.recent[0] === 'Kosmos is not moving agents on this computer now. It keeps a record of what it would have moved.' && /Kosmos moved Ada/.test(r.movedThenOff.recent[2] || ''),
