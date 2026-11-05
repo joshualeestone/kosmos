@@ -53189,7 +53189,7 @@ document.getElementById('d-qask-imports-no').addEventListener('click', async () 
   msg.textContent = 'Starting it without them…';
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/decline-imports',
-      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ viaScreen: true }) });
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     const r = await res.json().catch(() => ({}));
     if (CURRENT && CURRENT.sessionName === forAgent) {
       msg.textContent = r.because || r.error || (res.ok ? 'Restarting.' : 'We could not start this agent without them.');
