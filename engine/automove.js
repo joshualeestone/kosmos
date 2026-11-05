@@ -256,11 +256,17 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     if (outcome === 'changed') {
       /* kosmos#8048 reviews 2 and 3: an agent moved off its limit can hold open work an idle one cannot (movableFor), and
          the restart ended anything it had running, so every such move says so, and names what it had said it was
-         committed to (commitments.read gives { what } objects; at most five). */
+         committed to (commitments.read gives { what } objects; at most five). Review 4: only a record it still vouches
+         for (state 'holding': a stale or future-dated one is 'unknown'), so hours-old text is not told as a current
+         promise, and never an entry with an @ in it (agent-written text, and an email must not reach the thread). */
       let owed = '';
       if (m.offLimit) {
         let promised = [];
-        try { const rec = deps.readCommitment ? deps.readCommitment(m.agent) : null; promised = (rec && Array.isArray(rec.commitments) ? rec.commitments : []).map((x) => (x && typeof x.what === 'string' ? x.what.trim() : '')).filter(Boolean).slice(0, 5); }
+        try {
+          const rec = deps.readCommitment ? deps.readCommitment(m.agent) : null;
+          const current = rec && rec.state === 'holding' && rec.stale !== true && Array.isArray(rec.commitments) ? rec.commitments : [];
+          promised = current.map((x) => (x && typeof x.what === 'string' ? x.what.trim() : '')).filter((t) => t && !t.includes('@')).slice(0, 5);
+        }
         catch { promised = []; }
         owed = ' It had stopped at its usage limit, and the restart ended anything it had running, so it may need to pick its work back up.'
           + (promised.length ? ` Before the move it had said it was committed to: ${promised.join('; ')}.` : '');

@@ -296,7 +296,7 @@ test('#7152 review 9: one bad entry in the projects file is skipped, not a faile
 test('kosmos#8048: an agent stopped at a dated limit is movable, whatever it holds; an undated or past one, unsent words or the guide are not', () => {
   const [base] = realCards(['lim']);
   const at = (line, o = {}) => ({ ...base, state: 'rate_limited', stateEvidence: line, ...o });
-  const weekly = "You've hit your limit · resets Jan 1, 2030 at 3pm (America/Chicago)";
+  const weekly = "You've hit your weekly limit · resets Nov 7 at 4am (America/Chicago)";   // as Claude Code prints it: no year
   const records = [{ id: 'p1', tasks: [{ id: 't1', parts: [{ who: 'lim', title: 'x' }] }] }];   // it holds an open part
   const promised = () => ({ state: 'unknown', commitments: ['a release'] });                    // and names a commitment
   const m = (card, o = {}) => ab.movableFor({ cards: [card], records, readCommitment: promised, isGuide: () => false, guideName: () => null, nowMs: NOW, ...o })('lim');
