@@ -73,13 +73,14 @@ function note(name, v, now = Date.now()) {
     }
     if (v.busy === true || v.contentRefused === true) return;
     if (v.state !== 'could_not' && v.state !== 'unconfirmed') return;
-    /* #8021: a pass of the stuck-input sweep over a full box with messages kept behind it. It keeps a stall alive and can
-       start one, but no line was tried, so it is counted apart from `count`: the log's tries, failCount and takeBack
-       all rest on that. It does not name the cause of a streak that real failures began. */
+    /* #8021: a pass of the stuck-input sweep over a full box with messages kept behind it. No line was tried, so passes
+       have their own count and clock, and move nothing of a real failure's (`count`, `since`, `lastAt`): old failures
+       and a box that fills for a minute must not add up to a stall (stallOf). */
     if (v.swept === true) {
       const had = streaks.get(name);
-      if (!had) { streaks.set(name, { since: now, count: 0, swept: 1, lastWhy: 'input', lastAt: now, kinds: new Set() }); return; }
-      had.swept = (had.swept || 0) + 1; had.lastAt = now;
+      if (!had) { streaks.set(name, { since: now, count: 0, swept: 1, firstPass: now, lastPass: now, lastWhy: 'input', lastAt: now, kinds: new Set() }); return; }
+      had.swept = (had.swept || 0) + 1; had.lastPass = now;
+      if (!Number.isFinite(had.firstPass)) had.firstPass = now;
       if (!had.count) had.lastWhy = 'input';
       return;
     }
@@ -103,12 +104,11 @@ function takeBack(name, { drained = true } = {}) {
   const s = streaks.get(String(name));
   if (!s) return;
   if (!s.count) {
-    if (s.said && !drained) s.swept = 0;
-    else if (s.swept !== undefined) streaks.delete(String(name));
+    if (s.said && !drained) { s.swept = 0; s.firstPass = null; } else if (s.swept !== undefined) streaks.delete(String(name));
     return;
   }
   if (!s.swept) return;
-  s.swept = 0;
+  s.swept = 0; s.firstPass = null;
   // A stall already said keeps its date: said, its end and its push all match on it.
   if (!s.said && Number.isFinite(s.firstTry)) s.since = s.firstTry;
 }
@@ -125,12 +125,19 @@ function noted(name, v) {
    only of usage-limit holds is then not a stall to warn about (the card already says it). */
 function stallOf(name, { now = Date.now(), limitShown = false } = {}) {
   const s = streaks.get(name);
-  if (!s || s.count + (s.swept || 0) < STALL_MIN_FAILS || now - s.since < STALL_MS || now - s.lastAt > FRESH_MS) return null;
+  if (!s) return null;
+  /* #8021: two ways to be a stall, each on its own clock. Real failures: this many, this old, the last one fresh. Or the
+     box itself: passes for this long, the last one fresh. A streak's first failure may come after passes began. */
+  const firstFail = Number.isFinite(s.firstTry) ? s.firstTry : s.since;
+  const byFailures = s.count >= STALL_MIN_FAILS && now - firstFail >= STALL_MS && now - s.lastAt <= FRESH_MS;
+  const byBox = (s.swept || 0) >= STALL_MIN_FAILS && now - s.firstPass >= STALL_MS && now - s.lastPass <= FRESH_MS;
+  if (!byFailures && !byBox) return null;
   // A run of usage-limit or shared-quota holds alone is a planned pause the card already shows (round 3: quota too).
-  // #8021: not while the sweep is counting a full box: that is not the limit's doing.
-  if (limitShown && !s.swept && [...s.kinds].every((k) => k === 'limit' || k === 'quota')) return null;
-  const why = Object.hasOwn(WHY_WORDS, s.lastWhy) ? s.lastWhy : 'unknown';
-  return { since: new Date(s.since).toISOString(), count: s.count, lastWhy: s.lastWhy, words: WHY_WORDS[why], next: NEXT_WORDS[why] };
+  // #8021: not when the full box is itself the stall: that is not the limit's doing.
+  if (limitShown && !byBox && [...s.kinds].every((k) => k === 'limit' || k === 'quota')) return null;
+  const lastWhy = byFailures ? s.lastWhy : 'input';
+  const why = Object.hasOwn(WHY_WORDS, lastWhy) ? lastWhy : 'unknown';
+  return { since: new Date(s.since).toISOString(), count: s.count, lastWhy, words: WHY_WORDS[why], next: NEXT_WORDS[why] };
 }
 
 /* kosmos#7368: the card's deliveryStall for a step that never ends, { since (ISO, its last sign of activity), count
