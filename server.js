@@ -14314,6 +14314,10 @@ const server = http.createServer(async (req, res) => {
           /* kosmos#7548: whether this board MOVES agents, not only records: the mover was made at start and moves are still
              switched on. The page says moves are on only then. */
           try { autobalance.moving = autobalance.recording === true && !!automoveRun && automove.movesOn(); } catch { autobalance.moving = false; }
+          /* kosmos#8056: the mover's own gate. `moving` also needs the sweep's last write to have worked, which the mover's
+             tick does not ask, so a board can move while `moving` is false. A throw reads armed if a mover was made: this
+             only takes away the page's flat "Nothing is moved". */
+          try { autobalance.armed = !!automoveRun && automove.movesOn(); } catch { autobalance.armed = !!automoveRun; }
           /* Review round 6: why a moving board moves nobody now (lines its record could not take yet), so the page says so. */
           try { autobalance.movePaused = autobalance.moving === true ? automoveRun.paused() : null; } catch { autobalance.movePaused = null; }
           autobalance.recent = [];

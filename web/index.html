@@ -30057,7 +30057,7 @@ function paintAutobalance(ab, list) {
   const opening = (x) => esc(label(x.from)) + (x.kind === 'login' ? ' cannot be used right now' : ' is running out') + ', because ' + esc(x.why);
   /* kosmos#8056: the hint's last sentences are false on a board whose mover is armed. */
   const abDry = document.getElementById('ab-dry');
-  if (abDry) abDry.hidden = ab.moving === true;
+  if (abDry) abDry.hidden = ab.armed === true;
   let html = '';
   if (!known) html = line('We could not read this setting just now.');   // review 3: as the Assigner's says
   else if (ab.unreadable) html = line('Kosmos could not work out what it would move just now.');
@@ -30065,8 +30065,8 @@ function paintAutobalance(ab, list) {
     const moves = Array.isArray(ab.moves) ? ab.moves : [];
     const held = Array.isArray(ab.held) ? ab.held : [];
     const short = Array.isArray(ab.short) ? ab.short : [];
-    /* kosmos#7548 review round 6: while this board moves, a move line says what the mover will do (it waits for two idle
-       checks), a move off a stopped login says the mover leaves it, since it moves for usage only, and (review round 7) an
+    /* kosmos#7548 review round 6: while this board moves, a move line says what the mover will do (it waits for two checks
+       of an agent idle or at its limit), a move off a stopped login says the mover leaves it, since it moves for usage only, and (review round 7) an
        agent the mover is leaving alone for now says so. */
     /* Review round 8: the route's moves carry no kind (only the sweep's record adds it), so it is read from the account's
        own at-risk entry, as the sweep's kindOf does. */
@@ -30095,7 +30095,7 @@ function paintAutobalance(ab, list) {
     /* Review 3: an account at risk with no agent free to move on it is said, not silent. kosmos#8056: not "working", since one waiting on the person is neither. */
     const said = new Set([...moves.map((m) => m.from), ...held.map((h) => h.from), ...short]);
     html += (Array.isArray(ab.atRisk) ? ab.atRisk : []).filter((x) => !said.has(x.from))
-      .map((x) => line(opening(x) + ', but none of its agents is free to move right now.')).join('');
+      .map((x) => line(opening(x) + ', but none of its agents is free to move.')).join('');
     if (!html) html = line('Nothing to move right now.');
   }
   /* Slice 3: what Kosmos would have moved lately, from the sweep's record. Shown also when the current decision could
@@ -30150,7 +30150,7 @@ function abRecentHtml(recent, label, who, line) {
       else if (e.kind === 'move' && e.outcome === 'partial') out.push(lead('Kosmos saved ' + to + ' for ' + agent + ' but did not see it restart there. Check which account it is on above.'));   // kosmos#7621 review 2: a late restart or a stop can be partial too
       else if (e.kind === 'move' && e.outcome === 'unknown') out.push(lead('Kosmos tried to move ' + agent + ' to ' + to + ' and could not tell whether it went through. Check which account it is on above.'));
       else if (e.kind === 'move' && e.outcome === 'refused') out.push(lead('Kosmos tried to move ' + agent + ' to ' + to + ', and the move was refused, so it stays on ' + from + '.'));
-      else if (e.kind === 'skipped') out.push(lead('Kosmos did not move ' + agent + ', because ' + esc(e.because || 'it was no longer free to move') + '.')   /* kosmos#8056: the record words its reason; older records have none */);
+      else if (e.kind === 'skipped') out.push(lead('Kosmos did not move ' + agent + ', because ' + esc(e.because || 'it was no longer free to move') + '.')   /* kosmos#8056: the record words its reason (older records say no longer idle, true when written); the fallback is for a damaged line */);
       else if (e.kind === 'released') out.push(lead(agent + ' is not on ' + to + ' now (a person moved it or removed it, or the move did not go through), so Kosmos leaves it where it is for a day.'));
       else if (e.kind === 'works' && e.works === 'yes') out.push(lead(agent + ' was seen working on ' + to + '.'));
       else if (e.kind === 'works' && e.works === 'no') out.push(lead(agent + "'s first request on " + to + ' was refused. Move it back if it needs to work now; Kosmos will not move agents to ' + to + ' for a day.'));

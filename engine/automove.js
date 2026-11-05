@@ -38,9 +38,13 @@ const REFUSED_TIMES = 3;          // refused this many times in a day, it is pas
    set), passed to create(); engine/usagepoll.js's POLL_MS when none is. */
 const PERIOD_MS = require('./usagepoll').POLL_MS;
 const previousTickMs = (periodMs) => 2.5 * (Number.isFinite(periodMs) && periodMs > 0 ? periodMs : PERIOD_MS);
-/* kosmos#8056: each entry is agent-written, up to 300 characters, and goes into the person's thread. By code point, so an emoji is not split. Cut after the @ filter, so a cut can never hide an email from it. */
-const capPromise = (t) => { const c = Array.from(t); return c.length > 120 ? c.slice(0, 120).join('').trimEnd() + '...' : t; };
-const SKIP_SAID_MS = 60 * 60 * 1000;   // a "no longer idle" line for one agent at most once an hour
+/* kosmos#8056: each promise is agent-written, up to 300 characters, and goes into the person's thread, so it is cut to what
+   a reader takes in at a glance. 120 is a judgement, not a measurement. */
+const PROMISE_MAX_CHARS = 120;
+/* By code point, so a surrogate pair is never broken (a joined emoji can still be cut to its first part). Runs after the @
+   filter, so a cut can never hide an email from it. */
+const capPromise = (t) => { const c = Array.from(t); return c.length > PROMISE_MAX_CHARS ? c.slice(0, PROMISE_MAX_CHARS).join('').trimEnd() + ' (cut short)' : t; };
+const SKIP_SAID_MS = 60 * 60 * 1000;   // a skipped line for one agent at most once an hour
 /* kosmos#7621 item 8: an agent whose re-check could not be made is set aside this long (ten minutes), in memory and with no line, so
    the next candidate gets its turn (the first candidate is always tried first, so one such agent blocked every move). */
 const RECHECK_HOLD_MS = 10 * 60 * 1000;   // review 3: long enough for the next candidate, short for one bad roster read
