@@ -80,6 +80,20 @@ test('it refuses what it cannot answer for, and writes nothing', () => {
   assert.equal(trust.declineExternalImports(folder(), { configDir: empty }).ok, false, 'made up a config file');
 });
 
+test('inside a git repository the answer goes under the repository root, as Claude Code reads it', () => {
+  const dir = acct();
+  const root = folder();
+  fs.mkdirSync(nodePath.join(root, '.git'));
+  const sub = nodePath.join(root, 'a', 'b');
+  fs.mkdirSync(sub, { recursive: true });
+  assert.deepEqual(trust.declineExternalImports(sub, { configDir: dir }), { ok: true, wrote: true });
+  const projects = read(dir).projects;
+  assert.equal(projects[root] && projects[root][S], true, 'not written under the root: ' + JSON.stringify(Object.keys(projects)));
+  assert.equal(projects[sub], undefined, 'written under the subfolder, which Claude Code does not read');
+  /* A second press finds it answered, and does not write again. */
+  assert.equal(trust.declineExternalImports(sub, { configDir: dir }).wrote, false);
+});
+
 const DIALOG = [
   '────────────────────────────────',
   '  Allow external CLAUDE.md file imports?',

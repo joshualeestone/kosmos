@@ -1060,17 +1060,25 @@ function declineExternalImports(dir, opts) {
   let key;
   try { key = fs.realpathSync.native(dir); }
   catch { return { ok: false, because: 'that folder is not there' }; }
+  /* Inside a git repository Claude Code reads this answer under the repository's root. Measured on 2.1.318 in a subfolder
+     of a repo: written under the subfolder the dialog came back; under the root it did not. */
+  for (let up = key; ;) {
+    if (fs.existsSync(path.join(up, '.git'))) { key = up; break; }
+    const parent = path.dirname(up);
+    if (parent === up) break;
+    up = parent;
+  }
   key = key.split(path.sep).join('/');   // Claude Code's spelling on Windows, as in trustFolder
   const r = withWriteLock(target, () => {
-    try { if (fs.lstatSync(target).isSymbolicLink()) return { ok: false, because: 'their config file is a symlink' }; }
-    catch { return { ok: false, because: 'that account has no config file yet' }; }
+    try { if (fs.lstatSync(target).isSymbolicLink()) return { ok: false, because: 'the account settings file is a symlink' }; }
+    catch { return { ok: false, because: 'that account has no settings file yet' }; }
     let data;
     let prevMode;
     try {
       prevMode = fs.statSync(target).mode & 0o7777;
       data = JSON.parse(fs.readFileSync(target, 'utf8'));
-    } catch { return { ok: false, because: 'we could not read their config file' }; }
-    if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, because: 'their config file is not shaped the way we expect' };
+    } catch { return { ok: false, because: 'we could not read the account settings file' }; }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, because: 'the account settings file is not shaped the way we expect' };
     const projects = data.projects;
     if (projects !== undefined && (projects === null || typeof projects !== 'object' || Array.isArray(projects))) {
       return { ok: false, because: 'their config file is not shaped the way we expect' };
