@@ -45,6 +45,7 @@ This change:
 - After a successful press the button stays off until the question goes, or 20 seconds pass.
 - An idle card that HAS taken turns before and restarts into the dialog (say, imports were added to its CLAUDE.md) is
   not freshly read while it reads idle; it is covered once the snapshot reads needs_you.
-- Linux: the box's sentence names the terminal; the Open Terminal button is hidden there.
+- The box no longer names the terminal (design review): Yes stays only in the agent's terminal, and the page does not
+  say so. A second button for Yes would be Josh's call.
 - Not walked on a real board end to end with this branch; the write and its effect were measured on 2.1.318.
 - The project member thread route does not send `importsAsk`.
