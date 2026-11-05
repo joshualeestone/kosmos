@@ -29,7 +29,7 @@ function stuckCards(roster, now, stuckMs) {
 
 /**
  * deps: { allowed() -> bool, roster() -> cards, recover(card, since) -> Promise<{ outcome, because?, id? }>,
- *         stuckMs, log(line), now?(), heldBehind?(sessionName) -> bool, noteHeld?(sessionName, now), takeBack?(sessionName) }.
+ *         stuckMs, log(line), now?(), heldBehind?(sessionName) -> bool, noteHeld?(sessionName, now), takeBack?(sessionName, drained) }.
  *         Returns the tick (async; resolves when this pass is done).
  */
 function makeTick(deps) {
@@ -49,19 +49,23 @@ function makeTick(deps) {
       let roster = null;
       try { roster = deps.roster(); } catch { roster = null; }
       const now = deps.now ? deps.now() : Date.now();
-      /* #8021: nothing kept any more (typed, or aged out with no verdict). Only this sweep's own passes are taken back:
-         real failures in the same streak stay, and a line typed but not seen to land is one of those. */
+      /* #8021: this sweep's own passes are taken back once nothing is kept (typed, or aged out with no verdict), or the box
+         has stopped reading text. Real failures in the same streak stay, and a line typed but not seen to land is one. */
       for (const s of [...notedHeld]) {
         let still = true;
         try { still = !!deps.heldBehind(s); } catch { /* not known to be gone */ }
-        if (!still) { notedHeld.delete(s); try { deps.takeBack(s); } catch { /* the next failure carries it on */ } }
+        const card = Array.isArray(roster) ? roster.find((c) => c && c.sessionName === s) : null;
+        try {
+          if (!still) { notedHeld.delete(s); deps.takeBack(s, true); } else if (card && !card.unsentInput) deps.takeBack(s, false);
+        } catch { /* the next failure carries it on */ }
       }
       const cards = stuckCards(roster, now, deps.stuckMs);
       const names = new Set(cards.map((c) => c.sessionName));
       /* Both kept while the agent is on the board at all (a minute busy does not forget them); a new text has a new since. */
       const onBoard = new Set((Array.isArray(roster) ? roster : []).map((c) => c && c.sessionName));
       for (const m of [told, gaveUp, waitedSaid]) for (const k of [...m.keys()]) if (!onBoard.has(k)) m.delete(k);
-      for (const k of [...notedHeld]) if (!onBoard.has(k)) notedHeld.delete(k);
+      // Not on an empty read of the roster (as sayStalls), or the sweep loses track of passes it still has to take back.
+      if (onBoard.size) for (const k of [...notedHeld]) if (!onBoard.has(k)) notedHeld.delete(k);
       for (const card of cards) {
         /* #8021: messages kept behind a full box never reach a delivery verdict (messages.js keeps them first), so a box
            that stays full was never a stall: one card sentence, nothing on the phone. Each pass with some kept counts as

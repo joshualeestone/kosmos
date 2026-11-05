@@ -94,13 +94,20 @@ function note(name, v, now = Date.now()) {
 /* kosmos#7936: how many deliveries to `name` have failed in its current streak (0 with none), so a sender of Kosmos's
    own notices can stay under STALL_MIN_FAILS. */
 function failCount(name) { const s = streaks.get(String(name)); return s ? s.count : 0; }
-/* #8021: how many sweep passes the current streak holds, and taking exactly those back when nothing is kept behind the
-   box any more. Real failures stay, with their own start; a streak of only passes is gone. */
+/* #8021: how many sweep passes the current streak holds, and taking exactly those back once the box stops reading text
+   or nothing is kept any more. Real failures stay, with their own start. A streak of only passes is gone, except one
+   already said while its messages still wait (`drained` false): it stays, not a stall any more, so the line that lands
+   can say it ended. */
 function sweptCount(name) { const s = streaks.get(String(name)); return (s && s.swept) || 0; }
-function takeBack(name) {
+function takeBack(name, { drained = true } = {}) {
   const s = streaks.get(String(name));
-  if (!s || !s.swept) return;
-  if (!s.count) { streaks.delete(String(name)); return; }
+  if (!s) return;
+  if (!s.count) {
+    if (s.said && !drained) s.swept = 0;
+    else if (s.swept !== undefined) streaks.delete(String(name));
+    return;
+  }
+  if (!s.swept) return;
   s.swept = 0;
   // A stall already said keeps its date: said, its end and its push all match on it.
   if (!s.said && Number.isFinite(s.firstTry)) s.since = s.firstTry;
@@ -220,7 +227,7 @@ function spanWords(ms) {
 /* The board log's line for one stall that ended (kosmos#7212 item 2). */
 function endedLine(e) {
   return 'delivery-stall-ended: Kosmos placed a message for ' + e.name + ' at ' + e.endedAt + ', ending the stall that began ' + e.since
-    + ' (' + spanWords(e.ms) + (e.count > 0 ? ', ' + e.count + ' tries not seen to land' : ', its messages kept behind its input box')
+    + ' (' + spanWords(e.ms) + (e.count === 1 ? ', 1 try not seen to land' : e.count > 0 ? ', ' + e.count + ' tries not seen to land' : ', its messages kept behind its input box')
     + (e.pushed ? '; a stall push was sent' : '') + ').\n';
 }
 
@@ -258,7 +265,7 @@ const NEXT_WORDS = {
 /* The board log's line for one stall. */
 function stallLine(s) {
   return 'delivery-stall: no message has been seen to reach ' + s.name + ' since ' + s.since + ' ('
-    + (s.count > 0 ? s.count + ' tries' : 'its messages kept behind its input box') + '). ' + s.words + '.\n';
+    + (s.count === 1 ? '1 try' : s.count > 0 ? s.count + ' tries' : 'its messages kept behind its input box') + '). ' + s.words + '.\n';
 }
 
 /* kosmos#7368: the board log's line for one step that never ends, said once per stuck step. */

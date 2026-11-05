@@ -28127,9 +28127,9 @@ function start(port = PORT) {
         stuckMs: chat.STUCK_INPUT_MS,
         log: (line) => process.stdout.write(line),
         // #8021: the same key as a delivery to this agent (chat streakKey), counted as the sweep's and not as a try.
-        heldBehind: (session) => require('./engine/limitqueue').heldForInput(session),
+        heldBehind: (session) => require('./engine/limitqueue').heldForAgent(session),
         noteHeld: (session, now) => require('./engine/deliverystreak').note(session, { state: 'could_not', inputHeld: true, swept: true }, now),
-        takeBack: (session) => require('./engine/deliverystreak').takeBack(session),
+        takeBack: (session, drained) => require('./engine/deliverystreak').takeBack(session, { drained }),
       });
       const stuckInputSweep = setInterval(() => { stuckInputTick().catch(() => {}); }, Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_SWEEP_MS) : 60 * 1000); // the env is the test seam only
       if (stuckInputSweep && typeof stuckInputSweep.unref === 'function') stuckInputSweep.unref();

@@ -29,9 +29,9 @@ const ISO = new Date(T0).toISOString();
 const DELIVERY = { PLACED: 'placed', UNCONFIRMED: 'unconfirmed' };
 
 const wiring = {
-  heldBehind: (session) => limitqueue.heldForInput(session),
+  heldBehind: (session) => limitqueue.heldForAgent(session),
   noteHeld: (session, now) => ds.note(session, { state: 'could_not', inputHeld: true, swept: true }, now),
-  takeBack: (session) => ds.takeBack(session),
+  takeBack: (session, drained) => ds.takeBack(session, { drained }),
 };
 function sweep(card, clock, recover = async () => ({ outcome: 'left', because: 'Enter did not send it' })) {
   return stuckinput.makeTick({
@@ -73,11 +73,78 @@ test('kosmos#8021: a full box with nothing kept behind it says nothing: no messa
   assert.equal(ds.sweptCount(s), 0);
 });
 
-test('kosmos#8021: a message kept for another reason does not count', async () => {
+test('kosmos#8021: a message first kept for a limit counts: the box is what stops it now', async () => {
   const s = 's-limit'; const clock = { at: T0 };
   assert.equal(limitqueue.addOrWhy(s, { id: 'm2', from: 'x', envelope: 'hello', at: ISO, reset: ISO, key: 'm2' }), '');
   await run(sweep(cardFor(s), clock), clock, T0 + 11 * MIN, T0 + 45 * MIN);
+  assert.equal(said(s, clock.at).length, 1);
+});
+
+test('kosmos#8021: once the box reads empty, a stall of passes stops, and nothing claims text that is gone', async () => {
+  const s = 's-boxclear'; const clock = { at: T0 }; const card = cardFor(s);
+  keep(s, 'm12');
+  const tick = sweep(card, clock);
+  await run(tick, clock, T0 + 11 * MIN, T0 + 45 * MIN);
+  assert.ok(ds.sweptCount(s) >= 3, 'CONTROL: the sweep had counted');
+  delete card.unsentInput;
+  clock.at += MIN; await tick();
+  assert.equal(ds.sweptCount(s), 0, 'taken back');
+  assert.equal(limitqueue.list(s).length, 1, 'CONTROL: the message still waits');
+  assert.deepEqual(said(s, clock.at), [], 'not a stall any more');
+});
+
+test('kosmos#8021: a stall already said, its box now empty, still says it ended when the message lands', async () => {
+  const s = 's-saidclear'; const clock = { at: T0 }; const card = cardFor(s);
+  keep(s, 'm13');
+  const tick = sweep(card, clock);
+  await run(tick, clock, T0 + 11 * MIN, T0 + 45 * MIN);
+  const map = new Map();
+  assert.equal(said(s, clock.at, map).length, 1, 'CONTROL: said');
+  delete card.unsentInput;
+  clock.at += MIN; await tick();
+  assert.deepEqual(ds.stallsToSay([s], map, { now: clock.at }), [], 'not said again');
+  await flushWith(card, clock, 'placed');
+  const ends = ds.endsToSay(map, { now: clock.at + MIN });
+  assert.equal(ends.length, 1, 'its end is said');
+});
+
+test('kosmos#8021: a said stall whose messages then drain with no line landing leaves nothing behind', async () => {
+  const s = 's-saiddrain'; const clock = { at: T0 }; const card = cardFor(s);
+  keep(s, 'm14');
+  const tick = sweep(card, clock);
+  await run(tick, clock, T0 + 11 * MIN, T0 + 45 * MIN);
+  assert.equal(said(s, clock.at).length, 1, 'CONTROL: said');
+  delete card.unsentInput;
+  clock.at += MIN; await tick();
+  limitqueue.remove(s, 'm14');
+  clock.at += MIN; await tick();
+  // Three, so the count is no reason to stay quiet: only the start can be, and a kept streak would still have the old one.
+  for (let i = 0; i < 3; i += 1) ds.note(s, { state: 'could_not', because: 'x' }, clock.at + 60 * MIN + i);
+  assert.deepEqual(said(s, clock.at + 60 * MIN + 3), [], 'later refusals are not dated from the old stall');
+  assert.equal(ds.failCount(s), 3, 'CONTROL: they were counted');
+});
+
+test('kosmos#8021: one empty read of the roster does not lose the passes the sweep has to take back', async () => {
+  const s = 's-emptyread'; const clock = { at: T0 }; const card = cardFor(s);
+  keep(s, 'm15');
+  let roster = [card];
+  const tick = stuckinput.makeTick({
+    allowed: () => true, roster: () => roster, recover: async () => ({ outcome: 'left', because: 'x' }), stuckMs: 10 * MIN, log: () => {}, now: () => clock.at, ...wiring,
+  });
+  await run(tick, clock, T0 + 11 * MIN, T0 + 15 * MIN);
+  assert.ok(ds.sweptCount(s) >= 3, 'CONTROL: the sweep had counted');
+  roster = [];
+  clock.at += MIN; await tick();
+  roster = [card];
+  limitqueue.remove(s, 'm15');
+  clock.at += MIN; await tick();
   assert.equal(ds.sweptCount(s), 0);
+});
+
+test('kosmos#8021: one real try alongside the sweep\'s passes reads as one try', () => {
+  assert.match(ds.stallLine({ name: 'x', since: ISO, count: 1, words: 'w' }), /\(1 try\)/);
+  assert.match(ds.endedLine({ name: 'x', since: ISO, endedAt: ISO, count: 1, ms: MIN }), /, 1 try not seen to land/);
+  assert.match(ds.stallLine({ name: 'x', since: ISO, count: 4, words: 'w' }), /\(4 tries\)/);
 });
 
 test('kosmos#8021: a box the sweep gave up on still counts', async () => {
@@ -215,7 +282,7 @@ test('kosmos#8021: server.js wires the sweep with the same words as this test', 
   const at = text.indexOf("require('./engine/stuckinput').makeTick(");
   assert.ok(at > 0, 'the sweep is not wired');
   const block = text.slice(at, text.indexOf('stuckInputSweep.unref()', at));
-  assert.match(block, /heldBehind: \(session\) => require\('\.\/engine\/limitqueue'\)\.heldForInput\(session\)/);
+  assert.match(block, /heldBehind: \(session\) => require\('\.\/engine\/limitqueue'\)\.heldForAgent\(session\)/);
   assert.match(block, /noteHeld: \(session, now\) => require\('\.\/engine\/deliverystreak'\)\.note\(session, \{ state: 'could_not', inputHeld: true, swept: true \}, now\)/);
-  assert.match(block, /takeBack: \(session\) => require\('\.\/engine\/deliverystreak'\)\.takeBack\(session\)/);
+  assert.match(block, /takeBack: \(session, drained\) => require\('\.\/engine\/deliverystreak'\)\.takeBack\(session, \{ drained \}\)/);
 });
