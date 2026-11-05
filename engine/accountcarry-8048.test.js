@@ -57,7 +57,7 @@ test('kosmos#8048: a linked skills folder (how Agent1s shares one) counts as hav
 });
 
 test('kosmos#8048: a folder that cannot be read is "cannot tell", never "nothing lost"', () => {
-  const ok = folder({ skills: ['a'], hooks: ['bash x.sh'] });
+  const ok = folder({ skills: ['a'], hooks: ['echo x'] });   // #8063: inline, so the control is not a script it cannot resolve
   const broken = folder({ settings: '{ not json' });
   assert.equal(carry.losses(ok, broken).ok, false, 'a target whose settings do not parse read as safe');
   assert.match(carry.losses(ok, broken).because, /account it would move to/);
@@ -70,7 +70,7 @@ test('kosmos#8048: a folder that cannot be read is "cannot tell", never "nothing
   // CONTROL: a folder with no skills/ and no settings.json at all is readable, and loses everything the source has.
   const empty = path.join(TMP, `acct-${++n}`);
   fs.mkdirSync(empty);
-  assert.deepEqual(carry.losses(ok, empty), { ok: true, skills: ['a'], changed: [], hooks: ['x.sh'], hooksChanged: [] });
+  assert.deepEqual(carry.losses(ok, empty), { ok: true, skills: ['a'], changed: [], hooks: ['echo x'], hooksChanged: [] });
 });
 
 test('kosmos#8048: the default account is ~/.claude under the given home', () => {
@@ -148,8 +148,9 @@ test('kosmos#8048 review 4: one hook written two ways is not a loss; a missing t
     'the same hook with its argument spelled ~ and $HOME read as lost');
   assert.deepEqual(carry.losses(g('bash ~/.claude/hooks/g.sh ~/.claude/a'), g('bash ~/.claude/hooks/g.sh ~/.claude/b'), H).hooks, ['g.sh'],
     'CONTROL: a hook with a different argument read as kept');
-  assert.deepEqual(carry.losses(folder({ hooks: ['bash gate.sh'] }), folder({ hooks: ['bash /nonexistent-8048/gate.sh'] }), H).hooks, ['gate.sh'],
-    'a target whose script is missing read as keeping the gate');
+  /* #8063 item 2: a relative source path cannot be checked at all, so the answer is "cannot tell", not a named loss. */
+  const rel = carry.losses(folder({ hooks: ['bash gate.sh'] }), folder({ hooks: ['bash /nonexistent-8048/gate.sh'] }), H);
+  assert.equal(rel.ok, false, 'a relative source script was answered as if checked: ' + JSON.stringify(rel));
 });
 
 test('kosmos#8048 review 5: shell syntax left in a hook path, a prompt hook, and an empty skill folder on the target are all losses', () => {
@@ -224,4 +225,52 @@ test('kosmos#8048 review 7: quoted variables and a :- default resolve as the she
   assert.deepEqual(carry.losses(m('Bash|Edit'), m('Edit|Bash'), H).hooks, [], 'Bash|Edit and Edit|Bash read as different');
   assert.deepEqual(carry.losses(m('Bash'), m('^Bash$'), H).hooks, [], 'Bash and ^Bash$ read as different');
   assert.equal(carry.sentence({ ok: true, skills: [], changed: [], hooks: [], hooksChanged: ['gate.sh'] }), "It has a different copy of the hook gate.sh, which may not do what the agent's does now.");
+});
+
+test('kosmos#8063 item 1: a hook\'s if, timeout, async and shell are part of its wiring; a narrower if on the target is not the same gate', () => {
+  const gate = 'bash $CLAUDE_CONFIG_DIR/hooks/gate.sh';
+  const withGate = (extra = {}) => {
+    const d = folder({ settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: gate, ...extra }] }] } }) });
+    fs.mkdirSync(path.join(d, 'hooks'), { recursive: true }); fs.writeFileSync(path.join(d, 'hooks', 'gate.sh'), '#!/bin/sh\nexit 0\n');
+    return d;
+  };
+  const from = withGate({ if: 'Bash(git push*)' });
+  assert.deepEqual(carry.losses(from, withGate({ if: 'Bash(git push*)' }), H).hooks, [], 'CONTROL: the same gate with the same if was not kept');
+  assert.deepEqual(carry.losses(from, withGate({ if: 'Bash(git push --force*)' }), H).hooks, ['gate.sh'], 'a gate with a narrower if on the target read as kept');
+  assert.deepEqual(carry.losses(from, withGate(), H).hooks, ['gate.sh'], 'a gate whose if differs (absent on the target) read as kept');
+  const t = withGate({ timeout: 60 });
+  assert.deepEqual(carry.losses(t, withGate({ timeout: 5 }), H).hooks, ['gate.sh'], 'a gate with another timeout read as kept');
+  assert.deepEqual(carry.losses(withGate(), withGate({ async: true }), H).hooks, ['gate.sh'], 'a blocking gate made async on the target read as kept');
+  assert.deepEqual(carry.losses(withGate(), withGate({ shell: 'powershell' }), H).hooks, ['gate.sh'], 'a gate run by another shell read as kept');
+  assert.deepEqual(carry.losses(withGate(), withGate(), H).hooks, [], 'CONTROL: no extra fields on either side was not kept');
+  const prompt = (extra) => folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'prompt', prompt: 'check it', ...extra }] }] } }) });
+  assert.deepEqual(carry.losses(prompt({ if: 'x' }), prompt({}), H).hooks, ['a prompt hook on Stop'], 'a prompt hook\'s if was not compared');
+});
+
+test('kosmos#8063 item 2: a script path that cannot be resolved makes the answer "cannot tell", never kept', () => {
+  const w = (cmd) => folder({ settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: cmd }] }] } }) });
+  /* Measured in review 8: %USERPROFILE% with the script absent on both sides came out hooks: []. */
+  const up = carry.losses(w('powershell -File %USERPROFILE%\\hooks\\gate.ps1'), w('powershell -File %USERPROFILE%\\hooks\\gate.ps1'), H);
+  assert.equal(up.ok, false, '%USERPROFILE% read as checked: ' + JSON.stringify(up));
+  assert.match(up.because, /gate\.ps1/);
+  assert.equal(carry.loses(up), false, 'premise: callers read ok false as cannot tell, not as a loss list');
+  const sp = carry.losses(w('bash /Users/John Smith/.claude/hooks/gate.sh'), w('bash /Users/John Smith/.claude/hooks/gate.sh'), H);
+  assert.equal(sp.ok, false, 'a path with a space read as checked: ' + JSON.stringify(sp));
+  /* CONTROL: an inline command (no script) and a resolvable script still answer. */
+  assert.equal(carry.losses(w('echo hi'), w('echo hi'), H).ok, true);
+  assert.equal(carry.losses(w('bash ~/.claude/hooks/user/pre-challenge-gate.sh'), w('bash ~/.claude/hooks/user/pre-challenge-gate.sh'), H).ok, true);
+});
+
+test('kosmos#8063 item 3: a skill is read in bounded bytes and folders, and a cut read still tells copies apart', () => {
+  const big = (fill) => { const d = folder({ skills: ['huge'] }); fs.writeFileSync(path.join(d, 'skills', 'huge', 'blob.bin'), Buffer.alloc(3 * 1024 * 1024, fill)); return d; };
+  const a = big(1);
+  assert.deepEqual(carry.losses(a, big(1), H).changed, [], 'CONTROL: the same large skill read as different');
+  /* Same first megabyte, different size: still a different copy. */
+  const b = folder({ skills: ['huge'] }); fs.writeFileSync(path.join(b, 'skills', 'huge', 'blob.bin'), Buffer.alloc(2 * 1024 * 1024, 1));
+  assert.deepEqual(carry.losses(a, b, H).changed, ['huge'], 'a large file with another size read as the same');
+  const wide = (k) => { const d = folder({ skills: ['wide'] }); for (let i = 0; i < k; i++) fs.mkdirSync(path.join(d, 'skills', 'wide', 'd' + String(i).padStart(4, '0'))); return d; };
+  const t0 = Date.now();
+  const l = carry.losses(wide(1500), wide(1500), H);
+  assert.equal(l.ok, true);
+  assert.ok(Date.now() - t0 < 5000, 'a wide empty tree was walked without a bound');
 });
