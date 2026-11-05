@@ -6963,14 +6963,14 @@ cmd_project() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos project <list|show|create|pause|role|remove-member>"
+      say "Usage: kosmos project <list|show|who|create|pause|role|remove-member>"
       say "  kosmos project list                                             every project: members, model families, tasks"
       say "  kosmos project show <project-id>                                one project: folder, goal and done, tasks, each member's family and summary"
       say "  kosmos project create \"<name>\" <folder> [\"<description>\"]   make a new project (it shows on your board, tagged as made by you)"
       say "  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)"
       say "  kosmos project role <project-id> \"<what you do here>\"         say what you do on this project, 60 characters at most; project show lists it beside you (\"\" clears it)"
       say "  kosmos project remove-member <project-id> \"<name>\" [--yes]   take a member off a project, after a confirm (--yes for scripts)"
-      # kosmos#7989 slice 2: Mac only for now, so it is listed after the lines the Windows CLI shares (cli.project-show-4581).
+      # kosmos#7989 slice 2: in both CLIs, the same line (tools/windows/kosmos-cli.js USAGE.project).
       say "  kosmos project who <file>                                       one project file: the agent Kosmos last saw about to change it, its owner, and whether a change came after that Kosmos did not see"
       say "  <folder> is a path on this machine; the project's files live there."
       exit 2 ;;
