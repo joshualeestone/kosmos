@@ -689,20 +689,27 @@ module.exports = {
 /* Run only when invoked directly (Claude Code spawns node with this file as its
    arg, exec form, #570); a require() in a test never triggers a network send.
    stdin is the event JSON.
-   attachStdin fires `run` once (on end OR error); the unref'd timer is the
+   attachStdin fires `run` once (on end OR error), and `done` ends it (kosmos#8014: by letting
+   the process finish, process.exit only as a 2 s backstop); the 5 s unref'd timer is the
    backstop for a stdin that never ends -- finishNow shares attachStdin's
    once-guard, so run cannot fire twice regardless of timing. */
 if (require.main === module) {
   /* kosmos#8014: the process ends on its own once its work is done, and process.exit is only the backstop. Measured on
      the Windows box (node 24): two requests to the board in one run, then process.exit, died on a libuv assertion
      (UV_HANDLE_CLOSING, exit 127), which a UserPromptSubmit that also takes its file notices did on every prompt. A
-     natural exit measured 0 every time. The 2 s unref'd timer still ends a run that something holds open. */
-  const done = (code) => { process.exitCode = code || 0; setTimeout(() => process.exit(code || 0), 2000).unref(); };
+     natural exit measured 0 every time. stdin is let go of first (review 1): a stdin that never ended would otherwise
+     hold the process until the backstop. The 2 s unref'd timer still ends a run that something else holds open; it
+     is the only path that calls process.exit. */
+  const done = (code) => {
+    process.exitCode = code || 0;
+    try { process.stdin.removeAllListeners('data'); process.stdin.pause(); process.stdin.destroy(); } catch { /* already closed */ }
+    setTimeout(() => process.exit(code || 0), 2000).unref();
+  };
   const run = (input) => main({ input }).then(done).catch(() => done(0));
   const h = attachStdin(process.stdin, run);
   // 5s backstop (not 10s): with the 8s SessionStart deliver, 5+8=13s stays under
   // the hook entry's own 15s ceiling even in the pathological never-closing-stdin
-  // case; Claude Code writes the event and closes stdin in milliseconds, so `run`
+  // case (done lets go of stdin, so the run then ends on its own, not 2 s later); Claude Code writes the event and closes stdin in milliseconds, so `run`
   // normally fires at once and only the deliver timeout applies.
   setTimeout(() => h.finishNow(), 5000).unref();
 }

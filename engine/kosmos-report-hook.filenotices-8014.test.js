@@ -57,7 +57,7 @@ test('UserPromptSubmit prints the board\'s hook JSON, after the working report, 
   assert.match(t[0].url, /\/api\/file-notices\/take\?as=hook&from_pane=&ack=$/);
   assert.equal(t[0].init.method, 'POST');
   assert.equal(t[0].init.headers['x-kosmos-agent-token'], 'a1a1a1');
-  assert.ok(r.calls.findIndex((c) => c.url.endsWith('/api/report')) < r.calls.indexOf(t[0]), 'the notices came before the working report');
+  assert.ok(r.calls.findIndex((c) => c.url.endsWith('/api/report')) < r.calls.indexOf(t[0]), 'the working report did not come first');
 });
 
 test('anything that is not the hook JSON is dropped: nothing, other words, a refusal, or a failed fetch', async () => {
@@ -119,6 +119,17 @@ test('the ids handed over are sent back next time, and an empty answer clears th
   fs.writeFileSync(path.join(d, keyFor('a1a1a1') + '-ack'), 'x&y=1\n');
   const bad = await run(prompt, { throttleDir: d, now: () => 10000 + 2 * EVERY, notices: '' });
   assert.match(takes(bad.calls)[0].url, /&ack=$/);
+});
+
+test('a listener that cannot prove it is the board gets no notices call (the token never goes to it)', async () => {
+  const r = recorder('ack:a1\n' + HOOK_JSON);
+  const out = [];
+  await hook.main({
+    input: JSON.stringify(prompt), env: { KOSMOS_AGENT_TOKEN: 'a1a1a1' }, url: 'http://127.0.0.1:16180', boardToken: 'BT', fetchImpl: r.fetchImpl,
+    proveBoard: async () => ({ ok: false }), throttleDir: dir(), ppid: 4242, now: () => 10000, stdout: (x) => out.push(x), platform: 'win32',
+  });
+  assert.equal(takes(r.calls).length, 0);
+  assert.equal(out.join(''), '');
 });
 
 test('no other event asks for file notices', async () => {
