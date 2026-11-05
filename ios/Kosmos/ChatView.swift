@@ -838,6 +838,13 @@ struct ChatView: View {
                     kbSettleTick &+= 1; boxAskedAt = nil
                     if visible { diagKeyboard = 0; Self.trace("keyboard down") }
                 }
+                // kosmos#7420 (build 48, Josh 11-05 08:26): the blank came as the keyboard went down, and the will-hide above cancels
+                // the looks, so nothing looked at the list afterwards. Its bottom inset falls by the keyboard's height, which can leave
+                // it past its end with nothing drawn. The same looks as a did-show: they move only a list past its end or with
+                // nothing drawn, never a drawn list (boxMoved false) or one under a finger.
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+                    if visible { settleAtNewest(proxy, boxMoved: false) }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
                     guard visible else { return }
                     goNewest(proxy, animated: true)
