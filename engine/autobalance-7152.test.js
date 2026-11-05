@@ -292,3 +292,26 @@ test('#7152 review 9: one bad entry in the projects file is skipped, not a faile
   assert.equal(stopped.atRisk[0].kind, 'login', 'a stopped login was not told apart from usage');
   assert.equal(ab.decide({ rows: [row('/u/.claude-a', { weekly: { usedPct: 95, resetsAt: NOW + 40 * H } }), row('/u/.claude-b')], movable: () => false, nowMs: NOW }).atRisk[0].kind, 'usage', 'CONTROL');
 });
+
+test('kosmos#8048: an agent stopped at a dated limit is movable, whatever it holds; an undated or past one, unsent words or the guide are not', () => {
+  const [base] = realCards(['lim']);
+  const at = (line, o = {}) => ({ ...base, state: 'rate_limited', stateEvidence: line, ...o });
+  const weekly = "You've hit your limit · resets Jan 1, 2030 at 3pm (America/Chicago)";
+  const records = [{ id: 'p1', tasks: [{ id: 't1', parts: [{ who: 'lim', title: 'x' }] }] }];   // it holds an open part
+  const promised = () => ({ state: 'unknown', commitments: ['a release'] });                    // and names a commitment
+  const m = (card, o = {}) => ab.movableFor({ cards: [card], records, readCommitment: promised, isGuide: () => false, guideName: () => null, nowMs: NOW, ...o })('lim');
+  assert.equal(m(at(weekly)), true, 'an agent at a weekly limit with its reset days away was not movable: the mover can never reach the agents that hit the wall');
+  assert.equal(m({ ...base }, {}), false, 'CONTROL: the same idle agent holding that part and commitment is still not movable (the free test stands)');
+  assert.equal(m(at("You've hit your limit · resets 3pm")), false, 'an undated (five-hour) limit moved: it is waited out');
+  assert.equal(m(at("You've hit your limit · resets Jan 1, 2000 at 3pm (America/Chicago)")), false, 'a limit whose reset has passed moved');
+  assert.equal(m(at(weekly, { unsentInput: 'half a reply' })), false, 'words sitting in its box were dropped by a move');
+  assert.equal(m(at(weekly), { isGuide: () => true }), false, 'the guide was moved');
+  assert.equal(m(at(weekly, { isNamedOurs: false })), false, 'an agent that is not ours was moved');
+  // End to end: the decision names it, onto the account with room.
+  const rows = [
+    row('/u/.claude-a', { weekly: { usedPct: 100, resetsAt: NOW + 40 * H }, agentsHere: { names: ['lim'], complete: true } }),
+    row('/u/.claude-b', { weekly: { usedPct: 0, resetsAt: NOW + 100 * H } }),
+  ];
+  const movable = ab.movableFor({ cards: [at(weekly)], records, readCommitment: promised, isGuide: () => false, guideName: () => null, nowMs: NOW });
+  assert.deepEqual(ab.decide({ rows, movable, nowMs: NOW }).moves.map((x) => [x.agent, x.to]), [['lim', '/u/.claude-b']], 'the decision did not move the agent at the wall');
+});
