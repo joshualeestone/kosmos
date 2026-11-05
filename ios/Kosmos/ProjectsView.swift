@@ -656,6 +656,8 @@ struct ProjectsView: View {
     let openPage: (URL) -> Void
     // kosmos#7266: the + at the top right, the board's own new-project form (ContentView.openCreate).
     var create: () -> Void = {}
+    /// Where Sign in and Back go when the computer is not there (BoardStates), as on the Agents tab.
+    let openBoard: () -> Void
     @AppStorage("kosmos.projects.sort") private var sortRaw = Board.projectSortDefault.rawValue
     @State private var openProject: Board.ProjectRow?
     // A notification's room was not in the list: it has had its one fresh read.
@@ -664,11 +666,12 @@ struct ProjectsView: View {
     @State private var showArchived = false
 
     init(client: BoardClient, roomRequest: Binding<PushBridge.RoomTarget?>, openPage: @escaping (URL) -> Void,
-         create: @escaping () -> Void = {}) {
+         create: @escaping () -> Void = {}, openBoard: @escaping () -> Void = {}) {
         self.client = client
         self._roomRequest = roomRequest
         self.openPage = openPage
         self.create = create
+        self.openBoard = openBoard
         _store = StateObject(wrappedValue: RoomStore(client: client))
     }
 
@@ -825,12 +828,26 @@ struct ProjectsView: View {
                 .scrollContentBackground(.hidden)
                 .refreshable { await store.loadList() }
             }
+        } else if store.listState == .failed && boardNotThere {
+            // 11-05, a real sign-in with no computer on the account: "We cannot read your projects right now" was true
+            // but never said why. With no computer let in (no Mac, signed out, the Allow, a Mac that does not answer), the
+            // tab says what the Agents tab says for the same state.
+            BoardStates(client: client, openBoard: openBoard) { EmptyView() }
         } else if store.listState == .failed {
             message("We cannot read your projects right now.", "This is not saying you have none, it is saying we cannot see them.")
         } else {
             // kosmos#7945 follow-up: a launch from a room notification opens on this tab, so its first wait is drawn as the
             // launch screen draws its ring (the Agents tab's too), not the orb.
             ConnectingWait(words: "Reaching your computer\u{2026}")
+        }
+    }
+
+    /// The list cannot come: no computer this phone is let into, and not on its first connect.
+    private var boardNotThere: Bool {
+        guard client.macURL == nil else { return false }
+        switch client.phase {
+        case .live, .starting: return false
+        default: return true
         }
     }
 
