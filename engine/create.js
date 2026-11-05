@@ -1585,6 +1585,22 @@ function trustAgentFolder(name, opts) {
     : { wrote: false, runner: 'claude', because: (t && t.because) || 'the trust write did not complete' };
 }
 
+/* kosmos#8039: the person chose to start this Claude agent without its outside imports. Written to the account the agent
+   actually runs on, read from its job, as trustAgentFolder does. Claude only: only Claude Code asks this. */
+function declineAgentImports(name, opts) {
+  const clean = cleanName(name);
+  let verdict;
+  try { verdict = readJobVerdict(clean, undefined, opts && opts.platform); }
+  catch (err) { verdict = { job: null, because: String((err && err.message) || err) }; }
+  const job = verdict.job;
+  if (!job) return { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to answer for' };
+  if (job.runner && job.runner !== 'claude') return { wrote: false, because: 'only Claude Code asks this question' };
+  let d = null;
+  try { d = require('./trust').declineExternalImports(workerDir(clean), { configDir: job.configDir, agentDefaultAccount: !job.configDir }); }
+  catch (err) { d = { ok: false, because: String((err && err.message) || err) }; }
+  return d && d.ok ? { wrote: !!d.wrote } : { wrote: false, because: (d && d.because) || 'the write did not complete' };
+}
+
 /* The decoded ProgramArguments of an agent's plist, or null (a bad name, no plist). #4353: the
    one reader of that list, shared by readPlistJob and agyrefresh's launch folder. The text is
    returned too, for readPlistJob's environment reads. */
@@ -7379,7 +7395,7 @@ module.exports = {
   /* win32-agent-job-read: the job read with its reason, and the Trust & Restart
      trust step, which the route calls so its job read follows the platform. */
   readJobVerdict,
-  trustAgentFolder,
+  declineAgentImports, trustAgentFolder,
   /* Exported for the sandbox guards in the adopt tests: a test that writes
      a codex trust entry must be able to ASK where that write will land, rather
      than infer it from which env vars it happens to have set (#1359). */

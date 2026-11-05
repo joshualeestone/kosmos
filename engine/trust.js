@@ -1048,4 +1048,44 @@ function carryExternalImports(dir, opts) {
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
-module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, carryExternalImports, IMPORTS_KEY, IMPORTS_SHOWN_KEY, KEY, BYPASS_KEY, SWITCH_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };
+/**
+ * kosmos#8039: write what Claude Code's own "No, disable external imports" writes for one folder on one account (measured
+ * on 2.1.318: approved false, shown true), so the agent starts without those files at its next launch. The person's
+ * press on the board is the answer (#6063). It never writes a Yes: that is the answer the dialog warns about, and it
+ * stays in the agent's Terminal. An answer already there is left alone.
+ */
+function declineExternalImports(dir, opts) {
+  const target = configTarget(opts);
+  if (!dir || !path.isAbsolute(dir)) return { ok: false, because: 'that is not an absolute folder path' };
+  let key;
+  try { key = fs.realpathSync.native(dir); }
+  catch { return { ok: false, because: 'that folder is not there' }; }
+  key = key.split(path.sep).join('/');   // Claude Code's spelling on Windows, as in trustFolder
+  const r = withWriteLock(target, () => {
+    try { if (fs.lstatSync(target).isSymbolicLink()) return { ok: false, because: 'their config file is a symlink' }; }
+    catch { return { ok: false, because: 'that account has no config file yet' }; }
+    let data;
+    let prevMode;
+    try {
+      prevMode = fs.statSync(target).mode & 0o7777;
+      data = JSON.parse(fs.readFileSync(target, 'utf8'));
+    } catch { return { ok: false, because: 'we could not read their config file' }; }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, because: 'their config file is not shaped the way we expect' };
+    const projects = data.projects;
+    if (projects !== undefined && (projects === null || typeof projects !== 'object' || Array.isArray(projects))) {
+      return { ok: false, because: 'their config file is not shaped the way we expect' };
+    }
+    const existing = projects && Object.prototype.hasOwnProperty.call(projects, key) ? projects[key] : undefined;
+    if (existing !== undefined && (existing === null || typeof existing !== 'object' || Array.isArray(existing))) {
+      return { ok: false, because: 'their config file is not shaped the way we expect' };
+    }
+    if (importsAnswered(existing)) return { ok: true, wrote: false, because: 'this folder already has an answer' };
+    if (!data.projects) data.projects = {};
+    data.projects[key] = Object.assign({}, existing || {}, { [IMPORTS_KEY]: false, [IMPORTS_SHOWN_KEY]: true });   // merge: the entry can hold their tools and servers
+    if (!saveConfig(target, data, prevMode)) return { ok: false, because: 'we could not write to their config file' };
+    return { ok: true, wrote: true };
+  });
+  return r.ok ? r.value : { ok: false, because: r.because };
+}
+
+module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, carryExternalImports, declineExternalImports, IMPORTS_KEY, IMPORTS_SHOWN_KEY, KEY, BYPASS_KEY, SWITCH_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };

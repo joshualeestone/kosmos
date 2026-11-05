@@ -2622,6 +2622,7 @@ const CONSENT_PROMPT_EXIT = /^No, exit$/;          // the destructive default, s
 const CONSENT_PROMPT_ACCEPT = /^Yes\b/;            // "Yes, I accept" / "Yes, continue" / ...
 /* Headings that LABEL a recognised dialog for evidence + `because`. NOT the detection
    key (the chrome above is); an unlabelled confirm dialog still reads needs_you, generically. */
+const IMPORTS_BECAUSE = 'it is asking whether its instructions may import files from outside its folder';   // kosmos#8039: importsDialogIn keys on it
 const CONSENT_PROMPT_HEADINGS = Object.freeze([
   /* #6063: Claude Code's question about instructions that import files from outside the agent's folder. The family
      detector already read it as needs_you; this says WHAT it asks. Two rows must agree, because a label is only
@@ -2637,7 +2638,7 @@ const CONSENT_PROMPT_HEADINGS = Object.freeze([
      limits, all falling back to the generic reason or needing a screen nobody has seen: a heading wrapped by a
      narrow pane; twelve or more imported files (the heading leaves the 25-row tail); and an answered copy above
      a live dialog that has no "Yes" row of its own, which would keep this label. */
-  { re: /^Allow external CLAUDE\.md file imports\?$/, accept: /^Yes, allow external imports$/, because: 'it is asking whether its instructions may import files from outside its folder' },
+  { re: /^Allow external CLAUDE\.md file imports\?$/, accept: /^Yes, allow external imports$/, because: IMPORTS_BECAUSE },
   { re: /Bypass Permissions/i, because: 'it is asking you to accept Bypass Permissions mode before it can start, and the default answer exits' },
 ]);
 /* No "and the default answer exits" here: that is verified only for the LABELLED
@@ -4977,6 +4978,13 @@ function consentPrompt(tail) {
  * state only `trustPrompt` writes evidence, and it writes the question row,
  * so a match means "the last snapshot saw the dialog", no more and no less.
  */
+/* kosmos#8039: whether the live dialog on this screen is Claude Code's external imports question: consentPrompt's own
+   reading, so a heading in prose or an answered copy above another dialog does not count. */
+function importsDialogIn(tail) {
+  const c = consentPrompt(tail);
+  return !!c && c.because === IMPORTS_BECAUSE;
+}
+
 function isTrustDialogEvidence(evidence) {
   return typeof evidence === 'string' && TRUST_PROMPT_QUESTION.test(evidence);
 }
@@ -10360,6 +10368,7 @@ module.exports = { neverTurnedOf /* #7786 */, cmdFromPsComm, logLoginAdvReads, m
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,
+  importsDialogIn,
   TRUST_DIALOG_SENTENCE,
   codexHookReview, // #4589
   codexHookTrustedTable, codexHookSummary, codexHookMenuKeys, codexHookScreenExact, // #4607
