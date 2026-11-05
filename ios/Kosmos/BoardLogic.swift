@@ -548,6 +548,7 @@ enum Board {
     // kosmos#7420 (Josh 11-05 12:57): no end has shown this long after the messages arrived (or a rebuild). A flag saying the end is
     // showing means nothing then, and neither does a top marker.
     static let endNeverShownAfter: Double = 2
+    static let endNeverShownCheck: Double = endNeverShownAfter + 0.2   // a check that runs once that has passed
     static func endNeverShown(endSeen: Bool, messagesFor: Double?) -> Bool {
         !endSeen && (messagesFor ?? 0) > endNeverShownAfter
     }
