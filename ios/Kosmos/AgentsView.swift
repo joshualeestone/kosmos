@@ -352,13 +352,27 @@ struct BoardStates<Empty: View>: View {
     @ViewBuilder let empty: () -> Empty
 
     var body: some View {
+        // kosmos#7945 follow-up: the wait to connect is drawn in this one place, so going from starting to live while still
+        // waiting keeps the same ring (one view identity) and its loop runs on, rather than restarting at its first frame.
+        if waiting { reaching } else { states }
+    }
+
+    /// First connect with nothing to show yet: starting, or live before the first read (or with an empty earlier list
+    /// not yet re-read), which is still reaching, not "No agents yet".
+    private var waiting: Bool {
+        switch client.phase {
+        case .starting: return true
+        case .live: return client.updatedAt == nil || !client.fresh
+        default: return false
+        }
+    }
+
+    @ViewBuilder private var states: some View {
         switch client.phase {
         case .starting:
-            reaching
+            EmptyView()   // not reached: `waiting` is true for .starting, and the ring has one place (body)
         case .live:
-            // The list arrives with the first read; until then (or with an empty earlier list not yet re-read) this is
-            // still reaching, not "No agents yet".
-            if client.updatedAt == nil || !client.fresh { reaching } else { empty() }
+            empty()    // the list is fresh here (`waiting` took the rest)
         case .unreachable(let mac):
             // Today's navy page, as it is: no title over it, and Back opens Today, the board. kosmos#7197: naming the Mac.
             LoadFailureView(failure: .macUnreachable, detail: "", retrying: false, onRetry: client.retry, onBack: openBoard, macName: mac,
