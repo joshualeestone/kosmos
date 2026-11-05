@@ -51,4 +51,11 @@ test('kosmos#8071: a removed agent is refused and never restarted; an agent that
   const here = await post('here');
   assert.equal(here.code, 200, JSON.stringify(here.j));
   assert.deepEqual(restarted, ['here'], 'CONTROL: an agent that is not removed was not restarted');
+  // Review 6: a removed list that cannot be read refuses every restart with its own words, never "was removed".
+  removal.removedNames = () => ({ ok: false, names: [] });
+  const blind = await post('here');
+  assert.equal(blind.code, 400, JSON.stringify(blind.j));
+  assert.match(blind.j.because, /could not read the list of removed agents/);
+  assert.deepEqual(restarted, ['here'], 'a restart went ahead with the removed list unreadable');
+  removal.removedNames = () => ({ ok: true, names: ['gone'] });
 });

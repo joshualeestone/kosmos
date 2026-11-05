@@ -170,7 +170,7 @@ const USAGE = {
     '                                                  like a move in Settings, the automatic mover then leaves that agent for a day)',
     '  kosmos agent restart "<name>" [--yes]           restart one agent, after a confirm (it picks up new settings, skills and hooks;',
     '                                                  any agent can be restarted this way, as from its page; never yourself;',
-    '                                                  on Windows a person can, an agent cannot: it holds no board token)',
+    '                                                  it needs the board token, which a Windows agent may not hold)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
   ].join('\n'),
   feedback: [
