@@ -18,18 +18,20 @@ let marker;
 let saved;
 
 beforeEach(() => {
-  saved = { path: process.env.PATH, value: process.env[VAR] };
+  saved = { path: process.env.PATH, value: process.env[VAR], home: process.env.AGENT_WORKFORCE_HOME };
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'loginexpiry-8050-'));
   marker = path.join(dir, 'ran');
   const body = JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: FAKE_KEYCHAIN_DATE, expiresAt: FAKE_KEYCHAIN_DATE } });
   fs.writeFileSync(path.join(dir, 'security'), `#!/bin/sh\n: > '${marker}'\nprintf '%s' '${body}'\n`, { mode: 0o755 });
   process.env.PATH = dir;
   delete process.env[VAR];
+  process.env.AGENT_WORKFORCE_HOME = dir;
 });
 
 afterEach(() => {
   process.env.PATH = saved.path;
   if (saved.value === undefined) delete process.env[VAR]; else process.env[VAR] = saved.value;
+  if (saved.home === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = saved.home;
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -57,6 +59,14 @@ test('set: any other account reads nothing, and security never runs', async () =
   assert.ok(!fs.existsSync(marker), 'security ran with the variable set');
 });
 
+test('set on a board with no sandbox home: no date and no read, so a leak onto a real board cannot show a false one', async () => {
+  process.env[VAR] = String(FIXTURE_DATE);
+  delete process.env.AGENT_WORKFORCE_HOME;
+  assert.equal(le.refreshExpiryFor(undefined), null);
+  assert.equal(await le.readCredAsync(le.DEFAULT_SERVICE), null);
+  assert.ok(!fs.existsSync(marker), 'security ran with the variable set');
+});
+
 for (const bad of ['tomorrow', ' ', '-1', '1e12', 'Infinity']) {
   test(`a value that is not a whole number reads nothing (${JSON.stringify(bad)}): it cannot fall through to the real read`, async () => {
     process.env[VAR] = bad;
@@ -74,7 +84,7 @@ test('an empty value counts as unset', () => {
 test('tools/browser-checks.sh sets it before any board boots', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'tools', 'browser-checks.sh'), 'utf8');
   const set = src.search(/^export KOSMOS_BC_LOGIN_UNTIL_MS=\d+$/m);
-  const boot = src.search(/^boot_board\(\)/m);
+  const boot = src.search(/^boot_board\w*\(\)/m);
   assert.ok(set >= 0, 'browser-checks.sh does not export the variable');
   assert.ok(src.includes(`export ${VAR}=${FIXTURE_DATE}\n`), 'browser-checks.sh exports a different date from this test');
   assert.ok(boot >= 0, 'browser-checks.sh no longer defines boot_board, so this order check reads nothing');

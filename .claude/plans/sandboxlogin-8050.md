@@ -8,7 +8,8 @@ it, through the default Claude row. That stopped the 0.7.92 cut after 106 minute
 
 ## What changes
 - `engine/loginexpiry.js`: with KOSMOS_BC_LOGIN_UNTIL_MS set, the bare entry answers that date and every other entry
-  answers nothing, and `security` is not run. A value that is not a whole number answers nothing.
+  answers nothing, and `security` is not run. A value that is not a whole number, or a board with no sandbox home, answers
+  nothing.
 - `tools/browser-checks.sh`: exports it beside the other no-board-may switches, so it covers every board the script boots.
 
 ## Decisions (mine, reversible in a commit)
@@ -29,10 +30,9 @@ it, through the default Claude row. That stopped the 0.7.92 cut after 106 minute
   alone, and a check run by hand. I know of none that has failed this way; add the export where one does.
 
 ## Weakest premise
-That a production board never has this variable. It is named for the browser checks and set nowhere else; a board that
-had it would show a false "Signed in" date. It would still need `claude auth status` to say signed in. Rejected as
-guards: a second marker, since the only one to hand can be set on a real board too; a warning line, which risks tripping
-checks that read board logs, for a state nothing produces.
+That every board this script boots has a sandbox home, which the seam now also requires. The script sets one for the run
+(read, not run). A board without it reads no date, which an existing check would show. Asked of a real board, the variable
+then does nothing false: production has no sandbox home, so a leak gives no date, not a made-up one.
 
 ## Steps
 1. The seam, the export, engine/loginexpiry-sandbox-8050.test.js.
