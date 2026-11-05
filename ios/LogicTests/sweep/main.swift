@@ -122,5 +122,16 @@ check(same(SweepLogic.shown(2.5, side: side, reduceMotion: false), SweepLogic.do
 check(near(SweepLogic.look(24, dot: 5).opacity, SweepLogic.look(0, dot: 5).opacity) && near(SweepLogic.calmOpacity(24), SweepLogic.calmOpacity(0)),
       "24 s is a whole number of both loops")
 
+// kosmos#8058 (Josh 11-05): the small waits show the simple dots, not the orb.
+do {
+    let card = repoText("ios/Kosmos/ChatFiles.swift"), chat = repoText("ios/Kosmos/ChatView.swift"), room = repoText("ios/Kosmos/RoomView.swift")
+    check(!card.isEmpty && !chat.isEmpty && !room.isEmpty, "the chat, room and file card sources were read (KOSMOS_REPO)")
+    check(card.contains("case .loading:\n            SweepDots(") && !card.contains("KosmosOrb(size: 16)"), "an attachment loading shows the simple dots")
+    check(chat.components(separatedBy: "SweepDots(size: 16").count == 3 && room.components(separatedBy: "SweepDots(").count == 4,
+          "Adding a file and earlier messages in a chat, and Adding a file and earlier posts (twice) in a room, show the simple dots")
+    check(chat.contains("KosmosOrb().accessibilityHidden(true)\n                    Text(\"Loading the conversation"),
+          "CONTROL: the whole-screen wait in an empty chat keeps the orb")
+}
+
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")
 exit(failures == 0 ? 0 : 1)

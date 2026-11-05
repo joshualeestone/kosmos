@@ -8,7 +8,8 @@ circular dots, as a file uploading does. Read as `SweepDots` (his "simple dots t
 
 Small inline waits: `KosmosOrb` becomes `SweepDots`. VoiceOver hears the same as before: a label only where nothing
 else says what is loading (a room's earlier posts); hidden where the words beside it, or the row's own label, do:
-- `ChatFiles` attachment loading
+- `ChatFiles` attachment loading (fixed 16 pt, as the orb was, so a loading card is never taller than its neighbours)
+- `FilesView`: a file opening in the Files list, so a file opened there matches one opened in a chat
 - `ChatView`: Adding a file, Loading earlier messages
 - `RoomView`: Adding a file, earlier posts loading (live and archive)
 - `ComposerExtras`: dictation finishing, at a fixed size (the icon it stands in for does not grow with text)
@@ -17,6 +18,11 @@ else says what is loading (a room's earlier posts); hidden where the words besid
 One behaviour change beyond the look: the dots grow with the person's text size, as the words beside them do,
 where the 16 pt orb kept its size. Dictation's dots are the exception, fixed at the icon's size, so the composer row
 never grows.
+
+Inside a scrolling thread (an attachment loading, earlier messages, a room's earlier posts) the dots draw at 15 frames
+a second, the orb's rate there: a clock-drawn view at 30 in the thread kept it from following new messages (#7427).
+With Reduce Motion the dots pulse together rather than hold still (SweepDots' own rule, #4591), where the orb held one
+still frame.
 
 Kept as the orb: whole-screen waits (Loading the conversation in an empty chat), and the waits outside chats and
 rooms (sign-in, New agent, Settings, task and project pages), which this card does not ask about.

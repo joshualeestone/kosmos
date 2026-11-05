@@ -147,7 +147,7 @@ struct FilesRow: View {
                     if !meta.isEmpty { Text(meta).font(.footnote).foregroundColor(Palette.secondary) }
                 }
                 Spacer(minLength: 8)
-                if opening { KosmosOrb() }
+                if opening { SweepDots(label: "Loading") }   // kosmos#8058: a file opening has the simple dots, as one opened in a chat
             }
         }
         .accessibilityElement(children: .combine)
