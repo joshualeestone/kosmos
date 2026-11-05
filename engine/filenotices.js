@@ -81,7 +81,8 @@ function take(owner, { now = Date.now() } = {}) {
 /* The hook's hand-over: the notices named in `ack` (ids the hook received last time) are removed, and every notice still
    waiting is returned, oldest first, with its id, including one handed over before and never acknowledged. So an answer
    the hook never read (its 1 s cap ran out on a busy board) is handed over again rather than lost, and a notice can reach
-   the model twice when the hook read it but could not keep its ids. `dropped` is returned once and then reset. An id
+   the model twice when the hook read it but could not keep its ids. `dropped` follows the same rule: it is kept until
+   an acknowledgement removes at least one notice, or, when no notice is left to acknowledge, handed over once. An id
    that is not this owner's, or not the id shape, removes nothing. */
 function handOver(owner, { ack = [], now = Date.now() } = {}) {
   try {
@@ -91,10 +92,11 @@ function handOver(owner, { ack = [], now = Date.now() } = {}) {
     if (!had) return { notices: [], dropped: 0 };
     const acked = new Set((Array.isArray(ack) ? ack : []).filter((id) => typeof id === 'string' && ID_RE.test(id)));
     const rec = read(owner);
+    const dropped = rec.notices.some((n) => acked.has(n.id)) ? 0 : rec.dropped;
     const notices = rec.notices.filter((n) => !acked.has(n.id) && now - Date.parse(n.at) >= 0 && now - Date.parse(n.at) < KEEP_MS);
-    if (notices.length) write(owner, { notices, dropped: 0 });
+    if (notices.length) write(owner, { notices, dropped });
     else fs.rmSync(fileFor(owner), { force: true });
-    return { notices, dropped: rec.dropped };
+    return { notices, dropped };
   } catch { return { notices: [], dropped: 0 }; }
 }
 
