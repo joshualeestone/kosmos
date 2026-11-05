@@ -10778,7 +10778,8 @@ const server = http.createServer(async (req, res) => {
            the previous behaviour exactly. */
         const cause = body && typeof body.cause === 'string' ? body.cause : 'restart';
         /* kosmos#8071 review 1: a removed agent is not started again by Restart (startIfDead below would, through its
-           kept job on Linux). The page offers no Restart for one; this route answers the same for any caller. */
+           kept job on Linux), for any caller. Review 3: this also changes the page, for a removal that is still under
+           way (isHidden keeps such a card visible): its Restart is refused too, and the card's Remove is the way on. */
         try { if (removal.isRemoved(name)) { sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, steps: [], because: `${name} was removed, so it is not restarted; put it back from the board first` }); return; } } catch { /* the restart's own checks stand */ }
         let out;
         // #3410: this IS the "Start this agent" affordance (Mona #3433 reuses this route), so it

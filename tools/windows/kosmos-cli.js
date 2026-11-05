@@ -169,7 +169,8 @@ const USAGE = {
     '                                                  with --yes, a move that would lose skills or hooks also needs --accept-loss;',
     '                                                  like a move in Settings, the automatic mover then leaves that agent for a day)',
     '  kosmos agent restart "<name>" [--yes]           restart one agent, after a confirm (it picks up new settings, skills and hooks;',
-    '                                                  any agent can be restarted this way, as from its page; never yourself)',
+    '                                                  any agent can be restarted this way, as from its page; never yourself;',
+    '                                                  on Windows a person can, an agent cannot: it holds no board token)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
   ].join('\n'),
   feedback: [
@@ -2497,9 +2498,16 @@ async function agentRestart(ctx, args) {
   /* Review 1: never yourself (it ends this session before the answer comes back, with no handoff). */
   const me = await ctx.call('POST', '/api/whoami', { from_pane: '' });
   const meName = me.reached && me.json && me.json.ok === true && typeof me.json.agent === 'string' ? me.json.agent : '';
-  /* Review 2: the board could not say who is asking, and this caller holds an agent token: it might be itself. */
-  if (!meName && (ctx.env || {}).KOSMOS_AGENT_TOKEN) {
-    ctx.err('Nothing was restarted: Kosmos could not say which agent is asking, so it cannot rule out that ' + name + ' is you. Try again in a minute.');
+  const hasToken = !!(ctx.env || {}).KOSMOS_AGENT_TOKEN;
+  /* Reviews 2 and 3, as install/kosmos: no answer from a caller with a token might be itself; an answer that does
+     not recognise this agent's own token is said as that; "not an agent" for a caller with no token is a person. */
+  if (hasToken && (!me.reached || !me.json)) {   // no answer, or one that is not the board's
+    ctx.err('Nothing was restarted: Kosmos did not answer who is asking, so it cannot rule out that ' + name + ' is you. Try again in a minute.');
+    return 2;
+  }
+  if (hasToken && !meName) {
+    ctx.err('Nothing was restarted: Kosmos does not recognise this agent\'s own token, so it cannot rule out that ' + name + ' is you.');
+    tokenRefusedHint(ctx, me);
     return 2;
   }
   if (meName && meName.toLowerCase() === name.toLowerCase()) {
