@@ -34,11 +34,11 @@ test('kosmos#8048: the drift measured on Mortals is named: two skills and two ga
     hooks: ['bash ~/.claude/hooks/user/pre-challenge-gate.sh', 'bash ~/.claude/hooks/user/destructive-cmd-gate.sh', 'bash ~/.claude/hooks/user/vercel-login-gate.sh'] });
   const acct = folder({ skills: ['pick-up'], hooks: ['bash $HOME/.claude/hooks/user/pre-challenge-gate.sh'] });
   const l = carry.losses(main, acct, H);
-  assert.deepEqual(l, { ok: true, skills: ['design-shots', 'verify-release'], changed: [], hooks: ['destructive-cmd-gate.sh', 'vercel-login-gate.sh'] },
+  assert.deepEqual(l, { ok: true, skills: ['design-shots', 'verify-release'], changed: [], hooks: ['destructive-cmd-gate.sh', 'vercel-login-gate.sh'], hooksChanged: [] },
     'the loss was not named (the pre-challenge gate, spelled with $HOME, must count as kept)');
   assert.equal(carry.sentence(l), 'On that account it would not have the skills design-shots, verify-release, or the hooks destructive-cmd-gate.sh, vercel-login-gate.sh it has now.');
   // CONTROL: the other way, nothing the account folder has is missing from the main one.
-  assert.deepEqual(carry.losses(acct, main, H), { ok: true, skills: [], changed: [], hooks: [] });
+  assert.deepEqual(carry.losses(acct, main, H), { ok: true, skills: [], changed: [], hooks: [], hooksChanged: [] });
   assert.equal(carry.sentence(carry.losses(acct, main, H)), null);
 });
 
@@ -48,7 +48,7 @@ test('kosmos#8048: a linked skills folder (how Agent1s shares one) counts as hav
   fs.mkdirSync(acct);
   fs.symlinkSync(path.join(main, 'skills'), path.join(acct, 'skills'));
   fs.symlinkSync(path.join(main, 'settings.json'), path.join(acct, 'settings.json'));
-  assert.deepEqual(carry.losses(main, acct), { ok: true, skills: [], changed: [], hooks: [] }, 'a linked folder read as missing its skills');
+  assert.deepEqual(carry.losses(main, acct), { ok: true, skills: [], changed: [], hooks: [], hooksChanged: [] }, 'a linked folder read as missing its skills');
   // Each skill linked on its own (a skills/ folder of links) counts too.
   const perSkill = path.join(TMP, `acct-${++n}`);
   fs.mkdirSync(path.join(perSkill, 'skills'), { recursive: true });
@@ -70,7 +70,7 @@ test('kosmos#8048: a folder that cannot be read is "cannot tell", never "nothing
   // CONTROL: a folder with no skills/ and no settings.json at all is readable, and loses everything the source has.
   const empty = path.join(TMP, `acct-${++n}`);
   fs.mkdirSync(empty);
-  assert.deepEqual(carry.losses(ok, empty), { ok: true, skills: ['a'], changed: [], hooks: ['x.sh'] });
+  assert.deepEqual(carry.losses(ok, empty), { ok: true, skills: ['a'], changed: [], hooks: ['x.sh'], hooksChanged: [] });
 });
 
 test('kosmos#8048: the default account is ~/.claude under the given home', () => {
@@ -78,7 +78,7 @@ test('kosmos#8048: the default account is ~/.claude under the given home', () =>
   fs.mkdirSync(path.join(home, '.claude', 'skills', 'only-main'), { recursive: true });
   fs.writeFileSync(path.join(home, '.claude', 'skills', 'only-main', 'SKILL.md'), '# only main\n');
   const acct = folder({ skills: [] });
-  assert.deepEqual(carry.losses(null, acct, { home }), { ok: true, skills: ['only-main'], changed: [], hooks: [] });
+  assert.deepEqual(carry.losses(null, acct, { home }), { ok: true, skills: ['only-main'], changed: [], hooks: [], hooksChanged: [] });
   assert.deepEqual(carry.losses('', acct, { home }).skills, ['only-main']);
 });
 
@@ -99,7 +99,8 @@ test('kosmos#8048 review 1: a gate counts as kept only if it would fire: same ev
   const from = withGate();
   assert.deepEqual(carry.losses(from, withGate(), H).hooks, [], 'CONTROL: the same gate, wired the same, with the same script, was not kept');
   assert.deepEqual(carry.losses(from, withGate({ script: false }), H).hooks, ['gate.sh'], 'a gate whose script is missing on the target read as kept');
-  assert.deepEqual(carry.losses(from, withGate({ body: '#!/bin/sh\nexit 1\n' }), H).hooks, ['gate.sh'], 'a different copy of the gate read as kept');
+  const diff = carry.losses(from, withGate({ body: '#!/bin/sh\nexit 1\n' }), H);
+  assert.deepEqual([diff.hooks, diff.hooksChanged, carry.loses(diff)], [[], ['gate.sh'], true], 'a different copy of the gate read as kept, or as missing');
   assert.deepEqual(carry.losses(from, withGate({ event: 'Stop' }), H).hooks, ['gate.sh'], 'a gate wired under another event read as kept');
   assert.deepEqual(carry.losses(from, withGate({ matcher: 'Edit' }), H).hooks, ['gate.sh'], 'a gate on another matcher read as kept');
   assert.deepEqual(carry.losses(from, withGate({ off: true }), H).hooks, ['gate.sh'], 'a target with all hooks switched off read as keeping them');
@@ -153,6 +154,8 @@ test('kosmos#8048 review 4: one hook written two ways is not a loss; a missing t
 
 test('kosmos#8048 review 5: shell syntax left in a hook path, a prompt hook, and an empty skill folder on the target are all losses', () => {
   const src = folder({ settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'bash ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/gate.sh' }] }] } }) });
+  fs.mkdirSync(path.join(src, 'hooks'), { recursive: true });
+  fs.writeFileSync(path.join(src, 'hooks', 'gate.sh'), '#!/bin/sh\n');   // review 7: the :- default now resolves, so the gate needs its script to run
   const empty = folder({ settings: '{}' });
   assert.deepEqual(carry.losses(src, empty, H).hooks, ['gate.sh'], 'a gate spelled with a shell default read as kept when the target has no hooks');
   assert.deepEqual(carry.losses(src, src, H).hooks, [], 'CONTROL: the same spelling on both sides was not kept');
@@ -194,4 +197,31 @@ test('kosmos#8048 review 6: a skill is its whole folder; other hook types, match
     fs.writeFileSync(path.join(s, 'hooks', 'locked.sh'), '#!/bin/sh\n', { mode: 0o000 });
     assert.equal(carry.losses(s, none, H).ok, false, 'an unreadable source script read as "does not run here"');
   }
+});
+
+test('kosmos#8048 review 7: quoted variables and a :- default resolve as the shell does; a link loop ends; matcher alternations are one', () => {
+  const home = path.join(TMP, `home-${++n}`);
+  const a = path.join(home, '.claude-a'); const b = path.join(home, '.claude-b');
+  const wire = (d, cmd, script) => {
+    fs.mkdirSync(path.join(d, 'hooks'), { recursive: true });
+    if (script) fs.writeFileSync(path.join(d, 'hooks', 'gate.sh'), '#!/bin/sh\n');
+    fs.writeFileSync(path.join(d, 'settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: cmd }] }] } }));
+  };
+  wire(a, 'bash "$CLAUDE_CONFIG_DIR"/hooks/gate.sh', true);
+  wire(b, '{}', false); fs.writeFileSync(path.join(b, 'settings.json'), '{}');
+  assert.deepEqual(carry.losses(a, b, { home }).hooks, ['gate.sh'], 'a gate spelled with a quoted variable read as kept when the target has none');
+  wire(a, 'bash ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/gate.sh', true);
+  wire(b, 'bash ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/gate.sh', false);
+  assert.deepEqual(carry.losses(a, b, { home }).hooks, ['gate.sh'], 'the same :- spelling, script missing on the target, read as kept');
+  wire(b, 'bash ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/gate.sh', true);
+  assert.deepEqual(carry.losses(a, b, { home }).hooks, [], 'CONTROL: the same :- spelling with the script there was not kept');
+  // A skill folder with links back to itself ends.
+  const loopy = folder({ skills: ['pick-up'] });
+  fs.symlinkSync('.', path.join(loopy, 'skills', 'pick-up', 'x'));
+  fs.symlinkSync('.', path.join(loopy, 'skills', 'pick-up', 'y'));
+  assert.equal(carry.losses(loopy, loopy, H).ok, true);
+  const m = (matcher) => folder({ settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher, hooks: [{ type: 'command', command: 'echo gate' }] }] } }) });
+  assert.deepEqual(carry.losses(m('Bash|Edit'), m('Edit|Bash'), H).hooks, [], 'Bash|Edit and Edit|Bash read as different');
+  assert.deepEqual(carry.losses(m('Bash'), m('^Bash$'), H).hooks, [], 'Bash and ^Bash$ read as different');
+  assert.equal(carry.sentence({ ok: true, skills: [], changed: [], hooks: [], hooksChanged: ['gate.sh'] }), "It has a different copy of the hook gate.sh, which may not do what the agent's does now.");
 });
