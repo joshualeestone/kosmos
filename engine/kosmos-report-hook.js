@@ -243,6 +243,9 @@ async function keepCopy(req, io) {
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs || KEEP_TIMEOUT_MS);
   try {
     const res = await doFetch(o.url + '/api/undo/keep', { method: 'POST', headers, body: JSON.stringify(req), signal: ctl.signal, redirect: 'manual' });   // kosmos#6464: never follow, as deliver
+    // kosmos#8014: the answer is not needed, so it is cancelled rather than read (a stalled body would wait for the
+    // abort): left unread, it held the run open until the 2 s exit backstop, the path that crashed (review 2).
+    if (res && res.body && typeof res.body.cancel === 'function') { try { await res.body.cancel(); } catch { /* already done */ } }
     return { ok: !!(res && res.ok), status: res && res.status };
   } catch (err) {
     return { ok: false, error: (err && err.message) ? err.message : String(err) };
@@ -290,6 +293,9 @@ async function toolFailed(req, io) {
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs || KEEP_TIMEOUT_MS);
   try {
     const res = await doFetch(o.url + '/api/toolfail', { method: 'POST', headers, body: JSON.stringify(req), signal: ctl.signal, redirect: 'manual' });   // kosmos#6464: never follow, as deliver
+    // kosmos#8014: the answer is not needed, so it is cancelled rather than read (a stalled body would wait for the
+    // abort): left unread, it held the run open until the 2 s exit backstop, the path that crashed (review 2).
+    if (res && res.body && typeof res.body.cancel === 'function') { try { await res.body.cancel(); } catch { /* already done */ } }
     return { ok: !!(res && res.ok), status: res && res.status };
   } catch (err) {
     return { ok: false, error: (err && err.message) ? err.message : String(err) };

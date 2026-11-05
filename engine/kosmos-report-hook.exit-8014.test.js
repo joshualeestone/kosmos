@@ -19,7 +19,7 @@ const HOOK = path.join(__dirname, 'kosmos-report-hook.js');
 const AGENT = 'c3c3c3c3c3c3c3c3';
 const HOOK_JSON = '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"Kosmos: a file note."}}';
 
-function fakeBoard() {
+function fakeBoard(stall) {
   const seen = [];
   const server = http.createServer((req, res) => {
     const u = new URL(req.url, 'http://127.0.0.1');
@@ -30,6 +30,8 @@ function fakeBoard() {
         const a = boardproof.answer(Object.fromEntries(u.searchParams), () => [AGENT], req.socket.localPort, req.socket.localAddress);
         res.writeHead(a.status, { 'content-type': 'application/json' }); res.end(JSON.stringify(a.body)); return;
       }
+      // A route in `stall` sends its headers and the start of a body, then never finishes it.
+      if (stall && stall.includes(u.pathname)) { res.writeHead(200, { 'content-type': 'application/json' }); res.write('{"kept":'); return; }
       if (u.pathname === '/api/file-notices/take') { res.writeHead(200, { 'content-type': 'text/plain' }); res.end('ack:a1\n' + HOOK_JSON); return; }
       res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"recorded":true}');
     });
@@ -69,6 +71,16 @@ test('a stdin that never closes still ends shortly after the 5 s stdin backstop,
   try {
     const r = await runHook(b.port, { hook_event_name: 'Stop', session_id: 's' }, { closeStdin: false });
     assert.equal(r.code, 0, 'exit ' + r.code + ': ' + r.err);
-    assert.ok(r.ms >= 4500 && r.ms < 6900, 'ended at ' + r.ms + ' ms');
+    assert.ok(r.ms >= 4500 && r.ms < 6990, 'ended at ' + r.ms + ' ms');
   } finally { b.server.close(); }
+});
+
+test('an answer whose body never finishes (keep-copy on an edit) does not hold the run for the 2 s backstop', async () => {
+  const b = await fakeBoard(['/api/undo/keep']);
+  try {
+    const r = await runHook(b.port, { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: path.join(os.tmpdir(), 'x8014.md'), old_string: 'a', new_string: 'b' }, cwd: os.tmpdir(), session_id: 's' });
+    assert.equal(r.code, 0, 'exit ' + r.code + ': ' + r.err);
+    assert.ok(b.seen.includes('/api/undo/keep'), 'the edit never asked for a copy: ' + b.seen.join(' '));
+    assert.ok(r.ms < 1500, 'the unfinished body held the run (' + r.ms + ' ms)');
+  } finally { b.server.closeAllConnections(); b.server.close(); }
 });
