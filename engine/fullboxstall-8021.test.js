@@ -31,6 +31,7 @@ function src() { return fs.readFileSync(path.join(__dirname, '..', 'server.js'),
 const wiring = {
   heldBehind: (card) => limitqueue.list(card.sessionName).some((e) => e && e.input === true),
   noteHeld: (card, now) => ds.note(card.sessionName, { state: 'could_not', inputHeld: true }, now),
+  clearHeld: (session) => ds.reset(session),
 };
 
 function sweep(card, clock, recover = async () => ({ outcome: 'left', because: 'Enter did not send it' })) {
@@ -92,6 +93,32 @@ test('kosmos#8021: when the kept message lands, the stall that was said is said 
   assert.match(ds.endedLine(ends[0]), /delivery-stall-ended: .*s-ends/);
 });
 
+test('kosmos#8021: kept messages that age out take the streak with them, so its start cannot date a later failure', async () => {
+  const s = 's-dropped'; const clock = { at: T0 };
+  keep(s, 'm5');
+  const tick = sweep(cardFor(s), clock);
+  await run(tick, clock, T0 + 11 * MIN, T0 + 15 * MIN);
+  assert.ok(ds.failCount(s) >= 3, 'CONTROL: the sweep had counted');
+  limitqueue.remove(s, 'm5');   // what the flush does to an entry past its age
+  clock.at += MIN; await tick();
+  assert.equal(ds.failCount(s), 0, 'the streak went with them');
+  ds.note(s, { state: 'could_not', because: 'x' }, clock.at + 60 * MIN);
+  assert.deepEqual(said(s, clock.at + 60 * MIN), [], 'one later refusal is not a stall dated from the old start');
+});
+
+test('kosmos#8021: a streak with messages still kept, its box now clear, is left to end when one lands', async () => {
+  const s = 's-kept'; const clock = { at: T0 };
+  keep(s, 'm6');
+  const card = cardFor(s);
+  const tick = sweep(card, clock);
+  await run(tick, clock, T0 + 11 * MIN, T0 + 15 * MIN);
+  const n = ds.failCount(s);
+  assert.ok(n >= 3, 'CONTROL: the sweep had counted');
+  delete card.unsentInput;   // the box reads empty; the message waits on the flush
+  clock.at += MIN; await tick();
+  assert.equal(ds.failCount(s), n, 'not cleared, and not counted further');
+});
+
 test('kosmos#8021: server.js wires the sweep with the same words as this test', () => {
   const text = src();
   const at = text.indexOf("require('./engine/stuckinput').makeTick(");
@@ -99,4 +126,5 @@ test('kosmos#8021: server.js wires the sweep with the same words as this test', 
   const block = text.slice(at, text.indexOf('stuckInputSweep.unref()', at));
   assert.match(block, /heldBehind: \(card\) => require\('\.\/engine\/limitqueue'\)\.list\(card\.sessionName\)\.some\(\(e\) => e && e\.input === true\)/);
   assert.match(block, /noteHeld: \(card, now\) => require\('\.\/engine\/deliverystreak'\)\.note\(card\.sessionName, \{ state: 'could_not', inputHeld: true \}, now\)/);
+  assert.match(block, /clearHeld: \(session\) => require\('\.\/engine\/deliverystreak'\)\.reset\(session\)/);
 });
