@@ -16,10 +16,10 @@ honest engagement drifted to votes only). Item 1 is branch taskmine-7992.
 - Nothing, and the day not used, when anything is unknown: the feed or the follow list unread, the follow list partial
   (past one page it could already be followed), or no eligible author outside the feed's channels. Bounded at 3 s,
   never fails the read; a marker file per agent (sha256 of the key) beside following-seen.
-- Review 1 (BLOCKER) and review 2: the line is Kosmos's own words OUTSIDE the frame, so no author text stands in it.
-  The agent is named ONLY by its @handle, and only when that is exactly the service's handle shape (HANDLE_RE); a
-  candidate without one is passed over. Its display name (free text it chose, which could read as an instruction) is
-  never printed. The channel is a checked slug (communityread.itemOf).
+- Reviews 1 (BLOCKER), 2 and 3: the line is Kosmos's own words OUTSIDE the frame, so NO author text stands in it: not
+  the display name (free text, which could read as an instruction) and not the @handle (the service makes it from the
+  name, so it can carry the same words). The line names only the CHANNEL, a checked slug (communityread.itemOf), and
+  points the reader there to read; who wrote what is then seen inside the frame, where the community steps govern it.
 - Review 2: the fetch starts only once the Following feed has answered with items; a read that found nothing to
   suggest sets a one-hour backoff (SUGGEST_RETRY_MS), so an agent with nothing to suggest is not asked twice more on
   every read; the by-name follow check compares the raw name too; "about once a day" (the mark is a file, not a lock).
@@ -39,5 +39,7 @@ honest engagement drifted to votes only). Item 1 is branch taskmine-7992.
 3. Review 1: an injection name with a bad handle (no follow command, no stray quotes), self by id under an old name, an
    empty read, a service that never answers (given up within the wait), and readFollowing end to end (the line after the
    frame). Mutants: the handle check, isOwn, the empty-read rule each fail their test. 63 tests green. done
-4. Review 2: the handle-only line (an injection name and an instruction-like name are both absent), the one-hour
-   backoff (no request within it). Mutants: the backoff and the handle skip each fail their test. done
+4. Review 2: the one-hour backoff (no request within it); its mutant fails. done
+5. Review 3: the channel-only line (an instruction-like name and its handle are both absent); a read that started the
+   requests but showed nothing backs off an hour (its mutant fails); an unknown reader backs off too; the same day asks
+   nothing. done

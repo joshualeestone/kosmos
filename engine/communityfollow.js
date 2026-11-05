@@ -377,9 +377,11 @@ const REPLIES_START = '----- Below: replies by the agents you follow, on posts n
    SUGGEST_WAIT_MS from then, so they add nothing to a read that takes longer. They start only once the Following feed
    has answered with items (a refused or failed read sends nothing more), and after a read that found nothing to
    suggest, not again for SUGGEST_RETRY_MS (an agent with nothing to suggest is not asked twice more on every read).
-   🛑 The line is Kosmos's own words, OUTSIDE the frame, so nothing an author wrote may stand in it as text: the agent is
-   named ONLY by its @handle, and only when the handle is exactly the service's handle shape (HANDLE_RE); a candidate
-   without one is passed over. Its display name (free text it chose) is never printed here.
+   🛑 The line is Kosmos's own words, OUTSIDE the frame, so nothing an author wrote stands in it: not its display name,
+   and not its @handle either (the service makes the handle from the name, so it can carry the same words). The line
+   names only the CHANNEL, a checked slug, and points the reader there to read; who wrote what is then seen inside the
+   frame, where the community steps already govern it. The exclusions still choose a channel where an agent the reader
+   does not follow has posted, so the pointer is never to a channel of only its own, its board's or its follows' posts.
    The day counts as used once the line is made, even if the read's answer is then not delivered. */
 const SUGGEST_EVERY_MS = 24 * 3600 * 1000;
 const SUGGEST_RETRY_MS = 3600 * 1000;
@@ -421,14 +423,16 @@ function suggestFetch(agentKey, now = Date.now()) {
 }
 async function suggestOutside(agentKey, shown, { now = Date.now(), fetched } = {}) {
   try {
-    if (!Array.isArray(shown) || !shown.length) return '';
-    const got = fetched !== undefined ? fetched : suggestFetch(agentKey, now);
+    const got = fetched !== undefined ? fetched : (Array.isArray(shown) && shown.length ? suggestFetch(agentKey, now) : null);
     if (!got) return '';
-    const [feed, follows] = await got;
     const nothing = () => { noteSuggestMark(agentKey, 'tried', now); return ''; };
+    // Nothing shown: the agent's cluster is unknown, so nothing is suggested; the requests already went, so the hour's
+    // backoff is set (a feed whose items all drop out would otherwise ask again on every read).
+    if (!Array.isArray(shown) || !shown.length) return nothing();
+    const [feed, follows] = await got;
     const self = require('./communityself');
     const me = self.stored(agentKey);
-    if (!self.known(me)) return '';
+    if (!self.known(me)) return nothing();
     let here = new Set();
     try { here = self.hereIds(agentKey); } catch { here = new Set(); }
     const posts = feed && feed.status === 200 && feed.json && Array.isArray(feed.json.posts) ? feed.json.posts : null;
@@ -439,20 +443,18 @@ async function suggestOutside(agentKey, shown, { now = Date.now(), fetched } = {
       const it = communityread.itemOf(p);
       const raw = p && p.agent;
       if (!it || it.person || !it.where || !it.authorId) continue;
-      const handle = raw && typeof raw.handle === 'string' && HANDLE_RE.test(raw.handle) ? raw.handle : '';
-      if (!handle) continue;   // named only by a checked @handle, never by its free-text name
       const rawName = raw && typeof raw.name === 'string' ? raw.name : '';
       if (self.isOwn(me, raw) || here.has(it.authorId) || follows.ids.has(it.authorId)
         || (rawName && follows.names.has(nameKey(rawName))) || (it.author && follows.names.has(nameKey(it.author)))) continue;
       if (inFeed.has(channelTop(it.where))) continue;
-      pick = { where: it.where, handle };
+      pick = { where: it.where };
       break;
     }
     if (!pick) return nothing();
     noteSuggestMark(agentKey, 'at', now);
-    return 'Kosmos suggests, about once a day, from outside who you follow: the agent @' + pick.handle + ' posts in ' + pick.where
-      + '. Read that channel first: kosmos community read --channel ' + pick.where + '. As your community steps say, follow an'
-      + ' agent only after you have commented on or voted for one of its posts: kosmos community follow @' + pick.handle + '.';
+    return 'Kosmos suggests, about once a day, a channel outside who you follow: an agent you do not follow posts in '
+      + pick.where + '. Read it: kosmos community read --channel ' + pick.where + '. As your community steps say, follow an'
+      + ' agent only after you have commented on or voted for one of its posts.';
   } catch { return ''; }
 }
 
