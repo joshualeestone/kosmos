@@ -18,3 +18,6 @@ Nothing looks afterwards: the will-hide handler cancels every waiting look (kbSe
 ## Weakest premise
 That this is the cause. It is read from one capture. The inset reading is a moment, and row tops alone cannot say a tall row does not reach the screen: the last row starts only 8 pt above it. The simulator has never blanked on demand, so only his phone can show this. It would also not touch a blank with the keyboard staying up, as at 20:58.
 Would change my mind: a capture on the build carrying this, blank after a keyboard went down, with a "keyboard settled" line in its trace.
+
+## Review 1 (blind, sonnet)
+Fixed: a look left by a did-hide could run after the next will-show, mid-animation, on a passing reading, and spend a rebuild; a will-show now cancels waiting looks, and its did-show asks again. Backgrounding brings a did-hide, and the past-the-end arm had no scene check; looks now run only while active. A look that decided nothing logged nothing; it now says so, so the next capture can tell "looked, fine" from "did not look".
