@@ -35,8 +35,12 @@ function withStub(reply, fn, self = 'me-agent') {
     req.on('data', (d) => { raw += d; });
     req.on('end', () => {
       if (req.url === '/api/whoami') {   // who is asking: the self-check
+        /* Review 2: as the board does, a name only for a request that says who it is (a pane or an agent token), and
+           `self === null` is a board that cannot tell. */
+        let b = {}; try { b = JSON.parse(raw || '{}'); } catch { b = {}; }
+        const says = (b.from_pane && String(b.from_pane).length) || req.headers['x-kosmos-agent-token'];
         res.writeHead(200, { 'content-type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, agent: self }));
+        res.end(JSON.stringify(self !== null && says ? { ok: true, agent: self } : { ok: false, because: 'we could not tell who you are' }));
         return;
       }
       if (/^\/api\/agent\/[^/]+\/restart$/.test(req.url)) {
@@ -58,9 +62,10 @@ function withStub(reply, fn, self = 'me-agent') {
   });
 }
 
-async function cli(port, args) {
+async function cli(port, args, extra = {}) {
   const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME, KOSMOS_HOME: HOME, KOSMOS_PORT: String(port), TMPDIR: os.tmpdir(),
-    AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'), KOSMOS_AGENT_TOKEN: 'abc123' };
+    AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'), KOSMOS_AGENT_TOKEN: 'abc123', ...extra };
+  for (const k of Object.keys(env)) if (env[k] === undefined) delete env[k];
   try { const { stdout, stderr } = await run(CLI, args, { env, timeout: 30000 }); return { code: 0, out: stdout + stderr }; }
   catch (e) { return { code: e.code, out: String(e.stdout || '') + String(e.stderr || '') }; }
 }
@@ -124,7 +129,7 @@ const hookStub = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () =>
 async function winRun(port, argv, seams) {
   const out = []; const err = []; const asked = [];
   const s = seams || {};
-  const code = await wincli.main(argv, { env: { KOSMOS_AGENT_TOKEN: 'abc123' }, hook: hookStub, url: 'http://127.0.0.1:' + port,
+  const code = await wincli.main(argv, { env: s.env || { KOSMOS_AGENT_TOKEN: 'abc123' }, hook: hookStub, url: 'http://127.0.0.1:' + port,
     out: (x) => out.push(x), err: (x) => err.push(x), canAsk: () => s.tty === true,
     ask: (q) => { asked.push(q); return Promise.resolve(s.answer || ''); } });
   return { code, out: out.join('\n'), err: err.join('\n'), asked };
@@ -163,4 +168,24 @@ test('kosmos#8071 Windows: a refusal and a partial restart exit 1; no terminal a
     assert.equal(r.code, 2);
     assert.equal(seen.length, 0);
   });
+});
+
+test('kosmos#8071 review 2: when the board cannot say who is asking, an agent caller sends nothing; a person goes on; case does not hide yourself', async () => {
+  await withStub(RESTARTED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(r.code, 2, r.out);
+    assert.match(r.out, /cannot rule out that Sally Sales is you/);
+    const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(w.code, 2, w.err);
+    assert.equal(seen.length, 0, 'an agent restarted a name the board could not rule out as itself');
+    const person = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined });
+    assert.equal(person.code, 0, 'CONTROL: a person with no token or pane was refused: ' + person.out);
+    const wp = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes'], { env: {} });
+    assert.equal(wp.code, 0, 'CONTROL (Windows): a person was refused: ' + wp.err);
+  }, null);
+  await withStub(RESTARTED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'restart', 'sally sales', '--yes']);
+    assert.equal(r.code, 2, 'a differently cased own name was restarted: ' + r.out);
+    assert.equal(seen.length, 0);
+  }, 'Sally Sales');
 });
