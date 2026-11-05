@@ -163,12 +163,26 @@ function isTyping(id) { return claimedNow(id); }   // read by the tests
 /* Typed (or dropped) already, its removal from the file having failed: still in the file, but not kept. */
 function isDone(id) { return done.has(id); }   // read by the tests; the sweep reads `typing` itself
 /* What the recipient is told about a kept message as it is typed: kept, and when it was sent, so a day-old go-ahead
-   does not read as new. */
+   does not read as new. kosmos#8016: and, when the board knows the recipient has written to that sender since it was
+   sent (`wroteBack`, set by the sweep from wroteBackSince), it says so, so a copy of work already answered reads as such
+   rather than as a fresh ask. */
 function keptNote(e) {
-  return e && e.behind ? ' [kept behind earlier messages; sent ' + e.at + ']'
-    : e && e.signin ? ' [kept for you while you were signed out; sent ' + e.at + ']'   // #5948
-    : e && e.input ? ' [kept for you while your input box held text not yet sent; sent ' + e.at + ']'   // #6774
-    : ' [kept for you while you were out of usage; sent ' + e.at + ']';
+  const back = e && e.wroteBack === true && e.from ? '; you have written to ' + e.from + ' since' : '';
+  const why = e && e.behind ? 'kept behind earlier messages'
+    : e && e.signin ? 'kept for you while you were signed out'   // #5948
+    : e && e.input ? 'kept for you while your input box held text not yet sent'   // #6774
+    : 'kept for you while you were out of usage';
+  return ' [' + why + '; sent ' + (e && e.at) + back + ']';
+}
+/* kosmos#8016: whether `e`'s recipient has sent its sender a `kosmos msg` since `e` was sent, from the message log's rows.
+   Only an agent's kept message (no kind) with a named sender; a row with no readable time is not counted. Never throws. */
+function wroteBackSince(rows, e) {
+  try {
+    if (!e || e.kind || !e.from || !e.to || !Array.isArray(rows)) return false;
+    const after = Date.parse(e.at);
+    if (!Number.isFinite(after)) return false;
+    return rows.some((r) => r && r.kind === 'message' && r.from === e.to && r.to === e.from && Date.parse(r.at) > after);
+  } catch { return false; }
 }
 /* Send now anyway (slice 2b) takes the same claim while it types a kept message, so the sweep skips it and a crash
    mid-typing leaves it kept (typed again, at worst) rather than lost. False when it is already claimed, or already
@@ -242,7 +256,7 @@ async function flush(roster, opts) {
   // Only this run frees the guard: a stuck run that finishes late must not clear a newer run's.
   try { return await flushOnce(roster, opts); } finally { if (runToken === mine) flushingSince = 0; }
 }
-async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, onStuck, onStillHeld, boxIsReason, now = Date.now() }) {
+async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, onDelivered, onDropped, onStuck, onStillHeld, boxIsReason, wroteSince, now = Date.now() }) {
   const out = [];
   const saidTo = new Set();   // review 7-8: one notice per sender per sweep (any recipient), each failure counted before the next
   for (const name of names()) {
@@ -303,7 +317,11 @@ async function flushOnce(roster, { deliver, isReleased, resolveCard, DELIVERY, o
         typedNow += 1;
         typing.set(e.id, Date.now());
         let v;
-        try { v = await deliver(name, e.envelope + keptNote(e), roster, e); } catch { v = null; } finally { typing.delete(e.id); }
+        // kosmos#8016: read just before typing, so a reply written while it waited is known.
+        let back = false;
+        try { back = !e.kind && !!e.from && typeof wroteSince === 'function' && wroteSince(e) === true; } catch { back = false; }
+        const te = back ? { ...e, wroteBack: true } : e;
+        try { v = await deliver(name, te.envelope + keptNote(te), roster, te); } catch { v = null; } finally { typing.delete(e.id); }
         const state = v && v.state;
         if (state !== DELIVERY.PLACED && state !== DELIVERY.UNCONFIRMED) {
           try { if (onStuck) onStuck(e, v); } catch { /* it stays kept either way */ }
@@ -369,6 +387,8 @@ function sweepHooks({ chat, messages }) {
        one held entry stops it. A person's own entry never asks for it. */
     deliver: (n, env, r, e) => (e && e.kind === 'dm' ? chat.deliverAutomaticAsync(n, e.text, r, e.envelope, (e.trailer || '') + keptNote(e)) : chat.deliverAutomaticAsync(n, env, r, undefined, undefined, (e && e.person === true) || personsIn(n) ? {} : { workCap: true })),
     resolveCard: chat.resolveCard, DELIVERY: chat.DELIVERY,
+    // kosmos#8016: has the recipient written to the sender since? (messages.readLog is cached by the log's size and time.)
+    wroteSince: (e) => wroteBackSince(messages.readLog(), e),
     /* #6774: a queue holding a message kept for a stuck input box waits for the box to read empty as well (the #6256
        rule: an unreadable box keeps them waiting). */
     isReleased: (card, roster, live) => chat.limitQueueReleased(card, roster)
@@ -404,4 +424,4 @@ function sweepHooks({ chat, messages }) {
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); toldStill.clear(); limitedSeen.clear(); stillTriedAt.clear(); stillInFlight.clear(); flushingSince = 0; }
 
-module.exports = { heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, STILL_RETRY_MS, dropAfter, forgetTold, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
+module.exports = { wroteBackSince, heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, STILL_RETRY_MS, dropAfter, forgetTold, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
