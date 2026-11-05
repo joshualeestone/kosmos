@@ -25,7 +25,7 @@ function paint(st) {
   let text = '';
   Object.defineProperty(list, 'textContent', { get: () => text, set: (v) => { text = v; if (v === '') list.children = []; } });
   const document = { getElementById: (id) => els[id] || null, createElement: (tag) => el(tag), createTextNode: (t) => ({ tag: '#text', textContent: t }) };
-  const src = fn('function plusOrgIn(org, text)') + '\nconst PLUS_ORG_RECOVERY_DAYS = 30;\n' + fn('function plusOrgRecoveryLine(r)') + '\n' + fn('function plusOrgRecoveries(st)');
+  const src = 'const PLUS_ORG_RECOVERY_DAYS = 30;\n' + fn('function plusOrgRecoveryLine(r)') + '\n' + fn('function plusOrgRecoveries(st)');
   new Function('document', src + '\nreturn plusOrgRecoveries;')(document)(st);
   return els;
 }
@@ -71,6 +71,8 @@ test('#5536: Settings lists each recovery as text, given or opened with its coun
   assert.equal(paint({ enrolled: true })['plus-org-recoveries'].hidden, true);
   assert.equal(paint({ enrolled: true, recoveries: [recs[5]] })['plus-org-recoveries'].hidden, true);
   assert.equal(paint(null)['plus-org-recoveries'].hidden, true);
+  const fam = paint({ enrolled: true, org: { kind: 'family' }, recoveries: recs, recoveriesAt: Date.now() });
+  assert.equal(fam['plus-org-recoveries'].hidden, true, 'a family, which has no backup, was told about its backup');
   const left = paint({ enrolled: false, recoveries: recs });
   assert.equal(left['plus-org-recoveries'].hidden, true, 'a computer not joined listed recoveries');
 });

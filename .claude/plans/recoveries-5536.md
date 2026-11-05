@@ -23,6 +23,10 @@ Relay half: kosmos-relay PR #781 (the `recoveries` and `recoveriesMore` fields o
   heading says "given access" for the same reason.
 - Built dark: until a coordinator sends the field, nothing new shows.
 
+## Accepted
+- A read with no usable count (missing, or 0, which the engine drops) reads "opened files from your backup".
+- A family is shown nothing: it has no backup, and the reviewers block already says so.
+
 ## Weakest premise
 The wording. It is mine, written without a designer. Mona Lisa's or Josh's wording replaces it.
 
