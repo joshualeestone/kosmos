@@ -93,6 +93,12 @@ test('handOver keeps the dropped count until an acknowledgement, as it keeps the
   const after = fn.handOver('pete', { ack: h.notices.map((n) => n.id), now: T0 + 80 });
   assert.equal(after.dropped, 3, 'the 3 dropped since the hand-over are still told');
   fn.take('pete');
+  // A stale acknowledgement (its ids already gone) still clears the count it was handed, so it is not told again.
+  for (let i = 0; i < fn.MAX_PENDING + 2; i++) fn.queue('pete', 'r' + i, { now: T0 + i });
+  const told = fn.handOver('pete', { now: T0 + 90 });
+  assert.equal(told.dropped, 2);
+  assert.equal(fn.handOver('pete', { ack: ['0123456789ab'], now: T0 + 91 }).dropped, 0);
+  fn.take('pete');
   // Only a count left (every notice expired): handed over once, since there is nothing to acknowledge.
   for (let i = 0; i < fn.MAX_PENDING + 1; i++) fn.queue('pete', 'm' + i, { now: T0 + i });
   assert.equal(fn.handOver('pete', { now: T0 + fn.KEEP_MS + 100 }).dropped, 1);
