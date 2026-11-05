@@ -13,7 +13,7 @@ set -u
 plist="${1:?usage: check-usage-strings.sh <Kosmos.app/Info.plist>}"
 [ -s "$plist" ] || { echo "check-usage-strings: no Info.plist at $plist"; exit 2; }
 fail=0
-for key in NSCameraUsageDescription NSMicrophoneUsageDescription NSPhotoLibraryAddUsageDescription NSFaceIDUsageDescription; do
+for key in NSCameraUsageDescription NSMicrophoneUsageDescription NSPhotoLibraryUsageDescription NSPhotoLibraryAddUsageDescription NSFaceIDUsageDescription; do
   value=$(plutil -extract "$key" raw -o - "$plist" 2>/dev/null)
   if [ -z "$value" ]; then
     echo "MISSING  $key"

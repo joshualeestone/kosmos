@@ -13,6 +13,8 @@
 	<false/>
 	<key>KosmosSharedKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)$(KOSMOS_BUNDLE_ID).shared</string>
+	<key>PHPhotoLibraryPreventAutomaticLimitedAccessAlert</key>
+	<true/>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>INSendMessageIntent</string>

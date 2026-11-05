@@ -1,6 +1,8 @@
 import Foundation
 import CryptoKit
 import ImageIO
+import CoreGraphics
+import UniformTypeIdentifiers
 import JavaScriptCore
 import UserNotifications
 
@@ -5728,7 +5730,7 @@ do {
     check(!Board.roomBlankRebuilds(visible: true, searching: false, scrolling: false, drawn: 0, posts: 220, rebuilds: 2), "never a third, so it cannot loop")
 
     // kosmos#7596: the + panel's rules.
-    check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
+    check(AttachChoice.allCases.map(\.title) == ["Camera", "All photos", "Files"], "the tray offers Camera, All photos and Files, in that order")
     check(Board.cameraState(available: true, auth: .authorized) == .ready && Board.cameraState(available: true, auth: .notDetermined) == .notAsked,
           "a camera allowed is ready; one not yet asked about asks first")
     check(Board.cameraState(available: true, auth: .denied) == .notAllowed && Board.cameraState(available: true, auth: .restricted) == .blocked,
@@ -5761,6 +5763,71 @@ do {
     check(Board.settledBlankActs(endVisible: false, endSeen: false, everDrew: false, messagesFor: 3.0), "the same list 3 s on: it acts")
     check(Board.settledBlankActs(endVisible: false, endSeen: false, everDrew: true, messagesFor: 1.0), "a list that drew, rebuilt: it acts at once, as before; the grace and the spacing hold it")
     check(Board.settledBlankActs(endVisible: false, endSeen: true, everDrew: true, messagesFor: 9), "a list that drew, with its end gone and nothing on screen: it acts, as before")
+    // kosmos#8045: every answer to iOS's photo prompt still has a way to add a photo.
+    check(Board.trayShowsGrid(.all) && Board.trayShowsGrid(.limited) && !Board.trayShowsGrid(.off) && !Board.trayShowsGrid(.blocked) && !Board.trayShowsGrid(.notAsked),
+          "only an answer that lets Kosmos read photos draws the grid")
+    check(Board.trayLine(.notAsked, loaded: false, count: 0) == nil && Board.trayLine(.all, loaded: true, count: 5) == nil, "nothing to say while asking, or with the photos showing")
+    check(Board.trayLine(.all, loaded: false, count: 0) == nil && Board.trayLine(.all, loaded: true, count: 0) != nil, "No photos only once the read has answered")
+    check(Board.trayLine(.off, loaded: true, count: 0)?.settings == true && Board.trayLine(.limited, loaded: true, count: 3)?.settings == true,
+          "access off, or limited, says where to change it")
+    check(Board.trayLine(.blocked, loaded: true, count: 0)?.settings == false, "CONTROL: a device that blocks it has no Settings switch to send anyone to")
+    check(Board.trayLine(.limited, loaded: true, count: 0)?.words != Board.trayLine(.limited, loaded: true, count: 3)?.words, "limited with nothing chosen says so")
+    // Which tile's tap owns what.
+    do {
+        var t = TrayTaps()
+        check(t.tap("a", generation: 0, waiting: []) == .add(number: 1) && t.isChecked("a", generation: 0, waiting: []), "a tap adds, and its tile shows it at once")
+        check(t.ended("a", number: 1, file: "f1") == nil && t.isChecked("a", generation: 0, waiting: ["f1"]), "its file lands: still checked")
+        check(!t.isChecked("a", generation: 0, waiting: []), "CONTROL: the chip's own x took the file off: the check goes")
+        check(t.tap("a", generation: 0, waiting: ["f1"]) == .remove(file: "f1"), "a second tap takes the file back")
+        var w = TrayTaps()
+        _ = w.tap("a", generation: 0, waiting: [])
+        check(w.tap("a", generation: 0, waiting: []) == .letGo && !w.isChecked("a", generation: 0, waiting: []), "a second tap on its way lets go at once")
+        check(w.ended("a", number: 1, file: "f1") == "f1", "and the file comes off when it lands")
+        var x = TrayTaps()
+        _ = x.tap("a", generation: 0, waiting: [])
+        check(!x.isChecked("a", generation: 1, waiting: []), "the composer's x lets go of a tile still adding")
+        check(x.tap("a", generation: 1, waiting: []) == .add(number: 2), "and a tap after it adds again")
+        check(x.ended("a", number: 1, file: nil) == nil && x.isChecked("a", generation: 1, waiting: []), "the stopped add ending does not take the tile from the later tap")
+        check(x.ended("a", number: 2, file: "f2") == nil && x.picked["a"] == "f2", "the later tap owns the tile")
+    }
+
+    // What goes up: measured on real bytes, with a location in them.
+    func trayImage(_ type: UTType, _ extra: [CFString: Any]) -> Data {
+        let ctx = CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, type.identifier as CFString, 1, nil) else { return Data() }   // no encoder here: the CONTROL says so
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, extra as CFDictionary)
+        _ = CGImageDestinationFinalize(dest)
+        return out as Data
+    }
+    func trayProps(_ d: Data?) -> [CFString: Any] {
+        guard let d, let s = CGImageSourceCreateWithData(d as CFData, nil) else { return [:] }
+        return CGImageSourceCopyPropertiesAtIndex(s, 0, nil) as? [CFString: Any] ?? [:]
+    }
+    func trayKind(_ d: Data?) -> String? {
+        guard let d, let s = CGImageSourceCreateWithData(d as CFData, nil) else { return nil }
+        return CGImageSourceGetType(s) as String?
+    }
+    let trayGPS: [CFString: Any] = [kCGImagePropertyGPSDictionary: [kCGImagePropertyGPSLatitude: 33.0, kCGImagePropertyGPSLatitudeRef: "N"], kCGImagePropertyOrientation: 6,
+                                    kCGImagePropertyExifDictionary: [kCGImagePropertyExifLensModel: "a lens"], kCGImagePropertyTIFFDictionary: [kCGImagePropertyTIFFMake: "a maker"]]
+    let trayJPEG = trayImage(.jpeg, trayGPS), trayPNG = trayImage(.png, trayGPS), trayHEIC = trayImage(.heic, trayGPS)
+    func trayTIFFMake(_ d: Data?) -> Any? { (trayProps(d)[kCGImagePropertyTIFFDictionary] as? [CFString: Any])?[kCGImagePropertyTIFFMake] }
+    func trayLens(_ d: Data?) -> Any? { (trayProps(d)[kCGImagePropertyExifDictionary] as? [CFString: Any])?[kCGImagePropertyExifLensModel] }
+    check(trayTIFFMake(trayJPEG) != nil && trayLens(trayJPEG) != nil, "CONTROL: the test JPEG does carry a maker and a lens")
+    check(trayTIFFMake(Board.trayEncoded(trayJPEG)) == nil && trayLens(Board.trayEncoded(trayJPEG)) == nil, "a tray photo's other metadata stays behind too")
+    check(trayProps(trayHEIC)[kCGImagePropertyGPSDictionary] != nil, "CONTROL: the test HEIC, an iPhone's usual format, does carry a location")
+    check(trayKind(Board.trayEncoded(trayHEIC)) == UTType.jpeg.identifier && trayProps(Board.trayEncoded(trayHEIC))[kCGImagePropertyGPSDictionary] == nil, "a HEIC goes up as a JPEG, with its location left behind")
+    check(trayProps(trayJPEG)[kCGImagePropertyGPSDictionary] != nil && trayProps(trayPNG)[kCGImagePropertyGPSDictionary] != nil, "CONTROL: the test photos do carry a location")
+    check(trayProps(Board.trayEncoded(trayJPEG))[kCGImagePropertyGPSDictionary] == nil && trayKind(Board.trayEncoded(trayJPEG)) == UTType.jpeg.identifier, "a tray JPEG goes up as a JPEG with its location left behind")
+    check(trayProps(Board.trayEncoded(trayPNG))[kCGImagePropertyGPSDictionary] == nil && trayKind(Board.trayEncoded(trayPNG)) == UTType.png.identifier, "a tray PNG stays a PNG, with its location left behind")
+    check((trayProps(Board.trayEncoded(trayJPEG))[kCGImagePropertyOrientation] as? Int) == 6, "a tray photo keeps its turn, or it would arrive sideways")
+    let trayGIF = trayImage(.gif, [:])
+    check(Board.trayEncoded(trayGIF) == trayGIF, "a GIF is kept whole")
+    check(Board.trayEncoded(Data("not a picture".utf8)) == nil, "bytes that are no picture say so, and the add's line reports it")
+    check(Board.trayPhotoLabel(nil) == "Photo" && Board.trayPhotoLabel(Date(timeIntervalSince1970: 0), zone: TimeZone(identifier: "UTC")!).contains("1970"), "a tile says when it was taken")
+    check(([Board.trayPhotosRow(.off), Board.trayPhotosRow(.all)] + [TrayAccess.limited, .off, .blocked].compactMap { Board.trayLine($0, loaded: true, count: 0)?.words }).allSatisfy { !$0.contains("\u{2014}") }, "none of the tray's words has an em dash")
+    check(Board.trayPhotosRow(.all) == "All photos" && Board.trayPhotosRow(.limited) == "All photos" && Board.trayPhotosRow(.off) == "Choose photos" && Board.trayPhotosRow(.blocked) == "Choose photos",
+          "the row names what it opens: a grid above it, or none")
 
     // Review 3: the box over a chat's life.
     var sends: [Int] = []

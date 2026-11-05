@@ -775,7 +775,7 @@ final class BoardClient: ObservableObject {
     @Published private(set) var attachedPreviews: [String: Board.AttachedPicture] = [:]
     @Published private(set) var uploading: [String: Int] = [:]
     // kosmos#7682: moved on by cancelAdding and forgetChats, per chat, so an add from before a cancel neither counts nor lands.
-    private var addGeneration: [String: Int] = [:]
+    private(set) var addGeneration: [String: Int] = [:]
     // kosmos#7682 review 1: each chat's uploads still going, so the x can cancel them.
     private var uploadTasks: [String: [UUID: Task<(Data, HTTPURLResponse)?, Never>]] = [:]
     @Published var attachLine: [String: String] = [:]
@@ -790,7 +790,8 @@ final class BoardClient: ObservableObject {
     // Sends one pick to the Mac for this agent's next message, counted as on its way from the moment this is called (a
     // photo can take seconds to load). `epoch` is the chats' forgetting count when it was picked: a pick made under
     // another account or Mac is never sent under this one. The client's copy is removed once sent or refused.
-    func attach(_ pick: Pick, epoch: Int, to agent: Board.Agent) async {
+    @discardableResult
+    func attach(_ pick: Pick, epoch: Int, to agent: Board.Agent) async -> String? {
         await attach(pick, epoch: epoch, key: agent.session, sample: Self.isSampleThread(agent.session, self)) { mac, name, type in
             Board.uploadRequest(mac: mac, session: agent.session, name: name, type: type)
         }
@@ -804,12 +805,14 @@ final class BoardClient: ObservableObject {
     }
     // Shared with a project's room (kosmos#7093, RoomStore.attach): `key` is where the files wait (an agent's name, or
     // Board.roomAttachKey), `request` the upload for the Mac's address, the file's name and type.
+    // kosmos#8045: answers with the waiting file's id, so a tile can take back the file its own tap made.
+    @discardableResult
     func attach(_ pick: Pick, epoch: Int, key session: String, sample: Bool,
-                request: (URL, String, String) -> URLRequest?) async {
-        guard epoch == chatEpoch else { return }
+                request: (URL, String, String) -> URLRequest?) async -> String? {
+        guard epoch == chatEpoch else { return nil }
         if let refusal = Board.uploadRefusal(size: nil, waiting: (attached[session]?.count ?? 0) + uploading[session, default: 0]) {
             attachLine[session] = refusal
-            return
+            return nil
         }
         uploading[session, default: 0] += 1
         // kosmos#7682: the count comes back down on EVERY way out, not only the last line, unless this chat's adds were
@@ -840,7 +843,7 @@ final class BoardClient: ObservableObject {
         defer { if case .ready(let file, _, _, _) = prepared { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) } }
         // The chats were forgotten meanwhile (another account or Mac): the pick belongs to the one before. Or the person
         // cancelled this chat's adds (kosmos#7682): the pick is dropped.
-        guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return }
+        guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return nil }
         let result: Board.UploadResult
         var pictureFile: URL?   // kosmos#7944: a picture, whose copy for the composer is made once it is added
         switch prepared {
@@ -866,10 +869,10 @@ final class BoardClient: ObservableObject {
                 result = Board.uploadResult(status: 0, body: nil, name: name, size: size)
             }
         }
-        guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return }
+        guard epoch == chatEpoch, addGeneration[session, default: 0] == generation else { return nil }
         switch result {
         case .added(let a):
-            guard attached[session]?.contains(where: { $0.id == a.id }) != true else { return }
+            guard attached[session]?.contains(where: { $0.id == a.id }) != true else { return nil }
             attached[session, default: []].append(a)
             stopCounting()
             // kosmos#7944: the picture's copy for the composer is made AFTER the file is on the composer (review 3: made
@@ -880,8 +883,10 @@ final class BoardClient: ObservableObject {
             if let pictureFile, let picture = await Self.offMain({ Board.attachedPicture(of: pictureFile) }) {
                 keepPicture(picture, for: a.id, epoch: epoch)
             }
+            return a.id
         case .refused(let why):
             attachLine[session] = why
+            return nil
         }
     }
 

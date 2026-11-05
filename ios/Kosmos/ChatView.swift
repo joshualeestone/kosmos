@@ -167,6 +167,11 @@ struct ChatView: View {
     // kosmos#7268: the emoji panel (in the keyboard's place while open), the glyph waiting to go in at the cursor, and
     // dictation into the box, as the project room's (RoomView).
     @State private var emojiOpen = false
+    // kosmos#8045: the + tray, in the keyboard's place while open.
+    @State private var trayOpen = false
+    @State private var trayFromKeyboard = false
+    @State private var trayHeight: CGFloat = 0
+    @State private var trayModel = PhotoTrayModel()
     @State private var emojiInsert: ComposerExtras.Pick?
     @StateObject private var dictation = Dictation()
     @State private var reactNote: String?
@@ -229,6 +234,7 @@ struct ChatView: View {
                             .onChange(of: line) { now in UIAccessibility.post(notification: .announcement, argument: now) }
                     }
                     composer
+                    photoTray
                 }
                 // kosmos#7346 (Josh 10-27 19:59): solid behind and below the box, down to the home indicator, as Discord: no
                 // message shows through or under it. The inset already ends the list above this strip.
@@ -245,6 +251,8 @@ struct ChatView: View {
                 }
             }
         }
+        // kosmos#8045: the tray holds the keyboard's room while it is open (AttachMenu.swift, PhotoTrayFollowsKeyboard).
+        .ignoresSafeArea(.keyboard, edges: trayOpen ? .bottom : [])
         .background(Palette.chatGround.ignoresSafeArea())
         // Mona Lisa's review: the tab bar would stack under the composer and take about 170pt, so it hides here.
         .toolbar(.hidden, for: .tabBar)
@@ -416,7 +424,7 @@ struct ChatView: View {
             boxAskedAt = nil   // kosmos#7420 review 7: a box change in the chat before is not this one's
             // kosmos#7575 review 1: what one computer saw is dropped, never sent to another's board (deliberately lost).
             shifts.reset(); shifts.attach(send: shiftSender())
-            dictation.reset(); emojiOpen = false   // kosmos#7268: another account's conversation starts clean
+            dictation.reset(); emojiOpen = false; trayOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
             positionId = nil; anchorLetGo = false; rowTops.reset(); personScrolling = false; endVisible = true; rebuilds = []   // kosmos#7265 review: a fresh chat's anchor
@@ -847,6 +855,21 @@ struct ChatView: View {
                     // kosmos#7344: re-setting an anchor that already reads "end" does not move the thread, so scroll to it.
                     // Not animated under the anchor, as goNewest is (the side lock, #7574, relies on that).
                     if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy, animated: true) }
+                }
+                // kosmos#8045: the tray rising with no keyboard takes the list's room as a keyboard would, so a reader at the newest
+                // stays there. With a keyboard up the list does not move at all.
+                .onChange(of: trayOpen) { open in
+                    guard visible else { return }
+                    if open {
+                        guard !trayFromKeyboard, atBottom, !searchMode else { return }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            guard trayOpen, visible, !personScrolling else { return }   // a reader's finger is never moved
+                            if Self.idAnchor { proxy.scrollTo("end", anchor: .bottom); positionId = "end" } else { goNewest(proxy, animated: true) }
+                        }
+                    } else if !composerFocused {
+                        // Going down with no keyboard takes the same room a keyboard going down does: the same look (#7420).
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if !trayOpen, visible { settleAtNewest(proxy, boxMoved: false) } }
+                    }
                 }
                 // Only the chat on screen: another tab can keep a chat alive under it.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
@@ -1924,8 +1947,11 @@ struct ChatView: View {
         .padding(.top, 6)
         .padding(.bottom, 8)
         .onChange(of: composerFocused) { focused in if focused { emojiOpen = false } }
+        // kosmos#8045: the keyboard rises over the tray.
+        .modifier(PhotoTrayFollowsKeyboard(open: $trayOpen, focused: composerFocused))
         // Review 8: the search field's keyboard closes the panel too, or it sits on top of it and hides the results.
         .onChange(of: searchFocused) { focused in if focused { emojiOpen = false } }
+        .onChange(of: searchFocused) { focused in if focused { trayOpen = false } }
         #if DEBUG
         // KOSMOS_SAMPLE_EMOJI=open (with the agent samples): the panel open, for the design shots.
         .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1", ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_EMOJI"] == "open" { emojiOpen = true } }
@@ -1942,6 +1968,7 @@ struct ChatView: View {
         // Leaving the conversation lets go of the microphone and closes the panel (the board's: the panel belongs to the
         // composer being left).
         .onDisappear { dictation.reset(); emojiOpen = false }
+        .onDisappear { trayOpen = false }
         .onChange(of: draftText) { [was = draftText] now in
             // The person changed what Send was refused for: the reason no longer applies to it.
             if let b = blocked, now != b.text {
@@ -1992,18 +2019,11 @@ struct ChatView: View {
     // As many as a message carries are waiting or on their way: nothing more can be picked.
     private var atFileLimit: Bool { attachedHere.count + uploadingHere >= Board.maxFiles }
 
-    // kosmos#7596: Camera, Photos and Files in the larger panel (AttachMenu.swift).
+    // kosmos#8045: the + opens recent photos at once (AttachMenu.swift).
     private var addButton: some View {
-        AttachPlusButton(atLimit: atFileLimit, label: "Add a photo or file",
-                         hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "",
-                         onPicked: { if $0 == .camera { cameraEpoch = client.chatEpoch } },
-                         onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[agent.session] = Board.cameraDeniedLine } }) { choice in
-            switch choice {
-            // Review 11: not after an account or computer switch during iOS's camera prompt (the photo could not be sent).
-            case .camera: if cameraEpoch == client.chatEpoch { showCamera = true }
-            case .photos: showPhotos = true
-            case .files: showFiles = true
-            }
+        AttachPlusButton(open: trayOpen && !composerFocused, label: "Add a photo or file",
+                         hint: atFileLimit ? Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "" : "") {
+            if trayOpen && !composerFocused { closeTray() } else { openTray() }
         }
         .padding(.leading, 4)
         .padding(.bottom, 2)
@@ -2021,6 +2041,51 @@ struct ChatView: View {
         .onChange(of: previewing.map { client.attachedPreviews[$0.id] != nil } ?? true) { still in
             if !still { previewing = nil }
         }
+    }
+
+    // kosmos#8045: with the keyboard up, the tray goes in behind it as it drops, on one update, so the box does not move.
+    private func openTray() {
+        let overKeyboard = composerFocused || searchFocused
+        trayFromKeyboard = composerFocused   // not search's: the X goes back to the box's own keyboard only
+        trayHeight = PhotoTrayMotion.height
+        PhotoTrayMotion.change(overKeyboard: overKeyboard) { emojiOpen = false; trayOpen = true; composerFocused = false; searchFocused = false }
+    }
+
+    // Back to the keyboard if that is where it came from (composerFocused's onChange closes the tray), otherwise down.
+    private func closeTray() {
+        if trayFromKeyboard { composerFocused = true } else { PhotoTrayMotion.change(overKeyboard: false) { trayOpen = false } }
+    }
+
+    @ViewBuilder private var photoTray: some View {
+        if trayOpen {
+            PhotoTray(model: trayModel, height: trayHeight, atLimit: atFileLimit,
+                      limitHint: Board.uploadRefusal(size: nil, waiting: Board.maxFiles) ?? "",
+                      attached: { client.attached[agent.session] ?? [] },
+                      generation: client.addGeneration[agent.session, default: 0],
+                      add: { await addFromTray($0, number: $1) },
+                      remove: { client.unattach($0, for: agent.session) },
+                      onCameraTapped: { cameraEpoch = client.chatEpoch },
+                      onCameraDenied: { if cameraEpoch == client.chatEpoch { client.attachLine[agent.session] = Board.cameraDeniedLine } }) { choice in
+                switch choice {
+                // Review 11: not after an account or computer switch during iOS's camera prompt (the photo could not be sent).
+                case .camera: if cameraEpoch == client.chatEpoch { showCamera = true }
+                case .photos: showPhotos = true
+                case .files: showFiles = true
+                }
+            }
+            .transition(.move(edge: .bottom))
+        }
+    }
+
+    // A tile's photo: its data is read here, on its turn, and goes up as a picked one does.
+    private func addFromTray(_ photo: TrayPhoto, number: Int) async -> String? {
+        let epoch = client.chatEpoch
+        let at = Date()
+        client.attachLine[agent.session] = nil
+        return await client.attach(.photo(load: {
+            guard let data = await photo.data() else { return nil }
+            return (Board.photoName(at: at, ext: Board.imageExtension(data) ?? "jpg", number: number), data)
+        }), epoch: epoch, to: agent)
     }
 
     private var chips: some View {
@@ -2116,7 +2181,7 @@ struct ChatView: View {
                 .padding(.vertical, 13)
                 .padding(.leading, 2)
             ComposerEmojiButton(open: emojiOpen) {
-                if emojiOpen { emojiOpen = false; composerFocused = true } else { emojiOpen = true; composerFocused = false }
+                if emojiOpen { emojiOpen = false; composerFocused = true } else { trayOpen = false; emojiOpen = true; composerFocused = false }
             }
             // kosmos#7687: the send button in the microphone's place once there is something to send (not while dictating).
             if ComposerExtras.showsSend(text: draftText, files: attachedHere.count, dictating: dictation.busy) {
@@ -2157,6 +2222,7 @@ struct ChatView: View {
         // A press in the air: the words wait in the box, and the line says why (dmChoiceBlocksSend).
         if client.pressing.contains(agent.session) { composerNote = Board.choiceWaitLine; return }
         composerNote = nil
+        if trayOpen { PhotoTrayMotion.change(overKeyboard: false) { trayOpen = false } }   // kosmos#8045: sent, back to reading
         dictation.stop()   // kosmos#7268 review 1: before the box is cleared, so no late result brings the words back
         // The composer line goes on the next send or press (Mona Lisa's spec, section 1).
         pressLine = nil
