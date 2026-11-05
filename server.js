@@ -11015,7 +11015,7 @@ const server = http.createServer(async (req, res) => {
         let view = null;
         try { view = chat.viewport(clean, safeRoster()); } catch { view = null; }
         if (!view || typeof view.text !== 'string' || !importsDialogIn(view.text)) {
-          sendJson(res, 409, { ok: false, because: 'it is no longer asking this' });
+          sendJson(res, 409, { ok: false, because: view && typeof view.text !== 'string' && view.because ? view.because : 'it is no longer asking this' });
           return;
         }
         const wrote = create.declineAgentImports(clean);
@@ -11023,8 +11023,10 @@ const server = http.createServer(async (req, res) => {
         process.stdout.write(`decline-imports: ${JSON.stringify(clean)} starts without its outside imports\n`);
         let out;
         try { out = removal.restart(clean, 'restart', { startIfDead: true, quiet: true }); }
-        catch (err) { sendJson(res, 500, { ok: false, because: 'we could not restart this agent', detail: String((err && err.message) || err) }); return; }
-        sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ok: out.outcome !== removal.OUTCOME.REFUSED, ...out });
+        catch (err) { sendJson(res, 500, { ok: false, because: 'your answer is saved, but we could not restart this agent', detail: String((err && err.message) || err) }); return; }
+        /* The restart's own sentence says it will have its current instructions, which is the opposite of this answer. */
+        if (out.outcome === removal.OUTCOME.RESTARTED) { sendJson(res, 200, { ok: true, ...out, because: 'It is starting without those files.' }); return; }
+        sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ok: out.outcome !== removal.OUTCOME.REFUSED, ...out, because: 'Your answer is saved. ' + (out.because || '') });
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
     return;

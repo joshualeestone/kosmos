@@ -44205,7 +44205,7 @@ async function paintTalk(sessionName, agentName) {
     if (qTrust) qTrust.hidden = false;
   } else if (body.asking && body.importsAsk && qImports) {
     /* kosmos#8039: it cannot start until this is answered. */
-    qlab.textContent = name + ' cannot start until you answer. Its instructions import files from outside its folder. Continue without them, or open its Terminal to allow them.';
+    qlab.textContent = name + ' cannot start until you answer. Its instructions import files from outside its folder. Continue without them, or allow them in its terminal on the computer it runs on.';
     qImports.hidden = false;
   } else if (body.asking && body.codexHooks && qCodex) {
     /* #4607: only what the screen says. The count from the menu, the events from the table, the source from one
@@ -45974,6 +45974,8 @@ function openDetail(sessionName, section, fromProject) {
      elements are reused, not rebuilt per agent, so a landed receipt would stand
      under the next agent unless cleared on switch. */
   { const m = document.getElementById('d-qask-trust-restart-msg'); if (m) m.textContent = ''; }
+  { const m = document.getElementById('d-qask-imports-msg'); if (m) m.textContent = ''; }   // kosmos#8039
+  { const b = document.getElementById('d-qask-imports-no'); if (b) b.disabled = false; }
   /* #2808: the dismiss receipt line, same reason as its trust-restart twin. */
   /* The buttons are shared across agents, so an in-flight POST for the agent we are leaving
      left them disabled; re-enable for the agent we are opening. The leaving agent's own
@@ -53184,18 +53186,18 @@ document.getElementById('d-qask-imports-no').addEventListener('click', async () 
   if (!CURRENT) return;
   const forAgent = CURRENT.sessionName;
   const btn = document.getElementById('d-qask-imports-no');
-  const msg = document.getElementById('d-qask-imports-msg');
+  const note = document.getElementById('d-qask-imports-msg');
   btn.disabled = true;
-  msg.textContent = 'Starting it without them…';
+  note.textContent = 'Starting it without them…';
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/decline-imports',
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     const r = await res.json().catch(() => ({}));
     if (CURRENT && CURRENT.sessionName === forAgent) {
-      msg.textContent = r.because || r.error || (res.ok ? 'Restarting.' : 'We could not start this agent without them.');
+      note.textContent = r.because || r.error || (res.ok ? 'Restarting.' : 'We could not start this agent without them.');
     }
   } catch {
-    if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = 'We could not reach Kosmos to start this agent.';
+    if (CURRENT && CURRENT.sessionName === forAgent) note.textContent = 'We could not reach Kosmos to start this agent.';
   } finally {
     btn.disabled = false;
   }
