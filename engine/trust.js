@@ -1049,6 +1049,38 @@ function carryExternalImports(dir, opts) {
 }
 
 const IN_ITS_TERMINAL = 'Answer it in its terminal on the computer it runs on';   // a whole sentence: it follows a full stop
+/* kosmos#8039: the key the board's No would be written under for this folder, or why the board cannot give it. Read-only,
+   so the thread route can ask before it offers the button (review 8). */
+function importsAnswerKey(dir) {
+  if (!dir || !path.isAbsolute(dir)) return { ok: false, because: 'that is not an absolute folder path' };
+  let real;
+  try { real = fs.realpathSync.native(dir); }
+  catch { return { ok: false, because: 'that folder is not there' }; }
+  let root = real;
+  /* Inside a git repository Claude Code reads this answer under the repository's root. Measured on 2.1.318 in a subfolder
+     of a repo: written under the subfolder the dialog came back; under the root it did not. */
+  for (let up = real; ;) {
+    const dotGit = path.join(up, '.git');
+    let st = null;
+    try { st = fs.lstatSync(dotGit); } catch { st = null; }
+    if (st && !st.isDirectory()) {
+      /* A .git that is not a folder (a linked worktree's or a submodule's file, or a link): where Claude Code keeps the
+         answer then is not measured (review 2, W2). */
+      return { ok: false, because: `its folder is in a git checkout whose .git is not a folder (a linked worktree, a submodule or a link), where we do not know which folder Claude Code reads this answer under. ${IN_ITS_TERMINAL}` };
+    }
+    if (st) { root = up; break; }
+    const parent = path.dirname(up);
+    if (parent === up) break;
+    up = parent;
+  }
+  /* An answer under a repository root above the agent's folder would hold for every folder in that repository on this
+     account, and a person pressing on the board cannot see that scope first, so the board does not give it (review 6). */
+  if (root !== real) {
+    return { ok: false, because: `its folder is inside a git repository at ${root}, and an answer there would hold for every folder under it. ${IN_ITS_TERMINAL}` };
+  }
+  return { ok: true, key: real.split(path.sep).join('/') };   // Claude Code's spelling on Windows, as in trustFolder
+}
+
 /**
  * kosmos#8039: write what Claude Code's own "No, disable external imports" writes for one folder on one account (measured
  * on 2.1.318: approved false, shown true), so the agent starts without those files at its next launch. The person's
@@ -1059,33 +1091,9 @@ const IN_ITS_TERMINAL = 'Answer it in its terminal on the computer it runs on'; 
  */
 function declineExternalImports(dir, opts) {
   const target = configTarget(opts);
-  if (!dir || !path.isAbsolute(dir)) return { ok: false, because: 'that is not an absolute folder path' };
-  let key;
-  try { key = fs.realpathSync.native(dir); }
-  catch { return { ok: false, because: 'that folder is not there' }; }
-  const folder = key;
-  /* Inside a git repository Claude Code reads this answer under the repository's root. Measured on 2.1.318 in a subfolder
-     of a repo: written under the subfolder the dialog came back; under the root it did not. */
-  for (let up = key; ;) {
-    const dotGit = path.join(up, '.git');
-    let st = null;
-    try { st = fs.lstatSync(dotGit); } catch { st = null; }
-    if (st && !st.isDirectory()) {
-      /* A .git that is not a folder (a linked worktree's or a submodule's file, or a link): where Claude Code keeps the
-         answer then is not measured (review 2, W2). */
-      return { ok: false, because: `its folder is in a git checkout whose .git is not a folder (a linked worktree, a submodule or a link), where we do not know which folder Claude Code reads this answer under. ${IN_ITS_TERMINAL}` };
-    }
-    if (st) { key = up; break; }
-    const parent = path.dirname(up);
-    if (parent === up) break;
-    up = parent;
-  }
-  /* An answer under a repository root above the agent's folder would hold for every folder in that repository on this
-     account, and a person pressing on the board cannot see that scope first, so the board does not give it (review 6). */
-  if (key !== folder) {
-    return { ok: false, because: `its folder is inside a git repository at ${key}, and an answer there would hold for every folder under it. ${IN_ITS_TERMINAL}` };
-  }
-  key = key.split(path.sep).join('/');   // Claude Code's spelling on Windows, as in trustFolder
+  const where = importsAnswerKey(dir);
+  if (!where.ok) return { ok: false, because: where.because };
+  const key = where.key;
   const r = withWriteLock(target, () => {
     try { if (fs.lstatSync(target).isSymbolicLink()) return { ok: false, because: 'the account settings file is a symlink' }; }
     catch { return { ok: false, because: 'that account has no settings file yet' }; }
@@ -1113,4 +1121,4 @@ function declineExternalImports(dir, opts) {
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
-module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, carryExternalImports, declineExternalImports, IMPORTS_KEY, IMPORTS_SHOWN_KEY, KEY, BYPASS_KEY, SWITCH_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };
+module.exports = { trustFolder, forgetFolder, folderTrusted, preacceptBypass, preacceptOnboarding, carryExternalImports, declineExternalImports, importsAnswerKey, IMPORTS_KEY, IMPORTS_SHOWN_KEY, KEY, BYPASS_KEY, SWITCH_KEY, ONBOARDING_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };

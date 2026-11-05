@@ -11033,7 +11033,8 @@ const server = http.createServer(async (req, res) => {
         catch (err) { sendJson(res, 500, { ok: false, because: 'your answer is saved, but we could not restart this agent', detail: String((err && err.message) || err) }); return; }
         /* The restart's own sentence says it will have its current instructions, which is the opposite of this answer. */
         if (out.outcome === removal.OUTCOME.RESTARTED) { sendJson(res, 200, { ok: true, ...out, because: 'It is starting without those files.' }); return; }
-        sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ok: out.outcome !== removal.OUTCOME.REFUSED, ...out, because: 'Your answer is saved. ' + (out.because || '') });
+        /* Saved but not cleanly restarted (refused, or partial): not a success, so the page gives the button back. */
+        sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ok: false, ...out, because: 'Your answer is saved. ' + (out.because || '') });
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
     return;
@@ -20497,7 +20498,7 @@ const server = http.createServer(async (req, res) => {
       codexHooks, // #4607
       /* kosmos#8039: Claude Code's external imports question, so the page offers "Continue without them". From the same
          fresh capture as the question. */
-      importsAsk: !!(asking && !guideThread && card && String(card.runner || 'claude') === 'claude' && card.reachedByChannel !== true && view && typeof view.text === 'string' && importsDialogIn(view.text)),
+      importsAsk: !!(asking && !guideThread && card && String(card.runner || 'claude') === 'claude' && card.reachedByChannel !== true && view && typeof view.text === 'string' && importsDialogIn(view.text) && create.importsBoardCanAnswer(card.sessionName || name)),
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
          route says so up front, in the same sentence the send refusal uses,

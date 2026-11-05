@@ -1585,6 +1585,12 @@ function trustAgentFolder(name, opts) {
     : { wrote: false, runner: 'claude', because: (t && t.because) || 'the trust write did not complete' };
 }
 
+/* kosmos#8039: whether the board's "Continue without them" can answer for this agent's folder (trust.importsAnswerKey,
+   read-only), so the page and the typed-line refusal offer the button only where a press would be taken (review 8). */
+function importsBoardCanAnswer(name) {
+  try { return require('./trust').importsAnswerKey(workerDir(cleanName(name))).ok === true; } catch { return false; }
+}
+
 /* kosmos#8039: the person chose to start this Claude agent without its outside imports. Written to the account the agent
    actually runs on, read from its job, as trustAgentFolder does. Claude only: only Claude Code asks this. */
 function declineAgentImports(name, opts) {
@@ -7397,7 +7403,7 @@ module.exports = {
   /* win32-agent-job-read: the job read with its reason, and the Trust & Restart
      trust step, which the route calls so its job read follows the platform. */
   readJobVerdict,
-  declineAgentImports, trustAgentFolder,
+  declineAgentImports, importsBoardCanAnswer, trustAgentFolder,
   /* Exported for the sandbox guards in the adopt tests: a test that writes
      a codex trust entry must be able to ASK where that write will land, rather
      than infer it from which env vars it happens to have set (#1359). */

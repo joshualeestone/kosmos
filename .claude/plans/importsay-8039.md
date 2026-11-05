@@ -40,6 +40,9 @@ This change:
 
 ## Residual, stated
 - An agent folder inside a repository rooted above it gets the terminal ending, not the button.
+- With twelve or more imported files the heading leaves the tail, so the card's label is the generic one; if the screen
+  then cannot be read, a typed line is not refused (a read that works is refused, as it keys on the answer rows).
+- After a successful press the button stays off until the question goes, or 20 seconds pass.
 - An idle card that HAS taken turns before and restarts into the dialog (say, imports were added to its CLAUDE.md) is
   not freshly read while it reads idle; it is covered once the snapshot reads needs_you.
 - Linux: the box's sentence names the terminal; the Open Terminal button is hidden there.
