@@ -108,6 +108,7 @@ const USAGE = {
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each',
     '  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first',
+    '  kosmos task list --mine [--blocked|--built|--stale [<days>]]  open (or blocked, built, stale) tasks you hold, in every project you are on',
     '  kosmos task list <project-id> --stale [<days>]               the same for one project',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',
@@ -1184,6 +1185,14 @@ async function taskListAcross(ctx, args) {
   let project = '';
   let flag = 'open';
   let days;
+  /* kosmos#7992, as install/kosmos: `--mine ...` and `--all --mine ...` are --all kept to the tasks this agent holds; the
+     word is taken out, so the checks below read the rest exactly as they read --all's. */
+  let mine = false;
+  if (args[0] === '--mine') { mine = true; args = ['--all', ...args.slice(1)]; }
+  else if (args[0] === '--all' && args[1] === '--mine') { mine = true; args = ['--all', ...args.slice(2)]; }
+  if (mine && !ctx.agentToken()) {
+    ctx.err("--mine lists an agent's own tasks, so it needs an agent's token (run it from an agent's session)."); return 2;
+  }
   if (args[0] === '--all') {
     const f = args[1];
     if (f === undefined || f === '--open' || f === '--blocked' || f === '--built') {
@@ -1206,7 +1215,7 @@ async function taskListAcross(ctx, args) {
   try { tasklist = require(path.join(engineDir(), 'tasklist.js')); } catch { tasklist = null; }
   if (!tasklist || typeof tasklist.acrossLines !== 'function') { ctx.err('This install of Kosmos cannot list tasks that way yet; update Kosmos.'); return 1; }
   const only = flag === 'stale' ? 'state=open&quietDays=' + days : 'state=' + tasklist.COMPACT[flag];
-  const r = await ctx.call('GET', '/api/tasks?' + (project ? 'project=' + projectSlug(project) : 'all=1') + '&order=state&' + only);
+  const r = await ctx.call('GET', '/api/tasks?' + (project ? 'project=' + projectSlug(project) : 'all=1') + '&order=state&' + only + (mine ? '&mine=1' : ''));
   if (!r.reached) return ctx.unreachable('list tasks');
   if (ctx.refusedBy(r)) {
     /* Review 1 (warning 4), as install/kosmos: a board older than all=1 refuses an agent's own token with "say which
@@ -1214,15 +1223,15 @@ async function taskListAcross(ctx, args) {
     if (!project && /^say which project/.test(ctx.refusedBy(r))) { ctx.err('This board is older than --all, so it did not list what was asked. Update Kosmos.'); return 1; }
     ctx.err('Kosmos refused that: ' + ctx.refusedBy(r) + '.'); return 1;
   }
-  const shown = tasklist.acrossLines(r.json, flag, { project, days });
+  const shown = tasklist.acrossLines(r.json, flag, { project, days, mine });
   for (const line of shown.lines) (shown.rc ? ctx.err : ctx.out)(line);
   return shown.rc;
 }
 
 async function taskList(ctx, args) {
   const project = args[0];
-  if (!project) { ctx.err('Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built | --stale [<days>]]   (or --all)'); return 2; }
-  if (project === '--all' || args[1] === '--stale') return taskListAcross(ctx, args);
+  if (!project) { ctx.err('Usage: kosmos task list <project-id> [--state open|built|held|done | --open | --blocked | --built | --stale [<days>]]   (or --all, or --mine)'); return 2; }
+  if (project === '--all' || project === '--mine' || args[1] === '--stale') return taskListAcross(ctx, args);
   /* #5705, as install/kosmos: grouped (open, built, on hold, done); --state keeps one group, checked here. */
   let only = '';
   if (args[1] === '--state') {
