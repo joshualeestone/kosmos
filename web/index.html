@@ -56013,7 +56013,9 @@ function plusOrgRecoveries(st) {
   const list = document.getElementById('plus-org-recoveries-list');
   if (!box || !list) return;
   const now = Date.now() / 1000;
-  const recs = (st && st.enrolled === true && Array.isArray(st.recoveries) ? st.recoveries : [])
+  // A family has no backup (plusOrgReviewers says so), so nothing here is said to one, whatever a record holds.
+  const family = !!(st && st.org && st.org.kind === 'family');
+  const recs = (st && st.enrolled === true && !family && Array.isArray(st.recoveries) ? st.recoveries : [])
     .filter((r) => r && Number.isFinite(r.at) && r.at >= now - PLUS_ORG_RECOVERY_DAYS * 86400);
   list.textContent = '';
   box.hidden = recs.length === 0;

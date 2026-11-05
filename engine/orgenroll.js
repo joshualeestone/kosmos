@@ -403,7 +403,8 @@ function cleanReviewerGrants(list) {
 /* kosmos#5536 (#5529: every recovery is shown to the affected employee): the recoveries of this member's own backup,
    from the coordinator's full status answer (kosmos-relay #781, `recoveries`), cleaned before they are kept. A row is
    kept only with one of the two words and a whole `at`; `who` is a name shown as text, so control and direction
-   characters go, as in cleanReviewerGrants; `epoch` and `count` are whole numbers or left out. Newest first, as sent.
+   characters go, as in cleanReviewerGrants; `epoch` and `count` are whole numbers or left out (the page shows the
+   count; `epoch` is kept for the board notice, the next slice). Newest first, as sent.
    The relay caps the list at 50 (MEMBER_RECOVERIES_SHOWN_MAX). */
 const MAX_RECOVERIES = 50;
 const RECOVERY_WHATS = new Set(['key_released', 'files_opened']);
