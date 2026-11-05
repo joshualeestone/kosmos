@@ -2508,7 +2508,7 @@ async function agentMove(ctx, args) {
   if (plan.same === true) { ctx.out(name + ' is already on ' + label + '. Nothing was moved.'); return 0; }
   if (plan.ok !== true) ctx.out('Kosmos could not check what ' + name + ' would lose on ' + label + ': ' + (clause(plan.because || '') || 'it did not say why') + '.');
   else if (plan.sentence) ctx.out(plan.sentence);
-  else ctx.out('On ' + label + ' it keeps every skill and hook script it has now (skills are compared by their SKILL.md; plugins are not checked).');
+  else ctx.out('On ' + label + ' it keeps every skill and hook script it has now (each skill compared by its whole folder; plugins are not checked).');
   ctx.out('Moving restarts ' + name + ' on ' + label + '. Anything it has running stops.');
   /* Review 1: a script cannot read that sentence, so --yes alone never moves an agent into a known loss or an
      unchecked one; nothing is sent. A person at a terminal reads it and answers below. */

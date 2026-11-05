@@ -166,3 +166,32 @@ test('kosmos#8048 review 5: shell syntax left in a hook path, a prompt hook, and
   assert.deepEqual([l.skills, l.changed], [['pick-up'], []], 'a skill folder with no SKILL.md on the target read as a different copy, not a loss');
   assert.equal(carry.loses(l), true);
 });
+
+test('kosmos#8048 review 6: a skill is its whole folder; other hook types, matcher spellings and an unreadable script are handled', () => {
+  const skill = (extra) => { const d = folder({ skills: ['pick-up'] }); if (extra) { fs.mkdirSync(path.join(d, 'skills', 'pick-up', 'scripts'), { recursive: true }); fs.writeFileSync(path.join(d, 'skills', 'pick-up', 'scripts', 'run.sh'), extra); } return d; };
+  assert.deepEqual(carry.losses(skill('#!/bin/sh\n'), skill('#!/bin/sh\n'), H).changed, [], 'CONTROL: the same whole skill differed');
+  assert.deepEqual(carry.losses(skill('#!/bin/sh\n'), skill(null), H).changed, ['pick-up'], 'a skill missing its scripts/ (same SKILL.md) read as the same');
+  const other = (url) => folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'http', url }] }] } }) });
+  const none = folder({ settings: '{}' });
+  assert.deepEqual(carry.losses(other('http://a'), none, H).hooks, ['a http hook on Stop'], 'a hook of another type was skipped');
+  assert.deepEqual(carry.losses(other('http://a'), other('http://a'), H).hooks, [], 'CONTROL: the same other-type hook was not kept');
+  const m = (matcher) => folder({ settings: JSON.stringify({ hooks: { PreToolUse: [{ ...(matcher === undefined ? {} : { matcher }), hooks: [{ type: 'command', command: 'echo gate' }] }] } }) });
+  assert.deepEqual(carry.losses(m(undefined), m('*'), H).hooks, [], 'no matcher and "*" read as different');
+  assert.deepEqual(carry.losses(m(''), m('*'), H).hooks, [], '"" and "*" read as different');
+  assert.deepEqual(carry.losses(m('Bash'), m('*'), H).hooks, ['echo gate'], 'CONTROL: another matcher read as the same');
+  // An account folder's own path as an argument, spelled ~ in one and $CLAUDE_CONFIG_DIR in the other, is one hook.
+  const home = path.join(TMP, `home-${++n}`);
+  const a = path.join(home, '.claude-a'); const b = path.join(home, '.claude-b');
+  for (const [d, arg] of [[a, '~/.claude-a/state'], [b, '$CLAUDE_CONFIG_DIR/state']]) {
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, 'settings.json'), JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: `echo ${arg}` }] }] } }));
+  }
+  assert.deepEqual(carry.losses(a, b, { home }).hooks, [], 'the folder spelled ~/.claude-a and $CLAUDE_CONFIG_DIR read as different');
+  // A source script that is there but cannot be read is "cannot tell", not "does not run here".
+  if (process.getuid && process.getuid() !== 0) {
+    const s = folder({ hooks: ['bash $CLAUDE_CONFIG_DIR/hooks/locked.sh'] });
+    fs.mkdirSync(path.join(s, 'hooks'), { recursive: true });
+    fs.writeFileSync(path.join(s, 'hooks', 'locked.sh'), '#!/bin/sh\n', { mode: 0o000 });
+    assert.equal(carry.losses(s, none, H).ok, false, 'an unreadable source script read as "does not run here"');
+  }
+});
