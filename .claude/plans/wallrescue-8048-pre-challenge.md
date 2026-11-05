@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: wallrescue-8048
-diff_hash: 9174b0bd06369cc5d8cc55593e9b5ff4e9b6f260d9387b6a201835f2fc08539a
+diff_hash: 250983f30f0bf2e449bdf410a2fc8bd1cc0ec5bc1fd67c0a5fe4cb1e21c8307b
 validation: local only (engine/automove-7548, engine/autobalance-sweep-7152, engine/assigner-failover-5382, engine/autobalance-7152, server.autobalance-7152, server.automove-deps-7621, server.work-marker-2146: 162/162 on 441ca40b3c; node --check server.js); the full suite runs on the PR's CI
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-05T19:33:12Z
