@@ -280,10 +280,11 @@ test('#7686: a project download whose stream cannot open after its head closes t
 
 test('#7686: every as=text `fail` closure answers through sendText and writes no head of its own', () => {
   /* The inbox and report routes' failures can come after their 200 head; sendText is what ends such a response
-     instead of writing a second head. Read from the source, so inlining the old write again goes red (review 5). */
+     instead of writing a second head. Read from the source, so inlining the old write again goes red (review 5).
+     kosmos#7989 slice 3 added the file-notices route's closure, held to the same rule. */
   const src = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const starts = [...src.matchAll(/const fail = \(status, msg\) => \{/g)].map((m) => m.index);
-  assert.equal(starts.length, 2, 'CONTROL: expected the inbox and report closures, found ' + starts.length);
+  assert.equal(starts.length, 3, 'CONTROL: expected the inbox, file-notices and report closures, found ' + starts.length);
   for (const at of starts) {
     const body = src.slice(at, src.indexOf('\n    };', at));
     assert.match(body, /sendText\(res, status/, 'a fail closure does not answer through sendText:\n' + body);
