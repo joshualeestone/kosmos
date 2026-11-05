@@ -43,7 +43,12 @@ const MAX_SKILL_FILES = 400;
 function folderSum(root) {
   const h = crypto.createHash('sha256');
   let n = 0;
+  const seen = new Set();   // review 7: real folders already walked, so a link loop ends
   const walk = (rel) => {
+    let real = null;
+    try { real = fs.realpathSync(path.join(root, rel)); } catch { return; }
+    if (seen.has(real)) return;
+    seen.add(real);
     let entries = [];
     try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { return; }
     for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
@@ -86,7 +91,7 @@ function skillNames(dir) {
 function hookId(command) {
   const words = String(command).trim().split(/\s+/);
   for (const w of words) {
-    const bare = w.replace(/^["']|["']$/g, '');
+    const bare = w.replace(/["']/g, '');   // review 7: quotes anywhere in the word, as a shell removes them
     if (/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(bare)) return bare.split(/[\\/]/).pop();   // review 2: a Windows board's scripts too (either separator)
   }
   return String(command).trim();
@@ -99,8 +104,17 @@ function hookId(command) {
 function scriptPath(command, folder, home) {
   const cfg = path.resolve(folder) === path.resolve(home, '.claude') ? '' : folder;
   for (const w of String(command).trim().split(/\s+/)) {
-    let bare = w.replace(/^["']|["']$/g, '');
+    /* Review 7: quotes come off the whole word first (`"$HOME"/.claude/x.sh` is the shell's /home/.claude/x.sh), and a
+       `${VAR:-default}` is what the shell gives: the variable when set and not empty, else the default. */
+    let bare = w.replace(/["']/g, '');
     if (!/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(bare)) continue;
+    const vars = { HOME: home, CLAUDE_CONFIG_DIR: cfg };
+    const val = (name) => (Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : null);
+    let guard = 0;
+    while (/\$\{(\w+):-([^{}]*)\}/.test(bare) && guard++ < 8) {
+      bare = bare.replace(/\$\{(\w+):-([^{}]*)\}/, (m, name, dflt) => { const v = val(name); return v === null ? m : (v || dflt); });
+      if (/\$\{(\w+):-/.test(bare) && !/\$\{(HOME|CLAUDE_CONFIG_DIR):-/.test(bare)) break;
+    }
     bare = bare.replace(/^~(?=[\/\\])/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, cfg);   // review 6: ~\ too
     /* Review 5: shell syntax left after the substitutions (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, a brace, a default)
        is a path this cannot resolve, never a path to read: a garbage path would fail to read and be skipped as "does
@@ -124,7 +138,10 @@ function hookEntries(dir, home) {
   for (const [event, groups] of Object.entries(hooks)) {
     for (const g of Array.isArray(groups) ? groups : []) {
       /* Review 6: no matcher, "" and "*" all mean every tool to Claude Code. */
-      const matcher = g && typeof g.matcher === 'string' && g.matcher !== '' && g.matcher !== '*' ? g.matcher : '*';
+      const raw = g && typeof g.matcher === 'string' ? g.matcher.trim() : '';
+      /* Review 7: a plain alternation in any order, with or without ^...$, is one matcher (Bash|Edit is Edit|Bash). */
+      const plain = raw.replace(/^\^(.*)\$$/, '$1');
+      const matcher = raw === '' || raw === '*' ? '*' : (/^[\w|]+$/.test(plain) ? plain.split('|').filter(Boolean).sort().join('|') : raw);
       for (const h of g && Array.isArray(g.hooks) ? g.hooks : []) {
         /* Review 5: a prompt hook (type "prompt", no script) is compared by its event, matcher and words. */
         if (h && h.type === 'prompt' && typeof h.prompt === 'string' && h.prompt.trim()) {
@@ -177,16 +194,23 @@ function losses(fromDir, toDir, opts = {}) {
   const from = folderOf(fromDir, home);
   const to = folderOf(toDir, home);
   let fs1; let fs2; let fh; let th;
-  try { fs1 = skillSums(from); fh = hookEntries(from, home); }
+  /* Review 7: two folders whose skills/ is one real folder have nothing to compare there, so it is not walked twice. */
+  let sameSkills = false;
+  try { sameSkills = fs.realpathSync(path.join(from, 'skills')) === fs.realpathSync(path.join(to, 'skills')); } catch { sameSkills = false; }
+  try { fs1 = sameSkills ? new Map() : skillSums(from); fh = hookEntries(from, home); }
   catch { return { ok: false, because: 'we could not read the skills and hooks of the account it is on' }; }
-  try { fs2 = skillSums(to); th = hookEntries(to, home); }
+  try { fs2 = sameSkills ? new Map() : skillSums(to); th = hookEntries(to, home); }
   catch { return { ok: false, because: 'we could not read the skills and hooks of the account it would move to' }; }
   const lost = new Set();
+  const hookChanged = new Set();
   if (!fh.off) {
     for (const h of fh.list) {
       /* A hook that does not run where the agent is now (its script missing there) is not one it has to lose. */
       if (h.file && h.sum === null) continue;
       const same = th.off ? [] : th.list.filter((t) => t.wiring === h.wiring);
+      /* Review 7: the script there with other contents is a different copy, said as one, and still blocks --yes
+         (a gate that differs is not the gate the agent has). */
+      if (h.file && same.some((t) => t.file && t.sum !== null && t.sum !== h.sum) && !same.some((t) => t.sum === h.sum)) { hookChanged.add(h.id); continue; }
       /* Review 4: a target script that resolves must be there, whatever the source side is; with both resolvable, the
          same contents. */
       const kept = same.some((t) => (h.file ? t.file !== null && t.sum !== null && t.sum === h.sum : (t.file ? t.sum !== null : true)));
@@ -196,11 +220,12 @@ function losses(fromDir, toDir, opts = {}) {
   /* Review 3: a skill the target has in another copy is said apart from one it does not have: the copy may be the
      newer one, so it is a difference to read, not a loss. Only `skills` and `hooks` are losses. */
   return { ok: true, skills: [...fs1.keys()].filter((s) => !fs2.has(s)).sort(),
-    changed: [...fs1.keys()].filter((s) => fs2.has(s) && fs2.get(s) !== fs1.get(s)).sort(), hooks: [...lost].sort() };
+    changed: [...fs1.keys()].filter((s) => fs2.has(s) && fs2.get(s) !== fs1.get(s)).sort(), hooks: [...lost].sort(),
+    hooksChanged: [...hookChanged].sort() };
 }
 
 /* Whether a move loses anything: a skill or hook the target does not have. A different copy is not a loss. */
-function loses(l) { return !!l && l.ok === true && (l.skills.length > 0 || l.hooks.length > 0); }
+function loses(l) { return !!l && l.ok === true && (l.skills.length > 0 || l.hooks.length > 0 || (Array.isArray(l.hooksChanged) && l.hooksChanged.length > 0)); }
 /* One or two sentences for a person, or null when nothing is lost or different. */
 function sentence(l) {
   if (!l || l.ok !== true) return null;
@@ -211,6 +236,8 @@ function sentence(l) {
   const out = [];
   if (parts.length) out.push(`On that account it would not have ${parts.join(', or ')} it has now.`);
   if (changed.length) out.push(`That account has a different copy of ${changed.length === 1 ? 'the skill' : 'the skills'} ${changed.join(', ')}.`);
+  const hc = Array.isArray(l.hooksChanged) ? l.hooksChanged : [];
+  if (hc.length) out.push(`It has a different copy of ${hc.length === 1 ? 'the hook' : 'the hooks'} ${hc.join(', ')}, which may not do what the agent's does now.`);
   return out.length ? out.join(' ') : null;
 }
 
