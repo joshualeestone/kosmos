@@ -54,6 +54,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
       await paintTalk('sam doe', 'Sam');
       const vis = (id) => { const e = document.getElementById(id); return !!e && !e.hidden && e.getClientRects().length > 0; };
       return {
+        glyph: ((document.querySelector('#d-qask > .haz, #d-qask > .ask') || {}).className || ''),
         box: vis('d-qask'), imports: vis('d-qask-imports'), button: vis('d-qask-imports-no'), trust: vis('d-qask-trust-restart'),
         label: (document.getElementById('d-qask-lab') || {}).textContent || '',
         buttonText: (document.getElementById('d-qask-imports-no') || {}).textContent || '',
@@ -82,8 +83,10 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     const a = await paint({ ...base, importsAsk: true });
     chk(a.box && a.imports && a.button, `${t} the box and its button show for the imports question`, JSON.stringify(a));
     chk(a.buttonText === 'Continue without them', `${t} the button says what it does`, a.buttonText);
-    chk(/^Sam cannot start until you answer\./.test(a.label), `${t} the label names the agent and why it is waiting`, a.label);
-    chk(/allow them in its terminal on the computer it runs on/.test(a.label), `${t} the other answer is named, and where it is given`, a.label);
+    chk(/^Sam is waiting on one question\./.test(a.label), `${t} the label names the agent and why it is waiting`, a.label);
+    chk(/Continue without them and Sam starts now; it just will not read those files\.$/.test(a.label), `${t} the label says what the button does`, a.label);
+    chk(!/terminal/i.test(a.label), `${t} it does not send the person to a terminal`, a.label);
+    chk(a.glyph === 'ask', `${t} the calm question glyph, not the red hazard`, a.glyph);
     chk(a.trust === false, `${t} the folder-trust button stays hidden here`, JSON.stringify(a));
 
     const c = await paint({ ...base });
@@ -94,6 +97,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     chk(q.imports === false, `${t} not asking any more: it does not show`, JSON.stringify(q));
     const tr = await paint({ ...base, answerNote: 'A sentence about folder trust.' });
     chk(tr.trust === true && tr.imports === false && /folder-trust/.test(tr.label), `${t} the trust recovery is unchanged`, JSON.stringify(tr));
+    chk(tr.glyph === 'haz', `${t} the trust recovery keeps the hazard glyph after an imports paint`, tr.glyph);
 
     await paint({ ...base, importsAsk: true });
     const ok = await press({ status: 200, body: { ok: true, because: 'It is starting without those files.' } });
