@@ -243,6 +243,9 @@ async function keepCopy(req, io) {
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs || KEEP_TIMEOUT_MS);
   try {
     const res = await doFetch(o.url + '/api/undo/keep', { method: 'POST', headers, body: JSON.stringify(req), signal: ctl.signal, redirect: 'manual' });   // kosmos#6464: never follow, as deliver
+    // kosmos#8014: the answer is not needed, so it is cancelled rather than read (a stalled body would wait for the
+    // abort): left unread, it held the run open until the 2 s exit backstop, the path that crashed (review 2).
+    if (res && res.body && typeof res.body.cancel === 'function') { try { await res.body.cancel(); } catch { /* already done */ } }
     return { ok: !!(res && res.ok), status: res && res.status };
   } catch (err) {
     return { ok: false, error: (err && err.message) ? err.message : String(err) };
@@ -290,6 +293,9 @@ async function toolFailed(req, io) {
   const timer = setTimeout(() => ctl.abort(), o.timeoutMs || KEEP_TIMEOUT_MS);
   try {
     const res = await doFetch(o.url + '/api/toolfail', { method: 'POST', headers, body: JSON.stringify(req), signal: ctl.signal, redirect: 'manual' });   // kosmos#6464: never follow, as deliver
+    // kosmos#8014: the answer is not needed, so it is cancelled rather than read (a stalled body would wait for the
+    // abort): left unread, it held the run open until the 2 s exit backstop, the path that crashed (review 2).
+    if (res && res.body && typeof res.body.cancel === 'function') { try { await res.body.cancel(); } catch { /* already done */ } }
     return { ok: !!(res && res.ok), status: res && res.status };
   } catch (err) {
     return { ok: false, error: (err && err.message) ? err.message : String(err) };
@@ -428,6 +434,66 @@ function heartbeatDue(io) {
   } catch { /* no mark yet */ }
   try { fs.writeFileSync(mark, String(io.now())); } catch { /* best effort */ }
   return true;
+}
+
+/* kosmos#8014 (the win32 twin of #8011, #7989 slice 3): the file-owner notices Kosmos kept for this agent, handed to it
+   at UserPromptSubmit as the hook's additionalContext, as install/kosmos-report-hook.sh does with
+   `kosmos file-notices --hook --ack-file <mark>-ack`. The call holds up the turn, so an agent asks at most once per
+   FILE_NOTICE_EVERY seconds. Keyed by the agent (the first 16 hex of sha256 of its agent token), as on the Mac: there is
+   no pane on native Windows, and with no agent token the board could never say who is asking, so no call is made. A
+   mark that cannot be written means no call, so a broken throttle never costs every turn. */
+const FILE_NOTICE_EVERY = 300;
+const FILE_NOTICE_TIMEOUT_MS = 1000;   // the CLI's cap for --hook
+function fileNoticeMark(io) {
+  const tok = agentToken(io.env);   // the token this hook would send; one it would not send cannot say who asks
+  if (!tok) return null;
+  return path.join(io.throttleDir, 'agent-' + crypto.createHash('sha256').update(String(tok)).digest('hex').slice(0, 16) + '.filenotices');
+}
+function fileNoticesDue(io) {
+  const mark = fileNoticeMark(io);
+  if (!mark) return null;
+  try { fs.mkdirSync(io.throttleDir, { recursive: true }); } catch { return null; }
+  try {
+    const last = Number(String(fs.readFileSync(mark, 'utf8')).trim());
+    if (Number.isFinite(last) && io.now() - last < FILE_NOTICE_EVERY) return null;
+  } catch { /* no mark yet */ }
+  try { fs.writeFileSync(mark, String(io.now()) + '\n'); } catch { return null; }
+  return mark;
+}
+/** POST /api/file-notices/take?as=hook with the ids handed over last time, as `kosmos file-notices --hook --ack-file`
+ *  does. Returns the hook JSON to print, or ''. Never throws; every failure is silent (the room note is there meanwhile). */
+async function takeFileNotices(ackFile, io) {
+  const o = io || {};
+  let ack = '';
+  try { ack = fs.readFileSync(ackFile, 'utf8').slice(0, 400).split('\n')[0]; } catch { ack = ''; }
+  if (/[^0-9a-f,]/.test(ack)) ack = '';
+  const headers = {};
+  if (o.boardToken) headers['x-kosmos-board-token'] = o.boardToken;
+  if (o.agentToken) headers['x-kosmos-agent-token'] = o.agentToken;
+  const { WORLD_HEADER, worldIdForHeader } = require('./launchidentity');
+  headers[WORLD_HEADER] = worldIdForHeader(o.world);
+  const doFetch = o.fetchImpl || ((typeof fetch === 'function') ? fetch : null);
+  if (!doFetch) return '';
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), o.timeoutMs || FILE_NOTICE_TIMEOUT_MS);
+  try {
+    const res = await doFetch(o.url + '/api/file-notices/take?as=hook&from_pane=&ack=' + ack, { method: 'POST', headers, signal: ctl.signal, redirect: 'manual' });
+    if (!res) return '';
+    /* The body is read on every answer, a refusal too, so the response is finished before the run ends. (It was
+       suspected of the exit-127 crash and ruled out: that one is process.exit after two requests, see the entry.) */
+    let t = '';
+    try { t = String(await res.text()); } catch { return ''; }
+    if (res.status !== 200) return '';
+    if (!t) { try { fs.writeFileSync(ackFile, ''); } catch { /* sent again next time */ } return ''; }
+    const m = /^ack:([0-9a-f,]*)\n(\{"hookSpecificOutput":[\s\S]*)$/.exec(t);
+    if (!m) return '';
+    try { fs.writeFileSync(ackFile, m[1] + '\n'); } catch { /* handed over again next time */ }
+    return m[2];
+  } catch {
+    return '';
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function resetMark(io) {
@@ -575,6 +641,21 @@ async function main(io) {
         + '. The board is falling back to reading the screen.',
     }) + '\n');
   }
+
+  /* kosmos#8014: after the working report, as on the Mac, hand this agent its file-owner notices as this turn's
+     context. Claude Code adds a UserPromptSubmit hook's additionalContext to the model and types nothing into the
+     session. Only the board's hook JSON is printed, and only when there is a notice. */
+  if (event === 'UserPromptSubmit') {
+    const fnMark = fileNoticesDue(ctx);
+    if (fnMark) {
+      const fp = await proven(c, o.fileNoticeTimeoutMs || FILE_NOTICE_TIMEOUT_MS);
+      if (fp.ok && fp.leftMs > 0) {
+        const json = await takeFileNotices(fnMark + '-ack', { url: c.url, boardToken: c.boardToken, agentToken: c.agentToken,
+          world: c.world, fetchImpl: o.fetchImpl, timeoutMs: fp.leftMs });
+        if (json) stdout(json.replace(/\n$/, '') + '\n');
+      }
+    }
+  }
   return 0;
 }
 
@@ -614,15 +695,27 @@ module.exports = {
 /* Run only when invoked directly (Claude Code spawns node with this file as its
    arg, exec form, #570); a require() in a test never triggers a network send.
    stdin is the event JSON.
-   attachStdin fires `run` once (on end OR error); the unref'd timer is the
+   attachStdin fires `run` once (on end OR error), and `done` ends it (kosmos#8014: by letting
+   the process finish, process.exit only as a 2 s backstop); the 5 s unref'd timer is the
    backstop for a stdin that never ends -- finishNow shares attachStdin's
    once-guard, so run cannot fire twice regardless of timing. */
 if (require.main === module) {
-  const run = (input) => main({ input }).then((code) => process.exit(code || 0)).catch(() => process.exit(0));
+  /* kosmos#8014: the process ends on its own once its work is done, and process.exit is only the backstop. Measured on
+     the Windows box (node 24): two requests to the board in one run, then process.exit, died on a libuv assertion
+     (UV_HANDLE_CLOSING, exit 127), which a UserPromptSubmit that also takes its file notices did on every prompt. A
+     natural exit measured 0 every time. stdin is let go of first (review 1): a stdin that never ended would otherwise
+     hold the process until the backstop. The 2 s unref'd timer still ends a run that something else holds open; it
+     is the only path that calls process.exit. */
+  const done = (code) => {
+    process.exitCode = code || 0;
+    try { process.stdin.removeAllListeners('data'); process.stdin.pause(); process.stdin.destroy(); } catch { /* already closed */ }
+    setTimeout(() => process.exit(code || 0), 2000).unref();
+  };
+  const run = (input) => main({ input }).then(done).catch(() => done(0));
   const h = attachStdin(process.stdin, run);
   // 5s backstop (not 10s): with the 8s SessionStart deliver, 5+8=13s stays under
   // the hook entry's own 15s ceiling even in the pathological never-closing-stdin
-  // case; Claude Code writes the event and closes stdin in milliseconds, so `run`
+  // case (done lets go of stdin, so the run then ends on its own, not 2 s later); Claude Code writes the event and closes stdin in milliseconds, so `run`
   // normally fires at once and only the deliver timeout applies.
   setTimeout(() => h.finishNow(), 5000).unref();
 }
