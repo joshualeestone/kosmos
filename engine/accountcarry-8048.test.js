@@ -402,3 +402,28 @@ test('kosmos#8063 review 5: a script reached through the agent folder is checked
     assert.deepEqual(carry.losses(w(cmd), none, P).hooks, ['g.sh'], cmd + ' was not checked');
   }
 });
+
+test('kosmos#8063 review 6: every field beside a hook\'s identity counts; a refused path is cannot tell; more folder moves', () => {
+  const h = (extra, type = 'command') => folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [type === 'prompt' ? { type, prompt: 'check it', ...extra } : { type, command: 'echo hi', ...extra }] }] } }) });
+  const id = (type) => (type === 'prompt' ? ['a prompt hook on Stop'] : ['echo hi']);
+  for (const [extra, type] of [[{ model: 'haiku' }, 'prompt'], [{ asyncRewake: true }, 'command'], [{ statusMessage: 'x' }, 'command'], [{ somethingNew: 1 }, 'command']]) {
+    assert.deepEqual(carry.losses(h(extra, type), h({}, type), H).hooks, id(type), JSON.stringify(extra) + ' was not compared');
+    assert.deepEqual(carry.losses(h(extra, type), h(extra, type), H).hooks, [], 'CONTROL: the same ' + JSON.stringify(extra) + ' was not kept');
+  }
+  assert.deepEqual(carry.losses(h({ timeout: null }), h({ timeout: 0 }), H).hooks, ['echo hi'], 'a null timeout read as 0');
+  /* A refused folder may hold a script that runs: cannot tell, not "does not run here". */
+  const locked = path.join(TMP, `locked-${++n}`); fs.mkdirSync(locked); fs.writeFileSync(path.join(locked, 'g.sh'), '#!/bin/sh\n'); fs.chmodSync(locked, 0o000);
+  try {
+    if (process.getuid && process.getuid() !== 0) {
+      const w = folder({ hooks: ['bash ' + path.join(locked, 'g.sh')] });
+      assert.equal(carry.losses(w, folder({ settings: '{}' }), H).ok, false, 'a script in a refused folder read as not running');
+    }
+  } finally { fs.chmodSync(locked, 0o755); }
+  /* Folder moves the plain-command rule now knows, and a quoted path with a space. */
+  const project = path.join(TMP, `agent-${++n}`); fs.mkdirSync(path.join(project, 'scripts'), { recursive: true }); fs.writeFileSync(path.join(project, 'scripts', 'g.sh'), '#!/bin/sh\n');
+  const P = { ...H, project };
+  const none = folder({ settings: '{}' });
+  for (const cmd of ['make --directory /opt scripts/g.sh', 'bash -lc scripts/g.sh', 'tool --cwd=/opt scripts/g.sh', 'bash "/Users/John Smith/hooks/g.sh"']) {
+    assert.equal(carry.losses(folder({ hooks: [cmd] }), none, P).ok, false, cmd + ' was checked');
+  }
+});

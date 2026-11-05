@@ -161,6 +161,11 @@ function resolveWord(word, folder, home, project) {
 /* #8063 review 4: only a regular file is ever opened. A named pipe or a device would block the board's thread on open or
    read, so it hashes as what it is, never as its contents. */
 function regularFile(file) { try { return fs.statSync(file).isFile(); } catch { return false; } }
+/* Review 6: a script is "not there" only when the system says so (ENOENT, ENOTDIR). A path the board is refused (a
+   protected folder) may hold a script that runs, so it is cannot tell, never "does not run here". */
+function missing(file) {
+  try { fs.lstatSync(file); return false; } catch (err) { return !!err && (err.code === 'ENOENT' || err.code === 'ENOTDIR'); }
+}
 function digest(file) {
   try {
     if (!regularFile(file)) return fs.existsSync(file) ? crypto.createHash('sha256').update('not a regular file').digest('hex') : null;
@@ -174,7 +179,9 @@ function digest(file) {
    cannot be checked. A script at a path the hook spells out in full keeps the reading that missing means it does not
    run. */
 const SIMPLE_COMMAND = /^[^;&|()`<>\n]*$/;   // quotes are allowed: "$CLAUDE_PROJECT_DIR"/x.sh is the documented spelling
-const MOVES_FOLDER = /(^|\s)(cd|pushd|-C|--chdir(=\S*)?|-c)(\s|$)/;
+/* Best effort, not a proof: these are the folder-moving spellings known here (review 6 added --directory, --cwd and
+   combined flags such as -lc). A command this misses is still held to the script being there. */
+const MOVES_FOLDER = /(^|\s)(cd|pushd|-[A-Za-z]*c|-C\S*|--chdir\S*|--directory\S*|--cwd\S*)(\s|$)/;
 function uncertain(viaProject, sum, command) {
   if (!viaProject) return false;
   const c = String(command);
@@ -197,13 +204,16 @@ function cappedDigest(file) {
   } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 /* #8063 item 1: the fields beside the command that change when or how a hook runs, as one string in the wiring. */
-const HOOK_RUN_FIELDS = ['if', 'timeout', 'async', 'shell', 'once'];
+/* #8063 review 6: every field beside the hook's identity counts (if, timeout, async, shell, once, a prompt hook's model,
+   and whatever Claude Code adds later), so an unknown field is a visible difference, never a silent match. */
+const HOOK_IDENTITY_FIELDS = new Set(['type', 'command', 'args', 'prompt']);
 function runFields(h) {
   const o = {};
-  for (const k of HOOK_RUN_FIELDS) if (Object.prototype.hasOwnProperty.call(h, k)) o[k] = h[k];
-  /* Review 1: the defaults written out are the defaults (async false), and a timeout is a number however written. */
+  for (const k of Object.keys(h).sort()) if (!HOOK_IDENTITY_FIELDS.has(k)) o[k] = h[k];
+  /* The defaults written out are the defaults (async false), and a timeout written as a number in text is that number;
+     any other timeout value is compared as written. */
   if (o.async === false) delete o.async;
-  if (Object.prototype.hasOwnProperty.call(o, 'timeout') && Number.isFinite(Number(o.timeout))) o.timeout = Number(o.timeout);
+  if (typeof o.timeout === 'string' && /^\s*\d+(\.\d+)?\s*$/.test(o.timeout)) o.timeout = Number(o.timeout);
   return Object.keys(o).length ? '\n' + JSON.stringify(o) : '';
 }
 
@@ -245,7 +255,7 @@ function hookEntries(dir, home, project) {
           const onPath = !!script && script === words[0] && !/[\\/]/.test(script.trim());
           const at = script && !onPath ? resolveWord(script.trim(), dir, home, project) : null;
           const sum = at ? digest(at) : null;
-          if (at && sum === null && fs.existsSync(at)) throw new Error(`the hook script ${at} cannot be read`);
+          if (at && sum === null && !missing(at)) throw new Error(`the hook script ${at} cannot be read`);
           const key = 'exec\n' + words.filter((x) => x !== script).map(oneX).join('\0') + (script ? '\n' + id : '');
           const viaProject = !!project && at !== null && resolveWord(script.trim(), dir, home, null) === null;
           list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved: !!script && (at === null || uncertain(viaProject, sum, words.join(' '))) });
@@ -272,7 +282,7 @@ function hookEntries(dir, home, project) {
         const sum = at ? digest(at) : null;
         /* Review 6: a script that is there but cannot be read is "cannot tell" for the whole folder, never "does not
            run here". */
-        if (at && sum === null && fs.existsSync(at)) throw new Error(`the hook script ${at} cannot be read`);
+        if (at && sum === null && !missing(at)) throw new Error(`the hook script ${at} cannot be read`);
         /* An inline command (no script) is its own identity: its key is the normalised text, its id the text as written. */
         /* #8063 review 2: scriptless means no word names a script, not "the id is the whole command": a bare `gate.sh` is
            a script, and one this cannot resolve. */
