@@ -107,6 +107,28 @@ test('as=hook: an ack line and the UserPromptSubmit JSON when there is a notice,
   });
 });
 
+/* fake-tmux answers one session for every pane, so %1 is mapped to leo through messages.setRunner, as the inbox test
+   does: without it no pane names anyone, and the refusal below could not be told from "no such pane". */
+test('on an enforcing board a bare pane naming a live agent is refused and clears nothing; the board token with the pane takes', async (t) => {
+  const messages = require('./engine/messages');
+  messages.setRunner(() => ({ ok: true, session: 'leo-discord' }));
+  t.after(() => { messages.resetForTests(); fn.take('leo'); });
+  await withBoard(async () => {
+    boardAuthState.on = true;
+    try {
+      fn.queue('leo', 'kept for leo');
+      const bare = await post('/api/file-notices/take?from_pane=%251');
+      assert.equal(bare.code, 403, bare.text);
+      assert.match(bare.json.because || '', /own agent token/, 'the refusal is this route\'s denyPaneFallback, not a gate');
+      assert.equal(fn.take('leo').notices.length, 1, 'nothing was cleared');
+      fn.queue('leo', 'kept for leo');
+      const withBoardToken = await post('/api/file-notices/take?from_pane=%251', { 'x-kosmos-board-token': TOK });
+      assert.equal(withBoardToken.code, 200, 'control: the same pane with the board token is leo: ' + withBoardToken.text);
+      assert.deepEqual(withBoardToken.json.notices.map((n) => n.text), ['kept for leo']);
+    } finally { boardAuthState.on = false; }
+  });
+});
+
 test('a GET does not take them', async () => {
   boardAuthState.on = false;
   await withBoard(async () => {

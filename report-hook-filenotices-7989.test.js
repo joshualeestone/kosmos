@@ -26,12 +26,12 @@ fs.writeFileSync(CLI, '#!/bin/bash\nL=$(printf "%s|" "$@")\nprintf "%s\\n" "$L" 
 fs.chmodSync(CLI, 0o755);
 
 let paneN = 0;
-function run(event, answer, rc = 0, pane = '%fn' + (paneN++)) {
+function run(event, answer, rc = 0, pane = '%fn' + (paneN++), token = '') {
   fs.writeFileSync(LOG, '');
   fs.writeFileSync(ANSWER, answer);
   fs.writeFileSync(ANSWER + '.rc', String(rc));
   const r = cp.spawnSync('bash', [HOOK], { input: JSON.stringify(event), encoding: 'utf8', timeout: 20000,
-    env: { ...process.env, KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off', TMUX_PANE: pane } });
+    env: { ...process.env, KOSMOS_REPORT_CLI: CLI, TMPDIR: SB, KOSMOS_KILL_GUARD: 'off', TMUX_PANE: pane, KOSMOS_AGENT_TOKEN: token } });
   assert.equal(r.status, 0, 'the hook always exits 0: ' + r.stderr);
   const calls = fs.readFileSync(LOG, 'utf8').split('\n').filter((l) => l.startsWith('file-notices|'));
   return { out: r.stdout, calls, pane };
@@ -75,6 +75,19 @@ test('a mark that cannot be written means no call: the cost would land on the tu
   assert.deepEqual(r.calls, []);
   assert.equal(r.out, '');
   assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '%canwrite').calls, [callFor('%canwrite')], 'control: a writable mark does call');
+});
+
+test('with an agent token the mark and ack file are the agent\'s, not the pane\'s: one agent on two panes shares them, two agents on one pane do not', () => {
+  const T1 = '11'.repeat(16);
+  const T2 = '22'.repeat(16);
+  const a = run(prompt, JSONLINE + '\n', 0, '%shared', T1);
+  assert.equal(a.calls.length, 1);
+  assert.match(a.calls[0], /\/agent-[0-9a-f]{16}\.filenotices-ack\|$/, 'keyed by the token\'s hash: ' + a.calls[0]);
+  assert.ok(!a.calls[0].includes(T1), 'the token itself is never in a path');
+  assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '%other', T1).calls, [], 'the same agent on another pane is throttled with it');
+  const b = run(prompt, JSONLINE + '\n', 0, '%shared', T2);
+  assert.equal(b.calls.length, 1, 'another agent on the same pane key has its own window');
+  assert.notEqual(b.calls[0], a.calls[0], 'and its own ack file');
 });
 
 test('no other event asks for file notices', () => {
