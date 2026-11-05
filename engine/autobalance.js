@@ -216,7 +216,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
        opens; nothing re-surfaces its commitments or what was running, which is why the move's message names them.
        Not reached (review 3): a weekly limit under a day from its reset, which Claude Code prints with no date, reads
        as not limited, the same as a five-hour one. Reading undated lines would act on stale ones (#5031). */
-    const atLimit = stoppedAtLimit(c, Number.isFinite(nowMs) ? nowMs : Date.now());
+    const atLimit = stoppedAtLimit(c, Number.isFinite(nowMs) ? nowMs : Date.now(), assigner);   // kosmos#8056: the assigner this call was given
     if (!atLimit && !assigner.idleCard(c)) return false;
     /* Review 2 (slice 3): words sitting unsent in its box are a person's or a peer's, and a restart would drop them. A
        card that cannot say is not movable. Review 5: the card says so only once the same words have sat there for

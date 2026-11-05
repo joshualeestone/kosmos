@@ -1161,3 +1161,34 @@ test('kosmos#8048 review 7: an agent movable as idle on one tick and first seen 
   await run2.tick(d2, NOW + 2000);
   assert.equal(c2.starts.length, 1, 'a stuck agent seen twice at its limit was not moved');
 });
+
+test('kosmos#8056: a long promise is cut in the move message, not split inside an emoji, and an email past the cut is still left out', async () => {
+  const [ada] = realCards(['ada']);
+  const day = new Date(NOW + 3 * 24 * H).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' });
+  const atWall = { ...ada, state: 'rate_limited', stateEvidence: `You've hit your weekly limit · resets ${day} at 4am (America/Chicago)` };
+  const entry = (what) => ({ id: what.slice(0, 8), what, createdAt: new Date(NOW).toISOString(), source: 'agent' });
+  const long = 'x'.repeat(119) + '\u{1F600}' + 'y'.repeat(180);
+  const email = 'z'.repeat(200) + ' a@example.test';
+  const exact = 'w'.repeat(120);
+  const run = automove.create({ file: fileFor() });
+  const { d, calls } = deps({ cards: [atWall] });
+  d.readCommitment = () => ({ state: 'holding', reportedAt: new Date(NOW).toISOString(), commitments: [entry(long), entry(email), entry(exact)] });
+  const r = await twoTicks(run, d);
+  assert.deepEqual([r.did, r.outcome], ['moved', 'changed']);
+  const said = calls.tells[0][1];
+  assert.ok(said.includes('x'.repeat(119) + '\u{1F600}...'), 'a long promise was not cut at 120 code points: ' + said);
+  assert.ok(!said.includes('yy'), 'text past the cut reached the thread');
+  assert.ok(!said.includes('zz') && !said.includes('@'), 'an entry carrying an email reached the thread');
+  assert.ok(said.includes(exact + '.') && !said.includes(exact + '...'), 'CONTROL: an entry at the cap was changed');
+});
+
+test('kosmos#8056: movableFor asks the assigner it was given whether an agent is at its limit', () => {
+  const [ada] = realCards(['ada']);
+  const day = new Date(NOW + 3 * 24 * H).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' });
+  const atWall = { ...ada, state: 'rate_limited', stateEvidence: `You've hit your weekly limit · resets ${day} at 4am (America/Chicago)` };
+  const args = { cards: [atWall], records: [], readCommitment: () => ({ state: 'clear' }), isGuide: () => false, guideName: () => null, nowMs: NOW };
+  const real = require('./assigner');
+  assert.equal(ab.movableFor(args)('ada'), true, 'CONTROL: with the real assigner, an agent at the wall is movable');
+  const fake = { ...real, limitedCard: () => false, idleCard: () => false };
+  assert.equal(ab.movableFor({ ...args, assigner: fake })('ada'), false, 'the real assigner answered, not the one given');
+});
