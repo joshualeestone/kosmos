@@ -29,31 +29,31 @@ struct TasksTab: View {
 
     var body: some View {
         NavigationView {
-          Group {
-          // kosmos#8054: the list is read only through a computer this phone is let into (BoardClient.refreshTasks).
-          if Board.showsConnectionScreen(liveOrStarting: liveOrStarting, computerLetIn: client.macURL != nil,
-                                         hasList: client.tasksList != nil) {
-            BoardStates(client: client, openBoard: openBoard) { EmptyView() }
-          } else {
-            TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
-                      open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
-                      answer: answer,
-                      answerAgent: { who in answer(who: who) },
-                      refresh: { await client.refreshTasks() },
-                      newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
-                      notice: notice, switcher: AnyView(MacSwitcher(client: client)))
-          }
-          }
-          // On the Group, not the list, so a switch to the connection screen and back never drops an open page or sheet.
-          .background(chatLink)
-          .background(taskLink)
-          .sheet(item: $newTaskFor) { start in
-              NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft,
-                          held: $newTaskHeld, heldFound: heldFound(in:)) { line in
-                  notice = line
-                  Task { await client.refreshTasks() }
-              }
-          }
+            Group {
+                // kosmos#8054: the list is read only through a computer this phone is let into (BoardClient.refreshTasks).
+                if Board.showsConnectionScreen(liveOrStarting: liveOrStarting, computerLetIn: client.macURL != nil,
+                                               hasList: client.tasksList != nil) {
+                    BoardStates(client: client, openBoard: openBoard) { EmptyView() }
+                } else {
+                    TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
+                              open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
+                              answer: answer,
+                              answerAgent: { who in answer(who: who) },
+                              refresh: { await client.refreshTasks() },
+                              newTask: { picked in notice = nil; newTaskFor = NewTaskStart(picked: picked) },
+                              notice: notice, switcher: AnyView(MacSwitcher(client: client)))
+                }
+            }
+            // Outside the branch: the links and the sheet belong to the tab, not to the list.
+            .background(chatLink)
+            .background(taskLink)
+            .sheet(item: $newTaskFor) { start in
+                NewTaskView(client: client, tasks: client.tasksList, picked: start.picked, draft: $newTaskDraft,
+                            held: $newTaskHeld, heldFound: heldFound(in:)) { line in
+                    notice = line
+                    Task { await client.refreshTasks() }
+                }
+            }
         }
         .navigationViewStyle(.stack)
         // A Tasks read that shows the held task: it was made. Said as any create is (the sheet closes, the added line

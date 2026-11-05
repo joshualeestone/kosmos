@@ -829,7 +829,7 @@ struct ProjectsView: View {
                 .refreshable { await store.loadList() }
             }
         } else if store.listState == .failed
-                    && Board.showsConnectionScreen(liveOrStarting: liveOrStarting, computerLetIn: client.macURL != nil, hasList: false) {
+                    && Board.showsConnectionScreen(liveOrStarting: liveOrStarting, computerLetIn: client.macURL != nil, hasList: store.list != nil) {
             // kosmos#8054: "We cannot read your projects right now" never said why when no computer was let in.
             BoardStates(client: client, openBoard: openBoard) { EmptyView() }
         } else if store.listState == .failed {
