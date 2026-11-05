@@ -91,7 +91,7 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-recoverynote-5536 
     const { ctx, page, errs } = await open(browser, 1280, 800, 'light', eng);
 
     const first = await read(page, company([opened(DAY), given(2 * DAY)]));
-    chk(first.count === 1 && first.see && first.x && first.inStack && first.words === 'Someone was given access to your backup.' && !first.text.includes('Pat Lee'),
+    chk(first.count === 1 && first.see && first.x && first.inStack && first.words === 'Someone opened files from your backup.' && !first.text.includes('Pat Lee'),
       `${t} two new rows show one notice in the floating stack, with See who and a close, naming nobody`, JSON.stringify(first));
     if (SHOTS) await page.screenshot({ path: path.join(SHOTS, `recoverynote-${eng}-light.png`) });
 
@@ -132,7 +132,7 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-recoverynote-5536 
     const fam = await read(page, { enrolled: true, kind: 'family', reviewerGrants: [], recoveries: [given(30)] });
     chk(fam.count === 0, `${t} a family gets no notice, whatever the answer holds`, JSON.stringify(fam));
     const back = await read(page, company([given(30)]));
-    chk(back.count === 1, `${t} the same row shows for a company (CONTROL)`, JSON.stringify(back));
+    chk(back.count === 1 && back.words === 'Someone was given access to your backup.', `${t} the same row shows for a company, a key given said as given (CONTROL)`, JSON.stringify(back));
     STEP = eng + ' failed read';
     const failed = await read(page, null, 500);
     chk(failed.count === 1, `${t} a failed read keeps the notice on screen`, JSON.stringify(failed));

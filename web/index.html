@@ -56228,10 +56228,12 @@ function recoveryNoteSeenList(st) {
 function paintRecoveryNote() {
   const slot = document.getElementById('recovery-slot');
   if (!slot) return;
-  const news = onAgentsTab() && RECOVERY_NOTE.recoveries ? recoveryNoteUnseen(RECOVERY_NOTE.recoveries, Date.now() / 1000).length > 0 : false;
-  const html = news
+  const unseen = onAgentsTab() && RECOVERY_NOTE.recoveries ? recoveryNoteUnseen(RECOVERY_NOTE.recoveries, Date.now() / 1000) : [];
+  // A key given opens nothing by itself, so "opened" is said only when an unseen row says it.
+  const words = unseen.some((k) => k.split('|')[1] === 'files_opened') ? 'Someone opened files from your backup.' : 'Someone was given access to your backup.';
+  const html = unseen.length
     ? '<div class="utoast reviewer-note recovery-note"><span class="udot" aria-hidden="true"></span>'
-      + '<div class="utxt" role="status" tabindex="-1"><b>Someone was given access to your backup.</b></div>'
+      + '<div class="utxt" role="status" tabindex="-1"><b>' + words + '</b></div>'
       + '<div class="uacts"><button type="button" class="uprime" data-recovery-see>See who</button></div>'
       + '<button type="button" class="ux" data-recovery-hide aria-label="Close this notice" title="Close this notice">&times;</button>'
       + '</div>'

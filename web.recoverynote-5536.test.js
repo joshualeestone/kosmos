@@ -51,11 +51,21 @@ test('#5536: unseen rows show one notice with See who and a close, and it names 
   b.api.RECOVERY_NOTE.recoveries = [given(2 * DAY, 'Pat Lee'), opened(DAY, 7, 'Pat Lee')];
   b.api.paintRecoveryNote();
   assert.equal((b.slot.innerHTML.match(/class="utoast reviewer-note recovery-note"/g) || []).length, 1, 'not exactly one notice for two rows');
-  assert.match(b.slot.innerHTML, /<b>Someone was given access to your backup\.<\/b>/);
+  assert.match(b.slot.innerHTML, /<b>Someone opened files from your backup\.<\/b>/);
   assert.match(b.slot.innerHTML, /<button type="button" class="uprime" data-recovery-see>See who<\/button>/);
   assert.match(b.slot.innerHTML, /class="ux" data-recovery-hide aria-label="Close this notice"/);
   assert.match(b.slot.innerHTML, /<div class="utxt" role="status" tabindex="-1">/);
   assert.doesNotMatch(b.slot.innerHTML, /Pat Lee/, 'the board named the person, for anyone in the room to read');
+});
+
+test('#5536: it says opened only when an unseen row does (CONTROL: a key alone says given; files opened already seen say given)', () => {
+  const k = board().api.recoveryNoteKey;
+  const key = board(); key.api.RECOVERY_NOTE.recoveries = [given(DAY)]; key.api.paintRecoveryNote();
+  assert.match(key.slot.innerHTML, /<b>Someone was given access to your backup\.<\/b>/);
+  const old = board({ seen: [k(opened(2 * DAY))] }); old.api.RECOVERY_NOTE.recoveries = [given(DAY), opened(2 * DAY)]; old.api.paintRecoveryNote();
+  assert.match(old.slot.innerHTML, /<b>Someone was given access to your backup\.<\/b>/, 'files opened and already seen were said again');
+  const aged = board(); aged.api.RECOVERY_NOTE.recoveries = [opened(DAY)]; aged.api.paintRecoveryNote();
+  assert.match(aged.slot.innerHTML, /<b>Someone opened files from your backup\.<\/b>/, 'files opened with the key given out of the list read as only given');
 });
 
 test('#5536: nothing shows once every row is seen, before any read, or off the agents tab (CONTROL: the same rows show on it)', () => {
