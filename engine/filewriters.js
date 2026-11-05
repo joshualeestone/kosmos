@@ -235,18 +235,35 @@ function about(file, { projects, nameOf = (s) => s } = {}) {
     if (typeof file !== 'string' || !path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file)) return { ok: false, because: 'path' };
     const list = Array.isArray(projects) ? projects : require('./projects').readAll();
     const roots = rootsOf(list);
-    const at = projectOf(file, roots);
+    // Review 2: resolved once, and every later read uses this, so a link swapped between two reads cannot redirect one.
+    const abs = resolved(file);
+    const at = projectOf(abs, roots);
     if (!at) {
       // Review 1: a project's own folder is in no project by projectOf (an empty name), and is not "outside" either.
-      const abs = resolved(file);
       return roots.some((r) => r.root === abs) ? { ok: false, because: 'folder' } : { ok: false, because: 'outside' };
     }
     const shown = (s) => { try { return nameOf(s) || s; } catch { return s; } };
-    const rec = readRecord(at.projectId);
-    const entry = at.name !== NOTICES_KEY && rec[at.name] && typeof rec[at.name] === 'object' ? rec[at.name] : null;
+    /* Review 2: a record is filed under the deepest project at the moment of the write, so a project made later inside
+       another's folder leaves the file's earlier records under the outer one. Every project whose folder holds the file
+       is read, and the newest entry is the last agent seen. The owner is from the deepest project's own entry when it has
+       one (the record noteWrite notices from), else from that newest entry. */
+    const entries = [];
+    for (const { id, root } of roots) {
+      const rel = path.relative(root, abs);
+      if (!rel || rel === '..' || rel.startsWith('..' + path.sep) || path.isAbsolute(rel)) continue;
+      const name = rel.split(path.sep).join('/');
+      const e = readRecord(id)[name];
+      if (name !== NOTICES_KEY && e && typeof e === 'object' && typeof e.agent === 'string' && e.agent && Number.isFinite(Date.parse(e.at))) {
+        entries.push({ e, deepest: id === at.projectId });
+      }
+    }
+    entries.sort((a, b) => Date.parse(b.e.at) - Date.parse(a.e.at));
+    const entry = entries.length ? entries[0].e : null;
+    const ownEntry = (entries.find((x) => x.deepest) || entries[0] || {}).e || null;
     let modified = null;
     try {
-      const st = fs.statSync(resolved(file));
+      // lstat of the resolved path: a link here now was swapped in after it was resolved, and is not followed.
+      const st = fs.lstatSync(abs);
       // Review 1: a folder inside a project is not a file that is gone; it has no record of its own.
       if (st.isDirectory()) return { ok: false, because: 'folder' };
       if (st.isFile()) modified = new Date(st.mtimeMs).toISOString();
@@ -266,7 +283,7 @@ function about(file, { projects, nameOf = (s) => s } = {}) {
       exists: Boolean(modified),
       modified,
       lastSeen: seen ? { agent: seen.agent, shown: shown(seen.agent), at: seen.at } : null,
-      owner: seen && typeof seen.first === 'string' && seen.first ? { agent: seen.first, shown: shown(seen.first) } : null,
+      owner: ownEntry && typeof ownEntry.first === 'string' && ownEntry.first ? { agent: ownEntry.first, shown: shown(ownEntry.first) } : null,
       lastChange,
     };
   } catch { return { ok: false, because: 'unreadable' }; }
