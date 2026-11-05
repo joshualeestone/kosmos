@@ -5718,6 +5718,7 @@ function withAgentSortFields(list, supplied) {
     return {
       ...a,
       dmUnread: dm === null ? null : dm.unread,
+      openAckDue: require('./engine/needsyouack').due(a.sessionName),   // kosmos#8024: opening this chat has a needs-you to acknowledge
       lastTalkedAt: readableTalk ? latest([at(dm.lastAt), mentionAt]) : null,
       lastActiveAt: readableActive ? latest([at(dm.lastAgentAt), postAt, workAt]) : null,
       createdAt,
@@ -19066,7 +19067,9 @@ const server = http.createServer(async (req, res) => {
             const pj = pid ? projects.get(pid, roster) : null;
             projectName = pj ? pj.name : null;
           } catch { projectName = null; }
-          phonenotify.happened({ kind: 'needs_you', id: 'report:' + kept.at + ':' + who, agent: sender.card.name || who, session: who, project: projectName, levelProjectId });
+          // kosmos#8024: kept so that opening this agent can acknowledge it. Only a push that went out.
+          const askedId = 'report:' + kept.at + ':' + who;
+          if (phonenotify.happened({ kind: 'needs_you', id: askedId, agent: sender.card.name || who, session: who, project: projectName, levelProjectId })) require('./engine/needsyouack').remember(who, askedId);
         }
         /* #5318: a blocked report whose owner is a person is recorded as sent, with a note pointing at needs_you
            (the only state Kosmos follows up). Both CLIs print the note under "Recorded." */
@@ -23324,6 +23327,9 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, bad ? 400 : 500, { error: bad ? String(err.message) : 'we could not record that' });
       return;
     }
+    /* kosmos#8024: the person has this agent's chat open, so the needs-you pushes it holds are dealt with and their emails
+       need not go. Only the person's own screen: an agent posting here would otherwise silence its own email. */
+    if (isViaScreen(req)) { try { require('./engine/needsyouack').opened(name, (id) => phonenotify.acked(id)); } catch { /* emailed as before */ } }
     sendJson(res, 200, { seen: at, dmUnread: 0 });
     return;
   }
@@ -28935,7 +28941,8 @@ function start(port = PORT) {
             roster: roster, told: STUCK_TOLD, now: Date.now(),
             tell: (key, r, shown) => {
               process.stdout.write(`stuck-terminal: ${shown} (${key}) stuck on ${r.state} for ${Math.round(r.forMs / 60000)} min; told the person\n`);
-              phonenotify.happened({ kind: 'needs_you', id: 'stuckterminal:' + key + ':' + r.sinceAt, agent: shown, session: key, project: null });
+              const stuckId = 'stuckterminal:' + key + ':' + r.sinceAt;
+              if (phonenotify.happened({ kind: 'needs_you', id: stuckId, agent: shown, session: key, project: null })) require('./engine/needsyouack').remember(key, stuckId);   // kosmos#8024
             },
           });
           /* #5154 slice B: the own-bounds sweep, over the SAME roster read. sweepRoster owns the null-skip
