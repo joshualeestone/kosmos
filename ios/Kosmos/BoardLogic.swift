@@ -13,11 +13,10 @@ import ImageIO
 // its session cookie; the board's own routes then answer through the tunnel.
 enum Board {
     /// Whether a native list tab (Tasks, Projects) shows the Agents tab's connection screen (BoardStates) in place of
-    /// its own list and waits: no computer this phone is let into, the board neither live nor on its first connect,
-    /// and no list already on screen. A list already shown stays when a let-in computer stops answering, as on Agents.
-    /// kosmos#8054: with no computer on the account, Tasks waited for good and Projects never said why.
-    static func showsConnectionScreen(liveOrStarting: Bool, computerLetIn: Bool, hasList: Bool) -> Bool {
-        !liveOrStarting && !computerLetIn && !hasList
+    /// its own list or wait: the board neither live nor on its first connect, and no list to show. As the Agents tab
+    /// decides it (a list it has stays; with none, BoardStates). kosmos#8054.
+    static func showsConnectionScreen(liveOrStarting: Bool, hasList: Bool) -> Bool {
+        !liveOrStarting && !hasList
     }
 
     // MARK: - Requests

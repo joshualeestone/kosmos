@@ -828,11 +828,11 @@ struct ProjectsView: View {
                 .scrollContentBackground(.hidden)
                 .refreshable { await store.loadList() }
             }
-        } else if store.listState == .failed
-                    && Board.showsConnectionScreen(liveOrStarting: liveOrStarting, computerLetIn: client.macURL != nil, hasList: store.list != nil) {
-            // kosmos#8054: "We cannot read your projects right now" never said why when no computer was let in.
-            BoardStates(client: client, openBoard: openBoard) { EmptyView() }
-        } else if store.listState == .failed {
+        } else if Board.showsConnectionScreen(liveOrStarting: client.phase.liveOrStarting, hasList: false) {
+            // kosmos#8054: "We cannot read your projects right now" never said why with no computer to read from.
+            BoardStates(client: client, openBoard: openBoard,
+                        signedOutDetail: "Your projects show here once you are signed in.") { EmptyView() }
+        } else if store.listState == .failed, case .live = client.phase {
             message("We cannot read your projects right now.", "This is not saying you have none, it is saying we cannot see them.")
         } else {
             // kosmos#7945 follow-up: a launch from a room notification opens on this tab, so its first wait is drawn as the
@@ -841,12 +841,7 @@ struct ProjectsView: View {
         }
     }
 
-    private var liveOrStarting: Bool {
-        switch client.phase {
-        case .live, .starting: return true
-        default: return false
-        }
-    }
+
 
     private func message(_ title: String, _ detail: String) -> some View {
         VStack(spacing: 6) {
