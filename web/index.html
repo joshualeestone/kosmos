@@ -2283,7 +2283,7 @@ html[data-scrollbar-classic]:not([data-layout="consolidated"]):not(.tip-dimming)
 @media (max-width: 959.98px) { .userpop-row-view { display: none; } }
 .headleft { display: flex; align-items: center; gap: var(--space-5); }
 /* An empty slot is a flex item and would spend one trailing gap. */
-#cwnote-slot:empty, #sknote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #rline-slot:empty, #reboot-slot:empty, #damaged-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
+#cwnote-slot:empty, #sknote-slot:empty, #utoast-slot:empty, #uabort-slot:empty, #login-adv-slot:empty, #survival-report-slot:empty, #survival-slot:empty, #reviewer-slot:empty, #recovery-slot:empty, #rline-slot:empty, #reboot-slot:empty, #damaged-slot:empty, #streak-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
 /* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
    button showing the active world's name, opening a menu of the person's worlds
@@ -13065,6 +13065,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- kosmos#6817: someone in this person's company (or family) was made a reviewer. One notice, cleared on its x or
          when the Settings reviewers list is in view; See who only takes the person there. Its own slot. -->
     <div id="reviewer-slot"></div>
+    <!-- kosmos#5536: this person's own backup was opened to someone. One notice, cleared on its x or when the Settings
+         recoveries list is in view; See who only takes the person there. Its own slot, so it and the one above close apart. -->
+    <div id="recovery-slot"></div>
     <!-- kosmos#7411 step 4: running agents that need a restart to get a fix in this update. It offers a choice (Restart
          all, Show who, Not now), so it sits above the facts; its own slot so it co-occurs with them. -->
     <div id="rline-slot"></div>
@@ -55268,6 +55271,33 @@ document.addEventListener('click', (e) => {
     if ((tries += 1) < 40) setTimeout(land, 100);
   })();
 });
+/* kosmos#5536: the recovery notice's See who and x, kept here for the reason the reviewer notice's are (above). */
+document.addEventListener('click', (e) => {
+  const see = e.target.closest && e.target.closest('[data-recovery-see]');
+  const hide = e.target.closest && e.target.closest('[data-recovery-hide]');
+  if (hide) {
+    recoveryNoteSeen(RECOVERY_NOTE.recoveries, Date.now() / 1000);
+    const next = document.querySelector('#topnotes .utoast .utxt[tabindex="-1"]');
+    if (next) next.focus(); else if (typeof focusBoardHome === 'function') focusBoardHome();
+    return;
+  }
+  if (!see) return;
+  // Not marked seen here: the list on screen does that (recoveryNoteSeenList). A fresh read, so the list has the new row.
+  PLUS_ORG.at = 0;
+  showTab('settings'); settingsGo('plus');
+  let tries = 0;
+  (function land() {
+    if (!plusOnScreen()) return;   // the person moved on: do not pull the page around
+    const box = document.getElementById('plus-org-recoveries');
+    if (box && !box.hidden) {
+      box.scrollIntoView({ block: 'center' });
+      const head = document.getElementById('plus-org-recoveries-head');
+      if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); }
+      return;
+    }
+    if ((tries += 1) < 40) setTimeout(land, 100);
+  })();
+});
 /* The Settings list: the devices already allowed. Painted on arrival at the Plus section and after
    any action, from the tunnel's list (one subprocess). Pending requests are shown once, as cards in
    #askcard (#3829), not here. */
@@ -55983,6 +56013,7 @@ function plusOrgPaint() {
   plusOrgReviewers(here ? st : null);   // kosmos#6752
   plusOrgRecoveries(here ? st : null);   // kosmos#5536
   if (here) reviewerNoteSeenList(st);   // kosmos#6817: the list on screen counts as seen
+  if (here) recoveryNoteSeenList(st);   // kosmos#5536: likewise
 }
 /* kosmos#6752: what follows the reviewer's name on one grant's line, leading with what is true now (Mona Lisa's review):
    every grant is inside 30 days, so a date has no year and no time, except a grant that lands within a day, the one
@@ -56154,8 +56185,62 @@ function paintReviewerNote() {
   slot.dataset.v = html;
   slot.innerHTML = html;
 }
+/* kosmos#5536 (#5529): the board tells a member their backup was opened to someone, as the reviewer notice above does for
+   a new reviewer, and by the same rules: one notice while any row in the list's 30 days is one this browser has not seen;
+   its x or the list in view counts as seen, See who only goes there. A company's member only: a family has no backup, so
+   the route and the read both give it none. It names nobody, because the board is on screen for anyone in the room; the
+   list says who. A row's key is all of its fields, so a row the coordinator lists differently is news again, the safe way.
+   It shares the reviewer notice's class for its look (news, not a warning) and that notice's read. */
+const RECOVERY_NOTE_KEY = 'kosmos.recoveriesSeen';
+const RECOVERY_NOTE = { recoveries: null, seen: new Set() };   // seen: this visit's, for when storage refuses
+const recoveryNoteKey = (r) => [r.at, r.what, r.who || '', r.epoch === undefined ? '' : r.epoch, r.count === undefined ? '' : r.count].join('|');
+function recoveryNoteFresh(recs, now) {
+  return (Array.isArray(recs) ? recs : []).filter((r) => r && Number.isFinite(r.at) && r.at >= now - PLUS_ORG_RECOVERY_DAYS * 86400).map(recoveryNoteKey);
+}
+function recoveryNoteSeenSet() {
+  const seen = new Set(RECOVERY_NOTE.seen);
+  try { for (const k of JSON.parse(localStorage.getItem(RECOVERY_NOTE_KEY) || '[]')) if (typeof k === 'string') seen.add(k); }
+  catch { /* refused or unreadable: this visit's alone */ }
+  return seen;
+}
+function recoveryNoteUnseen(recs, now) {
+  const seen = recoveryNoteSeenSet();
+  return recoveryNoteFresh(recs, now).filter((k) => !seen.has(k));
+}
+function recoveryNoteSeen(recs, now) {
+  const fresh = recoveryNoteFresh(recs, now);
+  const keep = new Set([...recoveryNoteSeenSet()].filter((k) => Number(k.split('|')[0]) >= now - PLUS_ORG_RECOVERY_DAYS * 86400));
+  for (const k of fresh) { keep.add(k); RECOVERY_NOTE.seen.add(k); }
+  // 200 is well above the 50 rows the engine keeps (MAX_RECOVERIES), so no row still listed is dropped.
+  try { localStorage.setItem(RECOVERY_NOTE_KEY, JSON.stringify([...keep].slice(-200))); } catch { /* refused: kept for this visit */ }
+  const slot = document.getElementById('recovery-slot');
+  if (slot) { slot.innerHTML = ''; slot.dataset.v = ''; }
+}
+function recoveryNoteSeenList(st) {
+  const box = document.getElementById('plus-org-recoveries');
+  if (!box || box.hidden || !plusOnScreen()) return;
+  const r = box.getBoundingClientRect();
+  if (!(r.height > 0) || Math.min(r.bottom, innerHeight) - Math.max(r.top, 0) < Math.min(48, r.height)) return;
+  if (recoveryNoteUnseen(st && st.recoveries, Date.now() / 1000).length) recoveryNoteSeen(st.recoveries, Date.now() / 1000);
+}
+function paintRecoveryNote() {
+  const slot = document.getElementById('recovery-slot');
+  if (!slot) return;
+  const news = onAgentsTab() && RECOVERY_NOTE.recoveries ? recoveryNoteUnseen(RECOVERY_NOTE.recoveries, Date.now() / 1000).length > 0 : false;
+  const html = news
+    ? '<div class="utoast reviewer-note recovery-note"><span class="udot" aria-hidden="true"></span>'
+      + '<div class="utxt" role="status" tabindex="-1"><b>Someone was given access to your backup.</b></div>'
+      + '<div class="uacts"><button type="button" class="uprime" data-recovery-see>See who</button></div>'
+      + '<button type="button" class="ux" data-recovery-hide aria-label="Close this notice" title="Close this notice">&times;</button>'
+      + '</div>'
+    : '';
+  if (slot.dataset.v === html) return;   // the same words do not repaint, so a poll never takes focus off its button
+  slot.dataset.v = html;
+  slot.innerHTML = html;
+}
 function reviewerNoteMaybe() {
   paintReviewerNote();
+  paintRecoveryNote();
   if (!onAgentsTab() || Date.now() - REVIEWER_NOTE.at < 60000) return;   // at most once a minute, failed reads included
   REVIEWER_NOTE.at = Date.now();
   fetch('/api/org/grants', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((j) => {
@@ -56163,6 +56248,8 @@ function reviewerNoteMaybe() {
     REVIEWER_NOTE.grants = j.enrolled === true && Array.isArray(j.reviewerGrants) ? j.reviewerGrants : [];
     REVIEWER_NOTE.kind = j.kind === 'family' ? 'family' : 'company';
     paintReviewerNote();
+    RECOVERY_NOTE.recoveries = j.enrolled === true && j.kind !== 'family' && Array.isArray(j.recoveries) ? j.recoveries : [];
+    paintRecoveryNote();
   }).catch(() => { /* the next minute tries again */ });
 }
 /* #5531: one POST to the board's org routes. Each URL is written out as a literal (web.api-routes-3957.test.js checks

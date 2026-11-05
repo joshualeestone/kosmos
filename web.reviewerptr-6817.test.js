@@ -26,12 +26,12 @@ function board({ onAgents = true, seen = null, storageThrows = false, listShown 
   const box = { hidden: !listShown, getBoundingClientRect: () => (listInView === 'zero' ? { top: 0, bottom: 0, height: 0 } : listInView ? { top: 100, bottom: 300, height: 200 } : { top: 2000, bottom: 2200, height: 200 }) };
   const document = { getElementById: (id) => (id === 'reviewer-slot' ? slot : id === 'plus-org-reviewers' ? box : null), addEventListener: () => {} };
   const clock = { t: now };
-  const src = 'const PLUS_ORG_REVIEWER_DAYS = 30;\n' + fn('function plusOrgIn(org, text)') + '\n'
+  const src = 'const PLUS_ORG_REVIEWER_DAYS = 30;\nconst PLUS_ORG_RECOVERY_DAYS = 30;\n' + fn('function plusOrgIn(org, text)') + '\n'
     // From the key to the end of reviewerNoteMaybe, the block's last function (its click handler sits above the Kosmos+
     // panel script; see the comment there).
     + PAGE.slice(PAGE.indexOf("const REVIEWER_NOTE_KEY = "), PAGE.indexOf('\n}\n', PAGE.indexOf('function reviewerNoteMaybe()')) + 2);
   const api = new Function('document', 'localStorage', 'Date', 'esc', 'onAgentsTab', 'plusOnScreen', 'fetch', 'innerHeight',
-    src + '\nreturn { REVIEWER_NOTE, reviewerNoteFresh, reviewerNoteUnseen, reviewerNoteSeen, reviewerNoteSeenList, paintReviewerNote };')(
+    src + '\nreturn { REVIEWER_NOTE, reviewerNoteFresh, reviewerNoteUnseen, reviewerNoteSeen, reviewerNoteSeenList, paintReviewerNote, RECOVERY_NOTE, paintRecoveryNote };')(
     document, localStorage, { now: () => clock.t * 1000 }, (x) => String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;'),
     () => onAgents, () => plusShown, null, 800);
   const seenKeys = () => JSON.parse(store.get('kosmos.reviewerGrantsSeen') || '[]');
@@ -146,8 +146,8 @@ test('#6817: a failed read keeps what is on screen; a read that says not enrolle
   const b = board();
   const src = PAGE.slice(PAGE.indexOf('function reviewerNoteMaybe()'), PAGE.indexOf('\n}\n', PAGE.indexOf('function reviewerNoteMaybe()')) + 2);
   const run = async (answer) => {
-    const maybe = new Function('REVIEWER_NOTE', 'paintReviewerNote', 'onAgentsTab', 'fetch', 'Date', src + '\nreturn reviewerNoteMaybe;')(
-      b.api.REVIEWER_NOTE, b.api.paintReviewerNote, () => true, () => Promise.resolve(answer), { now: () => NOW * 1000 });
+    const maybe = new Function('REVIEWER_NOTE', 'paintReviewerNote', 'RECOVERY_NOTE', 'paintRecoveryNote', 'onAgentsTab', 'fetch', 'Date', src + '\nreturn reviewerNoteMaybe;')(
+      b.api.REVIEWER_NOTE, b.api.paintReviewerNote, b.api.RECOVERY_NOTE, b.api.paintRecoveryNote, () => true, () => Promise.resolve(answer), { now: () => NOW * 1000 });
     b.api.REVIEWER_NOTE.at = 0;
     maybe();
     await new Promise((r) => setTimeout(r, 0)); await new Promise((r) => setTimeout(r, 0));
