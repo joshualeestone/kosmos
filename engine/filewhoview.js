@@ -1,0 +1,52 @@
+'use strict';
+/* kosmos#7989 slice 2: `kosmos project who <file>`, the words for one project file's record (filewriters.about, served by
+ * GET /api/project-file/who). An agent that finds a shared file "changed after it last read it" runs this before it calls
+ * the change unexplained: it says which agent Kosmos last saw about to change the file, who owns it (the first agent seen
+ * changing it, slice 1), and whether that recorded write is the file's last change or something Kosmos did not see came
+ * after it.
+ *
+ * Pure: no file, no clock. The Mac CLI prints renderWho(answer); a Windows CLI can print the same lines.
+ *
+ * The words say "Kosmos last saw ... about to change it", never "changed by": the record is made before the edit (the
+ * keep-before-write hook), so an edit that failed, or a person's save inside the window after it, reads the same.
+ */
+const { one } = require('./projectview');
+
+/* A name as the board shows it, with its session name when that differs (so the reader can message it). */
+function who(agent, shown) {
+  const a = one(agent);
+  const s = one(shown);
+  return s && s !== a ? s + ' (' + a + ')' : a;
+}
+
+/* The lines for one answer. `answer` is the route's JSON; anything not that shape prints one line saying so. */
+function renderWho(answer) {
+  const d = answer && typeof answer === 'object' ? answer : {};
+  if (d.ok !== true) {
+    if (d.because === 'outside') return ['That file is not inside any project\'s folder, so Kosmos keeps no record of who changes it.'];
+    return ['Kosmos could not read who changes that file' + (d.error ? ': ' + one(d.error) : '') + '.'];
+  }
+  const lines = [];
+  lines.push('File: ' + one(d.name) + '   (project ' + one(d.projectName || d.projectId) + ', ' + one(d.projectId) + ')');
+  if (!d.exists) lines.push('The file is not there now.');
+  const seen = d.lastSeen && typeof d.lastSeen === 'object' && d.lastSeen.agent ? d.lastSeen : null;
+  if (!seen) {
+    lines.push('Kosmos has no record of any agent changing it (or the record has lapsed: it keeps 30 days).');
+    if (d.exists) lines.push('So its last change was made by a person, or by a tool that writes outside the edit hook (a shell command, a script).');
+  } else {
+    lines.push('Kosmos last saw ' + who(seen.agent, seen.shown) + ' about to change it, at ' + one(seen.at) + '.');
+    if (d.exists && d.modified) {
+      if (d.lastChange === 'seen') lines.push('The file\'s last change (' + one(d.modified) + ') follows that, so it was most likely that edit.');
+      else if (d.lastChange === 'after') lines.push('The file changed again after that, at ' + one(d.modified) + ', and Kosmos did not see who: a person, or a tool writing outside the edit hook.');
+      else if (d.lastChange === 'before') lines.push('The file has not changed since (last change ' + one(d.modified) + '), so that edit had not landed when Kosmos looked.');
+    }
+  }
+  if (d.owner && typeof d.owner === 'object' && d.owner.agent) {
+    lines.push('Owner: ' + who(d.owner.agent, d.owner.shown) + ', the first agent seen changing it here.');
+  } else if (seen) {
+    lines.push('Owner: none known. Kosmos records an owner only for a file it first saw changed after owners began to be kept.');
+  }
+  return lines;
+}
+
+module.exports = { renderWho };

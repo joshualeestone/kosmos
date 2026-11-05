@@ -24150,6 +24150,25 @@ const server = http.createServer(async (req, res) => {
    * page on another site cannot make this machine open a file by embedding a
    * form. Same reasoning as reveal-folder below it.
    */
+  /* kosmos#7989 slice 2: one project file's record, for `kosmos project who <file>`: the agent Kosmos last saw about to
+     change it, its owner, and whether that write is the file's last change (engine/filewriters.about). A read, so a GET;
+     it answers only for a path inside a project's folder, as the Documents list's "changed by" does, and says nothing
+     about any other path. */
+  if (pathname === '/api/project-file/who' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let file = null;
+    try { file = new URL(req.url, ROUTING_BASE).searchParams.get('path'); } catch { file = null; }
+    if (!file) { sendJson(res, 400, { ok: false, error: 'say which file: ?path=<the file\'s full path>' }); return; }
+    const names = new Map();
+    const nameOf = (s) => {
+      if (!names.has(s)) names.set(s, require('./engine/status').readIdentity(s).displayName || s);
+      return names.get(s);
+    };
+    const answer = require('./engine/filewriters').about(file, { nameOf });
+    if (!answer.ok && answer.because === 'path') { sendJson(res, 400, { ok: false, error: 'that is not a full path to a file' }); return; }
+    sendJson(res, 200, answer);
+    return;
+  }
+
   const docs = pathname.match(/^\/api\/project\/([^/]+)\/documents$/);
   if (docs && (req.method === 'GET' || req.method === 'HEAD')) {
     const id = decodeSegment(docs[1]);

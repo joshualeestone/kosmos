@@ -6996,6 +6996,8 @@ cmd_project() {
       say "  kosmos project pause <project-id>                               pause it when your person asks: nobody is nudged about it or handed its tasks (it is resumed on the screen)"
       say "  kosmos project role <project-id> \"<what you do here>\"         say what you do on this project, 60 characters at most; project show lists it beside you (\"\" clears it)"
       say "  kosmos project remove-member <project-id> \"<name>\" [--yes]   take a member off a project, after a confirm (--yes for scripts)"
+      # kosmos#7989 slice 2: Mac only for now, so it is listed after the lines the Windows CLI shares (cli.project-show-4581).
+      say "  kosmos project who <file>                                       one project file: the agent Kosmos last saw changing it, its owner, and whether a change came after that Kosmos did not see"
       say "  <folder> is a path on this machine; the project's files live there."
       exit 2 ;;
     list)
@@ -7005,6 +7007,11 @@ cmd_project() {
       require_valid_project_id "$1"
       # An all-dots id is a path segment curl would resolve to another route, so it names no project.
       case "$1" in *[!.]*) ;; *) say "there is no project by that name"; exit 1 ;; esac ;;
+    who)
+      # kosmos#7989 slice 2: a path to a file in a project's folder, absolute or from here; the board finds the project.
+      { [ -n "${1:-}" ] && [ $# -eq 1 ]; } || { say "Usage: kosmos project who <file>   (a path to a file inside a project's folder)"; exit 2; }
+      case "$1" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "project who" "Usage: kosmos project who <file>" "$1" file ;; esac
+      case "$1" in /*) ;; *) set -- "$PWD/$1" ;; esac ;;
     # Validate BEFORE the health check, the same order cmd_post / cmd_task use, so a
     # malformed call is named even when the board is stopped (not hidden behind
     # "not running").
@@ -7054,7 +7061,7 @@ cmd_project() {
       fi
       set -- "${_rmmw[0]}" "${_rmmw[1]}" ;;
     *)
-      say "Unknown: kosmos project $sub. Try: list | show | create | pause | role | remove-member"
+      say "Unknown: kosmos project $sub. Try: list | show | who | create | pause | role | remove-member"
       exit 2 ;;
   esac
   if ! healthy; then
@@ -7069,6 +7076,27 @@ cmd_project() {
   fi
   local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert when empty
   case "$sub" in
+    who)
+      # kosmos#7989 slice 2: read-only, the agent's own token too, as list and show send it. The path goes URL-encoded.
+      local _wtok="" rc=0 body _node _mod
+      case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _wtok="$KOSMOS_AGENT_TOKEN" ;; esac
+      body=$(kosmos_curl "$_bt" "$_wtok" -sS -m 15 -G --data-urlencode "path=$1" "$URL/api/project-file/who" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say_unreached "read who changes that file" "$rc"; exit 1; }
+      _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
+      _mod="$(kosmos_engine_module filewhoview)"
+      # Exit 0 only for an answer about a project file; outside every project, or an answer we cannot read, is 1.
+      local _wout _wrc=0
+      _wout=$(printf '%s' "$body" | "$_node" -e '
+        let d;
+        try { d = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch { process.stdout.write("Kosmos gave an answer we could not read, so nothing is shown.\n"); process.exit(1); }
+        process.stdout.write(require(process.argv[1]).renderWho(d).join("\n") + "\n");
+        process.exit(d && d.ok === true ? 0 : 1);
+      ' "$_mod" 2>/dev/null) || _wrc=$?
+      # Nothing printed is a renderer that could not run (a missing module), never a silent success.
+      [ -n "$_wout" ] || { say "Kosmos could not print the board's answer about that file."; exit 1; }
+      printf '%s\n' "$_wout"
+      exit "$_wrc"
+      ;;
     list|show)
       # #4581: read-only. The agent's own token too (#4491, hex only, as msg sends it), so the board can tell
       # the agent from the person and an agent without the board token can still read.
