@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.86",
+  "lastProd": "0.7.91",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -970,7 +970,8 @@
       "icon": "chat",
       "rank": 12,
       "since": "0.7.87",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.91"
     },
     {
       "title": "A new loading mark",
@@ -978,7 +979,8 @@
       "icon": "spark",
       "rank": 10,
       "since": "0.7.88",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.91"
     },
     {
       "title": "Linux shows its update command",
@@ -1031,7 +1033,8 @@
       "icon": "chat",
       "rank": 11,
       "since": "0.7.89",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.91"
     },
     {
       "title": "A project's folder can follow its name",
@@ -1039,7 +1042,8 @@
       "icon": "tasks",
       "rank": 12.5,
       "since": "0.7.90",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.91"
     },
     {
       "title": "See what each agent is using",
@@ -1047,10 +1051,11 @@
       "icon": "swarm",
       "rank": 12.8,
       "since": "0.7.91",
-      "status": "pending",
+      "status": "shown",
       "platforms": [
         "mac"
-      ]
+      ],
+      "shownIn": "0.7.91"
     },
     {
       "title": "Agents can see who last touched a file",
@@ -1078,6 +1083,25 @@
       "since": "0.7.91",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "When messages get stuck behind an agent",
+      "line": "If a Claude Code agent's input box stays full for about 40 minutes with messages waiting, its card says so and your phone can be told.",
+      "icon": "chat",
+      "platforms": [
+        "mac"
+      ],
+      "rank": 9,
+      "since": "0.7.92",
+      "status": "pending"
+    },
+    {
+      "title": "A question taken back stays on record",
+      "line": "When an agent takes back a question and gives a reason, a line saying so stays in your chat with that agent.",
+      "icon": "chat",
+      "rank": 9.5,
+      "since": "0.7.92",
+      "status": "pending"
     }
   ]
 }
