@@ -15,6 +15,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const nodePath = require('node:path');
 
+require('./test-support/tmpscope'); // this file's temp dirs, removed when it exits
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'srv-decline-imports-8039-'));
 const HOME = nodePath.join(SANDBOX, 'home');
 const BIN = nodePath.join(SANDBOX, 'bin');

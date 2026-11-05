@@ -4968,16 +4968,6 @@ function consentPrompt(tail) {
   return { because, evidence: cap(evidence) };
 }
 
-/**
- * Is this card's `evidence` (`stateEvidence` on the wire) the trust dialog's
- * question row? For callers that hold a ROSTER CARD and no capture, such as
- * `chat.deliver`, which must not type at an agent stopped on that dialog and
- * cannot afford a capture per send. Same anchor as the detector. Evidence is
- * written by several states (a rate limit's line, a dead token's line, a
- * working line), so callers pair this with `state === needs_you`; within that
- * state only `trustPrompt` writes evidence, and it writes the question row,
- * so a match means "the last snapshot saw the dialog", no more and no less.
- */
 /* kosmos#8039: whether the live dialog on this screen is Claude Code's external imports question. A live consent dialog
    (consentPrompt) whose LAST "Yes" row is this question's, with its "No" row beside it. Keyed on the two answer rows, not
    the heading: twelve or more imported files, or a narrow pane, push the heading out of the 25-row tail while the answer
@@ -4994,6 +4984,16 @@ function importsDialogIn(tail) {
   return [lastAccept - 2, lastAccept - 1, lastAccept + 1, lastAccept + 2].some((i) => i >= 0 && i < rows.length && IMPORTS_NO_ROW.test(rows[i]));
 }
 
+/**
+ * Is this card's `evidence` (`stateEvidence` on the wire) the trust dialog's
+ * question row? For callers that hold a ROSTER CARD and no capture, such as
+ * `chat.deliver`, which must not type at an agent stopped on that dialog and
+ * cannot afford a capture per send. Same anchor as the detector. Evidence is
+ * written by several states (a rate limit's line, a dead token's line, a
+ * working line), so callers pair this with `state === needs_you`; within that
+ * state only `trustPrompt` writes evidence, and it writes the question row,
+ * so a match means "the last snapshot saw the dialog", no more and no less.
+ */
 function isTrustDialogEvidence(evidence) {
   return typeof evidence === 'string' && TRUST_PROMPT_QUESTION.test(evidence);
 }
