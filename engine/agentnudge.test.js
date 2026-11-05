@@ -776,7 +776,7 @@ test('#8067: a task with checks: the command carries the note setBuilt asks for,
   const w = world([{ name: 'checkme' }, { name: 'checkthem' }]);
   try {
     const n = taskOn(w, w.key.checkme, 'ship it');
-    assert.ok(tasks.setDoneWhen ? tasks.setDoneWhen(w.pid, n, ['one check']) : true);
+    tasks.setDoneWhen(w.pid, n, ['one check']);
     const t = projects.readAll().find((p) => p.id === w.pid).tasks.find((x) => x.number === n);
     assert.ok(Array.isArray(t.doneWhen) && t.doneWhen.length === 1, 'fixture: the task has no checks');
     assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.checkthem, note: '1 met.' }).ok);
@@ -787,15 +787,34 @@ test('#8067: a task with checks: the command carries the note setBuilt asks for,
 });
 
 test('#8067: a marked parent with built subtasks gives one instruction, with no contradiction', () => {
-  const w = world([{ name: 'pmarked' }, { name: 'pthem' }]);
+  const w = world([{ name: 'pmarked' }, { name: 'pthem' }, { name: 'pthird' }]);
   try {
     const n = taskOn(w, w.key.pmarked, 'ship the parent');
+    assert.ok(tasks.addPart(w.pid, n, { sentence: 'a third holder, still open', who: w.key.pthird }).ok !== false);
     childOf(w, n, 'write the notes', true);
     assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.pthem }).ok);
-    const { text } = pass(w).calls[0];
+    const { text } = pass(w).calls.find((c) => c.session === w.key.pmarked);
     assert.equal(text.split('kosmos task built').length - 1, 1, 'the command is named twice: ' + text);
     assert.ok(!text.includes('not yours alone to mark'), text);
     assert.ok(text.includes('Every subtask under it is closed or built'), 'CONTROL: the subtask fact stays: ' + text);
     assert.ok(text.includes('It is already marked built by ' + w.key.pthem), text);
   } finally { w.restore(); }
 });
+
+test('#8067: a command pasted with its placeholder unfilled marks nothing and keeps the real note', () => {
+  const w = world([{ name: 'phme' }, { name: 'phthem' }]);
+  try {
+    const n = taskOn(w, w.key.phme, 'ship it');
+    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.phthem, note: 'the real note' }).ok);
+    const row = () => projects.readAll().find((p) => p.id === w.pid).tasks.find((x) => x.number === n);
+    for (const note of ['<what you finished>', '<how its checks went>', '  <what you finished>  ']) {
+      const r = tasks.setBuilt(w.pid, n, { by: w.key.phme, note });
+      assert.equal(r.ok, false, note);
+      assert.match(r.because, /placeholder/);
+    }
+    assert.equal(row().builtNote, 'the real note');
+    assert.ok(!row().builtWho.includes(w.key.phme), 'the placeholder covered the agent');
+    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.phme, note: 'tests pass, <3 of them were slow>' }).ok, 'CONTROL: a real note may hold angle brackets');
+  } finally { w.restore(); }
+});
+

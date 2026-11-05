@@ -905,6 +905,9 @@ function setBuilt(projectId, n, { by = null, person = false, note = '', refusePe
   const saidSomething = said.replace(/\p{Cf}/gu, '').trim() !== '';
   if (said.length > BUILT_NOTE_MAX) return { ok: false, because: `keep the note to ${BUILT_NOTE_MAX} characters or fewer` };
   const isPerson = person === true;
+  /* kosmos#8067: a command copied from a nudge with its placeholder unfilled. Quoted, the shell passes it, and it would replace a
+     real note, be typed into colleagues' panes, and pass for an account of a task's checks. */
+  if (!isPerson && /^<[^<>]*>$/.test(said)) return { ok: false, needsNote: true, because: 'that note is still the placeholder, so nothing was marked. Say in your own words what you finished' };
   const who = !isPerson && typeof by === 'string' && by.trim() ? by.trim().slice(0, WHO_MAX) : null;
   let changed = null;
   let closed = false;
