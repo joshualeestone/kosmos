@@ -782,6 +782,11 @@ struct ChatView: View {
                 // While searching too, unlike the board's jumpToOwnSend: the phone keeps the sent bubble on screen below
                 // what matched, and it is the send's only feedback.
                 .onChange(of: pending.count) { n in
+                    // kosmos#8038: a send writes a line, so a capture can say whether a blank came at a send. Its length, never its words.
+                    if visible {
+                        if n > lastPendingCount { Self.trace("send: \(pending.last?.text.count ?? 0) chars, pending \(pending.count) (atBottom \(atBottom), end \(endVisible))") }
+                        else if n < lastPendingCount { Self.trace("pending down to \(pending.count)") }
+                    }
                     if n > lastPendingCount { goNewest(proxy, animated: true) }
                     lastPendingCount = n
                 }

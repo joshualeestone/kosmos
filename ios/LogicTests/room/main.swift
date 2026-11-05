@@ -547,12 +547,16 @@ let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a,
     "Self.numbers(sv)",   // kosmos#7645 round 4: the scroll's offset, content height and showing height, in points
     "Self.heightLine(v, rows: r)",   // kosmos#7420: content height, offset and the drawn rows' places, in points and a count
     "Int(short)",   // kosmos#7420 review 3: how far the scroll is short of the content's end, in points
+    "pending.last?.text.count ?? 0", "pending.count",   // kosmos#8038: a send's length and how many are pending, both numbers, never its words
     "keepNewestOnKeyboard", "visible", "holdAtEnd", "searchMode"]   // kosmos#7645: the room's keyboard will-show, yes/no only
 // kosmos#7420: Self.heightLine is admitted by name, so its body is pinned: Int(...) point values, a count and fixed words.
 check(chatSource.contains("\"content \\(Int(size)), y \\(Int(sv.contentOffset.y)), drawn \\(at.count), from \\(Int(first)) to \\(Int(last)), past last \\(Int(size - last))\""), "kosmos#7420: the height line in the record is points and a count and nothing else")
 // kosmos#7645: Self.numbers(sv) is admitted by name, so its body is pinned here: three Int(...) point values and fixed words. Change
 // this line with that function.
 check(chatSource.contains("\"y \\(Int(sv.contentOffset.y)), content \\(Int(sv.contentSize.height)), showing \\(Int(sv.bounds.height - sv.adjustedContentInset.top - sv.adjustedContentInset.bottom))\""), "kosmos#7645: the hold's numbers in the record are three point values and nothing else")
+// kosmos#8038: a send writes a line for the chat on screen, so a capture can place a blank at a send. Its length, never its words.
+check(chatSource.contains("if visible {\n                        if n > lastPendingCount { Self.trace(\"send: \\(pending.last?.text.count ?? 0) chars, pending \\(pending.count)")
+      && chatSource.contains("Self.trace(\"pending down to \\(pending.count)\")"), "kosmos#8038: a send and a drop in the pending count each write a trace line, for the chat on screen")
 var tracedValues: [String] = []
 for l in traceLines {
     var rest = Substring(l)
