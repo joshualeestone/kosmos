@@ -45,6 +45,12 @@ function defaultFor(accounts) {
   // declare it beside its siblings so the strict eval does not throw a ReferenceError.
   // eslint-disable-next-line no-unused-vars, prefer-const
   let CREATE_PREF_OPENAI_MODEL = 'stale';
+  // kosmos#8040: resetCreateProvider also ends "the person chose it" for the account and model (a role re-pick
+  // resets them); declared here for the same strict eval. That it clears them is the browser check's role re-pick arm.
+  // eslint-disable-next-line no-unused-vars, prefer-const
+  let CREATE_ACCOUNT_TOUCHED = true;
+  // eslint-disable-next-line no-unused-vars, prefer-const
+  let CREATE_MODEL_TOUCHED = true;
   // eslint-disable-next-line no-unused-vars
   const applyCreateProviderUI = () => {};
   // eslint-disable-next-line no-unused-vars
