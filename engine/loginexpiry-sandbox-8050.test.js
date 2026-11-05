@@ -67,6 +67,23 @@ test('set on a board with no sandbox home: no date and no read, so a leak onto a
   assert.ok(!fs.existsSync(marker), 'security ran with the variable set');
 });
 
+const realHome = os.userInfo().homedir;
+for (const [label, home] of [['the real home', realHome], ['the real home with a slash', realHome + path.sep], ['above it', path.dirname(realHome)], ['the root', path.parse(realHome).root]]) {
+  test(`set with a "sandbox home" that is ${label}: no date and no read`, async () => {
+    process.env[VAR] = String(FIXTURE_DATE);
+    process.env.AGENT_WORKFORCE_HOME = home;
+    assert.equal(le.refreshExpiryFor(undefined), null);
+    assert.equal(await le.readCredAsync(le.DEFAULT_SERVICE), null);
+    assert.ok(!fs.existsSync(marker), 'security ran with the variable set');
+  });
+}
+
+test('CONTROL: a sandbox home beside the real one, sharing its name as a prefix, is still a sandbox', () => {
+  process.env[VAR] = String(FIXTURE_DATE);
+  process.env.AGENT_WORKFORCE_HOME = `${realHome}-sandbox`;
+  assert.equal(le.refreshExpiryFor(undefined), FIXTURE_DATE);
+});
+
 for (const bad of ['tomorrow', ' ', '-1', '1e12', 'Infinity']) {
   test(`a value that is not a whole number reads nothing (${JSON.stringify(bad)}): it cannot fall through to the real read`, async () => {
     process.env[VAR] = bad;
@@ -89,6 +106,7 @@ test('tools/browser-checks.sh sets it before any board boots', () => {
   assert.ok(src.includes(`export ${VAR}=${FIXTURE_DATE}\n`), 'browser-checks.sh exports a different date from this test');
   assert.ok(boot >= 0, 'browser-checks.sh no longer defines boot_board, so this order check reads nothing');
   assert.ok(set < boot, 'the export must come before the first board can boot');
+  assert.ok(!/^\s*unset\b[^\n]*\bKOSMOS_BC_LOGIN_UNTIL_MS\b|env -u KOSMOS_BC_LOGIN_UNTIL_MS\b/m.test(src), 'browser-checks.sh unsets the variable it exports');
 });
 
 test('nothing else in the engine runs security, so these two readers are the whole seam', () => {

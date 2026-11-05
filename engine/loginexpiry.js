@@ -28,6 +28,8 @@
  *    FAIL SOFT everywhere: an unreadable/absent credential yields no advisory, never a throw.
  */
 const crypto = require('crypto');
+const os = require('os');
+const path = require('path');
 const { execFile, execFileSync } = require('child_process');
 
 const DEFAULT_SERVICE = 'Claude Code-credentials';
@@ -61,13 +63,21 @@ const KEYCHAIN_OPTS = { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe
 /* kosmos#8050: Kosmos's own keychain read, on a throwaway board started by tools/browser-checks.sh. With
  * KOSMOS_BC_LOGIN_UNTIL_MS set, the bare entry answers that date and any other entry answers nothing, and `security` is not
  * run. A value that is not a whole number answers nothing too, so a bad setting cannot fall through to the real read,
- * and so does a board with no sandbox home (AGENT_WORKFORCE_HOME, unset in production), so the variable leaking onto a
- * real board cannot show it a false date.
+ * and so does a board with no sandbox home (AGENT_WORKFORCE_HOME, unset in production), or one naming this user's real
+ * home or above it, which is no sandbox (as installroot.js holds), so a leak onto a real board cannot show a false date.
  * undefined means the variable is not set, or is empty: read the keychain. */
+function inSandboxHome() {
+  const raw = process.env.AGENT_WORKFORCE_HOME;
+  if (!raw) return false;
+  const home = path.resolve(raw);
+  const real = path.resolve(os.userInfo().homedir);   // not os.homedir(): a sandboxed board can set HOME to its sandbox
+  return home !== real && !real.startsWith(home.endsWith(path.sep) ? home : home + path.sep);
+}
+
 function sandboxCred(service) {
   const raw = process.env.KOSMOS_BC_LOGIN_UNTIL_MS;
   if (raw === undefined || raw === '') return undefined;
-  if (!/^\d+$/.test(raw) || !process.env.AGENT_WORKFORCE_HOME || service !== DEFAULT_SERVICE) return null;
+  if (!/^\d+$/.test(raw) || !inSandboxHome() || service !== DEFAULT_SERVICE) return null;
   const until = Number(raw);
   return JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: until, expiresAt: until } });
 }

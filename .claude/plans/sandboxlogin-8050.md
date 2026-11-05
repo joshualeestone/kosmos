@@ -31,12 +31,14 @@ it, through the default Claude row. That stopped the 0.7.92 cut after 106 minute
 
 ## Weakest premise
 That every board this script boots has a sandbox home, which the seam now also requires. The script sets one for the run
-(read, not run). A board without it reads no date, which an existing check would show. Asked of a real board, the variable
-then does nothing false: production has no sandbox home, so a leak gives no date, not a made-up one.
+(read, not run). A board without one reads no date, and no check would show that: render-accounts-openai asserts only
+"Signed in". It fails safe, with no date and no "Login expired". A leak onto a real board gives no date, not a false one:
+production has no sandbox home, and a home that is this user's real home, or above it, does not count as one.
 
 ## Steps
 1. The seam, the export, engine/loginexpiry-sandbox-8050.test.js.
 2. Review, then validation after the 0.7.92 cut (Mortals stays quiet until then).
 3. Seen working, after the cut: "render-accounts-openai green" alone proves nothing, because it also passes without this
-   on a Mac with a fresh login. So run sb4 with a fake `security` on PATH answering a past date: red on "Login expired"
-   with the variable unset, green with it set. Then it lands with the next cut.
+   on a Mac with a fresh login. So run the script from a throwaway copy of this worktree, with a fake `security` first on
+   PATH answering a past date, twice: with the export line deleted in the copy (red on "Login expired"), then as committed
+   (green). Then it lands with the next cut.
