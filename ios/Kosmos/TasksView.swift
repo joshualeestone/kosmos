@@ -20,7 +20,6 @@ struct TasksTab: View {
     @State private var newTaskDraft = NewTask.Draft()   // kept when the sheet closes, as the board keeps its draft
     @State private var newTaskHeld: NewTask.Held?        // words that got "could not tell", kept with the draft
 
-
     var body: some View {
         NavigationView {
             Group {
