@@ -142,7 +142,7 @@ test('#7548 rule 2: an agent that took a turn since the decision is not moved (i
   assert.equal(r.did, 'skipped');
   assert.equal(fresh, 1, 'the roster was not read again before the move');
   assert.deepEqual(calls.starts, [], 'an agent that was no longer idle was moved');
-  assert.deepEqual([lines(file).pop().kind, lines(file).pop().because], ['skipped', 'it was no longer idle']);
+  assert.deepEqual([lines(file).pop().kind, lines(file).pop().because], ['skipped', 'it was no longer free to move']);
 });
 
 test('#7548 rule 2: the re-check just before a move reads the projects again', async () => {
@@ -1075,4 +1075,26 @@ test('kosmos#7621 review 4: a guide check that cannot be made is everyone\'s, so
   const r = await run.tick(d, NOW + 1000);
   assert.equal(r.did, 'unreadable', 'CONTROL: the re-check could not be made');
   assert.equal(run.state.recheckFailed.size, 0, 'a guide record everyone shares set one agent aside');
+});
+
+test('kosmos#8048: an agent stopped at its weekly limit, holding a commitment, is moved in two ticks, and the person is told what it had promised', async () => {
+  const [ada] = realCards(['ada']);
+  const atWall = { ...ada, state: 'rate_limited', stateEvidence: "You've hit your limit · resets Jan 1, 2030 at 3pm (America/Chicago)" };
+  const promised = { state: 'unknown', commitments: ['watching the 0.7.92 release'] };
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d, calls } = deps({ cards: [atWall] });
+  d.readCommitment = () => promised;
+  const r = await twoTicks(run, d);
+  assert.deepEqual([r.did, r.outcome], ['moved', 'changed'], 'an agent at the wall was not moved by the real mover');
+  assert.deepEqual(calls.starts, [{ dir: '/u/.claude-spare', names: ['ada'] }]);
+  assert.equal(calls.tells.length, 1);
+  assert.match(calls.tells[0][1], / Before the move it had said it was committed to: watching the 0\.7\.92 release\. The restart ended anything it had running, so it may need to pick that up\.$/,
+    'the person was not told what the moved agent had promised');
+  // CONTROL: the same agent idle with that commitment is not moved (the free test stands for an idle agent).
+  const run2 = automove.create({ file: fileFor() });
+  const { d: d2, calls: c2 } = deps({ cards: [ada] });
+  d2.readCommitment = () => promised;
+  await twoTicks(run2, d2);
+  assert.deepEqual(c2.starts, [], 'an idle agent holding a commitment was moved');
 });
