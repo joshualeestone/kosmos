@@ -380,7 +380,7 @@ const MAX_REVIEWER_GRANTS = 20;
 const GRANT_ROLES_NOW = new Set(['reviewer', 'admin', 'member']);   // kosmos#6955: relay #565 roleNow
 /* A name from the coordinator, as it is shown: text with control, direction and invisible characters taken out (so it
    reads as what it is and cannot reorder the sentence around it), trimmed, at most 64 characters; '' when there is
-   none. One list for every name this module keeps (reviewer grants, recoveries). */
+   none. One list for the people's names this module keeps (reviewer grants and recoveries). */
 const SHOWN_NAME_STRIP = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029\u061c\ufeff\u2060-\u2064\u180e\u00ad\u034f\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu;
 function shownName(v) {
   return typeof v === 'string' ? v.replace(SHOWN_NAME_STRIP, '').trim().slice(0, 64) : '';

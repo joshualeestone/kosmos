@@ -1,4 +1,4 @@
-// Browser-check-surface: plus-org-recoveries panel-settings
+// Browser-check-surface: plus-org-recoveries plus-org-reviewers-list panel-settings
 'use strict';
 /**
  * kosmos#5536 (#5529: every recovery is shown to the affected employee): Settings at Kosmos+ lists the times this
@@ -6,7 +6,8 @@
  * `recoveries`). Drives the real page, file://, fetch stubbed, on chromium and webkit:
  *   - the list is on screen under the heading, newest first, a key given said as given and files opened with the count;
  *   - recoveriesMore adds the "Older ones" line; none, a family, and a computer in no company show nothing;
- *   - at 375 x 667 in both themes a long unbroken name wraps inside the list (nothing wider than the screen).
+ *   - at 375 x 667 in both themes a long unbroken name wraps inside its line, in this list and in the reviewers list,
+ *     which shares the rule (nothing wider than the screen).
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-recoveries-5536.js [shots-dir]
  */
@@ -68,6 +69,7 @@ async function show(page, org) {
       lines: lines.map((p) => p.textContent),
       more: !document.getElementById('plus-org-recoveries-more').hidden,
       wideLine: lines.some((p) => p.scrollWidth > p.clientWidth + 1),
+      reviewerLines: [...document.querySelectorAll('#plus-org-reviewers-list p')].map((p) => [p.scrollWidth, p.clientWidth]),
       widePage: document.documentElement.scrollWidth > innerWidth + 1,
       lineW: lines.map((p) => [p.scrollWidth, p.clientWidth]),
     };
@@ -110,8 +112,12 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-recoveries-5536 di
     for (const theme of ['light', 'dark']) {
       STEP = eng + ' 375 ' + theme;
       const p = await open(browser, 375, 667, theme, eng);
-      const long = await show(p.page, org([{ what: 'key_released', who: 'Averyveryveryverylongnamewithnospacesatall-reviewer', at: now - 60 }, ...RECS]));
+      const LONG = 'Averyveryveryverylongnamewithnospacesatall-reviewer';
+      const long = await show(p.page, org([{ what: 'key_released', who: LONG, at: now - 60 }, ...RECS],
+        { reviewerGrants: [{ who: LONG, grantedAt: now - 3 * 86400, effectiveAt: now - 2 * 86400 }] }));
       chk(long.shown && long.lines.length === 3 && !long.wideLine && !long.widePage, `${t} 375x667 ${theme}: a long name wraps inside the list, nothing wider than the screen`, JSON.stringify(long));
+      chk(long.reviewerLines.length === 1 && long.reviewerLines.every(([sw, cw]) => cw > 0 && sw <= cw + 1),
+        `${t} 375x667 ${theme}: the same long name wraps inside the reviewers list too (the shared rule)`, JSON.stringify(long.reviewerLines));
       if (SHOTS) {
         await p.page.evaluate(() => document.getElementById('plus-org-recoveries').scrollIntoView({ block: 'center' }));
         await p.page.screenshot({ path: path.join(SHOTS, `recoveries-${eng}-375-${theme}.png`) });
@@ -122,7 +128,7 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-recoveries-5536 di
     await browser.close();
   }
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
-  const EXPECTED_PER_ENGINE = 9;
+  const EXPECTED_PER_ENGINE = 11;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   clearTimeout(WATCHDOG);
   console.log(`render-recoveries-5536: ${RAN - fail.length} PASS, ${fail.length} FAIL`);
