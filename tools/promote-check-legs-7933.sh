@@ -170,7 +170,9 @@ leg_update() {
   # Only the check: pressing the board's own Update is refused on Linux today (#7935), and once it is not it would race
   # the installer below.
   local chk; chk="$(api -X POST "http://127.0.0.1:$port/api/update/check" --data '{}')"; echo "  board's own check: ${chk:0:300}"
-  case "$chk" in *"\"offer\":{\"version\":\"$sv\""*) ;; *) fail update "the prod board's own check does not offer $sv"; return ;; esac
+  # kosmos#7939 (in 0.7.91): a Linux board cannot replace itself, so its own check answers the staged version as a
+  # `manual` command (kosmos update --if-newer --install), never an [Update] `offer`. Either names $sv; nothing else does.
+  case "$chk" in *"\"offer\":{\"version\":\"$sv\""*|*"\"manual\":{\"version\":\"$sv\""*) ;; *) fail update "the prod board's own check does not offer $sv, as an offer or its manual command"; return ;; esac
   case "$chk" in *'"channel":"staging"'*) ;; *) fail update "the prod board's own check is not on the staging channel"; return ;; esac
   printf '%s\n' "$stamp0" > "$root/source-channel"
   curl -fsSL "$SITE/setup-staging" -o "$W/setup-staging.sh" || { fail update "could not fetch $SITE/setup-staging"; return; }
