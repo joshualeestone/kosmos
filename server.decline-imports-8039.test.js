@@ -112,12 +112,28 @@ test('with the dialog on the screen, the press writes the No on the agent\'s own
   const before = restarts;
   const r = await press('di-yes');
   assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.because, 'It is starting without those files.', JSON.stringify(r.body));
   const e = entry(dir, folder);
   assert.ok(e, 'nothing written on the account the agent runs on');
   assert.equal(e[trust.IMPORTS_KEY], false, 'it must never write a Yes');
   assert.equal(e[trust.IMPORTS_SHOWN_KEY], true);
   assert.equal(entry(other, folder), undefined, 'another account was written');
   assert.ok(restarts > before, 'it wrote and did not restart, so the agent stays at the dialog');
+});
+
+test('a typed message is refused at the dialog, and nothing reaches the pane', async () => {
+  born('di-typed', account('acct-e'));
+  fs.writeFileSync(SCREEN, DIALOG);
+  const res = await fetch(base + '/api/agent/di-typed/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'wait, what files?' }),
+  });
+  const body = await res.json().catch(() => ({}));
+  assert.match(JSON.stringify(body), /cannot take a message yet/, 'a line typed here would answer the dialog: ' + JSON.stringify(body));
+  fs.writeFileSync(SCREEN, '❯ \n');
+  const res2 = await fetch(base + '/api/agent/di-typed/thread', {
+    method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ text: 'hello' }),
+  });
+  assert.doesNotMatch(JSON.stringify(await res2.json().catch(() => ({}))), /cannot take a message yet/, 'CONTROL: refused with no dialog up');
 });
 
 test('the question has gone: nothing is written and nothing restarts', async () => {

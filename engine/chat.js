@@ -2285,6 +2285,9 @@ function pageDrawsButtons(card, sessionName) {
   if (card.disruption && card.disruption.failed === true) return false;   // review 3: the page's `asking` excludes it
   try { return !require('./setup-assistant').isGuideFolder(sessionName); } catch { return false; }
 }
+/* kosmos#8039: Enter at Claude Code's external imports question takes its highlighted answer, so a typed line would answer
+   it and be lost. The person answers it on the agent's page. */
+const CLAUDE_IMPORTS_SENTENCE = 'it cannot take a message yet: it is asking whether its instructions may import files from outside its folder. Answer that on its page first';
 function claudeMenuRefusal(card, sessionName, roster) {
   if ((DRY_RUN && !runner) || !card || String(card.runner || 'claude') !== 'claude' || card.reachedByChannel === true) return null;
   /* needs_you, and working too (review 11): an agent usually reaches a permission prompt mid-turn, while its card still
@@ -2295,8 +2298,10 @@ function claudeMenuRefusal(card, sessionName, roster) {
     /* A read that fails is not a refusal (decided), EXCEPT when the card itself says it is asking permission (its
        PermissionRequest self-report): typing there is the measured #5754 harm, and the report is the evidence. */
     const said = String(card.because || '') + ' ' + String(card.stateEvidence || '');
+    if (card.state === status.STATE.NEEDS_YOU && /import files from outside its folder/.test(said)) return CLAUDE_IMPORTS_SENTENCE;
     return card.state === status.STATE.NEEDS_YOU && /\basking permission to use\b/i.test(said) ? CLAUDE_PERMISSION_SENTENCE : null;
   }
+  if (status.importsDialogIn(view.text)) return CLAUDE_IMPORTS_SENTENCE;
   if (status.claudeSafeguardsMenuUp(view.text)) return CLAUDE_SAFEGUARDS_SENTENCE;   // its own reading (#5051), never pressed
   if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
     /* The direct-message route answers by number only when the card reads needs_you (it reads the screen only then). */

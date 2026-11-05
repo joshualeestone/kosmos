@@ -83,7 +83,7 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     chk(a.box && a.imports && a.button, `${t} the box and its button show for the imports question`, JSON.stringify(a));
     chk(a.buttonText === 'Continue without them', `${t} the button says what it does`, a.buttonText);
     chk(/^Sam cannot start until you answer\./.test(a.label), `${t} the label names the agent and why it is waiting`, a.label);
-    chk(/open its Terminal to allow them/.test(a.label), `${t} the other answer is named, and where it is given`, a.label);
+    chk(/allow them in its terminal on the computer it runs on/.test(a.label), `${t} the other answer is named, and where it is given`, a.label);
     chk(a.trust === false, `${t} the folder-trust button stays hidden here`, JSON.stringify(a));
 
     const c = await paint({ ...base });
@@ -96,18 +96,18 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     chk(tr.trust === true && tr.imports === false && /folder-trust/.test(tr.label), `${t} the trust recovery is unchanged`, JSON.stringify(tr));
 
     await paint({ ...base, importsAsk: true });
-    const ok = await press({ status: 200, body: { ok: true, because: 'Restarting Sam.' } });
+    const ok = await press({ status: 200, body: { ok: true, because: 'It is starting without those files.' } });
     chk(ok.sent.length === 1 && /\/api\/agent\/sam%20doe\/decline-imports$/.test(ok.sent[0].url) && ok.sent[0].method === 'POST',
       `${t} the press POSTs the route, with the name encoded`, JSON.stringify(ok.sent));
     chk(!/allow|keys|yes/i.test(String(ok.sent[0] && ok.sent[0].body)), `${t} it carries no answer the server could read as a Yes`, String(ok.sent[0] && ok.sent[0].body));
-    chk(ok.msg === 'Restarting Sam.', `${t} the server's words reach the page`, ok.msg);
+    chk(ok.msg === 'It is starting without those files.', `${t} the server's words reach the page`, ok.msg);
     chk(ok.disabled === false, `${t} the button comes back`, String(ok.disabled));
     const gone = await press({ status: 409, body: { ok: false, because: 'it is no longer asking this' } });
     chk(gone.msg === 'it is no longer asking this', `${t} a refusal is said`, gone.msg);
     const thrown = await press('throw');
     chk(/could not reach Kosmos/.test(thrown.msg), `${t} no network is said, not left blank`, thrown.msg);
-    const moved = await press({ status: 200, body: { ok: true, because: 'Restarting Sam.' } }, true);
-    chk(moved.msg !== 'Restarting Sam.', `${t} an answer after moving to another agent does not land under that one`, moved.msg);
+    const moved = await press({ status: 200, body: { ok: true, because: 'It is starting without those files.' } }, true);
+    chk(moved.msg !== 'It is starting without those files.', `${t} an answer after moving to another agent does not land under that one`, moved.msg);
 
     if (process.env.SHOTS) { await paint({ ...base, importsAsk: true }); await page.screenshot({ path: nodePath.join(process.env.SHOTS, `8039-${engine}.png`) }); }
     chk(errs.length === 0, `${t} no page errors`, errs.join(' | '));
