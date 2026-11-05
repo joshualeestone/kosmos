@@ -15,8 +15,8 @@ not overwrite" it, selfreport.js skipped:'waiting') is neither retried nor noted
 "not recorded" for another reason (a failed save), is retried and noted. A second
 lost send writes one line (time, pane, exit code, the CLI's first line; no command text) to
 $THROTTLE_DIR/turn-end-failures.log. Only an agent's pane (TMUX_PANE set) gets the retry and note: the person's own Claude sessions run this hook too
-(shared settings) and are refused every turn, so they keep the single send. Kosmos not running at all and a board refusal
-("Kosmos refused that", certain to repeat) are neither retried nor noted; the note file is capped (past 400 lines,
+(shared settings) and are refused every turn, so they keep the single send. Kosmos not running is retried but not noted
+(final classification below); the note file is capped (past 400 lines,
 the last 200 kept). Weakest premise: a person's own session inside tmux is treated as an agent. Every other report is unchanged. The Windows node hook is out of scope (the
 symptom is the Mac board's honest-unknown).
 
@@ -33,7 +33,7 @@ retry; (6) two lost sends leave one line (time, pane, exit code, the CLI's first
 "not recorded" for another reason (a failed save) IS retried and noted; (8) the hook's phrase is bound to every
 skipped:'waiting' answer in engine/selfreport.js. Mutants, each red on its own test: token check removed, the skip
 removed, output held open, the old broad 'not recorded' match restored.
-report-hook-auto-1453.test.js counts report_turn_end as a report call (floor 8). Ten sibling hook test files pass.
+report-hook-auto-1453.test.js counts report_turn_end as a report call (floor 8). The other ten hook test files (five report-hook-*, five engine/kosmos-report-hook*) pass.
 
 ## Final classification (review round 7, against the board's real answers)
 - No retry, no note (a retry cannot change it): the deliberate keep ("did not overwrite", selfreport.js skipped:'waiting')
@@ -43,3 +43,18 @@ report-hook-auto-1453.test.js counts report_turn_end as a report call (floor 8).
 - Retried and noted: everything else, including "Kosmos refused that" (the report route's catch-all, possibly a one-off
   fault) and any other "not recorded" (a failed save). report-hook-turnend-7977.test.js 12/12, fixtures in the real wording,
   a test binding every phrase to its source.
+
+## Round 8 (the cap) fixes, applied after the last blind review (NOT blind-reviewed)
+- A board too busy to answer ("too busy to answer", install/kosmos #4466): not retried, noted at once, so a stall gets
+  no second Stop send from every pane. Rejected: also not retrying "not reachable"; that is the board-mid-restart loss
+  this card exists for.
+- More deterministic refusals in _TE_KEEP: "could not tell which agent that was", "does not look like something we can
+  identify you by" (engine/messages.js), "from the account that started it; run" (server.js report route, #1946). The
+  binding test now requires every _TE_KEEP phrase to have a named source file that still contains it, and pairs each
+  skipped:'waiting' object with its own because.
+- A duplicate idle (a send that timed out after the board acted, then retried) is safe: toolloop.noteTurnEnd returns
+  once turnEndAt is set; roomhold.flushOnIdle tells only what is still held. Stated in the hook comment.
+- Comment fixes: the no-pane sentence (no pane never writes a token; the shared-key case is two tmux servers' %N).
+- Tests: the no-wait bound widened (send 4 s, ceiling 3 s); a busy test, an other-account test, a two-Stops test.
+  report-hook-turnend-7977.test.js 15/15; all eleven hook test files 378/378. Mutants red: busy branch disabled (busy
+  test), account phrase dropped from _TE_KEEP (binding + account tests).
