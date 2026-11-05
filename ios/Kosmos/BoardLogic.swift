@@ -12,6 +12,14 @@ import ImageIO
 // short-lived handoff token for one; the Mac's tunnel gate turns that token into
 // its session cookie; the board's own routes then answer through the tunnel.
 enum Board {
+    /// Whether a native list tab (Tasks, Projects) shows the Agents tab's connection screen (BoardStates) in place of
+    /// its own list and waits: no computer this phone is let into, the board neither live nor on its first connect,
+    /// and no list already on screen. A list already shown stays when a let-in computer stops answering, as on Agents.
+    /// kosmos#8054: with no computer on the account, Tasks waited for good and Projects never said why.
+    static func showsConnectionScreen(liveOrStarting: Bool, computerLetIn: Bool, hasList: Bool) -> Bool {
+        !liveOrStarting && !computerLetIn && !hasList
+    }
+
 
     // MARK: - Requests
 

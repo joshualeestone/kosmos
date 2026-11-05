@@ -828,10 +828,9 @@ struct ProjectsView: View {
                 .scrollContentBackground(.hidden)
                 .refreshable { await store.loadList() }
             }
-        } else if store.listState == .failed && boardNotThere {
-            // 11-05, a real sign-in with no computer on the account: "We cannot read your projects right now" was true
-            // but never said why. With no computer let in (no Mac, signed out, the Allow, a Mac that does not answer), the
-            // tab says what the Agents tab says for the same state.
+        } else if store.listState == .failed
+                    && Board.showsConnectionScreen(liveOrStarting: liveOrStarting, computerLetIn: client.macURL != nil, hasList: false) {
+            // kosmos#8054: "We cannot read your projects right now" never said why when no computer was let in.
             BoardStates(client: client, openBoard: openBoard) { EmptyView() }
         } else if store.listState == .failed {
             message("We cannot read your projects right now.", "This is not saying you have none, it is saying we cannot see them.")
@@ -842,12 +841,10 @@ struct ProjectsView: View {
         }
     }
 
-    /// The list cannot come: no computer this phone is let into, and not on its first connect.
-    private var boardNotThere: Bool {
-        guard client.macURL == nil else { return false }
+    private var liveOrStarting: Bool {
         switch client.phase {
-        case .live, .starting: return false
-        default: return true
+        case .live, .starting: return true
+        default: return false
         }
     }
 

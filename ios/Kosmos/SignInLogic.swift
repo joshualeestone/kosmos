@@ -356,12 +356,12 @@ enum SignIn {
         return .status(known, matchCode: match, hasComputer: !((body?["addresses"] as? [Any]) ?? []).isEmpty)
     }
 
-    /// The coordinator's sentence, kept short and on one line; nil when it sent none.
     /// Kosmos+'s refusal as a sentence on screen: one line, as cleanMessage, then a capital and a closing stop. Kosmos+
     /// writes its errors lowercase and unstopped ("that code is not right; 4 tries left"); the password door already
     /// tidied them (`sentence`), and the code sign-in showed them raw (found on a real sign-in, 11-05).
     static func refusal(_ value: Any?) -> String? { cleanMessage(value).map(sentence) }
 
+    /// The coordinator's sentence, kept short and on one line; nil when it sent none.
     static func cleanMessage(_ value: Any?) -> String? {
         guard let s = value as? String else { return nil }
         let one = s.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
