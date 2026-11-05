@@ -105,3 +105,18 @@ test('THE PANELESS PATH: a REFUSED auto-working over a standing needs_you STILL 
 });
 
 test.after(() => { try { server.close(); } catch { /* best effort */ } });
+
+test('kosmos#8048: a hook tool report ("running <tool>") writes the tool marker; a prompt arriving ("answering a prompt") does not', async () => {
+  await withAgent('wm-tool', async () => {
+    const prompt = await post('/api/report', { state: 'working', text: 'answering a prompt', from_pane: 'x', auto: true });
+    assert.equal(prompt.json.recorded, true, 'the prompt report recorded: ' + prompt.text);
+    assert.equal(activity.read('wm-tool', 'working').found, true, 'CONTROL: the prompt report wrote the working marker');
+    assert.equal(activity.read('wm-tool', 'tool').found, false, 'a prompt reaching an agent (one stopped at its limit gets them too) wrote the tool marker');
+    const said = await post('/api/report', { state: 'working', text: 'running late on the review', from_pane: 'x' });
+    assert.equal(said.json.recorded, true, 'the hand report recorded: ' + said.text);
+    assert.equal(activity.read('wm-tool', 'tool').found, false, 'an agent\'s own words starting "running" (not the hook) wrote the tool marker');
+    const tool = await post('/api/report', { state: 'working', text: 'running Bash', from_pane: 'x', auto: true });
+    assert.equal(tool.json.recorded, true, 'the tool report recorded: ' + tool.text);
+    assert.equal(activity.read('wm-tool', 'tool').found, true, 'the hook\'s PreToolUse report did not write the tool marker');
+  });
+});

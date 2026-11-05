@@ -3291,8 +3291,9 @@ function automoveDeps(sweepDeps = null) {
     lastSeen: (agent) => observed.read(observed.PROVIDER.ANTHROPIC, agent),
     sessionStart: (agent) => sessionStartForAsync(agent),   // rule 9
     tell: (agent, text) => keepAgentReply(agent, text, undefined, { kosmos: true }),
-    /* kosmos#8048 review 5: when the agent itself last reported working (the report route's activity marker), ms. */
-    workedAt: (agent) => { const r = activity.read(agent, 'working'); return r && r.found ? Date.parse(r.at) : null; },
+    /* kosmos#8048 reviews 5 and 6: when the agent itself last reported running a tool (the report route's 'tool'
+       marker), ms. Not the 'working' marker: a prompt to an agent stuck at its limit writes that one too. */
+    workedAt: (agent) => { const r = activity.read(agent, 'tool'); return r && r.found ? Date.parse(r.at) : null; },
   };
 }
 
@@ -19013,6 +19014,12 @@ const server = http.createServer(async (req, res) => {
            ages out. One bounded file per agent, no leak. */
         if (body.state === 'working') {
           try { activity.record(who, 'working', 1, kept.recorded === true ? kept.at : undefined); } catch { /* the report stands; the marker is best-effort */ }
+          /* kosmos#8048 review 6: the hook's PreToolUse report ("running <tool>"), kept apart. A prompt delivered to an
+             agent stopped at its usage limit still fires UserPromptSubmit's "answering a prompt"; only a tool call says
+             its model is answering again, which is what the account mover's "working again" check asks. */
+          if (body.auto === true && typeof body.text === 'string' && /^running \S/.test(body.text)) {
+            try { activity.record(who, 'tool', 1, kept.recorded === true ? kept.at : undefined); } catch { /* best-effort, as above */ }
+          }
         }
         /* #4624: the turn ended, so room posts held for this agent while it worked are told to it now, one
            line per room (engine/roomhold.js). On the report the agent SENT, recorded or not: an automatic
