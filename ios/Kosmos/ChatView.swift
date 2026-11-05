@@ -1311,7 +1311,9 @@ struct ChatView: View {
     // then, as the board sends it only when dmUnread is above 0.
     private var unreadHere: Int { client.agents.first { $0.session == agent.session }?.dmUnread ?? 0 }
     private func markDmSeen() {
-        guard visible, unreadHere > 0, !seenInFlight else { return }
+        // kosmos#8024: a needs-you to acknowledge counts too; a question usually comes with no unread reply.
+        let ackDue = client.agents.first { $0.session == agent.session }?.openAckDue ?? false
+        guard visible, unreadHere > 0 || ackDue, !seenInFlight else { return }
         seenInFlight = true
         let session = agent.session
         Task {

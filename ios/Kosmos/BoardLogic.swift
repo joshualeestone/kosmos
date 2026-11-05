@@ -343,6 +343,8 @@ enum Board {
         // the guide, which the Mac's waiting total leaves out of the DM count.
         var dmUnread = 0
         var isGuide = false
+        // kosmos#8024: opening this chat has a needs-you to acknowledge (server.js openAckDue).
+        var openAckDue = false
         // kosmos#7421: what the desktop's orders read (web/index.html sortAgents): when the person last talked to it, when
         // it was last active, when it was made, and the model it shows; nil when the row does not say.
         var lastTalkedAt: Date? = nil
@@ -684,6 +686,7 @@ enum Board {
                          contextFull: Board.isRealTrue((row["context"] as? [String: Any])?["overCeiling"]),
                          dmUnread: max(0, (row["dmUnread"] as? NSNumber)?.intValue ?? 0),
                          isGuide: (row["isGuide"] as? Bool) == true,
+                         openAckDue: (row["openAckDue"] as? Bool) == true,
                          lastTalkedAt: isoDate(row["lastTalkedAt"] as? String),
                          lastActiveAt: isoDate(row["lastActiveAt"] as? String),
                          createdAt: isoDate(row["createdAt"] as? String),
