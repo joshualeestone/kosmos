@@ -12861,7 +12861,8 @@ const server = http.createServer(async (req, res) => {
          ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed
        // kosmos#5536: the recoveries of this member's own backup, to the screen only and only when there are some.
        ...(here && rec && Array.isArray(rec.recoveries) && rec.recoveries.length ? { recoveries: oe.cleanRecoveries(rec.recoveries),
-         ...(Number.isFinite(rec.recoveriesAt) ? { recoveriesAt: rec.recoveriesAt } : {}) } : {}),
+         ...(Number.isFinite(rec.recoveriesAt) ? { recoveriesAt: rec.recoveriesAt } : {}),
+         ...(rec.recoveriesMore === true ? { recoveriesMore: true } : {}) } : {}),
        stoppedFor: stopped, ...(stopped ? { stoppedKind } : {}), leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;

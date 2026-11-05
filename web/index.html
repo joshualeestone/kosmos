@@ -20515,6 +20515,7 @@ window.kosmosMeasureScrollbarWidth();
           <div id="plus-org-recoveries" hidden>
             <p class="fhint" id="plus-org-recoveries-head"></p>
             <div id="plus-org-recoveries-list"></div>
+            <p class="fhint" id="plus-org-recoveries-more" hidden>Older ones are not listed here. Your company's admins can see every one in its log.</p>
           </div>
           <!-- kosmos#6239: a family's words not accepted on this computer wait for a parent; this opens them (plusOrgFamilyReview). -->
           <div class="frow" id="plus-org-words-row" hidden><button class="btn uprime" type="button" id="plus-org-words">Read the family's words</button></div>
@@ -56016,16 +56017,21 @@ function plusOrgRecoveries(st) {
     .filter((r) => r && Number.isFinite(r.at) && r.at >= now - PLUS_ORG_RECOVERY_DAYS * 86400);
   list.textContent = '';
   box.hidden = recs.length === 0;
+  const more = document.getElementById('plus-org-recoveries-more');
+  if (more) more.hidden = !(recs.length && st.recoveriesMore === true);
   if (!recs.length) return;
   const at = Number(st.recoveriesAt);
   const stale = Number.isFinite(at) && at > 0 && Date.now() - at > 24 * 3600 * 1000;
-  document.getElementById('plus-org-recoveries-head').textContent = 'Times your backup was opened in the last 30 days'
+  // The heading names access, not opening: a key given opens nothing by itself, and its line says so.
+  document.getElementById('plus-org-recoveries-head').textContent = 'Reviewers given access to your backup in the last 30 days'
     + (stale ? ' (last confirmed ' + new Date(at).toLocaleDateString([], { month: 'short', day: 'numeric' }) + ')' : '') + ':';
   for (const r of recs) {
     const line = document.createElement('p');
     line.className = 'fhint';
     const name = document.createElement('bdi');   // a right-to-left name cannot reorder the sentence around it
-    name.textContent = typeof r.who === 'string' && r.who ? r.who : 'Someone no longer in your company';
+    // No name (the coordinator's row has no account, or the name was all invisible characters): said neutrally, never
+    // as a fact about the person.
+    name.textContent = typeof r.who === 'string' && r.who ? r.who : 'A reviewer';
     line.appendChild(name);
     line.appendChild(document.createTextNode(plusOrgRecoveryLine(r)));
     list.appendChild(line);
