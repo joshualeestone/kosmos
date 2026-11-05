@@ -6,7 +6,7 @@ import SwiftUI
 /// below) and, since #8058 (Josh 11-05), on small inline waits (a file loading or being added, earlier messages, the
 /// Getting a file bar, dictation finishing); whole-screen waits keep the orb (#7896).
 /// With no label it is hidden from VoiceOver, for a place whose words already say what is loading; with one, VoiceOver
-/// reads that label. It grows with the person's text size (unless `scales` is false). Drawn from the clock at 30 frames a second at most, as
+/// reads that label. It grows with the person's text size (unless `scales` is false). Drawn from the clock at 30 frames a second at most by default (`framesPerSecond`), as
 /// WorkingDots is; with Reduce Motion the dots stay where they are and pulse together (#4591: still dots read as frozen).
 struct SweepDots: View {
     /// The ring's side in points at the default text size: the orb's default, which this replaces.
