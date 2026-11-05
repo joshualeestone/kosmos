@@ -1,0 +1,94 @@
+'use strict';
+require('../test-support/tmpscope'); // kosmos#4273: this file's temp dirs, removed when it exits
+/* kosmos#7989 slice 3: the owner's own queue of file-owner notices (engine/filenotices.js), filled by
+ * filewriters.ownerNotice beside the room note, and taken once.
+ *   node --test engine/filenotices-7989.test.js */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'fn7989-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'projects');
+const store = require('./store');
+const { assertSandboxedDataRoot } = require('../test-support/data-root-sandbox');
+assertSandboxedDataRoot(SANDBOX, [store.ROOT]);
+const fn = require('./filenotices');
+const fw = require('./filewriters');
+
+const T0 = Date.parse('2026-11-04T20:00:00Z');
+
+test('a queued notice is taken once, oldest first, and the queue is then empty', () => {
+  assert.equal(fn.queue('leo', 'first', { now: T0 }), true);
+  assert.equal(fn.queue('leo', 'second', { now: T0 + 1000 }), true);
+  const got = fn.take('leo', { now: T0 + 2000 });
+  assert.deepEqual(got.notices.map((n) => n.text), ['first', 'second']);
+  assert.equal(got.dropped, 0);
+  assert.deepEqual(fn.take('leo', { now: T0 + 3000 }), { notices: [], dropped: 0 }, 'taken once');
+  assert.equal(fs.existsSync(fn.fileFor('leo')), false);
+});
+
+test('the file is 0600 and only the owner named reads it', () => {
+  fn.queue('nova', 'for nova', { now: T0 });
+  assert.equal(fs.statSync(fn.fileFor('nova')).mode & 0o777, 0o600);
+  assert.deepEqual(fn.take('leo', { now: T0 }).notices, [], 'leo has nothing of nova\'s');
+  assert.equal(fn.take('nova', { now: T0 }).notices.length, 1);
+});
+
+test('past MAX_PENDING the oldest go and are counted', () => {
+  for (let i = 0; i < fn.MAX_PENDING + 3; i++) fn.queue('mona', 'n' + i, { now: T0 + i });
+  const got = fn.take('mona', { now: T0 + 100 });
+  assert.equal(got.notices.length, fn.MAX_PENDING);
+  assert.equal(got.notices[0].text, 'n3');
+  assert.equal(got.dropped, 3);
+  assert.match(fn.contextText(got), /3 older notices were not kept; the project room has them\./);
+});
+
+test('a notice older than KEEP_MS is not handed over', () => {
+  fn.queue('ice', 'old', { now: T0 });
+  fn.queue('ice', 'new', { now: T0 + fn.KEEP_MS });
+  assert.deepEqual(fn.take('ice', { now: T0 + fn.KEEP_MS + 1 }).notices.map((n) => n.text), ['new']);
+});
+
+test('a name that is not a session name is refused, so no path leaves the folder', () => {
+  for (const bad of ['../x', 'Leo', '', 'a/b', '.hidden', 'x'.repeat(33), null]) {
+    assert.equal(fn.queue(bad, 't', { now: T0 }), false, String(bad));
+    assert.deepEqual(fn.take(bad), { notices: [], dropped: 0 });
+  }
+  assert.equal(fs.existsSync(path.join(store.ROOT, 'x')), false);
+});
+
+test('hookJson is empty with nothing waiting, and the Claude Code UserPromptSubmit shape otherwise', () => {
+  assert.equal(fn.hookJson({ notices: [], dropped: 0 }), '');
+  const j = JSON.parse(fn.hookJson({ notices: [{ at: '2026-11-04T20:00:00.000Z', text: 'baron was about to change "a.md"' }], dropped: 0 }));
+  assert.equal(j.hookSpecificOutput.hookEventName, 'UserPromptSubmit');
+  assert.match(j.hookSpecificOutput.additionalContext, /^Kosmos file-owner notice .*not a request from the person\):\n- 2026-11-04T20:00:00\.000Z: baron was about to change "a\.md"$/s);
+});
+
+test('another agent writing an owned file queues the room note\'s words for the owner, and the owner\'s own write does not', () => {
+  const folder = path.join(SANDBOX, 'projects', 'p1');
+  fs.mkdirSync(folder, { recursive: true });
+  const projects = [{ id: 'p1', name: 'P1', folder, agents: ['leo', 'baron'] }];
+  const projectsMod = require('./projects');
+  const realReadAll = projectsMod.readAll;
+  const messages = require('./messages');
+  const realNote = messages.roomNote;
+  const notes = [];
+  projectsMod.readAll = () => projects;
+  messages.roomNote = (id, text) => { notes.push(text); return true; };
+  try {
+    fw.resetForTests();
+    const file = path.join(folder, 'plan.md');
+    assert.equal(fw.noteWrite(file, 'leo', { now: T0, projects }), true);    // leo is the owner
+    assert.equal(fw.noteWrite(file, 'leo', { now: T0 + 10000, projects }), true);
+    assert.deepEqual(fn.take('leo').notices, [], 'the owner\'s own write queues nothing');
+    assert.equal(fw.noteWrite(file, 'baron', { now: Date.now(), projects }), true);
+    assert.equal(notes.length, 1, 'control: the room note was made');
+    const got = fn.take('leo');
+    assert.deepEqual(got.notices.map((n) => n.text), [notes[0]], 'the same words as the room note');
+    assert.deepEqual(fn.take('baron').notices, [], 'nothing for the writer');
+  } finally { projectsMod.readAll = realReadAll; messages.roomNote = realNote; fw.resetForTests(); }
+});

@@ -518,7 +518,17 @@ case "$EVENT" in
     fi ;;
   UserPromptSubmit)
     date +%s > "$MARK" 2>/dev/null || true
-    report working --auto answering a prompt ;;
+    report working --auto answering a prompt
+    # kosmos#7989 slice 3: hand this agent the file-owner notices Kosmos kept for it (another agent changed a project file
+    # it was the first seen changing), as context for this turn: Claude Code adds a UserPromptSubmit hook's
+    # additionalContext to the model and types nothing into the session. The CLI prints only the hook's JSON, and only
+    # when there is a notice, with a 2 s cap; anything else it says is dropped, so the person never sees it.
+    if [ -n "$KOSMOS" ]; then
+      FN_OUT=$("$KOSMOS" file-notices --hook </dev/null 2>/dev/null) || FN_OUT=""
+      case "$FN_OUT" in
+        '{"hookSpecificOutput":'*) printf '%s\n' "$FN_OUT" ;;
+      esac
+    fi ;;
   PreToolUse)
     # #5153 slice 4: just before Claude edits a file, ask the board to keep a copy (it does only while the person's
     # undo switch is on). Waits at most 3 s and always lets the edit go ahead.

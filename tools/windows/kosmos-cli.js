@@ -100,6 +100,7 @@ const USAGE = {
   whoami: 'Usage: kosmos whoami   (asks the board which agent you are and which account you are on)',
   fingerprint: 'Usage: kosmos fingerprint <file> [expected]   (prints the fingerprint kosmos task built --file sends and kosmos handoff prints: sha256:<hex> is the plain sha256 of the file, what shasum prints; pdf-normalized:<hex> is a PDF with its creation and change dates and document ID left out, so the same source rendered twice matches, and is not what shasum prints; a PDF over 64 MB is hashed as plain bytes. With an expected value it compares like with like and says which kind: a bare 64-hex value or sha256: is checked against the plain sha256)',
   handoff: 'Usage: kosmos handoff [path ...]   (prints the facts for your handoff: your live self-report state, a fingerprint for each artifact path you name, when your instruction file last changed, and whether this folder is a git repository; facts only, it changes nothing)',
+  'file-notices': 'Usage: kosmos file-notices [--hook]   (take the notices Kosmos kept for you when another agent changed a project file you were the first seen changing; taking them clears them. --hook: what Kosmos\'s own hook runs)',
   inbox: 'Usage: kosmos inbox [--limit N] [--unanswered] [--since <time>]   (your recent messages with the person, newest last; 10 by default, 50 at most. --unanswered: only theirs since your last reply. --since: only those at or after a time, like 2026-10-25T05:22:00Z or "2026-10-25 05:22")',
   room: 'Usage: kosmos room <project-id> [-n N] [--unanswered [--all]]   (read a room, the last 40 rows or the last N, up to 200; --unanswered: only posts that asked you something, that no post of yours answers by id and that no other agent they asked has claimed, from the last few days (--all: older ones too); or: kosmos room reopen <project-id> to clear a loop-guard hold)',
   notice: 'Usage: kosmos notice --from "<source>" --stdin <project-id>   (a job on this computer writes a line into a room in Kosmos\'s own voice, the text on stdin, its line breaks kept (agents reading the room see it on one line), at most 4000 characters; <source> names the job, such as "builder alarm")',
@@ -1070,6 +1071,28 @@ async function verbInbox(ctx, args) {
   const extra = (unanswered ? '&unanswered=1' : '') + (since !== null ? '&since=' + encodeURIComponent(since) : '');
   const r = await ctx.call('GET', '/api/inbox?as=text&limit=' + limit + '&from_pane=' + extra);
   if (!r.reached) return ctx.unreachable('read your messages');
+  ctx.out(String(r.text || '').replace(/\n$/, ''));
+  if (r.status >= 400) { tokenRefusedHint(ctx, r); return 1; }   // #5333
+  return 0;
+}
+
+/* kosmos#7989 slice 3, as install/kosmos cmd_file_notices: take the file-owner notices Kosmos kept for you. --hook prints
+   the Claude Code hook's JSON only when there is a notice and always exits 0. */
+async function verbFileNotices(ctx, args) {
+  let hook = false;
+  while (args.length) {
+    const a = args.shift();
+    if (a === '--hook') { hook = true; continue; }
+    ctx.err('kosmos file-notices takes only --hook.');
+    return 2;
+  }
+  const r = await ctx.call('POST', '/api/file-notices/take?as=' + (hook ? 'hook' : 'text') + '&from_pane=', undefined, hook ? { timeoutMs: 2000 } : undefined);
+  if (hook) {
+    const t = r.reached && r.status === 200 ? String(r.text || '') : '';
+    if (t.startsWith('{"hookSpecificOutput":')) ctx.out(t);
+    return 0;
+  }
+  if (!r.reached) return ctx.unreachable('read your file notices');
   ctx.out(String(r.text || '').replace(/\n$/, ''));
   if (r.status >= 400) { tokenRefusedHint(ctx, r); return 1; }   // #5333
   return 0;
@@ -3282,6 +3305,7 @@ const VERB_HANDLERS = {
   handoff: verbHandoff,
   fingerprint: verbFingerprint,
   inbox: verbInbox,
+  'file-notices': verbFileNotices,
   room: verbRoom,
   notice: verbNotice,
   task: subcommandRequired('task'),
@@ -3326,6 +3350,7 @@ const DESCRIBE = {
   reply: 'message the person in your conversation with them (an answer, or one you start)',
   'reply-channel': 'say where you answer the person, when it is not kosmos reply',
   inbox: 'read your recent messages with the person (a notice can arrive without them)',
+  'file-notices': 'take the notices Kosmos kept for you when another agent changed a file of yours',
   post: 'post in a project room',
   react: 'react to a post in a project room',
   claim: 'claim a request in a project room before you take it on',
