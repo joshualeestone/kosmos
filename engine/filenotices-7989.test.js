@@ -76,11 +76,19 @@ test('handOver: every waiting notice comes with its id, again until acknowledged
   assert.equal(fs.existsSync(fn.fileFor('kit')), false, 'all acknowledged: the file goes');
 });
 
-test('handOver reports dropped once', () => {
+test('handOver keeps the dropped count until an acknowledgement, as it keeps the notices', () => {
   for (let i = 0; i < fn.MAX_PENDING + 2; i++) fn.queue('pete', 'n' + i, { now: T0 + i });
-  assert.equal(fn.handOver('pete', { now: T0 + 50 }).dropped, 2);
-  assert.equal(fn.handOver('pete', { now: T0 + 51 }).dropped, 0);
+  const first = fn.handOver('pete', { now: T0 + 50 });
+  assert.equal(first.dropped, 2);
+  assert.equal(fn.handOver('pete', { now: T0 + 51 }).dropped, 2, 'not acknowledged: the count comes again');
+  const acked = fn.handOver('pete', { ack: [first.notices[0].id], now: T0 + 52 });
+  assert.equal(acked.dropped, 0, 'an acknowledgement clears it');
+  assert.equal(acked.notices.length, fn.MAX_PENDING - 1);
   fn.take('pete');
+  // Only a count left (every notice expired): handed over once, since there is nothing to acknowledge.
+  for (let i = 0; i < fn.MAX_PENDING + 1; i++) fn.queue('pete', 'm' + i, { now: T0 + i });
+  assert.equal(fn.handOver('pete', { now: T0 + fn.KEEP_MS + 100 }).dropped, 1);
+  assert.equal(fs.existsSync(fn.fileFor('pete')), false);
 });
 
 test('a name that is not a session name is refused, so no path leaves the folder', () => {

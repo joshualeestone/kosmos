@@ -40,6 +40,7 @@ which store.js works out per platform, and a second copy of that in bash is two 
 - A notice is removed only once its id comes back, so an answer the hook never read is handed over again (first written
   as take-and-clear; three reviewers in a row found it lost notices on a busy board). The cost: a notice can reach the
   model twice when the hook read it but could not write the ack file.
+  The "older notices were not kept" count is kept the same way, until an acknowledgement removes a notice.
 - Panes with no TMUX_PANE share one mark and one ack file (`nopane`). An id acknowledged by the wrong session removes
   nothing, since ids are per owner; they only share the 5-minute window.
 - Windows sends the board token beside the agent token (every verb there does); reading it there is a file read.
