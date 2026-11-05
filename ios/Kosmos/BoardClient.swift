@@ -1341,6 +1341,10 @@ final class BoardClient: ObservableObject {
         let result: Board.SendResult
         #if DEBUG
         if sampleThreads[agent.session] != nil {
+            // kosmos#7348: KOSMOS_SAMPLE_SEND_SLOW=<seconds> paces a sample send as a real Mac does: the post answers after
+            // that long (the pending row changes state then), and the Mac's own row reaches the thread 0.5 s after that, for
+            // the next read to swap in for the pending one. Without it everything happens at once and nothing can step.
+            if let slow = Self.sampleSendSlow { try? await Task.sleep(nanoseconds: UInt64(slow * 1_000_000_000)) }
             result = sampleSend(item.text, files: item.files, replyTo: item.replyTo, to: agent.session)
         } else {
             result = await send(item.text, files: item.files, replyTo: item.replyTo, to: agent.session)
@@ -1362,13 +1366,24 @@ final class BoardClient: ObservableObject {
     #if DEBUG
     // The sample chats (KOSMOS_SAMPLE_AGENTS=1, a Debug build only): Mona Lisa's 19 October design conversation.
     private var sampleThreads: [String: Board.Thread] = [:]
+    /// kosmos#7348: KOSMOS_SAMPLE_SEND_SLOW, the seconds a sample send's post takes to answer (nil: at once).
+    static let sampleSendSlow: Double? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SEND_SLOW"].flatMap(Double.init).flatMap { $0 > 0 ? $0 : nil }
     private func sampleSend(_ text: String, files: [Board.Attached], replyTo: String?, to session: String) -> Board.SendResult {
         guard let sample = sampleThreads[session] else { return .noAnswer }
         let at = ISO8601DateFormatter().string(from: env.now())
-        var row = Board.ChatRow(id: "sample-\(sample.rows.count)", atRaw: at, at: env.now(), text: text, who: .person)
+        // A paced send's row lands later, so two sends in that time would share a count-based id: a unique one instead.
+        var row = Board.ChatRow(id: Self.sampleSendSlow == nil ? "sample-\(sample.rows.count)" : "sample-" + UUID().uuidString,
+                                atRaw: at, at: env.now(), text: text, who: .person)
         row.replyTo = replyTo
         row.attachments = files.map { Board.Attachment(id: $0.id, name: $0.name, type: "", size: nil, kind: "other",
                                                        url: "/api/attachment/" + $0.id, preview: nil) }
+        if Self.sampleSendSlow != nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                guard let self, let now = self.sampleThreads[session] else { return }
+                self.sampleThreads[session] = Board.Thread(rows: now.rows + [row], olderCount: now.olderCount)
+            }
+            return .kept(at: at)
+        }
         sampleThreads[session] = Board.Thread(rows: sample.rows + [row], olderCount: sample.olderCount)
         return .kept(at: at)
     }

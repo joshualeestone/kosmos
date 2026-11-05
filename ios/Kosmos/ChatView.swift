@@ -531,7 +531,10 @@ struct ChatView: View {
             // filtered rows the same way).
             let loaded = Board.shownRows(earlier, thread: thread)
             let rows = Board.chatFilter(loaded, agentName: shown.name, query: query)
-            let items = Board.chatItems(rows, now: Date(), calendar: .current)
+            // kosmos#7348: pendingBubbles draws each send still on its way as the row it will become.
+            let grouped = Board.chatItems(rows, pending: searching ? [] : pending, now: Date(), calendar: .current)
+            let items = grouped.items
+            let pendingLayout = grouped.places
             // kosmos#7420: the list these markers are drawn in; a list since rebuilt (listEpoch) answers for nothing.
             let drawnEpoch = listEpoch
             ScrollViewReader { proxy in
@@ -557,7 +560,7 @@ struct ChatView: View {
                         // kosmos#7265: on iOS 16 the newest rows are one eager stack (real heights, so the jump to "end"
                         // lands); on iOS 17+ every row is lazy and the id anchor holds the place (see idAnchor).
                         chatRows(items)
-                        pendingBubbles
+                        pendingBubbles(pendingLayout)
                         if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
                         Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
                             .onAppear {
@@ -870,22 +873,35 @@ struct ChatView: View {
                 }
                 Spacer()
                 // A message sent before any conversation was read is still shown, with its not-sent line if it fails.
-                VStack(spacing: 0) { pendingBubbles }
+                VStack(spacing: 0) { pendingBubbles([:]) }
             }
             .padding(.horizontal, 32)
             .frame(maxWidth: .infinity)
         }
     }
 
-    @ViewBuilder private var pendingBubbles: some View {
+    private func dayHeader(_ label: String) -> some View {
+        Text(label).font(.caption.weight(.semibold)).foregroundColor(Palette.secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 16).padding(.bottom, 8)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    // A place missing from the layout (no conversation read yet, a search, no row coming) is drawn as before: its own run, last.
+    @ViewBuilder private func pendingBubbles(_ layout: [String: Board.PendingPlace]) -> some View {
         ForEach(pending) { p in
+            let place = layout[p.id] ?? Board.PendingPlace(day: nil, first: true, last: true)
+            if let day = place.day {
+                dayHeader(day)
+            }
             PendingBubble(item: p, widthShare: widthShare, line: Board.notSentLine(agentRunning: running, name: shown.name),
                           retry: { sendWhenFree { await client.retry(p.id, to: agent) } },
                           delete: { client.discard(p.id, for: agent.session) },
                           head: headFor(replyTo: p.replyTo), headHidden: pendingHeadsHidden.contains(p.id),
                           dropReply: p.replyTo != nil && Board.replyRefusedForGood(failedReason(p))
-                              ? { sendWhenFree { await client.retryWithoutReply(p.id, to: agent) } } : nil)
-                .padding(.top, 10)
+                              ? { sendWhenFree { await client.retryWithoutReply(p.id, to: agent) } } : nil,
+                          lastOfRun: place.last)
+                .padding(.top, place.first ? 10 : 2)
                 .id(p.id)
         }
     }
@@ -1407,10 +1423,7 @@ struct ChatView: View {
     @ViewBuilder private func itemView(_ item: Board.ChatItem) -> some View {
         switch item.kind {
         case .day(let label):
-            Text(label).font(.caption.weight(.semibold)).foregroundColor(Palette.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 16).padding(.bottom, 8)
-                .accessibilityAddTraits(.isHeader)
+            dayHeader(label)
         case .row(let row, let first, let last):
             if let thread, let choices = Board.choices(for: row, in: thread) {
                 choicesView(row, choices).padding(.top, 10)
@@ -2585,6 +2598,8 @@ struct PendingBubble: View {
     var head: Board.ReplyHead? = nil
     var headHidden = false
     var dropReply: (() -> Void)? = nil
+    // kosmos#7348: as a kept row, only the last of a run of the person's messages carries the tail and the time line.
+    var lastOfRun = true
 
     // The Mac's reason; its "Press x" (the board's strip) becomes this bubble's own button where it has one.
     private var reason: String? {
@@ -2604,7 +2619,7 @@ struct PendingBubble: View {
         VStack(alignment: .trailing, spacing: 4) {
             if let head, !headHidden { ReplyHeadLine(head: head) }
             if !words.isEmpty {
-                BubbleText(text: words, mine: true, tail: item.files.isEmpty, widthShare: widthShare, faded: !item.shownAsSent)
+                BubbleText(text: words, mine: true, tail: item.files.isEmpty && lastOfRun, widthShare: widthShare, faded: !item.shownAsSent)
                     .modifier(TapWhen(enabled: item.failed && line.canRetry, action: retry))
                     .contextMenu { menu }
             }
@@ -2626,13 +2641,21 @@ struct PendingBubble: View {
                 }
             } else if let undelivered {
                 Text(undelivered).font(.caption2).foregroundColor(Palette.secondary).padding(.horizontal, 4)
+            } else if !lastOfRun {
+                EmptyView()   // kosmos#7348: within a run, no time line, as the kept row will have none
             } else if item.shownAsSent {
                 Text(item.at, style: .time).font(.caption2).foregroundColor(Palette.tertiary).padding(.horizontal, 4)
+            } else {
+                // kosmos#7348 (Josh 10-27: after a send the conversation crept down in steps): while it is still sending,
+                // the time line's room is kept, drawn hidden, so the bubble is the same height before and after the post
+                // answers. Without it the list, held at its bottom, moved up a line (17 pt) when the time appeared.
+                Text(item.at, style: .time).font(.caption2).padding(.horizontal, 4).hidden()
             }
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(spokenLabel)
+        .accessibilityIdentifier("pending-send")
         .accessibilityAction { if item.failed && line.canRetry { retry() } }
         // Delete only where the long-press menu offers it.
         .accessibilityActions { deleteAction }

@@ -5841,5 +5841,55 @@ do {
 }
 
 print("")
+// kosmos#7348: sends on their way are grouped as the rows they will become; one with no row coming stays out.
+do {
+    var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: "UTC")!
+    let now = ISO8601DateFormatter().date(from: "2026-11-05T12:00:00Z")!
+    func real(_ id: String, _ at: String) -> Board.ChatRow {
+        Board.ChatRow(id: id, atRaw: at, at: ISO8601DateFormatter().date(from: at), text: id, who: .person)
+    }
+    func send(_ id: String, _ state: Board.PendingSend.State = .sending) -> Board.PendingSend {
+        Board.PendingSend(id: id, text: id, at: now, state: state)
+    }
+    func isRun(_ items: [Board.ChatItem], _ id: String, first: Bool, last: Bool) -> Bool {
+        items.contains { if case .row(let r, let f, let l) = $0.kind { return r.id == id && f == first && l == last } else { return false } }
+    }
+    let today = real("a", "2026-11-05T11:00:00Z")
+    let yesterday = real("y", "2026-11-04T11:00:00Z")
+    let joined = Board.chatItems([today], pending: [send("p")], now: now, calendar: cal)
+    check(joined.items.count == 2 && joined.items.allSatisfy { !$0.id.contains("pending|") }, "only the real rows and their day line are in the list")
+    check(isRun(joined.items, "a", first: true, last: false), "the message before a send the same day is no longer last, as it will not be once read")
+    check(joined.places["p"] == Board.PendingPlace(day: nil, first: false, last: true), "a send the same day joins the run and is its last")
+    let newDay = Board.chatItems([yesterday], pending: [send("p")], now: now, calendar: cal)
+    check(newDay.places["p"] == Board.PendingPlace(day: "Today", first: true, last: true), "a send on a new day has the day line and starts a run")
+    check(isRun(newDay.items, "y", first: true, last: true), "yesterday's message keeps its time line")
+    let two = Board.chatItems([yesterday], pending: [send("p"), send("q", .kept(at: "2026-11-05T12:00:00Z"))], now: now, calendar: cal)
+    check(two.places["p"] == Board.PendingPlace(day: "Today", first: true, last: false), "the first of two sends has the day line and is not the last")
+    check(two.places["q"] == Board.PendingPlace(day: nil, first: false, last: true), "the second of two sends joins it, with no second day line")
+    for (state, why) in [(Board.PendingSend.State.taken, "taken"), (.keptUndelivered(at: "2026-11-05T12:00:00Z", note: "Held"), "kept, not delivered")] {
+        let coming = Board.chatItems([today], pending: [send("p", state)], now: now, calendar: cal)
+        check(coming.places["p"] == Board.PendingPlace(day: nil, first: false, last: true), "a send that is \(why) joins the run and is its last")
+        check(isRun(coming.items, "a", first: true, last: false), "the message before a send that is \(why) is no longer last")
+    }
+    var withFile = send("f")
+    withFile.files = [Board.Attached(id: "x", name: "x.pdf")]
+    let filed = Board.chatItems([today], pending: [withFile, send("p")], now: now, calendar: cal)
+    check(filed.places["f"] == Board.PendingPlace(day: nil, first: true, last: true), "a send with files stands alone, as its row will")
+    check(isRun(filed.items, "a", first: true, last: true), "the message before a send with files keeps its time line")
+    check(filed.places["p"] == Board.PendingPlace(day: nil, first: true, last: true), "a send after a send with files starts its own run")
+    for (state, why) in [(Board.PendingSend.State.failed(reason: nil), "failed"), (.unconfirmed, "unconfirmed")] {
+        let gone = Board.chatItems([today], pending: [send("p", state)], now: now, calendar: cal)
+        check(gone.places["p"] == nil, "a send that is \(why) has no row coming, so no place")
+        check(isRun(gone.items, "a", first: true, last: true), "the message before a send that is \(why) keeps its time line")
+    }
+    let afterFailed = Board.chatItems([today], pending: [send("p"), send("f", .failed(reason: nil)), send("q")], now: now, calendar: cal)
+    check(afterFailed.places["p"] == Board.PendingPlace(day: nil, first: false, last: true), "a send before a failed one is still grouped")
+    check(afterFailed.places["f"] == nil && afterFailed.places["q"] == nil, "a send drawn after a failed one stays out too, as it is not next to the rows")
+    let failedFirst = Board.chatItems([today], pending: [send("f", .failed(reason: nil)), send("q")], now: now, calendar: cal)
+    check(isRun(failedFirst.items, "a", first: true, last: true), "the message before a failed send keeps its time line when another follows it")
+    let empty = Board.chatItems([today], pending: [], now: now, calendar: cal)
+    check(empty.items == Board.chatItems([today], now: now, calendar: cal) && empty.places.isEmpty, "with nothing pending, the list is the plain one")
+}
+
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")
 exit(failed == 0 ? 0 : 1)
