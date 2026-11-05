@@ -63,3 +63,10 @@ wait's ignoresSafeArea removed (centre check), a wrong 2x PNG (stale check).
   counts `self.reaching`. Mutants red: guide removed, scaling back on, a second call as self.reaching.
 - README: what is not covered (Reduce Motion; the rarer "Connecting to <Mac>" retry wait). run-sweep.sh header: the
   launch renderer is read from this checkout whatever directory is passed.
+
+## Review 4 changes
+- KosmosUITests/LaunchHandoverUITests (in ios/tools/ui-sample.sh, so CI runs it): on a running app (sample board held
+  on the wait), the ring's centre (the wait element's top + 10 pt, its middle across) is within 1 pt of the screen's
+  centre, and the words run below it. Passes on iPhone 17e, iOS 27 (screen 390x844, ring centre y 422). Control: with
+  the wait's ignoresSafeArea removed it FAILS (ring at y 431, 9 pt below), so a wrapper that moves it is caught.
+- README: the retry wait's ring still scales with text, and names the UI check.

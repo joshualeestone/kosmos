@@ -99,7 +99,8 @@ builds it on GitHub's macOS runner, which has one.
   (not the space between the bars) so the two line up on every iPhone, and keeps that one size at every text size
   (its words still grow). Not covered: with Reduce Motion the wait pulses all eight dots together, so it changes look
   at the handover; and the rarer "Connecting to <Mac>" wait (a refused hand-off being retried) draws the ring under its
-  message, not at the centre. The PNGs are drawn from `SweepLogic` by
+  message, not at the centre, at the text size's scale. `KosmosUITests/LaunchHandoverUITests` measures the wait's ring at
+  the screen's centre on a running app (run by `ios/tools/ui-sample.sh`). The PNGs are drawn from `SweepLogic` by
   `ios/tools/render-launch-sweep.sh`; `LogicTests/run-sweep.sh` draws them again and fails if the committed ones
   differ, so redraw them when `SweepLogic` changes.
 - `Kosmos-Info.plist` holds the launch screen (`UILaunchScreen` > `UIColorName =
