@@ -102,6 +102,9 @@ test('kosmos#8048 Mac: a plan that could not tell is said as such, never as noth
   const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
   assert.equal(r.code, 2, r.out);
   assert.equal(posts(seen).length, 0, 'an unchecked move went with --yes alone');
+  const ok = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes', '--accept-loss']);
+  assert.equal(ok.code, 0, ok.out);
+  assert.equal(posts(seen).length, 1, 'CONTROL: --accept-loss did not move it (Mac)');
   assert.match(r.out, /Kosmos could not check what ada would lose on spare: we could not read the skills and hooks of the account it would move to\./);
   assert.doesNotMatch(r.out, /keeps every skill/, '"cannot tell" read as "nothing lost"');
 }));
@@ -251,7 +254,7 @@ test('kosmos#8048 review 2 Windows: a 503 is waited through; a move still pendin
     const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
     assert.equal(r.code, 3, r.err);
     assert.equal(r.slept.length, 100, 'the wait was not bounded by time (100 waits of 3 s is 300 s)');
-    assert.match(r.err, /still moving after five minutes/);
+    assert.match(r.err, /still moving, and Kosmos stopped waiting/);
   });
 });
 
@@ -272,7 +275,7 @@ test('kosmos#8048 review 3: a different copy of a skill is said, but --yes still
 test('kosmos#8048 review 3 Mac: a move still pending at the time bound stops waiting and says so (exit 3)', () => withStub({ plan: CLEAN, progress: [200, { id: 'mv1', done: false, agents: [{ name: 'ada', outcome: 'pending' }] }] }, async (port) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes'], { KOSMOS_MOVE_WAIT_S: '4' });
   assert.equal(r.code, 3, r.out);
-  assert.match(r.out, /ada is still moving after five minutes/);
+  assert.match(r.out, /ada is still moving, and Kosmos stopped waiting/);
 }));
 
 test('kosmos#8048 review 3 Windows: a plan answer that is not JSON is said as unreadable, not as a refusal', () => withStub({ plan: [503, null] }, async (port) => {
@@ -280,4 +283,10 @@ test('kosmos#8048 review 3 Windows: a plan answer that is not JSON is said as un
   assert.equal(r.code, 1);
   assert.match(r.err, /Kosmos gave an answer we could not read when asked about moving ada\./);
   assert.doesNotMatch(r.err, /will not move/);
+}));
+
+test('kosmos#8048 review 5 Mac: a progress answer with no outcome for the agent is waited through, not read as the end', () => withStub({ plan: CLEAN, progress: [[200, { id: 'mv1', done: false, agents: [] }], DONE] }, async (port) => {
+  const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+  assert.equal(r.code, 0, r.out);
+  assert.match(r.out, /ada runs on spare now/);
 }));

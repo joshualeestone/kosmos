@@ -36,7 +36,8 @@ function folderOf(dir, home = os.homedir()) {
 /* name -> the SKILL.md's contents hash ('' when it has none), for every skill folder. */
 function skillSums(dir) {
   const out = new Map();
-  for (const n of skillNames(dir)) out.set(n, digest(path.join(dir, 'skills', n, 'SKILL.md')) || '');
+  /* Review 5: a skill folder with no readable SKILL.md is not a skill Claude Code loads, so it is not kept. */
+  for (const n of skillNames(dir)) { const d = digest(path.join(dir, 'skills', n, 'SKILL.md')); if (d) out.set(n, d); }
   return out;
 }
 function skillNames(dir) {
@@ -75,7 +76,10 @@ function scriptPath(command, folder, home) {
     let bare = w.replace(/^["']|["']$/g, '');
     if (!/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(bare)) continue;
     bare = bare.replace(/^~(?=\/)/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, cfg);
-    return path.isAbsolute(bare) && !bare.includes('$') ? bare : null;
+    /* Review 5: shell syntax left after the substitutions (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, a brace, a default)
+       is a path this cannot resolve, never a path to read: a garbage path would fail to read and be skipped as "does
+       not run here", which reads a loss as none. */
+    return path.isAbsolute(bare) && !/[$`{}]|:-/.test(bare) ? bare : null;
   }
   return null;
 }
@@ -95,6 +99,12 @@ function hookEntries(dir, home) {
     for (const g of Array.isArray(groups) ? groups : []) {
       const matcher = g && typeof g.matcher === 'string' ? g.matcher : '';
       for (const h of g && Array.isArray(g.hooks) ? g.hooks : []) {
+        /* Review 5: a prompt hook (type "prompt", no script) is compared by its event, matcher and words. */
+        if (h && h.type === 'prompt' && typeof h.prompt === 'string' && h.prompt.trim()) {
+          const id = `a prompt hook on ${event}`;
+          list.push({ id, wiring: `${event}\n${matcher}\nprompt\n${crypto.createHash('sha256').update(h.prompt.trim()).digest('hex')}`, file: null, sum: null });
+          continue;
+        }
         if (!h || typeof h.command !== 'string' || !h.command.trim()) continue;
         const id = hookId(h.command);
         const at = scriptPath(h.command, dir, home);

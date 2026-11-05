@@ -37,7 +37,7 @@ process.env.AGENT_WORKFORCE_TMUX_BIN = TMUX_BIN;
 
 /* Two account folders, shaped as Mortals' were on 2026-11-05: the main one has a skill and a gate the other lacks. */
 function folder(dir, skills, hooks) {
-  for (const s of skills) fs.mkdirSync(nodePath.join(dir, 'skills', s), { recursive: true });
+  for (const s of skills) { fs.mkdirSync(nodePath.join(dir, 'skills', s), { recursive: true }); fs.writeFileSync(nodePath.join(dir, 'skills', s, 'SKILL.md'), '# ' + s + '\n'); }
   fs.writeFileSync(nodePath.join(dir, 'settings.json'),
     JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: hooks.map((c) => ({ type: 'command', command: c })) }] } }));
 }

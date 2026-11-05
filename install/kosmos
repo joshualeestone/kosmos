@@ -7714,7 +7714,7 @@ cmd_agent() {
       fi
       rc=0
       body=$(KOSMOS_MV_NAME="$mv_name" KOSMOS_MV_DIR="$mv_dir" "$_node" -e 'process.stdout.write(JSON.stringify({dir:process.env.KOSMOS_MV_DIR,names:[process.env.KOSMOS_MV_NAME]}))' \
-        | kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 30 -X POST "$URL/api/agents/account" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?   # review 1: Settings' own route, sent as the person (token-only mode would refuse it after the confirm)
+        | kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 120 -X POST "$URL/api/agents/account" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?   # review 1: Settings' own route, sent as the person (token-only mode would refuse it after the confirm)
       case "$rc" in
         0) ;;
         28|18|52|56) say "Kosmos stopped answering after it was asked. $mv_name may be moving; look at Settings, AI Models before trying again: $URL/"; exit 3 ;;
@@ -7738,13 +7738,15 @@ cmd_agent() {
         if [ "$mv_code" = 404 ]; then mv_out=forgotten; break; fi
         case "$mv_code" in 2??) ;; *) continue ;; esac
         mv_seen=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'const a=(Array.isArray(j.agents)?j.agents:[])[0]||{};console.log([one(j.id),one(a.outcome),one(a.because)].join("\t"))})') || continue
+        # Review 5: an answer with no outcome for the agent is waited through, as Windows does, not read as the end.
+        [ -n "$(cut -f2 <<<"$mv_seen")" ] || continue
         mv_out=$(cut -f2 <<<"$mv_seen"); mv_because=$(cut -f3 <<<"$mv_seen")
       done
       while [[ "$mv_because" == *[.[:space:]] ]]; do mv_because="${mv_because%?}"; done
       case "$mv_because" in *[?!]|*\)) mv_end="" ;; *) mv_end="." ;; esac
       case "$mv_out" in
         changed) say "${mv_because:-$mv_name runs on $mv_label now}${mv_end}" ;;
-        pending) say "$mv_name is still moving after five minutes. Look at Settings, AI Models to see where it is: $URL/"; exit 3 ;;
+        pending) say "$mv_name is still moving, and Kosmos stopped waiting. Look at Settings, AI Models to see where it is: $URL/"; exit 3 ;;
         forgotten) say "Kosmos restarted during the move and no longer knows how it ended. Settings, AI Models shows which account $mv_name is on: $URL/"; exit 3 ;;
         partial|stopped|unknown) say "Not fully moved: ${mv_because:-Kosmos did not say how far it got}${mv_end} Settings, AI Models shows which account it is on."; exit 1 ;;
         *) if [ -n "$mv_because" ]; then say "Kosmos did not move $mv_name: ${mv_because}${mv_end}"

@@ -16482,7 +16482,8 @@ const server = http.createServer(async (req, res) => {
     if (said) {
       const exact = known.filter((a) => namesOf(a).includes(said));
       const loose = exact.length ? exact : known.filter((a) => namesOf(a).some((x) => x.toLowerCase() === said.toLowerCase()));
-      if (loose.length > 1) { sendJson(res, 409, { ok: false, because: `${said} names more than one account here; use its email, or its name exactly as kosmos accounts shows it` }); return; }
+      /* Review 5: two folders signed in to one login share an email, so name the labels that tell them apart. */
+      if (loose.length > 1) { sendJson(res, 409, { ok: false, because: `${said} names more than one account here (${loose.map(labelOf).join(', ')}); use one of those names` }); return; }
       target = loose[0] || null;
     } else {
       target = dir ? known.find((a) => real(a.dir) === real(dir)) : known.find((a) => a.isDefault === true);
