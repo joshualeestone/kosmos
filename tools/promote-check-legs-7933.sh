@@ -254,10 +254,13 @@ leg_verb() {
   case "$(api "http://127.0.0.1:$port/api/projects")" in *'"name":"Masterclass prep"'*) ;; *) fail verb "the project was not kept"; return ;; esac
   grep -qx staging "$root/source-channel" || { fail verb "the channel is now '$(cat "$root/source-channel" 2>/dev/null)', not staging"; return; }
   # Coming back up means staying up: under Restart=always a build that dies after boot would pass every check above.
-  # Read after the update, since the installer's own restart is not a crash. Logged, so an early one can be seen.
+  # Read after the update, since the installer's own restart is not a crash.
   local restarts; restarts="$(systemctl --user show -p NRestarts --value kosmos-board.service 2>/dev/null)"
   case "$restarts" in ''|*[!0-9]*) fail verb "systemd gave no restart count ('$restarts'), so staying up cannot be checked"; return ;; esac
   echo "  systemd restart count after the update: $restarts"
+  # #7941: NRestarts counts systemd's own restarts, not the installer's: 0 on a clean 0.7.89 to 0.7.90 (run 41952912233).
+  # So anything above 0 here is a build that died during its first boot, which the 30 s below cannot see.
+  [ "$restarts" = 0 ] || { fail verb "systemd restarted the updated board $restarts time(s) as it came up"; return; }
   sleep 30
   [ "$(bpid)" = "$pid1" ] || { fail verb "the updated board did not stay up: MainPID $pid1 is now $(bpid)"; return; }
   [ "$(systemctl --user show -p NRestarts --value kosmos-board.service 2>/dev/null)" = "$restarts" ] || { fail verb "systemd restarted the updated board in the 30 s after it came up"; return; }
