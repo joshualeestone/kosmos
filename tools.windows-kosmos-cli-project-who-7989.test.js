@@ -28,10 +28,10 @@ const ANSWER = fw.about(FILE, { projects: LIST });
 const AGENT = 'ab'.repeat(32);
 const BOARD = 'cd'.repeat(32);
 const hookStub = { resolveUrl: () => 'http://127.0.0.1:1', readBoardToken: () => BOARD, agentToken: (env) => (/^[0-9a-f]+$/.test(env.KOSMOS_AGENT_TOKEN || '') ? env.KOSMOS_AGENT_TOKEN : null) };
-async function run(argv, answer, cwd = FOLDER) {
+async function run(argv, answer, cwd = FOLDER, extra = {}) {
   const calls = []; const out = []; const err = [];
   const code = await cli.main(argv, {
-    env: { KOSMOS_AGENT_TOKEN: AGENT }, hook: hookStub, cwd: () => cwd,
+    env: { KOSMOS_AGENT_TOKEN: AGENT }, hook: hookStub, cwd: () => cwd, ...extra,
     out: (s) => out.push(s), err: (s) => err.push(s),
     fetch: async (url, init) => {
       const route = url.replace('http://127.0.0.1:1', '');
@@ -92,6 +92,25 @@ test('kosmos#7989 Windows project who: an older board is named as one, and a sta
   assert.equal(stale.code, 1);
   assert.equal(stale.calls.length, 2, 'CONTROL: the overview was asked');
   assert.doesNotMatch(stale.out + stale.err, /older than/, 'a token the board does not know was blamed on its age');
+});
+
+test('kosmos#7989 review 8: Windows path rules: a relative path is made full by path.win32', async () => {
+  const r = await run(['project', 'who', 'sub/plan.md'], () => ({ body: { ok: false, because: 'outside' } }), 'C:\\work\\ff', { pathRules: path.win32 });
+  assert.equal(pathOf(r.calls[0].route), 'C:\\work\\ff\\sub\\plan.md');
+  const unc = await run(['project', 'who', '\\\\srv\\share\\f.md'], () => ({ body: { ok: false, because: 'outside' } }), 'C:\\work', { pathRules: path.win32 });
+  assert.equal(pathOf(unc.calls[0].route), '\\\\srv\\share\\f.md');
+});
+
+test('kosmos#7989 review 8: with no agent token a 403 is not probed as an older board; a lone surrogate is a sentence', async () => {
+  const gate = { error: 'this board belongs to the account that started it; open it with `kosmos open`' };
+  const r = await run(['project', 'who', FILE], (route) => (route.startsWith('/api/projects/overview') ? { body: { projects: [] } } : { status: 403, body: gate }), FOLDER, { env: {} });
+  assert.equal(r.code, 1);
+  assert.equal(r.calls.length, 1, 'probed with no agent token sent');
+  assert.doesNotMatch(r.out + r.err, /older than/);
+  const s = await run(['project', 'who', path.join(FOLDER, 'a\ud800.md')], () => ({ body: ANSWER }));
+  assert.equal(s.code, 1);
+  assert.equal(s.calls.length, 0);
+  assert.match(s.err, /cannot send/);
 });
 
 test('kosmos#7989 Windows project who: no file, two, or an option is a usage error before the board is asked', async () => {
