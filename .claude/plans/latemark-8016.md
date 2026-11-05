@@ -17,6 +17,11 @@
   true when the log holds a `kosmos msg` row FROM the recipient TO the sender later than the kept message's `at`. Only
   an agent's kept message (no kind) with a named sender; a person's own DM (kind 'dm') and task lines are unchanged.
   The four existing notes are byte for byte as before when the clause does not apply.
+  Review 1: a row counts when it answers the kept message by id (in_reply_to), or goes from the recipient to the sender
+  later; names are compared without case (a row's `to` is the name as typed, `kosmos msg Leo`); a refused send
+  (state could_not) is not counted. And the clause is added only when the whole line still fits chat.MAX_TEXT
+  (`asTyped`): a sender name longer than the budget's 32 characters, or an entry kept under the old smaller budget,
+  would otherwise be refused on every sweep and hold the agent's queue behind it.
 - engine/messages.js: the room left for the later note (laterRoom) now measures all four reasons, including the
   input-box note (#6774, the longest, which was missing), each with the clause and a 32-character sender (NAME_RE). Before
   this, a line just under the limit kept behind an input box could be over MAX_TEXT when typed later.
@@ -36,7 +41,8 @@ That the reporting install's late copies come through the keep queue. On this bo
 but I do not have that install's log; if its copies come from the composer path, this does not reach them.
 
 ## Tests
-engine/latemark-8016.test.js (7): the clause after a reply; controls: no reply, a reply from before, a reply to another
+engine/latemark-8016.test.js (9): the clause after a reply (and to the sender named in another case); controls: no reply, a reply from before, a reply to another
 agent and the reverse direction, an on-time message (no `[kept` at all); wroteBackSince's edges; the length room covers
-the longest note. Mutants (lookup off, the old room, `>=` for `>`) each fail one test. The 8 existing files that pin the
+the longest note. the length guard (asTyped). Mutants (lookup off, the old room, `>=` for `>`, case-sensitive names, no length guard,
+refused rows counted, no by-id answer) each fail at least one test. The 8 existing files that pin the
 note, the keep queue or the length limit: 148/148.

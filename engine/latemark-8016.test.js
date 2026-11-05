@@ -97,6 +97,16 @@ test('#8016: a kept message typed after its recipient wrote back to the sender s
   });
 });
 
+test('#8016 review 1: a reply that names the sender in another case (kosmos msg Leo) still counts', async () => {
+  await withFleet(async (board, tmux, screen) => {
+    await send(board, 'can you take card 12');
+    logged('casey', 'Leo', new Date(Date.parse(limitqueue.list('casey')[0].at) + 1000).toISOString());
+    screen.now = EMPTY;
+    await flush(board);
+    assert.match(tmux.pastedTo('casey')[0] || '', WROTE);
+  });
+});
+
 test('#8016 CONTROL: no reply since: the kept note is as before, with no wrote-back clause', async () => {
   await withFleet(async (board, tmux, screen) => {
     await send(board, 'can you take card 12');
@@ -146,6 +156,26 @@ test('#8016: wroteBackSince counts only a later `kosmos msg` from the recipient 
   assert.equal(limitqueue.wroteBackSince([row('casey', '', '2026-11-05T07:00:01.000Z')], { ...e, from: '' }), false, 'no named sender');
   assert.equal(limitqueue.wroteBackSince(null, e), false, 'no rows');
   assert.equal(limitqueue.wroteBackSince([row('casey', 'leo', '2026-11-05T07:00:01.000Z')], { ...e, at: 'bad' }), false, 'no readable send time');
+  // Review 1: the name as typed (`kosmos msg Leo`) is the same agent; a refused send reached nobody; an answer by id counts.
+  assert.equal(limitqueue.wroteBackSince([row('casey', 'Leo', '2026-11-05T07:00:01.000Z')], e), true, 'the sender named in another case');
+  assert.equal(limitqueue.wroteBackSince([{ ...row('casey', 'leo', '2026-11-05T07:00:01.000Z'), state: 'could_not' }], e), false, 'a refused send');
+  assert.equal(limitqueue.wroteBackSince([{ ...row('casey', 'leo', '2026-11-05T07:00:01.000Z'), state: 'held' }], e), true, 'a held send is still written');
+  assert.equal(limitqueue.wroteBackSince([{ ...row('casey', 'leo', '2026-11-05T06:00:00.000Z'), in_reply_to: 'k1' }], e), true, 'an answer to it by id');
+  assert.equal(limitqueue.wroteBackSince([{ ...row('casey', 'leo', '2026-11-05T06:00:00.000Z'), in_reply_to: 'k2' }], e), false, 'CONTROL: an answer to another message, from before');
+  assert.equal(limitqueue.wroteBackSince([{ ...row('leo', 'casey', '2026-11-05T07:00:01.000Z'), in_reply_to: 'k1' }], e), false, 'CONTROL: by id, but from the sender');
+});
+
+test('#8016 review 1: the clause is added only when the line still fits the limit, and never on a doubt', () => {
+  const e = { id: 'k1', from: 'leo', to: 'casey', at: '2026-11-05T07:00:00.000Z', envelope: 'x'.repeat(100) };
+  const yes = () => true;
+  const plain = 100 + limitqueue.keptNote(e).length, marked = 100 + limitqueue.keptNote({ ...e, wroteBack: true }).length;
+  assert.equal(limitqueue.asTyped(e, yes, marked).wroteBack, true, 'fits exactly');
+  assert.equal(limitqueue.asTyped(e, yes, marked - 1), e, 'one over: typed as it was, not refused on every sweep');
+  assert.ok(plain <= marked - 1, 'premise: the plain line still fits there');
+  assert.equal(limitqueue.asTyped(e, yes, undefined), e, 'no limit given');
+  assert.equal(limitqueue.asTyped(e, () => { throw new Error('x'); }, 10000), e, 'a lookup that throws');
+  assert.equal(limitqueue.asTyped(e, () => false, 10000), e, 'no reply');
+  assert.equal(limitqueue.asTyped({ ...e, kind: 'dm' }, yes, 10000).wroteBack, undefined, 'a person\'s own message');
 });
 
 test('#8016: the room left for the later note covers the longest one: the input-box note with a 32-character sender', () => {
