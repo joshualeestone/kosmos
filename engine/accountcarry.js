@@ -67,7 +67,7 @@ function folderSum(root) {
     let entries = [];
     try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { return; }
     for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
-      if (n >= MAX_SKILL_FILES || bytes >= MAX_SKILL_BYTES) { cut = true; return; }
+      if (n >= MAX_SKILL_FILES || bytes >= MAX_SKILL_BYTES) { cut = true; return; }   // a file left unread: cut
       const r = path.join(rel, e.name);
       let isDir = e.isDirectory();
       if (!isDir && e.isSymbolicLink()) { try { isDir = fs.statSync(path.join(root, r)).isDirectory(); } catch { isDir = false; } }
@@ -81,13 +81,13 @@ function folderSum(root) {
   /* Review 1: SKILL.md first, outside every cap, so a large folder sorted ahead of it cannot hide a changed SKILL.md. */
   { const d = cappedDigest(path.join(root, 'SKILL.md')); h.update('SKILL.md\0' + (d ? d.sum : 'unreadable') + '\0'); }
   walk('');
-  if (cut || n >= MAX_SKILL_FILES) h.update('truncated');
-  return h.digest('hex');
+  if (cut) h.update('truncated');
+  return { sum: h.digest('hex'), cut };
 }
 function skillSums(dir) {
   const out = new Map();
   /* Review 5: a skill folder with no readable SKILL.md is not a skill Claude Code loads, so it is not kept. */
-  for (const n of skillNames(dir)) { if (digest(path.join(dir, 'skills', n, 'SKILL.md'))) out.set(n, folderSum(path.join(dir, 'skills', n))); }
+  for (const n of skillNames(dir)) { if (digest(path.join(dir, 'skills', n, 'SKILL.md'))) out.set(n, folderSum(path.join(dir, 'skills', n))); }   // { sum, cut }
   return out;
 }
 function skillNames(dir) {
@@ -121,10 +121,13 @@ function hookId(command) {
    unset, so `$CLAUDE_CONFIG_DIR/hooks/x.sh` there is `/hooks/x.sh`, which does not fire). Null when the command names
    no script path this can resolve. */
 function scriptPath(command, folder, home, project) {
-  for (const w of String(command).trim().split(/\s+/)) {
+  const words = String(command).trim().split(/\s+/);
+  for (let i = 0; i < words.length; i++) {
     /* Review 7: quotes come off the whole word first (`"$HOME"/.claude/x.sh` is the shell's /home/.claude/x.sh). */
-    const bare = w.replace(/["']/g, '');
+    const bare = words[i].replace(/["']/g, '');
     if (!/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(bare)) continue;
+    /* #8063 review 2: a bare name as the command itself (`gate.sh`) is looked up on PATH, not in the working folder. */
+    if (i === 0 && !/[\\/]/.test(bare)) return null;
     return resolveWord(bare, folder, home, project);
   }
   return null;
@@ -171,7 +174,7 @@ function cappedDigest(file) {
   } catch { return null; } finally { if (fd !== null) { try { fs.closeSync(fd); } catch { /* closed */ } } }
 }
 /* #8063 item 1: the fields beside the command that change when or how a hook runs, as one string in the wiring. */
-const HOOK_RUN_FIELDS = ['if', 'timeout', 'async', 'shell'];
+const HOOK_RUN_FIELDS = ['if', 'timeout', 'async', 'shell', 'once'];
 function runFields(h) {
   const o = {};
   for (const k of HOOK_RUN_FIELDS) if (Object.prototype.hasOwnProperty.call(h, k)) o[k] = h[k];
@@ -244,7 +247,9 @@ function hookEntries(dir, home, project) {
            run here". */
         if (at && sum === null && fs.existsSync(at)) throw new Error(`the hook script ${at} cannot be read`);
         /* An inline command (no script) is its own identity: its key is the normalised text, its id the text as written. */
-        const scriptless = id === String(h.command).trim();
+        /* #8063 review 2: scriptless means no word names a script, not "the id is the whole command": a bare `gate.sh` is
+           a script, and one this cannot resolve. */
+        const scriptless = !String(h.command).trim().split(/\s+/).some((x) => /\.(sh|js|mjs|cjs|py|ps1|bat|cmd)["']?$/i.test(x));
         const key = scriptless ? String(h.command).trim().split(/\s+/).map(one).join(' ') : `${id}\n${args}`;
         /* #8063 item 2: a command that names a script this cannot resolve cannot be checked. */
         const unresolved = !scriptless && at === null;
@@ -298,8 +303,12 @@ function losses(fromDir, toDir, opts = {}) {
   /* Review 3: a skill the target has in another copy is said apart from one it does not have: the copy may be the
      newer one, so it is a difference to read, not a loss. Only `skills` and `hooks` are losses. */
   const known = { ok: true, skills: [...fs1.keys()].filter((s) => !fs2.has(s)).sort(),
-    changed: [...fs1.keys()].filter((s) => fs2.has(s) && fs2.get(s) !== fs1.get(s)).sort(), hooks: [...lost].sort(),
+    changed: [...fs1.keys()].filter((s) => fs2.has(s) && fs2.get(s).sum !== fs1.get(s).sum).sort(), hooks: [...lost].sort(),
     hooksChanged: [...hookChanged].sort() };
+  /* #8063 review 2: a skill read only in part (past a cap) that reads the same is said as such, so "same" is not claimed
+     for what was not read. Only when there is one: the shape the callers already read stays as it was. */
+  const cut = [...fs1.keys()].filter((s) => fs2.has(s) && fs2.get(s).sum === fs1.get(s).sum && (fs1.get(s).cut || fs2.get(s).cut)).sort();
+  if (cut.length) known.partlyRead = cut;
   /* #8063 item 2: a hook the agent has now whose script path cannot be resolved cannot be checked, so the answer is
      cannot tell (a move needs the person to accept the loss). Review 1: what IS known is still said beside it. */
   const unchecked = fh.off ? [] : [...new Set(fh.list.filter((h) => h.unresolved).map((h) => h.id))].sort();
