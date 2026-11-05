@@ -53,10 +53,13 @@ None. Sentence-casing of the existing route answer only.
 "We could not find Claude Code on this computer, so there is nothing to sign in to." is now seen, and it does not say what
 to do next: "Sign in with your subscription", just above it, is what installs Claude Code. Left as the engine wrote it.
 
+The placeholder "Casey" looks like a filled-in name. Its word is unchanged and is hers to give; this fix only hides it while
+the box is refused.
+
 ## Not touched, and why
 
 - Items 3, 4, 5.
-- `#tc-msg`, the Team path's line, also below its buttons. Not on this card. Unmeasured.
+- `#tc-msg`, the Team path's line: left alone, because the card names Create agent and nobody has measured it off screen.
 - Other "Settings, AI Models" sentences outside New agent (the switch dialog and others) still carry no link.
 - The `role label` branch keeps its focus on the label, as it did. The page gates a blank label before the request, so
   this needs the engine and the page to disagree.
