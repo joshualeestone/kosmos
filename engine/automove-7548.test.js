@@ -908,7 +908,7 @@ test('#7548 review round 6: while the mover runs, Settings skips its held target
   assert.equal(run.skipTarget(NOW + 6000)(held[0]), true, 'the mover does not report its held target');
   assert.equal(run.skipTarget(NOW + automove.FAILED_HOLD_MS + 6000)(held[0]), false, 'CONTROL: a day later it is not held');
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /automoveRun && automove\.movesOn\(\) \? automoveRun\.skipTarget\(sentAt\) : null/, 'Settings does not use the mover\'s held targets');
+  assert.match(src, /automoveRun && automove\.movesOn\(\) \? automoveRun\.skipTarget\(sentAt, moveWouldLose\) : null/, 'Settings does not use the mover\'s held targets');
   assert.match(src, /decision = ab\.decide\(\{ rows: claude, movable, nowMs: sentAt, \.\.\.\(skipTarget \? \{ skipTarget \} : \{\}\) \}\)/);
   assert.match(src, /autobalance\.movePaused = autobalance\.moving === true \? automoveRun\.paused\(\) : null/, 'Settings is not told the mover waits');
   assert.match(src, /const said = why !== null && why === automoveSaid;/, 'the board logs the same reason every tick');
@@ -1191,4 +1191,38 @@ test('kosmos#8056: movableFor asks the assigner it was given whether an agent is
   assert.equal(ab.movableFor(args)('ada'), true, 'CONTROL: with the real assigner, an agent at the wall is movable');
   const fake = { ...real, limitedCard: () => false, idleCard: () => false };
   assert.equal(ab.movableFor({ ...args, assigner: fake })('ada'), false, 'the real assigner answered, not the one given');
+});
+
+test('kosmos#8048: a target the agents would lose skills or hooks on is held, said once in the record; the next target is used; "cannot tell" holds too', async () => {
+  // Spare would lose: with no other target, ada is held, and the record says why once.
+  const file = fileFor();
+  const run = automove.create({ file });
+  const { d, calls } = deps();
+  d.wouldLose = (from, to) => to === '/u/.claude-spare';
+  await twoTicks(run, d);
+  assert.deepEqual(calls.starts, [], 'an agent was moved onto a target that would lose it skills or hooks');
+  const said = lines(file).filter((l) => l.kind === 'held-loss');
+  assert.equal(said.length, 1, 'the hold was not said, or said every tick');
+  assert.deepEqual(said[0].pairs.map((x) => [x.fromLabel, x.toLabel]), [['work', 'spare']]);
+  await run.tick(d, NOW + 2000);
+  assert.equal(lines(file).filter((l) => l.kind === 'held-loss').length, 1, 'the same hold was said again');
+  // With a third account that loses nothing, that one is used instead.
+  const run2 = automove.create({ file: fileFor() });
+  const { d: d2, calls: c2 } = deps({ usage: { ...USAGE, '/u/.claude-third': reading(20, 100) } });
+  d2.list = () => [...LIST, THIRD];
+  d2.wouldLose = (from, to) => to === '/u/.claude-spare';
+  await twoTicks(run2, d2);
+  assert.deepEqual(c2.starts, [{ dir: '/u/.claude-third', names: ['ada'] }], 'the next target that loses nothing was not used');
+  // A check that cannot be made (throws) holds, never moves.
+  const run3 = automove.create({ file: fileFor() });
+  const { d: d3, calls: c3 } = deps();
+  d3.wouldLose = () => { throw new Error('could not read the folder'); };
+  await twoTicks(run3, d3);
+  assert.deepEqual(c3.starts, [], '"cannot tell" moved an agent');
+  // CONTROL: nothing lost, the move goes as before.
+  const run4 = automove.create({ file: fileFor() });
+  const { d: d4, calls: c4 } = deps();
+  d4.wouldLose = () => false;
+  await twoTicks(run4, d4);
+  assert.deepEqual(c4.starts, [{ dir: '/u/.claude-spare', names: ['ada'] }]);
 });
