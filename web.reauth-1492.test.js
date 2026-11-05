@@ -47,7 +47,7 @@ function fakeDom(ids) {
 }
 
 const IDS = ['acct-add-modal', 'acct-provider-field', 'acct-provider-pick', 'acct-provider-lab',
-  'acct-claude-flow', 'acct-openai-flow', 'acct-add-note', 'acct-openai-msg', 'acct-code-row',
+  'acct-claude-flow', 'acct-openai-flow', 'acct-add-note', 'acct-claude-msg', 'acct-openai-msg', 'acct-code-row',
   'acct-code', 'acct-cancel', 'acct-add', 'acct-add-t', 'acct-add-in', 'acct-claude-warn'];
 
 /**

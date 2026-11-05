@@ -9322,6 +9322,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-name .sfoot { justify-content: space-between; align-items: flex-start; gap: var(--space-6); }
 #cstep-name .sfoot .field { margin-top: 0; }
 #cstep-name .sfoot #create-go { flex: 0 0 auto; }
+#create-msg .linkish { font-size: inherit; }   /* kosmos#8040: the link in a refusal reads at its sentence's size */
 /* #3038: the create-agent beacon checkbox, RESTORED (Josh ruled #2623's removal
    was an agent's, not his). Left half of the one-row .sfoot; the button is the
    right half. Self-contained so it cannot be knocked out by an unrelated edit. */
@@ -15185,8 +15186,10 @@ window.kosmosMeasureScrollbarWidth();
         <div class="frow" style="margin-top:12px;">
           <button class="btn uprime" id="acct-claude-go" type="button">Add</button>
         </div>
-        <p class="dhint" id="acct-claude-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
       </div>
+      <!-- kosmos#8040: beside the steps, not inside one (as #acct-openai-msg is): a refusal that sends the person back to
+           the picker hides the key step, and this line went with it. -->
+      <p class="dhint" id="acct-claude-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
     </div>
     <!-- #540: an OpenAI account is a directory and one pasted key. No
          terminal, no browser. The key goes to codex's own login on stdin
@@ -17163,7 +17166,7 @@ window.kosmosMeasureScrollbarWidth();
       </label>
       <button class="btn uprime big" id="create-go" type="button">Create agent</button>
     </div>
-    <div class="fmsg" id="create-msg" role="status" aria-live="polite"></div>
+    <div class="fmsg" id="create-msg" role="status" aria-live="polite" tabindex="-1"></div>
   </div>
 
   <!-- ⚠️ `dbox` CARRIES THE CARD, and `cstep` carries nothing at all. The pack
@@ -32242,6 +32245,7 @@ function openAcctReauth(dir, email) {
   ACCT_REAUTH_DIR = dir;
   acctReauthChrome(true, email);
   document.getElementById('acct-add-note').textContent = '';
+  document.getElementById('acct-claude-msg').textContent = '';   // kosmos#8040: it can now outlive the key step
   document.getElementById('acct-openai-msg').textContent = '';
   document.getElementById('acct-add-modal').hidden = false;
   loginAdvInert(true);
@@ -32258,6 +32262,7 @@ function openAcctReauthOpenai(dir, email) {
   ACCT_OPENAI_REAUTH_DIR = dir;
   acctReauthChrome(true, email);
   document.getElementById('acct-add-note').textContent = '';
+  document.getElementById('acct-claude-msg').textContent = '';   // kosmos#8040: it can now outlive the key step
   document.getElementById('acct-openai-msg').textContent = '';
   document.getElementById('acct-add-modal').hidden = false;
   loginAdvInert(true);
@@ -34615,6 +34620,7 @@ function openAcctAdd(ev) {
     if (intro && (intro.textContent === ACCT_ADD_INTRO || intro.textContent === ACCT_ADD_INTRO_MUSE)) intro.textContent = acctAddIntroWin(intro.textContent);
   }
   document.getElementById('acct-add-note').textContent = '';
+  document.getElementById('acct-claude-msg').textContent = '';   // kosmos#8040: it can now outlive the key step
   document.getElementById('acct-openai-msg').textContent = '';
   modal.hidden = false;
   loginAdvInert(true);
@@ -36934,7 +36940,7 @@ document.getElementById('acct-claude-go').addEventListener('click', async () => 
     await paintAccounts();
     acctShowSuccess(enteredLabel || 'your Claude account', goldBox);
   } catch (err) {
-    msg.textContent = String((err && err.message) || 'We could not add that account.');
+    msg.textContent = asSentence(String((err && err.message) || 'We could not add that account.'));   // kosmos#8040: the route's words start in lower case
     /* The route answers needsRunner when Claude Code is not on this computer. The
        key path has no install button of its own, so send the person back to the
        picker, where the subscription path installs Claude Code (its #1587 confirm). */
@@ -36942,6 +36948,7 @@ document.getElementById('acct-claude-go').addEventListener('click', async () => 
       acctClaudeStep();
       const b = document.getElementById('acct-claude-pick-sub'); if (b) b.focus();
     }
+    if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
   } finally {
     go.disabled = false;
   }
@@ -67501,6 +67508,27 @@ async function loadCreateExtras() {
   const el = document.getElementById(id);
   if (el) el.addEventListener('input', () => pjFieldOk(id, id + '-err'));
 });
+/* kosmos#8040: a refusal said under Create agent. The sentence sits below the button, and pressing the button shows the
+   short progress screen, so the page has shrunk to the top by the time the form comes back: the words landed off screen
+   and people read a dead button. So bring them into view and put the keyboard on them (the button's own focus went when
+   it was hidden; the sentence, not the link, so a second press of the key cannot leave the page). Where the sentence
+   names Settings, AI Models, those words are the way there. Built as nodes: the sentence is the engine's. */
+function createSayRefusal(text) {
+  const msg = document.getElementById('create-msg');
+  const place = 'Settings, AI Models';
+  const at = text.indexOf(place);
+  if (at < 0) msg.textContent = text;
+  else {
+    const link = document.createElement('button');
+    link.type = 'button';
+    link.className = 'linkish';
+    link.textContent = place;
+    link.addEventListener('click', () => { showTab('settings'); settingsOpen('accounts'); });
+    msg.replaceChildren(text.slice(0, at), link, text.slice(at + place.length));
+  }
+  if (msg.scrollIntoView) msg.scrollIntoView({ block: 'center' });
+  msg.focus({ preventScroll: true });
+}
 document.getElementById('create-go').addEventListener('click', async () => {
   if (CREATING) return;
   const name = document.getElementById('create-name').value.trim();
@@ -67526,7 +67554,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
      rather than send a percent as millions of tokens or the other way round. */
   if (createKind() === 'swarm' && document.getElementById('create-swarm-cap').dataset.mode !== (swarmCreateTokensPerPoint() ? 'pct' : 'tok')) {
     swarmCreatePaint();
-    msg.textContent = 'The daily usage limit changed with the account. Check it, then create the swarm.';
+    createSayRefusal('The daily usage limit changed with the account. Check it, then create the swarm.');
     return;
   }
 
@@ -67685,7 +67713,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // create screen (stopping the loader) before showing this beside the field.
     dropMyLoader();
     cstep('name');
-    msg.textContent = 'We could not reach the board to make it, so we cannot tell you whether anything was created. (' + err.message + ')';
+    createSayRefusal('We could not reach the board to make it, so we cannot tell you whether anything was created. (' + err.message + ')');
     return;
   }
 
@@ -67708,7 +67736,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
     if (result.field === 'name') {
       pjFieldBad('create-name', 'create-name-err', (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work'));   // kosmos#7640: as a sentence, as the line below
     } else {
-      msg.textContent = (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work');   // kosmos#7640: as a sentence (asSentence applies cloudWords too)
+      createSayRefusal((typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(result.because || 'that name will not work'));   // kosmos#7640: as a sentence (asSentence applies cloudWords too)
     }
     return;
   }
@@ -67729,8 +67757,8 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // beside the field, not on the progress screen we advanced to on click.
     dropMyLoader();
     cstep('name');
-    msg.textContent = (typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))((result && (result.error || result.because))
-      || 'we could not make it, and we cannot tell you why');   // kosmos#7640: as a sentence (asSentence applies cloudWords too)
+    createSayRefusal((typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))((result && (result.error || result.because))
+      || 'we could not make it, and we cannot tell you why'));   // kosmos#7640: as a sentence (asSentence applies cloudWords too)
     // The own gate's sentence is about the Role label at the top of a
     // scrolled form; put the person where the fix is (the live region has
     // already announced the words).

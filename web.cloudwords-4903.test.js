@@ -211,8 +211,8 @@ test('#4903 seam H, engine half: the create and remove flows say engine sentence
   const CS = "(typeof asSentence === 'function' ? asSentence : (typeof cloudWords === 'function' ? cloudWords : (x) => x))(";
   for (const sink of [
     'fail(' + CS + 'out.because || out.error ||',
-    'msg.textContent = ' + CS + "result.because || 'that name will not work');",
-    'msg.textContent = ' + CS + '(result && (result.error || result.because))',
+    'createSayRefusal(' + CS + "result.because || 'that name will not work'));",
+    'createSayRefusal(' + CS + '(result && (result.error || result.because))',
     'const becauseSentence = ' + CW + "result.because || '')",
     "return tickLine('working', " + CW + 's.label));',
     "tickLine(s.ok ? 'done' : 'fail', " + CW + 's.label));',
