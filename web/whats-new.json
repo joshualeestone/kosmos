@@ -24,7 +24,7 @@
     {
       "icon": "swarm",
       "title": "See what each agent is using",
-      "line": "An agent's card shows how much memory and CPU it is holding.",
+      "line": "An agent's page shows the memory and CPU it is using. Its card flags only what is out of the ordinary.",
       "platforms": [
         "mac"
       ]

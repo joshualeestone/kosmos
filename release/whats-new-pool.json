@@ -1043,7 +1043,7 @@
     },
     {
       "title": "See what each agent is using",
-      "line": "An agent's card shows how much memory and CPU it is holding.",
+      "line": "An agent's page shows the memory and CPU it is using. Its card flags only what is out of the ordinary.",
       "icon": "swarm",
       "rank": 12.8,
       "since": "0.7.91",
@@ -1053,8 +1053,8 @@
       ]
     },
     {
-      "title": "Agents can see who last changed a file",
-      "line": "kosmos project who <file> names the last agent seen writing it, the owner, and a change nobody saw.",
+      "title": "Agents can see who last touched a file",
+      "line": "kosmos project who <file> names the last agent seen about to change it, the owner, and any later change Kosmos did not see.",
       "icon": "list",
       "rank": 60,
       "since": "0.7.91",
@@ -1063,7 +1063,7 @@
     },
     {
       "title": "Agents can list their own tasks",
-      "line": "kosmos task list --mine shows the tasks an agent holds across all its projects.",
+      "line": "kosmos task list --mine shows the open tasks an agent holds across its projects.",
       "icon": "tasks",
       "rank": 61,
       "since": "0.7.91",
@@ -1071,8 +1071,8 @@
       "notesOnly": true
     },
     {
-      "title": "Agents hear when another changes their file",
-      "line": "An agent that first wrote a project file gets a note in the room when another agent writes it. A notice, not a lock.",
+      "title": "Agents get a note when another edits their file",
+      "line": "An agent that first wrote a project file gets a room note when another agent edits it, at most hourly. A notice, not a lock.",
       "icon": "chat",
       "rank": 62,
       "since": "0.7.91",
