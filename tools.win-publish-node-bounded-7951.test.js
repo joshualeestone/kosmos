@@ -153,8 +153,9 @@ for (const ps of RUNTIMES) {
       if (process.platform === 'win32') args.push('-ExecutionPolicy', 'Bypass');
       args.push('-File', harness, SCRIPT, process.execPath, dir, out, group);
       // Under the 60 s tools/windows-tests.js gives one test, so a wedged harness is killed rather than orphaned.
-      const run = await runHoldingStdin(ps, args, 55000);
-      assert.ok(run.finished, `the harness had to be killed after 55 s: ${run.err}`);
+      const limitMs = process.platform === 'win32' ? 55000 : 150000;   // #7998: the 60 s cap is the Windows job's; a loaded Mac needs longer
+      const run = await runHoldingStdin(ps, args, limitMs);
+      assert.ok(run.finished, `the harness had to be killed after ${limitMs / 1000} s: ${run.err}`);
       assert.ok(fs.existsSync(out), `harness wrote nothing: status ${run.status} ${run.err}`);
       return JSON.parse(fs.readFileSync(out, 'utf8'));
     } finally { fs.rmSync(dir, { recursive: true, force: true }); }
