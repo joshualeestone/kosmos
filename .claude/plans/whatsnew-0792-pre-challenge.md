@@ -14,7 +14,7 @@ converged: true
 
 **Iterations:** 2
 **Converged:** Iteration 2's findings are all wording, taken as the reviewer wrote them; no further round.
-**Total findings:** 1 BLOCKER, 3 WARNINGs, 2 NITs
+**Total findings:** 1 BLOCKER, 3 WARNINGs, 4 NITs
 
 What's New for 0.7.92. Prod moved to 0.7.91, so the pool marks its five shown and records lastProd. Two items are new, because
 #8021 shows a new card and can reach a phone, and a person should be told what it is.
@@ -33,7 +33,7 @@ What's New for 0.7.92. Prod moved to 0.7.91, so the pool marks its five shown an
 - [NIT, deferred] Mac-tagged lines may not reach Linux: the window has no Linux tag.
 - [STRENGTH] the pool diff is lastProd, five shown marks, two new items and these rewordings; 108 items unchanged.
 
-Windows sees 2 of the 5, the fewest the tool has allowed so far, and that is true to the platforms.
+Windows sees 2 of the 5, because three lines are Mac only.
 
 ### Weakest premise
 That the stuck-messages line earns its slot: nobody has seen it on a real agent (PR #8025), so it may be rare, or noisy. The release entry says so. If it proves wrong it is one line in a pool.
