@@ -308,10 +308,8 @@ struct SettingsView: View {
     }
 
     @MainActor private func read() async {
-        // kosmos#8054: without this yield, signed out or with no computer kept (nothing below waits), the tab stayed on
-        // "Reaching your computer" (measured 11-05 on an iOS 27 simulator: a log showed the state set to signedOut and the
-        // only draw after it reading reading). With the yield the right sentence drew 0.23 s later. Why the first set was
-        // not drawn is inferred, not confirmed; the card has the log.
+        // kosmos#8054: without this yield, signed out or with no computer kept, the tab stayed on "Reaching your computer".
+        // The measurement is on the card.
         await Task.yield()
         let started = generation
         if !Self.sample && SessionKeychain.live.load() == nil { mac = nil; load = .signedOut; return }

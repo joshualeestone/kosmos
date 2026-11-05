@@ -20,7 +20,6 @@ enum Board {
         !liveOrStarting && !computerLetIn && !hasList
     }
 
-
     // MARK: - Requests
 
     static func macsRequest(coordinator: URL, session: String) -> URLRequest {
