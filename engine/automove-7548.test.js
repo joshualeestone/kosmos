@@ -1080,8 +1080,11 @@ test('kosmos#7621 review 4: a guide check that cannot be made is everyone\'s, so
 
 test('kosmos#8048: an agent stopped at its weekly limit, holding a commitment, is moved in two ticks, and the person is told what it had promised', async () => {
   const [ada] = realCards(['ada']);
-  const atWall = { ...ada, state: 'rate_limited', stateEvidence: "You've hit your limit · resets Jan 1, 2030 at 3pm (America/Chicago)" };
-  const promised = { state: 'unknown', commitments: [{ id: 'c1', what: 'watching the 0.7.92 release', createdAt: '2026-11-05T07:00:00Z', source: 'agent' }] };   // commitments.read's shape
+  /* The line Claude Code prints for a weekly limit: no year, so status.limitResetAt picks the date within 35 days. */
+  const day = new Date(NOW + 3 * 24 * H).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' });
+  const atWall = { ...ada, state: 'rate_limited', stateEvidence: `You've hit your weekly limit · resets ${day} at 4am (America/Chicago)` };
+  const entry = (what) => ({ id: what.slice(0, 8), what, createdAt: new Date(NOW).toISOString(), source: 'agent' });   // commitments.read's shape
+  const promised = { state: 'holding', reportedAt: new Date(NOW).toISOString(), commitments: [entry('watching the 0.7.92 release'), entry('mail a@example.test the notes')] };
   const file = fileFor();
   const run = automove.create({ file });
   const { d, calls } = deps({ cards: [atWall] });
@@ -1092,6 +1095,13 @@ test('kosmos#8048: an agent stopped at its weekly limit, holding a commitment, i
   assert.equal(calls.tells.length, 1);
   assert.match(calls.tells[0][1], / It had stopped at its usage limit, and the restart ended anything it had running, so it may need to pick its work back up\. Before the move it had said it was committed to: watching the 0\.7\.92 release\.$/,
     'the person was not told what the moved agent had promised');
+  assert.doesNotMatch(calls.tells[0][1], /@/, 'a commitment carrying an email reached the thread');
+  // A stale record (state unknown, stale: true) is not told as a current promise; the restart still is.
+  const runS = automove.create({ file: fileFor() });
+  const { d: dS, calls: cS } = deps({ cards: [atWall] });
+  dS.readCommitment = () => ({ ...promised, state: 'unknown', stale: true });
+  await twoTicks(runS, dS);
+  assert.match((cS.tells[0] || [])[1] || '', /pick its work back up\.$/, 'a stale record was told as a current promise');
   // With no commitments record (the usual case: only an agent's own PUT writes one), the restart is still said.
   const run3 = automove.create({ file: fileFor() });
   const { d: d3, calls: c3 } = deps({ cards: [atWall] });
