@@ -104,7 +104,9 @@ function signedIn(row) {
 
 /* The best target for agents leaving `from`, or null. */
 function targetFor(from, rows, nowMs, skip) {
-  const ok = rows.filter((r) => !sameAccount(r, from) && !(typeof skip === 'function' && skip(r.dir)) && bulkTargetable(r, nowMs) && signedIn(r)
+  /* kosmos#8048: skip(dir, fromDir) also gets the account the agents would leave, so a target that would lose them
+     skills or hooks can be held (automove's skipTarget). */
+  const ok = rows.filter((r) => !sameAccount(r, from) && !(typeof skip === 'function' && skip(r.dir, from.dir)) && bulkTargetable(r, nowMs) && signedIn(r)
     && weeklyNow(r, nowMs) && weeklyNow(r, nowMs).usedPct < TARGET_MAX_PCT
     && !(fiveHourNow(r, nowMs) && fiveHourNow(r, nowMs).usedPct >= FIVE_HOUR_MAX_PCT));
   ok.sort((x, y) => (weeklyNow(x, nowMs).usedPct - weeklyNow(y, nowMs).usedPct)

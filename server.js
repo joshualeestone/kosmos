@@ -3274,6 +3274,18 @@ function autobalanceSweepDeps() {
 /* kosmos#7548 (slice 3b): what the automatic move reads and does: the sweep's own reads (so the two decide from one
    rule), plus the move itself through the bulk move's deps (rule 1) and the re-check just before it, which reads the
    roster and the projects AGAIN, on purpose (rule 2). A function, so a test can drive a real tick on the real wiring. */
+/* kosmos#8048: the loss check for a move between two account folders, as the account-plan route reads it. A default
+   account's folder may be given as null. */
+function moveWouldLose(fromDir, toDir) {
+  const defaultRow = (accounts.list() || []).find((a) => a && a.isDefault === true);
+  const from = fromDir || (defaultRow && defaultRow.dir) || null;
+  const to = toDir || (defaultRow && defaultRow.dir) || null;
+  if (!from || !to) return true;
+  const carry = require('./engine/accountcarry');
+  const l = carry.losses(from, to, { home: accounts.homeDir() });
+  return l.ok !== true || carry.loses(l);
+}
+
 function automoveDeps(sweepDeps = null) {
   /* kosmos#7621 item 7: the tick's own sweep deps, so one agents walk serves both. Review 3: that walk is as old as the
      sweep's start, so a watch's "released" check can see a person's move a tick late (harmless); the re-check before a
@@ -3292,6 +3304,9 @@ function automoveDeps(sweepDeps = null) {
     lastSeen: (agent) => observed.read(observed.PROVIDER.ANTHROPIC, agent),
     sessionStart: (agent) => sessionStartForAsync(agent),   // rule 9
     tell: (agent, text) => keepAgentReply(agent, text, undefined, { kosmos: true }),
+    /* kosmos#8048: whether moving agents from one Claude account folder to another would lose them skills or hooks
+       (engine/accountcarry.js). True also when it cannot tell, so the mover holds rather than guess. */
+    wouldLose: (fromDir, toDir) => moveWouldLose(fromDir, toDir),
     /* kosmos#8048 reviews 5 and 6: when the agent itself last reported running a tool (the report route's 'tool'
        marker), ms. Not the 'working' marker: a prompt to an agent stuck at its limit writes that one too. */
     workedAt: (agent) => { const r = activity.read(agent, 'tool'); return r && r.found ? Date.parse(r.at) : null; },
@@ -14337,7 +14352,7 @@ const server = http.createServer(async (req, res) => {
               /* kosmos#7548 review round 6: while the mover runs, the targets it holds are skipped here too, so the page never
                  names a move the mover would not make. */
               let skipTarget = null;
-              try { skipTarget = automoveRun && automove.movesOn() ? automoveRun.skipTarget(sentAt) : null; } catch { skipTarget = null; }
+              try { skipTarget = automoveRun && automove.movesOn() ? automoveRun.skipTarget(sentAt, moveWouldLose) : null; } catch { skipTarget = null; }   // kosmos#8048: the page holds what the mover holds
               decision = ab.decide({ rows: claude, movable, nowMs: sentAt, ...(skipTarget ? { skipTarget } : {}) });
               /* Review round 7: an agent the mover leaves alone now (moved by a person or by Kosmos, refused, or set aside after a
                  re-check that could not be made: kosmos#7621) is marked, so the page does not say Kosmos will move it. */

@@ -92,7 +92,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   const PREVIOUS_TICK_MS = previousTickMs(periodMs);
   const state = { lastMovable: new Set(), lastMovableAt: null, watching: [], failed: new Map(), resting: new Map(), refused: new Map(),
     refusedTimes: new Map(), skippedAt: new Map(), recheckFailed: new Map(), unwritten: [],
-    limitSeenAt: new Map() };   // kosmos#8048 review 5: agent -> the first tick it was a would-move while stopped at its limit
+    limitSeenAt: new Map(), lossHeld: new Set(), lossSaid: '' };   // kosmos#8048: from\nto pairs held because the move would lose skills or hooks   // kosmos#8048 review 5: agent -> the first tick it was a would-move while stopped at its limit
   /* Review round 6: every line goes through keep(). One the record could not take waits in state.unwritten, and so does
      every line after it, so the record keeps their order; each tick writes them first. While any wait, the mover moves
      nobody (a restart would forget the move, its rest and its watch, rules 8 and 10) and Settings says so. A board
@@ -325,8 +325,19 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
 
   /* Held and unproven targets (rules 5 and 6), for decide()'s skipTarget: the mover's and, while moves are on, the
      Settings read's (server.js), so the page never names a target the mover would not use. */
-  const skipTarget = (nowMs = Date.now()) => (dir) => (state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS)
-    || state.watching.some((w) => w.to === dir);
+  /* kosmos#8048: and, given wouldLose(fromDir, toDir), a target the agents would lose skills or hooks on (or that
+     cannot be checked: engine/accountcarry.js "cannot tell" is never safe). Asked once per pair per call; a pair it
+     holds is kept in state.lossHeld, so the board can say why once. */
+  const skipTarget = (nowMs = Date.now(), wouldLose = null) => {
+    const asked = new Map();
+    return (dir, fromDir) => {
+      if ((state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS) || state.watching.some((w) => w.to === dir)) return true;
+      if (typeof wouldLose !== 'function' || typeof fromDir !== 'string') return false;
+      const key = `${fromDir}\n${dir}`;
+      if (!asked.has(key)) { let lose = true; try { lose = wouldLose(fromDir, dir) !== false; } catch { lose = true; } asked.set(key, lose); if (lose) state.lossHeld.add(key); else state.lossHeld.delete(key); }
+      return asked.get(key);
+    };
+  };
   /* Rules 7 and 8, the refusal holds and (kosmos#7621) the re-check set-aside: an agent the mover leaves alone now.
      Settings asks through leftAlone below, which reads a person's move made since the last tick first. */
   const passedOverAt = (nowMs = Date.now()) => (agent) => {
@@ -354,7 +365,8 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       state.lastMovable = new Set(); state.limitSeenAt = new Map();
       return { did: 'unreadable', because: 'lines the record could not take yet, so Kosmos moves nobody until they are written' };
     }
-    const skip = skipTarget(nowMs);
+    state.lossHeld = new Set();   // kosmos#8048: this tick's holds only; the decision below fills it
+    const skip = skipTarget(nowMs, deps.wouldLose);
     const movableArgs = (cards, records, strict = false) => ({ cards, records: records || deps.records, readCommitment: deps.readCommitment, strict, nowMs,   // kosmos#8048: the limit is judged on the tick's clock
       ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) });
     let decision;
@@ -370,6 +382,14 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     } catch (err) { state.lastMovable = new Set(); state.limitSeenAt = new Map(); return { did: 'unreadable', because: String((err && err.message) || err) }; }
     const label = (dir) => { try { return deps.labelOf(dir); } catch { return null; } };
     const kindOf = (dir) => (decision.atRisk.find((x) => x.from === dir) || {}).kind || null;
+    /* kosmos#8048: a target held because the move would lose skills or hooks is said in the record when the set
+       changes, so a hold is never silent and never repeated every tick. */
+    const lossKey = [...state.lossHeld].sort().join('|');
+    if (lossKey !== state.lossSaid) {
+      state.lossSaid = lossKey;
+      if (lossKey) keep({ kind: 'held-loss', at: nowMs, pairs: [...state.lossHeld].sort().map((k) => { const [from, to] = k.split('\n'); return { from, to, fromLabel: label(from), toLabel: label(to) }; }),
+        because: 'moving there would lose skills or hooks the agents have now, or it could not be checked' });
+    }
     const before = Number.isFinite(state.lastMovableAt) && nowMs - state.lastMovableAt <= PREVIOUS_TICK_MS ? state.lastMovable : new Set();
     state.lastMovable = new Set(decision.moves.map((x) => `${x.agent}\n${x.from}`));
     state.lastMovableAt = nowMs;
