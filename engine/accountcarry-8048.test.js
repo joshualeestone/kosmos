@@ -316,7 +316,8 @@ test('kosmos#8063 review 1: what is known is said beside a hook that cannot be c
 });
 
 test('kosmos#8063 review 1: SKILL.md is read before any cap; written-out defaults are the defaults', () => {
-  const s = (body) => { const d = folder({ skills: ['big'] }); fs.mkdirSync(path.join(d, 'skills', 'big', 'Assets')); fs.writeFileSync(path.join(d, 'skills', 'big', 'Assets', 'blob.bin'), Buffer.alloc(9 * 1024 * 1024, 2)); fs.writeFileSync(path.join(d, 'skills', 'big', 'SKILL.md'), body); return d; };
+  /* Nine files past the 1 MB read each: the 8 MB budget runs out before SKILL.md sorts. */
+  const s = (body) => { const d = folder({ skills: ['big'] }); fs.mkdirSync(path.join(d, 'skills', 'big', 'Assets')); for (let i = 0; i < 9; i++) fs.writeFileSync(path.join(d, 'skills', 'big', 'Assets', `blob${i}.bin`), Buffer.alloc(1024 * 1024 + 7, 2)); fs.writeFileSync(path.join(d, 'skills', 'big', 'SKILL.md'), body); return d; };
   assert.deepEqual(carry.losses(s('one'), s('two'), H).changed, ['big'], 'a changed SKILL.md behind a large folder read as the same');
   const h = (extra) => folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo hi', ...extra }] }] } }) });
   assert.deepEqual(carry.losses(h({}), h({ async: false }), H).hooks, [], 'async false read as a different hook');
