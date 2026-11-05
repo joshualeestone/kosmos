@@ -36920,6 +36920,7 @@ document.getElementById('acct-claude-go').addEventListener('click', async () => 
   if (!key.trim()) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
   go.disabled = true;
   msg.textContent = 'Adding…';
+  const visit = ACCT_ADD_VISIT;
   try {
     const res = await fetch('/api/accounts/claude/apikey', {
       method: 'POST',
@@ -36946,6 +36947,12 @@ document.getElementById('acct-claude-go').addEventListener('click', async () => 
     await paintAccounts();
     acctShowSuccess(enteredLabel || 'your Claude account', goldBox);
   } catch (err) {
+    /* kosmos#8040: an answer that lands after the person left this step says nothing. Their dialog closed, or they are on
+       another provider, or back at the picker, where a line about a key has no key box. Except no Claude Code: that is
+       true at the picker, and it is where the line below sends them anyway. */
+    const keyStep = document.getElementById('acct-claude-key-step');
+    const flow = document.getElementById('acct-claude-flow');
+    if (visit !== ACCT_ADD_VISIT || flow.hidden || (keyStep.hidden && !(err && err.needsRunner))) return;
     msg.textContent = asSentence(String((err && err.message) || 'We could not add that account.'));   // kosmos#8040: the route's words start in lower case
     /* The route answers needsRunner when Claude Code is not on this computer. The
        key path has no install button of its own, so send the person back to the
@@ -67339,7 +67346,7 @@ document.getElementById('create-avatar').addEventListener('change', async (e) =>
    slower /api/projects response rebuild the checkboxes to all-unchecked
    underneath selections the faster pass already accepted. */
 let EXTRAS_GEN = 0;
-async function loadCreateExtras() {
+async function loadCreateExtras(kept) {   // kept: kosmos#8040, the picks to put back on a return to the same form
   const gen = ++EXTRAS_GEN;
   /* ⚠️ AWAITED BEFORE THE MENUS ARE BUILT, not fired alongside them. The
      reports menu names you in its first option, so a late answer would fill
@@ -67391,6 +67398,7 @@ async function loadCreateExtras() {
   rsel.innerHTML = ['<option value="" selected>' + esc(YOU_NAME || 'You') + '</option>'].concat(
     existing.map((x) => '<option value="' + esc(x.sessionName) + '">' + esc(x.name || x.sessionName) + '</option>'),
   ).join('');
+  if (kept && kept.reports && [...rsel.options].some((o) => o.value === kept.reports)) rsel.value = kept.reports;
 
   const asel = document.getElementById('create-account');
   /* #881: GET /api/accounts now confirms each account live with Anthropic,
@@ -67494,6 +67502,7 @@ async function loadCreateExtras() {
         if (only) { prov.value = only; applyCreateProviderUI(); }
       }
     }
+    if (kept) createKeptRestore(kept);
   })();
   /* 🛑 THE PROJECTS PICKER IS GONE (Josh, 2026-08-22). What was here fetched
      /api/projects, filled a row of chips, and kept `CREATE_PROJECTS` in step
@@ -67547,9 +67556,10 @@ function createSayRefusal(text) {
   if (msg.scrollIntoView) msg.scrollIntoView({ block: 'center' });
   msg.focus({ preventScroll: true });
 }
-/* kosmos#8040: New agent, after that link. openCreate is what empties the form, so this does not call it: the fields and
-   their state are still here behind the hidden panel. The sentence is over (they went to fix it). What they went to
-   change is read again, so an account just connected can be picked. Any other route to openCreate ends the keeping. */
+/* kosmos#8040: New agent, after that link. openCreate is what empties the form, so this does not call it: what they typed
+   is still here behind the hidden panel. The sentence is over (they went to fix it). What they went to change is read
+   again the way a plain New agent reads it, so a provider just connected is what the form opens on, unless they chose
+   one themselves. Any other route to openCreate ends the keeping. */
 function createEnter() {
   if (!CREATE_KEPT || Date.now() - CREATE_KEPT >= CREATE_KEPT_MS) { openCreate(); return; }
   CREATE_KEPT = 0;
@@ -67557,17 +67567,25 @@ function createEnter() {
   cstep('name');
   if (document.body.classList.contains('consolidated')) openConsolidatedCreate(); else showTab('create');
   document.getElementById('create-name').focus();
-  const picked = document.getElementById('create-account').value;
-  fetch('/api/accounts', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((out) => {
-    if (!out || !Array.isArray(out.accounts) || CREATE_KEPT) return;
-    CREATE_ACCOUNTS = out.accounts;
-    CREATE_ACCOUNTS_KNOWN = true;
-    CREATE_ACCOUNTS_FAILED = false;
-    fillCreateAccounts();
-    const acct = document.getElementById('create-account');
-    if (picked && [...acct.options].some((o) => o.value === picked && !o.disabled)) acct.value = picked;
-    swarmCreatePaint();
-  }).catch(() => { /* the menu keeps what it showed */ });
+  const val = (id) => document.getElementById(id).value;
+  loadCreateExtras({ provider: val('create-provider'), account: val('create-account'), model: val('create-model'), reports: val('create-reports') });
+}
+/* The picks loadCreateExtras rebuilt its menus over, put back where they are still offered. On a provider it moved them to
+   (one just connected, none chosen) they are not offered, so what it painted stays. */
+function createKeptRestore(kept) {
+  const has = (sel, v) => !!v && [...sel.options].some((o) => o.value === v && !o.disabled);
+  const prov = document.getElementById('create-provider').value;
+  const acct = document.getElementById('create-account');
+  if (has(acct, kept.account)) acct.value = kept.account;
+  const model = document.getElementById('create-model');
+  if (prov === 'openai') {
+    CREATE_PREF_OPENAI_MODEL = kept.model || '';   // the model row is per account, and this is the first paint that has one
+    paintOpenaiCreateModel();
+  } else if (!vendorPicksModel(prov) && has(model, kept.model)) {
+    model.value = kept.model;
+    paintModelWhy('create-model', 'create-model-why');
+  }
+  swarmCreatePaint();
 }
 document.getElementById('create-go').addEventListener('click', async () => {
   if (CREATING) return;
