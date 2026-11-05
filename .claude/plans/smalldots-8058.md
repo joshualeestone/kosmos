@@ -22,7 +22,8 @@ never grows.
 Inside a lazy scrolling thread (an attachment loading in a message, a room's earlier posts) the dots draw at 15 frames
 a second, the orb's rate there (Loading earlier messages in a chat floats over the thread and keeps 30): a clock-drawn view at 30 in the thread kept it from following new messages (#7427).
 With Reduce Motion the dots pulse together rather than hold still (SweepDots' own rule, #4591), where the orb held one
-still frame; where the dots carry a label (a room's earlier posts, the Files row), VoiceOver also hears them as
+still frame, except inside the lazy thread (the attachment card, a room's earlier posts), where they hold one still
+frame with no clock, as the orb did there, so a Reduce Motion reader gains no clock-drawn view in the thread; where the dots carry a label (a room's earlier posts, the Files row), VoiceOver also hears them as
 updating then. The Files row's dots grow with text size from 20 pt, as its name and date do.
 
 Where the line is: a wait beside the thing it is for (a file, a row, a line of text) takes the dots; a wait that is the

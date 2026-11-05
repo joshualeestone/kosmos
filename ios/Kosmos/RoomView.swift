@@ -414,7 +414,7 @@ struct RoomView: View {
                 Button(Board.Archive.couldNotReadEarlier) { loadArchiveOlder(proxy) }
                     .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
             } else {
-                HStack { Spacer(); SweepDots(label: "Loading", framesPerSecond: 15); Spacer() }   // kosmos#8058: the simple dots, at the orb's rate inside the thread
+                HStack { Spacer(); SweepDots(label: "Loading", framesPerSecond: 15, stillWhenReduced: true); Spacer() }   // kosmos#8058: the simple dots, at the orb's rate inside the thread
                     .onAppear { olderShowing = true; if settledAtBottom { loadArchiveOlder(proxy) } }
                     .onDisappear { olderShowing = false }
             }
@@ -758,7 +758,7 @@ struct RoomView: View {
                             Button("We could not load earlier messages. Try again") { loadOlder(proxy) }
                                 .font(.footnote).frame(maxWidth: .infinity, minHeight: 44)
                         } else {
-                            HStack { Spacer(); SweepDots(label: "Loading", framesPerSecond: 15); Spacer() }   // kosmos#8058: the simple dots, at the orb's rate inside the thread
+                            HStack { Spacer(); SweepDots(label: "Loading", framesPerSecond: 15, stillWhenReduced: true); Spacer() }   // kosmos#8058: the simple dots, at the orb's rate inside the thread
                                 .onAppear { olderShowing = true; if settledAtBottom { loadOlder(proxy) } }
                                 .onDisappear { olderShowing = false }
                         }

@@ -6,8 +6,9 @@ import SwiftUI
 /// below) and, since #8058 (Josh 11-05), on small inline waits (a file loading or being added, earlier messages, the
 /// Getting a file bar, dictation finishing); whole-screen waits keep the orb (#7896).
 /// With no label it is hidden from VoiceOver, for a place whose words already say what is loading; with one, VoiceOver
-/// reads that label. It grows with the person's text size (unless `scales` is false). Drawn from the clock at 30 frames a second at most by default (`framesPerSecond`), as
-/// WorkingDots is; with Reduce Motion the dots stay where they are and pulse together (#4591: still dots read as frozen).
+/// reads that label. It grows with the person's text size (unless `scales` is false). Drawn from the clock at 30 frames
+/// a second at most by default (`framesPerSecond`), as WorkingDots is; with Reduce Motion the dots stay where they are
+/// and pulse together (#4591: still dots read as frozen), unless `stillWhenReduced` holds them still.
 struct SweepDots: View {
     /// The ring's side in points at the default text size: the orb's default, which this replaces.
     var size: CGFloat = 20
@@ -17,10 +18,13 @@ struct SweepDots: View {
     /// false keeps `size` at every text size. kosmos#7945 follow-up: the Agents tab's wait to connect, which must match
     /// the launch screen's fixed 20 pt picture; its words still grow with the text.
     var scales = true
-    /// The most frames a second it draws. kosmos#8058: 15 inside a chat or room's lazy thread, the rate of the orb it
-    /// replaces there, because a clock-drawn view at 30 inside the thread kept it from following new messages (#7427).
-    /// At 15 the dots step on an uneven 2-2-3 frame beat (0.15 s a dot); how that looks on a phone is not measured.
+    /// The most frames a second it draws. kosmos#8058: 15 inside a chat or room's lazy thread, matching the orb it
+    /// replaces there; whether 15 avoids #7427 (a clock-drawn view in the thread stopped it following new messages) is
+    /// not measured. At 15 the dots step 2-2-2-3 frames each (0.15 s a dot); how that looks on a phone is not measured.
     var framesPerSecond: Double = 30
+    /// kosmos#8058: with Reduce Motion, one still frame and no clock, as the orb it replaces did inside a lazy thread,
+    /// rather than the pulse, so a Reduce Motion reader gains no clock-drawn view there.
+    var stillWhenReduced = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .footnote) private var grow: CGFloat = 1
     /// kosmos#7945 follow-up: the loop runs from when the ring appeared, starting at SweepLogic.launchAt, the frame the
@@ -29,21 +33,33 @@ struct SweepDots: View {
 
     var body: some View {
         let side = scales ? size * grow : size
-        let drawn = TimelineView(.animation(minimumInterval: 1.0 / framesPerSecond)) { tl in
-            let elapsed = tl.date.timeIntervalSince(shownAt)
-            Canvas { ctx, box in
-                for d in SweepLogic.shown(elapsed, side: Double(min(box.width, box.height)), reduceMotion: reduceMotion) {
-                    ctx.opacity = d.opacity
-                    ctx.fill(Path(ellipseIn: CGRect(x: d.x - d.diameter / 2, y: d.y - d.diameter / 2, width: d.diameter, height: d.diameter)),
-                             with: .color(colour))
+        let still = reduceMotion && stillWhenReduced
+        let drawn = Group {
+            if still {
+                ring(0)   // the launch screen's frame (SweepLogic.shown adds launchAt)
+            } else {
+                TimelineView(.animation(minimumInterval: 1.0 / framesPerSecond)) { tl in
+                    let elapsed = tl.date.timeIntervalSince(shownAt)
+                    ring(elapsed)
                 }
             }
         }
         .frame(width: side, height: side)
         if let label {
-            drawn.accessibilityElement().accessibilityLabel(Text(label)).accessibilityAddTraits(.updatesFrequently)   // it moves with Reduce Motion too (the pulse)
+            // It moves with Reduce Motion too (the pulse), unless held still.
+            drawn.accessibilityElement().accessibilityLabel(Text(label)).accessibilityAddTraits(still ? [] : .updatesFrequently)
         } else {
             drawn.accessibilityHidden(true)
+        }
+    }
+
+    private func ring(_ elapsed: Double) -> some View {
+        Canvas { ctx, box in
+            for d in SweepLogic.shown(elapsed, side: Double(min(box.width, box.height)), reduceMotion: reduceMotion && !stillWhenReduced) {
+                ctx.opacity = d.opacity
+                ctx.fill(Path(ellipseIn: CGRect(x: d.x - d.diameter / 2, y: d.y - d.diameter / 2, width: d.diameter, height: d.diameter)),
+                         with: .color(colour))
+            }
         }
     }
 }
