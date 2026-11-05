@@ -22,6 +22,9 @@ const assert = require('node:assert/strict');
 const stuckinput = require('./stuckinput');
 const limitqueue = require('./limitqueue');
 const ds = require('./deliverystreak');
+const fleet = require('../test-support/fleet');
+
+test.after(() => fleet.restore());
 
 const MIN = 60 * 1000;
 const T0 = Date.parse('2026-11-05T07:00:00.000Z');
@@ -38,7 +41,7 @@ function sweep(card, clock, recover = async () => ({ outcome: 'left', because: '
     allowed: () => true, roster: () => [card], recover, stuckMs: 10 * MIN, log: () => {}, now: () => clock.at, ...wiring,
   });
 }
-const cardFor = (s) => ({ sessionName: s, name: s, state: 'idle', runner: 'claude', unsentInput: { since: ISO } });
+const cardFor = (s) => ({ ...fleet.install([fleet.agent(s, { state: 'idle' })]).card(s), state: 'idle', runner: 'claude', unsentInput: { since: ISO } });
 const keep = (s, id) => limitqueue.addOrWhy(s, { id, from: 'x', envelope: 'hello', at: ISO, reset: ISO, key: id, input: true });
 const said = (s, at, map = new Map()) => ds.stallsToSay([s], map, { now: at });
 async function run(tick, clock, from, to) {
@@ -70,7 +73,7 @@ test('kosmos#8021: a full box with nothing kept behind it says nothing: no messa
   const s = 's-empty'; const clock = { at: T0 };
   await run(sweep(cardFor(s), clock), clock, T0 + 11 * MIN, T0 + 45 * MIN);
   assert.deepEqual(said(s, clock.at), []);
-  assert.equal(ds.sweptCount(s), 0);
+  assert.equal(ds.sweptForTests(s), 0);
 });
 
 test('kosmos#8021: a message first kept for a limit counts: the box is what stops it now', async () => {
@@ -85,10 +88,10 @@ test('kosmos#8021: once the box reads empty, a stall of passes stops, and nothin
   keep(s, 'm12');
   const tick = sweep(card, clock);
   await run(tick, clock, T0 + 11 * MIN, T0 + 45 * MIN);
-  assert.ok(ds.sweptCount(s) >= 3, 'CONTROL: the sweep had counted');
+  assert.ok(ds.sweptForTests(s) >= 3, 'CONTROL: the sweep had counted');
   delete card.unsentInput;
   clock.at += MIN; await tick();
-  assert.equal(ds.sweptCount(s), 0, 'taken back');
+  assert.equal(ds.sweptForTests(s), 0, 'taken back');
   assert.equal(limitqueue.list(s).length, 1, 'CONTROL: the message still waits');
   assert.deepEqual(said(s, clock.at), [], 'not a stall any more');
 });
@@ -134,13 +137,13 @@ test('kosmos#8021: one empty read of the roster does not lose the passes the swe
     allowed: () => true, roster: () => roster, recover: async () => ({ outcome: 'left', because: 'x' }), stuckMs: 10 * MIN, log: () => {}, now: () => clock.at, ...wiring,
   });
   await run(tick, clock, T0 + 11 * MIN, T0 + 15 * MIN);
-  assert.ok(ds.sweptCount(s) >= 3, 'CONTROL: the sweep had counted');
+  assert.ok(ds.sweptForTests(s) >= 3, 'CONTROL: the sweep had counted');
   roster = [];
   clock.at += MIN; await tick();
   roster = [card];
   limitqueue.remove(s, 'm15');
   clock.at += MIN; await tick();
-  assert.equal(ds.sweptCount(s), 0);
+  assert.equal(ds.sweptForTests(s), 0);
 });
 
 test('kosmos#8021: one real try alongside the sweep\'s passes reads as one try', () => {
@@ -153,7 +156,7 @@ test('kosmos#8021: a box the sweep gave up on still counts', async () => {
   const s = 's-gaveup'; const clock = { at: T0 };
   keep(s, 'm3');
   await run(sweep(cardFor(s), clock, async () => ({ outcome: 'drafted-not-cleared', because: 'keys rebound' })), clock, T0 + 11 * MIN, T0 + 15 * MIN);
-  assert.ok(ds.sweptCount(s) >= 5, 'each pass counted, past the give-up: ' + ds.sweptCount(s));
+  assert.ok(ds.sweptForTests(s) >= 5, 'each pass counted, past the give-up: ' + ds.sweptForTests(s));
 });
 
 test('kosmos#8021: through the real flush, a kept message that lands ends a said stall, and says so', async () => {
@@ -181,7 +184,7 @@ test('kosmos#8021: through the real flush, a line typed and not seen to land kee
   assert.equal(limitqueue.list(s).length, 0, 'CONTROL: the flush took it out of the queue');
   clock.at += MIN; await tick();
   assert.equal(ds.failCount(s), 1, 'the typed line is still counted');
-  assert.equal(ds.sweptCount(s), 0, 'the sweep took back its own passes');
+  assert.equal(ds.sweptForTests(s), 0, 'the sweep took back its own passes');
 });
 
 test('kosmos#8021: taking back removes only the sweep\'s part: a stall of real failures stays, with its own start', async () => {
@@ -192,10 +195,10 @@ test('kosmos#8021: taking back removes only the sweep\'s part: a stall of real f
   keep(s, 'm6');
   const tick = sweep(cardFor(s), clock);
   await run(tick, clock, T0 + 11 * MIN, T0 + 15 * MIN);
-  assert.ok(ds.sweptCount(s) >= 3, 'CONTROL: the sweep had counted');
+  assert.ok(ds.sweptForTests(s) >= 3, 'CONTROL: the sweep had counted');
   limitqueue.remove(s, 'm6');   // what the flush does to an entry past its age
   clock.at += MIN; await tick();
-  assert.equal(ds.sweptCount(s), 0);
+  assert.equal(ds.sweptForTests(s), 0);
   assert.equal(ds.failCount(s), 51, 'all 51 real failures stay');
   const out = said(s, clock.at);
   assert.equal(out.length, 1, 'still a stall');
@@ -207,10 +210,10 @@ test('kosmos#8021: a streak the sweep began goes with its messages, so its start
   keep(s, 'm7');
   const tick = sweep(cardFor(s), clock);
   await run(tick, clock, T0 + 11 * MIN, T0 + 15 * MIN);
-  assert.ok(ds.sweptCount(s) >= 3, 'CONTROL: the sweep had counted');
+  assert.ok(ds.sweptForTests(s) >= 3, 'CONTROL: the sweep had counted');
   limitqueue.remove(s, 'm7');
   clock.at += MIN; await tick();
-  assert.equal(ds.sweptCount(s), 0);
+  assert.equal(ds.sweptForTests(s), 0);
   ds.note(s, { state: 'could_not', because: 'x' }, clock.at + 60 * MIN);
   assert.deepEqual(said(s, clock.at + 60 * MIN), [], 'one later refusal is not a stall dated from the old start');
 });
@@ -255,7 +258,7 @@ test('kosmos#8021: old failures plus a box full for a minute do not page anyone'
   ds.note(s, { state: 'unconfirmed' }, T0 - 5 * 60 * MIN + 1000);
   keep(s, 'm16');
   await run(sweep(cardFor(s), clock), clock, T0 + 11 * MIN, T0 + 12 * MIN);
-  assert.ok(ds.sweptCount(s) >= 1, 'CONTROL: the sweep had counted');
+  assert.ok(ds.sweptForTests(s) >= 1, 'CONTROL: the sweep had counted');
   assert.deepEqual(said(s, clock.at), [], 'old failures and a passing full box do not add up');
   assert.equal(ds.stallOf(s, { now: clock.at }), null);
 });
@@ -326,12 +329,12 @@ test('kosmos#8021: a queue file that cannot be read this minute takes nothing ba
   assert.ok(file, 'CONTROL: found the queue file');
   const tick = sweep(cardFor(s), clock);
   await run(tick, clock, T0 + 11 * MIN, T0 + 15 * MIN);
-  const n = ds.sweptCount(s);
+  const n = ds.sweptForTests(s);
   assert.ok(n >= 3, 'CONTROL: the sweep had counted');
   const good = fs.readFileSync(file, 'utf8');
   fs.writeFileSync(file, '{ not json');
   clock.at += MIN; await tick();
-  assert.ok(ds.sweptCount(s) >= n, 'not taken back');
+  assert.ok(ds.sweptForTests(s) >= n, 'not taken back');
   fs.writeFileSync(file, good);
   assert.equal(limitqueue.list(s).length, 1, 'CONTROL: the message was still kept');
 });

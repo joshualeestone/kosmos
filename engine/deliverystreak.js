@@ -99,7 +99,7 @@ function failCount(name) { const s = streaks.get(String(name)); return s ? s.cou
    or nothing is kept any more. Real failures stay, with their own start. A streak of only passes is gone, except one
    already said while its messages still wait (`drained` false): it stays, not a stall any more, so the line that lands
    can say it ended. */
-function sweptCount(name) { const s = streaks.get(String(name)); return (s && s.swept) || 0; }
+function sweptForTests(name) { const s = streaks.get(String(name)); return (s && s.swept) || 0; }
 function takeBack(name, { drained = true } = {}) {
   const s = streaks.get(String(name));
   if (!s) return;
@@ -506,4 +506,4 @@ function acksDue(ends, now = Date.now()) {
   return out;
 }
 
-module.exports = { sweptCount, takeBack, failCount, endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { sweptForTests, takeBack, failCount, endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
