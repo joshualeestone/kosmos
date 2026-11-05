@@ -61,8 +61,8 @@ const ATTACH_PARAGRAPH = [
   'you are on, can be attached, up to 100 MB. For a bigger file, or when Kosmos',
   'refuses it, tell them where you saved it.',
   ...(process.platform === 'win32' ? [
-    'Give the file\'s full path: in PowerShell, ~ is not turned into your home',
-    'folder.',
+    'Give the file\'s full path, not one starting with ~: PowerShell does not',
+    'turn ~ into your home folder.',
   ] : []),
   '',
 ];

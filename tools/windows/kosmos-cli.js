@@ -637,8 +637,8 @@ const USAGE_REPLY_FILE = '       kosmos reply --file <path> ["what it is"]   (at
 /* #6726 review 8: --file is named (help, and the usage a bare reply prints) only where the board's checks of which
    files may go have run. Windows held it back until #7221 landed (PR #7243) and one real Windows run attached a file
    (11-05, on the Windows box, comment on #6726): it is taught on both now, as engine/dmfiles.js teaches it in the
-   instructions. Kept as a function of the path rules, so a later hold for one side stays a one-line change. */
-const replyFileTaught = (rules) => Boolean(rules);
+   instructions. Kept as a function, so a later hold for one side (keyed on the path rules) is a one-line change. */
+const replyFileTaught = () => true;
 /* What --help prints for a verb: its usage, and for reply the --file line too where it is taught, as install/kosmos's
    help does on a Mac. */
 function helpFor(verb, rules = path) { return verb === 'reply' && replyFileTaught(rules) ? USAGE.reply + '\n' + USAGE_REPLY_FILE : USAGE[verb]; }
