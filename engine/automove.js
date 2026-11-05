@@ -318,7 +318,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       return { did: 'unreadable', because: 'lines the record could not take yet, so Kosmos moves nobody until they are written' };
     }
     const skip = skipTarget(nowMs);
-    const movableArgs = (cards, records, strict = false) => ({ cards, records: records || deps.records, readCommitment: deps.readCommitment, strict,
+    const movableArgs = (cards, records, strict = false) => ({ cards, records: records || deps.records, readCommitment: deps.readCommitment, strict, nowMs,   // kosmos#8048: the limit is judged on the tick's clock
       ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) });
     let decision;
     try {

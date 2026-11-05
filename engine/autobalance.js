@@ -196,8 +196,13 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
        without this the mover only ever helped before the wall. The Assigner's failover test (assigner.limitedCard): our
        agent, reading rate_limited, with a dated reset more than 10 minutes away, so a Claude weekly limit moves and an
        undated five-hour one is waited out. Its open work and commitments do not hold it: it can do neither where it is,
-       and the move's restart closes the limit's dialog without answering it (never its paid option). */
-    const atLimit = assigner.limitedCard(c, Number.isFinite(nowMs) ? nowMs : Date.now());
+       and the move's restart closes the limit's dialog without answering it (never its paid option). A remembered
+       reading is not one to act on, as idleCard says (#5949): a Windows capture can hold rate_limited while the agent is
+       back mid-turn. Review 1: a person working the limit at the pane themselves is covered only as far as an idle
+       agent's is (words in the box after 3 minutes, and the mover's two ticks).
+       After the move the agent starts a fresh conversation on the new account holding its open parts; the Prompter's
+       agent nudge (engine/agentnudge.js) is what sends it back to them. */
+    const atLimit = assigner.limitedCard(c, Number.isFinite(nowMs) ? nowMs : Date.now()) && !require('./status').stateIsRemembered(c);
     if (!atLimit && !assigner.idleCard(c)) return false;
     /* Review 2 (slice 3): words sitting unsent in its box are a person's or a peer's, and a restart would drop them. A
        card that cannot say is not movable. Review 5: the card says so only once the same words have sat there for
