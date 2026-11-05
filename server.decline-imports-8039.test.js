@@ -149,6 +149,25 @@ test('an answer already on file while it still asks: nothing restarts, and it sa
   assert.equal(restarts, before, 'it restarted, which only brings the question back');
 });
 
+test('an agent folder inside a repository rooted above it: refused with the terminal ending, nothing written, no restart', async () => {
+  const dir = account('acct-g');
+  const folder = born('di-inrepo', dir);
+  const root = nodePath.dirname(folder);
+  fs.mkdirSync(nodePath.join(root, '.git'), { recursive: true });
+  try {
+    fs.writeFileSync(SCREEN, DIALOG);
+    const before = restarts;
+    const r = await press('di-inrepo');
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+    assert.match(r.body.because, /every folder under it/);
+    assert.equal(entry(dir, folder), undefined);
+    assert.equal(entry(dir, root), undefined, 'it wrote for the whole repository');
+    assert.equal(restarts, before);
+  } finally {
+    fs.rmSync(nodePath.join(root, '.git'), { recursive: true, force: true });
+  }
+});
+
 test('the question has gone: nothing is written and nothing restarts', async () => {
   const dir = account('acct-b');
   const folder = born('di-gone', dir);

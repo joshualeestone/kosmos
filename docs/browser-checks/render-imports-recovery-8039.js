@@ -102,10 +102,10 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
     chk(!/allow|keys|yes/i.test(String(ok.sent[0] && ok.sent[0].body)), `${t} it carries no answer the server could read as a Yes`, String(ok.sent[0] && ok.sent[0].body));
     chk(ok.msg === 'It is starting without those files.', `${t} the server's words reach the page`, ok.msg);
     chk(ok.disabled === false, `${t} the button comes back`, String(ok.disabled));
-    /* The restart takes the question away; the next paint hides the box. The receipt must still be there to read. */
+    /* The question went: its receipt goes with it, so a later question on this agent does not open under an old answer. */
     await paint({ ...base, asking: false });
-    const kept = await page.evaluate(() => { const m = document.getElementById('d-qask-imports-msg'); return { text: m.textContent, shown: !!m && m.getClientRects().length > 0 }; });
-    chk(kept.text === 'It is starting without those files.', `${t} the receipt survives the paint after the restart`, JSON.stringify(kept));
+    const gone2 = await page.evaluate(() => document.getElementById('d-qask-imports-msg').textContent);
+    chk(gone2 === '', `${t} the receipt is cleared once the question has gone`, gone2);
     await paint({ ...base, importsAsk: true });
     const gone = await press({ status: 409, body: { ok: false, because: 'it is no longer asking this' } });
     chk(gone.msg === 'it is no longer asking this', `${t} a refusal is said`, gone.msg);

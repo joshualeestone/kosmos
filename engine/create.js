@@ -1600,10 +1600,7 @@ function declineAgentImports(name, opts) {
   try { d = require('./trust').declineExternalImports(folder, { configDir: job.configDir, agentDefaultAccount: !job.configDir }); }
   catch (err) { d = { ok: false, because: String((err && err.message) || err) }; }
   if (!(d && d.ok)) return { wrote: false, because: (d && d.because) || 'the write did not complete' };
-  /* `repo`: the answer went under a git repository's root above the agent's folder, so it holds for that whole repository. */
-  let real = folder;
-  try { real = fs.realpathSync.native(folder).split(path.sep).join('/'); } catch { real = folder; }
-  return { wrote: !!d.wrote, already: !d.wrote, repo: d.key && d.key !== real ? d.key : null };
+  return { wrote: !!d.wrote, already: !d.wrote };
 }
 
 /* The decoded ProgramArguments of an agent's plist, or null (a bad name, no plist). #4353: the

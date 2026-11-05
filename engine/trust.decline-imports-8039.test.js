@@ -81,18 +81,28 @@ test('it refuses what it cannot answer for, and writes nothing', () => {
   assert.equal(trust.declineExternalImports(folder(), { configDir: empty }).ok, false, 'made up a config file');
 });
 
-test('inside a git repository the answer goes under the repository root, as Claude Code reads it', () => {
+test('an agent folder that is its own repository root is answered there', () => {
   const dir = acct();
+  const root = folder();
+  fs.mkdirSync(nodePath.join(root, '.git'));
+  assert.deepEqual(trust.declineExternalImports(root, { configDir: dir }), { ok: true, wrote: true, key: root });
+  assert.equal(read(dir).projects[root][S], true);
+  /* A second press finds it answered, and does not write again. */
+  assert.equal(trust.declineExternalImports(root, { configDir: dir }).wrote, false);
+});
+
+test('inside a repository rooted above the agent folder it is refused: the answer would hold for the whole repository', () => {
+  const dir = acct();
+  const before = fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8');
   const root = folder();
   fs.mkdirSync(nodePath.join(root, '.git'));
   const sub = nodePath.join(root, 'a', 'b');
   fs.mkdirSync(sub, { recursive: true });
-  assert.deepEqual(trust.declineExternalImports(sub, { configDir: dir }), { ok: true, wrote: true, key: root });
-  const projects = read(dir).projects;
-  assert.equal(projects[root] && projects[root][S], true, 'not written under the root: ' + JSON.stringify(Object.keys(projects)));
-  assert.equal(projects[sub], undefined, 'written under the subfolder, which Claude Code does not read');
-  /* A second press finds it answered, and does not write again. */
-  assert.equal(trust.declineExternalImports(sub, { configDir: dir }).wrote, false);
+  const r = trust.declineExternalImports(sub, { configDir: dir });
+  assert.equal(r.ok, false, JSON.stringify(r));
+  assert.match(r.because, /every folder under it/);
+  assert.match(r.because, /in its terminal on the computer it runs on/);
+  assert.equal(fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8'), before, 'it wrote for the whole repository');
 });
 
 test('a linked worktree (.git is a file) is refused, and nothing is written', () => {
@@ -105,29 +115,6 @@ test('a linked worktree (.git is a file) is refused, and nothing is written', ()
   assert.match(r.because, /linked worktree/);
   assert.match(r.because, /in its terminal on the computer it runs on/);
   assert.equal(fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8'), before);
-});
-
-test('a repository at the home folder is refused: the answer would hold for nearly everything', () => {
-  const dir = acct();
-  const before = fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8');
-  const home = folder();
-  fs.mkdirSync(nodePath.join(home, '.git'));
-  const agent = nodePath.join(home, 'work', 'workers', 'someone');
-  fs.mkdirSync(agent, { recursive: true });
-  const saved = process.env.HOME;
-  process.env.HOME = home;
-  try {
-    const r = trust.declineExternalImports(agent, { configDir: dir });
-    assert.equal(r.ok, false, JSON.stringify(r));
-    assert.match(r.because, /every folder under it/);
-    assert.equal(fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8'), before);
-    /* CONTROL: the same layout with the repository below home is answered, under its root. */
-    const repo = nodePath.join(home, 'work');
-    fs.mkdirSync(nodePath.join(repo, '.git'));
-    assert.deepEqual(trust.declineExternalImports(agent, { configDir: dir }), { ok: true, wrote: true, key: repo });
-  } finally {
-    process.env.HOME = saved;
-  }
 });
 
 const DIALOG = [
