@@ -33,11 +33,15 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
   /* The stand-in runners. The Claude one is put in place and taken away during the run, so the board reads Claude Code
      as here or gone (resolveBin asks each time). The stand-in says it is signed out, and never reaches a network. */
   const claude = path.join(roots.BIN, 'claude');
-  const claudeHere = () => { fs.writeFileSync(claude, '#!/bin/sh\ncase "$*" in *version*) echo 2.0.0; exit 0;; esac\necho \'{"loggedIn": false, "authMethod": "none"}\'\nexit 1\n'); fs.chmodSync(claude, 0o755); };
+  const claudeHere = () => { fs.writeFileSync(claude, '#!/bin/sh\ncase "$*" in *version*) echo 2.0.0; exit 0;; esac\ncase "$CLAUDE_CONFIG_DIR" in *kept*) echo \'{"loggedIn": true, "authMethod": "claude.ai"}\'; exit 0;; esac\necho \'{"loggedIn": false, "authMethod": "none"}\'\nexit 1\n'); fs.chmodSync(claude, 0o755); };
   const claudeGone = () => fs.rmSync(claude, { force: true });
   const codex = path.join(roots.BIN, 'codex');
   fs.writeFileSync(codex, '#!/bin/sh\necho 1.0.0\nexit 0\n'); fs.chmodSync(codex, 0o755);
   claudeGone();
+  /* An account on record, as a sign-in leaves one, in the sandboxed home. The address is made up. */
+  const accountFile = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude.json');
+  const seedAccount = () => { fs.mkdirSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude'), { recursive: true }); fs.writeFileSync(accountFile, JSON.stringify({ oauthAccount: { emailAddress: 'kept@example.com' } })); };
+  const unseedAccount = () => { fs.rmSync(accountFile, { force: true }); fs.rmSync(path.join(process.env.AGENT_WORKFORCE_HOME, '.claude'), { recursive: true, force: true }); };
   const srv = spawn('node', ['server.js'], {
     cwd: REPO,
     env: { ...process.env, PORT: String(PORT), AGENT_WORKFORCE_RELEASE_BASE: 'http://127.0.0.1:9/dist',
@@ -62,7 +66,7 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
     if (!r.height || !r.width) return { in: false, why: 'no box' };
     const inWindow = r.top >= 0 && r.bottom <= window.innerHeight && r.left >= 0 && r.right <= window.innerWidth;
     const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-    return { in: inWindow && !!at && (at === e || e.contains(at)), top: Math.round(r.top), bottom: Math.round(r.bottom), h: window.innerHeight };
+    return { in: inWindow && !!at && (at === e || e.contains(at)), at: at && (at.id || at.className || at.tagName), top: Math.round(r.top), bottom: Math.round(r.bottom), h: window.innerHeight };
   }, sel);
   const toNameStep = async (p) => {
     await p.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
@@ -86,12 +90,12 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       p.on('pageerror', (e) => errs.push(String(e)));
       await p.route('**/api/first-run', (r) => r.fulfill({ json: { done: true } }));   // past the guided setup, which this does not walk
 
-      // No Claude Code, no account.
+      // No Claude Code and no account: the account gate speaks first.
       claudeGone();
       await toNameStep(p);
       await pressCreate(p, 'AI Models');
       const said = (await p.locator('#create-msg').innerText()).trim();
-      chk(/signed in|could not find Claude Code/.test(said) && said.includes(PLACE), size + ': the refusal says what is wrong and where to go', JSON.stringify(said));
+      chk(said.startsWith('There is no Claude account signed in') && said.includes(PLACE), size + ': with no account and no Claude Code, the account refusal says what is wrong and where to go', JSON.stringify(said));
       const words = await seen(p, '#create-msg');
       chk(words.in, size + ': the words are really in the window when they are said', JSON.stringify(words));
       const link = await seen(p, '#create-msg button');
@@ -113,6 +117,52 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
         chk(await p.isVisible('#acct-add-open'), size + ': and its Add a provider is there');
         chk((await seen(p, '#acct-add-open')).in, size + ': and it is in the window');
       }
+
+      // An account on record, no Claude Code: the runner's refusal, the other sentence naming the place.
+      seedAccount();
+      await toNameStep(p);
+      await pressCreate(p, 'set up Claude Code');
+      const saidRunner = (await p.locator('#create-msg').innerText()).trim();
+      chk(saidRunner.startsWith('We could not find Claude Code on this computer') && saidRunner.includes('Kosmos will then set up Claude Code'), size + ': with an account and no Claude Code, the engine says so in its own words', JSON.stringify(saidRunner));
+      chk((await seen(p, '#create-msg')).in && (await seen(p, '#create-msg button')).in, size + ': and that refusal and its link are in the window');
+      unseedAccount();
+
+      // Refused, connect, come back: what they typed is still there, on the same step.
+      claudeHere();
+      await toNameStep(p);
+      await p.fill('#create-instr', 'My own instructions, typed before the refusal.');
+      await p.dispatchEvent('#create-instr', 'input');
+      await pressCreate(p, 'no Claude account');
+      await p.locator('#create-msg button').click().catch(() => {});
+      await p.waitForTimeout(300);
+      const second = path.join(process.env.AGENT_WORKFORCE_HOME, '.claude-kept');   // the account they went to connect: a labelled one, so it has its own line in the menu
+      fs.mkdirSync(second, { recursive: true });
+      fs.writeFileSync(path.join(second, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'kept@example.com' } }));
+      await p.evaluate(() => document.getElementById('new-agent').click());
+      await p.waitForTimeout(800);
+      const back = await p.evaluate(() => ({ name: document.getElementById('create-name').value, instr: document.getElementById('create-instr').value,
+        step: !document.getElementById('cstep-name').hidden, panel: !document.getElementById('panel-create').hidden, msg: document.getElementById('create-msg').textContent, focus: document.activeElement && document.activeElement.id,
+        accounts: [...document.getElementById('create-account').options].map((o) => ({ text: o.textContent, value: o.value })) }));
+      chk(back.name === 'Nadia' && back.instr === 'My own instructions, typed before the refusal.', size + ': coming back by the link, the name and the instructions are there', JSON.stringify({ name: back.name, instr: back.instr.slice(0, 30) }));
+      chk(back.step && back.panel, size + ': on the same step, not the three-way choice');
+      chk(back.msg === '' && back.focus === 'create-name', size + ': the old refusal is gone and the keyboard is at the name', JSON.stringify({ msg: back.msg, focus: back.focus }));
+      chk(back.accounts.some((o) => /kept@example\.com/.test(o.text)), size + ': and the account just connected can be picked', JSON.stringify(back.accounts));
+      fs.rmSync(second, { recursive: true, force: true });
+      let sent = null;
+      await p.route('**/api/agents', (r) => { if (r.request().method() !== 'POST') return r.continue(); sent = JSON.parse(r.request().postData()); return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ outcome: 'refused', because: 'stopped by this check' }) }); });
+      await pressCreate(p, 'Stopped by this check');
+      await p.unroute('**/api/agents');
+      chk(!!sent && sent.name === 'Nadia' && sent.instructions === 'My own instructions, typed before the refusal.', size + ': and pressing Create agent sends them', JSON.stringify(sent && { name: sent.name, hasInstr: !!sent.instructions }));
+      // CONTROL: without the link, New agent starts fresh, and so does the one after a return.
+      await p.evaluate(() => { showTab('agents'); document.getElementById('new-agent').click(); });
+      await p.waitForTimeout(300);
+      const fresh = await p.evaluate(() => ({ kind: !document.getElementById('cstep-kind').hidden, name: document.getElementById('create-name').value }));
+      await p.click('#cstep-kind [data-path="single"]');
+      await p.waitForFunction(() => !document.getElementById('role-next').disabled, null, { timeout: 8000 });
+      await p.click('#role-next');
+      await p.waitForSelector('#create-name', { state: 'visible', timeout: 8000 });
+      fresh.instr = await p.locator('#create-instr').inputValue();
+      chk(fresh.kind && fresh.name === '' && !fresh.instr.includes('typed before the refusal'), size + ': CONTROL: a plain New agent still starts fresh', JSON.stringify({ ...fresh, instr: fresh.instr.slice(0, 30) }));
 
       // Claude Code here, no account: the card's own sentence.
       claudeHere();
@@ -235,6 +285,52 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.click('#acct-claude-go');
       await p.waitForFunction(() => { const t = document.getElementById('acct-claude-msg').textContent; return t && t !== 'Adding…'; }, null, { timeout: 8000 });
       chk(await p.isVisible('#acct-claude-key-step') && await p.isVisible('#acct-claude-msg'), size + ': CONTROL: a refused key stays on the key step, with its line showing', JSON.stringify(await p.locator('#acct-claude-msg').innerText()));
+      await p.selectOption('#acct-provider-pick', 'openai');
+      await p.waitForTimeout(200);
+      await p.selectOption('#acct-provider-pick', 'claude');
+      await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 });
+      chk((await p.locator('#acct-claude-msg').textContent()).trim() === '', size + ': switching provider and back, the key\'s line is gone with its key box');
+      await p.click('#acct-claude-pick-key');
+      await p.fill('#acct-claude-key', 'not-a-key');
+      await p.click('#acct-claude-go');
+      await p.waitForFunction(() => /too short/.test(document.getElementById('acct-claude-msg').textContent), null, { timeout: 8000 });
+      await p.selectOption('#acct-provider-pick', '');
+      await p.waitForTimeout(200);
+      await p.selectOption('#acct-provider-pick', 'claude');
+      await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 });
+      chk((await p.locator('#acct-claude-msg').textContent()).trim() === '', size + ': and so does clearing the provider and picking it again');
+      await p.close();
+    }
+    // The consolidated layout (#2842, #3053): the link and the return stay in it, with the rails.
+    {
+      const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+      p.on('pageerror', (e) => errs.push(String(e)));
+      await p.route('**/api/first-run', (r) => r.fulfill({ json: { done: true } }));
+      claudeHere();
+      await p.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'networkidle' });
+      await p.evaluate(() => { document.documentElement.setAttribute('data-layout', 'consolidated'); showTab('agents'); });
+      const cons = () => p.evaluate(() => document.body.classList.contains('consolidated'));
+      chk(await cons(), 'consolidated: CONTROL: this arm is in that layout');
+      await p.evaluate(() => document.getElementById('rail-agents-new').click());
+      await p.click('#cstep-kind [data-path="single"]');
+      await p.waitForFunction(() => !document.getElementById('role-next').disabled, null, { timeout: 8000 });
+      await p.click('#role-next');
+      await p.waitForSelector('#create-name', { state: 'visible', timeout: 8000 });
+      await p.fill('#create-name', 'Nadia');
+      await p.dispatchEvent('#create-name', 'input');
+      await pressCreate(p, 'no Claude account');
+      chk((await seen(p, '#create-msg')).in, 'consolidated: the refusal is in the window', JSON.stringify(await seen(p, '#create-msg')));
+      chk((await seen(p, '#create-msg button')).in, 'consolidated: and so is its link', JSON.stringify(await seen(p, '#create-msg button')));
+      if (SHOTS) await p.screenshot({ path: path.join(SHOTS, 'create-refusal-consolidated.png') });
+      await p.locator('#create-msg button').click().catch(() => {});
+      await p.waitForTimeout(400);
+      chk(await cons(), 'consolidated: the link does not drop the layout');
+      chk(await p.evaluate(() => !document.getElementById('panel-settings').hidden && !document.getElementById('s-sec-accounts').hidden), 'consolidated: AI Models is showing');
+      chk((await seen(p, '#acct-add-open')).in, 'consolidated: and its Add a provider is in the window');
+      chk(await p.isVisible('#rail-agents-new'), 'consolidated: and the rail is still there');
+      await p.evaluate(() => document.getElementById('rail-agents-new').click());
+      await p.waitForTimeout(500);
+      chk(await cons() && await p.evaluate(() => document.getElementById('create-name').value === 'Nadia' && !document.getElementById('cstep-name').hidden && !document.getElementById('panel-create').hidden), 'consolidated: coming back, the layout, the step and the name are all there');
       await p.close();
     }
     chk(errs.length === 0, 'no page errors', JSON.stringify(errs));
