@@ -77,8 +77,9 @@ const homeCases = realHome ? [
   ['a link to it', () => { const l = path.join(dir, 'link'); fs.symlinkSync(realHome, l); return l; }],
   ['a link above it', () => { const l = path.join(dir, 'link'); fs.symlinkSync(path.dirname(realHome), l); return l; }],
 ] : [];
-// APFS, by default, answers to any case; a volume that does not would not resolve the spelling, so check it first.
-if (realHome && realHome !== realHome.toUpperCase() && fs.existsSync(realHome.toUpperCase())) homeCases.push(['the real home in another case', () => realHome.toUpperCase()]);
+// Only where this volume resolves the other spelling to the same real path: anywhere else it is a different folder.
+const sameRealPath = (a, b) => { try { return fs.realpathSync.native(a) === fs.realpathSync.native(b); } catch { return false; } };
+if (realHome && realHome !== realHome.toUpperCase() && sameRealPath(realHome.toUpperCase(), realHome)) homeCases.push(['the real home in another case', () => realHome.toUpperCase()]);
 for (const [label, homeOf] of homeCases) {
   test(`set with a "sandbox home" that is ${label}: no date and no read`, async () => {
     process.env[VAR] = String(FIXTURE_DATE);

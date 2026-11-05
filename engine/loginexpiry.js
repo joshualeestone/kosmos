@@ -65,8 +65,7 @@ const KEYCHAIN_OPTS = { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe
  * KOSMOS_BC_LOGIN_UNTIL_MS set, the bare entry answers that date and any other entry answers nothing, and `security` is not
  * run. A value that is not a whole number answers nothing too, so a bad setting cannot fall through to the real read,
  * and so does a board with no sandbox home (AGENT_WORKFORCE_HOME, unset in production), or one naming this user's real
- * home or above it, which is no sandbox (as installroot.js holds), so a leak onto a real board cannot show a false date.
- * undefined means the variable is not set, or is empty: read the keychain. */
+ * home or above it, which is no sandbox (as installroot.js holds), so a leak onto a real board cannot show a false date. */
 function inSandboxHome() {
   const raw = process.env.AGENT_WORKFORCE_HOME;
   if (!raw) return false;
@@ -80,6 +79,7 @@ function inSandboxHome() {
   return home !== real && !real.startsWith(home.endsWith(path.sep) ? home : home + path.sep);
 }
 
+/* undefined means the variable is not set, or is empty: read the keychain. */
 function sandboxCred(service) {
   const raw = process.env.KOSMOS_BC_LOGIN_UNTIL_MS;
   if (raw === undefined || raw === '') return undefined;

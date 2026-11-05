@@ -40,7 +40,7 @@ one. The cost of such a leak is that the board's login notices stop; nothing can
 ## Steps
 1. The seam, the export, engine/loginexpiry-sandbox-8050.test.js.
 2. Review, then validation after the 0.7.92 cut (Mortals stays quiet until then).
-3. Seen working, after the cut: "render-accounts-openai green" alone proves nothing, because it also passes without this
+3. Seen working, after the cut (the card closes on this, including the read-not-run claims above): "render-accounts-openai green" alone proves nothing, because it also passes without this
    on a Mac with a fresh login. So run the script from a throwaway copy of this worktree, with a fake `security` first on
    PATH answering a past date, twice: with the export line deleted in the copy (red on "Login expired"), then as committed
    (green). Then it lands with the next cut. Merged without this run is words and mechanism only, so the card stays open
