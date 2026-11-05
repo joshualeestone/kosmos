@@ -676,7 +676,7 @@ struct ChatView: View {
                 // once it has passed. Here, not an onChange inside this branch, which never sees its own creation.
                 .onAppear {
                     diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { diagTick &+= 1 }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + Board.endNeverShownCheck) { diagTick &+= 1 }
                 }
                 .onAppear {
                     // kosmos#7265: the eager stack starts at this row for as long as the chat stays open.
@@ -1033,8 +1033,9 @@ struct ChatView: View {
         if neverShown, diagEverDrew {
             let chatAt = epoch, listAt = listEpoch
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankConfirm) {
-                guard epoch == chatAt, listEpoch == listAt, visible, onScreen.isEmpty, !personScrolling, !scrollBox.underFinger,
+                guard epoch == chatAt, listEpoch == listAt, visible, onScreen.isEmpty, !endSeen,
                       scenePhase == .active, !searchMode, !(rebuilds.last.map { Date().timeIntervalSince($0) < Board.rebuildGrace } ?? false) else { return }
+                if personScrolling || scrollBox.underFinger { diagLookAgain(); return }   // nothing else looks again once a scroll ends
                 diagCapture(proxy, why: "no message on screen", count: count)
             }
             return
@@ -1053,7 +1054,7 @@ struct ChatView: View {
     private func diagBackInFront() {
         guard visible, diagThreadAt != nil, !endSeen, onScreen.isEmpty else { return }
         diagThreadAt = Date()
-        DispatchQueue.main.asyncAfter(deadline: .now() + Board.endNeverShownAfter + 0.2) { diagTick &+= 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Board.endNeverShownCheck) { diagTick &+= 1 }
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
@@ -1196,8 +1197,8 @@ struct ChatView: View {
                         // the same undrawn stretch; the rebuild (recoverEmpty) measures the list again and drew rows each time.
                         // Review 1: never for a chat with no rows (nothing to draw is not a blank), and not while a list just
                         // rebuilt is still laying out (its own gap, as diagCheck waits Board.rebuildGrace).
-                        // Review 2: nor while a chat is still opening and has drawn nothing yet (slow, not blank; diagCheck's).
-                        // Review 3: nor with the end showing (a pending bubble can fill the list), nor with the app not active,
+                        // Review 2: nor while a chat is still opening (slow, not blank), for 2 s (Board.endNeverShown).
+                        // Review 3: nor with an end that has shown still showing (a pending bubble can fill the list), nor with the app not active,
                         // as diagCheck. It spends recoverEmpty's own per-open budget (rebuildsMax).
                         // Josh 11-05 12:57: review 2 held for as long as the blank did, about 6.6 s through three looks.
                         guard scenePhase == .active, !(thread?.rows.isEmpty ?? true),
@@ -1207,7 +1208,7 @@ struct ChatView: View {
                         if atBottom, diagEverDrew, !endSeen {
                             // As diagCheck: rows drew and no end showed, so "at the newest" may be only its starting value.
                             DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankConfirm) {
-                                guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching, onScreen.isEmpty,
+                                guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching, onScreen.isEmpty, !endSeen,
                                       !personScrolling, !scrollBox.underFinger, scenePhase == .active,
                                       !(thread?.rows.isEmpty ?? true), !(rebuilds.last.map { Date().timeIntervalSince($0) < Board.rebuildGrace } ?? false)
                                 else { return }
