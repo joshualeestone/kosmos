@@ -66146,7 +66146,7 @@ document.body.addEventListener('input', (e) => {
 });
 
 function openCreate(initialMode) {
-  CREATE_KEPT = false;   // kosmos#8040
+  CREATE_KEPT = 0;   // kosmos#8040
   PICKED = null;
   /* #4556: every visit starts on the three-way choice; the first-run import link goes straight to Single. */
   CREATE_PATH = initialMode === 'import' ? 'single' : null;
@@ -67616,7 +67616,8 @@ async function loadCreateExtras() {
    and people read a dead button. So bring them into view and put the keyboard on them (the button's own focus went when
    it was hidden; the sentence, not the link, so a second press of the key cannot leave the page). Where the sentence
    names Settings, AI Models, those words are the way there. Built as nodes: the sentence is the engine's. */
-var CREATE_KEPT = false;   // the person left by that link, so their next New agent comes back to this form (var: no dead zone)
+var CREATE_KEPT = 0;   // when the person left by that link: their next New agent comes back to this form, for a while (var: no dead zone)
+const CREATE_KEPT_MS = 30 * 60 * 1000;   // long enough for a sign-in; past it they retype, as a plain New agent always did
 function createSayRefusal(text) {
   const msg = document.getElementById('create-msg');
   const place = 'Settings, AI Models';
@@ -67628,7 +67629,7 @@ function createSayRefusal(text) {
     link.className = 'linkish';
     link.textContent = place;
     link.addEventListener('click', () => {
-      CREATE_KEPT = true;
+      CREATE_KEPT = Date.now();
       if (document.body.classList.contains('consolidated')) {   // #2842: showTab would drop this layout
         SETTINGS_SEC = 'accounts';
         openConsolidatedSettings();
@@ -67646,8 +67647,8 @@ function createSayRefusal(text) {
    their state are still here behind the hidden panel. The sentence is over (they went to fix it). What they went to
    change is read again, so an account just connected can be picked. Any other route to openCreate ends the keeping. */
 function createEnter() {
-  if (!CREATE_KEPT) { openCreate(); return; }
-  CREATE_KEPT = false;
+  if (!CREATE_KEPT || Date.now() - CREATE_KEPT >= CREATE_KEPT_MS) { openCreate(); return; }
+  CREATE_KEPT = 0;
   document.getElementById('create-msg').textContent = '';
   cstep('name');
   if (document.body.classList.contains('consolidated')) openConsolidatedCreate(); else showTab('create');

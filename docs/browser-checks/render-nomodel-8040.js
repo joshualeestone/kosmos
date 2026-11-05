@@ -301,6 +301,41 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       chk((await p.locator('#acct-claude-msg').textContent()).trim() === '', size + ': and so does clearing the provider and picking it again');
       await p.close();
     }
+    // The kept form has an end: 30 minutes from the link. Past that a New agent starts plain, with the mark still set.
+    {
+      const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+      p.on('pageerror', (e) => errs.push(String(e)));
+      await p.route('**/api/first-run', (r) => r.fulfill({ json: { done: true } }));
+      claudeHere();
+      const TYPED = 'My own instructions, typed before the refusal.';
+      const newAgent = async () => { await p.evaluate(() => document.getElementById('new-agent').click()); await p.waitForTimeout(400); };
+      await toNameStep(p);
+      await p.fill('#create-instr', TYPED);
+      await p.dispatchEvent('#create-instr', 'input');
+      await pressCreate(p, 'no Claude account');
+      const T0 = Date.now();
+      await p.clock.setFixedTime(new Date(T0));
+      await p.locator('#create-msg button').click();
+      await p.clock.setFixedTime(new Date(T0 + 29 * 60e3));
+      await newAgent();
+      chk(await p.evaluate((t) => document.getElementById('create-name').value === 'Nadia' && document.getElementById('create-instr').value === t && !document.getElementById('cstep-name').hidden, TYPED), 'limit: CONTROL: 29 minutes after the link, the form is kept');
+      await pressCreate(p, 'no Claude account');
+      const T1 = T0 + 29 * 60e3;
+      await p.locator('#create-msg button').click();
+      await p.clock.setFixedTime(new Date(T1 + 30 * 60e3));
+      chk(await p.evaluate((t) => CREATE_KEPT === t, T1), 'limit: CONTROL: the mark is still set when New agent is pressed, and only its age has run out');
+      await newAgent();
+      const old = await p.evaluate(() => ({ kind: !document.getElementById('cstep-kind').hidden, name: document.getElementById('create-name').value, msg: document.getElementById('create-msg').textContent, kept: CREATE_KEPT }));
+      chk(old.kind && old.name === '' && old.msg === '' && old.kept === 0, 'limit: 30 minutes after the link, New agent starts plain, on the three-way choice', JSON.stringify(old));
+      await p.click('#cstep-kind [data-path="single"]');
+      await p.waitForFunction(() => !document.getElementById('role-next').disabled, null, { timeout: 8000 });
+      await p.click('#role-next');
+      await p.waitForSelector('#create-name', { state: 'visible', timeout: 8000 });
+      const instrAfter = await p.locator('#create-instr').inputValue();
+      chk(!instrAfter.includes('typed before the refusal'), 'limit: and the old instructions are gone', JSON.stringify(instrAfter.slice(0, 30)));
+      await p.close();
+    }
+
     // The consolidated layout (#2842, #3053): the link and the return stay in it, with the rails.
     {
       const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
