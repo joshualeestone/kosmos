@@ -2502,11 +2502,11 @@ async function agentRestart(ctx, args) {
      roster or the pane could not be read) say nothing about who is asking. */
   const notAnAgent = !!(me.reached && me.json && me.json.ok === false
     && /^we could not match that to one of your agents|^we cannot tell which agent is sending this/.test(String(me.json.because || '')));
-  const hasToken = !!(ctx.env || {}).KOSMOS_AGENT_TOKEN;
+  const hasToken = /^[0-9a-f]+$/.test(String((ctx.env || {}).KOSMOS_AGENT_TOKEN || ''));   // review 5: only a token the CLI sends, as install/kosmos counts it
   /* Reviews 2 to 4, as install/kosmos. A token the board did not take (any refusal while one was sent) is said as
      that. No answer, or a refusal that is not "not an agent", from a caller with a token cannot rule itself out. A
      caller with no token (a person) goes on. */
-  if (hasToken && me.reached && me.json && me.json.ok === false) {
+  if (hasToken && notAnAgent) {   // review 5: the board's token refusal is NO_MATCH, the "not an agent" words
     ctx.err('Nothing was restarted: Kosmos does not recognise this agent\'s own token, so it cannot rule out that ' + name + ' is you.');
     tokenRefusedHint(ctx, me);
     return 2;
@@ -2515,7 +2515,9 @@ async function agentRestart(ctx, args) {
     ctx.err('Nothing was restarted: Kosmos could not say who is asking, so it cannot rule out that ' + name + ' is you. Try again in a minute.');
     return 2;
   }
-  if (meName && meName.toLowerCase() === name.toLowerCase()) {
+  /* Review 5: by the board's key rule (store.safeKey), as whoami answers a token-found agent; this command's own check. */
+  const key = (x) => String(x).toLowerCase().replace(/[^a-z0-9_-]/g, '');
+  if (meName && key(meName) && key(meName) === key(name)) {
     ctx.err('Nothing was restarted: ' + name + ' is you, and restarting yourself ends this session before you see the answer. Use "Write a handoff, then restart" on your page instead.');
     return 2;
   }

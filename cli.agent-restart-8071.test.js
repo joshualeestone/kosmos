@@ -44,7 +44,7 @@ function withStub(reply, fn, self = 'me-agent') {
         let answer;
         if (self === 'DEGRADED') answer = { ok: false, because: 'we could not check which agents are running, so we could not tell who you are' };
         else if (self !== null && says) answer = { ok: true, agent: self };
-        else if (req.headers['x-kosmos-agent-token']) answer = { ok: false, because: 'that agent token does not match any agent here' };
+        else if (req.headers['x-kosmos-agent-token']) answer = { ok: false, because: 'we could not match that to one of your agents' };   // sendertoken.js NO_MATCH
         else if (b.from_pane) answer = { ok: false, because: 'we could not match that to one of your agents' };
         else answer = { ok: false, because: 'we cannot tell which agent is sending this. Run it from inside the window that agent is running in (the sender is read from TMUX_PANE, which is not set here).' };
         res.writeHead(200, { 'content-type': 'application/json' });
@@ -228,3 +228,29 @@ test('kosmos#8071 review 4: a board that could not read its roster is not "a per
   const person = await cli(port, ['agent', 'restart', 'me-agent', '--yes'], { KOSMOS_AGENT_TOKEN: undefined });
   assert.equal(person.code, 0, 'CONTROL: a person with no pane and no token was refused: ' + person.out);
 }, 'DEGRADED'));
+
+test('kosmos#8071 review 5: a token the board does not take, a roster it cannot read, and your own name in key form are each said rightly', async () => {
+  await withStub(RESTARTED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(r.code, 2, r.out);
+    assert.match(r.out, /does not recognise this agent's own token/, 'a refused token was not said as one');
+    const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.match(w.err, /does not recognise this agent's own token/);
+    assert.equal(seen.length, 0);
+  }, null);
+  await withStub(RESTARTED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(r.code, 2, r.out);
+    assert.match(r.out, /could not say who is asking/, 'a roster the board could not read was blamed on the token');
+    const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.match(w.err, /could not say who is asking/);
+    assert.equal(seen.length, 0);
+  }, 'DEGRADED');
+  await withStub(RESTARTED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(r.code, 2, 'an agent known by its key (sallysales) restarted itself as "Sally Sales": ' + r.out);
+    const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(w.code, 2, w.err);
+    assert.equal(seen.length, 0);
+  }, 'sallysales');
+});
