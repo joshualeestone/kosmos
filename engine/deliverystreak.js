@@ -73,9 +73,20 @@ function note(name, v, now = Date.now()) {
     }
     if (v.busy === true || v.contentRefused === true) return;
     if (v.state !== 'could_not' && v.state !== 'unconfirmed') return;
+    /* #8021: a pass of the stuck-input sweep over a full box with messages kept behind it. It keeps a stall alive and can
+       start one, but no line was tried, so it is counted apart from `count`: the log's tries, failCount and takeBack
+       all rest on that. It does not name the cause of a streak that real failures began. */
+    if (v.swept === true) {
+      const had = streaks.get(name);
+      if (!had) { streaks.set(name, { since: now, count: 0, swept: 1, lastWhy: 'input', lastAt: now, kinds: new Set() }); return; }
+      had.swept = (had.swept || 0) + 1; had.lastAt = now;
+      if (!had.count) had.lastWhy = 'input';
+      return;
+    }
     const why = whyOf(v);
     const s = streaks.get(name);
     if (!s) { streaks.set(name, { since: now, count: 1, lastWhy: why, lastAt: now, kinds: new Set([why]) }); return; }
+    if (!s.count) s.firstTry = now;   // a streak the sweep began: where it starts if the sweep takes its part back
     s.count += 1; s.lastWhy = why; s.lastAt = now; s.kinds.add(why);
   } catch { /* the next verdict is noted */ }
 }
@@ -83,6 +94,16 @@ function note(name, v, now = Date.now()) {
 /* kosmos#7936: how many deliveries to `name` have failed in its current streak (0 with none), so a sender of Kosmos's
    own notices can stay under STALL_MIN_FAILS. */
 function failCount(name) { const s = streaks.get(String(name)); return s ? s.count : 0; }
+/* #8021: how many sweep passes the current streak holds, and taking exactly those back when nothing is kept behind the
+   box any more. Real failures stay, with their own start; a streak of only passes is gone. */
+function sweptCount(name) { const s = streaks.get(String(name)); return (s && s.swept) || 0; }
+function takeBack(name) {
+  const s = streaks.get(String(name));
+  if (!s || !s.swept) return;
+  if (!s.count) { streaks.delete(String(name)); return; }
+  s.swept = 0;
+  if (Number.isFinite(s.firstTry)) s.since = s.firstTry;
+}
 /* Wrap a verdict, or a promise of one, so it is noted as it settles; returns what it was given. */
 function noted(name, v) {
   if (v && typeof v.then === 'function') return v.then((x) => { note(name, x); return x; });
@@ -96,9 +117,10 @@ function noted(name, v) {
    only of usage-limit holds is then not a stall to warn about (the card already says it). */
 function stallOf(name, { now = Date.now(), limitShown = false } = {}) {
   const s = streaks.get(name);
-  if (!s || s.count < STALL_MIN_FAILS || now - s.since < STALL_MS || now - s.lastAt > FRESH_MS) return null;
+  if (!s || s.count + (s.swept || 0) < STALL_MIN_FAILS || now - s.since < STALL_MS || now - s.lastAt > FRESH_MS) return null;
   // A run of usage-limit or shared-quota holds alone is a planned pause the card already shows (round 3: quota too).
-  if (limitShown && [...s.kinds].every((k) => k === 'limit' || k === 'quota')) return null;
+  // #8021: not while the sweep is counting a full box: that is not the limit's doing.
+  if (limitShown && !s.swept && [...s.kinds].every((k) => k === 'limit' || k === 'quota')) return null;
   const why = Object.hasOwn(WHY_WORDS, s.lastWhy) ? s.lastWhy : 'unknown';
   return { since: new Date(s.since).toISOString(), count: s.count, lastWhy: s.lastWhy, words: WHY_WORDS[why], next: NEXT_WORDS[why] };
 }
@@ -197,7 +219,8 @@ function spanWords(ms) {
 /* The board log's line for one stall that ended (kosmos#7212 item 2). */
 function endedLine(e) {
   return 'delivery-stall-ended: Kosmos placed a message for ' + e.name + ' at ' + e.endedAt + ', ending the stall that began ' + e.since
-    + ' (' + spanWords(e.ms) + ', ' + e.count + ' tries not seen to land' + (e.pushed ? '; a stall push was sent' : '') + ').\n';
+    + ' (' + spanWords(e.ms) + (e.count > 0 ? ', ' + e.count + ' tries not seen to land' : ', its messages kept behind its input box')
+    + (e.pushed ? '; a stall push was sent' : '') + ').\n';
 }
 
 /* Why the last one did not land, as the middle sentence of the card's line (Mona Lisa's design, #7212): no full stop,
@@ -233,8 +256,8 @@ const NEXT_WORDS = {
 };
 /* The board log's line for one stall. */
 function stallLine(s) {
-  return 'delivery-stall: no message has been seen to reach ' + s.name + ' since ' + s.since + ' (' + s.count
-    + ' tries). ' + s.words + '.\n';
+  return 'delivery-stall: no message has been seen to reach ' + s.name + ' since ' + s.since + ' ('
+    + (s.count > 0 ? s.count + ' tries' : 'its messages kept behind its input box') + '). ' + s.words + '.\n';
 }
 
 /* kosmos#7368: the board log's line for one step that never ends, said once per stuck step. */
@@ -468,4 +491,4 @@ function acksDue(ends, now = Date.now()) {
   return out;
 }
 
-module.exports = { failCount, endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };
+module.exports = { sweptCount, takeBack, failCount, endsToSay, acksDue, endedLine, spanWords, stallEvent, tellStalls, stallToldWithin, PUSH_GAP_MS, PUSH_FILE, turnsToSay, turnNext, turnLine, reset, settleFor, SPEAKS_FOR_ITSELF, NEXT_WORDS, limitShownOn, note, noted, stallOf, turnStuckOf, stallsToSay, stallLine, sweep, whyOf, resetForTests, STALL_MS, STALL_MIN_FAILS, RESAY_MS, FRESH_MS, TURN_STUCK_MS, WHY_WORDS };

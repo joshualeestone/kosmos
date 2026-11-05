@@ -117,6 +117,12 @@ function addOrWhy(name, entry) {
   } catch { return 'store'; }
 }
 
+/* #8021: is anything kept for this agent because its input box held text? A file that cannot be read this minute ends
+   nothing (as heldInputToSay), so it answers yes. */
+function heldForInput(name) {
+  const r = readEntries(name);
+  return !r.ok || r.entries.some((e) => e && e.input === true);
+}
 function has(name, id) { return list(name).some((e) => e.id === id); }
 /* The kept message with this send key (sender, text and the message it answers), at any age, or null. */
 function keptByKey(name, key) { return (key && list(name).find((e) => e.key === key)) || null; }
@@ -442,4 +448,4 @@ function sweepHooks({ chat, messages }) {
 
 function resetForTests() { done.clear(); typing.clear(); rowFixes.clear(); toldStill.clear(); limitedSeen.clear(); stillTriedAt.clear(); stillInFlight.clear(); flushingSince = 0; }
 
-module.exports = { wroteBackSince, asTyped, heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, STILL_RETRY_MS, dropAfter, forgetTold, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
+module.exports = { heldForInput, wroteBackSince, asTyped, heldWhy, heldBehindInput, heldInputToSay, isFlushing, HELD_INPUT_RESAY_MS, deliveredLine, HELD_INPUT_SAY_MS, TASK_KIND, keptNote, isTyping, isDone, addOrWhy, readEntries, resetForTests, add, has, keptByKey, list, remove, names, flush, fileFor, dir, DROP_AFTER_MS, INPUT_DROP_AFTER_MS, STILL_HELD_TELL_MS, STILL_RETRY_MS, dropAfter, forgetTold, MAX_KEPT, MAX_PER_SENDER, PER_RUN, CLAIM_STALE_MS, sweepHooks, setRow, claim, release, settle, forgetRow, hasRowFix, rowFixFor };
