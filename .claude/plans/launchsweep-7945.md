@@ -80,3 +80,10 @@ wait's ignoresSafeArea removed (centre check), a wrong 2x PNG (stale check).
   using ConnectingWait, the fade removed).
 - DEFERRED: the UI check reads the combined element's frame (ring top + words). If a later iOS reports that frame
   differently, the check goes red, not green; measured on iOS 27.
+
+## Review 6 changes
+- Projects' first wait is now measured, not assumed: KOSMOS_SAMPLE_REACHING=1 holds the Projects list on its wait too
+  (Debug, sample board only), and LaunchHandoverUITests has a second check on the Projects tab. Both pass on iPhone 17e,
+  iOS 27 (ring within 1 pt of the screen's centre). ui-sample.sh counts 2.
+- README: a return from the "Connecting to <Mac>" retry wait to the first wait starts that ring again at the launch
+  frame (a new view). SweepDots' doc comment names both first waits.
