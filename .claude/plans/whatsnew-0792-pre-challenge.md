@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: whatsnew-0792
-diff_hash: 9bb22bae8dd1f00bae60ad2f0f501968d53157f2ae1214f6ba1dda1f85320a46
-validation: passed (Mortals, full suite: 27342 tests, 0 failed, shell shards green, entry status clean, on this head ee4cd658c; an earlier run on an older head tripped the #4273 leak guard on one temp folder from a disk image macOS would not detach, nothing left on the box, and did not recur)
+diff_hash: e250b9c6ed45ee4f7ee43fecce2416d48da77a9ce11678a304d3b2e1c9085a16
+validation: passed (Mortals, full suite: 27342 tests, 0 failed, shell shards green, entry status clean, on the data commit ee4cd658c, with only this plan and proof after it; an earlier run on an older head tripped the #4273 leak guard on one temp folder from a disk image macOS would not detach, nothing left on the box, and did not recur)
 subdir_audit: passed
 timestamp: 2026-11-05T15:40:09Z
 iterations: 2
