@@ -27,6 +27,12 @@ class, a loss read as none.
 - `$CLAUDE_PROJECT_DIR` and a relative path resolve in the agent's own folder, which the route passes as `project`.
 - `async: false` and a timeout written as text are the defaults.
 
+## Review 2
+- A bare script name as the command (`gate.sh`) runs from PATH, so it is cannot tell, never inline.
+- A skill read only in part that reads the same is listed as `partlyRead`.
+- `once` is a compared run field.
+- The route's agent folder is tested end to end; both launchers start the agent in `workerDir(name)`.
+
 ## Residual, stated
 - Any other variable in a hook path (beyond HOME, CLAUDE_CONFIG_DIR and CLAUDE_PROJECT_DIR) still answers cannot tell.
 - A gate whose `if` is wider on the target is also read as not kept (a false loss, the safe direction).
