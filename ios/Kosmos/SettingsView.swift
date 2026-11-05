@@ -308,6 +308,11 @@ struct SettingsView: View {
     }
 
     @MainActor private func read() async {
+        // Let the update that first draws this tab finish before any state is set. Signed out or with no computer kept,
+        // nothing below waits, so the state was set inside that update and SwiftUI kept the first draw: the tab said
+        // "Reaching your computer" for ever with no computer to reach (measured 11-05 on a simulator, with a log of each
+        // draw: the state read signedOut, the only draw read reading). With a computer the network wait hid this.
+        await Task.yield()
         let started = generation
         if !Self.sample && SessionKeychain.live.load() == nil { mac = nil; load = .signedOut; return }
         mac = keptMac()

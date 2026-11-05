@@ -7,6 +7,8 @@ import SwiftUI
 struct TasksTab: View {
     @ObservedObject var client: BoardClient
     let openPage: (URL) -> Void
+    /// Where Sign in and Back go when the computer is not there (BoardStates), as on the Agents tab.
+    var openBoard: () -> Void = {}
     @Environment(\.scenePhase) private var scenePhase
     @State private var visible = false
     @State private var wasBackground = false
@@ -18,8 +20,23 @@ struct TasksTab: View {
     @State private var newTaskDraft = NewTask.Draft()   // kept when the sheet closes, as the board keeps its draft
     @State private var newTaskHeld: NewTask.Held?        // words that got "could not tell", kept with the draft
 
+    /// No list can come: the board is not live and not on its first connect.
+    private var boardNotThere: Bool {
+        switch client.phase {
+        case .live, .starting: return false
+        default: return true
+        }
+    }
+
     var body: some View {
         NavigationView {
+          // 11-05, a real sign-in with no computer on the account: the list is read only through a computer this phone is
+          // let into (BoardClient.refreshTasks), so with none it never came and "Reading your tasks" stayed for good
+          // (measured: still there at 2 minutes and after a relaunch). Not live and not starting, the tab says what the
+          // Agents tab says for the same state: no Mac, signed out, the Allow, a Mac that does not answer.
+          if boardNotThere {
+            BoardStates(client: client, openBoard: openBoard) { EmptyView() }
+          } else {
             TasksView(read: client.tasksList, failed: client.tasksListFailed, agentName: name,
                       open: { t in openTask = TaskPageRef(project: t.projectId, number: t.number) },
                       answer: answer,
@@ -36,6 +53,7 @@ struct TasksTab: View {
                         Task { await client.refreshTasks() }
                     }
                 }
+          }
         }
         .navigationViewStyle(.stack)
         // A Tasks read that shows the held task: it was made. Said as any create is (the sheet closes, the added line

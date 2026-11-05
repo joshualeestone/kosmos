@@ -508,7 +508,7 @@ struct ContentView: View {
                 // Review 2: the form posts to the computer this phone is connected to; before that computer has let the
                 // phone in there is none, so the board page (which waits for it) is used, as before.
                 if board.macURL != nil { newProjectOpen = true } else { openCreate(.project) }
-            })
+            }, openBoard: { showBoardToday() })
             #if DEBUG
             // Design shots only: KOSMOS_SAMPLE_NEWPROJECT=1 opens the New project form, since a simulator run cannot tap +.
             .onAppear { if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NEWPROJECT"] == "1" { newProjectOpen = true } }
@@ -525,7 +525,7 @@ struct ContentView: View {
             // the board's page under Today in the board view; a press on Tasks brings the list back.
             TasksTab(client: board, openPage: { url in
                 pushManager.boardToOpen = PushNotificationManager.BoardRequest(url: url)
-            })
+            }, openBoard: { showBoardToday() })
         } else if which == .settings {
             // kosmos#7010: a Kosmos+ page (the account, the delete flow) opens under Today in the shared web view, as an
             // agent's chat does, and so does the board's own Settings.
