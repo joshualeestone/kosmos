@@ -657,7 +657,7 @@ check(chatSource.contains("let short = scrollBox.shortOfEnd() ?? 0\n") && chatSo
       // never moves anyone; a rebuild clears the top marker; a read that moves nothing is told apart by its followKey.
       && chatSource.contains("if recover, diagDone, !atBottom, scrollBox.reading()?.place == \"within\" {")
       && chatSource.contains("Self.trace(\"diag: a later blank, a reader higher up, still blank\")\n                recoverEmpty(proxy, keepPlace: true)")
-      && chatSource.components(separatedBy: "if personScrolling || scrollBox.underFinger { diagLookAgain(); return }").count == 3
+      && chatSource.components(separatedBy: "if personScrolling || scrollBox.underFinger { diagLookAgain(); return }").count == 4
       && chatSource.contains("endVisible = false; topVisible = false; onScreen = []")
       && chatSource.contains("if Self.idAnchor, let now = self.thread, quietFollowKey == Board.followKey(now) {")
       && chatSource.contains("if Self.idAnchor, quietFollowKey == key { return }")
