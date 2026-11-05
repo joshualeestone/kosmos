@@ -7500,7 +7500,9 @@ cmd_agent() {
         say "Nothing was moved: there is no terminal here to confirm on. To move ${_mvw[0]} without being asked, add --yes."
         exit 2
       fi
-      set -- "${_mvw[0]}" "${_mvw[1]}" ;;
+      # Review 2: the name trimmed here, as the board trims it (create.cleanName), so the plan and the move name one agent.
+      local _mvn="${_mvw[0]}"; _mvn="${_mvn#"${_mvn%%[![:space:]]*}"}"; _mvn="${_mvn%"${_mvn##*[![:space:]]}"}"
+      set -- "$_mvn" "${_mvw[1]}" ;;
     instructions-add)
       # kosmos#5293: only PROPOSES. The person applies it on that agent's page; nothing here can.
       { [ -n "${1:-}" ] && [ "${2:-}" = "--from" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos agent instructions-add \"<name>\" --from <file>   (the text to add, in a file)"; exit 2; }
@@ -7693,7 +7695,7 @@ cmd_agent() {
       elif [ -n "$mv_says" ]; then
         say "$mv_says"
       else
-        say "On $mv_label it keeps every skill and hook it has now."
+        say "On $mv_label it keeps every skill and hook script it has now (skills and hooks from plugins are not checked)."
       fi
       say "Moving restarts $mv_name on $mv_label. Anything it has running stops."
       # Review 1: a script cannot read that sentence, so --yes alone never moves an agent into a known loss or an
@@ -7720,14 +7722,18 @@ cmd_agent() {
       mv_seen=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'const a=(Array.isArray(j.agents)?j.agents:[])[0]||{};console.log([one(j.id),one(a.outcome||(j.outcome==="refused"?"refused":"")),one(a.because||j.because||j.error)].join("\t"))})') \
         || { say "Kosmos gave an answer we could not read when moving $mv_name. Look at Settings, AI Models to see where it is: $URL/"; exit 1; }
       mv_id=$(cut -f1 <<<"$mv_seen"); mv_out=$(cut -f2 <<<"$mv_seen"); mv_because=$(cut -f3 <<<"$mv_seen")
-      # Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s).
-      mv_i=0
-      while [ "$mv_out" = pending ] && [ -n "$mv_id" ] && [ "$mv_i" -lt 110 ]; do
-        sleep 3; mv_i=$((mv_i + 1)); rc=0
-        body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 15 "$URL/api/agents/account-moves/$mv_id" 2>/dev/null) || rc=$?
+      # Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s). Review 2: the
+      # wait is bounded by time, not by tries (a read that times out costs 15 s), and only a 404 means forgotten; any
+      # other error (a restarting board's 503) is waited through.
+      local mv_t0=$SECONDS mv_code
+      while [ "$mv_out" = pending ] && [ -n "$mv_id" ] && [ $((SECONDS - mv_t0)) -lt 300 ]; do
+        sleep 3; rc=0
+        body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/agents/account-moves/$mv_id" 2>/dev/null) || rc=$?
         [ "$rc" -eq 0 ] || continue
-        # Review 1: a body with no agents is the route's 404 (the board restarted and no longer knows the move).
-        mv_seen=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'const a=(Array.isArray(j.agents)?j.agents:[])[0]||{};console.log([one(j.id),one(Array.isArray(j.agents)?a.outcome:"forgotten"),one(a.because)].join("\t"))})') || continue
+        mv_code="${body##*$'\n'}"; body="${body%$'\n'*}"
+        if [ "$mv_code" = 404 ]; then mv_out=forgotten; break; fi
+        case "$mv_code" in 2??) ;; *) continue ;; esac
+        mv_seen=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'const a=(Array.isArray(j.agents)?j.agents:[])[0]||{};console.log([one(j.id),one(a.outcome),one(a.because)].join("\t"))})') || continue
         mv_out=$(cut -f2 <<<"$mv_seen"); mv_because=$(cut -f3 <<<"$mv_seen")
       done
       while [[ "$mv_because" == *[.[:space:]] ]]; do mv_because="${mv_because%?}"; done

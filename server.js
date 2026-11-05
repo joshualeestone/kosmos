@@ -16466,11 +16466,14 @@ const server = http.createServer(async (req, res) => {
     const dir = String(q.get('dir') || '');
     const said = String(q.get('account') || '').trim();
     if (!name) { sendJson(res, 400, { ok: false, because: 'we need the agent to move' }); return; }
+    if (!said && !dir) { sendJson(res, 400, { ok: false, because: 'we need the account to move it to' }); return; }   // review 2: never a silent default
     let known = [];
     try { known = (accounts.list() || []).filter((a) => a && typeof a.dir === 'string' && a.dir); } catch { known = []; }
     const real = (d) => { try { return fs.realpathSync(d); } catch { return require('node:path').resolve(d); } };
     const labelOf = (a) => (a.isDefault ? 'the main account' : String(a.label || require('node:path').basename(a.dir)));
-    const namesOf = (a) => [labelOf(a), a.label, a.email, require('./engine/accountline').accountName(a),
+    /* Review 2: the chosen name (.kosmos-name), which kosmos accounts prints first when there is one. */
+    const chosen = (a) => { try { return openaiAccounts.readName(a.dir); } catch { return null; } };
+    const namesOf = (a) => [labelOf(a), a.label, a.email, chosen(a), require('./engine/accountline').accountName({ ...a, name: chosen(a) }),
       ...(a.isDefault ? ['main', 'the main account', 'the default account'] : [])].filter((x) => typeof x === 'string' && x);
     let target = null;
     if (said) {

@@ -9,14 +9,16 @@
  * how a move once dropped the team's skills and pre-challenge gate.
  *
  * This reads both folders and names what is in the source and not in the target:
- *  - skills, by folder name under skills/ (a link counts: that is how Agent1s shares them);
+ *  - skills, by folder name under skills/ (a link counts: that is how Agent1s shares them), and by the contents of
+ *    their SKILL.md (review 2: a stale same-named copy is not the same skill);
  *  - hooks, by the script each hook command runs (its basename), so a gate spelled `~/.claude/hooks/x.sh` in one folder
  *    and `$HOME/.claude/hooks/x.sh` in another is one gate. A hook is KEPT only when the target wires that script under
  *    the same event and matcher, the target does not set "disableAllHooks", and the script file (when the command names
  *    a path this can resolve) exists for the target with the same contents (review 1: a name alone could read a gate
  *    that will not fire as kept).
- *  - Not compared: skills and hooks that come from plugins (enabledPlugins). Named here so nobody reads this as covering
- *    them.
+ *  - Not compared: skills and hooks that come from plugins (enabledPlugins), commands/, agents/, CLAUDE.md, and the
+ *    rest of settings.json (permissions, env). Named here, and in the sentence a person reads (sentence() says "skills
+ *    and hook scripts"), so nobody reads this as covering them.
  *
  * 🛑 A folder that cannot be read is "cannot tell", never "nothing lost": { ok: false, because }. A caller must not
  * read ok:false as safe. Reads only; never writes, never follows a link outside to write.
@@ -31,6 +33,12 @@ function folderOf(dir, home = os.homedir()) {
   return typeof dir === 'string' && dir ? dir : path.join(home, '.claude');
 }
 
+/* name -> the SKILL.md's contents hash ('' when it has none), for every skill folder. */
+function skillSums(dir) {
+  const out = new Map();
+  for (const n of skillNames(dir)) out.set(n, digest(path.join(dir, 'skills', n, 'SKILL.md')) || '');
+  return out;
+}
 function skillNames(dir) {
   const root = path.join(dir, 'skills');
   let entries;
@@ -52,7 +60,7 @@ function hookId(command) {
   const words = String(command).trim().split(/\s+/);
   for (const w of words) {
     const bare = w.replace(/^["']|["']$/g, '');
-    if (/\.(sh|js|mjs|cjs|py)$/.test(bare)) return path.basename(bare);
+    if (/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(bare)) return bare.split(/[\\/]/).pop();   // review 2: a Windows board's scripts too (either separator)
   }
   return String(command).trim();
 }
@@ -62,7 +70,7 @@ function hookId(command) {
 function scriptPath(command, folder, home) {
   for (const w of String(command).trim().split(/\s+/)) {
     let bare = w.replace(/^["']|["']$/g, '');
-    if (!/\.(sh|js|mjs|cjs|py)$/.test(bare)) continue;
+    if (!/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(bare)) continue;
     bare = bare.replace(/^~(?=\/)/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, folder);
     return path.isAbsolute(bare) && !bare.includes('$') ? bare : null;
   }
@@ -87,7 +95,10 @@ function hookEntries(dir, home) {
         if (!h || typeof h.command !== 'string' || !h.command.trim()) continue;
         const id = hookId(h.command);
         const at = scriptPath(h.command, dir, home);
-        list.push({ id, wiring: `${event}\n${matcher}\n${id}`, file: at, sum: at ? digest(at) : null });
+        /* Review 2: the wiring keeps the command's arguments (`gate.sh pre` and `gate.sh post` are two hooks), with the
+           home and folder spellings made one, so the same gate spelled ~ or $HOME still matches. */
+        const args = String(h.command).trim().split(/\s+/).filter((x) => !/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)["']?$/i.test(x) && !/^(bash|sh|node|python3?|pwsh|powershell)$/.test(x)).join(' ');
+        list.push({ id, wiring: `${event}\n${matcher}\n${id}\n${args}`, file: at, sum: at ? digest(at) : null });
       }
     }
   }
@@ -106,9 +117,9 @@ function losses(fromDir, toDir, opts = {}) {
   const from = folderOf(fromDir, home);
   const to = folderOf(toDir, home);
   let fs1; let fs2; let fh; let th;
-  try { fs1 = skillNames(from); fh = hookEntries(from, home); }
+  try { fs1 = skillSums(from); fh = hookEntries(from, home); }
   catch { return { ok: false, because: 'we could not read the skills and hooks of the account it is on' }; }
-  try { fs2 = skillNames(to); th = hookEntries(to, home); }
+  try { fs2 = skillSums(to); th = hookEntries(to, home); }
   catch { return { ok: false, because: 'we could not read the skills and hooks of the account it would move to' }; }
   const lost = new Set();
   if (!fh.off) {
@@ -120,7 +131,7 @@ function losses(fromDir, toDir, opts = {}) {
       if (!kept) lost.add(h.id);
     }
   }
-  return { ok: true, skills: [...fs1].filter((s) => !fs2.has(s)).sort(), hooks: [...lost].sort() };
+  return { ok: true, skills: [...fs1.keys()].filter((s) => !fs2.has(s) || fs2.get(s) !== fs1.get(s)).sort(), hooks: [...lost].sort() };
 }
 
 /* One sentence for a person, or null when nothing is lost. */
@@ -129,7 +140,7 @@ function sentence(l) {
   const parts = [];
   if (l.skills.length) parts.push(`${l.skills.length === 1 ? 'the skill' : 'the skills'} ${l.skills.join(', ')}`);
   if (l.hooks.length) parts.push(`${l.hooks.length === 1 ? 'the hook' : 'the hooks'} ${l.hooks.join(', ')}`);
-  return parts.length ? `On that account it would not have ${parts.join(', or ')}.` : null;
+  return parts.length ? `On that account it would not have ${parts.join(', or ')} it has now.` : null;
 }
 
-module.exports = { losses, sentence, hookId, skillNames, hookIds, hookEntries, scriptPath, folderOf };
+module.exports = { losses, sentence, hookId, skillNames, skillSums, hookIds, hookEntries, scriptPath, folderOf };
