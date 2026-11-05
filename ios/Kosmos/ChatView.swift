@@ -1047,7 +1047,8 @@ struct ChatView: View {
         // put right only as Board.emptyRecovery says: past the content's end, or (build 24) rebuilt when within the content
         // at the newest. Nobody scrolling either way. The first try, the reported blank, rebuilds whatever the anchor
         // (TestFlight 37), and a later blank for a reader higher up does so once it holds still (below). A later reading reaches here only through
-        // diagCheck, which asks for no row counted and nobody scrolling, and (unless the list never drew) the end and the top not showing.
+        // diagCheck, which asks for no row counted and nobody scrolling, and, unless the list never drew, the end and the top not showing.
+        // The later-blank arm below asks for the end and the top itself.
         // Review 5: a blank that comes after the first try, for a reader higher up, is still a blank: rebuilt if it holds
         // still for blankConfirm, as the settled look does, so a list empty for an instant moves nobody.
         if recover, diagDone, !atBottom, scrollBox.reading()?.place == "within" {
