@@ -24,7 +24,7 @@ fs.writeFileSync(CLI, '#!/bin/bash\n'
   + 'if [ "$1" = report ] && [ "$2" = idle ]; then read n kind wait < "' + MODE + '"; sleep "${wait:-0}";\n'
   + '  if [ "$n" -gt 0 ]; then echo "$((n-1)) $kind 0" > "' + MODE + '";\n'
   + '    case "$kind" in waiting) echo "  That was not recorded: it is waiting on a person (needs_you), so an automatic idle did not overwrite that." ;;\n'
-  + '      unsaved) echo "  That was not recorded: we could not save that report." ;; down) echo "  Kosmos is not running, so this could not be recorded. Start it with: kosmos start" ;; refused) echo "  Kosmos refused that: something went wrong." ;; unmatched) echo "  That was not recorded: we could not match that to one of your agents." ;; *) echo "  Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
+  + '      unsaved) echo "  That was not recorded: we could not save that report." ;; down) echo "  Kosmos is not running, so this could not be recorded. Start it with: kosmos start" ;; refused) echo "  Kosmos refused that: something went wrong." ;; unmatched) echo "  That was not recorded: we could not match that to one of your agents." ;; busy) echo "  Kosmos is running but too busy to answer (no reply in 4 s), so this could not be recorded. Wait a minute and try again; it does not need a restart." ;; account) echo "  That was not recorded: this board only records a report from the account that started it; run kosmos report from that account, or present an agent token." ;; *) echo "  Kosmos is not reachable right now." ;; esac; exit 1; fi; fi\n'
   + 'exit 0\n');
 fs.chmodSync(CLI, 0o755);
 
@@ -53,10 +53,10 @@ test('CONTROL: a turn end that goes through is sent once, and leaves no note', (
 });
 
 test('the hook does not wait on the send: it returns at once while the board takes 2 s', () => {
-  setup('0 unreached 2');
+  setup('0 unreached 4');
   const ms = hook('Stop');
-  assert.ok(ms < 1500, 'the hook returned after ' + ms + ' ms; a send holding its output would take over 2000');
-  settle(1);
+  assert.ok(ms < 3000, 'the hook returned after ' + ms + ' ms; a send holding its output would take over 4000');
+  settle(1); sleepMs(2000);
 });
 
 test('a first send the board never answered is tried again, and a retry that lands leaves no note', () => {
@@ -93,16 +93,28 @@ test('a "not recorded" for another reason (a save that failed) is retried, and n
 
 test('the hook keys on the board\'s own words for a deliberate wait, so rewording them cannot quietly stop retries', () => {
   const src = fs.readFileSync(path.join(__dirname, 'engine', 'selfreport.js'), 'utf8');
-  const waits = src.split("skipped: 'waiting'").length - 1;
-  const words = src.split('did not overwrite').length - 1;
-  assert.ok(waits >= 3 && words >= waits, 'every skipped:waiting answer says "did not overwrite" (' + words + ' of ' + waits + ')');
+  // Each skipped:'waiting' answer, paired with its own because (the object literal it sits in), not merely counted.
+  const objs = src.split("skipped: 'waiting'").slice(0, -1).map((before, i, all) => {
+    const open = before.lastIndexOf('{');
+    const after = src.split("skipped: 'waiting'")[i + 1];
+    return before.slice(open) + after.slice(0, after.indexOf('}'));
+  });
+  assert.ok(objs.length >= 3, 'found ' + objs.length + " skipped:'waiting' answers");
+  for (const o of objs) assert.match(o, /because:[^}]*did not overwrite/, 'this answer has its own "did not overwrite": ' + o.slice(0, 200));
   const hook = fs.readFileSync(HOOK, 'utf8');
-  assert.match(hook, /_TE_KEEP='did not overwrite\|could not match that to one of your agents\|cannot tell which agent'/);
+  const keep = (hook.match(/_TE_KEEP='([^']*)'/) || [])[1].split('|');
   const messages = fs.readFileSync(path.join(__dirname, 'engine', 'messages.js'), 'utf8');
-  for (const words of ['could not match that to one of your agents', 'cannot tell which agent']) {
-    assert.ok(messages.includes(words), 'engine/messages.js still says "' + words + '"');
-  }
-  assert.match(fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8'), /Kosmos is not running, so /);
+  const server = fs.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
+  const sources = { 'did not overwrite': src, 'could not match that to one of your agents': messages,
+    'cannot tell which agent': messages, 'could not tell which agent that was': messages,
+    'does not look like something we can identify you by': messages,
+    'from the account that started it; run': server };
+  assert.deepEqual(keep.slice().sort(), Object.keys(sources).sort(), 'every no-retry phrase has a named source');
+  for (const [words, file] of Object.entries(sources)) assert.ok(file.includes(words), 'its source still says "' + words + '"');
+  const cli = fs.readFileSync(path.join(__dirname, 'install', 'kosmos'), 'utf8');
+  assert.match(cli, /Kosmos is not running, so /);
+  assert.match(cli, /Kosmos is running but too busy to answer/);
+  assert.match(hook, /_TE_BUSY='too busy to answer'/);
 });
 
 test('a session with no tmux pane (the person\'s own Claude) sends once, as before: no retry, no note', () => {
@@ -127,4 +139,22 @@ test('a pane the board cannot tie to an agent is neither retried nor noted: a re
   setup('2 unmatched 0'); hook('Stop'); settle(1);
   assert.equal(idle().length, 1, JSON.stringify(idle()));
   assert.equal(note(), null);
+});
+
+test('a board too busy to answer is not retried (a stall gets no second send), and is noted at once', () => {
+  setup('2 busy 0'); hook('Stop'); settle(1);
+  assert.equal(idle().length, 1, JSON.stringify(idle()));
+  assert.match(String(note()), /pane _7: idle not delivered, the board was too busy \(not retried\) \(exit 1\): Kosmos is running but too busy/);
+});
+
+test('a report from another account is neither retried nor noted: a retry cannot change it', () => {
+  setup('2 account 0'); hook('Stop'); settle(1);
+  assert.equal(idle().length, 1, JSON.stringify(idle()));
+  assert.equal(note(), null);
+});
+
+test('two Stops in a row: the second takes over the token, so only its retry runs', () => {
+  setup('3 unreached 0'); hook('Stop'); hook('Stop'); settle(3);
+  // first Stop: send fails, its retry is not started (the second Stop's token replaced it); second Stop: send + retry.
+  assert.equal(idle().length, 3, JSON.stringify(idle()));
 });
