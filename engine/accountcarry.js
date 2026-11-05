@@ -39,7 +39,7 @@ function folderOf(dir, home = os.homedir()) {
   return typeof dir === 'string' && dir ? dir : path.join(home, '.claude');
 }
 
-/* name -> the SKILL.md's contents hash ('' when it has none), for every skill folder. */
+/* name -> { sum (the skill folder's hash), cut (read only in part) }, for every skill folder with a SKILL.md. */
 /* Review 6: a skill is its whole folder (SKILL.md and the scripts and references beside it), hashed by each file's
    path and contents, at most MAX_SKILL_FILES files deep; a folder past that hashes what it read and says so in its
    sum, so two such folders differ unless their first files match. */
@@ -78,7 +78,8 @@ function folderSum(root) {
       h.update(r + '\0' + (d ? d.sum : 'unreadable') + '\0');
     }
   };
-  /* Review 1: SKILL.md first, outside every cap, so a large folder sorted ahead of it cannot hide a changed SKILL.md. */
+  /* Review 1: SKILL.md first, ahead of the folder and budget caps, so a large folder sorted ahead of it cannot hide a
+     changed SKILL.md (it is still read to its first 1 MB plus its size, like any file). */
   { const d = cappedDigest(path.join(root, 'SKILL.md')); h.update('SKILL.md\0' + (d ? d.sum : 'unreadable') + '\0'); }
   walk('');
   if (cut) h.update('truncated');
@@ -158,6 +159,16 @@ function resolveWord(word, folder, home, project) {
   }
 }
 function digest(file) { try { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); } catch { return null; } }
+/* #8063 review 3: a script found only through the agent's folder is certain only when it is there and the command does
+   not change folder first. Missing there, bash may still find it on PATH, or a `cd` may have moved the working folder, so
+   it is not "does not run here": it cannot be checked. A script at a path the hook spells out in full keeps the old
+   reading (missing means it does not run). */
+const CHANGES_FOLDER = /(^|[;&|(]\s*)(cd|pushd)\s/;
+function uncertain(at, sum, project, command) {
+  if (!project || !at) return false;
+  if (!path.resolve(at).startsWith(path.resolve(project) + path.sep)) return false;
+  return sum === null || CHANGES_FOLDER.test(String(command));
+}
 /* #8063 item 3: a file's hash read no further than MAX_FILE_BYTES: { sum, read }, or null when it cannot be read. */
 function cappedDigest(file) {
   let fd = null;
@@ -217,11 +228,13 @@ function hookEntries(dir, home, project) {
           const script = words.find((x) => /\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(x.trim()));
           const oneX = (x) => x.replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home).split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
           const id = script ? script.trim().split(/[\\/]/).pop() : words.join(' ');
-          const at = script ? resolveWord(script.trim(), dir, home, project) : null;
+          /* Review 3: as in the shell form, a bare name as the command itself is looked up on PATH. */
+          const onPath = !!script && script === words[0] && !/[\\/]/.test(script.trim());
+          const at = script && !onPath ? resolveWord(script.trim(), dir, home, project) : null;
           const sum = at ? digest(at) : null;
           if (at && sum === null && fs.existsSync(at)) throw new Error(`the hook script ${at} cannot be read`);
           const key = 'exec\n' + words.filter((x) => x !== script).map(oneX).join('\0') + (script ? '\n' + id : '');
-          list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved: !!script && at === null });
+          list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved: !!script && (at === null || uncertain(at, sum, project, '')) });
           continue;
         }
         if (typeof h.command !== 'string' || !h.command.trim()) {
@@ -252,7 +265,7 @@ function hookEntries(dir, home, project) {
         const scriptless = !String(h.command).trim().split(/\s+/).some((x) => /\.(sh|js|mjs|cjs|py|ps1|bat|cmd)["']?$/i.test(x));
         const key = scriptless ? String(h.command).trim().split(/\s+/).map(one).join(' ') : `${id}\n${args}`;
         /* #8063 item 2: a command that names a script this cannot resolve cannot be checked. */
-        const unresolved = !scriptless && at === null;
+        const unresolved = !scriptless && (at === null || uncertain(at, sum, project, h.command));
         list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved });
       }
     }
@@ -315,7 +328,7 @@ function losses(fromDir, toDir, opts = {}) {
   if (!unchecked.length) return known;
   const also = sentence(known);
   return { ...known, ok: false, unchecked,
-    because: `we could not check ${unchecked.length === 1 ? 'the hook' : 'the hooks'} ${unchecked.join(', ')}: ${unchecked.length === 1 ? 'its script path is' : 'their script paths are'} not one we can follow.${also ? ' ' + also : ''}` };
+    because: `${unchecked.length === 1 ? 'the hook' : 'the hooks'} ${unchecked.join(', ')} ${unchecked.length === 1 ? 'runs a script' : 'run scripts'} we cannot find for certain.${also ? ' ' + also : ''}` };
 }
 
 /* Whether a move loses anything: a skill or hook the target does not have. A different copy is not a loss. */
@@ -330,6 +343,8 @@ function sentence(l) {
   const out = [];
   if (parts.length) out.push(`On that account it would not have ${parts.join(', or ')} it has now.`);
   if (changed.length) out.push(`That account has a different copy of ${changed.length === 1 ? 'the skill' : 'the skills'} ${changed.join(', ')}.`);
+  const part = Array.isArray(l.partlyRead) ? l.partlyRead : [];
+  if (part.length) out.push(`${part.length === 1 ? 'The skill' : 'The skills'} ${part.join(', ')} ${part.length === 1 ? 'is' : 'are'} too large to compare whole; the part compared is the same.`);
   const hc = Array.isArray(l.hooksChanged) ? l.hooksChanged : [];
   if (hc.length) out.push(`It has a different copy of ${hc.length === 1 ? 'the hook' : 'the hooks'} ${hc.join(', ')}, which may not do what the agent's does now.`);
   return out.length ? out.join(' ') : null;
