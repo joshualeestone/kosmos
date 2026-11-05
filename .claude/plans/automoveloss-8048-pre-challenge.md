@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: automoveloss-8048
-diff_hash: d248f2552dd4ef66e987903dba4a06430d3ee5db88460f8d2dabbfb30c0031e9
+diff_hash: 716fe0cae0c704e33c1d03b90aeffb13cd4e1531990a2388238e62b49ff1de9b
 validation: local only on 155bded526: engine/automove-7548, engine/autobalance-7152, engine/autobalance-sweep-7152, server.automove-deps-7621, server.autobalance-7152, engine/assigner-failover-5382 (160/160); static guards web.*, fixture-discipline, engine.reachable, tools.browser-check* (3740/3740). The full suite runs on the PR's CI.
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-05T22:22:54Z
