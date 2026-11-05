@@ -841,8 +841,6 @@ struct ProjectsView: View {
         }
     }
 
-
-
     private func message(_ title: String, _ detail: String) -> some View {
         VStack(spacing: 6) {
             Text(title).font(.headline).foregroundColor(Palette.primary).accessibilityAddTraits(.isHeader)
