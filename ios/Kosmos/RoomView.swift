@@ -55,6 +55,7 @@ struct RoomView: View {
     @State private var rowTops = RowTops()   // kosmos#7654 part 2: the DM's keyboard hold reads the reader's row by this
     @State private var roomListEpoch = 0   // kosmos#7957: a new epoch is a new list (roomBlankLook)
     @State private var roomRebuilds = 0   // kosmos#7957: since posts were last drawn
+    @State private var roomDrawn: Set<String> = []   // kosmos#7957: the posts on screen, of this list only
     // On screen (not covered by a member's chat or another tab): the re-read loop runs only then, so a hidden room is
     // never marked seen.
     @State private var visible = false
@@ -716,24 +717,34 @@ struct RoomView: View {
 
     // kosmos#7957 (CI, twice on one PR): the hold placed the list by id and the room stayed blank; a second scroll does not help a
     // list that draws nothing (kosmos#7420), a new one opened at the newest does. A blank screen keeps no place worth holding.
-    private func roomBlankLook() {
+    // In the chat's order (recoverEmpty): a new list with no anchor, its end asked for once it exists, then one look more, since
+    // a new list that draws nothing never has a row leave. Created already anchored, a long list stayed empty there.
+    private func roomBlankLook(_ proxy: ScrollViewProxy, after: Double = Board.roomBlankLook) {
         let at = roomListEpoch
-        DispatchQueue.main.asyncAfter(deadline: .now() + Board.roomBlankLook) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + after) {
             guard at == roomListEpoch else { return }
-            let drawn = rowTops.y.count
-            if drawn > 0 { roomRebuilds = 0; return }
-            guard Board.roomBlankRebuilds(visible: visible, searching: searchMode, scrolling: roomScrolling, drawn: drawn, posts: items.count, rebuilds: roomRebuilds) else { return }
+            if !roomDrawn.isEmpty { roomRebuilds = 0; return }
+            guard Board.roomBlankRebuilds(visible: visible, searching: searchMode, scrolling: roomScrolling, drawn: roomDrawn.count, posts: items.count, rebuilds: roomRebuilds) else { return }
             roomRebuilds += 1
             ChatView.trace("room: no post drawn after the keyboard hold, list rebuilt")
             endJumps &+= 1; appMoves &+= 1
-            rowTops.reset(); settledAtBottom = false
-            if RoomView.idAnchor { roomPosition = "bottom" }
+            rowTops.reset(); roomDrawn = []; settledAtBottom = false; endShown = false; holdAtEnd = false; atBottom = true
+            roomPosition = nil
             roomListEpoch &+= 1
+            let now = roomListEpoch
+            for ask in [0.05, 0.4] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + ask) {
+                    guard now == roomListEpoch, !roomScrolling else { return }
+                    toEnd(proxy, animated: false)
+                }
+            }
+            roomBlankLook(proxy, after: Board.rebuildGrace + Board.rebuildCheckBump)
         }
     }
 
     private var thread: some View {
         ScrollViewReader { proxy in
+            let listAt = roomListEpoch   // kosmos#7957: an old list's rows and end, leaving after a rebuild, say nothing about the new one
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 6) {
                     // The top of the room: it leaving the screen after the first layout proves the jump to the newest
@@ -775,7 +786,9 @@ struct RoomView: View {
                                 .onAppear { sayOnce(Board.roomPartialLine) }   // spoken, as the room speaks its no-match sentence
                         } else { noMatch }
                     }
-                    ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id).modifier(RowTop(id: item.id, rows: rowTops)) }
+                    ForEach(items) { item in itemView(item).id(item.id).accessibilityFocused($focusedPost, equals: item.id).modifier(RowTop(id: item.id, rows: rowTops))
+                        .onAppear { if listAt == roomListEpoch { roomDrawn.insert(item.id) } }
+                        .onDisappear { if listAt == roomListEpoch { roomDrawn.remove(item.id) } } }
                     if archiveShown == nil { ForEach(store.pending[project.id] ?? []) { p in pendingView(p) } }   // review 1: the live room's only
                     if archiveShown == nil && store.roomFailed.contains(project.id) {
                         Text("We cannot read this room right now. What is shown may be behind.")
@@ -799,6 +812,7 @@ struct RoomView: View {
                             if !settledAtBottom && !rows.isEmpty { DispatchQueue.main.async { settledAtBottom = true } }
                         }
                         .onDisappear {
+                            guard listAt == roomListEpoch else { return }
                             atBottom = false; endShown = false; holdAtEnd = false; endShows &+= 1
                             #if DEBUG
                             // kosmos#7645 review 6: what clears holdAtEnd, so a will-show reading "at end false" can be traced to it.
@@ -814,7 +828,7 @@ struct RoomView: View {
                 } onRowLost: { id, f in
                     // kosmos#7654 part 2: the anchor let go first, so the scroll position does not pull it elsewhere.
                     if RoomView.idAnchor { roomPosition = nil }
-                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: f)); ChatView.trace("room keyboard hold: placed by id"); roomBlankLook() }
+                    DispatchQueue.main.async { proxy.scrollTo(id, anchor: UnitPoint(x: 0.5, y: f)); ChatView.trace("room keyboard hold: placed by id"); roomBlankLook(proxy) }
                 })
                 .modifier(PositionTargets(on: RoomView.idAnchor))   // kosmos#7654 part 2
                 .modifier(ContentSpace())   // kosmos#7654 part 2
