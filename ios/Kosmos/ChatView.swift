@@ -561,7 +561,13 @@ struct ChatView: View {
                         // lands); on iOS 17+ every row is lazy and the id anchor holds the place (see idAnchor).
                         chatRows(items)
                         pendingBubbles(pendingLayout)
-                        if working { WorkingLine(name: shown.name).padding(.top, 12).id("working") }
+                        // kosmos#7348: the line always has its room, so its coming and going moves nothing (measured: 27 pt
+                        // when an agent picked up a message just sent). Hidden, not at no opacity: at no opacity the dots still
+                        // animate and VoiceOver still hears it.
+                        ZStack {
+                            if working { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name).hidden() }
+                        }
+                        .padding(.top, 12).id("working")
                         Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
                             .onAppear {
                                 guard drawnEpoch == listEpoch else { return }
