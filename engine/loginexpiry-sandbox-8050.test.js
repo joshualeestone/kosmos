@@ -12,7 +12,7 @@ const le = require('./loginexpiry');
 
 const VAR = 'KOSMOS_BC_LOGIN_UNTIL_MS';
 const FAKE_KEYCHAIN_DATE = 1234;
-const FIXTURE_DATE = 4102444800000;
+const FIXTURE_DATE = 4102488000000;   // the value tools/browser-checks.sh exports: its own test below holds them together
 let dir;
 let marker;
 let saved;
@@ -76,6 +76,7 @@ test('tools/browser-checks.sh sets it before any board boots', () => {
   const set = src.search(/^export KOSMOS_BC_LOGIN_UNTIL_MS=\d+$/m);
   const boot = src.search(/^boot_board\(\)/m);
   assert.ok(set >= 0, 'browser-checks.sh does not export the variable');
+  assert.ok(src.includes(`export ${VAR}=${FIXTURE_DATE}\n`), 'browser-checks.sh exports a different date from this test');
   assert.ok(boot >= 0, 'browser-checks.sh no longer defines boot_board, so this order check reads nothing');
   assert.ok(set < boot, 'the export must come before the first board can boot');
 });

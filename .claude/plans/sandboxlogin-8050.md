@@ -29,7 +29,9 @@ it, through the default Claude row. That stopped the 0.7.92 cut after 106 minute
 
 ## Weakest premise
 That a production board never has this variable. It is named for the browser checks and set nowhere else; a board that
-had it would show a false "Signed in" date. It would still need `claude auth status` to say signed in.
+had it would show a false "Signed in" date. It would still need `claude auth status` to say signed in. Rejected as
+guards: a second marker, since the only one to hand can be set on a real board too; a warning line, which risks tripping
+checks that read board logs, for a state nothing produces.
 
 ## Steps
 1. The seam, the export, engine/loginexpiry-sandbox-8050.test.js.
