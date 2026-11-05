@@ -103,9 +103,11 @@ test('kosmos#7989 slice 2: outside every project exits 1 with the renderer\'s wo
 }));
 
 test('kosmos#7989 slice 2: no file, two files, or an option is a usage error, before the board is asked', () => withStub(async (env, seen) => {
-  for (const args of [['project', 'who'], ['project', 'who', 'a', 'b'], ['project', 'who', '--json']]) {
+  for (const args of [['project', 'who'], ['project', 'who', 'a', 'b'], ['project', 'who', '--json'], ['project', 'who', '-x']]) {
     const out = await runCli(args, env);
     assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
   }
+  const help = await runCli(['project', 'who', '-h'], env);
+  assert.match(help.stdout, /kosmos project who <file>/, '-h did not print the help');
   assert.deepEqual(seen, [], 'a usage error still asked the board');
 }));

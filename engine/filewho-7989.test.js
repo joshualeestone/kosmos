@@ -61,7 +61,7 @@ test('kosmos#7989 slice 2: an edit that follows its record reads as seen, with i
   assert.equal(a.lastChange, 'seen');
   const lines = renderWho(a);
   assert.match(lines.join('\n'), /Kosmos last saw mona about to change it/);
-  assert.match(lines.join('\n'), /most likely that edit/);
+  assert.match(lines.join('\n'), /came within two minutes of that, so it was most likely that edit/);
   assert.match(lines.join('\n'), /Owner: mona, the first agent seen changing it here/);
 });
 
@@ -80,7 +80,8 @@ test('kosmos#7989 slice 2: a file unchanged since its record says the edit had n
   r.write('old.md', 'mona', T);
   const a = r.about('old.md');
   assert.equal(a.lastChange, 'before');
-  assert.match(renderWho(a).join('\n'), /has not changed since/);
+  assert.match(renderWho(a).join('\n'), /older than that, so that edit does not seem to have landed \(it may have failed\), or a tool restored an older time/);
+  assert.doesNotMatch(renderWho(a).join('\n'), /has not changed/, 'an older time was read as proof the content is unchanged');
 });
 
 test('kosmos#7989 slice 2: the owner and the last agent seen are told apart', () => {
@@ -107,7 +108,7 @@ test('kosmos#7989 slice 2: a file with no record names nobody, and says who it m
   assert.equal(a.lastChange, null);
   const text = renderWho(a).join('\n');
   assert.match(text, /no record of any agent changing it/);
-  assert.match(text, /a person, or by a tool that writes outside the edit hook/);
+  assert.match(text, /Kosmos cannot say who changed it last: a person, a tool that writes outside the edit hook \(a shell command, a script\), or a change older than its record/);
   assert.doesNotMatch(text, /Owner:/, 'a file nobody was seen changing printed an owner line');
 });
 
@@ -144,6 +145,17 @@ test('kosmos#7989 slice 2: a path outside every project, a relative path and a c
   assert.deepEqual(fw.about(r.file('a\nb.md'), { projects: list }), { ok: false, because: 'path' });
   assert.match(renderWho({ ok: false, because: 'outside' })[0], /not inside any project's folder/);
   assert.match(renderWho(null)[0], /could not read/);
+});
+
+test('kosmos#7989 slice 2 review 1: a folder, the project\'s own included, is said to be a folder, not a file that is gone', () => {
+  const r = room();
+  fs.mkdirSync(r.file('sub'), { recursive: true });
+  const list = [{ id: r.id, folder: r.folder }];
+  assert.deepEqual(r.about('sub'), { ok: false, because: 'folder' });
+  assert.deepEqual(fw.about(r.folder, { projects: list }), { ok: false, because: 'folder' });
+  assert.deepEqual(fw.about(r.folder + '/', { projects: list }), { ok: false, because: 'folder' });
+  assert.deepEqual(fw.about(path.join(real, 'elsewhere-dir'), { projects: list }), { ok: false, because: 'outside' }, 'CONTROL: a path in no project is still outside');
+  assert.match(renderWho({ ok: false, because: 'folder' })[0], /That is a folder, not a file/);
 });
 
 test('kosmos#7989 slice 2: display names are shown with the session name, and a failing lookup falls back to it', () => {

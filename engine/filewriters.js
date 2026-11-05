@@ -228,19 +228,27 @@ function annotate(projectId, files, nameOf = (s) => s) {
    since a project made a moment ago must answer). `lastChange` compares the file's modification time with the last
    record by writerOf's window: 'seen' (the change follows the record), 'after' (it changed later, unseen), 'before' (it
    has not changed since the record), or null (no record, or no file). `nameOf` gives an agent's display name. Never
-   throws; a path outside every project folder answers { ok: false, because: 'outside' }. */
+   throws; a path outside every project folder answers { ok: false, because: 'outside' }, and a folder (a project's
+   own, or one inside it) { ok: false, because: 'folder' }, said only for a path inside a project. */
 function about(file, { projects, nameOf = (s) => s } = {}) {
   try {
     if (typeof file !== 'string' || !path.isAbsolute(file) || /[\x00-\x1f\x7f]/.test(file)) return { ok: false, because: 'path' };
     const list = Array.isArray(projects) ? projects : require('./projects').readAll();
-    const at = projectOf(file, rootsOf(list));
-    if (!at) return { ok: false, because: 'outside' };
+    const roots = rootsOf(list);
+    const at = projectOf(file, roots);
+    if (!at) {
+      // Review 1: a project's own folder is in no project by projectOf (an empty name), and is not "outside" either.
+      const abs = resolved(file);
+      return roots.some((r) => r.root === abs) ? { ok: false, because: 'folder' } : { ok: false, because: 'outside' };
+    }
     const shown = (s) => { try { return nameOf(s) || s; } catch { return s; } };
     const rec = readRecord(at.projectId);
     const entry = at.name !== NOTICES_KEY && rec[at.name] && typeof rec[at.name] === 'object' ? rec[at.name] : null;
     let modified = null;
     try {
       const st = fs.statSync(resolved(file));
+      // Review 1: a folder inside a project is not a file that is gone; it has no record of its own.
+      if (st.isDirectory()) return { ok: false, because: 'folder' };
       if (st.isFile()) modified = new Date(st.mtimeMs).toISOString();
     } catch { /* not there */ }
     const seen = entry && typeof entry.agent === 'string' && entry.agent && Number.isFinite(Date.parse(entry.at)) ? entry : null;

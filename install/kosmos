@@ -7010,7 +7010,9 @@ cmd_project() {
     who)
       # kosmos#7989 slice 2: a path to a file in a project's folder, absolute or from here; the board finds the project.
       { [ -n "${1:-}" ] && [ $# -eq 1 ]; } || { say "Usage: kosmos project who <file>   (a path to a file inside a project's folder)"; exit 2; }
-      case "$1" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "project who" "Usage: kosmos project who <file>" "$1" file ;; esac
+      # Review 1: -h too (a single dash), which would otherwise be read as a file named -h here. A file that really
+      # starts with a dash is reached as ./-name.
+      case "$1" in -[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-]*) _refuse_option "project who" "Usage: kosmos project who <file>   (a file starting with - is ./-name)" "$1" file ;; esac
       case "$1" in /*) ;; *) set -- "$PWD/$1" ;; esac ;;
     # Validate BEFORE the health check, the same order cmd_post / cmd_task use, so a
     # malformed call is named even when the board is stopped (not hidden behind
@@ -7095,6 +7097,7 @@ cmd_project() {
       # Nothing printed is a renderer that could not run (a missing module), never a silent success.
       [ -n "$_wout" ] || { say "Kosmos could not print the board's answer about that file."; exit 1; }
       printf '%s\n' "$_wout"
+      [ "$_wrc" -eq 0 ] || token_refused_hint "$_wtok" "$body"
       exit "$_wrc"
       ;;
     list|show)

@@ -24157,6 +24157,10 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/project-file/who' && (req.method === 'GET' || req.method === 'HEAD')) {
     let file = null;
     try { file = new URL(req.url, ROUTING_BASE).searchParams.get('path'); } catch { file = null; }
+    /* Review 1: unlike the Documents list it names any path a caller gives inside a folder (.git, .env), so a page on
+       another site or another computer's page through the relay is refused; the CLI sends no Sec-Fetch-Site. */
+    const refusedRead = crossSiteRead(req) || (isSiblingRead(req) ? 'only an agent or the person on this computer can ask who changes a file' : null);
+    if (refusedRead) { sendJson(res, 403, { ok: false, error: refusedRead }); return; }
     if (!file) { sendJson(res, 400, { ok: false, error: 'say which file: ?path=<the file\'s full path>' }); return; }
     const names = new Map();
     const nameOf = (s) => {
