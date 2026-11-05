@@ -20,5 +20,6 @@ it. Left as they were, deliberately: the two delayed re-checks for a reader high
 A fresh open reads at the newest, so they should not be reached; if one is, its return writes nothing, so a capture would not show it. Rows drawn with no end shown waits blankConfirm first, so a reader moved by nothing else is not moved for an instant's blank. And coming back to
 the front restarts the 2 s, so repeated interruptions can delay a rebuild; that only leaves things as they were.
 
-Cost accepted: a reader at the top of a chat whose end has never shown, with the list blank and no finger on it, is rebuilt and sent
-to the newest. A blank screen keeps no place worth holding, as for the reader higher up.
+Cost accepted: on a chat's first blank report, or at the newest, a reader at the top of a chat whose end has never shown, with the
+list blank and no finger on it, is rebuilt and sent to the newest. A blank screen keeps no place worth holding. Off the newest, the
+later checks still ask for the end and top markers, so those can stay as they were.
