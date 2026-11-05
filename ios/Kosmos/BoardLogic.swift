@@ -529,7 +529,7 @@ enum Board {
     // content puts it back at its end and goes to the newest, unless a finger is on it. A later one (later: true)
     // acts only on a scroll past the content's end (the case the evidence points at; before the top may be a bounce), and
     // never while the person scrolls. An unread place (no scroll view) is treated as within. The first one's "before the
-    // top" arm is probably unreachable from the chat's check, which needs the top marker off screen.
+    // top" arm needs a list the chat's check let past its top marker (one whose end never showed).
     // kosmos#7420 (build 24, 10-31): a list empty WITHIN its content while the reader is at the newest message (atNewest) is
     // rebuilt (.rebuild): the scroll is where the newest messages are and none is drawn there, so moving the scroll cannot
     // help (the one try moved it and the list stayed empty), but a new list opened at its end can. Never while the person
@@ -541,20 +541,21 @@ enum Board {
     // refused as "not rebuilt again" (only a trace line says so), leaving the later reads to catch it. The check is on
     // the earliest read to stay on the safe side (rebuildTimingHolds is false then; LogicTests checks it).
     static let rebuildGrace: Double = 1.5
-    // kosmos#7420: a chat that has drawn nothing this long after its messages arrived is blank, not slow to open.
-    static let neverDrewAfter: Double = 2
-    static func neverDrew(endSeen: Bool, everDrew: Bool, messagesFor: Double?) -> Bool {
-        !endSeen && !everDrew && (messagesFor ?? 0) > neverDrewAfter
-    }
-    // Whether a settled look that found nothing drawn acts. endVisible starts true before any end was drawn, so it does not count
-    // against a list that never drew. Otherwise a list that drew, with its end gone (the end can be holding a pending bubble).
-    static func settledBlankActs(endVisible: Bool, endSeen: Bool, everDrew: Bool, messagesFor: Double?) -> Bool {
-        neverDrew(endSeen: endSeen, everDrew: everDrew, messagesFor: messagesFor) || (!endVisible && (endSeen || everDrew))
-    }
     static let rebuildCheckBump: Double = 0.3
     static let rebuildSpacing: Double = 2
     static let diagCheckWaits: [Double] = [0.5, 1.5]
     static var rebuildTimingHolds: Bool { rebuildGrace + rebuildCheckBump + (diagCheckWaits.min() ?? 0) >= rebuildSpacing }
+    // kosmos#7420 (Josh 11-05 12:57): no end has shown this long after the messages arrived (or a rebuild): the flag saying the end
+    // is showing has only ever held its starting value, so it holds nothing off, and neither does a top marker.
+    static let endNeverShownAfter: Double = 2
+    static func endNeverShown(endSeen: Bool, messagesFor: Double?) -> Bool {
+        !endSeen && (messagesFor ?? 0) > endNeverShownAfter
+    }
+    // Whether a settled look that found nothing drawn acts. Otherwise a list that drew, with its end gone (a showing end can be
+    // holding a pending bubble).
+    static func settledBlankActs(endVisible: Bool, endSeen: Bool, everDrew: Bool, messagesFor: Double?) -> Bool {
+        endNeverShown(endSeen: endSeen, messagesFor: messagesFor) || (!endVisible && (endSeen || everDrew))
+    }
     // kosmos#7420 (TestFlight 37, Josh 11-04 08:07): the reported blank (the first, `later` false) is rebuilt whatever the
     // reader's place: going to the newest by id lands in the same undrawn stretch (build 34) and a reader who had scrolled
     // was left blank. `later` alone never rebuilds for a reader higher up: the chat asks for that separately, as a first try
