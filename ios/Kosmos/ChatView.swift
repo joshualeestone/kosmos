@@ -549,7 +549,7 @@ struct ChatView: View {
                             .onDisappear {
                                 guard drawnEpoch == listEpoch else { return }
                                 topVisible = false
-                                Self.trace("top disappear")
+                                if !endSeen { Self.trace("top disappear") }   // only while it can matter to a blank: a reader's scrolling is not traced
                                 // The top leaving after the first layout proves the jump to the newest message
                                 // happened, even if the end marker was not reached (estimated row heights). Not when
                                 // it leaves because a reset took the conversation away (review 4).
@@ -1033,7 +1033,8 @@ struct ChatView: View {
         if neverShown, diagEverDrew {
             let chatAt = epoch, listAt = listEpoch
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankConfirm) {
-                guard epoch == chatAt, listEpoch == listAt, visible, onScreen.isEmpty, !personScrolling, !scrollBox.underFinger else { return }
+                guard epoch == chatAt, listEpoch == listAt, visible, onScreen.isEmpty, !personScrolling, !scrollBox.underFinger,
+                      scenePhase == .active, !searchMode, !(rebuilds.last.map { Date().timeIntervalSince($0) < Board.rebuildGrace } ?? false) else { return }
                 diagCapture(proxy, why: "no message on screen", count: count)
             }
             return
@@ -1207,7 +1208,9 @@ struct ChatView: View {
                             // As diagCheck: rows drew and no end showed, so "at the newest" may be only its starting value.
                             DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankConfirm) {
                                 guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching, onScreen.isEmpty,
-                                      !personScrolling, !scrollBox.underFinger, scenePhase == .active else { return }
+                                      !personScrolling, !scrollBox.underFinger, scenePhase == .active,
+                                      !(thread?.rows.isEmpty ?? true), !(rebuilds.last.map { Date().timeIntervalSince($0) < Board.rebuildGrace } ?? false)
+                                else { return }
                                 Self.trace("keyboard settled: within, nothing drawn, no end yet, rebuilt")
                                 recoverEmpty(proxy)
                             }
