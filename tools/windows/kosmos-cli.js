@@ -108,6 +108,7 @@ const USAGE = {
     '  kosmos task list <project-id> [--state open|built|held|done]  list this project\'s tasks, open first',
     '  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each',
     '  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first',
+    '  kosmos task list --mine [--blocked|--built|--stale [<days>]]  open (or blocked, built, stale) tasks you hold, in every project you are on',
     '  kosmos task list <project-id> --stale [<days>]               the same for one project',
     '  kosmos task add  <project-id> "<what the task is>" ["more detail"]  add one (quote each part)',
     '      --parent <task-number>                                   make it a subtask of that task',

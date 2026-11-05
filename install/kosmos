@@ -5920,7 +5920,7 @@ cmd_task() {
       say "  kosmos task list <project-id> [--state open|built|held|done]  list this project's tasks, open first"
       say "  kosmos task list --all [--blocked|--built]                   open (or blocked, built) tasks in every project, one line each"
       say "  kosmos task list --all --stale [<days>]                      open tasks with no activity for <days> days (7 if left out), quietest first"
-      say "  kosmos task list --mine [--blocked|--built|--stale [<days>]]  the same, only the tasks you hold, in every project you are on"
+      say "  kosmos task list --mine [--blocked|--built|--stale [<days>]]  open (or blocked, built, stale) tasks you hold, in every project you are on"
       say "  kosmos task list <project-id> --stale [<days>]               the same for one project"
       say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
       say "      --parent <task-number>                                   make it a subtask of that task"
@@ -6269,6 +6269,9 @@ cmd_task() {
     _xmod="$(kosmos_engine_module tasklist).js"
     # Review 1 (nit 1), as the Windows CLI's acrossLines check: a module from before kosmos#7057 has no `across` verb.
     { [ -f "$_xmod" ] && grep -q 'acrossLines' "$_xmod"; } || { say "This install of Kosmos cannot list tasks that way yet; update Kosmos." >&2; exit 1; }
+    # kosmos#7992 review 1: a printer from before --mine would ignore the word and pass an older board's whole list as
+    # yours, so --mine needs one that knows it.
+    [ -z "$_tmine" ] || grep -q "older('--mine')" "$_xmod" || { say "This install of Kosmos cannot list your own tasks yet; update Kosmos." >&2; exit 1; }
     printf '%s' "$_xbody" | "$_xnode" "$_xmod" across "$_xflag" "$_xproj" "$_xdays" ${_tmine:+mine}
     exit $?
   fi

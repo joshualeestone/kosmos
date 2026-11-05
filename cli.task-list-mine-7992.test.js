@@ -40,7 +40,7 @@ const tasklist = require('./engine/tasklist');
 const sendertoken = require('./engine/sendertoken');
 const cli = require('./tools/windows/kosmos-cli');
 
-let A; let B; let C;
+let A; let B; let C; let D;
 const N = {};
 const TOK = {};
 test.before(async () => {
@@ -48,15 +48,20 @@ test.before(async () => {
   A = projects.create({ name: 'Alpha' }).id;
   B = projects.create({ name: 'Beta' }).id;
   C = projects.create({ name: 'Gamma' }).id;
+  D = projects.create({ name: 'Delta' }).id;   // review 1: mara's, archived below
   projects.mutate(A, (p) => ({ ...p, agents: ['mara', 'otto'] }));
   projects.mutate(B, (p) => ({ ...p, agents: ['mara'] }));
-  projects.mutate(C, (p) => ({ ...p, agents: ['otto'] }));
-  for (const [pid, k, who] of [[A, 'a-mara', 'mara'], [A, 'a-otto', 'otto'], [A, 'a-mara-built', 'mara'], [B, 'b-mara', 'mara'], [B, 'b-nobody', null], [C, 'c-otto', 'otto']]) {
+  projects.mutate(C, (p) => ({ ...p, agents: ['otto', 'mara'] }));   // mara is taken off Gamma below, keeping a task there
+  projects.mutate(D, (p) => ({ ...p, agents: ['mara'] }));
+  for (const [pid, k, who] of [[A, 'a-mara', 'mara'], [A, 'a-otto', 'otto'], [A, 'a-mara-built', 'mara'], [B, 'b-mara', 'mara'], [B, 'b-nobody', null], [C, 'c-otto', 'otto'],
+    [C, 'c-mara-not-on', 'mara'], [D, 'd-mara-archived', 'mara']]) {
     const t = tasks.create(pid, { sentence: 'Task ' + k, ...(who ? { who } : {}) });
     assert.ok(t && Number.isInteger(t.number), JSON.stringify(t));
     N[k] = t.number;
   }
   assert.ok(tasks.setBuilt(A, N['a-mara-built'], { by: 'mara' }).ok);
+  projects.mutate(D, (p) => ({ ...p, archived: true }));
+  projects.mutate(C, (p) => ({ ...p, agents: ['otto'] }));
   for (const who of ['mara', 'otto']) {
     const m = sendertoken.mint(who);
     assert.ok(m.ok, 'could not mint ' + who + "'s token");
@@ -94,6 +99,10 @@ const ids = (r) => (r.json && r.json.tasks || []).map((t) => t.projectId + '#' +
 test('board: all=1&mine=1 keeps the calling agent\'s own tasks, in every project it is on, and says so', async () => {
   const mara = await get('all=1&order=state&state=open&mine=1', asAgent('mara'));
   assert.equal(mara.code, 200, JSON.stringify(mara.json));
+  /* Review 1: a task mara holds in Gamma (a project she is not on) and one in an archived project of hers are left out:
+     only the projects she is on, and never an archived one. */
+  const all = (await get('order=state&state=open&project=' + C)).json;
+  assert.ok((all.tasks || []).some((t) => t.number === N['c-mara-not-on']), 'premise: the task she holds in Gamma exists');
   assert.equal(mara.json.mine, true);
   assert.equal(mara.json.all, true);
   assert.deepEqual(ids(mara), [A + '#' + N['a-mara'], B + '#' + N['b-mara']].sort());
@@ -173,4 +182,6 @@ test('Mac: the same forms print the same lines as Windows; without an agent toke
   assert.match(none.out, /needs an agent's token/);
   const help = await mac(['task', 'help'], null);
   assert.match(help.out, /kosmos task list --mine/, 'the help names --mine');
+  const winHelp = await win(['task', 'help'], null);
+  assert.match(winHelp.out.join('\n') + winHelp.err, /kosmos task list --mine/, 'the Windows help names --mine too');
 });

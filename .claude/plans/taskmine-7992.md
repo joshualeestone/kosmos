@@ -26,3 +26,7 @@ else's). Item 2 (a following feed that broadens) is a separate branch.
 4. Doctrine v46. done
 5. cli.task-list-mine-7992.test.js (engine, board, Windows, Mac; controls); mutants: the board filter off fails 3, the
    printer's older-board check off fails its test. Related tests: 166 files, 1963 tests, 0 fail. done
+6. Review 1: the Windows `kosmos task` help names --mine (both CLIs' help now say the same line); a task the agent holds
+   in a project it was taken off, and one in an archived project of its, are left out (dropping the project check
+   fails 2 tests); agentTokenOnlyCaller is built on agentTokenCaller (one copy of the twins and key rule); the Mac CLI
+   refuses --mine with a printer from before it. done

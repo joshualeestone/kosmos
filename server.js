@@ -6703,15 +6703,11 @@ function agentTokenOk(req) {
    tokens under the same key, because the key then no longer says which agent. */
 function agentTokenOnlyCaller(req) {
   if (!boardAuthState.on || boardTokenOk(req)) return null;
-  let who = null;
-  try { who = sendertoken.resolveName(req && req.headers && req.headers['x-kosmos-agent-token']); } catch { who = null; }
-  if (!(who && who.ok === true && typeof who.key === 'string')) return '';
   /* #4792: a token that carries its agent's name is that agent, matched by exact spelling like the slice-3 writes.
      An older token has only the key: matched by key as before, unless another name now has tokens under that key,
-     when the key no longer says which agent and the caller is nobody. */
-  if (typeof who.name === 'string' && who.name) return { name: who.name, key: who.key, twins: who.twins === true };
-  if (who.twins === true) return '';
-  return { name: who.key, key: who.key, byKey: true };
+     when the key no longer says which agent and the caller is nobody (''). kosmos#7992: one copy of that rule,
+     agentTokenCaller. */
+  return agentTokenCaller(req) || '';
 }
 /* #4792: is the token-only caller on this stored project? Its exact name; or, while no second name holds tokens under
    its key, the KEY as stored: the board stores a paneless agent's membership by its key (its roster sessionName), so
