@@ -11020,13 +11020,20 @@ const server = http.createServer(async (req, res) => {
         }
         const wrote = create.declineAgentImports(clean);
         if (wrote.because) { sendJson(res, 400, { ok: false, because: wrote.because }); return; }
+        /* An answer was already on file and it is asking anyway, so Claude Code is not reading it where we wrote it. A
+           restart would only bring the question back (review 2, W3). */
+        if (wrote.already) {
+          sendJson(res, 409, { ok: false, because: 'An answer is already saved for its folder, but it is still asking, so that answer is not being read. Nothing was changed. Answer it in its terminal on the computer it runs on.' });
+          return;
+        }
         process.stdout.write(`decline-imports: ${JSON.stringify(clean)} starts without its outside imports\n`);
+        const repoNote = wrote.repo ? ` The answer is saved for the whole git repository at ${wrote.repo}, so other agents there on this account start without them too.` : '';
         let out;
         try { out = removal.restart(clean, 'restart', { startIfDead: true, quiet: true }); }
         catch (err) { sendJson(res, 500, { ok: false, because: 'your answer is saved, but we could not restart this agent', detail: String((err && err.message) || err) }); return; }
         /* The restart's own sentence says it will have its current instructions, which is the opposite of this answer. */
-        if (out.outcome === removal.OUTCOME.RESTARTED) { sendJson(res, 200, { ok: true, ...out, because: 'It is starting without those files.' }); return; }
-        sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ok: out.outcome !== removal.OUTCOME.REFUSED, ...out, because: 'Your answer is saved. ' + (out.because || '') });
+        if (out.outcome === removal.OUTCOME.RESTARTED) { sendJson(res, 200, { ok: true, ...out, because: 'It is starting without those files.' + repoNote }); return; }
+        sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ok: out.outcome !== removal.OUTCOME.REFUSED, ...out, because: 'Your answer is saved. ' + (out.because || '') + repoNote });
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
     return;

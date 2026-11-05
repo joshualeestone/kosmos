@@ -2622,7 +2622,7 @@ const CONSENT_PROMPT_EXIT = /^No, exit$/;          // the destructive default, s
 const CONSENT_PROMPT_ACCEPT = /^Yes\b/;            // "Yes, I accept" / "Yes, continue" / ...
 /* Headings that LABEL a recognised dialog for evidence + `because`. NOT the detection
    key (the chrome above is); an unlabelled confirm dialog still reads needs_you, generically. */
-const IMPORTS_BECAUSE = 'it is asking whether its instructions may import files from outside its folder';   // kosmos#8039: importsDialogIn keys on it
+const IMPORTS_BECAUSE = 'it is asking whether its instructions may import files from outside its folder';
 const CONSENT_PROMPT_HEADINGS = Object.freeze([
   /* #6063: Claude Code's question about instructions that import files from outside the agent's folder. The family
      detector already read it as needs_you; this says WHAT it asks. Two rows must agree, because a label is only
@@ -4978,11 +4978,20 @@ function consentPrompt(tail) {
  * state only `trustPrompt` writes evidence, and it writes the question row,
  * so a match means "the last snapshot saw the dialog", no more and no less.
  */
-/* kosmos#8039: whether the live dialog on this screen is Claude Code's external imports question: consentPrompt's own
-   reading, so a heading in prose or an answered copy above another dialog does not count. */
+/* kosmos#8039: whether the live dialog on this screen is Claude Code's external imports question. A live consent dialog
+   (consentPrompt) whose LAST "Yes" row is this question's, with its "No" row beside it. Keyed on the two answer rows, not
+   the heading: twelve or more imported files, or a narrow pane, push the heading out of the 25-row tail while the answer
+   rows stay at the bottom (review 2, W5). */
+const IMPORTS_YES_ROW = /^Yes, allow external imports$/;
+const IMPORTS_NO_ROW = /^No, disable external imports$/;
 function importsDialogIn(tail) {
-  const c = consentPrompt(tail);
-  return !!c && c.because === IMPORTS_BECAUSE;
+  if (!consentPrompt(tail)) return false;
+  const rows = String(tail == null ? '' : tail).split('\n')
+    .map((line) => line.trim().replace(/^[\s>│├└─*❯›]+/, '').replace(/[\s│]+$/, ''));
+  let lastAccept = -1;
+  rows.forEach((row, i) => { if (CONSENT_PROMPT_ACCEPT.test(row)) lastAccept = i; });
+  if (lastAccept === -1 || !IMPORTS_YES_ROW.test(rows[lastAccept])) return false;
+  return [lastAccept - 2, lastAccept - 1, lastAccept + 1, lastAccept + 2].some((i) => i >= 0 && i < rows.length && IMPORTS_NO_ROW.test(rows[i]));
 }
 
 function isTrustDialogEvidence(evidence) {

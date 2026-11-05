@@ -53199,7 +53199,8 @@ document.getElementById('d-qask-imports-no').addEventListener('click', async () 
   } catch {
     if (CURRENT && CURRENT.sessionName === forAgent) note.textContent = 'We could not reach Kosmos to start this agent.';
   } finally {
-    btn.disabled = false;
+    /* Only for the agent it was pressed for: openDetail re-enables it for the next one. */
+    if (CURRENT && CURRENT.sessionName === forAgent) btn.disabled = false;
   }
 });
 

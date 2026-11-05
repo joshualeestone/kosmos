@@ -41,7 +41,7 @@ test('it writes exactly what No writes, on that account and that folder', () => 
   const other = acct();
   const before = fs.readFileSync(nodePath.join(other, '.claude.json'), 'utf8');
   const f = folder();
-  assert.deepEqual(trust.declineExternalImports(f, { configDir: dir }), { ok: true, wrote: true });
+  assert.deepEqual(trust.declineExternalImports(f, { configDir: dir }), { ok: true, wrote: true, key: f });
   const got = read(dir);
   assert.equal(got.projects[f][A], false);
   assert.equal(got.projects[f][S], true);
@@ -86,12 +86,47 @@ test('inside a git repository the answer goes under the repository root, as Clau
   fs.mkdirSync(nodePath.join(root, '.git'));
   const sub = nodePath.join(root, 'a', 'b');
   fs.mkdirSync(sub, { recursive: true });
-  assert.deepEqual(trust.declineExternalImports(sub, { configDir: dir }), { ok: true, wrote: true });
+  assert.deepEqual(trust.declineExternalImports(sub, { configDir: dir }), { ok: true, wrote: true, key: root });
   const projects = read(dir).projects;
   assert.equal(projects[root] && projects[root][S], true, 'not written under the root: ' + JSON.stringify(Object.keys(projects)));
   assert.equal(projects[sub], undefined, 'written under the subfolder, which Claude Code does not read');
   /* A second press finds it answered, and does not write again. */
   assert.equal(trust.declineExternalImports(sub, { configDir: dir }).wrote, false);
+});
+
+test('a linked worktree (.git is a file) is refused, and nothing is written', () => {
+  const dir = acct();
+  const before = fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8');
+  const wt = folder();
+  fs.writeFileSync(nodePath.join(wt, '.git'), 'gitdir: /somewhere/else/.git/worktrees/x\n');
+  const r = trust.declineExternalImports(wt, { configDir: dir });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /linked git worktree/);
+  assert.match(r.because, /in its terminal on the computer it runs on/);
+  assert.equal(fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8'), before);
+});
+
+test('a repository at the home folder is refused: the answer would hold for nearly everything', () => {
+  const dir = acct();
+  const before = fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8');
+  const home = folder();
+  fs.mkdirSync(nodePath.join(home, '.git'));
+  const agent = nodePath.join(home, 'work', 'workers', 'someone');
+  fs.mkdirSync(agent, { recursive: true });
+  const saved = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    const r = trust.declineExternalImports(agent, { configDir: dir });
+    assert.equal(r.ok, false, JSON.stringify(r));
+    assert.match(r.because, /every folder under it/);
+    assert.equal(fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8'), before);
+    /* CONTROL: the same layout with the repository below home is answered, under its root. */
+    const repo = nodePath.join(home, 'work');
+    fs.mkdirSync(nodePath.join(repo, '.git'));
+    assert.deepEqual(trust.declineExternalImports(agent, { configDir: dir }), { ok: true, wrote: true, key: repo });
+  } finally {
+    process.env.HOME = saved;
+  }
 });
 
 const DIALOG = [
@@ -119,4 +154,13 @@ test('importsDialogIn reads the live dialog only', () => {
   assert.equal(status.importsDialogIn(other), false);
   /* An answered copy above a different live dialog is not this one. */
   assert.equal(status.importsDialogIn(DIALOG + '\n\n' + other), false);
+});
+
+test('importsDialogIn keys on the answer rows, so a long import list that pushes the heading off still reads', () => {
+  const files = Array.from({ length: 15 }, (_, i) => '    /Users/someone/.claude/notes-' + i + '.md');
+  const long = ['  External imports:', ...files, '', '  ❯ No, disable external imports', '    Yes, allow external imports', '', '  Enter to confirm · Esc to cancel'].join('\n');
+  assert.equal(long.includes('Allow external CLAUDE.md'), false, 'premise: the heading is out of this tail');
+  assert.equal(status.importsDialogIn(long), true);
+  /* CONTROL: the same tail without the No row is not this question. */
+  assert.equal(status.importsDialogIn(long.replace('No, disable external imports', 'No, exit')), false);
 });

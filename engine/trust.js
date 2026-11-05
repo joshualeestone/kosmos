@@ -1048,6 +1048,7 @@ function carryExternalImports(dir, opts) {
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
+const IN_ITS_TERMINAL = 'Answer it in its terminal on the computer it runs on';
 /**
  * kosmos#8039: write what Claude Code's own "No, disable external imports" writes for one folder on one account (measured
  * on 2.1.318: approved false, shown true), so the agent starts without those files at its next launch. The person's
@@ -1060,13 +1061,28 @@ function declineExternalImports(dir, opts) {
   let key;
   try { key = fs.realpathSync.native(dir); }
   catch { return { ok: false, because: 'that folder is not there' }; }
+  const folder = key;
   /* Inside a git repository Claude Code reads this answer under the repository's root. Measured on 2.1.318 in a subfolder
      of a repo: written under the subfolder the dialog came back; under the root it did not. */
   for (let up = key; ;) {
-    if (fs.existsSync(path.join(up, '.git'))) { key = up; break; }
+    const dotGit = path.join(up, '.git');
+    let st = null;
+    try { st = fs.lstatSync(dotGit); } catch { st = null; }
+    if (st && !st.isDirectory()) {
+      /* A linked worktree's .git is a file, and where Claude Code keeps the answer then is not measured (review 2, W2). */
+      return { ok: false, because: `its folder is in a linked git worktree, where we do not know which folder Claude Code reads this answer under. ${IN_ITS_TERMINAL}` };
+    }
+    if (st) { key = up; break; }
     const parent = path.dirname(up);
     if (parent === up) break;
     up = parent;
+  }
+  /* An answer under the repository root holds for every folder in that repository on this account. At the home folder or
+     above, that is nearly everything the person has, so the board does not give it (review 2, W1). */
+  let home = null;
+  try { home = fs.realpathSync.native(homeDir()); } catch { home = null; }
+  if (key !== folder && home && (key === home || home.startsWith(key.endsWith(path.sep) ? key : key + path.sep))) {
+    return { ok: false, because: `its folder is inside a git repository at ${key}, and an answer there would hold for every folder under it. ${IN_ITS_TERMINAL}` };
   }
   key = key.split(path.sep).join('/');   // Claude Code's spelling on Windows, as in trustFolder
   const r = withWriteLock(target, () => {
@@ -1087,11 +1103,11 @@ function declineExternalImports(dir, opts) {
     if (existing !== undefined && (existing === null || typeof existing !== 'object' || Array.isArray(existing))) {
       return { ok: false, because: 'their config file is not shaped the way we expect' };
     }
-    if (importsAnswered(existing)) return { ok: true, wrote: false, because: 'this folder already has an answer' };
+    if (importsAnswered(existing)) return { ok: true, wrote: false, key, because: 'this folder already has an answer' };
     if (!data.projects) data.projects = {};
     data.projects[key] = Object.assign({}, existing || {}, { [IMPORTS_KEY]: false, [IMPORTS_SHOWN_KEY]: true });   // merge: the entry can hold their tools and servers
     if (!saveConfig(target, data, prevMode)) return { ok: false, because: 'we could not write to their config file' };
-    return { ok: true, wrote: true };
+    return { ok: true, wrote: true, key };
   });
   return r.ok ? r.value : { ok: false, because: r.because };
 }

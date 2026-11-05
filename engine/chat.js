@@ -2286,10 +2286,18 @@ function pageDrawsButtons(card, sessionName) {
   try { return !require('./setup-assistant').isGuideFolder(sessionName); } catch { return false; }
 }
 /* kosmos#8039: Enter at Claude Code's external imports question takes its highlighted answer, so a typed line would answer
-   it and be lost. The person answers it on the agent's page. */
-const CLAUDE_IMPORTS_SENTENCE = 'it cannot take a message yet: it is asking whether its instructions may import files from outside its folder. Answer that on its page first';
+   it and be lost. Nothing is typed; the ending names where the person can answer it. */
+const CLAUDE_IMPORTS_SENTENCE = 'it is asking whether its instructions may import files from outside its folder, and a message typed now would answer No, so we did not type anything; ';
+const importsSentence = (card, sessionName) => CLAUDE_IMPORTS_SENTENCE
+  + (pageDrawsButtons(card, sessionName) ? 'answer it with Continue without them on its page in Kosmos, or in its terminal' : 'answer it in its terminal on the computer it runs on');
 function claudeMenuRefusal(card, sessionName, roster) {
   if ((DRY_RUN && !runner) || !card || String(card.runner || 'claude') !== 'claude' || card.reachedByChannel === true) return null;
+  /* kosmos#8039 review 2 (W4): the imports question draws at startup, before the snapshot sees it, so a just-launched
+     card can still read idle with it up. An idle card that has never taken a turn pays one read, for this question only. */
+  if (card.state === status.STATE.IDLE && card.neverTurned === true) {
+    const fresh = viewport(sessionName, roster);
+    return fresh && typeof fresh.text === 'string' && status.importsDialogIn(fresh.text) ? importsSentence(card, sessionName) : null;
+  }
   /* needs_you, and working too (review 11): an agent usually reaches a permission prompt mid-turn, while its card still
      reads working. An idle agent cannot be showing one, so it pays no read. */
   if (card.state !== status.STATE.NEEDS_YOU && card.state !== status.STATE.WORKING) return null;
@@ -2298,10 +2306,10 @@ function claudeMenuRefusal(card, sessionName, roster) {
     /* A read that fails is not a refusal (decided), EXCEPT when the card itself says it is asking permission (its
        PermissionRequest self-report): typing there is the measured #5754 harm, and the report is the evidence. */
     const said = String(card.because || '') + ' ' + String(card.stateEvidence || '');
-    if (card.state === status.STATE.NEEDS_YOU && /import files from outside its folder/.test(said)) return CLAUDE_IMPORTS_SENTENCE;
+    if (card.state === status.STATE.NEEDS_YOU && /import files from outside its folder/.test(said)) return importsSentence(card, sessionName);
     return card.state === status.STATE.NEEDS_YOU && /\basking permission to use\b/i.test(said) ? CLAUDE_PERMISSION_SENTENCE : null;
   }
-  if (status.importsDialogIn(view.text)) return CLAUDE_IMPORTS_SENTENCE;
+  if (status.importsDialogIn(view.text)) return importsSentence(card, sessionName);
   if (status.claudeSafeguardsMenuUp(view.text)) return CLAUDE_SAFEGUARDS_SENTENCE;   // its own reading (#5051), never pressed
   if (status.claudeQuestionMenuUp(view.text)) {   // first: its free-answer row is the stricter signal
     /* The direct-message route answers by number only when the card reads needs_you (it reads the screen only then). */
