@@ -12859,6 +12859,9 @@ const server = http.createServer(async (req, res) => {
        // kosmos#6752: recent reviewer grants, to the screen only and only when there are some (the not-joined shape is unchanged).
        ...(here && rec && Array.isArray(rec.reviewerGrants) && rec.reviewerGrants.length ? { reviewerGrants: oe.cleanReviewerGrants(rec.reviewerGrants),
          ...(Number.isFinite(rec.reviewerGrantsAt) ? { reviewerGrantsAt: rec.reviewerGrantsAt } : {}) } : {}),   // kosmos#6817: when the list was last confirmed
+       // kosmos#5536: the recoveries of this member's own backup, to the screen only and only when there are some.
+       ...(here && rec && Array.isArray(rec.recoveries) && rec.recoveries.length ? { recoveries: oe.cleanRecoveries(rec.recoveries),
+         ...(Number.isFinite(rec.recoveriesAt) ? { recoveriesAt: rec.recoveriesAt } : {}) } : {}),
        stoppedFor: stopped, ...(stopped ? { stoppedKind } : {}), leaveRefused: refused, leaveRefusedUndo: refusedUndo, org: rec && rec.org ? { name: rec.org.name, slug: rec.org.slug, kind: rec.org.kind === 'family' ? 'family' : 'company' } : null, role: rec ? rec.role : null, enrolledAt: rec ? rec.enrolledAt : null });
     } catch { sendJson(res, 200, { enrolled: false, org: null, role: null, enrolledAt: null }); }
     return;
