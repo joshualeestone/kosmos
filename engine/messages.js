@@ -231,7 +231,11 @@ function laterRoom() {
   if (keptRoom === null) {
     const lq = require('./limitqueue');   // lazy: limitqueue reads this module too
     const at = new Date(8.64e15).toISOString();   // the longest timestamp toISOString writes
-    keptRoom = Math.max(...[{}, { behind: true }, { signin: true }].map((e) => lq.keptNote({ ...e, at }).length));
+    // kosmos#8016: every reason (the input box's, #6774, is the longest and was missing) with the longest wrote-back
+    // clause, a 32-character name (engine/create.js NAME_RE).
+    const from = 'x'.repeat(32);
+    keptRoom = Math.max(...[{}, { behind: true }, { signin: true }, { input: true }]
+      .map((e) => lq.keptNote({ ...e, at, from, wroteBack: true }).length));
   }
   return keptRoom;
 }
