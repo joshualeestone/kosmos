@@ -30169,6 +30169,13 @@ function abRecentHtml(recent, label, who, line) {
       else if (e.kind === 'works' && e.works === 'yes') out.push(lead(agent + ' was seen working on ' + to + '.'));
       else if (e.kind === 'works' && e.works === 'no') out.push(lead(agent + "'s first request on " + to + ' was refused. Move it back if it needs to work now; Kosmos will not move agents to ' + to + ' for a day.'));
       else if (e.kind === 'works' && e.works === 'not-seen') out.push(lead(agent + ' was not seen working on ' + to + ' in the day since it moved, so Kosmos waits a day before moving another agent there.'));
+      /* kosmos#8048: a target the mover held because the agents would lose skills or hooks there (or it could not check). */
+      else if (e.kind === 'held-loss') {
+        for (const pr of Array.isArray(e.pairs) ? e.pairs : []) {
+          if (!pr || typeof pr !== 'object') continue;
+          out.push(lead('Kosmos did not move agents from ' + esc(name(pr.from, pr.fromLabel)) + ' to ' + esc(name(pr.to, pr.toLabel)) + ', because on ' + esc(name(pr.to, pr.toLabel)) + ' they would not have skills or hooks they have now, or Kosmos could not check.'));
+        }
+      }
       continue;
     }
     for (const m of Array.isArray(e.moves) ? e.moves : []) {

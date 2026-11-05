@@ -84,7 +84,9 @@ function recent(file, n = RECENT) {
          ending line says how it went), and a person's move is the mover's hold, not news. */
       || (l.kind === 'move' && DRAWN_MOVES.has(l.outcome) && typeof l.agent === 'string')
       || (l.kind === 'works' && DRAWN_WORKS.has(l.works) && typeof l.agent === 'string')
-      || ((l.kind === 'skipped' || l.kind === 'released') && typeof l.agent === 'string')))
+      || ((l.kind === 'skipped' || l.kind === 'released') && typeof l.agent === 'string')
+      /* kosmos#8048 review 1: a target held because the move would lose skills or hooks, so the page can say why. */
+      || (l.kind === 'held-loss' && Array.isArray(l.pairs) && l.pairs.length > 0)))
     /* Review round 6: by time, not by place in the file: a move's ending written at the next start keeps the move's
        own time, and lines that waited for a writable record are written late. Stable, so equal times keep file order. */
     .map((l, i) => [l, i]).sort((a, b) => a[0].at - b[0].at || a[1] - b[1]).map(([l]) => l)

@@ -62,3 +62,14 @@ test('kosmos#7621 item 1: a real tick through the board\'s wiring answers off wi
     assert.equal(r.did, 'nothing', 'a tick on an empty board with moves on answered ' + JSON.stringify(r));
   } finally { delete process.env.AGENT_WORKFORCE_AUTOMOVE; }
 });
+
+test('kosmos#8048: the mover\'s real wiring carries the loss check, and it says lose for two folders that differ', () => {
+  const { _automoveDepsForTest } = require('./server');
+  const d = _automoveDepsForTest();
+  assert.equal(typeof d.wouldLose, 'function', 'automoveDeps has no wouldLose: the mover would hold every target, or (before) move into a loss');
+  const mk = (skills) => { const dir = fs.mkdtempSync(path.join(SANDBOX, 'acct-')); for (const sk of skills) { fs.mkdirSync(path.join(dir, 'skills', sk), { recursive: true }); fs.writeFileSync(path.join(dir, 'skills', sk, 'SKILL.md'), '# ' + sk + '\n'); } fs.writeFileSync(path.join(dir, 'settings.json'), '{}'); return dir; };
+  const full = mk(['pick-up', 'design-shots']);
+  const thin = mk(['pick-up']);
+  assert.equal(d.wouldLose(full, thin), true, 'a move that loses a skill read as safe');
+  assert.equal(d.wouldLose(thin, full), false, 'CONTROL: a move that loses nothing read as a loss');
+});

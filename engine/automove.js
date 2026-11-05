@@ -332,8 +332,9 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     const asked = new Map();
     return (dir, fromDir) => {
       if ((state.failed.has(dir) && nowMs - state.failed.get(dir) < FAILED_HOLD_MS) || state.watching.some((w) => w.to === dir)) return true;
-      if (typeof wouldLose !== 'function' || typeof fromDir !== 'string') return false;
+      if (typeof wouldLose !== 'function' || typeof fromDir !== 'string') return false;   // a caller that asks no loss question
       const key = `${fromDir}\n${dir}`;
+      state.lossChecked = true;
       if (!asked.has(key)) { let lose = true; try { lose = wouldLose(fromDir, dir) !== false; } catch { lose = true; } asked.set(key, lose); if (lose) state.lossHeld.add(key); else state.lossHeld.delete(key); }
       return asked.get(key);
     };
@@ -366,7 +367,10 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       return { did: 'unreadable', because: 'lines the record could not take yet, so Kosmos moves nobody until they are written' };
     }
     state.lossHeld = new Set();   // kosmos#8048: this tick's holds only; the decision below fills it
-    const skip = skipTarget(nowMs, deps.wouldLose);
+    state.lossChecked = false;
+    /* Review 1: the mover's own tick never runs without a loss check. Deps with none (a deleted or renamed wiring)
+       hold every target rather than quietly re-open the loss; a caller that means "nothing lost" passes () => false. */
+    const skip = skipTarget(nowMs, typeof deps.wouldLose === 'function' ? deps.wouldLose : () => true);
     const movableArgs = (cards, records, strict = false) => ({ cards, records: records || deps.records, readCommitment: deps.readCommitment, strict, nowMs,   // kosmos#8048: the limit is judged on the tick's clock
       ...(deps.isGuide ? { isGuide: deps.isGuide } : {}), ...(deps.guideName ? { guideName: deps.guideName } : {}) });
     let decision;
@@ -385,7 +389,8 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     /* kosmos#8048: a target held because the move would lose skills or hooks is said in the record when the set
        changes, so a hold is never silent and never repeated every tick. */
     const lossKey = [...state.lossHeld].sort().join('|');
-    if (lossKey !== state.lossSaid) {
+    /* Review 1: a tick that checked no pair (every agent busy) says nothing and forgets nothing. */
+    if (state.lossChecked && lossKey !== state.lossSaid) {
       state.lossSaid = lossKey;
       if (lossKey) keep({ kind: 'held-loss', at: nowMs, pairs: [...state.lossHeld].sort().map((k) => { const [from, to] = k.split('\n'); return { from, to, fromLabel: label(from), toLabel: label(to) }; }),
         because: 'moving there would lose skills or hooks the agents have now, or it could not be checked' });
