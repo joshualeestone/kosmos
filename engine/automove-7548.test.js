@@ -72,6 +72,7 @@ function deps(o = {}) {
     lastSeen: o.lastSeen || (() => null),
     ...(o.sessionStart ? { sessionStart: o.sessionStart } : {}),
     tell: (agent, text) => calls.tells.push([agent, text]),
+    wouldLose: () => false,   // kosmos#8048: nothing lost, said explicitly (a missing check holds)
     labelOf: (dir) => ([...LIST, THIRD].find((a) => a.dir === dir) || {}).label || null,
   };
   return { d, calls, where };
@@ -1225,4 +1226,18 @@ test('kosmos#8048: a target the agents would lose skills or hooks on is held, sa
   d4.wouldLose = () => false;
   await twoTicks(run4, d4);
   assert.deepEqual(c4.starts, [{ dir: '/u/.claude-spare', names: ['ada'] }]);
+});
+
+test('kosmos#8048 review 1: a mover with no loss check holds rather than moves; a hold reaches the page through recent()', async () => {
+  const run = automove.create({ file: fileFor() });
+  const { d, calls } = deps();
+  delete d.wouldLose;
+  await twoTicks(run, d);
+  assert.deepEqual(calls.starts, [], 'a missing loss check let a move through');
+  const file = fileFor();
+  const run2 = automove.create({ file });
+  const { d: d2 } = deps();
+  d2.wouldLose = () => true;
+  await twoTicks(run2, d2);
+  assert.ok(sweep.recent(file).some((l) => l.kind === 'held-loss' && l.pairs[0].toLabel === 'spare'), 'the page is not given the hold');
 });

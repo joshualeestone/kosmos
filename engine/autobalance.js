@@ -106,9 +106,12 @@ function signedIn(row) {
 function targetFor(from, rows, nowMs, skip) {
   /* kosmos#8048: skip(dir, fromDir) also gets the account the agents would leave, so a target that would lose them
      skills or hooks can be held (automove's skipTarget). */
-  const ok = rows.filter((r) => !sameAccount(r, from) && !(typeof skip === 'function' && skip(r.dir, from.dir)) && bulkTargetable(r, nowMs) && signedIn(r)
+  /* Review 1: skip last, after the cheap filters, so the loss check (a folder walk) runs only for a target that could
+     really be chosen, and a hold is never said for a full or signed-out account. */
+  const ok = rows.filter((r) => !sameAccount(r, from) && bulkTargetable(r, nowMs) && signedIn(r)
     && weeklyNow(r, nowMs) && weeklyNow(r, nowMs).usedPct < TARGET_MAX_PCT
-    && !(fiveHourNow(r, nowMs) && fiveHourNow(r, nowMs).usedPct >= FIVE_HOUR_MAX_PCT));
+    && !(fiveHourNow(r, nowMs) && fiveHourNow(r, nowMs).usedPct >= FIVE_HOUR_MAX_PCT)
+    && !(typeof skip === 'function' && skip(r.dir, from.dir)));
   ok.sort((x, y) => (weeklyNow(x, nowMs).usedPct - weeklyNow(y, nowMs).usedPct)
     || (weeklyNow(x, nowMs).resetsAt - weeklyNow(y, nowMs).resetsAt)
     || (x.dir < y.dir ? -1 : x.dir > y.dir ? 1 : 0));

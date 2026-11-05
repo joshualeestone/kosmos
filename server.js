@@ -3276,14 +3276,21 @@ function autobalanceSweepDeps() {
    roster and the projects AGAIN, on purpose (rule 2). A function, so a test can drive a real tick on the real wiring. */
 /* kosmos#8048: the loss check for a move between two account folders, as the account-plan route reads it. A default
    account's folder may be given as null. */
+/* Review 1: answers are kept a minute per pair, shared by the mover's tick and the Settings read, because each one
+   walks both folders' skills on the board's thread. accountcarry resolves a null folder to the board's own ~/.claude. */
+const MOVE_LOSS_KEEP_MS = 60 * 1000;
+const moveLossSeen = new Map();
 function moveWouldLose(fromDir, toDir) {
-  const defaultRow = (accounts.list() || []).find((a) => a && a.isDefault === true);
-  const from = fromDir || (defaultRow && defaultRow.dir) || null;
-  const to = toDir || (defaultRow && defaultRow.dir) || null;
-  if (!from || !to) return true;
+  const key = `${fromDir || ''}\n${toDir || ''}`;
+  const now = Date.now();
+  const kept = moveLossSeen.get(key);
+  if (kept && now - kept.at < MOVE_LOSS_KEEP_MS) return kept.lose;
   const carry = require('./engine/accountcarry');
-  const l = carry.losses(from, to, { home: accounts.homeDir() });
-  return l.ok !== true || carry.loses(l);
+  let lose = true;
+  try { const l = carry.losses(fromDir || null, toDir || null, { home: accounts.homeDir() }); lose = l.ok !== true || carry.loses(l); } catch { lose = true; }
+  for (const [k, v] of moveLossSeen) if (now - v.at >= MOVE_LOSS_KEEP_MS) moveLossSeen.delete(k);
+  moveLossSeen.set(key, { at: now, lose });
+  return lose;
 }
 
 function automoveDeps(sweepDeps = null) {
