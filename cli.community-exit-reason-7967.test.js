@@ -260,7 +260,7 @@ function harness(body, env = {}) {
   fs.writeFileSync(script, ['#!/bin/bash', 'set -euo pipefail', sayLine[0], cut('_community_reason_line() {   # <exit code>'),
     cut('cmd_community_with_reason() {'), 'cmd_community() {', body, '}', 'cmd_community_with_reason home'].join('\n') + '\n');
   return new Promise((resolve, reject) => {
-    execFile('/bin/bash', [script], { timeout: 10000, env: { ...process.env, ...env } }, (err, stdout, stderr) => {
+    execFile("/bin/bash", [script], { timeout: 10000, env: { ...process.env, AGENT_WORKFORCE_DATA: DATA, ...env } }, (err, stdout, stderr) => {
       if (err && typeof err.code !== 'number') { reject(err); return; }
       resolve({ code: err ? err.code : 0, stdout, stderr });
     });
