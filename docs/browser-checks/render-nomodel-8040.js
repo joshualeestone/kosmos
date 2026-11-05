@@ -631,8 +631,10 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       p.on('pageerror', (e) => errs.push(String(e)));
       await p.route('**/api/first-run', (r) => r.fulfill({ json: { done: true } }));
       await p.route(/\/api\/accounts(\?.*)?$/, (r) => (r.request().method() === 'GET' ? r.fulfill({ json: { accounts: [A, B] } }) : r.continue()));
+      /* Not installed until the hold; held, then installed: so the saved Gemini-by-subscription pick IS usable when its read
+         answers, and only the hand pick keeps the form off it (review 1: a control that can fail). */
       let hold = null;
-      await p.route('**/api/antigravity', async (r) => { if (hold) await hold; await r.fulfill({ json: { enabled: true, supported: true, installed: false } }).catch(() => {}); });
+      await p.route('**/api/antigravity', async (r) => { const late = !!hold; if (hold) await hold; await r.fulfill({ json: { enabled: true, supported: true, installed: late } }).catch(() => {}); });
       await toNameStep(p);
       await p.waitForTimeout(600);
       await p.selectOption('#create-account', B.dir);
@@ -643,14 +645,16 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       let release; hold = new Promise((r) => { release = r; });
       await p.locator('#create-msg button').click();
       await p.evaluate(() => document.getElementById('new-agent').click());
-      await p.waitForTimeout(400);
-      const during = await p.evaluate(() => typeof CREATE_KEPT === 'number');
+      // Review 1: the hand pick lands while the saved pick's read is out, after the accounts have answered.
+      await p.waitForFunction(() => typeof AGY_ASKING !== 'undefined' && !!AGY_ASKING && Array.isArray(CREATE_ACCOUNTS) && CREATE_ACCOUNTS.length === 2, null, { timeout: 8000 });
+      const during = await p.evaluate(() => !!AGY_ASKING && CREATE_ACCOUNTS.length === 2);
       await p.selectOption('#create-provider', 'anthropic');
       await p.dispatchEvent('#create-provider', 'change');
       release();
       await p.waitForTimeout(900);
       const st = await p.evaluate(() => ({ prov: document.getElementById('create-provider').value, acct: document.getElementById('create-account').value, name: document.getElementById('create-name').value }));
-      chk(during && st.prov === 'anthropic', '#8051: CONTROL: the provider picked by hand during the read wins', JSON.stringify(st));
+      chk(during, '#8051: CONTROL: the hand pick lands while the saved pick\'s read is still out', JSON.stringify({ during }));
+      chk(st.prov === 'anthropic', '#8051: CONTROL: the provider picked by hand wins over a saved pick that has become usable', JSON.stringify(st));
       chk(st.acct === B.dir && st.name === 'Nadia', '#8051: and the kept form still gets its account back', JSON.stringify(st));
       await p.close();
     }

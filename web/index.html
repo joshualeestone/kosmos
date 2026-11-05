@@ -36961,6 +36961,7 @@ document.getElementById('acct-claude-go').addEventListener('click', async () => 
        for no box. A closed dialog or another provider stays silent, as before: there is nowhere true to say it. */
     if (visit === ACCT_ADD_VISIT && !flow.hidden && keyStep.hidden && atPicker && !(err && err.needsRunner)) {
       msg.textContent = 'The API key you entered was not added. ' + asSentence(String((err && err.message) || 'We could not add that account.'));
+      if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });   // as the key step's own line does
       return;
     }
     if (visit !== ACCT_ADD_VISIT || flow.hidden || (keyStep.hidden && !(err && err.needsRunner && atPicker))) {
