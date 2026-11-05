@@ -268,9 +268,17 @@ test('kosmos#8063 item 3: a skill is read in bounded bytes and folders, and a cu
   /* Same first megabyte, different size: still a different copy. */
   const b = folder({ skills: ['huge'] }); fs.writeFileSync(path.join(b, 'skills', 'huge', 'blob.bin'), Buffer.alloc(2 * 1024 * 1024, 1));
   assert.deepEqual(carry.losses(a, b, H).changed, ['huge'], 'a large file with another size read as the same');
-  const wide = (k) => { const d = folder({ skills: ['wide'] }); for (let i = 0; i < k; i++) fs.mkdirSync(path.join(d, 'skills', 'wide', 'd' + String(i).padStart(4, '0'))); return d; };
-  const t0 = Date.now();
-  const l = carry.losses(wide(1500), wide(1500), H);
-  assert.equal(l.ok, true);
-  assert.ok(Date.now() - t0 < 5000, 'a wide empty tree was walked without a bound');
+  /* The walk stops at 200 folders: two skills that differ only in folder 250 read as the same copy. That is the
+     stated cost of the bound, asserted so a lost bound (an unbounded walk on the board's thread) turns this red. */
+  const wide = (odd) => {
+    const d = folder({ skills: ['wide'] });
+    for (let i = 0; i < 300; i++) { const f = path.join(d, 'skills', 'wide', 'd' + String(i).padStart(4, '0')); fs.mkdirSync(f); fs.writeFileSync(path.join(f, 'f.txt'), i === 250 && odd ? 'other' : 'same'); }
+    return d;
+  };
+  const w = carry.losses(wide(false), wide(true), H);
+  assert.equal(w.ok, true);
+  assert.deepEqual(w.changed, [], 'the walk went past 200 folders');
+  /* CONTROL: a difference inside the first folders is still seen. */
+  const early = wide(false); fs.writeFileSync(path.join(early, 'skills', 'wide', 'd0003', 'f.txt'), 'other');
+  assert.deepEqual(carry.losses(wide(false), early, H).changed, ['wide'], 'a difference before the cut was not seen');
 });
