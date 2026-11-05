@@ -16461,8 +16461,8 @@ const server = http.createServer(async (req, res) => {
    */
   /**
    * kosmos#8048 item 3: what moving one agent to one Claude account would lose (engine/accountcarry.js), before the move.
-   * GET /api/agents/account-plan?name=<agent>&dir=<account folder> -> { ok: true, skills, hooks, sentence } or
-   * { ok: false, because }. Reads only. The target must be one of this board's own Claude accounts, so this cannot be
+   * GET /api/agents/account-plan?name=<agent>&dir=<account folder> (or &account=<its label, as Settings and `kosmos
+   * accounts` show it, or "main">) -> { ok: true, dir, label, skills, hooks, sentence } or { ok: false, because }. Reads only. The target must be one of this board's own Claude accounts, so this cannot be
    * used to read the skills and hooks of an arbitrary folder; the agent must have a launch job. A folder that cannot
    * be read answers ok: false ("cannot tell"), which a caller must not read as safe.
    */
@@ -16471,10 +16471,14 @@ const server = http.createServer(async (req, res) => {
     try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
     const name = create.cleanName(String(q.get('name') || ''));
     const dir = String(q.get('dir') || '');
+    const said = String(q.get('account') || '').trim().toLowerCase();
     if (!name) { sendJson(res, 400, { ok: false, because: 'we need the agent to move' }); return; }
     let known = [];
     try { known = (accounts.list() || []).filter((a) => a && !a.apiKey); } catch { known = []; }
-    const target = known.find((a) => (dir ? a.dir === dir : a.isDefault === true));
+    const labelOf = (a) => (a.isDefault ? 'the main account' : String(a.label || require('node:path').basename(a.dir)));
+    const target = said
+      ? known.find((a) => (said === 'main' || said === 'the main account' ? a.isDefault === true : labelOf(a).toLowerCase() === said))
+      : known.find((a) => (dir ? a.dir === dir : a.isDefault === true));
     if (!target) { sendJson(res, 404, { ok: false, because: 'that is not one of the Claude accounts on this computer' }); return; }
     let job = null;
     try { job = create.readJob(name); } catch { job = null; }
@@ -16485,10 +16489,11 @@ const server = http.createServer(async (req, res) => {
     const from = job.configDir || (defaultRow && defaultRow.dir) || null;
     const to = target.dir;
     if (!from) { sendJson(res, 200, { ok: false, because: 'we could not tell which account it is on' }); return; }
-    if (from === to) { sendJson(res, 200, { ok: true, same: true, skills: [], hooks: [], sentence: `${name} is already on that account.` }); return; }
+    const where = { dir: target.dir, label: labelOf(target) };
+    if (from === to) { sendJson(res, 200, { ok: true, same: true, ...where, skills: [], hooks: [], sentence: `${name} is already on that account.` }); return; }
     const l = require('./engine/accountcarry').losses(from, to);
-    if (l.ok !== true) { sendJson(res, 200, l); return; }
-    sendJson(res, 200, { ...l, sentence: require('./engine/accountcarry').sentence(l) });
+    if (l.ok !== true) { sendJson(res, 200, { ...l, ...where }); return; }
+    sendJson(res, 200, { ...l, ...where, sentence: require('./engine/accountcarry').sentence(l) });
     return;
   }
 
