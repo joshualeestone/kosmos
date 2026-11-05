@@ -456,6 +456,9 @@ if [ -n "${KOSMOS_AGENT_TOKEN:-}" ]; then
 fi
 FN_MARK="$THROTTLE_DIR/$FN_KEY.filenotices"
 file_notices_due() {
+  # No agent token and no pane (the person's own Claude session): the board cannot tell who is asking, so the call is
+  # refused every time; it is not made.
+  [ -n "${KOSMOS_AGENT_TOKEN:-}" ] || [ -n "${TMUX_PANE:-}" ] || return 1
   mkdir -p "$THROTTLE_DIR" 2>/dev/null || return 1
   local fmark="$FN_MARK" now last
   now=$(date +%s)

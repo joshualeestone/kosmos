@@ -40,7 +40,9 @@ which store.js works out per platform, and a second copy of that in bash is two 
 - A notice is removed only once its id comes back, so an answer the hook never read is handed over again (first written
   as take-and-clear; three reviewers in a row found it lost notices on a busy board). The cost: a notice can reach the
   model twice when the hook read it but could not write the ack file.
-  The "older notices were not kept" count is kept the same way, until an acknowledgement removes a notice.
+  The "older notices were not kept" count is kept the same way: an acknowledgement subtracts only the count it was
+  handed, so notices dropped after a hand-over are still told.
+- The person's own Claude sessions (no agent token, no pane) make no call: the board could not say who is asking.
 - The mark and ack file are keyed by a hash of the agent token, so two sessions sharing a pane key (no TMUX_PANE, or one
   %N on two tmux servers) do not overwrite each other's acknowledged ids. Without an agent token they fall back to the
   pane key and can: each would then be handed its own notices again on every call until they expire.

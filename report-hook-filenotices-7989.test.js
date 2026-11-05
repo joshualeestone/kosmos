@@ -90,6 +90,11 @@ test('with an agent token the mark and ack file are the agent\'s, not the pane\'
   assert.notEqual(b.calls[0], a.calls[0], 'and its own ack file');
 });
 
+test('no agent token and no pane (the person\'s own session): no call, since the board could never say who is asking', () => {
+  assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '', '').calls, []);
+  assert.deepEqual(run(prompt, JSONLINE + '\n', 0, '', '33'.repeat(16)).calls.length, 1, 'control: a token alone asks');
+});
+
 test('no other event asks for file notices', () => {
   for (const ev of ['Stop', 'SessionEnd', 'PreToolUse']) {
     const r = run({ hook_event_name: ev, session_id: 's', cwd: '/w', tool_name: 'Read', tool_input: {} }, JSONLINE + '\n');
