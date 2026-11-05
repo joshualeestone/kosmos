@@ -7696,7 +7696,7 @@ cmd_agent() {
       elif [ -n "$mv_says" ]; then
         say "$mv_says"
       else
-        say "On $mv_label it keeps every skill and hook script it has now (skills and hooks from plugins are not checked)."
+        say "On $mv_label it keeps every skill and hook script it has now (skills are compared by their SKILL.md; plugins are not checked)."
       fi
       say "Moving restarts $mv_name on $mv_label. Anything it has running stops."
       # Review 1: a script cannot read that sentence, so --yes alone never moves an agent into a known loss or an
@@ -7727,6 +7727,7 @@ cmd_agent() {
       # Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s). Review 2: the
       # wait is bounded by time, not by tries (a read that times out costs 15 s), and only a 404 means forgotten; any
       # other error (a restarting board's 503) is waited through.
+      [ "$mv_out" = pending ] && [ -z "$mv_id" ] && mv_out=unknown   # review 4: a pending answer with no move id cannot be followed
       local mv_t0=$SECONDS mv_code mv_cap="${KOSMOS_MOVE_WAIT_S:-300}"   # KOSMOS_MOVE_WAIT_S: a test seam for the cap
       case "$mv_cap" in ''|*[!0-9]*) mv_cap=300 ;; esac
       while [ "$mv_out" = pending ] && [ -n "$mv_id" ] && [ $((SECONDS - mv_t0)) -lt "$mv_cap" ]; do

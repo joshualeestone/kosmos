@@ -100,7 +100,11 @@ function hookEntries(dir, home) {
         const at = scriptPath(h.command, dir, home);
         /* Review 2: the wiring keeps the command's arguments (`gate.sh pre` and `gate.sh post` are two hooks), with the
            home and folder spellings made one, so the same gate spelled ~ or $HOME still matches. */
-        const args = String(h.command).trim().split(/\s+/).filter((x) => !/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)["']?$/i.test(x) && !/^(bash|sh|node|python3?|pwsh|powershell)$/.test(x)).join(' ');
+        /* Review 4: the spellings made one inside the arguments too (~, $HOME, the folder or $CLAUDE_CONFIG_DIR), so the
+           same hook written two ways is not a false loss. */
+        const one = (x) => x.replace(/^["']|["']$/g, '').replace(/^~(?=\/|$)/, '<HOME>').replace(/\$\{?HOME\}?/g, '<HOME>')
+          .replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, '<CFG>').split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
+        const args = String(h.command).trim().split(/\s+/).filter((x) => !/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)["']?$/i.test(x) && !/^(bash|sh|node|python3?|pwsh|powershell)$/.test(x)).map(one).join(' ');
         list.push({ id, wiring: `${event}\n${matcher}\n${id}\n${args}`, file: at, sum: at ? digest(at) : null });
       }
     }
@@ -130,7 +134,9 @@ function losses(fromDir, toDir, opts = {}) {
       /* A hook that does not run where the agent is now (its script missing there) is not one it has to lose. */
       if (h.file && h.sum === null) continue;
       const same = th.off ? [] : th.list.filter((t) => t.wiring === h.wiring);
-      const kept = same.some((t) => (h.file ? t.file !== null && t.sum !== null && t.sum === h.sum : true));
+      /* Review 4: a target script that resolves must be there, whatever the source side is; with both resolvable, the
+         same contents. */
+      const kept = same.some((t) => (h.file ? t.file !== null && t.sum !== null && t.sum === h.sum : (t.file ? t.sum !== null : true)));
       if (!kept) lost.add(h.id);
     }
   }

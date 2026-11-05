@@ -135,3 +135,17 @@ test('kosmos#8048 review 3: $CLAUDE_CONFIG_DIR is unset for the default account,
   // Off the main account: the gate never fired there, so it is not one the agent loses.
   assert.deepEqual(carry.losses(main, acct, { home }).hooks, [], 'a gate that never fired on the main account read as lost');
 });
+
+test('kosmos#8048 review 4: one hook written two ways is not a loss; a missing target script behind a relative source is', () => {
+  const g = (cmd, script = true) => {
+    const d = folder({ hooks: [cmd] });
+    if (script) { fs.mkdirSync(path.join(HOMEDIR, '.claude', 'hooks'), { recursive: true }); fs.writeFileSync(path.join(HOMEDIR, '.claude', 'hooks', 'g.sh'), '#!/bin/sh\n'); }
+    return d;
+  };
+  assert.deepEqual(carry.losses(g('bash ~/.claude/hooks/g.sh ~/.claude/state'), g('bash $HOME/.claude/hooks/g.sh $HOME/.claude/state'), H).hooks, [],
+    'the same hook with its argument spelled ~ and $HOME read as lost');
+  assert.deepEqual(carry.losses(g('bash ~/.claude/hooks/g.sh ~/.claude/a'), g('bash ~/.claude/hooks/g.sh ~/.claude/b'), H).hooks, ['g.sh'],
+    'CONTROL: a hook with a different argument read as kept');
+  assert.deepEqual(carry.losses(folder({ hooks: ['bash gate.sh'] }), folder({ hooks: ['bash /nonexistent-8048/gate.sh'] }), H).hooks, ['gate.sh'],
+    'a target whose script is missing read as keeping the gate');
+});
