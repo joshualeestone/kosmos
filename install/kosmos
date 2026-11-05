@@ -7699,7 +7699,13 @@ cmd_agent() {
       local rs_me="" rs_esc_pane; rs_esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
       rs_me=$(kosmos_curl "$(agent_board_token || true)" "$_rtok" -sS -m 15 -X POST "$URL/api/whoami" -H 'content-type: application/json' -d "{\"from_pane\":\"$rs_esc_pane\"}" 2>/dev/null \
         | "$_node" -e "$_rsparse"'process.stdout.write(j.ok===true&&typeof j.agent==="string"?one(j.agent):"")})' 2>/dev/null) || rs_me=""
-      if [ -n "$rs_me" ] && [ "$rs_me" = "$rs_name" ]; then
+      # Review 2: when the board cannot say who is asking and the caller looks like an agent (a token or a pane), it
+      # might be asking about itself, so nothing is sent; a person at a plain terminal goes on.
+      if [ -z "$rs_me" ] && { [ -n "$_rtok" ] || [ -n "${TMUX_PANE:-}" ]; }; then
+        say "Nothing was restarted: Kosmos could not say which agent is asking, so it cannot rule out that $rs_name is you. Try again in a minute."
+        exit 2
+      fi
+      if [ -n "$rs_me" ] && [ "$(printf '%s' "$rs_me" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$rs_name" | tr '[:upper:]' '[:lower:]')" ]; then
         say "Nothing was restarted: $rs_name is you, and restarting yourself ends this session before you see the answer. Use \"Write a handoff, then restart\" on your page instead."
         exit 2
       fi
@@ -7720,7 +7726,7 @@ cmd_agent() {
       esac
       # Review 1: a route that threw answers {error, detail} with no outcome, possibly after the session was stopped.
       rs_parsed=$(printf '%s' "$body" | "$_node" -e "$_rsparse"'console.log([one(j.outcome||(j.detail!==undefined?"failed-partway":"")),one(j.because||j.error)].join("\t"))})') \
-        || { say "Kosmos gave an answer we could not read when restarting $rs_name. Look at its page: $URL/"; exit 1; }
+        || { say "Kosmos gave an answer we could not read after it was asked to restart $rs_name, so it may have restarted. Look at its page: $URL/"; exit 3; }   # review 2: sent, so "may"
       rs_out=$(cut -f1 <<<"$rs_parsed"); rs_because=$(cut -f2 <<<"$rs_parsed")
       while [[ "$rs_because" == *[.[:space:]] ]]; do rs_because="${rs_because%?}"; done
       case "$rs_because" in *[?!]|*\)) rs_end="" ;; *) rs_end="." ;; esac

@@ -2496,7 +2496,13 @@ async function agentRestart(ctx, args) {
   if (!yes && !ctx.canAsk()) { ctx.err('Nothing was restarted: there is no terminal here to confirm on. To restart ' + name + ' without being asked, add --yes.'); return 2; }
   /* Review 1: never yourself (it ends this session before the answer comes back, with no handoff). */
   const me = await ctx.call('POST', '/api/whoami', { from_pane: '' });
-  if (me.reached && me.json && me.json.ok === true && me.json.agent === name) {
+  const meName = me.reached && me.json && me.json.ok === true && typeof me.json.agent === 'string' ? me.json.agent : '';
+  /* Review 2: the board could not say who is asking, and this caller holds an agent token: it might be itself. */
+  if (!meName && (ctx.env || {}).KOSMOS_AGENT_TOKEN) {
+    ctx.err('Nothing was restarted: Kosmos could not say which agent is asking, so it cannot rule out that ' + name + ' is you. Try again in a minute.');
+    return 2;
+  }
+  if (meName && meName.toLowerCase() === name.toLowerCase()) {
     ctx.err('Nothing was restarted: ' + name + ' is you, and restarting yourself ends this session before you see the answer. Use "Write a handoff, then restart" on your page instead.');
     return 2;
   }
@@ -2514,8 +2520,7 @@ async function agentRestart(ctx, args) {
   if (j.outcome === 'partial') { ctx.err('Not restarted as asked: ' + (because || 'Kosmos did not say how far it got') + end + ' Look at its page.'); return 1; }
   if (!j.outcome && j.detail !== undefined) return maybe(ctx.err, name + ' may be partly restarted: ' + (because || 'Kosmos did not say how far it got') + end + ' Look at its page before trying again.');   // review 1: the route threw
   if (because) { ctx.err('Kosmos did not restart ' + name + ': ' + because + end); return 1; }
-  ctx.err('Kosmos gave an answer we could not read when restarting ' + name + '. Look at its page.');
-  return 1;
+  return maybe(ctx.err, 'Kosmos gave an answer we could not read after it was asked to restart ' + name + ', so it may have restarted. Look at its page.');   // review 2: sent, so "may"
 }
 
 /* kosmos#8048 item 3: install/kosmos's `agent move`, through the board's own move: the plan (which account, by the name
