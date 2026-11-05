@@ -36953,7 +36953,12 @@ document.getElementById('acct-claude-go').addEventListener('click', async () => 
     const keyStep = document.getElementById('acct-claude-key-step');
     const flow = document.getElementById('acct-claude-flow');
     const atPicker = !document.getElementById('acct-claude-pick').hidden;   // round 6: not the subscription step they moved on to
-    if (visit !== ACCT_ADD_VISIT || flow.hidden || (keyStep.hidden && !(err && err.needsRunner && atPicker))) return;
+    if (visit !== ACCT_ADD_VISIT || flow.hidden || (keyStep.hidden && !(err && err.needsRunner && atPicker))) {
+      /* Round 8: a Claude sign-in that starts meanwhile moves them to the subscription step (acctFlowPaint) without
+         clearing the line, which now sits beside the steps. This press's own line goes; a new visit's is not its. */
+      if (visit === ACCT_ADD_VISIT && msg.textContent === 'Adding…') msg.textContent = '';
+      return;
+    }
     msg.textContent = asSentence(String((err && err.message) || 'We could not add that account.'));   // kosmos#8040: the route's words start in lower case
     /* The route answers needsRunner when Claude Code is not on this computer. The
        key path has no install button of its own, so send the person back to the
@@ -62729,6 +62734,9 @@ document.getElementById('create-provider').addEventListener('change', () => {
    manual change back to Claude. `anthropic` is the select's own `selected`
    default (see the #create-provider markup). */
 function resetCreateProvider() {
+  /* kosmos#8040 round 8: what it resets is no longer the person's pick, so the return must not keep it as one. */
+  CREATE_ACCOUNT_TOUCHED = false;
+  CREATE_MODEL_TOUCHED = false;
   const prov = document.getElementById('create-provider');
   if (!prov) return;
   // #2140: a form reset starts fresh -- forget a Claude pick remembered for a
@@ -67591,8 +67599,11 @@ function createKeptRestore(kept) {
   if (prov === 'openai') {
     /* Only a model picked on OpenAI is put back: one read off Claude is not in this list, and would replace the saved
        pick loadCreateExtras just painted (round 6). */
-    if (kept.provider !== 'openai') { swarmCreatePaint(); return; }
-    CREATE_PREF_OPENAI_MODEL = kept.model || '';   // the model row is per account, and this is the first paint that has one
+    /* The model row is per account, and this can be the first paint that has one, so it always repaints. It repaints
+       with the model they picked on OpenAI, or else with their saved OpenAI pick, as a plain New agent would: never with
+       one read off Claude, and never with nothing over a saved pick (rounds 6 and 8). */
+    const saved = readCreatePrefs();
+    CREATE_PREF_OPENAI_MODEL = kept.provider === 'openai' && kept.model ? kept.model : (saved.provider === 'openai' ? saved.model : '');
     paintOpenaiCreateModel();
   } else if (!vendorPicksModel(prov) && has(model, kept.model)) {
     model.value = kept.model;
