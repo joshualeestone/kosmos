@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: recentphotos-8045
-diff_hash: a0207518730badc5685ef5eec4e3086e5096f46d23dfc1e91d3f1dd1accf7d4c
+diff_hash: 0414a704a4fc7a1517632a1c26c32f708c26ede453a29c2d5bc56cf6494122e4
 validation: 8 failures under load, none in files this branch touches; those six files passed alone
 subdir_audit: passed
 timestamp: 2026-11-05T21:36:44Z
@@ -87,6 +87,9 @@ converged: false
 - [WARNING] ios/Kosmos/AttachMenu.swift - a withdrawn add lost if the chat closes --> FIXED
 - [WARNING] plan understated the thumbnails; GIF in the label --> FIXED
 - [WARNING] manifest has no photos entry --> DEFERRED: not collected, goes to the person's own Mac, as before
+
+#### After the loop
+CI's UI job was red on PR #8065: AttachMenuUITests.testTheBoxHoldsThroughTheSwapInAChat, "too few readings", one reading in 1.2 s on a loaded runner. The check's own floor, not the tray. It now reads for at least 1.2 s and at least four times. Test-only change, no further review round.
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None.
