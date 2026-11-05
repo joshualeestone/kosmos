@@ -8,17 +8,24 @@ it, through the default Claude row. That stopped the 0.7.92 cut after 106 minute
 
 ## What changes
 - `engine/loginexpiry.js`: with KOSMOS_BC_LOGIN_UNTIL_MS set, the bare entry answers that date and every other entry
-  answers nothing, and `security` is not run. A value that is not a number answers nothing.
+  answers nothing, and `security` is not run. A value that is not a whole number answers nothing.
 - `tools/browser-checks.sh`: exports it beside the other no-board-may switches, so it covers every board the script boots.
 
 ## Decisions (mine, reversible in a commit)
-- **The seam sits in the two keychain readers,** the only places the engine runs `security`, read 11-05 by grep. So the
-  card's question about other sandboxes has one answer: this covers them all. Rejected: a seam in claudeloginlive only,
-  which leaves the status snapshot's read.
-- **A fixed date, 2100-01-01,** so a page or a screenshot cannot change with the calendar.
+- **The seam sits in the two keychain readers,** the only places the engine runs `security`, read 11-05 by grep, and every
+  board browser-checks.sh boots has the variable. Rejected: a seam in claudeloginlive only, which leaves the status
+  snapshot's read.
+- **A fixed date, noon UTC on 2100-01-01,** so a page or a screenshot cannot change with the calendar, or with the
+  timezones the fleet's Macs are in.
 - **Other accounts answer nothing,** as they do now: their entries are named from a sandbox path, so none exists.
 - The checks that test dates inject their own (render-claude-login-green-3997 uses setReaderForTests, the other two stub
   /api/accounts), so this takes nothing from them. Read, not run.
+
+## What this does not cover
+- A board that runs the host's real `claude`: `claude auth status` reads the login itself. sb4, the board that failed,
+  has a fake one, so this card's failure is closed; boot_board's boards do not, but start with no default account.
+- Boards started outside this script: tools/test-install.sh and the other tools/test-*.sh harnesses, mobile-shots.js run
+  alone, and a check run by hand. I know of none that has failed this way; add the export where one does.
 
 ## Weakest premise
 That a production board never has this variable. It is named for the browser checks and set nowhere else; a board that

@@ -58,15 +58,15 @@ function serviceNameFor(ccd) {
 const KEYCHAIN_READ = (service) => ['find-generic-password', '-s', service, '-w'];
 const KEYCHAIN_OPTS = { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] };
 
-/* kosmos#8050: a throwaway board started by tools/browser-checks.sh never reads this Mac's real keychain. With
+/* kosmos#8050: Kosmos's own keychain read, on a throwaway board started by tools/browser-checks.sh. With
  * KOSMOS_BC_LOGIN_UNTIL_MS set, the bare entry answers that date and any other entry answers nothing, and `security` is not
  * run. A value that is not a number answers nothing too, so a bad setting cannot fall through to the real read.
  * undefined means the variable is not set: read the keychain. */
 function sandboxCred(service) {
   const raw = process.env.KOSMOS_BC_LOGIN_UNTIL_MS;
   if (raw === undefined || raw === '') return undefined;
+  if (!/^\d+$/.test(raw) || service !== DEFAULT_SERVICE) return null;
   const until = Number(raw);
-  if (!Number.isFinite(until) || service !== DEFAULT_SERVICE) return null;
   return JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: until, expiresAt: until } });
 }
 

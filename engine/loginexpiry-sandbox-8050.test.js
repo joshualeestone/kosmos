@@ -1,7 +1,8 @@
 'use strict';
-/* kosmos#8050: a throwaway board started by tools/browser-checks.sh never reads this Mac's real keychain.
+/* kosmos#8050: Kosmos's own keychain read answers a fixture on a board started by tools/browser-checks.sh.
  *   node --test engine/loginexpiry-sandbox-8050.test.js
- * No arm can touch the real keychain: PATH holds only a fake `security`, which records that it ran. */
+ * No arm can touch the real keychain: PATH holds only a fake `security`, which records that it ran. Its shebang names
+ * /bin/sh and it uses only shell builtins. */
 const { test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -22,7 +23,7 @@ beforeEach(() => {
   marker = path.join(dir, 'ran');
   const body = JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: FAKE_KEYCHAIN_DATE, expiresAt: FAKE_KEYCHAIN_DATE } });
   fs.writeFileSync(path.join(dir, 'security'), `#!/bin/sh\n: > '${marker}'\nprintf '%s' '${body}'\n`, { mode: 0o755 });
-  process.env.PATH = `${dir}:/usr/bin:/bin`;
+  process.env.PATH = dir;
   delete process.env[VAR];
 });
 
@@ -56,12 +57,14 @@ test('set: any other account reads nothing, and security never runs', async () =
   assert.ok(!fs.existsSync(marker), 'security ran with the variable set');
 });
 
-test('a value that is not a number reads nothing: it cannot fall through to the real read', async () => {
-  process.env[VAR] = 'tomorrow';
-  assert.equal(le.refreshExpiryFor(undefined), null);
-  assert.equal(await le.readCredAsync(le.DEFAULT_SERVICE), null);
-  assert.ok(!fs.existsSync(marker), 'security ran on a bad value');
-});
+for (const bad of ['tomorrow', ' ', '-1', '1e12', 'Infinity']) {
+  test(`a value that is not a whole number reads nothing (${JSON.stringify(bad)}): it cannot fall through to the real read`, async () => {
+    process.env[VAR] = bad;
+    assert.equal(le.refreshExpiryFor(undefined), null);
+    assert.equal(await le.readCredAsync(le.DEFAULT_SERVICE), null);
+    assert.ok(!fs.existsSync(marker), 'security ran on a bad value');
+  });
+}
 
 test('an empty value counts as unset', () => {
   process.env[VAR] = '';

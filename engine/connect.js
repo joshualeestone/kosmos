@@ -98,7 +98,7 @@ function setRefreshExpiryReader(fn) { refreshExpiryReader = typeof fn === 'funct
    handling stay in one place. */
 /* The shared async read (loginexpiry.readCredAsync, #3997): one definition of the command. Guarded only by
    readRefreshExpiry's NODE_TEST_CONTEXT check: a harness run under plain node that drives a reauth would query
-   the real keychain (a sandboxed, suffixed entry). */
+   the real keychain (a sandboxed, suffixed entry), unless it sets loginexpiry's KOSMOS_BC_LOGIN_UNTIL_MS. */
 const readCredAsync = (service) => loginexpiry.readCredAsync(service);
 async function readRefreshExpiry(ccd) {
   if (refreshExpiryReader) return refreshExpiryReader(ccd);
