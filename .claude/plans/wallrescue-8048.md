@@ -29,3 +29,21 @@ measured on a real limited agent. The first real move on Mortals is the measurem
 engine/autobalance-7152.test.js: a dated weekly limit holding work and a commitment is movable; CONTROL the same idle
 agent is not; undated, past reset, unsent words, guide, not ours are not; decide() names the move. Both halves of the
 change, removed one at a time, turn the first assertion red.
+
+## As built after eight review rounds (the sections above are the first cut)
+- engine/autobalance.js: stoppedAtLimit(card) = assigner.limitedCard, not a remembered reading, not a switched-off
+  swarm. movableFor lets such an agent through after the unsent-words and guide checks, before commitments and open work.
+- engine/automove.js:
+  - remembers when each would-move was first seen at its limit (limitSeenAt), cleared on every early return;
+  - a move off the limit needs two sightings at the limit;
+  - it is skipped ("it was working again", said once an hour) when the agent reported a tool call after the first
+    sighting (deps.workedAt);
+  - the move's message says the agent had stopped at its limit and the restart ended anything running, and names
+    its commitments: current as they are, stale with their age, future-dated not at all, never an entry with an @,
+    at most five, read before the move.
+- server.js: the report route keeps a 'tool' activity marker, written only for the hook's PreToolUse report
+  ("running <tool>", auto); automoveDeps.workedAt reads it. A prompt reaching a stuck agent writes 'working', not 'tool'.
+- Measured: the incident's two agents hit a weekly limit that reset 50 h later (their account-d transcripts), which
+  Claude Code prints dated, so this branch would have moved both.
+- Residuals: a weekly limit under 24 h from reset (undated) is not reached; an agent that recovered before its first
+  sighting and runs no new tool, or has no report hook, can be moved; Settings copy and four lows are #8056.
