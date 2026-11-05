@@ -38,6 +38,7 @@ const { start, server } = require('../server');
 const fleet = require('../test-support/fleet');
 const messages = require('./messages');
 const nya = require('./needsyouack');
+const chat = require('./chat');
 
 let base;
 test.before(async () => {
@@ -128,6 +129,42 @@ test('the board and the phone both fire on a due ack, not only on unread replies
   assert.ok(page.includes("(dmHidden ? '?hidden=1' : '')"), 'a tab in the background says so');
   const chat = fs.readFileSync(path.join(__dirname, '..', 'ios', 'Kosmos', 'ChatView.swift'), 'utf8');
   assert.ok(chat.includes('guard visible, unreadHere > 0 || ackDue, !seenInFlight else { return }'));
+});
+
+test('kosmos#8036: a permission wait that passes unopened leaves one line and an ack; one opened first leaves neither', async () => {
+  await withAgent('wait-gone', async () => {
+    posts.length = 0;
+    await report({ state: 'needs_you', text: 'asking permission to use Bash: rm -rf /Users/someone/secret', auto: true });
+    assert.equal(nya.due('wait-gone'), true, 'control: its push went out and is held');
+    assert.equal(acks().length, 0);
+    await report({ state: 'working', text: 'running a tool', auto: true });
+    assert.equal(acks().length, 1, 'over: the coordinator is told, so no email');
+    assert.match(acks()[0].body.eventId, /^report:.*:wait-gone$/);
+    assert.equal(nya.due('wait-gone'), false);
+    const rows = chat.readThread(chat.DIRECT, 'wait-gone').messages;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].text, nya.WAIT_ENDED_LINE);
+    assert.equal(rows[0].kosmos, true, 'nothing owed');
+    assert.doesNotMatch(rows[0].text, /secret|rm -rf/, 'the hook\'s words never reach the chat');
+    await report({ state: 'idle', text: 'done', auto: true });
+    assert.equal(chat.readThread(chat.DIRECT, 'wait-gone').messages.length, 1, 'once');
+  });
+  await withAgent('wait-seen', async () => {
+    posts.length = 0;
+    await report({ state: 'needs_you', text: 'asking permission to use Bash: ls', auto: true });
+    await seen('wait-seen');
+    assert.equal(acks().length, 1, 'control: opened, acknowledged then');
+    await report({ state: 'working', text: 'running a tool', auto: true });
+    assert.equal(acks().length, 1);
+    assert.equal(chat.readThread(chat.DIRECT, 'wait-seen').messages.length, 0, 'they saw it: no line');
+  });
+  await withAgent('ask-real', async () => {
+    posts.length = 0;
+    await report({ state: 'needs_you', text: 'Which logo?' });
+    await report({ state: 'working', text: 'back at it' });
+    assert.equal(acks().length, 0, 'an agent\'s own question is not this');
+    assert.equal(chat.readThread(chat.DIRECT, 'ask-real').messages.length, 0);
+  });
 });
 
 test('the store: a failed hand-over is kept, a week is the limit, and each agent keeps a few', () => {

@@ -76,4 +76,22 @@ function opened(session, ack, now = Date.now()) {
   } catch { return 0; }
 }
 
-module.exports = { remember, due, opened, file, KEEP_MS, KEEP_PER_AGENT, RETRY_MS };
+/** kosmos#8036: one push, by its id, is over before the person opened it. True when it was held (so it had gone out and nobody
+    had opened it), and it is acknowledged and forgotten. False when it was not held, and then nothing is said. Never throws. */
+function ended(session, id, ack, now = Date.now()) {
+  try {
+    const all = read(now);
+    const rows = all[session];
+    if (!rows || !rows.some((r) => r.id === id)) return false;
+    ack(id);
+    const left = rows.filter((r) => r.id !== id);
+    if (left.length) all[session] = left; else delete all[session];
+    write(all);
+    return true;
+  } catch { return false; }
+}
+
+/* kosmos#8036: what the chat says, Kosmos's own words. Not the hook's: they can hold a command or a path (#7756 review 1). */
+const WAIT_ENDED_LINE = 'No longer asking for permission. That request has passed, so nothing is needed from you now.';
+
+module.exports = { ended, WAIT_ENDED_LINE, remember, due, opened, file, KEEP_MS, KEEP_PER_AGENT, RETRY_MS };
