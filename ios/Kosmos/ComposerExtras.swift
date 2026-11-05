@@ -23,7 +23,7 @@ struct ComposerEmojiButton: View {
 }
 
 // The microphone beside it: grey at rest, red while listening (a press stops it). While the last words land after a
-// stop (review 6), a small spinner, not pressable: a second press there would throw those words away.
+// stop (review 6), the simple dots, not pressable: a second press there would throw those words away.
 struct ComposerMicButton: View {
     @ObservedObject var dictation: Dictation
     let action: () -> Void
@@ -31,7 +31,7 @@ struct ComposerMicButton: View {
         let on = dictation.active
         Button(action: action) {
             Group {
-                if dictation.finishing { SweepDots(size: 16, label: "Loading") }   // kosmos#8058: a small wait has the simple dots
+                if dictation.finishing { SweepDots(size: 16, scales: false) }   // kosmos#8058: the simple dots, at the fixed size of the icon they stand in for; the button says what is happening
                 else {
                     Image(systemName: on ? "stop.circle.fill" : "mic")
                         .font(.system(size: 20))
