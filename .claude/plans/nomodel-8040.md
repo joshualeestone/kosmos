@@ -33,7 +33,12 @@ everyone else. The account refusal still needs a second press, which now shows i
 
 Coming back by the link: the form is not rebuilt. `openCreate` is what empties it, so New agent after the link skips it
 (`CREATE_KEPT`, `createEnter`), clears the old sentence, re-reads the accounts, and any other route to `openCreate` ends the
-keeping. Page memory only: a reload starts fresh, and a New agent much later in the same page still returns here.
+keeping. Page memory only: a reload starts fresh.
+
+The keeping ends 30 minutes after the link (`CREATE_KEPT_MS`). Past that a New agent starts plain. Rejected: clearing on
+leaving Settings, since the way back is leaving Settings and pressing New agent; clearing when a connect succeeds, since the
+person still wants their form back then. Weakest premise: 30 minutes is enough for a sign-in. If not, they retype, which is
+what a plain New agent always did.
 
 ## What I rejected
 
