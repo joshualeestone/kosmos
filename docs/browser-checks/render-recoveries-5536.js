@@ -57,7 +57,7 @@ async function show(page, org) {
     PLUS_ORG.at = 0;
     if (typeof plusOrgMaybe === 'function') plusOrgMaybe();
     for (let i = 0; i < 20; i += 1) await new Promise((r) => setTimeout(r, 25));
-    plusOrgRecoveries(o);   // the block's own paint, from the same answer, whatever the refresh above did
+    // No direct call: only the page's own refresh and paint (plusOrgMaybe, then plusOrgPaint) may fill the block.
     const box = document.getElementById('plus-org-recoveries');
     const list = document.getElementById('plus-org-recoveries-list');
     const r = box.getBoundingClientRect();

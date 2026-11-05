@@ -56009,6 +56009,8 @@ function plusOrgRecoveryLine(r) {
     const n = Number.isSafeInteger(r.count) && r.count > 0 ? r.count : null;
     return ' opened ' + (n === null ? 'files from your backup' : n === 1 ? '1 file from your backup' : n + ' files from your backup') + ', ' + day;
   }
+  // The row's `who` is the account the key was released to: the relay's release writes its audit row with the reviewer
+  // whose browser the key is sealed to as the actor (kosmos-relay coordinator/src/content.rs, `release`).
   return ' was given your backup key, ' + day;
 }
 function plusOrgRecoveries(st) {
