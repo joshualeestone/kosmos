@@ -14,3 +14,8 @@ this runs on the existing asks); removing the exemption (a normal open draws wit
 
 Weakest premise: that topVisible is what held diagCheck off. Reasoned: the capture has no diag line, and it is the guard
 that fits; the top marker's going is not traced. And a rebuild can itself land blank, as at 12:56.
+
+Scope, stated: the rule covers any list whose end never showed and has nothing on screen, including one that drew a row and lost
+it. Left as they were, deliberately: the two delayed re-checks for a reader higher up, which still ask for the end and top markers.
+A fresh open reads at the newest, so they should not be reached; the new trace line would show it if they are. And coming back to
+the front restarts the 2 s, so repeated interruptions can delay a rebuild; that only leaves things as they were.
