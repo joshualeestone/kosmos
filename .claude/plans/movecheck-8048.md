@@ -23,3 +23,18 @@ Fixing the drift on Mortals (linking the account folders to ~/.claude): a box se
 ## Weakest premise
 That skill folder names and hook script basenames are the right identity. A same-named skill with different
 contents reads as kept.
+
+## As built after eight review rounds
+- engine/accountcarry.js: losses(from, to, { home }) -> { ok, skills (missing), changed (another copy), hooks (missing
+  or not wired the same), hooksChanged (the script differs) }; loses(); sentence(). A skill is its whole folder (SKILL.md
+  required, 400 files, links followed once). A hook is kept when the target wires the same script (or prompt, or other
+  type as written) under the same event and matcher, the script resolves and has the same contents, and hooks are not
+  off. Quotes, ~, $HOME, $CLAUDE_CONFIG_DIR (empty on the default account) and ${VAR:-default} resolve as the shell
+  does; anything left is unresolvable. Unreadable folders or scripts give ok: false.
+- server.js GET /api/agents/account-plan: this board's own Claude accounts only, named by email, chosen name, label or
+  main; 409 on two matches; refuses non-Claude agents; real paths; returns loses.
+- install/kosmos and tools/windows/kosmos-cli.js: kosmos agent move "<name>" "<account>" [--yes [--accept-loss]].
+  Plan, say the loss, confirm (or --yes; a loss or "cannot tell" also needs --accept-loss), POST as the person, read
+  the outcome until it ends or five minutes pass; only a 404 is a forgotten move.
+- Not done here: the automatic mover skipping a target that would lose (needs #8060 on main, now merged: next).
+  Round 8's warnings are #8063.
