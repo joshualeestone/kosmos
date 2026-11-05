@@ -452,6 +452,16 @@ enum Board {
         let top = -insetTop, end = max(top, contentHeight + insetBottom - viewHeight)
         return min(max(offset + (content - keptContent), top), end)
     }
+    // kosmos#7420 (Josh's phone, build 43): "rows said to appear" is SwiftUI's word, and an earlier capture had rows appear on a
+    // black list, so a report could not tell a rebuild that recovered from one that stayed blank. This says where the drawn rows
+    // sit in the content against what the screen shows, as numbers: a record, which decides nothing. nil readings or a nil
+    // screen say so: on iOS below 26 no row reads its place.
+    static func rowsAgainstScreen(_ rows: [Double], showing: (top: Double, bottom: Double)?) -> String {
+        let finite = rows.filter(\.isFinite)
+        guard let low = finite.min(), let high = finite.max() else { return "no row read its place" }
+        guard let s = showing, s.top.isFinite, s.bottom.isFinite else { return "row tops \(Int(low)) to \(Int(high)), screen unread" }
+        return "row tops \(Int(low)) to \(Int(high)), screen shows \(Int(s.top)) to \(Int(s.bottom))"
+    }
     // kosmos#7654: the tops of the rows whose reading agrees with where the list is: a row at `top` on the screen should sit at
     // offset + (top - bandTop) in the content, where offset is the scroll's plus its top inset. A settled list agrees exactly; 30 pt is
     // for a list still moving. CI's stale reading six rows away got through a slack of a screenful.

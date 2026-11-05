@@ -5702,6 +5702,13 @@ do {
     check(Board.emptyRecovery(later: true, place: "past the end", scrolling: false, atNewest: true) == .backInsideThenNewest
           && Board.emptyRecovery(later: false, place: nil, scrolling: false, atNewest: true) == .newest, "outside the content or unread: as before")
 
+    // kosmos#7420 build 43: where drawn rows sit against the screen, as numbers, so a capture tells a blink from a blank.
+    check(Board.rowsAgainstScreen([22900, 22400, 22650], showing: (top: 22919, bottom: 23337)) == "row tops 22400 to 22900, screen shows 22919 to 23337", "the span of the rows and of the screen")
+    check(Board.rowsAgainstScreen([], showing: (top: 1, bottom: 2)) == "no row read its place", "no readings say so, never a made-up span")
+    check(Board.rowsAgainstScreen([5], showing: nil) == "row tops 5 to 5, screen unread", "no scroll view says so")
+    check(Board.rowsAgainstScreen([5, .nan, .infinity], showing: (top: .nan, bottom: 1)) == "row tops 5 to 5, screen unread", "a broken number never traps a report about a broken scroll")
+    check(Board.rowsAgainstScreen([.nan], showing: (top: 1, bottom: 2)) == "no row read its place", "control: nothing finite")
+
     // kosmos#7596: the + panel's rules.
     check(AttachChoice.allCases.map(\.title) == ["Camera", "Photos", "Files"], "the panel offers Camera, Photos and Files, in that order")
     check(Board.cameraState(available: true, auth: .authorized) == .ready && Board.cameraState(available: true, auth: .notDetermined) == .notAsked,
