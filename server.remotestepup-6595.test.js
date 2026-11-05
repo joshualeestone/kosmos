@@ -234,6 +234,9 @@ const REGEX_ROUTES = {
   '/^\\/api\\/svc\\/([a-z0-9-]+)(?:\\/(token|forget))?$/': { gated: '/api/svc/brave-search/token' },
   '/^\\/api\\/runners\\/([a-z]+)\\/install$/': { gated: '/api/runners/openai/install' },
   '/^\\/api\\/agent\\/([^/]+)\\/restore$/': { gated: '/api/agent/scout/restore' },
+  /* kosmos#8039: answers Claude Code's imports question with No only, then restarts the agent. It only takes files away
+     from what the agent reads; no credential, software or Yes enters, and the agent's page is the place to answer it. */
+  '/^\\/api\\/agent\\/([^/]+)\\/decline-imports$/': { exempt: 'writes only the No (files are left out of what the agent reads) and restarts it; nothing is let in' },
   '/^\\/api\\/project\\/([^/]+)\\/webhooks$/': { gated: '/api/project/p1/webhooks' },
   '/^\\/api\\/project\\/([^/]+)\\/webhooks\\/([0-9a-f]{16})(\\/name)?$/': { exempt: 'renames or deletes a webhook; neither mints a new secret' },
   '/^\\/api\\/skills\\/([^/]+)$/': { exempt: 'a skill is text agents read; a remote session can already tell any agent anything in chat' },

@@ -53234,7 +53234,7 @@ document.getElementById('d-qask-imports-no').addEventListener('click', async () 
     const r = await res.json().catch(() => ({}));
     pressedOk = res.ok && r.ok === true;
     if (CURRENT && CURRENT.sessionName === forAgent) {
-      note.textContent = r.because || r.error || (res.ok ? 'Restarting.' : 'We could not start this agent without them.');
+      note.textContent = r.because || r.error || (res.ok ? 'It is restarting.' : 'We could not start this agent without them.');
     }
   } catch {
     if (CURRENT && CURRENT.sessionName === forAgent) note.textContent = 'We could not reach Kosmos to start this agent.';
