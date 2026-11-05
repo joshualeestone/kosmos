@@ -9,6 +9,7 @@
  *   - the reviewer notice beside it closes apart: closing one leaves the other;
  *   - See who opens Settings at Kosmos+ with the recoveries list on screen, and the notice is gone;
  *   - a family and a computer in no company get none; a failed read keeps the notice;
+ *   - a list taller than the screen lands on its top with the newest row in view, then counts as seen;
  *   - at 375 x 667 (both themes) the notice is on screen with See who and its x at least 44 px tall.
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-recoverynote-5536.js [shots-dir]
@@ -114,6 +115,7 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-recoverynote-5536 
     STEP = eng + ' see who';
     await page.click('#recovery-slot button[data-recovery-see]');
     await page.waitForTimeout(800);
+    // Stands in for the page's 5 s tick, off in this check: in the app that repaint marks the list seen once in view.
     await page.evaluate(() => plusOrgPaint());
     const went = await page.evaluate(() => {
       const box = document.getElementById('plus-org-recoveries');
@@ -155,10 +157,24 @@ const WATCHDOG = setTimeout(() => { console.log('FAIL  render-recoverynote-5536 
       chk(p.errs.length === 0, `${t} 375x667 ${theme}: no page errors`, p.errs.join(' | '));
       await p.ctx.close();
     }
+    STEP = eng + ' long list';
+    const long = await open(browser, 375, 667, 'light', eng);
+    const rows = Array.from({ length: 50 }, (_, i) => ({ ...given(600 + i * 3600), who: 'Reviewer with a long name ' + i }));
+    await read(long.page, company(rows));
+    await long.page.click('#recovery-slot button[data-recovery-see]');
+    await long.page.waitForTimeout(800);
+    await long.page.evaluate(() => plusOrgPaint());
+    const top = await long.page.evaluate(() => {
+      const box = document.getElementById('plus-org-recoveries').getBoundingClientRect();
+      const first = document.querySelector('#plus-org-recoveries-list p').getBoundingClientRect();
+      return { tall: box.height > innerHeight, firstOn: first.top >= 0 && first.bottom <= innerHeight, seen: JSON.parse(localStorage.getItem('kosmos.recoveriesSeen') || '[]').length };
+    });
+    chk(top.tall && top.firstOn && top.seen === 50, `${t} a list taller than the screen lands with its newest row in view, and counts as seen`, JSON.stringify(top));
+    await long.ctx.close();
     await browser.close();
   }
   if (engines.length === 0) chk(false, 'ENGINES named no engine, so nothing ran');
-  const EXPECTED_PER_ENGINE = 15;
+  const EXPECTED_PER_ENGINE = 16;
   if (RAN !== EXPECTED_PER_ENGINE * engines.length) chk(false, `ran ${RAN} checks, expected ${EXPECTED_PER_ENGINE * engines.length}`);
   clearTimeout(WATCHDOG);
   console.log(`render-recoverynote-5536: ${RAN - fail.length} PASS, ${fail.length} FAIL`);

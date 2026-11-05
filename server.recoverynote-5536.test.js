@@ -57,7 +57,7 @@ test('#5536: the screen gets the cleaned rows; an agent gets none; a family gets
   assert.deepEqual(screen.json.recoveries, oe.cleanRecoveries(RECS));
   assert.equal(screen.json.recoveries.length, 2, 'a row with an unknown word reached the page');
   assert.equal(screen.json.recoveries[0].who, 'PatLee', 'a direction character reached the page');
-  const asLeo = await get('/api/org/grants', { 'x-kosmos-agent-token': sendertoken.mint('leo').token });
+  const asLeo = await get('/api/org/grants', { ...SCREEN, 'x-kosmos-agent-token': sendertoken.mint('leo').token });
   assert.equal('recoveries' in asLeo.json, false, 'an agent read who opened the backup: ' + JSON.stringify(asLeo.json));
   enroll('family');
   const fam = await get('/api/org/grants', SCREEN);
@@ -68,7 +68,10 @@ test('#5536: the screen gets the cleaned rows; an agent gets none; a family gets
 test('#5536: no rows leave the field out, so the 6817 shape holds for a member with none, and a Kosmos in no company', async (t) => {
   t.after(() => fs.rmSync(enrollmentFile(), { force: true }));
   enroll(undefined, []);
-  assert.equal('recoveries' in (await get('/api/org/grants', SCREEN)).json, false);
+  const none = (await get('/api/org/grants', SCREEN)).json;
+  assert.equal(none.enrolled, true);
+  assert.equal(none.kind, 'company');
+  assert.equal('recoveries' in none, false);
   fs.rmSync(enrollmentFile(), { force: true });
   assert.deepEqual((await get('/api/org/grants', SCREEN)).json, { enrolled: false, kind: null, reviewerGrants: [] });
 });

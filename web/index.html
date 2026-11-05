@@ -55290,7 +55290,8 @@ document.addEventListener('click', (e) => {
     if (!plusOnScreen()) return;   // the person moved on: do not pull the page around
     const box = document.getElementById('plus-org-recoveries');
     if (box && !box.hidden) {
-      box.scrollIntoView({ block: 'center' });
+      // Newest first, so a list taller than the screen lands on its top, where the new row is.
+      box.scrollIntoView({ block: box.getBoundingClientRect().height > innerHeight ? 'start' : 'center' });
       const head = document.getElementById('plus-org-recoveries-head');
       if (head) { head.tabIndex = -1; head.focus({ preventScroll: true }); }
       return;
@@ -56220,7 +56221,8 @@ function recoveryNoteSeenList(st) {
   const box = document.getElementById('plus-org-recoveries');
   if (!box || box.hidden || !plusOnScreen()) return;
   const r = box.getBoundingClientRect();
-  if (!(r.height > 0) || Math.min(r.bottom, innerHeight) - Math.max(r.top, 0) < Math.min(48, r.height)) return;
+  // The list's top must be on screen: it is newest first, and up to 50 rows can leave the new one out of view.
+  if (!(r.height > 0) || r.top < 0 || r.top + Math.min(48, r.height) > innerHeight) return;
   if (recoveryNoteUnseen(st && st.recoveries, Date.now() / 1000).length) recoveryNoteSeen(st.recoveries, Date.now() / 1000);
 }
 function paintRecoveryNote() {

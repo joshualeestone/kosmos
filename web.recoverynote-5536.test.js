@@ -19,7 +19,7 @@ function board({ onAgents = true, seen = null, storageThrows = false, listShown 
     setItem: (k, v) => { if (storageThrows) throw new Error('blocked'); store.set(k, v); },
   };
   const slot = { innerHTML: '', dataset: {} };
-  const box = { hidden: !listShown, getBoundingClientRect: () => (listInView === 'zero' ? { top: 0, bottom: 0, height: 0 } : listInView ? { top: 100, bottom: 300, height: 200 } : { top: 2000, bottom: 2200, height: 200 }) };
+  const box = { hidden: !listShown, getBoundingClientRect: () => (listInView === 'zero' ? { top: 0, bottom: 0, height: 0 } : listInView === 'past-top' ? { top: -500, bottom: 700, height: 1200 } : listInView ? { top: 100, bottom: 300, height: 200 } : { top: 2000, bottom: 2200, height: 200 }) };
   const document = { getElementById: (id) => (id === 'recovery-slot' ? slot : id === 'plus-org-recoveries' ? box : null) };
   const from = PAGE.indexOf('const RECOVERY_NOTE_KEY = ');
   assert.ok(from > 0, 'the notice moved; re-anchor this test');
@@ -105,7 +105,8 @@ test('#5536: the list counts as seen only while it is in view (CONTROL: in view,
   const st = { recoveries: [given(DAY)] };
   for (const [opts, why] of [[{ listShown: false, plusShown: true }, 'a hidden list'], [{ listShown: true, plusShown: false }, 'Settings not on screen'],
     [{ listShown: true, plusShown: true, listInView: false }, 'a list scrolled out of view'],
-    [{ listShown: true, plusShown: true, listInView: 'zero' }, 'a list under a hidden ancestor']]) {
+    [{ listShown: true, plusShown: true, listInView: 'zero' }, 'a list under a hidden ancestor'],
+    [{ listShown: true, plusShown: true, listInView: 'past-top' }, 'a long list scrolled past its newest row']]) {
     const b = board(opts); b.api.recoveryNoteSeenList(st);
     assert.equal(b.store.size, 0, why + ' counted as seen');
   }
