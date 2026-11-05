@@ -38,6 +38,8 @@ const REFUSED_TIMES = 3;          // refused this many times in a day, it is pas
    set), passed to create(); engine/usagepoll.js's POLL_MS when none is. */
 const PERIOD_MS = require('./usagepoll').POLL_MS;
 const previousTickMs = (periodMs) => 2.5 * (Number.isFinite(periodMs) && periodMs > 0 ? periodMs : PERIOD_MS);
+/* kosmos#8056: each entry is agent-written, up to 300 characters, and goes into the person's thread. By code point, so an emoji is not split. Cut after the @ filter, so a cut can never hide an email from it. */
+const capPromise = (t) => { const c = Array.from(t); return c.length > 120 ? c.slice(0, 120).join('').trimEnd() + '...' : t; };
 const SKIP_SAID_MS = 60 * 60 * 1000;   // a "no longer idle" line for one agent at most once an hour
 /* kosmos#7621 item 8: an agent whose re-check could not be made is set aside this long (ten minutes), in memory and with no line, so
    the next candidate gets its turn (the first candidate is always tried first, so one such agent blocked every move). */
@@ -217,7 +219,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       const fresh = rec.state === 'holding' && rec.stale !== true;
       const old = rec.stale === true;
       if (!fresh && !old) return '';
-      const list = rec.commitments.map((x) => (x && typeof x.what === 'string' ? x.what.trim() : '')).filter((t) => t && !t.includes('@')).slice(0, 5);
+      const list = rec.commitments.map((x) => (x && typeof x.what === 'string' ? x.what.trim() : '')).filter((t) => t && !t.includes('@')).slice(0, 5).map(capPromise);
       if (!list.length) return '';
       if (fresh) return ` Before the move it had said it was committed to: ${list.join('; ')}.`;
       const at = Date.parse(rec.reportedAt || '');

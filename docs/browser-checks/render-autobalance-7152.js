@@ -71,7 +71,8 @@ const CASES = {
     { kind: 'works', at: now - 2 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', works: 'yes' },
     { kind: 'works', at: now - 3 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', works: 'not-seen' },
     { kind: 'released', at: now - 4 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare' },
-    { kind: 'skipped', at: now - 5 * 60e3, agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-spare' },
+    { kind: 'skipped', at: now - 5 * 60e3, agent: 's-x', from: '/home/.claude-full', to: '/home/.claude-spare' },   // no because: an older record
+    { kind: 'skipped', at: now - 5.5 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', because: 'it was working <again>' },
     { kind: 'move', at: now - 6 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'refused' },
     { kind: 'move', at: now - 7 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'unknown' },
     { kind: 'move', at: now - 8 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'partial' },
@@ -160,6 +161,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
             checked: tog && tog.hasAttribute('aria-checked') ? tog.getAttribute('aria-checked') : null,
             togHidden: !!tog && tog.hidden,
             lines: [...document.querySelectorAll('#ab-lines p')].map((p) => p.textContent.trim()),
+            dry: document.getElementById('ab-dry').hidden,
             markup: !!document.querySelector('#ab-lines b'),
             recent: [...document.querySelectorAll('#ab-recent p')].map((p) => p.textContent.trim()),
             recentMarkup: !!document.querySelector('#ab-recent b'),
@@ -227,17 +229,17 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.moves && r.moves.shown && r.moves.checked === 'true', tag + ' CONTROL: two accounts, the row shows and the switch reads on', JSON.stringify(r.moves && { shown: r.moves.shown, checked: r.moves.checked }));
       say(r.moves && r.moves.lines.length === 2 && r.moves.lines[0] === 'Would move Ada from Work to Spare, because ' + WHY + '.', tag + ' a would-move line names the agent, both accounts and why', JSON.stringify(r.moves && r.moves.lines));
       say(r.moves && r.moves.lines[1] === 'Would move <b>Bo</b> from Work to Spare, because ' + WHY + '.' && !r.moves.markup, tag + ' a name with markup in it is shown as text', JSON.stringify(r.moves && r.moves.lines[1]));
-      say(r.held && r.held.lines.length === 1 && /^Would move the idle agents off Work, because it is at 93%.*, but no other account can take them right now\.$/.test(r.held.lines[0]), tag + ' nothing able to take them says so', JSON.stringify(r.held && r.held.lines));
+      say(r.held && r.held.lines.length === 1 && /^Would move agents off Work, because it is at 93%.*, but no other account can take them right now\.$/.test(r.held.lines[0]), tag + ' nothing able to take them says so', JSON.stringify(r.held && r.held.lines));
       say(r.short && r.short.lines.length === 1 && r.short.lines[0] === 'Kosmos could not read every agent on Work, so there may be more to move.', tag + ' a list that may be short says so, not "nothing to move"', JSON.stringify(r.short && r.short.lines));
       say(r.none && r.none.lines.length === 1 && r.none.lines[0] === 'Nothing to move right now.', tag + ' nothing to move says so', JSON.stringify(r.none && r.none.lines));
       say(r.off && r.off.shown && r.off.checked === 'false' && r.off.lines.length === 0, tag + ' switched off: it reads off and draws no line', JSON.stringify(r.off));
       say(r.bad && !r.bad.shown, tag + ' a failed decision with one account still hides the row', JSON.stringify(r.bad));
       say(r.badtwo && r.badtwo.shown && r.badtwo.lines[0] === 'Kosmos could not work out what it would move just now.', tag + ' an unreadable decision says so', JSON.stringify(r.badtwo && r.badtwo.lines));
       say(r.unset && r.unset.shown && r.unset.checked === null && r.unset.togHidden && r.unset.lines[0] === 'We could not read this setting just now.', tag + ' a setting file that could not be read shows unknown, not a confident Off', JSON.stringify(r.unset));
-      say(r.loginrisk && r.loginrisk.lines[0] === 'Work cannot be used right now, because its login has stopped working, but none of its agents is idle, so there is nothing to move yet.', tag + ' a stopped login is said as such, not as running out', JSON.stringify(r.loginrisk && r.loginrisk.lines));
+      say(r.loginrisk && r.loginrisk.lines[0] === 'Work cannot be used right now, because its login has stopped working, but none of its agents is free to move right now.', tag + ' a stopped login is said as such, not as running out', JSON.stringify(r.loginrisk && r.loginrisk.lines));
       say(r.heldshort && r.heldshort.lines.length === 2 && r.heldshort.lines.filter((x) => x.indexOf(WHY) !== -1).length === 1 && r.heldshort.lines[1] === 'Kosmos could not read every agent on Work, so there may be more to move.', tag + ' held and short: the reason is said once', JSON.stringify(r.heldshort && r.heldshort.lines));
       say(r.shortrisk && r.shortrisk.lines.length === 1 && r.shortrisk.lines[0] === 'Work is running out, because ' + WHY + '. Kosmos could not read every agent on Work, so there may be more to move.', tag + ' a short list still says why the account is running out', JSON.stringify(r.shortrisk && r.shortrisk.lines));
-      say(r.busy && r.busy.lines.length === 1 && r.busy.lines[0] === 'Work is running out, because ' + WHY + ', but none of its agents is idle, so there is nothing to move yet.', tag + ' an account running out with no idle agent is said, not silent', JSON.stringify(r.busy && r.busy.lines));
+      say(r.busy && r.busy.lines.length === 1 && r.busy.lines[0] === 'Work is running out, because ' + WHY + ', but none of its agents is free to move right now.', tag + ' an account running out with no idle agent is said, not silent', JSON.stringify(r.busy && r.busy.lines));
       say(r.overRead && r.overRead.extra === 0 && r.overRead.lines.length === 0 && r.overRead.checked === 'false', tag + ' pressed while a read is out: no read over it, and the lines go at once', JSON.stringify(r.overRead));
       say(r.afterRead && r.afterRead.extra === 1, tag + ' once that read is over, exactly one read follows', JSON.stringify(r.afterRead));
       say(r.hidden && r.hidden.extra === 0, tag + ' a wait whose list went off screen starts no read', JSON.stringify(r.hidden));
@@ -275,13 +277,15 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /^At 11:58\sAM, Ada was seen working on Spare\.$/,
         /^At 11:57\sAM, Ada was not seen working on Spare in the day since it moved, so Kosmos waits a day before moving another agent there\.$/,
         /^At 11:56\sAM, Ada is not on Spare now \(a person moved it or removed it, or the move did not go through\), so Kosmos leaves it where it is for a day\.$/,
-        /^At 11:55\sAM, Kosmos did not move <b>Bo<\/b>, because it was no longer idle\.$/,
+        /^At 11:55\sAM, Kosmos did not move <b>Bo<\/b>, because it was no longer free to move\.$/,
+        /^At 11:54\sAM, Kosmos did not move Ada, because it was working <again>\.$/,
         /^At 11:54\sAM, Kosmos tried to move Ada to Spare, and the move was refused, so it stays on Work\.$/,
         /^At 11:53\sAM, Kosmos tried to move Ada to Spare and could not tell whether it went through\. Check which account it is on above\.$/,
         /^At 11:52\sAM, Kosmos saved Spare for Ada but did not see it restart there\. Check which account it is on above\.$/,
         /^At 11:51\sAM, the move of Ada to Spare was stopped\. Check which account it is on above\.$/,
         new RegExp('^At 11:50\\sAM, Kosmos moved Ada from Work to Old, because ' + WHY + '\\.$')];
       say(mv && mv.length === wantMv.length && wantMv.every((re, i) => re.test(mv[i])), tag + ' the mover: each line said once, newest first, with moves on', JSON.stringify(mv));
+      say(r.moving && r.moving.dry === true && r.movingOff && r.movingOff.dry === false, tag + ' the hint says nothing is moved only on a board that is not moving', JSON.stringify([r.moving && r.moving.dry, r.movingOff && r.movingOff.dry]));
       say(r.moving && !r.moving.recentMarkup, tag + ' a name with markup in a move line is shown as text', '');
       say(r.movingOff && r.movingOff.recent[0] === NONE, tag + ' CONTROL: without moving, it does not say it moves', JSON.stringify(r.movingOff && r.movingOff.recent));
       /* Review round 6 */
@@ -293,12 +297,12 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         tag + ' with moves on, an agent the mover leaves alone is not said to be moved', JSON.stringify(r.movingLeft && r.movingLeft.lines));
       say(r.movingPausedMoves && r.movingPausedMoves.lines.length === 1 && r.movingPausedMoves.lines[0] === 'Kosmos would move Ada from Work to Spare, because ' + WHY + ', once it can write its record again.',
         tag + ' waiting for its record, a move line does not say Kosmos will move it', JSON.stringify(r.movingPausedMoves && r.movingPausedMoves.lines));
-      say(r.movingHeld && r.movingHeld.lines.length === 1 && r.movingHeld.lines[0] === 'Kosmos would move the idle agents off Work, because ' + WHY + ', but no account it can use takes them right now.',
+      say(r.movingHeld && r.movingHeld.lines.length === 1 && r.movingHeld.lines[0] === 'Kosmos would move agents off Work, because ' + WHY + ', but no account it can use takes them right now.',
         tag + ' with moves on, a held account says no account Kosmos can use takes them', JSON.stringify(r.movingHeld && r.movingHeld.lines));
-      say(r.movingHeldLogin && r.movingHeldLogin.lines.length === 1 && r.movingHeldLogin.lines[0] === 'The idle agents on Work cannot be used right now. Kosmos moves agents only when an account is running out, so move them yourself if they need to work.',
+      say(r.movingHeldLogin && r.movingHeldLogin.lines.length === 1 && r.movingHeldLogin.lines[0] === 'The agents free to move on Work cannot be used right now. Kosmos moves agents only when an account is running out, so move them yourself if they need to work.',
         tag + ' with moves on, a held stopped login is left to the person', JSON.stringify(r.movingHeldLogin && r.movingHeldLogin.lines));
       const mn = r.movingNow && r.movingNow.lines;
-      say(mn && mn.length === 2 && mn[0] === 'Kosmos will move Ada from Work to Spare once it is idle at two checks in a row, because ' + WHY + '.'
+      say(mn && mn.length === 2 && mn[0] === 'Kosmos will move Ada from Work to Spare once it is idle, or stopped at the limit, at two checks in a row, because ' + WHY + '.'
         && mn[1] === '<b>Bo</b> is on Spare, which cannot be used right now. Kosmos moves agents only when an account is running out, so move it yourself if it needs to work.' && !r.movingNow.markup,
         tag + ' with moves on, a move line says what the mover will do, and a stopped login is left to the person', JSON.stringify(mn));
       say(r.off && r.off.recent.length === 0 && r.one && r.one.recent.length === 0, tag + ' switched off, or one account: no record drawn', JSON.stringify([r.off && r.off.recent, r.one && r.one.recent]));
