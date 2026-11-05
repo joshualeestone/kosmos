@@ -165,7 +165,8 @@ const USAGE = {
     '  kosmos agent instructions-add "<name>" --from <file>',
     '                                                  propose an addition to an agent\'s instructions; the person applies it',
     '  kosmos agent move "<name>" "<account>" [--yes]  move an agent to another Claude account, after a confirm',
-    '                                                  (<account>: its name as kosmos accounts shows it, or main)',
+    '                                                  (<account>: its name as kosmos accounts shows it, or main;',
+    '                                                  with --yes, a move that would lose skills or hooks also needs --accept-loss)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
   ].join('\n'),
   feedback: [
@@ -2482,10 +2483,11 @@ async function agentRemove(ctx, args) {
    kosmos accounts shows, and what the agent would lose there), a confirm (or --yes), the move to the plan's folder, and
    its outcome read back. A loss is said before the move; a plan that could not tell is said as such, never as nothing
    lost. */
-const AGENT_MOVE_USAGE = 'Usage: kosmos agent move "<name>" "<account>" [--yes]   (<account>: as kosmos accounts shows it, or main)';
+const AGENT_MOVE_USAGE = 'Usage: kosmos agent move "<name>" "<account>" [--yes [--accept-loss]]   (<account>: as kosmos accounts shows it, or main)';
 async function agentMove(ctx, args) {
   const yes = args.includes('--yes');
-  const words = args.filter((a) => a !== '--yes');
+  const acceptLoss = args.includes('--accept-loss');
+  const words = args.filter((a) => a !== '--yes' && a !== '--accept-loss');
   const [name, account] = words;
   if (!name || !account) { ctx.err(AGENT_MOVE_USAGE); return 2; }
   for (const w of [name, account]) if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'agent move', AGENT_MOVE_USAGE, w, 'target'); return 2; }
@@ -2505,11 +2507,15 @@ async function agentMove(ctx, args) {
   else if (plan.sentence) ctx.out(plan.sentence);
   else ctx.out('On ' + label + ' it keeps every skill and hook it has now.');
   ctx.out('Moving restarts ' + name + ' on ' + label + '. Anything it has running stops.');
+  /* Review 1: a script cannot read that sentence, so --yes alone never moves an agent into a known loss or an
+     unchecked one; nothing is sent. A person at a terminal reads it and answers below. */
+  if (yes && !acceptLoss && (plan.ok !== true || plan.sentence)) { ctx.err('Nothing was moved: with --yes, a move that may lose skills or hooks also needs --accept-loss.'); return 2; }
   if (!yes) {
     const answer = await ctx.ask('Move ' + name + ' to ' + label + '? [y/N] ');
     if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was moved.'); return 1; }
   }
-  const r = await ctx.call('POST', '/api/agents/account', { dir: plan.dir, names: [name] }, { timeoutMs: POST_TIMEOUT_MS });
+  // Review 1: Settings' own route, sent as the person (token-only mode would refuse it after the confirm).
+  const r = await ctx.call('POST', '/api/agents/account', { dir: plan.dir, names: [name] }, { timeoutMs: POST_TIMEOUT_MS, person: true });
   if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + name + ' may be moving; look at Settings, AI Models before trying again.') : ctx.unreachable('move ' + name);
   const first = r.json || {};
   let a = (Array.isArray(first.agents) ? first.agents : [])[0] || {};
@@ -2519,6 +2525,7 @@ async function agentMove(ctx, args) {
   for (let i = 0; outcome === 'pending' && first.id && i < 110; i += 1) {
     await ctx.sleep(3000);
     const g = await ctx.call('GET', '/api/agents/account-moves/' + encodeURIComponent(first.id), undefined, { person: true });
+    if (g.reached && g.status === 404) { outcome = 'forgotten'; break; }   // review 1: the board restarted and no longer knows the move
     if (!g.reached || !g.json) continue;
     a = (Array.isArray(g.json.agents) ? g.json.agents : [])[0] || {};
     outcome = a.outcome || outcome; because = a.because || because;
@@ -2527,6 +2534,7 @@ async function agentMove(ctx, args) {
   const end = /[?!)]$/.test(said) ? '' : '.';
   if (outcome === 'changed') { ctx.out((said || name + ' runs on ' + label + ' now') + end); return 0; }
   if (outcome === 'pending') return maybe(ctx.err, name + ' is still moving after five minutes. Look at Settings, AI Models to see where it is.');
+  if (outcome === 'forgotten') return maybe(ctx.err, 'Kosmos restarted during the move and no longer knows how it ended. Settings, AI Models shows which account ' + name + ' is on.');
   if (outcome === 'partial' || outcome === 'stopped' || outcome === 'unknown') { ctx.err('Not fully moved: ' + (said || 'Kosmos did not say how far it got') + end + ' Settings, AI Models shows which account it is on.'); return 1; }
   if (said) { ctx.err('Kosmos did not move ' + name + ': ' + said + end); return 1; }
   ctx.err('Kosmos gave an answer we could not read when moving ' + name + '. Look at Settings, AI Models to see where it is.');
