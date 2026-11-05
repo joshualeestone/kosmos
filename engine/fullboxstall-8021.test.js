@@ -119,9 +119,11 @@ test('kosmos#8021: a said stall whose messages then drain with no line landing l
   limitqueue.remove(s, 'm14');
   clock.at += MIN; await tick();
   // Three, so the count is no reason to stay quiet: only the start can be, and a kept streak would still have the old one.
-  for (let i = 0; i < 3; i += 1) ds.note(s, { state: 'could_not', because: 'x' }, clock.at + 60 * MIN + i);
-  assert.deepEqual(said(s, clock.at + 60 * MIN + 3), [], 'later refusals are not dated from the old stall');
-  assert.equal(ds.failCount(s), 3, 'CONTROL: they were counted');
+  const later = clock.at + 60 * MIN;
+  for (let i = 0; i < 3; i += 1) ds.note(s, { state: 'could_not', because: 'x' }, later + i * 20 * MIN);
+  const st = ds.stallOf(s, { now: later + 40 * MIN });
+  assert.ok(st, 'CONTROL: those refusals are a stall of their own');
+  assert.equal(st.since, new Date(later).toISOString(), 'dated from them, not from the old stall');
 });
 
 test('kosmos#8021: one empty read of the roster does not lose the passes the sweep has to take back', async () => {
@@ -185,7 +187,8 @@ test('kosmos#8021: through the real flush, a line typed and not seen to land kee
 test('kosmos#8021: taking back removes only the sweep\'s part: a stall of real failures stays, with its own start', async () => {
   const s = 's-real'; const clock = { at: T0 };
   const real = T0 - 3 * 24 * 60 * MIN;
-  for (let i = 0; i < 51; i += 1) ds.note(s, { state: 'unconfirmed' }, real + i * MIN);
+  for (let i = 0; i < 50; i += 1) ds.note(s, { state: 'unconfirmed' }, real + i * MIN);
+  ds.note(s, { state: 'unconfirmed' }, T0 + 10 * MIN);   // still failing, so still fresh on its own
   keep(s, 'm6');
   const tick = sweep(cardFor(s), clock);
   await run(tick, clock, T0 + 11 * MIN, T0 + 15 * MIN);
@@ -244,6 +247,62 @@ test('kosmos#8021: a stall already said keeps its date when the sweep takes back
   const ends = ds.endsToSay(map, { now: clock.at + MIN });
   assert.equal(ends.length, 1, 'its end is said');
   assert.equal(ends[0].since, first[0].since, 'under the date it was said with');
+});
+
+test('kosmos#8021: old failures plus a box full for a minute do not page anyone', async () => {
+  const s = 's-falsepage'; const clock = { at: T0 };
+  ds.note(s, { state: 'unconfirmed' }, T0 - 5 * 60 * MIN);
+  ds.note(s, { state: 'unconfirmed' }, T0 - 5 * 60 * MIN + 1000);
+  keep(s, 'm16');
+  await run(sweep(cardFor(s), clock), clock, T0 + 11 * MIN, T0 + 12 * MIN);
+  assert.ok(ds.sweptCount(s) >= 1, 'CONTROL: the sweep had counted');
+  assert.deepEqual(said(s, clock.at), [], 'old failures and a passing full box do not add up');
+  assert.equal(ds.stallOf(s, { now: clock.at }), null);
+});
+
+test('kosmos#8021: a pass does not refresh real failures that have gone quiet', async () => {
+  const s = 's-stale'; const clock = { at: T0 };
+  for (let i = 0; i < 3; i += 1) ds.note(s, { state: 'unconfirmed' }, T0 - 5 * 60 * MIN + i);
+  assert.equal(ds.stallOf(s, { now: T0 }), null, 'CONTROL: quiet, on purpose');
+  keep(s, 'm17');
+  const tick = sweep(cardFor(s), clock);
+  await run(tick, clock, T0 + 11 * MIN, T0 + 15 * MIN);
+  assert.equal(ds.stallOf(s, { now: clock.at }), null, 'five minutes of a full box wakes nothing');
+  limitqueue.remove(s, 'm17');
+  clock.at += MIN; await tick();
+  assert.equal(ds.stallOf(s, { now: clock.at }), null, 'and nothing is left on the card');
+});
+
+test('kosmos#8021: a box that fills again starts its own thirty minutes', async () => {
+  const s = 's-refill'; const clock = { at: T0 }; const card = cardFor(s);
+  keep(s, 'm18');
+  const tick = sweep(card, clock);
+  await run(tick, clock, T0 + 11 * MIN, T0 + 45 * MIN);
+  assert.ok(ds.stallOf(s, { now: clock.at }), 'CONTROL: a stall');
+  assert.equal(said(s, clock.at).length, 1, 'CONTROL: said');
+  delete card.unsentInput;
+  clock.at += MIN; await tick();
+  assert.equal(ds.stallOf(s, { now: clock.at }), null, 'gone with the box');
+  card.unsentInput = { since: new Date(clock.at).toISOString() };
+  await run(tick, clock, clock.at + 11 * MIN, clock.at + 15 * MIN);
+  assert.equal(ds.stallOf(s, { now: clock.at }), null, 'five minutes into the new one is not a stall');
+  await run(tick, clock, clock.at + MIN, clock.at + 35 * MIN);
+  assert.ok(ds.stallOf(s, { now: clock.at }), 'thirty minutes into it is');
+});
+
+test('kosmos#8021: failures after a said stall of passes wait out their own thirty minutes', async () => {
+  const s = 's-after'; const clock = { at: T0 }; const card = cardFor(s);
+  keep(s, 'm19');
+  const tick = sweep(card, clock);
+  await run(tick, clock, T0 + 11 * MIN, T0 + 45 * MIN);
+  assert.equal(said(s, clock.at).length, 1, 'CONTROL: said');
+  delete card.unsentInput;
+  clock.at += MIN; await tick();
+  const at = clock.at;
+  for (let i = 0; i < 3; i += 1) ds.note(s, { state: 'unconfirmed' }, at + i);
+  assert.equal(ds.stallOf(s, { now: at + 10 }), null, 'three failures a moment old are not yet a stall');
+  ds.note(s, { state: 'unconfirmed' }, at + 31 * MIN);
+  assert.ok(ds.stallOf(s, { now: at + 31 * MIN }), 'thirty minutes on they are');
 });
 
 test('kosmos#8021: a sweep pass does not rename what real failures began', async () => {
