@@ -340,12 +340,12 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
        and a watch older than a day is closed as not-seen once it is on again. */
     if (deps.movesOn() !== true || deps.settingOn() !== true) { state.lastMovable = new Set(); state.limitSeenAt = new Map(); return { did: 'off' }; }   // review 6: nor a first sighting from before moves went off
     flush();
-    try { readPeople(nowMs); } catch (err) { state.lastMovable = new Set(); return { did: 'unreadable', because: `the record: ${String((err && err.message) || err)}` }; }
+    try { readPeople(nowMs); } catch (err) { state.lastMovable = new Set(); state.limitSeenAt = new Map(); return { did: 'unreadable', because: `the record: ${String((err && err.message) || err)}` }; }
     /* The works-again check runs even while moves wait for the record below, so a moved agent's refused first request
        is still told to the person (rule 5). */
     await check(deps, nowMs);
     if (paused()) {
-      state.lastMovable = new Set();
+      state.lastMovable = new Set(); state.limitSeenAt = new Map();
       return { did: 'unreadable', because: 'lines the record could not take yet, so Kosmos moves nobody until they are written' };
     }
     const skip = skipTarget(nowMs);
@@ -355,13 +355,13 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     try {
       const list = deps.list();
       if (ab.eligible((Array.isArray(list) ? list : []).map((a) => (a && !a.apiKey ? { provider: 'anthropic', dir: a.dir } : null))).length < 2) {
-        state.lastMovable = new Set();
+        state.lastMovable = new Set(); state.limitSeenAt = new Map();
         return { did: 'nothing' };
       }
       const rows = ab.rowsFromReadings({ list, readUsage: deps.readUsage, agentsOn: deps.agentsOn, nowMs, ...(deps.sameLogin ? { sameLogin: deps.sameLogin } : {}) });
       const movable = ab.movableOnDemand(() => ab.movableFor(movableArgs(deps.roster())));
       decision = ab.decide({ rows, movable, nowMs, skipTarget: skip });
-    } catch (err) { state.lastMovable = new Set(); return { did: 'unreadable', because: String((err && err.message) || err) }; }
+    } catch (err) { state.lastMovable = new Set(); state.limitSeenAt = new Map(); return { did: 'unreadable', because: String((err && err.message) || err) }; }
     const label = (dir) => { try { return deps.labelOf(dir); } catch { return null; } };
     const kindOf = (dir) => (decision.atRisk.find((x) => x.from === dir) || {}).kind || null;
     const before = Number.isFinite(state.lastMovableAt) && nowMs - state.lastMovableAt <= PREVIOUS_TICK_MS ? state.lastMovable : new Set();
@@ -371,8 +371,9 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
        until the reset passes (#5031), so it still reads rate_limited while working. Remember when each would-move was
        first seen at its limit; a tool call the agent itself reported after that (activity 'tool', the hook's PreToolUse
        report, review 6: a prompt reaching a stuck agent fires a working report too, so that one is not used) means it
-       recovered, and the move below is skipped. Residual: one that recovered before it was first seen and has run no
-       new tool since (a single long one) can still be moved. */
+       recovered, and the move below is skipped. A move off the limit needs two sightings at it (review 7). Residual: one
+       that recovered before it was first seen and has run no new tool since (a single long one, or a finished turn
+       now sitting idle under a limit line that still counts) can still be moved, and by this route, not the idle one. */
     let cardsNow = [];
     try { const r = deps.roster(); cardsNow = Array.isArray(r) ? r : []; } catch { cardsNow = []; }
     const atLimitNow = new Set(decision.moves.map((x) => x.agent).filter((a) => { const c = cardsNow.find((y) => y && y.sessionName === a); try { return !!c && ab.stoppedAtLimit(c, nowMs); } catch { return false; } }));
@@ -425,9 +426,16 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       let worked = null;
       try { worked = deps.workedAt ? deps.workedAt(m.agent) : null; } catch { worked = null; }
       const seen = state.limitSeenAt.get(m.agent);
-      if (Number.isFinite(worked) && Number.isFinite(seen) && worked >= seen) {
+      /* Review 7: two sightings AT THE LIMIT, not one. An agent movable on the previous tick as idle, and first seen at
+         its limit on this one, has had no window in which a recovery could show; it waits a tick. */
+      if (!(Number.isFinite(seen) && seen < nowMs)) return { did: 'nothing', because: 'first seen at its limit on this tick' };
+      if (Number.isFinite(worked) && worked >= seen) {
         state.lastMovable.delete(`${m.agent}\n${m.from}`);
         state.limitSeenAt.delete(m.agent);
+        /* Review 7: said at most once an hour per agent, as the other skip is (SKIP_SAID_MS). */
+        for (const [a, t] of state.skippedAt) if (nowMs - t >= SKIP_SAID_MS) state.skippedAt.delete(a);
+        if (state.skippedAt.has(m.agent)) return { did: 'nothing', because: 'working again' };
+        state.skippedAt.set(m.agent, nowMs);
         keep({ kind: 'skipped', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, because: 'it was working again' });
         return { did: 'skipped', agent: m.agent };
       }

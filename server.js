@@ -14270,7 +14270,7 @@ const server = http.createServer(async (req, res) => {
         const sentAt = Date.now();
         ab.markTargets(claude, sentAt);
         /* kosmos#7152 slice 2: which agents WOULD move, and where (engine/autobalance.js). Only for Settings (?agents=1),
-           which already pays for the agents walk; nothing moves. Movable is the Assigner's own idle test: the card
+           which already pays for the agents walk; nothing moves. Movable is the Assigner's own idle test (or, kosmos#8048, autobalance.stoppedAtLimit): the card
            reads idle, its commitments leave it free, and it holds no open part of a task in any project. */
         let autobalance;
         if (wantAgents) {
