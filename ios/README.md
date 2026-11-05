@@ -96,7 +96,10 @@ builds it on GitHub's macOS runner, which has one.
   deep gold `#9c741b` light and `#e3b341` dark (kosmos#7945; it was navy `#17233D`, which flashed before every
   launch, and then the 120 pt orb, which jumped to the small "Connecting..." ring after it). It is the same ring, the
   same size and the same place as `SweepDots` on the Agents tab's wait to connect, which is centred on the screen
-  (not the space between the bars) so the two line up on every iPhone. The PNGs are drawn from `SweepLogic` by
+  (not the space between the bars) so the two line up on every iPhone, and keeps that one size at every text size
+  (its words still grow). Not covered: with Reduce Motion the wait pulses all eight dots together, so it changes look
+  at the handover; and the rarer "Connecting to <Mac>" wait (a refused hand-off being retried) draws the ring under its
+  message, not at the centre. The PNGs are drawn from `SweepLogic` by
   `ios/tools/render-launch-sweep.sh`; `LogicTests/run-sweep.sh` draws them again and fails if the committed ones
   differ, so redraw them when `SweepLogic` changes.
 - `Kosmos-Info.plist` holds the launch screen (`UILaunchScreen` > `UIColorName =

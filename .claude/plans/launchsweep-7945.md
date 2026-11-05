@@ -20,8 +20,8 @@ the bars' heights differ by iPhone), so the wait moves to screen centre instead.
 Review 1: the first version showed Reduce Motion's still ring (eight equal dots at .85), which the moving sweep (one
 lit dot, seven faint) would visibly lighten at the handover; now the launch picture is the sweep's first frame.
 Remaining mismatch: with Reduce Motion on, the wait pulses all eight dots together, so it changes look at the handover.
-Weakest premise: at a larger text size SweepDots grows (ScaledMetric) and the launch mark does not, so a person with
-large text sees the ring grow a little at the handover. The bars still appear at the handover (they cannot be on a
+Weakest premise: the Reduce Motion mismatch above, and that the simulator's handover matches a real iPhone's. (Text
+size: review 3 made this wait's ring one size at every text size, scales: false, its words still grow.) The bars still appear at the handover (they cannot be on a
 launch screen).
 
 ## Changes
@@ -49,9 +49,17 @@ wait's ignoresSafeArea removed (centre check), a wrong 2x PNG (stale check).
   (601-604, 1309-1312) in every frame; same ground (#0c0d0f dark, #faf9f7 light) on both.
 - The first app frame is iOS's cross-fade (launch picture and the moving ring overlaid); the sweep then runs on.
 - First version (before review 1) measured the same way: launch box x 573-632 y 1281-1340, wait within 1 px.
-- Not measured: a real iPhone; larger text sizes; Reduce Motion.
+- Not measured: a real iPhone; Reduce Motion. (Larger text sizes: the ring no longer scales here, review 3.)
 
 ## Review 2 changes
 - BoardStates draws the wait in one place (body: `if waiting { reaching } else { states }`), so starting -> live while
   waiting keeps one ring and its loop (it restarted at launchAt with two call sites). run-sweep.sh checks one call site;
   its mutant (reaching back in the .starting arm) is red.
+
+## Review 3 changes
+- SweepDots gains `scales` (default true); the wait uses `SweepDots(scales: false)`, so the ring matches the fixed
+  launch picture at every text size. Hidden from VoiceOver; the words still scale.
+- run-sweep.sh's shape check also requires `scales: false` and the 8 pt alignment guide; the one-call-site count also
+  counts `self.reaching`. Mutants red: guide removed, scaling back on, a second call as self.reaching.
+- README: what is not covered (Reduce Motion; the rarer "Connecting to <Mac>" retry wait). run-sweep.sh header: the
+  launch renderer is read from this checkout whatever directory is passed.
