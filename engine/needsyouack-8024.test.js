@@ -149,6 +149,24 @@ test('kosmos#8036: a permission wait that passes unopened leaves one line and an
     await report({ state: 'idle', text: 'done', auto: true });
     assert.equal(chat.readThread(chat.DIRECT, 'wait-gone').messages.length, 1, 'once');
   });
+  await withAgent('wait-twice', async () => {   // review 1: a hook firing twice is normal
+    posts.length = 0;
+    await report({ state: 'needs_you', text: 'asking permission to use Bash: ls', auto: true });
+    await report({ state: 'needs_you', text: 'asking permission to use Bash: ls', auto: true });
+    await report({ state: 'working', text: 'running a tool', auto: true });
+    assert.equal(acks().length, 1, 'the one push is acknowledged though the wait was reported twice');
+    assert.equal(chat.readThread(chat.DIRECT, 'wait-twice').messages.length, 1);
+  });
+  await withAgent('wait-cooled', async () => {   // the phone's cooldown: the wait's push never went out, so nothing is said of it
+    posts.length = 0;
+    await report({ state: 'needs_you', text: 'Which logo?' });
+    await report({ state: 'working', text: 'back at it' });
+    await report({ state: 'needs_you', text: 'asking permission to use Bash: ls', auto: true });
+    await report({ state: 'working', text: 'running a tool', auto: true });
+    assert.equal(acks().length, 0);
+    assert.equal(chat.readThread(chat.DIRECT, 'wait-cooled').messages.length, 0);
+    assert.equal(nya.due('wait-cooled'), true, 'the question is still held for the person');
+  });
   await withAgent('wait-seen', async () => {
     posts.length = 0;
     await report({ state: 'needs_you', text: 'asking permission to use Bash: ls', auto: true });
@@ -165,6 +183,25 @@ test('kosmos#8036: a permission wait that passes unopened leaves one line and an
     assert.equal(acks().length, 0, 'an agent\'s own question is not this');
     assert.equal(chat.readThread(chat.DIRECT, 'ask-real').messages.length, 0);
   });
+});
+
+test('kosmos#8036: a wait that ended takes only its own pushes, never an agent question held beside it', () => {
+  nya.remember('s8', 'question', 1000);
+  nya.remember('s8', 'wait', 1100, { autoWait: true });
+  const got = [];
+  assert.equal(nya.ended('s8', (id) => { got.push(id); return true; }, 2000), true);
+  assert.deepEqual(got, ['wait']);
+  assert.equal(nya.due('s8', 2000), true, 'the question is still held');
+  assert.equal(nya.ended('s8', () => { throw new Error('no wait is held'); }, 2100), false);
+});
+
+test('kosmos#8036: an ack that cannot go still says the line once, and is kept for the next open', () => {
+  nya.remember('s9', 'w1', 1000, { autoWait: true });
+  assert.equal(nya.ended('s9', () => false, 2000), true);
+  assert.equal(nya.ended('s9', () => { throw new Error('asked twice'); }, 3000), false, 'said once');
+  let got = 0;
+  assert.equal(nya.opened('s9', () => { got++; return true; }, 4000), 1, 'the next open sends it');
+  assert.equal(got, 1);
 });
 
 test('the store: a failed hand-over is kept, a week is the limit, and each agent keeps a few', () => {

@@ -42,12 +42,12 @@ function write(all) {
 }
 
 /** A needs-you push for this agent went out. Never throws: a notification is never a reason to fail what it rides on. */
-function remember(session, id, now = Date.now()) {
+function remember(session, id, now = Date.now(), { autoWait = false } = {}) {
   try {
     if (typeof session !== 'string' || !session || typeof id !== 'string' || !id) return;
     const all = read(now);
     const rows = (all[session] || []).filter((r) => r.id !== id);
-    rows.push({ id, at: now });
+    rows.push({ id, at: now, ...(autoWait ? { autoWait: true } : {}) });
     all[session] = rows.slice(-KEEP_PER_AGENT);
     write(all);
   } catch { /* its email goes, as it did before */ }
@@ -76,15 +76,19 @@ function opened(session, ack, now = Date.now()) {
   } catch { return 0; }
 }
 
-/** kosmos#8036: one push, by its id, is over before the person opened it. True when it was held (so it had gone out and nobody
-    had opened it), and it is acknowledged and forgotten. False when it was not held, and then nothing is said. Never throws. */
-function ended(session, id, ack, now = Date.now()) {
+/** kosmos#8036: an automatic permission wait is over before the person opened it. Its pushes were marked when they went out, not
+    worked out from the wait's time: a hook firing twice changes that time and sends no second push (review 1). True when one
+    was held. An ack that could not go is kept for the next open, unmarked so the line is said once. Never throws. */
+function ended(session, ack, now = Date.now()) {
   try {
     const all = read(now);
     const rows = all[session];
-    if (!rows || !rows.some((r) => r.id === id)) return false;
-    ack(id);
-    const left = rows.filter((r) => r.id !== id);
+    if (!rows || !rows.some((r) => r.autoWait === true)) return false;
+    const left = [];
+    for (const r of rows) {
+      if (r.autoWait !== true) { left.push(r); continue; }
+      if (ack(r.id) !== true) left.push({ id: r.id, at: r.at, tried: now });
+    }
     if (left.length) all[session] = left; else delete all[session];
     write(all);
     return true;

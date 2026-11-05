@@ -17,3 +17,7 @@ A permission wait whose push went out, and which ended before the person opened 
 
 ## Weakest premise
 That the hook's next automatic report is what ends the wait. If a prompt times out and nothing reports for a while, the line waits for it, and the list's word goes first since it reads the screen.
+
+## Review 1 (blind, sonnet)
+Fixed: a hook firing twice changed the wait's time while sending no second push, so the id never matched and the whole feature did nothing in the common case; pushes are now marked as a wait when they go out. An ack that could not go was dropped; it is now kept for the next open, with the line said once.
+Known and accepted: someone who answers at the terminal without opening the chat gets the line beneath their answer. It is true, if unneeded. An agent that asks often gets up to one line per held push, at most 5 while unopened. Would change my mind: a person finding it noisy.
