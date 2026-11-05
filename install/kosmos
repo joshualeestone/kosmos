@@ -7693,19 +7693,32 @@ cmd_agent() {
       # words everything: what it refuses (a move under way, quiet hours, a cap) it refuses here too.
       local rs_name="$1" rs_path rs_answer rs_parsed rs_out rs_because rs_end
       local _rsparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
+      # Review 3: trimmed as the board trims it (JS trim, so a byte-order mark too), before the self-check compares it.
+      rs_name=$(KOSMOS_RS_NAME="$rs_name" "$_node" -e 'process.stdout.write(process.env.KOSMOS_RS_NAME.trim())') || { say "We could not use that name."; exit 1; }
+      [ -n "$rs_name" ] || { say "$KOSMOS_RS_USAGE"; exit 2; }
       rs_path=$(KOSMOS_RS_NAME="$rs_name" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RS_NAME))') || { say "We could not use that name."; exit 1; }
       # Review 1: never yourself. Restarting your own session ends this command (and your work) before the answer
       # comes back, with no handoff; the agent page's "Write a handoff, then restart" is the way to do that.
       local rs_me="" rs_esc_pane; rs_esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
-      rs_me=$(kosmos_curl "$(agent_board_token || true)" "$_rtok" -sS -m 15 -X POST "$URL/api/whoami" -H 'content-type: application/json' -d "{\"from_pane\":\"$rs_esc_pane\"}" 2>/dev/null \
-        | "$_node" -e "$_rsparse"'process.stdout.write(j.ok===true&&typeof j.agent==="string"?one(j.agent):"")})' 2>/dev/null) || rs_me=""
-      # Review 2: when the board cannot say who is asking and the caller looks like an agent (a token or a pane), it
-      # might be asking about itself, so nothing is sent; a person at a plain terminal goes on.
-      if [ -z "$rs_me" ] && { [ -n "$_rtok" ] || [ -n "${TMUX_PANE:-}" ]; }; then
-        say "Nothing was restarted: Kosmos could not say which agent is asking, so it cannot rule out that $rs_name is you. Try again in a minute."
+      # Reviews 2 and 3: three answers, told apart. The board did not answer: a caller with a token or a pane might be
+      # asking about itself, so nothing is sent. The board answered "not an agent I know" for a caller with no token:
+      # a person (in tmux or not), who goes on. The board could not match the caller's own token: said as that.
+      local rs_who="" rs_whorc=0
+      rs_who=$(kosmos_curl "$(agent_board_token || true)" "$_rtok" -sS -m 15 -X POST "$URL/api/whoami" -H 'content-type: application/json' -d "{\"from_pane\":\"$rs_esc_pane\"}" 2>/dev/null) || rs_whorc=$?
+      rs_me=$(printf '%s' "$rs_who" | "$_node" -e "$_rsparse"'process.stdout.write(j.ok===true&&typeof j.agent==="string"?one(j.agent):(j.ok===false?"-":""))})' 2>/dev/null) || rs_me=""
+      if [ "$rs_whorc" -ne 0 ] || [ -z "$rs_me" ]; then
+        if [ -n "$_rtok" ] || [ -n "${TMUX_PANE:-}" ]; then
+          say "Nothing was restarted: Kosmos did not answer who is asking, so it cannot rule out that $rs_name is you. Try again in a minute."
+          exit 2
+        fi
+        rs_me="-"
+      fi
+      if [ "$rs_me" = "-" ] && [ -n "$_rtok" ]; then
+        say "Nothing was restarted: Kosmos does not recognise this agent's own token, so it cannot rule out that $rs_name is you."
+        token_refused_hint "$_rtok" "$rs_who"
         exit 2
       fi
-      if [ -n "$rs_me" ] && [ "$(printf '%s' "$rs_me" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$rs_name" | tr '[:upper:]' '[:lower:]')" ]; then
+      if [ -n "$rs_me" ] && [ "$rs_me" != "-" ] && [ "$(printf '%s' "$rs_me" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$rs_name" | tr '[:upper:]' '[:lower:]')" ]; then
         say "Nothing was restarted: $rs_name is you, and restarting yourself ends this session before you see the answer. Use \"Write a handoff, then restart\" on your page instead."
         exit 2
       fi

@@ -39,6 +39,7 @@ function withStub(reply, fn, self = 'me-agent') {
            `self === null` is a board that cannot tell. */
         let b = {}; try { b = JSON.parse(raw || '{}'); } catch { b = {}; }
         const says = (b.from_pane && String(b.from_pane).length) || req.headers['x-kosmos-agent-token'];
+        if (self === 'DOWN') { res.writeHead(502, { 'content-type': 'text/html' }); res.end('<html>bad gateway</html>'); return; }   // a board that did not answer
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify(self !== null && says ? { ok: true, agent: self } : { ok: false, because: 'we could not tell who you are' }));
         return;
@@ -188,4 +189,26 @@ test('kosmos#8071 review 2: when the board cannot say who is asking, an agent ca
     assert.equal(r.code, 2, 'a differently cased own name was restarted: ' + r.out);
     assert.equal(seen.length, 0);
   }, 'Sally Sales');
+});
+
+test('kosmos#8071 review 3: a person in tmux the board does not know goes on; a board that did not answer refuses an agent; a byte-order mark does not hide yourself', async () => {
+  await withStub(RESTARTED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined, TMUX_PANE: '%9' });
+    assert.equal(r.code, 0, 'a person in a tmux pane the board does not know was refused: ' + r.out);
+    assert.equal(seen.length, 1);
+  }, null);
+  await withStub(RESTARTED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes'], { KOSMOS_AGENT_TOKEN: undefined, TMUX_PANE: '%9' });
+    assert.equal(r.code, 2, 'a pane caller went on when the board did not answer who it is: ' + r.out);
+    assert.match(r.out, /did not answer who is asking/);
+    const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(w.code, 2, w.err);
+    assert.match(w.err, /did not answer who is asking/, 'Windows misnamed a board that did not answer');
+    assert.equal(seen.length, 0);
+  }, 'DOWN');
+  await withStub(RESTARTED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'restart', '\ufeffme-agent', '--yes']);
+    assert.equal(r.code, 2, 'a leading byte-order mark let an agent restart itself: ' + r.out);
+    assert.equal(seen.length, 0);
+  }, 'me-agent');
 });
