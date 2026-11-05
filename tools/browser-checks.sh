@@ -77,6 +77,10 @@ fi
 # runners folder (engine/agentbrowser.js); the #1573 pair below does not set
 # AGENT_WORKFORCE_DRY_RUN, so this covers every boot site.
 export KOSMOS_AGENT_BROWSER=off
+# kosmos#8050: no board this script boots may read this Mac's real keychain. A default Claude row asked it for the login
+# date of whoever is really signed in, so a real sign-in going stale redded render-accounts-openai 106 minutes into a cut.
+# Every board now reads this fixed date (engine/loginexpiry.js, 2100-01-01). Checks that test dates inject their own.
+export KOSMOS_BC_LOGIN_UNTIL_MS=4102444800000
 # #4253: no board this script boots may phone home. A sandboxed board mints a fresh install id,
 # so each boot sent installkosmos.com a new install (count 0, darwin) and inflated the
 # public install count by thousands a day. The beacon itself is untouched (Josh's 09-14
