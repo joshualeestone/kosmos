@@ -450,6 +450,7 @@ struct ChatView: View {
             // kosmos#7575 review 2: the report goes and the next count starts at once, so a shift laid out while away is kept.
             if phase == .background { loop?.cancel(); loop = nil; sendShiftReport() }
             else if phase == .active, visible, loop == nil { startReading() }
+            if phase == .active { diagBackInFront() }
         }
     }
 
@@ -1029,6 +1030,14 @@ struct ChatView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { diagRetrying = false; diagTick &+= 1 }
     }
 
+    // kosmos#7420: back in front with nothing drawn: the time away does not count, since iOS can draw the list by itself on the way
+    // back (Josh 11-05 12:57). The never-drew clock starts again, and a check runs once it has passed.
+    private func diagBackInFront() {
+        guard visible, diagThreadAt != nil, !endSeen, !diagEverDrew else { return }
+        diagThreadAt = Date()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { diagTick &+= 1 }
+    }
+
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
     // and where the scroll was after it. Later empty lists in the same chat are put right without a report (see below).
     // Nothing leaves the phone unless the person shares it.
@@ -1038,7 +1047,7 @@ struct ChatView: View {
         // put right only as Board.emptyRecovery says: past the content's end, or (build 24) rebuilt when within the content
         // at the newest. Nobody scrolling either way. The first try, the reported blank, rebuilds whatever the anchor
         // (TestFlight 37), and a later blank for a reader higher up does so once it holds still (below). A later reading reaches here only through
-        // diagCheck, which asks for no row counted, the end not showing, the top not showing and nobody scrolling.
+        // diagCheck, which asks for no row counted and nobody scrolling, and (unless the list never drew) the end and the top not showing.
         // Review 5: a blank that comes after the first try, for a reader higher up, is still a blank: rebuilt if it holds
         // still for blankConfirm, as the settled look does, so a list empty for an instant moves nobody.
         if recover, diagDone, !atBottom, scrollBox.reading()?.place == "within" {
@@ -1171,10 +1180,9 @@ struct ChatView: View {
                         // Review 2: nor while a chat is still opening and has drawn nothing yet (slow, not blank; diagCheck's).
                         // Review 3: nor with the end showing (a pending bubble can fill the list), nor with the app not active,
                         // as diagCheck. It spends recoverEmpty's own per-open budget (rebuildsMax).
-                        // Josh 11-05 12:57: review 2 held for as long as the blank did, about 6.6 s through three looks. Past
-                        // diagCheck's 2 s it is a blank, not a slow open.
-                        guard !endVisible, scenePhase == .active, !(thread?.rows.isEmpty ?? true),
-                              endSeen || diagEverDrew || Board.neverDrew(endSeen: endSeen, everDrew: diagEverDrew, messagesFor: diagThreadAt.map { Date().timeIntervalSince($0) }) else {
+                        // Josh 11-05 12:57: review 2 held for as long as the blank did, about 6.6 s through three looks.
+                        guard scenePhase == .active, !(thread?.rows.isEmpty ?? true),
+                              Board.settledBlankActs(endVisible: endVisible, endSeen: endSeen, everDrew: diagEverDrew, messagesFor: diagThreadAt.map { Date().timeIntervalSince($0) }) else {
                             Self.trace("keyboard settled: within, nothing drawn"); return
                         }
                         if atBottom {
