@@ -254,7 +254,13 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     if (outcome === 'changed' || outcome === 'partial' || outcome === 'unknown') watch(m, movedAt, outcome !== 'changed');
     rest(m.agent, Date.now());
     if (outcome === 'changed') {
-      try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.fromLabel || 'its account'} was running out (${m.why}).`); }
+      /* kosmos#8048 review 2: an agent moved off its limit can hold commitments an idle one cannot (movableFor), and the
+         restart ended anything it had running, so the person is told what it had promised. */
+      let promised = [];
+      try { const rec = deps.readCommitment ? deps.readCommitment(m.agent) : null; promised = (rec && Array.isArray(rec.commitments) ? rec.commitments : []).filter((x) => typeof x === 'string' && x.trim()).slice(0, 5); }
+      catch { promised = []; }
+      const owed = promised.length ? ` Before the move it had said it was committed to: ${promised.join('; ')}. The restart ended anything it had running, so it may need to pick that up.` : '';
+      try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.fromLabel || 'its account'} was running out (${m.why}).${owed}`); }
       catch { /* telling is best-effort; the record has it */ }
     }
     /* kosmos#7621 item 4: a move that did not finish cleanly is told too, so the thread says where the agent may be. */
@@ -363,7 +369,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
       /* Said already this hour: 'nothing', so the board's log stays as quiet as the record. */
       if (state.skippedAt.has(m.agent)) return { did: 'nothing', because: 'still not idle' };
       state.skippedAt.set(m.agent, nowMs);
-      keep({ kind: 'skipped', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, because: 'it was no longer idle' });
+      keep({ kind: 'skipped', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, because: 'it was no longer free to move' });   // kosmos#8048: idle, or still at its limit
       return { did: 'skipped', agent: m.agent };
     }
     /* Review round 2: a person can move the agent while this tick awaits (the session-start reads in check()), and the

@@ -195,8 +195,10 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
     /* kosmos#8048: an agent already stopped at its limit is the one that most needs to move, and it never reads idle, so
        without this the mover only ever helped before the wall. The Assigner's failover test (assigner.limitedCard): our
        agent, reading rate_limited, with a dated reset more than 10 minutes away, so a Claude weekly limit moves and an
-       undated five-hour one is waited out. Its open work and commitments do not hold it: it can do neither where it is,
-       and the move's restart closes the limit's dialog without answering it (never its paid option). A remembered
+       undated five-hour one is waited out. Its open work and commitments do not hold it: its model can serve neither
+       where it is. The cost (review 2): the move's restart ends anything it left running (a watcher, a test run), so
+       automove tells the person what it had promised. The restart closes the limit's dialog without answering it, so
+       never its paid option. A remembered
        reading is not one to act on, as idleCard says (#5949): a Windows capture can hold rate_limited while the agent is
        back mid-turn. Review 1: a person working the limit at the pane themselves is covered only as far as an idle
        agent's is (words in the box after 3 minutes, and the mover's two ticks).
