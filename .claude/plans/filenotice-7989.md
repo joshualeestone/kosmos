@@ -41,8 +41,15 @@ which store.js works out per platform, and a second copy of that in bash is two 
   as take-and-clear; three reviewers in a row found it lost notices on a busy board). The cost: a notice can reach the
   model twice when the hook read it but could not write the ack file.
   The "older notices were not kept" count is kept the same way, until an acknowledgement removes a notice.
-- Panes with no TMUX_PANE share one mark and one ack file (`nopane`). An id acknowledged by the wrong session removes
-  nothing, since ids are per owner; they only share the 5-minute window.
+- The mark and ack file are keyed by a hash of the agent token, so two sessions sharing a pane key (no TMUX_PANE, or one
+  %N on two tmux servers) do not overwrite each other's acknowledged ids. Without an agent token they fall back to the
+  pane key and can: each would then be handed its own notices again on every call until they expire.
+- `kosmos file-notices` run by hand clears every notice, including ones the hook handed over and the model may not
+  have read yet.
+- The notice quotes a file name another agent chose (cut to 120 characters, made safe by quotedName), and it now reaches
+  the owner's model directly. The framing says it is a notice from Kosmos, not a request from the person.
+- When a notice already handed over is pushed out by MAX_PENDING newer ones, it is counted as not kept although the
+  model may have read it: an overcount, the safe direction.
 - Windows sends the board token beside the agent token (every verb there does); reading it there is a file read.
 - A notice can wait up to 5 minutes plus the owner's next turn. The mark is written before the call, because the hook
   cannot tell a failed call from one with nothing waiting; so a failed call (board restarting) also waits out the 5 minutes.

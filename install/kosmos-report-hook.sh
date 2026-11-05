@@ -442,12 +442,22 @@ kosmos_allows() {
   return "$r"
 }
 
-# kosmos#7989 slice 3: whether this pane may ask for its file notices now, at most once per FILE_NOTICE_EVERY seconds (its
-# own mark beside MARK). Unlike heartbeat_due, a mark that cannot be written means no call: the cost lands on the turn.
+# kosmos#7989 slice 3: whether this agent may ask for its file notices now, at most once per FILE_NOTICE_EVERY seconds.
+# Unlike heartbeat_due, a mark that cannot be written means no call: the cost lands on the turn. The mark and the ack
+# file are keyed by the agent (a hash of its agent token), not the pane: two sessions sharing a pane key (no TMUX_PANE,
+# or the same %N on two tmux servers) would otherwise overwrite each other's acknowledged ids and be handed the same
+# notices again on every call. With no agent token it falls back to the pane key.
 FILE_NOTICE_EVERY=300
+FN_KEY="$PANE_KEY"
+if [ -n "${KOSMOS_AGENT_TOKEN:-}" ]; then
+  if command -v shasum >/dev/null 2>&1; then _fn_h=$(printf '%s' "$KOSMOS_AGENT_TOKEN" | shasum -a 256 2>/dev/null | cut -c1-16)
+  else _fn_h=$(printf '%s' "$KOSMOS_AGENT_TOKEN" | sha256sum 2>/dev/null | cut -c1-16); fi
+  case "$_fn_h" in ''|*[!0-9a-f]*) ;; *) FN_KEY="agent-$_fn_h" ;; esac
+fi
+FN_MARK="$THROTTLE_DIR/$FN_KEY.filenotices"
 file_notices_due() {
   mkdir -p "$THROTTLE_DIR" 2>/dev/null || return 1
-  local fmark="$MARK.filenotices" now last
+  local fmark="$FN_MARK" now last
   now=$(date +%s)
   if [ -f "$fmark" ]; then
     last=$(cat "$fmark" 2>/dev/null || echo 0)
@@ -541,9 +551,9 @@ case "$EVENT" in
     # when there is a notice, with a 1 s cap; anything else it says is dropped, so the person never sees it. The call
     # holds up the turn (about 100 ms on a live board, measured 11-04), so a pane asks at most once per
     # FILE_NOTICE_EVERY seconds: a notice is not urgent, and the room note is there meanwhile. The ids it was handed are
-    # kept beside the mark and sent back next time, so the board removes only what this pane received.
+    # kept beside the mark and sent back next time, so the board removes only what this agent received.
     if [ -n "$KOSMOS" ] && file_notices_due; then
-      FN_OUT=$("$KOSMOS" file-notices --hook --ack-file "$MARK.filenotices-ack" </dev/null 2>/dev/null) || FN_OUT=""
+      FN_OUT=$("$KOSMOS" file-notices --hook --ack-file "$FN_MARK-ack" </dev/null 2>/dev/null) || FN_OUT=""
       case "$FN_OUT" in
         '{"hookSpecificOutput":'*) printf '%s\n' "$FN_OUT" ;;
       esac
