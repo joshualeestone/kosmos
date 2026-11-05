@@ -17,6 +17,9 @@ struct SweepDots: View {
     /// false keeps `size` at every text size. kosmos#7945 follow-up: the Agents tab's wait to connect, which must match
     /// the launch screen's fixed 20 pt picture; its words still grow with the text.
     var scales = true
+    /// The most frames a second it draws. kosmos#8058: 15 inside a chat or room's scrolling thread, the rate of the orb it
+    /// replaces there, because a clock-drawn view at 30 inside the thread kept it from following new messages (#7427).
+    var framesPerSecond: Double = 30
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .footnote) private var grow: CGFloat = 1
     /// kosmos#7945 follow-up: the loop runs from when the ring appeared, starting at SweepLogic.launchAt, the frame the
@@ -25,7 +28,7 @@ struct SweepDots: View {
 
     var body: some View {
         let side = scales ? size * grow : size
-        let drawn = TimelineView(.animation(minimumInterval: 1.0 / 30)) { tl in
+        let drawn = TimelineView(.animation(minimumInterval: 1.0 / framesPerSecond)) { tl in
             let elapsed = tl.date.timeIntervalSince(shownAt)
             Canvas { ctx, box in
                 for d in SweepLogic.shown(elapsed, side: Double(min(box.width, box.height)), reduceMotion: reduceMotion) {

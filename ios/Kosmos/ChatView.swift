@@ -1587,7 +1587,7 @@ struct ChatView: View {
         Group {
             if earlier.loading {
                 HStack(spacing: 6) {
-                    SweepDots(size: 16)   // kosmos#8058: a small wait has the simple dots; unlabelled, as the text beside it says what is loading
+                    SweepDots(size: 16, framesPerSecond: 15)   // kosmos#8058: the simple dots, at the orb's rate inside the thread; the text beside it says what is loading
                     Text("Loading earlier messages\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
