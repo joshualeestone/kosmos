@@ -36955,7 +36955,12 @@ document.getElementById('acct-claude-go').addEventListener('click', async () => 
        true at the picker, and it is where the line below sends them anyway. */
     const keyStep = document.getElementById('acct-claude-key-step');
     const flow = document.getElementById('acct-claude-flow');
-    if (visit !== ACCT_ADD_VISIT || flow.hidden || (keyStep.hidden && !(err && err.needsRunner))) return;
+    if (visit !== ACCT_ADD_VISIT || flow.hidden || (keyStep.hidden && !(err && err.needsRunner))) {
+      /* The line this press wrote must not stay behind it (re-picking Claude mid-add lands at the picker, where the line
+         shows). Only on this visit: a new visit's own line is not this press's. */
+      if (visit === ACCT_ADD_VISIT && msg.textContent === 'Adding…') msg.textContent = '';
+      return;
+    }
     msg.textContent = asSentence(String((err && err.message) || 'We could not add that account.'));   // kosmos#8040: the route's words start in lower case
     /* The route answers needsRunner when Claude Code is not on this computer. The
        key path has no install button of its own, so send the person back to the
@@ -66154,6 +66159,7 @@ document.body.addEventListener('input', (e) => {
 
 function openCreate(initialMode) {
   CREATE_KEPT = 0;   // kosmos#8040
+  CREATE_ACCOUNT_TOUCHED = false;
   PICKED = null;
   /* #4556: every visit starts on the three-way choice; the first-run import link goes straight to Single. */
   CREATE_PATH = initialMode === 'import' ? 'single' : null;
@@ -67626,6 +67632,10 @@ async function loadCreateExtras(kept) {   // kept: kosmos#8040, the picks to put
    it was hidden; the sentence, not the link, so a second press of the key cannot leave the page). Where the sentence
    names Settings, AI Models, those words are the way there. Built as nodes: the sentence is the engine's. */
 var CREATE_KEPT = 0;   // when the person left by that link: their next New agent comes back to this form, for a while (var: no dead zone)
+/* Whether the person chose the account themselves. Only then is it put back on the return: an account they never chose
+   is the old default, and a new default they just connected should win, as a provider does (CREATE_PROVIDER_TOUCHED). */
+var CREATE_ACCOUNT_TOUCHED = false;
+document.getElementById('create-account').addEventListener('change', () => { CREATE_ACCOUNT_TOUCHED = true; });
 const CREATE_KEPT_MS = 30 * 60 * 1000;   // long enough for a sign-in; past it they retype, as a plain New agent always did
 function createSayRefusal(text) {
   const msg = document.getElementById('create-msg');
@@ -67664,7 +67674,7 @@ function createEnter() {
   if (document.body.classList.contains('consolidated')) openConsolidatedCreate(); else showTab('create');
   document.getElementById('create-name').focus();
   const val = (id) => document.getElementById(id).value;
-  loadCreateExtras({ provider: val('create-provider'), account: val('create-account'), model: val('create-model'), reports: val('create-reports') });
+  loadCreateExtras({ provider: val('create-provider'), account: CREATE_ACCOUNT_TOUCHED ? val('create-account') : '', model: val('create-model'), reports: val('create-reports') });
 }
 /* The picks loadCreateExtras rebuilt its menus over, put back where they are still offered. On a provider it moved them to
    (one just connected, none chosen) they are not offered, so what it painted stays. */
