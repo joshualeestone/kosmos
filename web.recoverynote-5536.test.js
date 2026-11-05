@@ -12,15 +12,20 @@ const SEEN = 'kosmos.recoveriesSeen';
 const DAY = 86400;
 const NOW = 1_790_000_000;
 
-function board({ onAgents = true, seen = null, storageThrows = false, listShown = false, plusShown = false, listInView = true } = {}) {
+function board({ onAgents = true, seen = null, storageThrows = false, listShown = false, plusShown = false, listInView = true, hidden = false, noRow = false } = {}) {
   const store = new Map(seen === null ? [] : [[SEEN, JSON.stringify(seen)]]);
   const localStorage = {
     getItem: (k) => { if (storageThrows) throw new Error('blocked'); return store.has(k) ? store.get(k) : null; },
     setItem: (k, v) => { if (storageThrows) throw new Error('blocked'); store.set(k, v); },
   };
   const slot = { innerHTML: '', dataset: {} };
-  const box = { hidden: !listShown, getBoundingClientRect: () => (listInView === 'zero' ? { top: 0, bottom: 0, height: 0 } : listInView === 'past-top' ? { top: -500, bottom: 700, height: 1200 } : listInView ? { top: 100, bottom: 300, height: 200 } : { top: 2000, bottom: 2200, height: 200 }) };
-  const document = { getElementById: (id) => (id === 'recovery-slot' ? slot : id === 'plus-org-recoveries' ? box : null) };
+  // The first row's place on screen. The sticky header's bottom edge is at 83 and the screen ends at 800.
+  const ROWS = { zero: [0, 0], 'past-top': [-500, -470], 'under-header': [50, 80], 'below-fold': [790, 830], gone: [2000, 2030], true: [100, 130] };
+  const [top, bottom] = ROWS[String(listInView)];
+  const row = { getBoundingClientRect: () => ({ top, bottom, height: bottom - top }) };
+  const box = { hidden: !listShown, querySelector: () => (noRow ? null : row) };
+  const document = { hidden, getElementById: (id) => (id === 'recovery-slot' ? slot : id === 'plus-org-recoveries' ? box : null),
+    querySelector: (sel) => (sel === '.apphead' ? { getBoundingClientRect: () => ({ bottom: 83 }) } : null) };
   const from = PAGE.indexOf('const RECOVERY_NOTE_KEY = ');
   assert.ok(from > 0, 'the notice moved; re-anchor this test');
   const src = 'const PLUS_ORG_RECOVERY_DAYS = 30;\n' + PAGE.slice(from, PAGE.indexOf('function reviewerNoteMaybe()', from));
@@ -113,10 +118,15 @@ test('#5536: seen keeps only rows still inside the 30 days', () => {
 
 test('#5536: the list counts as seen only while it is in view (CONTROL: in view, it does)', () => {
   const st = { recoveries: [given(DAY)] };
+  const inView = { listShown: true, plusShown: true };
   for (const [opts, why] of [[{ listShown: false, plusShown: true }, 'a hidden list'], [{ listShown: true, plusShown: false }, 'Settings not on screen'],
-    [{ listShown: true, plusShown: true, listInView: false }, 'a list scrolled out of view'],
-    [{ listShown: true, plusShown: true, listInView: 'zero' }, 'a list under a hidden ancestor'],
-    [{ listShown: true, plusShown: true, listInView: 'past-top' }, 'a long list scrolled past its newest row']]) {
+    [{ ...inView, hidden: true }, 'a tab in the background'],
+    [{ ...inView, noRow: true }, 'a list with no row yet'],
+    [{ ...inView, listInView: 'gone' }, 'a list scrolled out of view'],
+    [{ ...inView, listInView: 'zero' }, 'a list under a hidden ancestor'],
+    [{ ...inView, listInView: 'past-top' }, 'a long list scrolled past its newest row'],
+    [{ ...inView, listInView: 'under-header' }, 'a first row under the sticky header'],
+    [{ ...inView, listInView: 'below-fold' }, 'the heading in view with the first row below the fold']]) {
     const b = board(opts); b.api.recoveryNoteSeenList(st);
     assert.equal(b.store.size, 0, why + ' counted as seen');
   }
@@ -124,7 +134,7 @@ test('#5536: the list counts as seen only while it is in view (CONTROL: in view,
   assert.equal(b.seenKeys().length, 1);
 });
 
-test('#5536: seen on one notice does not touch the other (their keys differ)', () => {
+test('#5536: each notice keeps its own seen list in the browser', () => {
   assert.match(PAGE, /const RECOVERY_NOTE_KEY = 'kosmos\.recoveriesSeen';/);
   assert.match(PAGE, /const REVIEWER_NOTE_KEY = 'kosmos\.reviewerGrantsSeen';/);
 });
