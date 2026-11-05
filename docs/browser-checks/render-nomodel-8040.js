@@ -125,6 +125,24 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       const saidRunner = (await p.locator('#create-msg').innerText()).trim();
       chk(saidRunner.startsWith('We could not find Claude Code on this computer') && saidRunner.includes('Kosmos will then set up Claude Code'), size + ': with an account and no Claude Code, the engine says so in its own words', JSON.stringify(saidRunner));
       chk((await seen(p, '#create-msg')).in && (await seen(p, '#create-msg button')).in, size + ': and that refusal and its link are in the window');
+      // The account is put back on the return only when the person chose it: one they never chose is the old default, and
+      // a new default they just connected should win. Read from what the return asks loadCreateExtras to keep.
+      const keptAccount = async (choose) => {
+        await toNameStep(p);
+        if (choose) await p.evaluate(() => document.getElementById('create-account').dispatchEvent(new Event('change')));   // its row is hidden with one account; the change is what a person's pick fires
+        await pressCreate(p, 'set up Claude Code');
+        const value = await p.evaluate(() => document.getElementById('create-account').value);
+        await p.evaluate(() => { const real = loadCreateExtras; window.__keptAsk = null; window.loadCreateExtras = (k) => { window.__keptAsk = k; window.loadCreateExtras = real; return real(k); }; });
+        await p.locator('#create-msg button').click();
+        await p.waitForTimeout(300);
+        await p.evaluate(() => document.getElementById('new-agent').click());
+        await p.waitForTimeout(300);
+        return { value, ask: await p.evaluate(() => window.__keptAsk && window.__keptAsk.account) };
+      };
+      const untouched = await keptAccount(false);
+      chk(untouched.value !== '' && untouched.ask === '', size + ': an account the person never chose is not put back on the return', JSON.stringify(untouched));
+      const chosen = await keptAccount(true);
+      chk(chosen.value !== '' && chosen.ask === chosen.value, size + ': CONTROL: an account the person chose is put back', JSON.stringify(chosen));
       unseedAccount();
 
       // Refused, connect, come back: what they typed is still there, on the same step.
@@ -474,6 +492,13 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 });
       l = await line();
       chk(!l.keyStep && l.text === '', 'late: landing while on another provider, it is not there on the way back', JSON.stringify(l));
+
+      await press(refused);
+      await p.evaluate(() => acctPick('claude'));   // Claude picked again mid-add: back at the picker, where this line shows
+      await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 });
+      await land();
+      l = await line();
+      chk(!l.keyStep && l.text === '', 'late: Claude picked again before it lands, no Adding line is left at the picker', JSON.stringify(l));
 
       await press(refused);
       await p.evaluate(() => { closeAcctAdd(); openAcctAdd(); });
