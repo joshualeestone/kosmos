@@ -645,6 +645,23 @@ async function permCardGo(page, data, press) {
   }
 }
 
+/* kosmos#8039: an agent stopped at Claude Code's "Allow external CLAUDE.md file imports?", with the "Continue without
+   them" box under its question. The thread is stubbed in this screen's context in the route's shape (asking, importsAsk),
+   so nothing is pressed and no pane is read. The imported path is a made-up one. */
+async function importsAskGo(page, data) {
+  const text = ['Allow external CLAUDE.md file imports?', '', "This project's CLAUDE.md or .claude/rules imports files outside the current working directory.",
+    'External imports:', '  /Users/someone/.claude/NOTES.md', '', '❯ No, disable external imports', '  Yes, allow external imports', '', 'Enter to confirm · Esc to cancel'].join('\n');
+  const body = { olderCount: 0, historyBecause: null, historyUnfilable: false, owes: null, presence: 'on', presenceBecause: null,
+    asking: true, question: { text }, questionBecause: null, codexHooks: null, answerNote: null, importsAsk: true,
+    messages: [{ id: 'needs-you-question:' + data.chatAgent, at: null, text, from: data.chatAgent, delivery: null, kind: 'question', reported: false }] };
+  await page.route('**/api/agent/*/thread*', (r) => r.fulfill({ status: 200, contentType: 'application/json',
+    body: JSON.stringify(r.request().method() === 'GET' ? body : { delivery: { state: 'placed' }, recorded: true }) }));
+  await at(page, '?agent=' + data.chatAgent);
+  await page.locator('#d-nav button[data-go="talk"]').first().click({ timeout: 5000 });
+  await page.waitForSelector('#d-qask-imports-no', { state: 'visible', timeout: 8000 });
+  await page.evaluate(() => document.getElementById('d-qask').scrollIntoView({ block: 'center' }));
+}
+
 /* kosmos#7430: the two unhold screens share one body: a task nobody is on (the line ends in Choose who), or one the chat
    agent is on (it stays with them). */
 function unholdNext7430(withAgent) {
@@ -1329,6 +1346,7 @@ const SCREENS = [
   { name: 'restart-line-7411-one', owner: 'Baron Draxum', noServiceWorker: true, go: (page) => restartLineGo(page, 'one', false) },
   { name: 'agent-perm-card', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, null) },
   { name: 'agent-perm-card-allowed', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Allow') },
+  { name: 'agent-imports-ask-8039', owner: 'Baron Draxum', noServiceWorker: true, go: (page, data) => importsAskGo(page, data) },
   { name: 'agent-perm-card-denied', owner: 'Mona Lisa', noServiceWorker: true, go: (page, data) => permCardGo(page, data, 'Deny') },
   // #5481: the Mac app's refused mic, which becomes [X   Turn on in Settings] in the mic's place. A stand-in bridge
   // (the app's message handler) answers the press with the refusal the app sends; nothing reaches System Settings.
