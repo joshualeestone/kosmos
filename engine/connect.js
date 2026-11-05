@@ -96,9 +96,9 @@ function setRefreshExpiryReader(fn) { refreshExpiryReader = typeof fn === 'funct
    stall the single-threaded board. The body goes straight into loginexpiry.refreshExpiryFor,
    which parses it and returns only the timestamp, so the service name, parsing and secret
    handling stay in one place. */
-/* The shared async read (loginexpiry.readCredAsync, #3997): one definition of the command. Guarded only by
-   readRefreshExpiry's NODE_TEST_CONTEXT check: a harness run under plain node that drives a reauth would query
-   the real keychain (a sandboxed, suffixed entry), unless it sets loginexpiry's KOSMOS_BC_LOGIN_UNTIL_MS. */
+/* The shared async read (loginexpiry.readCredAsync, #3997): one definition of the command. Guarded by
+   readRefreshExpiry's NODE_TEST_CONTEXT check, and by loginexpiry's KOSMOS_BC_LOGIN_UNTIL_MS: a harness run under plain
+   node with neither, that drives a reauth, would query the real keychain (a sandboxed, suffixed entry). */
 const readCredAsync = (service) => loginexpiry.readCredAsync(service);
 async function readRefreshExpiry(ccd) {
   if (refreshExpiryReader) return refreshExpiryReader(ccd);

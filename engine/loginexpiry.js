@@ -28,6 +28,7 @@
  *    FAIL SOFT everywhere: an unreadable/absent credential yields no advisory, never a throw.
  */
 const crypto = require('crypto');
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execFile, execFileSync } = require('child_process');
@@ -69,11 +70,13 @@ const KEYCHAIN_OPTS = { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe
 function inSandboxHome() {
   const raw = process.env.AGENT_WORKFORCE_HOME;
   if (!raw) return false;
+  // Real paths, so a link to the real home or another spelling of it is no sandbox. A sandbox that does not exist yet
+  // cannot be either. os.userInfo, not os.homedir(): a sandboxed board can set HOME to its sandbox. It throws for a uid
+  // with no passwd entry, and a home that cannot be told apart from the real one does not count as a sandbox.
+  const canonical = (p) => { try { return fs.realpathSync.native(p); } catch { return path.resolve(p); } };
   let real;
-  // not os.homedir(): a sandboxed board can set HOME to its sandbox. userInfo throws for a uid with no passwd entry, and
-  // a home that cannot be told apart from the real one does not count as a sandbox.
-  try { real = path.resolve(os.userInfo().homedir); } catch { return false; }
-  const home = path.resolve(raw);
+  try { real = canonical(os.userInfo().homedir); } catch { return false; }
+  const home = canonical(raw);
   return home !== real && !real.startsWith(home.endsWith(path.sep) ? home : home + path.sep);
 }
 

@@ -19,8 +19,9 @@ it, through the default Claude row. That stopped the 0.7.92 cut after 106 minute
 - **A fixed date, noon UTC on 2100-01-01,** so a page or a screenshot cannot change with the calendar, or with the
   timezones the fleet's Macs are in.
 - **Other accounts answer nothing,** as they do now: their entries are named from a sandbox path, so none exists.
-- The checks that test dates inject their own (render-claude-login-green-3997 uses setReaderForTests, the other two stub
-  /api/accounts), so this takes nothing from them. Read, not run.
+- The checks that test dates inject their own (render-claude-login-green-3997 uses setReaderForTests; render-account-badge-1921,
+  render-refreshlogin-5407, render-acct-modal-trap-7202 and mobile-shots supply their rows), so this takes nothing from them.
+  Read, not run.
 
 ## What this does not cover
 - A board that runs the host's real `claude`: `claude auth status` reads the login itself. sb4, the board that failed,
@@ -33,7 +34,8 @@ it, through the default Claude row. That stopped the 0.7.92 cut after 106 minute
 That every board this script boots has a sandbox home, which the seam now also requires. The script sets one for the run
 (read, not run). A board without one reads no date, and no check would show that: render-accounts-openai asserts only
 "Signed in". It fails safe, with no date and no "Login expired". A leak onto a real board gives no date, not a false one:
-production has no sandbox home, and a home that is this user's real home, or above it, does not count as one.
+production has no sandbox home, and a home that is this user's real home or above it, by real path, does not count as
+one. The cost of such a leak is that the board's login notices stop; nothing can export the variable that far.
 
 ## Steps
 1. The seam, the export, engine/loginexpiry-sandbox-8050.test.js.
@@ -41,4 +43,5 @@ production has no sandbox home, and a home that is this user's real home, or abo
 3. Seen working, after the cut: "render-accounts-openai green" alone proves nothing, because it also passes without this
    on a Mac with a fresh login. So run the script from a throwaway copy of this worktree, with a fake `security` first on
    PATH answering a past date, twice: with the export line deleted in the copy (red on "Login expired"), then as committed
-   (green). Then it lands with the next cut.
+   (green). Then it lands with the next cut. Merged without this run is words and mechanism only, so the card stays open
+   until it has been seen.

@@ -1,6 +1,6 @@
 'use strict';
 /* kosmos#8050: Kosmos's own keychain read answers a fixture on a board started by tools/browser-checks.sh.
- *   node --test engine/loginexpiry-sandbox-8050.test.js
+ *   tools/run-tests.sh --only engine/loginexpiry-sandbox-8050.test.js
  * No arm can touch the real keychain: PATH holds only a fake `security`, which records that it ran. Its shebang names
  * /bin/sh and it uses only shell builtins. */
 const { test, beforeEach, afterEach } = require('node:test');
@@ -67,18 +67,29 @@ test('set on a board with no sandbox home: no date and no read, so a leak onto a
   assert.ok(!fs.existsSync(marker), 'security ran with the variable set');
 });
 
-const realHome = os.userInfo().homedir;
-for (const [label, home] of [['the real home', realHome], ['the real home with a slash', realHome + path.sep], ['above it', path.dirname(realHome)], ['the root', path.parse(realHome).root]]) {
+let realHome = null;
+try { realHome = os.userInfo().homedir; } catch { /* a uid with no passwd entry: the arms below that need it are skipped */ }
+const homeCases = realHome ? [
+  ['the real home', () => realHome],
+  ['the real home with a slash', () => realHome + path.sep],
+  ['above it', () => path.dirname(realHome)],
+  ['the root', () => path.parse(realHome).root],
+  ['a link to it', () => { const l = path.join(dir, 'link'); fs.symlinkSync(realHome, l); return l; }],
+  ['a link above it', () => { const l = path.join(dir, 'link'); fs.symlinkSync(path.dirname(realHome), l); return l; }],
+] : [];
+// APFS, by default, answers to any case; a volume that does not would not resolve the spelling, so check it first.
+if (realHome && realHome !== realHome.toUpperCase() && fs.existsSync(realHome.toUpperCase())) homeCases.push(['the real home in another case', () => realHome.toUpperCase()]);
+for (const [label, homeOf] of homeCases) {
   test(`set with a "sandbox home" that is ${label}: no date and no read`, async () => {
     process.env[VAR] = String(FIXTURE_DATE);
-    process.env.AGENT_WORKFORCE_HOME = home;
+    process.env.AGENT_WORKFORCE_HOME = homeOf();
     assert.equal(le.refreshExpiryFor(undefined), null);
     assert.equal(await le.readCredAsync(le.DEFAULT_SERVICE), null);
     assert.ok(!fs.existsSync(marker), 'security ran with the variable set');
   });
 }
 
-test('CONTROL: a sandbox home beside the real one, sharing its name as a prefix, is still a sandbox', () => {
+test('CONTROL: a sandbox home beside the real one, sharing its name as a prefix, is still a sandbox', { skip: !realHome }, () => {
   process.env[VAR] = String(FIXTURE_DATE);
   process.env.AGENT_WORKFORCE_HOME = `${realHome}-sandbox`;
   assert.equal(le.refreshExpiryFor(undefined), FIXTURE_DATE);
@@ -121,10 +132,12 @@ test('tools/browser-checks.sh sets it before any board boots', () => {
 });
 
 test('nothing else in the engine runs security, so these two readers are the whole seam', () => {
-  const runsIt = /\b(?:execFile(?:Sync)?|spawn(?:Sync)?)\(\s*['"`](?:\/usr\/bin\/)?security['"`]|\bexec(?:Sync)?\(\s*['"`](?:\/usr\/bin\/)?security\b/;
+  const runsIt = /\b(?:execFile(?:Sync)?|spawn(?:Sync)?|exec(?:Sync)?)\(\s*['"`](?:\/usr\/bin\/)?security\b|find-generic-password/;
+  // Those two name the command in words, for an agent's instructions and permissions; neither runs it.
+  const onlyWords = new Set(['roles.js', 'setup-assistant.js']);
   const engine = __dirname;
   const callers = fs.readdirSync(engine)
-    .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
+    .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js') && !onlyWords.has(f))
     .filter((f) => runsIt.test(fs.readFileSync(path.join(engine, f), 'utf8')));
   // CONTROL: the pattern finds the readers it is meant to find.
   assert.deepEqual(callers, ['loginexpiry.js']);
