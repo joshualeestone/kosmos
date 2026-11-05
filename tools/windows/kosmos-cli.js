@@ -155,7 +155,7 @@ const USAGE = {
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
-    'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|remove>',
+    'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|restart|remove>',
     '  kosmos agent list                               every agent on this board, its role, and whether it is running',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
@@ -168,6 +168,7 @@ const USAGE = {
     '                                                  (<account>: its name as kosmos accounts shows it, or main;',
     '                                                  with --yes, a move that would lose skills or hooks also needs --accept-loss;',
     '                                                  like a move in Settings, the automatic mover then leaves that agent for a day)',
+    '  kosmos agent restart "<name>" [--yes]           restart one agent, after a confirm (it picks up new settings, skills and hooks)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
   ].join('\n'),
   feedback: [
@@ -2480,6 +2481,35 @@ async function agentRemove(ctx, args) {
   ctx.err('Kosmos gave an answer we could not read when removing ' + label + '. Look at the board to see whether it is still there.');
   return 1;
 }
+/* kosmos#8071: install/kosmos's `agent restart`, through the agent page's own Restart (POST /api/agent/<name>/restart),
+   so the engine decides and words everything; a confirm, or --yes; the outcome read back. */
+const AGENT_RESTART_USAGE = 'Usage: kosmos agent restart "<name>" [--yes]   (--yes: do not ask first, for scripts)';
+async function agentRestart(ctx, args) {
+  const yes = args.includes('--yes');
+  const words = args.filter((a) => a !== '--yes');
+  const name = typeof words[0] === 'string' ? words[0].trim() : words[0];
+  if (!name) { ctx.err(AGENT_RESTART_USAGE); return 2; }
+  if (/^--[A-Za-z]/.test(name)) { refuseOption(ctx, 'agent restart', AGENT_RESTART_USAGE, name, 'target'); return 2; }
+  if (name === '.' || name === '..') { ctx.err('There is no agent called ' + name + '.'); return 2; }
+  if (tooManyWords(ctx, 'agent restart', 1, AGENT_RESTART_USAGE, words)) return 2;
+  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was restarted: there is no terminal here to confirm on. To restart ' + name + ' without being asked, add --yes.'); return 2; }
+  ctx.out('Restarting ' + name + ' stops what it is doing now; it starts again with its current settings, skills and hooks.');
+  if (!yes) {
+    const answer = await ctx.ask('Restart ' + name + '? [y/N] ');
+    if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was restarted.'); return 1; }
+  }
+  const r = await ctx.call('POST', '/api/agent/' + encodeURIComponent(name) + '/restart', {}, { timeoutMs: POST_TIMEOUT_MS, person: true });
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + name + ' may have restarted; look at its page before trying again.') : ctx.unreachable('restart ' + name);
+  const j = r.json || {};
+  const because = clause(j.because || j.error || '');
+  const end = /[?!)]$/.test(because) ? '' : '.';
+  if (j.outcome === 'restarted') { ctx.out((because || name + ' has restarted') + end); return 0; }
+  if (j.outcome === 'partial') { ctx.err('Only partly restarted: ' + (because || 'Kosmos did not say how far it got') + end + ' Look at its page.'); return 1; }
+  if (because) { ctx.err('Kosmos did not restart ' + name + ': ' + because + end); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when restarting ' + name + '. Look at its page.');
+  return 1;
+}
+
 /* kosmos#8048 item 3: install/kosmos's `agent move`, through the board's own move: the plan (which account, by the name
    kosmos accounts shows, and what the agent would lose there), a confirm (or --yes), the move to the plan's folder, and
    its outcome read back. A loss is said before the move; a plan that could not tell is said as such, never as nothing
@@ -3417,7 +3447,7 @@ const SUBCOMMAND_HANDLERS = {
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
-  agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, remove: agentRemove },
+  agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, restart: agentRestart, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
