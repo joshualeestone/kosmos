@@ -1069,8 +1069,9 @@ function declineExternalImports(dir, opts) {
     let st = null;
     try { st = fs.lstatSync(dotGit); } catch { st = null; }
     if (st && !st.isDirectory()) {
-      /* A linked worktree's .git is a file, and where Claude Code keeps the answer then is not measured (review 2, W2). */
-      return { ok: false, because: `its folder is in a linked git worktree, where we do not know which folder Claude Code reads this answer under. ${IN_ITS_TERMINAL}` };
+      /* A .git that is not a folder (a linked worktree's or a submodule's file, or a link): where Claude Code keeps the
+         answer then is not measured (review 2, W2). */
+      return { ok: false, because: `its folder is in a git checkout whose .git is not a folder (a linked worktree, a submodule or a link), where we do not know which folder Claude Code reads this answer under. ${IN_ITS_TERMINAL}` };
     }
     if (st) { key = up; break; }
     const parent = path.dirname(up);

@@ -102,7 +102,7 @@ test('a linked worktree (.git is a file) is refused, and nothing is written', ()
   fs.writeFileSync(nodePath.join(wt, '.git'), 'gitdir: /somewhere/else/.git/worktrees/x\n');
   const r = trust.declineExternalImports(wt, { configDir: dir });
   assert.equal(r.ok, false);
-  assert.match(r.because, /linked git worktree/);
+  assert.match(r.because, /linked worktree/);
   assert.match(r.because, /in its terminal on the computer it runs on/);
   assert.equal(fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8'), before);
 });

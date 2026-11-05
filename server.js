@@ -11024,7 +11024,7 @@ const server = http.createServer(async (req, res) => {
         /* An answer was already on file and it is asking anyway, so Claude Code is not reading it where we wrote it. A
            restart would only bring the question back (review 2, W3). */
         if (wrote.already) {
-          sendJson(res, 409, { ok: false, because: 'An answer is already saved for its folder, but it is still asking, so that answer is not being read. Nothing was changed. Answer it in its terminal on the computer it runs on.' });
+          sendJson(res, 409, { ok: false, because: 'An answer is already saved for its folder, and it is still asking. If you pressed a moment ago, it may still be restarting: wait for its page to change. If it keeps asking, that answer is not being read, so answer it in its terminal on the computer it runs on. Nothing was changed.' });
           return;
         }
         process.stdout.write(`decline-imports: ${JSON.stringify(clean)} starts without its outside imports\n`);
@@ -20498,7 +20498,7 @@ const server = http.createServer(async (req, res) => {
       codexHooks, // #4607
       /* kosmos#8039: Claude Code's external imports question, so the page offers "Continue without them". From the same
          fresh capture as the question. */
-      importsAsk: !!(asking && card && card.runner === 'claude' && card.reachedByChannel !== true && view && typeof view.text === 'string' && importsDialogIn(view.text)),
+      importsAsk: !!(asking && !guideThread && card && card.runner === 'claude' && card.reachedByChannel !== true && view && typeof view.text === 'string' && importsDialogIn(view.text)),
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
          route says so up front, in the same sentence the send refusal uses,
