@@ -378,6 +378,13 @@ function cleanRole(r) { return ROLES.has(r) ? r : null; }
    (relay, kosmos#6955 review 1) is kept as sent, a time or null, and only an explicit null means still in the company. */
 const MAX_REVIEWER_GRANTS = 20;
 const GRANT_ROLES_NOW = new Set(['reviewer', 'admin', 'member']);   // kosmos#6955: relay #565 roleNow
+/* A name from the coordinator, as it is shown: text with control, direction and invisible characters taken out (so it
+   reads as what it is and cannot reorder the sentence around it), trimmed, at most 64 characters; '' when there is
+   none. One list for every name this module keeps (reviewer grants, recoveries). */
+const SHOWN_NAME_STRIP = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029\u061c\ufeff\u2060-\u2064\u180e\u00ad\u034f\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu;
+function shownName(v) {
+  return typeof v === 'string' ? v.replace(SHOWN_NAME_STRIP, '').trim().slice(0, 64) : '';
+}
 function cleanReviewerGrants(list) {
   if (!Array.isArray(list)) return [];
   const secs = (n) => (Number.isSafeInteger(n) && n > 0 ? n : null);
@@ -385,7 +392,7 @@ function cleanReviewerGrants(list) {
   for (const g of list.slice(-200)) {
     if (!g || typeof g !== 'object') continue;
     // Control and direction-changing characters out: the name is shown as text, and must read as what it is.
-    const who = typeof g.who === 'string' ? g.who.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029\u061c\ufeff\u2060-\u2064\u180e\u00ad\u034f\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu, '').trim().slice(0, 64) : '';
+    const who = shownName(g.who);
     const grantedAt = secs(g.grantedAt);
     if (!who || !grantedAt) continue;
     const effectiveAt = g.effectiveAt == null ? grantedAt : secs(g.effectiveAt);
@@ -416,7 +423,7 @@ function cleanRecoveries(list) {
     if (!r || typeof r !== 'object' || !RECOVERY_WHATS.has(r.what)) continue;
     const at = whole(r.at);
     if (!at) continue;
-    const who = typeof r.who === 'string' ? r.who.replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029\u061c\ufeff\u2060-\u2064\u180e\u00ad\u034f\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu, '').trim().slice(0, 64) : '';
+    const who = shownName(r.who);
     const epoch = whole(r.epoch);
     // A count of none would say files were opened when none were, so 0 is left out with the rest.
     const count = r.what === 'files_opened' && whole(r.count) ? whole(r.count) : null;
