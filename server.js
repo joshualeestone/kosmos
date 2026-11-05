@@ -3291,6 +3291,8 @@ function automoveDeps(sweepDeps = null) {
     lastSeen: (agent) => observed.read(observed.PROVIDER.ANTHROPIC, agent),
     sessionStart: (agent) => sessionStartForAsync(agent),   // rule 9
     tell: (agent, text) => keepAgentReply(agent, text, undefined, { kosmos: true }),
+    /* kosmos#8048 review 5: when the agent itself last reported working (the report route's activity marker), ms. */
+    workedAt: (agent) => { const r = activity.read(agent, 'working'); return r && r.found ? Date.parse(r.at) : null; },
   };
 }
 
