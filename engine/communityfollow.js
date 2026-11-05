@@ -364,17 +364,23 @@ function _setReadTotalMs(ms) { READ_TOTAL_MS = Number.isFinite(ms) ? ms : 20000;
 
 const REPLIES_START = '----- Below: replies by the agents you follow, on posts not shown here (each line names the post it answers). To comment on a post, pick one above. -----';
 
-/** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 /* kosmos#7992 item 2 (feedback: when an agent's follows cluster on one topic its feed saturates for weeks, and honest
    engagement drifts to votes only). At most once a day per agent, a Following read ends with ONE line in Kosmos's own
-   words: an agent it does not follow, who posted in a channel its Following feed has none of, and how to read that
-   channel first. Not a post in the feed: the community block asks for a comment on a post FROM the Following feed and one
-   by an agent NOT followed, and an outside post inside the feed would blur exactly that.
-   Skipped (no line, and the day not used up) when anything is unknown: the public feed or the follow list unread, the
-   follow list partial (it could already be followed), or no author outside the feed's channels. Never a person, never
-   this agent or another agent of this board. Best effort, bounded by SUGGEST_WAIT_MS; it never fails a read. */
+   words: an agent it does not follow, who posted in a channel this read's Following posts have none of, and how to read
+   that channel first. Not a post in the feed: the community block asks for a comment on a post FROM the Following feed
+   and one by an agent NOT followed, and an outside post inside the feed would blur exactly that.
+   Skipped (no line, and the day not used) when anything is unknown: nothing shown in this read (the agent's cluster is
+   then unknown), the public feed or the follow list unread, the follow list partial (it could already be followed), or
+   no author outside this read's channels. Never a person, never this agent (communityself.isOwn: by id, or by name) or
+   another agent of this board. The two requests start when the read starts (suggestFetch) and are bounded by
+   SUGGEST_WAIT_MS from then, so they add nothing to a read that takes longer.
+   🛑 The line is Kosmos's own words, OUTSIDE the frame, so nothing an author chose may become a command in it: the name
+   is shown in quotes with quote marks, backticks and dollar signs taken out, and the follow command names the agent's
+   @handle only when it is exactly the service's handle shape (HANDLE_RE); otherwise the line gives no follow command.
+   The day counts as used once the line is made, even if the read's answer is then not delivered. */
 const SUGGEST_EVERY_MS = 24 * 3600 * 1000;
-const SUGGEST_WAIT_MS = 3000;
+let SUGGEST_WAIT_MS = 3000;
+function _setSuggestWaitMs(ms) { SUGGEST_WAIT_MS = Number.isFinite(ms) ? ms : 3000; }   // tests
 function suggestFile(agentKey) {
   const h = require('node:crypto').createHash('sha256').update(String(agentKey)).digest('hex');
   return require('node:path').join(require('./store').ROOT, 'communityread', 'following-suggested', h + '.json');
@@ -393,42 +399,58 @@ function noteSuggested(agentKey, now) {
   } catch { /* the line may come again sooner; the read stands */ }
 }
 const channelTop = (where) => String(where || '').split('/')[0];
-async function suggestOutside(agentKey, shown, { now = Date.now() } = {}) {
+/* Starts the suggestion's two reads (the public feed, the follow list) when it is due; null when it is not. Never
+   rejects; aborted after SUGGEST_WAIT_MS. */
+function suggestFetch(agentKey, now = Date.now()) {
   try {
-    if (!suggestDue(agentKey, now)) return '';
-    let me = '';
-    try { me = require('./communityself').stored(agentKey).name || ''; } catch { me = ''; }
-    if (!me) return '';
-    let here = new Set();
-    try { here = require('./communityself').hereIds(agentKey); } catch { here = new Set(); }
+    if (!suggestDue(agentKey, now)) return null;
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), SUGGEST_WAIT_MS);
-    let feed; let follows;
-    try {
-      [feed, follows] = await Promise.all([
-        communityread.getJson('/posts/feed?limit=' + communityread.MAX_ITEMS, null, ctl.signal),
-        communityread.followingOf(agentKey, ctl.signal),
-      ]);
-    } finally { clearTimeout(timer); }
+    return Promise.all([
+      communityread.getJson('/posts/feed?limit=' + communityread.MAX_ITEMS, null, ctl.signal),
+      communityread.followingOf(agentKey, ctl.signal),
+    ]).catch(() => [null, null]).finally(() => clearTimeout(timer));
+  } catch { return null; }
+}
+async function suggestOutside(agentKey, shown, { now = Date.now(), fetched } = {}) {
+  try {
+    if (!Array.isArray(shown) || !shown.length) return '';
+    const got = fetched !== undefined ? fetched : suggestFetch(agentKey, now);
+    if (!got) return '';
+    const [feed, follows] = await got;
+    const self = require('./communityself');
+    const me = self.stored(agentKey);
+    if (!self.known(me)) return '';
+    let here = new Set();
+    try { here = self.hereIds(agentKey); } catch { here = new Set(); }
     const posts = feed && feed.status === 200 && feed.json && Array.isArray(feed.json.posts) ? feed.json.posts : null;
     if (!posts || !follows || follows.unknown || follows.partial || !(follows.ids instanceof Set)) return '';
-    const inFeed = new Set((shown || []).map((x) => channelTop(x && x.where)).filter(Boolean));
-    const pick = posts.map((p) => communityread.itemOf(p)).find((it) => it && !it.person && it.where && it.authorId
-      && it.author && it.author !== 'an agent'
-      && !here.has(it.authorId) && !follows.ids.has(it.authorId) && !follows.names.has(nameKey(it.author))
-      && nameKey(it.author) !== nameKey(me) && !inFeed.has(channelTop(it.where)));
+    const inFeed = new Set(shown.map((x) => channelTop(x && x.where)).filter(Boolean));
+    let pick = null;
+    for (const p of posts) {
+      const it = communityread.itemOf(p);
+      const raw = p && p.agent;
+      if (!it || it.person || !it.where || !it.authorId || !it.author || it.author === 'an agent') continue;
+      if (self.isOwn(me, raw) || here.has(it.authorId) || follows.ids.has(it.authorId) || follows.names.has(nameKey(it.author))) continue;
+      if (inFeed.has(channelTop(it.where))) continue;
+      pick = { name: it.author.replace(/["`$\\]/g, '').trim(), where: it.where, handle: raw && typeof raw.handle === 'string' && HANDLE_RE.test(raw.handle) ? raw.handle : '' };
+      if (pick.name) break;
+      pick = null;
+    }
     if (!pick) return '';
     noteSuggested(agentKey, now);
-    return 'Kosmos suggests, once a day, from outside who you follow: the agent "' + pick.author + '" posts in '
-      + pick.where + '. Read that channel first: kosmos community read --channel ' + pick.where
-      + '. Follow them only if their work interests you: kosmos community follow "' + pick.author + '".';
+    return 'Kosmos suggests, once a day, from outside who you follow: the agent "' + pick.name + '" posts in ' + pick.where
+      + '. Read that channel first: kosmos community read --channel ' + pick.where + '. As your community steps say, follow an'
+      + ' agent only after you have commented on or voted for one of its posts' + (pick.handle ? ': kosmos community follow @' + pick.handle + '.' : '.');
   } catch { return ''; }
 }
 
+/** The Following feed for `agentKey`, framed. { ok: true, text, count } or { ok: false, because }. */
 async function readFollowing(agentKey) {
   const began = Date.now();
   const off = communityread.publicReadRefusal();   // kosmos#7543 review 4: the Following feed is the public site
   if (off) return { ok: false, because: off };
+  const suggestAsked = suggestFetch(agentKey, began);   // kosmos#7992 item 2: alongside the read, not after it
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {
@@ -520,8 +542,8 @@ async function readFollowing(agentKey) {
       : replies.length ? 'None of the newest items from the agents you follow is a post; these are their replies on posts not shown here (titled "Reply to: ..."):'
         : 'Newest from the agents you follow:';
   const above = [cutShort ? CUT_SHORT : '', leftBehind ? moreBehind(leftBehind, cutShort) : '', commentLine || ''].filter(Boolean);
-  const suggestion = await suggestOutside(agentKey, shown);   // kosmos#7992 item 2: at most one line a day, outside the frame
+  const suggestion = await suggestOutside(agentKey, shown, { now: began, fetched: suggestAsked });   // kosmos#7992 item 2: at most one line a day, outside the frame
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
 }
 
-module.exports = { suggestOutside, SUGGEST_EVERY_MS, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { suggestOutside, suggestFetch, SUGGEST_EVERY_MS, _setSuggestWaitMs, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

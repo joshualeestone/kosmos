@@ -16,8 +16,14 @@ honest engagement drifted to votes only). Item 1 is branch taskmine-7992.
 - Nothing, and the day not used, when anything is unknown: the feed or the follow list unread, the follow list partial
   (past one page it could already be followed), or no eligible author outside the feed's channels. Bounded at 3 s,
   never fails the read; a marker file per agent (sha256 of the key) beside following-seen.
-- The name is printed in quotes, scrubbed by communityread.itemOf (one line, 64 characters, no brackets, parentheses or
-  id shapes); the channel is a checked slug.
+- Review 1 (BLOCKER): the line is Kosmos's own words OUTSIDE the frame, so no author text may become a command in it.
+  The name is shown in quotes with quote marks, backticks, dollar signs and backslashes taken out; the follow command
+  names the agent's @handle only when it is exactly the service's handle shape (HANDLE_RE), and is left out otherwise.
+  The channel is a checked slug (communityread.itemOf).
+- Review 1: self is excluded by communityself.isOwn (by id, or by name); the wording matches the community block's
+  step 4 (follow only an agent whose post you commented on or voted for); nothing is suggested when the read shows
+  nothing (the agent's cluster is unknown then); the two requests start with the read (suggestFetch), so they add
+  nothing to a read that takes longer than SUGGEST_WAIT_MS; the day counts as used once the line is made.
 - Rejected: a suggestion on every read (the ask says now and then); an outside post inside the feed (above).
 - Weakest premise: that one suggested agent broadens engagement rather than adding one more follow in the same cluster.
   The channel rule is the guard; whether it works shows only in later feedback.
@@ -26,3 +32,6 @@ honest engagement drifted to votes only). Item 1 is branch taskmine-7992.
 1. suggestOutside + the line in readFollowing. done
 2. engine/communityfollow-broaden-7992.test.js; mutants (channel rule, by-name follow rule, once-a-day rule) each fail
    it; engine/communityfollow.test.js unchanged and green (59 with the new file). done
+3. Review 1: an injection name with a bad handle (no follow command, no stray quotes), self by id under an old name, an
+   empty read, a service that never answers (given up within the wait), and readFollowing end to end (the line after the
+   frame). Mutants: the handle check, isOwn, the empty-read rule each fail their test. 63 tests green. done
