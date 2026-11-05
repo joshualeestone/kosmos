@@ -86,15 +86,15 @@ test('#2863: the list row and the org node wire the DM badge (source guard, no b
 test('reading a thread clears the unread count via a GATED POST /api/agent/<name>/seen', () => {
   const at = SCRIPT.indexOf('async function paintTalk');
   assert.ok(at > -1, 'paintTalk moved');
-  const talk = SCRIPT.slice(at, at + 1800);
-  assert.match(talk, /fetch\('\/api\/agent\/' \+ encodeURIComponent\(sessionName\) \+ '\/seen', \{ method: 'POST' \}\)/,
+  const talk = SCRIPT.slice(at, at + 2600);
+  assert.match(talk, /fetch\('\/api\/agent\/' \+ encodeURIComponent\(sessionName\) \+ '\/seen' \+ \(dmHidden \? '\?hidden=1' : ''\), \{ method: 'POST' \}\)/,
     'opening a thread does not advance the DM cursor, so the badge would never clear');
   assert.match(talk, /\.then\(\(r\) => r\.text\(\)\)/, 'the /seen response body is not read+dropped (the #39 networkidle rule)');
   /* paintTalk re-runs every ~5s poll while the panel is open; the POST must be
      gated so it does not do a full dm-seen.json write every tick. Gated on
      unread, and zero the local copy first (like the project p.unread = 0) so the
      re-run sees 0 and does not re-fire. */
-  assert.match(talk, /if \(dmRec && dmRec\.dmUnread > 0\) \{[\s\S]*?dmRec\.dmUnread = 0;[\s\S]*?fetch\('\/api\/agent\//,
+  assert.match(talk, /if \(dmRec && \(dmRec\.dmUnread > 0 \|\| \(dmRec\.openAckDue === true && !dmHidden\)\)\) \{[\s\S]*?dmRec\.dmUnread = 0;[\s\S]*?if \(!dmHidden\) dmRec\.openAckDue = false;[\s\S]*?fetch\('\/api\/agent\//,
     'the /seen POST is not gated on unread + local-zero, so it fires a full write every ~5s poll');
 });
 
