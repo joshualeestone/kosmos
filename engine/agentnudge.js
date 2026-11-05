@@ -140,6 +140,7 @@ function nudgeText(part) {
       + ', then record it with kosmos task ran '
       + (id ? id + ' ' + part.n : '<project-id> <task-number>') + ' (add --unchanged if it found nothing new).'
     : '';
+  const m = part.marked;   // kosmos#8067: when set, the marked line below says what to do about the mark, so the subtask line does not
   /* #6421: a parent whose subtasks are built says why it is still open. Built is waiting for the person to check and
      close, not unfinished; with nothing below left unfinished, the next step is the parent's own mark. */
   const s = part.subs;
@@ -150,6 +151,7 @@ function nudgeText(part) {
       const waiting = ' built, waiting for the person to check and close ' + (s.built === 1 ? 'it' : 'them');
       if (left > 0) return ' ' + s.built + ' of its ' + s.total + ' subtasks' + are(s.built) + ' built, waiting for the person; ' + left + are(left) + ' not finished.';
       const all = ' Every subtask under it is closed or built (' + s.built + are(s.built) + waiting + ')';
+      if (m) return all + '.';
       if (s.others === true) return all + ', and another part of it (someone else\'s, or nobody\'s) is still open, so it is not yours alone to mark built.';
       /* In brackets, so a full stop after it is not copied into the command (as setBuilt's own example; review 1). */
       /* "When", not "if": the fixed "Pick it up" follows, so the two read as one order of work (review 2). */
@@ -160,12 +162,14 @@ function nudgeText(part) {
   /* kosmos#8067 (11-05 feedback): an agent told "open work" about a task it could see marked built read it as a nudge about
      finished work, and each new stall repeated it. The mark is on the task and the work is per part (assigner.hasOpenWork), so
      this agent's part really is open: the line says so and names the one command that ends it. Names as the record holds them. */
-  const m = part.marked;
-  const markedBy = m && Array.isArray(m.by) ? m.by.map((n) => plainWords(n, 80)).filter(Boolean).join(', ') : '';
-  const marked = m
-    ? ' It is already marked built' + (markedBy ? ' by ' + markedBy : '') + ', but that mark does not cover your own part. If your part is done too, mark it yourself and this stops (kosmos task built '
-      + (id ? id + ' ' + part.n : '<project-id> <task-number>') + (m.checks > 0 ? ' \'<how its checks went>\'' : '') + ').'
-    : '';
+  const markedBy = m && Array.isArray(m.by) ? plainWords(m.by.map((n) => plainWords(n, 80)).filter(Boolean).join(', '), SENTENCE_CAP) : '';
+  const command = '(kosmos task built ' + (id ? id + ' ' + part.n : '<project-id> <task-number>') + (m && m.checks > 0 ? ' \'<how its checks went>\'' : '') + ')';
+  /* A mark with no name came from a caller Kosmos could not identify, which can be this agent, so nothing here says it was
+     someone else's, and nothing promises the command ends this: from a pane Kosmos cannot name, it would not. */
+  const marked = !m ? ''
+    : markedBy
+      ? ' It is already marked built by ' + markedBy + ', but that mark does not cover your own part. If your part is done too, mark it yourself and Kosmos stops nudging you about it ' + command + '.'
+      : ' It is already marked built, but the mark carries no name, so it covers nobody. If your part is done, mark it again from your own session ' + command + '.';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
     + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + sub + marked + ' Pick it up, or if you are waiting on something, '
     /* #5318: two states, two machines. blocked is a wait nobody chases (another agent, a deploy, a review); only

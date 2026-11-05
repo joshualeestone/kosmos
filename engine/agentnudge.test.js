@@ -740,7 +740,8 @@ test('#8067: a mark with no name says so without inventing one', () => {
     assert.ok(tasks.setBuilt(w.pid, n, { note: 'an unnamed caller' }).ok);
     const { calls } = pass(w);
     assert.equal(calls.length, 1);
-    assert.ok(calls[0].text.includes('It is already marked built, but that mark'), calls[0].text);
+    assert.ok(calls[0].text.includes('It is already marked built, but the mark carries no name'), calls[0].text);
+    assert.ok(!calls[0].text.includes('Kosmos stops nudging you about it'), 'promised an end the command may not deliver: ' + calls[0].text);
   } finally { w.restore(); }
 });
 
@@ -768,6 +769,49 @@ test('#8067: the same holds after a restart: a new stall re-asks about the marke
     assert.deepEqual(stall(), [], 'nudged twice in one stall');
     book.clear();   // a restart: this stall is over, and the book does not survive a board restart
     assert.deepEqual(stall(), [w.key.rsmarked]);
+  } finally { w.restore(); }
+});
+
+test('#8067: a task with checks: the command carries the note setBuilt asks for, and setBuilt takes it', () => {
+  const w = world([{ name: 'checkme' }, { name: 'checkthem' }]);
+  try {
+    const n = taskOn(w, w.key.checkme, 'ship it');
+    assert.ok(tasks.setDoneWhen ? tasks.setDoneWhen(w.pid, n, ['one check']) : true);
+    const t = projects.readAll().find((p) => p.id === w.pid).tasks.find((x) => x.number === n);
+    assert.ok(Array.isArray(t.doneWhen) && t.doneWhen.length === 1, 'fixture: the task has no checks');
+    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.checkthem, note: '1 met.' }).ok);
+    const { calls } = pass(w);
+    assert.ok(calls[0].text.includes(`(kosmos task built ${w.pid} ${n} '<how its checks went>')`), calls[0].text);
+    assert.equal(tasks.setBuilt(w.pid, n, { by: w.key.checkme }).ok, false, 'CONTROL: without the note, setBuilt refuses, so the note in the line matters');
+  } finally { w.restore(); }
+});
+
+test('#8067: a marked parent with built subtasks gives one instruction, with no contradiction', () => {
+  const w = world([{ name: 'pmarked' }, { name: 'pthem' }]);
+  try {
+    const n = taskOn(w, w.key.pmarked, 'ship the parent');
+    childOf(w, n, 'write the notes', true);
+    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.pthem }).ok);
+    const { text } = pass(w).calls[0];
+    assert.equal(text.split('kosmos task built').length - 1, 1, 'the command is named twice: ' + text);
+    assert.ok(!text.includes('not yours alone to mark'), text);
+    assert.ok(text.includes('Every subtask under it is closed or built'), 'CONTROL: the subtask fact stays: ' + text);
+    assert.ok(text.includes('It is already marked built by ' + w.key.pthem), text);
+  } finally { w.restore(); }
+});
+
+test('#8067: joining a colleague\'s mark with no note keeps their note, and the marker\'s own bare re-mark still clears it', () => {
+  const w = world([{ name: 'nkme' }, { name: 'nkthem' }]);
+  try {
+    const n = taskOn(w, w.key.nkme, 'ship it');
+    const note = () => projects.readAll().find((p) => p.id === w.pid).tasks.find((x) => x.number === n).builtNote;
+    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.nkthem, note: 'what is left: the release' }).ok);
+    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.nkme }).ok);
+    assert.equal(note(), 'what is left: the release', 'the colleague\'s note was erased');
+    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.nkme, note: 'my own' }).ok);
+    assert.equal(note(), 'my own', 'CONTROL: a note of its own replaces it');
+    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.nkme }).ok);
+    assert.equal(note(), undefined, 'CONTROL: the marker\'s own bare re-mark clears a stale note');
   } finally { w.restore(); }
 });
 
