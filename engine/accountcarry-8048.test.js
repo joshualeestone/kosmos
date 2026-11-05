@@ -151,6 +151,7 @@ test('kosmos#8048 review 4: one hook written two ways is not a loss; a missing t
   /* #8063 item 2: a relative source path cannot be checked at all, so the answer is "cannot tell", not a named loss. */
   const rel = carry.losses(folder({ hooks: ['bash gate.sh'] }), folder({ hooks: ['bash /nonexistent-8048/gate.sh'] }), H);
   assert.equal(rel.ok, false, 'a relative source script was answered as if checked: ' + JSON.stringify(rel));
+  assert.match(rel.because, /gate\.sh/);
 });
 
 test('kosmos#8048 review 5: shell syntax left in a hook path, a prompt hook, and an empty skill folder on the target are all losses', () => {
@@ -281,4 +282,44 @@ test('kosmos#8063 item 3: a skill is read in bounded bytes and folders, and a cu
   /* CONTROL: a difference inside the first folders is still seen. */
   const early = wide(false); fs.writeFileSync(path.join(early, 'skills', 'wide', 'd0003', 'f.txt'), 'other');
   assert.deepEqual(carry.losses(wide(false), early, H).changed, ['wide'], 'a difference before the cut was not seen');
+});
+
+test('kosmos#8063 review 1: the exec form is compared by its arguments, and its script resolved as one word', () => {
+  const ex = (args, scriptAt) => {
+    const d = folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'node', args }] }] } }) });
+    if (scriptAt) { fs.mkdirSync(path.dirname(scriptAt), { recursive: true }); fs.writeFileSync(scriptAt, '// gate\n'); }
+    return d;
+  };
+  const gate = path.join(TMP, 'exec dir', 'gate.js');   // a space in the path, as on Windows
+  const other = path.join(TMP, 'exec dir', 'other.js');
+  const a = ex([gate], gate);
+  assert.deepEqual(carry.losses(a, ex([gate], gate), H).hooks, [], 'CONTROL: the same exec hook was not kept');
+  assert.deepEqual(carry.losses(a, ex([other], other), H).hooks, ['gate.js'], 'an exec hook running another script read as kept');
+  assert.deepEqual(carry.losses(a, ex([gate, '--strict'], gate), H).hooks, ['gate.js'], 'an exec hook with other arguments read as kept');
+});
+
+test('kosmos#8063 review 1: what is known is said beside a hook that cannot be checked; $CLAUDE_PROJECT_DIR and a relative path resolve in the agent folder', () => {
+  const w = (cmd, skills = []) => folder({ skills, settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: cmd }] }] } }) });
+  const l = carry.losses(w('powershell -File %USERPROFILE%\\hooks\\gate.ps1', ['pick-up', 'design-shots']), w('echo other', ['pick-up']), H);
+  assert.equal(l.ok, false);
+  assert.deepEqual([l.unchecked, l.skills], [['gate.ps1'], ['design-shots']], 'the skill loss beside an unchecked hook was hidden: ' + JSON.stringify(l));
+  assert.match(l.because, /design-shots/);
+  const project = path.join(TMP, `agent-${++n}`);
+  fs.mkdirSync(path.join(project, '.claude', 'hooks'), { recursive: true });
+  fs.writeFileSync(path.join(project, '.claude', 'hooks', 'g.sh'), '#!/bin/sh\n');
+  const P = { ...H, project };
+  for (const cmd of ['bash "$CLAUDE_PROJECT_DIR"/.claude/hooks/g.sh', 'bash .claude/hooks/g.sh']) {
+    assert.deepEqual(carry.losses(w(cmd), w(cmd), P), { ok: true, skills: [], changed: [], hooks: [], hooksChanged: [] }, cmd + ' in the agent folder was not kept');
+    assert.deepEqual(carry.losses(w(cmd), w('echo other'), P).hooks, ['g.sh'], cmd + ' missing on the target read as kept');
+    assert.equal(carry.losses(w(cmd), w(cmd), H).ok, false, 'CONTROL: without the agent folder, ' + cmd + ' is cannot tell');
+  }
+});
+
+test('kosmos#8063 review 1: SKILL.md is read before any cap; written-out defaults are the defaults', () => {
+  const s = (body) => { const d = folder({ skills: ['big'] }); fs.mkdirSync(path.join(d, 'skills', 'big', 'Assets')); fs.writeFileSync(path.join(d, 'skills', 'big', 'Assets', 'blob.bin'), Buffer.alloc(9 * 1024 * 1024, 2)); fs.writeFileSync(path.join(d, 'skills', 'big', 'SKILL.md'), body); return d; };
+  assert.deepEqual(carry.losses(s('one'), s('two'), H).changed, ['big'], 'a changed SKILL.md behind a large folder read as the same');
+  const h = (extra) => folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'echo hi', ...extra }] }] } }) });
+  assert.deepEqual(carry.losses(h({}), h({ async: false }), H).hooks, [], 'async false read as a different hook');
+  assert.deepEqual(carry.losses(h({ timeout: 60 }), h({ timeout: '60' }), H).hooks, [], 'a timeout written as text read as a different hook');
+  assert.deepEqual(carry.losses(h({}), h({ async: true }), H).hooks, ['echo hi'], 'CONTROL: async true is still a different hook');
 });

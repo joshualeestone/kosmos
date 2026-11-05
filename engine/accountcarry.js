@@ -18,8 +18,10 @@
  *    that will not fire as kept).
  *  - Hooks of any other type are compared as written (review 6). A hook's `if`, `timeout`, `async` and `shell` are part
  *    of its wiring (#8063): a gate with a narrower `if` on the target is not the same gate.
- *  - A hook whose command names a script this cannot resolve (a relative path, %USERPROFILE%, a path with a space in
- *    it) cannot be checked, so the whole answer is "cannot tell" (#8063), never kept on its wiring alone.
+ *  - A hook whose command names a script this cannot resolve (%USERPROFILE%, a path with a space in it, or a relative
+ *    or $CLAUDE_PROJECT_DIR path when the caller does not name the agent's working folder as `project`) cannot be
+ *    checked, so the answer is "cannot tell" (#8063), with what IS known said beside it, never kept on its wiring alone.
+ *  - The exec form (`command` plus `args`) is compared by its arguments, and its script resolved as one word.
  *  - Not compared: skills and hooks that come from plugins (enabledPlugins), commands/, agents/, CLAUDE.md, and the
  *    rest of settings.json (permissions, env). Named here, and in the sentence a person reads (sentence() says "skills
  *    and hook scripts"), so nobody reads this as covering them.
@@ -76,6 +78,8 @@ function folderSum(root) {
       h.update(r + '\0' + (d ? d.sum : 'unreadable') + '\0');
     }
   };
+  /* Review 1: SKILL.md first, outside every cap, so a large folder sorted ahead of it cannot hide a changed SKILL.md. */
+  { const d = cappedDigest(path.join(root, 'SKILL.md')); h.update('SKILL.md\0' + (d ? d.sum : 'unreadable') + '\0'); }
   walk('');
   if (cut || n >= MAX_SKILL_FILES) h.update('truncated');
   return h.digest('hex');
@@ -116,27 +120,39 @@ function hookId(command) {
    for an account Kosmos launches with it set, and EMPTY for the default account (review 3: its agents run with it
    unset, so `$CLAUDE_CONFIG_DIR/hooks/x.sh` there is `/hooks/x.sh`, which does not fire). Null when the command names
    no script path this can resolve. */
-function scriptPath(command, folder, home) {
-  const cfg = path.resolve(folder) === path.resolve(home, '.claude') ? '' : folder;
+function scriptPath(command, folder, home, project) {
   for (const w of String(command).trim().split(/\s+/)) {
-    /* Review 7: quotes come off the whole word first (`"$HOME"/.claude/x.sh` is the shell's /home/.claude/x.sh), and a
-       `${VAR:-default}` is what the shell gives: the variable when set and not empty, else the default. */
-    let bare = w.replace(/["']/g, '');
+    /* Review 7: quotes come off the whole word first (`"$HOME"/.claude/x.sh` is the shell's /home/.claude/x.sh). */
+    const bare = w.replace(/["']/g, '');
     if (!/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(bare)) continue;
-    const vars = { HOME: home, CLAUDE_CONFIG_DIR: cfg };
+    return resolveWord(bare, folder, home, project);
+  }
+  return null;
+}
+/* One script word, quotes already off, resolved for one folder, or null. #8063: $CLAUDE_PROJECT_DIR and a relative path
+   are the agent's own working folder (its launch job's WorkingDirectory), which a move does not change, when the caller
+   names it (`project`); without it they cannot be resolved. A `${VAR:-default}` is what the shell gives: the variable
+   when set and not empty, else the default. */
+function resolveWord(word, folder, home, project) {
+  const cfg = path.resolve(folder) === path.resolve(home, '.claude') ? '' : folder;
+  let bare = word;
+  {
+    const vars = { HOME: home, CLAUDE_CONFIG_DIR: cfg, ...(project ? { CLAUDE_PROJECT_DIR: project } : {}) };
     const val = (name) => (Object.prototype.hasOwnProperty.call(vars, name) ? vars[name] : null);
     let guard = 0;
     while (/\$\{(\w+):-([^{}]*)\}/.test(bare) && guard++ < 8) {
       bare = bare.replace(/\$\{(\w+):-([^{}]*)\}/, (m, name, dflt) => { const v = val(name); return v === null ? m : (v || dflt); });
-      if (/\$\{(\w+):-/.test(bare) && !/\$\{(HOME|CLAUDE_CONFIG_DIR):-/.test(bare)) break;
+      if (/\$\{(\w+):-/.test(bare) && !/\$\{(HOME|CLAUDE_CONFIG_DIR|CLAUDE_PROJECT_DIR):-/.test(bare)) break;
     }
     bare = bare.replace(/^~(?=[\/\\])/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, cfg);   // review 6: ~\ too
+    if (project) bare = bare.replace(/\$\{?CLAUDE_PROJECT_DIR\}?/g, project);
     /* Review 5: shell syntax left after the substitutions (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}`, a brace, a default)
        is a path this cannot resolve, never a path to read: a garbage path would fail to read and be skipped as "does
        not run here", which reads a loss as none. */
-    return path.isAbsolute(bare) && !/[$`{}]|:-/.test(bare) ? bare : null;
+    if (/[$`{}%]|:-/.test(bare)) return null;   // #8063: %USERPROFILE% and the like are not resolved either
+    if (path.isAbsolute(bare)) return bare;
+    return project && !/^~/.test(bare) ? path.join(project, bare) : null;
   }
-  return null;
 }
 function digest(file) { try { return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex'); } catch { return null; } }
 /* #8063 item 3: a file's hash read no further than MAX_FILE_BYTES: { sum, read }, or null when it cannot be read. */
@@ -159,12 +175,16 @@ const HOOK_RUN_FIELDS = ['if', 'timeout', 'async', 'shell'];
 function runFields(h) {
   const o = {};
   for (const k of HOOK_RUN_FIELDS) if (Object.prototype.hasOwnProperty.call(h, k)) o[k] = h[k];
+  /* Review 1: the defaults written out are the defaults (async false), and a timeout is a number however written. */
+  if (o.async === false) delete o.async;
+  if (Object.prototype.hasOwnProperty.call(o, 'timeout') && Number.isFinite(Number(o.timeout))) o.timeout = Number(o.timeout);
   return Object.keys(o).length ? '\n' + JSON.stringify(o) : '';
 }
 
-/* Every hook a folder's settings.json wires: { id (script basename), wiring (event + matcher + id), file (resolved for
-   this folder, or null), sum (its contents' hash, or null when it cannot be read) }, and whether all hooks are off. */
-function hookEntries(dir, home) {
+/* Every hook a folder's settings.json wires: { id (script basename), wiring (event + matcher + id + the run fields),
+   file (resolved for this folder, or null), sum (its contents' hash, or null when it cannot be read), unresolved (it
+   names a script this cannot resolve) }, and whether all hooks are off. */
+function hookEntries(dir, home, project) {
   const file = path.join(dir, 'settings.json');
   let raw;
   try { raw = fs.readFileSync(file, 'utf8'); }
@@ -187,6 +207,20 @@ function hookEntries(dir, home) {
           continue;
         }
         if (!h || typeof h !== 'object') continue;
+        /* #8063 review 1: the exec form ({ command, args: [...] }, which Kosmos writes for its own Windows report hook) is
+           compared by its arguments too, and the script among them resolved as one word, spaces and all. */
+        if (typeof h.command === 'string' && h.command.trim() && Array.isArray(h.args)) {
+          const words = [h.command, ...h.args].map((x) => String(x));
+          const script = words.find((x) => /\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(x.trim()));
+          const oneX = (x) => x.replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home).split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
+          const id = script ? script.trim().split(/[\\/]/).pop() : words.join(' ');
+          const at = script ? resolveWord(script.trim(), dir, home, project) : null;
+          const sum = at ? digest(at) : null;
+          if (at && sum === null && fs.existsSync(at)) throw new Error(`the hook script ${at} cannot be read`);
+          const key = 'exec\n' + words.filter((x) => x !== script).map(oneX).join('\0') + (script ? '\n' + id : '');
+          list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved: !!script && at === null });
+          continue;
+        }
         if (typeof h.command !== 'string' || !h.command.trim()) {
           /* Review 6: any other hook (a type this does not know) is compared as written, never skipped. */
           const keys = Object.keys(h).sort();
@@ -196,7 +230,7 @@ function hookEntries(dir, home) {
           continue;
         }
         const id = hookId(h.command);
-        const at = scriptPath(h.command, dir, home);
+        const at = scriptPath(h.command, dir, home, project);
         /* Review 2: the wiring keeps the command's arguments (`gate.sh pre` and `gate.sh post` are two hooks), with the
            home and folder spellings made one, so the same gate spelled ~ or $HOME still matches. */
         /* Review 4: the spellings made one inside the arguments too (~, $HOME, the folder or $CLAUDE_CONFIG_DIR), so the
@@ -221,12 +255,13 @@ function hookEntries(dir, home) {
   return { off: !!(j && j.disableAllHooks === true), list };
 }
 /* The hook ids a folder wires, as a set (kept for callers that only want names). */
-function hookIds(dir, home = os.homedir()) { return new Set(hookEntries(dir, home).list.map((h) => h.id)); }
+function hookIds(dir, home = os.homedir(), project) { return new Set(hookEntries(dir, home, project).list.map((h) => h.id)); }
 
 /**
  * losses(fromDir, toDir, { home }) -> { ok: true, skills: [names], hooks: [scripts] } (sorted; empty when nothing is
- * lost), or { ok: false, because } when either folder cannot be read. fromDir/toDir: an account folder, or null/''
- * for the default account.
+ * lost), or { ok: false, because } when either folder cannot be read, or { ok: false, because, unchecked, ...the
+ * lists } when a hook the agent has now names a script this cannot resolve (#8063). fromDir/toDir: an account folder,
+ * or null/'' for the default account. opts: { home, project (the agent's working folder) }.
  */
 function losses(fromDir, toDir, opts = {}) {
   const home = opts.home || os.homedir();
@@ -236,18 +271,18 @@ function losses(fromDir, toDir, opts = {}) {
   /* Review 7: two folders whose skills/ is one real folder have nothing to compare there, so it is not walked twice. */
   let sameSkills = false;
   try { sameSkills = fs.realpathSync(path.join(from, 'skills')) === fs.realpathSync(path.join(to, 'skills')); } catch { sameSkills = false; }
-  try { fs1 = sameSkills ? new Map() : skillSums(from); fh = hookEntries(from, home); }
+  const project = opts.project || null;   // #8063: the agent's working folder, for relative and $CLAUDE_PROJECT_DIR hooks
+  try { fs1 = sameSkills ? new Map() : skillSums(from); fh = hookEntries(from, home, project); }
   catch { return { ok: false, because: 'we could not read the skills and hooks of the account it is on' }; }
-  try { fs2 = sameSkills ? new Map() : skillSums(to); th = hookEntries(to, home); }
+  try { fs2 = sameSkills ? new Map() : skillSums(to); th = hookEntries(to, home, project); }
   catch { return { ok: false, because: 'we could not read the skills and hooks of the account it would move to' }; }
   const lost = new Set();
   const hookChanged = new Set();
   if (!fh.off) {
     /* #8063 item 2: a hook the agent has now whose script path cannot be resolved is not one this can check on either
        side, so the answer is "cannot tell", and a move needs the person to accept the loss. */
-    const unchecked = fh.list.find((h) => h.unresolved);
-    if (unchecked) return { ok: false, because: `we could not check the hook ${unchecked.id}: its script path is not one we can follow` };
     for (const h of fh.list) {
+      if (h.unresolved) continue;   // named below, where the answer becomes cannot tell
       /* A hook that does not run where the agent is now (its script missing there) is not one it has to lose. */
       if (h.file && h.sum === null) continue;
       const same = th.off ? [] : th.list.filter((t) => t.wiring === h.wiring);
@@ -262,9 +297,16 @@ function losses(fromDir, toDir, opts = {}) {
   }
   /* Review 3: a skill the target has in another copy is said apart from one it does not have: the copy may be the
      newer one, so it is a difference to read, not a loss. Only `skills` and `hooks` are losses. */
-  return { ok: true, skills: [...fs1.keys()].filter((s) => !fs2.has(s)).sort(),
+  const known = { ok: true, skills: [...fs1.keys()].filter((s) => !fs2.has(s)).sort(),
     changed: [...fs1.keys()].filter((s) => fs2.has(s) && fs2.get(s) !== fs1.get(s)).sort(), hooks: [...lost].sort(),
     hooksChanged: [...hookChanged].sort() };
+  /* #8063 item 2: a hook the agent has now whose script path cannot be resolved cannot be checked, so the answer is
+     cannot tell (a move needs the person to accept the loss). Review 1: what IS known is still said beside it. */
+  const unchecked = fh.off ? [] : [...new Set(fh.list.filter((h) => h.unresolved).map((h) => h.id))].sort();
+  if (!unchecked.length) return known;
+  const also = sentence(known);
+  return { ...known, ok: false, unchecked,
+    because: `we could not check ${unchecked.length === 1 ? 'the hook' : 'the hooks'} ${unchecked.join(', ')}: ${unchecked.length === 1 ? 'its script path is' : 'their script paths are'} not one we can follow.${also ? ' ' + also : ''}` };
 }
 
 /* Whether a move loses anything: a skill or hook the target does not have. A different copy is not a loss. */
