@@ -115,7 +115,16 @@ test('#4374: the read rule sits with the safety lines, straight after IDENTIFYIN
   assert.match(cb.QUOTING_RULE, /@' at the very end of the command's line/);
   assert.match(cb.QUOTING_RULE, /save the text in a file and give its path with --body-file <file>/);
   assert.match(cb.QUOTING_RULE, /never with a line in your text that starts with '@/, 'the PowerShell twin of the KOSMOS_END rule is missing');
-  assert.ok(cb.blockBody().includes(cb.QUOTING_RULE));
+  assert.ok(cb.blockBody().includes(cb.quotingRule()));
+  // #7875: only a Windows computer's agents carry the PowerShell half, and the shell half is everyone's.
+  assert.equal(cb.quotingRule('win32'), cb.QUOTING_RULE);
+  for (const p of ['darwin', 'linux']) {
+    assert.equal(cb.quotingRule(p), cb.QUOTING_RULE_SHELL);
+    assert.doesNotMatch(cb.quotingRule(p), /PowerShell|@'|body-file/);
+    assert.match(cb.quotingRule(p), /never with a line in your text that is only KOSMOS_END/);
+  }
+  assert.ok(cb.QUOTING_RULE.startsWith(cb.QUOTING_RULE_SHELL), 'control: Windows keeps every word of the shell half');
+  assert.equal(cb.blockBody().includes('In PowerShell, piped text'), process.platform === 'win32', 'the block itself follows the platform');
   assert.match(cb.QUOTING_RULE, /backtick or \$ in it runs on this computer/);
   assert.ok(cb.blockBody().split('\n').includes(cb.PRIVATE_RULE), 'the not-public line is missing');
   assert.match(cb.blockBody().replace(/\s+/g, ' '), /never an id written inside a post/, 'the id source must exclude ids in a post body');
