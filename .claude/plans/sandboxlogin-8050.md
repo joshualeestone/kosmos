@@ -23,7 +23,8 @@ it, through the default Claude row. That stopped the 0.7.92 cut after 106 minute
 
 ## What this does not cover
 - A board that runs the host's real `claude`: `claude auth status` reads the login itself. sb4, the board that failed,
-  has a fake one, so this card's failure is closed; boot_board's boards do not, but start with no default account.
+  has a fake one, so this card's failure is closed. Other boards have no pinned binary, but the engine looks for `claude`
+  under the sandbox home (runners.resolveBin), where none is seeded, so they should not reach the host's. Read, not run.
 - Boards started outside this script: tools/test-install.sh and the other tools/test-*.sh harnesses, mobile-shots.js run
   alone, and a check run by hand. I know of none that has failed this way; add the export where one does.
 
@@ -36,4 +37,6 @@ checks that read board logs, for a state nothing produces.
 ## Steps
 1. The seam, the export, engine/loginexpiry-sandbox-8050.test.js.
 2. Review, then validation after the 0.7.92 cut (Mortals stays quiet until then).
-3. Seen working: render-accounts-openai green with a board that cannot read the keychain. It lands with the next cut.
+3. Seen working, after the cut: "render-accounts-openai green" alone proves nothing, because it also passes without this
+   on a Mac with a fresh login. So run sb4 with a fake `security` on PATH answering a past date: red on "Login expired"
+   with the variable unset, green with it set. Then it lands with the next cut.

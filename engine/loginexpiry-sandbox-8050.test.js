@@ -80,3 +80,14 @@ test('tools/browser-checks.sh sets it before any board boots', () => {
   assert.ok(boot >= 0, 'browser-checks.sh no longer defines boot_board, so this order check reads nothing');
   assert.ok(set < boot, 'the export must come before the first board can boot');
 });
+
+test('nothing else in the engine runs security, so these two readers are the whole seam', () => {
+  const runsIt = /\b(?:execFile(?:Sync)?|spawn(?:Sync)?)\(\s*['"`](?:\/usr\/bin\/)?security['"`]|\bexec(?:Sync)?\(\s*['"`](?:\/usr\/bin\/)?security\b/;
+  const engine = __dirname;
+  const callers = fs.readdirSync(engine)
+    .filter((f) => f.endsWith('.js') && !f.endsWith('.test.js'))
+    .filter((f) => runsIt.test(fs.readFileSync(path.join(engine, f), 'utf8')));
+  // CONTROL: the pattern finds the readers it is meant to find.
+  assert.deepEqual(callers, ['loginexpiry.js']);
+  assert.ok(!runsIt.test(fs.readFileSync(path.join(engine, '..', 'server.js'), 'utf8')), 'server.js runs security itself');
+});
