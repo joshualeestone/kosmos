@@ -24,6 +24,7 @@ function renderWho(answer) {
   const d = answer && typeof answer === 'object' ? answer : {};
   if (d.ok !== true) {
     if (d.because === 'outside') return ['That file is not inside any project\'s folder, so Kosmos keeps no record of who changes it.'];
+    if (d.because === 'folder') return ['That is a folder, not a file. Ask about one file in it.'];
     return ['Kosmos could not read who changes that file' + (d.error ? ': ' + one(d.error) : '') + '.'];
   }
   const lines = [];
@@ -31,18 +32,20 @@ function renderWho(answer) {
   if (!d.exists) lines.push('The file is not there now.');
   const seen = d.lastSeen && typeof d.lastSeen === 'object' && d.lastSeen.agent ? d.lastSeen : null;
   if (!seen) {
-    lines.push('Kosmos has no record of any agent changing it (or the record has lapsed: it keeps 30 days).');
-    if (d.exists) lines.push('So its last change was made by a person, or by a tool that writes outside the edit hook (a shell command, a script).');
+    lines.push('Kosmos has no record of any agent changing it.');
+    // Review 1: no record is not proof of a person: the record lapses (30 days, or past 2000 files) and began with #5812.
+    if (d.exists) lines.push('So Kosmos cannot say who changed it last: a person, a tool that writes outside the edit hook (a shell command, a script), or a change older than its record.');
   } else {
     lines.push('Kosmos last saw ' + who(seen.agent, seen.shown) + ' about to change it, at ' + one(seen.at) + '.');
     if (d.exists && d.modified) {
-      if (d.lastChange === 'seen') lines.push('The file\'s last change (' + one(d.modified) + ') follows that, so it was most likely that edit.');
+      if (d.lastChange === 'seen') lines.push('The file\'s last change (' + one(d.modified) + ') came within two minutes of that, so it was most likely that edit.');
       else if (d.lastChange === 'after') lines.push('The file changed again after that, at ' + one(d.modified) + ', and Kosmos did not see who: a person, or a tool writing outside the edit hook.');
-      else if (d.lastChange === 'before') lines.push('The file has not changed since (last change ' + one(d.modified) + '), so that edit had not landed when Kosmos looked.');
+      // Review 1: an older time is not proof the content is unchanged (cp -p, rsync -t, unzip restore old times).
+      else if (d.lastChange === 'before') lines.push('Its modification time (' + one(d.modified) + ') is older than that, so that edit does not seem to have landed (it may have failed), or a tool restored an older time.');
     }
   }
   if (d.owner && typeof d.owner === 'object' && d.owner.agent) {
-    lines.push('Owner: ' + who(d.owner.agent, d.owner.shown) + ', the first agent seen changing it here.');
+    lines.push('Owner: ' + who(d.owner.agent, d.owner.shown) + ', the first agent seen changing it here (in the record Kosmos keeps).');
   } else if (seen) {
     lines.push('Owner: none known. Kosmos records an owner only for a file it first saw changed after owners began to be kept.');
   }
