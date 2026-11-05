@@ -177,7 +177,7 @@ function markTargets(rows, nowMs) {
    Without it every such case is "not movable", as the decision needs. */
 function movableFor({ cards, records, readCommitment, assigner = require('./assigner'),
   isGuide = (s) => require('./setup-assistant').isGuideFolderStrict(s),
-  guideName = () => require('./setup-assistant').guideNameStrict(), strict = false }) {
+  guideName = () => require('./setup-assistant').guideNameStrict(), strict = false, nowMs = null }) {
   /* Review 3: a roster that could not be read is not an empty one: the caller says "could not work out". */
   if (!Array.isArray(cards)) throw new Error('the roster could not be read');
   const bySession = new Map(cards.filter((c) => c && c.sessionName).map((c) => [c.sessionName, c]));
@@ -192,7 +192,13 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
   return (session) => {
     const c = bySession.get(session);
     if (!c) return cannot('the agent is not on the roster');
-    if (!assigner.idleCard(c)) return false;
+    /* kosmos#8048: an agent already stopped at its limit is the one that most needs to move, and it never reads idle, so
+       without this the mover only ever helped before the wall. The Assigner's failover test (assigner.limitedCard): our
+       agent, reading rate_limited, with a dated reset more than 10 minutes away, so a Claude weekly limit moves and an
+       undated five-hour one is waited out. Its open work and commitments do not hold it: it can do neither where it is,
+       and the move's restart closes the limit's dialog without answering it (never its paid option). */
+    const atLimit = assigner.limitedCard(c, Number.isFinite(nowMs) ? nowMs : Date.now());
+    if (!atLimit && !assigner.idleCard(c)) return false;
     /* Review 2 (slice 3): words sitting unsent in its box are a person's or a peer's, and a restart would drop them. A
        card that cannot say is not movable. Review 5: the card says so only once the same words have sat there for
        status.js's UNSENT_SHOW_MS (3 minutes), so words typed more recently are not seen; the two-tick rule narrows
@@ -203,6 +209,7 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
       if (isGuide(session) !== false) return false;
       if (guide && guide === String(session).trim().toLowerCase()) return false;
     } catch { return cannot('whether it is the guide could not be read', false); }
+    if (atLimit) return true;
     let rec = null;
     try { rec = readCommitment(session); } catch { return cannot('its commitments could not be read'); }
     const all = typeof records === 'function' ? records() : records;
