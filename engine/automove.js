@@ -254,12 +254,17 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     if (outcome === 'changed' || outcome === 'partial' || outcome === 'unknown') watch(m, movedAt, outcome !== 'changed');
     rest(m.agent, Date.now());
     if (outcome === 'changed') {
-      /* kosmos#8048 review 2: an agent moved off its limit can hold commitments an idle one cannot (movableFor), and the
-         restart ended anything it had running, so the person is told what it had promised. */
-      let promised = [];
-      try { const rec = deps.readCommitment ? deps.readCommitment(m.agent) : null; promised = (rec && Array.isArray(rec.commitments) ? rec.commitments : []).filter((x) => typeof x === 'string' && x.trim()).slice(0, 5); }
-      catch { promised = []; }
-      const owed = promised.length ? ` Before the move it had said it was committed to: ${promised.join('; ')}. The restart ended anything it had running, so it may need to pick that up.` : '';
+      /* kosmos#8048 reviews 2 and 3: an agent moved off its limit can hold open work an idle one cannot (movableFor), and
+         the restart ended anything it had running, so every such move says so, and names what it had said it was
+         committed to (commitments.read gives { what } objects; at most five). */
+      let owed = '';
+      if (m.offLimit) {
+        let promised = [];
+        try { const rec = deps.readCommitment ? deps.readCommitment(m.agent) : null; promised = (rec && Array.isArray(rec.commitments) ? rec.commitments : []).map((x) => (x && typeof x.what === 'string' ? x.what.trim() : '')).filter(Boolean).slice(0, 5); }
+        catch { promised = []; }
+        owed = ' It had stopped at its usage limit, and the restart ended anything it had running, so it may need to pick its work back up.'
+          + (promised.length ? ` Before the move it had said it was committed to: ${promised.join('; ')}.` : '');
+      }
       try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.fromLabel || 'its account'} was running out (${m.why}).${owed}`); }
       catch { /* telling is best-effort; the record has it */ }
     }
@@ -353,7 +358,8 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
        that answers "not free" is "no longer idle"; one that cannot be made (a roster or project that cannot be read, a
        check that throws) writes nothing and moves nothing. */
     let stillFree;
-    try { stillFree = ab.movableFor(movableArgs(deps.freshRoster(), deps.freshRecords, true))(m.agent); }
+    let fresh = null;
+    try { fresh = deps.freshRoster(); stillFree = ab.movableFor(movableArgs(fresh, deps.freshRecords, true))(m.agent); }
     catch (err) {
       /* Reviews 1 and 2: only a re-check that failed for THIS agent (autobalance.movableFor marks it perAgent: not on the
          fresh roster, its box, the guide check or its commitments unreadable) sets it aside; a roster or a project that
@@ -379,6 +385,9 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     /* Review round 2: no move the record cannot keep. Without its lines a restart forgets the move, its rest and its
        watch (rules 8 and 10), so a record that cannot be written (a full disk, a read-only folder) moves nobody. */
     if (!sweep.appendAll(file, [])) return { did: 'unreadable', because: 'the record could not be written' };
+    /* kosmos#8048 review 3: read from the same fresh roster the re-check passed, so the message says what this move was. */
+    try { const card = (Array.isArray(fresh) ? fresh : []).find((c) => c && c.sessionName === m.agent); m.offLimit = !!card && ab.stoppedAtLimit(card, nowMs); }
+    catch { m.offLimit = false; }
     const ended = await move(deps, nowMs, m);
     if (!ended) return { did: 'nothing', because: 'busy' };
     return { did: ended.outcome === 'refused' ? 'refused' : ended.outcome === 'unknown' ? 'unknown' : 'moved', agent: m.agent, outcome: ended.outcome };
