@@ -22974,6 +22974,28 @@ const server = http.createServer(async (req, res) => {
         const who = processCaller(req, body, roster, viaScreen, 'the project was not made');
         if (who.refusal) { sendJson(res, who.refusal[0], { error: who.refusal[1] }); return; }
         const paneCard = who.card;
+        /* #7331: a process caller that creates a project on a folder spelled as a network share
+           (\\host\share) or an unplaceable namespace must be refused BEFORE projects.create, because
+           create resolves the folder (folderState -> realpathOfFolderPath -> fs.realpathSync.native),
+           and resolving a share reaches that host over SMB -- an NTLM handshake to an attacker-named
+           host, before the project is even made. #7250 closed this same contact on the attach path;
+           this closes it on create. Spelling-only, like #7250's ON_NETWORK contract: classify()
+           (engine/winpath.js, #7261) never touches the disk, so the refusal costs no realpath and no
+           network. A local create (#4740) spells as local-volume/local-drive/local-other (an absent
+           folder is local-other too) and is untouched; no-file-namespace (a pipe, a DOS device) holds
+           no files and makes no outbound contact, so it is not refused here. A drive-letter mapping to
+           a share reads as local-drive -- telling it from a real local drive needs the disk, the very
+           contact this refuses -- so this catches the share and unplaceable SPELLINGS, which is the
+           actual vector (`kosmos project create "x" \\host\share`). A share project folder is the
+           person's to add, from Kosmos (the folder-change route already reserves folder moves to them).
+           The inline require mirrors the inline require('./engine/replyfile') calls elsewhere here. */
+        if (!viaScreen) {
+          const folderKind = require('./engine/winpath').classify(body.folder).kind;
+          if (folderKind === 'share' || folderKind === 'unplaceable') {
+            sendJson(res, 403, { error: 'that folder is on another computer on the network, or names a device, so the project was not made; a project folder there is the person\'s to add, from Kosmos' });
+            return;
+          }
+        }
         /* The runaway breaker (#327 q2, #3959): a looping process can create projects
            as fast as it can curl. Only a loop is stopped; see agentRunawayRefusal.
            The SCREEN is never valved. */
