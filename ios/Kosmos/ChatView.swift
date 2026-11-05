@@ -1051,7 +1051,7 @@ struct ChatView: View {
                 return
             }
             // kosmos#7420 (10-29): onScreen counts rows SwiftUI said appeared, not rows drawn; the scroll's place is measured.
-            lines.append("after one try\(rebuilt ? " (list rebuilt)" : ""): " + (scrollBox.reading()?.line ?? "scroll: no scroll view found") + "; rows said to appear \(onScreen.count)")
+            lines.append("after one try\(rebuilt ? " (list rebuilt)" : ""): " + (scrollBox.reading()?.line ?? "scroll: no scroll view found") + "; rows said to appear \(onScreen.count); " + Board.rowsAgainstScreen(rowTops.y.values.map(\.content), showing: scrollBox.showing()))
             diagRebuilt = rebuilt
             diagReport = lines.joined(separator: "\n")
             announceDiag()
@@ -3373,6 +3373,12 @@ final class ScrollBox {
         func n(_ x: CGFloat) -> Int { x.isFinite ? Int(x) : -1 }   // no trap on NaN or infinity in the report about a broken scroll
         return ("scroll y \(n(sv.contentOffset.y)), content \(n(sv.contentSize.height)), view \(n(sv.bounds.height)), insets \(n(i.top))/\(n(i.bottom)): \(p.place)",
                 p.place, p.end)
+    }
+    // kosmos#7420: the stretch of the content between the bars, in the same terms as a row's place in the content.
+    func showing() -> (top: Double, bottom: Double)? {
+        guard let sv = view else { return nil }
+        let i = sv.adjustedContentInset
+        return (Double(sv.contentOffset.y + i.top), Double(sv.contentOffset.y + sv.bounds.height - i.bottom))
     }
     // kosmos#7420: how far the offset is short of the content's end, in points (0 at the end or past it); nil unread or not finite.
     func shortOfEnd() -> Double? {
