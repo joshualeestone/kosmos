@@ -21,17 +21,25 @@ function folder({ skills = [], hooks = [], settings } = {}) {
   return d;
 }
 
+/* A home of its own, with the gate scripts in it: hook paths resolve against it, never the runner's real home. */
+const HOMEDIR = path.join(TMP, 'home');
+for (const g of ['pre-challenge-gate.sh', 'destructive-cmd-gate.sh', 'vercel-login-gate.sh']) {
+  fs.mkdirSync(path.join(HOMEDIR, '.claude', 'hooks', 'user'), { recursive: true });
+  fs.writeFileSync(path.join(HOMEDIR, '.claude', 'hooks', 'user', g), `#!/bin/sh\n# ${g}\n`);
+}
+const H = { home: HOMEDIR };
+
 test('kosmos#8048: the drift measured on Mortals is named: two skills and two gates in the main folder only', () => {
   const main = folder({ skills: ['pick-up', 'design-shots', 'verify-release'],
     hooks: ['bash ~/.claude/hooks/user/pre-challenge-gate.sh', 'bash ~/.claude/hooks/user/destructive-cmd-gate.sh', 'bash ~/.claude/hooks/user/vercel-login-gate.sh'] });
   const acct = folder({ skills: ['pick-up'], hooks: ['bash $HOME/.claude/hooks/user/pre-challenge-gate.sh'] });
-  const l = carry.losses(main, acct);
+  const l = carry.losses(main, acct, H);
   assert.deepEqual(l, { ok: true, skills: ['design-shots', 'verify-release'], hooks: ['destructive-cmd-gate.sh', 'vercel-login-gate.sh'] },
     'the loss was not named (the pre-challenge gate, spelled with $HOME, must count as kept)');
   assert.equal(carry.sentence(l), 'On that account it would not have the skills design-shots, verify-release, or the hooks destructive-cmd-gate.sh, vercel-login-gate.sh.');
   // CONTROL: the other way, nothing the account folder has is missing from the main one.
-  assert.deepEqual(carry.losses(acct, main), { ok: true, skills: [], hooks: [] });
-  assert.equal(carry.sentence(carry.losses(acct, main)), null);
+  assert.deepEqual(carry.losses(acct, main, H), { ok: true, skills: [], hooks: [] });
+  assert.equal(carry.sentence(carry.losses(acct, main, H)), null);
 });
 
 test('kosmos#8048: a linked skills folder (how Agent1s shares one) counts as having them', () => {
@@ -77,4 +85,23 @@ test('kosmos#8048: a hook is named by the script it runs; an inline command is i
   assert.equal(carry.hookId('bash ~/.claude/hooks/user/pre-challenge-gate.sh'), 'pre-challenge-gate.sh');
   assert.equal(carry.hookId('"$HOME/.claude/hooks/a.js" --flag'), 'a.js');
   assert.equal(carry.hookId('  echo hi  '), 'echo hi');
+});
+
+test('kosmos#8048 review 1: a gate counts as kept only if it would fire: same event and matcher, the script there with the same contents, hooks not switched off', () => {
+  const gate = 'bash $CLAUDE_CONFIG_DIR/hooks/gate.sh';
+  const withGate = (o = {}) => {
+    const d = folder({ settings: JSON.stringify({ ...(o.off ? { disableAllHooks: true } : {}),
+      hooks: { [o.event || 'PreToolUse']: [{ matcher: o.matcher || 'Bash', hooks: [{ type: 'command', command: gate }] }] } }) });
+    if (o.script !== false) { fs.mkdirSync(path.join(d, 'hooks'), { recursive: true }); fs.writeFileSync(path.join(d, 'hooks', 'gate.sh'), o.body || '#!/bin/sh\nexit 0\n'); }
+    return d;
+  };
+  const from = withGate();
+  assert.deepEqual(carry.losses(from, withGate(), H).hooks, [], 'CONTROL: the same gate, wired the same, with the same script, was not kept');
+  assert.deepEqual(carry.losses(from, withGate({ script: false }), H).hooks, ['gate.sh'], 'a gate whose script is missing on the target read as kept');
+  assert.deepEqual(carry.losses(from, withGate({ body: '#!/bin/sh\nexit 1\n' }), H).hooks, ['gate.sh'], 'a different copy of the gate read as kept');
+  assert.deepEqual(carry.losses(from, withGate({ event: 'Stop' }), H).hooks, ['gate.sh'], 'a gate wired under another event read as kept');
+  assert.deepEqual(carry.losses(from, withGate({ matcher: 'Edit' }), H).hooks, ['gate.sh'], 'a gate on another matcher read as kept');
+  assert.deepEqual(carry.losses(from, withGate({ off: true }), H).hooks, ['gate.sh'], 'a target with all hooks switched off read as keeping them');
+  // A hook that does not run where the agent is now (its script missing there) is not one it loses.
+  assert.deepEqual(carry.losses(withGate({ script: false }), withGate({ script: false }), H).hooks, []);
 });

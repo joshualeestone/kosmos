@@ -32,6 +32,7 @@ const UNKNOWN = [404, { ok: false, because: 'that is not one of the Claude accou
 const STARTED = [202, { id: 'mv1', agents: [{ name: 'ada', outcome: 'pending' }] }];
 const REFUSED = [202, { id: 'mv2', agents: [{ name: 'ada', outcome: 'refused', because: 'ada is restarting, so it cannot be moved now.' }] }];
 const DONE = [200, { id: 'mv1', done: true, agents: [{ name: 'ada', outcome: 'changed', because: 'ada runs on spare now. It is starting again, and it will look idle for a moment.' }] }];
+const FORGOT = [404, { error: 'this board does not know that move' }];
 const HALF = [200, { id: 'mv1', done: true, agents: [{ name: 'ada', outcome: 'partial', because: 'ada is saved on spare but did not restart there.' }] }];
 
 /* A stub board: the plan, the move and its progress answer from the given replies; every request is recorded. */
@@ -83,17 +84,22 @@ test('kosmos#8048 Mac: --yes reads the plan by the account\'s name, moves to its
   assert.match(r.out, /ada runs on spare now\. It is starting again/);
 }));
 
-test('kosmos#8048 Mac: what it would lose is said before the move', () => withStub({ plan: LOSES }, async (port, seen) => {
+test('kosmos#8048 Mac: what it would lose is said, and --yes alone does not move into it; --accept-loss does', () => withStub({ plan: LOSES }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
-  assert.equal(r.code, 0, r.out);
+  assert.equal(r.code, 2, r.out);
   assert.match(r.out, /On that account it would not have the skill design-shots, or the hook destructive-cmd-gate\.sh\./);
   assert.doesNotMatch(r.out, /keeps every skill/, 'a loss was also said as no loss');
-  assert.equal(posts(seen).length, 1);
+  assert.match(r.out, /Nothing was moved: with --yes, a move that may lose skills or hooks also needs --accept-loss\./);
+  assert.equal(posts(seen).length, 0, '--yes alone moved an agent into a known loss');
+  const ok = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes', '--accept-loss']);
+  assert.equal(ok.code, 0, ok.out);
+  assert.equal(posts(seen).length, 1, 'CONTROL: --accept-loss did not move it');
 }));
 
-test('kosmos#8048 Mac: a plan that could not tell is said as such, never as nothing lost', () => withStub({ plan: CANNOT }, async (port) => {
+test('kosmos#8048 Mac: a plan that could not tell is said as such, never as nothing lost, and needs --accept-loss with --yes', () => withStub({ plan: CANNOT }, async (port, seen) => {
   const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
-  assert.equal(r.code, 0, r.out);
+  assert.equal(r.code, 2, r.out);
+  assert.equal(posts(seen).length, 0, 'an unchecked move went with --yes alone');
   assert.match(r.out, /Kosmos could not check what ada would lose on spare: we could not read the skills and hooks of the account it would move to\./);
   assert.doesNotMatch(r.out, /keeps every skill/, '"cannot tell" read as "nothing lost"');
 }));
@@ -121,6 +127,11 @@ test('kosmos#8048 Mac: already there moves nothing; a refusal and a partial move
     const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
     assert.equal(r.code, 1, 'exit ' + r.code + '; the CLI said: ' + r.out);
     assert.match(r.out, /Not fully moved: ada is saved on spare but did not restart there\. Settings, AI Models shows/);
+  });
+  await withStub({ plan: CLEAN, progress: FORGOT }, async (port) => {
+    const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+    assert.equal(r.code, 3, 'a move the board forgot did not exit 3 ("may"); it said: ' + r.out);
+    assert.match(r.out, /Kosmos restarted during the move and no longer knows how it ended\. Settings, AI Models shows which account ada is on/);
   });
 });
 
@@ -173,10 +184,22 @@ test('kosmos#8048 Windows: a loss and a "cannot tell" are said before the confir
     assert.equal(yes.code, 0, yes.err);
     assert.equal(posts(seen).length, 1, 'control: a confirmed move was not sent');
   });
-  await withStub({ plan: CANNOT }, async (port) => {
+  await withStub({ plan: CANNOT }, async (port, seen) => {
     const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
     assert.match(r.out, /Kosmos could not check what ada would lose on spare: we could not read the skills and hooks of the account it would move to\./);
     assert.doesNotMatch(r.out, /keeps every skill/, '"cannot tell" read as "nothing lost"');
+    assert.equal(r.code, 2, r.err);
+    assert.match(r.err, /also needs --accept-loss/);
+    assert.equal(posts(seen).length, 0, 'an unchecked move went with --yes alone');
+    const ok = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes', '--accept-loss']);
+    assert.equal(ok.code, 0, ok.err);
+    assert.equal(posts(seen).length, 1, 'CONTROL: --accept-loss did not move it');
+  });
+  await withStub({ plan: CLEAN, progress: FORGOT }, async (port) => {
+    const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+    assert.equal(r.code, 3, r.err);
+    assert.deepEqual(r.slept, [3000], 'it kept polling a board that forgot the move');
+    assert.match(r.err, /Kosmos restarted during the move and no longer knows how it ended/);
   });
 });
 

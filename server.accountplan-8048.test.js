@@ -44,6 +44,10 @@ function folder(dir, skills, hooks) {
 const MAIN = nodePath.join(HOME, '.claude');
 const SPARE = nodePath.join(HOME, '.claude-spare');
 const BROKEN = nodePath.join(HOME, '.claude-broken');
+/* The gates' scripts, in the sandbox home: a hook's ~ resolves against the board's own home (AGENT_WORKFORCE_HOME),
+   never the runner's, so this cannot pass only because the runner's machine has the real gates. */
+fs.mkdirSync(nodePath.join(HOME, '.claude', 'hooks', 'user'), { recursive: true });
+for (const g of ['pre-challenge-gate.sh', 'destructive-cmd-gate.sh']) fs.writeFileSync(nodePath.join(HOME, '.claude', 'hooks', 'user', g), '#!/bin/sh\n# ' + g + '\n');
 folder(MAIN, ['pick-up', 'design-shots'], ['bash ~/.claude/hooks/user/pre-challenge-gate.sh', 'bash ~/.claude/hooks/user/destructive-cmd-gate.sh']);
 folder(SPARE, ['pick-up'], ['bash $HOME/.claude/hooks/user/pre-challenge-gate.sh']);
 fs.mkdirSync(BROKEN, { recursive: true });
@@ -54,11 +58,13 @@ const create = require('./engine/create');
 const REAL = { list: accounts.list, readJob: create.readJob };
 const ROWS = [
   { dir: MAIN, isDefault: true, label: null, apiKey: false },
-  { dir: SPARE, isDefault: false, label: 'spare', apiKey: false },
+  { dir: SPARE, isDefault: false, label: 'spare', email: 'spare@example.test', apiKey: false },
+  { dir: nodePath.join(HOME, '.claude-Twin'), isDefault: false, label: 'Twin', apiKey: false },
+  { dir: nodePath.join(HOME, '.claude-twin'), isDefault: false, label: 'twin', apiKey: false },
   { dir: BROKEN, isDefault: false, label: 'broken', apiKey: false },
   { dir: nodePath.join(HOME, '.claude-key'), isDefault: false, label: 'key', apiKey: true },
 ];
-const JOBS = { ada: { configDir: null }, bo: { configDir: SPARE } };
+const JOBS = { ada: { configDir: null, runner: 'claude' }, bo: { configDir: SPARE, runner: 'claude' }, cody: { configDir: null, runner: 'codex' }, cy: { configDir: SPARE + '/', runner: 'claude' } };
 accounts.list = () => ROWS;
 create.readJob = (n) => JOBS[n] || null;
 
@@ -83,7 +89,7 @@ test('kosmos#8048: an agent on the main account, moving to a drifted copy, is to
 
 test('kosmos#8048: an account this board does not have, an API key, or an unknown agent is refused; "already there" is said', async () => {
   assert.equal((await plan({ name: 'ada', dir: '/etc' })).code, 404, 'an arbitrary folder was read');
-  assert.equal((await plan({ name: 'ada', dir: nodePath.join(HOME, '.claude-key') })).code, 404, 'an API key account was offered');
+  assert.equal((await plan({ name: 'ada', dir: nodePath.join(HOME, '.claude-key') })).code, 200, 'an API key account, which Settings can move to, was refused');
   assert.equal((await plan({ name: 'nobody', dir: SPARE })).code, 404, 'an agent with no launch job was planned');
   assert.equal((await plan({ dir: SPARE })).code, 400);
   const same = await plan({ name: 'bo', dir: SPARE });
@@ -103,5 +109,30 @@ test('kosmos#8048: an account named by its label (any case) or "main" resolves t
   const main = await plan({ name: 'bo', account: 'main' });
   assert.deepEqual([main.j.dir, main.j.label], [MAIN, 'the main account']);
   assert.equal((await plan({ name: 'ada', account: 'nope' })).code, 404, 'an unknown label resolved');
-  assert.equal((await plan({ name: 'ada', account: 'key' })).code, 404, 'an API key account resolved by its label');
+  assert.equal((await plan({ name: 'ada', account: 'key' })).code, 200, 'an API key account, which Settings can move to, was not found by its label');
+});
+
+test('kosmos#8048 review 1: the account as kosmos accounts names it (its email, "the default account") resolves', async () => {
+  const byEmail = await plan({ name: 'ada', account: 'spare@example.test' });
+  assert.deepEqual([byEmail.code, byEmail.j.dir], [200, SPARE], 'the email kosmos accounts prints was refused: ' + JSON.stringify(byEmail.j));
+  const def = await plan({ name: 'bo', account: 'the default account' });
+  assert.deepEqual([def.code, def.j.dir], [200, MAIN], '"the default account", as kosmos accounts prints it, was refused');
+});
+
+test('kosmos#8048 review 1: a name matching two accounts is refused, never guessed; an exact match wins', async () => {
+  assert.equal((await plan({ name: 'ada', account: 'TWIN' })).code, 409, 'a name two accounts share (by case) was guessed');
+  const exact = await plan({ name: 'ada', account: 'twin' });
+  assert.deepEqual([exact.code, exact.j.dir], [200, nodePath.join(HOME, '.claude-twin')], 'CONTROL: an exact name did not win');
+});
+
+test('kosmos#8048 review 1: an agent that does not run on Claude is refused, not told it is already there', async () => {
+  const r = await plan({ name: 'cody', account: 'main' });
+  assert.equal(r.code, 409, JSON.stringify(r.j));
+  assert.match(r.j.because, /does not run on a Claude account/);
+  assert.notEqual(r.j.same, true, 'a Codex agent was told it is already on the main account');
+});
+
+test('kosmos#8048 review 1: an agent whose job spells its folder with a trailing slash is still "already there"', async () => {
+  const r = await plan({ name: 'cy', account: 'spare' });
+  assert.deepEqual([r.code, r.j.same], [200, true], JSON.stringify(r.j));
 });

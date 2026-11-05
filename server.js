@@ -16449,6 +16449,60 @@ const server = http.createServer(async (req, res) => {
   }
 
   /**
+   * kosmos#8048 item 3: what moving one agent to one Claude account would lose (engine/accountcarry.js), before the move.
+   * GET /api/agents/account-plan?name=<agent>&account=<the account as `kosmos accounts` or Settings names it: its name,
+   * its email, its folder label, or main / the main account / the default account> (or &dir=<its folder>) ->
+   * { ok: true, dir, label, skills, hooks, sentence } or { ok: false, because }. Reads only.
+   * - The target must be one of this board's own Claude accounts, so this cannot read an arbitrary folder.
+   * - The agent must have a launch job and run on Claude (round 1: a Codex, Gemini or vendor agent is refused here,
+   *   not told it is "already on" the main account).
+   * - A name that matches two accounts (two folders whose labels differ only in case) is refused, never guessed.
+   * - A folder that cannot be read answers ok: false ("cannot tell"), which a caller must not read as safe.
+   */
+  if (pathname === '/api/agents/account-plan' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let q;
+    try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
+    const name = create.cleanName(String(q.get('name') || ''));
+    const dir = String(q.get('dir') || '');
+    const said = String(q.get('account') || '').trim();
+    if (!name) { sendJson(res, 400, { ok: false, because: 'we need the agent to move' }); return; }
+    let known = [];
+    try { known = (accounts.list() || []).filter((a) => a && typeof a.dir === 'string' && a.dir); } catch { known = []; }
+    const real = (d) => { try { return fs.realpathSync(d); } catch { return require('node:path').resolve(d); } };
+    const labelOf = (a) => (a.isDefault ? 'the main account' : String(a.label || require('node:path').basename(a.dir)));
+    const namesOf = (a) => [labelOf(a), a.label, a.email, require('./engine/accountline').accountName(a),
+      ...(a.isDefault ? ['main', 'the main account', 'the default account'] : [])].filter((x) => typeof x === 'string' && x);
+    let target = null;
+    if (said) {
+      const exact = known.filter((a) => namesOf(a).includes(said));
+      const loose = exact.length ? exact : known.filter((a) => namesOf(a).some((x) => x.toLowerCase() === said.toLowerCase()));
+      if (loose.length > 1) { sendJson(res, 409, { ok: false, because: `${said} names more than one account here; use its folder or its exact name` }); return; }
+      target = loose[0] || null;
+    } else {
+      target = dir ? known.find((a) => real(a.dir) === real(dir)) : known.find((a) => a.isDefault === true);
+    }
+    if (!target) { sendJson(res, 404, { ok: false, because: 'that is not one of the Claude accounts on this computer' }); return; }
+    let job = null;
+    try { job = create.readJob(name); } catch { job = null; }
+    if (!job) { sendJson(res, 404, { ok: false, because: `there is no agent called ${name} on this computer` }); return; }
+    let provider = null;
+    try { provider = create.jobProvider(job); } catch { provider = null; }
+    if (provider !== 'anthropic') { sendJson(res, 409, { ok: false, because: `${name} does not run on a Claude account, so it cannot be moved to one` }); return; }
+    /* Real folders on both sides: the default account's row carries its own folder (accounts.list), so nothing here
+       falls back to this process's home, which a board's own home can differ from. */
+    const defaultRow = known.find((a) => a.isDefault === true);
+    const from = job.configDir || (defaultRow && defaultRow.dir) || null;
+    const to = target.dir;
+    if (!from) { sendJson(res, 200, { ok: false, dir: to, label: labelOf(target), because: 'we could not tell which account it is on' }); return; }
+    const where = { dir: target.dir, label: labelOf(target) };
+    if (real(from) === real(to)) { sendJson(res, 200, { ok: true, same: true, ...where, skills: [], hooks: [], sentence: `${name} is already on that account.` }); return; }
+    const l = require('./engine/accountcarry').losses(from, to, { home: accounts.homeDir() });   // ~ in a hook is the board's own home
+    if (l.ok !== true) { sendJson(res, 200, { ...l, ...where }); return; }
+    sendJson(res, 200, { ...l, ...where, sentence: require('./engine/accountcarry').sentence(l) });
+    return;
+  }
+
+  /**
    * #6173: move several agents to one account in ONE request, without holding the board once per agent.
    *
    * POST /api/agents/account { dir, names } does only the account writes and answers 202 with the move's id and each
@@ -16456,44 +16510,6 @@ const server = http.createServer(async (req, res) => {
    * `removal.restartAsync`; GET /api/agents/account-moves/<id> answers how each went. 404 there means this board does
    * not know the move (it restarted since): Settings reads that as not confirmed, never as moved.
    */
-  /**
-   * kosmos#8048 item 3: what moving one agent to one Claude account would lose (engine/accountcarry.js), before the move.
-   * GET /api/agents/account-plan?name=<agent>&dir=<account folder> (or &account=<its label, as Settings and `kosmos
-   * accounts` show it, or "main">) -> { ok: true, dir, label, skills, hooks, sentence } or { ok: false, because }. Reads only. The target must be one of this board's own Claude accounts, so this cannot be
-   * used to read the skills and hooks of an arbitrary folder; the agent must have a launch job. A folder that cannot
-   * be read answers ok: false ("cannot tell"), which a caller must not read as safe.
-   */
-  if (pathname === '/api/agents/account-plan' && (req.method === 'GET' || req.method === 'HEAD')) {
-    let q;
-    try { q = new URL(req.url, ROUTING_BASE).searchParams; } catch { q = new URLSearchParams(); }
-    const name = create.cleanName(String(q.get('name') || ''));
-    const dir = String(q.get('dir') || '');
-    const said = String(q.get('account') || '').trim().toLowerCase();
-    if (!name) { sendJson(res, 400, { ok: false, because: 'we need the agent to move' }); return; }
-    let known = [];
-    try { known = (accounts.list() || []).filter((a) => a && !a.apiKey); } catch { known = []; }
-    const labelOf = (a) => (a.isDefault ? 'the main account' : String(a.label || require('node:path').basename(a.dir)));
-    const target = said
-      ? known.find((a) => (said === 'main' || said === 'the main account' ? a.isDefault === true : labelOf(a).toLowerCase() === said))
-      : known.find((a) => (dir ? a.dir === dir : a.isDefault === true));
-    if (!target) { sendJson(res, 404, { ok: false, because: 'that is not one of the Claude accounts on this computer' }); return; }
-    let job = null;
-    try { job = create.readJob(name); } catch { job = null; }
-    if (!job) { sendJson(res, 404, { ok: false, because: `there is no agent called ${name} on this computer` }); return; }
-    /* Real folders on both sides: the default account's row carries its own folder (accounts.list), so nothing here
-       falls back to this process's home, which a board's own home can differ from. */
-    const defaultRow = known.find((a) => a.isDefault === true);
-    const from = job.configDir || (defaultRow && defaultRow.dir) || null;
-    const to = target.dir;
-    if (!from) { sendJson(res, 200, { ok: false, because: 'we could not tell which account it is on' }); return; }
-    const where = { dir: target.dir, label: labelOf(target) };
-    if (from === to) { sendJson(res, 200, { ok: true, same: true, ...where, skills: [], hooks: [], sentence: `${name} is already on that account.` }); return; }
-    const l = require('./engine/accountcarry').losses(from, to);
-    if (l.ok !== true) { sendJson(res, 200, { ...l, ...where }); return; }
-    sendJson(res, 200, { ...l, ...where, sentence: require('./engine/accountcarry').sentence(l) });
-    return;
-  }
-
   if (pathname === '/api/agents/account' && req.method === 'POST') {
     readBody(req, 64 * 1024)   // 200 names and an account folder: a few KB; a longer body is refused as it arrives
       .then((raw) => {

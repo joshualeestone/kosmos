@@ -7464,7 +7464,8 @@ cmd_agent() {
       say "  kosmos agent instructions-add \"<name>\" --from <file>"
       say "                                                  propose an addition to an agent's instructions; the person applies it"
       say "  kosmos agent move \"<name>\" \"<account>\" [--yes]  move an agent to another Claude account, after a confirm"
-      say "                                                  (<account>: its name as kosmos accounts shows it, or main)"
+      say "                                                  (<account>: its name as kosmos accounts shows it, or main;"
+      say "                                                  with --yes, a move that would lose skills or hooks also needs --accept-loss)"
       say "  kosmos agent remove \"<name>\" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)"
       exit 2 ;;
     remove)
@@ -7488,9 +7489,9 @@ cmd_agent() {
       # kosmos#8048 item 3: the name, the account, and --yes anywhere; option-shaped words and extra words are refused
       # before any request, as remove does.
       local _mvw=() _mva
-      local KOSMOS_MV_USAGE='Usage: kosmos agent move "<name>" "<account>" [--yes]   (<account>: as kosmos accounts shows it, or main)'
-      KOSMOS_MV_YES=""
-      for _mva in "$@"; do if [ "$_mva" = "--yes" ]; then KOSMOS_MV_YES=1; else _mvw+=("$_mva"); fi; done
+      local KOSMOS_MV_USAGE='Usage: kosmos agent move "<name>" "<account>" [--yes [--accept-loss]]   (<account>: as kosmos accounts shows it, or main)'
+      KOSMOS_MV_YES=""; KOSMOS_MV_LOSS=""
+      for _mva in "$@"; do case "$_mva" in --yes) KOSMOS_MV_YES=1 ;; --accept-loss) KOSMOS_MV_LOSS=1 ;; *) _mvw+=("$_mva") ;; esac; done
       { [ -n "${_mvw[0]:-}" ] && [ -n "${_mvw[1]:-}" ]; } || { say "$KOSMOS_MV_USAGE"; exit 2; }
       case "${_mvw[0]}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "agent move" "$KOSMOS_MV_USAGE" "${_mvw[0]}" target ;; esac
       case "${_mvw[1]}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "agent move" "$KOSMOS_MV_USAGE" "${_mvw[1]}" target ;; esac
@@ -7695,6 +7696,12 @@ cmd_agent() {
         say "On $mv_label it keeps every skill and hook it has now."
       fi
       say "Moving restarts $mv_name on $mv_label. Anything it has running stops."
+      # Review 1: a script cannot read that sentence, so --yes alone never moves an agent into a known loss or an
+      # unchecked one; it says so and exits 2 (nothing sent). A person at a terminal reads it and answers below.
+      if [ -n "$KOSMOS_MV_YES" ] && [ -z "$KOSMOS_MV_LOSS" ] && { [ "$mv_ok" != ok ] || [ -n "$mv_says" ]; }; then
+        say "Nothing was moved: with --yes, a move that may lose skills or hooks also needs --accept-loss."
+        exit 2
+      fi
       if [ -z "$KOSMOS_MV_YES" ]; then
         local mv_answer=""
         printf '%sMove %s to %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$mv_name" "$mv_label" >&2
@@ -7703,7 +7710,7 @@ cmd_agent() {
       fi
       rc=0
       body=$(KOSMOS_MV_NAME="$mv_name" KOSMOS_MV_DIR="$mv_dir" "$_node" -e 'process.stdout.write(JSON.stringify({dir:process.env.KOSMOS_MV_DIR,names:[process.env.KOSMOS_MV_NAME]}))' \
-        | kosmos_curl "$_bt" "$_rtok" -sS -m 30 -X POST "$URL/api/agents/account" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?
+        | kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 30 -X POST "$URL/api/agents/account" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?   # review 1: Settings' own route, sent as the person (token-only mode would refuse it after the confirm)
       case "$rc" in
         0) ;;
         28|18|52|56) say "Kosmos stopped answering after it was asked. $mv_name may be moving; look at Settings, AI Models before trying again: $URL/"; exit 3 ;;
@@ -7719,7 +7726,8 @@ cmd_agent() {
         sleep 3; mv_i=$((mv_i + 1)); rc=0
         body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 15 "$URL/api/agents/account-moves/$mv_id" 2>/dev/null) || rc=$?
         [ "$rc" -eq 0 ] || continue
-        mv_seen=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'const a=(Array.isArray(j.agents)?j.agents:[])[0]||{};console.log([one(j.id),one(a.outcome),one(a.because)].join("\t"))})') || continue
+        # Review 1: a body with no agents is the route's 404 (the board restarted and no longer knows the move).
+        mv_seen=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'const a=(Array.isArray(j.agents)?j.agents:[])[0]||{};console.log([one(j.id),one(Array.isArray(j.agents)?a.outcome:"forgotten"),one(a.because)].join("\t"))})') || continue
         mv_out=$(cut -f2 <<<"$mv_seen"); mv_because=$(cut -f3 <<<"$mv_seen")
       done
       while [[ "$mv_because" == *[.[:space:]] ]]; do mv_because="${mv_because%?}"; done
@@ -7727,6 +7735,7 @@ cmd_agent() {
       case "$mv_out" in
         changed) say "${mv_because:-$mv_name runs on $mv_label now}${mv_end}" ;;
         pending) say "$mv_name is still moving after five minutes. Look at Settings, AI Models to see where it is: $URL/"; exit 3 ;;
+        forgotten) say "Kosmos restarted during the move and no longer knows how it ended. Settings, AI Models shows which account $mv_name is on: $URL/"; exit 3 ;;
         partial|stopped|unknown) say "Not fully moved: ${mv_because:-Kosmos did not say how far it got}${mv_end} Settings, AI Models shows which account it is on."; exit 1 ;;
         *) if [ -n "$mv_because" ]; then say "Kosmos did not move $mv_name: ${mv_because}${mv_end}"
            else say "Kosmos gave an answer we could not read when moving $mv_name. Look at Settings, AI Models to see where it is: $URL/"; fi
