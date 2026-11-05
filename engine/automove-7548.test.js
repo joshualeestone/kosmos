@@ -1176,10 +1176,10 @@ test('kosmos#8056: a long promise is cut in the move message, not split inside a
   const r = await twoTicks(run, d);
   assert.deepEqual([r.did, r.outcome], ['moved', 'changed']);
   const said = calls.tells[0][1];
-  assert.ok(said.includes('x'.repeat(119) + '\u{1F600}...'), 'a long promise was not cut at 120 code points: ' + said);
+  assert.ok(said.includes('x'.repeat(119) + '\u{1F600} (cut short)'), 'a long promise was not cut at 120 code points: ' + said);
   assert.ok(!said.includes('yy'), 'text past the cut reached the thread');
   assert.ok(!said.includes('zz') && !said.includes('@'), 'an entry carrying an email reached the thread');
-  assert.ok(said.includes(exact + '.') && !said.includes(exact + '...'), 'CONTROL: an entry at the cap was changed');
+  assert.ok(said.includes(exact + '.') && !said.includes(exact + ' (cut'), 'CONTROL: an entry at the cap was changed');
 });
 
 test('kosmos#8056: movableFor asks the assigner it was given whether an agent is at its limit', () => {

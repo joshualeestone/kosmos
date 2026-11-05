@@ -66,7 +66,7 @@ const CASES = {
     { kind: 'decision', at: now - 10 * 60e3, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: 'its login has stopped working', kind: 'login' }] },
     { kind: 'decision', at: threeDaysAgo, moves: [{ agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', why: WHY, kind: 'usage' }] }] } },
   /* kosmos#7548 (slice 3b): the mover's own lines, with moves switched on (moving), newest first. */
-  moving: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, recent: [
+  moving: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, moving: true, armed: true, recent: [
     { kind: 'works', at: now - 1 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', works: 'no' },
     { kind: 'works', at: now - 2 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', works: 'yes' },
     { kind: 'works', at: now - 3 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', works: 'not-seen' },
@@ -79,6 +79,7 @@ const CASES = {
     { kind: 'move', at: now - 9 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-spare', outcome: 'stopped' },
     { kind: 'move', at: now - 10 * 60e3, agent: 's-a', from: '/home/.claude-full', to: '/home/.claude-gone', toLabel: 'Old', outcome: 'changed', why: WHY }] } },
   /* CONTROL: the same record with moving left out says nothing moves on its own. */
+  armedNotRecording: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: false, moving: false, armed: true, recent: [] } },
   movingOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [] } },
   /* Review round 6: moves switched off after a run: the mover's lines are still in the record. */
   movedThenOff: { accounts: TWO, autobalance: { on: true, eligible: 2, moves: [], held: [], short: [], atRisk: [], recording: true, recent: [
@@ -236,10 +237,10 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       say(r.bad && !r.bad.shown, tag + ' a failed decision with one account still hides the row', JSON.stringify(r.bad));
       say(r.badtwo && r.badtwo.shown && r.badtwo.lines[0] === 'Kosmos could not work out what it would move just now.', tag + ' an unreadable decision says so', JSON.stringify(r.badtwo && r.badtwo.lines));
       say(r.unset && r.unset.shown && r.unset.checked === null && r.unset.togHidden && r.unset.lines[0] === 'We could not read this setting just now.', tag + ' a setting file that could not be read shows unknown, not a confident Off', JSON.stringify(r.unset));
-      say(r.loginrisk && r.loginrisk.lines[0] === 'Work cannot be used right now, because its login has stopped working, but none of its agents is free to move right now.', tag + ' a stopped login is said as such, not as running out', JSON.stringify(r.loginrisk && r.loginrisk.lines));
+      say(r.loginrisk && r.loginrisk.lines[0] === 'Work cannot be used right now, because its login has stopped working, but none of its agents is free to move.', tag + ' a stopped login is said as such, not as running out', JSON.stringify(r.loginrisk && r.loginrisk.lines));
       say(r.heldshort && r.heldshort.lines.length === 2 && r.heldshort.lines.filter((x) => x.indexOf(WHY) !== -1).length === 1 && r.heldshort.lines[1] === 'Kosmos could not read every agent on Work, so there may be more to move.', tag + ' held and short: the reason is said once', JSON.stringify(r.heldshort && r.heldshort.lines));
       say(r.shortrisk && r.shortrisk.lines.length === 1 && r.shortrisk.lines[0] === 'Work is running out, because ' + WHY + '. Kosmos could not read every agent on Work, so there may be more to move.', tag + ' a short list still says why the account is running out', JSON.stringify(r.shortrisk && r.shortrisk.lines));
-      say(r.busy && r.busy.lines.length === 1 && r.busy.lines[0] === 'Work is running out, because ' + WHY + ', but none of its agents is free to move right now.', tag + ' an account running out with no idle agent is said, not silent', JSON.stringify(r.busy && r.busy.lines));
+      say(r.busy && r.busy.lines.length === 1 && r.busy.lines[0] === 'Work is running out, because ' + WHY + ', but none of its agents is free to move.', tag + ' an account running out with no idle agent is said, not silent', JSON.stringify(r.busy && r.busy.lines));
       say(r.overRead && r.overRead.extra === 0 && r.overRead.lines.length === 0 && r.overRead.checked === 'false', tag + ' pressed while a read is out: no read over it, and the lines go at once', JSON.stringify(r.overRead));
       say(r.afterRead && r.afterRead.extra === 1, tag + ' once that read is over, exactly one read follows', JSON.stringify(r.afterRead));
       say(r.hidden && r.hidden.extra === 0, tag + ' a wait whose list went off screen starts no read', JSON.stringify(r.hidden));
@@ -285,7 +286,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         /^At 11:51\sAM, the move of Ada to Spare was stopped\. Check which account it is on above\.$/,
         new RegExp('^At 11:50\\sAM, Kosmos moved Ada from Work to Old, because ' + WHY + '\\.$')];
       say(mv && mv.length === wantMv.length && wantMv.every((re, i) => re.test(mv[i])), tag + ' the mover: each line said once, newest first, with moves on', JSON.stringify(mv));
-      say(r.moving && r.moving.dry === true && r.movingOff && r.movingOff.dry === false, tag + ' the hint says nothing is moved only on a board that is not moving', JSON.stringify([r.moving && r.moving.dry, r.movingOff && r.movingOff.dry]));
+      say(r.moving && r.moving.dry === true && r.armedNotRecording && r.armedNotRecording.dry === true && r.movingOff && r.movingOff.dry === false, tag + ' the hint says nothing is moved only on a board whose mover is not armed', JSON.stringify([r.moving && r.moving.dry, r.armedNotRecording && r.armedNotRecording.dry, r.movingOff && r.movingOff.dry]));
       say(r.moving && !r.moving.recentMarkup, tag + ' a name with markup in a move line is shown as text', '');
       say(r.movingOff && r.movingOff.recent[0] === NONE, tag + ' CONTROL: without moving, it does not say it moves', JSON.stringify(r.movingOff && r.movingOff.recent));
       /* Review round 6 */

@@ -270,3 +270,10 @@ test('#7152 slice 3 review 2: the real guide check: a guide folder with its mark
     } finally { if (had) fs.writeFileSync(flag, had); else fs.rmSync(flag, { force: true }); }
   } finally { board.restore(); }
 });
+
+test('kosmos#8056: armed is the mover\'s own gate, without the sweep\'s last-write condition that moving carries', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'server.js'), 'utf8');
+  assert.match(src, /autobalance\.armed = !!automoveRun && automove\.movesOn\(\); \} catch \{ autobalance\.armed = !!automoveRun; \}/);
+  assert.doesNotMatch(src, /autobalance\.armed = [^;]*recording/, 'armed went false with a failed sweep write, while the mover can still move');
+});
+
