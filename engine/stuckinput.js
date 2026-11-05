@@ -61,6 +61,7 @@ function makeTick(deps) {
       /* Both kept while the agent is on the board at all (a minute busy does not forget them); a new text has a new since. */
       const onBoard = new Set((Array.isArray(roster) ? roster : []).map((c) => c && c.sessionName));
       for (const m of [told, gaveUp, waitedSaid]) for (const k of [...m.keys()]) if (!onBoard.has(k)) m.delete(k);
+      for (const k of [...notedHeld]) if (!onBoard.has(k)) notedHeld.delete(k);
       for (const card of cards) {
         /* #8021: messages kept behind a full box never reach a delivery verdict (messages.js keeps them first), so a box
            that stays full was never a stall: one card sentence, nothing on the phone. Each pass with some kept counts as
