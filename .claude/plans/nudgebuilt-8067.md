@@ -10,6 +10,8 @@ Known, and left: when the agent marks it, its note replaces the colleague's on t
 
 Rejected: a mark freeing everyone on a task. That would free an agent with unfinished work because a colleague finished theirs.
 
+Also: `setBuilt` refuses an agent's note that is only a placeholder such as `<what you finished>`. The line now puts one in front of every such agent, and quoted, the shell passes it.
+
 ## Weakest premise
 That this is what the reporters hit. Their own task was not reachable. The real board here holds no such task, which neither confirms nor refutes it. If the reports continue after this ships, the cause is elsewhere.
 
