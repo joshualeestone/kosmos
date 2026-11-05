@@ -94,7 +94,7 @@ check(extras.contains("if live && state == .listening && !engine.isRunning"), "a
 check(extras.contains("case .mediaReset, .headphones: if active") && extras.contains("case .background: if active"), "headphones, a media reset and locking the phone leave finishing to complete")
 check(extras.contains("[1110, 203]"), "both of Speech's silence codes count as nothing said")
 for name in ["ChatView", "RoomView"] { check(code(name).contains(".onChange(of: searchFocused) { focused in if focused { emojiOpen = false } }"), "\(name): opening search closes the emoji panel") }
-check(extras.contains("if finishing { return }") && extras.contains(".disabled(dictation.finishing)"), "a press while the last words land does not throw them away, and the spinner cannot be pressed")
+check(extras.contains("if finishing { return }") && extras.contains(".disabled(dictation.finishing)"), "a press while the last words land does not throw them away, and the dots cannot be pressed")
 check(extras.contains("if state == .denied, !busy, SFSpeechRecognizer.authorizationStatus() == .authorized"), "coming back clears a refusal only once both are really allowed (never on the alert's own dismissal)")
 check(extras.contains("&& !silent && self.state == .listening"), "no refusal for silence or after a stop by hand")
 // The few lines before the draft is saved on leaving must stop dictation first.
