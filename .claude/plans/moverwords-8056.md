@@ -6,9 +6,10 @@
 ## What
 1. Mona Lisa's wording on the card: the Settings hint, the planned move line, the nothing-to-move line, and a skipped line worded from the record's `because`, with a fallback for older records.
 2. Beyond her list, same defect: three lines saying "the idle agents" (a login at risk, and no account able to take them, moving and not). A stopped-at-limit agent can be among them.
-3. Beyond her list: the hint's "For now it only says what it would do. Nothing is moved." is false on an armed board, and both fleet boards were armed on 11-05. Hidden when `ab.moving === true`.
+3. Beyond her list: the hint's "For now it only says what it would do. Nothing is moved." is false on an armed board, and both fleet boards were armed on 11-05. Hidden when `ab.armed === true`, a new field holding the mover's own gate: `moving` also needs the sweep's last write to have worked, which the mover's tick does not ask.
 4. Card item 2: `movableFor` passes the assigner it was given to `stoppedAtLimit`.
 5. Card item 4: each promise in the move message is cut at 120 code points, after the @ filter.
+6. Mona Lisa's nothing-to-move line, shortened to "none of its agents is free to move": with a login at risk it said "right now" twice.
 
 ## Decided, not done
 - Card item 3 (no report hook, a recovered pane still showing a limit line): left. It needs an at-risk account, a target and two sightings, and closing it needs a signal such an agent does not send.
