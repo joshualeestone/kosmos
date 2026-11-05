@@ -7012,7 +7012,7 @@ cmd_project() {
       { [ -n "${1:-}" ] && [ $# -eq 1 ]; } || { say "Usage: kosmos project who <file>   (a path to a file inside a project's folder)"; exit 2; }
       # Review 1: -h too (a single dash), which would otherwise be read as a file named -h here. A file that really
       # starts with a dash is reached as ./-name.
-      case "$1" in -[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-]*) _refuse_option "project who" "Usage: kosmos project who <file>   (a file starting with - is ./-name)" "$1" file ;; esac
+      case "$1" in -[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-]*) _refuse_option "project who" "Usage: kosmos project who <file>   (a file starting with - is ./-name)" "$1" target ;; esac
       case "$1" in /*) ;; *) set -- "$PWD/$1" ;; esac ;;
     # Validate BEFORE the health check, the same order cmd_post / cmd_task use, so a
     # malformed call is named even when the board is stopped (not hidden behind
