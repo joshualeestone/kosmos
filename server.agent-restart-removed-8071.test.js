@@ -27,9 +27,10 @@ process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'bin', 'claude')
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(SANDBOX, 'bin', 'tmux');
 
 const removal = require('./engine/remove');
-const REAL = { isRemoved: removal.isRemoved, restart: removal.restart };
+const REAL = { isRemoved: removal.isRemoved, restart: removal.restart, removedNames: removal.removedNames };
 const restarted = [];
 removal.isRemoved = (n) => n === 'gone';
+removal.removedNames = () => ['gone'];
 removal.restart = (n) => { restarted.push(n); return { outcome: removal.OUTCOME.RESTARTED, because: `${n} is starting again.`, steps: [] }; };
 
 const { start, server } = require('./server');
@@ -44,6 +45,9 @@ test('kosmos#8071: a removed agent is refused and never restarted; an agent that
   assert.equal(gone.j.outcome, 'refused');
   assert.match(gone.j.because, /gone was removed, so it is not restarted/);
   assert.deepEqual(restarted, [], 'a removed agent reached removal.restart');
+  const cased = await post('Gone');
+  assert.equal(cased.code, 400, 'a removed agent named in other case was restarted: ' + JSON.stringify(cased.j));
+  assert.deepEqual(restarted, []);
   const here = await post('here');
   assert.equal(here.code, 200, JSON.stringify(here.j));
   assert.deepEqual(restarted, ['here'], 'CONTROL: an agent that is not removed was not restarted');
