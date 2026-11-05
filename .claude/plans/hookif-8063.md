@@ -5,7 +5,7 @@ agent to another Claude account folder). Its eighth review round left three warn
 class, a loss read as none.
 
 ## What
-1. A hook's `if`, `timeout`, `async` and `shell` are part of its wiring. A gate with the same script and matcher but a
+1. A hook's `if`, `timeout`, `async` and `shell` (and, since review 6, every field beside its identity) are part of its wiring. A gate with the same script and matcher but a
    narrower `if` on the target fires less often, so it is not kept. `timeout`, `async` and `shell` change how it runs,
    so a difference there is not kept either. Prompt hooks fold them in too; other hook types already hash their whole body.
 2. A hook the agent has now whose command names a script this cannot resolve (a relative path, `%USERPROFILE%`, a path
@@ -49,6 +49,11 @@ class, a loss read as none.
   folder" is decided by how the path resolved, not by where it landed, and such a script is checked only in one plain
   invocation (no shell operators, no cd, pushd, -C, --chdir or -c). Anything else is cannot tell.
 - SKILL.md's existence check reads capped.
+
+## Review 6
+- Every field beside a hook's identity (type, command, args, prompt) counts, so an unknown field is a difference.
+- A script the board is refused is cannot tell; only ENOENT or ENOTDIR means it does not run.
+- The plain-command rule also refuses --directory, --cwd and combined flags such as -lc. It is best effort.
 
 ## Residual, stated
 - The caps are per skill. A comparison reads up to about 16 MB per skill name on both sides together, and one folder
