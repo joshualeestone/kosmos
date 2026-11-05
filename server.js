@@ -16553,7 +16553,8 @@ const server = http.createServer(async (req, res) => {
     if (!from) { sendJson(res, 200, { ok: false, dir: to, label: labelOf(target), because: 'we could not tell which account it is on' }); return; }
     const where = { dir: target.dir, label: labelOf(target) };
     if (real(from) === real(to)) { sendJson(res, 200, { ok: true, same: true, ...where, skills: [], hooks: [], sentence: `${name} is already on that account.` }); return; }
-    const l = require('./engine/accountcarry').losses(from, to, { home: accounts.homeDir() });   // ~ in a hook is the board's own home
+    /* ~ in a hook is the board's own home; a relative or $CLAUDE_PROJECT_DIR hook is the agent's own folder (#8063). */
+    const l = require('./engine/accountcarry').losses(from, to, { home: accounts.homeDir(), project: create.workerDir(name) });
     if (l.ok !== true) { sendJson(res, 200, { ...l, ...where }); return; }
     /* `loses`: a skill or hook the target does not have (a different copy of a skill is said, but is not one). */
     sendJson(res, 200, { ...l, ...where, loses: require('./engine/accountcarry').loses(l), sentence: require('./engine/accountcarry').sentence(l) });
