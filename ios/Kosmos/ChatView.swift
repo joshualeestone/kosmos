@@ -549,6 +549,7 @@ struct ChatView: View {
                             .onDisappear {
                                 guard drawnEpoch == listEpoch else { return }
                                 topVisible = false
+                                Self.trace("top disappear")
                                 // The top leaving after the first layout proves the jump to the newest message
                                 // happened, even if the end marker was not reached (estimated row heights). Not when
                                 // it leaves because a reset took the conversation away (review 4).
@@ -1012,9 +1013,13 @@ struct ChatView: View {
         // row leaves too, and that is not a fault.
         // Review 3 and 4: a list never drawn never moved the end marker, so that arm needs no row drawn since the messages
         // arrived more than 2 s ago (never the moment after an account or computer change, before its rows appear).
-        // kosmos#7420 (Josh 11-05 12:57): the top marker can read as showing with nothing drawn, so a never-drawn list passes that too.
-        let neverDrew = Board.neverDrew(endSeen: endSeen, everDrew: diagEverDrew, messagesFor: diagThreadAt.map { Date().timeIntervalSince($0) })
-        guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || neverDrew, !topVisible || neverDrew, count > 0, thread != nil else { return }
+        // kosmos#7420 (Josh 11-05 12:57): the top marker can read as showing with nothing drawn, so a list whose end never showed passes that too.
+        let neverShown = Board.endNeverShown(endSeen: endSeen, messagesFor: diagThreadAt.map { Date().timeIntervalSince($0) })
+        guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || neverShown, !topVisible || neverShown, count > 0, thread != nil else {
+            // A capture can then say what held a blank off.
+            if onScreen.isEmpty, visible, count > 0 { Self.trace("diag: blank, not yet acting: end \(endVisible), top \(topVisible), app active \(scenePhase == .active), search \(searchMode)") }
+            return
+        }
         // kosmos#7420: a list just rebuilt has no rows for a moment while the new one lays out; that is not an empty list
         // (measured on iOS 27: without this the rebuild's own gap read as empty and rebuilt it again, three times).
         if let at = rebuilds.last, Date().timeIntervalSince(at) < Board.rebuildGrace { return }
@@ -1030,12 +1035,12 @@ struct ChatView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { diagRetrying = false; diagTick &+= 1 }
     }
 
-    // kosmos#7420: back in front with nothing drawn: the time away does not count, since iOS can draw the list by itself on the way
+    // kosmos#7420: back in front with nothing on screen: the time away does not count, since iOS can draw the list by itself on the way
     // back (Josh 11-05 12:57). The never-drew clock starts again, and a check runs once it has passed.
     private func diagBackInFront() {
-        guard visible, diagThreadAt != nil, !endSeen, !diagEverDrew else { return }
+        guard visible, diagThreadAt != nil, !endSeen, onScreen.isEmpty else { return }
         diagThreadAt = Date()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) { diagTick &+= 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Board.endNeverShownAfter + 0.2) { diagTick &+= 1 }
     }
 
     // Once per open chat: the numbers at that moment and the last events, then one try at putting the newest message back,
@@ -1243,6 +1248,7 @@ struct ChatView: View {
                 return
             }
             rebuilds.append(now)
+            diagThreadAt = now   // the new list has its own 2 s
             Self.trace("diag: empty within the content (at newest \(atBottom)), list rebuilt (\(rebuilds.count) this chat open)")
             // As a chat opens (measured 10-31, iOS 26.5 and 27): the new list starts with no anchor, so its first rows are
             // drawn, and the end is asked for once it exists (goNewest), since without that ask it stayed at its top (the

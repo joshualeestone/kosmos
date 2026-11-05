@@ -599,14 +599,15 @@ check(chatSource.contains("let f = n.userInfo?[UIResponder.keyboardFrameEndUserI
 // sooner, since a did-show can come 3.4 s late on CI.
 check(chatSource.contains("if let k = self.saved, Date().timeIntervalSince(k.at) >= Self.staleAfter {"),
       "kosmos#7609: an orphaned will-show reading is replaced by the next keyboard's, not kept")
-check(chatSource.contains("Board.neverDrew(endSeen: endSeen, everDrew: diagEverDrew") && chatSource.contains("!topVisible || neverDrew")
-      && chatSource.contains("Board.settledBlankActs(endVisible: endVisible") && chatSource.contains("diagBackInFront()"),
-      "kosmos#7420: the settled look and diagCheck read one rule for a chat that never drew, and a top marker cannot hold it off")
+check(chatSource.contains("Board.endNeverShown(endSeen: endSeen") && chatSource.contains("!topVisible || neverShown")
+      && chatSource.contains("Board.settledBlankActs(endVisible: endVisible") && chatSource.contains("if phase == .active { diagBackInFront() }")
+      && chatSource.contains("diagThreadAt = now   // the new list has its own 2 s"),
+      "kosmos#7420: the settled look and diagCheck read one rule for a list whose end never showed, a top marker cannot hold it off, and a rebuild restarts its clock")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
 check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
       && !chatSource.contains(".onChange(of: onScreen.isEmpty)"), "review 1: the check runs only for the chat on screen, and never makes the chat redraw per row")
-check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("onScreen.isEmpty, !endVisible || neverDrew, !topVisible || neverDrew, count > 0, thread != nil") && chatSource.contains("ShareLink(item: report"),
+check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("onScreen.isEmpty, !endVisible || neverShown, !topVisible || neverShown, count > 0, thread != nil") && chatSource.contains("ShareLink(item: report"),
       "kosmos#7420: a bounded record, the blank check, and a share the person chooses (nothing sent by itself)")
 // kosmos#7420 (Josh 10-28, builds 13 to 15): the chat's list is locked against a sideways offset (every row 16 pt left).
 // kosmos#7575: it also tells the chat of each shift (the trailing closure), for the report sent to the board.
