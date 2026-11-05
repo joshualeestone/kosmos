@@ -14,8 +14,9 @@
  *   TARGET_MAX_PCT, and not the same account.
  *   The lowest usage wins; ties go to the earlier reset, then the folder, so the answer is stable from one read to
  *   the next.
- * - MOVABLE: an agent on an at-risk account that is idle, with no commitment and no open task part (the caller
- *   decides that with the Assigner's own tests and passes the answer in).
+ * - MOVABLE: an agent on an at-risk account that is idle, with no commitment and no open task part, or (kosmos#8048)
+ *   one already stopped at its limit, whatever it holds (stoppedAtLimit). The caller decides that with the Assigner's
+ *   own tests and passes the answer in.
  * An account that is NOT MEASURED is never a target: a working login is not headroom (the card's 10-24 incident).
  */
 
@@ -163,7 +164,7 @@ function markTargets(rows, nowMs) {
   return rows;
 }
 
-/* The card's movable test, as the Assigner decides "free": the card reads idle (assigner.idleCard), its commitments
+/* The card's movable test, as the Assigner decides "free" (and, kosmos#8048, an agent stoppedAtLimit, below): the card reads idle (assigner.idleCard), its commitments
    leave it free (assigner.commitmentsFree), and it holds no open part of a task in ANY project (assigner.hasOpenWork,
    archived ones included). `cards`: the board roster; `records`: every project, or a function that reads them (review
    3: read only when an agent is first asked about); `readCommitment(session)`. An agent that is not on the roster, or
@@ -175,6 +176,14 @@ function markTargets(rows, nowMs) {
    kosmos#7548 rule 12: `strict` (the mover's re-check just before a move) THROWS where a check cannot be made (the agent
    gone from the roster, its box, guide check or commitment unreadable), so only "not free" reads as "no longer idle".
    Without it every such case is "not movable", as the decision needs. */
+/* kosmos#8048: an agent stopped at its usage limit in the way the mover may act on. The Assigner's failover test
+   (assigner.limitedCard: ours, rate_limited, a dated reset more than 10 minutes away), on a reading that is not a
+   remembered one (#5949, as idleCard), and not a switched-off swarm (as idleCard, review 3). One function, so
+   movableFor and the mover's message cannot disagree about which moves were off the limit. */
+function stoppedAtLimit(c, nowMs = Date.now(), assigner = require('./assigner')) {
+  return assigner.limitedCard(c, nowMs) && !require('./status').stateIsRemembered(c) && !(c.swarm && c.swarm.active === false);
+}
+
 function movableFor({ cards, records, readCommitment, assigner = require('./assigner'),
   isGuide = (s) => require('./setup-assistant').isGuideFolderStrict(s),
   guideName = () => require('./setup-assistant').guideNameStrict(), strict = false, nowMs = null }) {
@@ -202,9 +211,12 @@ function movableFor({ cards, records, readCommitment, assigner = require('./assi
        reading is not one to act on, as idleCard says (#5949): a Windows capture can hold rate_limited while the agent is
        back mid-turn. Review 1: a person working the limit at the pane themselves is covered only as far as an idle
        agent's is (words in the box after 3 minutes, and the mover's two ticks).
-       After the move the agent starts a fresh conversation on the new account holding its open parts; the Prompter's
-       agent nudge (engine/agentnudge.js) is what sends it back to them. */
-    const atLimit = assigner.limitedCard(c, Number.isFinite(nowMs) ? nowMs : Date.now()) && !require('./status').stateIsRemembered(c);
+       After the move the agent starts a fresh conversation on the new account holding its open parts. The Prompter's
+       agent nudge (engine/agentnudge.js) can send it back to open task parts in live projects, once a stall episode
+       opens; nothing re-surfaces its commitments or what was running, which is why the move's message names them.
+       Not reached (review 3): a weekly limit under a day from its reset, which Claude Code prints with no date, reads
+       as not limited, the same as a five-hour one. Reading undated lines would act on stale ones (#5031). */
+    const atLimit = stoppedAtLimit(c, Number.isFinite(nowMs) ? nowMs : Date.now());
     if (!atLimit && !assigner.idleCard(c)) return false;
     /* Review 2 (slice 3): words sitting unsent in its box are a person's or a peer's, and a restart would drop them. A
        card that cannot say is not movable. Review 5: the card says so only once the same words have sat there for
@@ -291,4 +303,4 @@ function movableOnDemand(build) {
   return (session) => (fn || (fn = build()))(session);
 }
 
-module.exports = { decide, movableFor, movableOnDemand, markTargets, bulkTargetable, eligible, rowsFromReadings, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS, FIVE_HOUR_MAX_PCT };
+module.exports = { decide, movableFor, stoppedAtLimit, movableOnDemand, markTargets, bulkTargetable, eligible, rowsFromReadings, AT_RISK_PCT, TARGET_MAX_PCT, RESET_SOON_MS, FIVE_HOUR_MAX_PCT };

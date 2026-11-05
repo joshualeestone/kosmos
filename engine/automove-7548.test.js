@@ -127,6 +127,7 @@ test('#7548 rule 1: a move goes through the account move, is recorded in the swe
   assert.deepEqual([move.agent, move.fromLabel, move.toLabel, move.outcome], ['ada', 'work', 'spare', 'changed']);
   assert.equal(calls.tells.length, 1);
   assert.match(calls.tells[0][1], /^Kosmos moved this agent from work to spare, because work was running out \(it is at 93% of its weekly limit/);
+  assert.doesNotMatch(calls.tells[0][1], /usage limit, and the restart|committed to/, 'kosmos#8048: an idle move said it had stopped at its limit');
   assert.doesNotMatch(fs.readFileSync(file, 'utf8') + calls.tells[0][1], /@/, 'an email reached the record or the message');
   assert.equal(lines(file).some((l) => l.kind === 'decision'), false, 'the mover wrote a decision line (that is the sweep\'s)');
   assert.ok(sweep.recent(file).some((l) => l.kind === 'move' && l.outcome === 'changed'), 'Settings was not given the move');
@@ -1080,7 +1081,7 @@ test('kosmos#7621 review 4: a guide check that cannot be made is everyone\'s, so
 test('kosmos#8048: an agent stopped at its weekly limit, holding a commitment, is moved in two ticks, and the person is told what it had promised', async () => {
   const [ada] = realCards(['ada']);
   const atWall = { ...ada, state: 'rate_limited', stateEvidence: "You've hit your limit · resets Jan 1, 2030 at 3pm (America/Chicago)" };
-  const promised = { state: 'unknown', commitments: ['watching the 0.7.92 release'] };
+  const promised = { state: 'unknown', commitments: [{ id: 'c1', what: 'watching the 0.7.92 release', createdAt: '2026-11-05T07:00:00Z', source: 'agent' }] };   // commitments.read's shape
   const file = fileFor();
   const run = automove.create({ file });
   const { d, calls } = deps({ cards: [atWall] });
@@ -1089,8 +1090,13 @@ test('kosmos#8048: an agent stopped at its weekly limit, holding a commitment, i
   assert.deepEqual([r.did, r.outcome], ['moved', 'changed'], 'an agent at the wall was not moved by the real mover');
   assert.deepEqual(calls.starts, [{ dir: '/u/.claude-spare', names: ['ada'] }]);
   assert.equal(calls.tells.length, 1);
-  assert.match(calls.tells[0][1], / Before the move it had said it was committed to: watching the 0\.7\.92 release\. The restart ended anything it had running, so it may need to pick that up\.$/,
+  assert.match(calls.tells[0][1], / It had stopped at its usage limit, and the restart ended anything it had running, so it may need to pick its work back up\. Before the move it had said it was committed to: watching the 0\.7\.92 release\.$/,
     'the person was not told what the moved agent had promised');
+  // With no commitments record (the usual case: only an agent's own PUT writes one), the restart is still said.
+  const run3 = automove.create({ file: fileFor() });
+  const { d: d3, calls: c3 } = deps({ cards: [atWall] });
+  await twoTicks(run3, d3);
+  assert.match((c3.tells[0] || [])[1] || '', / It had stopped at its usage limit, and the restart ended anything it had running, so it may need to pick its work back up\.$/, 'a move off the limit with no commitments said nothing about the restart');
   // CONTROL: the same agent idle with that commitment is not moved (the free test stands for an idle agent).
   const run2 = automove.create({ file: fileFor() });
   const { d: d2, calls: c2 } = deps({ cards: [ada] });

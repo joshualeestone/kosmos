@@ -304,6 +304,7 @@ test('kosmos#8048: an agent stopped at a dated limit is movable, whatever it hol
   assert.equal(m({ ...base }, {}), false, 'CONTROL: the same idle agent holding that part and commitment is still not movable (the free test stands)');
   assert.equal(m(at("You've hit your limit · resets 4pm (America/Chicago)")), false, 'an undated (five-hour) limit, as Claude Code prints it, moved: it is waited out');
   assert.equal(m(at(weekly, { screenRead: 'remembered' })), false, 'a remembered limit reading moved an agent that may be back mid-turn');
+  assert.equal(m(at(weekly, { swarm: { active: false } })), false, 'a switched-off swarm agent at its limit was moved');
   assert.equal(m(at("You've hit your limit · resets Jan 1, 2000 at 3pm (America/Chicago)")), false, 'a limit whose reset has passed moved');
   assert.equal(m(at(weekly, { unsentInput: 'half a reply' })), false, 'words sitting in its box were dropped by a move');
   assert.equal(m(at(weekly), { isGuide: () => true }), false, 'the guide was moved');
