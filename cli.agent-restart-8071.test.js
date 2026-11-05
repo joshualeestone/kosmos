@@ -22,17 +22,23 @@ fs.symlinkSync(process.execPath, path.join(HOME, 'runtime', 'bin', 'node'));
 test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
-// engine/remove.js restart()'s answers: { outcome, because, steps }.
-const RESTARTED = [200, { outcome: 'restarted', because: 'Sally Sales is starting again.', steps: [] }];
+// engine/remove.js restart()'s answers, in its own words (review 1: the real sentences, not one-liners).
+const RESTARTED = [200, { outcome: 'restarted', because: 'Sally Sales is starting again. It will read its instructions when it comes back. Its folder and everything in it are as they were.', steps: [] }];
 const REFUSED = [400, { outcome: 'refused', because: 'it was not started: it is moving to another account now', steps: [] }];
-const PARTIAL = [200, { outcome: 'partial', because: 'Sally Sales stopped, but we could not see it start again', steps: [] }];
+const PARTIAL = [200, { outcome: 'partial', because: "we could not close Sally Sales's window, so it is still running the older instructions. Nothing was changed.", steps: [] }];
+const THREW = [500, { error: 'we could not restart this agent', detail: 'tmux: no server running' }];
 
-function withStub(reply, fn) {
+function withStub(reply, fn, self = 'me-agent') {
   const seen = [];
   const server = http.createServer((req, res) => {
     let raw = '';
     req.on('data', (d) => { raw += d; });
     req.on('end', () => {
+      if (req.url === '/api/whoami') {   // who is asking: the self-check
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, agent: self }));
+        return;
+      }
       if (/^\/api\/agent\/[^/]+\/restart$/.test(req.url)) {
         seen.push({ method: req.method, url: req.url, body: raw, headers: req.headers });
         res.writeHead(reply[0], { 'content-type': 'application/json' });
@@ -64,8 +70,27 @@ test('kosmos#8071 Mac: --yes restarts through the agent page\'s own route and sa
   assert.equal(r.code, 0, r.out);
   assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['POST /api/agent/Sally%20Sales/restart'], 'not one POST to the named agent (name trimmed)');
   assert.match(r.out, /Restarting Sally Sales stops what it is doing now/);
-  assert.match(r.out, /Sally Sales is starting again\.$/m);
+  assert.match(r.out, /Sally Sales is starting again\. It will read its instructions when it comes back\. Its folder and everything in it are as they were\.$/m);
 }));
+
+test('kosmos#8071 review 1: never yourself, on either platform; a route that threw is "may be partly restarted", exit 3', async () => {
+  await withStub(RESTARTED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(r.code, 2, r.out);
+    assert.match(r.out, /Nothing was restarted: Sally Sales is you/);
+    const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(w.code, 2, w.err);
+    assert.equal(seen.length, 0, 'an agent restarted itself');
+  }, 'Sally Sales');
+  await withStub(THREW, async (port) => {
+    const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(r.code, 3, r.out);
+    assert.match(r.out, /Sally Sales may be partly restarted: we could not restart this agent\. Look at its page before trying again/);
+    const w = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
+    assert.equal(w.code, 3, w.err);
+    assert.match(w.err, /may be partly restarted/);
+  });
+});
 
 test('kosmos#8071 Mac: a refusal and a partial restart exit 1 in the board\'s words', async () => {
   await withStub(REFUSED, async (port) => {
@@ -76,7 +101,7 @@ test('kosmos#8071 Mac: a refusal and a partial restart exit 1 in the board\'s wo
   await withStub(PARTIAL, async (port) => {
     const r = await cli(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.equal(r.code, 1, r.out);
-    assert.match(r.out, /Only partly restarted: Sally Sales stopped, but we could not see it start again\./);
+    assert.match(r.out, /Not restarted as asked: we could not close Sally Sales's window, so it is still running the older instructions\. Nothing was changed\./);
   });
 });
 
@@ -109,7 +134,7 @@ test('kosmos#8071 Windows: --yes restarts; at a terminal, y restarts and anythin
   const r = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
   assert.equal(r.code, 0, r.err);
   assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['POST /api/agent/Sally%20Sales/restart']);
-  assert.match(r.out, /Sally Sales is starting again\.$/m);
+  assert.match(r.out, /Sally Sales is starting again\./);
   for (const answer of ['', 'n', 'yess']) {
     const c = await winRun(port, ['agent', 'restart', 'Sally Sales'], { tty: true, answer });
     assert.equal(c.code, 1, JSON.stringify(answer));
@@ -131,7 +156,7 @@ test('kosmos#8071 Windows: a refusal and a partial restart exit 1; no terminal a
   await withStub(PARTIAL, async (port) => {
     const r = await winRun(port, ['agent', 'restart', 'Sally Sales', '--yes']);
     assert.equal(r.code, 1);
-    assert.match(r.err, /Only partly restarted/);
+    assert.match(r.err, /Not restarted as asked: .*Nothing was changed\./);
   });
   await withStub(RESTARTED, async (port, seen) => {
     const r = await winRun(port, ['agent', 'restart', 'Sally Sales']);

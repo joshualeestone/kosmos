@@ -7467,7 +7467,8 @@ cmd_agent() {
       say "                                                  (<account>: its name as kosmos accounts shows it, or main;"
       say "                                                  with --yes, a move that would lose skills or hooks also needs --accept-loss;"
       say "                                                  like a move in Settings, the automatic mover then leaves that agent for a day)"
-      say "  kosmos agent restart \"<name>\" [--yes]           restart one agent, after a confirm (it picks up new settings, skills and hooks)"
+      say "  kosmos agent restart \"<name>\" [--yes]           restart one agent, after a confirm (it picks up new settings, skills and hooks;"
+      say "                                                  any agent can be restarted this way, as from its page; never yourself)"
       say "  kosmos agent remove \"<name>\" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)"
       exit 2 ;;
     remove)
@@ -7693,7 +7694,16 @@ cmd_agent() {
       local rs_name="$1" rs_path rs_answer rs_parsed rs_out rs_because rs_end
       local _rsparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
       rs_path=$(KOSMOS_RS_NAME="$rs_name" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RS_NAME))') || { say "We could not use that name."; exit 1; }
-      say "Restarting $rs_name stops what it is doing now; it starts again with its current settings, skills and hooks."
+      # Review 1: never yourself. Restarting your own session ends this command (and your work) before the answer
+      # comes back, with no handoff; the agent page's "Write a handoff, then restart" is the way to do that.
+      local rs_me="" rs_esc_pane; rs_esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      rs_me=$(kosmos_curl "$(agent_board_token || true)" "$_rtok" -sS -m 15 -X POST "$URL/api/whoami" -H 'content-type: application/json' -d "{\"from_pane\":\"$rs_esc_pane\"}" 2>/dev/null \
+        | "$_node" -e "$_rsparse"'process.stdout.write(j.ok===true&&typeof j.agent==="string"?one(j.agent):"")})' 2>/dev/null) || rs_me=""
+      if [ -n "$rs_me" ] && [ "$rs_me" = "$rs_name" ]; then
+        say "Nothing was restarted: $rs_name is you, and restarting yourself ends this session before you see the answer. Use \"Write a handoff, then restart\" on your page instead."
+        exit 2
+      fi
+      say "Restarting $rs_name stops what it is doing now, if it is running, and starts it with its current settings, skills and hooks."
       if [ -z "$KOSMOS_RS_YES" ]; then
         printf '%sRestart %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$rs_name" >&2
         read -r rs_answer || rs_answer=""
@@ -7701,20 +7711,23 @@ cmd_agent() {
       fi
       rc=0
       # The agent page's own route, sent as the person, as Restart is pressed there.
-      body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 120 -X POST "$URL/api/agent/$rs_path/restart" -H 'content-type: application/json' --data '{}' 2>/dev/null) || rc=$?
+      # A slow but healthy restart can take minutes (remove.js: two unload waits, two bootstraps and a retry), so 300 s.
+      body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 300 -X POST "$URL/api/agent/$rs_path/restart" -H 'content-type: application/json' --data '{}' 2>/dev/null) || rc=$?
       case "$rc" in
         0) ;;
         28|18|52|56) say "Kosmos stopped answering after it was asked. $rs_name may have restarted; look at its page before trying again: $URL/"; exit 3 ;;
         *) say_unreached "restart $rs_name" "$rc" write; exit 1 ;;
       esac
-      rs_parsed=$(printf '%s' "$body" | "$_node" -e "$_rsparse"'console.log([one(j.outcome),one(j.because||j.error)].join("\t"))})') \
+      # Review 1: a route that threw answers {error, detail} with no outcome, possibly after the session was stopped.
+      rs_parsed=$(printf '%s' "$body" | "$_node" -e "$_rsparse"'console.log([one(j.outcome||(j.detail!==undefined?"failed-partway":"")),one(j.because||j.error)].join("\t"))})') \
         || { say "Kosmos gave an answer we could not read when restarting $rs_name. Look at its page: $URL/"; exit 1; }
       rs_out=$(cut -f1 <<<"$rs_parsed"); rs_because=$(cut -f2 <<<"$rs_parsed")
       while [[ "$rs_because" == *[.[:space:]] ]]; do rs_because="${rs_because%?}"; done
       case "$rs_because" in *[?!]|*\)) rs_end="" ;; *) rs_end="." ;; esac
       case "$rs_out" in
         restarted) say "${rs_because:-$rs_name has restarted}${rs_end}" ;;
-        partial) say "Only partly restarted: ${rs_because:-Kosmos did not say how far it got}${rs_end} Look at its page: $URL/"; exit 1 ;;
+        partial) say "Not restarted as asked: ${rs_because:-Kosmos did not say how far it got}${rs_end} Look at its page: $URL/"; exit 1 ;;
+        failed-partway) say "$rs_name may be partly restarted: ${rs_because:-Kosmos did not say how far it got}${rs_end} Look at its page before trying again: $URL/"; exit 3 ;;
         *) if [ -n "$rs_because" ]; then say "Kosmos did not restart $rs_name: ${rs_because}${rs_end}"
            else say "Kosmos gave an answer we could not read when restarting $rs_name. Look at its page: $URL/"; fi
            exit 1 ;;

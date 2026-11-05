@@ -168,7 +168,8 @@ const USAGE = {
     '                                                  (<account>: its name as kosmos accounts shows it, or main;',
     '                                                  with --yes, a move that would lose skills or hooks also needs --accept-loss;',
     '                                                  like a move in Settings, the automatic mover then leaves that agent for a day)',
-    '  kosmos agent restart "<name>" [--yes]           restart one agent, after a confirm (it picks up new settings, skills and hooks)',
+    '  kosmos agent restart "<name>" [--yes]           restart one agent, after a confirm (it picks up new settings, skills and hooks;',
+    '                                                  any agent can be restarted this way, as from its page; never yourself)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
   ].join('\n'),
   feedback: [
@@ -2493,18 +2494,25 @@ async function agentRestart(ctx, args) {
   if (name === '.' || name === '..') { ctx.err('There is no agent called ' + name + '.'); return 2; }
   if (tooManyWords(ctx, 'agent restart', 1, AGENT_RESTART_USAGE, words)) return 2;
   if (!yes && !ctx.canAsk()) { ctx.err('Nothing was restarted: there is no terminal here to confirm on. To restart ' + name + ' without being asked, add --yes.'); return 2; }
-  ctx.out('Restarting ' + name + ' stops what it is doing now; it starts again with its current settings, skills and hooks.');
+  /* Review 1: never yourself (it ends this session before the answer comes back, with no handoff). */
+  const me = await ctx.call('POST', '/api/whoami', { from_pane: '' });
+  if (me.reached && me.json && me.json.ok === true && me.json.agent === name) {
+    ctx.err('Nothing was restarted: ' + name + ' is you, and restarting yourself ends this session before you see the answer. Use "Write a handoff, then restart" on your page instead.');
+    return 2;
+  }
+  ctx.out('Restarting ' + name + ' stops what it is doing now, if it is running, and starts it with its current settings, skills and hooks.');
   if (!yes) {
     const answer = await ctx.ask('Restart ' + name + '? [y/N] ');
     if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was restarted.'); return 1; }
   }
-  const r = await ctx.call('POST', '/api/agent/' + encodeURIComponent(name) + '/restart', {}, { timeoutMs: POST_TIMEOUT_MS, person: true });
+  const r = await ctx.call('POST', '/api/agent/' + encodeURIComponent(name) + '/restart', {}, { timeoutMs: 300000, person: true });   // a slow, healthy restart can take minutes
   if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + name + ' may have restarted; look at its page before trying again.') : ctx.unreachable('restart ' + name);
   const j = r.json || {};
   const because = clause(j.because || j.error || '');
   const end = /[?!)]$/.test(because) ? '' : '.';
   if (j.outcome === 'restarted') { ctx.out((because || name + ' has restarted') + end); return 0; }
-  if (j.outcome === 'partial') { ctx.err('Only partly restarted: ' + (because || 'Kosmos did not say how far it got') + end + ' Look at its page.'); return 1; }
+  if (j.outcome === 'partial') { ctx.err('Not restarted as asked: ' + (because || 'Kosmos did not say how far it got') + end + ' Look at its page.'); return 1; }
+  if (!j.outcome && j.detail !== undefined) return maybe(ctx.err, name + ' may be partly restarted: ' + (because || 'Kosmos did not say how far it got') + end + ' Look at its page before trying again.');   // review 1: the route threw
   if (because) { ctx.err('Kosmos did not restart ' + name + ': ' + because + end); return 1; }
   ctx.err('Kosmos gave an answer we could not read when restarting ' + name + '. Look at its page.');
   return 1;
