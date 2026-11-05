@@ -17,5 +17,5 @@ that fits; the top marker's going is not traced. And a rebuild can itself land b
 
 Scope, stated: the rule covers any list whose end never showed and has nothing on screen, including one that drew a row and lost
 it. Left as they were, deliberately: the two delayed re-checks for a reader higher up, which still ask for the end and top markers.
-A fresh open reads at the newest, so they should not be reached; the new trace line would show it if they are. And coming back to
+A fresh open reads at the newest, so they should not be reached; if one is, its return writes nothing, so a capture would not show it. Rows drawn with no end shown waits blankConfirm first, so a reader moved by nothing else is not moved for an instant's blank. And coming back to
 the front restarts the 2 s, so repeated interruptions can delay a rebuild; that only leaves things as they were.

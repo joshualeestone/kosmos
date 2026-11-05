@@ -545,8 +545,8 @@ enum Board {
     static let rebuildSpacing: Double = 2
     static let diagCheckWaits: [Double] = [0.5, 1.5]
     static var rebuildTimingHolds: Bool { rebuildGrace + rebuildCheckBump + (diagCheckWaits.min() ?? 0) >= rebuildSpacing }
-    // kosmos#7420 (Josh 11-05 12:57): no end has shown this long after the messages arrived (or a rebuild): the flag saying the end
-    // is showing has only ever held its starting value, so it holds nothing off, and neither does a top marker.
+    // kosmos#7420 (Josh 11-05 12:57): no end has shown this long after the messages arrived (or a rebuild). A flag saying the end is
+    // showing means nothing then, and neither does a top marker.
     static let endNeverShownAfter: Double = 2
     static func endNeverShown(endSeen: Bool, messagesFor: Double?) -> Bool {
         !endSeen && (messagesFor ?? 0) > endNeverShownAfter

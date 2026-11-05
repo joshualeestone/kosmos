@@ -5750,6 +5750,8 @@ do {
     check(Board.settledBlankActs(endVisible: true, endSeen: false, everDrew: true, messagesFor: 3.2), "the same with a first row drawn and lost: the flag still means nothing")
     check(!Board.settledBlankActs(endVisible: true, endSeen: false, everDrew: false, messagesFor: 1.9), "CONTROL: the same within a normal open: it waits")
     check(!Board.settledBlankActs(endVisible: true, endSeen: true, everDrew: true, messagesFor: 9), "CONTROL: the end really showing (a pending bubble can fill the list): it waits")
+    check(!Board.settledBlankActs(endVisible: false, endSeen: false, everDrew: false, messagesFor: 1.0), "CONTROL: a new list after a rebuild, within its 2 s: it waits")
+    check(Board.settledBlankActs(endVisible: false, endSeen: false, everDrew: false, messagesFor: 3.0), "the same list 3 s on: it acts")
     check(Board.settledBlankActs(endVisible: false, endSeen: true, everDrew: true, messagesFor: 9), "a list that drew, with its end gone and nothing on screen: it acts, as before")
 
     // Review 3: the box over a chat's life.

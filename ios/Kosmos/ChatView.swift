@@ -1011,14 +1011,14 @@ struct ChatView: View {
     private func diagCheck(_ proxy: ScrollViewProxy, count: Int) {
         // Review 1: only for the chat on screen with the app in front: under the info page, another tab or Quick Look every
         // row leaves too, and that is not a fault.
-        // Review 3 and 4: a list never drawn never moved the end marker, so that arm needs no row drawn since the messages
-        // arrived more than 2 s ago (never the moment after an account or computer change, before its rows appear).
+        // Review 3 and 4: a list whose end never showed never moved the end marker, so that arm needs the messages to have arrived
+        // more than 2 s ago (never the moment after an account or computer change, before its rows appear).
         // kosmos#7420 (Josh 11-05 12:57): the top marker can read as showing with nothing drawn, so a list whose end never showed passes that too.
         let neverShown = Board.endNeverShown(endSeen: endSeen, messagesFor: diagThreadAt.map { Date().timeIntervalSince($0) })
         guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty, !endVisible || neverShown, !topVisible || neverShown, count > 0, thread != nil else {
             // A capture can then say what held a blank off.
             if onScreen.isEmpty, visible, count > 0, Self.diagRing.last?.contains("diag: blank, not yet acting") != true {
-                Self.trace("diag: blank, not yet acting: end \(endVisible), top \(topVisible), app active \(scenePhase == .active), search \(searchMode)")
+                Self.trace("diag: blank, not yet acting: end \(endVisible), end seen \(endSeen), top \(topVisible), app active \(scenePhase == .active), search \(searchMode)")
             }
             return
         }
@@ -1028,6 +1028,16 @@ struct ChatView: View {
         // kosmos#7420 review 5: a look under a scroll or a finger neither moves the reader nor uses up the first try. It comes
         // back: nothing else looks again once the scroll ends (a row that never drew never leaves). One waits at a time.
         if personScrolling || scrollBox.underFinger { diagLookAgain(); return }
+        // Rows have drawn but no end has shown, so "at the newest" may only be its starting value: a reader higher up is not moved
+        // for a list empty for an instant. Still blank a moment on, it is blank.
+        if neverShown, diagEverDrew {
+            let chatAt = epoch, listAt = listEpoch
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankConfirm) {
+                guard epoch == chatAt, listEpoch == listAt, visible, onScreen.isEmpty, !personScrolling, !scrollBox.underFinger else { return }
+                diagCapture(proxy, why: "no message on screen", count: count)
+            }
+            return
+        }
         diagCapture(proxy, why: "no message on screen", count: count)
     }
 
@@ -1193,7 +1203,15 @@ struct ChatView: View {
                               Board.settledBlankActs(endVisible: endVisible, endSeen: endSeen, everDrew: diagEverDrew, messagesFor: diagThreadAt.map { Date().timeIntervalSince($0) }) else {
                             Self.trace("keyboard settled: within, nothing drawn"); return
                         }
-                        if atBottom {
+                        if atBottom, diagEverDrew, !endSeen {
+                            // As diagCheck: rows drew and no end showed, so "at the newest" may be only its starting value.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + Self.blankConfirm) {
+                                guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching, onScreen.isEmpty,
+                                      !personScrolling, !scrollBox.underFinger, scenePhase == .active else { return }
+                                Self.trace("keyboard settled: within, nothing drawn, no end yet, rebuilt")
+                                recoverEmpty(proxy)
+                            }
+                        } else if atBottom {
                             Self.trace("keyboard settled: within, nothing drawn, rebuilt")
                             recoverEmpty(proxy)
                         } else {
