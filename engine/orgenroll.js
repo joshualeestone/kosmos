@@ -415,14 +415,17 @@ function cleanReviewerGrants(list) {
    The relay caps the list at 50 (MEMBER_RECOVERIES_SHOWN_MAX). */
 const MAX_RECOVERIES = 50;
 const RECOVERY_WHATS = new Set(['key_released', 'files_opened']);
-function cleanRecoveries(list) {
+function cleanRecoveries(list, now = Date.now()) {
   if (!Array.isArray(list)) return [];
+  // A row stamped more than a day ahead of this computer's clock is not one: a date past the year 275760 cannot even be
+  // shown, and nothing here sends a recovery from the future.
+  const latest = Math.floor(now / 1000) + 86400;
   const whole = (n) => (Number.isSafeInteger(n) && n >= 0 ? n : null);
   const out = [];
   for (const r of list.slice(0, MAX_RECOVERIES)) {
     if (!r || typeof r !== 'object' || !RECOVERY_WHATS.has(r.what)) continue;
     const at = whole(r.at);
-    if (!at) continue;
+    if (!at || at > latest) continue;
     const who = shownName(r.who);
     const epoch = whole(r.epoch);
     // A count of none would say files were opened when none were, so 0 is left out with the rest.
@@ -1189,7 +1192,8 @@ async function refreshNow(opts) {
     const recs = cleanRecoveries(d.recoveries);
     // A list whose every row was malformed is cleaned to none and still counts as read: the coordinator answered.
     if (recs.length) rec.recoveries = recs;
-    // `recoveriesMore`: the coordinator left older ones in its window out (it sends at most 50).
+    // `recoveriesMore`: the coordinator left older ones in its window out (it sends at most 50). Kept only with a list
+    // to sit under: an answer whose every row was malformed shows nothing, older ones included.
     if (recs.length && d.recoveriesMore === true) rec.recoveriesMore = true;
     rec.recoveriesAt = Date.now();
   } else if (before && before.world === world && before.org && before.org.id === org.id
