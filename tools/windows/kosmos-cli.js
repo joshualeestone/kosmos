@@ -155,7 +155,7 @@ const USAGE = {
     '  <folder> is a path on this machine; the project\'s files live there.',
   ].join('\n'),
   agent: [
-    'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|remove>',
+    'Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|remove>',
     '  kosmos agent list                               every agent on this board, its role, and whether it is running',
     '  kosmos agent create "<name>" <role> ["<why>"]   make an agent for the person, after they confirm',
     '  kosmos agent create "<name>" --new-role "<label>" --from <file> ["<why>"]',
@@ -164,6 +164,8 @@ const USAGE = {
     '  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)',
     '  kosmos agent instructions-add "<name>" --from <file>',
     '                                                  propose an addition to an agent\'s instructions; the person applies it',
+    '  kosmos agent move "<name>" "<account>" [--yes]  move an agent to another Claude account, after a confirm',
+    '                                                  (<account>: its name as kosmos accounts shows it, or main)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
   ].join('\n'),
   feedback: [
@@ -2476,6 +2478,60 @@ async function agentRemove(ctx, args) {
   ctx.err('Kosmos gave an answer we could not read when removing ' + label + '. Look at the board to see whether it is still there.');
   return 1;
 }
+/* kosmos#8048 item 3: install/kosmos's `agent move`, through the board's own move: the plan (which account, by the name
+   kosmos accounts shows, and what the agent would lose there), a confirm (or --yes), the move to the plan's folder, and
+   its outcome read back. A loss is said before the move; a plan that could not tell is said as such, never as nothing
+   lost. */
+const AGENT_MOVE_USAGE = 'Usage: kosmos agent move "<name>" "<account>" [--yes]   (<account>: as kosmos accounts shows it, or main)';
+async function agentMove(ctx, args) {
+  const yes = args.includes('--yes');
+  const words = args.filter((a) => a !== '--yes');
+  const [name, account] = words;
+  if (!name || !account) { ctx.err(AGENT_MOVE_USAGE); return 2; }
+  for (const w of [name, account]) if (/^--[A-Za-z]/.test(w)) { refuseOption(ctx, 'agent move', AGENT_MOVE_USAGE, w, 'target'); return 2; }
+  if (tooManyWords(ctx, 'agent move', 2, AGENT_MOVE_USAGE, words)) return 2;
+  if (!yes && !ctx.canAsk()) { ctx.err('Nothing was moved: there is no terminal here to confirm on. To move ' + name + ' without being asked, add --yes.'); return 2; }
+  const p = await ctx.call('GET', '/api/agents/account-plan?' + new URLSearchParams({ name, account }).toString(), undefined, { person: true });
+  if (!p.reached) return ctx.unreachable('read what moving ' + name + ' would do');
+  const plan = p.json || {};
+  if (plan.ok !== true && !plan.dir) {
+    const why = clause(plan.because || plan.error || '');
+    ctx.err('Kosmos will not move ' + name + ': ' + (why || 'it did not say why') + (/[?!]$/.test(why) ? '' : '.'));
+    return 1;
+  }
+  const label = plan.label || account;
+  if (plan.same === true) { ctx.out(name + ' is already on ' + label + '. Nothing was moved.'); return 0; }
+  if (plan.ok !== true) ctx.out('Kosmos could not check what ' + name + ' would lose on ' + label + ': ' + (clause(plan.because || '') || 'it did not say why') + '.');
+  else if (plan.sentence) ctx.out(plan.sentence);
+  else ctx.out('On ' + label + ' it keeps every skill and hook it has now.');
+  ctx.out('Moving restarts ' + name + ' on ' + label + '. Anything it has running stops.');
+  if (!yes) {
+    const answer = await ctx.ask('Move ' + name + ' to ' + label + '? [y/N] ');
+    if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was moved.'); return 1; }
+  }
+  const r = await ctx.call('POST', '/api/agents/account', { dir: plan.dir, names: [name] }, { timeoutMs: POST_TIMEOUT_MS });
+  if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + name + ' may be moving; look at Settings, AI Models before trying again.') : ctx.unreachable('move ' + name);
+  const first = r.json || {};
+  let a = (Array.isArray(first.agents) ? first.agents : [])[0] || {};
+  let outcome = a.outcome || (first.outcome === 'refused' ? 'refused' : '');
+  let because = a.because || first.because || first.error || '';
+  /* Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s). */
+  for (let i = 0; outcome === 'pending' && first.id && i < 110; i += 1) {
+    await ctx.sleep(3000);
+    const g = await ctx.call('GET', '/api/agents/account-moves/' + encodeURIComponent(first.id), undefined, { person: true });
+    if (!g.reached || !g.json) continue;
+    a = (Array.isArray(g.json.agents) ? g.json.agents : [])[0] || {};
+    outcome = a.outcome || outcome; because = a.because || because;
+  }
+  const said = clause(because);
+  const end = /[?!)]$/.test(said) ? '' : '.';
+  if (outcome === 'changed') { ctx.out((said || name + ' runs on ' + label + ' now') + end); return 0; }
+  if (outcome === 'pending') return maybe(ctx.err, name + ' is still moving after five minutes. Look at Settings, AI Models to see where it is.');
+  if (outcome === 'partial' || outcome === 'stopped' || outcome === 'unknown') { ctx.err('Not fully moved: ' + (said || 'Kosmos did not say how far it got') + end + ' Settings, AI Models shows which account it is on.'); return 1; }
+  if (said) { ctx.err('Kosmos did not move ' + name + ': ' + said + end); return 1; }
+  ctx.err('Kosmos gave an answer we could not read when moving ' + name + '. Look at Settings, AI Models to see where it is.');
+  return 1;
+}
 /* #4474: the default ("Describe it yourself") text a new role starts from; {{NAME}} stays for Kosmos to fill. */
 async function agentRoleDraft(ctx, args) {
   const to = args && args[0] === '--to' ? args[1] : null;
@@ -3346,7 +3402,7 @@ const SUBCOMMAND_HANDLERS = {
   records: { set: recordsWrite('set'), remove: recordsWrite('remove'), label: recordsWrite('label') },
   task: { list: taskList, add: taskAdd, assign: taskAssign, close: taskClose, reopen: taskReopen, message: taskMessage, activity: taskActivity, built: taskBuilt, 'done-when': taskDoneWhen, hold: taskHoldAs(true), unhold: taskHoldAs(false), repeat: taskRepeat, ran: taskRan, told: taskTold },
   project: { list: projectList, show: projectShow, who: projectWho, create: projectCreate, pause: projectPause, role: projectRole, 'remove-member': projectRemoveMember },
-  agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, remove: agentRemove },
+  agent: { list: agentList, create: agentCreate, roles: agentRoles, 'role-draft': agentRoleDraft, 'instructions-add': agentInstructionsAdd, move: agentMove, remove: agentRemove },
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
@@ -3580,6 +3636,8 @@ async function main(argv, io) {
       rl.on('close', () => { if (!answered) resolve(''); });   // Ctrl+C or Ctrl+D is a no
       rl.question(question, (a) => { answered = true; rl.close(); resolve(a); });
     })),
+    /* kosmos#8048: the wait between reads of a move's progress (agent move); a test seam. */
+    sleep: o.sleep || ((ms) => new Promise((res) => setTimeout(res, ms))),
     readFile: o.readFile || ((f) => textFileDecoded(fs.readFileSync(f))),   // #4474: agent create --from, by its BOM
     /* #7508: git in this checkout (task built --commit). Its standard output, or a throw; a test seam. */
     git: o.git || ((args) => require('node:child_process').execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 10000, windowsHide: true })),
