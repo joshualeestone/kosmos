@@ -197,7 +197,9 @@ test('msg, post and react: never exempt for a network peer or with NO credential
      server.tasks-mine-6506.test.js. */
   /* kosmos#7748 added GET /api/agents/list, a READ of each agent's name, role and card word and nothing else, measured in
      server.guide-hidden-3739.test.js and server.agent-token-gate-4491.test.js. */
-  assert.deepEqual(routes, ['GET /api/agents/list', 'GET /api/community/read', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'POST /api/agent/reply-channel', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/undo/keep', 'POST /api/whoami'],
+  /* kosmos#7989 slice 2 added GET /api/project-file/who, a READ of one project file's record (existence, modification
+     time, the agents last seen and owning it), nothing outside every project folder; measured in server.filewho-7989.test.js. */
+  assert.deepEqual(routes, ['GET /api/agents/list', 'GET /api/community/read', 'GET /api/project-file/who', 'GET /api/projects/overview', 'GET /api/roles', 'GET /api/tasks', 'GET /api/tasks/mine', 'POST /api/agent/reply-channel', 'POST /api/msg', 'POST /api/post', 'POST /api/react', 'POST /api/toolfail', 'POST /api/undo/keep', 'POST /api/whoami'],
     'AGENT_TOKEN_ROUTES changed: every write added here must be checked to identify its caller from the header token');
   /* #4491 slice 3: the parameterized routes, pinned exactly like the set. */
   const patterns = (src.match(/const AGENT_TOKEN_ROUTE_PATTERNS = \[[^\n]*\];/) || [''])[0];

@@ -30,12 +30,13 @@ function renderWho(answer) {
   const lines = [];
   // Review 2: quoted, with its own quotes made single, so a name cannot pass for words of this output.
   lines.push('File: "' + one(d.name).replace(/"/g, "'") + '"   (project ' + one(d.projectName || d.projectId) + ', ' + one(d.projectId) + ')');
-  if (!d.exists) lines.push('The file is not there now.');
+  if (!d.exists) lines.push(d.notFile ? 'That is not an ordinary file (a pipe, a socket or a device), so it has no modification time to compare.' : 'The file is not there now.');
   const seen = d.lastSeen && typeof d.lastSeen === 'object' && d.lastSeen.agent ? d.lastSeen : null;
   if (!seen) {
     lines.push('Kosmos has no record of any agent changing it.');
     // Review 1: no record is not proof of a person: the record lapses (30 days, or past 2000 files) and began with #5812.
-    if (d.exists) lines.push('So Kosmos cannot say who changed it last: a person, a tool that writes outside the edit hook (a shell command, a script), or a change older than its record.');
+    // Review 4: an agent whose edit hook never reached Kosmos (another runner, the board down) is one of the possibilities.
+    if (d.exists) lines.push('So Kosmos cannot say who changed it last: an agent whose edits Kosmos does not see (its edit hook did not reach Kosmos), a person, a tool that writes outside the edit hook (a shell command, a script), or a change older than its record.');
   } else {
     lines.push('Kosmos last saw ' + who(seen.agent, seen.shown) + ' about to change it, at ' + one(seen.at) + '.');
     if (d.exists && d.modified) {
@@ -43,13 +44,14 @@ function renderWho(answer) {
       // Review 2: the recorded agent is not ruled out: an edit approved minutes after its prompt lands late.
       else if (d.lastChange === 'after') lines.push('The file changed again after that, at ' + one(d.modified) + ', and Kosmos did not see who made that change: it may be ' + who(seen.agent, seen.shown) + '\'s edit landing late (after a permission prompt), another agent whose edit Kosmos missed, a person, or a tool writing outside the edit hook.');
       // Review 1: an older time is not proof the content is unchanged (cp -p, rsync -t, unzip restore old times).
-      else if (d.lastChange === 'before') lines.push('Its modification time (' + one(d.modified) + ') is older than that, so that edit does not seem to have landed (it may have failed), a tool restored an older time, or the folder is on another computer whose clock differs.');
+      else if (d.lastChange === 'before') lines.push('Its modification time (' + one(d.modified) + ') is older than that, so that edit has not landed: it may be waiting on a permission prompt, it may have failed, a tool restored an older time, or the folder is on another computer whose clock differs. The content there now is from an earlier change.');
     }
   }
   if (d.owner && typeof d.owner === 'object' && d.owner.agent) {
     lines.push('Owner: ' + who(d.owner.agent, d.owner.shown) + ', the first agent seen changing it here (in the record Kosmos keeps).');
   } else if (seen) {
-    lines.push('Owner: none known. Kosmos records an owner only for a file it first saw changed after owners began to be kept.');
+    // Review 4: neutral, since a missing owner has more than one cause (a record from before owners, an outer project's).
+    lines.push('Owner: none in this project\'s own record.');
   }
   return lines;
 }

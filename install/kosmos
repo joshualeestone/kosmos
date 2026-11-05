@@ -7053,7 +7053,8 @@ cmd_project() {
   local _bt; _bt="$(agent_board_token || true)"   # #1946: board token for an enforcing board; inert when empty
   case "$sub" in
     who)
-      # kosmos#7989 slice 2: read-only, the agent's own token too, as list and show send it. The path goes URL-encoded.
+      # kosmos#7989 slice 2: read-only, the agent's own token too, as list and show send it (the route is an agent-token
+      # route, so a token-only agent is admitted). The path goes URL-encoded.
       local _wtok="" rc=0 body _node _mod
       case "${KOSMOS_AGENT_TOKEN:-}" in ''|*[!0-9a-f]*) ;; *) _wtok="$KOSMOS_AGENT_TOKEN" ;; esac
       body=$(kosmos_curl "$_bt" "$_wtok" -sS -m 15 -G --data-urlencode "path=$1" "$URL/api/project-file/who" 2>/dev/null) || rc=$?

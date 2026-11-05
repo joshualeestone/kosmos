@@ -83,7 +83,7 @@ test('kosmos#7989 slice 2: a file unchanged since its record says the edit had n
   r.write('old.md', 'mona', T);
   const a = r.about('old.md');
   assert.equal(a.lastChange, 'before');
-  assert.match(renderWho(a).join('\n'), /older than that, so that edit does not seem to have landed \(it may have failed\), a tool restored an older time, or the folder is on another computer whose clock differs/);
+  assert.match(renderWho(a).join('\n'), /older than that, so that edit has not landed: it may be waiting on a permission prompt, it may have failed, a tool restored an older time, or the folder is on another computer whose clock differs\. The content there now is from an earlier change/);
   assert.doesNotMatch(renderWho(a).join('\n'), /has not changed/, 'an older time was read as proof the content is unchanged');
 });
 
@@ -111,7 +111,7 @@ test('kosmos#7989 slice 2: a file with no record names nobody, and says who it m
   assert.equal(a.lastChange, null);
   const text = renderWho(a).join('\n');
   assert.match(text, /no record of any agent changing it/);
-  assert.match(text, /Kosmos cannot say who changed it last: a person, a tool that writes outside the edit hook \(a shell command, a script\), or a change older than its record/);
+  assert.match(text, /Kosmos cannot say who changed it last: an agent whose edits Kosmos does not see \(its edit hook did not reach Kosmos\), a person, a tool that writes outside the edit hook \(a shell command, a script\), or a change older than its record/);
   assert.doesNotMatch(text, /Owner:/, 'a file nobody was seen changing printed an owner line');
 });
 
@@ -126,7 +126,7 @@ test('kosmos#7989 slice 2: a record from before owners were kept has no owner, a
   const a = r.about('legacy.md');
   assert.equal(a.lastSeen.agent, 'mona', 'CONTROL: the record is still read');
   assert.equal(a.owner, null);
-  assert.match(renderWho(a).join('\n'), /Owner: none known/);
+  assert.match(renderWho(a).join('\n'), /Owner: none in this project's own record\./);
 });
 
 test('kosmos#7989 slice 2: a file that is gone keeps its record and says it is not there', () => {
@@ -172,6 +172,8 @@ test('kosmos#7989 slice 2 review 2: a project made inside another\'s folder stil
   assert.equal(a.name, 'x.md');
   assert.equal(a.lastSeen && a.lastSeen.agent, 'mona', 'the outer project\'s record was not read');
   assert.equal(a.owner, null, 'review 3: an owner was named from the outer record, which the notices never read');
+  assert.match(renderWho(a).join('\n'), /Owner: none in this project's own record\./, 'review 4: the no-owner line gave a cause the record does not support');
+  assert.doesNotMatch(renderWho(a).join('\n'), /after owners began/);
   assert.equal(a.lastChange, 'seen');
   // A later write files under the inner project; it is the newest, and the inner entry gives the owner.
   fw.noteWrite(r.file('inner/x.md'), 'kitty', { now: T + 5 * MIN, projects: both });
@@ -181,6 +183,19 @@ test('kosmos#7989 slice 2 review 2: a project made inside another\'s folder stil
   assert.equal(b.lastChange, 'seen');
   // Review 3: the owner is the one noteWrite's notices act on (the inner record's), never the outer one's.
   assert.equal(b.owner && b.owner.agent, 'kitty', 'the owner shown is not the one the notices use');
+});
+
+test('kosmos#7989 slice 2 review 4: a pipe is said to be no ordinary file, not a file that is gone', () => {
+  const r = room();
+  require('node:child_process').execFileSync('mkfifo', [r.file('pipe')]);
+  r.write('pipe', 'mona', T);
+  const a = r.about('pipe');
+  assert.equal(a.exists, false);
+  assert.equal(a.notFile, true);
+  const text = renderWho(a).join('\n');
+  assert.match(text, /not an ordinary file/);
+  assert.doesNotMatch(text, /not there now/);
+  assert.equal(r.about('gone-for-sure.md').notFile, undefined, 'CONTROL: a missing file is not marked notFile');
 });
 
 test('kosmos#7989 slice 2 review 3: an entry past KEEP_MS (lapsed, not yet pruned) is not read', () => {
