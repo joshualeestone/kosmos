@@ -7454,7 +7454,7 @@ cmd_agent() {
   local sub; sub="${1:-}"; shift 2>/dev/null || true
   case "$sub" in
     ''|help|-h|--help)
-      say "Usage: kosmos agent <list|create|roles|role-draft|instructions-add|remove>"
+      say "Usage: kosmos agent <list|create|roles|role-draft|instructions-add|move|remove>"
       say "  kosmos agent list                               every agent on this board, its role, and whether it is running"
       say "  kosmos agent create \"<name>\" <role> [\"<why>\"]   make an agent for the person, after they confirm"
       say "  kosmos agent create \"<name>\" --new-role \"<label>\" --from <file> [\"<why>\"]"
@@ -7463,6 +7463,8 @@ cmd_agent() {
       say "  kosmos agent role-draft [--to <file>]           the default text to write a new role from (into <file>)"
       say "  kosmos agent instructions-add \"<name>\" --from <file>"
       say "                                                  propose an addition to an agent's instructions; the person applies it"
+      say "  kosmos agent move \"<name>\" \"<account>\" [--yes]  move an agent to another Claude account, after a confirm"
+      say "                                                  (<account>: its name as kosmos accounts shows it, or main)"
       say "  kosmos agent remove \"<name>\" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)"
       exit 2 ;;
     remove)
@@ -7482,6 +7484,22 @@ cmd_agent() {
         exit 2
       fi
       set -- "${_rmw[0]}" ;;
+    move)
+      # kosmos#8048 item 3: the name, the account, and --yes anywhere; option-shaped words and extra words are refused
+      # before any request, as remove does.
+      local _mvw=() _mva
+      local KOSMOS_MV_USAGE='Usage: kosmos agent move "<name>" "<account>" [--yes]   (<account>: as kosmos accounts shows it, or main)'
+      KOSMOS_MV_YES=""
+      for _mva in "$@"; do if [ "$_mva" = "--yes" ]; then KOSMOS_MV_YES=1; else _mvw+=("$_mva"); fi; done
+      { [ -n "${_mvw[0]:-}" ] && [ -n "${_mvw[1]:-}" ]; } || { say "$KOSMOS_MV_USAGE"; exit 2; }
+      case "${_mvw[0]}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "agent move" "$KOSMOS_MV_USAGE" "${_mvw[0]}" target ;; esac
+      case "${_mvw[1]}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "agent move" "$KOSMOS_MV_USAGE" "${_mvw[1]}" target ;; esac
+      _no_more_words "agent move" 2 "$KOSMOS_MV_USAGE" "${_mvw[@]}"
+      if [ -z "$KOSMOS_MV_YES" ] && [ ! -t 0 ]; then
+        say "Nothing was moved: there is no terminal here to confirm on. To move ${_mvw[0]} without being asked, add --yes."
+        exit 2
+      fi
+      set -- "${_mvw[0]}" "${_mvw[1]}" ;;
     instructions-add)
       # kosmos#5293: only PROPOSES. The person applies it on that agent's page; nothing here can.
       { [ -n "${1:-}" ] && [ "${2:-}" = "--from" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos agent instructions-add \"<name>\" --from <file>   (the text to add, in a file)"; exit 2; }
@@ -7510,13 +7528,14 @@ cmd_agent() {
       # A role is reused by its file, so an existing one is never replaced (a second role with the same short name).
       if [ "${1:-}" = "--to" ] && [ -e "$2" ]; then say "$2 already exists, and it may hold another role. Pick another name, or move it first."; exit 2; fi ;;
     *)
-      say "Unknown: kosmos agent $sub. Try: list, create, roles, role-draft, instructions-add, remove"
+      say "Unknown: kosmos agent $sub. Try: list, create, roles, role-draft, instructions-add, move, remove"
       _kosmos_agent_list_hint "$sub"
       exit 2 ;;
   esac
   if ! healthy; then
     case "$sub" in
       remove) say_not_up "nothing can be removed" ;;
+      move) say_not_up "nothing can be moved" ;;
       list) say_not_up "it cannot list the agents" ;;
       *) say_not_up "an agent cannot be made" ;;
     esac
@@ -7644,6 +7663,74 @@ cmd_agent() {
         waiting) say "Not sent: ${ia_name} already has an addition waiting, asked by ${ia_who:-another agent}${ia_when:+ on $ia_when}. The person can apply or dismiss it on ${ia_name}'s page first."; exit 1 ;;
         *) while [[ "$ia_because" == *[.[:space:]] ]]; do ia_because="${ia_because%?}"; done
            say "Kosmos did not hold that addition: ${ia_because:-it did not say why}."; exit 1 ;;
+      esac
+      ;;
+    move)
+      # kosmos#8048 item 3: through the board's own move, as Settings does. GET /api/agents/account-plan is the plan (which
+      # account that is, and what the agent would lose there: skills and hooks the target folder lacks); POST
+      # /api/agents/account { dir, names } is the move, and GET /api/agents/account-moves/<id> how it went. A loss, or a
+      # plan that could not tell, is said before the confirm; without a terminal it needs --yes, as any move does.
+      local mv_name="$1" mv_acct="$2" mv_q mv_plan mv_ok mv_same mv_dir mv_label mv_says mv_why mv_id mv_seen mv_out mv_because mv_end mv_i
+      local _mvparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
+      mv_q=$(KOSMOS_MV_NAME="$mv_name" KOSMOS_MV_ACCT="$mv_acct" "$_node" -e 'process.stdout.write(new URLSearchParams({name:process.env.KOSMOS_MV_NAME,account:process.env.KOSMOS_MV_ACCT}).toString())') || { say "We could not use that name."; exit 1; }
+      body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 30 "$URL/api/agents/account-plan?$mv_q" 2>/dev/null) || rc=$?
+      if [ "$rc" -ne 0 ]; then say_unreached "read what moving $mv_name would do" "$rc"; exit 1; fi
+      # Fields, tab-separated: ok, same, dir, label, the loss sentence, why (refused or could not tell).
+      mv_plan=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'console.log([j.ok===true?"ok":"no",j.same===true?"same":"",one(j.dir),one(j.label),one(j.sentence),one(j.because||j.error)].join("\t"))})') \
+        || { say "Kosmos gave an answer we could not read when asked about moving $mv_name."; exit 1; }
+      mv_ok=$(cut -f1 <<<"$mv_plan"); mv_same=$(cut -f2 <<<"$mv_plan"); mv_dir=$(cut -f3 <<<"$mv_plan")
+      mv_label=$(cut -f4 <<<"$mv_plan"); mv_says=$(cut -f5 <<<"$mv_plan"); mv_why=$(cut -f6 <<<"$mv_plan")
+      while [[ "$mv_why" == *[.[:space:]] ]]; do mv_why="${mv_why%?}"; done
+      if [ "$mv_ok" != ok ] && [ -z "$mv_dir" ]; then
+        say "Kosmos will not move $mv_name: ${mv_why:-it did not say why}."; exit 1
+      fi
+      mv_label="${mv_label:-$mv_acct}"
+      if [ -n "$mv_same" ]; then say "$mv_name is already on $mv_label. Nothing was moved."; exit 0; fi
+      if [ "$mv_ok" != ok ]; then
+        # "Cannot tell" is not "nothing lost": said, and the confirm (or --yes) decides.
+        say "Kosmos could not check what $mv_name would lose on $mv_label: ${mv_why:-it did not say why}."
+      elif [ -n "$mv_says" ]; then
+        say "$mv_says"
+      else
+        say "On $mv_label it keeps every skill and hook it has now."
+      fi
+      say "Moving restarts $mv_name on $mv_label. Anything it has running stops."
+      if [ -z "$KOSMOS_MV_YES" ]; then
+        local mv_answer=""
+        printf '%sMove %s to %s? [y/N] ' "${KOSMOS_SAY_INDENT:-  }" "$mv_name" "$mv_label" >&2
+        read -r mv_answer || mv_answer=""
+        case "$(printf '%s' "$mv_answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) say "Cancelled. Nothing was moved."; exit 1 ;; esac
+      fi
+      rc=0
+      body=$(KOSMOS_MV_NAME="$mv_name" KOSMOS_MV_DIR="$mv_dir" "$_node" -e 'process.stdout.write(JSON.stringify({dir:process.env.KOSMOS_MV_DIR,names:[process.env.KOSMOS_MV_NAME]}))' \
+        | kosmos_curl "$_bt" "$_rtok" -sS -m 30 -X POST "$URL/api/agents/account" -H 'content-type: application/json' --data-binary @- 2>/dev/null) || rc=$?
+      case "$rc" in
+        0) ;;
+        28|18|52|56) say "Kosmos stopped answering after it was asked. $mv_name may be moving; look at Settings, AI Models before trying again: $URL/"; exit 3 ;;
+        *) say_unreached "move $mv_name" "$rc" write; exit 1 ;;
+      esac
+      # Fields: the move's id, this agent's outcome now, and its words (a refusal is final at once).
+      mv_seen=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'const a=(Array.isArray(j.agents)?j.agents:[])[0]||{};console.log([one(j.id),one(a.outcome||(j.outcome==="refused"?"refused":"")),one(a.because||j.because||j.error)].join("\t"))})') \
+        || { say "Kosmos gave an answer we could not read when moving $mv_name. Look at Settings, AI Models to see where it is: $URL/"; exit 1; }
+      mv_id=$(cut -f1 <<<"$mv_seen"); mv_out=$(cut -f2 <<<"$mv_seen"); mv_because=$(cut -f3 <<<"$mv_seen")
+      # Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s).
+      mv_i=0
+      while [ "$mv_out" = pending ] && [ -n "$mv_id" ] && [ "$mv_i" -lt 110 ]; do
+        sleep 3; mv_i=$((mv_i + 1)); rc=0
+        body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 15 "$URL/api/agents/account-moves/$mv_id" 2>/dev/null) || rc=$?
+        [ "$rc" -eq 0 ] || continue
+        mv_seen=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'const a=(Array.isArray(j.agents)?j.agents:[])[0]||{};console.log([one(j.id),one(a.outcome),one(a.because)].join("\t"))})') || continue
+        mv_out=$(cut -f2 <<<"$mv_seen"); mv_because=$(cut -f3 <<<"$mv_seen")
+      done
+      while [[ "$mv_because" == *[.[:space:]] ]]; do mv_because="${mv_because%?}"; done
+      case "$mv_because" in *[?!]|*\)) mv_end="" ;; *) mv_end="." ;; esac
+      case "$mv_out" in
+        changed) say "${mv_because:-$mv_name runs on $mv_label now}${mv_end}" ;;
+        pending) say "$mv_name is still moving after five minutes. Look at Settings, AI Models to see where it is: $URL/"; exit 3 ;;
+        partial|stopped|unknown) say "Not fully moved: ${mv_because:-Kosmos did not say how far it got}${mv_end} Settings, AI Models shows which account it is on."; exit 1 ;;
+        *) if [ -n "$mv_because" ]; then say "Kosmos did not move $mv_name: ${mv_because}${mv_end}"
+           else say "Kosmos gave an answer we could not read when moving $mv_name. Look at Settings, AI Models to see where it is: $URL/"; fi
+           exit 1 ;;
       esac
       ;;
     remove)
