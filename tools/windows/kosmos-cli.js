@@ -2251,15 +2251,20 @@ async function projectShow(ctx, args) {
 async function projectWho(ctx, args) {
   const usage = 'Usage: kosmos project who <file>   (a path to a file inside a project\'s folder)';
   if (args.length !== 1 || !args[0]) { ctx.err(usage); return 2; }
-  if (/^-[A-Za-z-]/.test(args[0])) { refuseOption(ctx, 'project who', 'Usage: kosmos project who <file>   (a file starting with - is .\\-name)', args[0], 'target'); return 2; }
+  if (/^-[A-Za-z-]/.test(args[0])) { refuseOption(ctx, 'project who', 'Usage: kosmos project who <file>   (a file starting with - is ./-name)', args[0], 'target'); return 2; }
   let file;
-  try { file = require('node:path').resolve(ctx.cwd(), args[0]); } catch (_) { file = args[0]; }
-  const r = await ctx.call('GET', '/api/project-file/who?path=' + encodeURIComponent(file));
+  // Review 8: through ctx.pathRules (path.win32 on Windows), the seam reply --file uses, so a test can run Windows rules.
+  try { file = (ctx.pathRules || require('node:path')).resolve(ctx.cwd(), args[0]); } catch (_) { file = args[0]; }
+  let query;
+  // Review 8: a lone surrogate (a name NTFS allows) makes encodeURIComponent throw; say so rather than crash.
+  try { query = encodeURIComponent(file); } catch (_) { ctx.err('That path has a character Kosmos cannot send, so nothing was asked.'); return 1; }
+  const r = await ctx.call('GET', '/api/project-file/who?path=' + query);
   if (!r.reached) return ctx.unreachable('read who changes that file');
   /* An older board: no route (404), or, on the agent token alone, its gate refuses (403) where an older board admits
      the same token on GET /api/projects/overview. A cross-site refusal carries "ok":false and is not this. */
   if (r.status === 404) { ctx.err('This Kosmos board is older than `kosmos project who`, so it cannot answer. Ask your person to restart Kosmos, which updates it.'); return 1; }
-  if (r.status === 403 && r.json && typeof r.json.error === 'string' && r.json.ok === undefined) {
+  // Review 8: only when an agent token was sent, as install/kosmos does.
+  if (r.status === 403 && ctx.agentToken() && r.json && typeof r.json.error === 'string' && r.json.ok === undefined) {
     const probe = await ctx.call('GET', '/api/projects/overview');
     if (probe.reached && probe.status === 200) { ctx.err('This Kosmos board is older than `kosmos project who`, so it refuses an agent\'s own token here. Ask your person to restart Kosmos, which updates it.'); return 1; }
   }
