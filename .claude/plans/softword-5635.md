@@ -3,7 +3,7 @@
 Addresses #5635.
 
 ## What finished looks like
-A summary past four hours by the clock, with under four hours of reported work since, says it is not overdue though past the rhythm. Under four hours it still says current. The state and every other reading stay as they are.
+A summary past four hours by the clock, with under four hours of reported work since, says it is not overdue though past the rhythm. A summary under four hours never reaches this line: it is plain `current` from summaryFreshness, and the line there is unchanged. The state and every other reading stay as they are.
 
 ## Decided
 - Words only, in renderShow's `worked` line. Rejected a new state: everything that reads the state would need a decision, and nothing about what a seat should do has changed. Rejected lowering the 24-hour line: #7785 chose it so a seat woken after a quiet afternoon stays current.
@@ -11,3 +11,6 @@ A summary past four hours by the clock, with under four hours of reported work s
 
 ## F1
 Measured on this fleet 11-05: echo and josh, agents older than the build, carry doctrine v46's line, written at 01:10 with Kosmos's own "bringing its own earlier" frame and no click.
+
+## Review 1 (blind, sonnet)
+No defects. It did show that `worked` only follows a stale summary, so the "under the rhythm" arm I wrote could never run, and my control proved it only with a state production cannot produce. Removed both.

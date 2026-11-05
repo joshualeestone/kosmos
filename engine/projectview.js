@@ -616,9 +616,10 @@ const SUMMARY_WORDS = {
     ? 'current when this session started (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; started ' + ago(s.idleMinutes) + ' and idle since then)'
     : 'current when it went idle (' + one(s.file) + ', ' + ago(s.ageMinutes) + '; idle since ' + ago(s.idleMinutes) + ')',
   // #5635 F2: the rhythm is four hours of work, and the member's reports show less than that since it was written.
-  // #5635 (feedback 11-05): past the rhythm by the clock it is not plainly "current", though it is not overdue either, since
-  // the rhythm counts work. A reader who knows the rhythm is four hours read "current" on a fifteen-hour file as wrong.
-  worked: (s) => (s.ageMinutes > SUMMARY_RHYTHM_HOURS * 60 ? 'not overdue, though past the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm by the clock: ' : 'current: ') + (s.turnsOnly ? 'no later turn has ended' : s.workMinutes > 0 ? span(s.workMinutes) + ' of reported work' : 'no reported work') + ' since it was written ('
+  // #5635 (feedback 11-05): this state only follows a summary past the rhythm by the clock (workExcused runs on a stale one), so
+  // it is not plainly "current", though it is not overdue, since the rhythm counts work. A reader who knows the rhythm is four
+  // hours read "current" on a fifteen-hour file as wrong.
+  worked: (s) => 'not overdue, though past the ' + SUMMARY_RHYTHM_HOURS + '-hour rhythm by the clock: ' + (s.turnsOnly ? 'no later turn has ended' : s.workMinutes > 0 ? span(s.workMinutes) + ' of reported work' : 'no reported work') + ' since it was written ('
     + one(s.file) + ', ' + ago(s.ageMinutes) + ')',
   // #4581 R9: the project has no open task; this summary was current when its last task ended.
   quiet: (s) => (s.quietKind === 'own' ? 'current when its own tasks here ended' : 'current when work on the project\'s tasks ended')
