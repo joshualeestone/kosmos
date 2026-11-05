@@ -28129,6 +28129,7 @@ function start(port = PORT) {
         // #8021: the same key and shape a delivery refused for this box has (chat streakKey, inputHeld).
         heldBehind: (card) => require('./engine/limitqueue').list(card.sessionName).some((e) => e && e.input === true),
         noteHeld: (card, now) => require('./engine/deliverystreak').note(card.sessionName, { state: 'could_not', inputHeld: true }, now),
+        clearHeld: (session) => require('./engine/deliverystreak').reset(session),
       });
       const stuckInputSweep = setInterval(() => { stuckInputTick().catch(() => {}); }, Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_STUCK_INPUT_SWEEP_MS) : 60 * 1000); // the env is the test seam only
       if (stuckInputSweep && typeof stuckInputSweep.unref === 'function') stuckInputSweep.unref();

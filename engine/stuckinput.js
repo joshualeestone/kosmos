@@ -29,8 +29,8 @@ function stuckCards(roster, now, stuckMs) {
 
 /**
  * deps: { allowed() -> bool, roster() -> cards, recover(card, since) -> Promise<{ outcome, because?, id? }>,
- *         stuckMs, log(line), now?(), heldBehind?(card) -> bool, noteHeld?(card, now) }. Returns the tick (async;
- *         resolves when this pass is done).
+ *         stuckMs, log(line), now?(), heldBehind?(card) -> bool, noteHeld?(card, now), clearHeld?(sessionName) }. Returns
+ *         the tick (async; resolves when this pass is done).
  */
 function makeTick(deps) {
   const told = new Map();   // sessionName -> 'since|outcome|because' last logged, so a text left in place is said once
@@ -38,6 +38,7 @@ function makeTick(deps) {
      while the same text sits there, so it is not cleared at again every minute. A new text has a new since. */
   const gaveUp = new Map();
   const waitedSaid = new Map();   // #7212: sessionName -> since already said as still waiting
+  const notedHeld = new Set();   // #8021: sessionNames this sweep has counted, so it can take back what it began
   const sayWaitingMs = Number.isFinite(deps.sayWaitingMs) ? deps.sayWaitingMs : SAY_WAITING_MS;
   let running = false;
   return async function tick() {
@@ -48,6 +49,13 @@ function makeTick(deps) {
       let roster = null;
       try { roster = deps.roster(); } catch { roster = null; }
       const now = deps.now ? deps.now() : Date.now();
+      /* #8021: nothing kept any more and no line landed (kept messages age out with no verdict): nothing else would end
+         a streak this sweep began, and its old start would date the next unrelated failure. */
+      for (const s of [...notedHeld]) {
+        let still = false;
+        try { still = !!deps.heldBehind({ sessionName: s }); } catch { still = true; }   // unreadable: not known to be gone
+        if (!still) { notedHeld.delete(s); try { deps.clearHeld(s); } catch { /* next time it fails, it starts from then */ } }
+      }
       const cards = stuckCards(roster, now, deps.stuckMs);
       const names = new Set(cards.map((c) => c.sessionName));
       /* Both kept while the agent is on the board at all (a minute busy does not forget them); a new text has a new since. */
@@ -58,7 +66,7 @@ function makeTick(deps) {
            that stays full was never a stall: one card sentence, nothing on the phone. Each pass with some kept counts as
            one verdict, so the stall's line, push and end come from the one place they already do. Before the give-up skip
            below: a box this sweep gave up on is the one that most needs saying. */
-        try { if (deps.heldBehind && deps.noteHeld && deps.heldBehind(card)) deps.noteHeld(card, now); } catch { /* next pass */ }
+        try { if (deps.heldBehind && deps.noteHeld && deps.heldBehind(card)) { deps.noteHeld(card, now); notedHeld.add(card.sessionName); } } catch { /* next pass */ }
         const since = card.unsentInput.since;
         if (gaveUp.get(card.sessionName) === since) continue;
         let r;
