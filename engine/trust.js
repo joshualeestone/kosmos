@@ -1053,7 +1053,9 @@ const IN_ITS_TERMINAL = 'Answer it in its terminal on the computer it runs on'; 
  * kosmos#8039: write what Claude Code's own "No, disable external imports" writes for one folder on one account (measured
  * on 2.1.318: approved false, shown true), so the agent starts without those files at its next launch. The person's
  * press on the board is the answer (#6063). It never writes a Yes: that is the answer the dialog warns about, and it
- * stays in the agent's Terminal. An answer already there is left alone.
+ * stays in the agent's Terminal. An answer already there is left alone. Same read-modify-write hazard as `trustFolder`
+ * (a running Claude Code on that account can drop the write on its next save); nothing here detects it, and the route's
+ * already-answered 409 is what a press then meets.
  */
 function declineExternalImports(dir, opts) {
   const target = configTarget(opts);
@@ -1078,11 +1080,9 @@ function declineExternalImports(dir, opts) {
     if (parent === up) break;
     up = parent;
   }
-  /* An answer under the repository root holds for every folder in that repository on this account. At the home folder or
-     above, that is nearly everything the person has, so the board does not give it (review 2, W1). */
-  let home = null;
-  try { home = fs.realpathSync.native(homeDir()); } catch { home = null; }
-  if (key !== folder && home && (key === home || home.startsWith(key.endsWith(path.sep) ? key : key + path.sep))) {
+  /* An answer under a repository root above the agent's folder would hold for every folder in that repository on this
+     account, and a person pressing on the board cannot see that scope first, so the board does not give it (review 6). */
+  if (key !== folder) {
     return { ok: false, because: `its folder is inside a git repository at ${key}, and an answer there would hold for every folder under it. ${IN_ITS_TERMINAL}` };
   }
   key = key.split(path.sep).join('/');   // Claude Code's spelling on Windows, as in trustFolder
@@ -1098,16 +1098,16 @@ function declineExternalImports(dir, opts) {
     if (!data || typeof data !== 'object' || Array.isArray(data)) return { ok: false, because: 'the account settings file is not shaped the way we expect' };
     const projects = data.projects;
     if (projects !== undefined && (projects === null || typeof projects !== 'object' || Array.isArray(projects))) {
-      return { ok: false, because: 'their config file is not shaped the way we expect' };
+      return { ok: false, because: 'the account settings file is not shaped the way we expect' };
     }
     const existing = projects && Object.prototype.hasOwnProperty.call(projects, key) ? projects[key] : undefined;
     if (existing !== undefined && (existing === null || typeof existing !== 'object' || Array.isArray(existing))) {
-      return { ok: false, because: 'their config file is not shaped the way we expect' };
+      return { ok: false, because: 'the account settings file is not shaped the way we expect' };
     }
     if (importsAnswered(existing)) return { ok: true, wrote: false, key, because: 'this folder already has an answer' };
     if (!data.projects) data.projects = {};
     data.projects[key] = Object.assign({}, existing || {}, { [IMPORTS_KEY]: false, [IMPORTS_SHOWN_KEY]: true });   // merge: the entry can hold their tools and servers
-    if (!saveConfig(target, data, prevMode)) return { ok: false, because: 'we could not write to their config file' };
+    if (!saveConfig(target, data, prevMode)) return { ok: false, because: 'we could not write to the account settings file' };
     return { ok: true, wrote: true, key };
   });
   return r.ok ? r.value : { ok: false, because: r.because };

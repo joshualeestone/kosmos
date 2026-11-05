@@ -19,22 +19,27 @@ This change:
    imports" with "No, disable external imports" beside it. Keyed on the answer rows, so a long import list that pushes
    the heading out of the tail still reads.
 2. `engine/trust.js` `declineExternalImports(dir, opts)`: the write, under the account's write lock, merging into the
-   folder's entry. Inside a git repository the key is the repository root (measured: Claude Code reads it there).
-   Refused, with a terminal ending: a root at the home folder or above (the answer would cover nearly everything), and
-   a linked worktree (`.git` is a file; where Claude Code reads it then is not measured). An answer already there is
-   left alone and reported (`wrote: false`).
+   folder's entry. Inside a git repository Claude Code reads the answer under the repository root (measured), so the
+   board answers only when that root IS the agent's folder. Refused, with a terminal ending: a root above the agent's
+   folder (the answer would cover every folder in that repository, a scope the person cannot see before pressing), and
+   a `.git` that is not a folder (worktree, submodule or link; where Claude Code reads it then is not measured). An
+   answer already there is left alone and reported (`wrote: false`). Same read-modify-write hazard as `trustFolder`.
 3. `engine/create.js` `declineAgentImports(name)`: the account the agent runs on, read from its job; reports
-   `already` and `repo` (the root, when it differs from the folder).
+   `already`.
 4. `server.js` `POST /api/agent/<n>/decline-imports`: the person's page only (isViaScreen); the screen is read again
    (409 if the question has gone); an answer already on file while the dialog is still up is a 409 with no restart (a
-   restart would only bring the question back); otherwise write, restart, and say so, naming the repository when the
-   answer covers one. The thread route sends `importsAsk` from the same capture as the question.
+   restart would only bring the question back); a screen that cannot be read is a 409 that says so; otherwise write,
+   restart, and say so. The thread route sends `importsAsk` from the same capture as the question, never in the setup
+   guide's thread.
 5. `engine/chat.js` `claudeMenuRefusal`: refuses at the dialog. An idle Claude card that has never taken a turn pays
    one fresh read for this question only, because the dialog draws at startup before the snapshot sees it. The
    sentence names the page's button only when the page draws it.
-6. `web/index.html`: the box, its resets on agent switch, and the press handler (capture-and-recheck, like its twins).
+6. `web/index.html`: the box, its receipt (cleared when the question goes, and on agent switch), and the press handler
+   (capture-and-recheck, like its twins). The receipt is inside the question box, so it is hidden with it once the
+   restart takes the question away.
 
 ## Residual, stated
+- An agent folder inside a repository rooted above it gets the terminal ending, not the button.
 - An idle card that HAS taken turns before and restarts into the dialog (say, imports were added to its CLAUDE.md) is
   not freshly read while it reads idle; it is covered once the snapshot reads needs_you.
 - Linux: the box's sentence names the terminal; the Open Terminal button is hidden there.

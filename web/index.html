@@ -13623,10 +13623,8 @@ window.kosmosMeasureScrollbarWidth();
              left to its Terminal, as the dialog warns about it. -->
         <div id="d-qask-imports" hidden>
           <button class="btn" id="d-qask-imports-no" type="button">Continue without them</button>
+          <p class="fmsg" id="d-qask-imports-msg" role="status" aria-live="polite"></p>
         </div>
-        <!-- Outside the box, like the Trust & Restart receipt: the press restarts the agent, the next poll hides the box,
-             and the receipt (which can say the answer covers a whole repository) must stay readable. -->
-        <p class="fmsg" id="d-qask-imports-msg" role="status" aria-live="polite"></p>
         <!-- #4607: Codex's "Hooks need review", answered here by the person (never by a typed message, #4589). The
              render unhides it only when the thread route sends body.codexHooks. Two choices; leaving it is not
              pressing either. Self-contained, like the Trust & Restart above. -->
@@ -44192,6 +44190,7 @@ async function paintTalk(sessionName, agentName) {
   if (qTrust) qTrust.hidden = true;
   const qImports = document.getElementById('d-qask-imports');
   if (qImports) qImports.hidden = true;
+  if (!(body.asking && body.importsAsk)) { const m = document.getElementById('d-qask-imports-msg'); if (m) m.textContent = ''; }
   const qCodex = document.getElementById('d-qask-codex');
   if (qCodex) qCodex.hidden = true;
   /* A line left from an earlier answer goes with the question it answered (review round 1). */

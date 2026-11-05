@@ -11016,7 +11016,7 @@ const server = http.createServer(async (req, res) => {
         try { view = chat.viewport(clean, safeRoster()); } catch { view = null; }
         const unread = !view || typeof view.text !== 'string';
         if (unread || !importsDialogIn(view.text)) {
-          sendJson(res, 409, { ok: false, because: unread && view && view.because ? view.because : 'it is no longer asking this' });
+          sendJson(res, 409, { ok: false, because: unread ? 'we could not read its screen just now, so nothing was changed' + (view && view.because ? ': ' + view.because : '') : 'it is no longer asking this' });
           return;
         }
         const wrote = create.declineAgentImports(clean);
@@ -11028,13 +11028,12 @@ const server = http.createServer(async (req, res) => {
           return;
         }
         process.stdout.write(`decline-imports: ${JSON.stringify(clean)} starts without its outside imports\n`);
-        const repoNote = wrote.repo ? ` The answer is saved for the whole git repository at ${wrote.repo}, so other agents there on this account start without them too.` : '';
         let out;
         try { out = removal.restart(clean, 'restart', { startIfDead: true, quiet: true }); }
         catch (err) { sendJson(res, 500, { ok: false, because: 'your answer is saved, but we could not restart this agent', detail: String((err && err.message) || err) }); return; }
         /* The restart's own sentence says it will have its current instructions, which is the opposite of this answer. */
-        if (out.outcome === removal.OUTCOME.RESTARTED) { sendJson(res, 200, { ok: true, ...out, because: 'It is starting without those files.' + repoNote }); return; }
-        sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ok: out.outcome !== removal.OUTCOME.REFUSED, ...out, because: 'Your answer is saved. ' + (out.because || '') + repoNote });
+        if (out.outcome === removal.OUTCOME.RESTARTED) { sendJson(res, 200, { ok: true, ...out, because: 'It is starting without those files.' }); return; }
+        sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ok: out.outcome !== removal.OUTCOME.REFUSED, ...out, because: 'Your answer is saved. ' + (out.because || '') });
       })
       .catch(() => sendJson(res, 400, { ok: false, because: 'we could not read that request' }));
     return;
@@ -20435,7 +20434,7 @@ const server = http.createServer(async (req, res) => {
       codexHooks, // #4607
       /* kosmos#8039: Claude Code's external imports question, so the page offers "Continue without them". From the same
          fresh capture as the question. */
-      importsAsk: !!(asking && !guideThread && card && card.runner === 'claude' && card.reachedByChannel !== true && view && typeof view.text === 'string' && importsDialogIn(view.text)),
+      importsAsk: !!(asking && !guideThread && card && String(card.runner || 'claude') === 'claude' && card.reachedByChannel !== true && view && typeof view.text === 'string' && importsDialogIn(view.text)),
       /* #1629: the page draws a composer under a question, and for the trust
          dialog that invites the one keystroke that ends the session. The
          route says so up front, in the same sentence the send refusal uses,
