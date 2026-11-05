@@ -13,10 +13,10 @@ import ImageIO
 // its session cookie; the board's own routes then answer through the tunnel.
 enum Board {
     /// Whether a native list tab (Tasks, Projects) shows the Agents tab's connection screen (BoardStates) in place of
-    /// its own list or wait: the board neither live nor on its first connect, and no list to show. As the Agents tab
-    /// decides it (a list it has stays; with none, BoardStates). kosmos#8054.
-    static func showsConnectionScreen(liveOrStarting: Bool, hasList: Bool) -> Bool {
-        !liveOrStarting && !hasList
+    /// its own list or wait. kosmos#8054. `keepsList` is `Phase.keepsList`, the phases in which a list already shown
+    /// stays (AgentsView.shownList).
+    static func showsConnectionScreen(liveOrStarting: Bool, keepsList: Bool, hasList: Bool) -> Bool {
+        !liveOrStarting && !(hasList && keepsList)
     }
 
     // MARK: - Requests
