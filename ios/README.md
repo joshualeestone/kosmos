@@ -91,13 +91,15 @@ builds it on GitHub's macOS runner, which has one.
 - `Kosmos/Assets.xcassets` holds `AppIcon` (a byte-for-byte copy of `assets/Kosmos-1024.png`:
   1024 px, full bleed, no transparency; iOS makes every smaller size from it) and
   `LaunchBackground`, the app's own ground (`Palette.ground`: `#faf9f7` light, `#0c0d0f` dark),
-  and `LaunchOrb`, the KOSMOS orb's still frame (the one Reduce Motion shows, K facing), 120 pt,
-  deep gold `#9c741b` light and `#e3b341` dark (kosmos#7945; it was navy `#17233D`, which flashed
-  before every launch on the light sign-in and Agents screens). The PNGs are drawn from `OrbLogic`
-  as `KosmosOrb` draws its still frame, by `ios/tools/render-launch-orb.sh`; `LogicTests/run-orb.sh`
-  draws them again and fails if the committed ones differ, so redraw them when `OrbLogic` changes.
+  and `LaunchSweep`, the Sweep loader's ring of eight dots as Reduce Motion holds it (every dot full size), 20 pt,
+  deep gold `#9c741b` light and `#e3b341` dark (kosmos#7945; it was navy `#17233D`, which flashed before every
+  launch, and then the 120 pt orb, which jumped to the small "Connecting..." ring after it). It is the same ring, the
+  same size and the same place as `SweepDots` on the Agents tab's wait to connect, which is centred on the screen
+  (not the space between the bars) so the two line up on every iPhone. The PNGs are drawn from `SweepLogic` by
+  `ios/tools/render-launch-sweep.sh`; `LogicTests/run-sweep.sh` draws them again and fails if the committed ones
+  differ, so redraw them when `SweepLogic` changes.
 - `Kosmos-Info.plist` holds the launch screen (`UILaunchScreen` > `UIColorName =
-  LaunchBackground`, `UIImageName = LaunchOrb`) and `ITSAppUsesNonExemptEncryption = false`
+  LaunchBackground`, `UIImageName = LaunchSweep`) and `ITSAppUsesNonExemptEncryption = false`
   (#6262: the app uses only standard HTTPS, and without the key every TestFlight build stops at an
   export-compliance question). Everything else in the Info.plist is generated from build settings.
 - `ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon` wires the icon.

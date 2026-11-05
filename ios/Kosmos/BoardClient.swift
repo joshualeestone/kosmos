@@ -320,6 +320,9 @@ final class BoardClient: ObservableObject {
         // Screenshots only (a Debug build; Release has no such switch): KOSMOS_SAMPLE_AGENTS=1 shows invented agents
         // (the names in Mona Lisa's design) without connecting, so no real account is ever in a picture.
         if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_AGENTS"] == "1" {
+            // kosmos#7945 follow-up: KOSMOS_SAMPLE_REACHING=1 stays on the first wait to connect ("Connecting..."), so a
+            // simulator can show it beside the launch screen and the two can be compared.
+            if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_REACHING"] == "1" { return }
             // Through the real parser, as /api/status rows from a Mac that sends its words ready-made (#7004).
             // kosmos#7030: with Today's fields (the reason, the project's name, when the wait began), times relative to now.
             let iso = { (minutes: Double) in ISO8601DateFormatter().string(from: Date().addingTimeInterval(-minutes * 60)) }

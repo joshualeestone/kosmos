@@ -1,10 +1,13 @@
 import Foundation
 import CoreGraphics
 import ImageIO
-// kosmos#7945: draws the launch screen's orb (LaunchOrb.imageset) from OrbLogic itself, its still frame (the one
-// Reduce Motion shows, K facing), as KosmosOrb.canvas draws it: deep gold #9c741b (light), #e3b341 (dark), 1x 2x 3x.
-//   render <out-dir> <side-pt>          writes the six PNGs (ios/tools/render-launch-orb.sh)
-//   render --check <set-dir> <side-pt>  compares them, decoded, with the committed ones (ios/LogicTests/run-orb.sh)
+// kosmos#7945 follow-up (Josh 11-04 on build 43: the big launch orb, then a small one, then the app; he wants the one
+// small ring of dots and no jump): draws the launch screen's mark (LaunchSweep.imageset) from SweepLogic itself, the
+// still frame Reduce Motion shows at its strongest (all eight dots full size, calmHigh), at SweepDots' default side,
+// so the launch screen and the Agents tab's "Connecting..." wait show the same ring in the same place. Deep gold
+// #9c741b (light), #e3b341 (dark), Palette.starGold as SweepDots draws it; 1x 2x 3x.
+//   render <out-dir> <side-pt>          writes the six PNGs (ios/tools/render-launch-sweep.sh)
+//   render --check <set-dir> <side-pt>  compares them, decoded, with the committed ones (ios/LogicTests/run-sweep.sh)
 // The check compares PIXELS, not file bytes: another macOS or Xcode can encode the same picture differently, and
 // can anti-alias an edge a step apart, so a channel may differ by a few levels. Beyond that it allows almost nothing:
 // at most 8 channels (or one in 50,000) more than 8 levels off, so one 2 px dot added to a 1x picture fails it.
@@ -19,20 +22,13 @@ let dir = rest[0]
 let golds: [(String, (Double, Double, Double))] = [("light", (0x9c, 0x74, 0x1b)), ("dark", (0xe3, 0xb3, 0x41))]
 
 func draw(_ rgb: (Double, Double, Double), _ scale: Double) -> CGImage {
-  let px = Int(side * scale)
+  let px = Int((side * scale).rounded())
   let ctx = CGContext(data: nil, width: px, height: px, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
   ctx.translateBy(x: 0, y: Double(px)); ctx.scaleBy(x: scale, y: -scale)
-  let groups = OrbLogic.groups(OrbLogic.stillDots, side: side, scale: scale)
-  for (k, g) in groups.enumerated() where !g.isEmpty {
-    let a = (Double(k) + 0.5) / Double(OrbLogic.steps)
-    // One path per opacity group, filled once, so dots that overlap inside a group merge rather than stack their alpha.
-    let path = CGMutablePath()
-    for c in g {
-      if c.radius * scale < 1 { let s = c.radius * 1.7724538509055159; path.addRect(CGRect(x: c.cx - s/2, y: c.cy - s/2, width: s, height: s)) }
-      else { path.addEllipse(in: CGRect(x: c.cx - c.radius, y: c.cy - c.radius, width: c.radius*2, height: c.radius*2)) }
-    }
-    ctx.setFillColor(CGColor(srgbRed: rgb.0/255, green: rgb.1/255, blue: rgb.2/255, alpha: a))
-    ctx.addPath(path); ctx.fillPath(using: .winding)
+  // t = 0 with Reduce Motion: every dot at calmHigh and full size, the ring at rest (SweepLogic.calmOpacity(0)).
+  for d in SweepLogic.dots(0, side: side, reduceMotion: true) {
+    ctx.setFillColor(CGColor(srgbRed: rgb.0/255, green: rgb.1/255, blue: rgb.2/255, alpha: d.opacity))
+    ctx.fillEllipse(in: CGRect(x: d.x - d.diameter / 2, y: d.y - d.diameter / 2, width: d.diameter, height: d.diameter))
   }
   return ctx.makeImage()!
 }
@@ -49,7 +45,7 @@ func pixels(_ image: CGImage) -> [UInt8] {
 var stale = 0
 for (name, rgb) in golds {
   for scale in [1.0, 2.0, 3.0] {
-    let file = "launch-orb-\(name)\(scale == 1 ? "" : "@\(Int(scale))x").png"
+    let file = "launch-sweep-\(name)\(scale == 1 ? "" : "@\(Int(scale))x").png"
     let url = URL(fileURLWithPath: dir).appendingPathComponent(file)
     let image = draw(rgb, scale)
     if checking {
@@ -68,5 +64,5 @@ for (name, rgb) in golds {
     }
   }
 }
-if stale > 0 { print("run ios/tools/render-launch-orb.sh"); exit(1) }
+if stale > 0 { print("run ios/tools/render-launch-sweep.sh"); exit(1) }
 if !checking { print("ok") }
