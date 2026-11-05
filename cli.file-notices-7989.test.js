@@ -84,6 +84,14 @@ test('--hook prints only the JSON on a 200, exits 0, and keeps the ids it was ha
   assert.match(seen[1].url, /&ack=aaaaaaaaaaaa,bbbbbbbbbbbb$/, 'the next call sends them back');
 }, { status: 200, text: HOOKBODY }));
 
+test('--hook: a count-only answer (no ids) prints the JSON and leaves an empty ack line', () => withStubBoard(async (port) => {
+  const f = ackPath();
+  fs.writeFileSync(f, IDS + '\n');
+  const out = await runCli(['file-notices', '--hook', '--ack-file', f], envFor(port));
+  assert.deepEqual([out.code, out.stdout], [0, HOOKJSON + '\n']);
+  assert.equal(fs.readFileSync(f, 'utf8'), '\n');
+}, { status: 200, text: 'ack:\n' + HOOKJSON }));
+
 test('--ack-file: emptied on an empty 200, left alone on a refusal or bad answer, and ignored when it holds other characters', async () => {
   const f = ackPath();
   fs.writeFileSync(f, IDS + '\n');
