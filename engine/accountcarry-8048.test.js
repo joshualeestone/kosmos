@@ -372,3 +372,14 @@ test('kosmos#8063 review 3: a script found only through the agent folder must be
   /* CONTROL: a full path that is missing still reads as not running here, as before. */
   assert.deepEqual(carry.losses(w('bash /nonexistent-8063/g.sh'), none, P), { ok: true, skills: [], changed: [], hooks: [], hooksChanged: [] });
 });
+
+test('kosmos#8063 review 4: a named pipe in a skill or as a hook script is never opened', { timeout: 15000 }, () => {
+  const { execFileSync } = require('node:child_process');
+  const d = folder({ skills: ['piped'], settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'bash $CLAUDE_CONFIG_DIR/hooks/pipe.sh' }] }] } }) });
+  try { execFileSync('mkfifo', [path.join(d, 'skills', 'piped', 'pipe')]); } catch { return; }   // no mkfifo here: nothing to show
+  fs.mkdirSync(path.join(d, 'hooks')); execFileSync('mkfifo', [path.join(d, 'hooks', 'pipe.sh')]);
+  /* Before, opening either pipe blocked the thread for good, and this test timed out. */
+  const l = carry.losses(d, folder({ skills: ['piped'] }), H);
+  assert.equal(l.ok, true, JSON.stringify(l));
+  assert.deepEqual(l.hooks, ['pipe.sh'], 'the hook whose script is a pipe was not named');
+});
