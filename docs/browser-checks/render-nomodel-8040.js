@@ -173,6 +173,28 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await pressCreate(p, 'Stopped by this check');
       await p.unroute('**/api/agents');
       chk(!!sent && sent.name === 'Nadia' && sent.instructions === 'My own instructions, typed before the refusal.', size + ': and pressing Create agent sends them', JSON.stringify(sent && { name: sent.name, hasInstr: !!sent.instructions }));
+      // A model read off Claude is not put back over OpenAI's saved pick (round 6); one picked on OpenAI is.
+      const openaiKept = await p.evaluate(() => {
+        const prov = document.getElementById('create-provider');
+        const was = { value: prov.value, pref: CREATE_PREF_OPENAI_MODEL, paint: window.paintOpenaiCreateModel };
+        const hasOpenai = [...prov.options].some((o) => o.value === 'openai');
+        if (!hasOpenai) { const o = document.createElement('option'); o.value = 'openai'; o.textContent = 'OpenAI'; o.dataset.checkAdded = '1'; prov.appendChild(o); }
+        let painted = 0;
+        window.paintOpenaiCreateModel = () => { painted += 1; };
+        prov.value = 'openai';
+        try {
+          CREATE_PREF_OPENAI_MODEL = 'gpt-saved';
+          createKeptRestore({ provider: 'claude', account: '', model: 'claude-kept' });
+          const fromClaude = { pref: CREATE_PREF_OPENAI_MODEL, painted };
+          createKeptRestore({ provider: 'openai', account: '', model: 'gpt-kept' });
+          return { fromClaude, fromOpenai: { pref: CREATE_PREF_OPENAI_MODEL, painted } };
+        } finally {
+          window.paintOpenaiCreateModel = was.paint; CREATE_PREF_OPENAI_MODEL = was.pref; prov.value = was.value;
+          const added = prov.querySelector('option[data-check-added]'); if (added) added.remove();
+        }
+      });
+      chk(openaiKept.fromClaude.pref === 'gpt-saved' && openaiKept.fromClaude.painted === 0, size + ': a model kept from Claude does not replace OpenAI\'s saved pick', JSON.stringify(openaiKept));
+      chk(openaiKept.fromOpenai.pref === 'gpt-kept' && openaiKept.fromOpenai.painted === openaiKept.fromClaude.painted + 1, size + ': CONTROL: a model kept from OpenAI is put back', JSON.stringify(openaiKept));
       // CONTROL: without the link, New agent starts fresh, and so does the one after a return.
       await p.evaluate(() => { showTab('agents'); document.getElementById('new-agent').click(); });
       await p.waitForTimeout(300);
@@ -493,12 +515,15 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       l = await line();
       chk(!l.keyStep && l.text === '', 'late: landing while on another provider, it is not there on the way back', JSON.stringify(l));
 
-      await press(refused);
-      await p.evaluate(() => acctPick('claude'));   // Claude picked again mid-add: back at the picker, where this line shows
-      await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 });
+      // Moved on to the subscription step before a no-Claude-Code answer lands: it must not pull them back to the picker.
+      await press(noCode);
+      await awayAndBack();
+      await p.click('#acct-claude-pick-sub');
+      await p.waitForSelector('#acct-claude-sub-step', { state: 'visible', timeout: 8000 });
       await land();
-      l = await line();
-      chk(!l.keyStep && l.text === '', 'late: Claude picked again before it lands, no Adding line is left at the picker', JSON.stringify(l));
+      const sub = await p.evaluate(() => ({ sub: !document.getElementById('acct-claude-sub-step').hidden, picker: !document.getElementById('acct-claude-pick').hidden,
+        focus: document.activeElement && document.activeElement.id, text: document.getElementById('acct-claude-msg').textContent }));
+      chk(sub.sub && !sub.picker && sub.focus !== 'acct-claude-pick-sub' && sub.text === '', 'late: on the subscription step when no Claude Code lands, they stay there, with no line', JSON.stringify(sub));
 
       await press(refused);
       await p.evaluate(() => { closeAcctAdd(); openAcctAdd(); });

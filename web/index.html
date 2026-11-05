@@ -36952,12 +36952,8 @@ document.getElementById('acct-claude-go').addEventListener('click', async () => 
        true at the picker, and it is where the line below sends them anyway. */
     const keyStep = document.getElementById('acct-claude-key-step');
     const flow = document.getElementById('acct-claude-flow');
-    if (visit !== ACCT_ADD_VISIT || flow.hidden || (keyStep.hidden && !(err && err.needsRunner))) {
-      /* The line this press wrote must not stay behind it (re-picking Claude mid-add lands at the picker, where the line
-         shows). Only on this visit: a new visit's own line is not this press's. */
-      if (visit === ACCT_ADD_VISIT && msg.textContent === 'Adding…') msg.textContent = '';
-      return;
-    }
+    const atPicker = !document.getElementById('acct-claude-pick').hidden;   // round 6: not the subscription step they moved on to
+    if (visit !== ACCT_ADD_VISIT || flow.hidden || (keyStep.hidden && !(err && err.needsRunner && atPicker))) return;
     msg.textContent = asSentence(String((err && err.message) || 'We could not add that account.'));   // kosmos#8040: the route's words start in lower case
     /* The route answers needsRunner when Claude Code is not on this computer. The
        key path has no install button of its own, so send the person back to the
@@ -67589,6 +67585,9 @@ function createKeptRestore(kept) {
   if (has(acct, kept.account)) acct.value = kept.account;
   const model = document.getElementById('create-model');
   if (prov === 'openai') {
+    /* Only a model picked on OpenAI is put back: one read off Claude is not in this list, and would replace the saved
+       pick loadCreateExtras just painted (round 6). */
+    if (kept.provider !== 'openai') { swarmCreatePaint(); return; }
     CREATE_PREF_OPENAI_MODEL = kept.model || '';   // the model row is per account, and this is the first paint that has one
     paintOpenaiCreateModel();
   } else if (!vendorPicksModel(prov) && has(model, kept.model)) {
