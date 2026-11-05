@@ -127,7 +127,7 @@ check(near(SweepLogic.look(24, dot: 5).opacity, SweepLogic.look(0, dot: 5).opaci
 do {
     let sites: [(file: String, has: String, what: String)] = [
         ("ChatFiles.swift", "case .loading:\n            SweepDots(size: 16, scales: false, framesPerSecond: 15, stillWhenReduced: true)", "an attachment loading: the dots, fixed 16 pt, 15 a second and still with Reduce Motion in the thread"),
-        ("ChatView.swift", "HStack(spacing: 6) {\n                    SweepDots(size: 16)", "Loading earlier messages in a chat"),
+        ("ChatView.swift", "HStack(spacing: 6) {\n                    SweepDots(size: 16, framesPerSecond: 15, stillWhenReduced: true)", "Loading earlier messages in a chat: the orb's rate and stillness on the thread"),
         ("ChatView.swift", "HStack(spacing: 6) {\n                            SweepDots(size: 16)", "Adding a file in a chat"),
         ("RoomView.swift", "HStack(spacing: 6) {\n                            SweepDots(size: 16)", "Adding a file in a room"),
         ("ComposerExtras.swift", "if dictation.finishing { SweepDots(size: 16, scales: false) }", "dictation finishing: the dots at the icon's fixed size"),
