@@ -96,3 +96,12 @@ test('kosmos#8048: a target that cannot be read answers "cannot tell" (ok: false
   assert.equal(j.ok, false, 'an unreadable target read as nothing lost: ' + JSON.stringify(j));
   assert.match(j.because, /account it would move to/);
 });
+
+test('kosmos#8048: an account named by its label (any case) or "main" resolves to its folder, and says which', async () => {
+  const byLabel = await plan({ name: 'ada', account: 'Spare' });
+  assert.deepEqual([byLabel.code, byLabel.j.dir, byLabel.j.label, byLabel.j.skills], [200, SPARE, 'spare', ['design-shots']], JSON.stringify(byLabel.j));
+  const main = await plan({ name: 'bo', account: 'main' });
+  assert.deepEqual([main.j.dir, main.j.label], [MAIN, 'the main account']);
+  assert.equal((await plan({ name: 'ada', account: 'nope' })).code, 404, 'an unknown label resolved');
+  assert.equal((await plan({ name: 'ada', account: 'key' })).code, 404, 'an API key account resolved by its label');
+});
