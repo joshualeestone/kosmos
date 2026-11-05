@@ -28,6 +28,22 @@ enum SweepLogic {
     /// others trailing behind it), and where every SweepDots starts its loop when it appears, so the launch picture is
     /// the wait's first frame (ios/tools/launch-sweep draws it; run-sweep.sh checks both use this).
     static let launchAt = peakAt * loop
+    /// Reduce Motion: the seconds the ring takes, once shown, to fade from the launch frame into the pulse, in place.
+    static let calmFrom = 0.6
+
+    /// The dots `elapsed` seconds after a ring appeared: the loop from `launchAt` on, so its first frame is the launch
+    /// screen's. With Reduce Motion the pulse is reached by a fade from that same frame over `calmFrom` seconds (a fade,
+    /// nothing moves), so the hand-over from launch does not switch looks either.
+    static func shown(_ elapsed: Double, side: Double, reduceMotion: Bool) -> [Dot] {
+        let e = max(0, elapsed)
+        // 24 s holds a whole number of both loops (20 of 1.2 s, 15 of 1.6 s): no jump at the wrap.
+        let now = dots((e + launchAt).truncatingRemainder(dividingBy: 24), side: side, reduceMotion: reduceMotion)
+        guard reduceMotion, e < calmFrom else { return now }
+        let k = easeInOut(e / calmFrom)
+        return zip(dots(launchAt, side: side, reduceMotion: false), now).map { a, b in
+            Dot(x: b.x, y: b.y, diameter: a.diameter + (b.diameter - a.diameter) * k, opacity: a.opacity + (b.opacity - a.opacity) * k)
+        }
+    }
 
     struct Dot: Equatable {
         var x: Double        // centre, in the box's points

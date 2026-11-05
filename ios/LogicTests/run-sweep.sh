@@ -72,28 +72,37 @@ grep -qE '^[[:space:]]*static let todayTab = false([[:space:]]|$)' "$src/ShellLo
   || { echo "VERDICT: FAIL (AppTabs.todayTab is no longer off in shipped builds: the launch ground (#7945) assumed a native first screen)"; exit 1; }
 echo "ok   a shipped launch opens on a native screen (Today off), so the launch ground matches it"
 # One ring, one size, one place (Josh 11-04 on build 43: the big orb, then a small one, was a jump). The launch mark is
-# drawn at SweepDots' default side, and the Agents tab's wait to connect centres its ring on the SCREEN, as a launch
-# image is, not on the space between the bars, which differs by iPhone.
+# drawn at SweepDots' default side, and the first waits to connect (ConnectingWait) centre their ring on the SCREEN, as
+# a launch image is, not on the space between the bars, which differs by iPhone.
 side=$(grep -oE 'var size: CGFloat = [0-9.]+' "$src/SweepDots.swift" | grep -oE '[0-9.]+$' || true)
 render_side=$(grep -oE 'LaunchSweep.imageset" [0-9.]+$' "$here/../tools/render-launch-sweep.sh" | grep -oE '[0-9.]+$' || true)
 [ -n "$side" ] && [ "$side" = "$render_side" ] \
   || { echo "VERDICT: FAIL (the launch mark is drawn at ${render_side:-?} pt but SweepDots' default side is ${side:-?} pt)"; exit 1; }
-# The wait's code with its // comments removed, so a comment cannot satisfy any of this. Its shape: the ring is the view
-# that is centred (no VStack, which would centre ring and words together and put the ring above the launch mark), the
-# words ride in an overlay 8 pt below it, the ring keeps one size at every text size (scales: false, as the launch
+# ConnectingWait's code with its // comments removed, so a comment cannot satisfy any of this. Its shape: the ring is the
+# view that is centred (no stack, which would centre ring and words together and put the ring above the launch mark),
+# the words ride in an overlay 8 pt below it, the ring keeps one size at every text size (scales: false, as the launch
 # picture is fixed), and the frame that fills the space is then stretched over the safe areas, in that order.
+wait_view=$(awk '/^struct ConnectingWait: View/{on=1} on{print} on&&/^}$/{exit}' "$src/SweepDots.swift" | sed 's#//.*##')
+order=$(printf '%s\n' "$wait_view" | grep -oE 'SweepDots\([^)]*\)|\.overlay\(alignment: \.bottom\)|Text\(words\)|\.alignmentGuide\(\.bottom\) \{ _ in -8 \}|\.frame\(maxWidth: \.infinity, maxHeight: \.infinity\)|\.ignoresSafeArea\(\)|VStack|HStack|ZStack' | tr '\n' '|' || true)
+[ "$order" = 'SweepDots(scales: false)|.overlay(alignment: .bottom)|Text(words)|.alignmentGuide(.bottom) { _ in -8 }|.frame(maxWidth: .infinity, maxHeight: .infinity)|.ignoresSafeArea()|' ] \
+  || { echo "VERDICT: FAIL (ConnectingWait is no longer the ring alone, one size, centred on the screen, words in an overlay 8 pt below it; read: ${order:-nothing}; so it would not sit where the launch mark is)"; exit 1; }
+# Both first waits that can follow the launch screen draw it: Agents (its reaching wait) and Projects (a launch from a
+# room notification opens there).
 reaching=$(awk '/private var reaching: some View/{on=1} on{print} on&&/^    }$/{exit}' "$src/AgentsView.swift" | sed 's#//.*##')
-order=$(printf '%s\n' "$reaching" | grep -oE 'SweepDots\([^)]*\)|\.overlay\(alignment: \.bottom\)|Text\("Connecting|\.alignmentGuide\(\.bottom\) \{ _ in -8 \}|\.frame\(maxWidth: \.infinity, maxHeight: \.infinity\)|\.ignoresSafeArea\(\)|VStack|HStack|ZStack' | tr '\n' '|' || true)
-[ "$order" = 'SweepDots(scales: false)|.overlay(alignment: .bottom)|Text("Connecting|.alignmentGuide(.bottom) { _ in -8 }|.frame(maxWidth: .infinity, maxHeight: .infinity)|.ignoresSafeArea()|' ] \
-  || { echo "VERDICT: FAIL (AgentsView's reaching wait is no longer the ring alone, one size, centred on the screen, words in an overlay 8 pt below it; read: ${order:-nothing}; so it would not sit where the launch mark is)"; exit 1; }
+printf '%s\n' "$reaching" | grep -qE '^[[:space:]]*ConnectingWait\(words: "Connecting\\u\{2026\}"\)[[:space:]]*$' \
+  || { echo "VERDICT: FAIL (the Agents tab's wait to connect is no longer ConnectingWait, so it would not sit where the launch mark is)"; exit 1; }
+sed 's#//.*##' "$src/ProjectsView.swift" | grep -qE 'ConnectingWait\(words: "Reaching your computer\\u\{2026\}"\)' \
+  || { echo "VERDICT: FAIL (the Projects tab's first wait, where a launch from a room notification opens, is no longer ConnectingWait)"; exit 1; }
 # One place draws the wait (BoardStates' body): two would be two view identities, and a phase change from one to the
 # other mid-wait would restart the loop at its first frame (SweepDots runs from when it appears).
 uses=$(awk '/^struct BoardStates/{on=1} on{print} on&&/^}$/{exit}' "$src/AgentsView.swift" | sed 's#//.*##' \
   | grep -vE 'private var reaching: some View' | grep -oE '(^|[^A-Za-z_])reaching([^A-Za-z_]|$)' | wc -l | tr -d ' ' || true)
 [ "$uses" = 1 ] \
   || { echo "VERDICT: FAIL (BoardStates draws the wait to connect in ${uses:-?} places, not one, so a change of phase mid-wait restarts its ring)"; exit 1; }
-grep -qE 'let t = \(max\(0, tl\.date\.timeIntervalSince\(shownAt\)\) \+ SweepLogic\.launchAt\)' "$src/SweepDots.swift" \
-  || { echo "VERDICT: FAIL (SweepDots no longer starts its loop at SweepLogic.launchAt when it appears, so its first frame is not the launch screen's)"; exit 1; }
+# SweepDots draws SweepLogic.shown from when it appeared, whose first frame is the launch screen's (sweep/main.swift).
+grep -qE 'let elapsed = tl\.date\.timeIntervalSince\(shownAt\)' "$src/SweepDots.swift" \
+  && grep -qE 'SweepLogic\.shown\(elapsed, ' "$src/SweepDots.swift" \
+  || { echo "VERDICT: FAIL (SweepDots no longer draws SweepLogic.shown from when it appeared, so its first frame is not the launch screen's)"; exit 1; }
 echo "ok   the launch mark is SweepDots' $side pt ring at its first frame, and the wait to connect centres it on the screen as the launch screen does"
 # The launch mark's PNGs, drawn again and compared, decoded, with the committed ones (pixels, with a small tolerance,
 # not file bytes), so a change to SweepLogic cannot leave the launch screen behind (ios/tools/render-launch-sweep.sh).

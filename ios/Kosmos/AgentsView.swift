@@ -437,21 +437,10 @@ struct BoardStates<Empty: View>: View {
     }
 
     // First connect, nothing shown yet (spec frame 3).
-    // kosmos#7945 follow-up (Josh 11-04, build 43): the ring is centred on the SCREEN, where the launch screen draws
-    // the same ring (LaunchSweep, a launch image is always centred on the screen), so launch hands over to this with no
-    // jump. Centred between the bars instead, it would sit a few points off, by a different amount on each iPhone. The
-    // words hang below the ring without moving it (ios/LogicTests/run-sweep.sh checks this centring). Today's tab shares
-    // this view (BoardStates), so its wait is centred on the screen too; shipped builds have Today off.
+    // kosmos#7945 follow-up: drawn as the launch screen draws its ring (ConnectingWait, in SweepDots.swift), so launch
+    // hands over to it with no jump. Today's tab shares this view (BoardStates); shipped builds have Today off.
     private var reaching: some View {
-        SweepDots(scales: false)   // kosmos#7954: the board's ring of dots, not the orb; hidden from VoiceOver (the words say what is loading); one size, the launch screen's
-            .overlay(alignment: .bottom) {
-                Text("Connecting\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
-                    .fixedSize()
-                    .alignmentGuide(.bottom) { _ in -8 }   // its top 8 pt below the ring, as the old VStack's spacing
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .ignoresSafeArea()
-            .accessibilityElement(children: .combine)
+        ConnectingWait(words: "Connecting\u{2026}")   // kosmos#7954: the board's ring of dots, not the orb
     }
 
     private func message(_ title: String, detail: String, retry: Bool = false) -> some View {

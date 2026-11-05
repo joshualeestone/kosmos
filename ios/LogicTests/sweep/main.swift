@@ -100,6 +100,24 @@ check(launch[7].opacity > launch[6].opacity && launch[6].opacity > launch[5].opa
       && near(launch[2].opacity, SweepLogic.restOpacity) && near(launch[3].opacity, SweepLogic.restOpacity),
       "the launch frame: dots 7, 6, 5 trail behind dot 0, dimming; dot 1 starts to light; dots 2 and 3 at rest")
 
+// SweepLogic.shown, what SweepDots draws: its first frame is the launch frame, with or without Reduce Motion; with Reduce
+// Motion it fades into the pulse over calmFrom, in place, and is the pulse from then on.
+func same(_ a: [SweepLogic.Dot], _ b: [SweepLogic.Dot]) -> Bool { zip(a, b).allSatisfy { near($0.x, $1.x) && near($0.y, $1.y) && near($0.diameter, $1.diameter) && near($0.opacity, $1.opacity) } }
+check(same(SweepLogic.shown(0, side: side, reduceMotion: false), launch) && same(SweepLogic.shown(0, side: side, reduceMotion: true), launch),
+      "a ring's first frame is the launch frame, with or without Reduce Motion")
+let F = SweepLogic.calmFrom, A = SweepLogic.launchAt
+check(same(SweepLogic.shown(F, side: side, reduceMotion: true), SweepLogic.dots(F + A, side: side, reduceMotion: true))
+      && same(SweepLogic.shown(5, side: side, reduceMotion: true), SweepLogic.dots(5 + A, side: side, reduceMotion: true)),
+      "Reduce Motion: the pulse from calmFrom on")
+let halfway = SweepLogic.shown(F / 2, side: side, reduceMotion: true), calmThen = SweepLogic.dots(F / 2 + A, side: side, reduceMotion: true)
+check(zip(zip(halfway, launch), calmThen).allSatisfy { p, c in
+        let (h, l) = p
+        return near(h.x, l.x) && near(h.y, l.y) && h.opacity >= min(l.opacity, c.opacity) - 1e-9 && h.opacity <= max(l.opacity, c.opacity) + 1e-9 }
+      && !same(halfway, launch) && !same(halfway, calmThen),
+      "Reduce Motion: halfway, every dot between the launch frame and the pulse, none moved")
+check(same(SweepLogic.shown(2.5, side: side, reduceMotion: false), SweepLogic.dots(2.5 + A, side: side, reduceMotion: false)),
+      "without Reduce Motion, the loop from launchAt on")
+
 // The view wraps the clock at 24 s, a whole number of both loops, so the wrap shows no jump.
 check(near(SweepLogic.look(24, dot: 5).opacity, SweepLogic.look(0, dot: 5).opacity) && near(SweepLogic.calmOpacity(24), SweepLogic.calmOpacity(0)),
       "24 s is a whole number of both loops")

@@ -20,8 +20,8 @@ the bars' heights differ by iPhone), so the wait moves to screen centre instead.
 Review 1: the first version showed Reduce Motion's still ring (eight equal dots at .85), which the moving sweep (one
 lit dot, seven faint) would visibly lighten at the handover; now the launch picture is the sweep's first frame.
 Remaining mismatch: with Reduce Motion on, the wait pulses all eight dots together, so it changes look at the handover.
-Weakest premise: the Reduce Motion mismatch above, and that the simulator's handover matches a real iPhone's. (Text
-size: review 3 made this wait's ring one size at every text size, scales: false, its words still grow.) The bars still appear at the handover (they cannot be on a
+Weakest premise: that the simulator's handover matches a real iPhone's. (Text size: review 3 made this wait's ring one
+size at every text size; Reduce Motion: review 5 fades it from the launch frame into the pulse.) The bars still appear at the handover (they cannot be on a
 launch screen).
 
 ## Changes
@@ -70,3 +70,13 @@ wait's ignoresSafeArea removed (centre check), a wrong 2x PNG (stale check).
   centre, and the words run below it. Passes on iPhone 17e, iOS 27 (screen 390x844, ring centre y 422). Control: with
   the wait's ignoresSafeArea removed it FAILS (ring at y 431, 9 pt below), so a wrapper that moves it is caught.
 - README: the retry wait's ring still scales with text, and names the UI check.
+
+## Review 5 changes
+- ConnectingWait (SweepDots.swift): the wait's shape in one view, used by the Agents tab's reaching wait and the
+  Projects tab's first wait (a launch from a room notification opens on Projects; it showed the orb). Settings keeps the
+  orb: it never follows the launch screen. run-sweep.sh checks ConnectingWait's shape and both uses.
+- SweepLogic.shown: what SweepDots draws. Its first frame is the launch frame; with Reduce Motion it fades into the
+  pulse over calmFrom (0.6 s), in place. sweep/main.swift 27/27; mutants red (Projects back on the orb, Agents not
+  using ConnectingWait, the fade removed).
+- DEFERRED: the UI check reads the combined element's frame (ring top + words). If a later iOS reports that frame
+  differently, the check goes red, not green; measured on iOS 27.
