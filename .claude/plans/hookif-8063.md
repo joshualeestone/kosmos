@@ -40,7 +40,13 @@ class, a loss read as none.
 - The exec form's bare command name runs from PATH, as in the shell form.
 - `partlyRead` is said in the sentence, so the CLI does not claim a whole-folder comparison it did not make.
 
+## Review 4
+- Only a regular file is ever opened: a named pipe or device in a skill, or as a hook script, hashes as not a regular
+  file instead of blocking the board's thread (mutant hangs, killed by an alarm).
+
 ## Residual, stated
+- A run field written out at its default on one side (`timeout: 60` against none, `shell: "bash"` against none) reads
+  as a difference: a false loss, the safe direction, which asks for --accept-loss.
 - The relative and `$CLAUDE_PROJECT_DIR` resolution rests on the agent's hooks running in `workerDir(name)`: both
   launchers set it as the job's working folder (create.js plist, linuxjob.js unit), and the route test pins that the
   route passes it. A session that changes its own folder before a hook runs is not modelled.
