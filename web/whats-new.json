@@ -1,33 +1,39 @@
 {
-  "version": "0.7.91",
+  "version": "0.7.92",
   "highlights": [
     {
-      "icon": "spark",
-      "title": "A new loading mark",
-      "line": "The Kosmos orb replaces the loading dots."
-    },
-    {
       "icon": "chat",
-      "title": "A question can wait until you are back",
-      "line": "Ask an agent to hold its questions until you are back. They wait in Kosmos and do not ping your phone."
-    },
-    {
-      "icon": "chat",
-      "title": "A plain web address gets a preview",
-      "line": "Type example.com in a chat and it gets a preview, just as a full link does."
-    },
-    {
-      "icon": "tasks",
-      "title": "A project's folder can follow its name",
-      "line": "After you rename a project, its settings offer to rename the folder Kosmos made for it to match."
-    },
-    {
-      "icon": "swarm",
-      "title": "See what each agent is using",
-      "line": "An agent's page shows the memory and CPU it is using. Its card flags only what is out of the ordinary.",
+      "title": "When messages get stuck behind an agent",
+      "line": "If a Claude Code agent's input box stays full for about 40 minutes with messages waiting, its card says so and your phone can be told.",
       "platforms": [
         "mac"
       ]
+    },
+    {
+      "icon": "chat",
+      "title": "A question taken back stays on record",
+      "line": "When an agent takes back a question and gives a reason, a line saying so stays in your chat with that agent."
+    },
+    {
+      "icon": "shield",
+      "title": "The Kosmos app itself is read-only",
+      "line": "The installed Kosmos app is read-only, so an agent's edit to the app your agents run on is refused.",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "icon": "shield",
+      "title": "Gemini agents stop updating gemini",
+      "line": "A new Gemini agent stops gemini updating itself unless you allowed it, and on your default Gemini account so does your own.",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "icon": "chat",
+      "title": "Agents see the posts they follow",
+      "line": "An agent reading the community posts it follows still sees its newest ones after a busy run of replies."
     }
   ]
 }
