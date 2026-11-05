@@ -1099,9 +1099,27 @@ test('kosmos#8048: an agent stopped at its weekly limit, holding a commitment, i
   // A stale record (state unknown, stale: true) is not told as a current promise; the restart still is.
   const runS = automove.create({ file: fileFor() });
   const { d: dS, calls: cS } = deps({ cards: [atWall] });
-  dS.readCommitment = () => ({ ...promised, state: 'unknown', stale: true });
+  dS.readCommitment = () => ({ ...promised, state: 'unknown', stale: true, reportedAt: new Date(NOW - 10 * H).toISOString() });
   await twoTicks(runS, dS);
-  assert.match((cS.tells[0] || [])[1] || '', /pick its work back up\.$/, 'a stale record was told as a current promise');
+  assert.match((cS.tells[0] || [])[1] || '', / When it last reported, about 10 hours before the move, it had said it was committed to: watching the 0\.7\.92 release\.$/, 'a stale record was dropped, or told as a current promise');
+  // A record dated in the future (unknown, not stale) says nothing; the restart still is.
+  const runF = automove.create({ file: fileFor() });
+  const { d: dF, calls: cF } = deps({ cards: [atWall] });
+  dF.readCommitment = () => ({ ...promised, state: 'unknown' });
+  await twoTicks(runF, dF);
+  assert.match((cF.tells[0] || [])[1] || '', /pick its work back up\.$/, 'a future-dated record was told');
+  // Recovered: a working report from the agent after the mover first saw it at its limit means it is not moved.
+  const runW = automove.create({ file: fileFor() });
+  const { d: dW, calls: cW } = deps({ cards: [atWall] });
+  dW.workedAt = () => NOW + 500;   // between the first tick (NOW) and the second (NOW + 1000)
+  const rw = await twoTicks(runW, dW);
+  assert.deepEqual([rw.did, cW.starts], ['skipped', []], 'an agent that reported working after the mover saw it at its limit was moved');
+  // CONTROL: its last working report from before the wall does not hold it.
+  const runB = automove.create({ file: fileFor() });
+  const { d: dB, calls: cB } = deps({ cards: [atWall] });
+  dB.workedAt = () => NOW - 60 * 60 * 1000;
+  await twoTicks(runB, dB);
+  assert.equal(cB.starts.length, 1, 'a working report from before the wall held a stuck agent');
   // With no commitments record (the usual case: only an agent's own PUT writes one), the restart is still said.
   const run3 = automove.create({ file: fileFor() });
   const { d: d3, calls: c3 } = deps({ cards: [atWall] });

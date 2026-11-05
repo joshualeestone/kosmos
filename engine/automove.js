@@ -85,7 +85,8 @@ const peopleWrites = new Map();      // record file -> how many person writes it
 function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   const PREVIOUS_TICK_MS = previousTickMs(periodMs);
   const state = { lastMovable: new Set(), lastMovableAt: null, watching: [], failed: new Map(), resting: new Map(), refused: new Map(),
-    refusedTimes: new Map(), skippedAt: new Map(), recheckFailed: new Map(), unwritten: [] };
+    refusedTimes: new Map(), skippedAt: new Map(), recheckFailed: new Map(), unwritten: [],
+    limitSeenAt: new Map() };   // kosmos#8048 review 5: agent -> the first tick it was a would-move while stopped at its limit
   /* Review round 6: every line goes through keep(). One the record could not take waits in state.unwritten, and so does
      every line after it, so the record keeps their order; each tick writes them first. While any wait, the mover moves
      nobody (a restart would forget the move, its rest and its watch, rules 8 and 10) and Settings says so. A board
@@ -204,6 +205,28 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
   };
 
   /* One move through the board's account move (rule 1). Resolves to the line that ends it, or null for a 409. */
+  /* kosmos#8048 reviews 2 to 5: what an agent moved off its limit had said it was committed to, for the person.
+     commitments.read gives { what } objects; at most five; never an entry with an @ (agent-written text). A current
+     record ('holding') is said as it is. A stale one (an agent stopped at its limit cannot report, so this is the usual
+     case) is said with its age, as commitments.js advises: an old list beats none, if it says it is old. A record
+     dated in the future, or unreadable, says nothing. */
+  function promisedText(deps, agent, nowMs) {
+    try {
+      const rec = deps.readCommitment ? deps.readCommitment(agent) : null;
+      if (!rec || !Array.isArray(rec.commitments)) return '';
+      const fresh = rec.state === 'holding' && rec.stale !== true;
+      const old = rec.stale === true;
+      if (!fresh && !old) return '';
+      const list = rec.commitments.map((x) => (x && typeof x.what === 'string' ? x.what.trim() : '')).filter((t) => t && !t.includes('@')).slice(0, 5);
+      if (!list.length) return '';
+      if (fresh) return ` Before the move it had said it was committed to: ${list.join('; ')}.`;
+      const at = Date.parse(rec.reportedAt || '');
+      const mins = Number.isFinite(at) && nowMs >= at ? Math.round((nowMs - at) / 60000) : null;
+      const when = mins === null ? 'When it last reported' : mins >= 120 ? `When it last reported, about ${Math.round(mins / 60)} hours before the move` : `When it last reported, ${mins} minutes before the move`;
+      return ` ${when}, it had said it was committed to: ${list.join('; ')}.`;
+    } catch { return ''; }
+  }
+
   async function move(deps, nowMs, m) {
     const movedAt = Date.now();   // before the move, so a first call made as the restart finishes counts
     const base = { kind: 'move', agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, why: m.why, startedAt: movedAt };
@@ -259,18 +282,7 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
          committed to (commitments.read gives { what } objects; at most five). Review 4: only a record it still vouches
          for (state 'holding': a stale or future-dated one is 'unknown'), so hours-old text is not told as a current
          promise, and never an entry with an @ in it (agent-written text, and an email must not reach the thread). */
-      let owed = '';
-      if (m.offLimit) {
-        let promised = [];
-        try {
-          const rec = deps.readCommitment ? deps.readCommitment(m.agent) : null;
-          const current = rec && rec.state === 'holding' && rec.stale !== true && Array.isArray(rec.commitments) ? rec.commitments : [];
-          promised = current.map((x) => (x && typeof x.what === 'string' ? x.what.trim() : '')).filter((t) => t && !t.includes('@')).slice(0, 5);
-        }
-        catch { promised = []; }
-        owed = ' It had stopped at its usage limit, and the restart ended anything it had running, so it may need to pick its work back up.'
-          + (promised.length ? ` Before the move it had said it was committed to: ${promised.join('; ')}.` : '');
-      }
+      const owed = m.offLimit ? ' It had stopped at its usage limit, and the restart ended anything it had running, so it may need to pick its work back up.' + (m.promisedText || '') : '';
       try { deps.tell(m.agent, `Kosmos moved this agent from ${m.fromLabel || 'its account'} to ${m.toLabel || 'another account'}, because ${m.fromLabel || 'its account'} was running out (${m.why}).${owed}`); }
       catch { /* telling is best-effort; the record has it */ }
     }
@@ -353,6 +365,15 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     const before = Number.isFinite(state.lastMovableAt) && nowMs - state.lastMovableAt <= PREVIOUS_TICK_MS ? state.lastMovable : new Set();
     state.lastMovable = new Set(decision.moves.map((x) => `${x.agent}\n${x.from}`));
     state.lastMovableAt = nowMs;
+    /* kosmos#8048 review 5: a pane that recovered before its reset (paid credits, another model) keeps its limit line
+       until the reset passes (#5031), so it still reads rate_limited while working. Remember when each would-move was
+       first seen at its limit; a working report from the agent itself after that (activity 'working', written by the
+       report route) means it recovered, and the move below is skipped. */
+    let cardsNow = [];
+    try { const r = deps.roster(); cardsNow = Array.isArray(r) ? r : []; } catch { cardsNow = []; }
+    const atLimitNow = new Set(decision.moves.map((x) => x.agent).filter((a) => { const c = cardsNow.find((y) => y && y.sessionName === a); try { return !!c && ab.stoppedAtLimit(c, nowMs); } catch { return false; } }));
+    for (const a of [...state.limitSeenAt.keys()]) if (!atLimitNow.has(a)) state.limitSeenAt.delete(a);
+    for (const a of atLimitNow) if (!state.limitSeenAt.has(a)) state.limitSeenAt.set(a, nowMs);
     if (deps.accountBusy() || deps.boardRestarting()) return { did: 'nothing', because: 'busy' };
     const passedOver = passedOverAt(nowMs);
     /* Rule 3: usage only. A move off an account whose login has stopped stays a would-move line in the sweep's record.
@@ -394,6 +415,19 @@ function create({ file, nowMs = Date.now(), periodMs = PERIOD_MS }) {
     /* kosmos#8048 review 3: read from the same fresh roster the re-check passed, so the message says what this move was. */
     try { const card = (Array.isArray(fresh) ? fresh : []).find((c) => c && c.sessionName === m.agent); m.offLimit = !!card && ab.stoppedAtLimit(card, nowMs); }
     catch { m.offLimit = false; }
+    /* Read before the move, as the message says (review 5): a fresh session could write a record of its own. */
+    if (m.offLimit) m.promisedText = promisedText(deps, m.agent, nowMs);
+    if (m.offLimit) {
+      let worked = null;
+      try { worked = deps.workedAt ? deps.workedAt(m.agent) : null; } catch { worked = null; }
+      const seen = state.limitSeenAt.get(m.agent);
+      if (Number.isFinite(worked) && Number.isFinite(seen) && worked >= seen) {
+        state.lastMovable.delete(`${m.agent}\n${m.from}`);
+        state.limitSeenAt.delete(m.agent);
+        keep({ kind: 'skipped', at: nowMs, agent: m.agent, from: m.from, to: m.to, fromLabel: m.fromLabel, toLabel: m.toLabel, because: 'it was working again' });
+        return { did: 'skipped', agent: m.agent };
+      }
+    }
     const ended = await move(deps, nowMs, m);
     if (!ended) return { did: 'nothing', because: 'busy' };
     return { did: ended.outcome === 'refused' ? 'refused' : ended.outcome === 'unknown' ? 'unknown' : 'moved', agent: m.agent, outcome: ended.outcome };
