@@ -14,8 +14,8 @@ converged: true
 
 **Iterations:** 7
 **Converged:** Yes, on iteration 7.
-**Total findings:** 0 BLOCKERs, 13 WARNINGs, 0 CONVENTIONs, 13 NITs
-**Fixed:** 10 WARNINGs | **Deferred:** 3 WARNINGs | **Asked (awaiting user):** 0
+**Total findings:** 0 BLOCKERs, 12 WARNINGs, 0 CONVENTIONs, 11 NITs
+**Fixed:** 10 WARNINGs | **Deferred:** 2 WARNINGs | **Asked (awaiting user):** 0
 
 Measured: 22 tests, 225 neighbours. 19 mutants all fail, two of them only after their tests were strengthened. A real stage on a throwaway board is running on this code and the PR waits for it.
 
