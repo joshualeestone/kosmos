@@ -789,6 +789,9 @@ struct ChatView: View {
                 // Whether it was at the newest message is read before the keyboard shrinks the thread (which hides the
                 // end marker), and acted on once it is up.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { n in
+                    // kosmos#7420 review: a keyboard coming up cancels the looks a did-hide left, or one runs mid-animation on a passing
+                    // reading and can spend a rebuild; its own did-show asks again once it is up.
+                    kbSettleTick &+= 1
                     // kosmos#7609: a chat kept alive under another tab records nothing to keep, so the flag can only ever
                     // say "keep" for the chat on screen, as the handler below that acts on it requires.
                     guard visible else { keepNewestInView = false; return }
@@ -843,7 +846,7 @@ struct ChatView: View {
                 // it past its end with nothing drawn. The same looks as a did-show: they move only a list past its end or with
                 // nothing drawn, never a drawn list (boxMoved false) or one under a finger.
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
-                    if visible { settleAtNewest(proxy, boxMoved: false) }
+                    if visible { Self.trace("keyboard gone, looking"); settleAtNewest(proxy, boxMoved: false) }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: .chatScrollToEnd)) { _ in
                     guard visible else { return }
@@ -1135,7 +1138,8 @@ struct ChatView: View {
     // fling) is on it at that look. kosmos#7420: within the content, see below.
     // again: the one look after this function's own id scroll, which only puts back a landing past the end (review 7).
     private func settledPutBack(_ proxy: ScrollViewProxy, tick: Int, chatAt: Int, listAt: Int, boxMoved: Bool, again: Bool = false) {
-        guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching else { return }
+        // kosmos#7420 review: not while inactive: backgrounding brings a did-hide, and the past-the-end arm below would write offsets then.
+        guard tick == kbSettleTick, epoch == chatAt, listEpoch == listAt, visible, !searching, scenePhase == .active else { return }
         let place = scrollBox.reading()?.place ?? "unread"
         guard place == "past the end" else {
             if again { return }
@@ -1191,6 +1195,7 @@ struct ChatView: View {
                     }
                 } else if onScreen.isEmpty { Self.trace("keyboard settled: within, nothing drawn, left (a scroll, or the no-rebuild control)") }
             } else if place != "within" { Self.trace("keyboard settled: \(place)") }
+            else if !again { Self.trace("keyboard settled: within, drawn, left") }   // kosmos#7420: a capture tells "looked, fine" from "did not look"
             return
         }
         if scrollBox.underFinger { Self.trace("keyboard settled: past the end, under a finger"); return }
