@@ -36,11 +36,11 @@ struct SweepDots: View {
         let still = reduceMotion && stillWhenReduced
         let drawn = Group {
             if still {
-                ring(0)   // the launch screen's frame (SweepLogic.shown adds launchAt)
+                ring(0, still: true)   // the launch screen's frame (SweepLogic.shown adds launchAt)
             } else {
                 TimelineView(.animation(minimumInterval: 1.0 / framesPerSecond)) { tl in
                     let elapsed = tl.date.timeIntervalSince(shownAt)
-                    ring(elapsed)
+                    ring(elapsed, still: false)
                 }
             }
         }
@@ -53,9 +53,9 @@ struct SweepDots: View {
         }
     }
 
-    private func ring(_ elapsed: Double) -> some View {
+    private func ring(_ elapsed: Double, still: Bool) -> some View {
         Canvas { ctx, box in
-            for d in SweepLogic.shown(elapsed, side: Double(min(box.width, box.height)), reduceMotion: reduceMotion && !stillWhenReduced) {
+            for d in SweepLogic.shown(elapsed, side: Double(min(box.width, box.height)), reduceMotion: reduceMotion && !still) {
                 ctx.opacity = d.opacity
                 ctx.fill(Path(ellipseIn: CGRect(x: d.x - d.diameter / 2, y: d.y - d.diameter / 2, width: d.diameter, height: d.diameter)),
                          with: .color(colour))
