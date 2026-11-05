@@ -44220,6 +44220,10 @@ async function paintTalk(sessionName, agentName) {
   if (qTrust) qTrust.hidden = true;
   const qImports = document.getElementById('d-qask-imports');
   if (qImports) qImports.hidden = true;
+  /* kosmos#8039 design review: the imports question has a safe answer, so its box wears the calm question glyph (#2808's
+     .ask), not the red hazard; every other question here keeps the hazard. Reset each paint, set below. */
+  const qGlyph = document.querySelector('#d-qask > .haz, #d-qask > .ask');
+  if (qGlyph) { qGlyph.className = 'haz'; qGlyph.textContent = '!'; }
   if (!(body.asking && body.importsAsk)) {
     const m = document.getElementById('d-qask-imports-msg'); if (m) m.textContent = '';
     const b = document.getElementById('d-qask-imports-no'); if (b) b.disabled = false;   // the question went: a later one gets a live button
@@ -44238,8 +44242,9 @@ async function paintTalk(sessionName, agentName) {
     if (qTrust) qTrust.hidden = false;
   } else if (body.asking && body.importsAsk && qImports) {
     /* kosmos#8039: it cannot start until this is answered. */
-    qlab.textContent = name + ' cannot start until you answer. Its instructions import files from outside its folder. Continue without them, or allow them in its terminal on the computer it runs on.';
+    qlab.textContent = name + ' is waiting on one question. Its instructions use files from outside its folder. Continue without them and ' + name + ' starts now; it just will not read those files.';
     qImports.hidden = false;
+    if (qGlyph) { qGlyph.className = 'ask'; qGlyph.textContent = '?'; }
   } else if (body.asking && body.codexHooks && qCodex) {
     /* #4607: only what the screen says. The count from the menu, the events from the table, the source from one
        hook's page; a missing fact is left out, never guessed. */
