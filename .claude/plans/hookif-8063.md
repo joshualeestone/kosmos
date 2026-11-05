@@ -33,7 +33,17 @@ class, a loss read as none.
 - `once` is a compared run field.
 - The route's agent folder is tested end to end; both launchers start the agent in `workerDir(name)`.
 
+## Review 3 (a blocker in review 1's own change)
+- Resolving a relative script in the agent's folder made a missing one read as "does not run here", although bash then
+  looks on PATH, and a `cd` first moves the working folder. Now a script found only through the agent's folder must be
+  there and must not follow a `cd` or `pushd`; otherwise cannot tell. A full path that is missing still does not run.
+- The exec form's bare command name runs from PATH, as in the shell form.
+- `partlyRead` is said in the sentence, so the CLI does not claim a whole-folder comparison it did not make.
+
 ## Residual, stated
+- The relative and `$CLAUDE_PROJECT_DIR` resolution rests on the agent's hooks running in `workerDir(name)`: both
+  launchers set it as the job's working folder (create.js plist, linuxjob.js unit), and the route test pins that the
+  route passes it. A session that changes its own folder before a hook runs is not modelled.
 - Any other variable in a hook path (beyond HOME, CLAUDE_CONFIG_DIR and CLAUDE_PROJECT_DIR) still answers cannot tell.
 - A gate whose `if` is wider on the target is also read as not kept (a false loss, the safe direction).
 - Two skills that differ only past the folder or byte cap read as the same copy.
