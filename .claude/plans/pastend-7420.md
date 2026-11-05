@@ -12,3 +12,6 @@ Josh's capture on build 43 at 21:11: y 30255, content 30393, view 932, bottom in
 - Guard in place at the skip, using the existing place reading. Rejected changing shortOfEnd: settledPutBack and others read it and expect 0 past the end.
 - Weakest premise: this shortens a blank, and does not prevent one. Why the rise left the list 387 pt past its end is unknown. The settled look and the recovery already put it back within about a second, so the gain may be small.
 - A source check, because the handler lives in a view: the logic suites cannot run it. No phone has run this.
+
+## Review 1 (blind, sonnet)
+Fixed: a bounce under a finger or a fling reads past the end, and would have been pulled; it now keeps the old skip, as the settled look does. Settled: a reader higher up never reaches this, typing does not bring the jumping back, and the settled look writes the same destination.
