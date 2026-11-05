@@ -562,10 +562,10 @@ struct ChatView: View {
                         chatRows(items)
                         pendingBubbles(pendingLayout)
                         // kosmos#7348: the line always has its room, so its coming and going moves nothing (measured: 27 pt
-                        // when an agent picked up a message just sent). Hidden, not at no opacity: at no opacity the dots still
-                        // animate and VoiceOver still hears it.
+                        // when an agent picked up a message just sent). Hidden, so VoiceOver does not hear it, and drawn with
+                        // still dots, so no animation runs in every chat that is not working.
                         ZStack {
-                            if working { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name).hidden() }
+                            if working { WorkingLine(name: shown.name) } else { WorkingLine(name: shown.name, animated: false).hidden() }
                         }
                         .padding(.top, 12).id("working")
                         Color.clear.frame(height: ChatView.fadeHeight + 8).id("end")   // the fade plus 8 pt (kosmos#7346): at the end, the newest message sits clear of it
@@ -2817,6 +2817,8 @@ struct BubbleTail: Shape {
 // "<dots> <name> is working": the board's wave (LayerWaveDots, kosmos#7427); VoiceOver hears the words only.
 struct WorkingLine: View {
     let name: String
+    /// kosmos#7348: false for the hidden copy that keeps the line's room: still dots, so no animation runs in every chat.
+    var animated = true
 
     var body: some View {
         // kosmos#7427: the board's wave (LayerWaveDots), not three dots pulsing together.
@@ -2825,9 +2827,9 @@ struct WorkingLine: View {
             // kosmos#7427 review 2 debug: KOSMOS_SAMPLE_CLOCKDOTS=1 draws the clock-drawn dots here, as the control.
             // kosmos#7427 build 16: KOSMOS_SAMPLE_SWIFTDOTS=1 draws build 15's WaveDots, the control for the layer-drawn ones.
             if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_CLOCKDOTS"] == "1" { WorkingDots() }
-            else if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SWIFTDOTS"] == "1" { WaveDots() } else { LayerWaveDots() }
+            else if ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SWIFTDOTS"] == "1" { WaveDots() } else { LayerWaveDots(still: !animated) }
             #else
-            LayerWaveDots()   // review 2: inside the thread, never the clock-drawn WorkingDots; build 16: layer-drawn
+            LayerWaveDots(still: !animated)   // review 2: inside the thread, never the clock-drawn WorkingDots; build 16: layer-drawn
             #endif
             Text("\(name) is working")
         }

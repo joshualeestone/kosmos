@@ -1924,12 +1924,14 @@ struct WaveDots: View {
 // with opacity .45 to 1; Reduce Motion 1.6 s, opacity .35 to 1, no rise.
 struct LayerWaveDots: View {
     var color: Color = Palette.pillWord(.working)
+    /// kosmos#7348: true draws the dots still, with no animation (the room kept for the working line while hidden).
+    var still = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
     @ScaledMetric(relativeTo: .footnote) private var size: CGFloat = 4
 
     var body: some View {
-        DotLayers(color: UIColor(color), dark: scheme == .dark, size: size, still: reduceMotion)
+        DotLayers(color: UIColor(color), dark: scheme == .dark, size: size, still: still || reduceMotion)
             .frame(width: size * 3 + size * 0.75 * 2, height: size + 4)
             // Its bottom on the line's baseline, as WaveDots sits (a UIKit view gives SwiftUI no baseline of its own, and
             // measured in the simulator it hung about 5 pt below the words).
