@@ -98,13 +98,15 @@ test('#5536: cleanRecoveries keeps only the two words and whole numbers, and str
     { what: 'key_released', who: 'x', at: 1.5 },
     { what: 'key_released', who: null, at: T, epoch: -1, count: 9 },
     { what: 'files_opened', at: T, count: '7' },
+    { what: 'files_opened', at: T + 1, count: 0 },
     null, 'row',
   ]);
   assert.deepStrictEqual(got, [
     { what: 'files_opened', at: T, who: 'rev', epoch: 3, count: 7 },
     { what: 'key_released', at: T },
     { what: 'files_opened', at: T },
-  ]);
+    { what: 'files_opened', at: T + 1 },
+  ], 'a count of 0 would say files were opened when none were');
   const many = Array.from({ length: org.MAX_RECOVERIES + 5 }, (_, i) => ({ what: 'key_released', at: T - i }));
   assert.equal(org.cleanRecoveries(many).length, org.MAX_RECOVERIES);
   assert.equal(org.cleanRecoveries(many)[0].at, T, 'the newest first, as sent');
@@ -142,4 +144,20 @@ test("#5536: a review's Accept keeps the list, its time and recoveriesMore", asy
   state.recoveries = [{ what: 'key_released', who: 'rev', at: T }];
   await org.refresh({ root, remote });
   assert.equal(org.readEnrollment({ root }).recoveriesMore, undefined, 'an answer without more clears it');
+});
+
+test('#5536: an answer whose every row is malformed counts as read and clears the kept list; recoveriesMore is kept with a kept list', async (t) => {
+  const { root, state, remote } = await enrolled(t);
+  state.recoveries = [{ what: 'key_released', who: 'rev', at: T }];
+  state.more = true;
+  await org.refresh({ root, remote });
+  delete state.recoveries;
+  await org.refresh({ root, remote });
+  assert.equal(org.readEnrollment({ root }).recoveriesMore, true, 'an answer without the field keeps recoveriesMore with the list');
+  state.recoveries = [{ what: 'nonsense', at: T }, { what: 'key_released', at: -1 }];
+  await org.refresh({ root, remote });
+  const rec = org.readEnrollment({ root });
+  assert.equal(rec.recoveries, undefined, 'an all-malformed answer kept the old list');
+  assert.equal(rec.recoveriesMore, undefined);
+  assert.ok(Number.isFinite(rec.recoveriesAt), 'and it still counts as read');
 });
