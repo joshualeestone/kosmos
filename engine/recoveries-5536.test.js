@@ -111,6 +111,9 @@ test('#5536: cleanRecoveries keeps only the two words and whole numbers, and str
   assert.equal(org.cleanRecoveries(many).length, org.MAX_RECOVERIES);
   assert.equal(org.cleanRecoveries(many)[0].at, T, 'the newest first, as sent');
   assert.deepStrictEqual(org.cleanRecoveries('nope'), []);
+  const nowS = Math.floor(Date.now() / 1000);
+  assert.deepStrictEqual(org.cleanRecoveries([{ what: 'key_released', at: nowS + 3600 }, { what: 'key_released', at: nowS + 3 * 86400 },
+    { what: 'key_released', at: 9e15 }]).map((r) => r.at), [nowS + 3600], 'a row from more than a day ahead was kept');
 });
 
 test('#5536: a list is kept only for the same company; another company on the answer starts with none', async (t) => {
