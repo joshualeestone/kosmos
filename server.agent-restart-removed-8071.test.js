@@ -30,7 +30,7 @@ const removal = require('./engine/remove');
 const REAL = { isRemoved: removal.isRemoved, restart: removal.restart, removedNames: removal.removedNames };
 const restarted = [];
 removal.isRemoved = (n) => n === 'gone';
-removal.removedNames = () => ['gone'];
+removal.removedNames = () => ({ ok: true, names: ['gone'] });   // remove.js's real shape
 removal.restart = (n) => { restarted.push(n); return { outcome: removal.OUTCOME.RESTARTED, because: `${n} is starting again.`, steps: [] }; };
 
 const { start, server } = require('./server');

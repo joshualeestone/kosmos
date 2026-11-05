@@ -7711,7 +7711,8 @@ cmd_agent() {
       local rs_cls; rs_cls=$(printf '%s' "$rs_who" | "$_node" -e "$_rsparse"'const b=String(j.because||"");process.stdout.write(j.ok===true&&typeof j.agent==="string"?"N:"+one(j.agent):(j.ok===false?((/^we could not match that to one of your agents/.test(b)||/^we cannot tell which agent is sending this/.test(b))?"P":"R"):""))})' 2>/dev/null) || rs_cls=""
       [ "$rs_whorc" -eq 0 ] || rs_cls=""
       rs_me=""; case "$rs_cls" in N:*) rs_me="${rs_cls#N:}" ;; esac
-      if [ -n "$_rtok" ] && { [ "$rs_cls" = P ] || [ "$rs_cls" = R ]; }; then
+      # Review 5: the token sentence is the board's NO_MATCH, the same words as a pane it cannot match (class P).
+      if [ -n "$_rtok" ] && [ "$rs_cls" = P ]; then
         say "Nothing was restarted: Kosmos does not recognise this agent's own token, so it cannot rule out that $rs_name is you."
         token_refused_hint "$_rtok" "$rs_who"
         exit 2
@@ -7720,7 +7721,12 @@ cmd_agent() {
         say "Nothing was restarted: Kosmos could not say who is asking, so it cannot rule out that $rs_name is you. Try again in a minute."
         exit 2
       fi
-      if [ -n "$rs_me" ] && [ "$(printf '%s' "$rs_me" | tr '[:upper:]' '[:lower:]')" = "$(printf '%s' "$rs_name" | tr '[:upper:]' '[:lower:]')" ]; then
+      # Review 5: compared by the board's own key rule (store.safeKey: lower case, only a-z 0-9 _ -), as whoami answers a
+      # token-found agent. "Never yourself" is this command's check; the route does not enforce it.
+      local rs_key_me rs_key_name
+      rs_key_me=$(printf '%s' "$rs_me" | tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -cd 'a-z0-9_-')
+      rs_key_name=$(printf '%s' "$rs_name" | tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -cd 'a-z0-9_-')
+      if [ -n "$rs_me" ] && [ -n "$rs_key_me" ] && [ "$rs_key_me" = "$rs_key_name" ]; then
         say "Nothing was restarted: $rs_name is you, and restarting yourself ends this session before you see the answer. Use \"Write a handoff, then restart\" on your page instead."
         exit 2
       fi
@@ -7749,9 +7755,9 @@ cmd_agent() {
         restarted) say "${rs_because:-$rs_name has restarted}${rs_end}" ;;
         partial) say "Not restarted as asked: ${rs_because:-Kosmos did not say how far it got}${rs_end} Look at its page: $URL/"; exit 1 ;;
         failed-partway) say "$rs_name may be partly restarted: ${rs_because:-Kosmos did not say how far it got}${rs_end} Look at its page before trying again: $URL/"; exit 3 ;;
-        *) if [ -n "$rs_because" ]; then say "Kosmos did not restart $rs_name: ${rs_because}${rs_end}"
-           else say "Kosmos gave an answer we could not read when restarting $rs_name. Look at its page: $URL/"; fi
-           exit 1 ;;
+        *) if [ -n "$rs_because" ]; then say "Kosmos did not restart $rs_name: ${rs_because}${rs_end}"; exit 1; fi
+           say "Kosmos gave an answer we could not read after it was asked to restart $rs_name, so it may have restarted. Look at its page: $URL/"
+           exit 3 ;;   # review 5: sent, so "may", as Windows says
       esac
       ;;
     move)
