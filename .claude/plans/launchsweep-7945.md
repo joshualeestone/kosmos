@@ -99,3 +99,10 @@ wait's ignoresSafeArea removed (centre check), a wrong 2x PNG (stale check).
   refreshes (a restart, or delete and reinstall).
 - Noted, not changed: run-sweep.sh's Projects check is textual; the UI check measures it running.
 - Measured: all three UI checks pass (iPhone 17e, iOS 27); control, the round-6 layout at the largest text size: words 481 pt wide from x -45.5 on a 390 pt screen, check FAILS.
+
+## Review 8 (the cap)
+- DEFERRED: "the .connecting wait follows .starting on a first connect". Read: BoardClient.swift:1921 is the only place
+  .connecting is set, inside the .refused case (a gate that refused a hand-off, being retried). A normal first connect
+  goes .starting -> .live, the one ConnectingWait.
+- ConnectingWait's doc comment: the words get the screen's width less 24 pt each side (comment only, after the last
+  blind review).
