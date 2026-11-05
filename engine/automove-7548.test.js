@@ -1132,3 +1132,32 @@ test('kosmos#8048: an agent stopped at its weekly limit, holding a commitment, i
   await twoTicks(run2, d2);
   assert.deepEqual(c2.starts, [], 'an idle agent holding a commitment was moved');
 });
+
+test('kosmos#8048 review 7: an agent movable as idle on one tick and first seen at its limit on the next waits a tick before a move off the limit', async () => {
+  const [ada] = realCards(['ada']);
+  const day = new Date(NOW + 3 * 24 * H).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' });
+  const atWall = { ...ada, state: 'rate_limited', stateEvidence: `You've hit your weekly limit · resets ${day} at 4am (America/Chicago)` };
+  let which = [ada];
+  const run = automove.create({ file: fileFor() });
+  const { d, calls } = deps({ roster: () => which });
+  let tool = null;
+  d.workedAt = () => tool;   // no tool call yet: it is stuck
+  await run.tick(d, NOW);           // idle: movable
+  which = [atWall];
+  const second = await run.tick(d, NOW + 1000);   // first sighting at the limit
+  assert.deepEqual(calls.starts, [], 'moved on its first sighting at the limit, with no window for a recovery to show');
+  assert.equal(second.did, 'nothing');
+  tool = NOW + 1500;   // then a tool call between the sightings: it recovered
+  const third = await run.tick(d, NOW + 2000);
+  assert.deepEqual([third.did, calls.starts], ['skipped', []], 'the recovery after the first sighting did not hold it');
+  // CONTROL: no recovery, so the second sighting at the limit moves it.
+  const run2 = automove.create({ file: fileFor() });
+  let which2 = [ada];
+  const { d: d2, calls: c2 } = deps({ roster: () => which2 });
+  d2.workedAt = () => NOW - H;
+  await run2.tick(d2, NOW);
+  which2 = [atWall];
+  await run2.tick(d2, NOW + 1000);
+  await run2.tick(d2, NOW + 2000);
+  assert.equal(c2.starts.length, 1, 'a stuck agent seen twice at its limit was not moved');
+});
