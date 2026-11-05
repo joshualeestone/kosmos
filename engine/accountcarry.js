@@ -65,13 +65,16 @@ function hookId(command) {
   return String(command).trim();
 }
 
-/* The file a hook command runs, resolved for one folder: ~ and $HOME are the home, $CLAUDE_CONFIG_DIR is the folder
-   (Claude Code sets it to the account folder). Null when the command names no script path this can resolve. */
+/* The file a hook command runs, resolved for one folder: ~ and $HOME are the home; $CLAUDE_CONFIG_DIR is the folder
+   for an account Kosmos launches with it set, and EMPTY for the default account (review 3: its agents run with it
+   unset, so `$CLAUDE_CONFIG_DIR/hooks/x.sh` there is `/hooks/x.sh`, which does not fire). Null when the command names
+   no script path this can resolve. */
 function scriptPath(command, folder, home) {
+  const cfg = path.resolve(folder) === path.resolve(home, '.claude') ? '' : folder;
   for (const w of String(command).trim().split(/\s+/)) {
     let bare = w.replace(/^["']|["']$/g, '');
     if (!/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(bare)) continue;
-    bare = bare.replace(/^~(?=\/)/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, folder);
+    bare = bare.replace(/^~(?=\/)/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, cfg);
     return path.isAbsolute(bare) && !bare.includes('$') ? bare : null;
   }
   return null;
@@ -131,16 +134,25 @@ function losses(fromDir, toDir, opts = {}) {
       if (!kept) lost.add(h.id);
     }
   }
-  return { ok: true, skills: [...fs1.keys()].filter((s) => !fs2.has(s) || fs2.get(s) !== fs1.get(s)).sort(), hooks: [...lost].sort() };
+  /* Review 3: a skill the target has in another copy is said apart from one it does not have: the copy may be the
+     newer one, so it is a difference to read, not a loss. Only `skills` and `hooks` are losses. */
+  return { ok: true, skills: [...fs1.keys()].filter((s) => !fs2.has(s)).sort(),
+    changed: [...fs1.keys()].filter((s) => fs2.has(s) && fs2.get(s) !== fs1.get(s)).sort(), hooks: [...lost].sort() };
 }
 
-/* One sentence for a person, or null when nothing is lost. */
+/* Whether a move loses anything: a skill or hook the target does not have. A different copy is not a loss. */
+function loses(l) { return !!l && l.ok === true && (l.skills.length > 0 || l.hooks.length > 0); }
+/* One or two sentences for a person, or null when nothing is lost or different. */
 function sentence(l) {
   if (!l || l.ok !== true) return null;
   const parts = [];
   if (l.skills.length) parts.push(`${l.skills.length === 1 ? 'the skill' : 'the skills'} ${l.skills.join(', ')}`);
   if (l.hooks.length) parts.push(`${l.hooks.length === 1 ? 'the hook' : 'the hooks'} ${l.hooks.join(', ')}`);
-  return parts.length ? `On that account it would not have ${parts.join(', or ')} it has now.` : null;
+  const changed = Array.isArray(l.changed) ? l.changed : [];
+  const out = [];
+  if (parts.length) out.push(`On that account it would not have ${parts.join(', or ')} it has now.`);
+  if (changed.length) out.push(`That account has a different copy of ${changed.length === 1 ? 'the skill' : 'the skills'} ${changed.join(', ')}.`);
+  return out.length ? out.join(' ') : null;
 }
 
-module.exports = { losses, sentence, hookId, skillNames, skillSums, hookIds, hookEntries, scriptPath, folderOf };
+module.exports = { losses, loses, sentence, hookId, skillNames, skillSums, hookIds, hookEntries, scriptPath, folderOf };

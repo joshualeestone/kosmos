@@ -166,7 +166,8 @@ const USAGE = {
     '                                                  propose an addition to an agent\'s instructions; the person applies it',
     '  kosmos agent move "<name>" "<account>" [--yes]  move an agent to another Claude account, after a confirm',
     '                                                  (<account>: its name as kosmos accounts shows it, or main;',
-    '                                                  with --yes, a move that would lose skills or hooks also needs --accept-loss)',
+    '                                                  with --yes, a move that would lose skills or hooks also needs --accept-loss;',
+    '                                                  like a move in Settings, the automatic mover then leaves that agent for a day)',
     '  kosmos agent remove "<name>" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)',
   ].join('\n'),
   feedback: [
@@ -2496,7 +2497,8 @@ async function agentMove(ctx, args) {
   if (!yes && !ctx.canAsk()) { ctx.err('Nothing was moved: there is no terminal here to confirm on. To move ' + name + ' without being asked, add --yes.'); return 2; }
   const p = await ctx.call('GET', '/api/agents/account-plan?' + new URLSearchParams({ name, account }).toString(), undefined, { person: true });
   if (!p.reached) return ctx.unreachable('read what moving ' + name + ' would do');
-  const plan = p.json || {};
+  if (!p.json) { ctx.err('Kosmos gave an answer we could not read when asked about moving ' + name + '.'); return 1; }   // review 3: as the Mac says it
+  const plan = p.json;
   if (plan.ok !== true && !plan.dir) {
     const why = clause(plan.because || plan.error || '');
     ctx.err('Kosmos will not move ' + name + ': ' + (why || 'it did not say why') + (/[?!]$/.test(why) ? '' : '.'));
@@ -2510,7 +2512,8 @@ async function agentMove(ctx, args) {
   ctx.out('Moving restarts ' + name + ' on ' + label + '. Anything it has running stops.');
   /* Review 1: a script cannot read that sentence, so --yes alone never moves an agent into a known loss or an
      unchecked one; nothing is sent. A person at a terminal reads it and answers below. */
-  if (yes && !acceptLoss && (plan.ok !== true || plan.sentence)) { ctx.err('Nothing was moved: with --yes, a move that may lose skills or hooks also needs --accept-loss.'); return 2; }
+  // Review 3: a different copy of a skill is said but is not a loss; only a missing skill or hook (the plan's loses).
+  if (yes && !acceptLoss && (plan.ok !== true || plan.loses === true)) { ctx.err('Nothing was moved: with --yes, a move that may lose skills or hooks also needs --accept-loss.'); return 2; }
   if (!yes) {
     const answer = await ctx.ask('Move ' + name + ' to ' + label + '? [y/N] ');
     if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was moved.'); return 1; }
