@@ -84,8 +84,19 @@ test('CONTROL: a sandbox home beside the real one, sharing its name as a prefix,
   assert.equal(le.refreshExpiryFor(undefined), FIXTURE_DATE);
 });
 
-for (const bad of ['tomorrow', ' ', '-1', '1e12', 'Infinity']) {
-  test(`a value that is not a whole number reads nothing (${JSON.stringify(bad)}): it cannot fall through to the real read`, async () => {
+test('a real home that cannot be read: no date and no read, and neither reader throws or rejects', async () => {
+  process.env[VAR] = String(FIXTURE_DATE);
+  const real = os.userInfo;
+  os.userInfo = () => { throw new Error('no passwd entry'); };
+  try {
+    assert.equal(le.refreshExpiryFor(undefined), null);
+    assert.equal(await le.readCredAsync(le.DEFAULT_SERVICE), null);
+  } finally { os.userInfo = real; }
+  assert.ok(!fs.existsSync(marker), 'security ran with the variable set');
+});
+
+for (const bad of ['tomorrow', ' ', '-1', '1e12', 'Infinity', '9'.repeat(400), '9007199254740993']) {
+  test(`a value that is not a usable whole number reads nothing (${JSON.stringify(bad.slice(0, 20))}): it cannot fall through to the real read`, async () => {
     process.env[VAR] = bad;
     assert.equal(le.refreshExpiryFor(undefined), null);
     assert.equal(await le.readCredAsync(le.DEFAULT_SERVICE), null);

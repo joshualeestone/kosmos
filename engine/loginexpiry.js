@@ -69,16 +69,19 @@ const KEYCHAIN_OPTS = { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe
 function inSandboxHome() {
   const raw = process.env.AGENT_WORKFORCE_HOME;
   if (!raw) return false;
+  let real;
+  // not os.homedir(): a sandboxed board can set HOME to its sandbox. userInfo throws for a uid with no passwd entry, and
+  // a home that cannot be told apart from the real one does not count as a sandbox.
+  try { real = path.resolve(os.userInfo().homedir); } catch { return false; }
   const home = path.resolve(raw);
-  const real = path.resolve(os.userInfo().homedir);   // not os.homedir(): a sandboxed board can set HOME to its sandbox
   return home !== real && !real.startsWith(home.endsWith(path.sep) ? home : home + path.sep);
 }
 
 function sandboxCred(service) {
   const raw = process.env.KOSMOS_BC_LOGIN_UNTIL_MS;
   if (raw === undefined || raw === '') return undefined;
-  if (!/^\d+$/.test(raw) || !inSandboxHome() || service !== DEFAULT_SERVICE) return null;
-  const until = Number(raw);
+  const until = /^\d+$/.test(raw) ? Number(raw) : NaN;
+  if (!Number.isSafeInteger(until) || !inSandboxHome() || service !== DEFAULT_SERVICE) return null;
   return JSON.stringify({ claudeAiOauth: { refreshTokenExpiresAt: until, expiresAt: until } });
 }
 

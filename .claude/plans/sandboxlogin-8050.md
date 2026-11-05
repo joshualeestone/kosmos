@@ -13,8 +13,8 @@ it, through the default Claude row. That stopped the 0.7.92 cut after 106 minute
 - `tools/browser-checks.sh`: exports it beside the other no-board-may switches, so it covers every board the script boots.
 
 ## Decisions (mine, reversible in a commit)
-- **The seam sits in the two keychain readers,** the only places the engine runs `security`, read 11-05 by grep, and every
-  board browser-checks.sh boots has the variable. Rejected: a seam in claudeloginlive only, which leaves the status
+- **The seam sits in the two keychain readers,** the only places engine/ and server.js run `security`, by grep and now by
+  a test (signing scripts in tools/ run it for other things), and every board browser-checks.sh boots has the variable. Rejected: a seam in claudeloginlive only, which leaves the status
   snapshot's read.
 - **A fixed date, noon UTC on 2100-01-01,** so a page or a screenshot cannot change with the calendar, or with the
   timezones the fleet's Macs are in.
