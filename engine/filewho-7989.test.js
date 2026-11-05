@@ -218,6 +218,34 @@ test('kosmos#7989 slice 2 review 5: a path on a network mount no project uses is
   assert.match(renderWho({ ok: false, because: 'outside' })[0], /give the path as this computer names it/);
 });
 
+test('kosmos#7989 slice 2 review 6: a folder above the file swapped for a link after the path was resolved says nothing about the target', () => {
+  const r = room();
+  const list = [{ id: r.id, folder: r.folder }];
+  fs.mkdirSync(r.file('sub'), { recursive: true });
+  fs.writeFileSync(r.file('sub/f.md'), 'x');
+  fs.mkdirSync(path.join(real, 'secret-' + r.id), { recursive: true });
+  fs.writeFileSync(path.join(real, 'secret-' + r.id, 'f.md'), 'secret');
+  const lstat = fs.lstatSync;
+  let swapped = false;
+  // The swap lands between the resolve and the stat, as a racing writer's would.
+  fs.lstatSync = (p, ...rest) => {
+    if (!swapped && String(p) === r.file('sub/f.md')) {
+      swapped = true;
+      fs.renameSync(r.file('sub'), r.file('sub-moved'));
+      fs.symlinkSync(path.join(real, 'secret-' + r.id), r.file('sub'));
+    }
+    return lstat(p, ...rest);
+  };
+  let a;
+  try { a = fw.about(r.file('sub/f.md'), { projects: list, now: T }); } finally { fs.lstatSync = lstat; }
+  assert.equal(swapped, true, 'CONTROL: the swap happened');
+  assert.deepEqual(a, { ok: false, because: 'outside' }, 'a swapped folder let the stat describe a file outside: ' + JSON.stringify(a));
+  // CONTROL: unswapped, the same path is a project file.
+  fs.unlinkSync(r.file('sub'));
+  fs.renameSync(r.file('sub-moved'), r.file('sub'));
+  assert.equal(fw.about(r.file('sub/f.md'), { projects: list, now: T }).exists, true);
+});
+
 test('kosmos#7989 slice 2 review 3: an entry past KEEP_MS (lapsed, not yet pruned) is not read', () => {
   const r = room();
   const old = T + 60 * MIN - fw.KEEP_MS - 60000;

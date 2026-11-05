@@ -7090,6 +7090,21 @@ cmd_project() {
       # Review 5: a board started before this command has no route (404), and on the agent token alone its gate refuses
       # (403); its own words would send the agent to `kosmos open`, which cannot help.
       if [ "$_wcode" = 404 ]; then say "This Kosmos board is older than \`kosmos project who\`, so it cannot answer. Ask your person to restart Kosmos, which updates it."; exit 1; fi
+      # Review 6: a 403 on the agent token is either an older board (this route not yet an agent-token route) or a token
+      # the board does not know. The same token on a route every board admits it on tells them apart: answered there,
+      # the board is older; refused there too, the token is the problem and the board's own words (and the token hint)
+      # say so. Never for another refusal shape (a cross-site refusal carries "ok":false).
+      if [ "$_wcode" = 403 ] && [ -n "$_wtok" ]; then
+        case "$body" in
+          '{"error":'*)
+            local _pcode="" _prc=0
+            _pcode=$(kosmos_curl "$_bt" "$_wtok" -sS -m 15 -o /dev/null -w '%{http_code}' "$URL/api/projects/overview" 2>/dev/null) || _prc=$?
+            if [ "$_prc" -eq 0 ] && [ "$_pcode" = 200 ]; then
+              say "This Kosmos board is older than \`kosmos project who\`, so it refuses an agent's own token here. Ask your person to restart Kosmos, which updates it."
+              exit 1
+            fi ;;
+        esac
+      fi
       _node="$(kosmos_engine_node)" || { say "Kosmos could not find its own runtime to read the board's answer."; exit 1; }
       _mod="$(kosmos_engine_module filewhoview)"
       # Exit 0 only for an answer about a project file; outside every project, or an answer we cannot read, is 1.
@@ -7104,7 +7119,6 @@ cmd_project() {
       [ -n "$_wout" ] || { say "Kosmos could not print the board's answer about that file."; exit 1; }
       printf '%s\n' "$_wout"
       [ "$_wrc" -eq 0 ] || token_refused_hint "$_wtok" "$body"
-      if [ "$_wcode" = 403 ] && [ -n "$_wtok" ]; then say "If this board was started before \`kosmos project who\` existed, it refuses an agent's own token here; a restart of Kosmos updates it."; fi
       exit "$_wrc"
       ;;
     list|show)

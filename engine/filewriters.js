@@ -79,8 +79,10 @@ function resetForTests() { rootsCache = { at: 0, roots: [] }; membersCache = { a
 
 /* The project whose folder holds `file` (the deepest one, when one project's folder sits inside another's), and the
    file's name relative to it ('/'-joined), or null. */
-function projectOf(file, roots) {
-  const abs = resolved(file);
+function projectOf(file, roots) { return projectOfResolved(resolved(file), roots); }
+/* projectOf for a path already resolved, so a caller that resolved it once does not resolve it again (kosmos#7989
+   review 6: a second resolve is a second chance for a swapped link). */
+function projectOfResolved(abs, roots) {
   let best = null;
   for (const { id, root } of roots) {
     const rel = path.relative(root, abs);
@@ -238,15 +240,20 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
     /* Review 5: a caller picks this path, and resolving it runs on the board's one thread, so a path on a network mount
        (/net autofs, /Volumes, /Network, a UNC share) that no project lives on is answered as outside before anything
        touches it: a stalled share would otherwise freeze the board for everyone. */
+    /* Partial by design: a link to a mount, another spelling of one, or a mapped drive letter is not caught. A project
+       whose folder, as listed or resolved (`roots`, no extra disk access), is on that mount lets the path through.
+       Windows \\?\ and \\.\ prefixes are not shares. Compared without case on Windows. */
     const lexical = path.resolve(file);
-    const mountOf = (p) => { const m = /^(\/(?:net|Volumes|Network)\/[^/]+|\\\\[^\\]+|\/\/[^/]+)/.exec(p); return m ? m[1] : null; };
+    const fold = (p) => (process.platform === 'win32' ? p.toLowerCase() : p);
+    const mountOf = (p) => { const m = /^(\/(?:net|Volumes|Network)\/[^/]+|\\\\(?![?.]\\)[^\\]+|\/\/(?![?.]\/)[^/]+)/.exec(p); return m ? m[1] : null; };
     const mount = mountOf(lexical);
-    if (mount && !list.some((p) => p && typeof p.folder === 'string' && (path.resolve(p.folder) + path.sep).startsWith(mount + path.sep))) {
+    const onMount = (p) => typeof p === 'string' && p && fold(path.resolve(p) + path.sep).startsWith(fold(mount + path.sep));
+    if (mount && !list.some((p) => p && onMount(p.folder)) && !roots.some((r) => onMount(r.root))) {
       return { ok: false, because: 'outside' };
     }
     // Review 2: resolved once, and every later read uses this, so a link swapped between two reads cannot redirect one.
     const abs = resolved(lexical);
-    const at = projectOf(abs, roots);
+    const at = projectOfResolved(abs, roots);
     if (!at) {
       // Review 1: a project's own folder is in no project by projectOf (an empty name), and is not "outside" either.
       return roots.some((r) => r.root === abs) ? { ok: false, because: 'folder' } : { ok: false, because: 'outside' };
@@ -277,6 +284,10 @@ function about(file, { projects, nameOf = (s) => s, now = Date.now() } = {}) {
     try {
       // lstat of the resolved path: a link here now was swapped in after it was resolved, and is not followed.
       const st = fs.lstatSync(abs);
+      /* Review 6: lstat refuses a link only in the last part of the path. A folder above it swapped for a link since the
+         path was resolved would point the stat outside the project, so the folder is resolved again here and must not
+         have moved; if it has, nothing about the file is said. */
+      if (fs.realpathSync.native(path.dirname(abs)) !== path.dirname(abs)) return { ok: false, because: 'outside' };
       // Review 1: a folder inside a project is not a file that is gone; it has no record of its own.
       if (st.isDirectory()) return { ok: false, because: 'folder' };
       if (st.isFile()) modified = new Date(st.mtimeMs).toISOString();

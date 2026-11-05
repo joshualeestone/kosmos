@@ -47,6 +47,13 @@ function withStub(fn) {
     if (req.url.startsWith('/api/')) {
       if (req.url !== '/api/health') seen.push({ method: req.method, url: req.url, agent: req.headers['x-kosmos-agent-token'] });
       const u = new URL(req.url, 'http://x');
+      // An older board admits the agent token on this route; a token it does not know is refused here too.
+      if (u.pathname === '/api/projects/overview') {
+        const known = req.headers['x-kosmos-agent-token'] === TOKEN;
+        res.writeHead(known ? 200 : 403, { 'content-type': 'application/json' });
+        res.end(known ? '{"projects":[]}' : '{"error":"this board belongs to the account that started it; open it with `kosmos open`"}');
+        return;
+      }
       if (u.pathname === '/api/project-file/who') {
         const p = u.searchParams.get('path');
         if (p === '/old/board') { res.writeHead(404, { 'content-type': 'application/json' }); res.end('{"error":"no such endpoint"}'); return; }
@@ -110,8 +117,14 @@ test('kosmos#7989 slice 2: outside every project exits 1 with the renderer\'s wo
   assert.doesNotMatch(old.stdout, /no such endpoint/);
   const gate = await runCli(['project', 'who', '/old/gate'], env);
   assert.equal(gate.code, 1);
-  assert.match(gate.stdout, /started before `kosmos project who` existed/);
+  assert.match(gate.stdout, /older than `kosmos project who`, so it refuses an agent's own token here/);
+  assert.doesNotMatch(gate.stdout, /kosmos open/, 'review 6: the older board\'s own advice, which cannot help, was printed too');
+  // Review 6: the same 403 with a token the board does not know is the token, not the board's age.
+  const stale = await runCli(['project', 'who', '/old/gate'], { ...env, KOSMOS_AGENT_TOKEN: 'ee'.repeat(32) });
+  assert.equal(stale.code, 1);
+  assert.doesNotMatch(stale.stdout, /older than/, 'a token the board does not know was blamed on the board\'s age');
   const refused = await runCli(['project', 'who', '/refused/x'], env);
+  assert.doesNotMatch(refused.stdout, /older than|started before/, 'review 6: a cross-site refusal was blamed on the board\'s age');
   assert.equal(refused.code, 1, 'review 2: a refusal exited 0');
   assert.match(refused.stdout, /could not read who changes that file: that request came from another website/);
 }));
