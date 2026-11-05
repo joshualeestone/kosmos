@@ -769,6 +769,7 @@ async function enrollNow(code, accepted, opts) {
     && prior.recoveries.length && Number.isFinite(prior.recoveriesAt)) {
     rec.recoveries = cleanRecoveries(prior.recoveries);
     rec.recoveriesAt = prior.recoveriesAt;
+    if (prior.recoveriesMore === true) rec.recoveriesMore = true;
   }
   // The consent the person was shown, as a hash: what they accepted is then a checkable fact on this side (#5531 review 10).
   /* A print sent and NOT pinned (rollup review 16): the company says the salt is not the one on record, or its binding
@@ -1178,11 +1179,14 @@ async function refreshNow(opts) {
   if (Array.isArray(d.recoveries)) {
     const recs = cleanRecoveries(d.recoveries);
     if (recs.length) rec.recoveries = recs;
+    // `recoveriesMore`: the coordinator left older ones in its window out (it sends at most 50).
+    if (recs.length && d.recoveriesMore === true) rec.recoveriesMore = true;
     rec.recoveriesAt = Date.now();
   } else if (before && before.world === world && before.org && before.org.id === org.id
     && Array.isArray(before.recoveries) && before.recoveries.length && Number.isFinite(before.recoveriesAt)) {
     rec.recoveries = cleanRecoveries(before.recoveries);
     rec.recoveriesAt = before.recoveriesAt;
+    if (before.recoveriesMore === true) rec.recoveriesMore = true;
   }
   // The consent belongs to the world it was shown for: never carried onto a record for another world (review 28).
   if (before && before.consentHash && before.world === world) rec.consentHash = before.consentHash;

@@ -26,6 +26,7 @@ function fakeRemote(state) {
       if (route === org.ROUTES.status) {
         const d = { member: true, org: state.org || ORG, role: 'member', enrolled: { computer: 'c1', world: state.world, thisComputer: true } };
         if (state.recoveries !== undefined) d.recoveries = state.recoveries;
+        if (state.more !== undefined) d.recoveriesMore = state.more;
         return { ok: true, data: d };
       }
       return { ok: false, because: 'unknown route ' + route };
@@ -91,7 +92,7 @@ test('#5536: an answer without the field keeps the confirmed list, and [] clears
 
 test('#5536: cleanRecoveries keeps only the two words and whole numbers, and strips a name to text', () => {
   const got = org.cleanRecoveries([
-    { what: 'files_opened', who: 'r‮ev\u0007', at: T, epoch: 3, count: 7 },
+    { what: 'files_opened', who: 'r\u202eev\u0007', at: T, epoch: 3, count: 7 },
     { what: 'something_else', who: 'x', at: T },
     { what: 'key_released', who: 'x', at: 0 },
     { what: 'key_released', who: 'x', at: 1.5 },
@@ -108,4 +109,37 @@ test('#5536: cleanRecoveries keeps only the two words and whole numbers, and str
   assert.equal(org.cleanRecoveries(many).length, org.MAX_RECOVERIES);
   assert.equal(org.cleanRecoveries(many)[0].at, T, 'the newest first, as sent');
   assert.deepStrictEqual(org.cleanRecoveries('nope'), []);
+});
+
+test('#5536: a list is kept only for the same company; another company on the answer starts with none', async (t) => {
+  const { root, state, remote } = await enrolled(t);
+  state.recoveries = [{ what: 'key_released', who: 'rev', at: T }];
+  await org.refresh({ root, remote });
+  assert.equal(org.readEnrollment({ root }).recoveries.length, 1, 'CONTROL: the list is there');
+  delete state.recoveries;
+  state.org = { id: 'org_2', name: 'Other', slug: 'other' };
+  await org.refresh({ root, remote });
+  const rec = org.readEnrollment({ root });
+  assert.equal(rec.org.id, 'org_2', 'CONTROL: the record moved to the other company');
+  assert.equal(rec.recoveries, undefined, "another company's record carried the first company's recoveries");
+});
+
+test("#5536: a review's Accept keeps the list, its time and recoveriesMore", async (t) => {
+  const { root, state, remote } = await enrolled(t);
+  state.recoveries = [{ what: 'key_released', who: 'rev', at: T }];
+  state.more = true;
+  await org.refresh({ root, remote });
+  assert.equal(org.readEnrollment({ root }).recoveriesMore, true, 'recoveriesMore is kept from the answer');
+  const at = Date.now() - 2 * 86400000;
+  setRecord(root, (r) => { r.recoveriesAt = at; });
+  const r = await org.enroll(null, true, { root, remote, review: true });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const rec = org.readEnrollment({ root });
+  assert.equal(rec.recoveries.length, 1, "a review's Accept dropped the list");
+  assert.equal(rec.recoveriesAt, at);
+  assert.equal(rec.recoveriesMore, true);
+  delete state.more;
+  state.recoveries = [{ what: 'key_released', who: 'rev', at: T }];
+  await org.refresh({ root, remote });
+  assert.equal(org.readEnrollment({ root }).recoveriesMore, undefined, 'an answer without more clears it');
 });
