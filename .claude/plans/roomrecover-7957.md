@@ -20,3 +20,7 @@ CI, PR #8008, 2 of 2 runs: "at end false", "room keyboard hold: placed by id", n
 Fixed: no second look after a rebuild; the new list was created anchored (the shape the chat found stays empty), now the chat's order; an old list's end marker leaving could clear the new state, now ignored by epoch; rowTops could read 0 with posts drawn, so the look uses its own set of drawn posts, guarded the same way.
 Checked and not a defect: the settling race, since the placing path ends the guard before the look. The .id sits on the ScrollView, so the composer and keyboard stay. A project switch rebuilds the whole view.
 Left as decided: rowTops can lose readings after a rebuild for the keyboard hold until the next change; that costs at most one less exact hold after a rare recovery. The test's blink passes with only a named activity and the trace line; stated above.
+
+## Review 2 (blind, sonnet)
+Fixed: the old list's top marker leaving could mark the new list settled and ask for an older page; the keyboard hold could arm on the new list before it reached the end.
+Left as decided: a look that finds a finger on the list or the room covered does not look again. A scroll makes the list draw, a covered room is not being read, and a retry adds risk for a rare case. Would change my mind: a capture of a room still blank after a scroll.
