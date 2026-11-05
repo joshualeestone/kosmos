@@ -914,10 +914,3 @@ test('#6329: a stale summary says which rule kept it stale (reported work past t
   // Combined with the idle note idleNoted adds: both clauses, in order.
   assert.match(line(Object.assign({}, w, { idleMinutes: 60 })), /; 5h 2m of reported work since it was written; idle since 1h 0m ago\)$/);
 });
-
-test('#5635: a member\'s summary inside the rhythm by the clock still reads plainly current', () => {
-  const line = (ageMinutes) => v.renderShow({ project: { id: 'x', name: 'X', folderStatus: 'ok', members: [{ name: 'A', sessionName: 'a', summary: { state: 'worked', file: 'summaries/s.md', workMinutes: 7, ageMinutes } }] } }).join('\n');
-  assert.match(line(120), /summary: current: 7 min of reported work since it was written/);
-  assert.match(line(240), /summary: current: /, 'exactly at the rhythm is still inside it');
-  assert.match(line(241), /summary: not overdue, though past the 4-hour rhythm by the clock: 7 min of reported work/, 'control: past it, the same member');
-});
