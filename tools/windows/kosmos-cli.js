@@ -998,7 +998,7 @@ async function verbReport(ctx, args, opts) {
     ctx.err('A \'' + state + '\' report needs at least one of --on <what>, --owner <who>, or a note: that state summons a person, and an empty one names nothing to act on.');
     return 2;
   }
-  const r = await ctx.call('POST', '/api/report', { state, text, on: f.on, owner: f.owner, until: f.until, project: f.project, auto: f.auto, held: f.held, from_pane: '', clear: !!(opts && opts.clear) });
+  const r = await ctx.call('POST', '/api/report', { state, text, on: f.on, owner: f.owner, until: f.until, project: f.project, auto: f.auto, held: f.held, from_pane: '', ...(opts && opts.clear ? { clear: true } : {}) });
   if (!r.reached) return ctx.unreachable('record that');
   /* Dropped, not kept: a state this agent was in while its Kosmos was closed is
      stale by the time it opens. Exit 0, because nothing went wrong. */
