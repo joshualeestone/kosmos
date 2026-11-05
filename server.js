@@ -18479,16 +18479,20 @@ const server = http.createServer(async (req, res) => {
     /* kosmos#7989 slice 3: `kosmos file-notices`, the caller's own waiting file-owner notices (engine/filenotices.js),
        handed over once and cleared. A POST because it clears them. The caller is resolved as GET /api/inbox resolves it
        (token first, then pane; a bare pane is refused on an enforcing board), with no agent parameter, so an agent
-       holding only its own token takes only its own. `as=hook` answers what Kosmos's Claude Code hook prints for
-       UserPromptSubmit (an empty body when there is nothing), `as=text` the lines a person reads, otherwise JSON. */
+       holding only its own token takes only its own. `as=hook` is Kosmos's Claude Code hook (engine/filenotices.js
+       handOver): `ack` names the ids it received last time, and the answer is a first line `ack:<ids>` then the JSON the
+       hook prints for UserPromptSubmit, or an empty body when nothing is waiting. `as=text` the lines a person reads,
+       otherwise JSON; those two take (clear) every notice. */
     req.resume();
     let as = null;
     let fromPane = null;
+    let ack = [];
     try {
       const q = new URL(req.url, ROUTING_BASE).searchParams;
       as = q.get('as');
       fromPane = q.get('from_pane');
-    } catch { as = null; fromPane = null; }
+      ack = String(q.get('ack') || '').split(',').filter(Boolean).slice(0, 2 * require('./engine/filenotices').MAX_PENDING);
+    } catch { as = null; fromPane = null; ack = []; }
     const fail = (status, msg) => {
       if (as === 'hook') sendText(res, status, '');   // the hook prints nothing on any failure
       else if (as === 'text') sendText(res, status, msg + '\n');
@@ -18505,9 +18509,14 @@ const server = http.createServer(async (req, res) => {
       });
       if (!sender.ok) { fail(403, sender.because); return; }
       const fn = require('./engine/filenotices');
+      if (as === 'hook') {
+        const handed = fn.handOver(sender.card.sessionName, { ack });
+        const json = fn.hookJson(handed);
+        sendText(res, 200, json ? 'ack:' + handed.notices.map((n) => n.id).join(',') + '\n' + json : '');
+        return;
+      }
       const taken = fn.take(sender.card.sessionName);
-      if (as === 'hook') sendText(res, 200, fn.hookJson(taken));
-      else if (as === 'text') sendText(res, 200, (fn.contextText(taken) || 'No file notices are waiting for you.') + '\n');
+      if (as === 'text') sendText(res, 200, (fn.contextText(taken) || 'No file notices are waiting for you.') + '\n');
       else sendJson(res, 200, { ok: true, notices: taken.notices, dropped: taken.dropped });
     } catch { fail(500, 'we could not read your file notices just now'); }
     return;
