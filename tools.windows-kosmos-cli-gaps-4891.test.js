@@ -83,6 +83,11 @@ test('#4891 review 2/3 Windows: `report clear --auto` is refused by name; --auto
   assert.equal(late.code, 2, late.err);
   assert.match(late.err, /--auto is not an option of kosmos report/);
   assert.equal(late.calls.filter((c) => c.method === 'POST').length, 0, 'a refused note reached the board');
+  /* #7756, as on the Mac: a clear says so, and only a clear. */
+  const said = await run(['report', 'clear', 'found', 'it'], () => ({ body: JSON.stringify({ recorded: true }) }));
+  assert.equal(JSON.parse(said.calls.find((c) => c.method === 'POST').body).clear, true);
+  const plain = await run(['report', 'working', 'on', 'it'], () => ({ body: JSON.stringify({ recorded: true }) }));
+  assert.equal(JSON.parse(plain.calls.find((c) => c.method === 'POST').body).clear, false);
   /* CONTROL: after a bare --, --auto is note text. */
   const note = await run(['report', 'clear', '--', 'back', 'to', 'it,', 'dropped', '--auto'], () => ({ body: JSON.stringify({ recorded: true }) }));
   assert.equal(note.code, 0, note.err);

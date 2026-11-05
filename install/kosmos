@@ -4122,7 +4122,7 @@ cmd_report() {
   if [ -z "$state" ]; then
     say "$_use"
     say "  kosmos report show     (what the board has for you now; kosmos report status is the same)"
-    say "  kosmos report clear    (take your needs_you or blocked off the board: the same as reporting working)"
+    say "  kosmos report clear [why]    (take your needs_you or blocked off the board: the same as reporting working; over a question, your why stays in your chat with the person)"
     # kosmos#6683: what --until does to the day-old reminder (engine/selfreport.js untilDefers).
     say "  --until 2026-10-30 (or 2026-10-30T15:00Z): no stale reminder before then (a date runs to its end, UTC)."
     say "  --until in words (\"the owner says\"): no stale reminder at all. Anything else with a number in it: as if no --until."
@@ -4211,7 +4211,7 @@ cmd_report() {
   fi
   body=$(kosmos_curl "$_bt" "$_tok" -sS -m "$_post_m" -X POST "$URL/api/report" \
     -H 'content-type: application/json' \
-    --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"project\":\"$esc_project\",\"auto\":$([ "$auto" = 1 ] && printf 'true' || printf 'false'),\"held\":$([ "$held" = 1 ] && printf 'true' || printf 'false'),\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
+    --data "{\"state\":\"$esc_state\",\"text\":\"$esc_text\",\"on\":\"$esc_on\",\"owner\":\"$esc_owner\",\"until\":\"$esc_until\",\"project\":\"$esc_project\",\"auto\":$([ "$auto" = 1 ] && printf 'true' || printf 'false'),\"held\":$([ "$held" = 1 ] && printf 'true' || printf 'false'),\"clear\":$([ "$_clear" = 1 ] && printf 'true' || printf 'false'),\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
     say_unreached "record that" "$?" write
     exit 1
   }

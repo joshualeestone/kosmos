@@ -18909,8 +18909,10 @@ const server = http.createServer(async (req, res) => {
         // #718: a phone buzzes on the change INTO needs_you, not on every repeat
         // report, so read what this agent said last before recording this one.
         let wasNeedsYou = false;
+        let askedBefore = null;   // #7756: the question standing before this report, held or not
         try {
           const prior = selfreport.read(who);
+          if (prior && prior.found === true && prior.state === 'needs_you') askedBefore = { text: prior.because };
           /* #7915: a HELD question was never buzzed, so asking it for real afterwards is the change that buzzes. */
           wasNeedsYou = !!(prior && prior.found === true && prior.state === 'needs_you' && prior.held !== true);
         } catch { /* unknown reads as a change */ }
@@ -18940,6 +18942,15 @@ const server = http.createServer(async (req, res) => {
              refused over a standing waiting state; see selfreport.record. */
           auto: body.auto === true,
         });
+        /* #7756: `kosmos report clear "why"` over a question: the person sees it closed, not just gone. A line in the agent's
+           chat with them, Kosmos's own words in the agent's name (so it is not read as an answer they owe), and no buzz: a
+           question going away is nothing to interrupt anyone for. Never fails the report. */
+        if (body.clear === true && body.auto !== true && askedBefore && kept && kept.recorded === true) {
+          try {
+            const line = selfreport.withdrawnLine(askedBefore.text, said(body.text));
+            if (line) keepAgentReply(who, line, undefined, { kosmos: true });
+          } catch { /* the card still cleared */ }
+        }
         /* kosmos#7149: a session start is when the agent reads its whole instructions file, so the copy that the next
            re-read notice diffs against is taken here. Never fails the report. */
         // Review 7: only a RECORDED start, the same row startedSince ends a debt on, so the copy never runs ahead of it.

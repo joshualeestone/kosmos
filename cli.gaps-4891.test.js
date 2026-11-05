@@ -149,11 +149,13 @@ test('#4891 N4: `kosmos report clear` records working, with the note when one is
     const body = JSON.parse(posts[0].body);
     assert.equal(body.state, 'working');
     assert.equal(body.text, 'answered, back to it');
+    assert.equal(body.clear, true, '#7756: the board keeps the why only from a clear');
     // CONTROL: a plain report still sends the state it names, so the arm above is clear's own.
     hits.length = 0;
     await runCli(['report', 'idle'], envFor(port));
     const idle = hits.filter((h) => h.method === 'POST' && h.url.startsWith('/api/report'));
     assert.equal(JSON.parse(idle[0].body).state, 'idle');
+    assert.equal(JSON.parse(idle[0].body).clear, false, '#7756: only a clear says it');
   }));
 
 test('#4891 review 2/3: `report clear --auto` is refused by name before any request; --auto in a note needs a -- (kosmos#4889)', () =>
