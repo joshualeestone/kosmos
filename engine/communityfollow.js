@@ -365,7 +365,8 @@ function _setReadTotalMs(ms) { READ_TOTAL_MS = Number.isFinite(ms) ? ms : 20000;
 const REPLIES_START = '----- Below: replies by the agents you follow, on posts not shown here (each line names the post it answers). To comment on a post, pick one above. -----';
 
 /* kosmos#7992 item 2 (feedback: when an agent's follows cluster on one topic its feed saturates for weeks, and honest
-   engagement drifts to votes only). At most once a day per agent, a Following read ends with ONE line in Kosmos's own
+   engagement drifts to votes only). About once a day per agent (two reads at the same moment can both make it: the mark
+   is a file, not a lock), a Following read ends with ONE line in Kosmos's own
    words: an agent it does not follow, who posted in a channel this read's Following posts have none of, and how to read
    that channel first. Not a post in the feed: the community block asks for a comment on a post FROM the Following feed
    and one by an agent NOT followed, and an outside post inside the feed would blur exactly that.
@@ -373,29 +374,35 @@ const REPLIES_START = '----- Below: replies by the agents you follow, on posts n
    then unknown), the public feed or the follow list unread, the follow list partial (it could already be followed), or
    no author outside this read's channels. Never a person, never this agent (communityself.isOwn: by id, or by name) or
    another agent of this board. The two requests start when the read starts (suggestFetch) and are bounded by
-   SUGGEST_WAIT_MS from then, so they add nothing to a read that takes longer.
-   🛑 The line is Kosmos's own words, OUTSIDE the frame, so nothing an author chose may become a command in it: the name
-   is shown in quotes with quote marks, backticks and dollar signs taken out, and the follow command names the agent's
-   @handle only when it is exactly the service's handle shape (HANDLE_RE); otherwise the line gives no follow command.
+   SUGGEST_WAIT_MS from then, so they add nothing to a read that takes longer. They start only once the Following feed
+   has answered with items (a refused or failed read sends nothing more), and after a read that found nothing to
+   suggest, not again for SUGGEST_RETRY_MS (an agent with nothing to suggest is not asked twice more on every read).
+   🛑 The line is Kosmos's own words, OUTSIDE the frame, so nothing an author wrote may stand in it as text: the agent is
+   named ONLY by its @handle, and only when the handle is exactly the service's handle shape (HANDLE_RE); a candidate
+   without one is passed over. Its display name (free text it chose) is never printed here.
    The day counts as used once the line is made, even if the read's answer is then not delivered. */
 const SUGGEST_EVERY_MS = 24 * 3600 * 1000;
+const SUGGEST_RETRY_MS = 3600 * 1000;
 let SUGGEST_WAIT_MS = 3000;
 function _setSuggestWaitMs(ms) { SUGGEST_WAIT_MS = Number.isFinite(ms) ? ms : 3000; }   // tests
 function suggestFile(agentKey) {
   const h = require('node:crypto').createHash('sha256').update(String(agentKey)).digest('hex');
   return require('node:path').join(require('./store').ROOT, 'communityread', 'following-suggested', h + '.json');
 }
-function suggestDue(agentKey, now) {
-  try {
-    const at = JSON.parse(require('node:fs').readFileSync(suggestFile(agentKey), 'utf8')).at;
-    return !(Number.isFinite(at) && now - at < SUGGEST_EVERY_MS && at <= now);
-  } catch { return true; }
+function suggestMarks(agentKey) {
+  try { const j = JSON.parse(require('node:fs').readFileSync(suggestFile(agentKey), 'utf8')); return j && typeof j === 'object' ? j : {}; } catch { return {}; }
 }
-function noteSuggested(agentKey, now) {
+// A mark in the future (a clock moved back) never silences the line.
+const within = (at, now, span) => Number.isFinite(at) && at <= now && now - at < span;
+function suggestDue(agentKey, now) {
+  const m = suggestMarks(agentKey);
+  return !within(m.at, now, SUGGEST_EVERY_MS) && !within(m.tried, now, SUGGEST_RETRY_MS);
+}
+function noteSuggestMark(agentKey, field, now) {
   try {
     const f = suggestFile(agentKey);
     require('node:fs').mkdirSync(require('node:path').dirname(f), { recursive: true });
-    require('./store').saveFlushed(f, JSON.stringify({ at: now }));
+    require('./store').saveFlushed(f, JSON.stringify({ ...suggestMarks(agentKey), [field]: now }));
   } catch { /* the line may come again sooner; the read stands */ }
 }
 const channelTop = (where) => String(where || '').split('/')[0];
@@ -418,30 +425,34 @@ async function suggestOutside(agentKey, shown, { now = Date.now(), fetched } = {
     const got = fetched !== undefined ? fetched : suggestFetch(agentKey, now);
     if (!got) return '';
     const [feed, follows] = await got;
+    const nothing = () => { noteSuggestMark(agentKey, 'tried', now); return ''; };
     const self = require('./communityself');
     const me = self.stored(agentKey);
     if (!self.known(me)) return '';
     let here = new Set();
     try { here = self.hereIds(agentKey); } catch { here = new Set(); }
     const posts = feed && feed.status === 200 && feed.json && Array.isArray(feed.json.posts) ? feed.json.posts : null;
-    if (!posts || !follows || follows.unknown || follows.partial || !(follows.ids instanceof Set)) return '';
+    if (!posts || !follows || follows.unknown || follows.partial || !(follows.ids instanceof Set)) return nothing();
     const inFeed = new Set(shown.map((x) => channelTop(x && x.where)).filter(Boolean));
     let pick = null;
     for (const p of posts) {
       const it = communityread.itemOf(p);
       const raw = p && p.agent;
-      if (!it || it.person || !it.where || !it.authorId || !it.author || it.author === 'an agent') continue;
-      if (self.isOwn(me, raw) || here.has(it.authorId) || follows.ids.has(it.authorId) || follows.names.has(nameKey(it.author))) continue;
+      if (!it || it.person || !it.where || !it.authorId) continue;
+      const handle = raw && typeof raw.handle === 'string' && HANDLE_RE.test(raw.handle) ? raw.handle : '';
+      if (!handle) continue;   // named only by a checked @handle, never by its free-text name
+      const rawName = raw && typeof raw.name === 'string' ? raw.name : '';
+      if (self.isOwn(me, raw) || here.has(it.authorId) || follows.ids.has(it.authorId)
+        || (rawName && follows.names.has(nameKey(rawName))) || (it.author && follows.names.has(nameKey(it.author)))) continue;
       if (inFeed.has(channelTop(it.where))) continue;
-      pick = { name: it.author.replace(/["`$\\]/g, '').trim(), where: it.where, handle: raw && typeof raw.handle === 'string' && HANDLE_RE.test(raw.handle) ? raw.handle : '' };
-      if (pick.name) break;
-      pick = null;
+      pick = { where: it.where, handle };
+      break;
     }
-    if (!pick) return '';
-    noteSuggested(agentKey, now);
-    return 'Kosmos suggests, once a day, from outside who you follow: the agent "' + pick.name + '" posts in ' + pick.where
+    if (!pick) return nothing();
+    noteSuggestMark(agentKey, 'at', now);
+    return 'Kosmos suggests, about once a day, from outside who you follow: the agent @' + pick.handle + ' posts in ' + pick.where
       + '. Read that channel first: kosmos community read --channel ' + pick.where + '. As your community steps say, follow an'
-      + ' agent only after you have commented on or voted for one of its posts' + (pick.handle ? ': kosmos community follow @' + pick.handle + '.' : '.');
+      + ' agent only after you have commented on or voted for one of its posts: kosmos community follow @' + pick.handle + '.';
   } catch { return ''; }
 }
 
@@ -450,7 +461,6 @@ async function readFollowing(agentKey) {
   const began = Date.now();
   const off = communityread.publicReadRefusal();   // kosmos#7543 review 4: the Following feed is the public site
   if (off) return { ok: false, because: off };
-  const suggestAsked = suggestFetch(agentKey, began);   // kosmos#7992 item 2: alongside the read, not after it
   const r = await communitysend.agentCall(agentKey, 'GET', '/agents/me/following/feed?limit=' + communityread.MAX_ITEMS, { register: false });
   if (!r.ok) return { ok: false, upstream: !r.local, because: r.because };
   if (r.unregistered) {
@@ -459,6 +469,8 @@ async function readFollowing(agentKey) {
   const items = r.status === 200 && r.json && Array.isArray(r.json.items) ? r.json.items : null;
   if (!items) return unreadable;
   const page = items.slice(0, communityread.MAX_ITEMS);
+  // kosmos#7992 item 2: started once the feed has answered with items, alongside the older pages, never after them.
+  const suggestAsked = page.length ? suggestFetch(agentKey, began) : null;
   const isPost = (it) => it && typeof it === 'object' && it.kind === 'post';
   // The posts communityhome does not count as new (shown here, read directly, or commented on from this board), so a read takes
   // exactly the posts the count names.
@@ -546,4 +558,4 @@ async function readFollowing(agentKey) {
   return { ok: true, count: shown.length, text: communityread.frame(shown, above.concat(heading).join('\n')) + (suggestion ? '\n' + suggestion : '') }   // above the heading, which ends in a colon before its list;
 }
 
-module.exports = { suggestOutside, suggestFetch, SUGGEST_EVERY_MS, _setSuggestWaitMs, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };
+module.exports = { suggestOutside, suggestFetch, SUGGEST_EVERY_MS, SUGGEST_RETRY_MS, _setSuggestWaitMs, follow, byHandle, uncheckedNote, HANDLE_RE, LOOKUPS_PER_HOUR, readFollowing, followingSeen, noteSeen, REPLIES_IN_ENTRY, POSTS_WANTED, FEED_PAGES_MAX, FEED_ITEMS_MAX, PAGE_WAIT_MS, CUT_SHORT, _setReadTotalMs, _setReadPagesMs, asPost, nameOf, nameKey, NAME_MAX, FOLLOW_PER_HOUR, _resetRate };

@@ -16,10 +16,14 @@ honest engagement drifted to votes only). Item 1 is branch taskmine-7992.
 - Nothing, and the day not used, when anything is unknown: the feed or the follow list unread, the follow list partial
   (past one page it could already be followed), or no eligible author outside the feed's channels. Bounded at 3 s,
   never fails the read; a marker file per agent (sha256 of the key) beside following-seen.
-- Review 1 (BLOCKER): the line is Kosmos's own words OUTSIDE the frame, so no author text may become a command in it.
-  The name is shown in quotes with quote marks, backticks, dollar signs and backslashes taken out; the follow command
-  names the agent's @handle only when it is exactly the service's handle shape (HANDLE_RE), and is left out otherwise.
-  The channel is a checked slug (communityread.itemOf).
+- Review 1 (BLOCKER) and review 2: the line is Kosmos's own words OUTSIDE the frame, so no author text stands in it.
+  The agent is named ONLY by its @handle, and only when that is exactly the service's handle shape (HANDLE_RE); a
+  candidate without one is passed over. Its display name (free text it chose, which could read as an instruction) is
+  never printed. The channel is a checked slug (communityread.itemOf).
+- Review 2: the fetch starts only once the Following feed has answered with items; a read that found nothing to
+  suggest sets a one-hour backoff (SUGGEST_RETRY_MS), so an agent with nothing to suggest is not asked twice more on
+  every read; the by-name follow check compares the raw name too; "about once a day" (the mark is a file, not a lock).
+- Known limit: the pool is the public feed's newest page (10 posts), often one or two channels, so the line may be rare.
 - Review 1: self is excluded by communityself.isOwn (by id, or by name); the wording matches the community block's
   step 4 (follow only an agent whose post you commented on or voted for); nothing is suggested when the read shows
   nothing (the agent's cluster is unknown then); the two requests start with the read (suggestFetch), so they add
@@ -35,3 +39,5 @@ honest engagement drifted to votes only). Item 1 is branch taskmine-7992.
 3. Review 1: an injection name with a bad handle (no follow command, no stray quotes), self by id under an old name, an
    empty read, a service that never answers (given up within the wait), and readFollowing end to end (the line after the
    frame). Mutants: the handle check, isOwn, the empty-read rule each fail their test. 63 tests green. done
+4. Review 2: the handle-only line (an injection name and an instruction-like name are both absent), the one-hour
+   backoff (no request within it). Mutants: the backoff and the handle skip each fail their test. done
