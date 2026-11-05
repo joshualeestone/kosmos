@@ -104,7 +104,9 @@ function openParts(session, projects) {
         const others = prog.parts.some((y) => y.who !== session && !y.closedAt && !markedBy.includes(y.who));
         const checks = Array.isArray(t.doneWhen) ? t.doneWhen.length : 0;
         const subs = k.total > 0 && k.built > 0 ? { subs: { done: k.done, built: k.built, total: k.total, others, checks } } : {};
-        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due, ...subs });
+        out.push({ projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: x.sentence || '', givenAt, ...due, ...subs,
+          /* kosmos#8067: a mark that does not free this agent (a colleague's, or an unnamed caller's) stays open work on purpose, so the line says it is marked. */
+          ...(t.builtAt ? { marked: { by: markedBy, checks } } : {}) });
       }
     }
   }
@@ -155,8 +157,17 @@ function nudgeText(part) {
         + (id ? id + ' ' + part.n : '<project-id> <task-number>') + (s.checks > 0 ? ' \'<how its checks went>\'' : '') + ').';   // a note only asked for with checks (review 3)
     })()
     : '';
+  /* kosmos#8067 (11-05 feedback): an agent told "open work" about a task it could see marked built read it as a nudge about
+     finished work, and each new stall repeated it. The mark is on the task and the work is per part (assigner.hasOpenWork), so
+     this agent's part really is open: the line says so and names the one command that ends it. Names as the record holds them. */
+  const m = part.marked;
+  const markedBy = m && Array.isArray(m.by) ? m.by.map((n) => plainWords(n, 80)).filter(Boolean).join(', ') : '';
+  const marked = m
+    ? ' It is already marked built' + (markedBy ? ' by ' + markedBy : '') + ', but that mark does not cover your own part. If your part is done too, mark it yourself and this stops (kosmos task built '
+      + (id ? id + ' ' + part.n : '<project-id> <task-number>') + (m.checks > 0 ? ' \'<how its checks went>\'' : '') + ').'
+    : '';
   return 'Kosmos here, from the Prompter: you have been idle while you still have open work: task #' + part.n
-    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + sub + ' Pick it up, or if you are waiting on something, '
+    + (words ? ' "' + words + '"' : '') + ' in ' + plainWords(part.project, SENTENCE_CAP) + '.' + due + sub + marked + ' Pick it up, or if you are waiting on something, '
     /* #5318: two states, two machines. blocked is a wait nobody chases (another agent, a deploy, a review); only
        needs_you is escalated (recommender.js, after its grace). Offering blocked alone sent person-blocked work there,
        where it went inert (0.7.22, a real install). The question is in SINGLE quotes: unquoted, a ? stops zsh with "no

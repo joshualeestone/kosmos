@@ -715,3 +715,59 @@ test('#6421: a colleague who already marked the parent built is done, so this ag
     assert.ok(!/still open/.test(mine.text), 'a finished colleague read as an open part: ' + mine.text);
   } finally { w.restore(); }
 });
+
+/* kosmos#8067 (11-05 feedback): a task that looked finished kept drawing a nudge, again after every restart. */
+test('#8067: a task a colleague marked built still nudges, says it is marked, by whom, and names the command that ends it', () => {
+  const w = world([{ name: 'markedme' }, { name: 'markedthem' }]);
+  try {
+    const n = taskOn(w, w.key.markedme, 'ship it');
+    const r = tasks.setBuilt(w.pid, n, { by: w.key.markedthem, note: 'finished it' });
+    assert.ok(r && r.ok, 'fixture: ' + JSON.stringify(r));
+    const { calls } = pass(w);
+    assert.equal(calls.length, 1, 'the mark freed an agent whose part is open, which the Assigner does not');
+    assert.ok(calls[0].text.includes('It is already marked built by ' + w.key.markedthem + ', but that mark does not cover your own part.'), calls[0].text);
+    assert.ok(calls[0].text.includes('(kosmos task built ' + w.pid + ' ' + n + ')'), calls[0].text);
+    /* And the command it names does end it. */
+    assert.ok(tasks.setBuilt(w.pid, n, { by: w.key.markedme }).ok);
+    assert.equal(pass(w).calls.length, 0, 'marking it as the line says did not stop the nudge');
+  } finally { w.restore(); }
+});
+
+test('#8067: a mark with no name says so without inventing one', () => {
+  const w = world([{ name: 'markednone' }]);
+  try {
+    const n = taskOn(w, w.key.markednone, 'ship it');
+    assert.ok(tasks.setBuilt(w.pid, n, { note: 'an unnamed caller' }).ok);
+    const { calls } = pass(w);
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].text.includes('It is already marked built, but that mark'), calls[0].text);
+  } finally { w.restore(); }
+});
+
+test('#8067 control: a task with no mark says nothing about one, and neither arm that frees the agent is nudged', () => {
+  const w = world([{ name: 'plainopen' }, { name: 'selfmark' }, { name: 'closedone' }]);
+  try {
+    taskOn(w, w.key.plainopen, 'not finished');
+    const s = taskOn(w, w.key.selfmark, 'mine');
+    assert.ok(tasks.setBuilt(w.pid, s, { by: w.key.selfmark }).ok);
+    assert.ok(tasks.close(w.pid, taskOn(w, w.key.closedone, 'done')));
+    const { calls } = pass(w);
+    assert.deepEqual(calls.map((c) => c.session), [w.key.plainopen]);
+    assert.ok(!calls[0].text.includes('marked built'), calls[0].text);
+  } finally { w.restore(); }
+});
+
+test('#8067: the same holds after a restart: a new stall re-asks about the marked task, never about a finished one', () => {
+  const w = world([{ name: 'rsmarked' }, { name: 'rsother' }, { name: 'rsself' }]);
+  try {
+    tasks.setBuilt(w.pid, taskOn(w, w.key.rsmarked, 'x'), { by: w.key.rsother });
+    tasks.setBuilt(w.pid, taskOn(w, w.key.rsself, 'y'), { by: w.key.rsself });
+    const book = new Map();
+    const stall = () => pass(w, { book }).calls.map((c) => c.session).filter((x) => x !== w.key.rsother);
+    assert.deepEqual(stall(), [w.key.rsmarked]);
+    assert.deepEqual(stall(), [], 'nudged twice in one stall');
+    book.clear();   // a restart: this stall is over, and the book does not survive a board restart
+    assert.deepEqual(stall(), [w.key.rsmarked]);
+  } finally { w.restore(); }
+});
+
