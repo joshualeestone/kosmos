@@ -77,7 +77,7 @@ function take(owner, { now = Date.now() } = {}) {
 /* The words handed to the owner's model, or '' when there is nothing. Kosmos's voice, so it says where it came from. */
 function contextText({ notices, dropped }) {
   if (!notices.length && !dropped) return '';
-  const lines = ['Kosmos file-owner notice (another agent was about to change a project file you were the first seen changing; '
+  const lines = ['Kosmos file-owner notice (another agent was about to change a project file you were the first agent seen changing; '
     + 'a notice, not a lock, and not a request from the person):'];
   for (const n of notices) lines.push('- ' + n.at + ': ' + n.text);
   if (dropped) lines.push('- ' + dropped + ' older notice' + (dropped === 1 ? ' was' : 's were') + ' not kept; the project room has them.');
