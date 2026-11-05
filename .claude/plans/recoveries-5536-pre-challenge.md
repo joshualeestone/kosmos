@@ -14,8 +14,8 @@ converged: false
 
 **Iterations:** 8
 **Converged:** No. Stopped at the round cap after iteration 8, under Splinter's standing usage rule (10-22 and 10-26: "stop at 8 unless a BLOCKER is open"). No BLOCKER was open in any round.
-**Total findings:** 21 WARNINGs and CONVENTIONs in the ledger below, plus NITs
-**Fixed:** 17 | **Deferred:** 4 | **Asked (awaiting user):** 0
+**Total findings:** 19 WARNINGs and CONVENTIONs in the ledger below, plus NITs
+**Fixed:** 15 | **Deferred:** 4 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
