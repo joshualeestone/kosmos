@@ -160,6 +160,25 @@ test('kosmos#8021: a real failure inside a sweep-begun streak dates it from that
   assert.equal(out[0].since, new Date(failed).toISOString());
 });
 
+test('kosmos#8021: a stall already said keeps its date when the sweep takes back, so its end is still said', async () => {
+  const s = 's-saidmixed'; const clock = { at: T0 };
+  keep(s, 'm11');
+  const tick = sweep(cardFor(s), clock);
+  await run(tick, clock, T0 + 11 * MIN, T0 + 45 * MIN);
+  const map = new Map();
+  const first = said(s, clock.at, map);
+  assert.equal(first.length, 1, 'CONTROL: said, from the sweep alone');
+  ds.note(s, { state: 'unconfirmed' }, clock.at + 1000);
+  limitqueue.remove(s, 'm11');
+  clock.at += MIN; await tick();
+  assert.equal(ds.failCount(s), 1, 'CONTROL: the real failure stays');
+  assert.deepEqual(said(s, clock.at, map), [], 'not said a second time as a new stall');
+  ds.note(s, { state: 'placed' }, clock.at);
+  const ends = ds.endsToSay(map, { now: clock.at + MIN });
+  assert.equal(ends.length, 1, 'its end is said');
+  assert.equal(ends[0].since, first[0].since, 'under the date it was said with');
+});
+
 test('kosmos#8021: a sweep pass does not rename what real failures began', async () => {
   const s = 's-why'; const clock = { at: T0 };
   ds.note(s, { state: 'could_not', held: true, heldBy: 'limit', heldFor: 'signin' }, T0);

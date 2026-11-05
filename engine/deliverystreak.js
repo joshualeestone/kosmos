@@ -102,7 +102,8 @@ function takeBack(name) {
   if (!s || !s.swept) return;
   if (!s.count) { streaks.delete(String(name)); return; }
   s.swept = 0;
-  if (Number.isFinite(s.firstTry)) s.since = s.firstTry;
+  // A stall already said keeps its date: said, its end and its push all match on it.
+  if (!s.said && Number.isFinite(s.firstTry)) s.since = s.firstTry;
 }
 /* Wrap a verdict, or a promise of one, so it is noted as it settles; returns what it was given. */
 function noted(name, v) {
