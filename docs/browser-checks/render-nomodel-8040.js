@@ -129,20 +129,23 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       // a new default they just connected should win. Read from what the return asks loadCreateExtras to keep.
       const keptAccount = async (choose) => {
         await toNameStep(p);
-        if (choose) await p.evaluate(() => document.getElementById('create-account').dispatchEvent(new Event('change')));   // its row is hidden with one account; the change is what a person's pick fires
+        if (choose) await p.evaluate(() => ['create-account', 'create-model'].forEach((id) => document.getElementById(id).dispatchEvent(new Event('change'))));   // its row is hidden with one account; the change is what a person's pick fires
         await pressCreate(p, 'set up Claude Code');
         const value = await p.evaluate(() => document.getElementById('create-account').value);
+        const model = await p.evaluate(() => document.getElementById('create-model').value);
         await p.evaluate(() => { const real = loadCreateExtras; window.__keptAsk = null; window.loadCreateExtras = (k) => { window.__keptAsk = k; window.loadCreateExtras = real; return real(k); }; });
         await p.locator('#create-msg button').click();
         await p.waitForTimeout(300);
         await p.evaluate(() => document.getElementById('new-agent').click());
         await p.waitForTimeout(300);
-        return { value, ask: await p.evaluate(() => window.__keptAsk && window.__keptAsk.account) };
+        return { value, ask: await p.evaluate(() => window.__keptAsk && window.__keptAsk.account), model, modelAsk: await p.evaluate(() => window.__keptAsk && window.__keptAsk.model) };
       };
       const untouched = await keptAccount(false);
       chk(untouched.value !== '' && untouched.ask === '', size + ': an account the person never chose is not put back on the return', JSON.stringify(untouched));
+      chk(untouched.model !== '' && untouched.modelAsk === '', size + ': and nor is a model they never chose', JSON.stringify(untouched));
       const chosen = await keptAccount(true);
       chk(chosen.value !== '' && chosen.ask === chosen.value, size + ': CONTROL: an account the person chose is put back', JSON.stringify(chosen));
+      chk(chosen.model !== '' && chosen.modelAsk === chosen.model, size + ': CONTROL: and a model they chose is put back', JSON.stringify(chosen));
       unseedAccount();
 
       // Refused, connect, come back: what they typed is still there, on the same step.
