@@ -32,8 +32,8 @@ done
 # growing and shrinking at the newest message, and a reader higher up while it grows).
 # kosmos#7945 follow-up: LaunchHandoverUITests measures that the Connecting wait's ring sits at the screen's centre, where
 # the launch screen draws it, on the Agents tab and on Projects, and at the largest text size (3 checks).
-# kosmos#7348: SendMovesOnceUITests, a send paced as a real Mac answers does not step as it settles (2 checks).
-classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 SendMovesOnceUITests:2"
+# kosmos#7348: SendMovesOnceUITests, a send paced as a real Mac answers does not step as it settles, nor as the agent picks it up (3 checks).
+classes="AttachMenuUITests:6 RoomTitleUITests:2 KeyboardSlideUITests:9 RoomOpensAtNewestUITests:5 StopAddingUITests:2 RoomKeyboardUITests:3 LaunchHandoverUITests:3 SendMovesOnceUITests:3"
 # ChatOpensAtNewestUITests is left out of this run: its 260-message chat is too big for a CI runner to query (XCTest
 # "Timed out while evaluating UI query" on both CI runs, iOS 26.5, while it passes here). Run it alone on a Mac:
 #   TEST_RUNNER_KOSMOS_UI_PLUS=1 xcodebuild test ... -only-testing:KosmosUITests/ChatOpensAtNewestUITests
@@ -91,10 +91,12 @@ for c in $classes; do
   [ "$n" -eq "${c##*:}" ] || short="$short ${c%%:*}=$n/${c##*:}"
 done
 if [ "$rc" -eq 0 ] && [ "$ran" -eq "$want" ] && [ "$failed" -eq 0 ] && [ -z "$short" ]; then
-  note=""; [ "$skipped" -gt 0 ] && note=" ($skipped of them SKIPPED: a skip tested nothing, see the log)"
+  note=""; [ "$skipped" -gt 0 ] && note=" ($skipped of them SKIPPED: a skip tested nothing, named below)"
   # #7654: on GitHub Actions a skip is also an annotation on the run, so a green job that tested less is visible.
-  [ "$skipped" -gt 0 ] && [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::$skipped UI check(s) SKIPPED (they tested nothing); see the log"
+  [ "$skipped" -gt 0 ] && [ -n "${GITHUB_ACTIONS:-}" ] && echo "::warning title=ui-sample::$skipped UI check(s) SKIPPED (they tested nothing); named in this step's output"
   echo "PASS  ui-sample: $ran of $want UI checks passed on a fresh simulator$note"
+  # kosmos#7348: name them and why, since the log is deleted with the run.
+  sed -n 's/.*-\[KosmosUITests\.\([A-Za-z0-9_]* [A-Za-z0-9_]*\)\] : Test skipped - /SKIPPED \1: /p' "$log" | cut -c1-300
   exit 0
 fi
 why="$(sed -n 's/.*error: -\[KosmosUITests\.\([A-Za-z0-9_]*\) \([A-Za-z0-9_]*\)\] : /\1.\2: /p' "$log" | head -3)"

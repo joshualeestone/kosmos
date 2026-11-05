@@ -359,7 +359,9 @@ final class BoardClient: ObservableObject {
             tasksList = Board.parseTasks(Data(all.utf8))
             // kosmos#7342: counts as a real board sends them (waiting = the agents' 6 + the projects' 3), so the Projects
             // tab shows its number in shots too.
-            let sample = #"{"counts":{"waiting":9,"projectsUnread":3},"agents":[{"sessionName":"cleo","name":"Cleo","role":"Project manager","state":"needs_you","dmUnread":2,"stateReportedBy":"agent","cardWord":"Question","cardTone":"asked","context":{"percent":45},"needsReason":"question","stateProjectName":"Spring catalogue","waitingSince":""# + iso(3) + #""},{"sessionName":"dana","name":"Dana","role":"Writer","state":"working","dmUnread":1,"stateProject":"springcatalogue","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working","context":{"percent":72}},{"sessionName":"eli","name":"Eli","role":"Researcher","state":"needs_you","awaitingApproval":true,"cardWord":"Needs permission","cardTone":"needs_you","context":{"percent":88},"needsReason":"permission","stateProjectName":"Market study","waitingSince":""# + iso(12) + #""},{"sessionName":"farah","name":"Farah","role":"Bookkeeper","state":"idle","cardWord":"Idle","cardTone":"quiet","context":{"percent":20}},{"sessionName":"hana","name":"Hana","role":"Support","state":"auth_failed","stuckError":{"stuck":true,"state":"auth_failed"},"cardWord":"Sign-in Issue","cardTone":"needs_you","needsReason":"stuck_auth"},{"sessionName":"ivy","name":"Ivy","role":"Editor","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"gus","name":"Gus","role":"Social media","state":"stopped","running":false,"cardWord":"Not running","cardTone":"needs_you","needsReason":"other"}]}"#
+            let rawSample = #"{"counts":{"waiting":9,"projectsUnread":3},"agents":[{"sessionName":"cleo","name":"Cleo","role":"Project manager","state":"needs_you","dmUnread":2,"stateReportedBy":"agent","cardWord":"Question","cardTone":"asked","context":{"percent":45},"needsReason":"question","stateProjectName":"Spring catalogue","waitingSince":""# + iso(3) + #""},{"sessionName":"dana","name":"Dana","role":"Writer","state":"working","dmUnread":1,"stateProject":"springcatalogue","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working","context":{"percent":72}},{"sessionName":"eli","name":"Eli","role":"Researcher","state":"needs_you","awaitingApproval":true,"cardWord":"Needs permission","cardTone":"needs_you","context":{"percent":88},"needsReason":"permission","stateProjectName":"Market study","waitingSince":""# + iso(12) + #""},{"sessionName":"farah","name":"Farah","role":"Bookkeeper","state":"idle","cardWord":"Idle","cardTone":"quiet","context":{"percent":20}},{"sessionName":"hana","name":"Hana","role":"Support","state":"auth_failed","stuckError":{"stuck":true,"state":"auth_failed"},"cardWord":"Sign-in Issue","cardTone":"needs_you","needsReason":"stuck_auth"},{"sessionName":"ivy","name":"Ivy","role":"Editor","state":"restarting","cardWord":"Switching to Opus","cardTone":"quiet"},{"sessionName":"gus","name":"Gus","role":"Social media","state":"stopped","running":false,"cardWord":"Not running","cardTone":"needs_you","needsReason":"other"}]}"#
+            sampleAgentsJSON = rawSample
+            let sample = sampleWithDanaAsSet(rawSample)
             // kosmos#7532 (Mona Lisa): in the order the person chose, as a real read gives it (Board.agentOrder below).
             agents = Board.agentOrder(Board.sorted(Board.parseAgents(Data(sample.utf8)) ?? []), sort: agentSort, projects: sortProjects, stars: shownStars)
             waitingCount = Board.waitingCount(Data(sample.utf8))
@@ -1382,6 +1384,16 @@ final class BoardClient: ObservableObject {
     #if DEBUG
     // The sample chats (KOSMOS_SAMPLE_AGENTS=1, a Debug build only): Mona Lisa's 19 October design conversation.
     private var sampleThreads: [String: Board.Thread] = [:]
+    /// kosmos#7348: KOSMOS_SAMPLE_SEND_WORKS=1: Dana is idle until a paced send's post answers, then working, as an agent
+    /// picking up a message is. Only with KOSMOS_SAMPLE_SEND_SLOW, which is what paces that send.
+    static let sampleSendWorks = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SEND_WORKS"] == "1" && sampleSendSlow != nil
+    private var sampleAgentsJSON = ""
+    private var sampleDanaPickedUp = false
+    private func sampleWithDanaAsSet(_ json: String) -> String {
+        guard Self.sampleSendWorks, !sampleDanaPickedUp else { return json }
+        return json.replacingOccurrences(of: #""name":"Dana","role":"Writer","state":"working","dmUnread":1,"stateProject":"springcatalogue","task":"Pages 9 to 12","cardWord":"Working","cardTone":"working""#,
+                                         with: #""name":"Dana","role":"Writer","state":"idle","dmUnread":1,"stateProject":"springcatalogue","task":"Pages 9 to 12","cardWord":"Idle","cardTone":"quiet""#)
+    }
     /// kosmos#7348: KOSMOS_SAMPLE_SEND_SLOW, the seconds a sample send's post takes to answer (nil: at once).
     static let sampleSendSlow: Double? = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_SEND_SLOW"].flatMap(Double.init).flatMap { $0 > 0 ? $0 : nil }
     private func sampleSend(_ text: String, files: [Board.Attached], replyTo: String?, to session: String) -> Board.SendResult {
@@ -1394,6 +1406,10 @@ final class BoardClient: ObservableObject {
         row.attachments = files.map { Board.Attachment(id: $0.id, name: $0.name, type: "", size: nil, kind: "other",
                                                        url: "/api/attachment/" + $0.id, preview: nil) }
         if Self.sampleSendSlow != nil {
+            if Self.sampleSendWorks, !sampleDanaPickedUp, session == "dana" {
+                sampleDanaPickedUp = true
+                agents = Board.agentOrder(Board.sorted(Board.parseAgents(Data(sampleAgentsJSON.utf8)) ?? []), sort: agentSort, projects: sortProjects, stars: shownStars)
+            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
                 guard let self, let now = self.sampleThreads[session] else { return }
                 self.sampleThreads[session] = Board.Thread(rows: now.rows + [row], olderCount: now.olderCount)
