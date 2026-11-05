@@ -537,7 +537,7 @@ let traceLines = (chatSource + "\n" + roomTraceSource).components(separatedBy: "
 // Review 1: an allow-list, not a ban-list. Every value a trace line puts in the record is one of these numbers, yes/no
 // flags or fixed words; anything new (an id, a session, a name) fails here until it is judged and added.
 let allowedInTrace: Set<String> = ["rowsNow.count", "rowsAll", "Self.jumpLine(a, b)", "waited", "personScrolling", "scrollBox.underFinger", "place", "Int(back)", "tall", "inset", "sized", "now ?? \"none\"", "Self.sampleRows(rows, held: r.id)", "Self.sampleRows(rows, held: kept.row)", "Int(reading.content)", "Int(r.content)", "Int(r.top)", "Int(top)", "Int(bottom)", "self.scroll.map { Self.numbers($0) } ?? \"no scroll\"", "atBottom", "earlier.filling", "earlier.loading", "earlier.open", "earlier.rows.count", "endSeen",
-    "endVisible", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
+    "endVisible", "topVisible", "scenePhase == .active", "fresh.olderCount", "fresh.rows.count", "Int(diagKeyboard)", "Int(now.height)", "Int(now.width)", "mine",
     "personScrolling", "phase == .active ? \"active\" : phase == .background ? \"background\" : \"inactive\"", "pinned", "settledAtEnd", "why",
     "Int(x.rounded())", "self.shifts",   // build 16: the stack's width and a sideways offset, both numbers
     "Int(moved)",   // kosmos#7609: how far iOS 26 moved the list when the keyboard came up (a number of points)
