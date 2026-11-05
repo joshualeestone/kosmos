@@ -101,14 +101,17 @@ const chk = (cond, name, detail) => { if (cond) { passes += 1; console.log('PASS
       `${t} the press POSTs the route, with the name encoded`, JSON.stringify(ok.sent));
     chk(!/allow|keys|yes/i.test(String(ok.sent[0] && ok.sent[0].body)), `${t} it carries no answer the server could read as a Yes`, String(ok.sent[0] && ok.sent[0].body));
     chk(ok.msg === 'It is starting without those files.', `${t} the server's words reach the page`, ok.msg);
-    chk(ok.disabled === false, `${t} the button comes back`, String(ok.disabled));
+    chk(ok.disabled === true, `${t} after a success the button stays off while the restart lands`, String(ok.disabled));
     /* The question went: its receipt goes with it, so a later question on this agent does not open under an old answer. */
     await paint({ ...base, asking: false });
     const gone2 = await page.evaluate(() => document.getElementById('d-qask-imports-msg').textContent);
     chk(gone2 === '', `${t} the receipt is cleared once the question has gone`, gone2);
+    const back = await page.evaluate(() => document.getElementById('d-qask-imports-no').disabled);
+    chk(back === false, `${t} once the question has gone the button is live again for a later one`, String(back));
     await paint({ ...base, importsAsk: true });
     const gone = await press({ status: 409, body: { ok: false, because: 'it is no longer asking this' } });
     chk(gone.msg === 'it is no longer asking this', `${t} a refusal is said`, gone.msg);
+    chk(gone.disabled === false, `${t} after a refusal the button comes back`, String(gone.disabled));
     const thrown = await press('throw');
     chk(/could not reach Kosmos/.test(thrown.msg), `${t} no network is said, not left blank`, thrown.msg);
     const moved = await press({ status: 200, body: { ok: true, because: 'It is starting without those files.' } }, true);
