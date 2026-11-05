@@ -122,13 +122,26 @@ check(same(SweepLogic.shown(2.5, side: side, reduceMotion: false), SweepLogic.do
 check(near(SweepLogic.look(24, dot: 5).opacity, SweepLogic.look(0, dot: 5).opacity) && near(SweepLogic.calmOpacity(24), SweepLogic.calmOpacity(0)),
       "24 s is a whole number of both loops")
 
-// kosmos#8058 (Josh 11-05): the small waits show the simple dots, not the orb.
+// kosmos#8058 (Josh 11-05): the small waits show the simple dots, not the orb. Read from KOSMOS_REPO (this checkout),
+// not from a directory passed to run-sweep.sh.
 do {
-    let card = repoText("ios/Kosmos/ChatFiles.swift"), chat = repoText("ios/Kosmos/ChatView.swift"), room = repoText("ios/Kosmos/RoomView.swift")
-    check(!card.isEmpty && !chat.isEmpty && !room.isEmpty, "the chat, room and file card sources were read (KOSMOS_REPO)")
-    check(card.contains("case .loading:\n            SweepDots(") && !card.contains("KosmosOrb(size: 16)"), "an attachment loading shows the simple dots")
-    check(chat.components(separatedBy: "SweepDots(size: 16").count == 3 && room.components(separatedBy: "SweepDots(").count == 4,
-          "Adding a file and earlier messages in a chat, and Adding a file and earlier posts (twice) in a room, show the simple dots")
+    let sites: [(file: String, has: String, what: String)] = [
+        ("ChatFiles.swift", "case .loading:\n            SweepDots(size: 16, scales: false, framesPerSecond: 15)", "an attachment loading: the dots, fixed 16 pt, 15 a second in the thread"),
+        ("ChatView.swift", "SweepDots(size: 16)   // kosmos#8058: the simple dots; this line floats", "Loading earlier messages in a chat"),
+        ("ChatView.swift", "HStack(spacing: 6) {\n                            SweepDots(size: 16)", "Adding a file in a chat"),
+        ("RoomView.swift", "HStack(spacing: 6) {\n                            SweepDots(size: 16)", "Adding a file in a room"),
+        ("ComposerExtras.swift", "if dictation.finishing { SweepDots(size: 16, scales: false) }", "dictation finishing: the dots at the icon's fixed size"),
+        ("FilesView.swift", "if opening { SweepDots(label: \"Loading\") }", "a file opening in the Files list"),
+        ("ShellViews.swift", "HStack(spacing: 12) {\n            SweepDots()", "the Getting a file bar"),
+    ]
+    for site in sites {
+        let text = repoText("ios/Kosmos/" + site.file)
+        check(!text.isEmpty && text.contains(site.has), site.what + " (" + site.file + ")")
+    }
+    let room = repoText("ios/Kosmos/RoomView.swift")
+    check(room.components(separatedBy: "HStack { Spacer(); SweepDots(label: \"Loading\", framesPerSecond: 15); Spacer() }").count == 3,
+          "a room loading earlier posts, live and in its archive: the dots, 15 a second in the thread (RoomView.swift)")
+    let chat = repoText("ios/Kosmos/ChatView.swift")
     check(chat.contains("KosmosOrb().accessibilityHidden(true)\n                    Text(\"Loading the conversation"),
           "CONTROL: the whole-screen wait in an empty chat keeps the orb")
 }
