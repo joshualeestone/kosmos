@@ -24,7 +24,9 @@ test.after(() => fs.rmSync(HOME, { recursive: true, force: true }));
 const CLI = path.join(__dirname, 'install', 'kosmos');
 
 const CLEAN = [200, { ok: true, dir: '/u/.claude-spare', label: 'spare', skills: [], hooks: [], sentence: null }];
-const LOSES = [200, { ok: true, dir: '/u/.claude-spare', label: 'spare', skills: ['design-shots'], hooks: ['destructive-cmd-gate.sh'],
+const CHANGED = [200, { ok: true, loses: false, dir: '/u/.claude-spare', label: 'spare', skills: [], changed: ['pick-up'], hooks: [],
+  sentence: 'That account has a different copy of the skill pick-up.' }];
+const LOSES = [200, { ok: true, loses: true, dir: '/u/.claude-spare', label: 'spare', skills: ['design-shots'], hooks: ['destructive-cmd-gate.sh'],
   sentence: 'On that account it would not have the skill design-shots, or the hook destructive-cmd-gate.sh.' }];
 const CANNOT = [200, { ok: false, dir: '/u/.claude-spare', label: 'spare', because: 'we could not read the skills and hooks of the account it would move to' }];
 const SAME = [200, { ok: true, same: true, dir: '/u/.claude-spare', label: 'spare', skills: [], hooks: [] }];
@@ -66,10 +68,10 @@ function withStub({ plan, post = STARTED, progress = DONE }, fn) {
 }
 const posts = (seen) => seen.filter((s) => s.method === 'POST');
 
-async function cli(port, args) {
+async function cli(port, args, extra = {}) {
   // execFile's stdin is a pipe, never a terminal: the no-TTY case is what a run without --yes meets here.
   const env = { PATH: '/usr/bin:/bin:/usr/sbin:/sbin', HOME, KOSMOS_HOME: HOME, KOSMOS_PORT: String(port), TMPDIR: os.tmpdir(),
-    AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'), KOSMOS_AGENT_TOKEN: 'abc123' };
+    AGENT_WORKFORCE_TMUX_BIN: path.join(__dirname, 'test-support', 'fake-tmux.sh'), KOSMOS_AGENT_TOKEN: 'abc123', ...extra };
   try { const { stdout, stderr } = await run(CLI, args, { env, timeout: 30000 }); return { code: 0, out: stdout + stderr }; }
   catch (e) { return { code: e.code, out: String(e.stdout || '') + String(e.stderr || '') }; }
 }
@@ -252,3 +254,30 @@ test('kosmos#8048 review 2 Windows: a 503 is waited through; a move still pendin
     assert.match(r.err, /still moving after five minutes/);
   });
 });
+
+test('kosmos#8048 review 3: a different copy of a skill is said, but --yes still moves (it is not a loss)', async () => {
+  await withStub({ plan: CHANGED }, async (port, seen) => {
+    const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /That account has a different copy of the skill pick-up\./);
+    assert.equal(posts(seen).length, 1, 'a different copy was treated as a loss');
+  });
+  await withStub({ plan: CHANGED }, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+    assert.equal(r.code, 0, r.err);
+    assert.equal(posts(seen).length, 1, 'Windows treated a different copy as a loss');
+  });
+});
+
+test('kosmos#8048 review 3 Mac: a move still pending at the time bound stops waiting and says so (exit 3)', () => withStub({ plan: CLEAN, progress: [200, { id: 'mv1', done: false, agents: [{ name: 'ada', outcome: 'pending' }] }] }, async (port) => {
+  const r = await cli(port, ['agent', 'move', 'ada', 'spare', '--yes'], { KOSMOS_MOVE_WAIT_S: '4' });
+  assert.equal(r.code, 3, r.out);
+  assert.match(r.out, /ada is still moving after five minutes/);
+}));
+
+test('kosmos#8048 review 3 Windows: a plan answer that is not JSON is said as unreadable, not as a refusal', () => withStub({ plan: [503, null] }, async (port) => {
+  const r = await winRun(port, ['agent', 'move', 'ada', 'spare', '--yes']);
+  assert.equal(r.code, 1);
+  assert.match(r.err, /Kosmos gave an answer we could not read when asked about moving ada\./);
+  assert.doesNotMatch(r.err, /will not move/);
+}));

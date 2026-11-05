@@ -34,11 +34,11 @@ test('kosmos#8048: the drift measured on Mortals is named: two skills and two ga
     hooks: ['bash ~/.claude/hooks/user/pre-challenge-gate.sh', 'bash ~/.claude/hooks/user/destructive-cmd-gate.sh', 'bash ~/.claude/hooks/user/vercel-login-gate.sh'] });
   const acct = folder({ skills: ['pick-up'], hooks: ['bash $HOME/.claude/hooks/user/pre-challenge-gate.sh'] });
   const l = carry.losses(main, acct, H);
-  assert.deepEqual(l, { ok: true, skills: ['design-shots', 'verify-release'], hooks: ['destructive-cmd-gate.sh', 'vercel-login-gate.sh'] },
+  assert.deepEqual(l, { ok: true, skills: ['design-shots', 'verify-release'], changed: [], hooks: ['destructive-cmd-gate.sh', 'vercel-login-gate.sh'] },
     'the loss was not named (the pre-challenge gate, spelled with $HOME, must count as kept)');
   assert.equal(carry.sentence(l), 'On that account it would not have the skills design-shots, verify-release, or the hooks destructive-cmd-gate.sh, vercel-login-gate.sh it has now.');
   // CONTROL: the other way, nothing the account folder has is missing from the main one.
-  assert.deepEqual(carry.losses(acct, main, H), { ok: true, skills: [], hooks: [] });
+  assert.deepEqual(carry.losses(acct, main, H), { ok: true, skills: [], changed: [], hooks: [] });
   assert.equal(carry.sentence(carry.losses(acct, main, H)), null);
 });
 
@@ -48,7 +48,7 @@ test('kosmos#8048: a linked skills folder (how Agent1s shares one) counts as hav
   fs.mkdirSync(acct);
   fs.symlinkSync(path.join(main, 'skills'), path.join(acct, 'skills'));
   fs.symlinkSync(path.join(main, 'settings.json'), path.join(acct, 'settings.json'));
-  assert.deepEqual(carry.losses(main, acct), { ok: true, skills: [], hooks: [] }, 'a linked folder read as missing its skills');
+  assert.deepEqual(carry.losses(main, acct), { ok: true, skills: [], changed: [], hooks: [] }, 'a linked folder read as missing its skills');
   // Each skill linked on its own (a skills/ folder of links) counts too.
   const perSkill = path.join(TMP, `acct-${++n}`);
   fs.mkdirSync(path.join(perSkill, 'skills'), { recursive: true });
@@ -70,14 +70,14 @@ test('kosmos#8048: a folder that cannot be read is "cannot tell", never "nothing
   // CONTROL: a folder with no skills/ and no settings.json at all is readable, and loses everything the source has.
   const empty = path.join(TMP, `acct-${++n}`);
   fs.mkdirSync(empty);
-  assert.deepEqual(carry.losses(ok, empty), { ok: true, skills: ['a'], hooks: ['x.sh'] });
+  assert.deepEqual(carry.losses(ok, empty), { ok: true, skills: ['a'], changed: [], hooks: ['x.sh'] });
 });
 
 test('kosmos#8048: the default account is ~/.claude under the given home', () => {
   const home = path.join(TMP, `home-${++n}`);
   fs.mkdirSync(path.join(home, '.claude', 'skills', 'only-main'), { recursive: true });
   const acct = folder({ skills: [] });
-  assert.deepEqual(carry.losses(null, acct, { home }), { ok: true, skills: ['only-main'], hooks: [] });
+  assert.deepEqual(carry.losses(null, acct, { home }), { ok: true, skills: ['only-main'], changed: [], hooks: [] });
   assert.deepEqual(carry.losses('', acct, { home }).skills, ['only-main']);
 });
 
@@ -109,10 +109,29 @@ test('kosmos#8048 review 1: a gate counts as kept only if it would fire: same ev
 test('kosmos#8048 review 2: a same-named skill with other contents, a hook with other arguments, and a Windows script are compared', () => {
   const skill = (body) => { const d = folder({ skills: ['pick-up'] }); fs.writeFileSync(path.join(d, 'skills', 'pick-up', 'SKILL.md'), body); return d; };
   assert.deepEqual(carry.losses(skill('# new\n'), skill('# new\n'), H).skills, [], 'CONTROL: the same skill was not kept');
-  assert.deepEqual(carry.losses(skill('# new\n'), skill('# old\n'), H).skills, ['pick-up'], 'a stale same-named skill read as kept');
+  const stale = carry.losses(skill('# new\n'), skill('# old\n'), H);
+  assert.deepEqual([stale.skills, stale.changed], [[], ['pick-up']], 'a same-named skill with other contents was not said as a different copy');
+  assert.equal(carry.loses(stale), false, 'a different copy counted as a loss');
+  assert.equal(carry.sentence(stale), 'That account has a different copy of the skill pick-up.');
   const pre = folder({ hooks: ['bash $HOME/.claude/hooks/user/pre-challenge-gate.sh pre'] });
   const post = folder({ hooks: ['bash $HOME/.claude/hooks/user/pre-challenge-gate.sh post'] });
   assert.deepEqual(carry.losses(pre, post, H).hooks, ['pre-challenge-gate.sh'], 'a hook with other arguments read as the same hook');
   assert.deepEqual(carry.losses(pre, folder({ hooks: ['bash ~/.claude/hooks/user/pre-challenge-gate.sh pre'] }), H).hooks, [], 'CONTROL: the same hook spelled ~ was not kept');
   assert.equal(carry.hookId('powershell -File C:\\hooks\\gate.ps1'), 'gate.ps1');
+});
+
+test('kosmos#8048 review 3: $CLAUDE_CONFIG_DIR is unset for the default account, so a hook spelled with it does not fire there', () => {
+  const home = path.join(TMP, `home-${++n}`);
+  const main = path.join(home, '.claude');
+  const acct = path.join(home, '.claude-spare');
+  const gate = 'bash $CLAUDE_CONFIG_DIR/hooks/gate.sh';
+  for (const d of [main, acct]) {
+    fs.mkdirSync(path.join(d, 'hooks'), { recursive: true });
+    fs.writeFileSync(path.join(d, 'hooks', 'gate.sh'), '#!/bin/sh\n');
+    fs.writeFileSync(path.join(d, 'settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: gate }] }] } }));
+  }
+  // Onto the main account: there the gate resolves to /hooks/gate.sh, which does not fire, so it is lost.
+  assert.deepEqual(carry.losses(acct, main, { home }).hooks, ['gate.sh'], 'a gate that will not fire on the main account read as kept');
+  // Off the main account: the gate never fired there, so it is not one the agent loses.
+  assert.deepEqual(carry.losses(main, acct, { home }).hooks, [], 'a gate that never fired on the main account read as lost');
 });

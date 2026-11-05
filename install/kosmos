@@ -7465,7 +7465,8 @@ cmd_agent() {
       say "                                                  propose an addition to an agent's instructions; the person applies it"
       say "  kosmos agent move \"<name>\" \"<account>\" [--yes]  move an agent to another Claude account, after a confirm"
       say "                                                  (<account>: its name as kosmos accounts shows it, or main;"
-      say "                                                  with --yes, a move that would lose skills or hooks also needs --accept-loss)"
+      say "                                                  with --yes, a move that would lose skills or hooks also needs --accept-loss;"
+      say "                                                  like a move in Settings, the automatic mover then leaves that agent for a day)"
       say "  kosmos agent remove \"<name>\" [--yes]            remove an agent from this board, after a confirm (--yes for scripts)"
       exit 2 ;;
     remove)
@@ -7492,6 +7493,8 @@ cmd_agent() {
       local KOSMOS_MV_USAGE='Usage: kosmos agent move "<name>" "<account>" [--yes [--accept-loss]]   (<account>: as kosmos accounts shows it, or main)'
       KOSMOS_MV_YES=""; KOSMOS_MV_LOSS=""
       for _mva in "$@"; do case "$_mva" in --yes) KOSMOS_MV_YES=1 ;; --accept-loss) KOSMOS_MV_LOSS=1 ;; *) _mvw+=("$_mva") ;; esac; done
+      # Review 2/3: the name trimmed first, as the board trims it (create.cleanName) and as Windows does.
+      if [ -n "${_mvw[0]:-}" ]; then local _mvn="${_mvw[0]}"; _mvn="${_mvn#"${_mvn%%[![:space:]]*}"}"; _mvn="${_mvn%"${_mvn##*[![:space:]]}"}"; _mvw[0]="$_mvn"; fi
       { [ -n "${_mvw[0]:-}" ] && [ -n "${_mvw[1]:-}" ]; } || { say "$KOSMOS_MV_USAGE"; exit 2; }
       case "${_mvw[0]}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "agent move" "$KOSMOS_MV_USAGE" "${_mvw[0]}" target ;; esac
       case "${_mvw[1]}" in --[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz]*) _refuse_option "agent move" "$KOSMOS_MV_USAGE" "${_mvw[1]}" target ;; esac
@@ -7500,9 +7503,7 @@ cmd_agent() {
         say "Nothing was moved: there is no terminal here to confirm on. To move ${_mvw[0]} without being asked, add --yes."
         exit 2
       fi
-      # Review 2: the name trimmed here, as the board trims it (create.cleanName), so the plan and the move name one agent.
-      local _mvn="${_mvw[0]}"; _mvn="${_mvn#"${_mvn%%[![:space:]]*}"}"; _mvn="${_mvn%"${_mvn##*[![:space:]]}"}"
-      set -- "$_mvn" "${_mvw[1]}" ;;
+      set -- "${_mvw[0]}" "${_mvw[1]}" ;;
     instructions-add)
       # kosmos#5293: only PROPOSES. The person applies it on that agent's page; nothing here can.
       { [ -n "${1:-}" ] && [ "${2:-}" = "--from" ] && [ -n "${3:-}" ]; } || { say "Usage: kosmos agent instructions-add \"<name>\" --from <file>   (the text to add, in a file)"; exit 2; }
@@ -7679,10 +7680,10 @@ cmd_agent() {
       body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 30 "$URL/api/agents/account-plan?$mv_q" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "read what moving $mv_name would do" "$rc"; exit 1; fi
       # Fields, tab-separated: ok, same, dir, label, the loss sentence, why (refused or could not tell).
-      mv_plan=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'console.log([j.ok===true?"ok":"no",j.same===true?"same":"",one(j.dir),one(j.label),one(j.sentence),one(j.because||j.error)].join("\t"))})') \
+      mv_plan=$(printf '%s' "$body" | "$_node" -e "$_mvparse"'console.log([j.ok===true?"ok":"no",j.same===true?"same":"",one(j.dir),one(j.label),one(j.sentence),one(j.because||j.error),j.loses===true?"loses":""].join("\t"))})') \
         || { say "Kosmos gave an answer we could not read when asked about moving $mv_name."; exit 1; }
       mv_ok=$(cut -f1 <<<"$mv_plan"); mv_same=$(cut -f2 <<<"$mv_plan"); mv_dir=$(cut -f3 <<<"$mv_plan")
-      mv_label=$(cut -f4 <<<"$mv_plan"); mv_says=$(cut -f5 <<<"$mv_plan"); mv_why=$(cut -f6 <<<"$mv_plan")
+      mv_label=$(cut -f4 <<<"$mv_plan"); mv_says=$(cut -f5 <<<"$mv_plan"); mv_why=$(cut -f6 <<<"$mv_plan"); local mv_loses; mv_loses=$(cut -f7 <<<"$mv_plan")
       while [[ "$mv_why" == *[.[:space:]] ]]; do mv_why="${mv_why%?}"; done
       if [ "$mv_ok" != ok ] && [ -z "$mv_dir" ]; then
         say "Kosmos will not move $mv_name: ${mv_why:-it did not say why}."; exit 1
@@ -7700,7 +7701,8 @@ cmd_agent() {
       say "Moving restarts $mv_name on $mv_label. Anything it has running stops."
       # Review 1: a script cannot read that sentence, so --yes alone never moves an agent into a known loss or an
       # unchecked one; it says so and exits 2 (nothing sent). A person at a terminal reads it and answers below.
-      if [ -n "$KOSMOS_MV_YES" ] && [ -z "$KOSMOS_MV_LOSS" ] && { [ "$mv_ok" != ok ] || [ -n "$mv_says" ]; }; then
+      # Review 3: a different copy of a skill is said but is not a loss; only a missing skill or hook (the plan's loses).
+      if [ -n "$KOSMOS_MV_YES" ] && [ -z "$KOSMOS_MV_LOSS" ] && { [ "$mv_ok" != ok ] || [ -n "$mv_loses" ]; }; then
         say "Nothing was moved: with --yes, a move that may lose skills or hooks also needs --accept-loss."
         exit 2
       fi
@@ -7725,8 +7727,9 @@ cmd_agent() {
       # Each agent restarts in turn; a restart can take minutes (remove.restartAsync caps itself at 300 s). Review 2: the
       # wait is bounded by time, not by tries (a read that times out costs 15 s), and only a 404 means forgotten; any
       # other error (a restarting board's 503) is waited through.
-      local mv_t0=$SECONDS mv_code
-      while [ "$mv_out" = pending ] && [ -n "$mv_id" ] && [ $((SECONDS - mv_t0)) -lt 300 ]; do
+      local mv_t0=$SECONDS mv_code mv_cap="${KOSMOS_MOVE_WAIT_S:-300}"   # KOSMOS_MOVE_WAIT_S: a test seam for the cap
+      case "$mv_cap" in ''|*[!0-9]*) mv_cap=300 ;; esac
+      while [ "$mv_out" = pending ] && [ -n "$mv_id" ] && [ $((SECONDS - mv_t0)) -lt "$mv_cap" ]; do
         sleep 3; rc=0
         body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 15 -w $'\n%{http_code}' "$URL/api/agents/account-moves/$mv_id" 2>/dev/null) || rc=$?
         [ "$rc" -eq 0 ] || continue

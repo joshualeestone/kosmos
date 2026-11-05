@@ -16479,7 +16479,7 @@ const server = http.createServer(async (req, res) => {
     if (said) {
       const exact = known.filter((a) => namesOf(a).includes(said));
       const loose = exact.length ? exact : known.filter((a) => namesOf(a).some((x) => x.toLowerCase() === said.toLowerCase()));
-      if (loose.length > 1) { sendJson(res, 409, { ok: false, because: `${said} names more than one account here; use its folder or its exact name` }); return; }
+      if (loose.length > 1) { sendJson(res, 409, { ok: false, because: `${said} names more than one account here; use its email, or its name exactly as kosmos accounts shows it` }); return; }
       target = loose[0] || null;
     } else {
       target = dir ? known.find((a) => real(a.dir) === real(dir)) : known.find((a) => a.isDefault === true);
@@ -16501,7 +16501,8 @@ const server = http.createServer(async (req, res) => {
     if (real(from) === real(to)) { sendJson(res, 200, { ok: true, same: true, ...where, skills: [], hooks: [], sentence: `${name} is already on that account.` }); return; }
     const l = require('./engine/accountcarry').losses(from, to, { home: accounts.homeDir() });   // ~ in a hook is the board's own home
     if (l.ok !== true) { sendJson(res, 200, { ...l, ...where }); return; }
-    sendJson(res, 200, { ...l, ...where, sentence: require('./engine/accountcarry').sentence(l) });
+    /* `loses`: a skill or hook the target does not have (a different copy of a skill is said, but is not one). */
+    sendJson(res, 200, { ...l, ...where, loses: require('./engine/accountcarry').loses(l), sentence: require('./engine/accountcarry').sentence(l) });
     return;
   }
 
