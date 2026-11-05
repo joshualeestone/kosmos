@@ -11014,8 +11014,9 @@ const server = http.createServer(async (req, res) => {
         const clean = create.cleanName(name);
         let view = null;
         try { view = chat.viewport(clean, safeRoster()); } catch { view = null; }
-        if (!view || typeof view.text !== 'string' || !importsDialogIn(view.text)) {
-          sendJson(res, 409, { ok: false, because: view && typeof view.text !== 'string' && view.because ? view.because : 'it is no longer asking this' });
+        const unread = !view || typeof view.text !== 'string';
+        if (unread || !importsDialogIn(view.text)) {
+          sendJson(res, 409, { ok: false, because: unread && view && view.because ? view.because : 'it is no longer asking this' });
           return;
         }
         const wrote = create.declineAgentImports(clean);

@@ -1048,7 +1048,7 @@ function carryExternalImports(dir, opts) {
   return r.ok ? r.value : { ok: false, because: r.because };
 }
 
-const IN_ITS_TERMINAL = 'Answer it in its terminal on the computer it runs on';
+const IN_ITS_TERMINAL = 'Answer it in its terminal on the computer it runs on';   // a whole sentence: it follows a full stop
 /**
  * kosmos#8039: write what Claude Code's own "No, disable external imports" writes for one folder on one account (measured
  * on 2.1.318: approved false, shown true), so the agent starts without those files at its next launch. The person's
