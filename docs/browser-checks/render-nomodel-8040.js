@@ -127,9 +127,10 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       chk((await seen(p, '#create-msg')).in && (await seen(p, '#create-msg button')).in, size + ': and that refusal and its link are in the window');
       // The account is put back on the return only when the person chose it: one they never chose is the old default, and
       // a new default they just connected should win. Read from what the return asks loadCreateExtras to keep.
-      const keptAccount = async (choose) => {
+      const keptAccount = async (choose, thenReset = false) => {
         await toNameStep(p);
-        if (choose) await p.evaluate(() => ['create-account', 'create-model'].forEach((id) => document.getElementById(id).dispatchEvent(new Event('change'))));   // its row is hidden with one account; the change is what a person's pick fires
+        if (choose) await p.evaluate(() => ['create-account', 'create-model'].forEach((id) => document.getElementById(id).dispatchEvent(new Event('change'))));
+        if (thenReset) await p.evaluate(() => resetCreateProvider());   // what a role re-pick (refillDetails) runs   // its row is hidden with one account; the change is what a person's pick fires
         await pressCreate(p, 'set up Claude Code');
         const value = await p.evaluate(() => document.getElementById('create-account').value);
         const model = await p.evaluate(() => document.getElementById('create-model').value);
@@ -141,6 +142,8 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
         return { value, ask: await p.evaluate(() => window.__keptAsk && window.__keptAsk.account), model, modelAsk: await p.evaluate(() => window.__keptAsk && window.__keptAsk.model) };
       };
       const untouched = await keptAccount(false);
+      const reset = await keptAccount(true, true);
+      chk(reset.ask === '' && reset.modelAsk === '', size + ': picks put back to the default by a role re-pick are not kept as theirs', JSON.stringify(reset));
       chk(untouched.value !== '' && untouched.ask === '', size + ': an account the person never chose is not put back on the return', JSON.stringify(untouched));
       chk(untouched.model !== '' && untouched.modelAsk === '', size + ': and nor is a model they never chose', JSON.stringify(untouched));
       const chosen = await keptAccount(true);
@@ -176,7 +179,9 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await pressCreate(p, 'Stopped by this check');
       await p.unroute('**/api/agents');
       chk(!!sent && sent.name === 'Nadia' && sent.instructions === 'My own instructions, typed before the refusal.', size + ': and pressing Create agent sends them', JSON.stringify(sent && { name: sent.name, hasInstr: !!sent.instructions }));
-      // A model read off Claude is not put back over OpenAI's saved pick (round 6); one picked on OpenAI is.
+      // On OpenAI the return repaints (the model row is per account) with the model picked on OpenAI, or else the saved
+      // OpenAI pick, as a plain New agent does: never one read off Claude, never nothing over a saved pick (rounds 6, 8).
+      // loadCreateExtras' own saved-pick paint has used CREATE_PREF_OPENAI_MODEL up by now, so it starts at ''.
       const openaiKept = await p.evaluate(() => {
         const prov = document.getElementById('create-provider');
         const was = { value: prov.value, pref: CREATE_PREF_OPENAI_MODEL, paint: window.paintOpenaiCreateModel };
@@ -185,19 +190,27 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
         let painted = 0;
         window.paintOpenaiCreateModel = () => { painted += 1; };
         prov.value = 'openai';
+        const keys = [CREATE_PREF_KEYS.provider, CREATE_PREF_KEYS.model];
+        const before = keys.map((k) => localStorage.getItem(k));
+        localStorage.setItem(CREATE_PREF_KEYS.provider, 'openai');
+        localStorage.setItem(CREATE_PREF_KEYS.model, 'gpt-saved');
         try {
-          CREATE_PREF_OPENAI_MODEL = 'gpt-saved';
+          CREATE_PREF_OPENAI_MODEL = '';
           createKeptRestore({ provider: 'claude', account: '', model: 'claude-kept' });
           const fromClaude = { pref: CREATE_PREF_OPENAI_MODEL, painted };
+          createKeptRestore({ provider: 'openai', account: '', model: '' });
+          const untouched = { pref: CREATE_PREF_OPENAI_MODEL, painted };
           createKeptRestore({ provider: 'openai', account: '', model: 'gpt-kept' });
-          return { fromClaude, fromOpenai: { pref: CREATE_PREF_OPENAI_MODEL, painted } };
+          return { fromClaude, untouched, fromOpenai: { pref: CREATE_PREF_OPENAI_MODEL, painted } };
         } finally {
           window.paintOpenaiCreateModel = was.paint; CREATE_PREF_OPENAI_MODEL = was.pref; prov.value = was.value;
+          keys.forEach((k, i) => (before[i] === null ? localStorage.removeItem(k) : localStorage.setItem(k, before[i])));
           const added = prov.querySelector('option[data-check-added]'); if (added) added.remove();
         }
       });
-      chk(openaiKept.fromClaude.pref === 'gpt-saved' && openaiKept.fromClaude.painted === 0, size + ': a model kept from Claude does not replace OpenAI\'s saved pick', JSON.stringify(openaiKept));
-      chk(openaiKept.fromOpenai.pref === 'gpt-kept' && openaiKept.fromOpenai.painted === openaiKept.fromClaude.painted + 1, size + ': CONTROL: a model kept from OpenAI is put back', JSON.stringify(openaiKept));
+      chk(openaiKept.fromClaude.pref === 'gpt-saved' && openaiKept.fromClaude.painted === 1, size + ': a model kept from Claude repaints with OpenAI\'s saved pick, not itself', JSON.stringify(openaiKept));
+      chk(openaiKept.untouched.pref === 'gpt-saved' && openaiKept.untouched.painted === 2, size + ': and so does an OpenAI model they never changed', JSON.stringify(openaiKept));
+      chk(openaiKept.fromOpenai.pref === 'gpt-kept' && openaiKept.fromOpenai.painted === 3, size + ': CONTROL: a model kept from OpenAI is put back', JSON.stringify(openaiKept));
       // CONTROL: without the link, New agent starts fresh, and so does the one after a return.
       await p.evaluate(() => { showTab('agents'); document.getElementById('new-agent').click(); });
       await p.waitForTimeout(300);
@@ -517,6 +530,15 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.waitForSelector('#acct-claude-pick', { state: 'visible', timeout: 8000 });
       l = await line();
       chk(!l.keyStep && l.text === '', 'late: landing while on another provider, it is not there on the way back', JSON.stringify(l));
+
+      // A Claude sign-in that starts meanwhile moves them to the subscription step (acctFlowPaint runs acctClaudeShowSub,
+      // and does not clear the line). A refused answer then leaves no Adding line there.
+      await press(refused);
+      await p.evaluate(() => acctClaudeShowSub());
+      await land();
+      const moved = await p.evaluate(() => ({ sub: !document.getElementById('acct-claude-sub-step').hidden, text: document.getElementById('acct-claude-msg').textContent }));
+      chk(moved.sub && moved.text === '', 'late: moved to the sign-in step by a sign-in, no Adding line is left behind', JSON.stringify(moved));
+      await p.evaluate(() => acctClaudeStep());
 
       // Moved on to the subscription step before a no-Claude-Code answer lands: it must not pull them back to the picker.
       await press(noCode);
