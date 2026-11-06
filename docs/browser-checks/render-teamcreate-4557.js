@@ -307,8 +307,17 @@ function chk(ok, label, extra) {
           await page.evaluate(() => { if (window.__realStatus) window.statusFetchWithin = window.__realStatus; });
           const before = await rows(page);
           chk(await page.isVisible('#tc-short'), `${E} #8092 Use short names is offered while the names can change`);
-          const boxW = await page.evaluate(() => Math.min(...[...document.querySelectorAll('#tc-list .tc-name')].map((i) => i.getBoundingClientRect().width)));
-          chk(boxW >= 120, `${E} #8092 at desktop width the name box keeps room for a long name beside Another`, String(boxW));
+          // The name box stays the main thing in its column: at least twice Another's width (the narrower 1.2fr column gave
+          // about 100px beside a 60px Another, which fails this).
+          const wide = await page.evaluate(() => { const li = document.querySelector('#tc-list li'); return { box: li.querySelector('.tc-name').getBoundingClientRect().width, another: li.querySelector('.tc-another').getBoundingClientRect().width }; });
+          chk(wide.box >= 2 * wide.another, `${E} #8092 at desktop width the name box keeps room beside Another`, JSON.stringify(wide));
+          // At phone width, on a row still being named: the box usable, Another inside the row, nothing scrolls sideways.
+          await page.setViewportSize({ width: 390, height: 900 });
+          await page.waitForTimeout(200);
+          const phone = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, vw: innerWidth, rows: [...document.querySelectorAll('#tc-list li')].map((li) => { const r = li.getBoundingClientRect(), a = li.querySelector('.tc-another').getBoundingClientRect(); return { box: li.querySelector('.tc-name').getBoundingClientRect().width, inside: a.right <= r.right + 0.5 && a.left >= r.left - 0.5 && a.width > 0 }; }) }));
+          chk(phone.sw <= phone.vw && phone.rows.every((r) => r.box >= 120 && r.inside), `${E} #8092 390 wide, before the start: every name box usable and its Another inside the row`, JSON.stringify(phone));
+          await page.setViewportSize({ width: 1280, height: 900 });
+          await page.waitForTimeout(200);
           await page.focus('#tc-list li[data-slot="lead"] .tc-another');
           await page.keyboard.press('Enter');
           const one = await rows(page);
