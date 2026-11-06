@@ -7857,13 +7857,13 @@ cmd_agent() {
       # everything: GET .../removal is the plan, DELETE .../removal does it. Never ?force=1: that override is the
       # person's, on the board. The plan is a read the board token opens, so it goes with board_token whatever
       # KOSMOS_AGENT_TOKEN_ONLY says; the removal goes as the agent, as the board's token-only rules expect.
-      local rm_name="$1" rm_path rm_plan rm_head rm_label rm_ok rm_why rm_back rm_parsed rm_out rm_because rm_end
+      local rm_name="$1" rm_path rm_plan rm_head rm_label rm_ok rm_why rm_back rm_parsed rm_out rm_because rm_end rm_target
       local _rmparse='let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{let j;try{j=JSON.parse(s)}catch{process.exit(1)}const one=(v)=>String(v==null?"":v).replace(/[\t\r\n]+/g," ");'
       rm_path=$(KOSMOS_RM_NAME="$rm_name" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RM_NAME))') || { say "We could not use that name."; exit 1; }
       body=$(kosmos_curl "$(board_token || true)" "$_rtok" -sS -m 15 "$URL/api/agent/$rm_path/removal" 2>/dev/null) || rc=$?
       if [ "$rc" -ne 0 ]; then say_unreached "read what removing $rm_name would do" "$rc"; exit 1; fi
       # Fields, tab-separated: ok, label, why (refused), whether it can be put back; then the lines to show, one each.
-      rm_plan=$(printf '%s' "$body" | "$_node" -e "$_rmparse"'const loses=Array.isArray(j.loses)?j.loses:[];const keeps=Array.isArray(j.keeps)?j.keeps:[];console.log([j.ok===true?"ok":"no",one(j.label||j.name),one(j.because||j.error),loses.some((l)=>/put it back/.test(l))?"back":""].join("\t"));if(j.ok!==true)return;if(j.hint)console.log(one(j.hint));if(loses.length)console.log("It loses: "+loses.map(one).join("; ")+".");if(keeps.length)console.log("It keeps: "+keeps.map(one).join("; ")+".")})') \
+      rm_plan=$(printf '%s' "$body" | "$_node" -e "$_rmparse"'const loses=Array.isArray(j.loses)?j.loses:[];const keeps=Array.isArray(j.keeps)?j.keeps:[];console.log([j.ok===true?"ok":"no",one(j.label||j.name),one(j.because||j.error),loses.some((l)=>/put it back/.test(l))?"back":"",one(j.ok===true?j.name:"")].join("\t"));if(j.ok!==true)return;if(j.hint)console.log(one(j.hint));if(loses.length)console.log("It loses: "+loses.map(one).join("; ")+".");if(keeps.length)console.log("It keeps: "+keeps.map(one).join("; ")+".")})') \
         || { say "Kosmos gave an answer we could not read when asked about removing $rm_name."; exit 1; }
       # cut, not `IFS=<tab> read`: a tab is whitespace to read, so an empty field would take the next one's value.
       # kosmos#7946: no `printf | head -n 1` here. head exits on its first line, and under pipefail and set -e a
@@ -7872,6 +7872,9 @@ cmd_agent() {
       rm_head="${rm_plan%%$'\n'*}"
       rm_ok=$(cut -f1 <<<"$rm_head"); rm_label=$(cut -f2 <<<"$rm_head")
       rm_why=$(cut -f3 <<<"$rm_head"); rm_back=$(cut -f4 <<<"$rm_head")
+      # kosmos#8109: the removal goes to the agent the plan resolved (its folder name), not the typed name again, so a
+      # board that changes while the person answers the question cannot point the removal at another agent.
+      rm_target=$(cut -f5 <<<"$rm_head")
       if [ "$rm_ok" != ok ]; then
         while [[ "$rm_why" == *[.[:space:]] ]]; do rm_why="${rm_why%?}"; done
         rm_why="${rm_why:-it did not say why}"
@@ -7887,6 +7890,10 @@ cmd_agent() {
         case "$(printf '%s' "$rm_answer" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) say "Cancelled. Nothing was removed."; exit 1 ;; esac
       fi
       rc=0
+      if [ -n "$rm_target" ] && [ "$rm_target" != "$rm_name" ]; then
+        rm_path=$(KOSMOS_RM_NAME="$rm_target" "$_node" -e 'process.stdout.write(encodeURIComponent(process.env.KOSMOS_RM_NAME))') \
+          || { say "We could not use the name Kosmos gave for $rm_name."; exit 1; }
+      fi
       body=$(kosmos_curl "$_bt" "$_rtok" -sS -m 120 -X DELETE "$URL/api/agent/$rm_path/removal" 2>/dev/null) || rc=$?
       # 28 is curl's timeout: the request left, so the agent may have been removed.
       if [ "$rc" -eq 28 ]; then

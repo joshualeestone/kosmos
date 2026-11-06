@@ -1321,27 +1321,36 @@ function unsafeToActOn(name) {
  * name equals it, ignoring case. Two matches resolve to nothing, so `plan` still answers "we cannot find an agent
  * called <name>", spelled as asked: the refusal never names a different agent.
  */
-function resolveName(name, platform) {
+function resolve(name, platform) {
+  const asGiven = { name, ambiguous: [] };
   let clean;
-  try { clean = create.cleanName(name); } catch { return name; }
-  if (!clean || unsafeToActOn(clean)) return name;
-  if (existsExactly(create.workerDir(clean)) || jobFor(clean, platform)) return name;
+  try { clean = create.cleanName(name); } catch { return asGiven; }
+  if (!clean || unsafeToActOn(clean)) return asGiven;
+  if (existsExactly(create.workerDir(clean)) || jobFor(clean, platform)) return asGiven;
   let found;
-  try { found = sessionFor(clean); } catch { return name; }
-  if (found.kind !== FOUND.NONE) return name;   // its own session (ours, untied) or unknown: act on the name as given
+  try { found = sessionFor(clean); } catch { return asGiven; }
+  if (found.kind !== FOUND.NONE) return asGiven;   // its own session (ours, untied) or unknown: act on the name as given
   let dirs;
   try {
     dirs = fs.readdirSync(create.workersDir(), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
-  } catch { return name; }
+  } catch { return asGiven; }
   const want = clean.toLowerCase();
-  const hits = new Set();
+  const hits = [];
   for (const dir of dirs) {
     if (unsafeToActOn(dir)) continue;
+    // A removed agent keeps its folder and its name, and is not on the list; it is not a match (test: "removed agent").
+    try { if (isHidden(dir)) continue; } catch { continue; }
     let shown = null;
     try { shown = status.readIdentity(dir).displayName || null; } catch { shown = null; }
-    if (dir.toLowerCase() === want || (shown && String(shown).trim().toLowerCase() === want)) hits.add(dir);
+    if (dir.toLowerCase() === want || (shown && String(shown).trim().toLowerCase() === want)) hits.push(dir);
   }
-  return hits.size === 1 ? [...hits][0] : name;
+  if (hits.length === 1) return { name: hits[0], ambiguous: [] };
+  return hits.length > 1 ? { name, ambiguous: hits.sort() } : asGiven;
+}
+function resolveName(name, platform) { return resolve(name, platform).name; }
+/* The refusal for a name two or more agents answer to: it names the folders, so the person can pick one. */
+function ambiguousRefusal(asked, folders) {
+  return { ok: false, because: `more than one agent is called ${asked} (${folders.join(', ')}); remove it by one of those names` };
 }
 
 function plan(name, platform) {
@@ -2830,6 +2839,8 @@ module.exports = {
   RESTART_CHANGED_NOTHING,   // #7470
   plan,
   resolveName,   // #8109: a name as `agent list` prints it, resolved to the one agent it names
+  resolve,   // #8109: the same, saying when two or more agents answer to the name
+  ambiguousRefusal,
   restart,
   restartAsync,   // #6173: an account move's restarts, without blocking the board's thread
   putBackAsync,   // #6231 item 7: a stopped move's win32 put-backs, without blocking the board's thread

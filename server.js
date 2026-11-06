@@ -10632,8 +10632,10 @@ const server = http.createServer(async (req, res) => {
   if (rm && (req.method === 'GET' || req.method === 'HEAD')) {
     const asked = decodeSegment(rm[1]);
     if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    // kosmos#8109: a name as `agent list` prints it (Cai) resolved to the one agent it names (cai); see remove.resolveName.
-    let name; try { name = removal.resolveName(asked); } catch { name = asked; }
+    // kosmos#8109: a name as `agent list` prints it (Cai) resolved to the one agent it names (cai); see remove.resolve.
+    let name = asked; let many = [];
+    try { const r = removal.resolve(asked); name = r.name; many = r.ambiguous; } catch { name = asked; many = []; }
+    if (many.length) { sendJson(res, 400, removal.ambiguousRefusal(asked, many)); return; }
   /**
    * ⚠️ GUARDED, like every other engine call in this file.
    *
@@ -10656,8 +10658,14 @@ const server = http.createServer(async (req, res) => {
   if (rm && req.method === 'DELETE') {
     const asked = decodeSegment(rm[1]);
     if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    // kosmos#8109: resolved exactly as the plan above resolves it, so the plan and the removal act on one agent.
-    let name; try { name = removal.resolveName(asked); } catch { name = asked; }
+    // kosmos#8109: resolved as the plan above resolves it. The CLI sends the plan's resolved name here, so a board that
+    // changed in between cannot redirect it.
+    let name = asked; let many = [];
+    try { const r = removal.resolve(asked); name = r.name; many = r.ambiguous; } catch { name = asked; many = []; }
+    if (many.length) {
+      sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, because: removal.ambiguousRefusal(asked, many).because });
+      return;
+    }
     /* #2651: `?force=1` opts into the user-initiated override of the UNTIED
        refusal ONLY -- clear the card of an agent whose session Kosmos cannot tie
        to it (a residual/auto-imported card, a teammate's session on a shared box)
@@ -10670,8 +10678,8 @@ const server = http.createServer(async (req, res) => {
        with `?force` (the person's override). The person, and any caller holding the board token, are as before. */
     const tokenOnly = agentTokenOnlyCaller(req);
     if (tokenOnly !== null) {
-      /* The engine acts on the name as sent; the ownership check below matches by slug. So a token-only caller names
-         the agent exactly by its board name (the slug), and the two cannot read different agents. */
+      /* `name` is already resolved (#8109), and the ownership check below and the engine both read it, so they cannot
+         read different agents. It must still be its board name (the slug). */
       let board; try { board = create.slugFor(name); } catch { board = null; }
       if (!board || board !== name) { sendJson(res, 400, { error: `name the agent by its board name${board ? ` (${board})` : ''}` }); return; }
       if (force) { sendJson(res, 403, { error: 'only the person can force a removal; ask them to remove it from the board' }); return; }
