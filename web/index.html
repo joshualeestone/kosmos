@@ -66443,7 +66443,7 @@ document.body.addEventListener('input', (e) => {
 
 function openCreate(initialMode) {
   CREATE_KEPT = 0;   // kosmos#8040
-  document.getElementById('create-kept').hidden = true;   // kosmos#8051: a plain form is not one kept
+  createKeptLine(false);   // kosmos#8051: a plain form is not one kept
   CREATE_ACCOUNT_TOUCHED = false;
   CREATE_MODEL_TOUCHED = false;
   PICKED = null;
@@ -67963,15 +67963,27 @@ function createEnter() {
   if (!CREATE_KEPT || Date.now() - CREATE_KEPT >= CREATE_KEPT_MS) { openCreate(); return; }
   CREATE_KEPT = 0;
   document.getElementById('create-msg').textContent = '';
-  document.getElementById('create-kept').hidden = false;   // kosmos#8051 item 1: say why the old form is back
+  createKeptLine(true);   // kosmos#8051 item 1: say why the old form is back
   cstep('name');
   if (document.body.classList.contains('consolidated')) openConsolidatedCreate(); else showTab('create');
   document.getElementById('create-name').focus();
   const val = (id) => document.getElementById(id).value;
   loadCreateExtras({ provider: val('create-provider'), account: CREATE_ACCOUNT_TOUCHED ? val('create-account') : '', model: CREATE_MODEL_TOUCHED ? val('create-model') : '', reports: val('create-reports') });
 }
-/* kosmos#8051 item 1: the way out of a kept form, for someone who gave up on it. openCreate empties it and hides the line. */
-document.getElementById('create-kept-over').addEventListener('click', () => openCreate());
+/* kosmos#8051 item 1: the line that says a form was kept. Focus goes to the name field on a kept return, so the field
+   names the line as its description: a screen reader hears why the old name is there. */
+function createKeptLine(on) {
+  document.getElementById('create-kept').hidden = !on;
+  const name = document.getElementById('create-name');
+  if (on) name.setAttribute('aria-describedby', 'create-kept'); else name.removeAttribute('aria-describedby');
+}
+/* The way out of a kept form, for someone who gave up on it. openCreate empties it and hides the line; the step that held
+   the focused button is hidden with it, so the keyboard goes to the first choice, as Back does. */
+document.getElementById('create-kept-over').addEventListener('click', () => {
+  openCreate();
+  const card = document.querySelector('#cstep-kind .nak-btn');
+  if (card) card.focus();
+});
 /* The picks loadCreateExtras rebuilt its menus over, put back where they are still offered. On a provider it moved them to
    (one just connected, none chosen) they are not offered, so what it painted stays. */
 function createKeptRestore(kept) {
@@ -67997,6 +68009,7 @@ function createKeptRestore(kept) {
 }
 document.getElementById('create-go').addEventListener('click', async () => {
   if (CREATING) return;
+  createKeptLine(false);   // kosmos#8051: once they act on the kept form, the line has done its job
   const name = document.getElementById('create-name').value.trim();
   const msg = document.getElementById('create-msg');
   // #2606: clear any field-level errors from a prior attempt so a field the person
