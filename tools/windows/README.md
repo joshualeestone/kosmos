@@ -289,7 +289,8 @@ of the engine's own helpers, run with the bundle's node:
     it away; one of them must own each; accounts are compared by SID, so a domain group such
     as Domain Admins is not one of them. A folder whose permissions cannot be read, or a
     drive with none (FAT, exFAT), is refused too, and so are a link (junction or symlink)
-    inside it and a folder on a network share, whose accounts are the file server's. Reading all of a build takes under a tenth of a
+    inside it, a run folder that is a link or sits behind one, and a folder on a network
+    share, whose accounts are the file server's. Reading all of a build takes under a tenth of a
     second. It is not a defence against a folder that
     was already changed: Kosmos.exe itself comes from that folder. A copy that already ran
     in place from such a folder before this check keeps its logon task and in-app updates

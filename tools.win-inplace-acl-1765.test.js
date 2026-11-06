@@ -447,3 +447,23 @@ test('#1765: a drive root that lets others delete it does not refuse a locked fo
     subst(letter + ':', '/D');
   }
 });
+
+test('#1765: a run folder that is a link, or sits behind one, is refused', WINDOWS_ONLY, (t) => {
+  if (!needsBuild(t)) return;
+  /* Its permissions would be read at the target, never on the link, and whoever may delete the link can put their
+     own folder at the same path. */
+  const target = sandboxFolder('target');
+  lockDown(target);
+  const junction = path.join(path.dirname(target), 'kos-link');
+  const mk = spawnSync(path.join(SYSROOT, 'System32', 'cmd.exe'), ['/d', '/c', 'mklink', '/J', junction, target], { encoding: 'utf8', windowsHide: true });
+  assert.equal(mk.status, 0, 'mklink /J failed: ' + mk.stdout + mk.stderr);
+  assert.equal(probe(target, NOT_MY_PROFILE), 'SAFE', 'the locked target itself was refused');
+  let answer = probe(junction, NOT_MY_PROFILE);
+  assert.match(answer, /is a link to another place, and Kosmos does not run from behind one/, 'a run folder that is a junction was not refused: ' + answer);
+  fs.mkdirSync(path.join(target, 'inner'));
+  lockDown(path.join(target, 'inner'));
+  answer = probe(path.join(junction, 'inner'), NOT_MY_PROFILE);
+  assert.match(answer, /is a link to another place, and Kosmos does not run from behind one/, 'a run folder behind a junction was not refused: ' + answer);
+  assert.ok(answer.includes(junction), 'the reason does not name the link: ' + answer);
+  fs.rmdirSync(junction);
+});

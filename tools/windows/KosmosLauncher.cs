@@ -433,8 +433,7 @@ class KosmosLauncher
     // for a folder outside the profile.
     // ⚠️ WEAKEST PART: a folder inside the profile is trusted by where it is, not read, as the profile is this
     // person's; a junction from the profile to somewhere else is taken at its
-    // profile path, and a junction outside the profile is read at its target, without the folders above the
-    // target.
+    // profile path; outside the profile a run folder that is a link, or sits behind one, is refused.
     // A seam only so a test can check folders inside its temp folder as if they were outside the profile.
     internal static Func<string> userProfileFolder = () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
     // A seam only so a test can read real folders as another account would: the owner rule has no
@@ -498,6 +497,29 @@ class KosmosLauncher
         return folder.EndsWith(":") ? folder + "\\" : folder;
     }
 
+    // The first of this folder and the folders above it (the drive's root aside) that is a link, or null. One that is
+    // not there is passed over (the permission read after this refuses it in its own words); one whose attributes
+    // cannot be read for any other reason is named: refusing it is the safe answer.
+    static string LinkOnTheWay(string folder)
+    {
+        string at = folder;
+        while (!string.IsNullOrEmpty(at) && !at.EndsWith(":"))
+        {
+            try { if ((File.GetAttributes(at) & FileAttributes.ReparsePoint) != 0) return at; }
+            catch (FileNotFoundException) { /* not there: the permission read says so */ }
+            catch (DirectoryNotFoundException) { /* not there: the permission read says so */ }
+            catch { return at; }
+            string up;
+            try { up = Path.GetDirectoryName(at); }
+            catch { return null; }
+            if (up == null) return null;
+            up = up.TrimEnd('\\', '/');
+            if (string.Equals(up, at, StringComparison.OrdinalIgnoreCase)) return null;
+            at = up;
+        }
+        return null;
+    }
+
     // A UNC path or a mapped network drive.
     internal static bool IsOnAnotherComputer(string full)
     {
@@ -523,6 +545,11 @@ class KosmosLauncher
         catch (Exception e) { return "this account could not be read (" + e.Message + ")"; }
         if (me == null) return "this account could not be read";
         string folder = full.TrimEnd('\\', '/');
+        // The run folder, or a folder above it, being a link (junction or symlink) is refused: its permissions are
+        // read at the place it points to, never on the link itself, and whoever may delete the link can put a folder
+        // of their own at the same path, where the logon task would then start their code.
+        string linked = LinkOnTheWay(folder);
+        if (linked != null) return linked + " is a link to another place, and Kosmos does not run from behind one";
         string problem = OtherWriterOf(folder, me, AclScope.RunFolder);
         if (problem != null) return problem;
         string root = AsDirectoryPath(folder);
