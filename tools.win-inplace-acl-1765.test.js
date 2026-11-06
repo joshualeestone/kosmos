@@ -257,11 +257,14 @@ test('#1765: the code inside is read on its own, whatever the run folder says', 
   answer = probe(app, NOT_MY_PROFILE);
   assert.match(answer, /^UNSAFE .+ can change /);
   assert.ok(answer.includes(path.join(app, 'app')), 'the reason does not name app: ' + answer);
-  // A file below the named code is taken at its folder's word (the plan's named weak spot), so this stays safe.
+  // Any file at any depth is read on its own: one under app\ given to Users is refused.
   const deep = build();
-  fs.writeFileSync(path.join(deep, 'app', 'other.js'), '');
-  icacls(path.join(deep, 'app', 'other.js'), '/grant', USERS + ':(M)');
-  assert.equal(probe(deep, NOT_MY_PROFILE), 'SAFE');
+  fs.mkdirSync(path.join(deep, 'app', 'engine'));
+  fs.writeFileSync(path.join(deep, 'app', 'engine', 'other.js'), '');
+  icacls(path.join(deep, 'app', 'engine', 'other.js'), '/grant', USERS + ':(M)');
+  answer = probe(deep, NOT_MY_PROFILE);
+  assert.match(answer, /^UNSAFE .+ can change /);
+  assert.ok(answer.includes(path.join(deep, 'app', 'engine', 'other.js')), 'the reason does not name the deep file: ' + answer);
   // Review 5 (v2): bin\, first on every agent's PATH, stopped inheriting and lets Users change it.
   const bin = build();
   fs.mkdirSync(path.join(bin, 'bin'));
@@ -300,7 +303,6 @@ test('#1765: a folder inside this person\'s profile is not read; a missing folde
   if (!f.toLowerCase().startsWith(profile.toLowerCase() + '\\')) { t.skip('this machine\'s temp folder is not inside the profile: ' + f); return; }
   icacls(f, '/grant', USERS + ':(OI)(CI)M');
   assert.equal(probe(f), 'SAFE', 'a folder inside the profile was read');
-  assert.match(probe(path.join(path.dirname(f), 'gone'), NOT_MY_PROFILE), /^UNSAFE who can change .* could not be read/);
 });
 
 /* ---- Windows: the launcher, run from the root of the system drive ------------ */
@@ -414,4 +416,10 @@ test('#1765: a folder on a network share is refused before anything is read', WI
   if (!needsBuild(t)) return;
   /* Review 5 (v2): the well-known accounts in a share's permissions are the file server's. */
   assert.match(probe('\\\\fileserver\\apps\\Kosmos', NOT_MY_PROFILE), /^UNSAFE .+ is on another computer \(a network share\)/);
+});
+
+test('#1765: a run folder that is not there is refused', WINDOWS_ONLY, (t) => {
+  if (!needsBuild(t)) return;
+  const f = sandboxFolder('run');
+  assert.match(probe(path.join(path.dirname(f), 'gone'), NOT_MY_PROFILE), /^UNSAFE who can change .* could not be read/);
 });

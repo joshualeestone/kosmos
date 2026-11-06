@@ -417,29 +417,27 @@ class KosmosLauncher
     // anything (write or add files, delete, change permissions or owner), and one of them must own each thing read:
     //   - the run folder: every allow entry counts, including ones that only reach the files and folders inside
     //     it, because that is where the code is;
-    //   - the code inside it that this launcher starts, loads or points at (Kosmos.exe, runtime\, runtime\node.exe,
-    //     runtime\WebView2Loader.dll, app\, app\server.js, open-board.js), every folder in the run folder at any
-    //     depth (bin\ included, first on every agent's PATH), and every file directly in the run folder, runtime\
-    //     and bin\, each read on its own; a link inside, and a folder on a network share, are refused;
+    //   - everything inside it, every folder and every file at any depth, each read on its own: app\ and runtime\
+    //     hold the code, bin\ is first on every agent's PATH, node.exe loads DLLs from its own folder first, and
+    //     .kosmos-update\ stages the next build; a link inside, and a folder on a network share, are refused;
     //   - each folder above it, up to the drive: entries that apply to that folder itself, and only the rights
     //     that would let someone rename or replace what is below it (delete, delete children, permissions, owner).
     // CREATOR OWNER and OWNER RIGHTS stand for the owner, who is checked. A deny entry is never counted, so a deny
     // can only make the answer stricter than Windows'. An ACL that cannot be read, or a missing one (a FAT or exFAT
     // drive), is refused. Accounts are compared by SID, never by name: a domain group (Domain Admins, say) is not
     // one of the four, so a folder IT set up with one is refused, and a copy in the profile is the way round it.
-    // WHY THOSE ARE READ ON THEIR OWN (review 4, v2): the run folder's word covers only what inherits from it. An item
-    // that stopped inheriting, or carries entries of its own, is not covered by it, so the entry points, everything
-    // beside node.exe (which loads DLLs from its own folder first) or in bin\, and every folder are read for their own
-    // entries and owner. A folder is read, not each file in it: a file inside inherits from its folder, and a file
-    // with entries of its own already means somebody changed the folder, which this check does not claim to catch
-    // (above). The shipped build has a handful of folders and files to read, so this stays a few milliseconds.
-    // ⚠️ WEAKEST PART: below those, a file inside a folder is taken at the folder's word. A folder inside the profile is trusted by where it is, not
-    // read, as the profile is this person's; a junction from the profile to somewhere else is taken at its
+    // WHY EVERYTHING IS READ ON ITS OWN: the run folder's word covers only what inherits from it. An item that
+    // stopped inheriting, carries entries of its own, or is owned by another account (who made it while the folder
+    // let them, and can always change its permissions) is not covered by it. Measured on the Windows box: the
+    // whole installed build is 829 files, read in about 90 ms the first time and 40 ms after, and this is paid only
+    // for a folder outside the profile.
+    // ⚠️ WEAKEST PART: a folder inside the profile is trusted by where it is, not read, as the profile is this
+    // person's; a junction from the profile to somewhere else is taken at its
     // profile path, and a junction outside the profile is read at its target, without the folders above the
     // target.
     // A seam only so a test can check folders inside its temp folder as if they were outside the profile.
     internal static Func<string> userProfileFolder = () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-    // A seam only so a test can read real folders as another account would (review 3, v2): the owner rule has no
+    // A seam only so a test can read real folders as another account would: the owner rule has no
     // other way to be exercised without an administrator. Production asks Windows who is running.
     internal static Func<System.Security.Principal.SecurityIdentifier> currentUser = () =>
     {
@@ -462,7 +460,8 @@ class KosmosLauncher
     internal const int AncestorChangeRights = FILE_DELETE_CHILD | DELETE_RIGHT | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | GENERIC_WRITE;
 
     // The code in a build that this launcher starts or points the Start menu at, read on its own.
-    // Review 1 (v2): runtime\WebView2Loader.dll too, the native code this launcher loads into its own process for --window.
+    // The named entry points, read first so a refusal names the one that matters most (runtime\WebView2Loader.dll is
+    // the native code this launcher loads into its own process for --window).
     internal static readonly string[] RunFolderCode = { "Kosmos.exe", "runtime", "runtime\\node.exe", "runtime\\WebView2Loader.dll", "app", "app\\server.js", "open-board.js" };
 
     static readonly string[] TrustedWriterSids = {
@@ -515,7 +514,7 @@ class KosmosLauncher
         if (full == null) return "the folder's path could not be read";
         string profile = FullPathOrNull(userProfileFolder());
         if (profile != null && IsSameOrInside(full, profile)) return null;
-        // Review 5 (v2): on a network share the well-known accounts in its permissions (Administrators, SYSTEM) are the
+        // On a network share the well-known accounts in its permissions (Administrators, SYSTEM) are the
         // file server's, not this computer's, and the share's own permissions cannot be read from here.
         if (IsOnAnotherComputer(full)) return full + " is on another computer (a network share), whose accounts this computer cannot vouch for";
         System.Security.Principal.SecurityIdentifier me;
@@ -534,16 +533,23 @@ class KosmosLauncher
             problem = OtherWriterOf(item, me, AclScope.Code);
             if (problem != null) return problem;
         }
-        // Review 5 (v2): EVERY folder in the run folder, at any depth, read for its own entries and owner, not a list
-        // of the ones known today: bin\ is first on every agent's PATH (engine/win32launch.js), app\ and runtime\
-        // hold the code, and .kosmos-update\ stages the next build. A folder that stopped inheriting is not covered
-        // by its parent's word. A link inside (a junction or symlink) is not a shipped shape and could send the walk
-        // anywhere, so it is refused, never followed.
+        // EVERY folder and file in the run folder, at any depth, read for its own entries and owner, not a list of
+        // the ones known today: bin\ is first on every agent's PATH (engine/win32launch.js), app\ and runtime\ hold
+        // the code, and .kosmos-update\ stages the next build. A link inside (a junction or symlink) is not a
+        // shipped shape and could send the walk anywhere, so it is refused, never followed.
         Stack<string> pending = new Stack<string>();
         pending.Push(root);
         while (pending.Count > 0)
         {
             string dir = pending.Pop();
+            string[] files;
+            try { files = Directory.GetFiles(dir); }
+            catch (Exception e) { return "what is in " + dir + " could not be read (" + e.Message + ")"; }
+            foreach (string item in files)
+            {
+                problem = OtherWriterOf(item, me, AclScope.Code);
+                if (problem != null) return problem;
+            }
             string[] subs;
             try { subs = Directory.GetDirectories(dir); }
             catch (Exception e) { return "what is in " + dir + " could not be read (" + e.Message + ")"; }
@@ -556,20 +562,6 @@ class KosmosLauncher
                 problem = OtherWriterOf(sub, me, AclScope.Code);
                 if (problem != null) return problem;
                 pending.Push(sub);
-            }
-        }
-        // And every file directly in the run folder, in runtime\ (node.exe loads DLLs from its own folder first) and
-        // in bin\ (searched before the rest of an agent's PATH), read on its own.
-        foreach (string place in new[] { root, Path.Combine(root, "runtime"), Path.Combine(root, "bin") })
-        {
-            if (!Directory.Exists(place)) continue;
-            string[] files;
-            try { files = Directory.GetFiles(place); }
-            catch (Exception e) { return "what is in " + place + " could not be read (" + e.Message + ")"; }
-            foreach (string item in files)
-            {
-                problem = OtherWriterOf(item, me, AclScope.Code);
-                if (problem != null) return problem;
             }
         }
         while (true)
@@ -604,7 +596,7 @@ class KosmosLauncher
             descriptor = new System.Security.AccessControl.RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(), 0);
         }
         catch (Exception e) { return "who can change " + shown + " could not be read (" + e.Message + ")"; }
-        // No permissions at all first (review 4, v2): a FAT or exFAT drive reports no owner worth naming either, and its
+        // No permissions at all first: a FAT or exFAT drive reports no owner worth naming either, and its
         // own reason is the one the person can act on.
         System.Security.AccessControl.RawAcl acl = descriptor.DiscretionaryAcl;
         bool hasDacl = (descriptor.ControlFlags & System.Security.AccessControl.ControlFlags.DiscretionaryAclPresent) != 0;
@@ -634,7 +626,7 @@ class KosmosLauncher
         return null;
     }
 
-    // Where the refusal tells the person to put a fresh copy (review 2, v2): a folder inside their own user folder
+    // Where the refusal tells the person to put a fresh copy: a folder inside their own user folder
     // that exists. Their real Downloads folder when it is inside the profile (Explorer can move it to another drive,
     // where a copy would be refused the same way), else the profile's own Downloads if it is there, else their
     // Desktop when it is inside the profile (a copy opened from either installs itself, #3286), else the user folder.
