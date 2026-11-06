@@ -10656,16 +10656,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
   if (rm && req.method === 'DELETE') {
-    const asked = decodeSegment(rm[1]);
-    if (asked === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
-    // kosmos#8109: resolved as the plan above resolves it. The CLI sends the plan's resolved name here, so a board that
-    // changed in between cannot redirect it.
-    let name = asked; let many = [];
-    try { const r = removal.resolve(asked); name = r.name; many = r.ambiguous; } catch { name = asked; many = []; }
-    if (many.length) {
-      sendJson(res, 400, { outcome: removal.OUTCOME.REFUSED, because: removal.ambiguousRefusal(asked, many).because });
-      return;
-    }
+    // kosmos#8109: NOT resolved. Only the plan above resolves a listed name; both CLIs send the plan's resolved name
+    // here, and the board's button sends the card's exact name. Resolving again here could turn a removal whose agent
+    // went away in between into the removal of a different agent (test: "a DELETE whose agent is gone").
+    const name = decodeSegment(rm[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
     /* #2651: `?force=1` opts into the user-initiated override of the UNTIED
        refusal ONLY -- clear the card of an agent whose session Kosmos cannot tie
        to it (a residual/auto-imported card, a teammate's session on a shared box)
@@ -10678,8 +10673,8 @@ const server = http.createServer(async (req, res) => {
        with `?force` (the person's override). The person, and any caller holding the board token, are as before. */
     const tokenOnly = agentTokenOnlyCaller(req);
     if (tokenOnly !== null) {
-      /* `name` is already resolved (#8109), and the ownership check below and the engine both read it, so they cannot
-         read different agents. It must still be its board name (the slug). */
+      /* The engine acts on the name as sent; the ownership check below matches by slug. So a token-only caller names
+         the agent exactly by its board name (the slug), and the two cannot read different agents. */
       let board; try { board = create.slugFor(name); } catch { board = null; }
       if (!board || board !== name) { sendJson(res, 400, { error: `name the agent by its board name${board ? ` (${board})` : ''}` }); return; }
       if (force) { sendJson(res, 403, { error: 'only the person can force a removal; ask them to remove it from the board' }); return; }

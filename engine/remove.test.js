@@ -3456,18 +3456,26 @@ test('#8109 when the board cannot be read, the name is left as given (no guessin
   } finally { status.setPaneSource(() => ''); }
 });
 
-test('#8109 both removal routes resolve the name before they plan or remove', () => {
+test('#8109 the plan route resolves the name before it plans; the remove route acts on the exact name only', () => {
   const src = codeOnly(fs.readFileSync(nodePath.join(__dirname, '..', 'server.js'), 'utf8'));
   const route = src.slice(src.indexOf('/^\\/api\\/agent\\/([^/]+)\\/removal$/'));
   const getAt = route.indexOf("req.method === 'GET'");
   const delAt = route.indexOf("req.method === 'DELETE'");
   assert.ok(getAt >= 0 && delAt > getAt, 'CONTROL: the removal route shape moved');
   const getPart = route.slice(getAt, delAt);
-  const delPart = route.slice(delAt, delAt + 4000);
-  for (const [label, part, call] of [['GET', getPart, 'removal.plan(name'], ['DELETE', delPart, 'removal.remove(name']]) {
-    const r = part.indexOf('removal.resolve(asked)');
-    const c = part.indexOf(call);
-    assert.ok(r >= 0, `${label} removal route does not resolve the name`);
-    assert.ok(c > r, `${label} removal route acts before it resolves the name`);
-  }
+  const delPart = route.slice(delAt, route.indexOf('removal.remove(name', delAt));
+  const r = getPart.indexOf('removal.resolve(asked)');
+  assert.ok(r >= 0 && getPart.indexOf('removal.plan(name') > r, 'the plan route does not resolve before it plans');
+  assert.ok(delPart.length > 0 && !/removal\.resolve/.test(delPart),
+    'the remove route resolves the name, which can redirect a removal whose agent went away to another agent');
+});
+
+test('#8109 an exact folder name wins over another agent\'s display name (no ambiguity, no redirect)', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  folderAgent('kprec8109', 'Kprec8109');
+  folderAgent('kprec8109x', 'kprec8109');   // another agent displayed as the first one's machine name
+  const r = remove.resolve('kprec8109', MAC);
+  assert.equal(r.name, 'kprec8109', 'an exact folder name was resolved to another agent');
+  assert.deepEqual(r.ambiguous, [], 'an exact folder name was reported as ambiguous');
 });

@@ -65,25 +65,33 @@ test('the plan route takes the display name agent list prints, and names the age
   assert.equal(r.json && r.json.name, 'kroute8109', 'the plan did not resolve to the agent it names');
 });
 
-test('the remove route takes the display name too, and removes that agent', async () => {
+test('the plan names the agent, and the remove route removes it by that name (what both CLIs send)', async () => {
   folderAgent('kgone8109', 'Kgone8109');
-  const r = await call('DELETE', 'Kgone8109');
-  assert.equal(r.code, 200, 'the listed display name was not removed: ' + r.text.slice(0, 200));
-  // Without the resolution this is a 400 "cannot find an agent called Kgone8109" (the CONTROL above shows that shape).
-  // DRY_RUN writes no removal record, so whether it is then hidden is shown in engine/remove.test.js instead.
+  const p = await call('GET', 'Kgone8109');
+  assert.equal(p.json && p.json.name, 'kgone8109', 'CONTROL: the plan did not resolve the listed name');
+  const r = await call('DELETE', p.json.name);
+  assert.equal(r.code, 200, 'the resolved name was not removed: ' + r.text.slice(0, 200));
   assert.equal(r.json && r.json.outcome, 'removed', r.text.slice(0, 200));
 });
 
-test('a name two agents answer to is refused on both routes, naming both folders', async () => {
+test('a DELETE whose agent is gone is not redirected to another agent with that display name', async () => {
+  // The board's button sends the card's exact name. If that agent went away after the question was asked, the
+  // removal must not land on a different agent whose display name happens to match.
+  folderAgent('kother8109', 'Kmax8109');
+  const r = await call('DELETE', 'Kmax8109');
+  assert.equal(r.code, 400, 'a DELETE for a missing agent removed another one: ' + r.text.slice(0, 200));
+  assert.match(r.text, /cannot find an agent called Kmax8109/, r.text.slice(0, 200));
+  // CONTROL: the redirect was possible, since the plan resolves that same name to the other agent.
+  const p = await call('GET', 'Kmax8109');
+  assert.equal(p.json && p.json.name, 'kother8109', 'CONTROL: the name does not resolve to the other agent, so this test proves nothing');
+});
+
+test('a name two agents answer to is refused by the plan, naming both folders', async () => {
   folderAgent('ktwin8109a', 'Ktwin 8109');
   folderAgent('ktwin8109b', 'Ktwin 8109');
   const p = await call('GET', 'Ktwin 8109');
   assert.equal(p.code, 400, p.text.slice(0, 160));
   assert.match(p.text, /more than one agent is called Ktwin 8109 \(ktwin8109a, ktwin8109b\)/, p.text.slice(0, 200));
-  const d = await call('DELETE', 'Ktwin 8109');
-  assert.equal(d.code, 400, d.text.slice(0, 160));
-  assert.equal(d.json && d.json.outcome, 'refused');
-  assert.match(d.text, /more than one agent is called/);
 });
 
 test.after(() => {
