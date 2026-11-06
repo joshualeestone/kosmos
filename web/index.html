@@ -9324,6 +9324,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-name .sfoot .field { margin-top: 0; }
 #cstep-name .sfoot #create-go { flex: 0 0 auto; }
 #create-msg .linkish { font-size: inherit; }   /* kosmos#8040: the link in a refusal reads at its sentence's size */
+#create-kept .linkish { font-size: inherit; }   /* kosmos#8051: Start over reads at its sentence's size */
 #cstep-name { padding-bottom: var(--space-7); }   /* kosmos#8040: room under the sentence, or in the consolidated column it ends at the window's very edge */
 /* kosmos#8040: the sample name reads as a name already typed, so "Give the agent a name." looked wrong beside it and the
    press looked like nothing. While the box is refused it shows as what it is: empty. The sample stays for everyone else. */
@@ -16920,6 +16921,9 @@ window.kosmosMeasureScrollbarWidth();
   <div id="cstep-name" hidden>
     <h2 id="create-meet">Set up your agent</h2>
     <p id="create-blurb"></p>
+    <!-- kosmos#8051 item 1 (Mona Lisa): a New agent within 30 minutes of the "Settings, AI Models" link comes back to the
+         form as they left it. This line says so, and Start over is the way out for someone who gave up on it. -->
+    <p class="fhint" id="create-kept" hidden>This is where you left off before going to Settings. <button type="button" class="linkish" id="create-kept-over">Start over</button></p>
     <!-- #3564 / #4556: the kind now comes from New Agent's first screen. On the Swarm path the Swarm card shows alone
          as the swarm's preview; on the Single path neither shows. The radios stay as the state createKind() reads. -->
     <fieldset class="ctype" id="create-kind" hidden>
@@ -66439,6 +66443,7 @@ document.body.addEventListener('input', (e) => {
 
 function openCreate(initialMode) {
   CREATE_KEPT = 0;   // kosmos#8040
+  document.getElementById('create-kept').hidden = true;   // kosmos#8051: a plain form is not one kept
   CREATE_ACCOUNT_TOUCHED = false;
   CREATE_MODEL_TOUCHED = false;
   PICKED = null;
@@ -67958,12 +67963,15 @@ function createEnter() {
   if (!CREATE_KEPT || Date.now() - CREATE_KEPT >= CREATE_KEPT_MS) { openCreate(); return; }
   CREATE_KEPT = 0;
   document.getElementById('create-msg').textContent = '';
+  document.getElementById('create-kept').hidden = false;   // kosmos#8051 item 1: say why the old form is back
   cstep('name');
   if (document.body.classList.contains('consolidated')) openConsolidatedCreate(); else showTab('create');
   document.getElementById('create-name').focus();
   const val = (id) => document.getElementById(id).value;
   loadCreateExtras({ provider: val('create-provider'), account: CREATE_ACCOUNT_TOUCHED ? val('create-account') : '', model: CREATE_MODEL_TOUCHED ? val('create-model') : '', reports: val('create-reports') });
 }
+/* kosmos#8051 item 1: the way out of a kept form, for someone who gave up on it. openCreate empties it and hides the line. */
+document.getElementById('create-kept-over').addEventListener('click', () => openCreate());
 /* The picks loadCreateExtras rebuilt its menus over, put back where they are still offered. On a provider it moved them to
    (one just connected, none chosen) they are not offered, so what it painted stays. */
 function createKeptRestore(kept) {
