@@ -54,3 +54,14 @@ Nobody automatically: no caller in this repo (only comments, plans and the READM
   so the row is a presence check (text shipped), not a behaviour check.
 - Same stale claim found in web.ruling-guards.test.js (a comment saying the installer page cannot be guarded at ship
   time); corrected to name the pkg arm. No assertion changed; that file passes 6/6.
+
+## Review 4 (opus)
+- WARNING, fixed (my round-3 prose): "IT IS GUARDED AT SHIP TIME" overclaimed: nothing runs check-served.js
+  automatically. The comment is now pointers only: the merge-time pin in install.installing-page.test.js, and the
+  pkg_absent row when check-served is run by hand. _cannot_see says "checked ... when it is run (by hand)" too.
+- WARNING, fixed: install.installing-page.test.js carried a third copy of the stale claim ("outside the served
+  population ... still is"); corrected. A repo-wide search finds no other copy (the one left in check-served.js quotes
+  it as the mistake it was).
+- NITs, fixed: the header names the pkg arm's strip; the guard holds build-installer-pkg.sh to the two source folders;
+  the old-sentence control says what its failure would really mean; the edit note in check-served.js is gone.
+30 passed across the three affected test files.

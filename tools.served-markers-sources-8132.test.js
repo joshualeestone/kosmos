@@ -12,7 +12,7 @@
  *   binary          NOT checked here, on purpose: it is matched against the COMPILED app, where a WebKit delegate
  *                   method is an Objective-C selector string ("runOpenPanel") that no source file spells.
  * The absent kinds are not checked here either: a marker that must be absent has no source by design.
- * Matched against each source with its comments stripped (the strip check-served.js uses on its ABSENT side). So this is
+ * Matched against each source with its comments stripped (the strip check-served.js's pkg arm uses on its absent side). So this is
  * deliberately STRICTER than the served check, which matches present markers against the raw page: a marker live only
  * in a comment passes there and fails here. The strip is non-greedy and can over-strip a page holding a '/*' string or
  * regex literal; that gives a false red here, never a false green.
@@ -29,6 +29,8 @@ const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const strip = (t) => t.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
 const RAW_PAGE = read('web/index.html');
 const PAGE = strip(RAW_PAGE);
+// The sources tools/build-installer-pkg.sh packs: install/pkg-scripts (component.pkg/Scripts) and --resources
+// install/pkg-resources (Resources). The first test holds the build script to those two folders.
 const PKG_PAGES = ['install/pkg-scripts/installing.html', 'install/pkg-resources/welcome.html', 'install/pkg-resources/conclusion.html'];
 const PKG = PKG_PAGES.map((rel) => ({ rel, body: strip(read(rel)) }));
 const inPkg = (m) => PKG.some((p) => p.body.includes(m));
@@ -41,6 +43,9 @@ test('kosmos#8132: the sources are the files check-served reads, and none is emp
   const ourStrip = /^const strip = \(t\) => (.*);$/m.exec(read('tools.served-markers-sources-8132.test.js'));
   assert.ok(ourStrip && read('tools/check-served.js').includes('const strip = (t) => ' + ourStrip[1] + ';'),
     'the comment strip here no longer matches check-served.js\'s; copy it again');
+  const build = read('tools/build-installer-pkg.sh');
+  assert.ok(build.includes('install/pkg-scripts') && build.includes('install/pkg-resources'),
+    'build-installer-pkg.sh no longer packs install/pkg-scripts and install/pkg-resources; update PKG_PAGES here to match');
   // check-served reads exactly these pages from the expanded .pkg; if it reads another, PKG_PAGES here must follow.
   const served = read('tools/check-served.js');
   const lit = /const PAGES = (\[[^\]]*\]);/.exec(served);
@@ -68,8 +73,9 @@ test('kosmos#8132 CONTROL: the lookups can say no (a made-up marker, and the old
   const madeUp = 'kosmos#8132 control sentence that no file has';
   assert.equal(PAGE.includes(madeUp), false);
   assert.equal(inPkg(madeUp), false);
-  // The marker this card replaced: no source since #2073. If it ever reads as present, the lookup is broken.
-  assert.equal(inPkg('This page becomes your dashboard when Kosmos is ready.'), false);
+  // The marker this card replaced (no source since #2073). Present again means that copy came back, not a broken
+  // lookup: then it may be a marker again, and this line should go.
+  assert.equal(inPkg('This page becomes your dashboard when Kosmos is ready.'), false, 'the old installer sentence is back in a page source; if that is on purpose, remove this line');
   // A sentence that is in a source only inside a comment does not count: "Nothing to do." survives in installing.html
   // only in the comment that records its deletion (Josh, item 4).
   const rawPkg = PKG_PAGES.map(read).join('\n');

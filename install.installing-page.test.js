@@ -245,9 +245,9 @@ test('reduced motion turns off both animations, and dark mode is accounted for',
  * screen. Done -- in THIS file, not in web/index.html.
  *
  * When I pinned his other rulings (#1081) I recorded item 4 as unguardable and
- * moved on, because tools/check-served.js extracts only app/web/index.html and
- * app/bin/kosmos-app from the tarball, so the .pkg installer's own page is
- * outside the served population entirely. That part is true and still is.
+ * moved on, because tools/check-served.js then read only app/web/index.html and
+ * app/bin/kosmos-app from the tarball. It no longer is: its pkg arm (2026-08-27)
+ * also reads the served installer's pages, when someone runs it (kosmos#8132).
  *
  * ⚠️ THE MISTAKE WAS TREATING "CANNOT BE GUARDED IN THE SERVED BYTES" AS
  * "CANNOT BE GUARDED AT ALL". Merge-time is a different population and this
