@@ -739,6 +739,49 @@ func pageSaysDownloadRefusal(_ url: URL?) -> Bool {
     return false
 }
 
+/// kosmos#8121: PURE, for --kosmos-app-mode-selftest. The computers the person told "Always Allow", read from what was
+/// saved: only names that are Kosmos+ computers by isKosmosPlusURL's own rule (never login, never another site), so a
+/// hand-edited or damaged preference cannot let anything else save files unasked. `also` is the selftest's loopback
+/// stand-in, and nothing else.
+func keptDownloadHosts(_ raw: Any?, also: String? = nil) -> Set<String> {
+    guard let list = raw as? [String] else { return [] }
+    var out = Set<String>()
+    for h in list.prefix(200) {   // a bound, not a feature: nobody owns 200 computers
+        let host = h.lowercased()
+        let coordinator = kosmosPlusSignIn.host!
+        if host == also { out.insert(host); continue }
+        guard host != coordinator, let u = URL(string: "https://" + host + "/"), u.host?.lowercased() == host,
+              isKosmosPlusURL(u) else { continue }
+        out.insert(host)
+    }
+    return out
+}
+
+/// kosmos#8121 (re-land after #8133): what this computer's own board says of an always-allowed computer.
+enum AccountVerdict { case onAccount, notOnAccount, unknown }
+/// kosmos#8121: PURE, for --kosmos-app-mode-selftest. Whether `host` is on THIS Kosmos+ account, read from this computer's
+/// board's /api/remote/computers answer (the list the top-left menu and #8118's reopen use). A Kosmos+ name can pass to
+/// another account (the relay frees a retired computer's name for anyone after 24 hours), so an Always Allow counts only
+/// while its computer is on that list. Anything that does not read as the list is .unknown, and .unknown asks.
+func accountVerdict(_ raw: Any?, host: String) -> AccountVerdict {
+    guard let obj = raw as? [String: Any], (obj["ok"] as? Bool) == true, let list = obj["computers"] as? [Any],
+          let domain = (obj["domain"] as? String)?.lowercased(), !domain.isEmpty else { return .unknown }
+    let h = host.lowercased()
+    guard h.hasSuffix("." + domain) else { return .notOnAccount }
+    for c in list {
+        if let c = c as? [String: Any], let a = c["address"] as? String, a.lowercased() == h { return .onAccount }
+    }
+    return .notOnAccount
+}
+
+/// kosmos#8121 review 3: PURE, for --kosmos-app-mode-selftest. What the Allow question's answer means: the buttons are
+/// added Allow, Don't Allow, then (only when offered) Always Allow. Only Always Allow keeps, and only when it was offered.
+func downloadAnswer(_ r: NSApplication.ModalResponse, offered: Bool) -> (allow: Bool, keep: Bool) {
+    if r == .alertFirstButtonReturn { return (true, false) }
+    if offered && r == .alertThirdButtonReturn { return (true, true) }
+    return (false, false)
+}
+
 /// #5167 (11-06): PURE, for --kosmos-app-mode-selftest. The words a failed download's alert gives: WebKit's own, which for a
 /// file it could not make is only "Cannot create file", then the system's reason when WebKit says one (a POSIX error under
 /// NSUnderlyingErrorKey: "Permission denied", "File exists", "No space left on device"). Only that reason, in libc's fixed
@@ -3818,6 +3861,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         return bar
     }
 
+    /// kosmos#8121: Kosmos > Forget Always-Allowed Computers. Every computer the person answered Always Allow for is
+    /// asked about again, from the next download (this run's plain Allows go too, so the next download asks now).
+    @objc func forgetAlwaysAllowedComputers(_ sender: Any?) {
+        let had = alwaysAllowedHosts.count
+        AppDelegate.keptWrite(nil)
+        allowedDownloadHosts = []
+        keptConfirmedAt = [:]   // review 3: and a check still in flight finds the name gone, so it grants nothing
+        checkedVerdict = [:]
+        logLine("#8121: forgot \(had) always-allowed computer(s)")
+        let alert = NSAlert()
+        alert.messageText = had == 0 ? "No computers were always allowed" : "Kosmos will ask again"
+        alert.informativeText = had == 0
+            ? "Kosmos asks before it saves a file from any Kosmos+ computer."
+            : "Kosmos asks before it saves a file from any Kosmos+ computer, including the ones you had always allowed."
+        alert.addButton(withTitle: "OK")
+        if AppDelegate.downloadAlertPresenter == nil {
+            alertsOnScreen += 1   // review 1: a waiting Allow question does not open over this one
+            alert.runModal()
+            alertsOnScreen -= 1
+        }
+    }
+
     /// The menu item and the bar's button: restart into an installed version, or install the offered
     /// one whatever the Updates switch says, because the person chose it.
     @objc func updateKosmosNow(_ sender: Any?) {
@@ -4185,9 +4250,85 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// Only --kosmos-app-download-selftest sets this (kosmos#7952): its loopback page is treated as a Kosmos+ computer's
     /// for the same-origin mark, since no Kosmos+ computer can be served there.
     static var markBoardDownloadsForSelftest = false
+    /* kosmos#8121 (Josh, 11-06: "always allow downloads from Kosmos or something"): the computers the person answered
+       Always Allow for, kept across quits in the app's own preferences. Only an Allow is ever kept; a Don't Allow still
+       lasts until the app quits, so nobody is stuck on a misclick. Kosmos > Forget Always-Allowed Computers clears it. */
+    /* A new key (#8133 review): names kept under the old one by a #8130 build were never checked against an account,
+       so they grant nothing and are wiped on the first read. */
+    static let alwaysAllowedComputersKey = "kosmos.downloads.alwaysAllowedOnAccount"
+    static let retiredAlwaysAllowedKey = "kosmos.downloads.alwaysAllowedComputers"
+    /* Only --kosmos-app-download-selftest sets this: the kept list lives in memory for the run instead of the app's
+       preferences (review 2: a named UserDefaults suite always leaves a file in ~/Library/Preferences, since the system
+       writes it back after any delete), so the selftest never touches the disk or the person's preferences. */
+    static var keptStoreForSelftest: [String: Any]?
+    static func keptRead() -> Any? {
+        if let mem = keptStoreForSelftest { return mem[alwaysAllowedComputersKey] }
+        if UserDefaults.standard.object(forKey: retiredAlwaysAllowedKey) != nil { UserDefaults.standard.removeObject(forKey: retiredAlwaysAllowedKey) }
+        return UserDefaults.standard.object(forKey: alwaysAllowedComputersKey)
+    }
+    static func keptWrite(_ v: [String]?) {
+        if keptStoreForSelftest != nil { keptStoreForSelftest![alwaysAllowedComputersKey] = v; return }
+        if let v { UserDefaults.standard.set(v, forKey: alwaysAllowedComputersKey) }
+        else { UserDefaults.standard.removeObject(forKey: alwaysAllowedComputersKey) }
+    }
+    /// Only --kosmos-app-download-selftest sets this: an Allow from downloadPermissionPresenter counts as Always Allow.
+    static var alwaysAnswerForSelftest = false
+    fileprivate var alwaysAllowedHosts: Set<String> {
+        keptDownloadHosts(AppDelegate.keptRead(),
+                          also: AppDelegate.askAboutHostForSelftest)
+    }
+    fileprivate func keepAlwaysAllowed(_ host: String) {
+        let now = alwaysAllowedHosts.union([host]).sorted()
+        AppDelegate.keptWrite(now)
+    }
+    fileprivate func forgetKept(_ host: String) {
+        let now = alwaysAllowedHosts.subtracting([host]).sorted()
+        AppDelegate.keptWrite(now.isEmpty ? nil : now)
+        keptConfirmedAt[host] = nil
+    }
+    /// Only --kosmos-app-download-selftest sets this: it stands in for the board's account list (no account is signed
+    /// in on the build box). It may answer at once or hold `done` and answer later, as the real list does.
+    static var accountListForSelftest: ((String, @escaping (AccountVerdict) -> Void) -> Void)?
+    /* kosmos#8121 review 3: when a kept computer was last confirmed on the account (keptClock). A confirmation lasts
+       an hour, then the list is read again before the next download: the app runs for days, and a name can pass to
+       another account a day after it is retired, so a kept name is never trusted for the run on one reading. */
+    fileprivate var keptConfirmedAt: [String: TimeInterval] = [:]
+    /// Review 4: the kept check's own verdict, handed to the question that follows it so the list is not read twice.
+    fileprivate var checkedVerdict: [String: (AccountVerdict, TimeInterval)] = [:]
+    static var keptConfirmLasts: TimeInterval = 3600
+    /* Review 5: the wall clock, not systemUptime, which stops while the Mac sleeps: a weekend asleep is more than the
+       relay's 24 hours. A reading in the future (the clock was set back) counts as expired. The selftest swaps it. */
+    static var keptClock: () -> TimeInterval = { Date().timeIntervalSince1970 }
+    fileprivate func keptStillConfirmed(_ host: String) -> Bool {
+        guard let at = keptConfirmedAt[host] else { return false }
+        let age = AppDelegate.keptClock() - at
+        return age >= 0 && age < AppDelegate.keptConfirmLasts
+    }
+    /// kosmos#8121: kept computers this run found not confirmed (not on the account, or the list unread): asked as any
+    /// computer is, for the rest of the run, so a slow list is waited for once, not before every download.
+    fileprivate var keptUnconfirmed: Set<String> = []
+    private var accountChecks: [String: [(String?, (() -> Void)?, (Bool) -> Void)]] = [:]
+    /// kosmos#8121: ask this computer's own board whether `host` is on its Kosmos+ account. Answers on the main thread.
+    /// No board, no answer in 15 s, or an answer that does not read: .unknown (the person is asked; never a pass).
+    private func askAccount(_ host: String, within: TimeInterval = 15, _ done: @escaping (AccountVerdict) -> Void) {
+        if let stand = AppDelegate.accountListForSelftest { stand(host, done); return }
+        var parts = URLComponents()
+        parts.scheme = "http"; parts.host = "127.0.0.1"; parts.port = resolvedPort; parts.path = "/api/remote/computers"
+        guard resolvedPort != nil, let url = parts.url else { done(.unknown); return }
+        var req = URLRequest(url: url)
+        if let tok = boardTokenValue() { req.setValue(tok, forHTTPHeaderField: "x-kosmos-board-token") }
+        req.timeoutInterval = within   // the person waits on this; past it they are simply asked
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        URLSession.shared.dataTask(with: req) { data, response, _ in
+            let ok = (response as? HTTPURLResponse)?.statusCode == 200
+            let obj = ok ? data.flatMap { try? JSONSerialization.jsonObject(with: $0) } : nil
+            let v = accountVerdict(obj, host: host)
+            DispatchQueue.main.async { done(v) }
+        }.resume()
+    }
     fileprivate var allowedDownloadHosts: Set<String> = []
     private var refusedDownloadHosts: Set<String> = []
-    fileprivate func resetDownloadAsks() { refusedDownloadHosts = [] }   // the selftest, between its arms
+    fileprivate func resetDownloadAsks() { refusedDownloadHosts = []; keptUnconfirmed = []; keptConfirmedAt = [:]; checkedVerdict = [:] }   // the selftest, between its arms (and a quit)
     fileprivate var downloadAsks: [String: [(Bool) -> Void]] = [:]   // fileprivate: the selftest sees a question pending
     fileprivate var pageCommits = 0   // main-frame commits; the Allow answer counts only for the page that asked
 
@@ -4197,6 +4338,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
               isKosmosPlusURL(page) || host == AppDelegate.askAboutHostForSelftest
         else { then(true); return }
         if allowedDownloadHosts.contains(host) { then(true); return }
+        /* kosmos#8121: a computer the person answered Always Allow for is not asked again, this run or after a quit, while
+           this computer's board lists it on this Kosmos+ account. Its name can pass to another account, so it is checked
+           first: not on the account forgets it; a list that cannot be read keeps it; either way the person is asked. */
+        if alwaysAllowedHosts.contains(host), !keptUnconfirmed.contains(host) {
+            if keptStillConfirmed(host) { then(true); return }
+            if accountChecks[host] != nil { accountChecks[host]!.append((file, willAsk, then)); return }   // one check at a time
+            accountChecks[host] = [(file, willAsk, then)]
+            let commitsBefore = pageCommits
+            askAccount(host) { verdict in
+                let readAt = AppDelegate.keptClock()
+                let waiting = self.accountChecks.removeValue(forKey: host) ?? []
+                // Review 3: Forget pressed while the list was read wins: the name is gone, so it is asked as any computer.
+                let stillKept = self.alwaysAllowedHosts.contains(host)
+                if verdict == .notOnAccount && stillKept {
+                    self.forgetKept(host)
+                    logToSystem("#8121: an always-allowed computer is not on this Kosmos+ account any more, so it was forgotten and is asked about")
+                } else if verdict == .unknown && stillKept {
+                    logToSystem("#8121: this computer's Kosmos+ account list could not be read, so an always-allowed computer is asked about")
+                }
+                // As for the question: an answer for a page no longer there saves nothing (the next page decides afresh).
+                if self.committedPageURL?.host?.lowercased() != host || self.pageCommits != commitsBefore {
+                    logLine("#8121: the page changed while \(host) was checked, so its downloads were not saved")
+                    for w in waiting { w.2(false) }
+                    self.tellDownloadFailed("The page changed while Kosmos checked this computer, so the file was not saved. Try again.")
+                    return
+                }
+                if verdict == .onAccount && stillKept {
+                    logLine("#8121: \(host) is on this Kosmos+ account, so its Always Allow holds")
+                    self.keptConfirmedAt[host] = readAt
+                    for w in waiting { w.2(true) }
+                    return
+                }
+                logLine("#8121: \(host) was always allowed but is \(stillKept ? (verdict == .notOnAccount ? "not on this account" : "unconfirmed") : "forgotten meanwhile"), so it is asked about")
+                if stillKept || verdict != .onAccount { self.keptUnconfirmed.insert(host) }
+                self.checkedVerdict[host] = (verdict, readAt)
+                for w in waiting { self.mayDownload(file: w.0, willAsk: w.1, w.2) }
+            }
+            return
+        }
         if refusedDownloadHosts.contains(host) {
             logLine("#5167: downloads from \(host) were not allowed this time (the person said so; View > Reload asks again)")
             tellDownloadFailed("Downloads from \(host) are off until you choose View > Reload, which asks again.", refusal: true)
@@ -4205,30 +4385,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if downloadAsks[host] != nil { willAsk?(); downloadAsks[host]!.append(then); return }   // one question at a time
         willAsk?()
         downloadAsks[host] = [then]
-        let answer: (Bool) -> Void = { yes in   // strong: every waiting decision handler must be answered
-            if yes { self.allowedDownloadHosts.insert(host) } else { self.refusedDownloadHosts.insert(host) }
-            logLine("#5167: downloads from \(host) \(yes ? "allowed" : "not allowed")")
+        var offerReadAt: TimeInterval = 0   // review 5: when the list that offered Always Allow was read
+        let answerKept: (Bool, Bool, Bool) -> Void = { yes, always, personSaid in   // strong: every waiting decision handler must be answered
+            /* kosmos#8121 review 4: an Always Allow is confirmed for the hour from the reading that offered it (review 5),
+               never allowed for the run, so the hour's re-read still runs while the app stays open for days. */
+            if yes && always { self.keepAlwaysAllowed(host); self.keptConfirmedAt[host] = offerReadAt; self.keptUnconfirmed.remove(host) }
+            else if yes { self.allowedDownloadHosts.insert(host) }
+            else {
+                self.refusedDownloadHosts.insert(host)
+                /* Review 4: the person's latest answer wins: a Don't Allow forgets a kept computer, so Reload or a quit
+                   asks. Review 5: only one the person pressed; an Allow voided by a page change forgets nothing. */
+                if personSaid && self.alwaysAllowedHosts.contains(host) { self.forgetKept(host) }
+            }
+            self.checkedVerdict[host] = nil   // review 6: answered, so no later question reuses this reading
+            logLine("#5167: downloads from \(host) \(yes ? (always ? "always allowed" : "allowed") : "not allowed")")
             for waiting in self.downloadAsks.removeValue(forKey: host) ?? [] { waiting(yes) }
         }
-        if let ask = AppDelegate.downloadPermissionPresenter { ask(host, answer); return }
+        let answer: (Bool) -> Void = { yes in answerKept(yes, false, false) }   // the void path only: nobody's answer
         let commitsBefore = pageCommits
+        /* kosmos#8121 review 3: Always Allow is offered only for a computer the board lists on this account right now, so
+           the button is never one that cannot hold (no board, signed out, a list that does not read, a name elsewhere). */
+        func decideOffer(_ go: @escaping (Bool) -> Void) {
+            guard host != kosmosPlusSignIn.host! else { go(false); return }
+            /* Review 4: the kept check just read the list, so its answer is used; otherwise a bounded read. Review 5: 8 s,
+               above the board's per-computer reach probe (4 s, engine/account-computers.js) plus the round trip; the
+               question waits on it, and a slow list only means no Always Allow this time (logged). */
+            let said: (AccountVerdict, TimeInterval) -> Void = { v, at in
+                if v != .onAccount { logLine("#8121: Always Allow not offered for \(host): the account list said \(v)") }
+                offerReadAt = at; go(v == .onAccount)
+            }
+            // Review 6: reused only fresh (a few seconds): one left behind by a question that never asked is not "right now".
+            if let (v, at) = checkedVerdict.removeValue(forKey: host), AppDelegate.keptClock() - at >= 0, AppDelegate.keptClock() - at < 5 { said(v, at); return }
+            askAccount(host, within: 8) { v in said(v, AppDelegate.keptClock()) }
+        }
+        if let ask = AppDelegate.downloadPermissionPresenter {
+            decideOffer { offered in ask(host) { yes in answerKept(yes, AppDelegate.alwaysAnswerForSelftest && offered, true) } }
+            return
+        }
         // On the next turn, not inside WebKit's policy callback: that callback returns first (its handler waits in
         // downloadAsks). WebKit's calls (a commit, another policy) still arrive while the question is up, which
         // is why an Allow is checked against the page and pageCommits afterwards.
         /* Review 1 (W2): never over a refusal alert, where a Return meant as its OK would answer Don't Allow unread.
            It waits a quarter second at a time until every download alert is gone (review 2: a failure alert too). */
-        func ask() {
-        if alertsOnScreen > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { ask() }; return }
+        func ask(_ offersAlways: Bool) {
+        if alertsOnScreen > 0 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { ask(offersAlways) }; return }
         let alert = NSAlert()
         alert.messageText = "Allow downloads from \(host)?"
         // Cleaned as a saved name is (no direction controls or separators): the page chose this text.
         let clean = file.map { downloadDestination(dir: URL(fileURLWithPath: "/"), suggested: $0) { _ in false }.lastPathComponent }
         let shown = clean.map { $0.filter { !"\"\u{201C}\u{201D}\u{2018}\u{2019}'`".contains($0) } }   // cannot close the quotation
         let what = (shown.map { !$0.isEmpty && $0 != "Download" } ?? false) ? "\u{201C}\(shown!)\u{201D}" : "a file"
-        alert.informativeText = "This Kosmos+ computer wants to save \(what) to your Downloads folder. Allow it only if it is one of your own computers. Neither answer is permanent: each lasts until you quit Kosmos, and after Don't Allow, View > Reload asks you again."   // kosmos#7952: Josh read Don't Allow as for good
+        alert.informativeText = "This Kosmos+ computer wants to save \(what) to your Downloads folder. Allow it only if it is one of your own computers. "
+            + (offersAlways ? "Always Allow keeps the answer for this computer after you quit, while it is on your Kosmos+ account (Kosmos > Forget Always-Allowed Computers undoes it). " : "")
+            + (alwaysAllowedHosts.contains(host) ? "You had always allowed this computer: Don't Allow also forgets that. " : "")   // review 6
+            + "Allow lasts until you quit or choose Forget, and after Don't Allow, View > Reload asks you again."
         alert.alertStyle = .warning
         let allow = alert.addButton(withTitle: "Allow")
         let refuse = alert.addButton(withTitle: "Don't Allow")
+        /* kosmos#8121 review 1: never offered for the sign-in itself, which keptDownloadHosts never keeps (it is not a
+           computer): a button that silently did nothing past a quit would contradict the sentence above it. */
+        if offersAlways {
+            let always = alert.addButton(withTitle: "Always Allow")   // kept for this computer only
+            always.keyEquivalent = ""   // never a keypress; Return stays Don't Allow
+        }
         // Return answers Don't Allow: the page decides when this appears, so a keypress meant for the
         // composer must never grant it.
         allow.keyEquivalent = ""
@@ -4237,9 +4456,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // Modal, not a sheet: every download from this computer waits on the answer, and a sheet over another
         // sheet can be dropped (#2807), which would leave them waiting for good.
         let asked: Bool
-        if let stand = AppDelegate.allowAnswerForSelftest { asked = stand() } else {
+        var keep = false
+        if let stand = AppDelegate.allowAnswerForSelftest { asked = stand(); keep = asked && offersAlways && AppDelegate.alwaysAnswerForSelftest } else {
             NSApp.activate(ignoringOtherApps: true)   // in front, where the person can read it
-            asked = alert.runModal() == .alertFirstButtonReturn
+            alertsOnScreen += 1   // review 6: nothing of this app's opens over the question while it is up
+            let r = alert.runModal()
+            alertsOnScreen -= 1
+            let a = downloadAnswer(r, offered: offersAlways)
+            asked = a.allow
+            keep = a.keep
         }
         // The page may have changed while it was asked (a switch to connect clears it). Don't Allow is always kept
         // (refusing is safe, and a page that reloads cannot ask again and again); only an Allow is void, since it
@@ -4250,9 +4475,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             tellDownloadFailed("The page changed while you were asked, so the file was not saved. Choose View > Reload to be asked again.")   // the person pressed Allow: say why nothing saved
             return
         }
-        answer(asked)
+        answerKept(asked, keep, true)   // a void Allow (the page changed) returned above, so it is never kept
         }
-        DispatchQueue.main.async { ask() }
+        decideOffer { offered in DispatchQueue.main.async { ask(offered) } }
     }
 
     /// #5167: a download the person started that did not save is said, one plain alert each. A refusal by policy
@@ -6203,6 +6428,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     //     too recovers on a single press, not two.
     @objc func reloadBoard(_ sender: Any?) {
         refusedDownloadHosts = []   // #5167: the person's Reload asks again about a computer they refused
+        keptUnconfirmed = []   // kosmos#8121 review 3: and checks an always-allowed one again
+        checkedVerdict = [:]   // review 5: a verdict left by a question that never asked is not reused later
         // #4356: a connect computer has no board to start, so Reload reloads the page it is on, or
         // goes back to sign-in when there is none or the last load failed.
         if computerMode == .connect {
@@ -6458,6 +6685,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         updateItem.target = settingsTarget
         updateItem.isHidden = true
         appMenu.addItem(updateItem)
+        /* kosmos#8121: the undo for Always Allow, named in the Allow question itself. Always shown: it is where a person
+           who wonders whether they said yes can make sure they did not. */
+        let forgetItem = NSMenuItem(title: "Forget Always-Allowed Computers",
+                                    action: #selector(AppDelegate.forgetAlwaysAllowedComputers(_:)),
+                                    keyEquivalent: "")
+        forgetItem.target = settingsTarget
+        appMenu.addItem(forgetItem)
         appMenu.addItem(NSMenuItem.separator())
         let servicesItem = NSMenuItem(title: "Services", action: nil, keyEquivalent: "")
         let servicesMenu = NSMenu(title: "Services")
@@ -6824,6 +7058,8 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     /* Above the worst case of a run where NOTHING saves (each expected-file wait, 5s, runs out, then the 20s
        settle: well under 300s), so a product that saves nothing is judged, not timed out. */
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
+    AppDelegate.keptStoreForSelftest = [:]   // kosmos#8121: the kept list in memory for this run, never on disk
+    AppDelegate.accountListForSelftest = { _, done in done(.onAccount) }   // kosmos#8121: every computer on the account unless a row says not
     DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
         try? FileManager.default.removeItem(at: dl)
         print("download selftest TIMED OUT"); exit(1)
@@ -6996,6 +7232,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     /* The real question's own branch (the one a Kosmos+ computer meets), with only runModal stood in for:
        Don't Allow saves nothing; an Allow given while the page committed again is void, saves nothing and is
        said; then, asked fresh, Allow saves. */
+    var voidAlwaysKept = true   // kosmos#8121 review 1: read once the voided Always Allow has settled
     func modalArm(then: @escaping () -> Void) {
         AppDelegate.askAboutHostForSelftest = "127.0.0.1"
         var answer: () -> Bool = { false }
@@ -7003,7 +7240,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         click("modalno") {
             d.resetDownloadAsks()
             answer = { d.pageCommits += 1; return true }   // the page commits while the person is asked
+            AppDelegate.alwaysAnswerForSelftest = true   // kosmos#8121 review 1: and it was Always Allow that was pressed
             click("modalvoid") {
+                AppDelegate.alwaysAnswerForSelftest = false
+                voidAlwaysKept = d.alwaysAllowedHosts.contains("127.0.0.1")
                 d.resetDownloadAsks()
                 answer = { true }
                 /* Review 3: the question waits while a download alert is on screen. One stands up here until the
@@ -7122,11 +7362,153 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             d.mayDownload { got.append($0) }
             row(asked.count == 2 && got.suffix(2) == [true, true] && d.allowedDownloadHosts == ["josh.kosmosplus.com"],
                 "Allow holds for that computer only, for this run, and is not asked again (\(d.allowedDownloadHosts))")
+            /* kosmos#8121: Always Allow, kept across a quit (a quit stood in for by clearing this run's answers, with the saved
+               list left as it is), in its own preferences suite, never the person's. Saved and put back around these rows. */
+            do {
+                AppDelegate.keptWrite(nil)
+                let keptAllowed = d.allowedDownloadHosts, keptAsked = asked, keptReply = reply, keptPage = d.committedPageURL
+                func quit() { d.allowedDownloadHosts = []; d.resetDownloadAsks() }
+                func on(_ host: String) { d.committedPageURL = URL(string: "https://\(host)/") }
+                var g: [Bool] = []
+                quit(); asked = []; reply = true; AppDelegate.alwaysAnswerForSelftest = true
+                on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }
+                quit(); d.mayDownload { g.append($0) }
+                row(asked == ["nadia.kosmosplus.com"] && g == [true, true],
+                    "kosmos#8121: ALWAYS ALLOW IS NOT ASKED AGAIN AFTER A QUIT (asked \(asked), got \(g))")
+                AppDelegate.alwaysAnswerForSelftest = false; asked = []; g = []
+                on("omar.kosmosplus.com"); d.mayDownload { g.append($0) }
+                quit(); d.mayDownload { g.append($0) }
+                row(asked == ["omar.kosmosplus.com", "omar.kosmosplus.com"] && g == [true, true],
+                    "kosmos#8121: CONTROL: a plain Allow lasts this run only, and is asked again after a quit (asked \(asked))")
+                AppDelegate.alwaysAnswerForSelftest = true; reply = false; asked = []; g = []
+                on("pia.kosmosplus.com"); d.mayDownload { g.append($0) }
+                quit(); d.mayDownload { g.append($0) }
+                row(asked.count == 2 && g == [false, false] && !d.alwaysAllowedHosts.contains("pia.kosmosplus.com"),
+                    "kosmos#8121: A DON'T ALLOW IS NEVER KEPT past a quit, so nobody is stuck on a misclick (asked \(asked.count))")
+                reply = true; asked = []; g = []
+                on("quinn.kosmosplus.com"); d.mayDownload { g.append($0) }
+                row(asked == ["quinn.kosmosplus.com"] && d.alwaysAllowedHosts == ["nadia.kosmosplus.com", "quinn.kosmosplus.com"],
+                    "kosmos#8121: Always Allow covers that computer only; another computer is still asked (\(d.alwaysAllowedHosts.sorted()))")
+                AppDelegate.alwaysAnswerForSelftest = false
+                asked = []; g = []
+                on("rae.kosmosplus.com"); d.mayDownload { g.append($0) }   // a plain Allow, this run
+                d.forgetAlwaysAllowedComputers(nil)
+                d.mayDownload { g.append($0) }   // no quit: Forget itself must clear this run's Allow
+                row(asked == ["rae.kosmosplus.com", "rae.kosmosplus.com"],
+                    "kosmos#8121 review 1: FORGET ALSO CLEARS THIS RUN'S ALLOWS, so the next download asks now (asked \(asked))")
+                quit(); asked = []; g = []
+                on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }
+                row(asked == ["nadia.kosmosplus.com"] && d.alwaysAllowedHosts.isEmpty,
+                    "kosmos#8121: FORGET ALWAYS-ALLOWED COMPUTERS asks again (asked \(asked))")
+                AppDelegate.keptStoreForSelftest?[AppDelegate.alwaysAllowedComputersKey] = (["evil.example.com", "login.kosmosplus.com", "x.kosmosplus.com.evil.com", "Nadia.KosmosPlus.com", "xn--80ak6aa92e.kosmosplus.com"]
+                          as [String])
+                row(d.alwaysAllowedHosts == ["nadia.kosmosplus.com"],
+                    "kosmos#8121: a saved list keeps only Kosmos+ computers, never another site or the sign-in (\(d.alwaysAllowedHosts.sorted()))")
+                /* kosmos#8121 re-land (#8133): a kept name counts only while the board lists it on THIS account. */
+                var verdict = AccountVerdict.onAccount
+                var checked: [String] = []
+                AppDelegate.accountListForSelftest = { h, done in checked.append(h); done(verdict) }
+                AppDelegate.keptWrite(["nadia.kosmosplus.com"])
+                quit(); asked = []; g = []; reply = true
+                on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }
+                row(checked == ["nadia.kosmosplus.com"] && asked.isEmpty && g == [true],
+                    "kosmos#8121: CONTROL: a kept computer on this account is checked and not asked (checked \(checked), asked \(asked))")
+                verdict = .notOnAccount
+                quit(); asked = []; g = []; checked = []; reply = false
+                on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }
+                row(checked == ["nadia.kosmosplus.com"] && asked == ["nadia.kosmosplus.com"] && g == [false] && d.alwaysAllowedHosts.isEmpty,   // review 4: one read, its answer reused for the offer
+                    "kosmos#8121: A KEPT NAME NOW ON ANOTHER ACCOUNT IS ASKED ABOUT, AND FORGOTTEN (asked \(asked), kept \(d.alwaysAllowedHosts.sorted()))")
+                verdict = .unknown
+                AppDelegate.keptWrite(["nadia.kosmosplus.com"])
+                quit(); asked = []; g = []; checked = []; reply = true
+                on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }; d.mayDownload { g.append($0) }
+                row(checked == ["nadia.kosmosplus.com"] && asked == ["nadia.kosmosplus.com"] && g == [true, true] && d.alwaysAllowedHosts == ["nadia.kosmosplus.com"],   // review 4: one read, its answer reused for the offer
+                    "kosmos#8121: AN ACCOUNT LIST THAT CANNOT BE READ ASKS (once a run), and keeps the name (checked \(checked), asked \(asked))")
+                /* Review 3: the real list answers later, so these hold the answer and give it after something happens. */
+                var held: [(AccountVerdict) -> Void] = []
+                AppDelegate.accountListForSelftest = { h, done in checked.append(h); held.append(done) }
+                func land(_ v: AccountVerdict) { let h = held; held = []; for f in h { f(v) } }
+                AppDelegate.keptWrite(["nadia.kosmosplus.com"])
+                quit(); asked = []; g = []; checked = []; reply = true
+                on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }; d.mayDownload { g.append($0) }
+                let joined = checked.count == 1 && g.isEmpty
+                land(.onAccount)
+                row(joined && g == [true, true] && asked.isEmpty,
+                    "kosmos#8121 review 3: A SECOND DOWNLOAD DURING THE CHECK WAITS FOR IT: one check, both answered (checked \(checked), got \(g))")
+                quit(); asked = []; g = []; checked = []
+                let toldBefore = told.count
+                on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }
+                d.pageCommits += 1   // the page commits again while the list is read
+                land(.onAccount)
+                row(g == [false] && asked.isEmpty && d.keptConfirmedAt["nadia.kosmosplus.com"] == nil && told.count == toldBefore + 1,
+                    "kosmos#8121 review 3: A PAGE CHANGED DURING THE CHECK SAVES NOTHING, confirms nothing, and says so once (got \(g))")
+                quit(); asked = []; g = []; checked = []
+                on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }
+                d.forgetAlwaysAllowedComputers(nil)   // Forget pressed while the list is read
+                land(.onAccount)   // the check's answer
+                land(.onAccount)   // nothing is held here: the question reuses the check's fresh reading (checked stays 1)
+                row(g == [true] && asked == ["nadia.kosmosplus.com"] && d.keptConfirmedAt.isEmpty && checked.count == 1,   // review 6: one reading, reused
+                    "kosmos#8121 review 3: FORGET PRESSED DURING THE CHECK WINS: the computer is asked about (asked \(asked))")
+                AppDelegate.accountListForSelftest = { h, done in checked.append(h); done(.onAccount) }
+                AppDelegate.keptWrite(["nadia.kosmosplus.com"])
+                quit(); asked = []; g = []; checked = []
+                on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }; d.mayDownload { g.append($0) }
+                let withinHour = checked.count
+                AppDelegate.keptConfirmLasts = 0   // the hour is up
+                d.mayDownload { g.append($0) }
+                AppDelegate.keptConfirmLasts = 3600
+                row(withinHour == 1 && checked.count == 2 && g == [true, true, true] && asked.isEmpty,
+                    "kosmos#8121 review 3: A CONFIRMATION LASTS AN HOUR, NOT THE RUN: read again once it is up (checked \(checked.count))")
+                AppDelegate.accountListForSelftest = { h, done in checked.append(h); done(.unknown) }
+                AppDelegate.keptWrite(nil); AppDelegate.alwaysAnswerForSelftest = true
+                quit(); asked = []; g = []; checked = []
+                on("sam.kosmosplus.com"); d.mayDownload { g.append($0) }
+                row(asked == ["sam.kosmosplus.com"] && g == [true] && d.alwaysAllowedHosts.isEmpty,
+                    "kosmos#8121 review 3: ALWAYS ALLOW IS NOT OFFERED for a computer the list does not confirm (kept \(d.alwaysAllowedHosts.sorted()))")
+                // Review 4: an Always Allow pressed this run is re-read after the hour too, not allowed for the run.
+                AppDelegate.accountListForSelftest = { h, done in checked.append(h); done(.onAccount) }
+                quit(); asked = []; g = []; checked = []
+                on("tess.kosmosplus.com"); d.mayDownload { g.append($0) }; d.mayDownload { g.append($0) }
+                let beforeHour = checked.count
+                AppDelegate.keptConfirmLasts = 0
+                d.mayDownload { g.append($0) }
+                AppDelegate.keptConfirmLasts = 3600
+                row(asked == ["tess.kosmosplus.com"] && beforeHour == 1 && checked.count == 2 && g == [true, true, true] && !d.allowedDownloadHosts.contains("tess.kosmosplus.com"),
+                    "kosmos#8121 review 4: AN ALWAYS ALLOW PRESSED THIS RUN IS READ AGAIN AFTER THE HOUR, never allowed for the run (checked \(checked.count))")
+                AppDelegate.alwaysAnswerForSelftest = false
+                /* Review 5: the hour is on the wall clock, so a Mac asleep for days reads the list again on waking, and a
+                   clock set back (a confirmation in the future) is expired too. */
+                let realClock = AppDelegate.keptClock
+                var fake: TimeInterval = 1_000_000
+                AppDelegate.keptClock = { fake }
+                AppDelegate.keptWrite(["tess.kosmosplus.com"])
+                quit(); asked = []; g = []; checked = []
+                on("tess.kosmosplus.com"); d.mayDownload { g.append($0) }   // read and confirmed at 1,000,000
+                fake += 3 * 86_400; d.mayDownload { g.append($0) }   // three days later (asleep: uptime would not have moved)
+                fake = 1_000_000 - 60; d.mayDownload { g.append($0) }   // the clock set back past the reading
+                AppDelegate.keptClock = realClock
+                row(checked.count == 3 && g == [true, true, true] && asked.isEmpty,
+                    "kosmos#8121 review 5: THE HOUR IS WALL-CLOCK TIME: read again after days asleep, and after the clock is set back (checked \(checked.count))")
+                // Review 4: Don't Allow on a kept computer forgets it, so Reload asks, whatever the list says then.
+                AppDelegate.keptWrite(["nadia.kosmosplus.com"])
+                AppDelegate.accountListForSelftest = { h, done in checked.append(h); done(.unknown) }
+                quit(); asked = []; g = []; checked = []; reply = false
+                on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }
+                AppDelegate.accountListForSelftest = { h, done in checked.append(h); done(.onAccount) }
+                d.resetDownloadAsks()   // View > Reload clears the refusals and the unconfirmed
+                reply = true; d.mayDownload { g.append($0) }
+                row(asked == ["nadia.kosmosplus.com", "nadia.kosmosplus.com"] && g == [false, true] && d.alwaysAllowedHosts.isEmpty,
+                    "kosmos#8121 review 4: DON'T ALLOW ON A KEPT COMPUTER FORGETS IT, so Reload asks (asked \(asked.count), kept \(d.alwaysAllowedHosts.sorted()))")
+                AppDelegate.accountListForSelftest = { _, done in done(.onAccount) }
+                AppDelegate.keptWrite(nil)
+                quit(); d.allowedDownloadHosts = keptAllowed; asked = keptAsked; reply = keptReply; d.committedPageURL = keptPage
+            }
             row(liveAsked == ["127.0.0.1", "127.0.0.1"] && !saved("asked-no.txt") && saved("asked-yes.txt"),
                 "THROUGH A REAL CLICK: a computer that must be asked saves nothing on Don't Allow, and saves on Allow (asked \(liveAsked))")
             let voided = told.filter { $0.contains("The page changed while you were asked") }
             row(modalAsked == 3 && !saved("modal-no.txt"),
                 "THE REAL ALLOW QUESTION (only its modal stood in for): Don't Allow saves nothing (asked \(modalAsked) of 3)")
+            row(!voidAlwaysKept, "kosmos#8121 review 1: AN ALWAYS ALLOW PRESSED WHILE THE PAGE CHANGED IS VOID AND NOT KEPT")
             row(!saved("modal-void.txt") && voided.count == 1,
                 "AN ALLOW GIVEN WHILE THE PAGE COMMITTED AGAIN IS VOID: nothing saved, and said once (\(voided.count))")
             row(saved("modal-yes.txt"), "asked fresh, the real question's Allow saves")
@@ -7166,7 +7548,8 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             let denied = told.filter { $0.contains("(Cannot create file: Permission denied)") }
             row(!saved("denied.txt") && denied.count == 1, "#5167 (11-06): A FILE WEBKIT COULD NOT CREATE SAYS WHY, in the system's words (\(denied.count))")
             let fails = failures()   // #5167 (11-06): +1, the uncreatable file; kosmos#7952: +3 (the voided start, the refused 403, the busy folder) and the web page
-            row(fails.count == 8 && denied.count == 1 && voided.count == 1 && notStarted.count == 1 && refusedSaid.count == 1 && busySaid.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
+            let checkVoid = fails.filter { $0.contains("changed while Kosmos checked this computer") }   // kosmos#8121 review 3: its own row says it
+            row(fails.count == 9 && checkVoid.count == 1 && denied.count == 1 && voided.count == 1 && notStarted.count == 1 && refusedSaid.count == 1 && busySaid.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
                 "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, two web pages answered for a file, the voided Allow, the voided start, the refused download, the busy folder) (failures \(fails.count): \(fails.joined(separator: " | ")))")
             let refused = refusals()
             let heard = " (asked \(requested.count): \(requested.joined(separator: " | ")))"
@@ -7224,7 +7607,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(own && !other && !unknown && revealed.map { $0.lastPathComponent } == ["same.txt"],
                 "kosmos#8120: SHOW IN FINDER SELECTS A FILE THIS APP SAVED, ONLY FOR THE ORIGIN THAT SAVED IT, and nothing for an unknown id (\(own)/\(other)/\(unknown))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 49   // kosmos#8120: +10 (what the page is told, that it runs there, and Show in Finder); #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 68   // kosmos#8121 (re-land, four reviews): +19 (Always Allow kept and checked against the account: on it, moved, unread, joined, page change, Forget, the hour, the wall clock, the offer, Don't Allow forgets); kosmos#8120: +10 (what the page is told, that it runs there, and Show in Finder); #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
@@ -8499,6 +8882,24 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         fr(downloadFailureWords(fail(NSError(domain: "SomeOtherDomain", code: 4))) == "Cannot create file", downloadFailureWords(fail(NSError(domain: "SomeOtherDomain", code: 4))), "#5167: a reason that is not the system's is not shown")
         fr(downloadFailureCodes(eacces) == "NSURLErrorDomain -3000, NSPOSIXErrorDomain 13", downloadFailureCodes(eacces), "#5167: the log line carries codes only")
         fr(!downloadFailureCodes(eacces).contains("SECRET") && !downloadFailureWords(eacces).contains("SECRET") && !downloadFailureWords(eacces).contains("127.0.0.1"), downloadFailureCodes(eacces), "#5167: and neither carries the download's address or its token")
+        // kosmos#8121 re-land: accountVerdict, the list an Always Allow is checked against.
+        let mine: [String: Any] = ["ok": true, "domain": "kosmosplus.com", "computers": [["address": "nadia.kosmosplus.com", "this": true], ["address": "Omar.kosmosplus.com"]]]
+        func av(_ raw: Any?, _ h: String, _ want: AccountVerdict, _ why: String) { let v = accountVerdict(raw, host: h); fr(v == want, "\(v)", "#8121: " + why) }
+        av(mine, "nadia.kosmosplus.com", .onAccount, "a computer on this account's list is on it")
+        av(mine, "OMAR.kosmosplus.com", .onAccount, "matched without regard to case")
+        av(mine, "pia.kosmosplus.com", .notOnAccount, "A NAME NOT ON THIS ACCOUNT'S LIST (moved to another account) IS NOT ON IT")
+        av(["ok": true, "domain": "other.example", "computers": [["address": "nadia.kosmosplus.com"]]], "nadia.kosmosplus.com", .notOnAccount, "a host under another domain is not on it")
+        av(["ok": false, "because": "x"], "nadia.kosmosplus.com", .unknown, "no list (ok false) is unknown, never a pass")
+        av(["ok": false, "signedIn": false], "nadia.kosmosplus.com", .unknown, "signed out is unknown")
+        av(nil, "nadia.kosmosplus.com", .unknown, "no answer at all is unknown")
+        av(["ok": true, "computers": [["address": "nadia.kosmosplus.com"]]], "nadia.kosmosplus.com", .unknown, "a list with no domain is unknown")
+        av(["ok": true, "domain": "kosmosplus.com", "computers": "nadia.kosmosplus.com"], "nadia.kosmosplus.com", .unknown, "a list that is not a list is unknown")
+        av(["ok": "true", "domain": "kosmosplus.com", "computers": [["address": "nadia.kosmosplus.com"]]], "nadia.kosmosplus.com", .unknown, "ok as a string is not ok")
+        func da(_ r: NSApplication.ModalResponse, _ offered: Bool, _ want: (Bool, Bool), _ why: String) { let a = downloadAnswer(r, offered: offered); fr(a.allow == want.0 && a.keep == want.1, "\(a)", "#8121: " + why) }
+        da(.alertFirstButtonReturn, true, (true, false), "Allow allows, and keeps nothing")
+        da(.alertSecondButtonReturn, true, (false, false), "Don't Allow refuses")
+        da(.alertThirdButtonReturn, true, (true, true), "ALWAYS ALLOW (the third button) allows and keeps")
+        da(.alertThirdButtonReturn, false, (false, false), "a third answer with no Always Allow offered keeps nothing")
     }
     dest("report.pdf", ["report.pdf", "report (2).pdf"], "report (3).pdf", "and counts on")
     dest("notes", ["notes"], "notes (2)", "no extension")
@@ -8623,7 +9024,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 298   // kosmos#8125: +3 (quitMissesAfter rows); kosmos#8118: +61 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 3 reopenMissesForget rows, 5 reopenMissesAfter rows, 3 reopenRetryAllowed rows, 6 quitKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 312   // kosmos#8121 re-land: +10 (accountVerdict rows), +4 (downloadAnswer rows); kosmos#8125: +3 (quitMissesAfter rows); kosmos#8118: +61 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 3 reopenMissesForget rows, 5 reopenMissesAfter rows, 3 reopenRetryAllowed rows, 6 quitKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

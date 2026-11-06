@@ -111,7 +111,7 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 298\b/);   // kosmos#8125: +3 (quitMissesAfter); kosmos#8118: +61 (computerToRemember, rememberableHost, reopenAnswerKeeps, reopenMissesForget, reopenMissesAfter, reopenRetryAllowed, quitKeeps, reopenStep); kosmos#5167 (11-06): +6 (the failure reason rows); kosmos#7952: +12 (download-folder says rows, isFolderDownload rows, downloadAskedByPage rows, the marked request)
+  assert.match(st, /let expected = 312\b/);   // kosmos#8125: +3 (quitMissesAfter); kosmos#8118: +61 (computerToRemember, rememberableHost, reopenAnswerKeeps, reopenMissesForget, reopenMissesAfter, reopenRetryAllowed, quitKeeps, reopenStep); kosmos#5167 (11-06): +6 (the failure reason rows); kosmos#7952: +12 (download-folder says rows, isFolderDownload rows, downloadAskedByPage rows, the marked request)
   // kosmos#5167 (2026-10-27): +9 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
 });
 
@@ -127,7 +127,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 49[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 68[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -306,10 +306,11 @@ test('#5167 core: a dangling symlink at the destination is taken, never written 
 
 test('#5167 core: an Allow counts only for the page that asked (a commit during the question voids an Allow, never a Don\'t Allow); the question waits a turn', () => {
   const b = body('fileprivate func mayDownload(file: String? = nil, willAsk: (() -> Void)? = nil, _ then: @escaping (Bool) -> Void) {');
-  assert.match(b, /let commitsBefore = pageCommits\n\s+\/\/ On the next turn/, 'the commit count is not taken when the question is asked');
-  assert.match(b, /\n\s+DispatchQueue\.main\.async \{ ask\(\) \}\n\s+\}$/, 'the question runs inside WebKit\'s policy callback');
+  // kosmos#8121 review 3: the count is taken before the account list is read for the offer, so a commit then voids too.
+  assert.match(b, /let commitsBefore = pageCommits\n\s+\/\* kosmos#8121 review 3: Always Allow is offered only/, 'the commit count is not taken when the question is asked');
+  assert.match(b, /\n\s+decideOffer \{ offered in DispatchQueue\.main\.async \{ ask\(offered\) \} \}\n\s+\}$/, 'the question runs inside WebKit\'s policy callback');
   // Review 1 of the 2026-10-27 change: never over a refusal alert, where a Return meant as its OK would answer Don't Allow.
-  assert.match(b, /func ask\(\) \{\n\s+if alertsOnScreen > 0 \{ DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ 0\.25\) \{ ask\(\) \}; return \}/,
+  assert.match(b, /func ask\(_ offersAlways: Bool\) \{\n\s+if alertsOnScreen > 0 \{ DispatchQueue\.main\.asyncAfter\(deadline: \.now\(\) \+ 0\.25\) \{ ask\(offersAlways\) \}; return \}/,
     'the Allow question can open over a download alert (a refusal or a failure)');
   assert.match(b, /if asked, committedPageURL\?\.host\?\.lowercased\(\) != host \|\| pageCommits != commitsBefore \{/,
     'a page change voids Don\'t Allow too (a reloading page could ask again and again), or no longer voids an Allow');
@@ -345,4 +346,14 @@ test('kosmos#7952 review 1: only a download the board page itself asked for is m
   assert.ok(start > guard && mark > guard, 'the request is marked or started before the page check');
   const marks = SRC.split('sameOriginDownloadRequest(').length - 1;
   assert.equal(marks, 3, 'the mark is made somewhere else too (expected: its definition, this branch, its selftest row)');
+});
+
+test('kosmos#8121 review 5: only a Don\'t Allow the person pressed forgets an always-allowed computer, never an Allow voided by a page change', () => {
+  const b = body('fileprivate func mayDownload(file: String? = nil, willAsk: (() -> Void)? = nil, _ then: @escaping (Bool) -> Void) {');
+  assert.match(b, /if personSaid && self\.alwaysAllowedHosts\.contains\(host\) \{ self\.forgetKept\(host\) \}/, 'a refusal forgets a kept computer whoever gave it');
+  assert.match(b, /let answer: \(Bool\) -> Void = \{ yes in answerKept\(yes, false, false\) \}/, 'the void path counts as the person\'s answer');
+  // Every other answer is the person's: exactly the two calls that pass true.
+  assert.equal((b.match(/answerKept\([^)]*, true\)/g) || []).length, 2, 'an answerKept call that is not the person\'s answer, or one missing');
+  // The void path still goes through answer(false), never through answerKept with the person's flag.
+  assert.match(b, /if asked, committedPageURL\?\.host\?\.lowercased\(\) != host \|\| pageCommits != commitsBefore \{\n[^\n]*\n\s+answer\(false\)/);
 });
