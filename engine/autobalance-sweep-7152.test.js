@@ -84,7 +84,7 @@ test('#7152 slice 3: with the setting off nothing is recorded; with one account 
   assert.deepEqual(sweep.readLines(file), []);
   let walks = 0;
   const one = deps({ list: [LIST[0], { dir: '/u/.claude-key', apiKey: true }], agentsOn: () => { walks += 1; return { names: [], complete: true }; } });
-  assert.equal((await sweep.create({ file: fileFor() }).tick(one, NOW)).did, 'nothing');
+  assert.deepEqual(await sweep.create({ file: fileFor() }).tick(one, NOW), { did: 'nothing', because: 'fewer-than-two' }, 'kosmos#8083: one account is not said as such');
   assert.equal(walks, 0, 'the agents were walked with one account');
 });
 

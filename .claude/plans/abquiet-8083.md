@@ -32,3 +32,10 @@ logged-ticks-not-said, early return silent: each red.
 - A cleared risk got a false quiet line: the board now logs it as a recorded change (it writes a record line).
 - Also taken from the NITs: the start line says "timer set" and the current gate state; a tick that throws is said;
   the parity control no longer matches the function's own name.
+
+## Review round 2 (sonnet): two WARNINGs, fixed
+- A repeated gap tick (no log line of its own) fell into "nothing new to record": gap has its own state and line.
+- Fewer than two subscription accounts read as armed and healthy: the sweep now returns because 'fewer-than-two'
+  for that early return, and the log says it plainly. Pinned on a real one-account tick in autobalance-sweep-7152.
+- NITs taken: the offWhy comment no longer claims the same order; a test message said the opposite of its check.
+- NIT left: the first tick after start repeats "running" once after the start line (one line per start).

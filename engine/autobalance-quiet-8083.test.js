@@ -21,7 +21,7 @@ test('kosmos#8083: a quiet tick says the sweep is running once, then not again w
   assert.equal(quietLine(said, { nowMs: T0, did: 'nothing' }), 'autobalance-sweep: running, nothing new to record');
   for (const m of [10, 20, 59]) assert.equal(quietLine(said, { nowMs: T0 + m * MIN, did: 'nothing' }), null, 'said again at ' + m + ' min');
   assert.equal(QUIET_SAY_MS, 60 * MIN);
-  assert.equal(quietLine(said, { nowMs: T0 + 60 * MIN, did: 'nothing' }), 'autobalance-sweep: running, nothing new to record', 'not said again after an hour');
+  assert.equal(quietLine(said, { nowMs: T0 + 60 * MIN, did: 'nothing' }), 'autobalance-sweep: running, nothing new to record', 'silent at the hour, when it should be said again');
   assert.equal(quietLine(said, { nowMs: T0 + 70 * MIN, did: 'nothing' }), null);
 });
 
@@ -79,6 +79,19 @@ test('kosmos#8083: a failed record write is never said as nothing new to record'
   assert.equal(quietLine(said, { nowMs: T0, did: 'nothing', because: 'write-failed', logged: true }), null);
   assert.equal(quietLine(said, { nowMs: T0 + 60 * MIN, did: 'nothing', because: 'write-failed' }), 'autobalance-sweep: running, but its record could not be written');
   assert.equal(quietLine(said, { nowMs: T0 + 70 * MIN, did: 'nothing' }), 'autobalance-sweep: running, nothing new to record', 'the write coming back was not said');
+});
+
+test('kosmos#8083: a gap, even one repeated without its own log line, is never said as nothing new', () => {
+  const said = { at: 0, key: 'on' };
+  assert.equal(quietLine(said, { nowMs: T0, did: 'gap', because: 'an account the last decision named could not be measured' }),
+    'autobalance-sweep: running, but it could not measure what it needs (an account the last decision named could not be measured)');
+  assert.equal(quietLine(said, { nowMs: T0 + MIN, did: 'gap', because: 'an account the last decision named could not be measured' }), null);
+});
+
+test('kosmos#8083: fewer than two accounts is said, not read as armed and healthy', () => {
+  assert.equal(quietLine({ at: 0, key: null }, { nowMs: T0, did: 'nothing', because: 'fewer-than-two' }),
+    'autobalance-sweep: running, but there are fewer than two Claude subscription accounts to balance');
+  // The sweep returning that reason on a real one-account tick is pinned in autobalance-sweep-7152.test.js.
 });
 
 test('kosmos#8083: no memory or no clock says nothing and never throws', () => {
