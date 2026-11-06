@@ -6,7 +6,8 @@ Design call on the card (Mona Lisa): build the user's first two asks as one smal
   has now.
 - Use short names, above the rows, does the same for every row, before the team starts (after, a failed row has Another).
 - No toggle (a setting for a once-per-team choice). Regional bias not built: Kosmos would have to guess a region.
-- Use short names replaces names the person typed too, as its words say; Another or typing undoes any one.
+- Use short names replaces names the person typed too, as its words say; a replaced name comes back only by typing
+  it. Follow-up on the card: leave rows the person typed in alone.
 - The board's names are read once when the team opens, best effort: a press before they arrive, or a failed read,
   avoids only the team's own names, and Make's check still refuses a taken one.
 - Both are offered only while names can change; Make still runs the engine's own taken-name check.
