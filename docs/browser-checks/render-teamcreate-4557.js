@@ -404,15 +404,15 @@ function chk(ok, label, extra) {
           await page.click('#tc-short');
           await settle(page, () => /Kept the name you typed\./.test(document.getElementById('tc-name-said').textContent));
           chk(at(await rows(page), 'lead') === 'Bartholomew', `${E} #8092 CONTROL: the lead's typed name is kept before it is emptied`);
-          // The suggestion typed back exactly is a suggestion again (the other two rows hold Kosmos's names).
+          // The suggestion typed back, spaces aside, is a suggestion again (the lead holds its typed name here).
           const sugg = at(await rows(page), 'content');
           await page.fill('#tc-list li[data-slot="content"] .tc-name', 'x');
           await page.fill('#tc-list li[data-slot="content"] .tc-name', ' ' + sugg + ' ');
           const typedBack = await page.evaluate(() => TC.members.find((m) => m.slot === 'content').typed);
           chk(typedBack === false, `${E} #8092 the suggestion typed back, spaces aside, is not a typed name`, JSON.stringify({ sugg, typedBack }));
-          await page.fill('#tc-list li[data-slot="content"] .tc-name', sugg.toLowerCase());
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', sugg.toUpperCase());
           const lowered = await page.evaluate(() => TC.members.find((m) => m.slot === 'content').typed);
-          chk(lowered === true, `${E} #8092 the suggestion in another case is their own spelling, so it is typed`, JSON.stringify({ sugg, lowered }));
+          chk(lowered === true, `${E} #8092 the suggestion in another case is their own spelling, so it is typed`, JSON.stringify({ sugg, upper: lowered }));
           // Two typed names (content, social; the lead emptied, so it is changed): the line says the plural.
           await page.fill('#tc-list li[data-slot="lead"] .tc-name', '');
           await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Evangeline');
