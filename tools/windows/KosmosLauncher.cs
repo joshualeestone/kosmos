@@ -417,8 +417,8 @@ class KosmosLauncher
     // anything (write or add files, delete, change permissions or owner), and one of them must own each thing read:
     //   - the run folder: every allow entry counts, including ones that only reach the files and folders inside
     //     it, because that is where the code is;
-    //   - the code inside it that this launcher starts or points at (Kosmos.exe, runtime\, runtime\node.exe, app\,
-    //     app\server.js, open-board.js), read on their own: a file made there by another account while the folder
+    //   - the code inside it that this launcher starts, loads or points at (Kosmos.exe, runtime\, runtime\node.exe,
+    //     runtime\WebView2Loader.dll, app\, app\server.js, open-board.js), read on their own: a file made there by another account while the folder
     //     let them is theirs, and its owner can always change its permissions, whatever the folder now says;
     //   - each folder above it, up to the drive: entries that apply to that folder itself, and only the rights
     //     that would let someone rename or replace what is below it (delete, delete children, permissions, owner).
@@ -449,7 +449,8 @@ class KosmosLauncher
     internal const int AncestorChangeRights = FILE_DELETE_CHILD | DELETE_RIGHT | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | GENERIC_WRITE;
 
     // The code in a build that this launcher starts or points the Start menu at, read on its own.
-    internal static readonly string[] RunFolderCode = { "Kosmos.exe", "runtime", "runtime\\node.exe", "app", "app\\server.js", "open-board.js" };
+    // Review 1 (v2): runtime\\WebView2Loader.dll too, the native code this launcher loads into its own process for --window.
+    internal static readonly string[] RunFolderCode = { "Kosmos.exe", "runtime", "runtime\\node.exe", "runtime\\WebView2Loader.dll", "app", "app\\server.js", "open-board.js" };
 
     static readonly string[] TrustedWriterSids = {
         "S-1-5-18",      // SYSTEM

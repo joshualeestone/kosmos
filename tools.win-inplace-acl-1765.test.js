@@ -214,6 +214,7 @@ test('#1765: the code inside is read on its own, whatever the run folder says', 
     lockDown(f);
     fs.mkdirSync(path.join(f, 'runtime'));
     fs.writeFileSync(path.join(f, 'runtime', 'node.exe'), '');
+    fs.writeFileSync(path.join(f, 'runtime', 'WebView2Loader.dll'), '');
     fs.mkdirSync(path.join(f, 'app'));
     fs.writeFileSync(path.join(f, 'app', 'server.js'), '');
     return f;
@@ -226,6 +227,12 @@ test('#1765: the code inside is read on its own, whatever the run folder says', 
   let answer = probe(file, NOT_MY_PROFILE);
   assert.match(answer, /^UNSAFE .+ can change /);
   assert.ok(answer.includes(path.join(file, 'runtime', 'node.exe')), 'the reason does not name node.exe: ' + answer);
+  // Review 1 (v2): the WebView2 loader the window loads into the launcher, given to Users on its own.
+  const dll = build();
+  icacls(path.join(dll, 'runtime', 'WebView2Loader.dll'), '/grant', USERS + ':(M)');
+  answer = probe(dll, NOT_MY_PROFILE);
+  assert.match(answer, /^UNSAFE .+ can change /);
+  assert.ok(answer.includes(path.join(dll, 'runtime', 'WebView2Loader.dll')), 'the reason does not name WebView2Loader.dll: ' + answer);
   // app\ cut off from the folder's entries, with its own for Users.
   const app = build();
   icacls(path.join(app, 'app'), '/inheritance:r', '/grant:r', '*' + mySid + ':(OI)(CI)F', USERS + ':(OI)(CI)M');

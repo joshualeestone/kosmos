@@ -12,7 +12,7 @@
 
 ## Pieces
 
-- `tools/windows/KosmosLauncher.cs`: `UnsafeRunFolderReason` (reads the run folder's ACL, the code inside it that the launcher starts, and each folder above it), `OtherWriterOf`, `UnsafeFolderMessage`, `RefuseUnsafeFolder`, called before any errand.
+- `tools/windows/KosmosLauncher.cs`: `UnsafeRunFolderReason` (reads the run folder's ACL, the code inside it that the launcher starts or loads, runtime\WebView2Loader.dll included, and each folder above it), `OtherWriterOf`, `UnsafeFolderMessage`, `RefuseUnsafeFolder`, called before any errand.
 - `tools/windows/Kosmos.exe`: rebuilt with the README's csc line and Authenticode-signed (Kosmos Agent Manager, Inc.); `verify-launcher.ps1` OK.
 - `tools.win-inplace-acl-1765.test.js`: compiles the launcher and checks safe and unsafe folders on Windows.
 - `tools/windows/README.md`: what the check guards and does not.
@@ -26,7 +26,7 @@
 
 ## Weakest premise
 
-This Kosmos.exe, and a Kosmos.exe.config beside it, come from the same folder and are loaded before the check runs, so it is not a boundary against a folder that was already changed. It stops Kosmos from running node and app code from, and pointing the system at, a folder others can change. A copy already running in place from before this check carries on (its logon task and the in-app updater) until a copy installed in the profile takes over; the README says so.
+This Kosmos.exe, and a Kosmos.exe.config beside it, come from the same folder and are loaded before the check runs, so it is not a boundary against a folder that was already changed. It stops Kosmos from running node and app code from, and pointing the system at, a folder others can change. A copy already running in place from before this check carries on (its logon task and the in-app updater) until a copy installed in the profile takes over; the README says so, including that anything that starts Kosmos.exe from that folder again (the window reopened after an update) now shows the refusal box while the board keeps serving. A junction or symlink outside the profile is read at its target, but the folders above the target are not walked.
 
 ## Validation (Windows box)
 
