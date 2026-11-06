@@ -113,6 +113,8 @@ final class DotsRefreshDriver: NSObject {
         if let onRefresh {
             onRefresh()
         } else if let refreshAction {
+            // One the longest hold let go of may still be running: it must not end this one when it returns.
+            work?.cancel()
             work = Task { [weak self] in
                 await refreshAction()
                 #if DEBUG
@@ -121,7 +123,7 @@ final class DotsRefreshDriver: NSObject {
                     try? await Task.sleep(nanoseconds: UInt64(held * 1_000_000_000))
                 }
                 #endif
-                // A cancelled refresh does not end a newer one: cancel() has already given the space back.
+                // A cancelled refresh ends nothing: whoever cancelled it has dealt with the space, or a newer refresh holds it.
                 if !Task.isCancelled { self?.finish() }
             }
         } else {
