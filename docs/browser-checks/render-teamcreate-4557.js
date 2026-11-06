@@ -379,6 +379,30 @@ function chk(ok, label, extra) {
           await page.context().close();
         }
 
+        /* --- #8092 follow-up: Use short names keeps a name the person typed; Another makes a row a suggestion again ------ */
+        {
+          const { page, errs } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Rosalind');
+          const before = await rows(page);
+          await page.click('#tc-short');
+          await settle(page, () => /Kept the name you typed\./.test(document.getElementById('tc-name-said').textContent));
+          const after = await rows(page);
+          const said = await page.evaluate(() => document.getElementById('tc-name-said').textContent);
+          chk(after[1].name === 'Rosalind' && after[0].name !== before[0].name && after[2].name !== before[2].name && said === 'Changed 2 names. Kept the name you typed.',
+            `${E} #8092 Use short names keeps the name the person typed and says so`, JSON.stringify({ names: after.map((r) => r.name), said }));
+          await page.click('#tc-list li[data-slot="content"] .tc-another');
+          const another = (await rows(page))[1].name;
+          await page.click('#tc-short');
+          await settle(page, () => /Changed 3 names\./.test(document.getElementById('tc-name-said').textContent));
+          const again = (await rows(page))[1].name;
+          chk(another !== 'Rosalind' && again !== another && again !== 'Rosalind', `${E} #8092 CONTROL: after Another the row is a suggestion again, so Use short names may change it`, JSON.stringify({ another, again }));
+          chk(errs.length === 0, `${E} no page errors (#8092 typed arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
         /* --- #8092: a member that failed is renamed with Another, and Try again makes it under that name -------- */
         {
           const { page, errs, posted, script } = await newPage(1280);
