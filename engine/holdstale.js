@@ -102,6 +102,7 @@ function owed(projects, log, now = Date.now(), o = {}) {
           projectId: p.id, project: typeof p.name === 'string' && p.name ? p.name : p.id, n: t.number, sentence: t.sentence || '',
           owner, holdAt: hold.at, byPerson: hold.byPerson || t.onHoldByPerson === true, posts,
           ...(t.onHoldForPerson === true ? { forPerson: true } : {}),   // kosmos#7797: the met line says it waits on the person
+          ...(owners.length > 1 ? { shared: true } : {}),   // kosmos#8140: other agents hold parts, so it is not this owner's to close
           members: Array.isArray(p.agents) ? p.agents.slice() : [],
           swarmOff: require('./projects').isSwarmOff(p, owner),
         });
@@ -119,6 +120,24 @@ function agoWords(at, now) {
   if (h < 48) return h + (h === 1 ? ' hour' : ' hours');
   const d = Math.round(h / 24);
   return d + ' days';
+}
+
+/* kosmos#8140 item 3: a hold can outlive the work it belonged to (that work was delivered, or the app moved on), and
+   taking it off hold then only wastes a turn. So both lines also offer closing it. Only the owner's own hold on a task it
+   alone holds is its to close; the person's hold, one that waits on the person, or one other agents share, it asks the
+   person about. `idOf` as the line's own. */
+function closeText(items, idOf) {
+  const own = (x) => !x.byPerson && !x.forPerson && !x.shared;
+  if (items.length === 1) {
+    const x = items[0];
+    return 'If it no longer needs doing, ' + (own(x) ? 'close it: kosmos task close ' + idOf(x) + ' ' + x.n : 'ask the person whether to close it') + '.';
+  }
+  const mine = items.filter(own);
+  const theirs = items.filter((x) => !own(x));
+  const parts = [];
+  if (mine.length) parts.push('close ' + (mine.length === 1 ? '#' + mine[0].n : 'them') + ': ' + mine.map((x) => 'kosmos task close ' + idOf(x) + ' ' + x.n).join(', '));
+  if (theirs.length) parts.push((mine.length ? 'for ' + theirs.map((x) => '#' + x.n).join(', ') + ', ' : '') + 'ask the person whether to close ' + (theirs.length === 1 ? 'it' : 'them'));
+  return 'If one no longer needs doing, ' + parts.join('; ') + '.';
 }
 
 /* The line an owner is sent, for its held tasks in one project (`group`, items of owed() for one owner and project). Names
@@ -147,7 +166,7 @@ function tellText(group, now = Date.now()) {
   return 'Kosmos: ' + (items.length === 1 ? one(first) + ' in ' + plain(first.project, 80) + ' is still on hold'
     : list(items.map(one)) + ' in ' + plain(first.project, 80) + ' are still on hold')
     + ', but you have posted ' + posts + ' times in ' + (items.length === 1 ? 'its' : 'their') + ' project room since then. '
-    + liftText + '. If ' + (items.length === 1 ? 'it' : 'one') + ' should stay on hold, say why on the task.';
+    + liftText + '. ' + closeText(items, idOf) + ' If ' + (items.length === 1 ? 'it' : 'one') + ' should stay on hold, say why on the task.';
 }
 
 /* kosmos#7180: the line for held tasks whose reopening condition is met (owed()'s items with `met`, one owner and
@@ -165,6 +184,7 @@ function metText(items, now = Date.now()) {
   const many = items.length > 1;
   return 'Kosmos: in ' + plain(items[0].project, 80) + ', ' + items.map(one).join('; ') + '. '
     + (many ? 'If their work can go on now, ' : 'If its work can go on now, ') + items.map(way).join('; ') + '. '
+    + closeText(items, idOf) + ' '
     + (many ? 'If one should stay on hold, say why on that task.' : 'If it should stay on hold, say why on the task.');
 }
 

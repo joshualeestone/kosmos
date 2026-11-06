@@ -70,7 +70,7 @@ test('#6209 part 3: an owner posting in the room while its task is on hold is to
   const first = pass(id, rows, read);
   assert.equal(first.sent.length, 1, JSON.stringify(first.out.results));
   assert.equal(first.sent[0].s, REX);
-  assert.equal(first.sent[0].text, 'Kosmos: task #' + n + ', "Check the supplier price" (put on hold 3 hours ago) in ' + only(id)[0].name + ' is still on hold, but you have posted 3 times in its project room since then. If its work is going on, take it off hold: kosmos task unhold ' + id + ' ' + n + '. If it should stay on hold, say why on the task.');
+  assert.equal(first.sent[0].text, 'Kosmos: task #' + n + ', "Check the supplier price" (put on hold 3 hours ago) in ' + only(id)[0].name + ' is still on hold, but you have posted 3 times in its project room since then. If its work is going on, take it off hold: kosmos task unhold ' + id + ' ' + n + '. If it no longer needs doing, close it: kosmos task close ' + id + ' ' + n + '. If it should stay on hold, say why on the task.');
   assert.equal(stored(id, n).holdStaleTold[REX], iso(NOW - 3 * HOUR), 'the hold it was told about was not stored');
   assert.ok(taskchat.read(id, n).some((e) => e.kind === 'hold-stale' && e.told === REX && e.reached === true), 'the history does not say it was told');
   // Once: the same hold is not told again.
@@ -215,7 +215,7 @@ test('#6209 part 3 review 1: the person taking over an agent\'s hold is read fro
 test('#6209 part 3 review 2: the line reads right for mixed, plural and three-task holds, and never types an unsafe id', () => {
   const it = (n, byPerson, projectId = 'proj-a') => ({ projectId, project: 'Shop', n, sentence: 'Task ' + n, owner: REX, holdAt: NOW - 3 * HOUR, byPerson, posts: 4 });
   assert.equal(hs.tellText([it(1, false), it(2, true)], NOW),
-    'Kosmos: task #1, "Task 1" (put on hold 3 hours ago) and task #2, "Task 2" (the person put it on hold 3 hours ago) in Shop are still on hold, but you have posted 4 times in their project room since then. If their work is going on, take #1 off hold: kosmos task unhold proj-a 1; for #2, ask the person to take it off hold (only they can lift their own hold, on the screen). If one should stay on hold, say why on the task.');
+    'Kosmos: task #1, "Task 1" (put on hold 3 hours ago) and task #2, "Task 2" (the person put it on hold 3 hours ago) in Shop are still on hold, but you have posted 4 times in their project room since then. If their work is going on, take #1 off hold: kosmos task unhold proj-a 1; for #2, ask the person to take it off hold (only they can lift their own hold, on the screen). If one no longer needs doing, close #1: kosmos task close proj-a 1; for #2, ask the person whether to close it. If one should stay on hold, say why on the task.');
   assert.match(hs.tellText([it(1, true), it(2, true)], NOW), /If their work is going on, ask the person to take them off hold \(only they can lift their own hold, on the screen\)\./);
   assert.match(hs.tellText([it(1, false), it(2, false), it(3, false)], NOW), /task #1, "Task 1" \(put on hold 3 hours ago\), task #2, .* and task #3, /);
   const unsafe = hs.tellText([it(1, false, 'x; rm -rf ~')], NOW);
@@ -332,4 +332,47 @@ test('kosmos#7788: a hold for the person is never told about for its owner\'s po
   const plain = fixture();
   assert.equal(pass(plain.id, [post(plain.id, REX, 2 * HOUR), post(plain.id, REX, HOUR), post(plain.id, REX, 0.5 * HOUR)], holdAt(3 * HOUR)).sent.length, 1,
     'CONTROL: the same posts about a plain hold tell the owner');
+});
+
+/* kosmos#8140 item 3: a hold can outlive the work it belonged to, and taking it off hold then wastes a turn, so both
+   lines also offer closing it. Only the owner's own hold on a task it alone holds is its to close. */
+test('kosmos#8140 item 3: the stale and met lines offer closing an own hold, and ask the person for every other kind', () => {
+  const it = (extra = {}) => ({ projectId: 'proj-a', project: 'Shop', n: 7, sentence: 'Task 7', owner: REX, holdAt: NOW - 3 * HOUR, byPerson: false, posts: 4, ...extra });
+  const CLOSE = /If it no longer needs doing, close it: kosmos task close proj-a 7\./;
+  const ASK = /If it no longer needs doing, ask the person whether to close it\./;
+  for (const [name, line] of [['stale', (x) => hs.tellText([x], NOW)], ['met', (x) => hs.metText([{ ...x, met: 'task #3 is closed' }], NOW)]]) {
+    assert.match(line(it()), CLOSE, name + ': an own hold was not offered closing');
+    for (const [kind, extra] of [['the person\'s hold', { byPerson: true }], ['a hold for the person', { forPerson: true }], ['a shared task', { shared: true }]]) {
+      const text = line(it(extra));
+      assert.match(text, ASK, name + ', ' + kind + ': the person was not asked');
+      assert.doesNotMatch(text, /kosmos task close/, name + ', ' + kind + ': an agent was told to close what is not its own');
+    }
+    // The close offer sits between the way off the hold and the stay-held line, in that order.
+    assert.match(line(it()), /off hold[^.]*\. If it no longer needs doing, [^.]*\. If it should stay on hold/, name + ': the order');
+  }
+  // Several: each own one by its command, the others by number.
+  const many = hs.metText([it({ n: 1, met: 'x' }), it({ n: 2, met: 'x', shared: true }), it({ n: 4, met: 'x' })], NOW);
+  assert.match(many, /If one no longer needs doing, close them: kosmos task close proj-a 1, kosmos task close proj-a 4; for #2, ask the person whether to close it\./);
+  // An id the CLI would not take as it is is never typed into the command.
+  const unsafe = hs.tellText([it({ projectId: 'x; rm -rf ~' })], NOW);
+  assert.match(unsafe, /kosmos task close <project-id> 7\./);
+  assert.doesNotMatch(unsafe, /rm -rf/);
+});
+
+test('kosmos#8140 item 3: owed() marks a held task whose open parts two agents hold as shared, and one owner\'s as not', () => {
+  const { id, n } = fixture();
+  const rows = [ADA, REX].flatMap((who) => [post(id, who, 2 * HOUR), post(id, who, HOUR), post(id, who, 0.5 * HOUR)]);
+  const read = holdAt(3 * HOUR);
+  const solo = hs.owed(only(id), rows, NOW, { read });
+  assert.equal(solo.length, 1, 'fixture: the single owner was not owed a line');
+  assert.equal(solo[0].shared, undefined, 'CONTROL: a task one agent holds read as shared');
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, who: undefined, parts: [{ id: 1, who: REX }, { id: 2, who: ADA }] } : t)) }));
+  const two = hs.owed(only(id), rows, NOW, { read });
+  assert.equal(two.length, 2, 'fixture: both owners were not owed a line');
+  for (const x of two) assert.equal(x.shared, true, x.owner + ' was not told the task is shared');
+  // A part already done does not make it shared: that agent is not working it.
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, parts: [{ id: 1, who: REX }, { id: 2, who: ADA, closedAt: iso(NOW - HOUR) }] } : t)) }));
+  const left = hs.owed(only(id), rows, NOW, { read });
+  assert.equal(left.length, 1);
+  assert.equal(left[0].shared, undefined, 'a done part made the task read as shared');
 });
