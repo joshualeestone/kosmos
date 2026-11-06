@@ -3472,7 +3472,8 @@ test('#8109 a name that is a live session exactly is not redirected to another a
   folderAgent('kshown8109', 'Kses8109');           // another agent, displayed as the session's name
   boardShows('Kses8109', 'Kses8109');              // a live session named exactly Kses8109, no folder
   try {
-    const r = remove.resolve('Kses8109', MAC, listedOf('kshown8109'));
+    // The live session is on the board's cards too, as it would be (shown by its own name).
+    const r = remove.resolve('Kses8109', MAC, [...listedOf('kshown8109'), { name: 'Kses8109', shown: 'Kses8109' }]);
     assert.equal(r.name, 'Kses8109', 'a live session\'s exact name was redirected to another agent');
     assert.deepEqual(r.ambiguous, []);
   } finally { status.setPaneSource(() => ''); }
@@ -3523,4 +3524,21 @@ test('#8113 the hidden setup guide: with the cards given, a folder the list does
   // CONTROL: listed, the same folder makes the name ambiguous, so the test can see that leaving it out is what decides.
   assert.deepEqual(remove.resolve('Kguide 8113', MAC, listedOf('kguide8113', 'kseen8113')).ambiguous, ['kguide8113', 'kseen8113'],
     'CONTROL: listed, the two do not make the name ambiguous');
+});
+
+test('#8113 a hidden agent\'s exact name is one more match: a listed card with that name makes it ambiguous', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  folderAgent('Jhide8113', 'Jhide8113');       // the seeded guide's shape: folder name and display name are one string
+  folderAgent('jsmith8113', 'Jhide8113');      // a listed agent shown by that same name
+  const listed = listedOf('jsmith8113');        // the list hides the first one
+  const r = remove.resolve('Jhide8113', MAC, listed);
+  assert.equal(r.name, 'Jhide8113', 'a name two agents answer to was acted on');
+  assert.deepEqual(r.ambiguous, ['Jhide8113', 'jsmith8113'], 'the hidden exact agent was acted on with no refusal');
+  // Alone, the hidden exact agent is acted on by its exact name, as before #8109.
+  const alone = remove.resolve('Jhide8113', MAC, []);
+  assert.equal(alone.name, 'Jhide8113');
+  assert.deepEqual(alone.ambiguous, []);
+  // CONTROL: on the cards, the exact name wins over the other card (the decided rule), so the refusal comes from hiding.
+  assert.deepEqual(remove.resolve('Jhide8113', MAC, listedOf('Jhide8113', 'jsmith8113')).ambiguous, [], 'CONTROL: listed, the exact name should win');
 });

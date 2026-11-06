@@ -6960,15 +6960,6 @@ function gateLog(req) {
    - Removing an agent deletes nothing on disk (engine/remove.js), so the marker survives
      a removal: a REMOVED guide is "no guide" (404) until it is restored. An unreadable
      removed list refuses (409) rather than act for an agent that may be gone. */
-/* #3739, kosmos#8113: the session name of the row the board hides as the setup guide, or null. ONE rule, read by the
-   list route (markGuide) and by remove's name resolution (cardsForResolve), so the guide `agent list` hides is the
-   guide a listed name cannot reach. An unreadable removed list ('unchecked') is not "no guide": the seeded guide is
-   still marked, or it would flicker back onto the board on that poll. */
-function guideMarkName() {
-  const guideNow = setupGuideNow();
-  if (guideNow.ok) return guideNow.name;
-  return guideNow.reason === 'unchecked' && setupAssistant.isGuideFolder(setupAssistant.guideName()) ? setupAssistant.guideName() : null;
-}
 function setupGuideNow() {
   const guide = setupAssistant.guideName();
   /* `reason` tells a caller that has already met the guide which refusals mean it is GONE ('none',
@@ -6980,6 +6971,16 @@ function setupGuideNow() {
   /* `removed` (#4405): the guide was made and then removed; switching the assistant on RESTORES it. */
   if (removed.names.includes(create.cleanName(guide))) return { ok: false, status: 404, reason: 'none', removed: guide, error: 'there is no setup guide on this computer' };
   return { ok: true, name: guide };
+}
+/* #3739, kosmos#8113: the session name of the row the board hides as the setup guide, or null. ONE rule, read by the
+   list route (markGuide) and by remove's name resolution (cardsForResolve), so the guide `agent list` hides is the
+   guide resolution leaves off the cards (its exact name still counts there as a match, see remove.resolve). An
+   unreadable removed list ('unchecked') is not "no guide": the seeded guide is still marked, or it would flicker back
+   onto the board on that poll. */
+function guideMarkName() {
+  const guideNow = setupGuideNow();
+  if (guideNow.ok) return guideNow.name;
+  return guideNow.reason === 'unchecked' && setupAssistant.isGuideFolder(setupAssistant.guideName()) ? setupAssistant.guideName() : null;
 }
 
 /* #3660: the guide `name`'s card read as failing (setupAssistant.guideFailure), or null when it is
@@ -7144,8 +7145,8 @@ function unholdNext(projectId, t, rosterOf) {
 }
 /* kosmos#8109 round 7: the cards `kosmos agent list` prints, as remove.resolve's candidates: [{ name: <machine name>,
    shown: <display name> }]. The SAME two sources the list route joins: the live snapshot and the survey's not-running
-   agents, removed ones left out as that route leaves them out. Without them a card with no folder in the workers
-   folder (a connected agent, a session or a job only) could not make a name ambiguous. `null` when either source
+   agents, removed ones left out as that route leaves them out. They are resolution's only candidates (kosmos#8113),
+   connected, session-only and job-only agents included. `null` when either source
    cannot be read, so the plan resolves nothing rather than half a board (test: "a card outside the folder"). */
 async function cardsForResolve() {
   try {
