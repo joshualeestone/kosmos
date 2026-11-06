@@ -67607,6 +67607,7 @@ function refillDetails(resetDirty) {
   if (!role) return;
   if (resetDirty) {
     INSTR_DIRTY = false; LABEL_DIRTY = false;
+    createKeptLine(false);   // kosmos#8051: a different role empties the form, so it is no longer the one kept
     /* #1786: a different role is a different template, and it resets the step-two form fields to
        the same set openCreate resets (name, the create-msg status, avatar + its input and hint,
        projects, the mark seed and pending avatar), not just the two dirty-guarded fields. Those
