@@ -27,12 +27,17 @@ test('#8118: only run or both; on another computer it keeps the host and returns
   const f = body('private func rememberOrReopenComputer(');
   assert.match(f, /guard computerMode == \.run \|\| computerMode == \.both else \{ return \}/,
     'the reopen is no longer limited to run and both (connect has no board; unset shows the first screen)');
+  assert.ok(f.indexOf('if computerMode == .connect, reopenComputerHost != nil { reopenComputerHost = nil') < f.indexOf('guard computerMode == .run'),
+    'a connect Mac no longer forgets a host kept while it ran agents');
   const away = f.indexOf('if isOnAnotherComputer() {');
   const keep = f.indexOf('computerToRemember(committedPageURL', away);
   const ret = f.indexOf('return\n', keep);
-  const once = f.indexOf('!reopenAskedThisLaunch');
+  const once = f.indexOf('if reopenAskedThisLaunch {');
   assert.ok(away > 0 && keep > away && ret > keep && once > ret,
     'on another computer the host is not kept by computerToRemember before the reopen branch');
+  // Review 1: after the launch's one reopen, every load of this computer's own board means the window is home.
+  const later = f.slice(once, f.indexOf('reopenAskedThisLaunch = true'));
+  assert.match(later, /reopenComputerHost = nil/, 'a later load of the own board does not forget the host, so a session at home is lost');
   assert.match(f, /isBoardOrigin\(host: pageHost, port: page\.port \?\? 0, scheme: page\.scheme\)/,
     'the reopen no longer waits for this computer\'s own board to have loaded');
   assert.ok(f.indexOf('reopenAskedThisLaunch = true') > once, 'the once-a-launch latch is not set');
@@ -50,8 +55,9 @@ test('#8118: the host reaches the page as an ARGUMENT, never inside the script t
 
 test('#8118: forgotten on the page\'s gone or home, and on Back to This Computer before the board loads', () => {
   const f = body('private func rememberOrReopenComputer(');
-  assert.match(f, /if said == "gone" \|\| said == "home", self\.reopenComputerHost == host \{ self\.reopenComputerHost = nil \}/,
-    'the page saying the computer is gone (or is this one) no longer forgets it');
+  assert.match(f, /switch reopenAnswerKeeps\(said\) \{/, 'the page\'s answer no longer goes through reopenAnswerKeeps (its rows are in the selftest)');
+  assert.match(f, /case \.forget: if self\.reopenComputerHost == host \{ self\.reopenComputerHost = nil \}/, 'a forget answer no longer forgets the host');
+  assert.match(f, /case \.retryNextBoardLoad: self\.reopenAskedThisLaunch = false/, 'a page that cannot answer spends the launch\'s reopen');
   const home = body('@objc func backToThisComputer(_ sender: Any?)');
   const forget = home.indexOf('reopenComputerHost = nil');
   assert.ok(forget > 0 && forget < home.lastIndexOf('loadBoard()'), 'Back to This Computer does not forget the computer before loading home');

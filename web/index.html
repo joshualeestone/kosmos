@@ -33200,28 +33200,45 @@ function computersOpenWithTicket(url, name, a) {
    own board has loaded at launch, asks this page to go back to the computer the window was last on (only its host is
    kept). Checked against the switcher's own list, so it opens only what the switcher would open, the same way (a
    ticket, the switching screen). Otherwise the window stays on this computer's agents and says why, in the
-   switcher's words. Resolves the outcome for the app: 'gone' (no longer on the account) and 'home' (this computer)
-   tell it to forget the host; every other answer keeps it for the next launch. */
+   switcher's words. Resolves the outcome for the app: 'opening' and 'busy' keep the host (the next page records it);
+   every other answer means the window stays home, so the app forgets it.
+   It gives up after COMPUTERS_REOPEN_MAX_MS, and stays home with no switch if the person clicks or types meanwhile:
+   a switch that lands while they work here would take unsent text with it (review 1). */
+const COMPUTERS_REOPEN_MAX_MS = 6000;
 async function computersReopen(host) {
   const h = typeof host === 'string' ? host.trim().toLowerCase() : '';
   if (!h) return 'bad';
   const say = (t) => { try { if (typeof msgToast === 'function') msgToast(t, 9000); } catch {} };
+  let touched = false;
+  const mark = () => { touched = true; };
+  const ev = ['pointerdown', 'keydown'];
+  try { for (const k of ev) document.addEventListener(k, mark, true); } catch {}
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const cut = setTimeout(() => { if (ctl) ctl.abort(); }, COMPUTERS_REOPEN_MAX_MS);
   let data = null;
+  let late = false;
   try {
-    const res = await fetch('/api/remote/computers', { cache: 'no-store' });
+    const res = await fetch('/api/remote/computers', { cache: 'no-store', signal: ctl ? ctl.signal : undefined });
     if (res.ok) data = await res.json();
-  } catch { data = null; }
+  } catch (e) { data = null; late = !!(e && e.name === 'AbortError'); }
+  clearTimeout(cut);
+  try { for (const k of ev) document.removeEventListener(k, mark, true); } catch {}
+  if (touched) return 'touched';   // they are working here: stay, quietly
+  if (late) {
+    say('Kosmos opened this computer\'s agents: your other computers took too long to answer. Switch from the top-left menu.');
+    return 'slow';
+  }
   if (data && data.signedIn === false) {
-    say('Kosmos opened this computer\'s agents: you are signed out of Kosmos+, so it could not open your other computer. Sign in, then switch from the top-left menu.');
+    say('Kosmos opened this computer\'s agents: it cannot reach your other computers while you are signed out of Kosmos+ or remote access is off on this computer.');
     return 'signed-out';
   }
-  if (!data || data.ok !== true || !Array.isArray(data.computers) || !computerAddressOk(h, data.domain)) {
+  if (!data || data.ok !== true || !Array.isArray(data.computers)) {
     say('Kosmos opened this computer\'s agents: it could not check your other computers just now. Switch from the top-left menu.');
     return 'unknown';
   }
-  const c = data.computers.find((x) => x && typeof x.address === 'string' && x.address.toLowerCase() === h);
+  const c = computerAddressOk(h, data.domain) ? data.computers.find((x) => x && typeof x.address === 'string' && x.address.toLowerCase() === h) : null;
   if (!c) {
-    say('Kosmos opened this computer\'s agents: the computer you were looking at is no longer on your Kosmos+ account.');
+    say('Kosmos opened this computer\'s agents: the computer you were looking at is not on your Kosmos+ account.');
     return 'gone';
   }
   if (c.this === true) return 'home';
