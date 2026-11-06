@@ -2,9 +2,9 @@
 pre_challenge: true
 method: challenge-loop
 branch: dlsaved-8120
-diff_hash: f4f978517258ea19211910f8a19e831ad4659769faa469efaea6c6f58add48db
-validation: failed
-timestamp: 2026-11-06T21:40:28Z
+diff_hash: b13c510fdbff7ff7fa747066bee81ff5708a5616365cacfe4d1811fe69825353
+validation: passed
+timestamp: 2026-11-06T22:05:56Z
 iterations: 8
 converged: false
 ---
@@ -16,7 +16,7 @@ converged: false
 **Total findings:** 5 BLOCKERs, 39 WARNINGs, 5 CONVENTIONs, 46 NITs (summed from the per-iteration headers below)
 **Fixed:** every BLOCKER and every WARNING except as marked; **Deferred:** named below and in the plan's Not in this branch / Known limits; **Asked (awaiting user):** 0
 
-**ITER_COMMITS:** bfeb8f256684b5fff0dacbcfde203d64e0b18e00, db190c96efe2895afbb14fa9e0ae0cd39b8e8ba6, 8f56839a1f61d4cdcf452b529e75bebd4ad8fad9, c5b61a2075b15d004640db3e6a6c9e5aff4ea4d8, 01f9978285d90fc60366e9b6a9a0da1afd485769, edf3d33d52a93e60912e7d2d1aa89738fe0d6e7d, 5a7891817c42eb7569e5563ddb334ab639bbe733, c20fd36eabbf8d16ee155d0019823b6176bc622f
+**ITER_COMMITS:** the eight round commits are on branch dlsaved-8120-presquash (pushed; head 4a6850202b): bfeb8f2566, db190c96ef, 8f56839a1f, c5b61a2075, 01f9978285, edf3d33d52, 5a7891817c, c20fd36eab. This branch was then squashed to one commit (ee766921fd) and rebased once onto main, to resolve a conflict with #8121 (Always Allow) and #8118 (reopen) in native-app/main.swift in one place; both sides kept (the selftest's denied link and keyed links; expected rows 47 + 10 = 57). After the rebase: download selftest 57 of 57, related suites 256, render-file-preview-4930 97 on Chromium and WebKit.
 
 **Measured outside the suite:** the download selftest in a real WKWebView, 48 of 48 rows (keyed answers, asking only when the person is really asked, a refusal before any download, a frame's keyed download never told, every answer running in the page, Show in Finder by origin and only for a whole-number id). render-file-preview-4930 97 pass on Chromium and on WebKit (Playwright's WebKit makes no download for a script click, so its address rows are judged on Chromium). Each round's new rows were run against the previous round's page as a control and failed on the cases they name.
 
@@ -84,4 +84,4 @@ converged: false
 - [WARNING] a board silent for 2 minutes then saving --> DEFERRED: named as a known limit
 - [NIT] x3 (the saved event before the quarantine mark; the delivered count being asynchronous; a redrawn list button not marked busy) --> KEPT: ordering only; the verdict runs well after the waits; a documented limit
 
-**Final validation:** recorded `failed`, 1 of 27,617 tests (27,186 pass, 430 skipped), at c20fd36eab: tools.shell-shard-4317 "#6791 review 2", which runs the browser-check surface gate. It found two checks covering surfaces this branch changed and not touched by it. Answered by the Browser-check-surface trailers on the commit that adds this file, each check run first on Chromium and WebKit: render-dialog-gutter-4506 52 passed on each, render-files-preview-4997 106 pass on each.
+**Final validation:** passed at ee766921fd after the rebase (validation-log: PASSED, hash b13c510fdbff): 27,655 tests, 27,225 pass, 0 fail, 430 skipped. Before the rebase (at c20fd36eab) the one red was tools.shell-shard-4317, the browser-check surface gate, which found two checks covering surfaces this branch changed and not touched by it; answered by the Browser-check-surface trailers on the squashed commit, each check run first on Chromium and WebKit: render-dialog-gutter-4506 52 passed on each, render-files-preview-4997 106 pass on each.
