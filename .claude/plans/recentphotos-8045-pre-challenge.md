@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: recentphotos-8045
-diff_hash: 95ed96a07ab86567f05223bc59e16f4f86ea066eda337b976c6713cdeed0fc0b
+diff_hash: 4f19f1eafc6ae65dfd152973f5665613ee14eba19c78547f95f5f6c00491dcde
 validation: 8 failures under load, none in files this branch touches; those six files passed alone
 subdir_audit: passed
 timestamp: 2026-11-05T21:36:44Z
@@ -92,6 +92,8 @@ converged: false
 CI's UI job was red on PR #8065: AttachMenuUITests.testTheBoxHoldsThroughTheSwapInAChat, "too few readings", one reading in 1.2 s on a loaded runner. The check's own floor, not the tray. It now reads for at least 1.2 s and at least four times. Test-only change, no further review round.
 
 Rebased again over #7348 (one conflict in ui-sample.sh's list, both counts kept), so the hash changed; logic suites rerun. CI's UI job had also gone red once on "no on-screen keyboard 20 s after tapping the box" in KeyboardSlideUITests.testRebuiltAfterTheKeyboardWentDown, a test this does not touch; the rerun of that job passed. Not proven to be a flake.
+
+CI then caught a real defect in the tray's own check: a room rises about 39 pt for a moment on closing back to the keyboard, iOS 26.5, confirmed by recorded frames; the chat is clean. Filed #8081, shipped named, the check allows it on the way back only and still requires the box to settle. Moving .ignoresSafeArea past the top bar did not cure it. Local reads had passed 5 of 5: they read too slowly to see it. Rebased over main again; logic suites rerun.
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None.
