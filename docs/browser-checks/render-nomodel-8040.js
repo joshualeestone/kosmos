@@ -387,6 +387,9 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       // out-ranked the class, so the line came out as a second blurb).
       const look = await p.evaluate(() => { const k = document.getElementById('create-kept'), bl = document.getElementById('create-blurb'), s = (e) => parseFloat(getComputedStyle(e).fontSize); return { kept: s(k), blurb: s(bl), above: !!(k.compareDocumentPosition(bl) & Node.DOCUMENT_POSITION_FOLLOWING) }; });
       if (SHOTS) {
+        await p.setViewportSize({ width: 390, height: 800 });
+        await p.locator('#cstep-name').screenshot({ path: path.join(SHOTS, 'create-kept-phone.png') });
+        await p.setViewportSize({ width: 1280, height: 800 });
         await p.locator('#cstep-name').screenshot({ path: path.join(SHOTS, 'create-kept-light.png') });
         await p.emulateMedia({ colorScheme: 'dark' });
         await p.locator('#cstep-name').screenshot({ path: path.join(SHOTS, 'create-kept-dark.png') });
@@ -672,6 +675,8 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.close();
     }
     // kosmos#8051 item 1 (review 6): a different role empties the form, so the line about the kept one goes with it.
+    // Defensive (review 7): no button on the name step leads back to the roles today; this guards refillDetails' reset
+    // for whatever route is added, by driving the role step's own Continue.
     {
       const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
       p.on('pageerror', (e) => errs.push(String(e)));
