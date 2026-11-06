@@ -870,15 +870,28 @@ struct ProjectRowView: View {
     private var hasStateOrBubble: Bool { word != nil || bubble != nil }
     // kosmos#7486 (Josh 10-28 09:35): Working is the Agents list's own animated green pill, in the same place; the other
     // words keep their look. kosmos#7342 (Mona Lisa): the unread bubble after the word, 6 pt apart, as the Agents list has
-    // it, so the two tabs read alike: at the row's right end, or under the name at the accessibility sizes. The pill wraps
-    // there rather than truncate, as the Agents list's does.
-    private var stateAndBubble: some View {
-        HStack(spacing: 6) {
-            if word == .working {
-                StatusPill(word: Board.projectWordText(.working), pill: .working, wraps: typeSize.isAccessibilitySize)
-            } else if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
-            if let bubble { UnreadBubble(text: bubble, quiet: project.quiet) }
+    // it, so the two tabs read alike: at the row's right end, or under the name at the accessibility sizes, where the pill
+    // wraps only if it alone is wider than the row, rather than truncate, as the Agents list's does.
+    @ViewBuilder private var stateAndBubble: some View {
+        if typeSize.isAccessibilitySize {
+            // Whole words first: the word and bubble on one line, else the bubble under the word, and only if the word alone
+            // is wider than the row does it wrap (a two-line pill split "Work-ing" when it shared the line with a bubble).
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) { stateWord(wraps: false); bubbleView }
+                VStack(alignment: .leading, spacing: 4) { stateWord(wraps: false); bubbleView }
+                VStack(alignment: .leading, spacing: 4) { stateWord(wraps: true); bubbleView }
+            }
+        } else {
+            HStack(spacing: 6) { stateWord(wraps: false); bubbleView }
         }
+    }
+    @ViewBuilder private func stateWord(wraps: Bool) -> some View {
+        if word == .working {
+            StatusPill(word: Board.projectWordText(.working), pill: .working, wraps: wraps)
+        } else if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
+    }
+    @ViewBuilder private var bubbleView: some View {
+        if let bubble { UnreadBubble(text: bubble, quiet: project.quiet) }
     }
 
     var body: some View {
