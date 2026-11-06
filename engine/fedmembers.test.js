@@ -416,9 +416,20 @@ test('#8103: every live invite is kept, so the oldest of 100 can still be withdr
   let n = 0;
   const lapsed = stubRemote({ '/v1/mac/federation/invite': () => { n += 1; return { ok: true, data: { code: 'OLD' + n, expires_at: Math.floor(Date.now() / 1000) - DAY, invite_id: 'old-' + n } }; } });
   const live = await fedmembers.invite(remote, { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
+  // A used row and a withdrawn row, unexpired: finished all the same, so they are trimmed like the expired ones.
+  const used = (await fedmembers.invite(remote, { project: 'mixed', invited_kind: 'person' }, here(['mixed']))).body.invite_id;
+  assert.ok(fedmembers.noteMember('mixed', used, 'acct-dana'), 'the used row was not marked');
+  const pulled = (await fedmembers.invite(remote, { project: 'mixed', invited_kind: 'person' }, here(['mixed']))).body.invite_id;
+  assert.deepStrictEqual(await fedmembers.withdraw(remote, 'mixed', pulled), { status: 200, body: { withdrawn: true } });
   for (let i = 0; i < 70; i++) await fedmembers.invite(lapsed, { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
   const mixed = fedmembers.rowsFor('mixed');
-  assert.strictEqual(mixed.length, 65, 'expected the live invite plus the newest 64 expired rows, got ' + mixed.length);
-  assert.ok(mixed.some((r) => r.invite_id === live.body.invite_id), 'the live invite was dropped to make room for expired rows');
+  assert.strictEqual(mixed.length, 65, 'expected the live invite plus the newest 64 finished rows, got ' + mixed.length);
+  assert.ok(mixed.some((r) => r.invite_id === live.body.invite_id), 'the live invite was dropped to make room for finished rows');
+  assert.ok(!mixed.some((r) => r.invite_id === used) && !mixed.some((r) => r.invite_id === pulled), 'a used or withdrawn row was kept as if it were live');
+  // An expiry in milliseconds is not a code's: it does not hold a row for ever.
+  const ms = stubRemote({ '/v1/mac/federation/invite': () => ({ ok: true, data: { code: 'MS', expires_at: Date.now() + 7 * DAY * 1000, invite_id: 'ms-1' } }) });
+  await fedmembers.invite(ms, { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
+  for (let i = 0; i < 64; i++) await fedmembers.invite(lapsed, { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
+  assert.ok(!fedmembers.rowsFor('mixed').some((r) => r.invite_id === 'ms-1'), 'a row whose expiry is in milliseconds was kept as live');
   assert.ok(!mixed.some((r) => r.invite_id === 'old-1') && mixed.some((r) => r.invite_id === 'old-70'), 'the oldest expired rows were not the ones trimmed');
 });
