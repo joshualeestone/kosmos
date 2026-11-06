@@ -37,3 +37,11 @@ Nobody automatically: no caller in this repo (only comments, plans and the READM
 - NIT, fixed: the header says order markers are checked for presence only (web.ruling-guards.test.js holds the order).
 - NIT, noted: the served index.html is the source file unchanged; build-installer-pkg.sh rewrites none of the three
   pages; the served runs above cover the new marker.
+
+## Review 2 (opus): NITs only (converged), taken with one more round because one was a false statement in this file
+- _cannot_see said the .pkg installer page is outside check-served's population and 'Nothing to do.' cannot be guarded.
+  False since the pkg arm (it reads all three pages and guards item 4). Rewritten to say where they are read.
+- The guard compares check-served's whole PAGES list, not three substrings, so an added fourth page turns it red.
+- The header says the guard is deliberately stricter than the served check (stripped vs raw), and that the strip can
+  only over-strip (a false red, never a false green).
+- A commented-only control for web/index.html too ("Two questions: what it is for").
