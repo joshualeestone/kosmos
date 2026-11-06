@@ -25,6 +25,8 @@ and a failed read never loses the line it goes on.
 - The per-minute cap drops [loop-held] lines when stalls cluster, so high-load hours are undercounted. The [load]
   line does not go through the cap (review 3): one line every 10 minutes cannot flood the log.
 - A nap under ASLEEP_MS reads as a stall and lands in the load seen on waking.
+- No [load] line reads as "no figure", not "idle": a machine at a true 0.00 (an idle Linux box or VM) writes none, and
+  neither does a board that restarted within the 10 minutes. The read this card needs is on a busy Mac.
 
 ## Evidence behind the change (read 11-06 from board.log on one Mac; on #7693)
 452 s held in the 16:00 hour on 11-05, 12 s at 17:00, no restart between them.

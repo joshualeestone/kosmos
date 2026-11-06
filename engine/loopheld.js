@@ -10,7 +10,7 @@ const os = require('node:os');
  * the whole stall. The line also says how much of it the blocking commands account for, so the rest is
  * visibly something slowspawn cannot see.
  *
- * It logs numbers only. Lines are capped per minute so a stalled machine does not also fill the log.
+ * It logs numbers only. Stall lines are capped per minute so a stalled machine does not also fill the log.
  *
  * A timer cannot tell a held thread from a computer asleep: on a Mac this clock keeps counting through sleep (libuv
  * uses mach_continuous_time), so a short nap reads as a stall. A gap past ASLEEP_MS is more likely sleep and says it
@@ -76,7 +76,7 @@ function watch(opts = {}) {
       else if (at - loadAt >= LOAD_EVERY_MS) {
         loadAt = at;
         const f = loadFigure(load);
-        if (f) write(`[load] ${f}`);
+        if (f) write(`[load] ${f}`);   // past the cap: a stall cluster is when this reading matters most
       }
     } catch { /* watching never breaks the board */ }
   };
