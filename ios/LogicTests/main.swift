@@ -5833,6 +5833,20 @@ do {
     check(Board.trayPhotosRow(.all) == "All photos" && Board.trayPhotosRow(.limited) == "All photos" && Board.trayPhotosRow(.off) == "Choose photos" && Board.trayPhotosRow(.blocked) == "Choose photos",
           "the row names what it opens: a grid above it, or none")
 
+    // kosmos#8053: when the ring can show.
+    func blankFor(rows: Int = 5, drawn: Int = 0, end: Bool = false, sending: Bool = false, visible: Bool = true, searching: Bool = false) -> Bool {
+        Board.listBlank(rows: rows, drawn: drawn, endShowing: end, sending: sending, visible: visible, searching: searching)
+    }
+    check(blankFor(), "messages and none drawn: blank")
+    check(blankFor(end: true), "the end flag alone does not hide a real blank: it can read as showing with nothing drawn")
+    check(!blankFor(rows: 0), "CONTROL: no messages is not a blank")
+    check(!blankFor(drawn: 1), "CONTROL: a message drawn is not a blank")
+    check(!blankFor(end: true, sending: true), "CONTROL: a pending bubble can fill a list whose end is showing, and is not counted as a row")
+    check(!blankFor(visible: false) && !blankFor(searching: true), "CONTROL: not under another screen, and not over a search with no results")
+    check(Board.blankRing(blankFor: 0.75) == .none, "the slowest normal open in the 11-05 captures, 0.76 s, rounded to a tick: no ring")
+    check(Board.blankRing(blankFor: 1) == .ring && Board.blankRing(blankFor: 9.75) == .ring, "the ring, from a second")
+    check(Board.blankRing(blankFor: 10) == .failed, "it does not spin for ever")
+
     // Review 3: the box over a chat's life.
     var sends: [Int] = []
     var box: Board.ShiftBox? = Board.ShiftBox()

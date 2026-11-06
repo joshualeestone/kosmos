@@ -89,3 +89,105 @@ struct ConnectingWait: View {
             .accessibilityElement(children: .combine)
     }
 }
+
+// kosmos#8053: over a list that has messages and shows none. See Board.BlankRing. isBlank is asked four times a second from here, never
+// in the screen's body, which would redraw the whole list on every row that scrolls in or out. Only time with the app in front counts.
+struct BlankListRing: ViewModifier {
+    let isBlank: () -> Bool
+    let tryAgain: () -> Void
+    @State private var phase = Board.BlankRing.none
+    @State private var blankFor = 0.0
+    @State private var lastLook = Date()
+    #if DEBUG
+    // KOSMOS_SAMPLE_BLANKRING=<seconds>: reads as blank that long after it starts, since a simulator cannot blank on demand.
+    @State private var everShown = false
+    @State private var heldFrom = Date()
+    private var held: Bool {
+        guard let s = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_BLANKRING"].flatMap(Double.init) else { return false }
+        return Date().timeIntervalSince(heldFrom) < s
+    }
+    #endif
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                switch phase {
+                case .none: EmptyView()
+                case .ring:
+                    VStack(spacing: 8) {
+                        SweepDots(scales: false)   // Josh 11-05 18:33: dots only in the mobile app, everywhere
+                        Text(Board.blankRingWords).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
+                    }
+                    .padding(.horizontal, 24).padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Palette.chatGround))   // legible even if a row is on screen after all
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("blank-ring")
+                    .allowsHitTesting(false)
+                case .failed:
+                    VStack(spacing: 8) {
+                        Text(Board.blankRingFailed).font(.footnote).foregroundColor(Palette.secondary).multilineTextAlignment(.center)
+                        Button {
+                            tryAgain()
+                            blankFor = 0
+                            phase = .none
+                            #if DEBUG
+                            heldFrom = Date()
+                            #endif
+                        } label: {
+                            Text("Try again").font(.footnote.weight(.semibold)).foregroundColor(Palette.link)
+                                .frame(minWidth: 88, minHeight: 44).contentShape(Rectangle())
+                        }
+                    }
+                    .padding(.horizontal, 24).padding(.vertical, 12)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Palette.chatGround))
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("blank-failed")
+                }
+            }
+            #if DEBUG
+            .overlay(alignment: .topLeading) {
+                if everShown { Color.clear.frame(width: 1, height: 1).allowsHitTesting(false).accessibilityElement().accessibilityIdentifier("blank-ring-was-shown") }
+            }
+            #endif
+            .task { @MainActor in
+                // A fresh start on coming back: time and words from the last visit mean nothing now.
+                blankFor = 0
+                phase = .none
+                lastLook = Date()
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 250_000_000)
+                    if !Task.isCancelled { tick() }
+                }
+            }
+    }
+
+    @MainActor private func tick() {
+        // Real time, so a stalled main thread (which a blank can be) does not delay the ring. One gap counts for at most half a second, so
+        // waking from time away never crosses the second by itself.
+        let at = Date()
+        let gap = at.timeIntervalSince(lastLook)
+        lastLook = at
+        guard UIApplication.shared.applicationState == .active else { return }
+        #if DEBUG
+        let blank = isBlank() || held
+        #else
+        let blank = isBlank()
+        #endif
+        blankFor = blank ? blankFor + min(gap, 0.5) : 0
+        let now = Board.blankRing(blankFor: blankFor)
+        guard now != phase else { return }
+        phase = now
+        switch now {
+        case .none: ChatView.trace("blank: ring gone")
+        case .ring:
+            ChatView.trace("blank: ring shown")
+            UIAccessibility.post(notification: .announcement, argument: Board.blankRingWords)
+            #if DEBUG
+            everShown = true
+            #endif
+        case .failed:
+            ChatView.trace("blank: ring gave up")
+            UIAccessibility.post(notification: .announcement, argument: Board.blankRingFailed)
+        }
+    }
+}

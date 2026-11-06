@@ -650,7 +650,7 @@ check(chatSource.contains("let short = scrollBox.shortOfEnd() ?? 0\n") && chatSo
       && chatSource.contains("Self.trace(\"keyboard settled: within, nothing drawn, still blank, rebuilt\")\n                                recoverEmpty(proxy, keepPlace: true)")
       && chatSource.contains("!endVisible, !personScrolling, !scrollBox.underFinger, scenePhase == .active,\n                                      !(thread?.rows.isEmpty ?? true), !(rebuilds.last.map { Date().timeIntervalSince($0) < Board.rebuildGrace } ?? false)")
       && chatSource.contains("if !later && !keepPlace { goNewest(proxy) }")
-      && chatSource.contains("if keepPlace, decided != .rebuild { Self.trace(\"diag: empty, a reader higher up left (no rebuild)\"); return }\n        switch decided {")
+      && chatSource.contains("if keepPlace, decided != .rebuild { Self.trace(\"diag: empty, a reader higher up left (no rebuild)\"); return }\n        switch forceRebuild ? .rebuild : decided {")
       && chatSource.contains("            positionId = nil\n            // TestFlight 37 review 1:") && chatSource.contains("            atBottom = true\n            listEpoch &+= 1") && chatSource.contains("Self.trace(\"keyboard settled: the newest not showing (short \\(Int(short)) pt), back to it\")\n                        // As did-show (#7344): an anchor already reading \"end\" is scrolled to, not only set again.\n                        if Self.idAnchor { proxy.scrollTo(\"end\", anchor: .bottom); positionId = \"end\" } else { goNewest(proxy) }\n                        // Review 7: an id scroll against an estimate can land past the end (build 29's follow); look once more.\n                        DispatchQueue.main.asyncAfter(deadline: .now() + Self.keyboardSettle) {\n                            settledPutBack(proxy, tick: tick, chatAt: chatAt, listAt: listAt, boxMoved: false, again: true)")
       && chatSource.contains("guard place == \"past the end\" else {\n            if again { return }")
       // Review 5: a later blank for a reader higher up is rebuilt once it holds still; a look under a scroll comes back and
@@ -1770,6 +1770,12 @@ do {
 let attachSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/AttachMenu.swift"), encoding: .utf8)) ?? ""
 let boardLogicSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/BoardLogic.swift"), encoding: .utf8)) ?? ""
 let roomViewSrc = (try? String(contentsOf: repo.appendingPathComponent("ios/Kosmos/RoomView.swift"), encoding: .utf8)) ?? ""
+// kosmos#8053 review 3: the room's ring once sat inside a Debug block, so TestFlight had none and every Debug check was green.
+for (name, src) in [("chat", chatSource), ("room", roomViewSrc)] {
+    let before = src.components(separatedBy: "BlankListRing(isBlank:")[0]
+    check(src.contains("BlankListRing(isBlank:") && before.components(separatedBy: "#if DEBUG").count == before.components(separatedBy: "#endif").count,
+          "kosmos#8053: the \(name)'s ring is outside every Debug block, so a Release build has it")
+}
 check(!attachSrc.contains("Plugins") && !attachSrc.contains("Think harder") && !boardLogicSrc.contains("Think harder"), "kosmos#7596: no Plugins and no Think harder (Josh 21:28)")
 check(chatSource.contains("AttachPlusButton(open: trayOpen &&") && roomViewSrc.contains("AttachPlusButton(open: trayOpen &&")
       && chatSource.contains("PhotoTray(model: trayModel") && roomViewSrc.contains("PhotoTray(model: trayModel")

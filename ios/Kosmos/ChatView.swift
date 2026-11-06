@@ -686,6 +686,13 @@ struct ChatView: View {
                     guard wide else { return }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { if diagWide { diagCapture(proxy, why: "a row wider than the screen", count: items.count, recover: false) } }
                 }
+                // kosmos#8053: the dots read the state and write none of it; Try again, on a tap, is the one write.
+                .modifier(BlankListRing(isBlank: {
+                    !personScrolling && !scrollBox.underFinger && Board.listBlank(rows: self.thread?.rows.count ?? 0, drawn: onScreen.count, endShowing: endSeen && endVisible, sending: !pending.isEmpty, visible: visible, searching: searchMode)
+                }, tryAgain: {
+                    rebuilds = []; atBottom = true
+                    recoverEmpty(proxy, forceRebuild: true)   // the person asked, and what else it does has just failed for 10 s
+                }))
                 // Review 4 and 5: the list first existing (the messages arrived) starts the never-drawn clock, and a check runs
                 // once it has passed. Here, not an onChange inside this branch, which never sees its own creation.
                 .onAppear {
@@ -1285,13 +1292,13 @@ struct ChatView: View {
     // kosmos#7420: an empty list put right as Board.emptyRecovery decides.
     // keepPlace (TestFlight 37 review 2): a reader higher up, rebuilt by a settled look; when no rebuild is left in the
     // budget it is not sent to the newest by id (that lands in the same undrawn stretch, build 34).
-    private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false, keepPlace: Bool = false) {
+    private func recoverEmpty(_ proxy: ScrollViewProxy, later: Bool = false, keepPlace: Bool = false, forceRebuild: Bool = false) {
         let scrolling = personScrolling || scrollBox.underFinger
         var wrote = false
         let decided = Board.emptyRecovery(later: later, place: scrollBox.reading()?.place, scrolling: scrolling, atNewest: atBottom, canRebuild: !Self.sampleNoRebuild)
         // Review 3: a reader higher up (keepPlace) is acted on only by a rebuild; any other outcome would jump them by id.
         if keepPlace, decided != .rebuild { Self.trace("diag: empty, a reader higher up left (no rebuild)"); return }
-        switch decided {
+        switch forceRebuild ? .rebuild : decided {
         case .none: return
         case .rebuild:
             let now = Date()
