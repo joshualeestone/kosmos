@@ -38,9 +38,8 @@ folder name wins"). The confirmation names the agent it will remove.
 ## Not in this branch
 - restart and move resolve names their own way; the card says "probably". Left for a follow-up if they show the same.
 - `agent list` output unchanged.
-- An agent whose folder is recorded outside the workers folder (a profile `dir`) is not a candidate, so its display
-  name still does not resolve. Team-step agents (the card's case) live in the workers folder. A symlinked folder in
-  the workers folder is not a candidate either (`isDirectory` on the entry is false for a link).
+- (Superseded by round 7, see below: every card the board lists is now a candidate, so an agent with no folder in
+  the workers folder counts too.)
 - **Filed as #8112 (review round 5):** for a profile-recorded agent, a case variant passes the exact check through
   `safeKey`, and `remove` then reports "removed" for a name nobody has while the agent keeps running. Pre-existing in
   `plan`/`exists`; `resolve` inherits it. Not fixed here: it is a different path from the card's Team-step agents and
@@ -67,3 +66,15 @@ file; not measured on a served board until a release carries it.
 - Deferred: the "resolving stopped" log line is not throttled (only fires on a board with an unreadable folder); an
   agent token can see sibling agents' display names in the ambiguity refusal (agents can already read them with
   `kosmos agent list`, so nothing new is exposed).
+
+## Review round 7 (one WARNING, fixed)
+- WARNING: candidates came only from folders in the workers folder, while `agent list` prints every card. A connected,
+  session-only or job-only agent shown as "Cai" next to a folder `cai` shown as "Cai" resolved to `cai` with no
+  refusal. Fixed: the plan route passes the board's own cards (`cardsForResolve` in server.js: live snapshot plus the
+  survey's not-running agents, removed ones out, the list route's two sources) as extra candidates. Either source
+  unreadable: `null`, nothing resolves. A single outside card resolves to its machine name.
+- Tests: 3 engine, 1 route (session agent with a profile display name). Mutants: route passing no cards, engine
+  ignoring the cards, null not failing closed; each turned its own test red.
+- Not tested: `cardsForResolve` returning null on a real snapshot failure (the engine's null arm is tested).
+- NITs left: Mac CLI rewrites a tab in a plan `name`; removed list read once per candidate; `ambiguousRefusal` echoes
+  the untrimmed name.
