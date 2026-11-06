@@ -1343,10 +1343,10 @@ function resolve(name, platform) {
     // A candidate that cannot be read ends the search: skipping it could make a two-agent name look like one
     // (test: "an unreadable candidate").
     let hidden;
-    try { hidden = isHidden(dir); } catch { return asGiven; }
+    try { hidden = isHidden(dir); } catch { process.stderr.write(`remove: resolving "${clean}" stopped: could not read whether ${dir} was removed\n`); return asGiven; }
     if (hidden) continue;
     let shown = null;
-    try { shown = status.readIdentity(dir).displayName || null; } catch { return asGiven; }
+    try { shown = status.readIdentity(dir).displayName || null; } catch { process.stderr.write(`remove: resolving "${clean}" stopped: could not read ${dir}'s name\n`); return asGiven; }
     if (dir.toLowerCase() === want || (shown && String(shown).trim().toLowerCase() === want)) { hits.push(dir); displayOf[dir] = shown; }
   }
   if (hits.length === 1) return { name: hits[0], ambiguous: [], shown: {} };

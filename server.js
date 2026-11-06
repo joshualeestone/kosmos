@@ -10637,7 +10637,7 @@ const server = http.createServer(async (req, res) => {
     // name and does not ask, so a stale card is never answered with a different agent's plan.
     let name = asked; let many = []; let shown = {};
     if (/[?&]resolve=1(?:&|$)/.test(req.url || '')) {
-      try { const r = removal.resolve(asked); name = r.name; many = r.ambiguous; shown = r.shown; } catch { name = asked; many = []; }
+      try { const r = removal.resolve(asked); name = r.name; many = r.ambiguous; shown = r.shown; } catch { name = asked; many = []; shown = {}; }
       if (many.length) { sendJson(res, 400, removal.ambiguousRefusal(asked, many, shown)); return; }
     }
   /**
