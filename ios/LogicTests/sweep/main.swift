@@ -149,20 +149,19 @@ do {
         for name in names where name.hasSuffix(".swift") && name != "KosmosOrb.swift" {
             let text = repoText(folder + "/" + name)
             read.append(folder + "/" + name)
-            let codeText = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
-            for bad in ["KosmosOrb", "ProgressView", ".progressViewStyle", "UIActivityIndicatorView"] where codeText.contains(bad) { offenders.append(name + ": " + bad) }
-            // Code lines only, so a comment that names one neither adds to the count nor hides a real one.
+            // Code lines only (a line starting // is skipped), so a comment that names one is neither an offender nor counted.
             let code = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            for bad in ["KosmosOrb", "ProgressView", ".progressViewStyle", "UIActivityIndicatorView"] where code.contains(where: { $0.contains(bad) }) { offenders.append(name + ": " + bad) }
             refreshable += code.filter { $0.contains(".refreshable") }.count
             refreshControls += code.filter { $0.contains("UIRefreshControl()") }.count
         }
     }
     check(read.contains("ios/Kosmos/ChatView.swift") && read.contains(where: { $0.hasPrefix("ios/KosmosNotice/") }) && read.count > 20,
           "both app folders were read, subfolders included (\(read.count) files)")
-    check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app (caught by name on code lines, any spelling; not a hand-made spinner)" + (offenders.isEmpty ? "" : ": \(offenders)"))
+    check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app (caught by these names on code lines; a renamed type or a hand-made spinner is not caught)" + (offenders.isEmpty ? "" : ": \(offenders)"))
     // The one known exception, pinned so no new one appears: pull to refresh draws iOS's own spinner (10 lists and the board
     // page's refresh control). Dots there need pull to refresh rebuilt: #8078.
-    check(refreshable == 10 && refreshControls == 1, "pull to refresh is the only system spinner left (comments are not counted here; the check above reads them too), at its 11 known places (\(refreshable) + \(refreshControls))")
+    check(refreshable == 10 && refreshControls == 1, "pull to refresh is the only system spinner left (code lines only, as above), at its 11 known places (\(refreshable) + \(refreshControls))")
 }
 
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")

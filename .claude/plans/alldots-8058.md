@@ -16,7 +16,7 @@ every wait, full-screen ones included, overriding the earlier rule that whole-sc
 - The system's own spinner remains in one place: pull to refresh (10 `.refreshable` lists and the board page's
   `UIRefreshControl`). Dots there need pull to refresh rebuilt: #8078 (Renet Tilley).
 - Guard in the sweep suite, subfolders included: no app source (ios/Kosmos, ios/KosmosNotice) may contain
-  `KosmosOrb(`, `ProgressView`, `.progressViewStyle` or `UIActivityIndicatorView`, and pull to refresh is pinned at its 11 places so none
+  `KosmosOrb`, `ProgressView`, `.progressViewStyle` or `UIActivityIndicatorView`, and pull to refresh is pinned at its 11 places so none
   is added. KosmosOrb.swift is unused and excluded; deleting the file is enough (the project syncs its folder).
 - Doc comments in SweepDots and KosmosOrb say so.
 
