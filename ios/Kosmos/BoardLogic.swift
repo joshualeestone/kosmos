@@ -19,6 +19,79 @@ enum Board {
         !liveOrStarting && !(hasList && keepsList)
     }
 
+    /// kosmos#8055 (Josh 11-05: back from another app, the chat drops to the agents list): the line that says why an open
+    /// chat closed without the person pressing back, so the next time it happens the screen names the cause.
+    /// `noticedLater`: the close happened while the tab was gone (redrawn, or the app started again), so the time is when
+    /// it was found, not when it happened.
+    static func chatClosedLine(name: String, why: String, at time: String, noticedLater: Bool = false) -> String {
+        let chat = name.isEmpty ? "a chat" : "your chat with \(name)"
+        return noticedLater ? "Found at \(time): \(chat) had closed: \(why)." : "At \(time), \(chat) closed: \(why)."
+    }
+    static let chatClosedRebuilt = "the Agents tab was drawn again"
+    /// The open chat's name, kept in this phone's defaults so a relaunch can say one was open; cleared on an account change.
+    static let openChatKey = "kosmos.openChatName"
+    /// How an open chat came to close, as the Agents tab sees it.
+    enum ChatClose: Equatable {
+        /// The chats were forgotten (an account or computer change); `byPerson` when the person chose it.
+        case forgotten(why: String, byPerson: Bool)
+        /// The link closed the chat, by a press on back or by the screen itself; seconds since the app came back.
+        case popped(secondsSinceReturn: Double?)
+        /// The link closed the chat while the app was not in front: the lock, or the screen around a return.
+        case poppedAway
+        /// A new Agents tab found a chat open that it no longer shows; `forgottenSince` when the chats were forgotten
+        /// since it opened, with that reason, and `byPerson` when the person chose that.
+        case lostWithTab(forgottenSince: Bool, why: String, byPerson: Bool)
+        /// The app started with a chat recorded as open: iOS ended it while away, or the person did.
+        case relaunched
+    }
+    /// A close within this many seconds of the app coming back is taken as the screen's, not a press on back.
+    static let chatClosedSoonAfterReturn: Double = 3
+    /// The cause to show, or nil when the person closed it (back pressed, or a computer they picked).
+    static func chatClosedCause(_ close: ChatClose) -> String? {
+        switch close {
+        case .forgotten(let why, let byPerson):
+            return byPerson ? nil : (why.isEmpty ? "the app did not record why" : why)
+        case .popped(let seconds):
+            guard let seconds, seconds >= 0, seconds < chatClosedSoonAfterReturn else { return nil }
+            return "the screen closed it \(seconds < 1 ? "under 1 s" : "\(Int(seconds)) s") after the app came back, probably not a press on back"
+        case .poppedAway:
+            return "the screen closed it while the app was not in front"
+        case .lostWithTab(let forgottenSince, let why, let byPerson):
+            if forgottenSince && byPerson { return nil }
+            return forgottenSince && !why.isEmpty ? why : chatClosedRebuilt
+        case .relaunched:
+            return "the app was started again (iOS may have closed it while you were away, or it was closed by hand)"
+        }
+    }
+    /// What the Agents tab finds when it appears with no chat open: the chat it lost while gone (`was`, the open chat's
+    /// epoch, with the chats' epoch and last forget now), or one recorded open before the app started again (`keptName`),
+    /// or nothing. The open chat wins over the kept name, as it is this launch's.
+    static func chatFoundClosed(was: (name: String, epoch: Int)?, epochNow: Int, forgottenWhy: String, forgottenByPerson: Bool,
+                                closedAway: Bool = false, keptName: String?) -> (name: String, close: ChatClose)? {
+        if let was, closedAway { return (was.name, .poppedAway) }
+        if let was {
+            return (was.name, .lostWithTab(forgottenSince: epochNow != was.epoch, why: forgottenWhy, byPerson: forgottenByPerson))
+        }
+        if let keptName, !keptName.isEmpty { return (keptName, .relaunched) }
+        return nil
+    }
+
+    /// A cause, with the last thing that changed the tabs (the Tasks tab coming or going, the sign-in screen, the lock, the
+    /// app coming back) when it came at most 10 s before, so the screen names what redrew it, not only that it was redrawn.
+    static func chatClosedWhy(_ why: String, lastChange: String?, secondsBefore: Double?) -> String {
+        guard let lastChange, !lastChange.isEmpty, let s = secondsBefore, s >= 0, s <= 10 else { return why }
+        return why + "; just before (\(s < 1 ? "under 1 s" : "\(Int(s)) s")), " + lastChange
+    }
+
+    /// The words for an account change, by which part reported it and what it said. A deliberate sign-out and one the
+    /// page made by itself read the same here: the page does not say which.
+    static func accountChangeWhy(source: String, signedOut: Bool, heldBefore: Bool, readBefore: Bool) -> String {
+        if signedOut { return source + " ended the sign-in (by you, or by itself)" }
+        if heldBefore && !readBefore { return source + " signed in again while the app could not read its own sign-in" }
+        if !heldBefore { return source + " signed in" }
+        return source + " signed in with a different session"
+    }
+
     // MARK: - Requests
 
     static func macsRequest(coordinator: URL, session: String) -> URLRequest {

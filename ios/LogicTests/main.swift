@@ -2403,14 +2403,21 @@ section("native board loop: connecting")
         let okF = await settle { isLive(c) }
         check(okF && c.agents.map(\.session) == ["wes", "dana"], "CONTROL: the star orders the list")
         w.starsAnswer = nil
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         let back = await settle { isLive(c) }
         check(back && c.agents.map(\.session) == ["dana", "wes"], "after a sign-out, stars that cannot be read are no stars")
         c.stop()
         // kosmos#7416 review 2: an account change (forget, the loop stopped so nothing restarts) keeps no read times.
         let hadRead = !c.heardFrom.isEmpty
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         check(hadRead && c.heardFrom.isEmpty, "kosmos#7416: another account starts with no read times (CONTROL: there were some)")
+        // kosmos#8055: an account change keeps that a chat was open, but not its agent's name or the kept name on this phone.
+        c.chatOpen = (session: "dana", name: "Dana", epoch: 7)
+        UserDefaults.standard.set("Dana", forKey: Board.openChatKey)
+        c.accountChanged(why: "a test account change")
+        check(c.chatOpen?.name == "" && c.chatOpen?.epoch == 7 && UserDefaults.standard.string(forKey: Board.openChatKey) == nil,
+              "kosmos#8055: another account's agent name is dropped, the open chat's record kept")
+        c.chatOpen = nil
     }
     do {
         // #7034: a read that started before the list now shown never puts its older rows back over it.
@@ -3012,7 +3019,7 @@ section("native board loop: connecting")
         c3.stop()
         // A sign-out (accountChanged) removes it.
         sessions.value = nil
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         let left = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
         check(left.isEmpty, "a sign-out leaves no kept conversation on the phone: \(left)")
         c.stop()
@@ -3244,7 +3251,7 @@ section("native board loop: connecting")
         let before = c.chatEpoch
         let late = Task { await add(picked("late.pdf")) }
         _ = await settle { c.uploading["dana"] == 1 }
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         await late.value
         w.uploadYields = 0
         check(c.attached.isEmpty && c.uploading.isEmpty && c.attachLine.isEmpty, "a sign-out drops the waiting files, and a late answer adds nothing")
@@ -3365,7 +3372,7 @@ section("native board loop: connecting")
         let soStarted = w.uploadsStarted, soCancelled = w.uploadsCancelled
         let so = Task { await c.attach(.file(picked("signout.pdf")), epoch: c.chatEpoch, to: dana) }
         _ = await settle { w.uploadsStarted > soStarted }
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         _ = await settle { isLive(c) }
         // Settle with a limit, then release: without the cancel this hold never ends and awaiting it first would hang.
         _ = await settle { w.uploadsCancelled > soCancelled }
@@ -3380,7 +3387,7 @@ section("native board loop: connecting")
         let hb = Task { await c.attach(.file(picked("held-before.pdf")), epoch: c.chatEpoch, to: dana) }
         _ = await settle { w.uploadsStarted > hbStarted }
         check(w.uploadsStarted == hbStarted + 1, "premise: the add from before the sign-out reached its upload")
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         _ = await settle { isLive(c) }
         let haStarted = w.uploadsStarted
         let ha = Task { await c.attach(.file(picked("held-after.pdf")), epoch: c.chatEpoch, to: dana) }
@@ -3553,7 +3560,7 @@ section("native board loop: connecting")
         _ = await settle { isLive(c) }
         await hold()
         let before = c.chatEpoch
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         check(c.pending.isEmpty && c.drafts.isEmpty && c.resending.isEmpty && c.chatEpoch > before,
               "a sign-out the web view reports: all of it is gone at once")
         c.stop()
@@ -3592,7 +3599,7 @@ section("native board loop: connecting")
         let (c, w, sessions, _) = make("kst1")
         c.start()
         _ = await settle { isLive(c) }
-        w.onStatusRead = { MainActor.assumeIsolated { sessions.value = nil; c.accountChanged() } }
+        w.onStatusRead = { MainActor.assumeIsolated { sessions.value = nil; c.accountChanged(why: "a test account change") } }
         let out = await settle { c.phase == .signedOut }
         check(out && c.agents.isEmpty && c.updatedAt == nil, "a read in flight at the sign-out does not put the old list back")
         c.stop()
@@ -3607,7 +3614,7 @@ section("native board loop: connecting")
         await c.post("are you there", to: dana)
         let id = c.pending["dana"]!.last!.id
         w.threadAnswer = (200, #"{"messages":[{"at":"2026-10-23T20:00:09.000Z","text":"old account's words","from":null,"delivery":{"state":"placed"}}]}"#)
-        w.onThreadRead = { MainActor.assumeIsolated { c.accountChanged() } }
+        w.onThreadRead = { MainActor.assumeIsolated { c.accountChanged(why: "a test account change") } }
         await c.retry(id, to: dana)
         w.onThreadRead = nil
         await c.post("hello", to: dana)
@@ -3654,7 +3661,7 @@ section("native board loop: connecting")
         w.tasksAnswer = (200, #"{"tasks":[{"projectId":"p1","projectName":"Catalogue","number":4,"sentence":"Pages 1 to 8","state":"built"}]}"#)
         await c.refreshTasks()
         check(c.readyTasks?.count == 1, "CONTROL: a list to forget")
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         check(c.waitingCount == nil && c.readyTasks == nil && !c.tasksFailed, "another account: no count, no tasks")
         // Review 2: Kosmos+ ending the session (a 401 on the Mac list) drops the badge and the tasks too.
         let (c2, w2, _, _) = make("kst1")
@@ -3762,7 +3769,7 @@ section("native board loop: connecting")
         w.postYields = 0
 
         // A reset while a press is in the air: its answer is dropped.
-        w.onPost = { MainActor.assumeIsolated { c.accountChanged() } }
+        w.onPost = { MainActor.assumeIsolated { c.accountChanged(why: "a test account change") } }
         w.sendQueue = [(200, #"{"delivery":{"state":"placed"}}"#)]
         let across = await c.press(tue, of: choices, to: dana)
         w.onPost = nil
@@ -3952,7 +3959,7 @@ section("native board loop: connecting")
                                        url: "/api/attachment/6666666666666666666666bb", preview: "/api/attachment/6666666666666666666666bb/preview")
         let picTask = Task { await c.loadThumbnail(latePic) }
         _ = await settle { w.attachmentStarted.last == "/api/attachment/6666666666666666666666bb/preview" }
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         await picTask.value
         check(c.thumbnails[latePic.id] == nil, "a picture fetched across a sign-out is not kept for the next account")
         _ = await settle { isLive(c) }
@@ -3963,7 +3970,7 @@ section("native board loop: connecting")
                                             image: "/api/unfurl/image?url=https%3A%2F%2Flate.example.com%2Fog.png")
         let previewTask = Task { await c.loadPreviewImage(latePreview) }
         _ = await settle { w.attachmentStarted.last?.hasPrefix("/api/unfurl/image") == true }
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         await previewTask.value
         check(c.previewImages[latePreview.image!] == nil, "preview: a picture fetched across a sign-out is not kept for the next account")
         w.attachmentYields = 0
@@ -3974,7 +3981,7 @@ section("native board loop: connecting")
         let late = Task { await c.fetchFile(Board.Attachment(id: "6666666666666666666666aa", name: "late.pdf", type: "application/pdf", size: 1,
                                                              kind: "pdf", url: "/api/attachment/6666666666666666666666aa", preview: nil)) }
         _ = await settle { w.attachmentStarted.last == "/api/attachment/6666666666666666666666aa" }
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         let lateFile = await late.value
         check(lateFile == nil && !FileManager.default.fileExists(atPath: testFiles.appendingPathComponent("6666666666666666666666aa").path),
               "a file fetched across a sign-out is not written")
@@ -3982,7 +3989,7 @@ section("native board loop: connecting")
         _ = await settle { isLive(c) }
         _ = await c.fetchFile(pdf)
         check(FileManager.default.fileExists(atPath: testFiles.path), "CONTROL: the opened file's folder exists")
-        c.accountChanged()
+        c.accountChanged(why: "a test account change")
         check(!FileManager.default.fileExists(atPath: testFiles.path) && c.thumbnails.isEmpty, "a sign-out removes opened files and pictures")
         check(c.previewImages.isEmpty, "preview: a sign-out removes the link preview pictures too")
         c.stop()
@@ -4004,7 +4011,7 @@ section("native board loop: connecting")
         check(silent == .failed(Board.olderFailed), "no answer is a failure in the board's words")
         // A reset while a page is on its way: the page belongs to the chat before.
         w.olderAnswer = (200, #"{"messages":[{"at":"2026-10-20T10:00:00Z","text":"x","from":"dana"}],"olderCount":0}"#)
-        w.onOlder = { MainActor.assumeIsolated { c.accountChanged() } }
+        w.onOlder = { MainActor.assumeIsolated { c.accountChanged(why: "a test account change") } }
         let across = await c.olderPage("dana", before: 1)
         check(across == nil, "a page that crossed a sign-out is dropped")
         c.stop()
@@ -4362,7 +4369,7 @@ section("native board loop: connecting")
         c3.start()
         _ = await settle { c3.pictures["dana"] != nil }
         c3.stop()            // stopped first: accountChanged restarts a running client, which could keep a picture again
-        c3.accountChanged()
+        c3.accountChanged(why: "a test account change")
         check(!FileManager.default.fileExists(atPath: kept.path), "a sign-out or another account deletes the kept pictures")
         try? FileManager.default.removeItem(at: kept)
     }
@@ -5941,6 +5948,55 @@ do {
           "in the 10 others the list gives way to the connection screen, as Agents' list does (shownList)")
     check(liveOrFirst.allSatisfy { $0.keepsList && !shows($0, list: false) && !shows($0, list: true) },
           "CONTROL: live or on its first connect, the tab's own list or wait")
+}
+
+// kosmos#8055: the line that says why an open chat closed, and when one is written.
+do {
+    check(Board.chatClosedLine(name: "Dana", why: "the screen closed it under 1 s after the app came back, probably not a press on back", at: "2:14 PM")
+          == "At 2:14 PM, your chat with Dana closed: the screen closed it under 1 s after the app came back, probably not a press on back.", "the line names the time, the agent and the cause")
+    check(Board.chatClosedLine(name: "Dana", why: "x", at: "2:20 PM", noticedLater: true) == "Found at 2:20 PM: your chat with Dana had closed: x.",
+          "a close found later says when it was found, not when it happened")
+    check(Board.chatClosedCause(.forgotten(why: "the sign-in page ended the sign-in (by you, or by itself)", byPerson: false)) == "the sign-in page ended the sign-in (by you, or by itself)", "an account change is named")
+    check(Board.chatClosedCause(.forgotten(why: "", byPerson: false)) == "the app did not record why", "with no cause recorded it says so")
+    check(Board.chatClosedCause(.forgotten(why: "you picked another computer", byPerson: true)) == nil, "a computer the person picked writes no line")
+    check(Board.chatClosedCause(.popped(secondsSinceReturn: 1.2)) == "the screen closed it 1 s after the app came back, probably not a press on back"
+          && Board.chatClosedCause(.popped(secondsSinceReturn: 2.9)) == "the screen closed it 2 s after the app came back, probably not a press on back"
+          && Board.chatClosedCause(.popped(secondsSinceReturn: 0.4)) == "the screen closed it under 1 s after the app came back, probably not a press on back",
+          "the screen's own close right after a return is named, its seconds never shown as 3")
+    check(Board.chatClosedCause(.popped(secondsSinceReturn: 40)) == nil && Board.chatClosedCause(.popped(secondsSinceReturn: nil)) == nil
+          && Board.chatClosedCause(.popped(secondsSinceReturn: -1)) == nil, "a close long after a return, with no return seen, or a clock gone back: no line")
+    check(Board.chatClosedCause(.popped(secondsSinceReturn: Board.chatClosedSoonAfterReturn)) == nil, "the window is under 3 s, not at it")
+    check(Board.chatClosedCause(.lostWithTab(forgottenSince: true, why: "the Kosmos+ session on this iPhone changed", byPerson: false)) == "the Kosmos+ session on this iPhone changed",
+          "a tab drawn again after the chats were forgotten names the forgetting, not the redraw")
+    check(Board.chatClosedCause(.lostWithTab(forgottenSince: true, why: "you picked another computer", byPerson: true)) == nil,
+          "a computer picked from another tab writes no line either")
+    check(Board.chatClosedCause(.lostWithTab(forgottenSince: false, why: "old reason", byPerson: false)) == Board.chatClosedRebuilt
+          && Board.chatClosedCause(.lostWithTab(forgottenSince: true, why: "", byPerson: false)) == Board.chatClosedRebuilt, "otherwise, the tab drawn again")
+    check(Board.chatClosedCause(.relaunched) == "the app was started again (iOS may have closed it while you were away, or it was closed by hand)", "a relaunch is named, without blaming either")
+    let lost = Board.chatFoundClosed(was: (name: "Dana", epoch: 3), epochNow: 4, forgottenWhy: "another computer answered", forgottenByPerson: false, keptName: "Eli")
+    check(lost?.name == "Dana" && lost?.close == .lostWithTab(forgottenSince: true, why: "another computer answered", byPerson: false),
+          "a chat lost while the tab was gone wins over a kept name, with the forget since it opened")
+    check(Board.chatFoundClosed(was: (name: "Dana", epoch: 4), epochNow: 4, forgottenWhy: "x", forgottenByPerson: false, keptName: nil)?.close
+          == .lostWithTab(forgottenSince: false, why: "x", byPerson: false), "no forget since it opened: the redraw")
+    let kept = Board.chatFoundClosed(was: nil, epochNow: 0, forgottenWhy: "", forgottenByPerson: false, keptName: "Eli")
+    check(kept?.name == "Eli" && kept?.close == .relaunched, "a name kept from before the app started again is a relaunch")
+    check(Board.chatFoundClosed(was: (name: "Dana", epoch: 4), epochNow: 4, forgottenWhy: "", forgottenByPerson: false, closedAway: true, keptName: nil)?.close == .poppedAway
+          && Board.chatClosedCause(.poppedAway) == "the screen closed it while the app was not in front", "a close while the app was not in front is named on the next appear")
+    check(Board.chatClosedLine(name: "", why: "the sign-in page ended the sign-in (by you, or by itself)", at: "2:20 PM", noticedLater: true)
+          == "Found at 2:20 PM: a chat had closed: the sign-in page ended the sign-in (by you, or by itself).", "after an account change the line names no agent")
+    check(Board.chatFoundClosed(was: nil, epochNow: 0, forgottenWhy: "", forgottenByPerson: false, keptName: nil) == nil
+          && Board.chatFoundClosed(was: nil, epochNow: 0, forgottenWhy: "", forgottenByPerson: false, keptName: "") == nil,
+          "CONTROL: nothing open and nothing kept finds nothing")
+    check(Board.chatClosedWhy("the screen closed it 1 s after the app came back, probably not a press on back", lastChange: "the Tasks tab joined the bar", secondsBefore: 0.6)
+          == "the screen closed it 1 s after the app came back, probably not a press on back; just before (under 1 s), the Tasks tab joined the bar",
+          "the line names what changed the tabs just before")
+    check(Board.chatClosedWhy("x", lastChange: "the lock shut", secondsBefore: 40) == "x" && Board.chatClosedWhy("x", lastChange: nil, secondsBefore: nil) == "x"
+          && Board.chatClosedWhy("x", lastChange: "", secondsBefore: 1) == "x", "CONTROL: an old change, or none, adds nothing")
+    check(Board.accountChangeWhy(source: "the sign-in page", signedOut: true, heldBefore: true, readBefore: true) == "the sign-in page ended the sign-in (by you, or by itself)"
+          && Board.accountChangeWhy(source: "the sign-in page", signedOut: false, heldBefore: true, readBefore: false) == "the sign-in page signed in again while the app could not read its own sign-in"
+          && Board.accountChangeWhy(source: "the sign-in page", signedOut: false, heldBefore: false, readBefore: false) == "the sign-in page signed in"
+          && Board.accountChangeWhy(source: "the sign-in page", signedOut: false, heldBefore: true, readBefore: true) == "the sign-in page signed in with a different session",
+          "each kind of account change has its own words")
 }
 
 print(failed == 0 ? "VERDICT: PASS \(passed)/\(passed + failed)" : "VERDICT: FAIL \(failed) of \(passed + failed)")

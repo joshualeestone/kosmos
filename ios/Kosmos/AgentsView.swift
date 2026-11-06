@@ -21,6 +21,10 @@ struct AgentsView: View {
     @State private var wasBackground = false
     // The agent whose chat is open (kosmos#7008), as it was tapped (the chat follows the list for its status).
     @State private var openAgent: Board.Agent?
+    /// kosmos#8055: why a chat closed without the person pressing back, shown once on the list until dismissed.
+    @State private var closedNote: String?
+    /// kosmos#8055: this tab's own id, so a close while away it already said is not said again by it, but is by a new tab.
+    @State private var tabID = UUID()
     #if DEBUG
     private static var sampleOpened = false
     #endif
@@ -82,6 +86,7 @@ struct AgentsView: View {
     var body: some View {
         NavigationView {
             content
+                .safeAreaInset(edge: .bottom) { if let closedNote { closedLine(closedNote) } }
                 .navigationTitle("Agents")
                 // kosmos#7343 (Josh 10-27, Mona Lisa's design): one bar on Agents, Projects and Tasks, no big title (the
                 // tab bar names the screen): the Kosmos mark, the computer switcher, then order and + in one capsule.
@@ -100,7 +105,7 @@ struct AgentsView: View {
                 // The link sits on the page, not on a row: a row (or the whole list) that stops being drawn, as when the
                 // Mac asks for Allow again, would otherwise close the chat under the person.
                 .background(
-                    NavigationLink(isActive: Binding(get: { openAgent != nil }, set: { if !$0 { openAgent = nil } })) {
+                    NavigationLink(isActive: Binding(get: { openAgent != nil }, set: { if !$0 { linkClosed(); openAgent = nil } })) {
                         if let agent = openAgent {
                             ChatView(client: client, agent: agent, openOnBoard: {
                                 if let url = client.chatURL(for: agent) { openChat(url) }
@@ -115,7 +120,24 @@ struct AgentsView: View {
         }
         .navigationViewStyle(.stack)
         // Signed out, another account or another Mac: the open chat was the previous one's, so it closes.
-        .onChange(of: client.chatEpoch) { _ in openAgent = nil }
+        .onChange(of: client.chatEpoch) { _ in
+            // After an account change forget() has blanked the kept name: the line then names no agent (another account's).
+            if let a = openAgent { noteClosed(client.chatOpen?.name.isEmpty == true ? "" : a.name, .forgotten(why: client.chatsForgottenWhy, byPerson: client.chatsForgottenByPerson)) }
+            openAgent = nil
+        }
+        // kosmos#8055: the client (and, for a relaunch, this phone's defaults) keep which chat is open, so a new Agents tab,
+        // or a new launch, that lost it can say so. A chat opening clears an older line.
+        // Assumed, not guaranteed by SwiftUI: openAgent's change is seen after the chatEpoch handler that cleared it, so the
+        // epoch kept is the one the chat opened under. A close while away keeps the record for the next appear.
+        .onChange(of: openAgent?.session) { _ in
+            if let a = openAgent {
+                client.chatOpen = (session: a.session, name: a.name, epoch: client.chatEpoch); client.chatClosedAway = false; client.chatClosedAwaySaidBy = nil
+                UserDefaults.standard.set(a.name, forKey: Board.openChatKey); closedNote = nil
+            } else if !client.chatClosedAway {
+                client.chatOpen = nil
+                UserDefaults.standard.removeObject(forKey: Board.openChatKey)
+            }
+        }
         .onChange(of: agentRequest) { _ in openRequested() }
         // kosmos#7421: the chosen order goes to the list at once, and on each visit; By project first reads each agent's
         // projects (again after a computer or account change, whose names were the other one's).
@@ -130,6 +152,11 @@ struct AgentsView: View {
             visible = true
             client.show(BoardClient.agentsViewer)   // kosmos#7030: Today reads the same list
             openRequested()   // kosmos#7418: a tap on a cold launch, or while another tab showed
+            // kosmos#8055: after a notification's chat has opened (so a cold launch from one whose request is already here
+            // shows no line), a chat this tab lost while gone, or one recorded open before the app started again, is said.
+            // On the next turn of the run loop, so a notification's chat that arrives just after a cold launch has opened
+            // first; skipped while one is still on its way.
+            DispatchQueue.main.async { findClosedChat() }
             // kosmos#7222: a change made in iOS Settings is seen here, and a yes given there registers (review 1).
             push.refreshPermission(registerIfAllowed: true)
             #if DEBUG
@@ -145,7 +172,7 @@ struct AgentsView: View {
             }
             #endif
         }
-        .onDisappear { visible = false; wasBackground = false; client.hide(BoardClient.agentsViewer) }
+        .onDisappear { visible = false; wasBackground = false; client.hide(BoardClient.agentsViewer); closedNote = nil }   // kosmos#8055: the line goes once the person has left the list
         // No polling in the background: stop when the app leaves the screen, resume when it comes back.
         .onChange(of: scenePhase) { phase in
             guard visible else { return }
@@ -153,6 +180,63 @@ struct AgentsView: View {
             if phase == .background { wasBackground = true; client.stop() }
             else if phase == .active && wasBackground { wasBackground = false; client.start(); push.refreshPermission(registerIfAllowed: true) }
         }
+    }
+
+    // kosmos#8055: what the Agents tab finds when it appears with no chat open (see Board.chatFoundClosed).
+    private func findClosedChat() {
+        guard openAgent == nil, agentRequest == nil, push.agentToOpen == nil else { return }
+        // A close while away this tab already said is not said twice; a new tab (the old one torn down) says it.
+        if client.chatClosedAwaySaidBy != tabID {
+            let was = client.chatOpen.map { (name: $0.name, epoch: $0.epoch) }
+            if let found = Board.chatFoundClosed(was: was, epochNow: client.chatEpoch, forgottenWhy: client.chatsForgottenWhy,
+                                                 forgottenByPerson: client.chatsForgottenByPerson, closedAway: client.chatClosedAway,
+                                                 keptName: UserDefaults.standard.string(forKey: Board.openChatKey)) {
+                noteClosed(found.name, found.close, noticedLater: true)
+            }
+        }
+        client.chatOpen = nil; client.chatClosedAway = false; client.chatClosedAwaySaidBy = nil
+        UserDefaults.standard.removeObject(forKey: Board.openChatKey)
+    }
+
+    // kosmos#8055: the link closed the chat, by a press on back or by the screen itself, told apart by how soon after the
+    // app came back it happened (the system back button cannot be seen). The close always goes through; this only records.
+    private func linkClosed() {
+        guard let a = openAgent else { return }   // cleared in code first (the chats forgotten): that path has its own line
+        // Read from UIKit at the moment of the close: SwiftUI's scenePhase in this closure can be the last body's.
+        if UIApplication.shared.applicationState != .active {
+            // Not in front (the lock, or the screen tearing the tab down around a return): not the person's. The open chat
+            // stays recorded, so a tab drawn again can still say what happened.
+            NSLog("[Chat] the open chat's link closed while the app was not in front")
+            client.chatClosedAway = true
+            client.chatClosedAwaySaidBy = tabID
+            noteClosed(a.name, .poppedAway)
+            return
+        }
+        let seconds = client.cameBackAt.map { Date().timeIntervalSince($0) }
+        // Every link close goes to the device log with its timing, line or not, so the log can rule the screen in or out.
+        NSLog("[Chat] the open chat's link closed, %@", seconds.map { String(format: "%.1f s after the app came back", $0) } ?? "with no return seen since the app last left")
+        noteClosed(a.name, .popped(secondsSinceReturn: seconds))
+    }
+
+    // kosmos#8055: shows the line, and logs the cause to the device log too, so it survives a dismissed line.
+    private func noteClosed(_ name: String, _ close: Board.ChatClose, noticedLater: Bool = false) {
+        guard let cause = Board.chatClosedCause(close) else { return }
+        let change = client.lastTabsChange
+        let why = Board.chatClosedWhy(cause, lastChange: change?.what, secondsBefore: change.map { Date().timeIntervalSince($0.at) })
+        NSLog("[Chat] an open chat closed: %@", why)
+        closedNote = Board.chatClosedLine(name: name, why: why, at: Date().formatted(date: .omitted, time: .shortened), noticedLater: noticedLater)
+    }
+
+    // kosmos#8055: one line over the tab bar, with its own close.
+    private func closedLine(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(text).font(.footnote).foregroundColor(Palette.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                .onAppear { UIAccessibility.post(notification: .announcement, argument: text) }
+            Button { closedNote = nil } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 44, height: 44) }
+                .accessibilityLabel("Dismiss")
+        }
+        .padding(.leading, 16).padding(.trailing, 4)
+        .background(Palette.ground)
     }
 
     // kosmos#7034: the row's star control, for the swipe and the long press.
