@@ -2,6 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const held = require('./loopheld');
@@ -31,11 +32,11 @@ test('#7693: the line ends with the load, so stalls can be compared at like load
   w.tick();
   t += held.TICK_MS + 2000;
   w.tick();
-  assert.deepEqual(lines, ['[loop-held] 2000 ms, 0 ms of it in blocking commands, load 4.2']);
+  assert.deepEqual(lines, ['[loop-held] 2000 ms, 0 ms of it in blocking commands, load 4.24']);
 });
 
 test('#7693: no load to report (Windows answers 0, a bad number, a failed read): the line stands without it', () => {
-  for (const load of [() => 0, () => NaN, () => undefined, () => { throw new Error('load'); }]) {
+  for (const load of [() => 0, () => NaN, () => Infinity, () => -1, () => undefined, () => { throw new Error('load'); }]) {
     const lines = [];
     let t = 0;
     const w = held.watch({ log: (l) => lines.push(l), now: () => t, load, setInterval: () => ({}) });
@@ -44,6 +45,26 @@ test('#7693: no load to report (Windows answers 0, a bad number, a failed read):
     w.tick();
     assert.deepEqual(lines, ['[loop-held] 2000 ms, 0 ms of it in blocking commands']);
   }
+});
+
+test('#7693: a load too small to round up is still not printed as an idle 0.0', () => {
+  const lines = [];
+  let t = 0;
+  const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => 0.04, setInterval: () => ({}) });
+  w.tick();
+  t += held.TICK_MS + 2000;
+  w.tick();
+  assert.match(lines[0], /, load 0\.04$/);
+});
+
+test('#7693: a sleep gap carries no load: a computer waking has none worth comparing', () => {
+  const lines = [];
+  let t = 0;
+  const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => 4.24, setInterval: () => ({}) });
+  w.tick();
+  t += held.TICK_MS + held.ASLEEP_MS;
+  w.tick();
+  assert.deepEqual(lines, [`[loop-held] gap ${held.ASLEEP_MS} ms, a sleeping computer or a very long stall`]);
 });
 
 test('the blocking time counts only this stall, not the ones before it', () => {
@@ -156,10 +177,10 @@ test('a real blocked thread is seen by the real timer, and slowspawn counts its 
     await pause(held.TICK_MS + 300);
   } finally { clearInterval(w.timer); }
   assert.equal(lines.length, 1, 'the real stall was not seen');
-  const m = lines[0].match(/^\[loop-held\] (\d+) ms, (\d+) ms of it in blocking commands(, load \d+\.\d)?$/);
+  const m = lines[0].match(/^\[loop-held\] (\d+) ms, (\d+) ms of it in blocking commands(, load \d+\.\d\d)?$/);
   assert.ok(m, lines[0]);
-  // The real read, not an injected one: only Windows has no load to report.
-  assert.equal(Boolean(m[3]), process.platform !== 'win32', lines[0]);
+  // The real read, not an injected one. A computer reporting no load (Windows, an idle VM) has no figure to show.
+  if (os.loadavg()[0] >= 0.1) assert.ok(m[3], 'a real load was not read: ' + lines[0]);
   assert.ok(Number(m[2]) >= 2000, 'the command was not counted: ' + lines[0]);
   assert.ok(slowspawn.blockedMs() - base >= 2000);
 });
