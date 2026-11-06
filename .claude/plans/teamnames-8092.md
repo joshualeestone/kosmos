@@ -2,8 +2,9 @@
 
 Design call on the card (Mona Lisa): build the user's first two asks as one small thing, not the third.
 - Each member row on the team step gets an Another name button beside its name box: a short name (3 to 5 plain letters,
-  from many places) that is not on the board, not elsewhere in the team, and not the one it has now.
-- Use short names, above the rows, does the same for every row still open.
+  from many places) that is not on the board, not elsewhere in the team, not one letter from either, and not the one it
+  has now.
+- Use short names, above the rows, does the same for every row, before the team starts (after, a failed row has Another).
 - No toggle (a setting for a once-per-team choice). Regional bias not built: Kosmos would have to guess a region.
 - Use short names replaces names the person typed too, as its words say; Another or typing undoes any one.
 - Both are offered only while names can change; Make still runs the engine's own taken-name check.
