@@ -134,3 +134,38 @@ test('#8122 r1: a compressed part that lies about its size, or unpacks past the 
   // CONTROL: the same workbook, honest about its size, is read.
   assert.deepEqual(x.readXlsx(fx.book({ S: big }, {}, { deflate: true })).sheets[0].rows, [['1']]);
 });
+
+/* Review 2 */
+test('#8122 r2: a part full of comments or CDATA is read in linear time, on the REAL clock (it ran 40 s+ before)', () => {
+  for (const [label, unit] of [['comments', '<!---->'], ['CDATA', '<![CDATA[]]>'], ['tags with no closer', '<x']]) {
+    const filler = unit.repeat(Math.floor((2 * 1024 * 1024) / unit.length));
+    const sheet = `<worksheet>${filler}<sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>`;
+    const b = fx.book({ S: sheet }, {}, { deflate: true });
+    const r = timed(() => x.readXlsx(b));
+    assert.ok(r.ms < 1000, `${label}: took ${r.ms} ms`);
+    if (label !== 'tags with no closer') assert.deepEqual(r.out.sheets[0].rows, [['1']], label + ': the real value was not read');
+  }
+});
+
+test('#8122 r2: an elapsed time past 24 hours is shown as Excel shows it (1.5 days under [h]:mm is 36:00)', () => {
+  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="166"/><xf numFmtId="46"/><xf numFmtId="167"/>',
+    '<numFmts><numFmt numFmtId="166" formatCode="[h]:mm"/><numFmt numFmtId="167" formatCode="[mm]:ss"/></numFmts>');
+  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="1"><v>1.5</v></c><c r="B1" s="2"><v>1.25</v></c><c r="C1" s="3"><v>0.0625</v></c></row>') }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(r.sheets[0].rows[0], ['36:00', '30:00:00', '90:00']);
+});
+
+test('#8122 r2: simple number formats show their decimals, thousands and percent as Excel does; locale dates are dates', () => {
+  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="2"/><xf numFmtId="4"/><xf numFmtId="9"/><xf numFmtId="168"/><xf numFmtId="31"/><xf numFmtId="22"/>',
+    '<numFmts><numFmt numFmtId="168" formatCode="0.0%"/></numFmts>');
+  const c = (ref, s, v) => `<c r="${ref}" s="${s}"><v>${v}</v></c>`;
+  const r = x.readXlsx(fx.book({ S: fx.SHEET(`<row r="1">${c('A1', 1, 3.14159)}${c('B1', 2, -1234567.891)}${c('C1', 3, 0.075)}${c('D1', 4, 0.1234)}${c('E1', 5, 45000)}${c('F1', 6, 0.99999999)}</row>`) }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(r.sheets[0].rows[0], ['3.14', '-1,234,567.89', '8%', '12.3%', '2023-03-15', '1900-01-01']);
+});
+
+test('#8122 r2: an entry the reader never reads ("[trash]/" from Excel, a name Windows cannot store) does not refuse the workbook', () => {
+  const b = fx.book({ S: fx.SHEET('<row r="1"><c r="A1"><v>7</v></c></row>') }, { '[trash]/0001.dat': 'x', '_xmlsignatures/sig1.xml': '<s/>', 'xl/media/a:b.png': 'x' }, { deflate: true });
+  assert.deepEqual(x.readXlsx(b).sheets[0].rows, [['7']]);
+  // CONTROL: the extraction rules are unchanged: the same archive is still refused by a strict listing.
+  const { readZipDirectory } = require('./win32zip');
+  assert.throws(() => readZipDirectory(b, { allowedTopLevel: ['xl', '_rels', '[Content_Types].xml'], maxEntries: 100, maxEntryBytes: 1e6, maxTotalBytes: 1e7 }));
+});

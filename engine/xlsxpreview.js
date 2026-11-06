@@ -19,7 +19,8 @@
  *   capped piece (a start tag, a format code), never on a whole part or an attacker-sized string;
  * - comments are cut and CDATA unwrapped first, so neither can hide or fake a value; namespace prefixes are dropped;
  * - each worksheet part is read once, however many sheets name it, and reading a sheet stops at its row cap;
- * - the whole read has a time budget (WORK_BUDGET_MS); past it the answer is "too large to preview";
+ * - the whole read has a time budget (WORK_BUDGET_MS), checked every 1024 steps of every loop and between parts; past
+ *   it the answer is "too large to preview". One scan (clean) is linear, so it needs no check inside;
  * - the grid is capped (MAX_SHEETS, MAX_ROWS, MAX_COLS, MAX_CELL_CHARS, MAX_SHARED_STRINGS).
  * Anything it cannot read is a XlsxRefusal with a sentence a person can be shown.
  *
@@ -48,6 +49,9 @@ const ZIP_LIMITS = {
   // docMetadata/: Microsoft 365 writes a sensitivity label there (review 1: such workbooks were refused).
   allowedTopLevel: ['[Content_Types].xml', '_rels', 'docProps', 'docMetadata', 'xl', 'customXml'],
   maxEntries: 2000, maxEntryBytes: MAX_PART_BYTES, maxTotalBytes: 4 * MAX_PART_BYTES,
+  // Review 2: an entry we never read ("[trash]/" from Excel, "_xmlsignatures/", a name Windows could not store) is left
+  // out of the listing, not a reason to refuse the workbook. Read-only: nothing here is ever written to disk.
+  skipUnsafeNames: true,
 };
 
 /* A clock for the work budget; `now` is replaced in tests. */
@@ -70,26 +74,33 @@ const escapeXml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(
    (`<x:sheetData>` as the .NET OpenXML SDK writes it). One forward pass each; the prefix pattern has no nested
    repetition and a bounded prefix, so it is linear. */
 function clean(xml) {
-  let out = '';
-  let at = 0;
+  // Review 2: ONE forward scan for "<", branching on what follows. Two searches per pass (one for each marker) rescanned
+  // to the end whenever a marker was absent, which made a part full of empty comments quadratic (a 25 KB file ran 40 s+).
+  if (xml.indexOf('<!') < 0) return stripPrefixes(xml);
+  const parts = [];
+  let at = 0;      // start of the text not yet copied
+  let i = 0;       // where the scan has reached
   for (;;) {
-    const c = xml.indexOf('<!--', at);
-    const d = xml.indexOf('<![CDATA[', at);
-    if (c < 0 && d < 0) { out += xml.slice(at); break; }
-    if (c >= 0 && (d < 0 || c < d)) {
-      out += xml.slice(at, c);
-      const end = xml.indexOf('-->', c + 4);
-      if (end < 0) break;               // a comment never closed: the rest is comment
-      at = end + 3;
-    } else {
-      out += xml.slice(at, d);
-      const end = xml.indexOf(']]>', d + 9);
-      if (end < 0) break;
-      out += escapeXml(xml.slice(d + 9, end));
-      at = end + 3;
-    }
+    const lt = xml.indexOf('<', i);
+    if (lt < 0) break;
+    if (xml.startsWith('<!--', lt)) {
+      parts.push(xml.slice(at, lt));
+      const end = xml.indexOf('-->', lt + 4);
+      if (end < 0) { at = xml.length; break; }   // a comment never closed: the rest is comment
+      at = i = end + 3;
+    } else if (xml.startsWith('<![CDATA[', lt)) {
+      parts.push(xml.slice(at, lt));
+      const end = xml.indexOf(']]>', lt + 9);
+      if (end < 0) { at = xml.length; break; }
+      parts.push(escapeXml(xml.slice(lt + 9, end)));
+      at = i = end + 3;
+    } else i = lt + 1;
   }
-  return out.replace(/<(\/?)[A-Za-z_][A-Za-z0-9_.-]{0,40}:(?=[A-Za-z_])/g, '<$1');
+  parts.push(xml.slice(at));
+  return stripPrefixes(parts.join(''));
+}
+function stripPrefixes(xml) {
+  return xml.replace(/<(\/?)[A-Za-z_][A-Za-z0-9_.-]{0,40}:(?=[A-Za-z_])/g, '<$1');
 }
 
 /* One attribute of a start tag (`<c r="B3" t="s">`), or null. Either quote, any namespace prefix (`r:id`, `ns1:id`).
@@ -173,34 +184,53 @@ function bareCode(code) {
   }
   return out;
 }
-/* What a number format shows: 'date' (a day, maybe with a time), 'time' (a time of day only), 'percent', or null. */
+/* What a number format shows: { kind: 'date' } (a day, maybe with a time), { kind: 'time' } (a time of day),
+   { kind: 'duration', unit: 'h' | 'm' | 's', seconds } ("[h]:mm": elapsed time past 24 hours, review 2), or
+   { kind: 'number', decimals, thousands, percent } for the simple codes ("0.00", "#,##0", "0.0%"), or null (shown as
+   saved). The first section of a code (before ";") decides. Currency symbols, fractions and the rest are null. */
 function formatKind(code) {
-  const bare = bareCode(code || '');
+  const bare = bareCode(String(code || '').split(';')[0]);
   if (bare === null) return null;
   const lower = bare.toLowerCase();
-  if (/[dy]/.test(lower)) return 'date';
-  if (/[hs]/.test(lower)) return 'time';
-  if (/m/.test(lower) && !/^[#0.,%\s]*$/.test(lower)) return 'date';   // "mmm" alone is a month
-  if (lower.indexOf('%') >= 0) return 'percent';
+  const dur = /^(h+|m+|s+)/.exec(lower);
+  if (dur && /\[(h+|m+|s+)\]/i.test(String(code || '').split(';')[0])) return { kind: 'duration', unit: dur[1][0], seconds: /s/.test(lower.slice(dur[1].length)) || dur[1][0] === 's' };
+  if (/[dy]/.test(lower)) return { kind: 'date' };
+  if (/[hs]/.test(lower)) return { kind: 'time' };
+  if (/m/.test(lower) && !/^[#0.,%\s]*$/.test(lower)) return { kind: 'date' };   // "mmm" alone is a month
+  const num = /^\s*(#,##0|#,#|0|#)?(?:\.(0+))?\s*(%)?\s*$/.exec(lower);
+  if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3] };
   return null;
 }
-/* Built-in number formats by id: dates 14-17 and 22, times 18-21 and 45-47, percents 9 and 10. */
+/* Built-in number formats by id (ECMA-376 18.8.30): 1 "0", 2 "0.00", 3 "#,##0", 4 "#,##0.00", 9 "0%", 10 "0.00%",
+   dates 14-17 and 22, times 18-21 and 45 and 47, the duration 46 "[h]:mm:ss", and the locale date formats 27-36 and
+   50-58 (review 2: shown as raw serials before). */
 function builtinKind(id) {
-  if ((id >= 14 && id <= 17) || id === 22) return 'date';
-  if ((id >= 18 && id <= 21) || (id >= 45 && id <= 47)) return 'time';
-  if (id === 9 || id === 10) return 'percent';
+  if (id === 1) return { kind: 'number', decimals: 0, thousands: false, percent: false };
+  if (id === 2) return { kind: 'number', decimals: 2, thousands: false, percent: false };
+  if (id === 3) return { kind: 'number', decimals: 0, thousands: true, percent: false };
+  if (id === 4) return { kind: 'number', decimals: 2, thousands: true, percent: false };
+  if (id === 9) return { kind: 'number', decimals: 0, thousands: false, percent: true };
+  if (id === 10) return { kind: 'number', decimals: 2, thousands: false, percent: true };
+  if ((id >= 14 && id <= 17) || id === 22 || (id >= 27 && id <= 36) || (id >= 50 && id <= 58)) return { kind: 'date' };
+  if (id === 46) return { kind: 'duration', unit: 'h', seconds: true };
+  if ((id >= 18 && id <= 21) || id === 45 || id === 47) return { kind: 'time' };
   return null;
 }
 /* For each cell style, what its number format shows (see formatKind), or null. */
-function styleKinds(stylesXml) {
+function styleKinds(stylesXml, budget = () => {}) {
   const custom = new Map();
-  for (const f of elements(stylesXml, 'numFmt')) custom.set(Number(attr(f.tag, 'numFmtId')), attr(f.tag, 'formatCode') || '');
+  let k = 0;
+  for (const f of elements(stylesXml, 'numFmt')) {
+    custom.set(Number(attr(f.tag, 'numFmtId')), attr(f.tag, 'formatCode') || '');
+    if ((++k & 1023) === 0) budget();
+  }
   const out = [];
   const xfs = elements(stylesXml, 'cellXfs').next().value;
   if (!xfs) return out;
   for (const x of elements(xfs.body, 'xf')) {
     const id = Number(attr(x.tag, 'numFmtId') || 0);
     out.push(custom.has(id) ? formatKind(custom.get(id)) : builtinKind(id));
+    if ((++k & 1023) === 0) budget();
   }
   return out;
 }
@@ -209,6 +239,7 @@ function styleKinds(stylesXml) {
    The 1904 system counts from 1904-01-01. */
 function serialDate(n, from1904 = false) {
   if (!Number.isFinite(n) || n < 0 || n > 2958465) return String(n);
+  n = Math.round(n * 86400) / 86400;   // review 2: to the second first, so a time just before midnight carries into the next day
   if (!from1904 && Math.floor(n) === 60) return '1900-02-29' + timePart(n);
   const days = from1904 ? n + 1462 : (n < 60 ? n + 1 : n);
   const ms = Math.round((days - 25569) * 86400000);   // 25569 = 1970-01-01 in the 1900 system
@@ -226,12 +257,30 @@ function serialTime(n) {
   const ss = secs % 60;
   return hh + ':' + mm + (ss ? ':' + String(ss).padStart(2, '0') : '');
 }
-/* A saved number as a person reads it: no float noise (0.30000000000000004 is 0.3), and a percent format as a percent. */
-function shownNumber(raw, kind) {
+/* A saved number as a person reads it: no float noise (0.30000000000000004 is 0.3); with a simple number format, its
+   decimal places, its thousands separator (as en-US writes them) and its percent sign, rounded half away from zero as
+   Excel does (0.075 under "0%" is 8%). */
+function shownNumber(raw, fmt) {
   const n = Number(raw);
   if (raw.trim() === '' || !Number.isFinite(n)) return raw;
-  const tidy = (x) => String(Number(x.toPrecision(15)));
-  return kind === 'percent' ? tidy(n * 100) + '%' : tidy(n);
+  if (!fmt || fmt.kind !== 'number') return String(Number(n.toPrecision(15)));
+  const v = Number((fmt.percent ? n * 100 : n).toPrecision(15));
+  const f = Math.pow(10, fmt.decimals);
+  const rounded = Math.sign(v) * Math.round(Math.abs(v) * f + 1e-9) / f;
+  let text = Math.abs(rounded).toFixed(fmt.decimals);
+  if (fmt.thousands) { const [i, d] = text.split('.'); text = i.replace(/\B(?=(\d{3})+$)/g, ',') + (d ? '.' + d : ''); }
+  return (rounded < 0 ? '-' : '') + text + (fmt.percent ? '%' : '');
+}
+/* An elapsed time ("[h]:mm:ss"): total hours, minutes or seconds, past 24 hours (Excel shows 1.5 days as 36:00). */
+function shownDuration(n, fmt) {
+  if (!Number.isFinite(n)) return String(n);
+  const total = Math.round(Math.abs(n) * 86400);
+  const sign = n < 0 ? '-' : '';
+  const pad = (x) => String(x).padStart(2, '0');
+  if (fmt.unit === 's') return sign + total;
+  if (fmt.unit === 'm') return sign + Math.floor(total / 60) + ':' + pad(total % 60);
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), sec = total % 60;
+  return sign + h + ':' + pad(m) + (fmt.seconds ? ':' + pad(sec) : '');
 }
 
 /**
@@ -263,7 +312,11 @@ function readXlsx(buf) {
   const pr = elements(workbook, 'workbookPr').next().value;
   const from1904 = !!pr && /^(1|true)$/i.test(attr(pr.tag, 'date1904') || '');
   const rels = new Map();
-  for (const r of elements(part('xl/_rels/workbook.xml.rels') || '', 'Relationship')) rels.set(attr(r.tag, 'Id'), attr(r.tag, 'Target') || '');
+  let rk = 0;
+  for (const r of elements(part('xl/_rels/workbook.xml.rels') || '', 'Relationship')) {
+    rels.set(attr(r.tag, 'Id'), attr(r.tag, 'Target') || '');
+    if ((++rk & 1023) === 0) budget();
+  }
   const shared = [];
   const sst = part('xl/sharedStrings.xml');
   if (sst) {
@@ -274,12 +327,14 @@ function readXlsx(buf) {
       if ((++k & 1023) === 0) budget();
     }
   }
-  const kinds = styleKinds(part('xl/styles.xml') || '');
+  const kinds = styleKinds(part('xl/styles.xml') || '', budget);
 
   const sheets = [];
   const readTargets = new Set();   // review 1: a part named by several sheets is read once
   let all = 0, anyValue = false, anyFormula = false, bareFormula = false;
+  let sk = 0;
   for (const s of elements(workbook, 'sheet')) {
+    if ((++sk & 1023) === 0) budget();
     if ((attr(s.tag, 'state') || '') === 'veryHidden') continue;   // a sheet Excel never shows, not even to unhide
     all++;
     if (sheets.length >= MAX_SHEETS) continue;
@@ -297,6 +352,7 @@ function readXlsx(buf) {
     let rowAt = -1;
     let k = 0;
     for (const row of data ? elements(data.body, 'row', true) : []) {
+      if ((++k & 1023) === 0) budget();
       const rr = Number(attr(row.tag, 'r'));
       rowAt = Number.isInteger(rr) && rr >= 1 ? rr - 1 : rowAt + 1;   // a row with no r is the next one (review 1)
       if (rowAt >= MAX_ROWS) { cut = true; break; }                  // review 1: stop at the cap, do not walk the rest
@@ -323,10 +379,12 @@ function readXlsx(buf) {
             else if (type === 'b') text = raw === '1' ? 'TRUE' : 'FALSE';
             else if (type === 'e' || type === 'str') text = raw;
             else {
-              const kind = kinds[Number(attr(c.tag, 's') || 0)] || null;
+              const fmt = kinds[Number(attr(c.tag, 's') || 0)] || null;
+              const kind = fmt && fmt.kind;
               text = kind === 'date' ? serialDate(Number(raw), from1904)
                 : kind === 'time' ? serialTime(Number(raw))
-                  : shownNumber(raw, kind);
+                  : kind === 'duration' ? shownDuration(Number(raw), fmt)
+                    : shownNumber(raw, fmt);
             }
           }
         }
@@ -355,5 +413,5 @@ function readXlsx(buf) {
 
 module.exports = {
   readXlsx, XlsxRefusal, MAX_FILE_BYTES, MAX_ROWS, MAX_COLS, MAX_SHEETS, MAX_CELL_CHARS, WORK_BUDGET_MS, TOO_LARGE, CANNOT_READ,
-  _internal: { unescapeXml, cellRef, serialDate, serialTime, styleKinds, formatKind, bareCode, clean, attr, shownNumber, setClockForTests: (fn) => { now = fn || (() => Date.now()); } },
+  _internal: { unescapeXml, cellRef, serialDate, serialTime, styleKinds, formatKind, builtinKind, bareCode, clean, attr, shownNumber, shownDuration, setClockForTests: (fn) => { now = fn || (() => Date.now()); } },
 };

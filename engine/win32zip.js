@@ -214,7 +214,11 @@ function readZipDirectory(buf, limits) {
     if (madeByHost === HOST_UNIX && ((externalAttributes >>> 16) & UNIX_FILE_TYPE_MASK) === UNIX_SYMLINK) {
       refuse(`the archive entry ${quoted(name)} is a link, and a Kosmos build has none`);
     }
-    const segments = checkEntryName(name, l.allowedTopLevel);
+    /* kosmos#8122: `skipUnsafeNames` (a READ-ONLY lister, never extractZip) leaves out an entry whose name breaks the rules
+       above, rather than refusing the archive, since nothing is written to disk. Every other check still refuses. */
+    let segments;
+    try { segments = checkEntryName(name, l.allowedTopLevel); }
+    catch (e) { if (l.skipUnsafeNames === true && e instanceof ZipRefusal) { at = next; continue; } throw e; }
     const isDirectory = name.endsWith('/');
     if (isDirectory && uncompressedSize !== 0) refuse(`the archive entry ${quoted(name)} is a folder with contents of its own`);
     if (uncompressedSize > l.maxEntryBytes) refuse(`the archive entry ${quoted(name)} unpacks to ${uncompressedSize} bytes, more than the ${l.maxEntryBytes} any one file in a Kosmos build may be`);
