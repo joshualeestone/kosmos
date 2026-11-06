@@ -48,7 +48,7 @@ final class EndPullUITests: XCTestCase {
 
     // A chat long enough to fill the screen: the list bounces back under the dots, and stays where it was.
     func testALongChatPullBouncesBackUnderTheDots() {
-        let app = launch(["KOSMOS_SAMPLE_LONG": "1"])
+        let app = launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_PULL_SECONDS": "10"])
         let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         KeyboardSlideUITests.settle(row)
@@ -62,10 +62,15 @@ final class EndPullUITests: XCTestCase {
         // A chat opens a little short of its true end and any touch settles it there, as with any scroll: up to 20 pt.
         let landed = row.frame.minY
         XCTAssertEqual(landed, before, accuracy: 20, "the list did not bounce back")
-        XCTAssertLessThanOrEqual(dots(app).frame.maxY, Self.box(app).frame.minY, "the dots rest under the message box, where nobody can see them")
+        // Mona Lisa, 11-06: centred in the gap, and 16 pt clear of the working line.
+        let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
+        XCTAssertTrue(working.exists, "CONTROL: no working line, so this checks no gap")
+        let dot = dots(app).frame, above = dot.minY - working.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
+        XCTAssertGreaterThanOrEqual(above, 16, "the dots hang off the working line: \(above) above, \(below) below")
+        XCTAssertEqual(above, below, accuracy: 8, "the dots are not centred in the gap: \(above) above, \(below) below")
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "end-pull-dots-long"; shot.lifetime = .keepAlways; add(shot)
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
-        wait(for: [gone], timeout: 12)
+        wait(for: [gone], timeout: 20)
         XCTAssertTrue(row.exists, "the newest message went away")
         XCTAssertEqual(row.frame.minY, landed, accuracy: 4, "the chat moved when the dots went")
     }

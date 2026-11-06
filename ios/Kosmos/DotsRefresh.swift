@@ -259,7 +259,7 @@ final class EndPullDriver: NSObject {
 
     @objc private func panned(_ gesture: UIPanGestureRecognizer) {
         guard gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed else { return }
-        guard logic.released() else { return }
+        guard logic.released() else { moved(); return }   // a cancelled gesture may never move the list again
         ChatView.trace("end pull: reading")
         moved()
         longestHold = Task { [weak self] in
