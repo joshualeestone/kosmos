@@ -866,8 +866,9 @@ struct ProjectRowView: View {
     private var word: Board.ProjectWord? { Board.projectWord(project, agentsUnreadable: unreadable) }
 
     // kosmos#7486 (Josh 10-28 09:35): Working is the Agents list's own animated green pill, in the same place; the other
-    // words keep their look. kosmos#7342 (Mona Lisa): the unread bubble at the right end, after the word, 6 pt apart, as the
-    // Agents list has it, so the two tabs read alike.
+    // words keep their look. kosmos#7342 (Mona Lisa): the unread bubble after the word, 6 pt apart, as the Agents list has
+    // it, so the two tabs read alike: at the row's right end, or under the name at the accessibility sizes. The pill wraps
+    // there rather than truncate, as the Agents list's does.
     private var stateAndBubble: some View {
         HStack(spacing: 6) {
             if word == .working {
@@ -885,7 +886,7 @@ struct ProjectRowView: View {
                 // ("Cove r sho...") and stood the Working pill on end, one letter a line.
                 Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(3)
                     .fixedSize(horizontal: false, vertical: true)   // its full height, or a sub-project's name stops at one line
-                stateAndBubble
+                if word != nil || Board.unreadBubble(project.unread) != nil { stateAndBubble }   // an idle row adds no empty line
             } else {
                 HStack(spacing: 6) {
                     Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(1)
