@@ -92,7 +92,7 @@ test('#7693: a load reading falling due with the line cap already full is still 
   w.tick();
   const stall = held.TICK_MS + held.HELD_MS;
   const stalls = held.MAX_PER_MINUTE + 2;
-  for (let left = held.LOAD_EVERY_MS - stall * (stalls - 1); left > 0; left -= held.TICK_MS) { t += held.TICK_MS; w.tick(); }
+  for (let left = held.LOAD_EVERY_MS - stall * stalls; left > 0; left -= held.TICK_MS) { t += held.TICK_MS; w.tick(); }
   for (let i = 0; i < stalls - 1; i += 1) { t += stall; w.tick(); }
   assert.equal(lines.filter((l) => l.startsWith('[loop-held]')).length, held.MAX_PER_MINUTE, 'control: the cap is full');
   assert.deepEqual(lines.filter((l) => l.startsWith('[load]')), [], 'control: the reading is not yet due');
