@@ -1602,6 +1602,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* The updating overlay: the board is about to vanish on purpose, and this is
    the sentence that stops that being alarming. Same ground as the modals. */
 .upd-back { position: fixed; inset: 0; background: rgba(17, 20, 24, 0.86);
+            --spin-gold: var(--gold);   /* kosmos#7896: a dark scrim in both themes, so the bright gold */
             display: flex; align-items: center; justify-content: center;
             z-index: 60; text-align: center; }
 .upd-back .upd-msg { color: #fff; font-size: 15px; line-height: 1.5; max-width: 26rem; padding: var(--space-8); }
