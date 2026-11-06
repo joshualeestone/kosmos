@@ -66,3 +66,11 @@ logged-ticks-not-said, early return silent: each red.
   reads the switch once with the tick's own fallbacks, so both name the same state.
 - NITs left: a throw inside the tick's own .then is reported as a failed tick (best-effort wording); a record
   unreadable at start is said by the existing "off" line and once more by the first tick.
+
+## Review round 6 (sonnet): two WARNINGs, fixed
+- The tick's logging was pinned only by source text: moved into the pure `tickLines(mem, r, { nowMs, unmeasured })`
+  in engine/autobalance-sweep.js; server.js prints exactly what it returns, and the tests drive it (logged handoff,
+  once-per-reason, once-per-run of write failures, hourly re-say).
+- A cleared risk read like a new one: "recorded a changed decision (a risk ended)".
+- NIT taken: a tick result that is not an object is said as the sweep giving no answer, never as healthy.
+- NIT left: settingOn and settingUnreadable read the file twice (a failure between the two reads is a tiny race).

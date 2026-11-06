@@ -232,4 +232,30 @@ function quietLine(said, { nowMs, offWhy = null, did = null, because = null, unm
   return line;
 }
 
-module.exports = { create, recent, append, appendAll, readLines, sweepOn, keyOf, quietLine, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS, QUIET_SAY_MS };
+/* kosmos#8083: every board-log line one finished sweep tick earns, in order. `mem` is the board's own
+   { unreadableSaid, writeSaid, quiet } kept between ticks (quiet is quietLine's { at, key }). A reason the board has
+   said is not said again until it changes; a write failure is said once per run of failures; then quietLine adds its
+   line unless this tick already printed one. A result that is not an object is said as the sweep giving no answer,
+   never as a healthy quiet tick. */
+function tickLines(mem, r, { nowMs, unmeasured = 0 } = {}) {
+  const lines = [];
+  if (!mem || typeof mem !== 'object') return lines;
+  if (!mem.quiet || typeof mem.quiet !== 'object') mem.quiet = { at: 0, key: null };
+  if (!r || typeof r !== 'object') {
+    const q = quietLine(mem.quiet, { nowMs, did: 'unreadable', because: 'the sweep gave no answer' });
+    return q ? [q] : lines;
+  }
+  if (r.did === 'recorded') lines.push('autobalance-sweep: recorded a changed decision');
+  if (r.did === 'cleared') lines.push('autobalance-sweep: recorded a changed decision (a risk ended)');
+  const why = r.did === 'unreadable' || r.did === 'gap' ? `${r.did}: ${r.because || 'unknown'}` : null;   // review 20 of #7152: a gap too
+  if (why && why !== mem.unreadableSaid) lines.push(`autobalance-sweep: could not record the decision (${why})`);
+  mem.unreadableSaid = why;
+  const failed = r.because === 'write-failed';
+  if (failed && mem.writeSaid !== true) lines.push('autobalance-sweep: its record could not be written; Settings says it is not recording');
+  mem.writeSaid = failed;
+  const q = quietLine(mem.quiet, { nowMs, did: r.did, because: r.because, unmeasured, logged: lines.length > 0 });
+  if (q) lines.push(q);
+  return lines;
+}
+
+module.exports = { create, recent, append, appendAll, readLines, sweepOn, keyOf, quietLine, tickLines, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS, QUIET_SAY_MS };
