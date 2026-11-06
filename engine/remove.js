@@ -1346,10 +1346,6 @@ function resolve(name, platform, listed) {
   // more candidate: if a listed card answers to the name too, the name is refused as ambiguous rather than acting on
   // the hidden agent the person never saw (kosmos#8113 review 3; test: "a hidden agent's exact name").
   if (exact && listed.some((c) => c && c.name === clean)) return asGiven;
-  // A REMOVED agent's exact name also wins, so the plan answers "already removed" as it did before #8109. Leaving it
-  // out instead would hand the name to a live card shown by it: a different agent than the one typed. If whether it
-  // was removed cannot be read, it stays a candidate (a refusal, never a guess). Test: "a removed agent's exact name".
-  if (exact) { let hidden = false; try { hidden = isHidden(clean); } catch { hidden = false; } if (hidden) return asGiven; }
   const want = clean.toLowerCase();
   const hits = exact ? [clean] : [];
   const displayOf = {};

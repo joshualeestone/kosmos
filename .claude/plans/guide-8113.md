@@ -70,10 +70,8 @@ removed (route test red); folder scan used despite cards (three engine tests red
 
 ## Review round 4 (sonnet; no BLOCKER, WARNING or CONVENTION: converged)
 - NIT: a removed agent's exact machine name, while a live card is shown by it, now refuses as ambiguous ("cai; cai2")
-  where it used to answer "already removed". Fails closed. FIXED after convergence (then reviewed again in round 5):
-  a removed agent's exact name wins, so the plan answers "already removed". Rejected: leaving removed folders out of
-  the exact candidate, which would hand `cai` to a live card shown as "Cai", a different agent than typed. Unreadable
-  removed state keeps it a candidate (a refusal). Route test; mutant red.
+  where it used to answer "already removed". Fails closed; DEFERRED (noted on #8113 as a follow-up: leave removed
+  folders out of the exact-name candidate, with a test).
 - NIT: the removed-agent route test leaves `krm8113` in the sandbox removed list --> DEFERRED (no later test reuses it).
 - NIT: one long docstring sentence --> DEFERRED (accurate).
 
