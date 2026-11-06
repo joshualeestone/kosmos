@@ -3230,6 +3230,16 @@ function autobalanceSweepRuns({ forTick = false } = {}) {
   const usagePoll = require('./engine/usagepoll');
   return !!autobalanceSweepRun && (forTick || autobalanceSweepRun.state.writeFailed !== true) && liveExecution.liveExecutionAllowed() && usagePoll.liveAllowed() && usagePoll.enabled() && autobalanceSweep.sweepOn();
 }
+/* kosmos#8083: the first of autobalanceSweepRuns({ forTick: true })'s gates that is shut, in words for the board log,
+   or null when they are all open. Same gates, same order. */
+function autobalanceSweepOffWhy() {
+  const usagePoll = require('./engine/usagepoll');
+  if (!autobalanceSweepRun) return 'its record could not be read when Kosmos started';
+  if (!liveExecution.liveExecutionAllowed()) return 'live execution is not allowed';
+  if (!usagePoll.liveAllowed() || !usagePoll.enabled()) return 'the usage poll is off';
+  if (!autobalanceSweep.sweepOn()) return 'AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF is set';
+  return null;
+}
 
 /* kosmos#7152 slice 3: what the auto-balance sweep reads, built fresh for each tick (the agents walk and the account
    list at most once). A function, not inline in the sweep, so a test can drive a real tick against the real wiring.
@@ -28485,6 +28495,11 @@ function start(port = PORT) {
         try { automoveRun = automove.create({ file: AUTOBALANCE_RECORD, periodMs: abSweepMs }); }
         catch (err) { process.stdout.write(`automove: off, its record could not be read (${String((err && err.message) || err)})\n`); }
       }
+      /* kosmos#8083: say at start that the sweep exists and whether the mover is on, so a board whose record stays
+         empty still shows both in its log. */
+      if (abSweep) process.stdout.write(`autobalance-sweep: started, every ${Math.round(abSweepMs / 60000)} min; the mover is ${automoveRun ? 'on' : 'off'}\n`);
+      const abQuietSaid = { at: 0, key: null };   // kosmos#8083: autobalanceSweep.quietLine's memory between ticks
+      const abSayQuiet = (opts) => { const line = autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), ...opts }); if (line) process.stdout.write(line + '\n'); };
       let abSweepWriteSaid = false;
       let abSweepUnreadableSaid = null;   // review 17: the last "could not work out" reason logged, so it is said once
       let abSweepBusy = 0;   // when the running tick started, or 0
@@ -28495,7 +28510,7 @@ function start(port = PORT) {
           if (abSweepBusy && Date.now() - abSweepBusy < 3 * usagePoll.POLL_MS) return;   // a backstop (slice 1's review 12). kosmos#7548 review round 8: the chain now awaits the mover's move, which can take minutes; the mover's own running guard is what stops a second move, and this only keeps a sweep from starting beside it
           /* Review 16: asked without the write arm, so a failed write is tried again; the flag clears only when a write
              succeeds, so Settings says "not recording" until one does. */
-          if (!abSweep || !autobalanceSweepRuns({ forTick: true })) return;
+          if (!abSweep || !autobalanceSweepRuns({ forTick: true })) { abSayQuiet({ offWhy: autobalanceSweepOffWhy() || 'unknown' }); return; }
           const started = Date.now();
           abSweepBusy = started;
           let ticking;
@@ -28504,6 +28519,7 @@ function start(port = PORT) {
           ticking
             .then((r) => {
               if (r && r.did === 'recorded') process.stdout.write('autobalance-sweep: recorded a changed decision\n');
+              abSayQuiet({ did: r && r.did, unmeasured: (abSweep.state.unmeasuredNow || []).length });
               const why = r && (r.did === 'unreadable' || r.did === 'gap') ? `${r.did}: ${r.because || 'unknown'}` : null;   // review 20: a gap too
               if (why && why !== abSweepUnreadableSaid) process.stdout.write(`autobalance-sweep: could not record the decision (${why})\n`);
               abSweepUnreadableSaid = why;
