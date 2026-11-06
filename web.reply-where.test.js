@@ -314,8 +314,8 @@ test('the update overlay carries the mark, and the loader never claims progress'
    * overlay or whatever, and just says Updating. There is not any sort of visual
    * indication that it's updating."* He sits through this on every build.
    *
-   * ⚠️ AND THE CHOICE OF LOADER IS THE POINT. The pack's K assembles, holds and
-   * opens back out; it never fills toward completion. A bar or a ring that
+   * ⚠️ AND THE CHOICE OF LOADER IS THE POINT. The mark (the pack's K until
+   * #7896, the KOSMOS orb since) loops; it never fills toward completion. A bar or a ring that
    * filled would claim to know how far along an update is, on the one screen
    * that cannot know — the same claim this app refuses everywhere else.
    *
