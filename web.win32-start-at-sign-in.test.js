@@ -145,26 +145,44 @@ test('when the rows cannot be read again, the switch is taken away and the page 
   assert.equal(rig.msg.textContent, 'We could not change whether Kosmos starts when you sign in just now.');
 });
 
-/* kosmos#7504: the route says when turning the switch on did not register the crash-recovery watchdog (#7498). The
-   switch shows on either way, so the line under the rows is the only place that failure is said. */
+/* kosmos#7504: the route says when turning the switch on did not register the crash-recovery watchdog (#7498), with
+   its kind. The switch shows on either way, so the line under the rows is the only place that failure is said. The
+   page owns the words (design review); the engine's own sentence is never shown. */
 const ON_ROWS = { status: 200, body: { checks: [{ ...AUTOSTART_ON, startAtSignIn: true }] } };
-test('kosmos#7504: switched on but the watchdog failed: the page says recovery is not set up, with the engine\'s reason', async () => {
-  const because = 'we could not register the job that restarts the board if it stops (ERROR: Access is denied.)';
-  const rig = clickRig({ clickedFrom: 'false', post: { status: 200, body: { ok: true, on: true, watchdog: { ok: false, because } } }, machine: ON_ROWS });
+const NO_REOPEN = 'Kosmos will start when you sign in, but it will not reopen on its own if it closes.';
+const RETRY = 'Turn the switch off and on to try again.';
+async function saidFor(watchdog) {
+  const rig = clickRig({ clickedFrom: 'false', post: { status: 200, body: { ok: true, on: true, watchdog } }, machine: ON_ROWS });
   await rig.fns.startAtSignInClick(rig.sw);
-  assert.equal(rig.msg.hidden, false, 'a failed watchdog was not said');
-  assert.equal(rig.msg.textContent, 'Kosmos will start when you sign in, but it is not yet set to start again if it closes: ' + because,
-    'a reason ending "denied.)" got a second full stop');
   assert.match(rig.mach.innerHTML, /aria-checked="true"/, 'the switch did not repaint on from the engine');
+  return rig.msg.hidden ? null : rig.msg.textContent;
+}
+
+test('kosmos#7504: Windows refused: the page says it will not reopen, Windows\' own words without ERROR:, and the way out', async () => {
+  const because = 'we could not register the job that restarts the board if it stops (ERROR: Access is denied.)';
+  assert.equal(await saidFor({ ok: false, kind: 'refused', detail: 'Access is denied.', because }),
+    NO_REOPEN + ' Windows did not allow it: Access is denied. ' + RETRY);
+  assert.equal(await saidFor({ ok: false, kind: 'refused', detail: '', because }), NO_REOPEN + ' Windows did not allow it. ' + RETRY, 'an empty detail left a colon');
+  assert.equal(await saidFor({ ok: false, kind: 'refused', because }), NO_REOPEN + ' Windows did not allow it. ' + RETRY);
 });
 
-test('kosmos#7504: a failed watchdog with no reason still says so, and a reason ending in a full stop gets one, not two', async () => {
-  for (const [because, tail] of [[undefined, 'Windows did not say why.'], ['', 'Windows did not say why.'], ['  ', 'Windows did not say why.'],
-    ['Kosmos has not set up its startup files yet.', 'Kosmos has not set up its startup files yet.'],
-    ['schtasks timed out', 'schtasks timed out.'], ['the job (no detail)', 'the job (no detail).']]) {
-    const rig = clickRig({ clickedFrom: 'false', post: { status: 200, body: { ok: true, on: true, watchdog: { ok: false, ...(because === undefined ? {} : { because }) } } }, machine: ON_ROWS });
-    await rig.fns.startAtSignInClick(rig.sw);
-    assert.equal(rig.msg.textContent, 'Kosmos will start when you sign in, but it is not yet set to start again if it closes: ' + tail, JSON.stringify(because));
+test('kosmos#7504: not set up yet is said as fixing itself, with no way out to take', async () => {
+  assert.equal(await saidFor({ ok: false, kind: 'not-yet', because: 'Kosmos has not set up its startup files on this computer yet, so the job that restarts it if it stops is registered the next time Kosmos starts' }),
+    'Kosmos will start when you sign in. It will set itself to reopen if it closes the next time it starts.');
+});
+
+test('kosmos#7504: no time left says "yet" and the way out; any other kind, or none, says the first sentence and the way out', async () => {
+  assert.equal(await saidFor({ ok: false, kind: 'no-time', because: 'there was no time left in this read to ask Task Scheduler, so ...' }),
+    'Kosmos will start when you sign in, but it will not reopen on its own if it closes yet. ' + RETRY);
+  for (const w of [{ ok: false, kind: 'other', because: 'we could not tell where Kosmos keeps its startup files' }, { ok: false, because: 'an older engine with no kind' }, { ok: false, kind: 'something new' }]) {
+    assert.equal(await saidFor(w), NO_REOPEN + ' ' + RETRY, JSON.stringify(w));
+  }
+});
+
+test('kosmos#7504: the engine\'s own sentence is never on the page, whatever the kind', async () => {
+  for (const kind of ['refused', 'not-yet', 'no-time', 'other', undefined]) {
+    const said = await saidFor({ ok: false, kind, because: 'ENGINE WORDS job board register', detail: 'Access is denied.' });
+    assert.ok(said && !/ENGINE WORDS|job|board|register/.test(said), kind + ': ' + said);
   }
 });
 
@@ -178,10 +196,10 @@ test('kosmos#7504 CONTROL: a watchdog registered or present, or no watchdog fiel
 });
 
 test('kosmos#7504: a refusal still wins over the watchdog line, and the keep-awake switch never reads a watchdog', async () => {
-  const refused = clickRig({ clickedFrom: 'false', post: { status: 409, body: { error: 'Windows said no', watchdog: { ok: false, because: 'x' } } }, machine: ON_ROWS });
+  const refused = clickRig({ clickedFrom: 'false', post: { status: 409, body: { error: 'Windows said no', watchdog: { ok: false, kind: 'refused' } } }, machine: ON_ROWS });
   await refused.fns.startAtSignInClick(refused.sw);
   assert.equal(refused.msg.textContent, 'Windows said no');
-  const awake = clickRig({ clickedFrom: 'false', post: { status: 200, body: { ok: true, on: true, watchdog: { ok: false, because: 'x' } } }, machine: ON_ROWS });
+  const awake = clickRig({ clickedFrom: 'false', post: { status: 200, body: { ok: true, on: true, watchdog: { ok: false, kind: 'refused' } } }, machine: ON_ROWS });
   await awake.fns.keepAwakeClick(awake.sw);
   assert.equal(awake.msg.hidden, true, 'keep-awake said a watchdog line');
 });

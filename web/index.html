@@ -21408,8 +21408,12 @@ function windowsCopyTable() {
     startAtSignInFailure: 'We could not change whether Kosmos starts when you sign in just now.',
     startAtSignInUnread: 'We could not read whether Kosmos starts when you sign in just now.',
     /* kosmos#7504: the switch went on but the #2988 watchdog was not registered, so the hint above is not yet true.
-       The engine's own reason follows the colon (its sentences are lower case, written to be read after a lead). */
-    startAtSignInNoRecovery: 'Kosmos will start when you sign in, but it is not yet set to start again if it closes:',
+       The page owns these words (Mona Lisa's design review); the engine says only which kind of failure it was. */
+    startAtSignInNoReopen: 'Kosmos will start when you sign in, but it will not reopen on its own if it closes.',
+    startAtSignInNoReopenYet: 'Kosmos will start when you sign in, but it will not reopen on its own if it closes yet.',
+    startAtSignInWindowsRefused: 'Windows did not allow it',
+    startAtSignInReopenNextStart: 'Kosmos will start when you sign in. It will set itself to reopen if it closes the next time it starts.',
+    startAtSignInTryAgain: 'Turn the switch off and on to try again.',
     /* Settings > Updates, the in-app updater armed (S4). The confirm dialog: the win32 updater
        downloads first, THEN stops the board to swap the new build in place, which the Mac's does not,
        so its body names both steps. */
@@ -27917,14 +27921,21 @@ async function startAtSignInClick(sw) {
     afterOk: startAtSignInRecoverySaid });
 }
 /* kosmos#7504: turning the switch on also registers the crash-recovery watchdog (#7498), and the route says when that
-   failed. The switch shows on either way, so without this line nobody learns that recovery is still missing. Only a
-   watchdog the engine says failed is said; a missing watchdog field (switched off, or an older engine) says nothing. */
+   failed, with its kind. The switch shows on either way, so without this line nobody learns that recovery is still
+   missing. Only a watchdog the engine says failed is said; a missing watchdog field (switched off, or an older engine)
+   says nothing. Turning the switch on registers it again, so that is the way out, except when Kosmos sets it up by
+   itself at its next start. */
 function startAtSignInRecoverySaid(out) {
   const w = out && out.watchdog;
   if (!w || w.ok !== false) return '';
-  const why = typeof w.because === 'string' && w.because.trim() ? w.because.trim() : 'Windows did not say why';
-  // One full stop: a reason that already ends a sentence, a closing bracket after it included, keeps its own.
-  return windowsCopy('startAtSignInNoRecovery') + ' ' + (/[.!?]\)?$/.test(why) ? why : why + '.');
+  if (w.kind === 'not-yet') return windowsCopy('startAtSignInReopenNextStart');
+  const retry = windowsCopy('startAtSignInTryAgain');
+  if (w.kind === 'no-time') return windowsCopy('startAtSignInNoReopenYet') + ' ' + retry;
+  if (w.kind === 'refused') {
+    const detail = typeof w.detail === 'string' ? w.detail.trim().replace(/[.\s]+$/, '') : '';
+    return windowsCopy('startAtSignInNoReopen') + ' ' + windowsCopy('startAtSignInWindowsRefused') + (detail ? ': ' + detail : '') + '. ' + retry;
+  }
+  return windowsCopy('startAtSignInNoReopen') + ' ' + retry;
 }
 /* kosmos#7416 slice 3: "Keep this computer awake while agents are working", the same way. */
 async function keepAwakeClick(sw) {

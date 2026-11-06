@@ -158,6 +158,8 @@ function withWatchdogState(state, watchdog) {
       base.calls.push(args.join(' '));
       fn.createTimeoutMs = opt && opt.timeoutMs;   // review 3: the /Create's own timeout
       fn.xml = fs.readFileSync(args[5]).toString('utf16le');
+      if (watchdog === 'create-refused') return { ok: false, out: 'ERROR: Access is denied.\r\nmore lines' };   // kosmos#7504
+      if (watchdog === 'create-silent') return { ok: false, out: '' };   // kosmos#7504
       return { ok: true, out: 'SUCCESS' };
     }
     return base(args);
@@ -217,6 +219,7 @@ test('#7498: a watchdog whose presence cannot be read is not created blind, and 
   assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
   assert.equal(r.watchdog.ok, false);
   assert.match(r.watchdog.because, /could not tell whether the job that restarts Kosmos if it stops is there/);
+  assert.equal(r.watchdog.kind, 'other', 'kosmos#7504: the kind Settings words this by');
 });
 
 test('#7498: switching it OFF never touches the watchdog (turning it off is not removing crash recovery here)', () => {
@@ -239,6 +242,7 @@ test('#7498 review 2: no node.exe at the anchor yet means no registration, and t
   const r = board.setStartAtSignIn(true, { ...BUNDLE, exists: (f) => !String(f).endsWith('node.exe') || !String(f).startsWith(ANCHOR_DIR) });
   assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
   assert.match(r.watchdog.because, /registered the next time Kosmos starts/, JSON.stringify(r));
+  assert.equal(r.watchdog.kind, 'not-yet', 'kosmos#7504: the kind Settings words this by');
 });
 
 test('#7498 review 2: a Task Scheduler too slow for the budget registers nothing and says so', () => {
@@ -248,6 +252,7 @@ test('#7498 review 2: a Task Scheduler too slow for the budget registers nothing
   const r = board.setStartAtSignIn(true, { ...BUNDLE, now: () => t });
   assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
   assert.match(r.watchdog.because, /no time left/, JSON.stringify(r));
+  assert.equal(r.watchdog.kind, 'no-time', 'kosmos#7504: the kind Settings words this by');
 });
 
 test('#7498 review 3: the task-list read spends the same budget (German, slow watchdog query): no list read, no /Create', () => {
@@ -258,6 +263,7 @@ test('#7498 review 3: the task-list read spends the same budget (German, slow wa
   assert.ok(!s.calls.some((c) => c.startsWith('/Query /FO')), 'the list was read with no time left: ' + s.calls.join(' | '));
   assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
   assert.match(r.watchdog.because, /no time left/, JSON.stringify(r));
+  assert.equal(r.watchdog.kind, 'no-time', 'kosmos#7504: the kind Settings words this by');
 });
 
 test('#7498 review 3: the /Create gets only what is left of the budget', () => {
@@ -281,4 +287,20 @@ test('#7498 review 3: a request that already spent its two timeouts on the board
   assert.equal(r.on, true, JSON.stringify(r));
   assert.ok(!s.calls.some((c) => c.includes('board-watchdog')), 'the watchdog was asked about past the deadline: ' + s.calls.join(' | '));
   assert.match(r.watchdog.because, /no time left/, JSON.stringify(r));
+  assert.equal(r.watchdog.kind, 'no-time', 'kosmos#7504: the kind Settings words this by');
+});
+
+/* kosmos#7504: a /Create Windows refused carries kind 'refused' and Windows' own first line without "ERROR:", so
+   Settings can word it itself; one that said nothing has an empty detail. */
+test('kosmos#7504: a watchdog /Create Windows refused answers kind refused, with Windows\' words as the detail', () => {
+  withWatchdogState({ registered: true, enabled: false }, 'create-refused');
+  const r = board.setStartAtSignIn(true, BUNDLE);
+  assert.equal(r.ok, true, 'the switch itself still worked: ' + JSON.stringify(r));
+  assert.equal(r.watchdog.ok, false);
+  assert.equal(r.watchdog.kind, 'refused');
+  assert.equal(r.watchdog.detail, 'Access is denied.');
+  assert.match(r.watchdog.because, /could not register the job that restarts the board if it stops \(ERROR: Access is denied\.\)/, 'the engine sentence changed');
+  withWatchdogState({ registered: true, enabled: false }, 'create-silent');
+  const q = board.setStartAtSignIn(true, BUNDLE);
+  assert.deepEqual([q.watchdog.kind, q.watchdog.detail], ['refused', ''], JSON.stringify(q));
 });
