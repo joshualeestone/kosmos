@@ -254,7 +254,10 @@ function hookEntries(dir, home, project) {
              (`-c '$CLAUDE_CONFIG_DIR/hooks/g.sh pre'`: an argument holding a space and a path). An extensionless path as
              the command itself is the script. Anything else cannot be checked. */
           const scripts = words.filter((x) => SCRIPT_EXT.test(x.trim()));
-          const script = scripts.length === 1 ? scripts[0] : (!scripts.length && /[\\/~$]/.test(words[0]) ? words[0] : null);
+          /* Review 8: as in the shell form, an extensionless path as the command, or as the first argument after an
+             interpreter, is the script. */
+          const xhead = /^(bash|sh|zsh|dash|node|python3?|pwsh|powershell)$/.test(words[0].trim().split(/[\\/]/).pop()) ? 1 : 0;
+          const script = scripts.length === 1 ? scripts[0] : (!scripts.length && words[xhead] && /[\\/~$]/.test(words[xhead]) ? words[xhead] : null);
           const hidden = h.args.some((x) => String(x) !== script && /\s/.test(String(x)) && looksLikePath(String(x)));
           const oneX = (x) => x.replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, path.resolve(dir))
             .split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
@@ -266,7 +269,8 @@ function hookEntries(dir, home, project) {
           if (at && sum === null && !missing(at)) throw new Error(`the hook script ${at} cannot be read`);
           const key = 'exec\n' + words.filter((x) => x !== script).map(oneX).join('\0') + (script ? '\n' + id : '');
           const viaProject = !!project && at !== null && resolveWord(script.trim(), dir, home, null) === null;
-          const unsure = hidden || scripts.length > 1;
+          /* Any other path-looking argument with no script named for certain could be what runs: cannot tell. */
+          const unsure = hidden || scripts.length > 1 || (!script && h.args.some((x) => looksLikePath(String(x))));
           list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum,
             unresolved: unsure || (!!script && (at === null || uncertain(viaProject, sum, words.join(' ')))) });
           continue;
