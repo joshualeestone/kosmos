@@ -311,12 +311,53 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     }, calmMk);
   }
 
+  /* #7896 (Josh 11-06 12:29): making an agent ends with the orb's dots becoming the green check (KORB.finish), through
+     startMadeMark. Review round 7 asked for proof at this level: the check is drawn and green; a finish while hidden
+     draws it when it shows, at full size; a theme change after it redraws it in the new --ok; a second finish is a
+     no-op; hold() leaves the orb still and not green. */
+  const finishArm = await page.evaluate(async () => {
+    const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+    const read = (cv) => { if (!cv || !cv.width) return { n: 0 }; const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0, r = 0, g = 0, b = 0, sum = 0; for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 60) { n++; r += d[i]; g += d[i + 1]; b += d[i + 2]; sum += i; }
+      return n ? { n, r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n), sum, w: cv.width } : { n: 0, w: cv.width }; };
+    const green = (x) => x.n > 100 && x.g > x.r + 20 && x.g > x.b + 20;
+    if (typeof startMadeMark !== 'function' || !KORB.finish) return { error: 'startMadeMark or KORB.finish is missing' };
+    const mk = (id) => { const h = document.createElement('div'); h.style.cssText = 'position:fixed;left:700px;top:' + (10 + 100 * mk.n++) + 'px;z-index:99999;background:#faf9f7'; h.innerHTML = '<div class="made-mark" id="' + id + '"></div>'; document.body.appendChild(h); return h; };
+    mk.n = 0;
+    const out = {};
+    // 1. Seen: finish, then the check, green and held.
+    const h1 = mk('__f1'), m1 = startMadeMark(document.getElementById('__f1'));
+    await wait(500); const cv1 = document.querySelector('#__f1 canvas.korb'); out.before = read(cv1);
+    m1.finish(); m1.finish();   // the second is a no-op
+    await wait(1800); out.after = read(cv1); await wait(300); out.held = read(cv1);
+    // 2. A theme change after it: redrawn in the dark theme's --ok.
+    const was = document.documentElement.getAttribute('data-theme');
+    document.documentElement.setAttribute('data-theme', 'dark'); await wait(300); out.dark = read(cv1);
+    if (was === null) document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', was);
+    await wait(300); out.light = read(cv1);
+    // 3. Finished while hidden: the check when it shows, at full size.
+    const h2 = mk('__f2'), m2 = startMadeMark(document.getElementById('__f2'));
+    await wait(500); const cv2 = document.querySelector('#__f2 canvas.korb'); const w0 = cv2.width;
+    h2.hidden = true; await wait(100); m2.finish(); await wait(400); out.hiddenBefore = read(cv2);
+    h2.hidden = false; await wait(300); out.hiddenAfter = read(cv2); out.hiddenW0 = w0;
+    // 4. hold(): still, not green.
+    const h3 = mk('__f3'), m3 = startMadeMark(document.getElementById('__f3'));
+    await wait(400); m3.hold(); await wait(200); const cv3 = document.querySelector('#__f3 canvas.korb'); out.holdA = read(cv3); await wait(400); out.holdB = read(cv3);
+    for (const h of [h1, h2, h3]) h.remove();
+    out.ok = { seenGreen: green(out.after), held: out.after.sum === out.held.sum, wasGold: out.before.n > 100 && !green(out.before),
+      darkRecoloured: green(out.dark) && out.dark.g > out.after.g + 40, backToLight: green(out.light) && Math.abs(out.light.g - out.after.g) < 6,
+      hiddenGold: !green(out.hiddenBefore), hiddenGreen: green(out.hiddenAfter) && out.hiddenAfter.w === w0,
+      holdStill: out.holdA.n > 100 && out.holdA.sum === out.holdB.sum && !green(out.holdB) };
+    return out;
+  });
   await browser.close();
 
   const orbProblems = [];
   if (smallKeepsDots.orbCanvas || smallKeepsDots.dots !== 8) orbProblems.push('a small spinner was given the orb or lost its dots (Josh 11-06: small spinners keep the Sweep dots): ' + JSON.stringify(smallKeepsDots));
   // The dots keep the contrast fix (#7930): the same gold as the orb, the deep one on a light ground.
   if (!smallKeepsDots.dot || smallKeepsDots.dot !== smallKeepsDots.orbDot || smallKeepsDots.dot.toLowerCase() !== '#9c741b') orbProblems.push('a small spinner is not in the orb\'s gold (the deep gold on light grounds, 3:1): ' + JSON.stringify(smallKeepsDots));
+  if (finishArm.error) orbProblems.push('the finish: ' + finishArm.error);
+  else for (const [k, v] of Object.entries(finishArm.ok)) if (!v) orbProblems.push('the finish (making an agent, KORB.finish): ' + k + ' failed: ' + JSON.stringify(finishArm));
   if (onGold.error) orbProblems.push('orb on a gold button: ' + onGold.error);
   else if (!(onGold.avgRed >= 0 && onGold.avgRed < 90)) orbProblems.push('orb on a gold button: drawn in gold (average red ' + onGold.avgRed + '), not the button\'s dark ink, so it vanishes on the gold');
   // Within 14 of the wanted colour on each channel: the canvas blends edges, so the average is near the colour, not on it.
