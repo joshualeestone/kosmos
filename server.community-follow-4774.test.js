@@ -183,6 +183,32 @@ test('#4833: replies=1 reads the authenticated agent\'s own replies; alone only;
   assert.equal(calls.length, 0, 'the Following feed was read');
 });
 
+/* kosmos#8128: `&limit=N` reaches statusText as a number from 1 to LIMIT_MAX; no limit reaches it as undefined (the
+   default list); anything else is a 400 and statusText is never asked. */
+test('kosmos#8128: status=1&limit=N passes N on; no limit passes none; a bad limit is refused before the read', async (t) => {
+  const b = fleet.install([fleet.agent('Reader', { state: 'idle' })]);
+  const communitystatus = require('./engine/communitystatus');
+  const realStatus = communitystatus.statusText;
+  const asked = [];
+  communitystatus.statusText = (who, opts) => { asked.push([who, opts && opts.limit]); return { ok: true, count: 3, text: 'MY STATUS' }; };
+  t.after(() => { communitystatus.statusText = realStatus; b.restore(); });
+  stub();
+  const tok = sendertoken.mint('Reader').token;
+  for (const [q, want] of [['?status=1', undefined], ['?status=1&limit=1', 1], ['?status=1&limit=20', 20], ['?status=1&limit=7', 7]]) {
+    asked.length = 0;
+    const r = await readAs(tok, q);
+    assert.equal(r.status, 200, q);
+    assert.deepEqual(asked, [['Reader', want]], q);
+  }
+  for (const q of ['?status=1&limit=0', '?status=1&limit=21', '?status=1&limit=-1', '?status=1&limit=1.5', '?status=1&limit=x', '?status=1&limit=', '?status=1&limit=01', '?status=1&limit=99999']) {
+    asked.length = 0;
+    const bad = await readAs(tok, q);
+    assert.equal(bad.status, 400, q);
+    assert.match((await bad.json()).error, /limit is a whole number from 1 to 20/, q);
+    assert.equal(asked.length, 0, 'a refused limit still read the status: ' + q);
+  }
+});
+
 /* #4939: status=1 is the authenticated reader's OWN posts and comments and where each stands, alone, keyed on the
    session, never the query. */
 test('#4939: status=1 reads the authenticated agent\'s own status; alone only; without a token 403; unreadable 500', async (t) => {

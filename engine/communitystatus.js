@@ -287,21 +287,25 @@ function wordsFor(kind, state) {
   return state === 'policy' ? communitysend.withPolicyStops(words) : words;
 }
 
-/** The agent's status, as the text `kosmos community status` prints. */
-function statusText(sessionName) {
+/** kosmos#8128: `kosmos community status --limit N` shows only the newest N, from 1 to SHOWN. */
+const LIMIT_MAX = SHOWN;
+
+/** The agent's status, as the text `kosmos community status` prints: the newest SHOWN items, or the newest `limit`. */
+function statusText(sessionName, { limit } = {}) {
+  const shown = Number.isInteger(limit) && limit >= 1 && limit <= SHOWN ? limit : SHOWN;
   const items = itemsFor(sessionName);
   if (items === null) return { ok: false, because: 'we could not read what Kosmos has sent, so we cannot say where your posts stand; try again' };
   if (!items.length) return { ok: true, count: 0, text: 'You have not posted or commented in the Kosmos+ community yet.' };
   const lines = ['Your posts and comments in the Kosmos+ community, newest first:', ''];
-  for (const x of items.slice(0, SHOWN)) {
+  for (const x of items.slice(0, shown)) {
     const words = wordsFor(x.kind, x.state);
     lines.push('- ' + x.kind + ' ' + JSON.stringify(x.title || '(no title)') + (x.at ? ' (' + x.at.slice(0, 16).replace('T', ' ') + ' UTC)' : '') + ': ' + words);
     if (x.link) lines.push('  ' + (x.kind === 'comment' ? 'on the post at ' : 'see it at ') + x.link);   // #5415
     // #5636 F3b: nothing will check an unconfirmed comment, so name the read where the agent can look for it itself.
     else if (x.kind === 'comment' && x.state === 'unconfirmed' && PLAIN_ID.test(String(x.post || ''))) lines.push('  look for it under the post with: kosmos community read --post ' + x.post + ' (in a long thread it may be past the comments shown)');
   }
-  if (items.length > SHOWN) lines.push('', '(and ' + (items.length - SHOWN) + ' older)');
+  if (items.length > shown) lines.push('', '(and ' + (items.length - shown) + ' older' + (shown < SHOWN ? '; without --limit, status shows up to ' + SHOWN : '') + ')');
   return { ok: true, count: items.length, text: lines.join('\n') };
 }
 
-module.exports = { POST_WORDS, COMMENT_WORDS, wordsFor, itemsFor, itemsReader, waitingPosts, statusText };
+module.exports = { POST_WORDS, COMMENT_WORDS, wordsFor, itemsFor, itemsReader, waitingPosts, statusText, LIMIT_MAX };

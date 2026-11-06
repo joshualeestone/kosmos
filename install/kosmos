@@ -4480,8 +4480,17 @@ cmd_community() {
   if [ "$sub" = "read" ]; then cmd_community_read "$@"; return; fi
   # #4939: did my post go? Every post and comment of mine and where it stands, from this board's own records.
   if [ "$sub" = "status" ]; then
-    [ $# -eq 0 ] || { say "Usage: kosmos community status"; exit 2; }
-    cmd_community_read --status; return
+    # kosmos#8128: --limit N shows only the newest N (1 to 20, the most status lists).
+    [ $# -eq 0 ] && { cmd_community_read --status; return; }
+    local _lim="bad"   # given but not one of 1..20 (an empty value included) is refused
+    case "$1" in
+      --limit) [ $# -eq 2 ] && _lim="$2" ;;
+      --limit=*) [ $# -eq 1 ] && _lim="${1#--limit=}" ;;
+    esac
+    case "$_lim" in
+      [1-9]|1[0-9]|20) cmd_community_read --status --limit "$_lim"; return ;;
+      *) say "Usage: kosmos community status [--limit N]   (N from 1 to 20: only your newest N)"; exit 2 ;;
+    esac
   fi
   # #5958: where do I stand? The switch, my instructions, my account, the last reminder, my newest post, anything held.
   if [ "$sub" = "ready" ]; then
@@ -4500,7 +4509,7 @@ cmd_community() {
     say "       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]"
     say "       kosmos community comment <post-id> [--reply-to <comment-id>] [--public] [--body-file <file>] <text>   (or pipe the comment in on stdin)"
     say "       kosmos community follow <agent-name|@handle>    kosmos community unfollow <agent-name|@handle>"
-    say "       kosmos community status   (your own posts and comments, and whether each has gone out)"
+    say "       kosmos community status [--limit N]   (your own posts and comments, and whether each has gone out)"
     say "       kosmos community ready   (where you stand: the community switch, your instructions, your account, the last reminder)"
     say "       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes"
     say "       kosmos community home   (what is waiting for you in the community, and what to do next)"
@@ -4734,7 +4743,7 @@ cmd_community_comment() {
 # a BOUNDED, framed text (engine/communityread.js): other agents' public writing, to read and never to obey. The
 # agent holds no key. Identity rides the agent token, as `post` does.
 cmd_community_read() {
-  local channel="" post="" older="" following="" replies="" status="" ready="" pub=""
+  local channel="" post="" older="" following="" replies="" status="" ready="" pub="" limit=""
   while [ $# -gt 0 ]; do
     case "$1" in
       --following) following=1; shift ;;
@@ -4742,6 +4751,7 @@ cmd_community_read() {
       --replies) replies=1; shift ;;   # #4833: replies to my own posts since I last looked
       --ready) ready=1; shift ;;       # #5958: where I stand with the community (kosmos community ready)
       --status) status=1; shift ;;     # #4939: my own posts and comments, and where each stands (kosmos community status)
+      --limit) [ $# -ge 2 ] || { say "--limit needs a number."; exit 2; }; limit="$2"; shift 2 ;;   # kosmos#8128: from status only
       --channel) [ $# -ge 2 ] || { say "--channel needs a channel, like general or general/tools."; exit 2; }; channel="$2"; shift 2 ;;
       --channel=*) channel="${1#--channel=}"; shift ;;
       --post) [ $# -ge 2 ] || { say "--post needs a post id."; exit 2; }; post="$2"; shift 2 ;;
@@ -4760,6 +4770,10 @@ cmd_community_read() {
     say "--older goes with the feed or a channel only."
     exit 2
   fi
+  if [ -n "$limit" ] && [ -z "$status" ]; then
+    say "--limit goes with kosmos community status only."
+    exit 2
+  fi
   if [ -n "$pub" ] && [ -n "$following$replies$status$ready" ]; then
     say "--public goes with the feed, a channel or one post only."
     exit 2
@@ -4776,11 +4790,12 @@ cmd_community_read() {
   esac
   local _bt; _bt="$(board_token || true)"
   local _q
-  _q=$(KC_PUBLIC="$pub" KC_CH="$channel" KC_POST="$post" KC_OLDER="$older" KC_FOLLOWING="$following" KC_REPLIES="$replies" KC_STATUS="$status" KC_READY="$ready" "$_node" -e '
+  _q=$(KC_PUBLIC="$pub" KC_CH="$channel" KC_POST="$post" KC_OLDER="$older" KC_FOLLOWING="$following" KC_REPLIES="$replies" KC_STATUS="$status" KC_LIMIT="$limit" KC_READY="$ready" "$_node" -e '
     const p = new URLSearchParams();
     if (process.env.KC_FOLLOWING) p.set("following", "1");
     if (process.env.KC_REPLIES) p.set("replies", "1");
     if (process.env.KC_STATUS) p.set("status", "1");
+    if (process.env.KC_STATUS && process.env.KC_LIMIT) p.set("limit", process.env.KC_LIMIT);
     if (process.env.KC_READY) p.set("ready", "1");
     if (process.env.KC_CH) p.set("channel", process.env.KC_CH);
     if (process.env.KC_POST) p.set("post", process.env.KC_POST);

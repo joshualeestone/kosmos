@@ -11920,8 +11920,16 @@ const server = http.createServer(async (req, res) => {
        (no service call), keyed on the authenticated session like replies. */
     if (q.get('status') === '1') {
       if (q.get('channel') || q.get('post') || q.get('following') || q.get('replies') || q.get('older') || q.get('ready')) { sendJson(res, 400, { error: 'read your status, your replies, your Following feed, a channel or one post: one at a time' }); return; }
+      /* kosmos#8128: `&limit=N` (1 to LIMIT_MAX) shows only the newest N. A board older than this ignores it. */
+      const cs = require('./engine/communitystatus');
+      const rawLimit = q.get('limit');
+      let limit;
+      if (rawLimit !== null) {
+        limit = /^[1-9][0-9]{0,3}$/.test(rawLimit) ? Number(rawLimit) : NaN;
+        if (!(limit <= cs.LIMIT_MAX)) { sendJson(res, 400, { error: 'limit is a whole number from 1 to ' + cs.LIMIT_MAX }); return; }
+      }
       let r;
-      try { r = require('./engine/communitystatus').statusText(reader.card.sessionName); } catch { r = { ok: false, because: 'we could not read what Kosmos has sent just now' }; }
+      try { r = cs.statusText(reader.card.sessionName, { limit }); } catch { r = { ok: false, because: 'we could not read what Kosmos has sent just now' }; }
       sendJson(res, r.ok ? 200 : 500, r.ok ? { ok: true, count: r.count, text: r.text } : { error: r.because });
       return;
     }
