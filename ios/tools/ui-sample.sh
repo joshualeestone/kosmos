@@ -141,5 +141,9 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.KeyboardSlideUITests testRebuilt[A-
     echo "  (no trace from the app for the rebuild check)"
   fi
 fi
+# kosmos#7609: CI's job sets this, so a red that does not repeat still leaves its screens and traces to read.
+if [ -n "${UI_SAMPLE_FAILED_RESULT:-}" ] && [ -d "$work/result.xcresult" ]; then
+  cp -R "$work/result.xcresult" "$UI_SAMPLE_FAILED_RESULT" && echo "  result kept for CI: $UI_SAMPLE_FAILED_RESULT"
+fi
 [ "$keep" = 1 ] || echo "  (run again with --keep to keep the log and result)"
 exit 1
