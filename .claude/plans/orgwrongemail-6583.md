@@ -34,3 +34,12 @@ page code keys on the list of org codes (grep: only engine/orgenroll.js and its 
 - NIT taken: a comment that pilots are company-only, so org_pilot_full is never said to a family.
 - Noted, not this card: review_account (the store-review account only) is still uncoded on these screens;
   org_wrong_domain's older sentence reads close to org_wrong_email's.
+
+## Review round 3 (sonnet)
+- WARNING taken: round 2's comment claimed pilots are company-only, which the coordinator does not enforce (no kind
+  check on pilots). Deleted, not reworded. And since org_pilot_full is refused at the preview, before the board knows
+  the org's kind, its sentence is now kind-neutral ("This Kosmos+ pilot has no free seat. Ask whoever sent the code to
+  free one or add seats."), like the other refusals made before any org is known, and familysay-6251's guard covers it
+  (red with a company-worded sentence).
+- Noted: a coded refusal on the accept path now reads as "did not take the acceptance" rather than the unknown line;
+  neither new code comes from that route.
