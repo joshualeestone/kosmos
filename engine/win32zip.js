@@ -322,4 +322,4 @@ function extractZip(buf, destDir, limits) {
   return { entries: entries.length, bytes };
 }
 
-module.exports = { readZipDirectory, extractZip, ZipRefusal };
+module.exports = { readZipDirectory, extractZip, entryContents, ZipRefusal };   // entryContents: kosmos#8122 reads one checked entry (xlsxpreview)
