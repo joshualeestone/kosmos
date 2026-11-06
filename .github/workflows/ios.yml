@@ -260,5 +260,14 @@ jobs:
       - name: UI tests (sample board)
         run: |
           set -o pipefail
-          ios/tools/ui-sample.sh | tee "$RUNNER_TEMP/ui-sample.log"
+          UI_SAMPLE_FAILED_RESULT="$RUNNER_TEMP/ui-result.xcresult" ios/tools/ui-sample.sh | tee "$RUNNER_TEMP/ui-sample.log"
           grep -q '^PASS  ui-sample:' "$RUNNER_TEMP/ui-sample.log"
+
+      # kosmos#7609: three reds on main in a day left nothing to read. Sample data only: no account, no real messages.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ui-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/ui-result.xcresult
+          retention-days: 7
+          if-no-files-found: ignore
