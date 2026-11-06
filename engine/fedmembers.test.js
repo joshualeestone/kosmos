@@ -432,4 +432,11 @@ test('#8103: every live invite is kept, so the oldest of 100 can still be withdr
   await fedmembers.invite(ms, { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
   for (let i = 0; i < 70; i++) await fedmembers.invite(lapsed, { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
   assert.ok(!fedmembers.rowsFor('mixed').some((r) => r.invite_id === 'ms-1'), 'a row whose expiry is in milliseconds was kept as live');
+  // The bound itself: an expiry 31 days out is not a code's, 7 days is (both unused, among 70 newer finished rows).
+  const at = (days, id) => stubRemote({ '/v1/mac/federation/invite': () => ({ ok: true, data: { code: id, expires_at: Math.floor(Date.now() / 1000) + days * DAY, invite_id: id } }) });
+  await fedmembers.invite(at(31, 'far-31'), { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
+  await fedmembers.invite(at(7, 'week-7'), { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
+  for (let i = 0; i < 70; i++) await fedmembers.invite(lapsed, { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
+  const bound = fedmembers.rowsFor('mixed');
+  assert.ok(!bound.some((r) => r.invite_id === 'far-31') && bound.some((r) => r.invite_id === 'week-7'), 'the 30-day bound did not tell a 31-day expiry from a 7-day one');
 });

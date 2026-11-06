@@ -28,7 +28,7 @@ const LABEL_MAX = 80;
    never dropped, because the coordinator lets one account hold up to 100 of them (FED_INVITES_OUTSTANDING_MAX) for 7
    days, and a row the board has forgotten can be neither listed nor withdrawn while it still counts against that cap.
    Live rows are bounded by that cap plus codes used that this board has not noted yet, each lapsing within 7 days (then
-   trimmed at the next invite); this bounds the rest (used, withdrawn or expired), newest kept. */
+   held to the 64 bound like any finished row); this bounds the rest (used, withdrawn or expired), newest kept. */
 const KEEP_PER_PROJECT = 64;
 
 function file() { return path.join(store.ROOT, FILE); }
