@@ -644,14 +644,16 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.evaluate(() => localStorage.setItem('kosmos.create.provider', 'antigravity'));
       let release; hold = new Promise((r) => { release = r; });
       await p.locator('#create-msg button').click();
-      await p.evaluate(() => document.getElementById('new-agent').click());
-      // Review 1: the hand pick lands while the saved pick's read is out, after the accounts have answered.
-      await p.waitForFunction(() => typeof AGY_ASKING !== 'undefined' && !!AGY_ASKING && Array.isArray(CREATE_ACCOUNTS) && CREATE_ACCOUNTS.length === 2, null, { timeout: 8000 });
-      const during = await p.evaluate(() => !!AGY_ASKING && CREATE_ACCOUNTS.length === 2);
+      /* Review 2: CREATE_ACCOUNTS still holds the first open's list, so the wait is for THIS open's answer (a new array:
+         the fetch replaces it) as well as the saved pick's read still being out. Only then does the hand pick land. */
+      await p.evaluate(() => { window.__accts8051 = CREATE_ACCOUNTS; document.getElementById('new-agent').click(); });
+      await p.waitForFunction(() => !!AGY_ASKING && CREATE_ACCOUNTS !== window.__accts8051 && CREATE_ACCOUNTS.length === 2, null, { timeout: 8000 });
+      const during = await p.evaluate(() => !!AGY_ASKING && CREATE_ACCOUNTS !== window.__accts8051);
       await p.selectOption('#create-provider', 'anthropic');
       await p.dispatchEvent('#create-provider', 'change');
       release();
-      await p.waitForTimeout(900);
+      await p.waitForFunction(() => !AGY_ASKING, null, { timeout: 8000 });   // review 2: the read answered, not a fixed sleep
+      await p.waitForTimeout(300);   // and the block it resumes has run
       const st = await p.evaluate(() => ({ prov: document.getElementById('create-provider').value, acct: document.getElementById('create-account').value, name: document.getElementById('create-name').value }));
       chk(during, '#8051: CONTROL: the hand pick lands while the saved pick\'s read is still out', JSON.stringify({ during }));
       chk(st.prov === 'anthropic', '#8051: CONTROL: the provider picked by hand wins over a saved pick that has become usable', JSON.stringify(st));
