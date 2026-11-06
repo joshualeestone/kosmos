@@ -35,12 +35,12 @@ test('kosmos#8083: unmeasured accounts are counted in the line, one and many', (
   }
 });
 
-test('kosmos#8083: a shut gate says why, at once on a change and hourly while it holds; opening it again says so at once', () => {
+test('kosmos#8083: a shut gate says why at once on a change, NOT hourly (a default install has the poll off); opening it again says so at once', () => {
   const said = { at: 0, key: null };
   assert.equal(quietLine(said, { nowMs: T0, did: 'nothing' }), 'autobalance-sweep: running, nothing new to record');
   assert.equal(quietLine(said, { nowMs: T0 + MIN, offWhy: 'the usage poll is off' }), 'autobalance-sweep: not running: the usage poll is off', 'a change of state waited for the hour');
   assert.equal(quietLine(said, { nowMs: T0 + 30 * MIN, offWhy: 'the usage poll is off' }), null);
-  assert.equal(quietLine(said, { nowMs: T0 + 61 * MIN, offWhy: 'the usage poll is off' }), 'autobalance-sweep: not running: the usage poll is off');
+  for (const h of [1, 5, 48]) assert.equal(quietLine(said, { nowMs: T0 + h * 60 * MIN + MIN, offWhy: 'the usage poll is off' }), null, 'a setting-off state was repeated after ' + h + ' h');
   assert.equal(quietLine(said, { nowMs: T0 + 62 * MIN, offWhy: 'live execution is not allowed' }), 'autobalance-sweep: not running: live execution is not allowed', 'a different reason is a change');
   assert.equal(quietLine(said, { nowMs: T0 + 63 * MIN, did: 'nothing' }), 'autobalance-sweep: running, nothing new to record');
 });
@@ -94,6 +94,26 @@ test('kosmos#8083: fewer than two accounts is said, not read as armed and health
   // The sweep returning that reason on a real one-account tick is pinned in autobalance-sweep-7152.test.js.
 });
 
+test('kosmos#8083: switched off in Settings is not repeated hourly either', () => {
+  const said = { at: 0, key: null };
+  assert.equal(quietLine(said, { nowMs: T0, did: 'off' }), 'autobalance-sweep: not running: auto-balance is switched off in Settings');
+  assert.equal(quietLine(said, { nowMs: T0 + 3 * 60 * MIN, did: 'off' }), null);
+});
+
+test('kosmos#8083: a clock that went backwards does not silence a running state for longer than the jump', () => {
+  const said = { at: 0, key: null };
+  assert.equal(quietLine(said, { nowMs: T0, did: 'nothing' }) !== null, true);
+  assert.equal(quietLine(said, { nowMs: T0 - 5 * 60 * MIN, did: 'nothing' }), 'autobalance-sweep: running, nothing new to record', 'a backwards clock kept a running state silent');
+});
+
+test('kosmos#8083: the start line counts as said: server.js seeds quietLine with the shut gate it printed', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(src, /if \(offNow\) autobalanceSweep\.quietLine\(abQuietSaid, \{ nowMs: Date\.now\(\), offWhy: offNow, logged: true \}\);/);
+  const said = { at: 0, key: null };
+  assert.equal(quietLine(said, { nowMs: T0, offWhy: 'the usage poll is off', logged: true }), null);
+  assert.equal(quietLine(said, { nowMs: T0 + 10 * MIN, offWhy: 'the usage poll is off' }), null, 'the first tick repeated the start line');
+});
+
 test('kosmos#8083: no memory or no clock says nothing and never throws', () => {
   assert.equal(quietLine(null, { nowMs: T0, did: 'nothing' }), null);
   assert.equal(quietLine({ at: 0, key: null }, { nowMs: NaN, did: 'nothing' }), null);
@@ -121,6 +141,6 @@ test('kosmos#8083: server.js says the start line and calls quietLine where the t
     assert.ok(why.includes('!' + gate), 'autobalanceSweepOffWhy does not name ' + gate);
   }
   /* A dry run has the poll enabled but not live: asked in this order, it is never named "the usage poll is off". */
-  assert.ok(why.indexOf('!usagePoll.enabled()') < why.indexOf('!usagePoll.liveAllowed()'), 'a dry run would be named as the poll being off');
+  assert.ok(why.indexOf('!usagePoll.enabled()') < why.indexOf('!usagePoll.liveAllowed()'), 'a poll that is off would be named as a dry run');
   assert.match(why, /if \(!usagePoll\.liveAllowed\(\)\) return 'the usage poll is not reading live \(a dry run or a test\)';/);
 });

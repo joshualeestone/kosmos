@@ -3231,8 +3231,7 @@ function autobalanceSweepRuns({ forTick = false } = {}) {
   return !!autobalanceSweepRun && (forTick || autobalanceSweepRun.state.writeFailed !== true) && liveExecution.liveExecutionAllowed() && usagePoll.liveAllowed() && usagePoll.enabled() && autobalanceSweep.sweepOn();
 }
 /* kosmos#8083: the first of autobalanceSweepRuns({ forTick: true })'s gates that is shut, in words for the board log,
-   or null when they are all open. The poll is asked enabled() before liveAllowed(), so a dry run is not named as the
-   poll being off. */
+   or null when they are all open. */
 function autobalanceSweepOffWhy() {
   const usagePoll = require('./engine/usagepoll');
   if (!autobalanceSweepRun) return 'its record could not be read when Kosmos started';
@@ -28499,11 +28498,12 @@ function start(port = PORT) {
       }
       /* kosmos#8083: say at start that the sweep exists and whether the mover is on, so a board whose record stays
          empty still shows both in its log. */
+      const abQuietSaid = { at: 0, key: null };   // kosmos#8083: autobalanceSweep.quietLine's memory between ticks
       if (abSweep) {
         const offNow = autobalanceSweepOffWhy();
         process.stdout.write(`autobalance-sweep: timer set, every ${Math.round(abSweepMs / 60000)} min, ${offNow ? 'not running now: ' + offNow : 'running'}; the mover is ${automoveRun ? 'on' : 'off'}\n`);
+        if (offNow) autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), offWhy: offNow, logged: true });   // the start line said it
       }
-      const abQuietSaid = { at: 0, key: null };   // kosmos#8083: autobalanceSweep.quietLine's memory between ticks
       const abSayQuiet = (opts) => { try { const line = autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), ...opts }); if (line) process.stdout.write(line + '\n'); } catch { /* best-effort: never into the timer */ } };
       let abSweepWriteSaid = false;
       let abSweepUnreadableSaid = null;   // review 17: the last "could not work out" reason logged, so it is said once
