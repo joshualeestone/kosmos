@@ -14,7 +14,9 @@ Blank here means a rebuild happened or the list had no rows for 3 s when it clos
 
 Not widened: GET stays behind the board's token like /api/phone/chat-shifts rather than joining AGENT_TOKEN_ROUTES; the file is readable on this Mac, and nothing here justifies more reach.
 
-Known under-counts: a chat torn down under its info page, a background entered from the info page, and a killed app send nothing. A count that loses a few showings is fine for a rate; a false blank is not.
+Known under-counts: a chat torn down under its info page, a background entered from the info page, a killed app, and a send from the background that iOS suspends first (the shift report has the same shape) send nothing. A count that loses a few showings is fine for a rate; a false blank is not.
+
+Known false blank, accepted: a fast scroll past the last row left for 3 s before closing. Rare, and the board's header says to compare builds rather than quote the number.
 
 Weakest premise: rows-gone timing at close, and the whole path from phone to board. Tested in logic and by source checks only; nothing has run it end to end on a phone.
 
