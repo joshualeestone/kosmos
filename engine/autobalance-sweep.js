@@ -196,8 +196,10 @@ function create({ file, nowMs = Date.now() }) {
 
 /* kosmos#8083: the board log's word on a sweep that writes nothing. The record holds a line only when a decision
    changes, and a first tick with nothing at risk writes none, so on a quiet board "running" and "not running" left the
-   same trace: none. This returns a line when the sweep's state changes and once an hour while it holds; `logged` says
-   the board already printed a line for this tick, which then counts as said. `said` is the caller's own { at, key }. */
+   same trace: none. This returns a line when the sweep's state changes, and once an hour while a running state holds
+   (a not-running state comes from settings, so it is said when it changes, not hourly on every default install);
+   `logged` says the board already printed a line for this tick, which then counts as said. `said` is the caller's own
+   { at, key }. */
 const QUIET_SAY_MS = 60 * 60 * 1000;
 function quietLine(said, { nowMs, offWhy = null, did = null, because = null, unmeasured = 0, logged = false } = {}) {
   if (!said || typeof said !== 'object' || !Number.isFinite(nowMs)) return null;
@@ -216,7 +218,8 @@ function quietLine(said, { nowMs, offWhy = null, did = null, because = null, unm
     line = 'autobalance-sweep: running, nothing new to record' + (n ? ' (' + n + (n === 1 ? ' account' : ' accounts') + ' not measured now)' : '');
   }
   if (logged === true) { said.at = nowMs; said.key = key; return null; }
-  if (key === said.key && nowMs - (Number(said.at) || 0) < QUIET_SAY_MS) return null;
+  const last = Number(said.at) || 0;
+  if (key === said.key && (key.startsWith('off:') || (nowMs >= last && nowMs - last < QUIET_SAY_MS))) return null;
   said.at = nowMs;
   said.key = key;
   return line;

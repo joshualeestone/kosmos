@@ -6,18 +6,21 @@ tick with nothing at risk writes none) and logs nothing, so "armed and quiet" an
 Measured on Mortals 11-05: armed 15:26, no record and no log line by 20:12.
 
 ## Change
-- engine/autobalance-sweep.js `quietLine(said, { nowMs, offWhy, did, unmeasured })`: returns a board-log line when
-  the sweep's state (running / not running and why / switched off in Settings) changes, and once an hour while it
-  holds. A tick the board already logs (recorded, gap, unreadable) adds nothing and counts as said.
+- engine/autobalance-sweep.js `quietLine(said, { nowMs, offWhy, did, because, unmeasured, logged })`: returns a
+  board-log line when the sweep's state changes, and once an hour while a running state (quiet or broken) holds. A
+  not-running state is said on change only. A tick the board printed a line for (`logged`) adds nothing.
 - server.js: `autobalanceSweepOffWhy()` names the first shut gate of autobalanceSweepRuns({ forTick: true }), same
-  gates and order; a start line "autobalance-sweep: started, every N min; the mover is on|off"; quietLine called at
+  gates and order; a start line "autobalance-sweep: timer set, every N min, running | not running now: <why>; the mover is on|off",
+  which counts as said; quietLine called at
   the tick's early return (with the reason) and at its end (with did and the unmeasured count).
 - The record is unchanged.
 
 ## Decided
 - Log, not Settings: the log is where an operator or agent looks when the record is empty; Settings already shows
   whether it is recording.
-- Hourly, both states: 24 lines a day at most, enough to tell quiet from dead without reading code.
+- Hourly only while running: about 24 lines a day for a state that holds (a state that flaps says each change, as
+  the existing "could not record" line already does). Not-running states come from settings and are said on change
+  only, so a default install (usage poll off) does not log the same line every hour.
 
 ## Tests
 engine/autobalance-quiet-8083.test.js: once then hourly; unmeasured counts; gate change said at once; Settings off;
@@ -39,3 +42,11 @@ logged-ticks-not-said, early return silent: each red.
   for that early return, and the log says it plainly. Pinned on a real one-account tick in autobalance-sweep-7152.
 - NITs taken: the offWhy comment no longer claims the same order; a test message said the opposite of its check.
 - NIT left: the first tick after start repeats "running" once after the start line (one line per start).
+
+## Review round 3 (opus): no BLOCKER or WARNING; NITs taken
+- Off states hourly on every default install: now said on change only. The start line seeds quietLine.
+- A backwards clock silenced a running state: a time before the last line is due.
+- The gate-order comment gave the wrong reason (a claim this loop wrote): deleted, not reworded; the test message
+  now names the case the order protects (a poll that is off is not named as a dry run).
+- Plan lines brought up to date. Left: the unmeasured count is not part of the state key (a change in it waits for
+  the hourly line), by design.
