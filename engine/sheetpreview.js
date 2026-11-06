@@ -68,7 +68,7 @@ function readDelimited(text, sep, name) {
     if (quoted) {
       if (ch === '"') {
         if (s[i + 1] === '"') { field += '"'; i++; } else quoted = false;
-      } else field += ch;
+      } else if (field.length <= xlsx.MAX_CELL_CHARS) field += ch;   // review 1: a quoted field is bounded too
       continue;
     }
     if (ch === '"' && field === '') { quoted = true; continue; }
@@ -110,15 +110,17 @@ function fromBytes(buf, name) {
 }
 
 /**
- * A file on disk (an attachment the board stored) to the same answer. One handle: O_NOFOLLOW (a link is not followed),
- * O_NONBLOCK (a FIFO does not block the board), a regular file only, and the size checked on the open handle before a
- * byte is read, so a file too large is refused without loading it.
+ * A file on disk (an attachment the board stored) to the same answer. A link is refused before it is opened (an lstat,
+ * because Windows has no O_NOFOLLOW), then one handle: O_NOFOLLOW where the system has it, O_NONBLOCK (a FIFO does
+ * not block the board), a regular file only, and the size checked on the open handle before a byte is read, so a
+ * file too large is refused without loading it.
  */
 function fromFile(file, name) {
   const kind = kindOf(name || file);
   if (!kind) return { ok: false, because: 'There is no spreadsheet preview for this kind of file.' };
   let fd = null;
   try {
+    if (fs.lstatSync(file).isSymbolicLink()) return { ok: false, because: CANNOT_READ };
     fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0));
     const st = fs.fstatSync(fd);
     if (!st.isFile()) return { ok: false, because: CANNOT_READ };
