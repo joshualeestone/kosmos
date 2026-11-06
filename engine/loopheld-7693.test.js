@@ -57,8 +57,8 @@ test('#7693: a load that would print as 0.00 is left out, and the smallest one t
     w.tick();
     return lines[0];
   };
-  assert.doesNotMatch(said(0.004), /load/);
-  assert.match(said(0.04), /, load 0\.04$/);
+  assert.doesNotMatch(said(0.0049), /load/);
+  assert.match(said(0.005), /, load 0\.01$/);
 });
 
 test('#7693: a gap carries the load too: it may be the longest stall of all', () => {
@@ -85,16 +85,19 @@ test('#7693: the load is recorded between stalls too, so a quiet hour has a read
   assert.deepEqual(lines, ['[load] 4.24', '[load] 4.24'], 'and again');
 });
 
-test('#7693: a minute of stalls past the line cap does not cost the load reading', () => {
+test('#7693: a load reading falling due with the line cap already full is still written', () => {
   const lines = [];
   let t = 0;
   const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => 4.24, setInterval: () => ({}) });
   w.tick();
-  t += held.LOAD_EVERY_MS - 1000;
+  const stall = held.TICK_MS + held.HELD_MS;
+  const stalls = held.MAX_PER_MINUTE + 2;
+  for (let left = held.LOAD_EVERY_MS - stall * (stalls - 1); left > 0; left -= held.TICK_MS) { t += held.TICK_MS; w.tick(); }
+  for (let i = 0; i < stalls - 1; i += 1) { t += stall; w.tick(); }
+  assert.equal(lines.filter((l) => l.startsWith('[loop-held]')).length, held.MAX_PER_MINUTE, 'control: the cap is full');
+  assert.deepEqual(lines.filter((l) => l.startsWith('[load]')), [], 'control: the reading is not yet due');
+  t += stall;
   w.tick();
-  for (let i = 0; i < held.MAX_PER_MINUTE + 2; i += 1) { t += held.TICK_MS + held.HELD_MS; w.tick(); }
-  const stalls = lines.filter((l) => l.startsWith('[loop-held]'));
-  assert.equal(stalls.length, held.MAX_PER_MINUTE, 'control: the cap was reached');
   assert.deepEqual(lines.filter((l) => l.startsWith('[load]')), ['[load] 4.24']);
 });
 
@@ -104,12 +107,12 @@ test('#7693: no load to report writes no [load] line, and a free thread reads th
   let t = 0;
   const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => { reads += 1; return 0; }, setInterval: () => ({}) });
   w.tick();
-  for (let i = 0; i < 100; i += 1) { t += held.TICK_MS; w.tick(); }
+  for (let left = held.LOAD_EVERY_MS - held.TICK_MS; left > 0; left -= held.TICK_MS) { t += held.TICK_MS; w.tick(); }
   assert.equal(reads, 0, 'a free thread inside the interval does not read it');
-  t += held.LOAD_EVERY_MS;
+  t += held.TICK_MS;
   w.tick();
-  assert.deepEqual(lines.filter((l) => l.startsWith('[load]')), []);
-  assert.ok(reads >= 1, 'control: the interval did come round');
+  assert.equal(reads, 1, 'control: the interval came round, on time, with no stall line reading it');
+  assert.deepEqual(lines, []);
 });
 
 test('#7693: it is the one-minute figure', (ctx) => {
