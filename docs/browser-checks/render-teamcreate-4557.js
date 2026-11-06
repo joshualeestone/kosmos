@@ -1,4 +1,4 @@
-// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-provider tc-account tc-account-row tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg tc-model tc-model-row tc-model-why tc-model-field tc-model-lab cstep-team team-seeded just-made
+// Browser-check-surface: cstep-teammake tc-title tc-purpose tc-list tc-project tc-provider tc-account tc-account-row tc-note tc-tell tc-tell-say tc-go tc-hello tc-back tc-msg tc-model tc-model-row tc-model-why tc-model-field tc-model-lab cstep-team team-seeded just-made tc-short tc-short-p tc-another tc-namebox
 'use strict';
 /**
  * A whole prebuilt team in one go (#4557, umbrella #4554, Josh 2026-09-29 09:06), on a real board.
@@ -289,6 +289,41 @@ function chk(ok, label, extra) {
           /* The board's /api/status poll can still be inside this check's route when the page closes: its
              fetched response is then disposed and route.fulfill throws an uncaught rejection that kills
              the whole check (CI, PR #4875, both attempts). Stop routing first, as render-login-expiry does. */
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #8092: short names, for a team whose suggested names are long or hard to type ----------------
+           Use short names swaps every open row; Another name swaps one and keeps the keyboard on its button; neither
+           offers a name already on the board or elsewhere in the team; both go once the team starts. */
+        {
+          const { page, errs, posted } = await newPage(1280);
+          await page.route('**/api/agents/list', (r) => r.fulfill({ status: 200, json: { agents: [{ sessionName: 'ada', name: 'Ada' }, { sessionName: 'ade', name: 'Ade' }] } }));
+          await page.evaluate(() => { Math.random = () => 0; });   // the first free name, so "not Ada, not Ade" can be seen
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          await settle(page, () => TC && Array.isArray(TC.boardNames));
+          const before = await rows(page);
+          chk(await page.isVisible('#tc-short'), `${E} #8092 Use short names is offered while the names can change`);
+          await page.focus('#tc-list li[data-slot="lead"] .tc-another');
+          await page.keyboard.press('Enter');
+          const one = await rows(page);
+          const focus = await page.evaluate(() => document.activeElement && document.activeElement.matches('#tc-list li[data-slot="lead"] .tc-another') && document.activeElement.getAttribute('aria-label'));
+          chk(one[0].name === 'Ali' && one.slice(1).every((r, i) => r.name === before[i + 1].name), `${E} #8092 Another name gives the lead the first short name free of the board (not Ada, not Ade) and leaves the others`, JSON.stringify({ before: before.map((r) => r.name), after: one.map((r) => r.name) }));
+          chk(typeof focus === 'string' && /^Another name for the /.test(focus), `${E} #8092 and the keyboard stays on that button, which says what it does`, JSON.stringify(focus));
+          await page.click('#tc-short');
+          const all = await rows(page);
+          const names = all.map((r) => r.name);
+          chk(names.every((n) => /^[A-Za-z]{2,5}$/.test(n)) && new Set(names.map((n) => n.toLowerCase())).size === names.length && !names.some((n) => /^(ada|ade)$/i.test(n)),
+            `${E} #8092 Use short names gives every row a short plain name, none twice, none on the board`, JSON.stringify(names));
+          chk(names.slice(1).every((n, i) => n !== before[i + 1].name), `${E} #8092 CONTROL: the other rows did change`, JSON.stringify({ before: before.map((r) => r.name), names }));
+          await page.selectOption('#tc-project', 'none');
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((e) => e.textContent === 'Running'));
+          chk(JSON.stringify(posted.map((b) => b.name)) === JSON.stringify(names), `${E} #8092 the names made are the short ones shown`, JSON.stringify(posted.map((b) => b.name)));
+          const after = await page.evaluate(() => ({ link: document.getElementById('tc-short-p').hidden, buttons: [...document.querySelectorAll('#tc-list .tc-another')].map((b) => getComputedStyle(b).visibility) }));
+          chk(after.link && after.buttons.every((v) => v === 'hidden'), `${E} #8092 once the team starts, neither is offered`, JSON.stringify(after));
+          chk(errs.length === 0, `${E} no page errors (#8092 arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
         }
