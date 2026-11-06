@@ -28,3 +28,12 @@ on every build. Measured 11-06 against served 0.7.94: every other row passes; th
 ## Who runs check-served.js (the card asked)
 Nobody automatically: no caller in this repo (only comments, plans and the README), in the fleet tools, ~/.claude/bin,
 ~/.local/bin or the LaunchAgents. It is a hand-run tool, so anyone who ran it since #2073 got this red row every time.
+
+## Review 1 (sonnet)
+- WARNING, fixed: the guard read raw sources, so a marker that survived only inside a comment would pass it (and the
+  served check) for the wrong reason. Sources are now matched with comments stripped (check-served.js's own strip),
+  with a floor on the strip and a control: "Nothing to do." is in installing.html only inside its deletion comment and
+  must not count. Disabling the strip turns that control red. Every current marker survives the strip.
+- NIT, fixed: the header says order markers are checked for presence only (web.ruling-guards.test.js holds the order).
+- NIT, noted: the served index.html is the source file unchanged; build-installer-pkg.sh rewrites none of the three
+  pages; the served runs above cover the new marker.
