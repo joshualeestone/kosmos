@@ -33256,7 +33256,7 @@ async function computersReopen(host) {
     say('Kosmos opened this computer\'s agents: the computer you were looking at is not on your Kosmos+ account.');
     return 'gone';
   }
-  if (c.this === true) return 'home';
+  if (c.this === true) { say('Staying on this computer.'); return 'home'; }   // review 4: never leave "Going back" up
   const name = typeof c.name === 'string' && c.name ? c.name : label;
   if (c.updating === true) { say(name + ' is updating, so Kosmos opened this computer\'s agents. Switch to it from the top-left menu when it is done.'); return 'updating'; }
   if (c.online !== true) { say(name + ' is not connected, so Kosmos opened this computer\'s agents.'); return 'offline'; }
@@ -33264,10 +33264,10 @@ async function computersReopen(host) {
     say(computersOlderSaid(name, h));
     return 'not-instant';
   }
-  if (!computersOpens(c)) return 'unknown';   // the switcher's own rule decides last, whatever is added to it later
+  if (!computersOpens(c)) { say('Staying on this computer.'); return 'unknown'; }   // the switcher's own rule decides last
   if (computersOpening) return 'busy';
   let url;
-  try { url = new URL('https://' + h + '/'); } catch { return 'bad'; }
+  try { url = new URL('https://' + h + '/'); } catch { say('Staying on this computer.'); return 'bad'; }
   // Review 2: nothing the person clicked started this, so nothing keeps focus while the ticket is made (up to 8 s):
   // a key pressed then lands on no composer. The switching screen covers clicks.
   try { if (document.activeElement && typeof document.activeElement.blur === 'function') document.activeElement.blur(); } catch {}
