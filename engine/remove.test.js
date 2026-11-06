@@ -3432,6 +3432,21 @@ test('#8109 a removed agent with the same display name is not a second match', (
   assert.equal(r.name, 'knew8109', 'the name did not resolve to the agent on the list');
 });
 
+test('#8109 an unreadable candidate resolves nothing (it might be the second agent with that name)', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  folderAgent('kpair8109a', 'Kpair 8109');
+  folderAgent('kpair8109b', 'Kpair 8109');
+  const real = status.readIdentity;
+  status.readIdentity = (dir) => { if (dir === 'kpair8109b') throw new Error('unreadable'); return real(dir); };
+  try {
+    const r = remove.resolve('Kpair 8109', MAC);
+    assert.equal(r.name, 'Kpair 8109', 'one of two agents was chosen because the other could not be read');
+    assert.deepEqual(r.ambiguous, []);
+  } finally { status.readIdentity = real; }
+  assert.deepEqual(remove.resolve('Kpair 8109', MAC).ambiguous, ['kpair8109a', 'kpair8109b'], 'CONTROL: readable, both are found');
+});
+
 test('#8109 when the board cannot be read, the name is left as given (no guessing)', () => {
   remove.setRunner(() => ({ ok: true, stdout: '' }));
   folderAgent('kdee8109', 'Kdee8109');

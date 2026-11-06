@@ -1339,9 +1339,13 @@ function resolve(name, platform) {
   for (const dir of dirs) {
     if (unsafeToActOn(dir)) continue;
     // A removed agent keeps its folder and its name, and is not on the list; it is not a match (test: "removed agent").
-    try { if (isHidden(dir)) continue; } catch { continue; }
+    // A candidate that cannot be read ends the search: skipping it could make a two-agent name look like one
+    // (test: "an unreadable candidate").
+    let hidden;
+    try { hidden = isHidden(dir); } catch { return asGiven; }
+    if (hidden) continue;
     let shown = null;
-    try { shown = status.readIdentity(dir).displayName || null; } catch { shown = null; }
+    try { shown = status.readIdentity(dir).displayName || null; } catch { return asGiven; }
     if (dir.toLowerCase() === want || (shown && String(shown).trim().toLowerCase() === want)) hits.push(dir);
   }
   if (hits.length === 1) return { name: hits[0], ambiguous: [] };
