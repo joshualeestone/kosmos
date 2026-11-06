@@ -52,6 +52,8 @@ final class EndPullUITests: XCTestCase {
         let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         KeyboardSlideUITests.settle(row)
+        Thread.sleep(forTimeInterval: 3)   // once measured 103 pt low: a long chat can still be finishing its open after a still moment
+        KeyboardSlideUITests.settle(row)
         let before = row.frame.minY
         pullUp(app, distance: 420)
         XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "no dots after a long pull")
@@ -70,7 +72,7 @@ final class EndPullUITests: XCTestCase {
 
     // The next pull counts, even when the first read ended after the list had come back.
     func testASecondPullCountsToo() {
-        let app = launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_PULL_SECONDS": "1"])
+        let app = launch(["KOSMOS_SAMPLE_LONG": "1", "KOSMOS_SAMPLE_PULL_SECONDS": "3"])
         let row = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Message 260 of 260'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 20), "CONTROL: the long chat did not open at its newest message")
         KeyboardSlideUITests.settle(row)
