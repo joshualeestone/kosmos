@@ -3855,16 +3855,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             // inside it, or a link in a message it shows, does not end or answer the page's click).
             let keyed = navigationAction.sourceFrame.isMainFrame ? navigationAction.request.url : nil
             let clickCommits = pageCommits   // the page that asked; an answer after it has gone is not sent
-            tellPageKey(webView, url: keyed, "asking")
+            // `asking` only when the Allow question is really up (round 5): an allowed computer answers at once.
+            let asking: () -> Void = { [weak self, weak webView] in self?.tellPageKey(webView, url: keyed, "asking", commits: clickCommits) }
             guard byPage else {
-                mayDownload(file: nil) { [weak self, weak webView] yes in
+                mayDownload(file: nil, willAsk: asking) { [weak self, weak webView] yes in
                     if !yes { self?.tellPageKey(webView, url: keyed, "failed", commits: clickCommits) }
                     decisionHandler(yes ? .download : .cancel)
                 }
                 return
             }
             let asked = navigationAction.request
-            mayDownload(file: nil) { [weak self, weak webView] yes in
+            mayDownload(file: nil, willAsk: asking) { [weak self, weak webView] yes in
                 decisionHandler(.cancel)
                 if !yes { self?.tellPageKey(webView, url: keyed, "failed", commits: clickCommits) }
                 guard yes, let self, let webView else { return }
@@ -3880,7 +3881,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                         self.tellDownloadFailed("The page changed before the download began, so the file was not saved. Try again.")
                         return   // no word to the page: it is not the page that asked any more
                     }
-                    webView.startDownload(using: request) { self.downloadsStartedHere.add($0); $0.delegate = self; self.noteDownload($0, fresh: true) }
+                    webView.startDownload(using: request) { self.downloadsStartedHere.add($0); $0.delegate = self; self.noteDownload($0, fresh: true, mainFrame: true) }   // only ever the page's main frame (byPage)
                 }
             }
             return
@@ -3953,9 +3954,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            String(disposition[..<(disposition.firstIndex(of: ";") ?? disposition.endIndex)])
                .trimmingCharacters(in: .whitespaces).lowercased() == "attachment" {
             if isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
-                tellPageKey(webView, url: url, "asking")
-                mayDownload(file: navigationResponse.response.suggestedFilename) { [weak self, weak webView] yes in
-                    if !yes { self?.tellPageKey(webView, url: url, "failed") }
+                let clickCommits = pageCommits
+                mayDownload(file: navigationResponse.response.suggestedFilename,
+                            willAsk: { [weak self, weak webView] in self?.tellPageKey(webView, url: url, "asking", commits: clickCommits) }) { [weak self, weak webView] yes in
+                    if !yes { self?.tellPageKey(webView, url: url, "failed", commits: clickCommits) }
                     decisionHandler(yes ? .download : .cancel)
                 }
             } else {
@@ -3970,9 +3972,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         if !navigationResponse.canShowMIMEType, let url = navigationResponse.response.url,
            isBoardPage(committedPageURL, board: badgeOrigin), isSameOriginDownload(url, page: committedPageURL) {
-            tellPageKey(webView, url: url, "asking")
-            mayDownload(file: navigationResponse.response.suggestedFilename) { [weak self, weak webView] yes in   // a board file the window cannot show (a .zip) is saved, as Safari does
-                if !yes { self?.tellPageKey(webView, url: url, "failed") }
+            let clickCommits = pageCommits
+            mayDownload(file: navigationResponse.response.suggestedFilename,   // a board file the window cannot show (a .zip) is saved, as Safari does
+                        willAsk: { [weak self, weak webView] in self?.tellPageKey(webView, url: url, "asking", commits: clickCommits) }) { [weak self, weak webView] yes in
+                if !yes { self?.tellPageKey(webView, url: url, "failed", commits: clickCommits) }
                 decisionHandler(yes ? .download : .cancel)
             }
             return
@@ -3997,13 +4000,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     @objc(webView:navigationAction:didBecomeDownload:)
     func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
         download.delegate = self
-        noteDownload(download, fresh: true)
+        noteDownload(download, fresh: true, mainFrame: navigationAction.sourceFrame.isMainFrame)
     }
 
     @objc(webView:navigationResponse:didBecomeDownload:)
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         download.delegate = self
-        noteDownload(download, fresh: true)
+        noteDownload(download, fresh: true, mainFrame: navigationResponse.isForMainFrame)
     }
 
     /// #5167: how a failed download the board started is said (one modal alert). Swapped out by
@@ -4041,7 +4044,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     fileprivate var downloadAsks: [String: [(Bool) -> Void]] = [:]   // fileprivate: the selftest sees a question pending
     fileprivate var pageCommits = 0   // main-frame commits; the Allow answer counts only for the page that asked
 
-    fileprivate func mayDownload(file: String? = nil, _ then: @escaping (Bool) -> Void) {
+    /// `willAsk` (kosmos#8120) runs only when this decision waits on the Allow question (a new one, or one already up).
+    fileprivate func mayDownload(file: String? = nil, willAsk: (() -> Void)? = nil, _ then: @escaping (Bool) -> Void) {
         guard let page = committedPageURL, let host = page.host?.lowercased(),
               isKosmosPlusURL(page) || host == AppDelegate.askAboutHostForSelftest
         else { then(true); return }
@@ -4051,7 +4055,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             tellDownloadFailed("Downloads from \(host) are off until you choose View > Reload, which asks again.", refusal: true)
             then(false); return
         }
-        if downloadAsks[host] != nil { downloadAsks[host]!.append(then); return }   // one question at a time
+        if downloadAsks[host] != nil { willAsk?(); downloadAsks[host]!.append(then); return }   // one question at a time
+        willAsk?()
         downloadAsks[host] = [then]
         let answer: (Bool) -> Void = { yes in   // strong: every waiting decision handler must be answered
             if yes { self.allowedDownloadHosts.insert(host) } else { self.refusedDownloadHosts.insert(host) }
@@ -4165,11 +4170,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     static var revealRecorder: ((URL) -> Void)?
 
     /// kosmos#8120: noted when a download begins, from the page showing then.
-    fileprivate func noteDownload(_ download: WKDownload, fresh: Bool = false) {
+    /// `mainFrame` (round 5): only a download the page's own main frame asked for carries the page's key; a frame inside
+    /// the page (another site's, a preview) never answers the page's click, whatever its address carries.
+    fileprivate func noteDownload(_ download: WKDownload, fresh: Bool = false, mainFrame: Bool = false) {
         let k = ObjectIdentifier(download)
         // A download beginning (fresh) is always noted anew: an entry left by an earlier one at the same address is not its.
         guard fresh || downloadInfo[k] == nil else { return }
-        downloadInfo[k] = (downloadNext, downloadKey(download.originalRequest?.url), pageCommits, pageOrigin(of: committedPageURL))
+        downloadInfo[k] = (downloadNext, mainFrame ? downloadKey(download.originalRequest?.url) : nil, pageCommits, pageOrigin(of: committedPageURL))
         downloadNext += 1
     }
     /// kosmos#8120: sends one answer to the page, only for a click the page keyed, and only while that page still shows
@@ -6909,15 +6916,17 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             // for a saved file, failed (never saved) for one that was not, and failed for a click refused before any
             // download existed (Don't Allow). An unkeyed download (most links here) is told to nobody.
             func ev(_ key: String) -> [String] { pageEvents.filter { ($0["key"] as? String) == key }.compactMap { $0["state"] as? String } }
-            row(ev("s1") == ["asking", "saving", "saved"] && pageEvents.first { ($0["key"] as? String) == "s1" && ($0["state"] as? String) == "saved" }?["name"] as? String == "same.txt",
-                "kosmos#8120: A KEYED SAVED FILE IS TOLD asking, saving THEN saved, under its own key and name (\(ev("s1")))")
+            row(ev("s1") == ["saving", "saved"] && pageEvents.first { ($0["key"] as? String) == "s1" && ($0["state"] as? String) == "saved" }?["name"] as? String == "same.txt",
+                "kosmos#8120: A KEYED SAVED FILE NOBODY WAS ASKED ABOUT IS TOLD saving THEN saved (no asking), under its own key and name (\(ev("s1")))")
+            row(ev("y1") == ["asking", "saving", "saved"],
+                "kosmos#8120: ONE THE PERSON WAS ASKED ABOUT (Allow) IS TOLD asking, saving THEN saved (\(ev("y1")))")
             row(!ev("m1").contains("saved") && ev("m1").last == "failed",
                 "kosmos#8120: A KEYED FAILED DOWNLOAD (404) IS TOLD failed, NEVER saved (\(ev("m1")))")
             row(ev("n1").first == "asking" && ev("n1").last == "failed" && !ev("n1").contains("saving"),
                 "kosmos#8120: A CLICK REFUSED BEFORE ANY DOWNLOAD (Don't Allow) IS TOLD asking THEN failed (\(ev("n1")))")
             let toldKeys = Set(pageEvents.compactMap { $0["key"] as? String })
             let savedTold = pageEvents.filter { ($0["state"] as? String) == "saved" }.compactMap { $0["name"] as? String }
-            row(toldKeys.isSubset(of: ["s1", "m1", "n1", "y1"]) && pageEvents.allSatisfy { $0["key"] != nil } && savedTold.sorted() == ["asked-yes.txt", "same.txt"] && savedTold.allSatisfy { all.contains($0) },
+            row(toldKeys.isSubset(of: ["s1", "m1", "n1", "y1"]) && savedTold.sorted() == ["asked-yes.txt", "same.txt"] && savedTold.allSatisfy { all.contains($0) },
                 "kosmos#8120: ONLY KEYED CLICKS ARE TOLD, and saved only for files in the folder (told saved \(savedTold.sorted()), keys \(toldKeys.sorted()))")
             row(!pageEvents.isEmpty && delivered.count == pageEvents.count,
                 "kosmos#8120: EVERY ANSWER THE PAGE IS SENT RUNS IN THE PAGE (evaluateJavaScript finished, no error: \(delivered.count) of \(pageEvents.count))")
@@ -6935,7 +6944,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(own && !other && !unknown && revealed.map { $0.lastPathComponent } == ["same.txt"],
                 "kosmos#8120: SHOW IN FINDER SELECTS A FILE THIS APP SAVED, ONLY FOR THE ORIGIN THAT SAVED IT, and nothing for an unknown id (\(own)/\(other)/\(unknown))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 45   // kosmos#8120: +7 (what the page is told, that it runs there, and Show in Finder); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 46   // kosmos#8120: +8 (what the page is told, that it runs there, and Show in Finder); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)

@@ -47,6 +47,8 @@ const PDF_ID = 'b2'.repeat(12);
 const NOPAGE_ID = 'e5'.repeat(12);   // a PDF whose first page the server cannot draw (Windows): its preview is a 404
 const TXT_ID = 'c3'.repeat(12);
 const DOC_ID = 'd4'.repeat(12);
+const TALL_ID = 'f6'.repeat(12);   // #8122: an 800 x 3000 picture, so the layout's height cap is tested
+let TALL = null;
 /* A 1200 x 800 PNG drawn in the page itself is the picture; the stub hands it back as the preview. */
 let PNG = null;
 
@@ -64,6 +66,7 @@ async function runOn(engine, base, say) {
         if (u.pathname === '/' || u.pathname === '/index.html') return route.fulfill({ status: 200, contentType: 'text/html', body: HTML });
         const rv = u.pathname.match(/^\/api\/attachment\/([0-9a-f]{24})\/reveal$/);
         if (rv && route.request().method() === 'POST') { reveals.push(rv[1]); if (rv[1] === NOPAGE_ID) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"no such attachment"}' }); return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' }); }
+        if (u.pathname === '/api/attachment/' + TALL_ID + '/preview') return route.fulfill({ status: 200, contentType: 'image/png', body: TALL });
         if (/^\/api\/attachment\/[0-9a-f]{24}\/preview$/.test(u.pathname)) return u.pathname.includes(NOPAGE_ID) ? route.fulfill({ status: 404, body: '' }) : route.fulfill({ status: 200, contentType: 'image/png', body: PNG });
         if (u.pathname.startsWith('/api/')) return route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"stub"}' });
         return route.fulfill({ status: 404, body: '' });
@@ -71,7 +74,7 @@ async function runOn(engine, base, say) {
       await pg.goto(base + '/', { waitUntil: 'load' });
       await pg.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvOpen === 'function');
       // A strip over the page holding real cards, above anything the page draws while its API calls fail.
-      await pg.evaluate(({ IMG_ID, PDF_ID, TXT_ID, DOC_ID, NOPAGE_ID }) => {
+      await pg.evaluate(({ IMG_ID, PDF_ID, TXT_ID, DOC_ID, NOPAGE_ID, TALL_ID }) => {
         const strip = document.createElement('div');
         strip.setAttribute('data-pv-test', '');
         strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;background:#fff;padding:6px;';
@@ -81,9 +84,10 @@ async function runOn(engine, base, say) {
           { name: 'notes.md', type: 'text/markdown', size: 400, kind: 'text', url: '/api/attachment/' + TXT_ID, preview: '# Notes\n<img src=x onerror="window.__ran=1">\nline three' + '\nmore'.repeat(200) },   // #8122: long, so the layout row below means something
           { name: 'deck.pptx', type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', size: 2048000, kind: 'other', url: '/api/attachment/' + DOC_ID },
           { name: 'windows.pdf', type: 'application/pdf', size: 5000, kind: 'pdf', url: '/api/attachment/' + NOPAGE_ID, preview: '/api/attachment/' + NOPAGE_ID + '/preview' },
+          { name: 'tall.png', type: 'image/png', size: 400000, kind: 'image', url: '/api/attachment/' + TALL_ID, preview: '/api/attachment/' + TALL_ID + '/preview' },
         ] });
         document.body.appendChild(strip);
-      }, { IMG_ID, PDF_ID, TXT_ID, DOC_ID, NOPAGE_ID });
+      }, { IMG_ID, PDF_ID, TXT_ID, DOC_ID, NOPAGE_ID, TALL_ID });
       await pg.waitForFunction(() => { const i = document.querySelector('[data-pv-test] .att-image img'); return i && i.complete && i.naturalWidth > 0; });
       const card = (id) => '[data-pv-test] a.att[data-att="' + id + '"]';
       const open = () => pg.evaluate(() => !!document.getElementById('pv-preview'));
@@ -222,7 +226,7 @@ async function runOn(engine, base, say) {
         return { what, ok: d.top >= 0 && d.bottom <= innerHeight + 0.5 && d.left >= 0 && d.right <= innerWidth + 0.5 && d.top >= c.bottom - 1, act: [d.top, d.bottom], file: [c.top, c.bottom], vh: innerHeight };
       }, what);
       await pg.click(card(PDF_ID));
-      { const r = await placed('a PDF page'); say(r.ok, tag + ' P1 #8122: the action is inside the window, below ' + r.what, JSON.stringify(r)); }
+      { const r = await placed('a PDF\'s first page (a picture here)'); say(r.ok, tag + ' P1 #8122: the action is inside the window, below ' + r.what, JSON.stringify(r)); }
       const pdf = await pg.evaluate(() => ({ img: !!document.querySelector('#pv-preview img.pv-media'), note: (document.querySelector('#pv-preview .pv-note') || {}).textContent }));
       say(pdf.img && pdf.note === 'The first page', tag + ' P6: a PDF shows its first page', JSON.stringify(pdf));
       await pg.keyboard.press('Escape');
@@ -244,6 +248,11 @@ async function runOn(engine, base, say) {
       const sel = await pg.evaluate(() => { const r = document.querySelector('#pv-preview pre.pv-text').getBoundingClientRect(); return { x: r.left + 20, y: r.top + 12, ex: innerWidth - 6, ey: r.top + 12 }; });
       await pg.mouse.move(sel.x, sel.y); await pg.mouse.down(); await pg.mouse.move(sel.ex, sel.ey, { steps: 8 }); await pg.mouse.up();
       say(await open(), tag + ' P6: selecting a text file\'s words and letting go on the dark keeps it open');
+      await pg.keyboard.press('Escape');
+      await pg.click(card(TALL_ID));
+      await pg.waitForFunction(() => { const i = document.querySelector('#pv-preview img.pv-media'); return i && i.complete && i.naturalWidth > 0; });
+      await pg.waitForTimeout(400);   // the zoom-in (350 ms), as P1 waits for it
+      { const r = await placed('an 800 x 3000 picture (fitted to the window\'s height)'); say(r.ok && r.file[0] >= 0, tag + ' P1 #8122: the action is inside the window, below ' + r.what, JSON.stringify(r)); }
       await pg.keyboard.press('Escape');
       await pg.click(card(DOC_ID));
       const doc = await pg.evaluate(() => ({ name: (document.querySelector('#pv-preview .pv-file b') || {}).textContent, meta: (document.querySelector('#pv-preview .pv-file span') || {}).textContent }));
@@ -322,7 +331,7 @@ async function runApp(engine, say) {
     await pg.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvOpen === 'function' && typeof dlWatch === 'function');
     const tell = (detail) => pg.evaluate((d) => window.dispatchEvent(new CustomEvent('kosmos-download', { detail: d })), detail);
     const state = () => pg.evaluate(() => { const d = document.getElementById('pv-do'), m = document.getElementById('pv-msg'), q = document.querySelector('.pv-quiet');
-      return { text: d && d.textContent, busy: !!(d && d.classList.contains('dl-busy')), href: d && d.getAttribute('href'), msg: m && m.textContent, show: q ? q.textContent : null }; });
+      return { text: d && d.textContent, aria: d && d.getAttribute('aria-label'), busy: !!(d && d.classList.contains('dl-busy')), href: d && d.getAttribute('href'), msg: m && m.textContent, show: q ? q.textContent : null }; });
     const keyOf = (a) => (a.match(/[?&]kdl=([A-Za-z0-9]+)/) || [])[1] || null;
     /* Playwright's WebKit performs no download for a script's link click (measured 11-06: no request, no download event);
        the app's WKWebView does (its download selftest clicks keyed links and is answered). So on WebKit the keys are read
@@ -359,6 +368,7 @@ async function runApp(engine, say) {
     await pg.waitForTimeout(400);
     const slow = await state();
     say(/Saving/.test(slow.text), T + ': a save that takes a moment says Saving, with the Sweep dots', JSON.stringify(slow));
+    say(slow.aria === 'Saving Budget 2026.xlsx', T + ': and a screen reader hears Saving and the file\'s name', JSON.stringify(slow.aria));
     await tell({ state: 'saving', key: k1, id: 7, name: 'Budget 2026.xlsx' });
     say((await state()).busy && !/Saved/.test((await state()).text), T + ': saving is not saved', '');
     await tell({ state: 'saved', key: k1, id: 7, name: 'Budget 2026.xlsx' });
@@ -378,13 +388,19 @@ async function runApp(engine, say) {
     await pg.click('.pv-quiet');
     const posted = await pg.evaluate(() => window.__posted);
     say(JSON.stringify(posted) === JSON.stringify([{ reveal: 7 }]) && !!(await pg.$('#pv-preview')), T + ': Open in Finder asks the app for that download (by id, never a path), and the viewer stays open', JSON.stringify(posted));
+    // The app could not find it (moved away): said in the line, only for this button's save, never for another id.
+    await tell({ state: 'revealfailed', id: 99 });
+    const other99 = await state();
+    await tell({ state: 'revealfailed', id: 7 });
+    const gone = await state();
+    say(!/could not find/.test(other99.msg || '') && gone.msg === 'Kosmos could not find that file in your Downloads folder.', T + ': Open in Finder on a file that is gone says so, for its own save only', JSON.stringify({ other99, gone }));
     // Opened again while it still says Saved: it says Saved, not Saving.
     await open();
     const reSaved = await state();
     say(/Saved to Downloads/.test(reSaved.text) && reSaved.show === 'Open in Finder', T + ': opened again after it saved, it says Saved (not Saving)', JSON.stringify(reSaved));
     await pg.waitForTimeout(6300);
     const back = await state();
-    say(back.text === 'Download' && !back.busy, T + ': six seconds on, the button is Download again (not stuck on Saved)', JSON.stringify(back));
+    say(back.text === 'Download' && !back.busy && !back.aria, T + ': six seconds on, the button is Download again (not stuck on Saved), its name its own', JSON.stringify(back));
     // 1b. The viewer opened again while the same file saves: it shows Saving, and the answer lands on it.
     await open();
     await pg.click('#pv-do'); await pg.waitForTimeout(100);
@@ -412,7 +428,7 @@ async function runApp(engine, say) {
     await tell({ state: 'asking', key: ka2 });
     await pg.waitForTimeout(600);
     const asking = await state();
-    say(asking.busy && !/Saving/.test(asking.text) && !/Saving/.test(asking.msg || ''), T + ': while the app asks Allow, it waits without saying Saving', JSON.stringify(asking));
+    say(asking.busy && !/Saving/.test(asking.text) && !/Saving/.test(asking.msg || '') && /^Waiting for your answer/.test(asking.aria || ''), T + ': while the app asks Allow, it waits without saying Saving (and is named so)', JSON.stringify(asking));
     await pg.waitForTimeout(400);
     say((await state()).busy, T + ': and no timer gives the button back while it asks', JSON.stringify(await state()));
     await tell({ state: 'failed', key: ka2 });
@@ -427,9 +443,6 @@ async function runApp(engine, say) {
     const ceiling = await state();
     say(!ceiling.busy && /lost track of Budget 2026\.xlsx\. Look in your Downloads folder/.test(ceiling.msg || ''), T + ': a save whose answer never comes ends with an honest line, not a claim', JSON.stringify(ceiling));
     await pg.evaluate(() => { delete window.__dlLostMs; delete window.__dlCeilingMs; });
-    await pg.evaluate(() => window.dispatchEvent(new CustomEvent('kosmos-download', { detail: { state: 'revealfailed', id: 99 } })));
-    const gone = await state();
-    say(gone.msg === 'That file is not in your Downloads folder any more.', T + ': Open in Finder on a file that is gone says so', JSON.stringify(gone));
     // 3. Two files from a Files list, answered out of order, one failing: each answer reaches its own click.
     const two = await pg.evaluate(() => {
       pvClose();
@@ -470,6 +483,12 @@ async function runApp(engine, say) {
         PNG = Buffer.from(await p.evaluate(async () => {
           const c = document.createElement('canvas'); c.width = 1200; c.height = 800;
           const x = c.getContext('2d'); x.fillStyle = '#3a7'; x.fillRect(0, 0, 1200, 800); x.fillStyle = '#fff'; x.fillRect(100, 100, 300, 200);
+          const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
+          return Array.from(new Uint8Array(await blob.arrayBuffer()));
+        }));
+        TALL = Buffer.from(await p.evaluate(async () => {
+          const c = document.createElement('canvas'); c.width = 800; c.height = 3000;
+          const x = c.getContext('2d'); x.fillStyle = '#37a'; x.fillRect(0, 0, 800, 3000);
           const blob = await new Promise((r) => c.toBlob(r, 'image/png'));
           return Array.from(new Uint8Array(await blob.arrayBuffer()));
         }));
