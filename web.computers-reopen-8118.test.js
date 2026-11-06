@@ -22,7 +22,7 @@ function slice(name) {
   return PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2);
 }
 const REOPEN = (() => { const at = PAGE.indexOf('const COMPUTERS_REOPEN_MAX_MS = '); assert.ok(at >= 0, 'COMPUTERS_REOPEN_MAX_MS moved'); return PAGE.slice(at, PAGE.indexOf('\n', at) + 1); })() + slice('computersReopen');
-const RE = slice('computerAddressOk');
+const RE = slice('computerAddressOk') + slice('computersOpens') + slice('computersOlderSaid');
 
 const DOMAIN = 'kosmosplus.com';
 const MINI = { name: 'mini', address: 'mini.kosmosplus.com', online: true, instant: true };
@@ -33,7 +33,9 @@ function world(answer, { opening = false, during = null, hang = false } = {}) {
   const said = [];
   const opened = [];
   const listeners = {};
+  const blurred = [];
   const document = {
+    activeElement: { blur: () => { blurred.push(true); } },
     addEventListener: (k, fn) => { (listeners[k] = listeners[k] || []).push(fn); },
     removeEventListener: (k, fn) => { listeners[k] = (listeners[k] || []).filter((f) => f !== fn); },
   };
@@ -52,7 +54,7 @@ function world(answer, { opening = false, during = null, hang = false } = {}) {
   const run = new Function('fetch', 'msgToast', 'computersOpenWithTicket', 'computersOpening', 'document', 'setTimeout',
     RE + REOPEN + '\nreturn computersReopen;')(fetch, msgToast, computersOpenWithTicket, opening, document,
     hang ? (fn) => setTimeout(fn, 0) : setTimeout);   // a hung read meets the limit at once in the test
-  return { run, said, opened, listeners };
+  return { run, said, opened, listeners, blurred };
 }
 const list = (computers, extra = {}) => ({ ok: true, domain: DOMAIN, computers, ...extra });
 
@@ -62,6 +64,7 @@ test('#8118: a computer the switcher would open is opened the same way (ticket p
   assert.deepEqual(w.opened.map((o) => [o.href, o.name, o.a]), [['https://mini.kosmosplus.com/', 'mini', null]],
     'the reopen did not go through computersOpenWithTicket for that computer');
   assert.deepEqual(w.said, [], 'an opening reopen should say nothing; the switching screen shows');
+  assert.deepEqual(w.blurred, [true], 'the focused field kept focus while the ticket is made, so typing lands in it');
 });
 
 test('#8118: a computer no longer on the account is not opened, is said so, and the app is told to forget it', async () => {
@@ -78,7 +81,7 @@ test('#8118: this computer itself is home: nothing opened, nothing said, the app
   assert.deepEqual(w.said, []);
 });
 
-test('#8118: signed out of Kosmos+ stays home and says so (never a sign-in dead end), and the host is kept', async () => {
+test('#8118: signed out of Kosmos+ (or remote access off) stays home and says so, never a sign-in dead end', async () => {
   const w = world({ ok: false, signedIn: false });
   assert.equal(await w.run('mini.kosmosplus.com'), 'signed-out');
   assert.deepEqual(w.opened, []);
@@ -106,12 +109,12 @@ test('#8118: a host under another domain is not this account\'s computer: gone, 
 });
 
 test('#8118: the person clicks or types while the list is read: no switch, nothing said', async () => {
-  for (const k of ['pointerdown', 'keydown']) {
+  for (const k of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
     const w = world(list([HERE, MINI]), { during: k });
     assert.equal(await w.run('mini.kosmosplus.com'), 'touched', k + ' did not stop the reopen');
     assert.deepEqual(w.opened, [], k + ': the window was pulled away while they worked here');
     assert.deepEqual(w.said, []);
-    assert.deepEqual([...(w.listeners.pointerdown || []), ...(w.listeners.keydown || [])], [], 'the listeners were left on the page');
+    assert.deepEqual(Object.values(w.listeners).flat(), [], 'the listeners were left on the page');
   }
   // CONTROL: with no click, the same reopen opens, so the test can see the difference.
   assert.equal(await world(list([HERE, MINI])).run('mini.kosmosplus.com'), 'opening');
@@ -143,10 +146,23 @@ test('#8118: a switch already under way is left alone', async () => {
   assert.deepEqual(w.opened, []);
 });
 
-test('#8118: the click and the reopen share one switch (computersOpenWithTicket), so they cannot drift', () => {
+test('#8118: the click and the reopen share one switch AND one rule, so "what the switcher would open" cannot drift', () => {
   const click = slice('computersOpenClick');
   assert.match(click, /computersOpenWithTicket\(url, name, a\)/, 'the switcher click no longer goes through the shared switch');
+  assert.match(click, /computersOlderSaid\(name, url\.host\)/, 'the click types its own older-Kosmos sentence again');
   assert.match(slice('computersOpenWithTicket'), /\/api\/remote\/open-ticket/, 'the shared switch no longer asks for a ticket');
+  assert.match(slice('computersRender'), /const opens = computersOpens\(c\);/, 'the menu decides links by its own copy of the rule');
+  assert.match(REOPEN, /if \(!computersOpens\(c\)\) return 'unknown';/, 'the reopen no longer ends on the switcher\'s rule');
+});
+
+test('#8118: the shared rule decides last: a row the switcher would not link is never opened', async () => {
+  // A field the reopen does not check by name (here, the rule tightened to need a name), seen through computersOpens.
+  const w = world(list([HERE, MINI]));
+  const tight = new Function('fetch', 'msgToast', 'computersOpenWithTicket', 'computersOpening', 'document', 'setTimeout',
+    RE.replace('return !!c && c.this !== true', 'return !!c && c.name === "never" && c.this !== true') + REOPEN + '\nreturn computersReopen;')(
+    async () => ({ ok: true, json: async () => list([HERE, MINI]) }), () => {}, () => { throw new Error('opened'); }, false, undefined, setTimeout);
+  assert.equal(await tight('mini.kosmosplus.com'), 'unknown', 'a row the switcher would not link was opened');
+  assert.equal(await w.run('mini.kosmosplus.com'), 'opening', 'CONTROL: with the shipped rule the same row opens');
 });
 
 test('#8118: the shared switch with no clicked link (a reopen) opens with a ticket and marks nothing', async () => {
