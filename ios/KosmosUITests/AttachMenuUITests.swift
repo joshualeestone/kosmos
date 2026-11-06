@@ -27,8 +27,7 @@ final class AttachMenuUITests: XCTestCase {
         XCTAssertTrue(plus.waitForExistence(timeout: 20), "the + did not show")
         plus.tap()
         XCTAssertTrue(panel(app).waitForExistence(timeout: 5), "the tray did not open")
-        // kosmos#7609: the tray slides up, and it exists before it lands. On CI a tap right after this did nothing, twice in one run
-        // (All photos, a tile), which reads as a tap landing mid-slide. Not reproduced here (30 of 30), so this is reasoned.
+        // kosmos#7609: the plan file has what this is for and what it does not rule out.
         KeyboardSlideUITests.settle(panel(app))
         return plus
     }
