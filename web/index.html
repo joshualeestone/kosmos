@@ -9324,8 +9324,11 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-name .sfoot .field { margin-top: 0; }
 #cstep-name .sfoot #create-go { flex: 0 0 auto; }
 #create-msg .linkish { font-size: inherit; }   /* kosmos#8040: the link in a refusal reads at its sentence's size */
-#create-kept .linkish { font-size: inherit; }   /* kosmos#8051: Start over reads at its sentence's size */
-#create-kept { color: var(--label-2); }   /* kosmos#8051: it holds the only way out, so not the faint hint colour */
+/* kosmos#8051: the kept form's line, in the hint's own type under the title. Set by id because `.panel p` (0,1,1)
+   out-ranks a class (the same trap the Kosmos+ computer hint met). --label-2, not the hint's faint --label-3: it holds the
+   only way out. Start over reads at the sentence's size, its 24px target padded without moving the line. */
+#panel-create #create-kept { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin: 0 0 var(--space-4); }
+#create-kept .linkish { font: inherit; font-weight: 600; padding: 4px 2px; margin: -4px -2px; }
 #cstep-name { padding-bottom: var(--space-7); }   /* kosmos#8040: room under the sentence, or in the consolidated column it ends at the window's very edge */
 /* kosmos#8040: the sample name reads as a name already typed, so "Give the agent a name." looked wrong beside it and the
    press looked like nothing. While the box is refused it shows as what it is: empty. The sample stays for everyone else. */
@@ -16921,10 +16924,10 @@ window.kosmosMeasureScrollbarWidth();
   </div>
   <div id="cstep-name" hidden>
     <h2 id="create-meet">Set up your agent</h2>
-    <p id="create-blurb"></p>
     <!-- kosmos#8051 item 1 (Mona Lisa): a New agent within 30 minutes of the "Settings, AI Models" link comes back to the
          form as they left it. This line says so, and Start over is the way out for someone who gave up on it. -->
-    <p class="fhint" id="create-kept" hidden>This is where you left off before going to Settings. <button type="button" class="linkish" id="create-kept-over">Start over</button></p>
+    <p id="create-kept" hidden><span id="create-kept-why">This is where you left off before going to Settings.</span> <button type="button" class="linkish" id="create-kept-over">Start over</button></p>
+    <p id="create-blurb"></p>
     <!-- #3564 / #4556: the kind now comes from New Agent's first screen. On the Swarm path the Swarm card shows alone
          as the swarm's preview; on the Single path neither shows. The radios stay as the state createKind() reads. -->
     <fieldset class="ctype" id="create-kind" hidden>
@@ -67977,7 +67980,7 @@ function createEnter() {
 function createKeptLine(on) {
   document.getElementById('create-kept').hidden = !on;
   const name = document.getElementById('create-name');
-  if (on) name.setAttribute('aria-describedby', 'create-kept'); else name.removeAttribute('aria-describedby');
+  if (on) name.setAttribute('aria-describedby', 'create-kept-why'); else name.removeAttribute('aria-describedby');
 }
 /* The way out of a kept form, for someone who gave up on it. openCreate empties it and hides the line; the step that held
    the focused button is hidden with it, so the keyboard goes to the first choice, as Back does. */
