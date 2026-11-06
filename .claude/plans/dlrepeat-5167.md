@@ -37,9 +37,9 @@ That WebKit attaches a POSIX reason for the operator's failure too. Measured for
 has no underlying error, the alert reads as before and only the unified-log codes add anything.
 
 ## Tests
-- `--kosmos-app-mode-selftest` (+6 rows, 232): the reason shown for EACCES and EEXIST; CONTROL: no reason under it,
+- `--kosmos-app-mode-selftest` (+7 rows, 233): the reason shown for EACCES and EEXIST, and one found a level further down (review 1); CONTROL: no reason under it,
   WebKit's words alone; a non-POSIX reason is not shown; codes only in the log line; neither carries the address/token.
 - `--kosmos-app-download-selftest` (+1 row, 39): a real WKWebView click into an unwritable folder says
   "(Cannot create file: Permission denied)", once; the failure tally rises to 8. Mutant (the old words) fails both.
 - `native-app.applog-5481.test.js`: the new unified-log caller is pinned (6 callers). `native-app.download-5167.test.js`:
-  the row counts follow (232, 39). Both 34/34.
+  the row counts follow (233, 39). Both 34/34.
