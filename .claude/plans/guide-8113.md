@@ -44,3 +44,12 @@ removed (route test red); folder scan used despite cards (three engine tests red
   nothing, with a live card in it (the first version had none, and a mutant ignoring the survey's failure survived;
   with the live card it goes red).
 - NIT: two false docstring sentences --> FIXED.
+
+## Review round 2 (sonnet; no BLOCKER)
+- WARNING: the list route drops a stopped row whose build throws; `cardsForResolve` keeps it --> DEFERRED, documented
+  at `cardsForResolve`. Usually it only adds an ambiguity refusal; when the dropped row is the only match it resolves
+  to that real agent and the plan's question names it. Fixing needs one shared roster function (the list route's
+  inline builder), larger than this card. Would change my mind: a row that throws for a common reason.
+- NIT: the guide test left its marker file behind --> FIXED.
+- NIT: dry-run restored as a hardcoded true --> NO CHANGE (the suite sets it; nothing reads the old value).
+- NIT: guideMarkName read after the awaited reads, a one-poll skew --> NO CHANGE (fails safe).
