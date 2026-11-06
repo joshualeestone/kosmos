@@ -43,7 +43,7 @@
     "Nothing to do."
   ],
   "pkg_present": [
-    "This page becomes your dashboard when Kosmos is ready."
+    "This page shows install progress. Kosmos opens in its own app when it is ready."
   ],
-  "_pkg_note": "The .pkg is a SECOND served artifact, 30KB and payload-free, holding three user-facing pages that no check owned until 2026-08-27 (Ice Cream Kitty found them). Josh item 4 lives here, not in web/index.html. NOTE: the pkg is served under a moving name and its baked version is metadata only by design (build-installer-pkg.sh:31), so unlike the tarball there is no version cross-check -- this arm reports what is served NOW."
+  "_pkg_note": "The .pkg is a SECOND served artifact, small and payload-free, holding three user-facing pages that no check owned until 2026-08-27 (Ice Cream Kitty found them). Josh item 4 lives here, not in web/index.html. NOTE: the pkg is served under a moving name and its baked version is metadata only by design (build-installer-pkg.sh:31), so unlike the tarball there is no version cross-check -- this arm reports what is served NOW."
 }

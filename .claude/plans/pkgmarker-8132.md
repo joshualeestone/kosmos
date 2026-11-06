@@ -1,0 +1,30 @@
+# pkgmarker-8132: the .pkg presence marker names a sentence that ships (kosmos#8132)
+
+## Why
+tools/served-markers.json had pkg_present "This page becomes your dashboard when Kosmos is ready." No file has had it
+since #2073 (the page no longer becomes the dashboard; the native app is). So that row of tools/check-served.js failed
+on every build. Measured 11-06 against served 0.7.94: every other row passes; this is the one wrong marker.
+
+## What
+- pkg_present is now the installing page's static hint, the first thing a person reads there:
+  "This page shows install progress. Kosmos opens in its own app when it is ready." (install/pkg-scripts/
+  installing.html). Mona Lisa's open #8134 keeps it as is; she will change the marker in the same PR if she rewords it.
+- tools.served-markers-sources-8132.test.js: every present and order marker must be in web/index.html, and every
+  pkg_present marker in one of the three pages the installer serves (installing.html, pkg-resources/welcome.html,
+  pkg-resources/conclusion.html). It also holds check-served.js to reading those three pages, has floors on every source,
+  and a control that a made-up marker and the old dead sentence are not found.
+- binary is NOT checked against source: "runOpenPanel" is a selector in the compiled app that no source spells (it
+  passes against the served binary). The absent kinds have no source by design.
+- "30KB" removed from check-served.js and _pkg_note: the served pkg is 104,719 bytes, and #8134 adds more.
+
+## Measured
+- Guard: 4/4 on this branch; on main's markers it fails, naming the dead sentence.
+- Served, real: check-served.js with the new marker against installkosmos.com: rc 0, the pkg row ok [installing.html].
+- Served, negative: a re-flattened copy of the served pkg with that sentence cut, behind a local mirror: the row FAILs
+  (rc 1), and the same harness passes the real served pkg (rc 0). The harness is a scratch copy of check-served.js
+  using node:http for the local mirror (check-served refuses http); nothing else differs.
+- Every other marker checked first: all present, order and binary rows pass against served 0.7.94; nothing else dead.
+
+## Who runs check-served.js (the card asked)
+Nobody automatically: no caller in this repo (only comments, plans and the README), in the fleet tools, ~/.claude/bin,
+~/.local/bin or the LaunchAgents. It is a hand-run tool, so anyone who ran it since #2073 got this red row every time.

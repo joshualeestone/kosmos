@@ -385,8 +385,9 @@ process.on('exit', () => {
      archive. Only the POPULATION was short, at two files. Those are different
      repairs and I named the harder one.
 
-     📌 IT COSTS ALMOST NOTHING: the pkg is payload-free, 30KB against the
-     tarball's 47MB. There is no reason to make this opt-in.
+     📌 IT COSTS ALMOST NOTHING: the pkg is payload-free, a small fraction of
+     the tarball's size (kosmos#8132: no number here, it grows with its pages).
+     There is no reason to make this opt-in.
 
      ⚠️ AND WHAT THIS CANNOT TELL YOU, said plainly rather than left implied:
      the pkg is served under a MOVING name, and its baked version is metadata
