@@ -3,7 +3,8 @@ import SwiftUI
 /// kosmos#7954 (Josh 2026-11-04: "use our simple dots that go in a circle since they are smaller"): the board's Sweep
 /// loader as its CSS defines it, eight gold dots on a ring lighting one after another (SweepLogic has the numbers). It
 /// is the iPhone app's only loading indicator (Josh 2026-11-05 18:33: "only use the dots spinner in the mobile app and
-/// scrub any other instances", kosmos#8058); run-sweep.sh fails if the orb or the system's spinner is used anywhere.
+/// scrub any other instances", kosmos#8058); the sweep suite fails if app source in ios/Kosmos or ios/KosmosNotice uses
+/// the orb or the system's spinner, except pull to refresh, pinned at its known places (kosmos#8078).
 /// With no label it is hidden from VoiceOver, for a place whose words already say what is loading; with one, VoiceOver
 /// reads that label. It grows with the person's text size (unless `scales` is false). Drawn from the clock at 30 frames
 /// a second at most by default (`framesPerSecond`), as WorkingDots is; with Reduce Motion the dots stay where they are
@@ -17,11 +18,11 @@ struct SweepDots: View {
     /// false keeps `size` at every text size. kosmos#7945 follow-up: the Agents tab's wait to connect, which must match
     /// the launch screen's fixed 20 pt picture; its words still grow with the text.
     var scales = true
-    /// The most frames a second it draws. kosmos#8058: 15 inside a chat or room's lazy thread, matching the orb it
-    /// replaces there; whether 15 avoids #7427 (a clock-drawn view in the thread stopped it following new messages) is
+    /// The most frames a second it draws. kosmos#8058: 15 inside a chat or room's lazy thread, the rate the orb drew
+    /// there; whether 15 avoids #7427 (a clock-drawn view in the thread stopped it following new messages) is
     /// not measured. At 15 the dots step 2-2-2-3 frames each (0.15 s a dot); how that looks on a phone is not measured.
     var framesPerSecond: Double = 30
-    /// kosmos#8058: with Reduce Motion, one still frame and no clock, as the orb it replaces did inside a lazy thread,
+    /// kosmos#8058: with Reduce Motion, one still frame and no clock, as the orb drew everywhere before #8058,
     /// rather than the pulse, so a Reduce Motion reader gains no clock-drawn view there.
     var stillWhenReduced = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
