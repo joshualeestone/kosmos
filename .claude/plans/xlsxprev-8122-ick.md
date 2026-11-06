@@ -58,3 +58,19 @@ absolutely.
 - KEPT (NITs): numbers past 15 digits, multi-section codes (negatives in parentheses, ";;;" hide), "[h]" alone, "#.00",
   AM/PM in 24-hour form, serial 0-1 under a date, negative 1900 durations, a CSV trailing blank line at the row cap marked cut,
   the long unquoted CSV field path (linear, about 10x the quoted one), no per-file cache of a sheet answer.
+
+## Review round 4 (sonnet): no BLOCKER; 4 WARNINGs, 7 NITs; fixed W1-W4, N1-N3, N6
+- W1 a row number that never grows, or cells past column 50, walked a whole 16 MB part (1.9 s a request): MAX_VISITS
+  (40000 rows and cells walked per sheet) bounds it; the probe now runs 64 ms. A real-clock test, < 600 ms (1261 ms before).
+- W2 a formula returning "" (t="str", empty <v>) read as no saved value: now a saved "". Control: openpyxl's numeric <v/> still is.
+- W3 data starting past row 200 showed empty, and a row out of order ended the sheet: the window starts at the first row with
+  a value when that is past the cap (new optional `firstRow`, 1-based, only when not 1: told Mona Lisa), rows outside the
+  window are skipped, not the end.
+- W4 dates showed a time their format hides; h:mm AM/PM was 24-hour; mm:ss showed the hour; serial 0: all as Excel now.
+  Three older tests pinned the old display and were corrected (hh:mm:ss shows :00, id 22 shows 00:00, dd/mm/yyyy no time).
+- N1 101 decimal places threw out of toFixed (whole workbook refused): over 30 is no format. N2 text under a date format
+  showed NaN: shown as written. N3 a self-closed <rPh/> cut the text after it. N6 a shared string past the cap marks the sheet cut.
+- KEPT: N4 currency/accounting/scientific show the saved number (decided round 2); N5 hidden sheets shown (decided); N7
+  semicolon CSV one column (decided).
+- All 5 new r4 tests fail on 9a4fc1923b (run in a scratch copy) and pass now. Every test that reads a changed engine file:
+  18 files, 626 tests, 542 pass, 0 fail, 84 skipped (Windows-only).

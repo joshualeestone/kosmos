@@ -19,7 +19,8 @@
  *   (the prefix strip, the entity decode) have no nested repetition, so they are linear; the rest run on a short, capped
  *   piece (a start tag, a format code);
  * - comments are cut and CDATA unwrapped first, so neither can hide or fake a value; namespace prefixes are dropped;
- * - each worksheet part is read once, however many sheets name it, and reading a sheet stops at its row cap;
+ * - each worksheet part is read once, however many sheets name it, and reading a sheet stops after MAX_VISITS rows and
+ *   cells walked, shown or not (review 4: a row number that never grew walked a whole part);
  * - the whole read has a time budget (WORK_BUDGET_MS), checked every 1024 steps of every loop and between parts; past
  *   it the answer is "too large to preview". One scan (clean) is linear, so it needs no check inside;
  * - the grid is capped (MAX_SHEETS, MAX_ROWS, MAX_COLS, MAX_CELL_CHARS, MAX_SHARED_STRINGS).
@@ -36,6 +37,7 @@ const MAX_ROWS = 200;                          // per sheet
 const MAX_COLS = 50;
 const MAX_CELL_CHARS = 500;
 const MAX_SHARED_STRINGS = 200000;
+const MAX_VISITS = 40000;                      // rows and cells walked per sheet, shown or not (review 4)
 const MAX_TAG_CHARS = 4096;                    // a start tag longer than this has no attributes we read
 const MAX_FORMAT_CODE = 255;                   // Excel's own limit on a number format code
 const WORK_BUDGET_MS = 2000;                   // the whole read, on the board's one thread
@@ -141,6 +143,9 @@ function textOf(body) {
       const i = shown.indexOf('<rPh', at);
       if (i < 0) { out += shown.slice(at); break; }
       out += shown.slice(at, i);
+      // Review 4: a self-closed <rPh/> has no reading to drop (the text after it was lost).
+      const tagEnd = shown.indexOf('>', i);
+      if (tagEnd > 0 && shown[tagEnd - 1] === '/') { at = tagEnd + 1; continue; }
       const close = shown.indexOf('</rPh>', i);
       if (close < 0) break;
       at = close + 6;
@@ -195,13 +200,18 @@ function formatKind(code) {
   const lower = bare.toLowerCase();
   const dur = /^(h+|m+|s+)/.exec(lower);
   if (dur && /\[(h+|m+|s+)\]/i.test(String(code || '').split(';')[0])) return { kind: 'duration', unit: dur[1][0], seconds: /s/.test(lower.slice(dur[1].length)) || dur[1][0] === 's' };
-  if (/[dy]/.test(lower)) return { kind: 'date' };
-  if (/[hs]/.test(lower)) return { kind: 'time' };
-  if (/m/.test(lower) && !/^[#0.,%\s]*$/.test(lower)) return { kind: 'date' };   // "mmm" alone is a month
+  // Review 4: a date code with no hour or second shows no time (yyyy-mm-dd on 45000.5 showed 12:00), and a time code says
+  // whether it is 12-hour and whether it has hours and seconds (h:mm AM/PM showed 18:00, mm:ss showed the hour).
+  const time = /[hs]/.test(lower);
+  if (/[dy]/.test(lower)) return { kind: 'date', time };
+  if (time) return { kind: 'time', ampm: /am\/pm|a\/p/.test(lower), hours: /h/.test(lower), seconds: /s/.test(lower) };
+  if (/m/.test(lower) && !/^[#0.,%\s]*$/.test(lower)) return { kind: 'date', time: false };   // "mmm" alone is a month
   // Only a code of digit placeholders (review 3: a currency or a unit, quoted or in brackets, was dropped from the shown
   // text); anything else shows the saved number.
   if (!/^[#0.,%\s]+$/.test(String(code || '').split(';')[0])) return null;
   const num = /^\s*(#,##0|#,#|0|#)?(?:\.(0+))?\s*(%)?\s*$/.exec(lower);
+  // Review 4: past 30 places (Excel's own limit) toFixed throws, which refused the whole workbook.
+  if (num && num[2] && num[2].length > 30) return null;
   if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3] };
   return null;
 }
@@ -215,9 +225,13 @@ function builtinKind(id) {
   if (id === 4) return { kind: 'number', decimals: 2, thousands: true, percent: false };
   if (id === 9) return { kind: 'number', decimals: 0, thousands: false, percent: true };
   if (id === 10) return { kind: 'number', decimals: 2, thousands: false, percent: true };
-  if ((id >= 14 && id <= 17) || id === 22 || (id >= 27 && id <= 36) || (id >= 50 && id <= 58)) return { kind: 'date' };
+  if (id >= 14 && id <= 17) return { kind: 'date', time: false };
+  if (id === 22) return { kind: 'date', time: true };
+  if ((id >= 27 && id <= 36) || (id >= 50 && id <= 58)) return { kind: 'date' };   // locale codes: a time only when saved
   if (id === 46) return { kind: 'duration', unit: 'h', seconds: true };
-  if ((id >= 18 && id <= 21) || id === 45 || id === 47) return { kind: 'time' };
+  if (id === 18 || id === 19) return { kind: 'time', ampm: true, hours: true, seconds: id === 19 };
+  if (id === 20 || id === 21) return { kind: 'time', ampm: false, hours: true, seconds: id === 21 };
+  if (id === 45 || id === 47) return { kind: 'time', ampm: false, hours: false, seconds: true };
   return null;
 }
 /* For each cell style, what its number format shows (see formatKind), or null. */
@@ -243,25 +257,34 @@ function styleKinds(stylesXml, budget = () => {}) {
 /* An Excel serial date as YYYY-MM-DD (with HH:MM when it has a time). The 1900 system keeps Excel's leap-year bug:
    serial 60 is the 1900-02-29 that never was, and serials below it are one day later than the plain count (review 1).
    The 1904 system counts from 1904-01-01. */
-function serialDate(n, from1904 = false) {
+function serialDate(n, from1904 = false, fmt = null) {
   if (!Number.isFinite(n) || n < 0 || n > 2958465) return String(n);
   n = Math.round(n * 86400) / 86400;   // review 2: to the second first, so a time just before midnight carries into the next day
+  const timePart = (x) => {
+    const show = fmt && fmt.time !== undefined ? fmt.time : x % 1 !== 0;
+    return show ? ' ' + serialTime(x) : '';
+  };
   if (!from1904 && Math.floor(n) === 60) return '1900-02-29' + timePart(n);
+  if (!from1904 && Math.floor(n) === 0) return '1900-01-00' + timePart(n);   // review 4: Excel's day 0, as Excel shows it
   const days = from1904 ? n + 1462 : (n < 60 ? n + 1 : n);
   const ms = Math.round((days - 25569) * 86400000);   // 25569 = 1970-01-01 in the 1900 system
   const d = new Date(ms);
   if (Number.isNaN(d.getTime())) return String(n);
   return d.toISOString().slice(0, 10) + timePart(n);
 }
-function timePart(n) { return n % 1 === 0 ? '' : ' ' + serialTime(n); }
-/* The time of day in a serial, HH:MM (with :SS when it has seconds). */
-function serialTime(n) {
+/* The time of day in a serial: HH:MM (with :SS when it has seconds); with a time format's reading (formatKind), its
+   12-hour clock ("6:00 PM"), its seconds, and no hour when the code has none ("mm:ss"). */
+function serialTime(n, fmt = null) {
   if (!Number.isFinite(n)) return String(n);
   const secs = Math.round((((n % 1) + 1) % 1) * 86400) % 86400;
-  const hh = String(Math.floor(secs / 3600)).padStart(2, '0');
+  const h24 = Math.floor(secs / 3600);
   const mm = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
   const ss = secs % 60;
-  return hh + ':' + mm + (ss ? ':' + String(ss).padStart(2, '0') : '');
+  const showSecs = fmt && fmt.seconds !== undefined ? fmt.seconds : ss !== 0;
+  const tail = showSecs ? ':' + String(ss).padStart(2, '0') : '';
+  if (fmt && fmt.hours === false) return mm + tail;
+  if (fmt && fmt.ampm) return String(h24 % 12 || 12) + ':' + mm + tail + (h24 < 12 ? ' AM' : ' PM');
+  return String(h24).padStart(2, '0') + ':' + mm + tail;
 }
 /* A saved number as a person reads it: no float noise (0.30000000000000004 is 0.3); with a simple number format, its
    decimal places, its thousands separator (as en-US writes them) and its percent sign, rounded half away from zero as
@@ -324,11 +347,12 @@ function readXlsx(buf) {
     if ((++rk & 1023) === 0) budget();
   }
   const shared = [];
+  let sharedCut = false;
   const sst = part('xl/sharedStrings.xml');
   if (sst) {
     let k = 0;
     for (const si of elements(sst, 'si')) {
-      if (shared.length >= MAX_SHARED_STRINGS) break;
+      if (shared.length >= MAX_SHARED_STRINGS) { sharedCut = true; break; }
       shared.push(textOf(si.body));
       if ((++k & 1023) === 0) budget();
     }
@@ -354,19 +378,35 @@ function readXlsx(buf) {
     const xml = part('xl/' + target);
     // Review 3: a part that is not in the file (damaged, or a name the lister leaves out) is not a grid, never "empty".
     if (xml === null) { sheets.push({ name, rows: [], cut: false, notGrid: true }); continue; }
-    const grid = new Map();   // row -> Map(col -> text)
+    const grid = new Map();   // row (from `base`) -> Map(col -> text)
     let width = 0, cut = false;
     const data = elements(xml, 'sheetData', true).next().value;
     let rowAt = -1;
     let k = 0;
-    for (const row of data ? elements(data.body, 'row', true) : []) {
+    // Review 4: the window of rows shown starts at the first row with a value when that row is past the cap (a sheet whose
+    // data starts at row 300 showed as empty), and a row outside the window is skipped, not the end of the sheet (rows out
+    // of order lost everything after the first far one). What bounds the walk is MAX_VISITS, rows and cells together: a
+    // row number that never grows, or cells past the last column, walked a whole 16 MB part before (about 2 s a request).
+    let base = null;
+    let visits = 0;
+    rows: for (const row of data ? elements(data.body, 'row', true) : []) {
       if ((++k & 1023) === 0) budget();
+      if (++visits > MAX_VISITS) { cut = true; break; }
       const rr = Number(attr(row.tag, 'r'));
       rowAt = Number.isInteger(rr) && rr >= 1 ? rr - 1 : rowAt + 1;   // a row with no r is the next one (review 1)
-      if (rowAt >= MAX_ROWS) { cut = true; break; }                  // review 1: stop at the cap, do not walk the rest
+      if (base !== null && (rowAt < base || rowAt >= base + MAX_ROWS)) { cut = true; continue; }
+      const line = new Map();
+      const keep = () => {   // this row's cells into the grid; the first row kept places the window
+        if (base === null) base = rowAt >= MAX_ROWS ? rowAt : 0;
+        anyValue = true;
+        const at = rowAt - base;
+        if (!grid.has(at)) grid.set(at, new Map());
+        for (const [col, text] of line) { grid.get(at).set(col, text); if (col + 1 > width) width = col + 1; }
+      };
       let colAt = -1;
       for (const c of elements(row.body, 'c')) {
         if ((++k & 1023) === 0) budget();
+        if (++visits > MAX_VISITS) { cut = true; if (line.size) keep(); break rows; }
         const at = cellRef(attr(c.tag, 'r'));
         const col = at ? at[1] : colAt + 1;                          // a cell with no r is the next column
         colAt = col;
@@ -380,10 +420,16 @@ function readXlsx(buf) {
           text = is ? textOf(is.body) : null;
         } else {
           const v = elements(c.body, 'v').next().value;
-          // Review 1: an empty <v/> (as openpyxl writes beside a formula) is no saved value, not an empty one.
-          if (v && v.body !== '') {
+          // Review 1: an empty <v/> (as openpyxl writes beside a formula) is no saved value, not an empty one. Review 4: except
+          // a text result (t="str"), where an empty <v></v> is the saved "" of a formula such as IF(A1,"","").
+          if (v && (v.body !== '' || type === 'str')) {
             const raw = unescapeXml(v.body);
-            if (type === 's') text = shared[Number(raw)] ?? '';
+            if (type === 's') {
+              const n = Number(raw);
+              // Review 4: a string past the ones read (MAX_SHARED_STRINGS) is not shown, and the sheet says it is cut.
+              if (n >= shared.length && sharedCut) cut = true;
+              text = shared[n] ?? '';
+            }
             else if (type === 'b') text = raw === '1' ? 'TRUE' : 'FALSE';
             else if (type === 'e' || type === 'str') text = raw;
             // Review 3: an ISO date cell (t="d", as openpyxl with iso_dates, SheetJS and Strict OOXML write) is shown as its
@@ -392,19 +438,19 @@ function readXlsx(buf) {
             else {
               const fmt = kinds[Number(attr(c.tag, 's') || 0)] || null;
               const kind = fmt && fmt.kind;
-              text = kind === 'date' ? serialDate(Number(raw), from1904)
-                : kind === 'time' ? serialTime(Number(raw))
+              // Review 4: text that is not a number under a date or time format is shown as written, never "NaN".
+              text = (kind && kind !== 'number' && (raw.trim() === '' || !Number.isFinite(Number(raw)))) ? raw
+                : kind === 'date' ? serialDate(Number(raw), from1904, fmt)
+                : kind === 'time' ? serialTime(Number(raw), fmt)
                   : kind === 'duration' ? shownDuration(Number(raw), fmt)
                     : shownNumber(raw, fmt);
             }
           }
         }
         if (text === null) { if (hasFormula) bareFormula = true; continue; }
-        anyValue = true;
-        if (!grid.has(rowAt)) grid.set(rowAt, new Map());
-        grid.get(rowAt).set(col, clip(text));
-        if (col + 1 > width) width = col + 1;
+        line.set(col, clip(text));
       }
+      if (line.size) keep();
     }
     const height = grid.size ? Math.max(...grid.keys()) + 1 : 0;
     const rows = [];
@@ -412,7 +458,7 @@ function readXlsx(buf) {
       const line = grid.get(r);
       rows.push(Array.from({ length: width }, (_, j) => (line && line.get(j)) || ''));
     }
-    sheets.push({ name, rows, cut });
+    sheets.push({ name, rows, cut, ...(base ? { firstRow: base + 1 } : {}) });
     budget();
   }
   if (!all) refuse(CANNOT_READ);
