@@ -132,7 +132,12 @@ function create({ file, nowMs = Date.now() }) {
   }
 
   async function step(deps, nowMs) {
-    if (deps.settingOn() !== true) return { did: 'off' };
+    if (deps.settingOn() !== true) {
+      // kosmos#8083: a switch that could not be read reads off; the board log says which (deps.settingUnreadable is optional).
+      let unreadable = false;
+      try { unreadable = typeof deps.settingUnreadable === 'function' && deps.settingUnreadable() === true; } catch { unreadable = true; }
+      return unreadable ? { did: 'off', because: 'setting-unreadable' } : { did: 'off' };
+    }
     let decision;
     let rows = [];
     try {
@@ -208,6 +213,7 @@ function quietLine(said, { nowMs, offWhy = null, did = null, because = null, unm
   let key;
   let line;
   if (offWhy) { key = 'off:' + offWhy; line = 'autobalance-sweep: not running: ' + offWhy; }
+  else if (did === 'off' && because === 'setting-unreadable') { key = 'off:setting-unreadable'; line = 'autobalance-sweep: not running: its Settings switch could not be read'; }
   else if (did === 'off') { key = 'off:setting'; line = 'autobalance-sweep: not running: auto-balance is switched off in Settings'; }
   else if (did === 'unreadable') { key = 'unreadable'; line = 'autobalance-sweep: running, but it could not work out the decision (' + why + ')'; }
   else if (did === 'gap') { key = 'gap'; line = 'autobalance-sweep: running, but it could not measure what it needs (' + why + ')'; }

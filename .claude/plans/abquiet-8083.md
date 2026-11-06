@@ -59,3 +59,10 @@ logged-ticks-not-said, early return silent: each red.
   Settings" first tick.
 - Note: on a default install (usage poll off) the start line is the only line saying the sweep is not running; a
   rotated log loses it. Accepted to keep an unchanged setting out of the log every hour.
+
+## Review round 5 (opus): one WARNING, fixed
+- An unreadable Settings switch read as "switched off in Settings": the sweep returns because 'setting-unreadable'
+  (from an optional deps.settingUnreadable), the log says "its Settings switch could not be read", and the start line
+  reads the switch once with the tick's own fallbacks, so both name the same state.
+- NITs left: a throw inside the tick's own .then is reported as a failed tick (best-effort wording); a record
+  unreadable at start is said by the existing "off" line and once more by the first tick.

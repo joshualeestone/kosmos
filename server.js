@@ -3278,6 +3278,7 @@ function autobalanceSweepDeps() {
     records: () => (records || (records = projects.readAll())),
     readCommitment: (session) => commitments.read(session),
     settingOn: () => { try { return autobalanceSetting.read().on === true; } catch { return false; } },
+    settingUnreadable: () => { try { return autobalanceSetting.read().ok === false; } catch { return true; } },   // kosmos#8083
     labelOf,
   };
 }
@@ -28501,11 +28502,16 @@ function start(port = PORT) {
       const abQuietSaid = { at: 0, key: null };   // kosmos#8083: autobalanceSweep.quietLine's memory between ticks
       if (abSweep) {
         const offNow = autobalanceSweepOffWhy();
-        let settingOff = false;   // the Settings switch, read per tick by the sweep; asked once here so the start line agrees
-        try { settingOff = autobalanceSetting.read().on !== true; } catch { settingOff = false; }
-        const startState = offNow ? 'not running now: ' + offNow : settingOff ? 'not running now: auto-balance is switched off in Settings' : 'running';
+        // The Settings switch, read per tick by the sweep (autobalanceSweepDeps' settingOn and settingUnreadable), read once
+        // here with the same fallbacks so the start line and the first tick name the same state.
+        let setting;
+        try { setting = autobalanceSetting.read(); } catch { setting = { on: false, ok: false }; }
+        const settingOff = !setting || setting.on !== true;
+        const settingUnread = !setting || setting.ok === false;
+        const startState = offNow ? 'not running now: ' + offNow
+          : settingOff ? 'not running now: ' + (settingUnread ? 'its Settings switch could not be read' : 'auto-balance is switched off in Settings') : 'running';
         process.stdout.write(`autobalance-sweep: timer set, every ${Math.round(abSweepMs / 60000)} min, ${startState}; the mover is ${automoveRun ? 'on' : 'off'}\n`);
-        if (offNow || settingOff) autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), offWhy: offNow, did: settingOff ? 'off' : null, logged: true });   // the start line said it
+        if (offNow || settingOff) autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), offWhy: offNow, did: settingOff ? 'off' : null, because: settingUnread ? 'setting-unreadable' : null, logged: true });   // the start line said it
       }
       const abSayQuiet = (opts) => { try { const line = autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), ...opts }); if (line) process.stdout.write(line + '\n'); } catch { /* best-effort: never into the timer */ } };
       let abSweepWriteSaid = false;

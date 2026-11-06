@@ -111,14 +111,21 @@ test('kosmos#8083: a clock that went backwards does not silence a running state 
 
 test('kosmos#8083: the start line counts as said: server.js seeds quietLine with the shut gate it printed', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(src, /if \(offNow \|\| settingOff\) autobalanceSweep\.quietLine\(abQuietSaid, \{ nowMs: Date\.now\(\), offWhy: offNow, did: settingOff \? 'off' : null, logged: true \}\);/);
-  assert.match(src, /settingOff = autobalanceSetting\.read\(\)\.on !== true;/, 'the start line no longer asks the Settings switch');
+  assert.match(src, /if \(offNow \|\| settingOff\) autobalanceSweep\.quietLine\(abQuietSaid, \{ nowMs: Date\.now\(\), offWhy: offNow, did: settingOff \? 'off' : null, because: settingUnread \? 'setting-unreadable' : null, logged: true \}\);/);
+  assert.match(src, /try \{ setting = autobalanceSetting\.read\(\); \} catch \{ setting = \{ on: false, ok: false \}; \}/, 'the start line no longer asks the Settings switch, or falls back unlike the tick');
+  assert.match(src, /settingUnreadable: \(\) => \{ try \{ return autobalanceSetting\.read\(\)\.ok === false; \} catch \{ return true; \} \},/, 'the tick cannot tell an unreadable switch from an off one');
   const s2 = { at: 0, key: null };
   assert.equal(quietLine(s2, { nowMs: T0, did: 'off', logged: true }), null);
   assert.equal(quietLine(s2, { nowMs: T0 + 10 * MIN, did: 'off' }), null, 'the first tick repeated a Settings-off start line');
   const said = { at: 0, key: null };
   assert.equal(quietLine(said, { nowMs: T0, offWhy: 'the usage poll is off', logged: true }), null);
   assert.equal(quietLine(said, { nowMs: T0 + 10 * MIN, offWhy: 'the usage poll is off' }), null, 'the first tick repeated the start line');
+});
+
+test('kosmos#8083: a Settings switch that could not be read is said as such, not as switched off', () => {
+  const said = { at: 0, key: null };
+  assert.equal(quietLine(said, { nowMs: T0, did: 'off', because: 'setting-unreadable' }), 'autobalance-sweep: not running: its Settings switch could not be read');
+  assert.equal(quietLine(said, { nowMs: T0 + MIN, did: 'off' }), 'autobalance-sweep: not running: auto-balance is switched off in Settings', 'the two off states are one state');
 });
 
 test('kosmos#8083: no memory or no clock says nothing and never throws', () => {
@@ -132,7 +139,7 @@ test('kosmos#8083: no memory or no clock says nothing and never throws', () => {
 test('kosmos#8083: server.js says the start line and calls quietLine where the tick returns early and where it ends', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
   assert.match(src, /autobalance-sweep: timer set, every \$\{Math\.round\(abSweepMs \/ 60000\)\} min, \$\{startState\}; the mover is \$\{automoveRun \? 'on' : 'off'\}/);
-  assert.match(src, /const startState = offNow \? 'not running now: ' \+ offNow : settingOff \? 'not running now: auto-balance is switched off in Settings' : 'running';/);
+  assert.match(src, /settingOff \? 'not running now: ' \+ \(settingUnread \? 'its Settings switch could not be read' : 'auto-balance is switched off in Settings'\) : 'running';/);
   assert.match(src, /r\.did === 'recorded' \|\| r\.did === 'cleared'\)\) \{ process\.stdout\.write\('autobalance-sweep: recorded a changed decision\\n'\); logged = true; \}/, 'a cleared risk is not logged');
   assert.match(src, /\.catch\(\(err\) => \{ abSayQuiet\(\{ did: 'unreadable', because: 'the tick failed: ' \+ /, 'a tick that throws leaves no trace');
   assert.match(src, /if \(!abSweep \|\| !autobalanceSweepRuns\(\{ forTick: true \}\)\) \{ abSayQuiet\(\{ offWhy: autobalanceSweepOffWhy\(\) \|\| 'unknown' \}\); return; \}/,
