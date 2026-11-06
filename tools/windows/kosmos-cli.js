@@ -2445,7 +2445,8 @@ async function agentRemove(ctx, args) {
   if (!yes && !ctx.canAsk()) { ctx.err('Nothing was removed: there is no terminal here to confirm on. To remove ' + name + ' without being asked, add --yes.'); return 2; }
   const route = '/api/agent/' + encodeURIComponent(name) + '/removal';
   // The plan is a read the board token opens (the board keeps it there), so it goes as the person's request.
-  const p = await ctx.call('GET', route, undefined, { person: true });
+  // kosmos#8109: ?resolve=1 asks the plan to resolve a name as `agent list` prints it; the board's own button does not.
+  const p = await ctx.call('GET', route + '?resolve=1', undefined, { person: true });
   if (!p.reached) return ctx.unreachable('read what removing ' + name + ' would do');
   const plan = p.json || {};
   if (plan.ok !== true) {

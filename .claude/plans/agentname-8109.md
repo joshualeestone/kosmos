@@ -11,8 +11,10 @@ on a prod 0.7.93 Linux board for a team made from the Team step (five agents, al
     any candidate cannot be read (it might be the second agent with that name);
   - otherwise the folder of the ONE agent whose folder name or display name equals it ignoring case;
   - two or more matches: `ambiguous` lists their folders. Removed (hidden) agents are never candidates.
-- `server.js` **the plan route (GET) resolves**; two or more matches answer "more than one agent is called X (a, b);
-  remove it by one of those names".
+- `server.js` **the plan route (GET) resolves ONLY when asked with `?resolve=1`**, which both CLIs send. The board's
+  own button asks about its card by exact name without it, so a stale card is never answered with another agent's
+  plan (review round 4). Two or more matches answer "more than one agent is called X (a, shown as A; b, shown as B);
+  remove it by one of those names", each folder with the name it is shown by.
 - `server.js` **the remove route (DELETE) does NOT resolve**: it acts on the exact name it is given. The board's
   button sends the card's exact name, and resolving there could turn a removal whose agent went away between the
   question and the DELETE into the removal of a DIFFERENT agent (review round 3's BLOCKER).
@@ -25,11 +27,17 @@ on a prod 0.7.93 Linux board for a team made from the Team step (five agents, al
 An exact folder, job or session name wins over another agent's display name, as before this branch (test: "an exact
 folder name wins"). The confirmation names the agent it will remove.
 
+## Deferred, with reasons
+- One unreadable folder in the workers folder makes `resolve` leave every miss as given, so resolution is off for
+  that board until it is fixed. Deliberate: skipping it could turn a two-agent name into one. Rare, because
+  `readIdentity` swallows its own read errors. A log line would help; not added here.
+
 ## Not in this branch
 - restart and move resolve names their own way; the card says "probably". Left for a follow-up if they show the same.
 - `agent list` output unchanged.
 - An agent whose folder is recorded outside the workers folder (a profile `dir`) is not a candidate, so its display
-  name still does not resolve. Team-step agents (the card's case) live in the workers folder.
+  name still does not resolve. Team-step agents (the card's case) live in the workers folder. A symlinked folder in
+  the workers folder is not a candidate either (`isDirectory` on the entry is false for a link).
 - Pre-existing, not caused here, and they make `resolve` treat a case variant as exact: on Windows `jobFor` asks
   `schtasks`, whose task names are case-insensitive; and `workerDir` for a profile-recorded agent reads its profile by
   `safeKey`, which lowercases. On those agents a case variant still reaches the old exact-name path.
