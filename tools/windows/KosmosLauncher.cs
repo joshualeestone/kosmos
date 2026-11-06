@@ -492,8 +492,6 @@ class KosmosLauncher
     // inside it (its own entries; a folder's for what is inside it too), or a folder above it.
     internal enum AclScope { RunFolder, Code, Above }
 
-    // Null when Kosmos may run from this folder; otherwise what makes it unsafe, in one line for support
-    // (the person reads RefuseUnsafeFolder's words, not this).
     // A folder path as one Path.Combine can join onto: a bare drive ("C:") gets its separator.
     static string AsDirectoryPath(string folder)
     {
@@ -508,6 +506,9 @@ class KosmosLauncher
         catch { return true; }
     }
 
+    // Null when Kosmos may run from this folder; otherwise what makes it unsafe, in one line for support
+    // (the person reads RefuseUnsafeFolder's words, not this). The named entry points are read first and again in
+    // the full walk on purpose: the first pass makes a refusal name the one that matters most.
     internal static string UnsafeRunFolderReason(string here)
     {
         string full = FullPathOrNull(here);
@@ -547,6 +548,11 @@ class KosmosLauncher
             catch (Exception e) { return "what is in " + dir + " could not be read (" + e.Message + ")"; }
             foreach (string item in files)
             {
+                FileAttributes fileAttributes;
+                try { fileAttributes = File.GetAttributes(item); }
+                catch (Exception e) { return "what " + item + " is could not be read (" + e.Message + ")"; }
+                // A file link is read through to its target, never the target's folder, so it is refused like a folder link.
+                if ((fileAttributes & FileAttributes.ReparsePoint) != 0) return item + " is a link to another place, which a Kosmos folder never has";
                 problem = OtherWriterOf(item, me, AclScope.Code);
                 if (problem != null) return problem;
             }
@@ -608,6 +614,9 @@ class KosmosLauncher
             return NameOf(descriptor.Owner) + " owns " + shown;
         }
         int rights = scope == AclScope.Above ? AncestorChangeRights : RunFolderChangeRights;
+        // A drive's root cannot itself be renamed or deleted, so DELETE there changes nothing below it: a data drive
+        // whose root lets Authenticated Users modify it would otherwise refuse every folder on that drive.
+        if (scope == AclScope.Above && target.EndsWith(":")) rights &= ~DELETE_RIGHT;
         // Entries only for what is inside count where what is inside is code: the run folder and a folder of code.
         bool insideCounts = scope != AclScope.Above && isFolder;
         foreach (System.Security.AccessControl.GenericAce ace in acl)

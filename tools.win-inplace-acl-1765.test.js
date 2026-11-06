@@ -423,3 +423,27 @@ test('#1765: a run folder that is not there is refused', WINDOWS_ONLY, (t) => {
   const f = sandboxFolder('run');
   assert.match(probe(path.join(path.dirname(f), 'gone'), NOT_MY_PROFILE), /^UNSAFE who can change .* could not be read/);
 });
+
+test('#1765: a drive root that lets others delete it does not refuse a locked folder on that drive', WINDOWS_ONLY, (t) => {
+  if (!needsBuild(t)) return;
+  /* A drive's root cannot be renamed or deleted, so DELETE on it changes nothing below. subst (no administrator
+     needed) makes a sandbox folder a drive root to read. Delete-child on the root still counts. */
+  const used = new Set(spawnSync(path.join(SYSROOT, 'System32', 'cmd.exe'), ['/d', '/c', 'subst'], { encoding: 'utf8', windowsHide: true }).stdout.split(/\r?\n/).map((l) => l.slice(0, 1).toUpperCase()));
+  const letter = 'QRSTUVWXYZ'.split('').find((l) => !used.has(l) && !fs.existsSync(l + ':\\'));
+  if (!letter) { t.skip('no free drive letter for subst'); return; }
+  const rootFolder = sandboxFolder('driveroot');
+  lockDown(rootFolder);
+  fs.mkdirSync(path.join(rootFolder, 'kos'));
+  lockDown(path.join(rootFolder, 'kos'));
+  const subst = (...a) => spawnSync(path.join(SYSROOT, 'System32', 'subst.exe'), a, { encoding: 'utf8', windowsHide: true });
+  const made2 = subst(letter + ':', rootFolder);
+  assert.equal(made2.status, 0, 'subst failed: ' + made2.stdout + made2.stderr);
+  try {
+    icacls(rootFolder, '/grant', USERS + ':(D)');
+    assert.equal(probe(letter + ':\\kos', NOT_MY_PROFILE), 'SAFE', 'DELETE on the drive root refused a locked folder');
+    icacls(rootFolder, '/grant', USERS + ':(DC)');
+    assert.match(probe(letter + ':\\kos', NOT_MY_PROFILE), /^UNSAFE .+ can change /, 'delete-child on the drive root was not counted');
+  } finally {
+    subst(letter + ':', '/D');
+  }
+});
