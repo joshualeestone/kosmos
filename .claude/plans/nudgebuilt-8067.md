@@ -15,5 +15,8 @@ Also: `setBuilt` refuses an agent's note that is only a placeholder such as `<wh
 ## Weakest premise
 That this is what the reporters hit. Their own task was not reachable. The real board here holds no such task, which neither confirms nor refutes it. If the reports continue after this ships, the cause is elsewhere.
 
+## Measured on a real board
+A real server.js with its real heartbeat at 5 minutes, in a sealed sandbox, run for 6 minutes, restarted so its memory was gone, and run again. Open: nudged in both runs. Colleague's mark: both. Unnamed mark: both. Own mark, closed, and an agent holding nothing: neither run.
+
 ## Not done
-An end-to-end run on a real board with a live idle agent: no harness exists, and it needs two heartbeats of at least 15 minutes. The mark route's naming was read from source, not driven.
+The board's decision was measured, not a delivered message: tmux is the repo's fixture and DRY_RUN is on, so delivery reads could_not there. The wording is pinned by the engine tests. The mark route's naming was read from source, not driven.
