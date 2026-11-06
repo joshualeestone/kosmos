@@ -865,21 +865,31 @@ struct ProjectRowView: View {
 
     private var word: Board.ProjectWord? { Board.projectWord(project, agentsUnreadable: unreadable) }
 
+    // kosmos#7486 (Josh 10-28 09:35): Working is the Agents list's own animated green pill, in the same place; the other
+    // words keep their look. kosmos#7342 (Mona Lisa): the unread bubble at the right end, after the word, 6 pt apart, as the
+    // Agents list has it, so the two tabs read alike.
+    private var stateAndBubble: some View {
+        HStack(spacing: 6) {
+            if word == .working {
+                StatusPill(word: Board.projectWordText(.working), pill: .working, wraps: typeSize.isAccessibilitySize)
+            } else if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
+            if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble, quiet: project.quiet) }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                // Review 2: at the largest sizes a sub-project's indent leaves little room, so the name may wrap.
-                Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary)
-                    .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
-                Spacer(minLength: 8)
-                // kosmos#7486 (Josh 10-28 09:35): Working is the Agents list's own animated green pill, in the same place; the
-                // other words keep their look. kosmos#7342 (Mona Lisa): the unread bubble at the right end, after the word,
-                // 6 pt apart, as the Agents list has it, so the two tabs read alike.
+            if typeSize.isAccessibilitySize {
+                // kosmos#7055 part 2: at the accessibility sizes the word and the bubble go under the name, as the Agents
+                // list puts its pill under the role. Side by side, a sub-project's indent left the name a few letters a line
+                // ("Cove r sho...") and stood the Working pill on end, one letter a line.
+                Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(3)
+                stateAndBubble
+            } else {
                 HStack(spacing: 6) {
-                    if word == .working {
-                        StatusPill(word: Board.projectWordText(.working), pill: .working, wraps: typeSize.isAccessibilitySize)
-                    } else if let word { Text(Board.projectWordText(word)).font(.footnote.weight(.semibold)).foregroundColor(wordColor(word)) }
-                    if let bubble = Board.unreadBubble(project.unread) { UnreadBubble(text: bubble, quiet: project.quiet) }
+                    Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(1)
+                    Spacer(minLength: 8)
+                    stateAndBubble
                 }
             }
             if !project.description.isEmpty {
