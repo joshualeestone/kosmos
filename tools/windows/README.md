@@ -275,7 +275,32 @@ of the engine's own helpers, run with the bundle's node:
     one previous build is kept, as the updater keeps one.
   - **The same build or an older one** starts the installed Kosmos and re-points nothing.
     The installed copy itself does nothing new. A folder somebody chose on purpose (not a
-    cleaned-up one), with nothing installed, runs where it is.
+    cleaned-up one), with nothing installed, runs where it is, unless it is outside the
+    person's profile and other people on the PC can change it (#1765): then the launcher
+    runs nothing from it (the uninstall included) and points nothing at it, and says to
+    download Kosmos again into a folder inside the person's own user folder that exists
+    (their Downloads folder, their Desktop when Downloads was moved to another drive, or
+    else their user folder itself),
+    which installs it. Only the person, SYSTEM, Administrators and TrustedInstaller may hold rights
+    that change the folder, the code in it the launcher starts or loads (Kosmos.exe, runtime\,
+    runtime\node.exe, runtime\WebView2Loader.dll, app\, app\server.js, open-board.js, and
+    every other folder and file in it at any depth, bin\ included, which is first on every
+    agent's PATH) or, on a folder above it, rename
+    it away; one of them must own each; accounts are compared by SID, so a domain group such
+    as Domain Admins is not one of them. A folder whose permissions cannot be read, or a
+    drive with none (FAT, exFAT), is refused too, and so are a link (junction or symlink)
+    inside it, a run folder that is a link or sits behind one, and a folder on a network
+    share, whose accounts are the file server's. Reading all of a build takes under a tenth of a
+    second. It is not a defence against a folder that
+    was already changed: Kosmos.exe itself comes from that folder. A copy that already ran
+    in place from such a folder before this check keeps its logon task and in-app updates
+    there; its Start menu entry now opens to the refusal, and so does anything that starts
+    Kosmos.exe from that folder again (the board reopening its window after an update shows
+    the refusal box while the board itself keeps serving). The board does not yet notice
+    for itself that it runs from such a folder; that is a follow-up on #1765. The fresh copy from Downloads
+    installs itself and points Kosmos at the installed copy, so the board starts from there
+    from the next sign-in (a board already serving from the old folder runs on until then),
+    and the old folder can be deleted after that.
   - **When Kosmos cannot install itself** it says so in a plain note, never a question,
     and runs from where it is; it tries again the next time. The old Move Kosmos / Keep
     it here question and its per-folder memory are gone; the uninstall still deletes a

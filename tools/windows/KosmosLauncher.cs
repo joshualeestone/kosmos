@@ -172,6 +172,13 @@ class KosmosLauncher
         string opener = Path.Combine(here, "open-board.js");
         string app = Path.Combine(here, "app");
 
+        // #1765: 🛑 THIS LAUNCHER STARTS NOTHING FROM ITS FOLDER ABOVE THIS CHECK, NOT EVEN THE UNINSTALL. Every errand
+        // below runs runtime\node.exe and app\ from here, or points the Start menu and the logon task here, so a folder
+        // outside this person's profile that other people on this PC can change is refused before any of it
+        // (UnsafeRunFolderReason, which also says what this does not guard).
+        string unsafeFolder = UnsafeRunFolderReason(here);
+        if (unsafeFolder != null) return RefuseUnsafeFolder(here, unsafeFolder, wantsUninstall);
+
         // --uninstall is its own errand, decided before anything else: it asks first, never
         // starts the board, never offers a move or refreshes the Start menu, and checks for
         // the two files it needs itself (Uninstall, RunEngineHelper).
@@ -380,6 +387,328 @@ class KosmosLauncher
         Console.Error.WriteLine("Kosmos could not start: " + what);
         Console.Error.WriteLine();
         Console.Error.WriteLine(PartialExtractAdvice);
+        Hold();
+        return 1;
+    }
+
+    // ---- a folder other people can change (#1765) ------------------------------
+    //
+    // Kosmos installs itself into %LOCALAPPDATA%\Programs\Kosmos (MoveTarget), inside the person's profile, where
+    // only they, SYSTEM and administrators can write. A copy somebody put somewhere deliberate (C:\Kosmos, D:\Apps)
+    // runs where it is (RunInstallerDuties): it points the Start menu, Settings > Apps and the logon task at that
+    // folder, and the board and each agent then run runtime\node.exe and app\ from it. Outside the profile a folder
+    // usually inherits write access for every local account (C:\ gives Authenticated Users Modify on what is made in
+    // it), so another person on this PC could change the code Kosmos runs as this person.
+    //
+    // WHAT THIS GUARDS, AND WHAT IT DOES NOT. From such a folder this launcher runs nothing (no node, no uninstall,
+    // no hand-off or update), and so points nothing at it: no Start menu entry, no Settings > Apps entry, no logon
+    // task. It is NOT a boundary against a folder that was already changed: this Kosmos.exe, and a Kosmos.exe.config
+    // beside it, come from the same folder and are loaded before this check runs. Nor does it reach a copy that
+    // already runs in place from before this check: its logon task and the in-app updater carry on there, without
+    // this launcher, until a copy installed in the profile takes over (the README says so).
+    //
+    // 🔑 WHY REFUSE, NOT LOCK THE FOLDER DOWN. Kosmos never creates such a folder: the person extracted the zip
+    // there, so there is no moment of creation to set a safe ACL at, and the files may already have been changed
+    // by the time Kosmos first runs. Rewriting the ACL of a folder the person chose could also take away access
+    // they meant to give. Refusing matches the install design: the one place Kosmos installs to is already safe,
+    // and the refusal says how to get there (a fresh copy opened from the profile's Downloads installs itself, #3286).
+    //
+    // WHAT IS SAFE. Only this user, SYSTEM, Administrators and TrustedInstaller may be given rights that change
+    // anything (write or add files, delete, change permissions or owner), and one of them must own each thing read:
+    //   - the run folder: every allow entry counts, including ones that only reach the files and folders inside
+    //     it, because that is where the code is;
+    //   - everything inside it, every folder and every file at any depth, each read on its own: app\ and runtime\
+    //     hold the code, bin\ is first on every agent's PATH, node.exe loads DLLs from its own folder first, and
+    //     .kosmos-update\ stages the next build; a link inside, and a folder on a network share, are refused;
+    //   - each folder above it, up to the drive: entries that apply to that folder itself, and only the rights
+    //     that would let someone rename or replace what is below it (delete, delete children, permissions, owner).
+    // CREATOR OWNER and OWNER RIGHTS stand for the owner, who is checked. A deny entry is never counted, so a deny
+    // can only make the answer stricter than Windows'. An ACL that cannot be read, or a missing one (a FAT or exFAT
+    // drive), is refused. Accounts are compared by SID, never by name: a domain group (Domain Admins, say) is not
+    // one of the four, so a folder IT set up with one is refused, and a copy in the profile is the way round it.
+    // WHY EVERYTHING IS READ ON ITS OWN: the run folder's word covers only what inherits from it. An item that
+    // stopped inheriting, carries entries of its own, or is owned by another account (who made it while the folder
+    // let them, and can always change its permissions) is not covered by it. Measured on the Windows box: the
+    // whole installed build is 829 files, read in about 90 ms the first time and 40 ms after, and this is paid only
+    // for a folder outside the profile.
+    // ⚠️ WEAKEST PART: a folder inside the profile is trusted by where it is, not read, as the profile is this
+    // person's; a junction from the profile to somewhere else is taken at its
+    // profile path; outside the profile a run folder that is a link, or sits behind one, is refused.
+    // A seam only so a test can check folders inside its temp folder as if they were outside the profile.
+    internal static Func<string> userProfileFolder = () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    // A seam only so a test can read real folders as another account would: the owner rule has no
+    // other way to be exercised without an administrator. Production asks Windows who is running.
+    internal static Func<System.Security.Principal.SecurityIdentifier> currentUser = () =>
+    {
+        using (System.Security.Principal.WindowsIdentity id = System.Security.Principal.WindowsIdentity.GetCurrent()) return id.User;
+    };
+
+    const int FILE_WRITE_DATA = 0x2;
+    const int FILE_APPEND_DATA = 0x4;
+    const int FILE_WRITE_EA = 0x10;
+    const int FILE_DELETE_CHILD = 0x40;
+    const int DELETE_RIGHT = 0x10000;
+    const int WRITE_DAC = 0x40000;
+    const int WRITE_OWNER = 0x80000;
+    const int GENERIC_ALL = 0x10000000;
+    const int GENERIC_WRITE = 0x40000000;
+    // Any of these on the run folder (or reaching what is inside it), or on the code in it, lets the holder change
+    // what Kosmos runs.
+    internal const int RunFolderChangeRights = FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_DELETE_CHILD | DELETE_RIGHT | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | GENERIC_WRITE;
+    // On a folder above it, these let the holder rename the run folder's branch away and put another in its place.
+    internal const int AncestorChangeRights = FILE_DELETE_CHILD | DELETE_RIGHT | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | GENERIC_WRITE;
+
+    // The code in a build that this launcher starts or points the Start menu at, read on its own.
+    // The named entry points, read first so a refusal names the one that matters most (runtime\WebView2Loader.dll is
+    // the native code this launcher loads into its own process for --window).
+    internal static readonly string[] RunFolderCode = { "Kosmos.exe", "runtime", "runtime\\node.exe", "runtime\\WebView2Loader.dll", "app", "app\\server.js", "open-board.js" };
+
+    static readonly string[] TrustedWriterSids = {
+        "S-1-5-18",      // SYSTEM
+        "S-1-5-32-544",  // Administrators
+        "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464", // TrustedInstaller
+        "S-1-3-0",       // CREATOR OWNER: the owner of what is made inside, who is checked where it is made
+        "S-1-3-4",       // OWNER RIGHTS: the owner, who is checked below
+    };
+
+    static readonly string[] TrustedOwnerSids = { "S-1-5-18", "S-1-5-32-544", "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464" };
+
+    static bool TrustedWriter(System.Security.Principal.SecurityIdentifier sid, System.Security.Principal.SecurityIdentifier me)
+    {
+        if (sid == null) return false;
+        if (me != null && sid.Equals(me)) return true;
+        return Array.IndexOf(TrustedWriterSids, sid.Value) >= 0;
+    }
+
+    static string NameOf(System.Security.Principal.SecurityIdentifier sid)
+    {
+        if (sid == null) return "an unknown account";
+        try { return ((System.Security.Principal.NTAccount)sid.Translate(typeof(System.Security.Principal.NTAccount))).Value; }
+        catch { return sid.Value; }
+    }
+
+    // What is read, and how: the run folder (its entries for what is inside count too), a file or folder of code
+    // inside it (its own entries; a folder's for what is inside it too), or a folder above it.
+    internal enum AclScope { RunFolder, Code, Above }
+
+    // A folder path as one Path.Combine can join onto: a bare drive ("C:") gets its separator.
+    static string AsDirectoryPath(string folder)
+    {
+        return folder.EndsWith(":") ? folder + "\\" : folder;
+    }
+
+    // The first of this folder and the folders above it (the drive's root aside) that is a link, or null. One that is
+    // not there is passed over (the permission read after this refuses it in its own words); one whose attributes
+    // cannot be read for any other reason is named: refusing it is the safe answer.
+    static string LinkOnTheWay(string folder)
+    {
+        string at = folder;
+        while (!string.IsNullOrEmpty(at) && !at.EndsWith(":"))
+        {
+            try { if ((File.GetAttributes(at) & FileAttributes.ReparsePoint) != 0) return at; }
+            catch (FileNotFoundException) { /* not there: the permission read says so */ }
+            catch (DirectoryNotFoundException) { /* not there: the permission read says so */ }
+            catch { return at; }
+            string up;
+            try { up = Path.GetDirectoryName(at); }
+            catch { return null; }
+            if (up == null) return null;
+            up = up.TrimEnd('\\', '/');
+            if (string.Equals(up, at, StringComparison.OrdinalIgnoreCase)) return null;
+            at = up;
+        }
+        return null;
+    }
+
+    // A UNC path or a mapped network drive.
+    internal static bool IsOnAnotherComputer(string full)
+    {
+        if (full.StartsWith("\\\\")) return true;
+        try { return new DriveInfo(Path.GetPathRoot(full)).DriveType == DriveType.Network; }
+        catch { return true; }
+    }
+
+    // Null when Kosmos may run from this folder; otherwise what makes it unsafe, in one line for support
+    // (the person reads RefuseUnsafeFolder's words, not this). The named entry points are read first and again in
+    // the full walk on purpose: the first pass makes a refusal name the one that matters most.
+    internal static string UnsafeRunFolderReason(string here)
+    {
+        string full = FullPathOrNull(here);
+        if (full == null) return "the folder's path could not be read";
+        string profile = FullPathOrNull(userProfileFolder());
+        if (profile != null && IsSameOrInside(full, profile)) return null;
+        // On a network share the well-known accounts in its permissions (Administrators, SYSTEM) are the
+        // file server's, not this computer's, and the share's own permissions cannot be read from here.
+        if (IsOnAnotherComputer(full)) return full + " is on another computer (a network share), whose accounts this computer cannot vouch for";
+        System.Security.Principal.SecurityIdentifier me;
+        try { me = currentUser(); }
+        catch (Exception e) { return "this account could not be read (" + e.Message + ")"; }
+        if (me == null) return "this account could not be read";
+        string folder = full.TrimEnd('\\', '/');
+        // The run folder, or a folder above it, being a link (junction or symlink) is refused: its permissions are
+        // read at the place it points to, never on the link itself, and whoever may delete the link can put a folder
+        // of their own at the same path, where the logon task would then start their code.
+        string linked = LinkOnTheWay(folder);
+        if (linked != null) return linked + " is a link to another place, and Kosmos does not run from behind one";
+        string problem = OtherWriterOf(folder, me, AclScope.RunFolder);
+        if (problem != null) return problem;
+        string root = AsDirectoryPath(folder);
+        foreach (string entry in RunFolderCode)
+        {
+            string item = Path.Combine(root, entry);
+            // A missing one is not this check's to report: the checks after it say what is missing.
+            if (!File.Exists(item) && !Directory.Exists(item)) continue;
+            problem = OtherWriterOf(item, me, AclScope.Code);
+            if (problem != null) return problem;
+        }
+        // EVERY folder and file in the run folder, at any depth, read for its own entries and owner, not a list of
+        // the ones known today: bin\ is first on every agent's PATH (engine/win32launch.js), app\ and runtime\ hold
+        // the code, and .kosmos-update\ stages the next build. A link inside (a junction or symlink) is not a
+        // shipped shape and could send the walk anywhere, so it is refused, never followed.
+        Stack<string> pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            string dir = pending.Pop();
+            string[] files;
+            try { files = Directory.GetFiles(dir); }
+            catch (Exception e) { return "what is in " + dir + " could not be read (" + e.Message + ")"; }
+            foreach (string item in files)
+            {
+                FileAttributes fileAttributes;
+                try { fileAttributes = File.GetAttributes(item); }
+                catch (Exception e) { return "what " + item + " is could not be read (" + e.Message + ")"; }
+                // A file link is read through to its target, never the target's folder, so it is refused like a folder link.
+                if ((fileAttributes & FileAttributes.ReparsePoint) != 0) return item + " is a link to another place, which a Kosmos folder never has";
+                problem = OtherWriterOf(item, me, AclScope.Code);
+                if (problem != null) return problem;
+            }
+            string[] subs;
+            try { subs = Directory.GetDirectories(dir); }
+            catch (Exception e) { return "what is in " + dir + " could not be read (" + e.Message + ")"; }
+            foreach (string sub in subs)
+            {
+                FileAttributes attributes;
+                try { attributes = File.GetAttributes(sub); }
+                catch (Exception e) { return "what " + sub + " is could not be read (" + e.Message + ")"; }
+                if ((attributes & FileAttributes.ReparsePoint) != 0) return sub + " is a link to another place, which a Kosmos folder never has";
+                problem = OtherWriterOf(sub, me, AclScope.Code);
+                if (problem != null) return problem;
+                pending.Push(sub);
+            }
+        }
+        while (true)
+        {
+            string up;
+            try { up = Path.GetDirectoryName(folder.EndsWith(":") ? folder + "\\" : folder); }
+            catch { up = null; }
+            if (up == null) break;
+            up = up.TrimEnd('\\', '/');
+            if (up.Length == 0 || string.Equals(up, folder, StringComparison.OrdinalIgnoreCase)) break;
+            folder = up;
+            problem = OtherWriterOf(folder, me, AclScope.Above);
+            if (problem != null) return problem;
+        }
+        return null;
+    }
+
+    // Who, other than the trusted few, can change this (or, for the run folder and a folder of code, what is
+    // inside it).
+    static string OtherWriterOf(string target, System.Security.Principal.SecurityIdentifier me, AclScope scope)
+    {
+        string shown = target.EndsWith(":") ? target + "\\" : target;
+        bool isFolder = scope != AclScope.Code || Directory.Exists(shown);
+        System.Security.AccessControl.RawSecurityDescriptor descriptor;
+        try
+        {
+            System.Security.AccessControl.AccessControlSections sections =
+                System.Security.AccessControl.AccessControlSections.Access | System.Security.AccessControl.AccessControlSections.Owner;
+            System.Security.AccessControl.FileSystemSecurity security = isFolder
+                ? (System.Security.AccessControl.FileSystemSecurity)Directory.GetAccessControl(shown, sections)
+                : File.GetAccessControl(shown, sections);
+            descriptor = new System.Security.AccessControl.RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(), 0);
+        }
+        catch (Exception e) { return "who can change " + shown + " could not be read (" + e.Message + ")"; }
+        // No permissions at all first: a FAT or exFAT drive reports no owner worth naming either, and its
+        // own reason is the one the person can act on.
+        System.Security.AccessControl.RawAcl acl = descriptor.DiscretionaryAcl;
+        bool hasDacl = (descriptor.ControlFlags & System.Security.AccessControl.ControlFlags.DiscretionaryAclPresent) != 0;
+        if (acl == null || !hasDacl) return "anyone can change " + shown + " (it has no permissions, as on a FAT or exFAT drive)";
+        // The owner can always change the permissions, so it must be one of the four, never a placeholder SID.
+        bool ownerTrusted = descriptor.Owner != null && (descriptor.Owner.Equals(me) || Array.IndexOf(TrustedOwnerSids, descriptor.Owner.Value) >= 0);
+        if (!ownerTrusted)
+        {
+            return NameOf(descriptor.Owner) + " owns " + shown;
+        }
+        int rights = scope == AclScope.Above ? AncestorChangeRights : RunFolderChangeRights;
+        // A drive's root cannot itself be renamed or deleted, so DELETE there changes nothing below it: a data drive
+        // whose root lets Authenticated Users modify it would otherwise refuse every folder on that drive.
+        if (scope == AclScope.Above && target.EndsWith(":")) rights &= ~DELETE_RIGHT;
+        // Entries only for what is inside count where what is inside is code: the run folder and a folder of code.
+        bool insideCounts = scope != AclScope.Above && isFolder;
+        foreach (System.Security.AccessControl.GenericAce ace in acl)
+        {
+            bool inheritOnly = (ace.AceFlags & System.Security.AccessControl.AceFlags.InheritOnly) != 0;
+            bool reachesInside = (ace.AceFlags & (System.Security.AccessControl.AceFlags.ObjectInherit | System.Security.AccessControl.AceFlags.ContainerInherit)) != 0;
+            if (inheritOnly && (!insideCounts || !reachesInside)) continue;
+            System.Security.AccessControl.CommonAce common = ace as System.Security.AccessControl.CommonAce;
+            if (common == null) return "an entry Kosmos cannot read gives rights on " + shown;
+            if (common.AceQualifier == System.Security.AccessControl.AceQualifier.AccessDenied) continue;
+            if (common.AceQualifier != System.Security.AccessControl.AceQualifier.AccessAllowed) continue;
+            if ((common.AccessMask & rights) == 0) continue;
+            if (TrustedWriter(common.SecurityIdentifier, me)) continue;
+            return NameOf(common.SecurityIdentifier) + " can change " + shown;
+        }
+        return null;
+    }
+
+    // Where the refusal tells the person to put a fresh copy: a folder inside their own user folder
+    // that exists. Their real Downloads folder when it is inside the profile (Explorer can move it to another drive,
+    // where a copy would be refused the same way), else the profile's own Downloads if it is there, else their
+    // Desktop when it is inside the profile (a copy opened from either installs itself, #3286), else the user folder.
+    internal static string FreshCopyFolder(string profile)
+    {
+        if (profile == null) return "the Downloads folder in your own user folder";
+        // Compared in one form: GetFullPath expands a short (8.3) name of a folder that exists, so a profile given
+        // in its short form would otherwise never contain its own Desktop.
+        profile = FullPathOrNull(profile) ?? profile;
+        Func<string>[] places = { downloadsFolder, () => Path.Combine(profile, "Downloads"), desktopFolder };
+        foreach (Func<string> place in places)
+        {
+            string p;
+            try { p = FullPathOrNull(place()); }
+            catch { p = null; }
+            if (p != null && IsSameOrInside(p, profile) && Directory.Exists(p)) return p;
+        }
+        return profile;
+    }
+
+    // The plain-language refusal: what is wrong, and what to do about it, naming a folder (FreshCopyFolder) the
+    // person can really use.
+    internal static string UnsafeFolderMessage(string here, string reason, bool uninstalling)
+    {
+        string folder = FullPathOrNull(here) ?? here;
+        string profile = FullPathOrNull(userProfileFolder());
+        string downloads = FreshCopyFolder(profile);
+        string fresh = "Download Kosmos again, extract it into " + downloads + ", and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change.";
+        string what = uninstalling ? "Kosmos will not run its uninstall from " : "Kosmos will not start from ";
+        string fix = uninstalling
+            ? fresh + " You can then uninstall it from Settings > Apps, and once you have next signed in to Windows, delete " + folder + "."
+            : fresh + " Once you have next signed in to Windows, you can delete " + folder + ".";
+        return what + folder + ", because other people who use this computer may be able to change the files in that folder, and Kosmos would run whatever they put there.\n\n"
+            + fix + "\n\nDetails: " + reason + ".";
+    }
+
+    static int RefuseUnsafeFolder(string here, string reason, bool uninstalling)
+    {
+        string message = UnsafeFolderMessage(here, reason, uninstalling);
+        if (showMessageBoxes)
+        {
+            ShowMessageBox(message, true);
+            return 1;
+        }
+        Console.Error.WriteLine();
+        Console.Error.WriteLine(message);
         Hold();
         return 1;
     }
