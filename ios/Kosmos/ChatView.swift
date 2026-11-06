@@ -364,7 +364,7 @@ struct ChatView: View {
             // kosmos#7575: the sender for this computer. The count is not reset here (review 3: a shift laid out before this
             // ran is kept); a return from the info page goes on with the same count.
             shifts.attach(send: shiftSender())
-            openCount.shown()
+            openCount.shown(rowsDrawn: !onScreen.isEmpty)
         }
         // kosmos#7354: on every read of the list while the chat is open, unread replies are marked read again, as the board's
         // paintTalk does on each poll; so one that failed is sent again, and replies landing while it is open are read.
@@ -427,7 +427,7 @@ struct ChatView: View {
             boxAskedAt = nil   // kosmos#7420 review 7: a box change in the chat before is not this one's
             // kosmos#7575 review 1: what one computer saw is dropped, never sent to another's board (deliberately lost).
             shifts.reset(); shifts.attach(send: shiftSender())
-            openCount.reset(); openCount.shown()
+            openCount.reset(); if visible { openCount.shown(rowsDrawn: false) }
             dictation.reset(); emojiOpen = false; trayOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
@@ -460,9 +460,9 @@ struct ChatView: View {
         .onChange(of: scenePhase) { phase in
             Self.trace("app \(phase == .active ? "active" : phase == .background ? "background" : "inactive")")   // kosmos#7420
             // kosmos#7575 review 2: the report goes and the next count starts at once, so a shift laid out while away is kept.
-            if phase == .background { loop?.cancel(); loop = nil; sendShiftReport(); sendOpenCount() }
+            if phase == .background { loop?.cancel(); loop = nil; sendShiftReport(); if visible { sendOpenCount() } }
             else if phase == .active, visible, loop == nil { startReading() }
-            if phase == .active, visible { openCount.shown() }
+            if phase == .active, visible { openCount.shown(rowsDrawn: !onScreen.isEmpty) }
             if phase == .active { diagBackInFront() }
         }
     }
@@ -1384,7 +1384,7 @@ struct ChatView: View {
     private func sendOpenCount() {
         let info = Bundle.main.infoDictionary
         let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
-        guard let body = openCount.finish(hasRows: !(thread?.rows.isEmpty ?? true), app: app) else { return }
+        guard let body = openCount.finish(hasRows: !(thread?.rows.isEmpty ?? true), searching: searchMode, app: app) else { return }
         let client = self.client, epoch = client.chatEpoch
         Task { @MainActor in
             guard epoch == client.chatEpoch else { return }

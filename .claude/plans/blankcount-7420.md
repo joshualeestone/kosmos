@@ -12,6 +12,10 @@ A showing: from the chat appearing or coming back to the front until it closes o
 
 Blank here means a rebuild happened or the list had no rows for 3 s when it closed. A blank that recovers by itself with no rebuild is not counted.
 
+Not widened: GET stays behind the board's token like /api/phone/chat-shifts rather than joining AGENT_TOKEN_ROUTES; the file is readable on this Mac, and nothing here justifies more reach.
+
+Known under-counts: a chat torn down under its info page, a background entered from the info page, and a killed app send nothing. A count that loses a few showings is fine for a rate; a false blank is not.
+
 Weakest premise: rows-gone timing at close. Tested in logic only; the real order of SwiftUI's row and chat disappear events on a phone is unseen.
 
 Needs a board release to receive; an older board answers 404 and the phone ignores it. Needs a TestFlight to send.
