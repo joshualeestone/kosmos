@@ -12,7 +12,7 @@ The Mac app (native-app/main.swift):
 
 The page (web/index.html):
 - `dlWatch` puts an unguessable key (crypto.getRandomValues) on the click's address and waits for answers with that key alone. The button is off at once; after 0.4 s the Sweep dots and "Saving" (and "Saving <name>..." in an empty line); on saved a tick and "Saved to Downloads", "<name> is in your Downloads folder" in the line (only if the line's latest click is this one), and Show in Finder in the viewer; back to Download after 6 s (3 s for an icon button). The file stays busy until then, so a click on Saved saves nothing. A failure puts it back at once. 30 s with no answer puts it back; after `asking` or `saving` the backstop is 10 minutes.
-- Busy is per file (DL_BUSY): a viewer opened again or a list redrawn mid-save shows Saving and takes the answer (dlAdopt); a second click on that file says "Already saving <name>." and saves nothing.
+- Busy is per file (DL_BUSY): a viewer opened again mid-save shows Saving and takes the answer (dlAdopt); anywhere else (a Files list redrawn mid-save), a second click on that file says "Already saving <name>." in its line and saves nothing, though the redrawn button itself does not show Saving.
 - The viewer (#8122): the name and the action centred right under the file, in the regular gold; Show in Finder the quiet one; backdrop .96; a file shown as a card keeps its name on the card; a click on the action row never closes the viewer.
 
 ## Not in this branch
