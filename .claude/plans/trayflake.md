@@ -1,6 +1,6 @@
 # trayflake (kosmos#7609)
 
-Finished means: AttachMenuUITests wait for the tray's reported frame to hold still for 0.5 s before tapping it, and a red UI job on CI leaves its result bundle as an artifact for 7 days.
+Finished means: the UI job's flaky tests that a bundle has explained are fixed, AttachMenuUITests wait for the tray's reported frame to hold still for 0.5 s before tapping it, and a red UI job on CI leaves its result bundle as an artifact for 7 days.
 
 Why: main's UI job went red three times on 11-05 and 11-06, and CI kept nothing to read. Two were in AttachMenuUITests; only the 11-06 one is about tests still in the file (testPhotosOpensFromARoom has gone).
 
@@ -14,4 +14,4 @@ Not covered: a job cancelled at its time limit leaves no artifact. KeyboardSlide
 
 First real red (run 42184198471, on this branch's own CI): the artifact downloaded and opened by name. It showed testTheLastRowScrollsClearOfTheBottomRow crashing on the frame of a tile the lazy grid had dropped mid-scroll, so that read now allows for it. Its real assert still needs the tile at the end.
 
-Second red with a bundle (run 42192726744): testTheRingComesAndGoesInARoom found no ring because the 6 s ring had come and gone before the first query; the tree held blank-ring-was-shown. Both ring tests accept that marker, which appears only once a ring has shown (testANormalOpenNeverShowsIt pins that).
+Second red with a bundle (run 42192726744): testTheRingComesAndGoesInARoom found no ring because the 6 s ring had come and gone before the first query; the tree held blank-ring-was-shown. Both ring tests now hold 9 s, the longest before the ring gives up, and keep the strict check. Rejected: accepting the marker, since it is set with the phase rather than when the ring draws, so a broken ring view would pass. If a first query comes later than 9 s this stays red, and the bundle will say so.
