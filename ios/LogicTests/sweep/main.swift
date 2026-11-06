@@ -150,9 +150,11 @@ do {
         for name in names where name.hasSuffix(".swift") && name != "KosmosOrb.swift" {
             let text = repoText(folder + "/" + name)
             read.append(folder + "/" + name)
-            for bad in ["KosmosOrb(", "ProgressView(", "UIActivityIndicatorView"] where text.contains(bad) { offenders.append(name + ": " + bad) }
-            refreshable += text.components(separatedBy: ".refreshable").count - 1
-            refreshControls += text.components(separatedBy: "UIRefreshControl()").count - 1
+            for bad in ["KosmosOrb(", "ProgressView", ".progressViewStyle", "UIActivityIndicatorView"] where text.contains(bad) { offenders.append(name + ": " + bad) }
+            // Code lines only, so a comment that names one neither adds to the count nor hides a real one.
+            let code = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            refreshable += code.filter { $0.contains(".refreshable") }.count
+            refreshControls += code.filter { $0.contains("UIRefreshControl()") }.count
         }
     }
     check(read.contains("ios/Kosmos/ChatView.swift") && read.contains(where: { $0.hasPrefix("ios/KosmosNotice/") }) && read.count > 20,

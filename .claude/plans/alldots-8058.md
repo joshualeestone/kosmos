@@ -7,7 +7,8 @@ every wait, full-screen ones included, overriding the earlier rule that whole-sc
 ## Change
 
 - Every `KosmosOrb` in the app (30 sites across 13 screens) becomes `SweepDots`, with the same colour and the orb's
-  fixed size (`scales: false`, so nothing grows in toolbars or buttons at large text sizes).
+  fixed size (`scales: false`, so nothing grows in toolbars or buttons at large text sizes), and still under Reduce
+  Motion as the orb was (`stillWhenReduced: true`).
   VoiceOver unchanged: the orb said "Loading" unless hidden, so an unlabelled orb becomes `SweepDots(label: "Loading")`
   and a hidden one plain `SweepDots()` (hidden by default); a labelled one keeps its label.
 - The system's own spinner remains in one place: pull to refresh (10 `.refreshable` lists and the board page's
