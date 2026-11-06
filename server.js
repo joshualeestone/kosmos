@@ -3236,7 +3236,8 @@ function autobalanceSweepOffWhy() {
   const usagePoll = require('./engine/usagepoll');
   if (!autobalanceSweepRun) return 'its record could not be read when Kosmos started';
   if (!liveExecution.liveExecutionAllowed()) return 'live execution is not allowed';
-  if (!usagePoll.liveAllowed() || !usagePoll.enabled()) return 'the usage poll is off';
+  if (!usagePoll.enabled()) return 'the usage poll is off';
+  if (!usagePoll.liveAllowed()) return 'the usage poll is not reading live (a dry run or a test)';
   if (!autobalanceSweep.sweepOn()) return 'AGENT_WORKFORCE_AUTOBALANCE_SWEEP_OFF is set';
   return null;
 }
@@ -28497,9 +28498,12 @@ function start(port = PORT) {
       }
       /* kosmos#8083: say at start that the sweep exists and whether the mover is on, so a board whose record stays
          empty still shows both in its log. */
-      if (abSweep) process.stdout.write(`autobalance-sweep: started, every ${Math.round(abSweepMs / 60000)} min; the mover is ${automoveRun ? 'on' : 'off'}\n`);
+      if (abSweep) {
+        const offNow = autobalanceSweepOffWhy();
+        process.stdout.write(`autobalance-sweep: timer set, every ${Math.round(abSweepMs / 60000)} min, ${offNow ? 'not running now: ' + offNow : 'running'}; the mover is ${automoveRun ? 'on' : 'off'}\n`);
+      }
       const abQuietSaid = { at: 0, key: null };   // kosmos#8083: autobalanceSweep.quietLine's memory between ticks
-      const abSayQuiet = (opts) => { const line = autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), ...opts }); if (line) process.stdout.write(line + '\n'); };
+      const abSayQuiet = (opts) => { try { const line = autobalanceSweep.quietLine(abQuietSaid, { nowMs: Date.now(), ...opts }); if (line) process.stdout.write(line + '\n'); } catch { /* best-effort: never into the timer */ } };
       let abSweepWriteSaid = false;
       let abSweepUnreadableSaid = null;   // review 17: the last "could not work out" reason logged, so it is said once
       let abSweepBusy = 0;   // when the running tick started, or 0
@@ -28518,16 +28522,17 @@ function start(port = PORT) {
           try { ticking = abSweep.tick(sweepDeps); } catch (err) { ticking = Promise.reject(err); }
           ticking
             .then((r) => {
-              if (r && r.did === 'recorded') process.stdout.write('autobalance-sweep: recorded a changed decision\n');
-              abSayQuiet({ did: r && r.did, unmeasured: (abSweep.state.unmeasuredNow || []).length });
+              let logged = false;   // kosmos#8083: whether this tick printed a line, so quietLine does not say it twice
+              if (r && (r.did === 'recorded' || r.did === 'cleared')) { process.stdout.write('autobalance-sweep: recorded a changed decision\n'); logged = true; }   // kosmos#8083: the end of a risk is a recorded line too
               const why = r && (r.did === 'unreadable' || r.did === 'gap') ? `${r.did}: ${r.because || 'unknown'}` : null;   // review 20: a gap too
-              if (why && why !== abSweepUnreadableSaid) process.stdout.write(`autobalance-sweep: could not record the decision (${why})\n`);
+              if (why && why !== abSweepUnreadableSaid) { process.stdout.write(`autobalance-sweep: could not record the decision (${why})\n`); logged = true; }
               abSweepUnreadableSaid = why;
               const failed = !!(r && r.because === 'write-failed');
-              if (failed && !abSweepWriteSaid) process.stdout.write('autobalance-sweep: its record could not be written; Settings says it is not recording\n');   // said once per run of failures
+              if (failed && !abSweepWriteSaid) { process.stdout.write('autobalance-sweep: its record could not be written; Settings says it is not recording\n'); logged = true; }   // said once per run of failures
               abSweepWriteSaid = failed;
+              abSayQuiet({ did: r && r.did, because: r && r.because, unmeasured: (abSweep.state.unmeasuredNow || []).length, logged });
             })
-            .catch(() => { /* best-effort, like the sweeps above */ })
+            .catch((err) => { abSayQuiet({ did: 'unreadable', because: 'the tick failed: ' + String((err && err.message) || err) }); })
             /* kosmos#7548: the move waits for the sweep's record of the same period. A move can take minutes, so the busy
                flag spans it (the backstop above, three usage polls). Nothing here may throw into the board. */
             .then(() => (automoveRun && automove.movesOn() && autobalanceSweepRuns({ forTick: true }) ? automoveRun.tick(automoveDeps(sweepDeps)) : null))

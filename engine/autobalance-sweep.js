@@ -196,21 +196,28 @@ function create({ file, nowMs = Date.now() }) {
 
 /* kosmos#8083: the board log's word on a sweep that writes nothing. The record holds a line only when a decision
    changes, and a first tick with nothing at risk writes none, so on a quiet board "running" and "not running" left the
-   same trace: none. This says which, in the log only (the record is unchanged), when that changes and once an hour
-   while it holds. `said` is the caller's own { at, key }, kept between ticks. A tick whose outcome the board already
-   logs (recorded, gap, unreadable) counts as said. Returns the line, or null. */
+   same trace: none. This returns a line when the sweep's state changes and once an hour while it holds; `logged` says
+   the board already printed a line for this tick, which then counts as said. `said` is the caller's own { at, key }. */
 const QUIET_SAY_MS = 60 * 60 * 1000;
-function quietLine(said, { nowMs, offWhy = null, did = null, unmeasured = 0 } = {}) {
+function quietLine(said, { nowMs, offWhy = null, did = null, because = null, unmeasured = 0, logged = false } = {}) {
   if (!said || typeof said !== 'object' || !Number.isFinite(nowMs)) return null;
-  const key = offWhy ? 'off:' + offWhy : did === 'off' ? 'off:setting' : 'on';
-  if (!offWhy && (did === 'recorded' || did === 'gap' || did === 'unreadable')) { said.at = nowMs; said.key = key; return null; }
+  const why = typeof because === 'string' && because ? because : 'unknown';
+  let key;
+  let line;
+  if (offWhy) { key = 'off:' + offWhy; line = 'autobalance-sweep: not running: ' + offWhy; }
+  else if (did === 'off') { key = 'off:setting'; line = 'autobalance-sweep: not running: auto-balance is switched off in Settings'; }
+  else if (did === 'unreadable') { key = 'unreadable:' + why; line = 'autobalance-sweep: running, but it could not work out the decision (' + why + ')'; }
+  else if (because === 'write-failed') { key = 'write-failed'; line = 'autobalance-sweep: running, but its record could not be written'; }
+  else {
+    const n = Number.isInteger(unmeasured) && unmeasured > 0 ? unmeasured : 0;
+    key = 'on';
+    line = 'autobalance-sweep: running, nothing new to record' + (n ? ' (' + n + (n === 1 ? ' account' : ' accounts') + ' not measured now)' : '');
+  }
+  if (logged === true) { said.at = nowMs; said.key = key; return null; }
   if (key === said.key && nowMs - (Number(said.at) || 0) < QUIET_SAY_MS) return null;
   said.at = nowMs;
   said.key = key;
-  if (offWhy) return 'autobalance-sweep: not running: ' + offWhy;
-  if (did === 'off') return 'autobalance-sweep: not running: auto-balance is switched off in Settings';
-  const n = Number.isInteger(unmeasured) && unmeasured > 0 ? unmeasured : 0;
-  return 'autobalance-sweep: running, nothing new to record' + (n ? ' (' + n + (n === 1 ? ' account' : ' accounts') + ' not measured now)' : '');
+  return line;
 }
 
 module.exports = { create, recent, append, appendAll, readLines, sweepOn, keyOf, quietLine, FILE, KEEP_LINES, RECENT, CLOCK_SLACK_MS, GAP_TICKS, QUIET_SAY_MS };
