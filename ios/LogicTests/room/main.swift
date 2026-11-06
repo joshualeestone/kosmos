@@ -1292,9 +1292,14 @@ check(projectsSource.contains("guard same(epoch), ownSeq[project] == seq else { 
 // The row's own struct only, so a match cannot come from a later one; tokens, not indentation or comments.
 let rowBody = (projectsSource.components(separatedBy: "struct ProjectRowView").dropFirst().first ?? "").components(separatedBy: "\nstruct ").first ?? ""
 let rowFlat = rowBody.replacingOccurrences(of: "\n", with: " ").split(separator: " ").joined(separator: " ")
-check(rowFlat.contains("if typeSize.isAccessibilitySize {") && rowFlat.contains("if hasStateOrBubble { stateAndBubble }"),
+// The body's own branch: the name alone at full height, then the word and bubble; the side-by-side row only below.
+let bodyFlat = rowFlat.components(separatedBy: "var body: some View {").dropFirst().first ?? ""
+let accBranch = bodyFlat.components(separatedBy: "if typeSize.isAccessibilitySize {").dropFirst().first?.components(separatedBy: "} else {").first ?? ""
+let smallBranch = bodyFlat.components(separatedBy: "if typeSize.isAccessibilitySize {").dropFirst().first?.components(separatedBy: "} else {").dropFirst().first ?? ""
+check(accBranch.contains(".lineLimit(3) .fixedSize(horizontal: false, vertical: true)") && accBranch.contains("if hasStateOrBubble { stateAndBubble }")
+        && !accBranch.contains("Spacer(") && smallBranch.contains("Spacer(minLength: 8) stateAndBubble"),
       "at the largest text a project's word and bubble go under its name, and an idle row adds no empty line (#7055)")
-let fits = rowFlat.components(separatedBy: "ViewThatFits(in: .horizontal) {").dropFirst().first ?? ""
+let fits = (rowFlat.components(separatedBy: "ViewThatFits(in: .horizontal) {").dropFirst().first ?? "").components(separatedBy: "} else {").first ?? ""   // that block only
 let oneLine = fits.range(of: "HStack(spacing: 6) { stateWord(wraps: false); bubbleView }")
 let stacked = fits.range(of: "VStack(alignment: .leading, spacing: 4) { stateWord(wraps: false); bubbleView }")
 let wrapped = fits.range(of: "VStack(alignment: .leading, spacing: 4) { stateWord(wraps: true); bubbleView }")
