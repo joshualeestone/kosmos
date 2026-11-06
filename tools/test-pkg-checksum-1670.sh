@@ -49,31 +49,30 @@ if [ -n "${KOSMOS_TEST_TIME_SCALE:-}" ]; then PORT_WAIT_SCALE="$KOSMOS_TEST_TIME
 # clamp would pass nan straight through (and 15*nan prints 0, an instant-give-up budget). The
 # regex gate is total and awk-NaN-independent; the lib and run-tests.sh always emit a clean %.2f.
 PORT_WAIT_SCALE_EFF=$(LC_ALL=C awk -v s="$PORT_WAIT_SCALE" 'BEGIN{ if (s !~ /^[+-]?[0-9]+(\.[0-9]+)?$/) { print "1.00"; exit } s=s+0; if(s<1)s=1; if(s>4)s=4; printf "%.2f", s }')
-# base 15s, scaled -> 15s at scale 1, 60s at the cap. The wait below gives up after this many
-# ELAPSED WALL-CLOCK seconds (bash $SECONDS), NOT after a fixed poll count: under load each
-# sleep/sed also stretches, so a poll count understates the real give-up time -- a seconds
-# deadline is what makes the bound a true CEILING. The base is 15 (not 20) so the THREE
-# sequential waits (setup, ARM 4 flip, final control) give up after at most 3*60s = 180s even at
-# the cap, comfortably under the node wrapper's 230s spawn timeout
-# (tools.pkg-checksum-home-6507.test.js) -- a slow-but-succeeding box still reports a clean
-# per-arm result rather than a SIGKILL. 15s is still 3x the old 5s, well above the observed
-# 5-20s loaded bind the flake is about. (The t<1 floor below is belt-and-suspenders:
+# Give-up budget in ELAPSED wall-clock seconds (spent by $SECONDS in wait_for_port), NOT a poll
+# count: under load each sleep/sed stretches, so a poll count would understate the real give-up.
+# PORT_WAIT_BASE_SECS at rest, scaled up to the 4x cap (so ~15s..60s; $SECONDS is whole-second, so
+# +/-1s). The per-wait cap of 60s is the checkable fact the code guarantees; the total-budget
+# math for the three sequential waits + arm work vs the node wrapper's 230s spawn timeout
+# (tools.pkg-checksum-home-6507.test.js) lives in .claude/plans/pkg-checksum-portwait-6507.md,
+# where reasoning can go stale without misleading. (The t<1 floor below is belt-and-suspenders:
 # PORT_WAIT_SCALE_EFF is already clamped >= 1.00, so t is always >= PORT_WAIT_BASE_SECS.)
 PORT_WAIT_BASE_SECS=15               # give-up budget at scale 1; scaled up to the 4x cap under load
 PORT_WAIT_SECS=$(LC_ALL=C awk -v b="$PORT_WAIT_BASE_SECS" -v s="$PORT_WAIT_SCALE_EFF" 'BEGIN{ t=b*(s+0); printf "%d", (t<1?1:t) }')
 # wait_for_port <logfile>: poll the server log until it prints "port NNNNN"; echo the port and
-# return 0, or return 1 after PORT_WAIT_SECS of WALL-CLOCK time. Bounding by $SECONDS (bash's
-# real-time counter, bash 3.2 safe) rather than a poll count means a loaded box that stretches
-# each sleep cannot push the give-up time past the budget. Breaks the instant the port appears,
-# so the ceiling only governs how long we wait before a real failure.
+# return 0, or return 1 once PORT_WAIT_SECS of WALL-CLOCK time has passed (bash's $SECONDS, 3.2
+# safe -- a loaded box that stretches each sleep cannot push give-up past the budget). Probe
+# FIRST and check the deadline AFTER, so it always probes at least once AND probes once more after
+# the final sleep: a port that appears in that last window is not missed. Breaks the instant the
+# port appears, so the ceiling only governs how long we wait before a real failure.
 wait_for_port() {
   local _log="$1" _port="" _deadline=$(( SECONDS + PORT_WAIT_SECS ))
-  while [ "$SECONDS" -lt "$_deadline" ]; do
+  while :; do
     _port=$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$_log" 2>/dev/null | head -1)
     [ -n "$_port" ] && { printf '%s\n' "$_port"; return 0; }
+    [ "$SECONDS" -ge "$_deadline" ] && return 1
     sleep 0.25
   done
-  return 1
 }
 
 # --- lift the verification out of the shipped postinstall -------------------

@@ -39,8 +39,10 @@ established #5727 mechanism:
   declaring a real failure. (Baron suggested 20 s; 15 s keeps the three sequential waits provably
   under the spawn timeout — see the ceiling bound below — and is still 3× the old 5 s, well above
   the observed 5–20 s loaded bind.)
-- Consolidate the three identical loops into one `wait_for_port <log>` helper with honest
-  diagnostics (names the budget + scale + server log on timeout).
+- Consolidate the three identical loops into one `wait_for_port <log>` helper (probe first, then
+  check the deadline, so it always probes at least once and probes once more after the final sleep —
+  a port appearing in that last window is not missed) with honest diagnostics (names the budget +
+  scale + server log on timeout).
 - **Guard empty PORT in the final control:** a startup timeout now fails with
   *"the local origin did not start … so the run-vs-refusal control could not run"* (+ the server
   log), never the vacuous-harness line.
@@ -55,13 +57,18 @@ established #5727 mechanism:
   (the `KOSMOS_PKG_RETRY_SLEEP=0`/`RETRY_MAX` knobs, the flip server's first-hit-bad logic, the
   checksum arms) — all untouched.
 - **Ceiling bound vs the harness timeout:** the node test is `timeout: 240000`, spawn
-  `timeout: 230000`. Because each wait gives up on an elapsed-seconds deadline (`$SECONDS`), not a
-  poll count, 3 × 60 s = **180 s** is a *true* upper bound on total give-up time at the cap (a poll
-  count would not bound wall-clock under load — the iter-2 finding). With the fast arm work in
-  between that stays under the 230 s spawn timeout, so even a pathologically slow box reports a
-  clean per-arm result, never a SIGKILL. This is why the base is 15 s, not 20 s: 20 s × cap 4 × 3 =
-  240 s would have crossed the spawn timeout. (All-fail is also bounded the other way: the setup
-  loop exits the whole script on timeout, so the three never stack.)
+  `timeout: 230000`. Each wait gives up on an elapsed-seconds deadline (`$SECONDS`, whole-second
+  granularity so ±1 s: ~15 s at scale 1, ~60 s at the cap), not a poll count, so **180 s bounds the
+  three waits** at the cap (a poll count would not bound wall-clock under load — iter-2). That
+  180 s is the WAIT budget only; the arm work (curl fetches, `sh -c` runs, also load-slowed) is on
+  top, within the ~50 s of headroom to the 230 s spawn timeout (iter-4). This total-budget
+  reasoning deliberately lives here and not in the shipped code comment — the comment asserts only
+  the per-wait 60 s cap, which is the checkable fact; the headroom claim can go stale here without
+  misleading a reader of the code. Two things keep the realistic worst case well under 180 s + arms:
+  the per-wait cap is only *approached* under extreme oversubscription (the observed flake is a
+  5–20 s bind, far below 60 s), and a genuine never-bind in the setup wait exits the whole script at
+  the first wait (`exit 1`), so the three never stack on the all-fail path. Base 15 s (not 20 s) is
+  what keeps 3 × cap = 180 s rather than 240 s, which would have crossed the spawn timeout outright.
 
 ## Weakest part (named)
 The port-wait timeout path (helper returns 1) is **not exercised on a quiet box** — on this
