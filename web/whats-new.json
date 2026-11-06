@@ -1,28 +1,20 @@
 {
-  "version": "0.7.93",
+  "version": "0.7.94",
   "highlights": [
     {
-      "icon": "spark",
-      "title": "Create agent says when no model is connected",
-      "line": "With no AI model connected, Create agent now says so where you can see it, with a link to connect one."
-    },
-    {
       "icon": "shield",
-      "title": "Start a new agent without imported files",
-      "line": "When Claude Code asks whether a new agent may use files its instructions import from outside its folder, you can start it without them."
+      "title": "Join codes that cannot be used say why",
+      "line": "When a company join code is for another address, another email domain or a full company, Kosmos now says so instead of a retry."
     },
     {
-      "icon": "chat",
-      "title": "When messages get stuck behind an agent",
-      "line": "If an idle Claude Code agent's input box stays full for about 40 minutes with messages waiting, its card says so and your phone can be told.",
-      "platforms": [
-        "mac"
-      ]
+      "icon": "spark",
+      "title": "A half-typed new agent says why it is back",
+      "line": "Back from Settings within 30 minutes, New agent says it is where you left off, with Start over to clear the form."
     },
     {
-      "icon": "chat",
-      "title": "A question taken back stays on record",
-      "line": "When an agent takes back a question and gives a reason, a line saying so stays in your chat with that agent."
+      "icon": "tasks",
+      "title": "Use short names keeps names you typed",
+      "line": "When you make a team, Use short names now keeps any name you typed, and Another makes a row a suggestion again."
     },
     {
       "icon": "shield",
@@ -30,6 +22,14 @@
       "line": "On Windows, when you turn on start at sign-in and Kosmos has not set itself to reopen after a crash, Settings now says so.",
       "platforms": [
         "windows"
+      ]
+    },
+    {
+      "icon": "shield",
+      "title": "The Kosmos app itself is read-only",
+      "line": "The installed Kosmos app is read-only, so an agent's ordinary edit to the app your agents run on fails.",
+      "platforms": [
+        "mac"
       ]
     }
   ]

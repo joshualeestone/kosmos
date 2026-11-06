@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.91",
+  "lastProd": "0.7.93",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -1093,7 +1093,8 @@
       ],
       "rank": 9,
       "since": "0.7.92",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.93"
     },
     {
       "title": "A question taken back stays on record",
@@ -1101,7 +1102,8 @@
       "icon": "chat",
       "rank": 9.5,
       "since": "0.7.92",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.93"
     },
     {
       "title": "Create agent says when no model is connected",
@@ -1109,7 +1111,8 @@
       "icon": "spark",
       "rank": 8,
       "since": "0.7.93",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.93"
     },
     {
       "title": "Start a new agent without imported files",
@@ -1117,7 +1120,8 @@
       "icon": "shield",
       "rank": 8.5,
       "since": "0.7.93",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.93"
     },
     {
       "title": "Settings says when crash recovery is not set up",
@@ -1147,6 +1151,30 @@
       "since": "0.7.93",
       "status": "pending",
       "notesOnly": true
+    },
+    {
+      "title": "Join codes that cannot be used say why",
+      "line": "When a company join code is for another address, another email domain or a full company, Kosmos now says so instead of a retry.",
+      "icon": "shield",
+      "rank": 8,
+      "since": "0.7.94",
+      "status": "pending"
+    },
+    {
+      "title": "A half-typed new agent says why it is back",
+      "line": "Back from Settings within 30 minutes, New agent says it is where you left off, with Start over to clear the form.",
+      "icon": "spark",
+      "rank": 8.5,
+      "since": "0.7.94",
+      "status": "pending"
+    },
+    {
+      "title": "Use short names keeps names you typed",
+      "line": "When you make a team, Use short names now keeps any name you typed, and Another makes a row a suggestion again.",
+      "icon": "tasks",
+      "rank": 9,
+      "since": "0.7.94",
+      "status": "pending"
     }
   ]
 }
