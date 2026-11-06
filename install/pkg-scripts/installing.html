@@ -241,16 +241,22 @@ const KORB = (() => {
   /* One colour, so depth order does not show: the dots are grouped by how strongly they show (8 steps) and each group
      is one path and one fill, instead of a fill per dot (review round 2: 2200 fills per orb per frame). */
   const STEPS = 8, groups = Array.from({ length: STEPS }, () => []);
+  /* One dot onto the canvas: its x, y, radius and strength (alpha), or null when it is too faint to draw. The one
+     projection, used by paint and by the finish, so the finish's first frame lands on the last turning one (the strength steps differ by under 0.07). */
+  function project(side, X, Y, Z, r, vis) {
+    const R = side * 0.46, CAM = 6, px = side * 0.009;   // dots scale with the orb (66 to 88 px on the screens that show it); the 0.35 px floor only matters far smaller
+    const f = CAM / (CAM + Z), front = Math.max(0, Math.min(1, (1 - Z) / 2));
+    const alpha = (0.25 + 0.75 * Math.pow(front, 1.4)) * vis;
+    if (alpha < 1 / STEPS) return null;   // fading out at a letter's edge: gone, not lifted to the faintest step
+    return [side / 2 + X * R * f, side / 2 + Y * R * f, Math.max(0.35, r * px * f), alpha];
+  }
   function paint(g, side, pts, colour) {
     g.clearRect(0, 0, side, side);
     g.fillStyle = colour;
-    const R = side * 0.46, CAM = 6, px = side * 0.009;   // dots scale with the orb (66 to 88 px on the screens that show it); the 0.35 px floor only matters far smaller
     for (const grp of groups) grp.length = 0;
     for (const [X, Y, Z, r, vis] of pts) {
-      const f = CAM / (CAM + Z), front = Math.max(0, Math.min(1, (1 - Z) / 2));
-      const alpha = (0.25 + 0.75 * Math.pow(front, 1.4)) * vis;
-      if (alpha < 1 / STEPS) continue;   // fading out at a letter's edge: gone, not lifted to the faintest step
-      groups[Math.min(STEPS - 1, Math.floor(alpha * STEPS))].push(side / 2 + X * R * f, side / 2 + Y * R * f, Math.max(0.35, r * px * f));
+      const d = project(side, X, Y, Z, r, vis);
+      if (d) groups[Math.min(STEPS - 1, Math.floor(d[3] * STEPS))].push(d[0], d[1], d[2]);
     }
     for (let k = 0; k < STEPS; k++) {
       const grp = groups[k];
@@ -288,6 +294,9 @@ const KORB = (() => {
      Colour is read on first sight and about once a second, so an orb whose ground changes recolours within a
      second; no site moves a live spinner today. */
   const shown = new Set();
+  /* Orbs handed to finish(): the loop and the observers leave them alone from then on, so nothing draws the turning
+     orb back over the check (round 6). `parked` holds one finished while hidden, drawn as the check when it shows. */
+  const finishing = new WeakSet(), parked = new WeakSet(), checked = new Set();   // checked: finished orbs, redrawn on a theme or size change
   let running = false, t0 = 0, last = -1e9, ticks = 0, sizeStale = false, stillPts = null, warned = false;
   const stillDots = () => stillPts || (stillPts = place(0));   // the still frame (K facing), worked out once
   /* Josh 11-06 12:17: the full-restart screen held its K still, so its orb is still too (.orb-still, kOrbWaitHtml's
@@ -317,6 +326,7 @@ const KORB = (() => {
       last = now; ticks++;
       let calm = true, moving = null;
       for (const s of shown) {
+        if (finishing.has(s)) continue;
         if (stillOf(s)) { draw1(s, stillDots()); continue; }
         calm = false; draw1(s, moving || (moving = place((now - t0) / 1000)));
       }
@@ -336,7 +346,7 @@ const KORB = (() => {
      Only laid-out ones; a hidden one waits for the loop. */
   function firstAll(fresh) {
     for (const s of fresh) attach(s);
-    const laid = fresh.filter((s) => s.getClientRects().length);
+    const laid = fresh.filter((s) => !finishing.has(s) && s.getClientRects().length);
     if (!laid.length) return;
     if (!t0) t0 = performance.now();
     let pts, calmPts;
@@ -358,17 +368,27 @@ const KORB = (() => {
   };
   /* Forget what each shown orb was drawn with, so the next pass draws it again; starts the loop if one is showing. */
   // Every attached canvas, shown or not, so a hidden still orb is right when it next shows.
-  const forget = (colour) => { if (all) for (const s of all) { const c = s.querySelector(':scope > canvas.korb'); if (c) { c.korbKey = ''; if (colour) c.korbColour = ''; } } if (shown.size) start(); };
+  const forget = (colour) => {
+    if (all) for (const s of all) { const c = s.querySelector(':scope > canvas.korb'); if (c) { c.korbKey = ''; if (colour) c.korbColour = ''; } }
+    for (const s of checked) { if (!s.isConnected) checked.delete(s); else if (s.korbCheck) s.korbCheck(); }
+    if (shown.size) start();
+  };
   // A spinner's own size changing (a new --sz, a layout change), not only the window's: read it again and redraw.
   const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { sizeStale = true; forget(false); }) : null;
   if (typeof IntersectionObserver === 'function' && typeof MutationObserver === 'function' && typeof document !== 'undefined') {
     io = new IntersectionObserver((entries) => {
       for (const e of entries) {
+        if (finishing.has(e.target)) {   // finished: never the turning orb again; a parked one becomes the check now
+          if (!e.target.isConnected) { parked.delete(e.target); checked.delete(e.target); io.unobserve(e.target); if (ro) ro.unobserve(e.target); }
+          else if (e.isIntersecting && parked.has(e.target)) { parked.delete(e.target); run(e.target, true); }
+          else if (e.isIntersecting && e.target.korbStale && !parked.has(e.target)) { e.target.korbStale = false; run(e.target, true); }
+          continue;
+        }
         if (e.isIntersecting) { shown.add(e.target); sizeStale = true; const c = e.target.querySelector('canvas.korb'); if (c) c.korbKey = ''; }   // re-read its size on showing (a zoom while it was hidden)
         else { shown.delete(e.target); if (!e.target.isConnected) { seen.delete(e.target); io.unobserve(e.target); if (ro) ro.unobserve(e.target); } }   // gone while hidden: let it go
       }
       // A spinner revealed (its hidden removed) whose canvas was never drawn: draw it now, not a frame later.
-      const undrawn = entries.filter((e) => e.isIntersecting && !(e.target.querySelector('canvas.korb') || {}).width).map((e) => e.target);
+      const undrawn = entries.filter((e) => e.isIntersecting && !finishing.has(e.target) && !(e.target.querySelector('canvas.korb') || {}).width).map((e) => e.target);
       if (undrawn.length) firstAll(undrawn);
       if (shown.size) start();
     });
@@ -408,7 +428,99 @@ const KORB = (() => {
     // The letter cuts take a moment to work out: do it while the page is idle, not when a loading state first shows.
     (window.requestIdleCallback || ((f) => setTimeout(f, 2000)))(() => cutsNow());
   }
-  return { draw, running: () => running };   // draw: one frame at time t into a context (for a design harness)
+  /* Josh 11-06 12:29, on the clip of this: "That works great for building an agent." The finish of making an agent:
+     the orb's own dots become the green check. The turn eases to a stop, then every dot showing travels to the nearest
+     of the check's 155 dots (each leaves a little later the further along the stroke its target is, so the check is
+     drawn from the short stroke to the long one), turning from the orb's gold to the page's green (--ok), and holds.
+     Nothing vanishes, and every dot of the check is reached by an orb dot except the odd one no dot was nearest to,
+     which shows on the last frame: the K loader's rule, as nearly as an orb of a different count allows. Only ever called on a clean finish,
+     because a check is a claim that the thing finished. Under reduced motion it draws the check at once. */
+  const CHECK = [99.1,27.2,2.4,103.1,27.9,2.2,94.1,35.8,2.4,99.7,34.2,2.8,99.9,32.3,3.6,101.4,34.8,3.6,101.5,36,2.8,106.1,31,3.5,108.8,35.4,3.4,92.4,39.9,3.5,95.5,38.6,3.3,97,40.8,2.2,98.9,37.2,3.1,104.1,43.7,3.4,105.2,43.2,3.5,109.9,36.5,3.1,84.5,51,3.6,86.4,50.8,3.6,90.1,46.8,3.4,93.5,46.9,2.3,95.4,50.3,3.4,95.6,46.4,3.6,97.3,45.5,3.6,99.1,48.6,2.7,100.5,49.2,3.2,101.5,48.3,3,101.8,47.8,2.9,102.5,46.8,2.6,78.4,59.8,2.9,82.1,59.8,3.5,82.7,58,2.1,83.2,55.3,3.5,87.4,57.8,3.3,87.5,55.6,2.5,88.5,53.5,2.7,91.6,52.5,2.9,93.1,52.9,3.2,96.3,58.6,3.1,97.8,55.8,2.3,74.7,67.1,3.6,77,66,3.4,81.4,63.4,2.7,81.8,63.7,2.3,85.6,64.7,3.6,85.6,62.2,3.6,88.5,63.6,2.5,88.6,63.9,3.1,93.2,63.7,3.3,24.1,75.5,2.1,73.1,71,3.6,77,75.8,2.6,78.8,74.3,3.5,78.8,73.4,2.6,79.7,69.5,2.3,84.2,70.8,3.2,85.8,74.3,2.9,85.8,69.4,3.5,88.8,69.9,3.2,26.4,78.4,3.5,27.1,83.3,3.6,27.4,82.7,3.1,30.2,83.4,2.7,65.8,83.8,2.4,67.6,77.8,3.1,67.9,82.2,3.1,67.9,80.4,3.6,73.4,77,3.5,73.7,77.2,3.4,77.9,81,2.4,79.8,81.1,2.2,80,77.2,3,82.4,79.6,3.3,15.7,87.4,3.3,20.3,88.2,2.5,22,89.8,3.2,27.8,85.8,2.9,28.2,88.4,3.4,29.4,91.4,2.3,30,84.9,3.6,33.5,89.6,3.6,33.7,89.7,2.9,60.3,89.7,2.3,62.6,84.3,2.6,62.7,86,3,65.2,85.6,3.3,65.9,88.7,3.5,69.5,88,2.2,70.9,85.9,3.5,72.5,85.9,3.4,74.4,85.3,2.8,77.7,85.4,3.6,79.5,84.2,2.8,20.7,93,2.3,28.2,92.1,3.4,29.8,98.7,3.6,30.4,98.3,3.5,31.7,97.1,3,32.1,92.2,3.2,32.4,93.7,2.6,34.1,99.6,3.5,34.2,93.7,2.6,35.8,94.2,3.3,37.2,93.1,2.2,41.3,94.2,3.4,41.6,97.5,2.8,44.4,95.8,3.1,54.3,96.7,3.1,57.2,95.4,3.6,58.2,95.6,3.4,58.4,95.6,3.2,59.1,97.3,2.7,61.5,92.4,3.4,62.5,98.8,2.9,65.3,93.7,3.2,65.4,97.7,2.3,66.5,93.6,2.9,67.5,92.5,3.6,70.4,93.6,2.7,71,94.1,3.6,36.5,103.8,2.4,37.3,107,3.6,38.4,102.1,3.6,39.4,101.2,2.8,40.4,106.8,2.4,41.5,106.5,3.1,43.4,105.2,2.2,45.6,106.8,3.3,47,100.5,3.5,47.2,104.7,3.4,51.6,106.4,3.6,52.8,106.5,2.6,57.1,103.4,2.5,58.1,107,2.1,58.2,107.5,3.5,58.9,107.6,3.3,59.3,105,3.3,60,102.7,3.5,60.9,101.4,3.6,42.6,111,3,42.9,109.9,3.5,43.3,113.5,2.6,43.8,115.7,3.6,46.5,115.9,3.6,46.6,113.4,2.9,46.9,109.6,2.3,47.5,109,3.5,48.2,110.2,3.2,51.2,109.1,2.9,52.3,111,2.7,53.7,112.9,3.6,55.6,112.5,3.4,56,110.4,2.3,60,108.2,2.5,61.9,110.7,3.1,47.4,117.8,3.2];   // the check's dots [x, y, r] in the K loader's 128.28 x 150.28 frame, sorted as it sorted them
+  const rgbOf = (g, c, dflt) => {
+    g.fillStyle = dflt; g.fillStyle = c || dflt; const v = String(g.fillStyle);
+    if (v[0] === '#') return [1, 3, 5].map((i) => parseInt(v.slice(i, i + 2), 16));
+    const m = v.match(/[\d.]+/g); return m ? m.slice(0, 3).map(Number) : [47, 125, 90];
+  };
+  function finish(s) {
+    if (!s || finishing.has(s)) return;
+    finishing.add(s); shown.delete(s);
+    // Finished while hidden (another tab open): measuring it now would read 0 and size the canvas to nothing, and
+    // nobody would see the change. Draw the check when it next shows (the io callback), at its real size.
+    if (!s.getClientRects().length) { parked.add(s); return; }
+    run(s, false);
+  }
+  function run(s, instant) {
+    try {
+      if (ro) ro.unobserve(s);   // the loop lets go of it; this draws it from here (io still watches it: see the io callback)
+      sizeStale = true;
+      const cv = fit(s), g = cv.getContext('2d');
+      if (!g) return;
+      const side = cv.width;
+      const gold = rgbOf(g, cv.korbColour || inkOf(s), '#d6a62e');
+      const green = rgbOf(g, getComputedStyle(s).getPropertyValue('--ok').trim(), '#1f7a4d');
+      const bx0 = 15.7, cw = 109.9 - 15.7, by0 = 27.2, ch = 117.8 - 27.2, k = side * 0.66 / cw;
+      const ox = side / 2 - (bx0 + cw / 2) * k, oy = side / 2 - (by0 + ch / 2) * k, T = [];
+      for (let i = 0; i < CHECK.length; i += 3) T.push({ x: ox + CHECK[i] * k, y: oy + CHECK[i + 1] * k, r: Math.max(0.6, CHECK[i + 2] * k * 0.8), u: (CHECK[i] - bx0) / cw });
+      const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+      const SLOW = 320, TRAVEL = 760, STAGGER = 260, from = performance.now(), tAt = t0 ? (from - t0) / 1000 : 0;
+      let pairs = null;   // each dot showing, with its target, worked out once the turn has stopped
+      const at = (tt) => {
+        const out = [];
+        for (const [X, Y, Z, r, vis] of place(tt)) { const d = project(side, X, Y, Z, r, vis); if (d) out.push({ x: d[0], y: d[1], r: d[2], a: d[3] }); }
+        return out;
+      };
+      const fill = (dots) => {   // one path per colour and strength step, as paint does
+        g.clearRect(0, 0, side, side);
+        const groups = new Map();
+        for (const d of dots) { const key = d.c.join(',') + ',' + Math.round(d.a * STEPS); let arr = groups.get(key); if (!arr) groups.set(key, (arr = [])); arr.push(d.x, d.y, d.r); }
+        for (const [key, arr] of groups) {
+          const q = key.split(','); g.fillStyle = 'rgba(' + q[0] + ',' + q[1] + ',' + q[2] + ',' + (Number(q[3]) / STEPS).toFixed(3) + ')';
+          g.beginPath(); for (let i = 0; i < arr.length; i += 3) { g.moveTo(arr[i] + arr[i + 2], arr[i + 1]); g.arc(arr[i], arr[i + 1], arr[i + 2], 0, 6.283); } g.fill();
+        }
+      };
+      /* A theme change or a resize (forget) draws the check again in that moment's --ok and size (rounds 7, 8). One that
+         comes during the flight, or while the orb is hidden, is remembered (korbStale) and done when the flight ends or
+         the orb shows again. */
+      let flying = !(instant || stillOf(s));
+      s.korbCheck = () => { if (flying || !s.getClientRects().length) { s.korbStale = true; return; } run(s, true); };
+      for (const x of checked) if (!x.isConnected) checked.delete(x);
+      checked.add(s);
+      const done = () => {
+        flying = false;
+        if (s.korbStale && s.isConnected && s.getClientRects().length) { s.korbStale = false; run(s, true); return; }
+        fill(T.map((t) => ({ x: t.x, y: t.y, r: t.r, a: 1, c: green })));
+      };
+      if (instant || stillOf(s)) { done(); return; }
+      const step = (now) => { try { flight(now); } catch (e) { fallback(s, e); } };
+      const flight = (now) => {
+        if (!s.isConnected) return;
+        const el = now - from;
+        if (el < SLOW * 0.6 || !pairs) {
+          const u = Math.min(1, el / SLOW), tt = tAt + (SLOW / 1000) * (u - u * u / 2);   // slowing to a stop
+          const dots = at(tt);
+          if (el >= SLOW * 0.6) {
+            pairs = dots.map((d) => { let best = 0, bd = 1e18; for (let j = 0; j < T.length; j++) { const dx = T[j].x - d.x, dy = T[j].y - d.y, qq = dx * dx + dy * dy; if (qq < bd) { bd = qq; best = j; } } return [d, T[best]]; });
+          } else { fill(dots.map((d) => ({ x: d.x, y: d.y, r: d.r, a: d.a, c: gold }))); requestAnimationFrame(step); return; }
+        }
+        const fly = el - SLOW * 0.6;
+        let left = false;
+        fill(pairs.map(([d, t]) => {
+          const e = ease(Math.max(0, Math.min(1, (fly - t.u * STAGGER) / TRAVEL))); if (e < 1) left = true;
+          const c = Math.round(Math.max(0, Math.min(1, (e - 0.25) / 0.5)) * STEPS) / STEPS;   // 8 colour steps, so a frame is a few fills, not one per dot
+          return { x: d.x + (t.x - d.x) * e, y: d.y + (t.y - d.y) * e, r: d.r + (t.r - d.r) * e, a: d.a + (1 - d.a) * e, c: gold.map((v, i) => Math.round(v + (green[i] - v) * c)) };
+        }));
+        if (left) requestAnimationFrame(step); else done();
+      };
+      requestAnimationFrame(step);
+    } catch (e) { fallback(s, e); }
+  }
+  /* The finish could not draw (round 8), at its start or mid-flight: never leave a turning or half-drawn orb on a finished
+     screen. A plain check in --ok takes its place (CSS .korb-check-fallback), so success still shows. */
+  function fallback(s, e) {
+    try { s.korbCheck = null; const c = s.querySelector(':scope > canvas.korb'); if (c) c.remove(); s.classList.add('korb-check-fallback'); } catch (x) { /* nothing more to do */ }
+    if (!warned) { warned = true; try { console.warn('KOSMOS loading orb: the finish failed', e); } catch (x) { /* no console */ } }
+  }
+  return { draw, finish, running: () => running };   // draw: one frame at time t into a context (for a design harness)
 })();
 </script>
 <script>
