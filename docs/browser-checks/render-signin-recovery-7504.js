@@ -102,7 +102,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
       const f = r.failed;
       say(f.checked === 'true', tag + ' watchdog failed: the switch repaints on from the engine', f.checked);
       say(f.shown, tag + ' watchdog failed: the line is shown');
-      say(f.text === LEAD + ' ' + BECAUSE.replace(/[.\s]+$/, '') + '.', tag + ' watchdog failed: it says recovery is not set up, with the engine\'s reason', JSON.stringify(f.text));
+      say(f.text === LEAD + ' ' + BECAUSE, tag + ' watchdog failed: it says recovery is not set up, with the engine\'s reason', JSON.stringify(f.text));
       say(!f.markup, tag + ' watchdog failed: a reason with markup in it is shown as text');
       for (const k of ['registered', 'present', 'none']) {
         say(r[k].checked === 'true' && !r[k].shown && r[k].text === '', tag + ' CONTROL ' + k + ': switched on, no line', JSON.stringify(r[k]));

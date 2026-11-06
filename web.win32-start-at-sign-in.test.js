@@ -153,13 +153,15 @@ test('kosmos#7504: switched on but the watchdog failed: the page says recovery i
   const rig = clickRig({ clickedFrom: 'false', post: { status: 200, body: { ok: true, on: true, watchdog: { ok: false, because } } }, machine: ON_ROWS });
   await rig.fns.startAtSignInClick(rig.sw);
   assert.equal(rig.msg.hidden, false, 'a failed watchdog was not said');
-  assert.equal(rig.msg.textContent, 'Kosmos will start when you sign in, but it is not yet set to start again if it closes: ' + because + '.');
+  assert.equal(rig.msg.textContent, 'Kosmos will start when you sign in, but it is not yet set to start again if it closes: ' + because,
+    'a reason ending "denied.)" got a second full stop');
   assert.match(rig.mach.innerHTML, /aria-checked="true"/, 'the switch did not repaint on from the engine');
 });
 
 test('kosmos#7504: a failed watchdog with no reason still says so, and a reason ending in a full stop gets one, not two', async () => {
   for (const [because, tail] of [[undefined, 'Windows did not say why.'], ['', 'Windows did not say why.'], ['  ', 'Windows did not say why.'],
-    ['Kosmos has not set up its startup files yet.', 'Kosmos has not set up its startup files yet.']]) {
+    ['Kosmos has not set up its startup files yet.', 'Kosmos has not set up its startup files yet.'],
+    ['schtasks timed out', 'schtasks timed out.'], ['the job (no detail)', 'the job (no detail).']]) {
     const rig = clickRig({ clickedFrom: 'false', post: { status: 200, body: { ok: true, on: true, watchdog: { ok: false, ...(because === undefined ? {} : { because }) } } }, machine: ON_ROWS });
     await rig.fns.startAtSignInClick(rig.sw);
     assert.equal(rig.msg.textContent, 'Kosmos will start when you sign in, but it is not yet set to start again if it closes: ' + tail, JSON.stringify(because));
