@@ -30,6 +30,34 @@ pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
 has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 
+# #5727 (Baron, 11-05): the local python http.server can take several seconds to
+# bind and print its port under fleet load (process-spawn starvation), far longer
+# than the old fixed 20-poll * 0.25s = 5s wait allowed. A contended run then timed
+# out waiting for the port and -- in the final control below, which did NOT guard an
+# empty port -- built http://127.0.0.1:/setup, wrote no RAN, and reported "every
+# refusal arm above is vacuous" instead of naming the real cause. Scale the WAIT (a
+# liveness ceiling, never a stimulus delay) by the suite's time scale: the env
+# KOSMOS_TEST_TIME_SCALE when run under run-tests.sh, else computed live from the box;
+# floor 1 (a quiet box's SUCCESS path is unchanged -- the poll breaks the instant the
+# port appears) and cap 4 (past that a stuck server is a real hang, not load).
+. "$HERE/lib/test-time-scale.sh"
+if [ -n "${KOSMOS_TEST_TIME_SCALE:-}" ]; then PORT_WAIT_SCALE="$KOSMOS_TEST_TIME_SCALE"; else PORT_WAIT_SCALE=$(kosmos_test_time_scale); fi
+# base 20s at a 0.25s step = 80 polls, scaled (floor 1 / cap 4, mirroring the lib).
+PORT_WAIT_TRIES=$(LC_ALL=C awk -v s="$PORT_WAIT_SCALE" 'BEGIN{ s=s+0; if(s<1)s=1; if(s>4)s=4; t=80*s; printf "%d", (t<1?1:t) }')
+# wait_for_port <logfile>: poll the server log until it prints "port NNNNN"; echo the
+# port and return 0, or return 1 after the scaled budget. Breaks the instant the port
+# appears, so a generous ceiling only governs how long we wait before a real failure.
+wait_for_port() {
+  local _log="$1" _port="" _i=0
+  while [ "$_i" -lt "$PORT_WAIT_TRIES" ]; do
+    _port=$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$_log" 2>/dev/null | head -1)
+    [ -n "$_port" ] && { printf '%s\n' "$_port"; return 0; }
+    sleep 0.25
+    _i=$((_i+1))
+  done
+  return 1
+}
+
 # --- lift the verification out of the shipped postinstall -------------------
 INNER="$T/inner.sh"
 "$PY3" - "$REPO/install/pkg-scripts/postinstall" "$INNER" <<'PY'
@@ -56,18 +84,14 @@ cd "$WWW" || exit 1
 SRV=$!
 cd "$REPO" || exit 1
 # ⚠️ POLL, DO NOT SLEEP A FIXED SECOND. A fixed sleep is a race that fails on a
-# loaded machine and passes on an idle one, which is the worst kind of test.
-PORT=""
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-  # ⚠️ `-u` and `-b` above are both load-bearing: without -u python buffers the
-  # port line and this poll times out on an empty file; without -b it binds ::
-  # and the IPv4 URL below cannot reach it.
-  PORT=$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$T/srv.log" 2>/dev/null | head -1)
-  [ -n "$PORT" ] && break
-  sleep 0.25
-done
-if [ -z "$PORT" ]; then echo "FAIL  local origin did not start: $(cat "$T/srv.log" 2>/dev/null)"; exit 1; fi
-pass "local origin listening on $PORT" 
+# loaded machine and passes on an idle one, which is the worst kind of test. The
+# `-u` and `-b` on the http.server spawn above are load-bearing: without -u python
+# buffers the port line and this poll times out on an empty file; without -b it
+# binds :: and the IPv4 URL below cannot reach it.
+if ! PORT=$(wait_for_port "$T/srv.log"); then
+  echo "FAIL  local origin did not start within ${PORT_WAIT_TRIES} polls (time scale ${PORT_WAIT_SCALE}): $(cat "$T/srv.log" 2>/dev/null)"; exit 1
+fi
+pass "local origin listening on $PORT"
 URL="http://127.0.0.1:$PORT/setup"
 
 # 🛑 `sh -c "$script" a b` NOT `sh script a b`. With `sh -c` the FIRST argument
@@ -264,13 +288,7 @@ open(LOG,"w").write("port %d\n" % srv.server_address[1])
 srv.serve_forever()
 PY
 SRV=$!
-FPORT=""
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-  FPORT=$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$FLIPLOG" 2>/dev/null | head -1)
-  [ -n "$FPORT" ] && break
-  sleep 0.25
-done
-if [ -z "$FPORT" ]; then fail "ARM 4 flip-origin did not start"; else
+if ! FPORT=$(wait_for_port "$FLIPLOG"); then FPORT=""; fail "ARM 4 flip-origin did not start within ${PORT_WAIT_TRIES} polls (time scale ${PORT_WAIT_SCALE}): $(cat "$FLIPLOG" 2>/dev/null)"; else
   rm -f "$T/RAN" "$T/DIR"
   out=$(/bin/sh -c "$(cat "$INNER")" "http://127.0.0.1:$FPORT/setup" 0 2>&1); rc=$?
   if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ]; then pass "a TRANSIENT mismatch that then matches RECOVERS and runs (retry works)"
@@ -299,17 +317,15 @@ cd "$WWW" || exit 1
 "$PY3" -u -m http.server 0 -b 127.0.0.1 >"$T/srv.log" 2>&1 &
 SRV=$!
 cd "$REPO" || exit 1
-PORT=""
-for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-  PORT=$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$T/srv.log" 2>/dev/null | head -1)
-  [ -n "$PORT" ] && break
-  sleep 0.25
-done
-URL="http://127.0.0.1:$PORT/setup"
-rm -f "$T/RAN"; printf '%s  setup\n' "$GOOD" > "$WWW/setup.sha256"
-run_arm >/dev/null 2>&1
-if [ -f "$T/RAN" ]; then pass "CONTROL: the harness detects a real run, so the refusals above mean something"
-else fail "CONTROL: the harness cannot detect a run; every refusal arm above is vacuous"; fi
+if ! PORT=$(wait_for_port "$T/srv.log"); then
+  fail "CONTROL: the local origin did not start within ${PORT_WAIT_TRIES} polls (time scale ${PORT_WAIT_SCALE}), so the run-vs-refusal control could not run: $(cat "$T/srv.log" 2>/dev/null)"
+else
+  URL="http://127.0.0.1:$PORT/setup"
+  rm -f "$T/RAN"; printf '%s  setup\n' "$GOOD" > "$WWW/setup.sha256"
+  run_arm >/dev/null 2>&1
+  if [ -f "$T/RAN" ]; then pass "CONTROL: the harness detects a real run, so the refusals above mean something"
+  else fail "CONTROL: the harness cannot detect a run; every refusal arm above is vacuous"; fi
+fi
 
 if [ "$fails" -ne 0 ]; then echo "$fails check(s) failed"; exit 1; fi
 echo "all checks passed"
