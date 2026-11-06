@@ -866,7 +866,8 @@ struct ProjectRowView: View {
     private var word: Board.ProjectWord? { Board.projectWord(project, agentsUnreadable: unreadable) }
 
     private var bubble: String? { Board.unreadBubble(project.unread) }
-    /// Whether stateAndBubble draws anything. Both read word and bubble, so a part added to one is seen by the other.
+    /// Whether stateAndBubble draws anything. Both read the same word and bubble; a new part added to stateAndBubble must be
+    /// added here too.
     private var hasStateOrBubble: Bool { word != nil || bubble != nil }
     // kosmos#7486 (Josh 10-28 09:35): Working is the Agents list's own animated green pill, in the same place; the other
     // words keep their look. kosmos#7342 (Mona Lisa): the unread bubble after the word, 6 pt apart, as the Agents list has

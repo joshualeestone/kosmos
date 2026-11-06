@@ -1289,10 +1289,16 @@ check(projectsSource.contains("guard client.fedShown else { ownCompare[project] 
 check(projectsSource.contains("guard same(epoch), ownSeq[project] == seq else { return }"), "only the newest read for a project writes (the board's FED_OWN_SEQ)")
 // kosmos#7055 part 2: at the accessibility sizes a project's word and bubble sit under its name, whole words first; side by
 // side, a sub-project's name ran a few letters a line and its Working pill stood on end (simulator shots, 11-06).
-let rowBody = projectsSource.components(separatedBy: "struct ProjectRowView").dropFirst().first ?? ""
-check(rowBody.contains("if typeSize.isAccessibilitySize {\n                // kosmos#7055 part 2") && rowBody.contains("if hasStateOrBubble { stateAndBubble }"),
+// The row's own struct only, so a match cannot come from a later one; tokens, not indentation or comments.
+let rowBody = (projectsSource.components(separatedBy: "struct ProjectRowView").dropFirst().first ?? "").components(separatedBy: "\nstruct ").first ?? ""
+let rowFlat = rowBody.replacingOccurrences(of: "\n", with: " ").split(separator: " ").joined(separator: " ")
+check(rowFlat.contains("if typeSize.isAccessibilitySize {") && rowFlat.contains("if hasStateOrBubble { stateAndBubble }"),
       "at the largest text a project's word and bubble go under its name, and an idle row adds no empty line (#7055)")
-check(rowBody.contains("ViewThatFits(in: .horizontal) {\n                HStack(spacing: 6) { stateWord(wraps: false); bubbleView }"),
+let fits = rowFlat.components(separatedBy: "ViewThatFits(in: .horizontal) {").dropFirst().first ?? ""
+let oneLine = fits.range(of: "HStack(spacing: 6) { stateWord(wraps: false); bubbleView }")
+let stacked = fits.range(of: "VStack(alignment: .leading, spacing: 4) { stateWord(wraps: false); bubbleView }")
+let wrapped = fits.range(of: "VStack(alignment: .leading, spacing: 4) { stateWord(wraps: true); bubbleView }")
+check(oneLine != nil && stacked != nil && wrapped != nil && oneLine!.lowerBound < stacked!.lowerBound && stacked!.lowerBound < wrapped!.lowerBound,
       "the word and bubble keep whole words first: one line, then stacked, and the pill wraps only when it alone does not fit (#7055)")
 check(projectsSource.contains("let read = answer.flatMap { (200...299).contains($0.1.statusCode) ? Board.parseOwnCompare($0.0) : nil }\n        ownCompare[project] = Board.ownCompareAfter(ownCompare[project], answer: read)"),
       "a 2xx JSON answer replaces, anything else is a miss under the keep rule")
