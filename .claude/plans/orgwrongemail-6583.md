@@ -19,3 +19,11 @@ Mutation: removing the entry turns two tests red.
 ## Decided
 Copy: written here, plain and fixed (Mona Lisa owns copy; flagged on the card for her). Weakest premise: that no
 page code keys on the list of org codes (grep: only engine/orgenroll.js and its tests do).
+
+## Review round 1 (sonnet)
+- WARNING taken: org_pilot_full (a company pilot with no free seat, kosmos#7585) had the same gap on the same screens:
+  preview and enroll said "try again in a minute". Added a SAY entry in the coordinator's own words; tested with the
+  board's refusal-line shape on preview and enroll; mutation red.
+- NITs taken: clearer wrong-address wording ("invite the address you sign in with to Kosmos+"); org_wrong_email added
+  to familysay-6251's "refused before any org is known" guard; the uncheckable relay sha dropped from the comment.
+- Noted, not this card: org_not_accepted is in CODES with no SAY entry (falls to the log path).

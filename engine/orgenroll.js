@@ -445,10 +445,13 @@ const SAY = Object.freeze({
   org_code_expired: 'That code has expired. Ask whoever sent it for a new one.',
   org_other_org: 'This Kosmos+ account is already in another company or family account.',
   org_wrong_domain: "That code was sent for a different email address than this account's.",
-  /* kosmos#6583 (S-11): an invite bound to one address, tried from an account with another. The coordinator has refused
-     it as org_wrong_email since relay c85f2652b; without this the person was told to try again in a minute, which never
+  /* kosmos#6583 (S-11): an invite bound to one address, tried from an account with another, which the coordinator
+     refuses as org_wrong_email. Without a sentence here the person was told to try again in a minute, which never
      works. It names no address, as the coordinator's own words do not. */
-  org_wrong_email: "That code was made for a different email address than the one this Kosmos+ account signs in with. Ask whoever sent it to invite your address.",
+  org_wrong_email: 'That code was made for a different email address. Ask whoever sent it to invite the address you sign in with to Kosmos+.',
+  /* kosmos#6583 review 1: the same gap for a company pilot with no free seat (kosmos#7585), refused at the preview and
+     at the join; retrying cannot help until a seat is freed. In the coordinator's own words. */
+  org_pilot_full: "Your company's Kosmos+ pilot has no free seat. Ask the people who run your company's accounts to free one or add seats.",
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
