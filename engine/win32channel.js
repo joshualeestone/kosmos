@@ -379,7 +379,9 @@ function ownerCheckFailure(stderr, code) {
   return e;
 }
 
-function serverOwnerOf(at, timeoutMs) {
+/* Review 5: `onChild`, when given, is handed the Windows PowerShell process as soon as it starts, so a client that
+   already has its answer can end it rather than wait (and keep the board's say() waiting) for it to finish. */
+function serverOwnerOf(at, timeoutMs, onChild) {
   return new Promise((resolve, reject) => {
     const full = String(at || '');
     if (!full.toLowerCase().startsWith(PIPE_ROOT) || full.length === PIPE_ROOT.length) {
@@ -391,7 +393,7 @@ function serverOwnerOf(at, timeoutMs) {
     /* An inherited PowerShell 7 module path is what makes 5.1 load the wrong modules
        (engine/win32update.js authenticodeOf); nothing here needs one. */
     for (const key of Object.keys(env)) if (key.toLowerCase() === 'psmodulepath') delete env[key];
-    cp.execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', OWNER_SCRIPT], {
+    const child = cp.execFile(ps, ['-NoProfile', '-NonInteractive', '-Command', OWNER_SCRIPT], {
       encoding: 'utf8', timeout: timeoutMs, windowsHide: true, maxBuffer: 64 * 1024, env,
     }, (err, stdout, stderr) => {
       if (err) {
@@ -408,6 +410,7 @@ function serverOwnerOf(at, timeoutMs) {
       }
       resolve({ owner: j.owner, me: j.me });
     });
+    if (typeof onChild === 'function') { try { onChild(child); } catch { /* the check still runs */ } }
   });
 }
 
@@ -558,7 +561,17 @@ function clientMain(name, text, opts) {
   /* Set the moment the request is written. Before it, every failure is a
      definite "nothing typed"; after it, a broken channel may have delivered. */
   let wrote = false;
-  const finish = (payload) => { if (settled) return; settled = true; done(payload); try { sock.destroy(); } catch { /* going anyway */ } };
+  /* Review 5: the owner check's own process, while it runs. A client that settles first (the holder spoke
+     first, the channel closed) ends it, so the helper, and the board's say() waiting on it, need not sit out
+     the check's bound for an answer it already has. */
+  let checkChild = null;
+  const finish = (payload) => {
+    if (settled) return;
+    settled = true;
+    done(payload);
+    try { sock.destroy(); } catch { /* going anyway */ }
+    if (checkChild) { try { checkChild.kill(); } catch { /* already ended */ } checkChild = null; }
+  };
 
   const sock = net.connect(at);
   /* 🔑 `unsure` IS SET ONLY AFTER THE REQUEST HAS BEEN WRITTEN (`wrote`), on each
@@ -617,7 +630,7 @@ function clientMain(name, text, opts) {
      passes its own `checkServer`, or null for none. Off Windows there is no named pipe to ask about:
      the address is a unix socket, which only a test uses. */
   const checkServer = o.checkServer !== undefined ? o.checkServer
-    : (process.platform === 'win32' ? (where) => serverOwnerOf(where, OWNER_CHECK_TIMEOUT_MS) : null);
+    : (process.platform === 'win32' ? (where, onChild) => serverOwnerOf(where, OWNER_CHECK_TIMEOUT_MS, onChild) : null);
   const send = () => {
     sock.write(JSON.stringify({ v: 1, token: got.secret, type: 'say', text: String(text) }) + '\n');
     wrote = true;
@@ -629,7 +642,9 @@ function clientMain(name, text, opts) {
        definite no. */
     sock.setTimeout(0);
     let asked;
-    try { asked = Promise.resolve(checkServer(at)); } catch (e) { asked = Promise.reject(e); }
+    try { asked = Promise.resolve(checkServer(at, (c) => { if (settled) { try { c.kill(); } catch { /* ended */ } } else checkChild = c; })); }
+    catch (e) { asked = Promise.reject(e); }
+    asked.then(() => { checkChild = null; }, () => { checkChild = null; });
     asked.then((answer) => {
       if (settled) return;
       const refused = ownerRefusal(answer);

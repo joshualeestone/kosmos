@@ -117,6 +117,24 @@ test('#1765: a holder that answers before it is asked is never believed, and get
   }
 });
 
+test('#1765: a client that settles first ends the check\'s own process', async () => {
+  /* Review 5: the holder speaks first, so the client has its answer while the check still runs. The check's
+     process must be ended, not left to run out its bound with the helper (and say()) waiting on it. */
+  const addr = address();
+  const srv = net.createServer((sock) => { sock.on('error', () => {}); sock.write('{"ok":true}\n'); });
+  await new Promise((res) => srv.listen(addr, res));
+  open.push(srv);
+  let killed = 0;
+  const fakeChild = { kill: () => { killed += 1; } };
+  const r = await ask('settlefirst', 'hello', addr, {
+    timeoutMs: 2000,
+    checkServer: (where, onChild) => { onChild(fakeChild); return new Promise(() => {}); },
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /spoke before we had asked it anything/);
+  assert.equal(killed, 1, 'the check process was left running');
+});
+
 test('#1765: a check that fails or throws refuses, and writes nothing', async () => {
   for (const [label, check] of [
     ['rejects', async () => { throw new Error('Windows did not say in time'); }],
@@ -160,7 +178,7 @@ test('#1765: a slow check does not eat the conversation\'s own time', async () =
 
 test('#1765: on Windows the real check is the default; elsewhere there is no named pipe to ask about', () => {
   const src = fs.readFileSync(path.join(__dirname, 'win32channel.js'), 'utf8');
-  assert.match(src, /const checkServer = o\.checkServer !== undefined \? o\.checkServer\n\s*: \(process\.platform === 'win32' \? \(where\) => serverOwnerOf\(where, OWNER_CHECK_TIMEOUT_MS\) : null\);/);
+  /* That the default really asks Windows is proven by behaviour below (no PowerShell to start: nothing written). */
   // say() gives the helper the check's bound on top of the conversation's on Windows.
   assert.match(src, /timeout: timeout \+ 2000 \+ \(process\.platform === 'win32' \? OWNER_CHECK_TIMEOUT_MS : 0\),/);
   // The write happens only in send(), and send() only after the check, or with no check at all.
