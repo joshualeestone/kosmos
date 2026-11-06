@@ -11623,6 +11623,29 @@ const server = http.createServer(async (req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not keep that record' }));
     return;
   }
+  /* #7420: how often the iPhone chat goes blank, per build (engine/chatopens.js). As the shift routes above: POST comes
+     from the person's phone, GET is for an agent on this Mac. */
+  if (pathname === '/api/phone/chat-opens' && (req.method === 'GET' || req.method === 'HEAD')) {
+    const r = require('./engine/chatopens').read();
+    sendJson(res, 200, { builds: r.builds, ok: r.ok });
+    return;
+  }
+  if (pathname === '/api/phone/chat-open' && req.method === 'POST') {
+    if (presentedAgentToken(req, {})) { sendJson(res, 403, { error: 'this comes from the person\'s phone, not an agent' }); return; }
+    readBody(req, 4096)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        if (presentedAgentToken(req, body && typeof body === 'object' ? body : {})) { sendJson(res, 403, { error: 'this comes from the person\'s phone, not an agent' }); return; }
+        const r = require('./engine/chatopens').add(body);
+        if (r.refused) { sendJson(res, 400, { error: r.refused }); return; }
+        if (!r.ok) { sendJson(res, 500, { error: 'we could not keep that record' }); return; }
+        sendJson(res, 200, { ok: true });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not keep that record' }));
+    return;
+  }
   if (pathname === '/api/undo/keep' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
