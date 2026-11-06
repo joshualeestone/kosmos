@@ -152,6 +152,17 @@ board load).
 - NIT kept: another board toast in the first 30 s can replace "Going back ..." (one toast slot per page); the
   switching screen still shows if the switch lands.
 
+## Review round 8 (sonnet; only NITs: converged)
+- NIT, filed as #8125: a switch that starts but never lands is never counted as a miss, so that one path can say
+  "Going back" at every launch (a click to stay or Back to This Computer clears it).
+- NITs kept: the stay listeners end when the list answers (the switching screen and the blur cover the ticket wait);
+  no test row for Fn or for a trailing-dot or over-253-character host (each guarded); a link from another person's
+  computer is kept, then answered "not on your Kosmos+ account" once and forgotten; two long doc sentences.
+- After convergence, test-only: `docs/browser-checks/render-computers-4648.js` runs the launch reopen in the real page
+  in Chromium and WebKit (the Mac app's engine): a reachable computer opens by its ticket with the switching screen,
+  an offline one stays and says so. 140 passed; a mutant with the switch removed fails it in all four runs. It
+  satisfies the #1720 browser-check gate with a real check rather than a trailer.
+
 ## Weakest premise (now)
 That every way the app ends reaches applicationWillTerminate (Cmd-Q, the menu, the Dock, the last window, an
 update's relaunch). A force quit or crash skips it, and then the last host kept at a page load stands.
