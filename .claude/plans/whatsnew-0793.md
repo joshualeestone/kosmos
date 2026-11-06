@@ -9,10 +9,9 @@ Data only: five new items in release/whats-new-pool.json (since 0.7.93), and web
 - Left out: #8068's mover hold (the automatic mover moves only with AGENT_WORKFORCE_AUTOMOVE=1, so no person meets it);
   #8052, #8054, #8058, #8078 (ios/ only, the iPhone app ships separately); #5536 (dark); #8067 and #8083 (an agent
   nudge and board-log wording).
-- Decided: the Windows-only item (rank 15) takes the fifth slot. Cost, measured on the built file: both platforms
-  show four, since rank 9 is Mac-only; the slot it takes would have gone to "Agents see posts from agents they follow"
-  (rank 16.5, every platform). Rejected: ranking it lower, which leaves Windows four lines and none about its own
-  change. Its title names Settings, not Windows, so it cannot be read as Windows itself showing a notice.
+- Decided: the Windows-only item (rank 15) takes the fifth slot, so Windows gets one line about its own change.
+  What it displaces is whatever the tool picks next at rank 16; run `build --offline` without the item to see it.
+  Its title names Settings, not Windows, so it cannot be read as Windows itself showing a notice.
 - A blind check read every line against the code: four true as written; the Windows line was overstated (it is said
   once, when the switch is turned on) and was rewritten in the reviewer's words. Review 1 then found #8039's
   "files your settings import" would send a person to the Settings screen (it is the agent's instructions), and
