@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: guide-8113
-diff_hash: acab32b634f187b8334d528da0195d2514af491a125f9ecbc8eb829274d3704e
+diff_hash: 1967f9ec8ad09b0c5ea8a11ae4ab4f53253843b26dd5af543bc962deab94b5f7
 validation: local-node-suites-only (full Mortals validation pending, held by the 0.7.94 cut)
 subdir_audit: passed
-timestamp: 2026-11-06T16:26:48Z
+timestamp: 2026-11-06T18:20:54Z
 iterations: 5
 converged: true
 ---
@@ -71,7 +71,7 @@ kosmos#8113 (follow-up to #8109, stacked on agentname-8109): `kosmos agent remov
 Local, from the worktree, on 51b25207ba (the same code; engine 116/116 and route 11/11 re-run on 2ccae18137 after the revert): engine/remove.test.js 116/116, server.agent-remove-name-8109.test.js 11/11, server.agent-remove-4475.test.js 36/36, cli.agent-remove-7362.test.js 26/26, server.guide-hidden-3739.test.js 7/7, server.setup-guide-page-3034.test.js 15/15, server.test.js 368/368. Full kosmos validation on Mortals has not run (held for the 0.7.94 cut).
 
 ### Note
-Stacked on agentname-8109, so diff_hash is over origin/main...HEAD including #8109's commits. After #8109 rebase-merges and this branch is rebased onto main, recompute diff_hash before the PR; the reviewed code does not change.
+Was stacked on agentname-8109. #8109 merged as #8117 (d71eb5eecd, 18:20Z), and this branch was rebased onto main with `--onto` (only its own 10 commits). diff_hash recomputed over origin/main...HEAD. The rebased change was checked byte for byte against the reviewed one (`git diff 9b613f4e6c 41788494c7` against `git diff origin/main HEAD`, index lines dropped, proof file excluded): identical.
 
 ### Weakest premise
 `cardsForResolve` repeats the list route's two sources rather than calling one shared function, so a filter added to only one of them would drift (iteration 2's dropped-row case is one).
