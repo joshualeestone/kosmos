@@ -1143,7 +1143,7 @@ struct ChatView: View {
                 return
             }
             // kosmos#7420 (10-29): onScreen counts rows SwiftUI said appeared, not rows drawn; the scroll's place is measured.
-            lines.append("after one try\(rebuilt ? " (list rebuilt)" : ""): " + (scrollBox.reading()?.line ?? "scroll: no scroll view found") + "; rows said to appear \(onScreen.count); " + Board.rowsAgainstScreen(rowTops.y.values.map(\.content), showing: scrollBox.showing()))
+            lines.append("after one try\(rebuilt ? " (list rebuilt)" : ""): " + (scrollBox.reading()?.line ?? "scroll: no scroll view found") + "; rows said to appear \(onScreen.count); " + Board.rowsAgainstScreen(rowTops.y.values.map(\.content), showing: scrollBox.showing(), ends: rowTops.y.values.map(\.end)))
             diagRebuilt = rebuilt
             diagReport = lines.joined(separator: "\n")
             announceDiag()
@@ -3472,7 +3472,7 @@ struct KeyboardHold: UIViewRepresentable {
 // are measured again. A class, so a reading redraws nothing. `watch` hands one row's fresh readings to the hold, and says
 // when that row stops being drawn (nil). Assumed, not measured: no reading arrives after a row's onDisappear; a stray one
 // would at worst offer a row outside what shows, which Board.readerRow never picks.
-struct RowReading: Equatable { let top: Double, content: Double }
+struct RowReading: Equatable { let top: Double, content: Double, end: Double }   // end: its bottom in the content (#7420: did a rebuild come back?)
 final class RowTops {
     var y: [String: RowReading] = [:]
     var last: [String: Double] = [:]   // each row's last place in the content, kept after it stops being drawn (one per row
@@ -3505,7 +3505,7 @@ struct RowTop: ViewModifier {
     @ViewBuilder func body(content: Content) -> some View {
         if #available(iOS 26.0, *) {
             content.onGeometryChange(for: RowReading.self) {
-                RowReading(top: Double($0.frame(in: .global).minY), content: Double($0.frame(in: .named(ContentSpace.name)).minY))
+                RowReading(top: Double($0.frame(in: .global).minY), content: Double($0.frame(in: .named(ContentSpace.name)).minY), end: Double($0.frame(in: .named(ContentSpace.name)).maxY))
             } action: { rows.set(id, $0) }
                 .onDisappear { rows.set(id, nil) }
         } else { content }
