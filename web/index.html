@@ -1617,7 +1617,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
                 display: flex; align-items: center; justify-content: center; padding: var(--space-8); }
 .restart-back .restart-msg { display: flex; flex-direction: column; align-items: center; text-align: center;
                              max-width: 26rem; color: var(--k-ink); outline: none; }
-.restart-back .restart-k { width: 88px; height: 103px; display: block; margin-bottom: 22px; }
+.restart-back .restart-k { display: block; margin: 7px 0 30px; }   /* #7896: the orb is 88 px round; the margins keep the K's 103 px and its 22 px below */
 .restart-back h1 { margin: 0 0 10px; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
 .restart-back p { margin: 0; font-size: 15px; line-height: 1.5; color: var(--k-ink-2); }
 /* The tab layout reserves a scrollbar gutter on <html>, which a fixed layer cannot paint over, so
@@ -3126,47 +3126,23 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .lstate .alsowork { margin-left: 10px; }
 /* #2019: the restarting pill. SOLID border (never the dashed unknown -- this is
    not a slot waiting to be filled, per the boardEmpty rule), calm neutral tone so
-   the animated K carries the signal rather than a loud colour. The card keeps its
-   white ground; only the pill and the K move. */
+   the moving Sweep dots carry the signal rather than a loud colour. The card keeps its
+   white ground; only the pill and the dots move. */
 .astate.st-restarting { border-color: rgba(20,22,26,.30); }
-.kspin { display: inline-flex; align-items: center; }
-/* The Kosmos mark breathes -- a slow opacity + scale pulse matching the 2.4s calm
-   of `breathe`, NOT a fast loader spin. "Working on it", not "hurry". */
-.kspin img { display: block; animation: kbreathe 2.4s ease-in-out infinite; }
-@keyframes kbreathe {
-  0%, 100% { opacity: .55; transform: scale(.9); }
-  50%      { opacity: 1;   transform: scale(1); }
-}
-/* Reduced motion holds the K STATIC AND FULLY VISIBLE (per the spec's contract):
-   a dimmed or shrunk still frame would read as frozen, which is the opposite of
-   the reassurance the state carries. The copy beside it carries the state. */
-@media (prefers-reduced-motion: reduce) {
-  .kspin img { animation: none; opacity: 1; transform: none; }
-}
+/* The restarting mark is the 16 px Sweep dots since Josh 11-06 12:18 (kGlyph); the breathing .kspin K is retired. */
 /* #768-batch (Josh, 5.51.59): the restart interstitial shown in the change-model
    dialog while an agent restarts. Centred K over the "Restarting the agent" line,
    so the wait reads as the restart happening rather than a frozen dialog.
-   #2692 (Josh, design channel 2026-09-10): the mark here is now the BRANDED K
-   LOADER (the big K made of dots that gathers and opens back to the circle,
-   `startKLoader`), not the small breathing `.kspin` MARK -- Josh flagged that
-   pulsing icon as the wrong asset. `.chg-restart-k` is the canvas the loader
-   mounts into; the bitmap is 176x206 (2x for crispness) shown at 88x103, the
-   same proportions the update overlay uses so the K reads big. */
+   #2692 (Josh, design channel 2026-09-10): the mark here became the branded K loader, and since Josh 11-06 12:17
+   ("anywhere we had the K Loader I want it to be the Orb") it is the 88 px KOSMOS orb (kOrbWaitHtml, .chg-restart-k). */
 .chg-restart { display: flex; flex-direction: column; align-items: center; gap: 12px;
   padding: 14px 0 6px; font: 600 .9375rem var(--font-ui); color: var(--k-ink); }
-.chg-restart .chg-restart-k { width: 88px; height: 103px; display: block; }
-/* #2019 timedOut: an OVERRUN restart holds the K STILL and fully visible for
-   everyone, not only reduced-motion users. The pulse means "in progress"; a
-   restart that has not come back within its window is no longer in progress, so
-   it must stop pulsing (#920, the spinner that lies forever) while staying the
-   same mark -- never dropping to a bare "gone". Same still frame the reduced-
-   motion rule uses: full opacity, no shrink, so it does not read as frozen. */
-.kspin-still img { animation: none; opacity: 1; transform: none; }
+.chg-restart .chg-restart-k { display: block; margin: 7px 0 8px; }   /* #7896: the 88 px orb in the K's 103 px */
 /* #2236 Sweep spinner (Mona Lisa's dots-trail loading indicator -- the "Sweep" take Josh
    chose 2026-09-05 over the retired "Lively"; source: installkosmos.com/design/loading-indicators,
    variant D). This is the loading mark for the connect/first-run waiting moments (downloading,
-   checking this computer, signing in) -- distinct from .kspin above, which is the Kosmos MARK
-   used for agent restart, not a loader. ONE markup shape sized by --sz:
+   checking this computer, signing in), and since Josh 11-06 12:18 every small wait, the restarting mark
+   included. ONE markup shape sized by --sz:
    <span class="spin spin-sweep" style="--sz:16px"> with eight <i></i>. Each <i> is a rotator;
    its ::before is the dot on the ring, and the dots light one after another around it. Gold by
    default; on a gold .btn it flips to ink so it stays visible. The KOSMOS orb (KORB, in the script) is drawn only on
@@ -3191,6 +3167,8 @@ a.oa-card:hover, a.oa-card:focus-visible { border-color: var(--k-ink-2); }
 .spin-sweep i:nth-child(5)::before { animation-delay: -.600s; }  .spin-sweep i:nth-child(6)::before { animation-delay: -.450s; }
 .spin-sweep i:nth-child(7)::before { animation-delay: -.300s; }  .spin-sweep i:nth-child(8)::before { animation-delay: -.150s; }
 @keyframes sweepLite { 0%, 72%, 100% { opacity: .2; transform: scale(.6); } 20% { opacity: 1; transform: scale(1.08); } }
+/* #2019 on the Sweep dots (Josh 11-06 12:18): an overrun restart's mark holds still, every dot lit, for every reader. */
+.spin.spin-still i::before { animation: none !important; opacity: 1 !important; transform: none !important; }
 /* #4008 (Josh 2026-09-26): "Waking them..." after a model switch, a restart or a start carries this
    Sweep loader in front of the words, so the wait reads as work in progress; the finished line in the
    change dialog carries a check in the page's own green instead. */
@@ -12007,19 +11985,16 @@ html:not([data-fed-ui="show"]) #pj-add-ext-person,html:not([data-fed-ui="show"])
    happens behind it. Rejected: the canvas-colour route the dialogs take, because the cover's ground is --bg and the
    Plus section sets that on the body, where the root cannot read it. */
 html:has(> body > #boot-cover:not([hidden])) { overflow: hidden; scrollbar-gutter: auto; }
-#boot-cover .boot-spin { width: 26px; height: 26px; border-radius: 50%;
-  border: 2px solid var(--separator, #e3e1dc); border-top-color: var(--label-2, #4a4f57);
-  animation: boot-spin 0.8s linear infinite; }
-@keyframes boot-spin { to { transform: rotate(360deg); } }
+/* Josh 11-06 12:18: "First frame before the board shows ... if we have room do the 88 Orb". The whole window is free,
+   so it is the 88 px orb (.orb-wait). Its markup is the Sweep dots, which CSS draws at the first paint; KORB swaps in
+   the orb when the script runs, so nothing waits on the script to show the page is loading. */
+#boot-cover .boot-spin { display: block; }
 /* #4569 (Josh, 10:48): Meta's sign-in shows it is working from the click on ("I couldn't tell that anything had been
    happening"), and a finished sign-in replaces the button with a plain success line. */
 .muse-connecting { display: inline-flex; align-items: center; gap: 8px; margin-left: 12px; color: var(--label-2); }
-.muse-connecting .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--separator); border-top-color: var(--ok, #1f7a4d);
-  animation: boot-spin 0.8s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .muse-connecting .spin { animation: none; } }
+/* Josh 11-06 12:18: the Sweep dots, as every small wait (the .spin rules above). */
 .muse-done { margin: 12px 0 0; font-weight: 600; }
 .muse-done .acct-ok { margin-right: 6px; }
-@media (prefers-reduced-motion: reduce) { #boot-cover .boot-spin { animation: none; } }
 
 /* ================= Kosmos Plus — whole-app blue reskin (#1615) =================
    Mona Lisa's decision (2026-09-06): while the Kosmos+ tab is on screen the
@@ -12975,7 +12950,7 @@ window.kosmosMeasureScrollbarWidth();
 <body>
 <!-- #1553: shown from the first frame, removed by revealBoot() only after the
      first-run gate resolves, so no view is painted and then retracted. -->
-<div id="boot-cover"><div class="boot-spin" aria-hidden="true"></div></div>
+<div id="boot-cover"><span class="spin spin-sweep orb-wait boot-spin" style="--sz:88px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></div>
 <!-- ⚠️ THE STICKY UNIT IS THE WHOLE BAR, header and tabs together, pulled to
      the page edges with negative margins that mirror the body padding exactly
      (the design pack's own warning: the pull-out must track the stage padding,
@@ -14995,7 +14970,7 @@ window.kosmosMeasureScrollbarWidth();
       <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Connect Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password. Your agents then run on your own Meta account, on this computer.</p>
       <div class="frow" style="margin-top:12px;">
         <button class="btn uprime" id="acct-muse-go" type="button">Sign in with Meta</button>
-        <span class="muse-connecting" id="acct-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span>
+        <span class="muse-connecting" id="acct-muse-spin" hidden><span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>Connecting&hellip;</span>
       </div>
       <p class="muse-done" id="acct-muse-done" tabindex="-1" hidden><span class="acct-ok" aria-hidden="true">&#10003;</span>Signed in to Meta Muse. You can close this window.</p>
       <div class="frow" id="acct-muse-open-row" hidden style="margin-top:8px;">
@@ -16328,7 +16303,7 @@ window.kosmosMeasureScrollbarWidth();
                      (museSigninFlow) with the fr-muse- prefix; #6004: Kosmos installs Muse Code on this step, so a computer without it is told. -->
                 <div data-cloud-hide id="fr-muse-flow" hidden class="fr-confirm" role="group" aria-labelledby="fr-muse-t">
                   <p class="fr-confirm-t" id="fr-muse-t"><b>Connect Meta Muse.</b> Meta's own page asks you to confirm a code, and Kosmos never sees your password.</p>
-                  <div class="frow" style="margin-top:12px;"><button class="btn uprime" id="fr-muse-go" type="button">Sign in with Meta</button><span class="muse-connecting" id="fr-muse-spin" hidden><span class="spin" aria-hidden="true"></span>Connecting&hellip;</span></div>
+                  <div class="frow" style="margin-top:12px;"><button class="btn uprime" id="fr-muse-go" type="button">Sign in with Meta</button><span class="muse-connecting" id="fr-muse-spin" hidden><span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>Connecting&hellip;</span></div>
                   <div class="frow" id="fr-muse-open-row" hidden style="margin-top:8px;">
                     <a class="btn" id="fr-muse-open" href="#" target="_blank" rel="noopener noreferrer">Open Meta's sign-in page<span class="vh"> (opens in your browser)</span></a>
                   </div>
@@ -22509,15 +22484,13 @@ const CARD_ST = {
      pinned by server.test.js). */
   needs_trust:  { st: 'attn', pres: 'unsure' },
 };
-/* #2019: the restarting K. It breathes (a calm 2.4s pulse, NOT a fast loader
-   spin) while the restart is in progress, because the K pulsing says "this is
-   Kosmos doing something". On an OVERRUN restart (disruption.timedOut, the engine
-   half emits it when the restart has not come back within its window) the same K
-   holds STILL: a pulse says in-progress, and a restart that has not returned must
-   not keep pulsing (#920, the spinner that lies forever). Same mark either way,
-   so it never drops to a bare "gone"; only the motion changes. `still` adds
-   .kspin-still, which the CSS pins static regardless of motion preference. */
-const kGlyph = (still) => '<span class="kspin' + (still ? ' kspin-still' : '') + '" aria-hidden="true"><img src="/icons/kosmos-32.png" alt="" width="16" height="16"></span>';
+/* #2019: the restarting mark moves while the restart is in progress. On an OVERRUN restart (disruption.timedOut, the
+   engine half emits it when the restart has not come back within its window) the same mark holds STILL: moving says
+   in-progress, and a restart that has not returned must not keep moving (#920, the spinner that lies forever). Same
+   mark either way, so it never drops to a bare "gone"; only the motion changes. */
+/* Josh 11-06 12:18: "everything else that is small like breathing K at 16px should just be the sweep dots". So the
+   restarting mark is the 16 px Sweep dots; an overrun one (`still`) holds them still, all lit, the same rule as above. */
+const kGlyph = (still) => '<span class="spin spin-sweep' + (still ? ' spin-still' : '') + '" style="--sz:16px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 const GLYPH = {
   working: '<span class="act" aria-hidden="true"><i></i><i></i><i></i></span>',
   attn:    '<span class="haz" aria-hidden="true">!</span>',
@@ -23553,8 +23526,8 @@ function boardMods(a, m) {
     m.st === 'unknown' ? 'unk' : '',
     /* #2019: the card keeps its normal white ground while restarting (this is
        not working and not an issue). It carries the class as a stable marker of
-       the state -- the solid border and the K attach via the pill's own
-       .astate.st-restarting and the global .kspin rule, not via this class, so
+       the state -- the solid border and the dots attach via the pill's own
+       .astate.st-restarting and the global .spin rules, not via this class, so
        there is no .acard.restarting rule today; the class is the state hook the
        browser check reads (not-off/not-unk) and a home for any future card-level
        treatment. Derived from the pill, never hand-typed. */
@@ -26473,7 +26446,7 @@ function paintRestartScreen(down, deviceIsOffline) {
   const holder = document.createElement('div');
   holder.innerHTML = '<div class="restart-back" id="restart-screen">'
     + '<div class="restart-msg" role="alertdialog" aria-modal="true" aria-labelledby="restart-h" aria-describedby="restart-how" tabindex="-1">'
-    + '<canvas class="restart-k" width="176" height="206" aria-hidden="true"></canvas>'
+    + kOrbWaitHtml('restart-k', '', 88, true)   // Josh 11-06 12:17: the orb, held still as the K was (#4343)
     + '<h1 id="restart-h">Kosmos requires a full restart</h1>'
     + '<p id="restart-how">' + restartHowText() + '</p>'
     + '</div></div>';
@@ -26492,7 +26465,6 @@ function paintRestartScreen(down, deviceIsOffline) {
   RESTART_SCREEN_RETURN = document.activeElement;
   document.body.appendChild(back);
   document.documentElement.classList.add('restart-up');
-  startKLoader(back.querySelector('.restart-k'), { still: true });
   /* Everything behind it goes inert, and only what this screen made inert is given back when it
      clears, so a dialog that was already inert for its own reason stays that way. A tip, toast or
      dialog added to <body> while it is up is made inert too. */
@@ -47225,7 +47197,7 @@ function usageHistoryHtml(byDay) {
 let USAGE_BUSY = false;
 /* #7896, corrected by Josh 11-06: "the new orb stuff should not replace the small loading spinners ... It's only on
    these big giant ones ... where a whole screen needs to load or something is waiting." So this draws the KOSMOS orb
-   only into a whole-screen wait's .spin.spin-sweep.orb-wait (kOrbWaitHtml, 88 px); every small spinner keeps the Sweep
+   only into a whole-screen wait's .spin.spin-sweep.orb-wait (kOrbWaitHtml, 88 px by default, 66 on the making screen); every small spinner keeps the Sweep
    dots. It draws into a canvas inside the spinner and the CSS hides its dots.
    The orb: a ball of gold dots carried by slow currents, its skin held round, turning, with K, O, S, M, O, S cut
    through it one letter per half turn (the wordmark's own dots, chaoskosmos-site kosmos-wordmark.svg; odd letters
@@ -47297,7 +47269,7 @@ const KORB = (() => {
   function paint(g, side, pts, colour) {
     g.clearRect(0, 0, side, side);
     g.fillStyle = colour;
-    const R = side * 0.46, CAM = 6, px = side * 0.009;   // dots scale with the orb; at spinner sizes each is held at the 0.35 px floor, so the letter comes from how many there are, not their size
+    const R = side * 0.46, CAM = 6, px = side * 0.009;   // dots scale with the orb (66 to 88 px on the screens that show it); the 0.35 px floor only matters far smaller
     for (const grp of groups) grp.length = 0;
     for (const [X, Y, Z, r, vis] of pts) {
       const f = CAM / (CAM + Z), front = Math.max(0, Math.min(1, (1 - Z) / 2));
@@ -47338,11 +47310,14 @@ const KORB = (() => {
      so "is there a spinner" is never the test: an IntersectionObserver says which are showing (hidden,
      display:none, a closed dialog and off-screen all read as not; visibility:hidden and opacity:0 still read as
      showing, so a spinner in a faded-out panel keeps the loop going), and a MutationObserver hands it each new one.
-     Colour is read on first sight and about once a second, so a spinner moved into a gold button recolours within a
+     Colour is read on first sight and about once a second, so an orb whose ground changes recolours within a
      second; no site moves a live spinner today. */
   const shown = new Set();
   let running = false, t0 = 0, last = -1e9, ticks = 0, sizeStale = false, stillPts = null, warned = false;
   const stillDots = () => stillPts || (stillPts = place(0));   // the still frame (K facing), worked out once
+  /* Josh 11-06 12:17: the full-restart screen held its K still, so its orb is still too (.orb-still, kOrbWaitHtml's
+     `still`): drawn once, K facing, like every orb under reduced motion. */
+  const stillOf = (s) => still() || s.classList.contains('orb-still');
   /* The spinner's --spin-dot (gold, or ink on a gold button), or gold if it is missing or not a colour the canvas can
      use (an unreadable value would silently draw black). */
   const inkOf = (s) => {
@@ -47365,10 +47340,13 @@ const KORB = (() => {
       if (!shown.size) { running = false; return; }
       if (now - last < 30) { requestAnimationFrame(frame); return; }   // about 30 a second: the turn is slow, and it halves the cost
       last = now; ticks++;
-      const calm = still(), pts = calm ? stillDots() : place((now - t0) / 1000);
-      for (const s of shown) draw1(s, pts);
+      let calm = true, moving = null;
+      for (const s of shown) {
+        if (stillOf(s)) { draw1(s, stillDots()); continue; }
+        calm = false; draw1(s, moving || (moving = place((now - t0) / 1000)));
+      }
       sizeStale = false;
-      if (calm) { running = false; return; }   // nothing moves; a theme change, a size change, the setting, or showing again redraws it
+      if (calm) { running = false; return; }   // nothing showing moves; a theme change, a size change, the setting, or showing again redraws it
       requestAnimationFrame(frame);
     } catch (e) {
       running = false;   // never left marked running with no frame queued: the next show or change starts it again
@@ -47386,10 +47364,13 @@ const KORB = (() => {
     const laid = fresh.filter((s) => s.getClientRects().length);
     if (!laid.length) return;
     if (!t0) t0 = performance.now();
-    let pts;
-    try { pts = still() ? stillDots() : place((performance.now() - t0) / 1000); }
+    let pts, calmPts;
+    try {
+      if (laid.some((s) => !stillOf(s))) pts = place((performance.now() - t0) / 1000);
+      if (laid.some(stillOf)) calmPts = stillDots();
+    }
     catch (e) { for (const s of fresh) s.classList.remove('korb-on'); return; }   // could not place the dots: show the old ones, not a blank
-    for (const s of laid) { try { draw1(s, pts); } catch (e) { /* this one waits for the loop */ } }
+    for (const s of laid) { try { draw1(s, stillOf(s) ? calmPts : pts); } catch (e) { /* this one waits for the loop */ } }
   }
   let io = null;
   const seen = new WeakSet();
@@ -47458,9 +47439,9 @@ const KORB = (() => {
 const LOAD_SPIN_HTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 /* #7896 follow-up (Josh 11-06 11:25, on the "Opening" screen: "When are we going to maybe see the new kosmos animated
    graphic in here?"): the big waiting screens show the KOSMOS orb too. It is the .spin-sweep markup, marked .orb-wait so KORB draws it, at 88 px, the K loader's width on those screens. `cls` keeps each screen's own class for its layout; `label`
-   names it for a screen reader where the old canvas did (the update overlay), and hides it otherwise; `size` in px (88). */
-function kOrbWaitHtml(cls, label, size) {
-  return '<span class="spin spin-sweep orb-wait ' + cls + '" style="--sz:' + (size || 88) + 'px"'
+   names it for a screen reader where the old canvas did (the update overlay), and hides it otherwise; `size` in px (88); `still` draws it once, K facing, and leaves it (the restart screen). */
+function kOrbWaitHtml(cls, label, size, still) {
+  return '<span class="spin spin-sweep orb-wait ' + (still ? 'orb-still ' : '') + cls + '" style="--sz:' + (size || 88) + 'px"'
     + (label ? ' role="img" aria-label="' + String(label).replace(/[&"<]/g, (ch) => ({ '&': '&amp;', '"': '&quot;', '<': '&lt;' })[ch]) + '"' : ' aria-hidden="true"')
     + '><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 }
@@ -53012,9 +52993,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   hgo.disabled = true;
   RST_BUSY = true;
   showConfirm(false);
-  document.getElementById('rst-msg').innerHTML = RESTART_BUSY_HTML;
-  const kcv = document.getElementById('rst-msg').querySelector('canvas.chg-restart-k');
-  if (kcv) startKLoader(kcv);
+  document.getElementById('rst-msg').innerHTML = RESTART_BUSY_HTML;   // #7896: its orb draws itself (KORB watches the page)
   const busyStart = Date.now();
   /* Read the hold at click time so a hermetic browser-check can shorten it via
      window.__kosmosRestartHoldMs (a number); undefined in prod, so a real restart
@@ -53262,9 +53241,7 @@ document.getElementById('rst-handoff-go').addEventListener('click', async () => 
   RST_BUSY = true;
   keep.hidden = true;
   setStatus('');
-  msg.innerHTML = RESTART_BUSY_HTML;
-  const kcv = msg.querySelector('canvas.chg-restart-k');
-  if (kcv) startKLoader(kcv);
+  msg.innerHTML = RESTART_BUSY_HTML;   // #7896: its orb draws itself (KORB watches the page)
   const busyStart = Date.now();
   const holdMs = (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS);
   let out = null; let resOk = false;
@@ -53645,19 +53622,14 @@ let ROLES_COMPLETE = false; // #4632: false while the board holds only the built
      on a screen whose rule is that nothing is asserted on a timer — it says
      "still working" without implying it knows how far along it is.
      ⚠️ A FUNCTION TAKING A CANVAS rather than the pack's IIFE bound to
-     `#kload`. THREE screens need it now (the update overlay, the making-an-agent
-     step, and #2692 the restart interstitial), and the overlay's canvas does not
-     exist until the update starts. One implementation, several mounts - a second
-     copy would drift the first time the mark changes.
+     `#kload`. Since Josh 11-06 12:17 ("anywhere we had the K Loader I want it to
+     be the Orb") ONE screen still uses it: the making-an-agent step, where
+     startMadeMark hands it a canvas at the clean finish so the mark turns into the
+     green tick. Every other wait it drew is now the KOSMOS orb (KORB).
      📌 THE LOOP SELF-TERMINATES WHEN ITS CANVAS LEAVES THE DOM (`!cv.isConnected`).
-     The update overlay and the making-an-agent step both exit by a page reload, so
-     for them the frame callback dies with the document either way; the guard is a
-     no-op there (their canvas stays connected until reload). #2692 added it because
-     the restart interstitial HIDES WITHOUT A RELOAD -- changeDialog replaces the
-     modal's message content on success/failure, which removes the canvas -- so a
-     naive reuse would leak an rAF loop drawing to a detached canvas forever. The
-     guard makes the loop stop the moment the interstitial is torn down, and needs
-     no external stop handle.
+     That guard is load-bearing on the making step: each start swaps in a fresh
+     canvas (startMadeMark), so an earlier loop stops when its canvas is replaced,
+     with no external stop handle.
   ---- the making-it loader --------------------------------------------
      The K's own 155 dots, scattered and gathered on a loop. `p` runs 0 to 1
      and back, so the mark assembles, holds, and falls apart again -- which is
@@ -53854,7 +53826,7 @@ let ROLES_COMPLETE = false; // #4632: false while the board holds only the built
    it can reach the loop that is already drawing. Null on every other screen. */
 let MADE_MARK = null;
 /* Josh 11-06 named creating an agent as a whole-screen wait for the KOSMOS orb. The orb shows while the agent is made;
-   a clean finish (finish(), only on the success path) puts the K loader's canvas back and finishes it, so the moment
+   finish() (on the clean finish, and from dropMyLoader on an error or a walk-away, where it plays in a hidden panel) puts the K loader's canvas back and finishes it, so the moment
    still ends in the dots becoming a tick. Each start puts in a fresh copy of the canvas: an earlier loader's loop
    ends once its canvas has left the page, so a retry never draws two loops on one canvas. */
 function startMadeMark(cv) {
@@ -60892,14 +60864,8 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs, alt }) {
        of the next changeDialog. */
     if (busyHtml) {
       goBtn.hidden = true; sm.hidden = true; msg.innerHTML = busyHtml;
-      /* #2692: drive the branded K loader on the canvas the markup just injected.
-         It must be in the document first (the loop reads the canvas), which it now
-         is -- the modal is already open. startKLoader no-ops on a missing/invalid
-         canvas, so a future busyHtml without one is safe; its rAF loop self-
-         terminates when this canvas is torn down (see the isConnected guard), so
-         nothing needs to stop it when the sentence renders over the interstitial. */
-      const kcv = msg.querySelector('canvas.chg-restart-k');
-      if (kcv) startKLoader(kcv);
+      /* #7896 (Josh 11-06 12:17): the busy markup carries the orb, which KORB draws as soon as it is in the page and
+         lets go of when the sentence renders over it, so nothing here starts or stops it. */
     }
     else { msg.textContent = 'Working…'; }
     const busyStart = Date.now();
@@ -62582,7 +62548,7 @@ const RESTART_HOLD_MS = Math.max(2000, K_LOADER_CYCLE_MS);
    announced text. `line` is an app-generated fixed literal or an app-derived provider label,
    never user input, so the innerHTML at the changeDialog call site stays safe. */
 const chgBusyHtml = (line) => '<span class="chg-restart">'
-  + '<canvas class="chg-restart-k" width="176" height="206" aria-hidden="true"></canvas>'
+  + kOrbWaitHtml('chg-restart-k', '', 88)   // Josh 11-06 12:17: the orb wherever the K loader was; KORB draws it once it is in the page
   + line + '</span>';
 const RESTART_BUSY_HTML = chgBusyHtml('Restarting the agent');
 document.getElementById('d-model-go').addEventListener('click', () => {
@@ -68091,7 +68057,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
      name heading plus the working mark.
      ⚠️ Finish any prior loader before starting a fresh one: `startMadeMark` has no
      hard stop (only `finish`), so without this a second attempt (a retry after a
-     routed-back error) would leak a second animation loop onto the one canvas. */
+     routed-back error) would leave the old orb beside the new one, two marks on the screen. */
   msg.textContent = '';
   cstep('made');
   document.getElementById('made-head').textContent = name ? 'Making ' + name : 'Making it';
