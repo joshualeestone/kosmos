@@ -524,6 +524,62 @@ async function runApp(engine, say) {
   }
 }
 
+/* #8122: a spreadsheet opens as a read-only grid (Ice Cream Kitty's route, stood in for here): sheets as tabs, a cell's
+   words as text never markup, the gold button under it; a file the board cannot draw shows its card and the board's
+   sentence, the button still under it. */
+async function runSheet(engine, say) {
+  const browser = await pw[engine].launch({ headless: process.env.HEADED === '0' });
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const pg = await ctx.newPage();
+    const errors = []; pg.on('pageerror', (e) => errors.push(String(e && e.message)));
+    const BIG = 'e7'.repeat(12), OK = 'e8'.repeat(12);
+    await pg.route('**/*', async (route) => {
+      const u = new URL(route.request().url());
+      if (u.pathname === '/') return route.fulfill({ status: 200, contentType: 'text/html', body: HTML });
+      if (u.pathname === '/api/attachment/' + OK + '/sheet') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true,
+        sheets: [{ name: 'Budget', rows: [['Item', 'Cost'], ['<img src=x onerror="window.__ran=1">', '12.5']], cut: true }, { name: 'Notes', rows: [['done']], cut: false }],
+        moreSheets: 0, noValues: false, someNoValues: true, empty: false }) });
+      if (u.pathname === '/api/attachment/' + BIG + '/sheet') return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, because: 'This spreadsheet is too large to preview.', tooLarge: true }) });
+      return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
+    });
+    await pg.goto('http://kosmos-remote.test/', { waitUntil: 'load' });
+    await pg.waitForFunction(() => typeof pjAttachmentCard === 'function' && typeof pvSheetInto === 'function');
+    const open = async (id, name) => {
+      await pg.evaluate(([id, name]) => {
+        pvClose(); document.querySelectorAll('[data-pv-test]').forEach((n) => n.remove());
+        const strip = document.createElement('div'); strip.setAttribute('data-pv-test', ''); strip.style.cssText = 'position:fixed;left:8px;top:8px;width:300px;z-index:55;background:#fff;';
+        strip.innerHTML = pjAttachmentCard({ name, type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', size: 68000, kind: 'file', url: '/api/attachment/' + id });
+        document.body.appendChild(strip);
+      }, [id, name]);
+      await pg.click('[data-pv-test] a.att');
+      await pg.waitForSelector('#pv-preview #pv-do');
+      await pg.waitForFunction(() => !/Opening the spreadsheet/.test(document.getElementById('pv-stage').textContent));
+    };
+    const T = engine + ' P8122';
+    await open(OK, 'Budget 2026.xlsx');
+    const g = await pg.evaluate(() => ({
+      tabs: [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.textContent + (t.getAttribute('aria-selected') === 'true' ? '*' : '')),
+      cells: [...document.querySelectorAll('#pv-preview .pv-grid tbody td')].map((c) => c.textContent),
+      imgs: document.querySelectorAll('#pv-preview .pv-grid img').length, ran: !!window.__ran,
+      notes: [...document.querySelectorAll('#pv-preview .pv-note')].map((n) => n.textContent),
+      name: document.getElementById('pv-name').textContent,
+      below: (() => { const w = document.querySelector('.pv-grid-wrap').getBoundingClientRect(), d = document.getElementById('pv-do').getBoundingClientRect(); return d.top >= w.bottom - 1 && d.bottom <= innerHeight; })(),
+    }));
+    say(JSON.stringify(g.tabs) === '["Budget*","Notes"]' && g.cells[0] === 'Item' && g.cells[3] === '12.5', T + ': a spreadsheet opens as a grid, its sheets as tabs', JSON.stringify(g));
+    say(g.cells[2] === '<img src=x onerror="window.__ran=1">' && g.imgs === 0 && !g.ran, T + ': a cell\'s words are text, never markup', JSON.stringify(g.cells));
+    say(g.notes.some((n) => /first 200 rows/.test(n)) && g.notes.some((n) => /no saved value/.test(n)) && g.below && g.name === 'Budget 2026.xlsx', T + ': it says when it is cut short or values are missing; the name and the gold button are under it', JSON.stringify(g));
+    await pg.focus('#pv-preview .pv-tab'); await pg.keyboard.press('ArrowRight');
+    const k = await pg.evaluate(() => ({ sel: [...document.querySelectorAll('#pv-preview .pv-tab')].map((t) => t.getAttribute('aria-selected')), cell: (document.querySelector('#pv-preview .pv-grid tbody td') || {}).textContent, focus: document.activeElement.textContent }));
+    say(k.sel.join() === 'false,true' && k.cell === 'done' && k.focus === 'Notes', T + ': the arrow keys move between sheets', JSON.stringify(k));
+    await open(BIG, 'Huge.xlsx');
+    const big = await pg.evaluate(() => ({ card: !!document.querySelector('#pv-preview .pv-file'), notes: [...document.querySelectorAll('#pv-preview .pv-note')].map((n) => n.textContent), btn: !!document.getElementById('pv-do') }));
+    say(big.card && big.notes.includes('This spreadsheet is too large to preview.') && big.btn, T + ': one too large to draw shows its card and the board\'s sentence, the button still there', JSON.stringify(big));
+    say(errors.length === 0, T + ': no page errors', errors.slice(0, 3).join(' | '));
+    await ctx.close();
+  } finally { await browser.close(); }
+}
+
 (async () => {
   const fails = [];
   const say = (ok, l, x) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + l + (x ? '  ' + x : '')); if (!ok) fails.push(l); };
@@ -549,6 +605,7 @@ async function runApp(engine, say) {
       await runOn(engine, 'http://127.0.0.1:59930', say);
       await runRemote(engine, say);
       await runApp(engine, say);
+      await runSheet(engine, say);
     } catch (e) {
       say(false, engine + ': ran to the end', String(e && e.message).split('\n')[0]);
     }

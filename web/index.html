@@ -77439,6 +77439,18 @@ function pvSheetInto(stage, data) {
   stage.appendChild(box);
   if (sheets.length) show(0);
 }
+/* #8122: fetches the grid and draws it; a file the board cannot draw shows its card with the board's sentence (the gold
+   button stays under it); a failed look shows the card. An answer that arrives after the viewer closed draws nothing. */
+function pvSheetLoad(stage, url, fileCard) {
+  const wait = document.createElement('p'); wait.className = 'pv-note'; wait.textContent = 'Opening the spreadsheet\u2026';
+  stage.appendChild(wait);
+  const card = (because) => { stage.textContent = ''; stage.appendChild(fileCard()); if (because) { const n = document.createElement('p'); n.className = 'pv-note'; n.textContent = because; stage.appendChild(n); } };
+  fetch(url, { cache: 'no-store' }).then((r) => r.json().catch(() => null)).then((j) => {
+    if (!stage.isConnected && !wait.isConnected) return;
+    if (!j || j.ok === false) { card(j && typeof j.because === 'string' ? j.because : ''); return; }
+    stage.textContent = ''; pvSheetInto(stage, j);
+  }).catch(() => { if (stage.isConnected || wait.isConnected) card(''); });
+}
 function pvRevealWord() { return onWindows() ? 'Show in File Explorer' : 'Open in Finder'; }
 /* The preview's action is Download, not a reveal, through Kosmos+ (the file is not on this device) and, #5865, on
    Linux (revealFolder runs /usr/bin/open, which a Linux board does not have). */
@@ -77474,6 +77486,8 @@ function pvOpen(id, from) {
     pvZoomFrom(img, from);
   } else if (how === 'textOf') {
     pvTextInto(stage, a.textOf, fileCard);   // #6724: a Files-list text file
+  } else if (how === 'sheet') {
+    pvSheetLoad(stage, pvSheetUrl(a), fileCard);   // #8122: a spreadsheet, read-only
   } else if (how === 'snippet') {
     const pre = document.createElement('pre');
     pre.className = 'pv-text';
@@ -77535,8 +77549,18 @@ function pvOpen(id, from) {
    lists set (filesPvOpen). An attachment's `preview`
    is the file's own first words, untrusted text, so it is never taken as an address (a file that begins "/api/..."
    must not make the viewer's browser fetch that path); as before, such a snippet shows the file's card. */
+/* #8122: the board's spreadsheet route for a file the viewer shows (Ice Cream Kitty's routes): an attachment's from its
+   own address, a Files-list file's from its list (sheetUrl). Only .xlsx, .xlsm, .csv and .tsv. */
+const PV_SHEET_EXT = /\.(xlsx|xlsm|csv|tsv)$/i;
+function pvSheetUrl(a) {
+  if (!a || !PV_SHEET_EXT.test(String(a.name || ''))) return null;
+  if (typeof a.sheetUrl === 'string' && /^\/api\//.test(a.sheetUrl)) return a.sheetUrl;
+  const m = /^\/api\/attachment\/([0-9a-f]{24})$/.exec(String(a.url || ''));
+  return m ? '/api/attachment/' + m[1] + '/sheet' : null;
+}
 function pvStageKind(a) {
   if (!a) return 'card';
+  if (pvSheetUrl(a)) return 'sheet';
   if ((a.kind === 'image' || a.kind === 'pdf') && a.preview && /^\/api\//.test(a.preview)) return 'media';
   if (a.kind === 'text' && a.textOf && (a.textOf.kind === 'agent' || a.textOf.kind === 'project') && a.textOf.owner && a.textOf.name) return 'textOf';
   if (a.kind === 'text' && typeof a.preview === 'string' && a.preview && !/^\/api\//.test(a.preview)) return 'snippet';
@@ -77639,6 +77663,9 @@ function filesPvOpen(row, where, e) {
     url: base.download + q, preview: base.preview + q,
     // #6724: the only way a text preview is fetched (pvStageKind): which list, whose, and the listed name. Never an address.
     textOf: kind === 'text' ? { kind: where.agent ? 'agent' : 'project', owner: where.agent || where.project, name } : undefined,
+    // #8122: a spreadsheet's read-only grid, from the list's own route (Ice Cream Kitty's)
+    sheetUrl: where.agent ? '/api/agent/' + encodeURIComponent(where.agent) + '/files/sheet?name=' + encodeURIComponent(name)
+      : '/api/project/' + encodeURIComponent(where.project) + '/file-sheet?name=' + encodeURIComponent(name),
     dlFile: (where.agent ? 'agent' : 'project') + '\n' + (where.agent || where.project) + '\n' + name,   // kosmos#8120: kplusDownload's name for this file
     download: (btn) => kplusDownload(where.agent ? 'agent' : 'project', where.agent || where.project, name,
       kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg')), undefined, btn),
