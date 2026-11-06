@@ -2,22 +2,22 @@
 pre_challenge: true
 method: challenge-loop
 branch: trayflake
-diff_hash: 3e6f87cb5a9cd7f1ebe5154afef2cd01988566adff592c22b5cac49ca2453f82
+diff_hash: ac8520d7d828cabdcdf93086195a14b0c7752fe896a5207d2eb49a1523ffe4ed
 validation: passed
 subdir_audit: passed
-timestamp: 2026-11-06T07:56:03Z
-iterations: 4
+timestamp: 2026-11-06T09:08:05Z
+iterations: 5
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 4
+**Iterations:** 5
 **Converged:** Yes
 **Total findings:** 12 (0 BLOCKERs, 5 WARNINGs, 2 CONVENTIONs, 5 NITs, counting first raises only)
 **Fixed:** 4 | **Deferred:** 3 | **Asked (awaiting user):** 0
 
-Full validation ran on the rebased final code: 0 failed, hash 3e6f87cb5a9c. AttachMenuUITests: 42 of 42 over 3 runs at the first commit; later changes to that file were a comment only. Not run: CI's own artifact step, which only a real red exercises.
+Full validation ran on the final code: 0 failed. AttachMenuUITests: 42 of 42 over 3 runs on the final test file. The artifact step ran for real on this branch: run 42184198471 left a bundle that downloaded and opened by name.
 
 ### Per-Iteration Breakdown
 
@@ -58,6 +58,14 @@ Full validation ran on the rebased final code: 0 failed, hash 3e6f87cb5a9c. Atta
 **Converged** -- no new actionable findings.
 - [NIT] ios/KosmosUITests/AttachMenuUITests.swift -- comment does not name the plan path
 - [NIT] .github/workflows/ios.yml -- the artifact holds the bundle, not the step log
+
+#### Iteration 5
+**Reviewer model:** sonnet
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs
+**Self-generated:** 0 of the above
+Run after the lazy-grid commit 22d4af3a6e, which came from this branch's own CI red and its artifact. **Converged.**
+- [NIT] .github/workflows/ios.yml -- the bundle may also carry runner paths, so "sample data only" is about the app's content
+- [NIT] ios/KosmosUITests/AttachMenuUITests.swift -- settle's cap is silent (deferred in iteration 2)
 
 ### Final Ledger
 
