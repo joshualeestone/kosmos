@@ -375,7 +375,8 @@ test('#1765: the refusal names a folder inside the profile that is really there'
   if (!needsBuild(t)) return;
   /* Review 2 (v2): Explorer can move Downloads to another drive, where a fresh copy would be refused too, and the
      profile's own Downloads may then not exist. */
-  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-acl-profile-'));
+  // The long form: a CI image's TEMP can be an 8.3 short name (RUNNER~1), and Windows answers in the long one.
+  const profile = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-acl-profile-')));
   made.push(profile);
   const fresh = (downloads, desktop) => {
     const r = spawnSync(probeExe, ['--fresh', profile, downloads, desktop], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
@@ -405,6 +406,9 @@ test('#1765: a folder owned by anyone but the four is refused, whatever its entr
      four, so it must be refused as owned, before any entry is weighed. */
   const f = sandboxFolder('owned');
   lockDown(f);
+  // Owned by this account itself: an elevated runner (CI) makes what it creates owned by Administrators, who are
+  // trusted, and the owner rule would never be asked.
+  icacls(f, '/setowner', '*' + mySid);
   assert.equal(probe(f, NOT_MY_PROFILE), 'SAFE', 'a locked folder of this account was refused');
   const someoneElse = 'S-1-5-21-1111111111-2222222222-3333333333-1002';
   const answer = probe(f, NOT_MY_PROFILE, someoneElse);

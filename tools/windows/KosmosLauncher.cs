@@ -669,6 +669,9 @@ class KosmosLauncher
     internal static string FreshCopyFolder(string profile)
     {
         if (profile == null) return "the Downloads folder in your own user folder";
+        // Compared in one form: GetFullPath expands a short (8.3) name of a folder that exists, so a profile given
+        // in its short form would otherwise never contain its own Desktop.
+        profile = FullPathOrNull(profile) ?? profile;
         Func<string>[] places = { downloadsFolder, () => Path.Combine(profile, "Downloads"), desktopFolder };
         foreach (Func<string> place in places)
         {
