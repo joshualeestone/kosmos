@@ -179,12 +179,7 @@ final class DotsRefreshDriver: NSObject {
     }
 
     private func addDots(to view: UIScrollView) -> UIHostingController<AnyView> {
-        let host = UIHostingController(rootView: AnyView(
-            SweepDots(size: 24, label: "Refreshing", scales: false, stillWhenReduced: true)
-        ))
-        host.view.backgroundColor = .clear
-        host.view.isUserInteractionEnabled = false
-        view.addSubview(host.view)
+        let host = refreshDotsHost(in: view)
         dots = host
         tap.prepare()
         return host
@@ -196,6 +191,16 @@ final class DotsRefreshDriver: NSObject {
     }
 }
 
+@MainActor private func refreshDotsHost(in view: UIScrollView) -> UIHostingController<AnyView> {
+    let host = UIHostingController(rootView: AnyView(
+        SweepDots(size: 24, label: "Refreshing", scales: false, stillWhenReduced: true)
+    ))
+    host.view.backgroundColor = .clear
+    host.view.isUserInteractionEnabled = false
+    view.addSubview(host.view)
+    return host
+}
+
 /// kosmos#8072 (Josh 11-05 16:49): pulling a chat up past its newest message shows the dots and reads the thread.
 ///
 /// It writes nothing to the scroll view: no inset and no offset, unlike the driver above. In the simulator a bottom inset
@@ -205,7 +210,7 @@ final class DotsRefreshDriver: NSObject {
 final class EndPullDriver: NSObject {
     /// Read on each move: whether a pull can count now.
     var allowed: () -> Bool = { false }
-    /// How far above the content's end the dots rest once the list has bounced back.
+    /// How far above the content's end the dots' centre rests once the list has bounced back.
     var restsAbove: CGFloat = 0
     var refresh: (@MainActor () async -> Void)?
 
@@ -266,11 +271,13 @@ final class EndPullDriver: NSObject {
         work = Task { [weak self] in
             let started = Date()
             await refresh?()
-            var rest = PullRefreshLogic.leastShow - Date().timeIntervalSince(started)
             #if DEBUG
             // EndPullUITests: a sample read ends too fast for anything to look at it.
-            if let held = Double(ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PULL_SECONDS"] ?? "") { rest = max(rest, held) }
+            let least = Double(ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_PULL_SECONDS"] ?? "") ?? PullRefreshLogic.leastShow
+            #else
+            let least = PullRefreshLogic.leastShow
             #endif
+            let rest = least - Date().timeIntervalSince(started)
             if rest > 0 { try? await Task.sleep(nanoseconds: UInt64(rest * 1_000_000_000)) }
             if !Task.isCancelled { self?.finish() }
         }
@@ -282,6 +289,14 @@ final class EndPullDriver: NSObject {
         longestHold = nil
         ChatView.trace("end pull: done")
         removeDots()
+        moved()   // the list may have come back already, and then no move would end the settling
+    }
+
+    /// The chat left, or the app did: its read says nothing now, and the next pull starts clean.
+    func cancelRead() {
+        work?.cancel()
+        work = nil
+        finish()
     }
 
     private func paint(_ view: UIScrollView, pulled: Double) {
@@ -295,21 +310,15 @@ final class EndPullDriver: NSObject {
         guard drawn else { removeDots(); return }
         let host = dots ?? addDots(to: view)
         let side: CGFloat = 24
-        // Centred in the space the pull opens, in the content's own coordinates, and never lower than the space kept free
-        // at the end of the content, where it rests after the bounce.
-        // A short list's end sits above the screen's bottom, and the gap there is its own to use.
-        let centre = max(view.contentSize.height + CGFloat(pulled) / 2, view.contentSize.height - restsAbove / 2)
+        // In the content's own coordinates: centred in the space a full pull opens, sliding to its rest as the list comes back.
+        let open = CGFloat(min(1, pulled / PullRefreshLogic.threshold))
+        let centre = view.contentSize.height + CGFloat(pulled) / 2 - restsAbove * (1 - open)
         host.view.frame = CGRect(x: view.bounds.midX - side / 2, y: centre - side / 2, width: side, height: side)
         host.view.alpha = CGFloat(PullRefreshLogic.shown(pulled: pulled, refreshing: refreshing))
     }
 
     private func addDots(to view: UIScrollView) -> UIHostingController<AnyView> {
-        let host = UIHostingController(rootView: AnyView(
-            SweepDots(size: 24, label: "Refreshing", scales: false, stillWhenReduced: true)
-        ))
-        host.view.backgroundColor = .clear
-        host.view.isUserInteractionEnabled = false
-        view.addSubview(host.view)
+        let host = refreshDotsHost(in: view)
         dots = host
         tap.prepare()
         return host
