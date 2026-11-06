@@ -82,7 +82,7 @@ test('slice 1b: with the switch OFF (the default) the add route refuses and GET 
   // CONTROL: on, the page is told which vendors exist.
   const on = await (await fetch(base + '/api/accounts/compat')).json();
   assert.equal(on.enabled, true);
-  assert.deepEqual(on.vendors.map((v) => v.id), ['deepseek']);
+  assert.deepEqual(on.vendors.map((v) => v.id), ['deepseek', 'glm']);   // #7206 slice 2a
 });
 
 test('add: with no Claude Code on the computer, nothing is stored and the person is told why', async () => {

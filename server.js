@@ -14823,7 +14823,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === '/api/accounts/compat/check' && req.method === 'POST') {
     /* 1b review 1: off means off here too, or a stored key (left from a time the switch was on) is still sent. */
-    if (!compatAccounts.enabled()) { sendJson(res, 400, { error: compatAccounts.notYet('deepseek'), notYet: true }); return; }
+    if (!compatAccounts.enabled()) { sendJson(res, 400, { error: compatAccounts.notYet(null), notYet: true }); return; }   // #7206 2a: no one vendor
     readBody(req)
       .then(async (raw) => {
         let body = null;
