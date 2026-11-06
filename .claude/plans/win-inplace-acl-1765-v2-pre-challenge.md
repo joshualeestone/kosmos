@@ -2,8 +2,8 @@
 pre_challenge: true
 method: challenge-loop
 branch: win-inplace-acl-1765-v2
-diff_hash: d95c249388e2a66f400732831a517982b7908e8e4670000aaaadb98b96472217
-validation: substituted (the helper needs yarn/npm, which this Windows box does not have; instead, at 7183d06008, 17 test files ran with the no-schtasks preload: tools.win-inplace-acl-1765, tools.win-launcher-native, -board-proof-1765, -download-say-7403, -reproof-6882, -signin-6512, -stuck-board-4543, tools.win-taskbar-badge-3996, tools.win-installer-native, tools.win-open-board-2007, tools.win-setup-ps1 and the six policy tests; 299 tests, 297 pass, 0 fail, 2 skipped (no 8.3 names on this volume, and one platform skip); tools/windows/verify-launcher.ps1 OK (the committed signed Kosmos.exe reproduces from the committed source); worktree clean. Two earlier runs right after a fresh rebuild had 6 tests in tools.win-launcher-reproof-6882 fail with "spawn UNKNOWN" (a just-compiled probe refused to start); that file passes 26/26 alone on the branch and on origin/main, and the full re-runs were clean)
+diff_hash: 6f1a00a4caeef4ab8261200178866eb437a98a786cc549f41217ec43ade210b6
+validation: substituted (the helper needs yarn/npm, which this Windows box does not have; instead, at 1e3328b596, 17 test files ran with the no-schtasks preload: tools.win-inplace-acl-1765, tools.win-launcher-native, -board-proof-1765, -download-say-7403, -reproof-6882, -signin-6512, -stuck-board-4543, tools.win-taskbar-badge-3996, tools.win-installer-native, tools.win-open-board-2007, tools.win-setup-ps1 and the six policy tests; 299 tests, 297 pass, 0 fail, 2 skipped (no 8.3 names on this volume, and one platform skip); tools/windows/verify-launcher.ps1 OK (the committed signed Kosmos.exe reproduces from the committed source); worktree clean. Two earlier runs right after a fresh rebuild had 6 tests in tools.win-launcher-reproof-6882 fail with "spawn UNKNOWN" (a just-compiled probe refused to start); that file passes 26/26 alone on the branch and on origin/main, and the full re-runs were clean)
 subdir_audit: passed
 timestamp: 2026-11-06T11:18:27Z
 iterations: 8
@@ -18,6 +18,13 @@ converged: false
 **Fixed:** 17 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
 Live proof on the Windows box with the final signed Kosmos.exe (Authenticode Valid, Kosmos Agent Manager, Inc.): run from C:\kt-1765 (Authenticated Users: Modify, inherited from C:\) it refuses in plain words and names the person's Downloads folder; run from a folder in the profile it passes this check and stops at the next one ("still inside the zip"). Mutation controls: the WebView2/planted-DLL, owner, folder-walk, bin\, per-file, drive-root and run-folder-link tests each fail with their rule switched off.
+
+### After the loop: the windows CI job (1e3328b596, not reviewed by a further round)
+
+PR #8108's windows job failed two tests that pass on this box, both about the CI runner, not the check:
+- FreshCopyFolder never found the Desktop when the profile was given in its short (8.3) form (CI's TEMP is RUNNER~1): GetFullPath expands the short name of a folder that exists. Fixed in the code (the profile is normalised before comparing) and the test uses the long form. This box keeps no 8.3 names, so only CI exercises that case.
+- The owner test's folder was owned by Administrators on the elevated runner, so the owner rule was never asked. The test now sets the owner to this account first.
+Re-validated here: 299 tests, 297 pass, 0 fail, 2 skipped; verify-launcher.ps1 OK; Kosmos.exe rebuilt and re-signed.
 
 ### Per-Iteration Breakdown
 
