@@ -7161,6 +7161,10 @@ async function cardsForResolve() {
       if (!k || k.removed || !(k.folder || k.job) || seen.has(k.name) || gone.has(k.name)) continue;
       cards.push({ name: k.name, shown: k.shownAs || k.name });
     }
+    /* ⚠️ Known gap, kept (kosmos#8113 review 2): the list route drops a stopped row whose build THROWS (its
+       `offline` map returns null for it), and this keeps it. Usually that adds a candidate, so a name is refused as
+       ambiguous rather than resolved. If the dropped row is the ONLY match, the name resolves to that real agent and
+       the plan's question names it. Closing it means one shared roster function for both, a larger change. */
     /* kosmos#8113: the setup guide off, by the one rule the list route marks it with (guideMarkName). */
     const guide = guideMarkName();
     return guide ? cards.filter((c) => c.name !== guide) : cards;

@@ -141,6 +141,7 @@ test('kosmos#8113 the hidden setup guide does not make a listed name ambiguous',
     assert.equal(p.json && p.json.name, 'kseen8113', p.text.slice(0, 200));
   } finally {
     fs.rmSync(path.join(require('./engine/store').ROOT, 'setup-assistant.json'), { force: true });   // where setup-assistant's flagPath writes
+    fs.rmSync(path.join(create.workerDir('kguide8113'), sa.GUIDE_MARKER), { force: true });   // no guide left behind for later tests
   }
   // CONTROL: once kguide8113 is not the guide, the list shows it and the same name is ambiguous.
   const c = await call('GET', 'Klist8113', RESOLVE);
