@@ -327,12 +327,19 @@ function chk(ok, label, extra) {
           chk(names.every((n) => /^[A-Za-z]{3,5}$/.test(n)) && new Set(names.map((n) => n.toLowerCase())).size === names.length && !names.some((n) => /^(ade|ali)$/i.test(n)),
             `${E} #8092 Use short names gives every row a short plain name, none twice, none on the board`, JSON.stringify(names));
           chk(names[0] !== one[0].name && names.slice(1).every((n, i) => n !== before[i + 1].name), `${E} #8092 CONTROL: every row did change, the lead again too`, JSON.stringify({ before: before.map((r) => r.name), names }));
+          const bulkSaid = await page.evaluate(() => document.getElementById('tc-name-said').textContent);
+          chk(bulkSaid === 'Gave 3 names short ones.', `${E} #8092 Use short names says what it did`, JSON.stringify(bulkSaid));
+          // Another alone, last, on a row Use short names already changed: Make must carry THIS name (the box and TC agree).
+          await page.click('#tc-list li[data-slot="social"] .tc-another');
+          const last = (await rows(page)).find((r) => r.slot === 'social').name;
+          chk(last !== names[2], `${E} #8092 CONTROL: Another changed the last row after Use short names`, JSON.stringify({ was: names[2], now: last }));
+          const shown = (await rows(page)).map((r) => r.name);
           await page.selectOption('#tc-project', 'none');
           await page.click('#tc-go');
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((e) => e.textContent === 'Running'));
-          chk(JSON.stringify(posted.map((b) => b.name)) === JSON.stringify(names), `${E} #8092 the names made are the short ones shown`, JSON.stringify(posted.map((b) => b.name)));
-          const after = await page.evaluate(() => ({ link: document.getElementById('tc-short-p').hidden, buttons: [...document.querySelectorAll('#tc-list .tc-another')].map((b) => getComputedStyle(b).visibility) }));
-          chk(after.link && after.buttons.every((v) => v === 'hidden'), `${E} #8092 once the team starts, neither is offered`, JSON.stringify(after));
+          chk(JSON.stringify(posted.map((b) => b.name)) === JSON.stringify(shown) && posted[2] && posted[2].name === last, `${E} #8092 the names made are the ones shown, Another's included`, JSON.stringify(posted.map((b) => b.name)));
+          const after = await page.evaluate(() => ({ link: document.getElementById('tc-short-p').hidden, buttons: [...document.querySelectorAll('#tc-list .tc-another')].map((b) => getComputedStyle(b).display) }));
+          chk(after.link && after.buttons.every((v) => v === 'none'), `${E} #8092 once the team starts, neither is offered`, JSON.stringify(after));
           chk(errs.length === 0, `${E} no page errors (#8092 arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();

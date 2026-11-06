@@ -9444,7 +9444,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   font-weight: 600; background: none; color: var(--label-2); text-decoration: underline; cursor: pointer; }
 .tc-another:hover:not(:disabled) { color: var(--label); background: var(--k-sunk, rgba(0,0,0,.05)); }
 .tc-another:focus-visible { outline: 2px solid var(--k-ink, currentColor); outline-offset: 1px; }
-.tc-another:disabled { visibility: hidden; }
+.tc-another:disabled { display: none; }   /* a made row's name gets the room */
 #cstep-teammake .tc-short { margin: 0 0 var(--space-2); font: var(--text-callout) var(--font-ui); }
 #cstep-teammake .tc-short .linkish { font: inherit; font-weight: 600; }
 @media (hover: none), (pointer: coarse) { .tc-another, #cstep-teammake .tc-short .linkish { min-height: 44px; } }   /* a finger's target */
@@ -63219,6 +63219,7 @@ async function openTeamCreate(key) {
   document.getElementById('tc-list').replaceChildren();
   document.getElementById('tc-go').hidden = true;
   document.getElementById('tc-short-p').hidden = true;   // kosmos#8092: tcPaint shows it once a team is in
+  document.getElementById('tc-name-said').textContent = '';   // and the last team's spoken line is not this one's
   /* Review 28: tcPaint owns these and only runs once a team has loaded, so while the load is out (or if
      it fails) they were still the PREVIOUS team's: a Say Hello that did nothing, its project menu, its choice. */
   document.getElementById('tc-hello').hidden = true;
@@ -63518,14 +63519,14 @@ function tcFillProjects() {
 }
 
 /* kosmos#8092: short names to offer, 3 to 5 plain letters so anyone can type them on any keyboard, from many places.
-   A suggestion only: the person can always type their own, and Make still checks the name is free. Names that are also a
-   common word, a brand or slang somewhere are left out. */
+   A suggestion only: the person can always type their own, and Make still checks the name is free. Names best known as a
+   word, a brand or slang are left out; any name means something somewhere, which is why typing one always wins. */
 const TC_SHORT_NAMES = Object.freeze(['Ade', 'Ali', 'Amir', 'Anil', 'Ari', 'Asha', 'Ava', 'Ayo', 'Bea', 'Ben',
   'Cai', 'Cara', 'Dan', 'Dara', 'Dina', 'Ebo', 'Eda', 'Eli', 'Emi', 'Esi', 'Eva', 'Ezra', 'Fia', 'Gabe', 'Gia',
-  'Hana', 'Hugo', 'Ian', 'Ida', 'Ife', 'Ines', 'Isa', 'Ivo', 'Jae', 'Jia', 'Jon', 'Juan', 'Kai', 'Kemi', 'Kian',
-  'Kim', 'Kofi', 'Lea', 'Lena', 'Leon', 'Lia', 'Lin', 'Liv', 'Lola', 'Luca', 'Luz', 'Mae', 'Mai', 'Mara',
-  'Mei', 'Mia', 'Mika', 'Milo', 'Mira', 'Nia', 'Nico', 'Nina', 'Noa', 'Nour', 'Obi', 'Ola', 'Omar', 'Oren', 'Otto',
-  'Pia', 'Raj', 'Rana', 'Ravi', 'Rei', 'Remi', 'Rio', 'Rosa', 'Ruth', 'Sami', 'Sana', 'Sara', 'Seun', 'Sol', 'Tae',
+  'Hana', 'Ian', 'Ida', 'Ife', 'Ines', 'Isa', 'Ivo', 'Jae', 'Jia', 'Jon', 'Juan', 'Kai', 'Kemi', 'Kian',
+  'Kim', 'Lea', 'Lena', 'Leon', 'Lia', 'Lin', 'Liv', 'Lola', 'Luca', 'Mae', 'Mai', 'Mara',
+  'Mei', 'Mia', 'Mika', 'Mira', 'Nia', 'Nico', 'Nina', 'Noa', 'Nour', 'Obi', 'Omar', 'Oren', 'Otto',
+  'Pia', 'Ravi', 'Rei', 'Remi', 'Rosa', 'Ruth', 'Sami', 'Sana', 'Sara', 'Seun', 'Tae',
   'Tala', 'Tao', 'Tara', 'Teo', 'Tom', 'Uma', 'Vera', 'Vik', 'Wen', 'Yan', 'Yara', 'Yuki', 'Zoe', 'Zuri']);
 /* Names to steer clear of, in lower case: the board's agents (read once per team, TC.boardNames) and the team's other rows. */
 function tcTakenNames(except) {
@@ -63556,11 +63557,14 @@ async function tcLoadBoardNames(gen) {
 document.getElementById('tc-short').addEventListener('click', () => {
   if (!TC || TC.started || TC.busy) return;
   for (const m of TC.members) if (m.state === 'ready') m.name = tcShortName(m);
+  let n = 0;
   for (const li of document.querySelectorAll('#tc-list li')) {
     const m = TC.members.find((x) => x.slot === li.dataset.slot);
     const box = li.querySelector('.tc-name');
-    if (m && box && !box.disabled) box.value = m.name;
+    if (m && box && !box.disabled) { box.value = m.name; n += 1; }
   }
+  // It replaces names the person typed too: that is what the link says it does, and Another or typing undoes any one.
+  document.getElementById('tc-name-said').textContent = n === 1 ? 'Gave one name a short name.' : 'Gave ' + n + ' names short ones.';
 });
 function tcPaint() {
   if (!TC) return;
