@@ -406,8 +406,10 @@ test('#3568: an install whose answer never came says it may still be installing,
 
 test('#3568: a saved Gemini-by-subscription create pick waits for the installed read before it is judged (review round 8)', () => {
   const at = PAGE.indexOf('      const pref = readCreatePrefs();');
-  const next = PAGE.slice(at, at + 600);
-  assert.match(next, /if \(pref && pref\.provider === 'antigravity'\) \{\s*await agyAsk\(\);[\s\S]{0,160}if \(gen !== EXTRAS_GEN \|\| CREATE_PROVIDER_TOUCHED\) return;/);
+  const next = PAGE.slice(at, at + 900);
+  /* kosmos#8051 item 2: a reopened form (stale gen) still returns, and a provider picked during the read still wins,
+     now after putting a kept form's account and model back (createKeptRestore never sets the provider). */
+  assert.match(next, /if \(pref && pref\.provider === 'antigravity'\) \{\s*await agyAsk\(\);[\s\S]{0,160}if \(gen !== EXTRAS_GEN\) return;[\s\S]{0,400}if \(CREATE_PROVIDER_TOUCHED\) \{ if \(kept\) createKeptRestore\(kept\); return; \}/);
   assert.ok(PAGE.lastIndexOf('async function loadCreateExtras', at) > PAGE.lastIndexOf('\nfunction ', at), 'the restore must sit inside the async loadCreateExtras');
 });
 
