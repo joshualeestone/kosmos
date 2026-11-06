@@ -595,4 +595,72 @@ object SignIn {
     /** The hand-over screen's title: a company sign-in names itself; the others say what happens next. */
     fun webTitle(reason: String): String =
         if (reason == webForCompany) "Your company signs you in" else "Finish signing in on the next page"
+
+    // MARK: - The web view, signed in too (kosmos#7042)
+    //
+    // The sign-in page keeps its own copy of the session in localStorage (kosmos-relay signin.html restore(), which
+    // reads no cookie). The app's store is the source of truth: a document-start script hands the app's session to
+    // the page BEFORE the page's restore() reads it, so a dead value left on the page cannot sign the fresh native
+    // session out. The token goes in as a JSON string literal, NEVER spliced as text, so a quote in it is data.
+    //
+    // Android divergence (decided kosmos#8046): iOS verifies this by EXECUTING the script in a JSContext; JDK 21 has
+    // no Nashorn and the pure-JVM unit test has no JS engine. The JSON array is hand-rolled (as base64url is, since
+    // org.json is not on the unit-test classpath), and the test pins it by string content plus a dedicated escaper
+    // assertion that a quote/backslash in the token is carried as data. The live behavioural round-trip (idempotent
+    // write, replace-stale, storage-that-throws) is exercised in the WebView integration and the /challenge-loop.
+
+    /** Where the sign-in page keeps its session (kosmos-relay signin.html restore(): localStorage only). */
+    const val pageSessionKey = "kosmos_session"
+
+    /**
+     * A URL's origin as a browser's location.origin writes it: scheme://host, and :port only when it is not the
+     * scheme's default. Lowercased, as browsers give it. Null when the URL has no scheme or host.
+     */
+    fun pageOrigin(url: String): String? {
+        val uri = try { URI(url) } catch (e: Exception) { return null }
+        val scheme = uri.scheme?.lowercase() ?: return null
+        val host = uri.host?.lowercase() ?: return null
+        val defaultPort = when (scheme) { "https" -> 443; "http" -> 80; else -> -1 }
+        val port = uri.port
+        return if (port != -1 && port != defaultPort) "$scheme://$host:$port" else "$scheme://$host"
+    }
+
+    /** A JSON string literal (double-quoted), escaped so any text it holds is carried as data, never as script. */
+    private fun jsonString(s: String): String {
+        val sb = StringBuilder(s.length + 2)
+        sb.append('"')
+        for (c in s) {
+            when (c) {
+                '"' -> sb.append("\\\"")
+                '\\' -> sb.append("\\\\")
+                '\n' -> sb.append("\\n")
+                '\r' -> sb.append("\\r")
+                '\t' -> sb.append("\\t")
+                '\b' -> sb.append("\\b")
+                '\u000C' -> sb.append("\\f")
+                // Valid in JSON but line terminators in a JS string literal: escape so the spliced source stays valid.
+                ' ' -> sb.append("\\u2028")
+                ' ' -> sb.append("\\u2029")
+                else -> if (c < ' ') sb.append("\\u%04x".format(c.code)) else sb.append(c)
+            }
+        }
+        sb.append('"')
+        return sb.toString()
+    }
+
+    /**
+     * The document-start script for the main frame: on the sign-in page's own origin it puts the app's session where
+     * the page keeps its own (localStorage, pageSessionKey), before the page's restore() reads it. token null (the app
+     * holds no session): a value the app dropped (forget) is removed from the page so it cannot hand it back; anything
+     * else the page holds is left alone. Null when there is nothing to do. The token is a JSON string, not spliced text.
+     */
+    fun sessionScript(token: String?, forget: List<String> = emptyList(), origin: String): String? {
+        if (token == null && forget.isEmpty()) return null
+        val held = if (token != null) jsonString(token) else "null"
+        val forgetArray = forget.joinToString(",", "[", "]") { jsonString(it) }
+        val array = "[$held,${jsonString(pageSessionKey)},${jsonString(origin)},$forgetArray]"
+        return "(function () { var a = $array; if (location.origin !== a[2]) return; try { var v = localStorage.getItem(a[1]); " +
+            "if (a[0] !== null) { if (v !== a[0]) localStorage.setItem(a[1], a[0]); } " +
+            "else if (v !== null && a[3].indexOf(v) >= 0) localStorage.removeItem(a[1]); } catch (e) {} })();"
+    }
 }
