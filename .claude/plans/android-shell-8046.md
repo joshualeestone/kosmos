@@ -107,10 +107,19 @@ build on a clear box.
   content to the coordinator's WebCrypto vector (`devkey.rs a_webcrypto_vector_verifies`) in `SignInCryptoTest`
   (vector verify + code/email-case negative controls + fresh-key round trip + base64url codec). Build-verified:
   testDebug/testReleaseUnitTest 87/0/0, `gradlew test` exit 0.
-- NEXT (isolated, Android-only so NOT JVM-unit-testable — compile-verified by the build, device-verified later):
-  `KeystoreDeviceKey` (Android Keystore EC P-256 impl of `DeviceKey`) and `KeystoreSessionStore`
-  (EncryptedSharedPreferences, needs the androidx.security:security-crypto dependency). Secondary sign-in
-  paths: passkey / company-SSO / review-account / TOTP-enrol.
+- DONE (isolated, Android-only so NOT JVM-unit-testable — compile-verified by the build, device-verified
+  later): `KeystoreDeviceKey.kt` (Android Keystore EC P-256 sign-only impl of `DeviceKey`, reusing the proven
+  `EcdsaSig` DER->raw) and `KeystoreSessionStore.kt` (the real `SessionStore`). **DECISION:** the token is
+  sealed with an AES-256-GCM key in the platform AndroidKeyStore, sealed bytes in a private SharedPreferences
+  file. REJECTED Jetpack Security's EncryptedSharedPreferences (the plan's other named option) because
+  androidx.security:security-crypto is deprecated by Google (2024) — it would add a deprecated dependency for
+  what the platform Keystore does directly. Key material never leaves the Keystore. Weakest part: both are
+  Android-only, so the JVM suite cannot prove their round trip the way the device proof is pinned to the
+  WebCrypto vector; verified on a device, and in scope for the pre-PR /challenge-loop. Build: compileDebug/
+  ReleaseKotlin both compiled them; testDebug/testReleaseUnitTest 87/0/0, `gradlew test` exit 0.
+- NEXT: secondary sign-in paths (passkey / company-SSO / review-account / TOTP-enrol, pure logic + JVM tests,
+  ios main.swift 4882-5060), then the Compose chrome + WebView host wiring the door + the native load-failure
+  page + the upgrade check + the first native screen (needs a real build + Josh's device).
 
 ## After the board client
 The native Compose chrome + WebView host wiring the door (`AppTabs.pressScript`/`markScript`) + the
