@@ -63655,7 +63655,7 @@ function tcPaint() {
     /* Review 27: nor from the click until the run starts. The names are checked free at the click, and
        a name typed after that check would be made, and trusted as checked, without ever being checked. */
     input.disabled = TC.started ? m.state !== 'failed' : Boolean(TC.busy);
-    // kosmos#8092: a name typed in is theirs; an emptied box, or the suggestion typed back exactly, is not. Case counts:
+    // kosmos#8092: a name typed in is theirs; an emptied box, or the suggestion typed back (spaces aside), is not. Case counts:
     // "maya" over "Maya" is their own spelling, so it is kept.
     input.addEventListener('input', () => { m.name = input.value; const v = input.value.trim(); m.typed = Boolean(v) && v !== (m.suggested || '').trim(); });
     // kosmos#8092: Another name, a short one; it changes only what the name box would, so it is open exactly when that is.
