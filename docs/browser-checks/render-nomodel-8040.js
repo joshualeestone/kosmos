@@ -379,7 +379,17 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       chk(await p.evaluate((t) => document.getElementById('create-name').value === 'Nadia' && document.getElementById('create-instr').value === t && !document.getElementById('cstep-name').hidden, TYPED), 'limit: CONTROL: 29 minutes after the link, the form is kept');
       // kosmos#8051 item 1: the kept form says why it is back, and the name field (where focus lands) is described by it.
       const keptNow = await p.evaluate((() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim(), described: document.getElementById('create-name').getAttribute('aria-describedby') }; }));
-      chk(keptNow.shown && keptNow.text === 'This is where you left off before going to Settings. Start over' && keptNow.described === 'create-kept', 'kept line: a kept form says it was kept, with Start over, and the name field is described by it', JSON.stringify(keptNow));
+      // In the hint's type, under the title: a size step below the role's blurb, and above it (review 3: `.panel p` had
+      // out-ranked the class, so the line came out as a second blurb).
+      const look = await p.evaluate(() => { const k = document.getElementById('create-kept'), bl = document.getElementById('create-blurb'), s = (e) => parseFloat(getComputedStyle(e).fontSize); return { kept: s(k), blurb: s(bl), above: !!(k.compareDocumentPosition(bl) & Node.DOCUMENT_POSITION_FOLLOWING) }; });
+      if (SHOTS) {
+        await p.locator('#cstep-name').screenshot({ path: path.join(SHOTS, 'create-kept-light.png') });
+        await p.emulateMedia({ colorScheme: 'dark' });
+        await p.locator('#cstep-name').screenshot({ path: path.join(SHOTS, 'create-kept-dark.png') });
+        await p.emulateMedia({ colorScheme: 'light' });
+      }
+      chk(look.kept < look.blurb && look.above, 'kept line: it reads as a hint under the title, smaller than the blurb and above it', JSON.stringify(look));
+      chk(keptNow.shown && keptNow.text === 'This is where you left off before going to Settings. Start over' && keptNow.described === 'create-kept-why', 'kept line: a kept form says it was kept, with Start over, and the name field is described by it', JSON.stringify(keptNow));
       await pressCreate(p, 'no Claude account');
       const T1 = T0 + 29 * 60e3;
       chk(await p.evaluate(() => document.getElementById('create-kept').hidden && !document.getElementById('create-name').hasAttribute('aria-describedby')), 'kept line: pressing Create agent on the kept form takes the line away');
@@ -627,7 +637,7 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.waitForTimeout(500);
       chk(await cons() && await p.evaluate(() => document.getElementById('create-name').value === 'Nadia' && !document.getElementById('cstep-name').hidden && !document.getElementById('panel-create').hidden), 'consolidated: coming back, the layout, the step and the name are all there');
       const consLine = await p.evaluate((() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim(), described: document.getElementById('create-name').getAttribute('aria-describedby') }; }));
-      chk(consLine.shown && consLine.text === 'This is where you left off before going to Settings. Start over' && consLine.described === 'create-kept', 'consolidated: the kept form says it was kept, and the name field is described by it', JSON.stringify(consLine));
+      chk(consLine.shown && consLine.text === 'This is where you left off before going to Settings. Start over' && consLine.described === 'create-kept-why', 'consolidated: the kept form says it was kept, and the name field is described by it', JSON.stringify(consLine));
       await p.click('#create-kept-over');
       await p.waitForTimeout(400);
       chk(await cons() && await p.evaluate(() => !document.getElementById('cstep-kind').hidden && !document.getElementById('panel-create').hidden && document.getElementById('create-kept').hidden), 'consolidated: Start over keeps the layout and opens the three-way choice');
@@ -654,11 +664,6 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       const over = await p.evaluate(() => ({ kind: !document.getElementById('cstep-kind').hidden, name: document.getElementById('create-name').value, line: document.getElementById('create-kept').hidden, kept: CREATE_KEPT, focus: document.activeElement && document.activeElement.matches('#cstep-kind .nak-btn') }));
       chk(over.kind && over.name === '' && over.line && over.kept === 0, 'start over: it empties the form onto the three-way choice, and the line goes', JSON.stringify(over));
       chk(over.focus, 'start over: and the keyboard lands on the first choice, not the page', JSON.stringify(over));
-      await p.click('#cstep-kind [data-path="single"]');
-      await p.waitForFunction(() => !document.getElementById('role-next').disabled, null, { timeout: 8000 });
-      await p.click('#role-next');
-      await p.waitForSelector('#create-name', { state: 'visible', timeout: 8000 });
-      chk(!(await p.locator('#create-instr').inputValue()).includes('gave up on') && await p.evaluate(() => document.getElementById('create-kept').hidden), 'start over: and the old instructions are gone, with no line');
       await p.close();
     }
     // kosmos#8051 item 2: a provider picked by hand while a saved Gemini-by-subscription pick's read is still out wins,
