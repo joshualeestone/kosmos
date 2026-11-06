@@ -378,6 +378,8 @@ struct ChatView: View {
         .onReceive(client.$agents) { _ in markDmSeen() }
         .onDisappear {
             visible = false
+            // kosmos#8072: the closures hold this chat, so they go with it; coming back sets them again.
+            endPull.cancelRead(); endPull.allowed = { false }; endPull.refresh = nil
             if !infoOpen { sendOpenCount() }
             if !infoOpen { sendShiftReport() }   // kosmos#7575 (review 1: the info page pushed over the chat is not a close)
             if !infoOpen { client.releasePreviewImages() }   // kosmos#7864: the pictures do not outlive the chat
@@ -467,7 +469,7 @@ struct ChatView: View {
         .onChange(of: scenePhase) { phase in
             Self.trace("app \(phase == .active ? "active" : phase == .background ? "background" : "inactive")")   // kosmos#7420
             // kosmos#7575 review 2: the report goes and the next count starts at once, so a shift laid out while away is kept.
-            if phase == .background { loop?.cancel(); loop = nil; sendShiftReport(); if visible { sendOpenCount() } else { openCount.reset() } }
+            if phase == .background { loop?.cancel(); loop = nil; endPull.cancelRead(); sendShiftReport(); if visible { sendOpenCount() } else { openCount.reset() } }
             else if phase == .active, visible, loop == nil { startReading() }
             if phase == .active, visible { openCount.shown(rowsDrawn: !onScreen.isEmpty) }
             if phase == .active { diagBackInFront() }
