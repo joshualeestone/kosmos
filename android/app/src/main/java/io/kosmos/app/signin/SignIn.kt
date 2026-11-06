@@ -454,4 +454,64 @@ object SignIn {
         const val company = "Your company asks you to sign in with its own account. Enter your email and press Send code."
         const val off = "Passkey sign-in is not available right now. Use the code we email you."
     }
+
+    // MARK: - The App Store review door (kosmos#7357)
+    //
+    // ONE review account signs in with a password and no second step; its session still waits for the review
+    // computer's Allow, like any sign-in. The door is closed unless Kosmos+ is in a review window, and closed it
+    // answers like a path that does not exist (404); open, it takes POST only, so a GET answers 405. Its answer
+    // is verify's, plus the server's own device id, which the phone ignores (the session is the token).
+
+    const val reviewPath = "/v1/signin/review"
+    const val reviewRefused = "That email and password do not match."
+    const val reviewTooMany = "Too many tries. Wait a minute, then try again."
+    const val reviewNoAnswer = "Kosmos+ could not answer. Try again."
+    const val reviewClosed = "Password sign-in is not open now. Sign in with a code instead."
+
+    fun reviewBody(email: String, password: String, deviceName: String): Map<String, Any> =
+        mapOf("email" to email, "password" to password, "device_name" to deviceName)
+
+    /** What a review sign-in's answer means for the screen. A refusal stays on the password step (no code was sent). */
+    sealed interface ReviewAnswer {
+        /** The door closed since the link showed (a 404). */
+        data object Closed : ReviewAnswer
+        data class Refused(val message: String) : ReviewAnswer
+        data class Answered(val answer: Answer) : ReviewAnswer
+    }
+
+    /** Whether the review door is open, from a GET's status: null when the answer says neither (asked again later). */
+    fun reviewDoorOpen(status: Int): Boolean? = when (status) {
+        405 -> true
+        404 -> false
+        else -> null
+    }
+
+    /**
+     * m733: a review sign-in's session is a device the server made (review-*), never this phone's key, so a key kept
+     * by an earlier code sign-in is dropped when one is admitted (it was never proved under it, #7337). Any answer
+     * that goes on to a review session counts (a second step or a setup too, should the door ever ask); a refusal, a
+     * closed door, or an answer this cannot read keeps the key.
+     */
+    fun reviewDropsKey(answer: ReviewAnswer): Boolean {
+        if (answer !is ReviewAnswer.Answered) return false
+        return when (answer.answer) {
+            is Answer.SignedIn, is Answer.Second, is Answer.NeedsSetup -> true
+            else -> false
+        }
+    }
+
+    fun reviewAnswer(status: Int, body: Map<String, Any?>?): ReviewAnswer {
+        if (status == 404) return ReviewAnswer.Closed
+        val a = answer(status, body)
+        if (a is Answer.Refused) {
+            // A 429 gets this screen's own sentence: the door's 429 is the code-send limiter's, whose words are about
+            // codes this person never asked for. Any other refusal is Kosmos+'s own sentence; with none, only a 401
+            // says the password is wrong.
+            if (status == 429) return ReviewAnswer.Refused(reviewTooMany)
+            val m = a.message
+            if (m != null) return ReviewAnswer.Refused(sentence(m))
+            return ReviewAnswer.Refused(if (status == 401) reviewRefused else reviewNoAnswer)
+        }
+        return ReviewAnswer.Answered(a)
+    }
 }
