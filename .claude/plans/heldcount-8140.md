@@ -31,3 +31,13 @@ held shows "1/4, 3 on hold" beside "Task 7 (built)").
 - NIT: held follows isOnHold (the person's hold, until another task, a decision); a paused project is not counted per
   child, since every child shares it.
 103 passed across the five touched test files.
+
+## Review 2 (opus)
+- WARNING, fixed: the nudge's built-plus-held-only arm had no test; a mutant dropping `|| held > 0` would have told the
+  agent "Every subtask ... mark it built". New arm asserts "1 is on hold." and no "Every subtask"; the mutant turns it red.
+- WARNING, fixed: the Subtasks list's "On hold" had no test; one assertion added; reverting the label turns it red.
+- WARNING, follow-up (not this branch): the nudge attaches its subtask line only when a child is built, so a built
+  parent whose open children are all held (none built) still says nothing about them to its agent. Widening it needs its
+  own wording for the zero-built case and changes nudges other tests pin. Recorded on the card as a follow-up.
+- NITs noted: the wider chip at phone width (no shot taken; a design pass before the release); a paused project's child
+  reads "[on hold]" in the CLI but "Open" on the page (held follows isOnHold, as stated).

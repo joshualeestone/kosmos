@@ -178,6 +178,8 @@ test('kosmos#5956: the task page marks a built subtask Built and says when every
     { getElementById: (id) => els[id] || null }, ESC, project, project.tasks[0]);
   assert.equal(els['tk-subs-built'].hidden, true, 'review 1: a held subtask is not counted as built');
   assert.doesNotMatch(els['tk-subs'].innerHTML, /data-sub="2">[\s\S]*?<span class="tksub-s">Built<\/span>/);
+  // kosmos#8140: and it reads On hold, not Open.
+  assert.match(els['tk-subs'].innerHTML, /data-sub="2">[\s\S]*?<span class="tksub-s">On hold<\/span>/);
 });
 
 /* #3898 (April's review of #3885): the new strings a person or an agent types (a task's sentence, its
