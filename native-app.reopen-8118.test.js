@@ -74,8 +74,12 @@ test('#8118: forgotten on the page\'s gone or home, and on Back to This Computer
   assert.doesNotMatch(arm('case .opening, .notChecked:'), /reopenMisses/, 'a switch started resets the misses (only the page landing may, review 6)');
   assert.match(arm('case .missed:'), /if reopenMissesForget\(self\.reopenMisses\)[\s\S]*self\.reopenComputerHost = nil/,
     'REOPEN_MISS_LIMIT misses do not forget (review 5: a computer that stays off toasts for ever)');
-  assert.match(arm('case .retryNextBoardLoad:'), /if reopenRetryAllowed\(now: Date\(\), until: self\.reopenRetryUntil\) \{ self\.reopenAskedThisLaunch = false \}/,
-    'a sign-in page retry is not bounded in time (review 5)');
+  assert.match(arm('case .retryNextBoardLoad:'), /self\.reopenAskedThisLaunch = false/, 'a sign-in page does not leave the ask for the next board load');
+  // Review 7: the bound is applied where the second ask would happen.
+  const step = body('private func rememberOrReopenComputer(');
+  const ask = step.slice(step.indexOf('case .ask(let host):'));
+  assert.match(ask, /if reopenRetryUntil != nil, !reopenRetryAllowed\(now: Date\(\), until: reopenRetryUntil\) \{[\s\S]*reopenAskedThisLaunch = true[\s\S]*\} else \{\s*askPageToReopen\(host, webView\)/,
+    'a retry hours later still asks (review 7: the bound must be where the ask happens)');
   const home = body('@objc func backToThisComputer(_ sender: Any?)');
   assert.match(home, /reopenOutstanding = false/, 'going home on purpose leaves a reopen outstanding');
   const forget = home.indexOf('reopenComputerHost = nil');

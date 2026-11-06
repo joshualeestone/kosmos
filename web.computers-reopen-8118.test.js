@@ -3,8 +3,8 @@
  * kosmos#8118 (Josh 11-06: "remembers the version of agents of the computer I was looking at"): at launch the Mac app
  * asks the page to go back to the computer the window was last on (computersReopen). These run the SHIPPED
  * computersReopen and computerAddressOk from web/index.html, with the switcher's list, the ticket path and the toast
- * stood in, and check each answer the app branches on: 'opening' only for a computer the switcher itself would open,
- * 'gone' and 'home' (the app forgets the host), and every other case stays home and says why.
+ * stood in, and check each answer the app branches on (native-app reopenAnswerKeeps maps them): 'opening' only for a
+ * computer the switcher itself would open; every other case stays home and says why.
  *
  *   node --test web.computers-reopen-8118.test.js
  */
@@ -110,8 +110,8 @@ test('#8118: a host under another domain is not this account\'s computer: gone, 
   assert.deepEqual(w.opened, []);
 });
 
-test('#8118: the person clicks or types while the list is read: no switch, nothing said', async () => {
-  for (const k of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
+test('#8118: the person clicks, types, scrolls, touches, drops or dictates while the list is read: no switch, staying said', async () => {
+  for (const k of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'drop', 'input']) {
     const w = world(list([HERE, MINI]), { during: k });
     assert.equal(await w.run('mini.kosmosplus.com'), 'touched', k + ' did not stop the reopen');
     assert.deepEqual(w.opened, [], k + ': the window was pulled away while they worked here');
@@ -208,4 +208,28 @@ test('#8118 (review 6): a modifier key alone is not a choice to stay', async () 
   }
   // CONTROL: a real key does stop it.
   assert.equal(await world(list([HERE, MINI]), { during: { type: 'keydown', key: 'a' } }).run('mini.kosmosplus.com'), 'touched');
+});
+
+test('#8118 (review 7): staying is said the moment the person clicks, and the list read is let go', async () => {
+  let aborted = false;
+  const said = [];
+  const listeners = {};
+  const document = {
+    addEventListener: (k, fn) => { (listeners[k] = listeners[k] || []).push(fn); },
+    removeEventListener: (k, fn) => { listeners[k] = (listeners[k] || []).filter((f) => f !== fn); },
+  };
+  let release;
+  const fetch = (url, opts) => new Promise((resolve, reject) => {
+    opts.signal.addEventListener('abort', () => { aborted = true; const e = new Error('aborted'); e.name = 'AbortError'; reject(e); });
+    release = () => resolve({ ok: true, json: async () => list([HERE, MINI]) });
+  });
+  const run = new Function('fetch', 'msgToast', 'computersOpenWithTicket', 'computersOpening', 'document', 'setTimeout',
+    RE + REOPEN + '\nreturn computersReopen;')(fetch, (t) => said.push(t), () => { throw new Error('opened'); }, false, document, setTimeout);
+  const p = run('mini.kosmosplus.com');
+  listeners.pointerdown[0]({ type: 'pointerdown' });
+  assert.ok(said.includes('Staying on this computer.'), 'staying is not said until the list answers');
+  assert.equal(aborted, true, 'the list read is still waited on after the person chose to stay');
+  assert.equal(await p, 'touched');
+  assert.equal(said.filter((t) => t === 'Staying on this computer.').length, 1, 'staying is said twice');
+  void release;
 });

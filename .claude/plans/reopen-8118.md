@@ -29,9 +29,10 @@ own agents, so he switches again every time.
    - the list does not answer in 30 s (OA_COMPUTERS_LIMIT_MS), or the person clicks, types, scrolls or touches
      meanwhile: stay home (a late switch would take unsent text with it). A toast says at once where it is going
      and how to stay.
-   The page's answer reaches the app through `reopenAnswerKeeps` (round 4's version, below): gone, home, bad forget;
-   touched and signed-out settle the reopen (a quit at home then forgets); every other answer leaves it
-   outstanding (a quit keeps it); a page with no reopen (a sign-in page) asks again at the next board load.
+   The page's answer reaches the app through `reopenAnswerKeeps` (as of round 6): gone, home, bad, touched and
+   signed-out forget at once; offline, updating and not-instant are counted misses (3 in a row forget); slow,
+   unknown and error leave it outstanding uncounted; opening leaves it outstanding until the page lands; a page with
+   no reopen (a sign-in page) asks again at the next board load, within 120 s of the first ask.
    What the next launch reopens is decided at QUIT (`quitKeeps`, round 3 and 4).
 4. Windows and iPhone: say on the card what each does today; Mac first.
 
@@ -137,6 +138,19 @@ board load).
   nothing is outstanding), so the next launch opens home. The person had not landed there yet.
 - NIT kept: the 'busy' answer is nearly unreachable (a click that switches also counts as touched). Harmless.
 - NIT fixed: a row title.
+
+## Review round 7 (opus; no BLOCKER)
+- WARNING: the 120 s retry bound was checked when the sign-in page's answer came (always within the window), so a
+  retry could still ask an hour later --> FIXED: checked in the `.ask` arm, where the second ask happens.
+- WARNING: a click to stay was not confirmed until the list answered (up to about 24 s) while the toast still said
+  it was going back --> FIXED: "Staying on this computer." at the click, and the list read is aborted.
+- CONVENTION: four places described the answers out of date --> FIXED (the page comment, this plan, the kept-host
+  comment, the test header).
+- NITs fixed: drop and input count as staying (a dropped file, dictation); a quit writing a different computer
+  resets the miss count; a test title. NIT commented: a probe failing because of THIS computer's network can read as
+  the other computer offline (at most a counted miss).
+- NIT kept: another board toast in the first 30 s can replace "Going back ..." (one toast slot per page); the
+  switching screen still shows if the switch lands.
 
 ## Weakest premise (now)
 That every way the app ends reaches applicationWillTerminate (Cmd-Q, the menu, the Dock, the last window, an

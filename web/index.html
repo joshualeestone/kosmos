@@ -33208,9 +33208,11 @@ function computersOpenWithTicket(url, name, a) {
    own board has loaded at launch, asks this page to go back to the computer the window was last on (only its host is
    kept). Checked against the switcher's own list, so it opens only what the switcher would open, the same way (a
    ticket, the switching screen). Otherwise the window stays on this computer's agents and says why, in the
-   switcher's words. Resolves the outcome for the app (native-app reopenAnswerKeeps): 'gone', 'home' and 'bad' make
-   it forget the host (it can never be reopened); every other answer keeps it, and what the window shows at quit
-   decides the next launch (review 3).
+   switcher's words. Resolves the outcome for the app (native-app reopenAnswerKeeps): 'gone', 'home', 'bad',
+   'touched' and 'signed-out' make it forget the host; 'offline', 'updating' and 'not-instant' are misses (three
+   launches in a row forget it); 'slow', 'unknown' and 'opening' keep it outstanding; what the window shows at quit
+   decides the rest. A failure of THIS computer's network during a probe can still read as 'offline' (the probe
+   cannot tell), which costs at most one counted miss (review 7).
    Said at once (review 3: up to 30 s of home with no sign, then the switching screen): "Going back to <name>", and
    that a click or a key stays here, so the switch is expected and staying is the person's visible choice.
    It gives up after COMPUTERS_REOPEN_MAX_MS, which is OA_COMPUTERS_LIMIT_MS's value and reason (above the route's
@@ -33227,10 +33229,18 @@ async function computersReopen(host) {
   let touched = false;
   // Review 6: a modifier key alone (Shift, Control, Alt, Command, Caps Lock) is not a choice to stay.
   const MODIFIERS = ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Fn'];
-  const mark = (e) => { if (e && e.type === 'keydown' && MODIFIERS.includes(e.key)) return; touched = true; };
-  const ev = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
-  try { for (const k of ev) document.addEventListener(k, mark, true); } catch {}
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  // Review 7: the choice to stay is confirmed the moment it is made, and the list read is let go.
+  const mark = (e) => {
+    if (e && e.type === 'keydown' && MODIFIERS.includes(e.key)) return;
+    if (touched) return;
+    touched = true;
+    say('Staying on this computer.');
+    try { if (ctl) ctl.abort(); } catch {}
+  };
+  // A dropped file or dictated text (drop, input) is work here too (review 7).
+  const ev = ['pointerdown', 'keydown', 'wheel', 'touchstart', 'drop', 'input'];
+  try { for (const k of ev) document.addEventListener(k, mark, true); } catch {}
   const cut = setTimeout(() => { if (ctl) ctl.abort(); }, COMPUTERS_REOPEN_MAX_MS);
   let data = null;
   let late = false;
@@ -33240,7 +33250,7 @@ async function computersReopen(host) {
   } catch (e) { data = null; late = !!(e && e.name === 'AbortError'); }
   clearTimeout(cut);
   try { for (const k of ev) document.removeEventListener(k, mark, true); } catch {}
-  if (touched) { say('Staying on this computer.'); return 'touched'; }   // they chose to stay
+  if (touched) return 'touched';   // they chose to stay (said in mark, at the moment they did)
   if (late) {
     say('Kosmos opened this computer\'s agents: your other computers took too long to answer. Switch from the top-left menu.');
     return 'slow';
