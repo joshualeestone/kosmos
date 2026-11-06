@@ -13,3 +13,5 @@ Weakest premise: the tap landing mid-slide is reasoned. 30 of 30 passed locally 
 Not covered: a job cancelled at its time limit leaves no artifact. KeyboardSlideUITests.testComposerGrowingKeepsMessagesDrawn, the third red.
 
 First real red (run 42184198471, on this branch's own CI): the artifact downloaded and opened by name. It showed testTheLastRowScrollsClearOfTheBottomRow crashing on the frame of a tile the lazy grid had dropped mid-scroll, so that read now allows for it. Its real assert still needs the tile at the end.
+
+Second red with a bundle (run 42192726744): testTheRingComesAndGoesInARoom found no ring because the 6 s ring had come and gone before the first query; the tree held blank-ring-was-shown. Both ring tests accept that marker, which appears only once a ring has shown (testANormalOpenNeverShowsIt pins that).
