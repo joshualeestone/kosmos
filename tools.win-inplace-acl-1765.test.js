@@ -78,8 +78,8 @@ test('#1765: the refusal is plain, says what to do, and carries no em dash', () 
   const message = slice('internal static string UnsafeFolderMessage(', '\n    }\n');
   assert.match(message, /other people who use this computer may be able to change the files in that folder/);
   assert.match(message, /Download Kosmos again, extract it into " \+ downloads \+ ", and open Kosmos\.exe from there/);
-  // The Downloads folder named is the profile's own, spelled out: one moved to another drive would be refused too.
-  assert.match(message, /string downloads = profile != null \? Path\.Combine\(profile, "Downloads"\)/);
+  // The folder named is one inside the profile that exists (FreshCopyFolder; real folders below).
+  assert.match(message, /string downloads = FreshCopyFolder\(profile\);/);
   assert.match(message, /You can then uninstall it from Settings > Apps, and once you have next signed in to Windows, delete /);
   assert.doesNotMatch(slice('// ---- a folder other people can change (#1765)', 'static int FailInsideZip()'), /\u2014/);
 });
@@ -117,6 +117,13 @@ test('#1765: the probe and a launcher compile from this source', WINDOWS_ONLY, (
 using System;
 class AclProbe {
   static int Main(string[] a) {
+    if (a[0] == "--fresh") {
+      string d = a[2], k = a[3];
+      KosmosLauncher.downloadsFolder = () => d;
+      KosmosLauncher.desktopFolder = () => k;
+      Console.Write(KosmosLauncher.FreshCopyFolder(a[1]));
+      return 0;
+    }
     if (a.Length > 1) { string p = a[1]; KosmosLauncher.userProfileFolder = () => p; }
     string r = KosmosLauncher.UnsafeRunFolderReason(a[0]);
     Console.Write(r == null ? "SAFE" : "UNSAFE " + r);
@@ -227,6 +234,13 @@ test('#1765: the code inside is read on its own, whatever the run folder says', 
   let answer = probe(file, NOT_MY_PROFILE);
   assert.match(answer, /^UNSAFE .+ can change /);
   assert.ok(answer.includes(path.join(file, 'runtime', 'node.exe')), 'the reason does not name node.exe: ' + answer);
+  // Review 2 (v2): any file beside node.exe in runtime\, not only the named ones.
+  const beside = build();
+  fs.writeFileSync(path.join(beside, 'runtime', 'planted.dll'), '');
+  icacls(path.join(beside, 'runtime', 'planted.dll'), '/grant', USERS + ':(M)');
+  answer = probe(beside, NOT_MY_PROFILE);
+  assert.match(answer, /^UNSAFE .+ can change /);
+  assert.ok(answer.includes(path.join(beside, 'runtime', 'planted.dll')), 'the reason does not name the planted dll: ' + answer);
   // Review 1 (v2): the WebView2 loader the window loads into the launcher, given to Users on its own.
   const dll = build();
   icacls(path.join(dll, 'runtime', 'WebView2Loader.dll'), '/grant', USERS + ':(M)');
@@ -320,4 +334,31 @@ test('#1765: from a locked-down folder at the drive root, Kosmos.exe starts what
 test.after(() => {
   for (const f of made) fs.rmSync(f, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   if (buildDir) fs.rmSync(buildDir, { recursive: true, force: true });
+});
+
+test('#1765: the refusal names a folder inside the profile that is really there', WINDOWS_ONLY, (t) => {
+  if (!needsBuild(t)) return;
+  /* Review 2 (v2): Explorer can move Downloads to another drive, where a fresh copy would be refused too, and the
+     profile's own Downloads may then not exist. */
+  const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-acl-profile-'));
+  made.push(profile);
+  const fresh = (downloads, desktop) => {
+    const r = spawnSync(probeExe, ['--fresh', profile, downloads, desktop], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+    assert.equal(r.status, 0, 'the probe failed: ' + r.stdout + r.stderr);
+    return r.stdout.trim();
+  };
+  const moved = 'Z:\\Downloads';
+  const desk = path.join(profile, 'Desktop');
+  // Nothing inside the profile exists yet: the user folder itself.
+  assert.equal(fresh(moved, desk), profile);
+  fs.mkdirSync(desk);
+  // Downloads moved away, no profile Downloads: the Desktop.
+  assert.equal(fresh(moved, desk), desk);
+  fs.mkdirSync(path.join(profile, 'Downloads'));
+  // The profile's own Downloads, when it is there.
+  assert.equal(fresh(moved, desk), path.join(profile, 'Downloads'));
+  // The real Downloads, when it is inside the profile.
+  const real = path.join(profile, 'Stuff', 'Dl');
+  fs.mkdirSync(real, { recursive: true });
+  assert.equal(fresh(real, desk), real);
 });

@@ -7,12 +7,12 @@
 ## What finished looks like (from the person's side)
 
 1. A copy of Kosmos opened from a folder outside the person's own user folder that other accounts on the PC can change (C:\Kosmos, say) does not run anything from that folder, the uninstall included, and does not point the Start menu, Settings > Apps or the logon task at it.
-2. The person sees one plain message: why, and exactly what to do instead (extract a fresh copy into their own Downloads folder and open it there).
+2. The person sees one plain message: why, and exactly what to do instead (extract a fresh copy into a folder inside their own user folder that exists, their Downloads or, when Downloads was moved to another drive, their Desktop, and open it there).
 3. The normal path is unchanged: a copy in Downloads, or the installed copy in %LOCALAPPDATA%\Programs\Kosmos, starts as before.
 
 ## Pieces
 
-- `tools/windows/KosmosLauncher.cs`: `UnsafeRunFolderReason` (reads the run folder's ACL, the code inside it that the launcher starts or loads, runtime\WebView2Loader.dll included, and each folder above it), `OtherWriterOf`, `UnsafeFolderMessage`, `RefuseUnsafeFolder`, called before any errand.
+- `tools/windows/KosmosLauncher.cs`: `UnsafeRunFolderReason` (reads the run folder's ACL, the code inside it that the launcher starts or loads, runtime\WebView2Loader.dll and every other file directly in runtime\ included, and each folder above it), `OtherWriterOf`, `UnsafeFolderMessage`, `RefuseUnsafeFolder`, called before any errand.
 - `tools/windows/Kosmos.exe`: rebuilt with the README's csc line and Authenticode-signed (Kosmos Agent Manager, Inc.); `verify-launcher.ps1` OK.
 - `tools.win-inplace-acl-1765.test.js`: compiles the launcher and checks safe and unsafe folders on Windows.
 - `tools/windows/README.md`: what the check guards and does not.

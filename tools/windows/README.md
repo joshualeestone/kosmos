@@ -278,10 +278,12 @@ of the engine's own helpers, run with the bundle's node:
     cleaned-up one), with nothing installed, runs where it is, unless it is outside the
     person's profile and other people on the PC can change it (#1765): then the launcher
     runs nothing from it (the uninstall included) and points nothing at it, and says to
-    download Kosmos again into the Downloads folder in the person's own user folder, which
-    installs it. Only the person, SYSTEM, Administrators and TrustedInstaller may hold rights
+    download Kosmos again into a folder inside the person's own user folder that exists
+    (their Downloads folder, or their Desktop when Downloads was moved to another drive),
+    which installs it. Only the person, SYSTEM, Administrators and TrustedInstaller may hold rights
     that change the folder, the code in it the launcher starts or loads (Kosmos.exe, runtime\,
-    runtime\node.exe, runtime\WebView2Loader.dll, app\, app\server.js, open-board.js) or, on a folder above it, rename
+    runtime\node.exe, runtime\WebView2Loader.dll and every other file directly in runtime\,
+    app\, app\server.js, open-board.js) or, on a folder above it, rename
     it away; one of them must own each; accounts are compared by SID, so a domain group such
     as Domain Admins is not one of them. A folder whose permissions cannot be read, or a
     drive with none (FAT, exFAT), is refused too. It is not a defence against a folder that

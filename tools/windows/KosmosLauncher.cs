@@ -426,10 +426,13 @@ class KosmosLauncher
     // can only make the answer stricter than Windows'. An ACL that cannot be read, or a missing one (a FAT or exFAT
     // drive), is refused. Accounts are compared by SID, never by name: a domain group (Domain Admins, say) is not
     // one of the four, so a folder IT set up with one is refused, and a copy in the profile is the way round it.
-    // ⚠️ WEAKEST PART: below those six, a file inside is taken at the folder's word (reading every file would cost
+    // Every file directly in runtime\ is read on its own as well (review 2, v2): node.exe loads DLLs from its own
+    // folder first, so anything placed beside it is code that runs. There are a handful.
+    // ⚠️ WEAKEST PART: below those, a file inside is taken at the folder's word (reading every file would cost
     // a launch far more than these few milliseconds). A folder inside the profile is trusted by where it is, not
     // read, as the profile is this person's; a junction from the profile to somewhere else is taken at its
-    // profile path.
+    // profile path, and a junction outside the profile is read at its target, without the folders above the
+    // target.
     // A seam only so a test can check folders inside its temp folder as if they were outside the profile.
     internal static Func<string> userProfileFolder = () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
@@ -503,6 +506,18 @@ class KosmosLauncher
             problem = OtherWriterOf(item, me, AclScope.Code);
             if (problem != null) return problem;
         }
+        string runtimeFolder = Path.Combine(folder.EndsWith(":") ? folder + "\\" : folder, "runtime");
+        if (Directory.Exists(runtimeFolder))
+        {
+            string[] beside;
+            try { beside = Directory.GetFiles(runtimeFolder); }
+            catch (Exception e) { return "what is in " + runtimeFolder + " could not be read (" + e.Message + ")"; }
+            foreach (string item in beside)
+            {
+                problem = OtherWriterOf(item, me, AclScope.Code);
+                if (problem != null) return problem;
+            }
+        }
         while (true)
         {
             string up;
@@ -563,14 +578,31 @@ class KosmosLauncher
         return null;
     }
 
-    // The plain-language refusal: what is wrong, and what to do about it. The Downloads folder named is the one
-    // inside this person's own user folder, spelled out: a Downloads folder moved to another drive is outside the
-    // profile and would be refused the same way.
+    // Where the refusal tells the person to put a fresh copy (review 2, v2): a folder inside their own user folder
+    // that exists. Their real Downloads folder when it is inside the profile (Explorer can move it to another drive,
+    // where a copy would be refused the same way), else the profile's own Downloads if it is there, else their
+    // Desktop when it is inside the profile (a copy opened from either installs itself, #3286), else the user folder.
+    internal static string FreshCopyFolder(string profile)
+    {
+        if (profile == null) return "the Downloads folder in your own user folder";
+        Func<string>[] places = { downloadsFolder, () => Path.Combine(profile, "Downloads"), desktopFolder };
+        foreach (Func<string> place in places)
+        {
+            string p;
+            try { p = FullPathOrNull(place()); }
+            catch { p = null; }
+            if (p != null && IsSameOrInside(p, profile) && Directory.Exists(p)) return p;
+        }
+        return profile;
+    }
+
+    // The plain-language refusal: what is wrong, and what to do about it, naming a folder (FreshCopyFolder) the
+    // person can really use.
     internal static string UnsafeFolderMessage(string here, string reason, bool uninstalling)
     {
         string folder = FullPathOrNull(here) ?? here;
         string profile = FullPathOrNull(userProfileFolder());
-        string downloads = profile != null ? Path.Combine(profile, "Downloads") : "the Downloads folder in your own user folder";
+        string downloads = FreshCopyFolder(profile);
         string fresh = "Download Kosmos again, extract it into " + downloads + ", and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change.";
         string what = uninstalling ? "Kosmos will not run its uninstall from " : "Kosmos will not start from ";
         string fix = uninstalling
