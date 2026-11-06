@@ -41,6 +41,16 @@ test('kosmos#6583 CONTROL: org_wrong_domain keeps its own sentence, and an unkno
   assert.match(odd.because, /could not be checked through Kosmos\+/);
 });
 
-test('kosmos#6583: a family hears the same sentence (it names no company)', () => {
+test('kosmos#6583 review 1: a company pilot with no free seat is said as that, on preview and on enroll', async (t) => {
+  const a = root(t);
+  const line = "Error: Kosmos+ refused this Mac: your company's Kosmos+ pilot has no free seat; ask the people who run your company's accounts to free one or add seats (HTTP 403 on /v1/mac/org/redeem, code org_pilot_full)";
+  const p = await org.preview('ACME-JOIN-1234', { root: a, remote: said(line) });
+  assert.deepEqual([p.code, p.because], ['org_pilot_full', org.SAY.org_pilot_full]);
+  assert.doesNotMatch(p.because, /try again in a minute/);
+  const e = await org.enroll('ACME-JOIN-1234', true, { root: a, remote: said(line) });
+  assert.deepEqual([e.code, e.because], ['org_pilot_full', org.SAY.org_pilot_full]);
+});
+
+test('kosmos#6583: the wrong-address sentence names no company, so a family hears it as it is', () => {
   assert.doesNotMatch(org.SAY.org_wrong_email, /company/);
 });

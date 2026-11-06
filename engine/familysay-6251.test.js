@@ -46,7 +46,7 @@ test('#6251: every family sentence names no company, and the codes said at previ
     assert.ok(NO_COMPANY(s), code + ': ' + s);
   }
   // Refused before any org is known to this board: no kind to word them by.
-  for (const code of ['org_code_unknown', 'org_code_used', 'org_code_expired', 'org_other_org', 'org_wrong_domain']) {   // board review 1: org_already_member is worded by the status read's org, tested below
+  for (const code of ['org_code_unknown', 'org_code_used', 'org_code_expired', 'org_other_org', 'org_wrong_domain', 'org_wrong_email']) {   // board review 1: org_already_member is worded by the status read's org, tested below
     assert.ok(!/your company/i.test(oe.SAY[code]), code + ': ' + oe.SAY[code]);
   }
 });
