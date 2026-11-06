@@ -77417,7 +77417,7 @@ function pvSheetInto(stage, data) {
     for (let c = 0; c < width; c++) { const th = document.createElement('th'); th.scope = 'col'; th.textContent = PV_COL(c); head.appendChild(th); }
     const body = t.createTBody();
     sh.rows.forEach((r, ri) => {
-      const tr = body.insertRow(); const th = document.createElement('th'); th.scope = 'row'; th.textContent = String((Number(sh.firstRow) || 1) + ri);   // firstRow: data starting past row 200 (Kitty's reader) tr.appendChild(th);
+      const tr = body.insertRow(); const th = document.createElement('th'); th.scope = 'row'; th.textContent = String((Number(sh.firstRow) || 1) + ri); tr.appendChild(th);   // firstRow: data starting past row 200 (Kitty's reader)
       r.forEach((v) => { const td = tr.insertCell(); td.textContent = v; if (v && /^-?[0-9][0-9.,]*$/.test(v)) td.className = 'num'; });
     });
     panel.appendChild(t);
