@@ -21404,6 +21404,9 @@ function windowsCopyTable() {
     startAtSignInHint: 'When this is on, Kosmos also tries to start again if it closes unexpectedly. When it is off, Kosmos stays closed until you open it.',
     startAtSignInFailure: 'We could not change whether Kosmos starts when you sign in just now.',
     startAtSignInUnread: 'We could not read whether Kosmos starts when you sign in just now.',
+    /* kosmos#7504: the switch went on but the #2988 watchdog was not registered, so the hint above is not yet true.
+       The engine's own reason follows the colon (its sentences are lower case, written to be read after a lead). */
+    startAtSignInNoRecovery: 'Kosmos will start when you sign in, but it is not yet set to start again if it closes:',
     /* Settings > Updates, the in-app updater armed (S4). The confirm dialog: the win32 updater
        downloads first, THEN stops the board to swap the new build in place, which the Mac's does not,
        so its body names both steps. */
@@ -27907,7 +27910,17 @@ function wireMachineRows(mach) {
 async function startAtSignInClick(sw) {
   return machineSwitchClick(sw, (want) => fetch('/api/machine/start-at-sign-in', {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: want }),
-  }), { refused: windowsCopy('startAtSignInFailure'), unreachable: windowsCopy('startAtSignInFailure'), unread: windowsCopy('startAtSignInUnread') });
+  }), { refused: windowsCopy('startAtSignInFailure'), unreachable: windowsCopy('startAtSignInFailure'), unread: windowsCopy('startAtSignInUnread'),
+    afterOk: startAtSignInRecoverySaid });
+}
+/* kosmos#7504: turning the switch on also registers the crash-recovery watchdog (#7498), and the route says when that
+   failed. The switch shows on either way, so without this line nobody learns that recovery is still missing. Only a
+   watchdog the engine says failed is said; a missing watchdog field (switched off, or an older engine) says nothing. */
+function startAtSignInRecoverySaid(out) {
+  const w = out && out.watchdog;
+  if (!w || w.ok !== false) return '';
+  const why = typeof w.because === 'string' && w.because.trim() ? w.because.trim() : 'Windows did not say why';
+  return windowsCopy('startAtSignInNoRecovery') + ' ' + why.replace(/[.\s]+$/, '') + '.';
 }
 /* kosmos#7416 slice 3: "Keep this computer awake while agents are working", the same way. */
 async function keepAwakeClick(sw) {
@@ -27926,6 +27939,7 @@ async function machineSwitchClick(sw, send, how) {
     const r = await send(want);
     const out = await r.json().catch(() => ({}));
     if (!r.ok || typeof out.on !== 'boolean') said = (out && out.error) || how.refused;
+    else if (typeof how.afterOk === 'function') said = how.afterOk(out) || '';
   } catch {
     said = how.unreachable;
   }

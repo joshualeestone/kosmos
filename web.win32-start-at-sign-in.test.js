@@ -22,7 +22,7 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
 const SCRIPT = page.scriptOf(PAGE);
 const LAYER = page.liftAll(SCRIPT, page.PLATFORM_COPY_FNS);
 const ROW_FNS = ['esc', 'chkRow', 'machineRows'];
-const CLICK_FNS = [...ROW_FNS, 'wireMachineRows', 'startAtSignInClick', 'keepAwakeClick', 'machineSwitchClick', 'refreshMachineRows'];
+const CLICK_FNS = [...ROW_FNS, 'wireMachineRows', 'startAtSignInClick', 'startAtSignInRecoverySaid', 'keepAwakeClick', 'machineSwitchClick', 'refreshMachineRows'];
 const CHK = { CHK_CLASS: { ok: 'ok', attention: 'att', unknown: 'unk' }, CHK_MARK: { ok: '✓', attention: '!', unknown: '?' } };
 
 function docFor(platform, byId) {
@@ -143,4 +143,43 @@ test('when the rows cannot be read again, the switch is taken away and the page 
   assert.deepEqual(rig.removed, ['switch row'], 'a switch whose position nobody could read stayed on screen');
   assert.equal(rig.msg.hidden, false);
   assert.equal(rig.msg.textContent, 'We could not change whether Kosmos starts when you sign in just now.');
+});
+
+/* kosmos#7504: the route says when turning the switch on did not register the crash-recovery watchdog (#7498). The
+   switch shows on either way, so the line under the rows is the only place that failure is said. */
+const ON_ROWS = { status: 200, body: { checks: [{ ...AUTOSTART_ON, startAtSignIn: true }] } };
+test('kosmos#7504: switched on but the watchdog failed: the page says recovery is not set up, with the engine\'s reason', async () => {
+  const because = 'we could not register the job that restarts the board if it stops (ERROR: Access is denied.)';
+  const rig = clickRig({ clickedFrom: 'false', post: { status: 200, body: { ok: true, on: true, watchdog: { ok: false, because } } }, machine: ON_ROWS });
+  await rig.fns.startAtSignInClick(rig.sw);
+  assert.equal(rig.msg.hidden, false, 'a failed watchdog was not said');
+  assert.equal(rig.msg.textContent, 'Kosmos will start when you sign in, but it is not yet set to start again if it closes: ' + because + '.');
+  assert.match(rig.mach.innerHTML, /aria-checked="true"/, 'the switch did not repaint on from the engine');
+});
+
+test('kosmos#7504: a failed watchdog with no reason still says so, and a reason ending in a full stop gets one, not two', async () => {
+  for (const [because, tail] of [[undefined, 'Windows did not say why.'], ['', 'Windows did not say why.'], ['  ', 'Windows did not say why.'],
+    ['Kosmos has not set up its startup files yet.', 'Kosmos has not set up its startup files yet.']]) {
+    const rig = clickRig({ clickedFrom: 'false', post: { status: 200, body: { ok: true, on: true, watchdog: { ok: false, ...(because === undefined ? {} : { because }) } } }, machine: ON_ROWS });
+    await rig.fns.startAtSignInClick(rig.sw);
+    assert.equal(rig.msg.textContent, 'Kosmos will start when you sign in, but it is not yet set to start again if it closes: ' + tail, JSON.stringify(because));
+  }
+});
+
+test('kosmos#7504 CONTROL: a watchdog registered or present, or no watchdog field (switched off, an older engine), says nothing', async () => {
+  for (const watchdog of [{ ok: true, action: 'registered' }, { ok: true, action: 'present' }, undefined, null]) {
+    const body = { ok: true, on: true, ...(watchdog === undefined ? {} : { watchdog }) };
+    const rig = clickRig({ clickedFrom: 'false', post: { status: 200, body }, machine: ON_ROWS });
+    await rig.fns.startAtSignInClick(rig.sw);
+    assert.equal(rig.msg.hidden, true, 'said something for ' + JSON.stringify(watchdog) + ': ' + rig.msg.textContent);
+  }
+});
+
+test('kosmos#7504: a refusal still wins over the watchdog line, and the keep-awake switch never reads a watchdog', async () => {
+  const refused = clickRig({ clickedFrom: 'false', post: { status: 409, body: { error: 'Windows said no', watchdog: { ok: false, because: 'x' } } }, machine: ON_ROWS });
+  await refused.fns.startAtSignInClick(refused.sw);
+  assert.equal(refused.msg.textContent, 'Windows said no');
+  const awake = clickRig({ clickedFrom: 'false', post: { status: 200, body: { ok: true, on: true, watchdog: { ok: false, because: 'x' } } }, machine: ON_ROWS });
+  await awake.fns.keepAwakeClick(awake.sw);
+  assert.equal(awake.msg.hidden, true, 'keep-awake said a watchdog line');
 });
