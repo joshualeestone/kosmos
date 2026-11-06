@@ -198,7 +198,7 @@ struct TasksView: View {
                     centred(title: "Kosmos could not read your tasks just now.", detail: "Pull down to try again.")
                         .frame(minHeight: g.size.height)
                 }
-                .refreshable { await refresh(); layOut() }
+                .dotsRefresh { await refresh(); layOut() }
             }
         } else {
             VStack(spacing: 8) {
@@ -264,7 +264,7 @@ struct TasksView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
-        .refreshable { await refresh(); layOut() }
+        .dotsRefresh { await refresh(); layOut() }
         // A moment after appearing: at appear the rows are not drawn yet and a scroll goes nowhere, and `shown` is
         // already set by then, so a change of it never fires either (both tried, both shot the top of the list).
         .onAppear {

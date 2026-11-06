@@ -122,7 +122,7 @@ struct ProjectInfoView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .refreshable { await readTasks() }
+        .dotsRefresh { await readTasks() }
         // Review 1: read again on every appearance, so a list from hours ago is never shown as this project's tasks.
         .task { await readTasks() }
     }

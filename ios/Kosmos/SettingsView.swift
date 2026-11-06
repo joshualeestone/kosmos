@@ -71,7 +71,7 @@ struct SettingsView: View {
                         .allowsHitTesting(false).accessibilityHidden(true)
                 }
                 .kosmosTopFade()
-                .refreshable { await read() }
+                .dotsRefresh { await read() }
                 .onAppear {
                     #if DEBUG
                     // Screenshots of the lower sections (KOSMOS_SAMPLE_SCROLL=account, a Debug build only).

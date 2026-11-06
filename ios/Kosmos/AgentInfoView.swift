@@ -73,7 +73,7 @@ struct AgentInfoView: View {
         .navigationTitle(live.name)
         .toolbar(.hidden, for: .tabBar)
         .task { await load() }
-        .refreshable { await load() }
+        .dotsRefresh { await load() }
         .filesQuickLook(filesOpener, client: client)   // kosmos#7679: once, here, never on a Section's rows
         .confirmationDialog(asking.map { Board.freshConfirm($0, name: live.name).title } ?? "",
                             isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }),

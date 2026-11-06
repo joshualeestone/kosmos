@@ -164,7 +164,7 @@ struct TodayView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
-        .refreshable {
+        .dotsRefresh {
             order.pullStarted()
             await client.refreshNow()
             order.pullEnded(freshOrder)

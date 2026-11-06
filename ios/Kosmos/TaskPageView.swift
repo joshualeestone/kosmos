@@ -112,7 +112,7 @@ struct TaskPageView: View {
             TimelineView(.periodic(from: .now, by: 30)) { _ in
                 ScrollView { pageBody(page).padding(16) }
             }
-                .refreshable { await model.read(); await model.readActivity(names: names) }
+                .dotsRefresh { await model.read(); await model.readActivity(names: names) }
         } else if model.gone {
             message("This task is not on your computer any more", "It may have been deleted, or its project moved.")
         } else if model.readFailed {
