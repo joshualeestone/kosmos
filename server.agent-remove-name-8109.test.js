@@ -169,6 +169,12 @@ test('kosmos#8113 a removed agent: not a second match beside a live one, and nev
   const p = await call('GET', 'Krm 8113', RESOLVE);
   assert.equal(p.code, 200, 'a removed agent made a listed name ambiguous: ' + p.text.slice(0, 220));
   assert.equal(p.json && p.json.name, 'klive8113', p.text.slice(0, 200));
+  // A removed agent's exact name: its own plan ("already removed"), never the live card shown by a name like it.
+  folderAgent('kcaitwo8113', 'krm8113');
+  const exact = await call('GET', 'krm8113', RESOLVE);
+  assert.ok(!(exact.json && exact.json.name === 'kcaitwo8113'), 'a removed agent\'s exact name was handed to a live agent: ' + exact.text.slice(0, 200));
+  assert.doesNotMatch(exact.text, /more than one agent is called/, 'a removed agent\'s exact name was refused as ambiguous: ' + exact.text.slice(0, 200));
+  assert.match(exact.text, /already removed|was removed|removed from Kosmos/i, 'the removed agent\'s own plan did not answer: ' + exact.text.slice(0, 200));
 });
 
 test('kosmos#8113 an unreadable removed list resolves nothing (the route cannot tell which cards are removed)', async () => {
