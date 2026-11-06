@@ -39,7 +39,8 @@ const chatopens = require('./engine/chatopens');
 const APP = '0.1.0 (53)';
 
 test('#7420: no builds at first; showings add up under their build', async () => {
-  assert.deepEqual(await get(), { status: 200, body: { builds: {}, ok: true } });
+  assert.deepEqual(await get(), { status: 200, body: { builds: {}, ok: true, note: chatopens.NOTE } });
+  assert.match(chatopens.NOTE, /do not quote/);
   assert.equal((await post({ app: APP, rebuilds: 0, closedBlank: false })).status, 200);
   assert.equal((await post({ app: APP, rebuilds: 2, closedBlank: false })).status, 200);
   assert.equal((await post({ app: APP, rebuilds: 1, closedBlank: true })).status, 200);
@@ -90,7 +91,7 @@ test('#7420: only the newest builds are kept, and an unreadable file is never ov
   assert.equal(Object.keys(builds).length, chatopens.MAX_BUILDS);
   assert.ok(!builds['9.0 (0)'] && builds[`9.0 (${chatopens.MAX_BUILDS + 2})`], 'the oldest went, the newest stayed');
   fs.writeFileSync(chatopens.file(), '{broken');
-  assert.deepEqual(await get(), { status: 200, body: { builds: {}, ok: false } });
+  assert.deepEqual(await get(), { status: 200, body: { builds: {}, ok: false, note: chatopens.NOTE } });
   assert.equal((await post({ app: APP, rebuilds: 0, closedBlank: false })).status, 500);
   assert.equal(fs.readFileSync(chatopens.file(), 'utf8'), '{broken');
 });

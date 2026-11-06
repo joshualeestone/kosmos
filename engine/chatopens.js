@@ -6,11 +6,13 @@
  *
  * What the numbers mean, for a build: opens is showings (a chat appearing or coming back to the front, until it closes or
  * leaves the front), so one long chat can count twice. blankOpens is showings with a rebuild or left blank at close.
- * rebuilds is the total. closedBlank is showings with no row reported for the last 3 s before they closed.
+ * rebuilds is the total. closedBlank is showings with no row reported for the last 3 s before they closed, unless a search
+ * or unsent messages explain it.
  * Missing from the blank count, so it is a floor and a change in it can be a blank moving out of view: a blank repaired
  * another way (a list past its end put back), one that recovers with no repair, and a screen with rows reported but not
  * drawn. Missing from both counts: a showing lost as the app is killed, or to a chat closed or backgrounded under its info
- * page. Since those are mostly ordinary showings, blankOpens / opens can err either way. Compare builds, do not quote it.
+ * page. A person may force-quit a blank chat more than a fine one, so blankOpens / opens can err either way. Compare builds
+ * with enough showings, do not quote it.
  *
  * Read with GET /api/phone/chat-opens (the board's token, as its sibling chat-shifts) or from the file itself on this Mac.
  *
@@ -22,6 +24,8 @@ const path = require('node:path');
 const store = require('./store');
 
 const MAX_BUILDS = 30;
+// Sent with the numbers, for whoever reads them without this file.
+const NOTE = 'Compare builds with enough showings; do not quote a rate. blankOpens is a floor on blanks, and lost showings can move blankOpens/opens either way. Definitions: engine/chatopens.js.';
 const MAX_REBUILDS = 100;   // the app's own budget is far lower; a bad record cannot move a rate by much
 const FIELDS = ['opens', 'blankOpens', 'rebuilds', 'closedBlank'];
 // Digits and dots, with the build in brackets: no room for a word.
@@ -88,4 +92,4 @@ function add(body, now = new Date()) {
   return { ok: true };
 }
 
-module.exports = { read, add, clean, file, MAX_BUILDS, MAX_REBUILDS };
+module.exports = { read, add, clean, file, MAX_BUILDS, MAX_REBUILDS, NOTE };
