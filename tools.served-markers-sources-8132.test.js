@@ -44,7 +44,9 @@ test('kosmos#8132: the sources are the files check-served reads, and none is emp
   const m = /const strip = \(t\) => (t\.replace\(.*\));\s*$/m.exec(read('tools/check-served.js'));
   assert.ok(m, 'cannot find `const strip = (t) => t.replace(...)` in check-served.js (moved or reformatted); compare the strips by hand');
   const theirs = new Function('t', 'return ' + m[1] + ';');
-  const sample = 'a <!-- html\ncomment --> b /* block\ncomment */ c\n  // line comment\nd https://x.y/z e';
+  // Two of each comment kind with live text between, so a greedy (over-stripping) regex differs from the lazy one.
+  const sample = 'a <!-- x\n --> LIVE1 <!-- y --> b /* p\n */ LIVE2 /* q */ c\n  // line comment\nd https://x.y/z e';
+  for (const live of ['LIVE1', 'LIVE2', 'https://x.y/z']) assert.ok(strip(sample).includes(live), 'the strip here removed live text: ' + live);
   assert.equal(strip(sample), theirs(sample), 'the comment strip here behaves differently from check-served.js\'s; copy it again');
   assert.notEqual(strip(sample), sample, 'CONTROL: the sample has comments, so a strip must change it');
   const build = read('tools/build-installer-pkg.sh');
