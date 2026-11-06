@@ -37,3 +37,7 @@ App selftest 290/290 (a mutant that never counts fails both counting rows); web*
   If that switch lands, `.keep` replaces the kept computer, so only a failed one costs a miss.
 Validation after: selftest 290/290; 482 files (web*, native-app*, and every test that reads main.swift), 4165 run,
 0 fail.
+
+## Review round 2 (sonnet; only a NIT: converged)
+- NIT kept (the decision above): a launch quit a few seconds into a switch that would have landed counts a miss, so
+  three such quick quits in a row forget a healthy computer. Rare; a minimum launch length would harden it.
