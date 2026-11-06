@@ -2177,6 +2177,30 @@ const SCREENS = [
     await page.$eval('#diag-row', (el) => el.scrollIntoView({ block: 'center' }));
   } },
   /* kosmos#7416 slice 3: the keep-awake switch, off and on (keepAwakeShot, above SCREENS). */
+  /* kosmos#7504: Windows Settings > This computer, the start-at-sign-in switch just turned on while the crash-recovery
+     watchdog was not registered: the line under the rows says so. The shot board is a Mac, so the rows and the
+     route's answer are stubbed in the shape the Windows engine sends, and the page is told it is on Windows. */
+  { name: 'settings-signin-recovery-7504', owner: 'PigeonPete', go: async (page) => {
+    let on = false;
+    const row = () => ({ checks: [{ key: 'autostart', state: 'ok', title: 'Kosmos starts itself when you sign in',
+      detail: 'Kosmos starts when you sign in to Windows, and your agents come back on their own after a restart.', startAtSignIn: on }] });
+    const json = (r, body) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }).catch(() => {});
+    await page.route('**/api/machine/start-at-sign-in', (r) => { on = true; return json(r, { ok: true, on: true,
+      watchdog: { ok: false, because: 'we could not register the job that restarts the board if it stops (ERROR: Access is denied.)' } }); });
+    await page.route('**/api/machine', (r) => json(r, row()));
+    await at(page, '?tab=settings&sec=mac');
+    await page.evaluate(async () => {
+      let meta = document.querySelector('meta[name="kosmos-platform"]');
+      if (!meta) { meta = document.createElement('meta'); meta.setAttribute('name', 'kosmos-platform'); document.head.appendChild(meta); }
+      meta.setAttribute('content', 'win32');
+      await refreshMachineRows();
+    });
+    await page.waitForSelector('[data-start-at-sign-in]', { state: 'visible', timeout: 8000 });
+    await page.$eval('[data-start-at-sign-in]', (el) => el.click());
+    await page.waitForSelector('#set-machine-msg:not([hidden])', { state: 'visible', timeout: 8000 });
+    await page.$eval('[data-start-at-sign-in]', (el) => el.closest('.setrow').scrollIntoView({ block: 'center' }));
+    await page.mouse.move(1, 1);
+  } },
   { name: 'settings-keepawake-off', owner: 'Renet Tilley', go: async (page) => keepAwakeShot(page, false) },
   { name: 'settings-keepawake-on', owner: 'Renet Tilley', go: async (page) => keepAwakeShot(page, true) },
   { name: 'settings-accounts', owner: 'Sonya', go: async (page) => {
