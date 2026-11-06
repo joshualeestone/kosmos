@@ -22,7 +22,8 @@ and a failed read never loses the line it goes on.
 
 ## Limits for whoever reads the log
 - One moment, not an average over the stall.
-- The per-minute cap drops [loop-held] lines when stalls cluster, so high-load hours are undercounted.
+- The per-minute cap drops [loop-held] lines when stalls cluster, so high-load hours are undercounted. The [load]
+  line does not go through the cap (review 3): one line every 10 minutes cannot flood the log.
 - A nap under ASLEEP_MS reads as a stall and lands in the load seen on waking.
 
 ## Evidence behind the change (read 11-06 from board.log on one Mac; on #7693)

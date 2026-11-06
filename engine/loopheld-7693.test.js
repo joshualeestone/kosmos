@@ -85,6 +85,19 @@ test('#7693: the load is recorded between stalls too, so a quiet hour has a read
   assert.deepEqual(lines, ['[load] 4.24', '[load] 4.24'], 'and again');
 });
 
+test('#7693: a minute of stalls past the line cap does not cost the load reading', () => {
+  const lines = [];
+  let t = 0;
+  const w = held.watch({ log: (l) => lines.push(l), now: () => t, load: () => 4.24, setInterval: () => ({}) });
+  w.tick();
+  t += held.LOAD_EVERY_MS - 1000;
+  w.tick();
+  for (let i = 0; i < held.MAX_PER_MINUTE + 2; i += 1) { t += held.TICK_MS + held.HELD_MS; w.tick(); }
+  const stalls = lines.filter((l) => l.startsWith('[loop-held]'));
+  assert.equal(stalls.length, held.MAX_PER_MINUTE, 'control: the cap was reached');
+  assert.deepEqual(lines.filter((l) => l.startsWith('[load]')), ['[load] 4.24']);
+});
+
 test('#7693: no load to report writes no [load] line, and a free thread reads the load only at the interval', () => {
   const lines = [];
   let reads = 0;
