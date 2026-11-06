@@ -53,6 +53,22 @@ _ = d.moved(pulled: L.threshold * 2, dragging: false)
 check(d.phase == .idle, "a fling does not arm it")
 check(!d.released(), "and starts nothing")
 
+// UIKit can clear the finger before it tells the gesture's end, with a move in between (review 2).
+var h = L()
+_ = h.moved(pulled: L.threshold + 5, dragging: true)
+_ = h.moved(pulled: L.threshold + 4, dragging: false)
+check(h.phase == .pulling(armed: true), "an armed pull waits for the gesture's end when the finger clears first")
+check(h.released(), "so the release still starts it")
+var i = L()
+_ = i.moved(pulled: L.threshold + 5, dragging: true)
+_ = i.moved(pulled: 0, dragging: false)
+check(i.phase == .idle, "back at the top with no finger, it is at rest")
+check(!i.released(), "and a late end starts nothing")
+var j = L()
+_ = j.moved(pulled: 10, dragging: true)
+_ = j.moved(pulled: 9, dragging: false)
+check(j.phase == .idle, "a pull not armed does not wait")
+
 // An end with no refresh does nothing, which is what the longest hold and a page's finish rely on.
 var e = L()
 check(!e.ended(), "ending with nothing running does nothing")

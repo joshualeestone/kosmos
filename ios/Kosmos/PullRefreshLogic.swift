@@ -46,7 +46,13 @@ struct PullRefreshLogic: Equatable {
             if pulled <= 0 { phase = .idle }
             return false
         case .idle, .pulling:
-            guard dragging, pulled > 0 else { phase = .idle; return false }
+            guard pulled > 0 else { phase = .idle; return false }
+            guard dragging else {
+                // UIKit may clear the finger before it tells the gesture's end, with a move in between. An armed pull waits
+                // for that end, or the release is lost. Anything else with no finger on it is a fling, and draws nothing.
+                if phase != .pulling(armed: true) { phase = .idle }
+                return false
+            }
             let armed = pulled >= Self.threshold
             let wasArmed = phase == .pulling(armed: true)
             phase = .pulling(armed: armed)
