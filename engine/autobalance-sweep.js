@@ -140,7 +140,7 @@ function create({ file, nowMs = Date.now() }) {
       /* Fewer than two Claude subscription accounts (slice 2's eligible rule) is nothing to balance; stop before the
          agents walk. */
       if (ab.eligible((Array.isArray(list) ? list : []).map((a) => (a && !a.apiKey ? { provider: 'anthropic', dir: a.dir } : null))).length < 2) {
-        return { did: 'nothing' };
+        return { did: 'nothing', because: 'fewer-than-two' };   // kosmos#8083: said as such in the board log
       }
       rows = ab.rowsFromReadings({ list, readUsage: deps.readUsage, agentsOn: deps.agentsOn, nowMs, ...(deps.sameLogin ? { sameLogin: deps.sameLogin } : {}) });
       const movable = ab.movableOnDemand(() => ab.movableFor({ cards: deps.roster(), records: deps.records, readCommitment: deps.readCommitment,
@@ -207,7 +207,9 @@ function quietLine(said, { nowMs, offWhy = null, did = null, because = null, unm
   if (offWhy) { key = 'off:' + offWhy; line = 'autobalance-sweep: not running: ' + offWhy; }
   else if (did === 'off') { key = 'off:setting'; line = 'autobalance-sweep: not running: auto-balance is switched off in Settings'; }
   else if (did === 'unreadable') { key = 'unreadable:' + why; line = 'autobalance-sweep: running, but it could not work out the decision (' + why + ')'; }
+  else if (did === 'gap') { key = 'gap:' + why; line = 'autobalance-sweep: running, but it could not measure what it needs (' + why + ')'; }
   else if (because === 'write-failed') { key = 'write-failed'; line = 'autobalance-sweep: running, but its record could not be written'; }
+  else if (because === 'fewer-than-two') { key = 'fewer-than-two'; line = 'autobalance-sweep: running, but there are fewer than two Claude subscription accounts to balance'; }
   else {
     const n = Number.isInteger(unmeasured) && unmeasured > 0 ? unmeasured : 0;
     key = 'on';

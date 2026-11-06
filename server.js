@@ -3231,7 +3231,8 @@ function autobalanceSweepRuns({ forTick = false } = {}) {
   return !!autobalanceSweepRun && (forTick || autobalanceSweepRun.state.writeFailed !== true) && liveExecution.liveExecutionAllowed() && usagePoll.liveAllowed() && usagePoll.enabled() && autobalanceSweep.sweepOn();
 }
 /* kosmos#8083: the first of autobalanceSweepRuns({ forTick: true })'s gates that is shut, in words for the board log,
-   or null when they are all open. Same gates, same order. */
+   or null when they are all open. The poll is asked enabled() before liveAllowed(), so a dry run is not named as the
+   poll being off. */
 function autobalanceSweepOffWhy() {
   const usagePoll = require('./engine/usagepoll');
   if (!autobalanceSweepRun) return 'its record could not be read when Kosmos started';
