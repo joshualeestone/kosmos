@@ -165,6 +165,25 @@ const chk = (ok, label, extra) => {
   chk(goOff === false, 'a vendor change during a check leaves the new form\'s Add usable', JSON.stringify({ disabled: goOff }));
   await q(() => { window.__slow = false; if (window.__release) window.__release(); });
   await settle();
+  // review 2: re-picking the SAME vendor during a check is not a new visit: Add stays down (no second post of the
+  // key), and the check that was running still finishes and re-arms it.
+  await reopen();
+  await pick('glm'); await settle();
+  await q(() => {
+    window.__posts.length = 0; window.__slow = true; window.__addAnswer = { status: 400, body: { error: 'Z.ai did not accept that key' } };
+    document.getElementById('acct-compat-key').value = 'zai-once-7777';
+    document.getElementById('acct-compat-go').click();
+  });
+  await pick('glm'); await settle();
+  const during = await q(() => ({ disabled: document.getElementById('acct-compat-go').disabled, msg: document.getElementById('acct-compat-msg').textContent }));
+  await q(() => document.getElementById('acct-compat-go').click()); await settle();
+  await q(() => { window.__slow = false; if (window.__release) window.__release(); });
+  await settle();
+  const after = await q(() => ({ posts: window.__posts.length, disabled: document.getElementById('acct-compat-go').disabled, msg: document.getElementById('acct-compat-msg').textContent }));
+  await q(() => { window.__addAnswer = null; });
+  chk(during.disabled === true && /Checking the key with Z\.ai GLM/.test(during.msg), 're-picking GLM during its check keeps Add down and the check line', JSON.stringify(during));
+  chk(after.posts === 1 && after.disabled === false && after.msg === 'Z.ai did not accept that key',
+    'that check still finishes: one post, its answer shown, Add usable again', JSON.stringify(after));
 
   // ---- DeepSeek after GLM: its own words again
   await reopen();
