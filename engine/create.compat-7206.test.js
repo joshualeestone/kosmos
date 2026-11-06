@@ -303,3 +303,21 @@ test('1b review 2: a switch onto Qwen still writes its codex trust entry; a swit
   assert.equal(d.outcome, 'created', d.because);
   assert.equal(fs.existsSync(nodePath.join(DS3, 'config.toml')), false, 'a codex config was written into a DeepSeek (Claude Code) folder');
 });
+
+test('#7206 2a review 5: under DeepSeek\'s switch, a switch to GLM is refused in GLM\'s name and changes nothing; GLM\'s own switch is the control', () => {
+  const sw = require('../test-support/compat-switch');
+  const saved = process.env.AGENT_WORKFORCE_TEST_COMPAT_READY;
+  process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = 'glm';
+  const GLM_HOME = nodePath.join(HOME, '.kosmos-glm-work');
+  compat.storeAccount(GLM_HOME, { vendor: 'glm', model: 'glm-5.3', key: 'zai-create-key-0123456789' });
+  const name = born('c7206-glmoff', null, 'anthropic');
+  const before = fs.readFileSync(jobfix.jobPath(name), 'utf8');
+  try {
+    const off = withSwitch(true, () => create.setProvider(name, 'glm', { ...BINS, accountDir: GLM_HOME, platform: 'darwin' }));
+    assert.deepEqual([off.outcome, off.because], ['refused', 'Z.ai GLM is not available in Kosmos yet'], 'GLM was taken under DeepSeek\'s switch');
+    assert.equal(fs.readFileSync(jobfix.jobPath(name), 'utf8'), before, 'the job changed');
+    sw.setVendor('glm', true);
+    const on = create.setProvider(name, 'glm', { ...BINS, accountDir: GLM_HOME, pickedByPerson: true, platform: 'darwin' });
+    assert.notEqual(on.because, 'Z.ai GLM is not available in Kosmos yet', 'CONTROL: with its own switch on, GLM is not refused as off');
+  } finally { sw.setVendor('glm', false); process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = saved; }
+});

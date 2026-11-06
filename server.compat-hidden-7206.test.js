@@ -95,8 +95,7 @@ test('switch OFF: every route refuses or shows nothing, and no key is sent to De
   assert.ok(r.sw.status >= 400, 'switch: ' + r.sw.status + ' ' + says(r.swBody));
   assert.ok(says(r.swBody).includes(NOT_YET), 'switch did not refuse in the switch\'s words: ' + says(r.swBody));
   assert.equal(r.check.status, 400, 'check: ' + says(r.checkBody));
-  /* #7206 slice 2a: the check route refuses before it reads which vendor, so its sentence names none. */
-  assert.equal(r.checkBody.error, 'That provider is not available in Kosmos yet');
+  assert.equal(r.checkBody.error, NOT_YET);   // 2a review 5: the account's own vendor refuses, in its own name
   assert.deepEqual(r.asked, [], 'a key was sent to DeepSeek while the switch is off');
   assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.kosmos-deepseek-route-add')), false, 'add stored an account');
 });

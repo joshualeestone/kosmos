@@ -13874,7 +13874,7 @@ const server = http.createServer(async (req, res) => {
     Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive(), qwenAccounts.listLive(),
       /* #7206 slice 1b: vendor rows, listed and checked ONLY while their switch is on (off: no row, and no key sent). */
       /* 2a review 2: listLive checks only vendors whose own switch is on (engine/anthropiccompat.js); review 5: never fails the whole list. */
-      compatAccounts.enabled() ? compatAccounts.listLive().catch(() => []) : Promise.resolve([])])
+      compatAccounts.anyEnabled() ? compatAccounts.listLive().catch(() => []) : Promise.resolve([])])
       .then(async ([claudeRows, openaiRows, geminiRows, grokRows, qwenRows, compatRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
            real-call outcome (engine/observed), joined to the account via the SAME
@@ -14810,7 +14810,7 @@ const server = http.createServer(async (req, res) => {
   /* #7206 slice 1b: whether the page offers vendor providers at all (off by default), and which; read on every ask, as
      /api/muse is, so turning the switch on needs no restart. */
   if (pathname === '/api/accounts/compat' && req.method === 'GET') {
-    const on = compatAccounts.enabled();
+    const on = compatAccounts.anyEnabled();
     /* 2a review 1: only the vendors whose own switch is on. */
     sendJson(res, 200, { enabled: on, vendors: on ? Object.values(compatAccounts.VENDORS).filter((v) => compatAccounts.enabled(process.platform, v.id)).map((v) => ({ id: v.id, name: v.name, models: v.models.slice(), keyPage: v.keyPage })) : [] });
     return;
@@ -14825,7 +14825,8 @@ const server = http.createServer(async (req, res) => {
   }
   if (pathname === '/api/accounts/compat/check' && req.method === 'POST') {
     /* 1b review 1: off means off here too, or a stored key (left from a time the switch was on) is still sent. */
-    if (!compatAccounts.enabled()) { sendJson(res, 400, { error: compatAccounts.notYet(null), notYet: true }); return; }   // #7206 2a: no one vendor
+    /* 2a review 5: no switch-wide refusal before the body: the account names its vendor, and that vendor's own switch
+       (below, before any key is sent) refuses in its own name. */
     readBody(req)
       .then(async (raw) => {
         let body = null;

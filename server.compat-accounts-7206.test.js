@@ -57,6 +57,7 @@ test.afterEach(() => { compat.setFetcher(null); compat.resetLiveCacheForTest(); 
 
 const post = (p, obj) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
 const del = (p, obj) => fetch(base + p, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
+process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = 'glm';   // 2a review 5: GLM is offerable here only by naming it (slice 2b removes this)
 const KEY = 'sk-deepseek-route-0123456789';
 function vendorAnswers(reply) {
   const urls = [];
@@ -291,4 +292,24 @@ test('#7206 2a review 1: DeepSeek\'s switch on does not turn GLM on: GLM is refu
     assert.equal(on.accounts.some((a) => a.provider === 'glm'), true, 'CONTROL: with its own switch on, the GLM row is listed');
     assert.equal(asked2.some((u) => /z\.ai/.test(u)), true, 'CONTROL: with its own switch on, it is checked');
   } finally { sw.setVendorAt(SANDBOX, 'glm', false); fs.rmSync(nodePath.join(SANDBOX, '.kosmos-glm-stored'), { recursive: true, force: true }); }
+});
+
+test('#7206 2a review 5: the check route refuses a stored GLM account under DeepSeek\'s switch, in GLM\'s name, and sends no key; its own switch is the control', async () => {
+  const sw = require('./test-support/compat-switch');
+  const dir = nodePath.join(SANDBOX, '.kosmos-glm-checkme');
+  compat.storeAccount(dir, { vendor: 'glm', model: 'glm-5.3', key: 'zai-check-key-0123456789' });
+  try {
+    compat.resetLiveCacheForTest();
+    const asked = vendorAnswers({ status: 200, body: { data: [{ id: 'glm-5.3' }] } });
+    const r = await post('/api/accounts/compat/check', { dir });
+    const b = await r.json();
+    assert.deepEqual([r.status, b.notYet, b.error], [400, true, 'Z.ai GLM is not available in Kosmos yet']);
+    assert.deepEqual(asked, [], 'the check route sent a GLM key under DeepSeek\'s switch');
+    sw.setVendorAt(SANDBOX, 'glm', true);
+    compat.resetLiveCacheForTest();
+    const asked2 = vendorAnswers({ status: 200, body: { data: [{ id: 'glm-5.3' }] } });
+    const r2 = await post('/api/accounts/compat/check', { dir });
+    assert.equal(r2.status, 200, 'CONTROL: with its own switch on, the check runs');
+    assert.equal(asked2.some((u) => /z\.ai/.test(u)), true);
+  } finally { sw.setVendorAt(SANDBOX, 'glm', false); fs.rmSync(dir, { recursive: true, force: true }); }
 });
