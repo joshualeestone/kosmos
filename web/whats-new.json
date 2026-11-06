@@ -4,12 +4,12 @@
     {
       "icon": "spark",
       "title": "Create agent says when no model is connected",
-      "line": "If no AI model is connected yet, Create agent now says so where you can see it, with a link to connect one, and keeps what you typed."
+      "line": "With no AI model connected, Create agent says so where you see it and links to connect one. Back within 30 minutes, your form is kept."
     },
     {
       "icon": "shield",
       "title": "Start a new agent without imported files",
-      "line": "When Claude Code asks a new agent whether to use files your settings import, you can now start it without them from its page."
+      "line": "When Claude Code asks whether a new agent may use files its instructions import from outside its folder, you can start it without them."
     },
     {
       "icon": "chat",
