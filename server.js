@@ -21522,6 +21522,20 @@ const server = http.createServer(async (req, res) => {
     }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
+  /* kosmos#1765: the folder this board serves from, when other people on this PC may be able to change it
+     (engine/win32runfolder.js). Null in every other case; dismissed for this start by the person. */
+  if (pathname === '/api/board/run-folder' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let notice = null;
+    try { notice = require('./engine/win32runfolder').current(); } catch { notice = null; }
+    sendJson(res, 200, { notice });
+    return;
+  }
+  if (pathname === '/api/board/run-folder/dismiss' && req.method === 'POST') {
+    let ok = false;
+    try { ok = require('./engine/win32runfolder').dismiss(); } catch { ok = false; }
+    sendJson(res, ok ? 200 : 500, ok ? { dismissed: true } : { error: 'we could not record that just now' });
+    return;
+  }
   if (pathname === '/api/board/damaged-files/dismiss' && req.method === 'POST') {
     let ok = false;
     try { ok = require('./engine/storecheck').dismiss(); } catch { ok = false; }
@@ -29270,6 +29284,12 @@ if (require.main === module) {
     try { require('./engine/storecheck').atStart({ base }); } catch (err) {
       process.stderr.write('Kosmos could not check its own files at start (' + ((err && err.code) || 'an error') + ').\n');
     }
+  }
+  /* kosmos#1765: on Windows, a board serving from a folder outside the profile that other accounts on this PC can
+     change says so on the board (GET /api/board/run-folder). Asked of that folder's own Kosmos.exe, off the board's
+     thread; nothing is started for the normal install inside the profile. Never fatal, never waited on. */
+  try { require('./engine/win32runfolder').atStart(); } catch (err) {
+    process.stderr.write('Kosmos could not check its own folder at start (' + ((err && err.code) || 'an error') + ').\n');
   }
   /* #1598: authorize live launchctl/tmux for the real board process ONLY. The
      guarded modules (engine/remove.js, engine/delete-leftover.js, engine/create.js)

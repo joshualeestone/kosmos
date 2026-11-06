@@ -1376,6 +1376,7 @@ body:has(> .restart-back, > .upd-back, > .cswitch-back) > .stepup-ask { display:
 .utoast.reboot .utxt b { color: var(--label); }
 /* kosmos#7248: one row per damaged file, its put-back button inline at the button size the notices use. */
 .utoast.dmg .utxt small.dmgrow { display: block; margin-top: 4px; }
+.utoast.runfolder .utxt small.rfmsg { display: block; margin-top: 4px; }
 .utoast.dmg .dmgput { font: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; margin-left: 4px;
   border-radius: 8px; padding: .4em .7em; border: 1px solid var(--separator); background: var(--bg-elevated); color: var(--label); }   /* as .uacts buttons */
 .utoast.dmg .dmgput[aria-disabled="true"] { opacity: .5; cursor: default; }
@@ -13106,6 +13107,9 @@ window.kosmosMeasureScrollbarWidth();
     <!-- kosmos#7248: a file of Kosmos's own that a crash left empty or unreadable, found at start. A fact Kosmos did not
          act on, with the one action it offers (put a good copy back); its own slot. -->
     <div id="damaged-slot"></div>
+    <!-- kosmos#1765: on Windows, this board runs from a folder other people on this PC may be able to change. A fact
+         Kosmos did not act on (it keeps serving), with what to do about it; its own slot. -->
+    <div id="runfolder-slot"></div>
     <!-- #6160: the once-a-day streak note. A celebration, so it sits below the facts; its own slot so it co-occurs. -->
     <div id="streak-slot"></div>
     <!-- ⚠️ ITS OWN SLOT, and the reason is a state that really happens: a person
@@ -24831,6 +24835,43 @@ function paintDamagedFiles(files) {
     rebootFocusAway();
   });
 }
+/* kosmos#1765: this board runs from a folder other people on this PC may be able to change (engine/win32runfolder.js,
+   which asks that folder's own Kosmos.exe). The words are the launcher's own; the X hides it until the next start,
+   and says so when that did not work, as the damaged-files note's X does. */
+function paintRunFolder(notice) {
+  const slot = document.getElementById('runfolder-slot');
+  if (!slot) return;
+  const held = slot.contains(document.activeElement);
+  if (!notice || typeof notice.message !== 'string' || !notice.message) { slot.innerHTML = ''; if (held) rebootFocusAway(); return; }
+  slot.innerHTML = '<div class="utoast reboot runfolder">'
+    + '<span class="udot" aria-hidden="true"></span>'
+    + '<div class="utxt" role="status"><b>Other people on this computer may be able to change Kosmos</b>'
+    + '<small class="rfmsg">' + esc(notice.message) + '</small></div>'
+    + '<button type="button" class="ux" aria-label="Dismiss">&times;</button>'
+    + '</div>';
+  const x = slot.querySelector('.ux');
+  if (held) x.focus();
+  x.addEventListener('click', async () => {
+    let ok = false;
+    try { const r = await fetch('/api/board/run-folder/dismiss', { method: 'POST' }); await r.text(); ok = r.ok; } catch { ok = false; }
+    if (!ok) {
+      const txt = slot.querySelector('.utxt');
+      const old = txt.querySelector('.rerr');
+      if (old) old.remove();
+      txt.insertAdjacentHTML('beforeend', ' <span class="rerr">' + esc('Kosmos could not record that just now. Try again in a moment.') + '</span>');
+      return;
+    }
+    slot.innerHTML = '';
+    rebootFocusAway();
+  });
+}
+async function runFolderCheck() {
+  try {
+    const res = await fetch('/api/board/run-folder', { cache: 'no-store' });
+    const got = await res.json().catch(() => null);   // read the body either way (an unread one holds the connection open)
+    if (res.ok && got) paintRunFolder(got.notice);
+  } catch { /* a courtesy: the board log has it too */ }
+}
 async function damagedFilesCheck() {
   try {
     const res = await fetch('/api/board/damaged-files', { cache: 'no-store' });
@@ -27405,7 +27446,7 @@ async function tick() {
     /* #5359: a board that started again under an open page may have a restart note: ask again when its start time
        moves (a page that watched the outage is the one most likely to want the note). */
     if (data.engine && data.engine.startedAt) {
-      if (REBOOT_SEEN_START && REBOOT_SEEN_START !== data.engine.startedAt) { rebootNoteCheck(); damagedFilesCheck(); }   // kosmos#7248 too
+      if (REBOOT_SEEN_START && REBOOT_SEEN_START !== data.engine.startedAt) { rebootNoteCheck(); damagedFilesCheck(); runFolderCheck(); }   // kosmos#7248 and #1765 too
       REBOOT_SEEN_START = data.engine.startedAt;
     }
     paintBuildLine(data.version);
@@ -48215,6 +48256,7 @@ async function whatsNewCheck() {
 whatsNewCheck();
 rebootNoteCheck();   // #5359
 damagedFilesCheck();   // kosmos#7248
+runFolderCheck();   // kosmos#1765
 restartLineCheck();   // kosmos#7411
 setInterval(() => { if (!RLINE.busy && !document.hidden) restartLineCheck(); }, 60 * 1000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !RLINE.busy) restartLineCheck(); });

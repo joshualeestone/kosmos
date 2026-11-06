@@ -57,6 +57,20 @@ test('#1765: Main refuses an unsafe folder before anything from it runs, the uni
   }
 });
 
+test('#1765: --check-run-folder is answered before anything else in Main, the console included, and does nothing else', () => {
+  /* The board reads this answer from a pipe (engine/win32runfolder.js): no box, no console, no errand may come first. */
+  const main = slice('static int Main(string[] args)', '\n    }\n');
+  const flag = main.indexOf('CheckRunFolderFlag');
+  assert.ok(flag !== -1, 'Main no longer answers --check-run-folder');
+  for (const later of ['ConnectToAConsole()', 'string unsafeFolder = UnsafeRunFolderReason(here);', 'if (wantsUninstall) return Uninstall(here, node);']) {
+    const at = main.indexOf(later);
+    assert.ok(at !== -1 && at > flag, later + ' comes before the --check-run-folder answer');
+  }
+  const branch = main.slice(flag, main.indexOf('bool wantsConsole'));
+  assert.match(branch, /Console\.Out\.Write\(RunFolderAnswer\(Here\(\)\)\);[\s\S]*return 0;/);
+  assert.doesNotMatch(branch, /Process\.Start|ShowMessageBox|RunInstallerDuties/, 'the answer does more than answer');
+});
+
 test('#1765: the rights that count, and the only accounts that may hold them', () => {
   assert.match(SOURCE, /internal const int RunFolderChangeRights = FILE_WRITE_DATA \| FILE_APPEND_DATA \| FILE_WRITE_EA \| FILE_DELETE_CHILD \| DELETE_RIGHT \| WRITE_DAC \| WRITE_OWNER \| GENERIC_ALL \| GENERIC_WRITE;/);
   assert.match(SOURCE, /internal const int AncestorChangeRights = FILE_DELETE_CHILD \| DELETE_RIGHT \| WRITE_DAC \| WRITE_OWNER \| GENERIC_ALL \| GENERIC_WRITE;/);
@@ -123,6 +137,12 @@ class AclProbe {
       KosmosLauncher.downloadsFolder = () => d;
       KosmosLauncher.desktopFolder = () => k;
       Console.Write(KosmosLauncher.FreshCopyFolder(a[1]));
+      return 0;
+    }
+    if (a[0] == "--answer") {
+      string pr = a[2];
+      KosmosLauncher.userProfileFolder = () => pr;
+      Console.Write(KosmosLauncher.RunFolderAnswer(a[1]));
       return 0;
     }
     if (a.Length > 2) { var other = new System.Security.Principal.SecurityIdentifier(a[2]); KosmosLauncher.currentUser = () => other; }
@@ -470,4 +490,34 @@ test('#1765: a run folder that is a link, or sits behind one, is refused', WINDO
   assert.match(answer, /is a link to another place, and Kosmos does not run from behind one/, 'a run folder behind a junction was not refused: ' + answer);
   assert.ok(answer.includes(junction), 'the reason does not name the link: ' + answer);
   fs.rmdirSync(junction);
+});
+
+test('#1765: --check-run-folder answers one JSON line: safe in the profile, and the reason and the words for the board elsewhere', WINDOWS_ONLY, (t) => {
+  if (!needsBuild(t)) return;
+  // The built launcher itself, run as the board runs it, from a folder inside this profile (the temp folder).
+  const here = sandboxFolder('answer');
+  fs.copyFileSync(launcherExe, path.join(here, 'Kosmos.exe'));
+  const r = spawnSync(path.join(here, 'Kosmos.exe'), ['--check-run-folder'], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+  assert.equal(r.status, 0, 'the launcher failed: ' + r.stdout + r.stderr);
+  const profileHome = fs.realpathSync.native(os.homedir());
+  if (here.toLowerCase().startsWith(profileHome.toLowerCase() + '\\')) {
+    assert.deepEqual(JSON.parse(r.stdout), { safe: true }, 'a folder inside the profile was not safe: ' + r.stdout);
+  }
+  assert.ok(!fs.existsSync(path.join(here, 'ran.txt')), 'the answer started something');
+  // An unsafe folder (Users may change it), read as outside the profile: valid JSON with the reason and the words.
+  const open = sandboxFolder('answer-open');
+  icacls(open, '/grant', USERS + ':(OI)(CI)M');
+  const p = spawnSync(probeExe, ['--answer', open, NOT_MY_PROFILE], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+  assert.equal(p.status, 0, 'the probe failed: ' + p.stdout + p.stderr);
+  const a = JSON.parse(p.stdout);
+  assert.equal(a.safe, false);
+  assert.equal(a.folder, open);
+  assert.match(a.reason, / can change /);
+  assert.ok(a.message.startsWith('Kosmos is running from ' + open + ', and other people who use this computer may be able to change'), a.message);
+  assert.ok(a.message.includes('After that you can delete ' + open + '.'), a.message);
+  assert.doesNotMatch(a.message, /\u2014/, 'an em dash in the words');
+  // A locked folder answers safe.
+  const locked = sandboxFolder('answer-locked');
+  lockDown(locked);
+  assert.deepEqual(JSON.parse(spawnSync(probeExe, ['--answer', locked, NOT_MY_PROFILE], { encoding: 'utf8', windowsHide: true, timeout: 30000 }).stdout), { safe: true });
 });

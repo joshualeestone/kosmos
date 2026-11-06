@@ -82,6 +82,12 @@ class KosmosLauncher
     // What Settings > Apps > Installed apps > Uninstall runs (see Uninstall).
     const string UninstallFlag = "--uninstall";
 
+    // kosmos#1765: what the board asks (engine/win32runfolder.js) when it is serving from a folder outside the
+    // profile. It answers whether this folder is one other people on this PC can change, as one JSON line on stdout,
+    // and does nothing else: no box, no console, no errand. The board asks this program rather than keeping a second
+    // copy of the rule.
+    internal const string CheckRunFolderFlag = "--check-run-folder";
+
     // The engine helpers' word that the person confirmed: engine/win32uninstall.js and
     // win32relocate.js and win32update.js are dry runs without it. Passed only after the person confirmed
     // (the uninstall), or because opening Kosmos from a cleaned-up folder or a newer download is the
@@ -160,6 +166,13 @@ class KosmosLauncher
     [STAThread]
     static int Main(string[] args)
     {
+        // kosmos#1765: before anything else, the console included: the board reads this answer from a pipe.
+        if (Array.Exists(args, a => string.Equals(a, CheckRunFolderFlag, StringComparison.OrdinalIgnoreCase)))
+        {
+            Console.Out.Write(RunFolderAnswer(Here()));
+            Console.Out.Flush();
+            return 0;
+        }
         bool wantsConsole = Array.Exists(args, a => string.Equals(a, ConsoleFlag, StringComparison.OrdinalIgnoreCase));
         bool wantsUninstall = Array.Exists(args, a => string.Equals(a, UninstallFlag, StringComparison.OrdinalIgnoreCase));
         bool wantsWindow = Array.Exists(args, a => string.Equals(a, WindowFlag, StringComparison.OrdinalIgnoreCase));
@@ -697,6 +710,44 @@ class KosmosLauncher
             : fresh + " Once you have next signed in to Windows, you can delete " + folder + ".";
         return what + folder + ", because other people who use this computer may be able to change the files in that folder, and Kosmos would run whatever they put there.\n\n"
             + fix + "\n\nDetails: " + reason + ".";
+    }
+
+    // kosmos#1765: the --check-run-folder answer, one JSON line. A folder Kosmos may run from answers {"safe":true};
+    // one it may not answers the reason (for support) and the words the board shows a person whose Kosmos is
+    // already running from it. Never throws: a check that fails answers unsafe, as the launcher would refuse.
+    internal static string RunFolderAnswer(string here)
+    {
+        string reason;
+        try { reason = UnsafeRunFolderReason(here); }
+        catch (Exception e) { reason = "the folder could not be checked (" + e.Message + ")"; }
+        if (reason == null) return "{\"safe\":true}";
+        string folder = FullPathOrNull(here) ?? here;
+        return "{\"safe\":false,\"folder\":" + JsonText(folder) + ",\"reason\":" + JsonText(reason)
+            + ",\"message\":" + JsonText(RunningFolderMessage(here)) + "}";
+    }
+
+    // What the board tells a person whose Kosmos already runs from such a folder: the same fact and the same way out
+    // as the launcher's refusal (UnsafeFolderMessage), in the words for a Kosmos that is running.
+    internal static string RunningFolderMessage(string here)
+    {
+        string folder = FullPathOrNull(here) ?? here;
+        string downloads = FreshCopyFolder(FullPathOrNull(userProfileFolder()));
+        return "Kosmos is running from " + folder + ", and other people who use this computer may be able to change the files in that folder, so they could change what Kosmos runs as you. "
+            + "To fix it, download Kosmos again, extract it into " + downloads + ", and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change and starts from there from your next sign-in. After that you can delete " + folder + ".";
+    }
+
+    // A JSON string literal: quotes, backslashes and control characters escaped, anything outside ASCII as \uXXXX.
+    static string JsonText(string s)
+    {
+        StringBuilder b = new StringBuilder("\"");
+        foreach (char c in s ?? "")
+        {
+            if (c == '"') b.Append("\\\"");
+            else if (c == '\\') b.Append("\\\\");
+            else if (c < 0x20 || c > 0x7e) b.Append("\\u").Append(((int)c).ToString("x4"));
+            else b.Append(c);
+        }
+        return b.Append('"').ToString();
     }
 
     static int RefuseUnsafeFolder(string here, string reason, bool uninstalling)
