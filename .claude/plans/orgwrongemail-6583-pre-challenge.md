@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: orgwrongemail-6583
 diff_hash: 909ea68073f9b2c2efdd75212ea23bf0ededead74cde86c7e3c421e93a8f5730
-validation: pending (full suite queued after convergence, per the fleet's queue rule; the three focused files passed every round)
+validation: passed (full suite 27524 tests, 0 fail, at 46c7a0f026, 04:30 CST)
 subdir_audit: passed
 timestamp: 2026-11-06T10:06:29Z
 iterations: 5
