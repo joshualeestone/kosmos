@@ -156,6 +156,13 @@ jobs:
           ios/LogicTests/run-sweep.sh | tee "$RUNNER_TEMP/sweep.log"
           grep -q '^VERDICT: PASS' "$RUNNER_TEMP/sweep.log"
 
+      # kosmos#8078: pull to refresh's decisions. Its gesture is DotsRefreshUITests, run by hand.
+      - name: Pull to refresh logic tests
+        run: |
+          set -o pipefail
+          ios/LogicTests/run-pullrefresh.sh | tee "$RUNNER_TEMP/pullrefresh.log"
+          grep -q '^VERDICT: PASS' "$RUNNER_TEMP/pullrefresh.log"
+
       # -target with an unversioned -sdk: needs no installed simulator runtime
       # (see ios/README.md for why -scheme/-destination is not used).
       - name: Simulator SDK build

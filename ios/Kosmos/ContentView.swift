@@ -926,6 +926,7 @@ struct WebView: UIViewRepresentable {
         // Pull to refresh, with the dots (kosmos#8078). The page's finish or failure ends it (endRefreshing below).
         let refresh = DotsRefreshDriver()
         refresh.onRefresh = { [weak coordinator = web.coordinator] in coordinator?.reloadOrHome() }
+        refresh.holdsSpace = false   // WebKit manages this scroll view's insets; this never writes them
         refresh.attach(to: webView.scrollView)
         web.coordinator.refresher = refresh
         webView.accessibilityCustomActions = [UIAccessibilityCustomAction(name: "Refresh") { [weak refresh] _ in refresh?.ask(); return true }]

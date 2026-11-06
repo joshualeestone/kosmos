@@ -12,10 +12,11 @@ Josh, 2026-11-05 18:33 CST: "only use the dots spinner in the mobile app and scr
 - Rejected an overlay: a list's top moves with a large title and differs per screen. A subview of the scroll view is placed as iOS places its own.
 - The dots exist only during a pull or a refresh, so a resting list has no clock-drawn view (#7427's concern).
 - The space is held for at most 20 s, so a person offline gets the list back while the work goes on.
-- VoiceOver gets a named Refresh action, where a pull is not available.
+- The board page holds no space and never writes the web view's insets, since WebKit manages them. The dots rest over the top of the page until it has loaded.
+- VoiceOver gets a named Refresh action, which says so when it starts.
 
 ## Weakest premise
-Finding the scroll view by walking the view tree: there is no API before iOS 18, and an iOS update could change the tree. A list that is not found has no pull at all and draws nothing wrong; the UI tests catch it on the tabs they drive.
+Finding the scroll view by walking the view tree: there is no API before iOS 18, and an iOS update could change the tree. A list that is not found has no pull at all and draws nothing wrong; the UI tests catch it on the tabs they drive, and they are run by hand: no workflow runs UI tests.
 
 ## Not measured
-A real iPhone (the card's Done). The board page's pull, Today, a task's page, a project's info, an agent's info and Files have no UI test; they use the same piece.
+A real iPhone (the card's Done). Whether VoiceOver can reach the named action on a list, and iOS's own three-finger scroll to refresh, which may be lost: a real device with VoiceOver has to say. The board page's pull, Today, a task's page, a project's info, an agent's info and Files have no UI test; they use the same piece.
