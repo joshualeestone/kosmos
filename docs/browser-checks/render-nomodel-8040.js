@@ -383,8 +383,8 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       chk(await p.evaluate((t) => document.getElementById('create-name').value === 'Nadia' && document.getElementById('create-instr').value === t && !document.getElementById('cstep-name').hidden, TYPED), 'limit: CONTROL: 29 minutes after the link, the form is kept');
       // kosmos#8051 item 1: the kept form says why it is back, and the name field (where focus lands) is described by it.
       const keptNow = await keptLine(p);
-      // In the hint's type, under the title: a size step below the role's blurb, and above it (review 3: `.panel p` had
-      // out-ranked the class, so the line came out as a second blurb).
+      // In the hint's type, under the title: a size step below the role's blurb, and above it (`.panel p` can
+      // out-rank the class and make the line a second blurb).
       const look = await p.evaluate(() => { const k = document.getElementById('create-kept'), bl = document.getElementById('create-blurb'), s = (e) => parseFloat(getComputedStyle(e).fontSize); return { kept: s(k), blurb: s(bl), above: !!(k.compareDocumentPosition(bl) & Node.DOCUMENT_POSITION_FOLLOWING) }; });
       if (SHOTS) {
         await p.setViewportSize({ width: 390, height: 800 });
@@ -674,8 +674,8 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       chk(over.focus, 'start over: and the keyboard lands on the first choice, not the page', JSON.stringify(over));
       await p.close();
     }
-    // kosmos#8051 item 1 (review 6): a different role empties the form, so the line about the kept one goes with it.
-    // Defensive (review 7): no button on the name step leads back to the roles today; this guards refillDetails' reset
+    // kosmos#8051 item 1: a different role empties the form, so the line about the kept one goes with it.
+    // Defensive: no button on the name step leads back to the roles today; this guards refillDetails' reset
     // for whatever route is added, by driving the role step's own Continue.
     {
       const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
