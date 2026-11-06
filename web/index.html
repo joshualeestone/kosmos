@@ -16879,7 +16879,8 @@ window.kosmosMeasureScrollbarWidth();
     <h2 class="tc-h" id="tc-title" tabindex="-1"></h2>
     <p class="rolehelp" id="tc-purpose"></p>
     <!-- kosmos#8092 (Mona Lisa): the suggested names can be long and hard to type, and they are what a person types to
-         reach an agent. One press swaps every row still open for a short name; each row also has its own Another name. -->
+         reach an agent. One press swaps every row still open for a short name, except a name the person typed (it is
+         theirs); each row also has its own Another name. -->
     <p class="tc-short" id="tc-short-p" hidden><button type="button" class="linkish" id="tc-short">Use short names</button></p>
     <ol class="tc-list" id="tc-list" aria-labelledby="tc-title"></ol>
     <p class="vh" id="tc-name-said" aria-live="polite"></p>
@@ -63654,7 +63655,8 @@ function tcPaint() {
     /* Review 27: nor from the click until the run starts. The names are checked free at the click, and
        a name typed after that check would be made, and trusted as checked, without ever being checked. */
     input.disabled = TC.started ? m.state !== 'failed' : Boolean(TC.busy);
-    // kosmos#8092: a name typed in is theirs; an emptied box, or the suggestion typed back, is not.
+    // kosmos#8092: a name typed in is theirs; an emptied box, or the suggestion typed back exactly, is not. Case counts:
+    // "maya" over "Maya" is their own spelling, so it is kept.
     input.addEventListener('input', () => { m.name = input.value; const v = input.value.trim(); m.typed = Boolean(v) && v !== (m.suggested || '').trim(); });
     // kosmos#8092: Another name, a short one; it changes only what the name box would, so it is open exactly when that is.
     const another = document.createElement('button');
