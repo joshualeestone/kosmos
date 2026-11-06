@@ -149,7 +149,7 @@ do {
         for name in names where name.hasSuffix(".swift") && name != "KosmosOrb.swift" {
             let text = repoText(folder + "/" + name)
             read.append(folder + "/" + name)
-            // A line starting // is skipped, so such a comment is neither an offender nor counted. A /* */ block or a trailing
+            // A line whose first non-blank characters are // is skipped, so such a comment is neither an offender nor counted. A /* */ block or a trailing
             // comment is still read, so naming one there can trip the check.
             let code = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             for bad in ["KosmosOrb", "ProgressView", ".progressViewStyle", "UIActivityIndicatorView"] where code.contains(where: { $0.contains(bad) }) { offenders.append(name + ": " + bad) }
@@ -159,10 +159,10 @@ do {
     }
     check(read.contains("ios/Kosmos/ChatView.swift") && read.contains(where: { $0.hasPrefix("ios/KosmosNotice/") }) && read.count > 20,
           "both app folders were read, subfolders included (\(read.count) files)")
-    check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app (caught by these names on lines not starting with //; a renamed type or a hand-made spinner is not caught)" + (offenders.isEmpty ? "" : ": \(offenders)"))
+    check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app (caught by these names, // comment lines skipped; a renamed type or a hand-made spinner is not caught)" + (offenders.isEmpty ? "" : ": \(offenders)"))
     // The one known exception, pinned so no new one appears: pull to refresh draws iOS's own spinner (10 lists and the board
     // page's refresh control). Dots there need pull to refresh rebuilt: #8078.
-    check(refreshable == 10 && refreshControls == 1, "pull to refresh is the only system spinner left (lines starting with // skipped, as above), at its 11 known places (\(refreshable) + \(refreshControls))")
+    check(refreshable == 10 && refreshControls == 1, "pull to refresh is the only system spinner left (// comment lines skipped, as above), at its 11 known places (\(refreshable) + \(refreshControls))")
 }
 
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")
