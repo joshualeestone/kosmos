@@ -317,8 +317,9 @@ struct SettingsView: View {
         guard let mac else { load = .noComputer; return }
         if case .loaded = load {} else { load = .reading }
         let (status, data) = await send(Settings.readRequest(mac))
-        // A write landed meanwhile: its answer is newer than this one.
-        guard started == generation else { return }
+        // A write landed meanwhile: its answer is newer than this one. kosmos#8078: a pull cancelled by leaving the tab is
+        // not a failed read; the tab reads again on its way back.
+        guard started == generation, !Task.isCancelled else { return }
         if let s = Settings.phoneNotify(status: status, data: data) {
             load = .loaded(s)
             note = nil

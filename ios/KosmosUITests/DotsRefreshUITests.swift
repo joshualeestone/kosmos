@@ -60,6 +60,47 @@ final class DotsRefreshUITests: XCTestCase {
     func testSettingsPullShowsTheDotsAndEnds() { pullRefreshes(tab: "settings", named: "settings") }
     func testProjectsPullShowsTheDotsAndEnds() { pullRefreshes(tab: "projects", named: "projects") }
 
+    /// A pushed screen: its pull must reach its own list and not the one underneath, and leaving mid-refresh must not
+    /// misplace the list underneath on the way back.
+    func testAPushedScreenPullsItsOwnListAndBackIsWhereItWas() {
+        let app = launch(tab: "tasks")
+        let row = app.staticTexts["Pages 9 to 12"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        sleep(2)
+        let before = row.frame.minY
+        XCTAssertTrue(app.staticTexts["Needs you"].isHittable, "CONTROL: the tile is on the list")
+        row.tap()
+        sleep(2)
+        // The page repeats the row's words as its title, so the list's own tile says which screen this is.
+        let onlyOnTheList = app.staticTexts["Needs you"]
+        XCTAssertFalse(onlyOnTheList.exists && onlyOnTheList.isHittable, "CONTROL: the task's page is showing")
+        XCTAssertFalse(dots(app).exists)
+        pull(app, distance: 320)
+        XCTAssertTrue(dots(app).waitForExistence(timeout: 3), "the pushed page's pull did not reach its own list")
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
+        wait(for: [gone], timeout: 12)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        sleep(2)
+        XCTAssertEqual(row.frame.minY, before, accuracy: 1, "the list underneath moved")
+    }
+
+    /// Leaving while the dots run gives the space back off screen: the list must still come back where it was.
+    func testLeavingMidRefreshLeavesTheListWhereItWas() {
+        let app = launch(tab: "tasks")
+        let row = app.staticTexts["Pages 9 to 12"]
+        XCTAssertTrue(row.waitForExistence(timeout: 20))
+        sleep(2)
+        let before = row.frame.minY
+        pull(app, distance: 320)
+        XCTAssertTrue(dots(app).waitForExistence(timeout: 3))
+        row.tap()
+        sleep(2)
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        sleep(2)
+        XCTAssertFalse(dots(app).exists, "dots left behind")
+        XCTAssertEqual(row.frame.minY, before, accuracy: 1, "the list did not come back where it was")
+    }
+
     func testAShortPullStartsNothing() {
         let app = launch(tab: nil)
         sleep(3)

@@ -139,9 +139,10 @@ final class DotsRefreshDriver: NSObject {
         UIView.animate(withDuration: 0.25, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction], animations: {
             self.dots?.view.alpha = 0
             if let set, abs(view.contentInset.top - set) < 0.5 { view.contentInset.top = self.insetBefore }
-            // Only when the list is showing the held space: a list scrolled down meanwhile stays where it is.
+            // Only when the list is showing the held space: a list scrolled down meanwhile stays where it is. And only on
+            // screen: off screen a view's safe area reads 0, so this would put the first rows under the bar on the way back.
             let top = -view.adjustedContentInset.top
-            if view.contentOffset.y < top && !view.isDragging { view.contentOffset.y = top }
+            if view.window != nil && view.contentOffset.y < top && !view.isDragging { view.contentOffset.y = top }
         }, completion: { [weak self] _ in
             guard let self else { return }
             self.givingBack = false
@@ -164,8 +165,9 @@ final class DotsRefreshDriver: NSObject {
         let side: CGFloat = 24
         let y: CGFloat
         if refreshing && !holdsSpace {
-            // Nothing held open: over the top of the page, wherever the page has gone.
-            y = view.contentOffset.y + view.adjustedContentInset.top + 12
+            // Nothing held open: over the top of the page, wherever the page has gone. Staying where the pull left it until
+            // the page comes back to meet it, so it does not jump on release.
+            y = max(view.contentOffset.y + view.adjustedContentInset.top + 12, -CGFloat(amount) / 2 - side / 2)
         } else {
             // Centred in the space above the first row, which is the pull plus whatever is held open. In the scroll view's
             // own coordinates the first row starts at 0, so the space runs up from there.
@@ -195,8 +197,8 @@ final class DotsRefreshDriver: NSObject {
 }
 
 /// Finds the scroll view a SwiftUI list or scroll view is drawn with. There is no API for this before iOS 18, so it walks
-/// outward from a view placed behind the list and takes the scroll view that covers it. A list that is never found simply
-/// has no pull: it cannot draw the wrong thing. DotsRefreshUITests, run by hand, fails if a tab's list stops being found.
+/// outward from a view placed behind the list and takes the nearest scroll view that covers it. A list that is not found has
+/// no pull. DotsRefreshUITests, run by hand, fails if a tab's list or a pushed screen's stops being found.
 private struct ScrollViewFinder: UIViewRepresentable {
     let driver: DotsRefreshDriver
 
@@ -207,7 +209,9 @@ private struct ScrollViewFinder: UIViewRepresentable {
         override func didMoveToWindow() {
             super.didMoveToWindow()
             tries = 0
-            look()
+            // Not yet: SwiftUI adds the list beside this view in the same pass, and until it has, the nearest scroll view that
+            // covers this spot can be the screen underneath, during a push or a switch between two lists.
+            DispatchQueue.main.async { [weak self] in self?.look() }
         }
 
         func look() {
@@ -225,7 +229,8 @@ private struct ScrollViewFinder: UIViewRepresentable {
             var ancestor = superview
             while let here = ancestor {
                 let covering = Self.scrollViews(in: here).filter { candidate in
-                    candidate.convert(candidate.bounds, to: nil).contains(centre)
+                    !candidate.isHidden && candidate.alpha > 0 && candidate.window != nil
+                        && candidate.convert(candidate.bounds, to: nil).contains(centre)
                         && abs(candidate.bounds.width - mine.width) < 1
                 }
                 // The innermost that covers it, so a list inside another scrolling view is the list.
