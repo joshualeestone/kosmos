@@ -16,25 +16,26 @@ const os = require('node:os');
  * uses mach_continuous_time), so a short nap reads as a stall. A gap past ASLEEP_MS is more likely sleep and says it
  * cannot tell, rather than being dropped, since the longest real stall is the one this most needs to report.
  *
- * #7693: a stall's line (not a sleep gap's) ends with the machine's one-minute load, so a read of the log can compare stalls at like load. Without it a
- * drop in held time cannot be told from a quieter machine (11-05: 452 s held in the 16:00 hour, 12 s at 17:00, no change to
- * the board). One moment, read when the stall ends, not the stall's average. Left out when there is none to report: Windows
- * answers 0 for a load it does not keep, and "load 0" would read as an idle machine.
+ * #7693: each line ends with the machine's one-minute load, and a [load] line every LOAD_EVERY_MS records it between
+ * stalls, so held time can be compared at like load, including hours with no stall at all. Left out when there is
+ * none to report: Windows answers 0 for a load it does not keep.
  */
 
 const TICK_MS = 500;
 const HELD_MS = 2000;       // late by this much: the board answered nobody for that long
 const ASLEEP_MS = 300000;   // a gap this long is more likely the computer sleeping than the board held
 const MAX_PER_MINUTE = 10;
+const LOAD_EVERY_MS = 600000;
 const monotonic = () => Math.round(performance.now());   // not the wall clock: a clock step is not a stall
 
-// ", load 4.24", or nothing when there is no load to report. A failed read loses the figure, never the line.
-function loadWords(read) {
+// "4.24", or '' when there is no load to report. A failed read loses the figure, never the line it goes on.
+function loadFigure(read) {
   try {
     const n = read();
-    return Number.isFinite(n) && n > 0 ? `, load ${n.toFixed(2)}` : '';
+    return Number.isFinite(n) && n >= 0.005 ? n.toFixed(2) : '';
   } catch { return ''; }
 }
+const loadWords = (read) => { const f = loadFigure(read); return f ? `, load ${f}` : ''; };
 
 // A logger that writes at most `max` lines a minute, so a stalled machine does not also fill the log.
 function perMinute(log, max = MAX_PER_MINUTE, now = monotonic) {
@@ -55,6 +56,7 @@ function watch(opts = {}) {
   const every = opts.setInterval || setInterval;
   let last = null;
   let blockedAt = 0;
+  let loadAt = null;
   const tick = () => {
     try {
       const at = now();
@@ -64,11 +66,17 @@ function watch(opts = {}) {
         const late = at - last - TICK_MS;
         // Capped at the stall: the window also holds the half second before it, when a quick command may have run.
         // Floored at 0: slowspawn times with the wall clock, which can step back during a command.
-        if (late >= ASLEEP_MS) log(`[loop-held] gap ${late} ms, a sleeping computer or a very long stall`);
+        if (late >= ASLEEP_MS) log(`[loop-held] gap ${late} ms, a sleeping computer or a very long stall${loadWords(load)}`);
         else if (late >= HELD_MS) log(`[loop-held] ${late} ms, ${Math.max(0, Math.min(blocked - blockedAt, late))} ms of it in blocking commands${loadWords(load)}`);
       }
       last = at;
       blockedAt = blocked;
+      if (loadAt === null) loadAt = at;
+      else if (at - loadAt >= LOAD_EVERY_MS) {
+        loadAt = at;
+        const f = loadFigure(load);
+        if (f) log(`[load] ${f}`);
+      }
     } catch { /* watching never breaks the board */ }
   };
   const timer = every(tick, TICK_MS);
@@ -76,4 +84,4 @@ function watch(opts = {}) {
   return { tick, timer };
 }
 
-module.exports = { watch, perMinute, TICK_MS, HELD_MS, ASLEEP_MS, MAX_PER_MINUTE };
+module.exports = { watch, perMinute, TICK_MS, HELD_MS, ASLEEP_MS, MAX_PER_MINUTE, LOAD_EVERY_MS };
