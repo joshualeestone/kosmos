@@ -33160,17 +33160,23 @@ function computersOpenClick(e) {
     if (typeof msgToast === 'function') msgToast(name + ' is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on ' + name + ', or open ' + url.host + ' in your browser and sign in.', 9000);
     return;
   }
+  computersOpenWithTicket(url, name, a);
+}
+/* The switch itself, from a click (computersOpenClick) or a reopen at launch (computersReopen, kosmos#8118): the
+   switching screen, a ticket from this computer, and the other computer opened with it, or plainly when there is none
+   within 8 s. `a`, the clicked link, is marked busy meanwhile; a reopen has none. */
+function computersOpenWithTicket(url, name, a) {
   computersOpening = true;
   computersSwitchingScreen(name);
   // Said while the ticket is made (review 2: up to 8 s of a link that looked dead).
-  try { a.setAttribute('aria-busy', 'true'); } catch {}
+  try { if (a) a.setAttribute('aria-busy', 'true'); } catch {}
   const plain = url.origin + url.pathname + url.search;
   let settled = false;
   const openAt = (to) => {
     if (settled) return;
     settled = true;
     computersOpening = false;
-    try { a.removeAttribute('aria-busy'); } catch {}
+    try { if (a) a.removeAttribute('aria-busy'); } catch {}
     computersGo(to);
   };
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
@@ -33189,6 +33195,48 @@ function computersOpenClick(e) {
       openAt(t ? plain + '#kpt=' + t : plain);
     })
     .catch(() => { clearTimeout(cut); openAt(plain); });
+}
+/* kosmos#8118 (Josh 11-06: "remembers the version of agents of the computer I was looking at"): the Mac app, once its
+   own board has loaded at launch, asks this page to go back to the computer the window was last on (only its host is
+   kept). Checked against the switcher's own list, so it opens only what the switcher would open, the same way (a
+   ticket, the switching screen). Otherwise the window stays on this computer's agents and says why, in the
+   switcher's words. Resolves the outcome for the app: 'gone' (no longer on the account) and 'home' (this computer)
+   tell it to forget the host; every other answer keeps it for the next launch. */
+async function computersReopen(host) {
+  const h = typeof host === 'string' ? host.trim().toLowerCase() : '';
+  if (!h) return 'bad';
+  const say = (t) => { try { if (typeof msgToast === 'function') msgToast(t, 9000); } catch {} };
+  let data = null;
+  try {
+    const res = await fetch('/api/remote/computers', { cache: 'no-store' });
+    if (res.ok) data = await res.json();
+  } catch { data = null; }
+  if (data && data.signedIn === false) {
+    say('Kosmos opened this computer\'s agents: you are signed out of Kosmos+, so it could not open your other computer. Sign in, then switch from the top-left menu.');
+    return 'signed-out';
+  }
+  if (!data || data.ok !== true || !Array.isArray(data.computers) || !computerAddressOk(h, data.domain)) {
+    say('Kosmos opened this computer\'s agents: it could not check your other computers just now. Switch from the top-left menu.');
+    return 'unknown';
+  }
+  const c = data.computers.find((x) => x && typeof x.address === 'string' && x.address.toLowerCase() === h);
+  if (!c) {
+    say('Kosmos opened this computer\'s agents: the computer you were looking at is no longer on your Kosmos+ account.');
+    return 'gone';
+  }
+  if (c.this === true) return 'home';
+  const name = typeof c.name === 'string' && c.name ? c.name : h.split('.')[0];
+  if (c.updating === true) { say(name + ' is updating, so Kosmos opened this computer\'s agents. Switch to it from the top-left menu when it is done.'); return 'updating'; }
+  if (c.online !== true) { say(name + ' is not connected, so Kosmos opened this computer\'s agents.'); return 'offline'; }
+  if (c.instant === false) {
+    say(name + ' is on an older Kosmos, so it cannot switch instantly yet. Update Kosmos on ' + name + ', or open ' + h + ' in your browser and sign in.');
+    return 'not-instant';
+  }
+  if (computersOpening) return 'busy';
+  let url;
+  try { url = new URL('https://' + h + '/'); } catch { return 'bad'; }
+  computersOpenWithTicket(url, name, null);
+  return 'opening';
 }
 if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('click', computersOpenClick);
 /* kosmos#6406: a window already signed in on this computer gets this page, not the gate page, so a ticket another

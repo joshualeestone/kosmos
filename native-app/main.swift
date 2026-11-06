@@ -560,6 +560,23 @@ func switchGoesHome(_ target: URL?, onAnotherComputer: Bool, ownPlusHost: String
     return host == own
 }
 
+/// kosmos#8118: PURE, for --kosmos-app-mode-selftest. The computer to reopen at the next launch, for the page now on
+/// screen: the HOST of another computer's page (showsAnotherComputer), lowercased, and nothing else (no path, no
+/// fragment, so never a #kpt= ticket). nil when the window is home or on a page that is no computer. Only host
+/// characters pass (letters, digits, dot, dash), so what is kept can never carry anything but a host.
+func computerToRemember(_ page: URL?, board: (host: String, port: Int)?, ownPlusHost: String?) -> String? {
+    guard showsAnotherComputer(page, board: board, ownPlusHost: ownPlusHost),
+          let host = page?.host?.lowercased(), rememberableHost(host) else { return nil }
+    return host
+}
+
+/// kosmos#8118: PURE. A kept host is used only if it is still a plain host: 1 to 253 of a-z, 0-9, dot and dash,
+/// with a dot in it. A preference file someone edited by hand is read through this too.
+func rememberableHost(_ h: String) -> Bool {
+    guard !h.isEmpty, h.count <= 253, h.contains("."), !h.hasPrefix("."), !h.hasSuffix(".") else { return false }
+    return h.unicodeScalars.allSatisfy { ($0 >= "a" && $0 <= "z") || ($0 >= "0" && $0 <= "9") || $0 == "." || $0 == "-" }
+}
+
 /// #6411: what began a board start (loadBoard), which decides how its failure or hang says to try again.
 /// launch: the app opening. reload: any start after a View > Reload (#965). backHome: View > Back to This Computer.
 enum BoardStartOrigin: String { case launch, reload, backHome }
@@ -2313,6 +2330,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // belongs to exactly one start whichever way that start ends (it cannot outlive an early return, which never
     // sets boardStartInFlight). Main-thread only.
     private var boardStartFromBackHome = false
+    /* kosmos#8118: the computer the window was last on (its host only, never a ticket or address with a token), so
+       the next launch reopens it. Kept when another computer's page finishes loading; forgotten on Back to This
+       Computer (and the #6585 navigation home, which calls it), and when the page says the computer is no longer
+       on the account. UserDefaults, as relaunchedAtVersion: a value a launch branches on. */
+    private static let reopenComputerKey = "kosmos.reopenComputerHost"
+    private var reopenComputerHost: String? {
+        get { UserDefaults.standard.string(forKey: Self.reopenComputerKey) }
+        set { if let v = newValue { UserDefaults.standard.set(v, forKey: Self.reopenComputerKey) } else { UserDefaults.standard.removeObject(forKey: Self.reopenComputerKey) } }
+    }
+    // kosmos#8118: the reopen is asked at most once a launch, after this computer's own board has loaded.
+    private var reopenAskedThisLaunch = false
     // #965: a board start is already running on the background queue; reload
     // requests are ignored until it resolves, so two Cmd-R presses (or the
     // test seam firing during a slow boot) cannot race two `kosmos start`
@@ -3214,6 +3242,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // If the item has gone by the time the message shows, the advice is Reload's, for the page then on screen
         // (each way the item goes, and the two-step case, in boardStartAdviceOrigin).
         boardStartFromBackHome = true
+        // kosmos#8118: going home on purpose is the person's choice, so the next launch opens here too.
+        if reopenComputerHost != nil { reopenComputerHost = nil; logLine("#8118: forgot the computer to reopen (back to this computer)") }
         loadBoard()
     }
 
@@ -5819,6 +5849,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
            rather than implied because the next reader will trust the sentence
            and not the code. */
         if let port = resolvedPort { checkWhetherThisAppIsBehind(port: port) }
+        rememberOrReopenComputer(webView)
+    }
+
+    /// kosmos#8118: on another computer's page, keep its host for the next launch. On this computer's own board, the
+    /// first time a launch gets there, ask the page to go back to the kept computer. After the board has loaded, so a
+    /// slow or missing remote never holds up this computer's own start. Only in run or both: connect has no board of
+    /// its own, and an unchosen mode shows the first screen's question. The page decides whether the computer can be
+    /// opened (computersReopen, the switcher's own rule) and says why when it cannot; its answer 'gone' or 'home' means
+    /// forget it.
+    private func rememberOrReopenComputer(_ webView: WKWebView) {
+        guard computerMode == .run || computerMode == .both else { return }
+        if isOnAnotherComputer() {
+            if let host = computerToRemember(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost()), host != reopenComputerHost {
+                reopenComputerHost = host
+                logLine("#8118: will reopen \(host) at the next launch")
+            }
+            return
+        }
+        guard !reopenAskedThisLaunch, let page = committedPageURL, let pageHost = page.host,
+              isBoardOrigin(host: pageHost, port: page.port ?? 0, scheme: page.scheme) else { return }
+        reopenAskedThisLaunch = true
+        guard let host = reopenComputerHost else { return }
+        guard rememberableHost(host) else { reopenComputerHost = nil; logLine("#8118: forgot a kept computer that is not a plain host"); return }
+        logLine("#8118: asking the page to reopen \(host)")
+        webView.callAsyncJavaScript("return (typeof computersReopen === 'function') ? await computersReopen(host) : 'no-page-support'",
+                                    arguments: ["host": host], in: nil, in: .page) { [weak self] result in
+            guard let self else { return }
+            switch result {
+            case .success(let v):
+                let said = (v as? String) ?? "?"
+                logLine("#8118: reopen of \(host) answered \(said)")
+                if said == "gone" || said == "home", self.reopenComputerHost == host { self.reopenComputerHost = nil }
+            case .failure(let e):
+                logLine("#8118: reopen of \(host) could not be asked: \(e.localizedDescription)")
+            }
+        }
     }
 
     // A cancelled navigation (NSURLErrorCancelled, -999) is delivered for
@@ -8008,6 +8074,33 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     away("https://login.kosmosplus.com/", "home.kosmosplus.com", false, "Kosmos+ sign-in is not a computer")
     away("https://example.com/", "home.kosmosplus.com", false, "a foreign site is not another computer")
     away(nil, "home.kosmosplus.com", false, "no page yet")
+    // kosmos#8118: the computer kept for the next launch: only another computer's HOST, never a path or a ticket.
+    func keep(_ s: String?, _ ownPlus: String?, _ want: String?, _ why: String) {
+        ran += 1
+        let got = computerToRemember(s.flatMap { URL(string: $0) }, board: here, ownPlusHost: ownPlus)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "reopen".padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    keep("https://amy.kosmosplus.com/", "home.kosmosplus.com", "amy.kosmosplus.com", "ANOTHER COMPUTER IS KEPT, by its host")
+    keep("https://Amy.kosmosplus.com/agents?tab=x#kpt=abcdefghijklmnopqrstuv", "home.kosmosplus.com", "amy.kosmosplus.com", "ONLY THE HOST: no path, no query, no #kpt= ticket, lowercased")
+    keep("https://home.kosmosplus.com/", "home.kosmosplus.com", nil, "this computer's own address is home: nothing kept")
+    keep("http://127.0.0.1:16180/", "home.kosmosplus.com", nil, "this computer's own board: nothing kept")
+    keep("https://login.kosmosplus.com/", "home.kosmosplus.com", nil, "Kosmos+ sign-in is not a computer")
+    keep("https://example.com/", "home.kosmosplus.com", nil, "a foreign site is not a computer")
+    keep(nil, "home.kosmosplus.com", nil, "no page yet")
+    func plain(_ h: String, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = rememberableHost(h)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "kept host".padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    plain("amy.kosmosplus.com", true, "a computer's host is used")
+    plain("amy.kosmosplus.com\"); alert(1); (\"", false, "A HAND-EDITED VALUE WITH A QUOTE IS NOT USED")
+    plain("Amy.kosmosplus.com", false, "upper case is not what the app writes, so it is not used")
+    plain("amy", false, "a bare name is not a host")
+    plain("", false, "empty is nothing")
+    plain(".kosmosplus.com", false, "a leading dot is not a host")
+    plain("amy.kosmosplus.com/agents", false, "a path is not a host")
     // kosmos#6585: a click on another computer's page that leads to this computer's own address goes home instead.
     func goHome(_ s: String?, _ onAway: Bool, _ ownPlus: String?, _ want: Bool, _ why: String) {
         ran += 1
@@ -8222,7 +8315,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 234   // kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 248   // kosmos#8118: +14 (7 computerToRemember rows, 7 rememberableHost rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
