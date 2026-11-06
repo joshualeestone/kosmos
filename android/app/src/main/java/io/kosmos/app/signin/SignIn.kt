@@ -374,4 +374,84 @@ object SignIn {
         }
         return bytes.toString("UTF-8")
     }
+
+    // MARK: - Passkey sign-in (kosmos#7050 slice C)
+    //
+    // Kosmos+'s passkey routes: begin answers a signed challenge, finish checks the assertion and answers a
+    // one-time grant spent at verify in place of the code (as a company sign-in's is). With passkeys off both
+    // answer 404 and the app offers none. The platform passkey API (Android CredentialManager vs iOS
+    // ASAuthorization) is the UI-side divergence; the logic here is pure. The coordinator host is passed in.
+
+    const val passkeyBeginPath = "/v1/signin/passkey/begin"
+    const val passkeyFinishPath = "/v1/signin/passkey/finish"
+    const val passkeyGrantPrefix = "kpk1_"
+
+    /** What begin offered: the challenge to sign and the relying party it is for. */
+    class PasskeyOffer(val challenge: ByteArray, val rpID: String) {
+        override fun equals(other: Any?): Boolean =
+            other is PasskeyOffer && rpID == other.rpID && challenge.contentEquals(other.challenge)
+        override fun hashCode(): Int = 31 * challenge.contentHashCode() + rpID.hashCode()
+        override fun toString(): String = "PasskeyOffer(rpID=$rpID, challenge=${base64url(challenge)})"
+    }
+
+    /**
+     * begin's answer, only when a passkey can work here: a 200 with a challenge, user verification required, and
+     * the relying party EXACTLY the coordinator's host (compared case-sensitively — the coordinator checks the
+     * origin and the rpId hash against its own spelling, so a different case would have every assertion refused).
+     * Anything else: no passkey offered.
+     */
+    fun passkeyOffer(status: Int, body: Map<String, Any?>?, coordinatorHost: String): PasskeyOffer? {
+        if (status != 200) return null
+        val b = body ?: return null
+        val challenge = (b["challenge"] as? String)?.let { fromBase64url(it) } ?: return null
+        if (challenge.isEmpty()) return null
+        val rp = b["rp_id"] as? String ?: return null
+        if (rp != coordinatorHost) return null
+        if (b["user_verification"] as? String != "required") return null
+        return PasskeyOffer(challenge, rp)
+    }
+
+    /** finish's body: the assertion as the page sends it (base64url), and this phone's device id the grant is bound to. */
+    fun passkeyFinishBody(
+        credentialID: ByteArray, authenticatorData: ByteArray, clientDataJSON: ByteArray,
+        signature: ByteArray, userHandle: ByteArray?, deviceID: String,
+    ): Map<String, Any> {
+        val body = linkedMapOf<String, Any>(
+            "credential_id" to base64url(credentialID),
+            "authenticator_data" to base64url(authenticatorData),
+            "client_data_json" to base64url(clientDataJSON),
+            "signature" to base64url(signature),
+            "device_id" to deviceID,
+        )
+        if (userHandle != null && userHandle.isNotEmpty()) body["user_handle"] = base64url(userHandle)
+        return body
+    }
+
+    /** What finish said. */
+    sealed interface PasskeyFinish {
+        /** The grant, and the account's email to spend it with at verify. */
+        data class Grant(val grant: String, val email: String) : PasskeyFinish
+        /** A sentence to show on the email step. */
+        data class Refused(val message: String) : PasskeyFinish
+    }
+
+    fun passkeyFinish(status: Int, body: Map<String, Any?>?): PasskeyFinish {
+        if (status == 200) {
+            val code = body?.get("code") as? String
+            val email = body?.get("email") as? String
+            if (code != null && code.startsWith(passkeyGrantPrefix) && email != null && looksLikeEmail(email)) {
+                return PasskeyFinish.Grant(code, email)
+            }
+        }
+        if (body?.get("code") as? String == "sso_required") return PasskeyFinish.Refused(passkeyWords.company)
+        return PasskeyFinish.Refused(refusal(body?.get("error")) ?: passkeyWords.failed)
+    }
+
+    /** The page's sentences for passkey sign-in (signin.html), in the app's own words. iOS parity: SignIn.passkeyWords. */
+    object passkeyWords {
+        const val notUsed = "The passkey was not used. Try again, or use the code we email you."
+        const val failed = "That passkey sign-in did not work. Try again, or use the code we email you."
+        const val company = "Your company asks you to sign in with its own account. Enter your email and press Send code."
+        const val off = "Passkey sign-in is not available right now. Use the code we email you."
+    }
 }
