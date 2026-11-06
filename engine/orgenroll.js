@@ -450,9 +450,9 @@ const SAY = Object.freeze({
      works. It names no address, as the coordinator's own words do not. */
   org_wrong_email: 'That code was made for a different email address. Sign in with the address it was sent to, or ask whoever sent it for a new one.',
   /* kosmos#6583 review 1: the same gap for a company pilot with no free seat (kosmos#7585), refused at the preview and
-     at the join; retrying cannot help until a seat is freed. In the coordinator's own words. Pilots are for companies
-     only (the coordinator's PILOT_FULL), so this sentence is never said to a family and is not run through inKind. */
-  org_pilot_full: "Your company's Kosmos+ pilot has no free seat. Ask the people who run your company's accounts to free one or add seats.",
+     at the join; retrying cannot help until a seat is freed. Refused at the preview, before this board knows whether the
+     org is a company or a family, so it names neither (as the other refusals made before any org is known). */
+  org_pilot_full: 'This Kosmos+ pilot has no free seat. Ask whoever sent the code to free one or add seats.',
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
