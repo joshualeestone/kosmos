@@ -24,7 +24,11 @@ const MAC_EDGES = '/v1/mac/federation/edges';
 const MAC_REVOKE = '/v1/mac/federation/revoke';
 const MAC_WITHDRAW = '/v1/mac/federation/invite/withdraw';
 const LABEL_MAX = 80;
-const KEEP_PER_PROJECT = 64;        // rows kept per project, newest; an older row only ever reads as expired
+/* Rows kept per project beyond the live ones. kosmos#8103: a live invite (not used, not withdrawn, not yet expired) is
+   never dropped, because the coordinator lets one account hold up to 100 of them (FED_INVITES_OUTSTANDING_MAX) for 7
+   days, and a row the board has forgotten can be neither listed nor withdrawn while it still counts against that cap.
+   The coordinator's cap is what bounds the live rows; this bounds the rest (used, withdrawn or expired), newest kept. */
+const KEEP_PER_PROJECT = 64;
 
 function file() { return path.join(store.ROOT, FILE); }
 
@@ -80,10 +84,18 @@ function rowsFor(projectId) {
   const all = readAll();
   return own(all, projectId) && Array.isArray(all[projectId]) ? all[projectId] : [];
 }
-function recordInvite(projectId, row) {
+/** Whether a row is a live invite: not used by anyone this board knows of, not withdrawn, and not yet expired. */
+function liveInvite(r, sec) { return !!r && !r.withdrawn_at && !r.member && Number.isFinite(r.expires_at) && r.expires_at > sec; }
+/** The rows to keep, in their order: every live invite, and of the rest the newest KEEP_PER_PROJECT (kosmos#8103). */
+function keepRows(list, sec) {
+  const rest = list.filter((r) => !liveInvite(r, sec));
+  const keptRest = new Set(rest.slice(-KEEP_PER_PROJECT));
+  return list.filter((r) => liveInvite(r, sec) || keptRest.has(r));
+}
+function recordInvite(projectId, row, now = Date.now()) {
   const all = readAll();
   const list = (own(all, projectId) && Array.isArray(all[projectId]) ? all[projectId] : []).concat([row]);
-  all[projectId] = list.slice(-KEEP_PER_PROJECT);
+  all[projectId] = keepRows(list, Math.floor(now / 1000));
   writeAll(all);
 }
 function markWithdrawn(projectId, inviteId, at) {
@@ -215,7 +227,7 @@ async function inviteNow(remote, body, { projectExists, projectName, projectDesc
   if (projectId) {
     try {
       // Every time here is in unix SECONDS, as the coordinator's expires_at is (review round 3).
-      recordInvite(projectId, { invite_id: out.body.invite_id, label, kind: req.invited_kind, made_at: Math.floor(now / 1000), expires_at: out.body.expires_at });
+      recordInvite(projectId, { invite_id: out.body.invite_id, label, kind: req.invited_kind, made_at: Math.floor(now / 1000), expires_at: out.body.expires_at }, now);
     } catch (err) {
       /* The code works whether or not it is listed here; the Members list says the record could not be kept. */
       console.error('#4649: an invite was made but not recorded on this computer: ' + String((err && err.message) || 'unknown').slice(0, 200));

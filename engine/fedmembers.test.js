@@ -403,3 +403,22 @@ test('#4649 (Pete) review round 1: Withdraw cleans the trailer too; a sentence t
   assert.strictEqual(w.status, 502);
   assert.strictEqual(w.body.error, 'the service is busy (HTTP 429 means slow down)..', 'the trailer was not removed, or the sentence lost its own words');
 });
+
+test('#8103: every live invite is kept, so the oldest of 100 can still be withdrawn; only finished rows are held to 64', async () => {
+  const remote = stubRemote({ '/v1/mac/federation/invite': inviteAnswer, '/v1/mac/federation/invite/withdraw': { ok: true, data: { ok: true } } });
+  const ids = [];
+  for (let i = 0; i < 100; i++) ids.push((await fedmembers.invite(remote, { project: 'many', invited_kind: 'person' }, here(['many']))).body.invite_id);
+  const rows = fedmembers.rowsFor('many');
+  assert.strictEqual(rows.length, 100, 'the coordinator allows 100 live invites, so the board must remember all of them (it kept ' + rows.length + ')');
+  assert.deepStrictEqual(await fedmembers.withdraw(remote, 'many', ids[0]), { status: 200, body: { withdrawn: true } },
+    'the oldest live invite could not be withdrawn: the board had forgotten it');
+  // Finished rows (here: expired ones) are still trimmed to the newest 64, and a live one beside them is never dropped.
+  let n = 0;
+  const lapsed = stubRemote({ '/v1/mac/federation/invite': () => { n += 1; return { ok: true, data: { code: 'OLD' + n, expires_at: Math.floor(Date.now() / 1000) - DAY, invite_id: 'old-' + n } }; } });
+  const live = await fedmembers.invite(remote, { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
+  for (let i = 0; i < 70; i++) await fedmembers.invite(lapsed, { project: 'mixed', invited_kind: 'person' }, here(['mixed']));
+  const mixed = fedmembers.rowsFor('mixed');
+  assert.strictEqual(mixed.length, 65, 'expected the live invite plus the newest 64 expired rows, got ' + mixed.length);
+  assert.ok(mixed.some((r) => r.invite_id === live.body.invite_id), 'the live invite was dropped to make room for expired rows');
+  assert.ok(!mixed.some((r) => r.invite_id === 'old-1') && mixed.some((r) => r.invite_id === 'old-70'), 'the oldest expired rows were not the ones trimmed');
+});
