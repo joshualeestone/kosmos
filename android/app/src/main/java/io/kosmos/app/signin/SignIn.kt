@@ -256,6 +256,8 @@ object SignIn {
     const val webForKey = "This phone could not prove its key to Kosmos+, so this continues on the sign-in page."
     const val webForTerms = "Your company's sign-in will make your Kosmos+ account, and that starts with agreeing to its terms on the sign-in page."
     const val webForUnknown = "Kosmos+ answered in a way this app does not know yet, so this continues on the sign-in page."
+    const val webForCompany = "This continues on the Kosmos+ sign-in page, where your company's own sign-in opens."
+    const val webForSetup = "Your account needs its second sign-in step set up first. That continues on the sign-in page."
 
     // MARK: - Message helpers
 
@@ -565,4 +567,32 @@ object SignIn {
         return listOf("start again", "sign in again", "no such account", "no longer exists", "being deleted")
             .any { m.contains(it, ignoreCase = true) }
     }
+
+    // MARK: - The second step and hand-over display
+    //
+    // The words the second-step screen and the web hand-over show. Pure text shaping, no platform: a masked number
+    // stays whole on one line, an address wraps only at sensible places, and each hand-over names what happens next.
+
+    private const val NBSP = " "
+    private const val ZWSP = "​"
+
+    /**
+     * The second step's line, as the web page words it. The authenticator shows "Kosmos" (the issuer in
+     * kosmos-relay totp.rs). A masked number stays whole on one line: its ordinary spaces become non-breaking ones.
+     */
+    fun secondWords(kind: String, sentTo: String?): String {
+        val to = sentTo?.replace(" ", NBSP) ?: "your phone"
+        return if (kind == "sms") "Type the six-digit code we texted to $to. It is good for ten minutes."
+        else "Type the six-digit code your authenticator app shows for Kosmos."
+    }
+
+    /**
+     * An email address that wraps only after its @ or a dot, never inside a word with an inserted hyphen (an inserted
+     * hyphen would read as part of the address). Zero-width spaces give the line those breaks, and strip back out.
+     */
+    fun wrappable(email: String): String = email.replace("@", "@$ZWSP").replace(".", ".$ZWSP")
+
+    /** The hand-over screen's title: a company sign-in names itself; the others say what happens next. */
+    fun webTitle(reason: String): String =
+        if (reason == webForCompany) "Your company signs you in" else "Finish signing in on the next page"
 }
