@@ -21527,7 +21527,7 @@ const server = http.createServer(async (req, res) => {
   if (pathname === '/api/board/run-folder' && (req.method === 'GET' || req.method === 'HEAD')) {
     let notice = null;
     let pending = false;
-    try { const rf = require('./engine/win32runfolder'); notice = rf.current(); pending = rf.pending(); } catch { notice = null; pending = false; }
+    try { const rf = require('./engine/win32runfolder'); notice = rf.current(); pending = rf.pending(); } catch { /* no notice */ }
     sendJson(res, 200, { notice, pending });
     return;
   }

@@ -71,12 +71,13 @@ const NOTICE = {
           msg: msg ? msg.textContent : '',
           shown: !!(box && box.width > 0 && box.height > 0),
           msgShown: !!(msg && msg.getBoundingClientRect().height > 0),
-          role: s && s.querySelector('.utxt') ? s.querySelector('.utxt').getAttribute('role') : '',
+          say: (document.getElementById('runfolder-say') || {}).textContent || '',
+          sayRole: document.getElementById('runfolder-say') ? document.getElementById('runfolder-say').getAttribute('role') : '',
         };
       });
       chk(note.shown && note.head === 'Other people on this computer may be able to change Kosmos', t + 'the note is shown, with its heading', note.head);
       chk(note.msgShown && note.msg === NOTICE.message, t + 'the launcher\'s own words are shown in full (a phone keeps them)', note.msg.slice(0, 80));
-      chk(note.role === 'status', t + 'the words are read out by a screen reader');
+      chk(note.sayRole === 'status' && note.say.endsWith(NOTICE.message), t + 'the words are put in a live region that stays in place, for a screen reader (review 5)', note.say.slice(0, 80));
       chk(!/\u2014/.test(note.text), t + 'no em dash in the note');
 
       // A refused dismiss says so and keeps the note. Pressed as a person presses it (focus and Enter).

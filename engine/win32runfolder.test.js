@@ -110,6 +110,8 @@ test('#1765: pending while the question is out, so a page that asks early asks a
   const { o } = seams({ run: (f, a, opt, cb) => { answer = () => cb(null, UNSAFE); } });
   const p = rf.atStart(o);
   assert.equal(rf.pending(), true, 'not pending while Kosmos.exe has not answered');
+  while (!answer) await new Promise((r) => setImmediate(r));   // the file is read for the flag first
+  assert.equal(rf.pending(), true, 'not pending while Kosmos.exe has not answered');
   assert.equal(rf.current(), null);
   answer();
   await p;
@@ -150,9 +152,30 @@ test('#1765: still unreadable the second time, the board shows the softer words 
   assert.ok(logs.some((l) => /still could not check/.test(l)), logs.join(' | '));
 });
 
-test('#1765: the second question waits off the board (an unref timer by default)', () => {
-  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'win32runfolder.js'), 'utf8');
-  assert.match(src, /const wait = o\.wait \|\| \(\(ms, fn\) => \{ const t = setTimeout\(fn, ms\); if \(t && t\.unref\) t\.unref\(\); \}\);/);
+test('#1765: the second question waits on an unref\'d timer, so it never holds the board open (review 5)', async () => {
+  const real = global.setTimeout;
+  const timers = [];
+  global.setTimeout = (fn, ms) => { const tm = { ms, unrefd: false, unref() { this.unrefd = true; return this; } }; timers.push(tm); setImmediate(fn); return tm; };
+  try {
+    const answers = [UNCHECKED, '{"safe":true}'];
+    const { o } = seams({ run: (f, a, opt, cb) => { const next = answers.shift(); setImmediate(() => cb(null, next)); } });
+    delete o.wait;
+    await rf.atStart(o);
+  } finally { global.setTimeout = real; }
+  const recheck = timers.find((x) => x.ms === rf.RECHECK_MS);
+  assert.ok(recheck, 'no recheck timer: ' + JSON.stringify(timers.map((x) => x.ms)));
+  assert.equal(recheck.unrefd, true, 'the recheck timer holds the board open');
+});
+
+test('#1765: a dismiss while the answer is still on its way is kept (review 5)', async () => {
+  let answer = null;
+  const { o } = seams({ run: (f, a, opt, cb) => { answer = () => cb(null, UNSAFE); } });
+  const p = rf.atStart(o);
+  while (!answer) await new Promise((r) => setImmediate(r));
+  assert.equal(rf.dismiss(), true);
+  answer();
+  await p;
+  assert.equal(rf.current(), null, 'a dismissed notice came back');
 });
 
 test('#1765: a board started by the check never asks, so an old launcher cannot loop (review 3)', async () => {
@@ -171,7 +194,7 @@ test('#1765: a Kosmos.exe older than the check is never run (review 4)', async (
   assert.ok(logs.some((l) => /older than the check/.test(l)), logs.join(' | '));
 });
 
-test('#1765: knowsFlag reads the flag\'s UTF-16 spelling from the file, as .NET keeps string literals', () => {
+test('#1765: knowsFlag reads the flag\'s UTF-16 spelling from the file, as .NET keeps string literals', async () => {
   const fs = require('node:fs');
   const os = require('node:os');
   const path = require('node:path');
@@ -181,8 +204,8 @@ test('#1765: knowsFlag reads the flag\'s UTF-16 spelling from the file, as .NET 
     fs.writeFileSync(knows, Buffer.concat([Buffer.from('MZ....'), Buffer.from('--check-run-folder', 'utf16le'), Buffer.from('....')]));
     const old = path.join(dir, 'old.exe');
     fs.writeFileSync(old, Buffer.concat([Buffer.from('MZ....'), Buffer.from('--check-run-folder'), Buffer.from('--console', 'utf16le')]));
-    assert.equal(rf.knowsFlag(knows), true);
-    assert.equal(rf.knowsFlag(old), false, 'an 8-bit spelling is not how .NET keeps it');
-    assert.equal(rf.knowsFlag(path.join(dir, 'gone.exe')), false);
+    assert.equal(await rf.knowsFlag(knows), true);
+    assert.equal(await rf.knowsFlag(old), false, 'an 8-bit spelling is not how .NET keeps it');
+    assert.equal(await rf.knowsFlag(path.join(dir, 'gone.exe')), false);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

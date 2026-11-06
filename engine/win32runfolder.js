@@ -15,6 +15,12 @@
  * Costs nothing in the normal case: off Windows, for a source checkout (no bundle root), and for a folder inside the
  * profile (where Kosmos installs itself) nothing is started. A check that cannot run says nothing on the board: the
  * notice is a courtesy, and the reason goes to board.log.
+ *
+ * ⚠️ LINKS: the inside-the-profile test compares written paths, as the launcher does (GetFullPath, never following a
+ * link), so the two decide alike. The bundle root comes from node's __dirname, which node has already resolved
+ * through any junction, so a run folder reached through a link is seen at its target here; the launcher, asked about
+ * that target, judges what is really there. An 8.3 short name of the profile makes the board ask once where the
+ * launcher would answer safe at once: a cost of one process, never a missed notice (review 5).
  */
 const cp = require('node:child_process');
 const fs = require('node:fs');
@@ -38,17 +44,14 @@ let NOTICE = null;   // { folder, message } while this start's answer says the f
 /* True while this start's question is still out: the board is already serving, so a page can ask before the answer
    arrives, and must be told to ask again rather than told there is nothing (review 1). */
 let PENDING = false;
-
-/** A folder in its long, real form when it exists (an 8.3 short name expanded, as the launcher's GetFullPath does). */
-function longForm(p) {
-  try { return fs.realpathSync.native(String(p)); } catch { return String(p); }
-}
+/* Dismissed for this start: an answer still on its way when the person dismissed it is not shown (review 5). */
+let DISMISSED = false;
 
 /** Is `child` the same folder as `parent`, or inside it? Windows paths, compared without regard to case. */
 function isSameOrInside(child, parent) {
   if (!child || !parent) return false;
-  const c = path.win32.resolve(longForm(child)).replace(/[\\/]+$/, '').toLowerCase();
-  const p = path.win32.resolve(longForm(parent)).replace(/[\\/]+$/, '').toLowerCase();
+  const c = path.win32.resolve(String(child)).replace(/[\\/]+$/, '').toLowerCase();
+  const p = path.win32.resolve(String(parent)).replace(/[\\/]+$/, '').toLowerCase();
   return c === p || c.startsWith(p + '\\');
 }
 
@@ -58,7 +61,9 @@ function isSameOrInside(child, parent) {
  * its string literals as UTF-16, so the flag's own spelling is in the file exactly when the program knows it.
  */
 function knowsFlag(exe) {
-  try { return fs.readFileSync(exe).indexOf(Buffer.from(FLAG, 'utf16le')) !== -1; } catch { return false; }
+  return new Promise((resolve) => {
+    fs.readFile(exe, (err, buf) => resolve(!err && buf.indexOf(Buffer.from(FLAG, 'utf16le')) !== -1));
+  });
 }
 
 function log(o, words) {
@@ -87,6 +92,7 @@ function atStart(opts) {
   const o = opts || {};
   NOTICE = null;
   PENDING = true;
+  DISMISSED = false;
   return new Promise((resolve) => {
     const done = (asked, notice) => { PENDING = false; resolve({ asked, notice: notice || null }); };
     if ((o.platform || process.platform) !== 'win32') { done(false); return; }
@@ -102,7 +108,7 @@ function atStart(opts) {
     const exe = path.win32.join(root, 'Kosmos.exe');
     const exists = o.exists || ((p) => fs.existsSync(p));
     if (!exists(exe)) { log(o, 'Kosmos could not check whether others can change ' + root + ': there is no Kosmos.exe in it.'); done(false); return; }
-    if (!(o.knowsFlag || knowsFlag)(exe)) { log(o, 'Kosmos did not check whether others can change ' + root + ': its Kosmos.exe is older than the check, so it was not asked.'); done(false); return; }
+    const knows = (o.knowsFlag || knowsFlag);
     const run = o.run || ((file, args, opt, cb) => cp.execFile(file, args, opt, cb));
     const wait = o.wait || ((ms, fn) => { const t = setTimeout(fn, ms); if (t && t.unref) t.unref(); });
     const ask = (again) => {
@@ -118,6 +124,7 @@ function atStart(opts) {
             return;
           }
           if (!a.message) { log(o, 'Kosmos could not read the answer about ' + root + ', so the board says nothing about it.'); done(true); return; }
+          if (DISMISSED) { done(true); return; }
           NOTICE = { folder: a.folder || root, message: a.message };
           log(o, a.checked === false
             ? 'Kosmos still could not check whether others can change ' + root + ' (' + (a.reason || 'it could not read it') + '), so the board says so.'
@@ -132,7 +139,10 @@ function atStart(opts) {
     /* 📌 THE Kosmos.exe ASKED KNOWS THE FLAG: an update replaces Kosmos.exe together with app\ (win32update.js
        REQUIRED_ENTRIES lists both), and knowsFlag reads it from the file before it is run in case one ever did not
        (a hand-copied app\). ASKING_ENV is the second guard: a board started under the check never asks. */
-    ask(false);
+    Promise.resolve(knows(exe)).then((yes) => {
+      if (!yes) { log(o, 'Kosmos did not check whether others can change ' + root + ': its Kosmos.exe is older than the check, so it was not asked.'); done(false); return; }
+      ask(false);
+    }, () => { log(o, 'Kosmos could not read ' + exe + ', so it was not asked.'); done(false); });
   });
 }
 
@@ -141,6 +151,6 @@ function current() { return NOTICE ? { folder: NOTICE.folder, message: NOTICE.me
 /** True while this start's question is still out. */
 function pending() { return PENDING; }
 /** Hides it until the next start. */
-function dismiss() { NOTICE = null; return true; }
+function dismiss() { NOTICE = null; DISMISSED = true; return true; }
 
 module.exports = { atStart, current, pending, dismiss, readAnswer, isSameOrInside, knowsFlag, CHECK_TIMEOUT_MS, RECHECK_MS, FLAG, ASKING_ENV };
