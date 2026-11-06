@@ -30,7 +30,10 @@ folder name wins"). The confirmation names the agent it will remove.
 ## Deferred, with reasons
 - One unreadable folder in the workers folder makes `resolve` leave every miss as given, so resolution is off for
   that board until it is fixed. Deliberate: skipping it could turn a two-agent name into one. Rare, because
-  `readIdentity` swallows its own read errors. A log line would help; not added here.
+  `readIdentity` swallows its own read errors. Since round 5 it writes one line to the board log saying which folder
+  stopped it, so it is no longer invisible.
+- A display name containing `+`, `/`, `\` or a leading `-` cannot resolve (the safety check runs on the typed name);
+  a plan `name` with a tab is rewritten to a space by the Mac CLI's field split. Both are contrived and left.
 
 ## Not in this branch
 - restart and move resolve names their own way; the card says "probably". Left for a follow-up if they show the same.
@@ -38,6 +41,10 @@ folder name wins"). The confirmation names the agent it will remove.
 - An agent whose folder is recorded outside the workers folder (a profile `dir`) is not a candidate, so its display
   name still does not resolve. Team-step agents (the card's case) live in the workers folder. A symlinked folder in
   the workers folder is not a candidate either (`isDirectory` on the entry is false for a link).
+- **Filed as #8112 (review round 5):** for a profile-recorded agent, a case variant passes the exact check through
+  `safeKey`, and `remove` then reports "removed" for a name nobody has while the agent keeps running. Pre-existing in
+  `plan`/`exists`; `resolve` inherits it. Not fixed here: it is a different path from the card's Team-step agents and
+  needs its own test and fix.
 - Pre-existing, not caused here, and they make `resolve` treat a case variant as exact: on Windows `jobFor` asks
   `schtasks`, whose task names are case-insensitive; and `workerDir` for a profile-recorded agent reads its profile by
   `safeKey`, which lowercases. On those agents a case variant still reaches the old exact-name path.
