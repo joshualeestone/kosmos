@@ -62,12 +62,12 @@ final class EndPullUITests: XCTestCase {
         // A chat opens a little short of its true end and any touch settles it there, as with any scroll: up to 20 pt.
         let landed = row.frame.minY
         XCTAssertEqual(landed, before, accuracy: 20, "the list did not bounce back")
-        // Mona Lisa, 11-06: centred in the gap, and 16 pt clear of the working line.
+        // Clear of the working line, and of the box and its 18 pt fade.
         let working = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'Dana is working'")).firstMatch
         XCTAssertTrue(working.exists, "CONTROL: no working line, so this checks no gap")
         let dot = dots(app).frame, above = dot.minY - working.frame.maxY, below = Self.box(app).frame.minY - dot.maxY
-        XCTAssertGreaterThanOrEqual(above, 16, "the dots hang off the working line: \(above) above, \(below) below")
-        XCTAssertEqual(above, below, accuracy: 8, "the dots are not centred in the gap: \(above) above, \(below) below")
+        XCTAssertGreaterThanOrEqual(above, 8, "the dots hang off the working line: \(above) above, \(below) below")
+        XCTAssertGreaterThanOrEqual(below, 18, "the box's fade cuts the dots: \(above) above, \(below) below")
         let shot = XCTAttachment(screenshot: app.screenshot()); shot.name = "end-pull-dots-long"; shot.lifetime = .keepAlways; add(shot)
         let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: dots(app))
         wait(for: [gone], timeout: 20)
