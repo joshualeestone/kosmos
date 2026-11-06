@@ -3670,7 +3670,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// asked about again, from the next download (this run's plain Allows go too, so the next download asks now).
     @objc func forgetAlwaysAllowedComputers(_ sender: Any?) {
         let had = alwaysAllowedHosts.count
-        AppDelegate.downloadDefaults.removeObject(forKey: AppDelegate.alwaysAllowedComputersKey)
+        AppDelegate.keptWrite(nil)
         allowedDownloadHosts = []
         logLine("#8121: forgot \(had) always-allowed computer(s)")
         let alert = NSAlert()
@@ -4033,16 +4033,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        Always Allow for, kept across quits in the app's own preferences. Only an Allow is ever kept; a Don't Allow still
        lasts until the app quits, so nobody is stuck on a misclick. Kosmos > Forget Always-Allowed Computers clears it. */
     static let alwaysAllowedComputersKey = "kosmos.downloads.alwaysAllowedComputers"
-    static var downloadDefaults: UserDefaults = .standard   // the selftest's own suite, never the person's
+    /* Only --kosmos-app-download-selftest sets this: the kept list lives in memory for the run instead of the app's
+       preferences (review 2: a named UserDefaults suite always leaves a file in ~/Library/Preferences, since the system
+       writes it back after any delete), so the selftest never touches the disk or the person's preferences. */
+    static var keptStoreForSelftest: [String: Any]?
+    static func keptRead() -> Any? {
+        if let mem = keptStoreForSelftest { return mem[alwaysAllowedComputersKey] }
+        return UserDefaults.standard.object(forKey: alwaysAllowedComputersKey)
+    }
+    static func keptWrite(_ v: [String]?) {
+        if keptStoreForSelftest != nil { keptStoreForSelftest![alwaysAllowedComputersKey] = v; return }
+        if let v { UserDefaults.standard.set(v, forKey: alwaysAllowedComputersKey) }
+        else { UserDefaults.standard.removeObject(forKey: alwaysAllowedComputersKey) }
+    }
     /// Only --kosmos-app-download-selftest sets this: an Allow from downloadPermissionPresenter counts as Always Allow.
     static var alwaysAnswerForSelftest = false
     fileprivate var alwaysAllowedHosts: Set<String> {
-        keptDownloadHosts(AppDelegate.downloadDefaults.object(forKey: AppDelegate.alwaysAllowedComputersKey),
+        keptDownloadHosts(AppDelegate.keptRead(),
                           also: AppDelegate.askAboutHostForSelftest)
     }
     fileprivate func keepAlwaysAllowed(_ host: String) {
         let now = alwaysAllowedHosts.union([host]).sorted()
-        AppDelegate.downloadDefaults.set(now, forKey: AppDelegate.alwaysAllowedComputersKey)
+        AppDelegate.keptWrite(now)
     }
     fileprivate var allowedDownloadHosts: Set<String> = []
     private var refusedDownloadHosts: Set<String> = []
@@ -6523,22 +6535,9 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     /* Above the worst case of a run where NOTHING saves (each expected-file wait, 5s, runs out, then the 20s
        settle: well under 300s), so a product that saves nothing is judged, not timed out. */
     let dl = FileManager.default.temporaryDirectory.appendingPathComponent("kosmos-download-selftest-\(getpid())")
-    // kosmos#8121 review 1: this run's own preferences for the whole selftest, never the binary's or the person's.
-    let prefsName = "kosmos-download-selftest-\(getpid())"
-    let prefs = UserDefaults(suiteName: prefsName)!
-    /* Review 2: removePersistentDomain empties the suite but leaves its .plist behind in ~/Library/Preferences, one per run,
-       so every exit drops the domain AND deletes the file. */
-    func dropPrefs() {
-        prefs.removePersistentDomain(forName: prefsName)
-        if let lib = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first {
-            try? FileManager.default.removeItem(at: lib.appendingPathComponent("Preferences/\(prefsName).plist"))
-        }
-    }
-    dropPrefs()
-    AppDelegate.downloadDefaults = prefs
+    AppDelegate.keptStoreForSelftest = [:]   // kosmos#8121: the kept list in memory for this run, never on disk
     DispatchQueue.main.asyncAfter(deadline: .now() + 300) {
         try? FileManager.default.removeItem(at: dl)
-        dropPrefs()
         print("download selftest TIMED OUT"); exit(1)
     }
     let app = NSApplication.shared
@@ -6630,7 +6629,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
     params.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
     guard let listener = try? NWListener(using: params, on: .any) else {
         try? FileManager.default.removeItem(at: dl)
-        dropPrefs(); print("download selftest: no listener"); exit(1)
+        print("download selftest: no listener"); exit(1)
     }
     listener.newConnectionHandler = { conn in
         conn.start(queue: .main)
@@ -6660,7 +6659,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 if (r as? Bool) == true { then(); return }
                 guard tries > 0 else {
                     try? FileManager.default.removeItem(at: dl)
-                    dropPrefs(); print("download selftest PAGE NEVER LOADED: the probe page (this can be the app's own response policy)"); exit(1)
+                    print("download selftest PAGE NEVER LOADED: the probe page (this can be the app's own response policy)"); exit(1)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll(tries - 1) }
             }
@@ -6761,7 +6760,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 }
                 guard tries > 0 else {
                     try? FileManager.default.removeItem(at: dl)
-                    dropPrefs(); print("download selftest PAGE NEVER LOADED: the non-board page (this can be the app's own response policy)"); exit(1)
+                    print("download selftest PAGE NEVER LOADED: the non-board page (this can be the app's own response policy)"); exit(1)
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { poll(tries - 1) }
             }
@@ -6835,8 +6834,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             /* kosmos#8121: Always Allow, kept across a quit (a quit stood in for by clearing this run's answers, with the saved
                list left as it is), in its own preferences suite, never the person's. Saved and put back around these rows. */
             do {
-                let suite = prefs
-                suite.removeObject(forKey: AppDelegate.alwaysAllowedComputersKey)
+                AppDelegate.keptWrite(nil)
                 let keptAllowed = d.allowedDownloadHosts, keptAsked = asked, keptReply = reply, keptPage = d.committedPageURL
                 func quit() { d.allowedDownloadHosts = []; d.resetDownloadAsks() }
                 func on(_ host: String) { d.committedPageURL = URL(string: "https://\(host)/") }
@@ -6871,11 +6869,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
                 on("nadia.kosmosplus.com"); d.mayDownload { g.append($0) }
                 row(asked == ["nadia.kosmosplus.com"] && d.alwaysAllowedHosts.isEmpty,
                     "kosmos#8121: FORGET ALWAYS-ALLOWED COMPUTERS asks again (asked \(asked))")
-                suite.set(["evil.example.com", "login.kosmosplus.com", "x.kosmosplus.com.evil.com", "Nadia.KosmosPlus.com", "xn--80ak6aa92e.kosmosplus.com"],
-                          forKey: AppDelegate.alwaysAllowedComputersKey)
+                AppDelegate.keptStoreForSelftest?[AppDelegate.alwaysAllowedComputersKey] = (["evil.example.com", "login.kosmosplus.com", "x.kosmosplus.com.evil.com", "Nadia.KosmosPlus.com", "xn--80ak6aa92e.kosmosplus.com"]
+                          as [String])
                 row(d.alwaysAllowedHosts == ["nadia.kosmosplus.com"],
                     "kosmos#8121: a saved list keeps only Kosmos+ computers, never another site or the sign-in (\(d.alwaysAllowedHosts.sorted()))")
-                suite.removeObject(forKey: AppDelegate.alwaysAllowedComputersKey)
+                AppDelegate.keptWrite(nil)
                 quit(); d.allowedDownloadHosts = keptAllowed; asked = keptAsked; reply = keptReply; d.committedPageURL = keptPage
             }
             row(liveAsked == ["127.0.0.1", "127.0.0.1"] && !saved("asked-no.txt") && saved("asked-yes.txt"),
@@ -6946,7 +6944,6 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            dropPrefs()
             let expected = 47   // kosmos#8121: +8 (review 1: an Always Allow pressed on a changed page is void; Forget clears this run's Allows); +6 (Always Allow kept, plain Allow and Don't Allow not, one computer only, Forget, a saved list checked); #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
