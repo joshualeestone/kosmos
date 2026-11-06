@@ -62,6 +62,12 @@ What it adds is how a Windows program presents itself (win32-launcher-native):
   status lines, the board's own output, and a window held open on failure. From
   Command Prompt, run `start /wait Kosmos.exe --console`. A GUI exe does not
   otherwise hold the prompt.
+- **`Kosmos.exe --check-run-folder`** answers whether its own folder is one other people on this PC can change,
+  as one JSON line on stdout, and does nothing else (no box, no console, no errand; Main answers it before anything).
+  The board asks it at start (engine/win32runfolder.js) when it is serving from a folder outside the profile, and
+  shows the person a notice: `{"safe":true}`, or `{"safe":false,"folder","reason","message"}` with the words for a
+  Kosmos that is running, or `{"safe":false,"checked":false,...}` when something could not be read (the board asks
+  once more after 30 s before it shows that one's softer words) (#1765).
 - **Never a box nobody can see.** In a non-interactive context (a service, or a
   task that runs whether or not the user is signed in), it writes to stderr
   instead. Nothing calls it that way today: the board's logon task runs `node.exe`

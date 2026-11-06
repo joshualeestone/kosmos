@@ -118,10 +118,37 @@ test('#1765: pending while the question is out, so a page that asks early asks a
   assert.equal(rf.pending(), false, 'pending left on where nothing is asked');
 });
 
-test('#1765: a check that could not read something says nothing on the board, only in board.log (review 1)', async () => {
-  const { o, logs } = seams({ run: (f, a, opt, cb) => setImmediate(() => cb(null, '{"safe":false,"checked":false,"reason":"what is in C:\\\\Kosmos\\\\.kosmos-update could not be read (busy)"}')) });
+const UNCHECKED = JSON.stringify({ safe: false, checked: false, folder: ROOT, reason: 'what is in C:\\Kosmos\\.kosmos-update could not be read (busy)', message: 'Kosmos is running from C:\\Kosmos, and it could not check whether other people who use this computer can change the files in that folder.' });
+
+test('#1765: a check that could not read something is asked once more, and stays quiet if the second one reads (review 2)', async () => {
+  const answers = [UNCHECKED, '{"safe":true}'];
+  const waits = [];
+  const { o, calls, logs } = seams({
+    run: (f, a, opt, cb) => { const next = answers.shift(); calls.push(1); setImmediate(() => cb(null, next)); },
+    wait: (ms, fn) => { waits.push(ms); setImmediate(fn); },
+  });
   const got = await rf.atStart(o);
+  assert.equal(calls.length, 2, 'not asked again');
+  assert.deepEqual(waits, [rf.RECHECK_MS]);
   assert.deepEqual(got, { asked: true, notice: null });
   assert.equal(rf.current(), null);
-  assert.ok(logs.some((l) => /could not finish checking[^\n]*kosmos-update could not be read/.test(l)), logs.join(' | '));
+  assert.ok(logs.some((l) => /asks once more shortly/.test(l)), logs.join(' | '));
+});
+
+test('#1765: still unreadable the second time, the board shows the softer words (review 2)', async () => {
+  const { o, calls, logs } = seams({
+    run: (f, a, opt, cb) => { calls.push(1); setImmediate(() => cb(null, UNCHECKED)); },
+    wait: (ms, fn) => setImmediate(fn),
+  });
+  const p = rf.atStart(o);
+  assert.equal(rf.pending(), true, 'not pending while the second question is out');
+  const got = await p;
+  assert.equal(calls.length, 2);
+  assert.deepEqual(got.notice, { folder: ROOT, message: JSON.parse(UNCHECKED).message });
+  assert.ok(logs.some((l) => /still could not check/.test(l)), logs.join(' | '));
+});
+
+test('#1765: the second question waits off the board (an unref timer by default)', () => {
+  const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'win32runfolder.js'), 'utf8');
+  assert.match(src, /const wait = o\.wait \|\| \(\(ms, fn\) => \{ const t = setTimeout\(fn, ms\); if \(t && t\.unref\) t\.unref\(\); \}\);/);
 });

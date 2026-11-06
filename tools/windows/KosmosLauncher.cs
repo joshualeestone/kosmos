@@ -714,16 +714,22 @@ class KosmosLauncher
 
     // kosmos#1765: the --check-run-folder answer, one JSON line. A folder Kosmos may run from answers {"safe":true};
     // one it may not answers the reason (for support) and the words the board shows a person whose Kosmos is
-    // already running from it. A check that could not read something answers {"safe":false,"checked":false} with
-    // only the reason: the launcher refuses on that, but a running board can meet it for a moment (an update writing
-    // .kosmos-update\), so the board logs it rather than telling the person something that may be untrue. Never throws.
+    // already running from it. A check that could not read something answers {"safe":false,"checked":false} with the
+    // reason and its own, softer words: the launcher refuses on that, but a running board can meet it for a moment (an
+    // update writing .kosmos-update\), so the board asks once more before it shows them (engine/win32runfolder.js),
+    // and shows them if it still cannot read it, since an account that can hide a folder from this person can also
+    // hide what it changed. Never throws.
     internal static string RunFolderAnswer(string here)
     {
         string reason;
         try { reason = UnsafeRunFolderReason(here); }
         catch (Exception e) { reason = "the folder could not be read (" + e.Message + ")"; }
         if (reason == null) return "{\"safe\":true}";
-        if (CouldNotRead(reason)) return "{\"safe\":false,\"checked\":false,\"reason\":" + JsonText(reason) + "}";
+        if (CouldNotRead(reason))
+        {
+            return "{\"safe\":false,\"checked\":false,\"folder\":" + JsonText(FullPathOrNull(here) ?? here) + ",\"reason\":" + JsonText(reason)
+                + ",\"message\":" + JsonText(UncheckedFolderMessage(here)) + "}";
+        }
         string folder = FullPathOrNull(here) ?? here;
         return "{\"safe\":false,\"folder\":" + JsonText(folder) + ",\"reason\":" + JsonText(reason)
             + ",\"message\":" + JsonText(RunningFolderMessage(here)) + "}";
@@ -744,6 +750,15 @@ class KosmosLauncher
         string downloads = FreshCopyFolder(FullPathOrNull(userProfileFolder()));
         return "Kosmos is running from " + folder + ", and other people who use this computer may be able to change the files in that folder, so they could change what Kosmos runs as you. "
             + "To fix it, download Kosmos again, extract it into " + downloads + ", and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change and starts from there from your next sign-in. Once you have next signed in to Windows, you can delete " + folder + ".";
+    }
+
+    // The words for a folder Kosmos could not finish reading: it cannot say who can change it, and the same way out.
+    internal static string UncheckedFolderMessage(string here)
+    {
+        string folder = FullPathOrNull(here) ?? here;
+        string downloads = FreshCopyFolder(FullPathOrNull(userProfileFolder()));
+        return "Kosmos is running from " + folder + ", and it could not check whether other people who use this computer can change the files in that folder. "
+            + "To be safe, download Kosmos again, extract it into " + downloads + ", and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change and starts from there from your next sign-in. Once you have next signed in to Windows, you can delete " + folder + ".";
     }
 
     // A JSON string literal: quotes, backslashes and control characters escaped, anything outside ASCII as \uXXXX.

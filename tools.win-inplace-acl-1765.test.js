@@ -499,9 +499,15 @@ test('#1765: --check-run-folder answers one JSON line: safe in the profile, and 
   fs.copyFileSync(launcherExe, path.join(here, 'Kosmos.exe'));
   const r = spawnSync(path.join(here, 'Kosmos.exe'), ['--check-run-folder'], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
   assert.equal(r.status, 0, 'the launcher failed: ' + r.stdout + r.stderr);
+  // The launcher's shape every time (review 2); safe when this machine's temp folder is inside the profile, as it is
+  // by default, and said so when it is not.
+  const real = JSON.parse(r.stdout);
+  assert.equal(typeof real.safe, 'boolean', 'not the launcher\'s answer: ' + r.stdout);
   const profileHome = fs.realpathSync.native(os.homedir());
   if (here.toLowerCase().startsWith(profileHome.toLowerCase() + '\\')) {
-    assert.deepEqual(JSON.parse(r.stdout), { safe: true }, 'a folder inside the profile was not safe: ' + r.stdout);
+    assert.deepEqual(real, { safe: true }, 'a folder inside the profile was not safe: ' + r.stdout);
+  } else {
+    t.diagnostic('this machine\'s temp folder is not inside the profile, so the safe answer was not checked here: ' + here);
   }
   assert.ok(!fs.existsSync(path.join(here, 'ran.txt')), 'the answer started something');
   // An unsafe folder (Users may change it), read as outside the profile: valid JSON with the reason and the words.
@@ -524,7 +530,8 @@ test('#1765: --check-run-folder answers one JSON line: safe in the profile, and 
   assert.equal(u.safe, false);
   assert.equal(u.checked, false);
   assert.match(u.reason, /could not be read/);
-  assert.equal(u.message, undefined, 'an unchecked folder carries words for the person');
+  assert.ok(u.message.startsWith('Kosmos is running from ' + gone + ', and it could not check whether other people who use this computer can change'), u.message);
+  assert.equal(u.folder, gone);
   // A locked folder answers safe.
   const locked = sandboxFolder('answer-locked');
   lockDown(locked);

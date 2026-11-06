@@ -40,6 +40,7 @@ const NOTICE = {
           const u = String(url);
           if (u.endsWith('/api/board/run-folder')) {
             window.__asks = (window.__asks || 0) + 1;
+            if (window.__noNotice) return enc({ notice: null, pending: false });
             if (window.__pendingFor > 0) { window.__pendingFor -= 1; return enc({ notice: null, pending: true }); }
             return enc({ notice, pending: false });
           }
@@ -97,7 +98,7 @@ const NOTICE = {
       chk(gone.html === '' && gone.posts.filter((p) => p === 'dismiss').length === 2, t + 'the X tells the board and hides the note', JSON.stringify(gone.posts));
 
       // A page that asks while the board's question is still out asks again, and shows the notice when it comes
-      // (review 1). Its retries are shortened for the check.
+      // (review 1), at the page's own 3 s spacing.
       await page.evaluate(() => { window.__pendingFor = 2; window.__asks = 0; document.getElementById('runfolder-slot').innerHTML = ''; });
       await page.evaluate(() => runFolderCheck());
       await page.waitForTimeout(300);
@@ -108,9 +109,13 @@ const NOTICE = {
       chk(late.shown && late.asks === 3, t + 'it asks again while pending, and shows the notice when it comes', JSON.stringify(late));
       await page.evaluate(() => paintRunFolder(null));
 
-      // CONTROL: no notice, nothing shown.
-      await page.evaluate(() => paintRunFolder(null));
-      chk(await page.evaluate(() => document.getElementById('runfolder-slot').innerHTML === ''), t + 'CONTROL: no notice, no note');
+      // CONTROL: the board answers no notice and nothing pending; the page asks and shows nothing.
+      await page.evaluate(() => { window.__noNotice = true; window.__asks = 0; });
+      await page.evaluate(() => runFolderCheck());
+      await page.waitForTimeout(300);
+      const none = await page.evaluate(() => ({ html: document.getElementById('runfolder-slot').innerHTML, asks: window.__asks }));
+      chk(none.html === '' && none.asks === 1, t + 'CONTROL: no notice from the board, no note, no second ask', JSON.stringify(none));
+      await page.evaluate(() => { window.__noNotice = false; });
       chk(errs.length === 0, t + 'no page errors', errs.join(' | '));
       await page.close();
     }

@@ -24,6 +24,9 @@ const path = require('node:path');
    how long the answer may take to arrive. Measured on the Windows box: about 0.3 s. */
 const CHECK_TIMEOUT_MS = 20000;
 const FLAG = '--check-run-folder';
+/* A check that could not read something is asked once more after this long: an update writing .kosmos-update\ can
+   make an item unreadable for a moment. Still unreadable then, the board shows the launcher's softer words (review 2). */
+const RECHECK_MS = 30000;
 
 let NOTICE = null;   // { folder, message } while this start's answer says the folder is unsafe and it is not dismissed
 /* True while this start's question is still out: the board is already serving, so a page can ask before the answer
@@ -48,7 +51,10 @@ function readAnswer(stdout) {
   try { a = JSON.parse(String(stdout || '').trim()); } catch { return null; }
   if (!a || typeof a !== 'object' || typeof a.safe !== 'boolean') return null;
   if (a.safe) return { safe: true };
-  if (a.checked === false) return { safe: false, checked: false, reason: typeof a.reason === 'string' ? a.reason : '' };
+  if (a.checked === false) {
+    return { safe: false, checked: false, folder: typeof a.folder === 'string' ? a.folder : '', reason: typeof a.reason === 'string' ? a.reason : '',
+      message: typeof a.message === 'string' ? a.message : '' };
+  }
   if (typeof a.message !== 'string' || !a.message || typeof a.folder !== 'string' || !a.folder) return null;
   return { safe: false, folder: a.folder, reason: typeof a.reason === 'string' ? a.reason : '', message: a.message };
 }
@@ -75,21 +81,35 @@ function atStart(opts) {
     const exists = o.exists || ((p) => fs.existsSync(p));
     if (!exists(exe)) { log(o, 'Kosmos could not check whether others can change ' + root + ': there is no Kosmos.exe in it.'); done(false); return; }
     const run = o.run || ((file, args, opt, cb) => cp.execFile(file, args, opt, cb));
-    try {
-      run(exe, [FLAG], { encoding: 'utf8', timeout: CHECK_TIMEOUT_MS, windowsHide: true, maxBuffer: 64 * 1024 }, (err, stdout) => {
-        if (err) { log(o, 'Kosmos could not check whether others can change ' + root + ' (' + ((err && err.code) || 'it failed') + ').'); done(true); return; }
-        const a = readAnswer(stdout);
-        if (!a) { log(o, 'Kosmos could not read the answer about ' + root + ', so the board says nothing about it.'); done(true); return; }
-        if (a.safe) { done(true); return; }
-        if (a.checked === false) { log(o, 'Kosmos could not finish checking whether others can change ' + root + ' (' + (a.reason || 'it could not read it') + '), so the board says nothing about it.'); done(true); return; }
-        NOTICE = { folder: a.folder, message: a.message };
-        log(o, 'Kosmos is serving from a folder other people on this computer may be able to change: ' + (a.reason || a.folder) + '.');
-        done(true, NOTICE);
-      });
-    } catch (e) {
-      log(o, 'Kosmos could not check whether others can change ' + root + ' (' + ((e && e.message) || 'it failed') + ').');
-      done(false);
-    }
+    const wait = o.wait || ((ms, fn) => { const t = setTimeout(fn, ms); if (t && t.unref) t.unref(); });
+    const ask = (again) => {
+      try {
+        run(exe, [FLAG], { encoding: 'utf8', timeout: CHECK_TIMEOUT_MS, windowsHide: true, maxBuffer: 64 * 1024 }, (err, stdout) => {
+          if (err) { log(o, 'Kosmos could not check whether others can change ' + root + ' (' + ((err && err.code) || 'it failed') + ').'); done(true); return; }
+          const a = readAnswer(stdout);
+          if (!a) { log(o, 'Kosmos could not read the answer about ' + root + ', so the board says nothing about it.'); done(true); return; }
+          if (a.safe) { done(true); return; }
+          if (a.checked === false && !again) {
+            log(o, 'Kosmos could not finish checking whether others can change ' + root + ' (' + (a.reason || 'it could not read it') + '); it asks once more shortly.');
+            wait(o.recheckMs !== undefined ? o.recheckMs : RECHECK_MS, () => ask(true));
+            return;
+          }
+          if (!a.message) { log(o, 'Kosmos could not read the answer about ' + root + ', so the board says nothing about it.'); done(true); return; }
+          NOTICE = { folder: a.folder || root, message: a.message };
+          log(o, a.checked === false
+            ? 'Kosmos still could not check whether others can change ' + root + ' (' + (a.reason || 'it could not read it') + '), so the board says so.'
+            : 'Kosmos is serving from a folder other people on this computer may be able to change: ' + (a.reason || a.folder) + '.');
+          done(true, NOTICE);
+        });
+      } catch (e) {
+        log(o, 'Kosmos could not check whether others can change ' + root + ' (' + ((e && e.message) || 'it failed') + ').');
+        done(false);
+      }
+    };
+    /* 📌 THE Kosmos.exe ASKED IS ALWAYS ONE THAT KNOWS THE FLAG. An update replaces Kosmos.exe together with app\
+       (win32update.js REQUIRED_ENTRIES lists both), so a board running this code sits beside a launcher built with
+       --check-run-folder; an older launcher would take the flag for an ordinary start. */
+    ask(false);
   });
 }
 
@@ -100,4 +120,4 @@ function pending() { return PENDING; }
 /** Hides it until the next start. */
 function dismiss() { NOTICE = null; return true; }
 
-module.exports = { atStart, current, pending, dismiss, readAnswer, isSameOrInside, CHECK_TIMEOUT_MS, FLAG };
+module.exports = { atStart, current, pending, dismiss, readAnswer, isSameOrInside, CHECK_TIMEOUT_MS, RECHECK_MS, FLAG };
