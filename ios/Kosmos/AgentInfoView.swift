@@ -143,7 +143,7 @@ struct AgentInfoView: View {
             Section {
                 if changed {
                     Button { Task { await save() } } label: {
-                        HStack { Text("Save"); if saving { Spacer(); SweepDots(label: "Loading") } }
+                        HStack { Text("Save"); if saving { Spacer(); SweepDots(label: "Loading", scales: false) } }
                     }
                     .disabled(saving || nameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -188,7 +188,7 @@ struct AgentInfoView: View {
     @ViewBuilder private var filesPart: some View {
         if filesRead == .hidden {
             Section {
-                if filesLoaded { Text(Board.filesAgentEmpty).foregroundColor(Palette.secondary) } else { HStack { Spacer(); SweepDots(label: "Loading"); Spacer() } }
+                if filesLoaded { Text(Board.filesAgentEmpty).foregroundColor(Palette.secondary) } else { HStack { Spacer(); SweepDots(label: "Loading", scales: false); Spacer() } }
             } header: { label(Board.filesTitle) }
         } else {
             FilesSection(client: client, session: agent.session, state: filesRead, opener: filesOpener, openOnBoard: openOnBoard)
@@ -295,14 +295,14 @@ struct AgentInfoView: View {
         if let reason {
             Text(reason).foregroundColor(Palette.secondary)
         } else {
-            HStack { Spacer(); SweepDots(label: "Loading"); Spacer() }
+            HStack { Spacer(); SweepDots(label: "Loading", scales: false); Spacer() }
         }
     }
     @ViewBuilder private var unread: some View {
         if readFailed {
             Text("We cannot read this right now.").foregroundColor(Palette.secondary)
         } else {
-            HStack { Spacer(); SweepDots(label: "Loading"); Spacer() }
+            HStack { Spacer(); SweepDots(label: "Loading", scales: false); Spacer() }
         }
     }
 

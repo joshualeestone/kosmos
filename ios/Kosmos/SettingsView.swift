@@ -130,7 +130,7 @@ struct SettingsView: View {
             switch load {
             case .reading:
                 HStack(spacing: 10) {
-                    SweepDots()
+                    SweepDots(scales: false)
                     Text("Reaching your computer…").font(.footnote).foregroundColor(Palette.secondary)
                 }
             case .signedOut:
@@ -175,7 +175,7 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(kind?.label ?? Settings.masterLabel).foregroundColor(Palette.primary)
-                    if chosen != nil { SweepDots(size: 16, label: "Loading") }
+                    if chosen != nil { SweepDots(size: 16, label: "Loading", scales: false) }
                 }
                 if kind == nil {
                     Text(Settings.masterNote(s)).font(.footnote).foregroundColor(Palette.secondary)
