@@ -21640,6 +21640,12 @@ const DL_WAIT = new Map();   // kosmos#8120: each click waiting to hear from the
 const DL_BUSY = new Map();   // the same clicks by the file they save, so a second click on that file waits (any button for it)
 const DL_LINE = new WeakMap();   // message line -> the last click that writes to it, so an older save never overwrites a newer word
 let DL_SEQ = 0;
+/* A key no other page can guess, so only this click's own answers can end it. */
+function dlNewKey() {
+  try { const a = new Uint32Array(3); crypto.getRandomValues(a); return 'k' + Array.from(a, (n) => n.toString(36)).join(''); }
+  catch { return 'k' + Date.now().toString(36) + (++DL_SEQ) + Math.random().toString(36).slice(2, 10); }
+}
+const DL_BACKSTOP_MS = 10 * 60 * 1000;   // after asking or saving: a save that never ends gives its button back after this
 const DL_TICK = '<svg class="dl-tick" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M3.5 8.5 6.5 11.5 12.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function dlAppTells() {
   try { return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosDownload); } catch { return false; }
@@ -21653,7 +21659,8 @@ function dlKeyed(url, w) { return w ? url + (url.includes('?') ? '&' : '?') + 'k
    beside it, `name` the file's name. Returns the watch, or null (changing nothing) when the app will not say how it went. */
 function dlWatch(file, btn, say, name) {
   if (!dlAppTells()) return null;
-  const w = { key: 'k' + Date.now().toString(36) + (++DL_SEQ), file, btn, say, name: String(name || ''), html: btn ? btn.innerHTML : '',
+  if (btn && btn.dataset.dlHtml === undefined) btn.dataset.dlHtml = btn.innerHTML;   // its own label, captured once (never a Saving or Saved one)
+  const w = { key: dlNewKey(), file, btn, say, name: String(name || ''), html: btn ? btn.dataset.dlHtml : '',
     text: !!(btn && btn.classList.contains('pv-btn')) };
   if (btn) { btn.classList.add('dl-busy'); btn.setAttribute('aria-disabled', 'true'); }
   if (say && say.el) {
@@ -21675,7 +21682,7 @@ function dlWatch(file, btn, say, name) {
   return w;
 }
 function dlEnd(w, keepLine) {
-  clearTimeout(w.slow); clearTimeout(w.lost);
+  clearTimeout(w.slow); clearTimeout(w.lost); clearTimeout(w.restore);
   DL_WAIT.delete(w.key);
   if (w.file && DL_BUSY.get(w.file) === w) DL_BUSY.delete(w.file);
   if (w.btn) { w.btn.innerHTML = w.html; w.btn.classList.remove('dl-busy', 'dl-saved'); w.btn.removeAttribute('aria-disabled'); }
@@ -21685,12 +21692,11 @@ window.addEventListener('kosmos-download', (e) => {
   const d = (e && e.detail) || {};
   const w = typeof d.key === 'string' ? DL_WAIT.get(d.key) : null;
   if (!w) return;   // not a click this page is watching
-  if (d.state === 'asking') { clearTimeout(w.lost); return; }   // the app is asking the person: wait for their answer
-  if (d.state === 'saving') { clearTimeout(w.lost); return; }
+  // Asking (the person is answering the app's question) or saving: wait, with a long backstop rather than the 30 s one.
+  if (d.state === 'asking' || d.state === 'saving') { clearTimeout(w.lost); w.lost = setTimeout(() => dlEnd(w), DL_BACKSTOP_MS); return; }
   if (d.state !== 'saved') { dlEnd(w); return; }   // failed: the app or the page has already said why
   clearTimeout(w.slow); clearTimeout(w.lost);
-  DL_WAIT.delete(w.key);
-  if (w.file && DL_BUSY.get(w.file) === w) DL_BUSY.delete(w.file);
+  DL_WAIT.delete(w.key);   // answered; the file stays busy (DL_BUSY) until the button is back, so a click on Saved saves nothing
   const name = String(d.name || w.name || 'The file');
   if (w.say && w.say.el && DL_LINE.get(w.say.el) === w) { w.say(name + ' is in your Downloads folder.'); w.say.el.classList.add('dl-said'); }
   const btn = w.btn;
@@ -21703,12 +21709,32 @@ window.addEventListener('kosmos-download', (e) => {
       show.addEventListener('click', () => { try { window.webkit.messageHandlers.kosmosDownload.postMessage({ reveal: d.id }); } catch { /* not the app */ } });
       btn.after(show);
     }
-    setTimeout(() => { if (btn.classList.contains('dl-saved')) { btn.innerHTML = w.html; btn.classList.remove('dl-busy', 'dl-saved'); btn.removeAttribute('aria-disabled'); } }, w.text ? 6000 : 3000);
   }
+  w.restore = setTimeout(() => dlEnd(w, true), btn && w.text ? 6000 : 3000);
 });
+/* Show in Finder could not find the file (moved, deleted, or saved too long ago): said in the viewer's line. */
+window.addEventListener('kosmos-download', (e) => {
+  const d = (e && e.detail) || {};
+  if (d.state !== 'revealfailed') return;
+  const m = document.getElementById('pv-msg');
+  if (m) { m.classList.remove('dl-said'); m.textContent = 'That file is not in your Downloads folder any more.'; }
+});
+/* A control drawn for a file that is saving already (the viewer opened again, a list redrawn) shows it, and is the one
+   the save's answer lands on. */
+function dlAdopt(file, btn) {
+  const w = file && DL_BUSY.get(file);
+  if (!w || !btn) return;
+  if (btn.dataset.dlHtml === undefined) btn.dataset.dlHtml = btn.innerHTML;
+  w.btn = btn; w.html = btn.dataset.dlHtml; w.text = btn.classList.contains('pv-btn');
+  btn.classList.add('dl-busy'); btn.setAttribute('aria-disabled', 'true');
+  btn.innerHTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>' + (w.text ? 'Saving' : '');
+}
 function kplusDownload(kind, owner, name, say, after, btn) {
   const file = kind + '\n' + owner + '\n' + name;
-  if (dlBusy(file)) return;   // kosmos#8120: that file is saving already; a second click would save a second copy
+  if (dlBusy(file)) {   // kosmos#8120: that file is saving already; a second click would save a second copy
+    if (say && !(say.el && say.el.classList.contains('dl-said'))) say('Already saving ' + (String(name || '').split('/').pop() || 'that file') + '.');
+    return;
+  }
   const q = 'name=' + encodeURIComponent(name);
   const ticket = {};
   if (say && say.el) KPLUS_LATEST.set(say.el, ticket);   // an older look's answer then never lands on a newer click
@@ -77237,6 +77263,7 @@ function pvOpen(id, from) {
   const back = tmp.firstElementChild;
   const stage = back.querySelector('#pv-stage');
   const fileCard = () => {
+    { const nm = back.querySelector('#pv-name'); if (nm) nm.classList.add('pv-dup'); }   // #8122: the card carries the name
     const card = document.createElement('div');
     card.className = 'pv-file';
     card.innerHTML = fileIcon(a.name) + '<b></b><span></span>';
@@ -77279,6 +77306,7 @@ function pvOpen(id, from) {
     b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = 'Download';
     b.addEventListener('click', () => a.download(b));
     act.replaceWith(b);
+    if (a.dlFile) dlAdopt(a.dlFile, b);   // kosmos#8120: opened again while it saves
   } else if (pvOffersDownload()) {
     const dl = document.createElement('a');
     dl.className = 'pv-btn'; dl.id = 'pv-do'; dl.href = a.url; dl.setAttribute('download', a.name); dl.textContent = 'Download';
@@ -77295,6 +77323,7 @@ function pvOpen(id, from) {
       document.body.appendChild(go); go.click(); go.remove();
     });
     act.replaceWith(dl);
+    dlAdopt(a.url, dl);   // kosmos#8120: opened again while it saves
   } else {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'pv-btn'; b.id = 'pv-do'; b.textContent = pvRevealWord();
@@ -77424,6 +77453,7 @@ function filesPvOpen(row, where, e) {
     url: base.download + q, preview: base.preview + q,
     // #6724: the only way a text preview is fetched (pvStageKind): which list, whose, and the listed name. Never an address.
     textOf: kind === 'text' ? { kind: where.agent ? 'agent' : 'project', owner: where.agent || where.project, name } : undefined,
+    dlFile: (where.agent ? 'agent' : 'project') + '\n' + (where.agent || where.project) + '\n' + name,   // kosmos#8120: kplusDownload's name for this file
     download: (btn) => kplusDownload(where.agent ? 'agent' : 'project', where.agent || where.project, name,
       kplusSayer(document.getElementById('pv-msg'), () => !!document.getElementById('pv-msg')), undefined, btn),
     reveal: async () => {

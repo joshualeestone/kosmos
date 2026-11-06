@@ -356,9 +356,29 @@ async function runApp(engine, say) {
     await tell({ state: 'saved', key: k1, id: 7, name: 'Budget 2026.xlsx' });
     const saved = await state();
     say(/Saved to Downloads/.test(saved.text) && /Budget 2026\.xlsx is in your Downloads folder/.test(saved.msg) && saved.show === 'Show in Finder', T + ': only the app\'s saved says Saved to Downloads, with the name and Show in Finder', JSON.stringify(saved));
+    // A click while it says Saved saves nothing (it is the click Josh made three times), and the button comes back as
+    // Download, never stuck on Saved (review round 2).
+    const before = asked.length, waitBefore = (await waitingKeys()).length;
+    await pg.click('#pv-do', { force: true }); await pg.waitForTimeout(200);
+    const again = await state();
+    say((netSeen ? asked.length === before : true) && (await waitingKeys()).length === waitBefore && /Saved to Downloads/.test(again.text),
+      T + ': a click while it says Saved saves nothing, and it still says Saved', JSON.stringify({ asked: asked.length - before, again }));
     await pg.click('.pv-quiet');
     const posted = await pg.evaluate(() => window.__posted);
     say(JSON.stringify(posted) === JSON.stringify([{ reveal: 7 }]) && !!(await pg.$('#pv-preview')), T + ': Show in Finder asks the app for that download (by id, never a path), and the viewer stays open', JSON.stringify(posted));
+    await pg.waitForTimeout(6300);
+    const back = await state();
+    say(back.text === 'Download' && !back.busy, T + ': six seconds on, the button is Download again (not stuck on Saved)', JSON.stringify(back));
+    // 1b. The viewer opened again while the same file saves: it shows Saving, and the answer lands on it.
+    await open();
+    await pg.click('#pv-do'); await pg.waitForTimeout(100);
+    const k3 = netSeen ? keyOf(asked[asked.length - 1] || '') : (await waitingKeys())[0];
+    await open();
+    const reopened = await state();
+    say(reopened.busy && /Saving/.test(reopened.text), T + ': opened again mid-save, the button says Saving', JSON.stringify(reopened));
+    await tell({ state: 'saved', key: k3, id: 8, name: 'Budget 2026.xlsx' });
+    say(/Saved to Downloads/.test((await state()).text), T + ': and the save\'s answer lands on the reopened button', JSON.stringify(await state()));
+    await pg.waitForTimeout(6300);
     // 2. A failure: the button comes straight back, and nothing says saved.
     await open();
     await pg.click('#pv-do'); await pg.waitForTimeout(100);

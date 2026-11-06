@@ -6,20 +6,20 @@
 
 ## Change
 The Mac app (native-app/main.swift):
-- A `kosmosDownload` message handler. Its presence tells the page the app will report saves. Its one message, `{reveal: <id>}`, shows in Finder a file this app saved, by the id it gave that download, never a path. It is heard from the main frame of the board or of a Kosmos+ computer's page.
-- `tellPageDownload` sends the `kosmos-download` event: `saving` once the download has a place in Downloads, `saved` only from downloadDidFinish, `failed` on a failure.
+- `kosmosDownload` message handler: its presence tells the page the app will answer; its one message, `{reveal: <id>}` (a number), shows in Finder a file this app saved, only for the origin that saved it, and answers `revealfailed` when it cannot.
+- Every answer is the `kosmos-download` event carrying the page's own key for the click (the `kdl` query value the page put on the download's address): `asking` (the Allow question), `saving` (it has a place in Downloads), `saved` (only from downloadDidFinish), `failed`. A click refused before any download exists is answered too (Don't Allow, a refused link or attachment). Only the page's own main-frame clicks, only keyed clicks, and only while that page still shows (pageCommits).
+- The Kosmos+ tunnel passes `kdl` through (it strips only `token` and `boot`, kosmos-relay proxy.rs strip_query_params); the board reads only `name`.
 
 The page (web/index.html):
-- `dlWatch` and the `kosmos-download` listener. Events are matched to clicks oldest first.
-- The button turns off at once. After 0.4 s it shows the Sweep dots and "Saving". On saved it shows a tick and "Saved to Downloads", with "<name> is in your Downloads folder" in the line and Show in Finder (in the viewer). A failure, or 30 s with no word from the app, puts it back. The button comes back after 6 s (3 s for an icon button).
-- Covers the viewer (the download link, and the Kosmos+ button through kplusDownload) and the Files lists (kplusDownload). Without the handler (a browser, an older app) nothing changes.
-- The viewer (#8122): the name and the action are centred right under the file, in the regular gold (`--gold-bright`, ink #14161a); Show in Finder is the quiet one. The backdrop is .96. A file shown as a card keeps its name on the card; the bar's copy stays only as the dialog's label. Show in Finder does not close the viewer.
+- `dlWatch` puts an unguessable key (crypto.getRandomValues) on the click's address and waits for answers with that key alone. The button is off at once; after 0.4 s the Sweep dots and "Saving" (and "Saving <name>..." in an empty line); on saved a tick and "Saved to Downloads", "<name> is in your Downloads folder" in the line (only if the line's latest click is this one), and Show in Finder in the viewer; back to Download after 6 s (3 s for an icon button). The file stays busy until then, so a click on Saved saves nothing. A failure puts it back at once. 30 s with no answer puts it back; after `asking` or `saving` the backstop is 10 minutes.
+- Busy is per file (DL_BUSY): a viewer opened again or a list redrawn mid-save shows Saving and takes the answer (dlAdopt); a second click on that file says "Already saving <name>." and saves nothing.
+- The viewer (#8122): the name and the action centred right under the file, in the regular gold; Show in Finder the quiet one; backdrop .96; a file shown as a card keeps its name on the card; a click on the action row never closes the viewer.
 
 ## Not in this branch
 The spreadsheet preview (#8122's other half).
 
 ## Tests
-- native-app download selftest: 3 new rows (41 in all), measured live.
-- native-app.download-5167.test.js pins 41.
+- native-app download selftest: 6 new rows (44 in all), measured live: keyed answers, a refusal before any download, only keyed clicks told, every answer runs in the page, Show in Finder by origin.
+- native-app.download-5167.test.js pins 44, accepts the keyed Allow form (control: a broken decision reds), and pins the Kosmos+ branch's decision and the main-frame key.
 - render-file-preview-4930: the action is centred under the picture and gold (was: the bottom-left corner).
-- A stubbed-app Chromium run of every state (in the PR and the card).
+- render-file-preview-4930 runApp: the key, a second click, another download's answer, Saving, Saved with Show in Finder, a click on Saved, the button back after 6 s, a reopened viewer mid-save, a failure, two Files-list files out of order. Chromium and WebKit (WebKit here performs no download for a script click, so its address rows are judged on Chromium).

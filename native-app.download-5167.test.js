@@ -127,7 +127,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 43[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 44[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);
@@ -148,6 +148,14 @@ test('#5167 review 5: refused downloads stay out of the window, quarantine recor
   assert.match(BUILD.slice(BUILD.indexOf('--kosmos-app-download-selftest')),
     /\*"rows ran, so this proved nothing"\*\)[\s\S]*?\*"download-check: all good"\*\)[\s\S]*?\*"download-check:"\*\)/,
     'a short run is read as a product verdict');
+});
+
+test('kosmos#8120: a Kosmos+ computer\'s own download keeps its Allow decision: no cancels, and is told to the page as failed', () => {
+  const b = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
+  assert.match(b, /let asked = navigationAction\.request\n\s+mayDownload\(file: nil\) \{ \[weak self, weak webView\] yes in\n\s+decisionHandler\(\.cancel\)\n\s+if !yes \{ self\?\.tellPageKey\(webView, url: keyed, "failed"\) \}\n\s+guard yes, let self, let webView else \{ return \}/,
+    'the Kosmos+ download path no longer cancels WebKit\'s own and starts only on Allow, or a Don\'t Allow is not told to the page');
+  assert.match(b, /let keyed = navigationAction\.sourceFrame\.isMainFrame \? navigationAction\.request\.url : nil/,
+    'a frame inside the page can answer the page\'s download click');
 });
 
 test('#5167 review 6: a board file the window cannot show is saved; an unmarkable one is kept and said', () => {
