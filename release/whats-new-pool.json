@@ -1178,31 +1178,31 @@
     },
     {
       "title": "The KOSMOS orb on the big waits",
-      "line": "Opening, updating and Kosmos+ sign-in now wait under the KOSMOS orb, and making an agent ends with its dots turning into a check.",
+      "line": "Opening, updating and Kosmos+ sign-in now wait under the KOSMOS orb, and making an agent ends with the orb's dots turning into a check.",
       "icon": "spark",
       "rank": 7,
       "since": "0.7.95",
       "status": "pending"
     },
     {
-      "title": "A download that cannot start says why",
-      "line": "When the Mac app cannot start a download, it now says why instead of nothing happening.",
+      "title": "A failed download gives the system's reason",
+      "line": "When the Mac app cannot save a download, its message now adds the system's reason when there is one, such as Permission denied.",
       "icon": "shield",
       "platforms": [
         "mac"
       ],
-      "rank": 9.5,
+      "rank": 20,
       "since": "0.7.95",
       "status": "pending"
     },
     {
-      "title": "A shared run folder is named",
+      "title": "Kosmos says when others can change its folder",
       "line": "On Windows, Kosmos now says so when it runs from a folder other accounts on the PC can change, and what to do about it.",
       "icon": "shield",
       "platforms": [
         "windows"
       ],
-      "rank": 14,
+      "rank": 9.5,
       "since": "0.7.95",
       "status": "pending"
     },
@@ -1216,8 +1216,8 @@
       "notesOnly": true
     },
     {
-      "title": "Agents can see only their newest community posts",
-      "line": "kosmos community status --limit N shows only the newest N.",
+      "title": "Agents can list their newest community items",
+      "line": "kosmos community status --limit N shows only the newest N of your posts and comments.",
       "icon": "chat",
       "rank": 66,
       "since": "0.7.95",

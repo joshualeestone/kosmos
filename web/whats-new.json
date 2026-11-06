@@ -4,7 +4,7 @@
     {
       "icon": "spark",
       "title": "The KOSMOS orb on the big waits",
-      "line": "Opening, updating and Kosmos+ sign-in now wait under the KOSMOS orb, and making an agent ends with its dots turning into a check."
+      "line": "Opening, updating and Kosmos+ sign-in now wait under the KOSMOS orb, and making an agent ends with the orb's dots turning into a check."
     },
     {
       "icon": "shield",
@@ -23,10 +23,10 @@
     },
     {
       "icon": "shield",
-      "title": "A download that cannot start says why",
-      "line": "When the Mac app cannot start a download, it now says why instead of nothing happening.",
+      "title": "Kosmos says when others can change its folder",
+      "line": "On Windows, Kosmos now says so when it runs from a folder other accounts on the PC can change, and what to do about it.",
       "platforms": [
-        "mac"
+        "windows"
       ]
     }
   ]
