@@ -7133,6 +7133,29 @@ function unholdNext(projectId, t, rosterOf) {
     return '';
   }
 }
+/* kosmos#8109 round 7: the cards `kosmos agent list` prints, as remove.resolve's candidates: [{ name: <machine name>,
+   shown: <display name> }]. The SAME two sources the list route joins: the live snapshot and the survey's not-running
+   agents, removed ones left out as that route leaves them out. Without them a card with no folder in the workers
+   folder (a connected agent, a session or a job only) could not make a name ambiguous. `null` when either source
+   cannot be read, so the plan resolves nothing rather than half a board (test: "a card outside the folder"). */
+async function cardsForResolve() {
+  try {
+    const snap = await snapshotUnheld();
+    if (!snap || !Array.isArray(snap.agents) || (snap.counts && snap.counts.unreadableLines > 0)) return null;
+    const removedRecs = removal.removedAgents();
+    const gone = new Set(removedRecs.filter((r) => removal.hidesCard(r)).map((r) => r.name));
+    const known = register.survey();
+    if (!known || !known.ok || !Array.isArray(known.agents)) return null;
+    const cards = snap.agents.filter((a) => a && !gone.has(a.sessionName)).map((a) => ({ name: a.sessionName, shown: a.name }));
+    const seen = new Set(cards.map((c) => c.name));
+    for (const k of known.agents) {
+      if (!k || k.removed || !(k.folder || k.job) || seen.has(k.name) || gone.has(k.name)) continue;
+      cards.push({ name: k.name, shown: k.shownAs || k.name });
+    }
+    return cards;
+  } catch { return null; }
+}
+
 /* #7470: a restart's reason, said after a switch that WAS saved. The restart's own "Nothing was changed." is true of
    the restart and false of the switch, so it is left out here (removal.RESTART_CHANGED_NOTHING, one spelling). */
 function switchRestartWhy(back) {
@@ -10637,7 +10660,8 @@ const server = http.createServer(async (req, res) => {
     // name and does not ask, so a stale card is never answered with a different agent's plan.
     let name = asked; let many = []; let shown = {};
     if (/[?&]resolve=1(?:&|$)/.test(req.url || '')) {
-      try { const r = removal.resolve(asked); name = r.name; many = r.ambiguous; shown = r.shown; } catch { name = asked; many = []; shown = {}; }
+      const listed = await cardsForResolve();
+      try { const r = removal.resolve(asked, process.platform, listed); name = r.name; many = r.ambiguous; shown = r.shown; } catch { name = asked; many = []; shown = {}; }
       if (many.length) { sendJson(res, 400, removal.ambiguousRefusal(asked, many, shown)); return; }
     }
   /**

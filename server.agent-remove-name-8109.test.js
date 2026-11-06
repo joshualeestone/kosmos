@@ -104,6 +104,28 @@ test('a name two agents answer to is refused by the plan, naming each folder wit
     p.text.slice(0, 220));
 });
 
+test('a card outside the folder: a session-only agent shown as X plus a folder shown as X is refused as ambiguous', async () => {
+  // Round 7: `agent list` prints every card, and a card whose agent has no folder in the workers folder (here a live
+  // session whose display name comes from its profile) must count, or the folder agent is removed with no refusal.
+  folderAgent('ksrv8109', 'Ksrv8109');
+  const store = require('./engine/store');
+  store.writeProfile('kcon8109', { displayName: 'Ksrv8109' });
+  board.restore();
+  board = fleet.install([fleet.agent('kcon8109', { ours: 'claim' })], { strict: false });
+  try {
+    assert.equal(board.card('kcon8109').name, 'Ksrv8109', 'CONTROL: the board does not show the session agent as Ksrv8109');
+    const p = await call('GET', 'Ksrv8109', RESOLVE);
+    assert.equal(p.code, 400, 'a name a session agent also answers to was resolved to the folder agent: ' + p.text.slice(0, 200));
+    assert.match(p.text, /more than one agent is called Ksrv8109 \(kcon8109, shown as Ksrv8109; ksrv8109, shown as Ksrv8109\)/, p.text.slice(0, 220));
+  } finally {
+    board.restore();
+    board = fleet.install([]);
+  }
+  // CONTROL: with the session gone, the same name resolves to the folder agent, so the test can see the miss.
+  const c = await call('GET', 'Ksrv8109', RESOLVE);
+  assert.equal(c.json && c.json.name, 'ksrv8109', 'CONTROL: the name does not resolve without the session: ' + c.text.slice(0, 200));
+});
+
 test.after(() => {
   try { board.restore(); } catch { /* ignore */ }
   try { server.close(); } catch { /* ignore */ }
