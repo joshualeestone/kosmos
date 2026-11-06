@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: pullup-8072
 diff_hash: 457503cc424a097543f398400f713d6b37d328633690026bdd558f5290f1e100
-validation: full suite passed one small commit before the last (0 failed); that commit is a comment, a value's comment, a plan line and a stricter guard, whose suite was rerun alone
+validation: red on 1 file, engine/restoresink.test.js, stopped at the 30 min limit, 0 other failures. It hangs identically on clean origin/main c9311fc3ef, because mkdir on an external volume on this Mac is blocked (see the summary). Full suite not green on this machine today; CI is the check.
 subdir_audit: not run (no CLAUDE.md in the diff)
 timestamp: 2026-11-06T17:26:52Z
 iterations: 4
@@ -15,6 +15,8 @@ converged: false
 **Iterations:** 4
 **Converged:** No. Round 4 raised two warnings: one deferred with reason, one fixed and not re-reviewed. Stopped by my call, on a small remainder, with no blocker open. No user asked me to stop. Two earlier rounds' blockers were real and are fixed.
 **Findings:** 2 BLOCKERs, 12 WARNINGs, 2 CONVENTIONs, 20-odd NITs.
+
+**Full suite.** One file stopped at the limit: engine/restoresink.test.js. Same hang alone (500 s), and on clean main (0 tests done at 100 s, the process blocked in mkdir on an external volume). A plain mkdir and ls there block too. Not caused by this diff, and no other failure.
 
 **Measured.** EndPullUITests 18 of 18 over 3 runs, on the final spot. Logic suites pass. 60 pulls over 12 runs on a long varied chat: 0 rebuilds, 0 blanks, 10 of those pulls from the opening that blanks when a keyboard rises. **No keyboard up in those.**
 **Not measured.** A real iPhone. A new message arriving BECAUSE of a pull. Motion through a row landing mid-bounce: the test checks the end state. The end-marker gate is a source check, not behaviour.
