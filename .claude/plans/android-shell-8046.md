@@ -96,13 +96,21 @@ build on a clear box.
 
 ### Board-client increments (framework-free core first, crypto/Keystore isolated)
 - DONE: `SignIn` input core (looksLikeEmail, code, route paths) + `SessionStore` interface.
-- NEXT: the sign-in request/answer model — `SignIn.Answer`/`Session`/`DeviceStatus`, `answer(status, body: Map)`
+- DONE: the sign-in request/answer model — `SignIn.Answer`/`Session`/`DeviceStatus`, `answer(status, body: Map)`
   (body pre-parsed by the networking layer, NOT org.json, to stay JVM-testable), `allowRead`, `next(after:)`
   step machine, `cleanMessage`/`sentence`/`refusal`, `companySignInRequired`.
-- THEN (highest risk, isolated behind interfaces): the device-proof crypto — `base64url`/`deviceID` (SHA-256)/
-  `proofMessage`/`verifyBody`, behind a `DeviceKey` interface (software impl for tests; Android Keystore
-  EC-P256 impl isolated); and `KeystoreSessionStore`. Secondary: passkey / company-SSO / review-account /
-  TOTP-enrol paths.
+- DONE (highest risk, isolated behind the `DeviceKey` interface): the device-proof crypto — `base64url`
+  (hand-rolled, NOT `java.util.Base64`: that is API 26 and minSdk is 24; framework-free so the JVM test runs
+  it — Android divergence)/`deviceID` (SHA-256)/`proofMessage`/`verifyBody` in `SignIn`, and `EcdsaSig` (the
+  DER<->raw r||s conversion the JVM needs because it signs DER while the coordinator speaks raw 64-byte r||s)
+  + `SoftwareDeviceKey` (software EC P-256, for the tests) in the isolated `DeviceKeyCrypto.kt`. Pinned by
+  content to the coordinator's WebCrypto vector (`devkey.rs a_webcrypto_vector_verifies`) in `SignInCryptoTest`
+  (vector verify + code/email-case negative controls + fresh-key round trip + base64url codec). Build-verified:
+  testDebug/testReleaseUnitTest 87/0/0, `gradlew test` exit 0.
+- NEXT (isolated, Android-only so NOT JVM-unit-testable — compile-verified by the build, device-verified later):
+  `KeystoreDeviceKey` (Android Keystore EC P-256 impl of `DeviceKey`) and `KeystoreSessionStore`
+  (EncryptedSharedPreferences, needs the androidx.security:security-crypto dependency). Secondary sign-in
+  paths: passkey / company-SSO / review-account / TOTP-enrol.
 
 ## After the board client
 The native Compose chrome + WebView host wiring the door (`AppTabs.pressScript`/`markScript`) + the
