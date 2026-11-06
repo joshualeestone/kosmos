@@ -9187,6 +9187,9 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 /* "if we could move the elements down just a little so that when the K
    is animating it's not so close to the top." */
 .made-mark { display: block; margin: var(--space-4) auto var(--space-5); width: 66px; height: 77px; }
+.made-mark.made-in { animation: madeIn .35s ease-out; }
+@keyframes madeIn { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .made-mark.made-in { animation: none; } }
 .made-orb { display: block; margin: calc(var(--space-4) + 5px) auto calc(var(--space-5) + 6px); }   /* the orb in the mark's 77 px */
 /* 🔑 THE ROWS ARRIVE, ONE AT A TIME. Josh asked for each to animate in and to
    look like it is working before it resolves. The motion is on the ROW; what
@@ -47519,8 +47522,7 @@ const KORB = (() => {
 /* #5362: the standard loading spinner (Take D Sweep), beside Token Usage's reading line while /api/usage loads. */
 const LOAD_SPIN_HTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 /* #7896 follow-up (Josh 11-06 11:25, on the "Opening" screen: "When are we going to maybe see the new kosmos animated
-   graphic in here?"): the big waiting screens show the KOSMOS orb too. It is the same .spin-sweep KORB draws everywhere
-   else, at 88 px, the K loader's width on those screens. `cls` keeps each screen's own class for its layout; `label`
+   graphic in here?"): the big waiting screens show the KOSMOS orb too. It is the .spin-sweep markup, marked .orb-wait so KORB draws it, at 88 px, the K loader's width on those screens. `cls` keeps each screen's own class for its layout; `label`
    names it for a screen reader where the old canvas did (the update overlay), and hides it otherwise; `size` in px (88). */
 function kOrbWaitHtml(cls, label, size) {
   return '<span class="spin spin-sweep orb-wait ' + cls + '" style="--sz:' + (size || 88) + 'px"'
@@ -53929,7 +53931,7 @@ function startMadeMark(cv) {
   let done = false;
   return { finish() {
     if (done) return; done = true;
-    orb.remove(); fresh.hidden = false;
+    orb.remove(); fresh.hidden = false; fresh.classList.add('made-in');   // faded in, so the orb gives way rather than cuts
     const k = startKLoader(fresh); if (k && k.finish) k.finish();
   } };
 }

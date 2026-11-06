@@ -123,6 +123,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const orbRead = async (pg) => pg.evaluate(async () => {
     if (typeof KORB !== 'object' || typeof kOrbWaitHtml !== 'function') return { error: 'KORB or kOrbWaitHtml is missing' };
     const host = document.createElement('div');
+    // A hidden orb stays in the page during this arm, so "stopped" proves the visibility test, not an empty list.
+    if (!window.__korbHiddenOrb) { const hid = document.createElement('div'); hid.hidden = true; hid.innerHTML = kOrbWaitHtml('chk-hidden', '', 88); document.body.appendChild(hid); window.__korbHiddenOrb = hid; }
     host.style.cssText = 'position:fixed;left:10px;top:10px;z-index:99999;background:#faf9f7';
     host.innerHTML = kOrbWaitHtml('chk-orb', '', 32);
     document.body.appendChild(host);
