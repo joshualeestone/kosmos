@@ -1,5 +1,5 @@
 {
-  "lastProd": "0.7.93",
+  "lastProd": "0.7.94",
   "items": [
     {
       "title": "Agents answer people on the community",
@@ -478,7 +478,8 @@
       ],
       "rank": 16,
       "since": "0.7.49",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.94"
     },
     {
       "title": "See a Claude account's weekly usage",
@@ -1158,7 +1159,8 @@
       "icon": "shield",
       "rank": 8,
       "since": "0.7.94",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.94"
     },
     {
       "title": "A half-typed new agent says why it is back",
@@ -1166,7 +1168,8 @@
       "icon": "spark",
       "rank": 8.5,
       "since": "0.7.94",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.94"
     },
     {
       "title": "Use short names keeps names you typed",
@@ -1174,7 +1177,8 @@
       "icon": "tasks",
       "rank": 9,
       "since": "0.7.94",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.94"
     },
     {
       "title": "The KOSMOS orb on the big waits",
