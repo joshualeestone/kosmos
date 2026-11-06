@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: reopen-8118
-diff_hash: 486d5b90f8799e4627b78d4080b736503b8523782a7936bf4632c057dcec5835
+diff_hash: cc429e1cc1e853a39d67d6bc473fc072d3a59b18269c2bbfb858f2d2e5a70a3d
 validation: local (every web*, native-app* and browser-checks* test file, the app selftest, the computers browser check in Chromium and WebKit, both browser-check gates); not run as the full yarn test
 subdir_audit: passed
-timestamp: 2026-11-06T19:53:23Z
+timestamp: 2026-11-06T20:20:28Z
 iterations: 8
 converged: true
 ---
@@ -91,6 +91,9 @@ kosmos#8118 (Josh: "If I quit or restart the app, it automatically kicks me back
 
 ### After convergence (test only)
 `docs/browser-checks/render-computers-4648.js` now runs the launch reopen in the real page in Chromium and WebKit: 140 passed. A mutant with the switch removed fails it in all four runs. This satisfies the #1720 gate with a real check rather than a trailer.
+
+### After the PR's first CI run
+CI's node suite failed one test on 942f8fbe3e: `install.this-computer-1290.test.js`, the product's "this Mac" wording guard, which flagged a log line of this branch ("or this Mac connects"). It was not in my local run, which covered web*, native-app* and browser-checks* files only. Fixed to "this computer". I then ran every other test file that reads main.swift (16 files, 305 tests, 0 fail). The diff hash is recomputed for that one-word change.
 
 ### Validation (honest scope)
 On db6ac614ac (rebased onto main): 475 web, native-app and browser-checks test files, 3937/3937; app selftest 287/287 (swiftc at the macOS 13.5 floor); the browser check 140/140 in both engines; both browser-check gates rc 0. Not run: the full `yarn test` (shell suite), and the app on a real install, which is the card's proof.
