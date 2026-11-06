@@ -100,8 +100,9 @@ function icacls(folder, ...args) {
 function lockDown(folder) {
   icacls(folder, '/inheritance:r', '/grant:r', '*' + mySid + ':(OI)(CI)F', '*S-1-5-18:(OI)(CI)F', '*S-1-5-32-544:(OI)(CI)F');
 }
-function probe(folder, profile) {
-  const r = spawnSync(probeExe, profile === undefined ? [folder] : [folder, profile], { encoding: 'utf8', windowsHide: true, timeout: 30000 });
+function probe(folder, profile, asSid) {
+  const args = profile === undefined ? [folder] : (asSid ? [folder, profile, asSid] : [folder, profile]);
+  const r = spawnSync(probeExe, args, { encoding: 'utf8', windowsHide: true, timeout: 30000 });
   assert.equal(r.status, 0, 'the probe failed: ' + r.stdout + r.stderr);
   return r.stdout.trim();
 }
@@ -124,6 +125,7 @@ class AclProbe {
       Console.Write(KosmosLauncher.FreshCopyFolder(a[1]));
       return 0;
     }
+    if (a.Length > 2) { var other = new System.Security.Principal.SecurityIdentifier(a[2]); KosmosLauncher.currentUser = () => other; }
     if (a.Length > 1) { string p = a[1]; KosmosLauncher.userProfileFolder = () => p; }
     string r = KosmosLauncher.UnsafeRunFolderReason(a[0]);
     Console.Write(r == null ? "SAFE" : "UNSAFE " + r);
@@ -361,4 +363,18 @@ test('#1765: the refusal names a folder inside the profile that is really there'
   const real = path.join(profile, 'Stuff', 'Dl');
   fs.mkdirSync(real, { recursive: true });
   assert.equal(fresh(real, desk), real);
+});
+
+test('#1765: a folder owned by anyone but the four is refused, whatever its entries say', WINDOWS_ONLY, (t) => {
+  if (!needsBuild(t)) return;
+  /* Review 3 (v2): the owner rule is the defence for a file another account made while the folder let them. Read a
+     folder this account owns and locked down as if another account were running: its owner is then not one of the
+     four, so it must be refused as owned, before any entry is weighed. */
+  const f = sandboxFolder('owned');
+  lockDown(f);
+  assert.equal(probe(f, NOT_MY_PROFILE), 'SAFE', 'a locked folder of this account was refused');
+  const someoneElse = 'S-1-5-21-1111111111-2222222222-3333333333-1002';
+  const answer = probe(f, NOT_MY_PROFILE, someoneElse);
+  assert.match(answer, /^UNSAFE .+ owns /, 'an untrusted owner was not refused as the owner: ' + answer);
+  assert.ok(answer.includes(f), 'the reason does not name the folder: ' + answer);
 });

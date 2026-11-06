@@ -291,7 +291,8 @@ of the engine's own helpers, run with the bundle's node:
     in place from such a folder before this check keeps its logon task and in-app updates
     there; its Start menu entry now opens to the refusal, and so does anything that starts
     Kosmos.exe from that folder again (the board reopening its window after an update shows
-    the refusal box while the board itself keeps serving). The fresh copy from Downloads
+    the refusal box while the board itself keeps serving). The board does not yet notice
+    for itself that it runs from such a folder; that is a follow-up on #1765. The fresh copy from Downloads
     installs itself and points Kosmos at the installed copy, so the board starts from there
     from the next sign-in (a board already serving from the old folder runs on until then),
     and the old folder can be deleted after that.

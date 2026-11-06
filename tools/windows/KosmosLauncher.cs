@@ -435,6 +435,12 @@ class KosmosLauncher
     // target.
     // A seam only so a test can check folders inside its temp folder as if they were outside the profile.
     internal static Func<string> userProfileFolder = () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+    // A seam only so a test can read real folders as another account would (review 3, v2): the owner rule has no
+    // other way to be exercised without an administrator. Production asks Windows who is running.
+    internal static Func<System.Security.Principal.SecurityIdentifier> currentUser = () =>
+    {
+        using (System.Security.Principal.WindowsIdentity id = System.Security.Principal.WindowsIdentity.GetCurrent()) return id.User;
+    };
 
     const int FILE_WRITE_DATA = 0x2;
     const int FILE_APPEND_DATA = 0x4;
@@ -492,7 +498,7 @@ class KosmosLauncher
         string profile = FullPathOrNull(userProfileFolder());
         if (profile != null && IsSameOrInside(full, profile)) return null;
         System.Security.Principal.SecurityIdentifier me;
-        try { using (System.Security.Principal.WindowsIdentity id = System.Security.Principal.WindowsIdentity.GetCurrent()) me = id.User; }
+        try { me = currentUser(); }
         catch (Exception e) { return "this account could not be read (" + e.Message + ")"; }
         if (me == null) return "this account could not be read";
         string folder = full.TrimEnd('\\', '/');
