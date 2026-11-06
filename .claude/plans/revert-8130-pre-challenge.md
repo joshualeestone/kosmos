@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: revert-8130
-diff_hash: 904f045d5e9672c668d46bd0b4a8763caa944422aeb092494ec0e4f1c6847f2a
+diff_hash: 88f46932189237011a95ff9d8d9dfb919cb875219eddc82657e499547e44d006
 validation: passed (a pure revert: the three code files are byte-identical to main before #8130, which passed CI 8 of 8 with #8126)
 subdir_audit: not run (revert)
 timestamp: 2026-11-06T21:23:19Z
