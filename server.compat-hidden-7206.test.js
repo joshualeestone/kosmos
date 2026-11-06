@@ -113,42 +113,68 @@ test('CONTROL, switch ON: the same routes answer (so the OFF test is not a gate 
   } finally { withSwitch(false); }
 });
 
-test('the page: every provider menu lists DeepSeek as a disabled "coming soon" row, and compatAsk keeps it so while off', async () => {
+test('the page: every provider menu lists DeepSeek and GLM as disabled "coming soon" rows, and compatAsk keeps each so while its own switch is off', async () => {
   const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const rows = [...PAGE.matchAll(/<option value="deepseek"([^>]*)>([^<]*)<\/option>/g)];
-  assert.equal(rows.length, 3, 'expected the DeepSeek row in Add a provider, the create menu and the switch menu');
-  for (const [, attrs, text] of rows) {
-    assert.match(attrs, /\bdisabled\b/, 'a DeepSeek row is enabled in the markup');
-    assert.match(text, /coming soon/);
+  for (const [id, name] of [['deepseek', 'DeepSeek'], ['glm', 'Z.ai GLM']]) {
+    const rows = [...PAGE.matchAll(new RegExp('<option value="' + id + '"([^>]*)>([^<]*)</option>', 'g'))];
+    assert.equal(rows.length, 3, 'expected the ' + name + ' row in Add a provider, the create menu and the switch menu');
+    for (const [, attrs, text] of rows) {
+      assert.match(attrs, /\bdisabled\b/, 'a ' + name + ' row is enabled in the markup');
+      assert.match(text, /coming soon/);
+    }
   }
-  // compatAsk, run against a board that says OFF, then ON (the control), on a stand-in document.
+  // compatAsk, run against a board that names some vendors on, on a stand-in document that answers by selector.
   const script = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
   const at = script.indexOf('const COMPAT_ASK_MS');
   assert.ok(at > -1 && script.indexOf('function compatAsk(', at) > at, 'compatAsk (and its cache) moved in the page');
   const src = script.slice(at, script.indexOf('\n}\n', script.indexOf('function compatAsk(', at)) + 2);
-  const opts = [1, 2, 3].map(() => ({ disabled: true, textContent: 'DeepSeek · coming soon', value: 'deepseek' }));
-  const pick = opts[0];
-  const doc = { querySelectorAll: () => opts, querySelector: (q) => (q.includes('acct-provider-pick') ? pick : null) };
-  const run = async (enabled, startOn = false) => {
+  const run = async (answer, opts = {}) => {
+    const menus = {};
+    for (const id of ['deepseek', 'glm']) menus[id] = [1, 2, 3].map(() => ({ disabled: true, textContent: id + ' · coming soon', value: id }));
+    const doc = {
+      querySelectorAll: (q) => { const m = /value="(\w+)"/.exec(q); return m && menus[m[1]] ? menus[m[1]] : []; },
+      querySelector: (q) => { const m = /#acct-provider-pick option\[value="(\w+)"\]/.exec(q); return m && menus[m[1]] ? menus[m[1]][0] : null; },
+    };
     let shown = null;
     // eslint-disable-next-line no-new-func
-    const fn = new Function('document', 'fetch', 'onWindows', 'acctCompatShow', 'let COMPAT_ON = ' + (startOn ? 'true' : 'false') + ';\n' + src + '\nreturn async () => { const r = await compatAsk(); return [r, COMPAT_ON]; };')(
-      doc, async () => { if (enabled === 'fail') throw new Error('network'); return { ok: true, json: async () => ({ enabled, vendors: enabled ? [{ id: 'deepseek' }] : [] }) }; },
-      () => false, (on) => { shown = on; });
-    const out = await fn();
-    return [...out, shown];
+    const fn = new Function('document', 'fetch', 'onWindows', 'acctCompatShow', 'let COMPAT_ON = false;\n' + src
+      + '\nreturn async (startOn, open) => { for (const id of startOn) COMPAT_ON_FOR[id] = true; COMPAT_ON = startOn.length > 0; ACCT_COMPAT_WHICH = open || "";'
+      + ' const r = await compatAsk(); return [r, { ...COMPAT_ON_FOR }]; };')(
+      doc, async () => {
+        if (answer === 'fail') throw new Error('network');
+        return { ok: true, json: async () => ({ enabled: answer.length > 0, vendors: answer.map((id) => ({ id })) }) };
+      }, () => !!opts.windows, (on) => { shown = on; });
+    const [any, onFor] = await fn(opts.startOn || [], opts.open);
+    return { any, onFor, menus, shown };
   };
-  const [offAnswer] = await run(false);
-  assert.equal(offAnswer, false);
-  for (const o of opts) { assert.equal(o.disabled, true); assert.match(o.textContent, /coming soon/); }
-  const [onAnswer] = await run(true);
-  assert.equal(onAnswer, true, 'CONTROL: compatAsk never turns it on');
-  assert.equal(pick.disabled, false, 'CONTROL: Add a provider is not offered when the switch is on');
-  assert.equal(pick.textContent, 'DeepSeek');
+  const off = await run([]);
+  assert.equal(off.any, false);
+  for (const id of ['deepseek', 'glm']) for (const o of off.menus[id]) { assert.equal(o.disabled, true); assert.match(o.textContent, /coming soon/); }
+  // CONTROL: DeepSeek's switch on offers DeepSeek, and only DeepSeek (one switch per vendor).
+  const ds = await run(['deepseek']);
+  assert.equal(ds.any, true, 'CONTROL: compatAsk never turns it on');
+  assert.deepEqual(ds.onFor, { deepseek: true, glm: false });
+  assert.equal(ds.menus.deepseek[0].disabled, false, 'CONTROL: Add a provider is not offered when the switch is on');
+  assert.equal(ds.menus.deepseek[0].textContent, 'DeepSeek');
+  assert.equal(ds.menus.glm[0].disabled, true, 'DeepSeek\'s switch offered GLM');
+  assert.match(ds.menus.glm[0].textContent, /coming soon/);
+  // 2b: GLM's own switch offers GLM, by its page name, and leaves DeepSeek coming soon.
+  const glm = await run(['glm']);
+  assert.deepEqual(glm.onFor, { deepseek: false, glm: true });
+  assert.equal(glm.menus.glm[0].disabled, false, 'GLM is not offered under its own switch');
+  assert.equal(glm.menus.glm[0].textContent, 'Z.ai GLM');
+  assert.equal(glm.menus.deepseek[0].disabled, true, 'GLM\'s switch offered DeepSeek');
+  // Windows: never offered, whatever the board says.
+  const win = await run(['deepseek', 'glm'], { windows: true });
+  assert.deepEqual(win.onFor, { deepseek: false, glm: false }, 'a vendor was offered on Windows');
   // 1b review 1: a failed ask keeps what was known and never puts the form away (it would clear a pasted key).
-  const [failKept, , failShown] = await run('fail', true);
-  assert.equal(failKept, true, 'one failed ask turned DeepSeek off');
-  assert.equal(failShown, null, 'one failed ask put the form (and a pasted key) away');
-  const [, , offShown] = await run(false, true);
-  assert.equal(offShown, false, 'CONTROL: a definite off from the board does put it away');
+  const fail = await run('fail', { startOn: ['deepseek'], open: 'deepseek' });
+  assert.equal(fail.any, true, 'one failed ask turned DeepSeek off');
+  assert.equal(fail.shown, null, 'one failed ask put the form (and a pasted key) away');
+  // CONTROL: a definite off for the open form's vendor does put it away.
+  const gone = await run([], { startOn: ['deepseek'], open: 'deepseek' });
+  assert.equal(gone.shown, false, 'CONTROL: a definite off from the board does put it away');
+  // 2b: an off for ANOTHER vendor leaves the open form alone (turning DeepSeek off must not clear a pasted GLM key).
+  const other = await run(['glm'], { startOn: ['deepseek', 'glm'], open: 'glm' });
+  assert.equal(other.shown, null, 'DeepSeek going off put the open GLM form away');
 });

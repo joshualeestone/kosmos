@@ -310,8 +310,6 @@ test('#7206 2a review 5: under DeepSeek\'s switch, a switch to GLM is refused in
   create.setRunner(() => ({ ok: true, stdout: '' })); create.setDryRun(false);
   t.after(() => create.setRunner(null));
   const sw = require('../test-support/compat-switch');
-  const saved = process.env.AGENT_WORKFORCE_TEST_COMPAT_READY;
-  process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = 'glm';
   const GLM_HOME = nodePath.join(HOME, '.kosmos-glm-work');
   compat.storeAccount(GLM_HOME, { vendor: 'glm', model: 'glm-5.3', key: 'zai-create-key-0123456789' });
   const name = born('c7206-glmoff', null, 'anthropic');
@@ -326,5 +324,5 @@ test('#7206 2a review 5: under DeepSeek\'s switch, a switch to GLM is refused in
     assert.equal(on.outcome, 'created', 'CONTROL: GLM was not switched to with its own switch on: ' + on.because);
     const job = create.readJob(name);
     assert.deepEqual([job.runner, job.configDir, create.jobProvider(job)], ['claude', GLM_HOME, 'glm'], 'CONTROL: the job does not run on the GLM account');
-  } finally { sw.setVendor('glm', false); if (saved === undefined) delete process.env.AGENT_WORKFORCE_TEST_COMPAT_READY; else process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = saved; }
+  } finally { sw.setVendor('glm', false); }
 });

@@ -57,7 +57,6 @@ test.afterEach(() => { compat.setFetcher(null); compat.resetLiveCacheForTest(); 
 
 const post = (p, obj) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
 const del = (p, obj) => fetch(base + p, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
-process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = 'glm';   // 2a review 5: GLM is offerable here only by naming it (slice 2b removes this)
 const KEY = 'sk-deepseek-route-0123456789';
 function vendorAnswers(reply) {
   const urls = [];
@@ -246,6 +245,7 @@ test('1b review 2: a DeepSeek agent reads as DeepSeek on the board (accountForAg
   // eslint-disable-next-line no-new-func
   const providerOf = new Function(script.slice(at, script.indexOf(';\n', at) + 1) + '\nreturn providerOf;')();
   assert.equal(providerOf({ runner: 'claude', account: { provider: 'deepseek' } }), 'deepseek');
+  assert.equal(providerOf({ runner: 'claude', account: { provider: 'glm' } }), 'glm', '2b: a GLM agent reads as GLM');
   assert.equal(providerOf({ runner: 'claude', account: { dir: '/x/.claude-a' } }), 'anthropic', 'CONTROL');
   assert.equal(providerOf({ runner: 'codex', account: { provider: 'alibaba' } }), 'alibaba', 'CONTROL: Qwen unchanged');
 });

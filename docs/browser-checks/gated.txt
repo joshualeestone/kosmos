@@ -131,6 +131,7 @@ render-firstrun-wizard-flow
 render-frame-phone-718
 render-frnav-2647
 render-gemini-logo-3422
+render-glm-add-7206
 render-grok-subscription-3391
 render-guide-hidden-3739
 render-gutter-return-4506
