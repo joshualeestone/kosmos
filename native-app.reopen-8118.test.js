@@ -25,7 +25,6 @@ test('#8118: every finished page load decides whether to keep or reopen', () => 
 
 test('#8118: every finished load runs reopenStep (its rules are rows in the selftest) and does what it says', () => {
   const f = body('private func rememberOrReopenComputer(');
-  assert.match(f, /pageLoadSerial &\+= 1/, 'a finished load no longer counts, so a stale reopen answer cannot be told apart');
   assert.match(f, /switch reopenStep\(mode: computerMode, awayHost: away, onOwnBoard: onOwnBoard, asked: reopenAskedThisLaunch, kept: reopenComputerHost\)/,
     'the load no longer goes through reopenStep');
   assert.match(f, /let away = isOnAnotherComputer\(\) \? computerToRemember\(page,/, 'the away host is not computerToRemember for the page on screen');
@@ -46,8 +45,11 @@ test('#8118: every finished load runs reopenStep (its rules are rows in the self
 test('#8118: the one ask latches first, and reads its answer only from the page it asked', () => {
   const f = body('private func askPageToReopen(');
   assert.ok(f.indexOf('reopenAskedThisLaunch = true') < f.indexOf('callAsyncJavaScript'), 'the latch is set after the ask, so a reload can ask twice');
-  assert.match(f, /let askedOn = pageLoadSerial/);
-  const guard = f.indexOf('guard self.pageLoadSerial == askedOn else {');
+  // Round 3: counted at COMMIT (#5167's pageCommits, bumped in didCommit): a reload tears the page down when the new
+  // page commits, before it finishes, so a finished-load count would let the stale failure through.
+  assert.match(f, /let askedOn = pageCommits/);
+  assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /pageCommits \+= 1/, 'commits are no longer counted');
+  const guard = f.indexOf('guard self.pageCommits == askedOn else {');
   assert.ok(guard > 0 && guard < f.indexOf('switch reopenAnswerKeeps(said)'), 'a stale answer is acted on (review 2: a reload while it waits)');
 });
 
@@ -73,4 +75,12 @@ test('#8118: forgotten on the page\'s gone or home, and on Back to This Computer
 test('#8118: the kept value is a plain string in UserDefaults under its own key, removed (not blanked) when forgotten', () => {
   assert.match(SRC, /private static let reopenComputerKey = "kosmos\.reopenComputerHost"/);
   assert.match(SRC, /UserDefaults\.standard\.removeObject\(forKey: Self\.reopenComputerKey\)/);
+});
+
+test('#8118 (round 3): quit decides: on another computer its host, at home nothing, only in run or both', () => {
+  const f = body('func applicationWillTerminate(_ notification: Notification)');
+  assert.match(f, /guard computerMode == \.run \|\| computerMode == \.both else \{ return \}/);
+  assert.match(f, /let host = isOnAnotherComputer\(\) \? computerToRemember\(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost\(\)\) : nil/,
+    'quit no longer writes what the window shows');
+  assert.match(f, /reopenComputerHost = host/, 'quit does not write the decision');
 });

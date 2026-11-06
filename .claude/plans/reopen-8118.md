@@ -72,3 +72,24 @@ board load).
   and the reopen, and the reopen ends on the shared rule.
 - NIT (Angel): the menu hides itself under two rows, the reopen does not --> NO CHANGE: the reopen only needs the
   remembered computer's own row.
+
+## Review round 3 (opus; no BLOCKER): QUIT DECIDES
+- WARNING: the stale-answer counter counted finished loads, but a reload tears the page down at the NEW page's
+  commit, so the stale failure still got through and asked again --> FIXED: `pageCommits` (#5167's, bumped in didCommit).
+- WARNING: an `error` retry had no time limit, so a second ask could land hours later --> FIXED: only
+  `no-page-support` (a sign-in page) retries; an error keeps the host.
+- WARNING: the keep/forget policy depended on reloads the person never sees, and they are common (updateSafeReload,
+  engine restart, update finished), so round 2's "no in-app trigger found" was WRONG --> REDESIGNED to Josh's own
+  words ("If I quit or restart the app ... persisting ... to the agents I was looking at"): `applicationWillTerminate`
+  writes what the window shows at quit (another computer: its host; home: nothing). Page loads only keep (so a crash
+  still leaves the last one) and an own-board reload decides nothing. Answers forget only what can never be reopened
+  (gone, home, bad). Both walks now end the same: a day at home forgets the computer at quit.
+- WARNING: up to 30 s of home with no sign, then a switch; a stray click forgot the computer silently --> FIXED: a
+  toast at once ("Going back to mini, the computer you were looking at. Click or type here to stay on this
+  computer."), "Staying on this computer." when they do, and a click no longer forgets anything (quit decides).
+- NITs fixed: a reopenStep row for another computer before the ask; the 30 s value is pinned against
+  OA_COMPUTERS_LIMIT_MS. NIT kept: the offline toast does not promise a retry (quit at home forgets, so it may not).
+
+## Weakest premise (now)
+That every way the app ends reaches applicationWillTerminate (Cmd-Q, the menu, the Dock, the last window, an
+update's relaunch). A force quit or crash skips it, and then the last host kept at a page load stands.

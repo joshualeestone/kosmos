@@ -48,13 +48,15 @@ function world(answer, { opening = false, during = null, hang = false } = {}) {
     if (answer instanceof Error) return Promise.reject(answer);
     return Promise.resolve({ ok: true, json: async () => answer });
   };
-  const msgToast = (t) => { said.push(t); };
+  const early = [];
+  // Round 3: the reopen says at once that it is going back; that toast is kept apart so each case checks its own.
+  const msgToast = (t) => { (/^Going back to /.test(t) ? early : said).push(t); };
   const computersOpenWithTicket = (url, name, a) => { opened.push({ href: url.href, name, a }); };
   // eslint-disable-next-line no-new-func
   const run = new Function('fetch', 'msgToast', 'computersOpenWithTicket', 'computersOpening', 'document', 'setTimeout',
     RE + REOPEN + '\nreturn computersReopen;')(fetch, msgToast, computersOpenWithTicket, opening, document,
     hang ? (fn) => setTimeout(fn, 0) : setTimeout);   // a hung read meets the limit at once in the test
-  return { run, said, opened, listeners, blurred };
+  return { run, said, opened, listeners, blurred, early };
 }
 const list = (computers, extra = {}) => ({ ok: true, domain: DOMAIN, computers, ...extra });
 
@@ -113,7 +115,7 @@ test('#8118: the person clicks or types while the list is read: no switch, nothi
     const w = world(list([HERE, MINI]), { during: k });
     assert.equal(await w.run('mini.kosmosplus.com'), 'touched', k + ' did not stop the reopen');
     assert.deepEqual(w.opened, [], k + ': the window was pulled away while they worked here');
-    assert.deepEqual(w.said, []);
+    assert.deepEqual(w.said, ['Staying on this computer.'], k + ': staying is not said');
     assert.deepEqual(Object.values(w.listeners).flat(), [], 'the listeners were left on the page');
   }
   // CONTROL: with no click, the same reopen opens, so the test can see the difference.
@@ -183,4 +185,18 @@ test('#8118: the shared switch with no clicked link (a reopen) opens with a tick
   assert.equal(screen, 'mini', 'the switching screen did not show for a reopen');
   assert.deepEqual(went, ['https://mini.kosmosplus.com/#kpt=' + 'T'.repeat(24)]);
   assert.equal(opening(), false, 'the switch did not settle');
+});
+
+test('#8118 (round 3): the reopen says at once where it is going and how to stay, before the list answers', async () => {
+  const w = world(list([HERE, MINI]));
+  const p = w.run('mini.kosmosplus.com');
+  assert.deepEqual(w.early, ['Going back to mini, the computer you were looking at. Click or type here to stay on this computer.'],
+    'nothing is said while the list is read, so the switch lands as a surprise');
+  assert.equal(await p, 'opening');
+});
+
+test('#8118: the wait is the route\'s own limit (30 s, OA_COMPUTERS_LIMIT_MS), not shorter', () => {
+  const v = (name) => Number((PAGE.match(new RegExp('const ' + name + ' = (\\d+);')) || [])[1]);
+  assert.equal(v('COMPUTERS_REOPEN_MAX_MS'), 30000, 'the reopen limit changed');
+  assert.ok(v('COMPUTERS_REOPEN_MAX_MS') >= v('OA_COMPUTERS_LIMIT_MS'), 'the reopen gives up before the route can answer');
 });

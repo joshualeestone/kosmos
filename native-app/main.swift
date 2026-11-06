@@ -577,7 +577,7 @@ func rememberableHost(_ h: String) -> Bool {
     return h.unicodeScalars.allSatisfy { ($0 >= "a" && $0 <= "z") || ($0 >= "0" && $0 <= "9") || $0 == "." || $0 == "-" }
 }
 
-/// kosmos#8118 (review 2): PURE, for --kosmos-app-mode-selftest. What a finished page load does to the kept host,
+/// kosmos#8118 (review 2, 3): PURE, for --kosmos-app-mode-selftest. What a finished page load does to the kept host,
 /// as one decision with rows, so the order of the rules is run rather than read. `awayHost` is computerToRemember's
 /// answer for the page (nil at home); `onOwnBoard` is this computer's own board page; `asked` is whether this launch
 /// has already asked for its one reopen.
@@ -587,23 +587,23 @@ func reopenStep(mode: ComputerMode, awayHost: String?, onOwnBoard: Bool, asked: 
     guard mode == .run || mode == .both else { return .nothing }      // unchosen: the first screen's question is showing
     if let h = awayHost { return h == kept ? .nothing : .keep(h) }    // on another computer: that is the one to reopen
     guard onOwnBoard else { return .nothing }                          // a sign-in or service page decides nothing
-    if asked { return kept == nil ? .nothing : .forget }               // home again after the launch's ask: the window is here
+    if asked { return .nothing }                                       // home again after the ask: QUIT decides (round 3), not reloads
     guard let k = kept else { return .markAsked }
     return rememberableHost(k) ? .ask(k) : .forgetAndMarkAsked
 }
 
 /// kosmos#8118: PURE, for --kosmos-app-mode-selftest. What the page's answer to a reopen does to the kept host.
-/// Only a FINAL answer forgets it: not on the account, this computer, the person started working here, signed out
-/// (remote access off is usually deliberate, and keeping it would repeat the toast every launch), or a bad value. A
-/// PASSING one keeps it for the next launch (Angel's review: one slow launch, or the other computer mid-update, must
-/// not lose it), and so does a switch under way. A page that cannot answer (a sign-in page on the board's address,
-/// or a script error) leaves it for the next load of the board this launch. An answer nobody knows forgets.
+/// Round 3: what the window shows at QUIT decides what the next launch reopens (applicationWillTerminate), so an
+/// answer forgets only what can never be reopened: not on the account, this computer, or a bad value (and an answer
+/// nobody knows). Every other answer keeps it, and quit then writes the truth. A page with no reopen at all (a
+/// sign-in page on the board's address) leaves the ask for the next load of the board; a script error does not,
+/// so a retry can never land hours later.
 enum ReopenAnswer { case keep, retryNextBoardLoad, forget }
 func reopenAnswerKeeps(_ said: String) -> ReopenAnswer {
     switch said {
-    case "opening", "busy", "slow", "unknown", "updating", "offline", "not-instant": return .keep
-    case "no-page-support", "error": return .retryNextBoardLoad
-    default: return .forget   // gone, home, touched, signed-out, bad, and anything new
+    case "opening", "busy", "slow", "unknown", "updating", "offline", "not-instant", "signed-out", "touched", "error": return .keep
+    case "no-page-support": return .retryNextBoardLoad
+    default: return .forget   // gone, home, bad, and anything new
     }
 }
 
@@ -2342,10 +2342,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // belongs to exactly one start whichever way that start ends (it cannot outlive an early return, which never
     // sets boardStartInFlight). Main-thread only.
     private var boardStartFromBackHome = false
-    /* kosmos#8118: the computer the window was last on (its host only, never a ticket or address with a token), so
-       the next launch reopens it. Kept when another computer's page finishes loading; forgotten on Back to This
-       Computer (and the #6585 navigation home, which calls it), and when the page says the computer is no longer
-       on the account. UserDefaults, as relaunchedAtVersion: a value a launch branches on. */
+    /* kosmos#8118: the computer the window was on at quit (its host only, never a ticket or address with a token),
+       so the next launch reopens it. Written at quit (applicationWillTerminate), and kept as soon as another
+       computer's page finishes loading (so a crash still leaves the last one); forgotten on Back to This Computer
+       (and the #6585 navigation home, which calls it), in connect mode, and when the page says the computer can
+       never be reopened. UserDefaults, as relaunchedAtVersion: a value a launch branches on. */
     private static let reopenComputerKey = "kosmos.reopenComputerHost"
     private var reopenComputerHost: String? {
         get { UserDefaults.standard.string(forKey: Self.reopenComputerKey) }
@@ -2353,8 +2354,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
     // kosmos#8118: the reopen is asked at most once a launch, after this computer's own board has loaded.
     private var reopenAskedThisLaunch = false
-    // kosmos#8118 (review 2): counts finished page loads, so a reopen's answer is read only from the page it asked.
-    private var pageLoadSerial = 0
     // #965: a board start is already running on the background queue; reload
     // requests are ignored until it resolves, so two Cmd-R presses (or the
     // test seam firing during a slow boot) cannot race two `kosmos start`
@@ -5800,15 +5799,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         rememberOrReopenComputer(webView)
     }
 
-    /// kosmos#8118: the kept host means "the computer the window was last on", for the next launch. On another
-    /// computer's page it is kept. On this computer's own board: the first load a launch gets asks the page to go
-    /// back to the kept computer (after the board has loaded, so a slow or missing remote never holds up this
-    /// computer's own start); every later load of the own board means the window is home, so it is forgotten (review
-    /// 1: a host kept from an earlier session must not outlive a session spent here). Only in run or both: connect has
-    /// no board of its own (it forgets), and an unchosen mode shows the first screen's question. The page decides
-    /// whether the computer can be opened (computersReopen, the switcher's own rule) and says why when it cannot.
+    /// kosmos#8118: what a finished load does to the kept host (reopenStep's rows say it all). On another computer's
+    /// page it is kept. On this computer's own board, the first load a launch gets asks the page to go back to the
+    /// kept computer (after the board has loaded, so a slow or missing remote never holds up this computer's own
+    /// start). A later own-board load decides nothing: the board reloads itself (updates, engine restarts), so quit
+    /// decides instead (applicationWillTerminate, review 3). Only in run or both: connect forgets, and an unchosen
+    /// mode shows the first screen's question. The page decides whether the computer can be opened (computersReopen,
+    /// the switcher's own rule) and says why when it cannot.
     private func rememberOrReopenComputer(_ webView: WKWebView) {
-        pageLoadSerial &+= 1
         let page = committedPageURL
         let onOwnBoard: Bool = {
             guard let page, let host = page.host else { return false }
@@ -5825,11 +5823,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    /// kosmos#8118: the one reopen of a launch. The answer is read only if it came from the page it was asked of
-    /// (review 2: a reload while it waits tears that page down, and its failure must not trigger a second ask).
+    /// kosmos#8118: the one reopen of a launch. The answer is read only if no page has committed since it was asked
+    /// (review 2, 3: a reload tears the page down at the NEW page's commit, before it finishes, so the count is the
+    /// commits one, #5167's pageCommits, not finished loads).
     private func askPageToReopen(_ host: String, _ webView: WKWebView) {
         reopenAskedThisLaunch = true
-        let askedOn = pageLoadSerial
+        let askedOn = pageCommits
         logLine("#8118: asking the page to reopen \(host)")
         webView.callAsyncJavaScript("return (typeof computersReopen === 'function') ? await computersReopen(host) : 'no-page-support'",
                                     arguments: ["host": host], in: nil, in: .page) { [weak self] result in
@@ -5839,7 +5838,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             case .success(let v): said = (v as? String) ?? "?"
             case .failure(let e): said = "error"; logLine("#8118: reopen of \(host) could not be asked: \(e.localizedDescription)")
             }
-            guard self.pageLoadSerial == askedOn else {
+            guard self.pageCommits == askedOn else {
                 logLine("#8118: reopen of \(host) answered \(said) from a page that has since been replaced; ignored")
                 return
             }
@@ -6045,6 +6044,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             window.makeKeyAndOrderFront(nil)
         }
         return true
+    }
+
+    /// kosmos#8118 (Josh: "If I quit or restart the app ... persisting ... to the agents I was looking at"): what the
+    /// window shows at quit decides what the next launch reopens. On another computer, that computer; at home,
+    /// nothing. Every way out ends here (Cmd-Q, the menu, the Dock, the last window closing, an update's relaunch). A
+    /// crash writes nothing, so the last computer kept at a page load stands. Only in run or both, as the reopen.
+    func applicationWillTerminate(_ notification: Notification) {
+        guard computerMode == .run || computerMode == .both else { return }
+        let host = isOnAnotherComputer() ? computerToRemember(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost()) : nil
+        if host != reopenComputerHost {
+            reopenComputerHost = host
+            logLine(host.map { "#8118: quitting on \($0), so the next launch reopens it" } ?? "#8118: quitting at home, so the next launch opens here")
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -8021,13 +8033,13 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     answer("slow", .keep, "a slow list: kept")
     answer("unknown", .keep, "a list that could not be read: kept")
     answer("not-instant", .keep, "an older Kosmos there: kept (the toast says to update it)")
-    answer("signed-out", .forget, "SIGNED OUT OR REMOTE ACCESS OFF: FORGOTTEN, so no toast every launch")
+    answer("signed-out", .keep, "signed out: kept; quit at home forgets it, so no toast every launch")
     answer("gone", .forget, "not on the account: forgotten")
     answer("home", .forget, "this computer itself: forgotten")
     answer("bad", .forget, "a bad value: forgotten")
-    answer("touched", .forget, "the person started working here: forgotten")
+    answer("touched", .keep, "A STRAY CLICK LOSES NOTHING: quit decides")
     answer("no-page-support", .retryNextBoardLoad, "a page with no reopen (a sign-in page) asks again at the next board load")
-    answer("error", .retryNextBoardLoad, "a script error asks again at the next board load")
+    answer("error", .keep, "A SCRIPT ERROR DOES NOT RETRY (a retry could land hours later); quit decides")
     answer("something new", .forget, "AN ANSWER NOBODY KNOWS STAYS HOME")
     func step(_ mode: ComputerMode, _ away: String?, _ own: Bool, _ asked: Bool, _ kept: String?, _ want: ReopenStep, _ why: String) {
         ran += 1
@@ -8038,11 +8050,12 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     let mini = "mini.kosmosplus.com"
     step(.run, nil, true, false, mini, .ask(mini), "LAUNCH: THE OWN BOARD'S FIRST LOAD ASKS FOR THE KEPT COMPUTER")
     step(.both, nil, true, false, mini, .ask(mini), "both mode asks too")
-    step(.run, nil, true, true, mini, .forget, "THE OWN BOARD AGAIN AFTER THE ASK: THE WINDOW IS HOME, FORGOTTEN")
+    step(.run, nil, true, true, mini, .nothing, "THE OWN BOARD AGAIN AFTER THE ASK (A RELOAD, AN UPDATE): NOTHING; QUIT DECIDES")
     step(.run, nil, true, true, nil, .nothing, "home again with nothing kept: nothing to do")
     step(.run, nil, true, false, nil, .markAsked, "a launch with nothing kept spends its ask, so a later home load forgets nothing wrongly")
     step(.run, nil, true, false, "MINI\"x", .forgetAndMarkAsked, "a hand-edited value is forgotten, never asked")
     step(.run, mini, false, true, nil, .keep(mini), "on another computer: kept")
+    step(.run, mini, false, false, nil, .keep(mini), "on another computer before this launch's ask: kept, the ask still waits for the board")
     step(.run, mini, false, true, mini, .nothing, "the same computer again: no write")
     step(.run, "third.kosmosplus.com", false, true, mini, .keep("third.kosmosplus.com"), "a third computer replaces the kept one")
     step(.run, nil, false, false, mini, .nothing, "A SIGN-IN OR SERVICE PAGE DECIDES NOTHING (the ask waits for the board)")
@@ -8264,7 +8277,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 277   // kosmos#8118: +43 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 14 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 278   // kosmos#8118: +44 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
