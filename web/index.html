@@ -79456,7 +79456,7 @@ function dmOwesLine(owes) {
      "Nothing back yet" would claim a silence Kosmos cannot see. Same grace and same class, so it steps aside as that
      line does (#6479). */
   if (typeof owes.elsewhere === 'string' && owes.elsewhere) {
-    return '<p class="dmnone dmquiet">It says it answers you on ' + esc(owes.elsewhere) + ', which Kosmos cannot see.</p>';
+    return '<p class="dmnone dmquiet">Nothing back here. It says it answers you on ' + esc(owes.elsewhere) + ', which Kosmos cannot see.</p>';
   }
   return '<p class="dmnone dmquiet">Nothing back yet.</p>';
 }

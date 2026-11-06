@@ -34,7 +34,7 @@ const chat = require(path.resolve(__dirname, '..', '..', 'engine', 'chat.js'));
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
 const LINE = 'Nothing back yet.';
 /* #8141: the channel is declared with markup, so finding this exact text proves it was escaped, not rendered. */
-const ELSEWHERE_LINE = 'It says it answers you on Chat <b>app</b>, which Kosmos cannot see.';
+const ELSEWHERE_LINE = 'Nothing back here. It says it answers you on Chat <b>app</b>, which Kosmos cannot see.';
 const fail = [];
 const chk = (ok, label, extra) => {
   console.log((ok ? 'PASS  ' : 'FAIL  ') + label + (extra ? '  ' + extra : ''));

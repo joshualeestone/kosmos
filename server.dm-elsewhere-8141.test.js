@@ -114,7 +114,7 @@ test('#8141: an answer from its own window (#4612) wins over the declared channe
 
 test('#8141: the page says where it answers, escaped, instead of "Nothing back yet."', () => {
   const html = owesLine({ state: 'owes', lastHeardAt: OLD, elsewhere: 'Chat <b>app</b>' });
-  assert.equal(html, '<p class="dmnone dmquiet">It says it answers you on Chat &lt;b&gt;app&lt;/b&gt;, which Kosmos cannot see.</p>');
+  assert.equal(html, '<p class="dmnone dmquiet">Nothing back here. It says it answers you on Chat &lt;b&gt;app&lt;/b&gt;, which Kosmos cannot see.</p>');
   assert.doesNotMatch(html, /Nothing back yet/);
 });
 
@@ -150,7 +150,7 @@ test('#8141: an empty day in Kosmos with a declared channel is not a bare "nothi
 
 test('#8141: undeclared, the person wrote and nothing went back here: the digest names kosmos reply-channel', () => {
   const out = digest({ readThread: () => fromPerson });
-  assert.ok(out.includes('If you answered them somewhere else, tell Kosmos where with: kosmos reply-channel "<where>" (Kosmos then stops reminding you to answer a first message here, so declare it only where you do answer)'), out);
+  assert.ok(out.includes('If you answered them somewhere else, tell Kosmos where with: kosmos reply-channel "<where>" (Kosmos then stops reminding you to answer a first message here, so declare it only where you do answer).'), out);
 });
 
 test('#8141: undeclared and answered in Kosmos, or a quiet day: no hint (CONTROLS)', () => {
