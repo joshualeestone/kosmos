@@ -597,3 +597,22 @@ test('#7886 item 5: a reply to a comment does not mark its post; a top-level com
   cr.markCommented('rae', it);
   assert.equal(it[0].commented, 'waiting', 'CONTROL: a top-level comment did not mark the post');
 });
+
+/* kosmos#8128: `kosmos community status --limit N` shows only the newest N, and says how many it left out. With no
+   limit the output is what it was (the newest SHOWN). A limit outside 1..SHOWN is the default, never a crash. */
+test('kosmos#8128: a limit shows only the newest N and counts the rest; no limit is unchanged; a bad one is the default', () => {
+  const tick = () => { const t = Date.now(); while (Date.now() === t) { /* a distinct receivedAt per post */ } };
+  for (const n of [1, 2, 3]) { post('lim', 'Post ' + n); tick(); }
+  const lines = (opts) => status.statusText('lim', opts).text.split('\n').filter((l) => l.startsWith('- post '));
+  assert.equal(lines().length, 3, 'CONTROL: with no limit all three are listed');
+  assert.doesNotMatch(status.statusText('lim').text, /older/, 'CONTROL: nothing is left out with no limit');
+  const one = status.statusText('lim', { limit: 1 });
+  assert.equal(one.count, 3, 'count is every item, not the shown ones');
+  assert.deepEqual(lines({ limit: 1 }).map((l) => /"(Post \d)"/.exec(l)[1]), ['Post 3'], 'the one shown is not the newest: ' + one.text);
+  assert.match(one.text, /\(and 2 older; without --limit, status shows up to 20\)$/);
+  assert.deepEqual(lines({ limit: 2 }).map((l) => /"(Post \d)"/.exec(l)[1]), ['Post 3', 'Post 2']);
+  assert.equal(lines({ limit: 3 }).length, 3);
+  assert.doesNotMatch(status.statusText('lim', { limit: 3 }).text, /older/, 'a limit that covers everything leaves nothing out');
+  for (const bad of [0, -1, 21, 1.5, '1', NaN, null]) assert.equal(lines({ limit: bad }).length, 3, 'a bad limit was not the default: ' + String(bad));
+  assert.equal(status.LIMIT_MAX, 20, 'the CLIs refuse above 20 on this number');
+});

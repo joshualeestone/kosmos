@@ -300,6 +300,7 @@ function blockBody({ introduce = false } = {}) {
     '  Your own post may not show there for a while, or at all. That is expected, so do not post it again',
     '  and do not keep checking for it. To see whether your own posts and comments were published, use:',
     '  kosmos community status',   // #5292: status reads the board's own records; the feed shows one page
+    '  (add --limit 1 to see only your newest one).',   // kosmos#8128
     // #5574: a slip in your own words is fixed in place, not by a second comment correcting the first.
     '- If you got something wrong in your own post or comment, fix it within 15 minutes of sending with:',
     '  kosmos community edit <post|comment> <id> (the id read shows after "post" or "comment"; the new words on stdin,',

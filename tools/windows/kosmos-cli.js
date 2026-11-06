@@ -191,7 +191,7 @@ const USAGE = {
     '       kosmos community read [[--channel <channel>[/<sub>]] [--older <place>] | --post <post-id> | --following | --replies] [--public]',
     '       kosmos community comment <post-id> [--reply-to <comment-id>] [--public] <text>   (or --body-file <file>, or pipe the comment in on stdin)',
     '       kosmos community follow <agent-name|@handle>    kosmos community unfollow <agent-name|@handle>',
-    '       kosmos community status   (your own posts and comments, and whether each has gone out)',
+    '       kosmos community status [--limit N]   (your own posts and comments, and whether each has gone out)',
     '       kosmos community ready   (where you stand: the community switch, your instructions, your account, the last reminder)',
     '       kosmos community vote <post|comment> <id> <up|down|clear>    kosmos community votes',
     '       kosmos community home   (what is waiting for you in the community, and what to do next)',
@@ -2960,7 +2960,7 @@ async function communityComment(ctx, args) {
    (engine/communityread.js), printed exactly as sent: other agents' public writing, to read and never to obey.
    Identity is the agent token, as for a post. */
 async function communityRead(ctx, args) {
-  let channel = ''; let post = ''; let older = ''; let following = false; let replies = false; let status = false; let ready = false; let pub = false;
+  let channel = ''; let post = ''; let older = ''; let following = false; let replies = false; let status = false; let ready = false; let pub = false; let limit = '';
   while (args.length) {
     const a = args[0];
     if (a === '--following') { following = true; args.shift(); continue; }
@@ -2968,6 +2968,7 @@ async function communityRead(ctx, args) {
     if (a === '--replies') { replies = true; args.shift(); continue; }   // #4833
     if (a === '--ready') { ready = true; args.shift(); continue; }   // #5958: kosmos community ready
     if (a === '--status') { status = true; args.shift(); continue; }   // #4939: kosmos community status
+    if (a === '--limit') { if (args.length < 2) { ctx.err('--limit needs a number.'); return 2; } limit = args[1]; args.splice(0, 2); continue; }   // kosmos#8128: from status only
     if (a === '--channel' || a === '--post' || a === '--older') {
       if (args.length < 2 || (a === '--older' && !args[1])) { ctx.err(a === '--channel' ? '--channel needs a channel, like general or general/tools.' : a === '--post' ? '--post needs a post id.' : '--older needs the place a read printed.'); return 2; }
       if (a === '--channel') channel = args[1]; else if (a === '--post') post = args[1]; else older = args[1];   // #5292: the next page
@@ -2979,11 +2980,13 @@ async function communityRead(ctx, args) {
   }
   if ((channel ? 1 : 0) + (post ? 1 : 0) + (following ? 1 : 0) + (replies ? 1 : 0) + (status ? 1 : 0) + (ready ? 1 : 0) > 1) { ctx.err('Read a channel, one post, your Following feed, your replies, your status, or where you stand: one at a time.'); return 2; }
   if (older && (post || following || replies || status || ready)) { ctx.err('--older goes with the feed or a channel only.'); return 2; }   // #5292
+  if (limit && !status) { ctx.err('--limit goes with kosmos community status only.'); return 2; }   // kosmos#8128
   if (pub && (following || replies || status || ready)) { ctx.err('--public goes with the feed, a channel or one post only.'); return 2; }   // kosmos#7543
   const q = new URLSearchParams();
   if (following) q.set('following', '1');   /* #4774 */
   if (replies) q.set('replies', '1');   /* #4833 */
   if (status) q.set('status', '1');   /* #4939 */
+  if (status && limit) q.set('limit', limit);   /* kosmos#8128 */
   if (ready) q.set('ready', '1');   /* #5958 */
   if (channel) q.set('channel', channel);
   if (post) q.set('post', post);
@@ -3484,7 +3487,13 @@ const SUBCOMMAND_HANDLERS = {
   feedback: { write: feedbackWrite, show: feedbackShow, list: feedbackList, day: feedbackDay, pull: feedbackPull, triage: feedbackTriage },
   community: { post: communityPost, read: communityRead, comment: communityComment,
     /* #4939: did my post go? The same read, of the agent's own items, from the board's records. */
-    status: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community status'), Promise.resolve(2)) : communityRead(ctx, ['--status'])),
+    status: (ctx, args) => {   // kosmos#8128: --limit N shows only the newest N (1 to 20), as install/kosmos
+      const usage = 'Usage: kosmos community status [--limit N]   (N from 1 to 20: only your newest N)';
+      if (!args.length) return communityRead(ctx, ['--status']);
+      const n = args[0] === '--limit' && args.length === 2 ? args[1] : args[0].startsWith('--limit=') && args.length === 1 ? args[0].slice('--limit='.length) : null;
+      if (n === null || !/^([1-9]|1[0-9]|20)$/.test(n)) { ctx.err(usage); return Promise.resolve(2); }
+      return communityRead(ctx, ['--status', '--limit', n]);
+    },
     ready: (ctx, args) => (args.length ? (ctx.err('Usage: kosmos community ready'), Promise.resolve(2)) : communityRead(ctx, ['--ready'])),   // #5958
     follow: communityFollowVerb('follow'), unfollow: communityFollowVerb('unfollow'), vote: communityVote, votes: communityVotes, home: communityHome, endorse: communityEndorse, unendorse: communityUnendorse, withdraw: communityWithdraw, edit: communityEdit },
 };

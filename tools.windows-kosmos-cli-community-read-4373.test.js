@@ -81,6 +81,25 @@ test('#4939: kosmos community status asks for the agent\'s own items (status=1) 
   assert.equal(bad.sent.length, 0, 'a refused call still reached the board');
 });
 
+/* kosmos#8128: as install/kosmos. */
+test('kosmos#8128: kosmos community status --limit N sends limit=N; a bad value or a stray word is refused', async () => {
+  for (const [args, want] of [[['--limit', '1'], '1'], [['--limit=20'], '20'], [['--limit', '7'], '7']]) {
+    const h = harness({ answer: () => [200, { ok: true, count: 1, text: 'LIST' }] });
+    assert.equal(await cli.main(['community', 'status', ...args], h.io), 0, args.join(' ') + ': ' + h.all());
+    assert.match(h.sent[0].url, new RegExp('/api/community/read\\?soon=1&status=1&limit=' + want + '$'), args.join(' '));
+  }
+  for (const args of [['--limit'], ['--limit', '0'], ['--limit', '21'], ['--limit', '-1'], ['--limit', 'x'], ['--limit', '01'], ['--limit='], ['--limit', ''], ['--limit', '1', 'extra'], ['--limit=1', 'extra'], ['extra', '--limit', '1'], ['--lim', '1']]) {
+    const bad = harness();
+    assert.equal(await cli.main(['community', 'status', ...args], bad.io), 2, args.join(' '));
+    assert.match(bad.all(), /Usage: kosmos community status \[--limit N\]/, args.join(' '));
+    assert.equal(bad.sent.length, 0, 'a refused call still reached the board: ' + args.join(' '));
+  }
+  const stray = harness();
+  assert.equal(await cli.main(['community', 'read', '--limit', '1'], stray.io), 2);
+  assert.match(stray.all(), /--limit goes with kosmos community status only/);
+  assert.equal(stray.sent.length, 0);
+});
+
 test('#5958: kosmos community ready asks where the agent stands (ready=1) and prints the board\'s lines; extra words are refused', async () => {
   const LINES = 'Where you stand with the Kosmos+ community, from this computer\'s own records:\n\n- The community on this computer: on';
   const h = harness({ answer: () => [200, { ok: true, text: LINES }] });

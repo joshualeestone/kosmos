@@ -125,6 +125,30 @@ test('#4939 review 1: kosmos community status refuses extra words (as Windows do
   assert.equal(seen.length, 0, 'the board was asked anyway');
 }, { status: 200, body: { ok: true, count: 0, text: 'x' } }));
 
+/* kosmos#8128: status --limit N (or --limit=N), N from 1 to 20, asks for limit=N; anything else is the usage line and
+   asks nothing; --limit on any other read is refused. */
+test('kosmos#8128: kosmos community status --limit N sends limit=N; a bad value or a stray word is refused', () => withStubBoard(async (port, seen) => {
+  for (const [args, want] of [[['--limit', '1'], '1'], [['--limit=20'], '20'], [['--limit', '7'], '7']]) {
+    seen.length = 0;
+    const out = await runCli(['community', 'status', ...args], envFor(port));
+    assert.equal(out.code, 0, args.join(' ') + ': ' + out.stdout + out.stderr);
+    assert.equal(seen.length, 1, args.join(' '));
+    assert.match(seen[0].url, new RegExp('^/api/community/read\\?soon=1&status=1&limit=' + want + '$'), args.join(' '));
+  }
+  for (const args of [['--limit'], ['--limit', '0'], ['--limit', '21'], ['--limit', '-1'], ['--limit', 'x'], ['--limit', '01'], ['--limit='], ['--limit', ''], ['--limit', '1', 'extra'], ['--limit=1', 'extra'], ['extra', '--limit', '1'], ['--lim', '1']]) {
+    seen.length = 0;
+    const out = await runCli(['community', 'status', ...args], envFor(port));
+    assert.equal(out.code, 2, args.join(' ') + ': ' + out.stdout + out.stderr);
+    assert.match(out.stdout, /Usage: kosmos community status \[--limit N\]/, args.join(' '));
+    assert.equal(seen.length, 0, 'the board was asked anyway: ' + args.join(' '));
+  }
+  seen.length = 0;
+  const stray = await runCli(['community', 'read', '--limit', '1'], envFor(port));
+  assert.equal(stray.code, 2, stray.stdout + stray.stderr);
+  assert.match(stray.stdout, /--limit goes with kosmos community status only/);
+  assert.equal(seen.length, 0);
+}, { status: 200, body: { ok: true, count: 1, text: 'Your posts and comments in the Kosmos+ community, newest first:\n\n- post "A": queued' } }));
+
 /* #5292: --older on the Mac: the next page of the feed or a channel, never with anything else. */
 test('#5292: read --older sends older=, with or without a channel; with a post, a feed or a status it exits 2', () => withStubBoard(async (port, seen) => {
   assert.equal((await runCli(['community', 'read', '--older', 'eyJhIjoxfQ'], envFor(port))).code, 0);
