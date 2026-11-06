@@ -377,31 +377,20 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.clock.setFixedTime(new Date(T0 + 29 * 60e3));
       await newAgent();
       chk(await p.evaluate((t) => document.getElementById('create-name').value === 'Nadia' && document.getElementById('create-instr').value === t && !document.getElementById('cstep-name').hidden, TYPED), 'limit: CONTROL: 29 minutes after the link, the form is kept');
-      // kosmos#8051 item 1: the kept form says why it is back, and Start over is the way out.
-      const KEPT_LINE = 'This is where you left off before going to Settings. Start over';
-      const kept = await p.evaluate(() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim() }; });
-      chk(kept.shown && kept.text === KEPT_LINE, 'kept line: a kept form says it was kept, with Start over', JSON.stringify(kept));
-      await p.click('#create-kept-over');
-      await p.waitForTimeout(400);
-      const over = await p.evaluate(() => ({ kind: !document.getElementById('cstep-kind').hidden, name: document.getElementById('create-name').value, line: document.getElementById('create-kept').hidden, kept: CREATE_KEPT }));
-      chk(over.kind && over.name === '' && over.line && over.kept === 0, 'kept line: Start over empties the form, on the three-way choice, and the line goes', JSON.stringify(over));
-      await p.click('#cstep-kind [data-path="single"]');
-      await p.waitForFunction(() => !document.getElementById('role-next').disabled, null, { timeout: 8000 });
-      await p.click('#role-next');
-      await p.waitForSelector('#create-name', { state: 'visible', timeout: 8000 });
-      chk(!(await p.locator('#create-instr').inputValue()).includes('typed before the refusal') && await p.evaluate(() => document.getElementById('create-kept').hidden), 'kept line: and after Start over the old instructions are gone and the line stays hidden');
-      await p.fill('#create-name', 'Nadia');
-      await p.fill('#create-instr', TYPED);
-      await p.dispatchEvent('#create-instr', 'input');
+      // kosmos#8051 item 1: the kept form says why it is back, and the name field (where focus lands) is described by it.
+      const keptNow = await p.evaluate((() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim(), described: document.getElementById('create-name').getAttribute('aria-describedby') }; }));
+      chk(keptNow.shown && keptNow.text === 'This is where you left off before going to Settings. Start over' && keptNow.described === 'create-kept', 'kept line: a kept form says it was kept, with Start over, and the name field is described by it', JSON.stringify(keptNow));
       await pressCreate(p, 'no Claude account');
       const T1 = T0 + 29 * 60e3;
+      chk(await p.evaluate(() => document.getElementById('create-kept').hidden && !document.getElementById('create-name').hasAttribute('aria-describedby')), 'kept line: pressing Create agent on the kept form takes the line away');
       await p.locator('#create-msg button').click();
       await p.clock.setFixedTime(new Date(T1 + 30 * 60e3));
       chk(await p.evaluate((t) => CREATE_KEPT === t, T1), 'limit: CONTROL: the mark is still set when New agent is pressed, and only its age has run out');
+      await p.evaluate(() => createKeptLine(true));   // the line is up, so the plain open below has something to take away
       await newAgent();
       const old = await p.evaluate(() => ({ kind: !document.getElementById('cstep-kind').hidden, name: document.getElementById('create-name').value, msg: document.getElementById('create-msg').textContent, kept: CREATE_KEPT }));
       chk(old.kind && old.name === '' && old.msg === '' && old.kept === 0, 'limit: 30 minutes after the link, New agent starts plain, on the three-way choice', JSON.stringify(old));
-      chk(await p.evaluate(() => document.getElementById('create-kept').hidden), 'kept line: CONTROL: a plain New agent does not say it was kept');
+      chk(await p.evaluate(() => document.getElementById('create-kept').hidden && !document.getElementById('create-name').hasAttribute('aria-describedby')), 'kept line: a plain New agent past the window takes the line away, though it was showing');
       await p.click('#cstep-kind [data-path="single"]');
       await p.waitForFunction(() => !document.getElementById('role-next').disabled, null, { timeout: 8000 });
       await p.click('#role-next');
@@ -637,6 +626,38 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.evaluate(() => document.getElementById('rail-agents-new').click());
       await p.waitForTimeout(500);
       chk(await cons() && await p.evaluate(() => document.getElementById('create-name').value === 'Nadia' && !document.getElementById('cstep-name').hidden && !document.getElementById('panel-create').hidden), 'consolidated: coming back, the layout, the step and the name are all there');
+      chk((await p.evaluate((() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim(), described: document.getElementById('create-name').getAttribute('aria-describedby') }; }))).shown, 'consolidated: the kept form says it was kept', JSON.stringify(await p.evaluate((() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim(), described: document.getElementById('create-name').getAttribute('aria-describedby') }; }))));
+      await p.click('#create-kept-over');
+      await p.waitForTimeout(400);
+      chk(await cons() && await p.evaluate(() => !document.getElementById('cstep-kind').hidden && !document.getElementById('panel-create').hidden && document.getElementById('create-kept').hidden), 'consolidated: Start over keeps the layout and opens the three-way choice');
+      await p.close();
+    }
+    // kosmos#8051 item 1: Start over, the way out of a kept form.
+    {
+      const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+      p.on('pageerror', (e) => errs.push(String(e)));
+      await p.route('**/api/first-run', (r) => r.fulfill({ json: { done: true } }));
+      claudeHere();
+      const TYPED = 'Instructions I gave up on.';
+      await toNameStep(p);
+      await p.fill('#create-instr', TYPED);
+      await p.dispatchEvent('#create-instr', 'input');
+      await pressCreate(p, 'no Claude account');
+      await p.locator('#create-msg button').click();
+      await p.evaluate(() => document.getElementById('new-agent').click());
+      await p.waitForTimeout(400);
+      chk((await p.evaluate((() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim(), described: document.getElementById('create-name').getAttribute('aria-describedby') }; }))).shown, 'start over: CONTROL: the kept form shows the line');
+      await p.focus('#create-kept-over');
+      await p.keyboard.press('Enter');
+      await p.waitForTimeout(400);
+      const over = await p.evaluate(() => ({ kind: !document.getElementById('cstep-kind').hidden, name: document.getElementById('create-name').value, line: document.getElementById('create-kept').hidden, kept: CREATE_KEPT, focus: document.activeElement && document.activeElement.matches('#cstep-kind .nak-btn') }));
+      chk(over.kind && over.name === '' && over.line && over.kept === 0, 'start over: it empties the form onto the three-way choice, and the line goes', JSON.stringify(over));
+      chk(over.focus, 'start over: and the keyboard lands on the first choice, not the page', JSON.stringify(over));
+      await p.click('#cstep-kind [data-path="single"]');
+      await p.waitForFunction(() => !document.getElementById('role-next').disabled, null, { timeout: 8000 });
+      await p.click('#role-next');
+      await p.waitForSelector('#create-name', { state: 'visible', timeout: 8000 });
+      chk(!(await p.locator('#create-instr').inputValue()).includes('gave up on') && await p.evaluate(() => document.getElementById('create-kept').hidden), 'start over: and the old instructions are gone, with no line');
       await p.close();
     }
     // kosmos#8051 item 2: a provider picked by hand while a saved Gemini-by-subscription pick's read is still out wins,
