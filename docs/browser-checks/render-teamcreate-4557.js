@@ -398,7 +398,17 @@ function chk(ok, label, extra) {
           await settle(page, () => /Changed 3 names\./.test(document.getElementById('tc-name-said').textContent));
           const again = (await rows(page))[1].name;
           chk(again !== another, `${E} #8092 CONTROL: after Another the row is a suggestion again, so Use short names may change it`, JSON.stringify({ another, again }));
-          // An emptied box is not a typed name: Use short names fills it.
+          // A typed name, then emptied, is not a typed name any more: Use short names fills it.
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Bartholomew');
+          await page.click('#tc-short');
+          await settle(page, () => /Kept the name you typed\./.test(document.getElementById('tc-name-said').textContent));
+          chk((await rows(page))[0].name === 'Bartholomew', `${E} #8092 CONTROL: the lead's typed name is kept before it is emptied`);
+          // The suggestion typed back exactly is a suggestion again (the other two rows hold Kosmos's names).
+          const sugg = (await rows(page))[1].name;
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', 'x');
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', sugg);
+          const typedBack = await page.evaluate(() => TC.members[1].typed);
+          chk(typedBack === false, `${E} #8092 the suggestion typed back is not a typed name`, JSON.stringify({ sugg, typedBack }));
           await page.fill('#tc-list li[data-slot="lead"] .tc-name', '');
           await page.click('#tc-short');
           await settle(page, () => /Changed 3 names\./.test(document.getElementById('tc-name-said').textContent) && document.querySelector('#tc-list li[data-slot="lead"] .tc-name').value !== '');
