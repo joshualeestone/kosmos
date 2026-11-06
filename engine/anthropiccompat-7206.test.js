@@ -326,6 +326,7 @@ test('#7206 2a review 1: each vendor has its own switch; none means any; an unkn
     sw.set(false); sw.setVendor('glm', true);
     assert.deepEqual([compat.enabled('darwin'), compat.enabled('darwin', 'deepseek'), compat.enabled('darwin', 'glm')], [true, false, true]);
     assert.equal(compat.enabled('darwin', 'toString'), false);
+    assert.equal(compat.enabled('darwin', undefined), false, 'a vendor slot passed empty read as any vendor');   // review 4: fails closed
     assert.equal(compat.enabled('win32', 'glm'), false, 'never on off a Mac');
   } finally { sw.set(false); sw.setVendor('glm', false); }
 });

@@ -72,7 +72,6 @@ function vendorOf(id) {
  * restart.
  */
 const ON_MARKER = 'compat-providers-on';
-function onMarker() { return path.join(require('./store').ROOT, ON_MARKER); }
 /* #7206 slice 2a review 1: one switch per vendor, so measuring one vendor and switching it on never turns on another
    that nobody has measured. DeepSeek keeps the original marker; every later row has its own, compat-<id>-on. */
 /* 🛑 compat-glm-on must not be created before slice 2b: until the page knows GLM, it files a GLM account under Claude. */
@@ -83,6 +82,9 @@ function markerFor(id) { return id === 'deepseek' ? ON_MARKER : 'compat-' + id +
  */
 function enabled(platform = process.platform, vendor) {
   if (platform !== 'darwin') return false;
+  /* 2a review 4: "any vendor" is asked by leaving the vendor out entirely. A vendor slot passed but empty (a caller whose
+     vendor came back undefined) is off, never "any": a missing vendor must fail closed. */
+  if (arguments.length >= 2 && vendor === undefined) return false;
   const ids = vendor === undefined ? Object.keys(VENDORS) : (vendorOf(vendor) ? [vendor] : []);
   /* 1b review 3: the marker is the ONLY on-state. An environment variable reached the board but never an agent's launchd
      job (its plist carries a fixed environment), so an agent made with it on could not start. The marker is read by
