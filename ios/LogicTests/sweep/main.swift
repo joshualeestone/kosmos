@@ -159,7 +159,7 @@ do {
     }
     check(read.contains("ios/Kosmos/ChatView.swift") && read.contains(where: { $0.hasPrefix("ios/KosmosNotice/") }) && read.count > 20,
           "both app folders were read, subfolders included (\(read.count) files)")
-    check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app" + (offenders.isEmpty ? "" : ": \(offenders)"))
+    check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app (caught by name, not a hand-made spinner)" + (offenders.isEmpty ? "" : ": \(offenders)"))
     // The one known exception, pinned so no new one appears: pull to refresh draws iOS's own spinner (10 lists and the board
     // page's refresh control). Dots there need pull to refresh rebuilt; follow-up card on #8058.
     check(refreshable == 10 && refreshControls == 1, "pull to refresh is the only system spinner left (comments are not counted here; the check above reads them too), at its 11 known places (\(refreshable) + \(refreshControls))")

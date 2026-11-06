@@ -8,8 +8,9 @@ every wait, full-screen ones included, overriding the earlier rule that whole-sc
 
 - Every `KosmosOrb` in the app (30 sites across 13 screens) becomes `SweepDots`, with the same colour and the orb's
   fixed size (`scales: false`, so nothing grows in toolbars or buttons at large text sizes), still under Reduce
-  Motion and at 15 frames a second, as the orb was (`stillWhenReduced: true`, `framesPerSecond: 15`). The app no
-  longer warms the orb's geometry at launch.
+  Motion as the orb was (`stillWhenReduced: true`). They draw at the dots' own 30 frames a second, the board's rate:
+  none sits inside a chat or room thread, where 15 is kept (#7427), and 15 makes the ring step unevenly. The app no
+  longer warms the orb's geometry at launch. Follow-up, not in this change: delete KosmosOrb.swift and its project entry.
   VoiceOver unchanged: the orb said "Loading" unless hidden, so an unlabelled orb becomes `SweepDots(label: "Loading")`
   and a hidden one plain `SweepDots()` (hidden by default); a labelled one keeps its label.
 - The system's own spinner remains in one place: pull to refresh (10 `.refreshable` lists and the board page's

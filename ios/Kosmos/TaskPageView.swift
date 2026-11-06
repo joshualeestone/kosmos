@@ -118,7 +118,7 @@ struct TaskPageView: View {
         } else if model.readFailed {
             message("Kosmos could not read this task just now", "It tries again in a few seconds.")
         } else {
-            SweepDots(label: "Loading", scales: false, framesPerSecond: 15, stillWhenReduced: true).frame(maxWidth: .infinity, maxHeight: .infinity)
+            SweepDots(label: "Loading", scales: false, stillWhenReduced: true).frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -189,7 +189,7 @@ struct TaskPageView: View {
             let act = p.act
             Button { model.touched(); Task { await model.press(act, names: names) } } label: {
                 HStack(spacing: 8) {
-                    if model.pressing { SweepDots(colour: Palette.card, scales: false, framesPerSecond: 15, stillWhenReduced: true) }
+                    if model.pressing { SweepDots(colour: Palette.card, scales: false, stillWhenReduced: true) }
                     Text(act.title).font(.headline)
                 }
                 .foregroundColor(Palette.card)
