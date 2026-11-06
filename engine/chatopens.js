@@ -1,13 +1,15 @@
 'use strict';
 /**
  * #7420: how often the iPhone chat goes blank, per app build. The phone sends one record when a chat showing ends; only
- * numbers and the app's version, never text or a name. Counted by build rather than kept as records, so a rate can be
- * read for any build however long ago it shipped.
+ * numbers and the app's version, never text or a name. Counted by build rather than kept as records, so a rate holds
+ * for the last MAX_BUILDS builds to report.
  *
  * What the numbers mean, for a build: opens is showings (a chat appearing or coming back to the front, until it closes or
- * leaves the front), so one long chat can count twice. blankOpens is showings with a rebuild or left blank at close, and
- * a blank that recovers by itself with no rebuild is not in it. rebuilds is the total. closedBlank is showings with no
- * row drawn for the last 3 s before they closed. A showing lost as the app is killed is not counted.
+ * leaves the front), so one long chat can count twice. blankOpens is showings with a rebuild or left blank at close.
+ * rebuilds is the total. closedBlank is showings with no row reported for the last 3 s before they closed.
+ * NOT counted, so a rate here is a floor and a change in it can be a blank moving out of view: a blank repaired another
+ * way (a list past its end put back), one that recovers with no repair, a screen with rows reported but not drawn, and a
+ * showing lost as the app is killed.
  *
  * Read with GET /api/phone/chat-opens (the board's token, as its sibling chat-shifts) or from the file itself on this Mac.
  *

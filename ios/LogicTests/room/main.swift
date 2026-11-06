@@ -606,6 +606,11 @@ check(chatSource.contains("Board.endNeverShown(endSeen: endSeen") && chatSource.
       "kosmos#7420: the settled look and diagCheck read one rule for a list whose end never showed, a top marker cannot hold it off, and a rebuild restarts its clock")
 check(chatSource.contains("diagThreadAt = Date(); diagEverDrew = !onScreen.isEmpty") && !chatSource.contains(".onChange(of: thread == nil)"),
       "review 5: the never-drawn clock starts when the list first exists, not in an onChange that never sees its own creation")
+// kosmos#7420: the count's call sites, since Board.ChatOpenCount's own tests pass with any of these gone.
+check(chatSource.contains("onScreen.insert(item.id); openCount.rows(empty: false)") && chatSource.contains("if onScreen.isEmpty { openCount.rows(empty: true) }")
+      && chatSource.contains("rebuilds.append(now)\n            openCount.rebuilt()") && chatSource.contains("if !infoOpen { sendOpenCount() }")
+      && chatSource.contains("if visible { sendOpenCount() } else { openCount.reset() }") && chatSource.contains("if phase == .active, visible { openCount.shown(rowsDrawn: !onScreen.isEmpty) }"),
+      "kosmos#7420: rows, rebuilds, a close and going to the background all reach the chat's count")
 check(chatSource.contains("guard visible, scenePhase == .active, !searchMode, onScreen.isEmpty") && chatSource.contains("if onScreen.isEmpty { diagTick &+= 1 }")
       && !chatSource.contains(".onChange(of: onScreen.isEmpty)"), "review 1: the check runs only for the chat on screen, and never makes the chat redraw per row")
 check(chatSource.contains("if diagRing.count > 80") && chatSource.contains("onScreen.isEmpty, !endVisible || neverShown, !topVisible || neverShown, count > 0, thread != nil") && chatSource.contains("ShareLink(item: report"),

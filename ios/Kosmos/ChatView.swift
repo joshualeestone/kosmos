@@ -1384,10 +1384,14 @@ struct ChatView: View {
     private func sendOpenCount() {
         let info = Bundle.main.infoDictionary
         let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
-        guard let body = openCount.finish(hasRows: !(thread?.rows.isEmpty ?? true), searching: searchMode, app: app) else { return }
-        let client = self.client, epoch = client.chatEpoch
+        // The epoch this chat holds, not the client's now: a change not yet seen here means this count is another computer's.
+        guard epoch == client.chatEpoch else { openCount.reset(); return }
+        // A search with no matches, and unsent messages filling the screen, draw no rows either (as Board.listBlank).
+        let excused = searchMode || (endVisible && !pending.isEmpty)
+        guard let body = openCount.finish(hasRows: !(thread?.rows.isEmpty ?? true), excused: excused, app: app) else { return }
+        let client = self.client, sentAt = epoch
         Task { @MainActor in
-            guard epoch == client.chatEpoch else { return }
+            guard sentAt == client.chatEpoch else { return }
             var task = UIBackgroundTaskIdentifier.invalid
             task = UIApplication.shared.beginBackgroundTask(withName: "chat-open") {
                 if task != .invalid { UIApplication.shared.endBackgroundTask(task); task = .invalid }

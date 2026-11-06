@@ -733,12 +733,12 @@ enum Board {
             if !empty { blankSince = nil } else if blankSince == nil { blankSince = now }
         }
         func reset() { shownAt = nil; blankSince = nil; rebuilds = 0 }
-        // Ends the showing. nil when there is nothing to count: not shown, or a chat with no messages. A search with no
-        // matches draws no rows too, so a search is never called blank.
-        func finish(hasRows: Bool, searching: Bool, app: String, now: Date = Date()) -> [String: Any]? {
+        // Ends the showing. nil when there is nothing to count: not shown, or a chat with no messages. excused: the caller
+        // knows why no rows are drawn, so this is not a blank.
+        func finish(hasRows: Bool, excused: Bool, app: String, now: Date = Date()) -> [String: Any]? {
             defer { reset() }
             guard shownAt != nil, hasRows else { return nil }
-            let closedBlank = !searching && (blankSince.map { now.timeIntervalSince($0) >= Self.closedBlankAfter } ?? false)
+            let closedBlank = !excused && (blankSince.map { now.timeIntervalSince($0) >= Self.closedBlankAfter } ?? false)
             return ["app": app, "rebuilds": rebuilds, "closedBlank": closedBlank]
         }
     }
