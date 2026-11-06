@@ -9444,7 +9444,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
   font-weight: 600; background: none; color: var(--label-2); text-decoration: underline; cursor: pointer; }
 .tc-another:hover:not(:disabled) { color: var(--label); background: var(--k-sunk, rgba(0,0,0,.05)); }
 .tc-another:focus-visible { outline: 2px solid var(--k-ink, currentColor); outline-offset: 1px; }
-.tc-another:disabled { display: none; }   /* a made row's name gets the room */
+.tc-another:disabled { visibility: hidden; }   /* held while the names are checked; a made row's is [hidden], so its name gets the room */
 #cstep-teammake .tc-short { margin: 0 0 var(--space-2); font: var(--text-callout) var(--font-ui); }
 #cstep-teammake .tc-short .linkish { font: inherit; font-weight: 600; }
 @media (hover: none), (pointer: coarse) { .tc-another, #cstep-teammake .tc-short .linkish { min-height: 44px; } }   /* a finger's target */
@@ -9481,7 +9481,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #team-seeded-pick .importrow { margin-top: var(--space-6); }
 /* Item 7: the status column is a fixed width, so a row's name does not move sideways as its status changes
    ("Making…" to "Made, starting…" to "Running"); a longer status wraps inside it instead. */
-#cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) 11rem; }
+#cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) 11rem; }   /* kosmos#8092: room for Another beside the box */
 #cstep-teammake .tc-state { white-space: normal; text-align: right; display: inline-flex; align-items: center;
   justify-content: flex-end; gap: var(--space-3); }
 @media (max-width: 560px) { #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; } }
@@ -63552,8 +63552,8 @@ function tcTakenNames(except) {
 function tcShortName(m) {
   const taken = tcTakenNames(m);
   const now = (m.name || '').trim().toLowerCase();
-  // Not one letter away from a teammate's name either (Mae beside Mai is easy to mistype in a message).
-  const mates = TC ? TC.members.filter((o) => o !== m && o.name).map((o) => o.name.trim().toLowerCase()) : [];
+  // Not one letter away from a teammate's or a board agent's name either (Mae beside Mai is easy to mistype in a message).
+  const mates = (TC ? TC.members.filter((o) => o !== m && o.name).map((o) => o.name.trim().toLowerCase()) : []).concat(TC && Array.isArray(TC.boardNames) ? TC.boardNames : []);
   const free = TC_SHORT_NAMES.filter((n) => !taken.has(n.toLowerCase()) && n.toLowerCase() !== now && !mates.some((o) => tcOneApart(o, n.toLowerCase())));
   return free.length ? free[Math.floor(Math.random() * free.length)] : m.name;
 }
@@ -63627,6 +63627,7 @@ function tcPaint() {
     // kosmos#8092: Another name, a short one; it changes only what the name box would, so it is open exactly when that is.
     const another = document.createElement('button');
     another.type = 'button'; another.className = 'tc-another'; another.disabled = input.disabled;
+    another.hidden = TC.started && m.state !== 'failed';   // gone for good on a row that is made or making
     another.setAttribute('aria-label', 'Another name for the ' + m.title);
     another.textContent = 'Another';   // a word, not an icon: a phone shows no tooltip
     another.addEventListener('click', () => {

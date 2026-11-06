@@ -307,6 +307,8 @@ function chk(ok, label, extra) {
           await page.evaluate(() => { if (window.__realStatus) window.statusFetchWithin = window.__realStatus; });
           const before = await rows(page);
           chk(await page.isVisible('#tc-short'), `${E} #8092 Use short names is offered while the names can change`);
+          const boxW = await page.evaluate(() => Math.min(...[...document.querySelectorAll('#tc-list .tc-name')].map((i) => i.getBoundingClientRect().width)));
+          chk(boxW >= 120, `${E} #8092 at desktop width the name box keeps room for a long name beside Another`, String(boxW));
           await page.focus('#tc-list li[data-slot="lead"] .tc-another');
           await page.keyboard.press('Enter');
           const one = await rows(page);
@@ -352,16 +354,19 @@ function chk(ok, label, extra) {
           const { page, errs, posted, script } = await newPage(1280);
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
-          // Not one letter from a teammate: beside "Anir", Amir and Anil are skipped and Ari offered (without the rule: Amir).
+          // Not one letter from a teammate or a board agent: beside "Anir" and the board's "Ali", Amir, Anil and Ari are skipped
+          // and Asha offered (without the rule: Amir); with "Amie" on the board, Amir is skipped and Anil offered.
           const near = await page.evaluate(() => {
             const real = Math.random; Math.random = () => 0;
             const keep = TC.members.map((m) => m.name); const boardKeep = TC.boardNames;
             TC.boardNames = ['ade', 'ali']; TC.members[1].name = 'Anir'; TC.members[2].name = 'Zzz';
             const got = tcShortName(TC.members[0]);
-            TC.members.forEach((m, i) => { m.name = keep[i]; }); TC.boardNames = boardKeep; Math.random = real;
-            return { got, pair: [tcOneApart('mae', 'mai'), tcOneApart('ana', 'anil'), tcOneApart('ari', 'anir')] };
+            TC.members.forEach((m, i) => { m.name = keep[i]; }); TC.boardNames = boardKeep;
+            const board = (() => { TC.boardNames = ['ade', 'ali', 'amie']; const g = tcShortName(TC.members[0]); TC.boardNames = boardKeep; return g; })();
+            Math.random = real;
+            return { got, board, pair: [tcOneApart('mae', 'mai'), tcOneApart('ana', 'anil'), tcOneApart('ari', 'anir'), tcOneApart('ana', 'anna'), tcOneApart('anna', 'ana')] };
           });
-          chk(near.got === 'Ari' && JSON.stringify(near.pair) === '[true,false,false]', `${E} #8092 a name one letter from a teammate's is not offered`, JSON.stringify(near));
+          chk(near.got === 'Asha' && near.board === 'Anil' && JSON.stringify(near.pair) === '[true,false,false,true,true]', `${E} #8092 a name one letter from a teammate's, or a board agent's, is not offered`, JSON.stringify(near));
           await page.click('#tc-short');
           const short = (await rows(page)).map((r) => r.name);
           script[short[2]] = 'that name could not be used just now';   // the last member is refused once
@@ -370,6 +375,10 @@ function chk(ok, label, extra) {
           await settle(page, () => (document.querySelector('#tc-list li[data-slot="social"] .tc-retry')));
           const failed = await page.evaluate(() => { const b = document.querySelector('#tc-list li[data-slot="social"] .tc-another'); return { open: !!b && !b.disabled && getComputedStyle(b).display !== 'none', box: !document.querySelector('#tc-list li[data-slot="social"] .tc-name').disabled }; });
           chk(failed.open && failed.box, `${E} #8092 a failed member offers Another, as its name box is open`, JSON.stringify(failed));
+          // A repaint while Another has focus (the watcher's, when another row changes) keeps the focus on Another.
+          await page.focus('#tc-list li[data-slot="social"] .tc-another');
+          await page.evaluate(() => { TC.paintedSig = null; tcPaint(); });
+          chk(await page.evaluate(() => !!document.activeElement && document.activeElement.matches('#tc-list li[data-slot="social"] .tc-another')), `${E} #8092 a repaint keeps the keyboard on a failed row's Another`);
           await page.click('#tc-list li[data-slot="social"] .tc-another');
           const renamed = (await rows(page)).find((r) => r.slot === 'social').name;
           await page.click('#tc-list li[data-slot="social"] .tc-retry');
