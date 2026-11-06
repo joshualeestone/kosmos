@@ -16,7 +16,7 @@ const os = require('node:os');
  * uses mach_continuous_time), so a short nap reads as a stall. A gap past ASLEEP_MS is more likely sleep and says it
  * cannot tell, rather than being dropped, since the longest real stall is the one this most needs to report.
  *
- * #7693: the line ends with the machine's one-minute load, so a read of the log can compare stalls at like load. Without it a
+ * #7693: a stall's line (not a sleep gap's) ends with the machine's one-minute load, so a read of the log can compare stalls at like load. Without it a
  * drop in held time cannot be told from a quieter machine (11-05: 452 s held in the 16:00 hour, 12 s at 17:00, no change to
  * the board). One moment, read when the stall ends, not the stall's average. Left out when there is none to report: Windows
  * answers 0 for a load it does not keep, and "load 0" would read as an idle machine.
@@ -28,11 +28,11 @@ const ASLEEP_MS = 300000;   // a gap this long is more likely the computer sleep
 const MAX_PER_MINUTE = 10;
 const monotonic = () => Math.round(performance.now());   // not the wall clock: a clock step is not a stall
 
-// ", load 4.2", or nothing when there is no load to report. A failed read loses the figure, never the line.
+// ", load 4.24", or nothing when there is no load to report. A failed read loses the figure, never the line.
 function loadWords(read) {
   try {
     const n = read();
-    return Number.isFinite(n) && n > 0 ? `, load ${n.toFixed(1)}` : '';
+    return Number.isFinite(n) && n > 0 ? `, load ${n.toFixed(2)}` : '';
   } catch { return ''; }
 }
 
