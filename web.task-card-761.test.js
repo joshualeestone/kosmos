@@ -105,6 +105,22 @@ test('a single-assignee task shows a face and a status underneath the name, not 
   assert.match(html, /<span class="tkcard-who-b"><b>April<\/b><em class="tksay">says it is on this<\/em>/);
 });
 
+/* kosmos#8140: a parent built while most of its pieces are held says so beside its own state, so it does not read as
+   finished. */
+test('kosmos#8140: a built parent with held subtasks shows how many are on hold beside its own state', () => {
+  const t = {
+    number: 7, sentence: 'Launch', who: 'april', closedAt: null, builtAt: '2026-11-06T20:00:00Z',
+    parts: [{ id: 1, who: 'april', sentence: 'Launch', closedAt: null }],
+    progress: { done: 0, total: 1, closed: false, assigned: 1 },
+    subtasks: { done: 1, built: 0, held: 3, total: 4 },
+  };
+  const html = runPaintProjectTasks({ ...PROJECT, tasks: [t] }).els['pj-tasklist'].innerHTML;
+  assert.match(html, /Task 7 \(built\)/, 'CONTROL: the parent shows its own state');
+  assert.match(html, /title="1 of 4 subtasks done, 3 on hold">1\/4, 3 on hold/);
+  const none = runPaintProjectTasks({ ...PROJECT, tasks: [{ ...t, subtasks: { done: 1, built: 0, held: 0, total: 4 } }] }).els['pj-tasklist'].innerHTML;
+  assert.doesNotMatch(none, /on hold/, 'CONTROL: nothing held, nothing said');
+});
+
 test('the unknown claim shows the ENGINE\'S REAL REASON, never the generic "we could not check"', () => {
   const t = {
     number: 2, sentence: 'Ship it', who: 'april', closedAt: null,

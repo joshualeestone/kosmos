@@ -250,7 +250,9 @@ function treeOf(p) {
      and waiting for the person, not only every subtask closed. Marking built already asks the agent to answer the
      task's done-when checks. */
   const isBuilt = isBuiltOpen;   // held reads held (taskState); one definition, shared with kosmos#7514's closesWithParent
-  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, total: k.length }; };
+  /* kosmos#8140: `held` counts the open children on hold, so a parent can show them apart from the ones not done yet
+     (a built parent with most pieces held read as finished). */
+  const progress = (n) => { const k = under(n); return { done: k.filter((t) => progressOf(t).closed).length, built: k.filter(isBuilt).length, held: k.filter((t) => !progressOf(t).closed && isOnHold(t)).length, total: k.length }; };
   return { byNum, up, under, progress };
 }
 
@@ -345,7 +347,8 @@ function childrenOf(p, n) {
   return treeOf(p).under(n);
 }
 
-/** A parent's `{done, built, total}` over its direct children (kosmos#5956: built = open, not held, marked built); total 0 means no subtasks. */
+/** A parent's `{done, built, held, total}` over its direct children (kosmos#5956: built = open, not held, marked built;
+ * kosmos#8140: held = open and on hold); total 0 means no subtasks. */
 function subtaskProgress(p, n) {
   return treeOf(p).progress(n);
 }

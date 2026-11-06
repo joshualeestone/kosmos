@@ -104,7 +104,7 @@ test('closing a parent never closes its children, and closing every child never 
   tasks.close(id, k1.number);
   tasks.close(id, k2.number);
   assert.equal(rowOf(id, top.number).isClosed, false, 'the last child closing closed the parent; the person decides');
-  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 2, built: 0, total: 2 });
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 2, built: 0, held: 0, total: 2 });
 });
 
 test('allTasks rows carry parent, parentSentence and a direct-children count', () => {
@@ -115,15 +115,15 @@ test('allTasks rows carry parent, parentSentence and a direct-children count', (
   const g = tasks.create(id, { sentence: 'Grandchild', parent: k1.number });
   tasks.close(id, g.number);
   const topRow = rowOf(id, top.number);
-  assert.deepEqual(topRow.subtasks, { done: 0, built: 0, total: 2 }, 'a grandchild must not count on the grandparent');
+  assert.deepEqual(topRow.subtasks, { done: 0, built: 0, held: 0, total: 2 }, 'a grandchild must not count on the grandparent');
   assert.equal(topRow.parent, null);
   assert.equal(topRow.parentSentence, null);
   const k1Row = rowOf(id, k1.number);
   assert.equal(k1Row.parent, top.number);
   assert.equal(k1Row.parentSentence, 'Top');
-  assert.deepEqual(k1Row.subtasks, { done: 1, built: 0, total: 1 });
+  assert.deepEqual(k1Row.subtasks, { done: 1, built: 0, held: 0, total: 1 });
   // A task with no subtasks says 0 of 0, never undefined.
-  assert.deepEqual(rowOf(id, g.number).subtasks, { done: 0, built: 0, total: 0 });
+  assert.deepEqual(rowOf(id, g.number).subtasks, { done: 0, built: 0, held: 0, total: 0 });
 });
 
 test('a stored parent that is not a task here reads as top level, never as nested under nothing', () => {
@@ -161,7 +161,7 @@ test('the exported helpers and the rows agree, task by task (one derivation, pin
     assert.equal(r.subtasks.total, tasks.childrenOf(p, t.number).length);
   }
   assert.deepEqual(tasks.childrenOf(p, a.number).map((t) => t.sentence), ['B', 'C']);
-  assert.deepEqual(tasks.subtaskProgress(p, a.number), { done: 1, built: 0, total: 2 });
+  assert.deepEqual(tasks.subtaskProgress(p, a.number), { done: 1, built: 0, held: 0, total: 2 });
 });
 
 test('a legacy task with no parent field reads as top level with no subtasks', () => {
@@ -170,7 +170,7 @@ test('a legacy task with no parent field reads as top level with no subtasks', (
   projects.mutate(id, (p) => ({ ...p, tasks: p.tasks.map((t) => { const x = { ...t }; delete x.parent; return x; }) }));
   const row = rowOf(id, a.number);
   assert.equal(row.parent, null);
-  assert.deepEqual(row.subtasks, { done: 0, built: 0, total: 0 });
+  assert.deepEqual(row.subtasks, { done: 0, built: 0, held: 0, total: 0 });
 });
 
 test('the managed block teaches subtasks on every project line', () => {
@@ -185,13 +185,13 @@ test('kosmos#5956: a parent counts its built subtasks apart from its closed ones
   const top = tasks.create(id, { sentence: 'Launch' });
   const a = tasks.create(id, { sentence: 'Copy', parent: top.number, who: 'rex' });
   const b = tasks.create(id, { sentence: 'Photos', parent: top.number, who: 'rex' });
-  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 0, total: 2 }, 'CONTROL: nothing built yet');
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 0, held: 0, total: 2 }, 'CONTROL: nothing built yet');
   assert.equal(tasks.setBuilt(id, a.number, { by: 'rex', note: 'copy is in' }).ok, true);
-  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 1, total: 2 });
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 1, held: 0, total: 2 });
   tasks.close(id, b.number);
-  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 1, built: 1, total: 2 }, 'one closed, one built: every subtask is closed or built');
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 1, built: 1, held: 0, total: 2 }, 'one closed, one built: every subtask is closed or built');
   tasks.close(id, a.number);
-  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 2, built: 0, total: 2 }, 'a closed subtask counts as done, never as built too');
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 2, built: 0, held: 0, total: 2 }, 'a closed subtask counts as done, never as built too');
 });
 
 test('kosmos#5956 review 1: a built subtask the person put on hold reads held, not built', () => {
@@ -199,7 +199,24 @@ test('kosmos#5956 review 1: a built subtask the person put on hold reads held, n
   const top = tasks.create(id, { sentence: 'Launch' });
   const a = tasks.create(id, { sentence: 'Copy', parent: top.number, who: 'rex' });
   assert.equal(tasks.setBuilt(id, a.number, { by: 'rex', note: 'copy is in' }).ok, true);
-  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 1, total: 1 }, 'CONTROL: built and not held');
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 1, held: 0, total: 1 }, 'CONTROL: built and not held');
   tasks.setOnHold(id, a.number, true, { viaScreen: true });
-  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 0, total: 1 });
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 0, held: 1, total: 1 });
+});
+
+/* kosmos#8140: a parent's held subtasks are counted apart from the ones not done, so a parent built with most of its
+   pieces held does not read as finished. Only OPEN held children count: a closed one is done. */
+test('kosmos#8140: held subtasks are counted apart (held), open ones only, direct children only', () => {
+  const id = projects.create({ name: 'Held count ' + Math.random().toString(36).slice(2), agents: ['rex'] }).id;
+  const top = tasks.create(id, { sentence: 'Launch' });
+  const kids = ['Copy', 'Art', 'Price', 'Site'].map((s) => tasks.create(id, { sentence: s, parent: top.number, who: 'rex' }));
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 0, held: 0, total: 4 }, 'CONTROL: nothing held');
+  for (const k of kids.slice(1)) tasks.setOnHold(id, k.number, true, { viaScreen: true });
+  assert.deepEqual(rowOf(id, top.number).subtasks, { done: 0, built: 0, held: 3, total: 4 });
+  const g = tasks.create(id, { sentence: 'Grandchild', parent: kids[0].number });
+  tasks.setOnHold(id, g.number, true, { viaScreen: true });
+  assert.equal(rowOf(id, top.number).subtasks.held, 3, 'a held grandchild must not count on the grandparent');
+  assert.equal(rowOf(id, kids[0].number).subtasks.held, 1, 'it counts on its own parent');
+  tasks.setOnHold(id, kids[1].number, false, { viaScreen: true });
+  assert.equal(rowOf(id, top.number).subtasks.held, 2, 'released, it is no longer counted held');
 });
