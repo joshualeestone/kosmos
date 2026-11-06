@@ -45,3 +45,12 @@ Nobody automatically: no caller in this repo (only comments, plans and the READM
 - The header says the guard is deliberately stricter than the served check (stripped vs raw), and that the strip can
   only over-strip (a false red, never a false green).
 - A commented-only control for web/index.html too ("Two questions: what it is for").
+
+## Review 3 (sonnet): NITs only, taken with one more round
+- _cannot_see names the kinds the guard covers (present, order, pkg_present); binary is checked against the app only.
+- The guard's strip is a copy of check-served.js's (a local there); a new assertion holds the two to one text, and a
+  one-character change turns it red.
+- Noted, not changed: the marker is the #hint line, which the page hides once install finishes; the bytes still ship,
+  so the row is a presence check (text shipped), not a behaviour check.
+- Same stale claim found in web.ruling-guards.test.js (a comment saying the installer page cannot be guarded at ship
+  time); corrected to name the pkg arm. No assertion changed; that file passes 6/6.

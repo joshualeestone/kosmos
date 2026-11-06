@@ -251,13 +251,11 @@ test('item 13 -- the remnant copy on the create-first-agent screen stays deleted
    assertion in this file would have been green from the day it was written and
    would have guarded nothing.
 
-   🛑 IT CANNOT BE GUARDED AT SHIP TIME EITHER. tools/check-served.js extracts
-   app/web/index.html and app/bin/kosmos-app from the tarball and reads only
-   those. The installer page is not in that population, so no check we own can
-   see it. That is the same shape as the tool's own `_cannot_see` note about
-   native surfaces, one file wider than the note admits.
+   ✅ IT IS GUARDED AT SHIP TIME. tools/check-served.js's pkg arm (2026-08-27)
+   expands the served .pkg and checks its three pages: pkg_absent holds
+   "Nothing to do." out of installing.html (comments stripped). kosmos#8132.
 
-   ⇒ Left unguarded ON PURPOSE and reported, rather than pinned in the wrong
+   ⇒ Not pinned here, on purpose, rather than in the wrong
    file where it would read as covered. A green assertion in the wrong
    population is worse than a missing one: the missing one still looks missing.
    -------------------------------------------------------------------------- */
