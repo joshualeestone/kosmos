@@ -1270,18 +1270,22 @@ const visible = (page, sel) => page.evaluate((s) => {
       await page.waitForSelector('#plus-si-code', { state: 'visible', timeout: 5000 });
       await page.fill('#plus-si-code-in', '123456');   // #3942: auto-submits
       /* #4608 (Josh, 2026-09-29 12:49): while this computer connects, the heading says "Signing in...". #5785 (Josh,
-         2026-10-10 14:00): the big K-to-circle loader plays above it, in place of the small ring loader beside the
-         words, centred for this automatic connect, with "This takes about half a minute." under the address. */
+         2026-10-10 14:00): the big loader plays above it, in place of the small ring loader beside the words, centred
+         for this automatic connect, with "This takes about half a minute." under the address. #7896: that loader is the
+         KOSMOS orb (kOrbWaitHtml, drawn by KORB into its canvas.korb), not the K canvas; "shown" means real ink in the
+         orb's canvas (pixels with alpha over 20), which a laid-out blank canvas or main's K canvas cannot give. */
       await page.waitForSelector('#plus-si-owned', { state: 'visible', timeout: 5000 });
       await page.waitForTimeout(300);
       const during = await page.evaluate(() => {
         const sp = document.getElementById('plus-si-spin');
         const card = document.getElementById('plus-state2');
-        const cv = document.querySelector('#plus-si-k canvas');
+        const cv = document.querySelector('#plus-si-k .orb-wait canvas.korb');
+        let ink = 0;
+        try { if (cv && cv.width) { const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; for (let i = 3; i < d.length; i += 4) if (d[i] > 20) ink += 1; } } catch (e) { ink = -1; }
         const note = document.getElementById('plus-si-k-note');
         return { title: document.getElementById('plus-si-title').textContent,
           spin: !!sp && !sp.hidden && sp.getClientRects().length > 0,
-          k: !!cv && cv.getClientRects().length > 0,
+          k: !!cv && cv.getClientRects().length > 0 && ink > 200, ink,
           note: !!note && /about half a minute/.test(note.textContent) && note.getClientRects().length > 0,
           centred: !!card && card.classList.contains('plus-si-busy') };
       });

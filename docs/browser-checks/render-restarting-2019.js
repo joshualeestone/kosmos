@@ -3,7 +3,8 @@
  * #2019 (Mona Lisa's design half): the "restarting" board state. A disruption WE
  * started (restart / model / provider / instructions / account) takes the agent
  * out of tmux for a moment; the board must render that as an honest in-progress
- * state with the animated Kosmos K, NOT as "gone".
+ * state with the moving restart mark, NOT as "gone". The mark is the 16 px Sweep dots
+ * since Josh 11-06 12:18 (#7896, kGlyph); it was the breathing .kspin Kosmos K before.
  *
  * The ENGINE half (Renet) emits `a.state === 'restarting'` with
  * `a.disruption = { cause, startedAt }`. This check does NOT depend on the engine:
@@ -19,8 +20,9 @@
  *  - the card is NOT "gone": pres is 'on' and the modifier class is 'restarting',
  *    never 'off'/'unk' (the exact lie this state exists to refuse),
  *  - the SOLID border (st-restarting, never the dashed unknown),
- *  - the animated Kosmos K is present and, under reduced motion, HOLDS STATIC and
- *    fully visible (animation:none, opacity:1) rather than a frozen dimmed frame.
+ *  - the Sweep dots are present (eight of them, the retired .kspin K gone), they sweep
+ *    (sweepLite) when motion is allowed, and under reduced motion they take the app-wide
+ *    calm pulse (calmPulse, no travel) rather than sweeping round the ring.
  *
  * Not part of `npm test` -- it needs a browser. See README.md for the recipe.
  *   HEADED=0 node docs/browser-checks/render-restarting-2019.js
@@ -93,15 +95,15 @@ const CASES = [
           d.innerHTML = html;
           const cardEl = d.firstElementChild;
           const pill = cardEl.querySelector('.astate');
-          const kimg = cardEl.querySelector('.kspin img');
+          const mark = cardEl.querySelector('.astate .spin.spin-sweep');
           const taskEl = cardEl.querySelector('.atask');
           return {
             pres: st.pres,
             label: copy.label,
             cardClass: cardEl.className,
             pillClass: pill ? pill.className : null,
-            hasK: !!kimg,
-            kSrc: kimg ? kimg.getAttribute('src') : null,
+            hasMark: !!mark && mark.querySelectorAll(':scope > i').length === 8 && !cardEl.querySelector('.kspin'),
+            markClass: mark ? mark.className : null,
             task: taskEl ? taskEl.textContent.trim() : '',
             pillTitle: pill ? (pill.getAttribute('title') || '') : '',
           };
@@ -113,7 +115,7 @@ const CASES = [
         chk(/\brestarting\b/.test(res.cardClass) && !/\b(off|unk)\b/.test(res.cardClass),
           `${tag} card class is restarting, never off/unk`, res.cardClass);
         chk(/st-restarting/.test(res.pillClass || ''), `${tag} pill is st-restarting`, res.pillClass);
-        chk(res.hasK, `${tag} the animated Kosmos K is present`, res.kSrc);
+        chk(res.hasMark, `${tag} the Sweep restart dots are present (eight, no .kspin K)`, res.markClass);
         /* #6716 (Josh, 2026-10-20: no sentences on tiles): the calm line is the pill's hover, and the tile says nothing. */
         chk(/This takes a few seconds\. Nothing was lost\./.test(res.pillTitle),
           `${tag} the calm because-line is the pill's hover`, JSON.stringify(res.pillTitle));
@@ -145,10 +147,10 @@ const CASES = [
           cardClass: cardEl.className,
           pillClass: pill ? pill.className : null,
           cardLabel: (cardEl.querySelector('.astate b') || {}).textContent || '',
-          cardHasK: !!cardEl.querySelector('.kspin img'),
+          cardHasK: !!cardEl.querySelector('.astate .spin.spin-sweep') && !cardEl.querySelector('.kspin'),
           cardNotRunning: /Not running/.test(cardEl.textContent),
           rowText: rowEl.textContent,
-          rowHasK: !!rowEl.querySelector('.kspin img'),
+          rowHasK: !!rowEl.querySelector('.lpill .spin.spin-sweep') && !rowEl.querySelector('.kspin'),
           rowNotRunning: /Not running/.test(rowEl.textContent),
         };
       });
@@ -156,9 +158,9 @@ const CASES = [
         `[${theme}] paneless (running:false) restarting CARD is restarting, never off/unk/notrunning`, paneless.cardClass);
       chk(/st-restarting/.test(paneless.pillClass || '') && paneless.cardHasK
         && paneless.cardLabel === 'Restarting agent' && !paneless.cardNotRunning,
-        `[${theme}] paneless CARD shows the K + "Restarting agent", never "Not running"`, JSON.stringify({ p: paneless.pillClass, k: paneless.cardHasK, l: paneless.cardLabel, nr: paneless.cardNotRunning }));
+        `[${theme}] paneless CARD shows the restart dots + "Restarting agent", never "Not running"`, JSON.stringify({ p: paneless.pillClass, k: paneless.cardHasK, l: paneless.cardLabel, nr: paneless.cardNotRunning }));
       chk(paneless.rowHasK && /Restarting agent/.test(paneless.rowText) && !paneless.rowNotRunning,
-        `[${theme}] paneless (running:false) restarting ROW shows the K + "Restarting agent", never "Not running"`, JSON.stringify({ k: paneless.rowHasK, nr: paneless.rowNotRunning }));
+        `[${theme}] paneless (running:false) restarting ROW shows the restart dots + "Restarting agent", never "Not running"`, JSON.stringify({ k: paneless.rowHasK, nr: paneless.rowNotRunning }));
       // CONTROL: the SAME running:false with a non-restarting state MUST still render
       // "Not running" in BOTH the card and the row. This proves the paneless passes above
       // are the guard (`&& a.state !== 'restarting'`) doing its job at each site, not a
@@ -179,8 +181,9 @@ const CASES = [
       chk(/Not running/.test(offline.rowTxt),
         `[${theme}] CONTROL: a non-restarting running:false agent still reads "Not running" (row)`, JSON.stringify(offline.rowTxt.slice(0, 40)));
 
-      // ---- reduced motion: the K holds static AND fully visible -----------------
-      // Inject a restarting card, read the K's animation under each motion setting.
+      // ---- reduced motion: the dots stop travelling and calm to one pulse ------
+      // Inject a restarting card, read the dots' animation under each motion setting.
+      // The dot is each <i>'s ::before; all eight must agree.
       await page.evaluate(() => {
         const a = { name: 'April', sessionName: 'april', displayName: 'April', role: 'a researcher',
           present: true, modelName: 'Opus 5', context: null, stateConfidence: 'reported',
@@ -189,21 +192,19 @@ const CASES = [
         host.innerHTML = card(a); document.body.appendChild(host);
       });
       await page.emulateMedia({ reducedMotion: 'no-preference' });
-      const motion = await page.evaluate(() => {
-        const img = document.querySelector('#__rtest .kspin img');
-        const cs = getComputedStyle(img);
-        return { animName: cs.animationName };
+      const dotsNow = () => page.evaluate(() => {
+        const dots = [...document.querySelectorAll('#__rtest .astate .spin.spin-sweep > i')];
+        const names = [...new Set(dots.map((i) => getComputedStyle(i, '::before').animationName))];
+        const transforms = [...new Set(dots.map((i) => getComputedStyle(i, '::before').transform))];
+        return { n: dots.length, animName: names.length === 1 ? names[0] : names.join('|'), transforms: transforms.join('|') };
       });
-      chk(motion.animName === 'kbreathe', `[${theme}] the K breathes when motion is allowed`, motion.animName);
+      const motion = await dotsNow();
+      chk(motion.n === 8 && motion.animName === 'sweepLite', `[${theme}] the restart dots sweep when motion is allowed`, JSON.stringify(motion));
 
       await page.emulateMedia({ reducedMotion: 'reduce' });
-      const reduced = await page.evaluate(() => {
-        const img = document.querySelector('#__rtest .kspin img');
-        const cs = getComputedStyle(img);
-        return { animName: cs.animationName, opacity: cs.opacity };
-      });
-      chk(reduced.animName === 'none', `[${theme}] reduced motion holds the K static`, reduced.animName);
-      chk(parseFloat(reduced.opacity) === 1, `[${theme}] the static K stays fully visible (not a frozen dim frame)`, reduced.opacity);
+      const reduced = await dotsNow();
+      chk(reduced.n === 8 && reduced.animName === 'calmPulse', `[${theme}] reduced motion calms the dots to one pulse (calmPulse), not the sweep`, JSON.stringify(reduced));
+      chk(reduced.transforms === 'none', `[${theme}] under reduced motion the dots do not travel or scale (transform none)`, reduced.transforms);
 
       await page.close();
     }

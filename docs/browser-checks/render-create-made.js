@@ -66,10 +66,9 @@ const SEEN = `(() => {
    pixels is the only way to tell a finished mark from a working one: both are
    the same element with the same size at the same place. */
 const INK = `(() => {
-  /* #7896 (Josh 11-06): while the agent is made the KOSMOS orb shows (its canvas.korb); a clean finish puts the
-     made-mark canvas back and its dots become the tick. Read whichever mark is on screen. */
-  const orb = document.querySelector('#cstep-made .made-orb canvas.korb');
-  const cv = orb && orb.isConnected ? orb : document.getElementById('made-mark');
+  /* #7896 (Josh 11-06 12:29): the KOSMOS orb shows while the agent is made (its canvas.korb), and a clean finish
+     turns the same canvas's dots into the green tick (KORB.finish). #made-mark is only its holder now. */
+  const cv = document.querySelector('#cstep-made #made-mark .made-orb canvas.korb');
   /* #1948: guard a 0-sized canvas -- getImageData throws IndexSizeError on width/height
      of 0, which inside a waitForFunction rejects the wait and inside an evaluate escapes
      to the outer catch as a raw stack. Treat "no canvas / not sized yet" as no ink. */
@@ -298,8 +297,7 @@ async function makeAnna(page, { seen }) {
   try {
     await page.waitForFunction(() => {
       const s = document.getElementById('cstep-made');
-      const orb = document.querySelector('#cstep-made .made-orb canvas.korb');   // #7896: the orb while it is made
-      const cv = orb || document.getElementById('made-mark');
+      const cv = document.querySelector('#cstep-made #made-mark .made-orb canvas.korb');   // #7896: the orb, which becomes the tick
       if (!s || s.hidden || !cv || !cv.width || !cv.height) return false; // width/height: getImageData throws on a 0-sized canvas
       const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
       for (let i = 3; i < d.length; i += 4) if (d[i] >= 40) return true; // any opaque pixel

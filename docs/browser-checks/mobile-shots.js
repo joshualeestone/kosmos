@@ -512,11 +512,21 @@ async function plusSigningIn(page, owned) {
     }
     plusSiKStart(own);
   }, owned);
-  await page.waitForSelector('#plus-si-k canvas', { state: 'visible', timeout: 5000 });
+  // #7896: the loader here is the KOSMOS orb (kOrbWaitHtml), drawn by KORB into its own canvas.korb; main's K canvas
+  // does not match this selector, so a stale page cannot pass for the orb.
+  const ORB = '#plus-si-k .orb-wait canvas.korb';
+  await page.waitForSelector(ORB, { state: 'visible', timeout: 5000 });
   await page.mouse.move(1, 1);
-  await page.waitForTimeout(1600);   // mid-gather, so the shot shows dots on their way into the K
-  // Review 3: the card is still the one meant (no tick repainted it) at the moment of the shot.
-  if (!(await page.isVisible('#plus-state2')) || !(await page.isVisible('#plus-si-k canvas'))) throw new Error('plus-signing-in: the sign-in card was repainted away before the shot');
+  await page.waitForTimeout(1600);   // the orb part way through its turn, so the shot shows it in motion, not its first frame
+  // Review 3: the card is still the one meant (no tick repainted it) at the moment of the shot, and the orb has ink.
+  const orbInk = await page.evaluate((sel) => {
+    const cv = document.querySelector(sel); if (!cv || !cv.width) return 0;
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data; let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 20) n += 1;
+    return n;
+  }, ORB).catch(() => 0);
+  if (!(await page.isVisible('#plus-state2')) || !(await page.isVisible(ORB))) throw new Error('plus-signing-in: the sign-in card was repainted away before the shot');
+  if (orbInk <= 200) throw new Error('plus-signing-in: the KOSMOS orb was not drawn before the shot (ink ' + orbInk + ')');
 }
 async function plusSigningInEnd(page) {
   await page.evaluate(() => { PLUS_SI_REGISTERING = false; PLUS_SIGNIN_ACTIVE = false; if (typeof plusSiKStop === 'function') plusSiKStop(); });

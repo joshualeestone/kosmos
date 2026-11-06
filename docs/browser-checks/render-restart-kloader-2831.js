@@ -9,13 +9,18 @@
  * loader already plays during a MODEL/PROVIDER change (#2692, covered by
  * render-model-restart-interstitial.js). This check covers the DELTA: the explicit
  * restart-from-here path (the rst-go confirm) now ALSO plays the loader -- the same
- * RESTART_BUSY_HTML + startKLoader interstitial, held on the RESTART_HOLD_MS floor -- before it
- * hands off to the existing auto-hello receipt.
+ * RESTART_BUSY_HTML interstitial, held on the RESTART_HOLD_MS floor -- before it hands off to
+ * the existing auto-hello receipt.
+ *
+ * #7896 (Josh 11-06 12:17, "anywhere we had the K Loader I want it to be the Orb"): the mark in
+ * that interstitial is now the turning KOSMOS orb (chgBusyHtml's kOrbWaitHtml('chg-restart-k',
+ * '', 88)), which KORB draws into its own canvas.korb; rst-go no longer calls startKLoader. The
+ * file keeps its name for history.
  *
  * WHAT SOURCE CANNOT SEE, and why this needs a browser: that clicking the REAL rst-go handler
- * (1) mounts the branded loader canvas in rst-modal and it ACTUALLY PAINTS, (2) hides the confirm
- * content while it holds, (3) HOLDS for the floor on success then tears the loader down (canvas
- * detached, so its rAF loop bails) and resolves the receipt to the placed line WITH the say-hello
+ * (1) mounts the orb in rst-modal and its canvas.korb has ink and is turning, (2) hides the confirm
+ * content while it holds, (3) HOLDS for the floor on success then tears the orb down (canvas
+ * detached, so KORB lets it go) and resolves the receipt to the placed line WITH the say-hello
  * nudge, and (4) on a REFUSED restart does NOT hold -- the failure line shows at once and the
  * confirm controls come back. window.__kosmosRestartHoldMs shortens the prod hold so the check is
  * fast; a source control asserts the interstitial is wired on this path and the hold is the shared
@@ -84,14 +89,17 @@ function initStub() {
 }
 
 (async () => {
-  // Source controls: the interstitial is wired on the rst-go path (RESTART_BUSY_HTML mounted +
-  // startKLoader driven on its canvas), and it holds on the SHARED floor RESTART_HOLD_MS -- the
+  // Source controls: the interstitial is wired on the rst-go path (RESTART_BUSY_HTML mounted; since
+  // #7896 KORB draws its orb, so nothing drives startKLoader here), and it holds on the SHARED floor RESTART_HOLD_MS -- the
   // same constant the model/provider interstitial uses, so the two cannot drift.
   const src = fs.readFileSync(PAGE_PATH, 'utf8');
   const rstGo = src.slice(src.indexOf("getElementById('rst-go').addEventListener"));
   const rstGoBody = rstGo.slice(0, rstGo.indexOf('\n});'));
-  check('#2831: the rst-go handler mounts the branded loader markup (RESTART_BUSY_HTML) and drives startKLoader on its canvas',
-    /rst-msg'\)\.innerHTML = RESTART_BUSY_HTML/.test(rstGoBody) && /startKLoader\(kcv\)/.test(rstGoBody));
+  check('#2831/#7896: the rst-go handler mounts the interstitial markup (RESTART_BUSY_HTML) and no longer drives startKLoader (KORB draws the orb)',
+    /rst-msg'\)\.innerHTML = RESTART_BUSY_HTML/.test(rstGoBody) && !/startKLoader\(/.test(rstGoBody));
+  check('#7896: RESTART_BUSY_HTML is the orb interstitial (chgBusyHtml with kOrbWaitHtml chg-restart-k)',
+    /const RESTART_BUSY_HTML = chgBusyHtml\('Restarting the agent'\);/.test(src)
+      && /const chgBusyHtml = \(line\) => '<span class="chg-restart">'\s*\+ kOrbWaitHtml\('chg-restart-k', '', 88\)/.test(src));
   check('#2831: the rst-go hold reads the SHARED RESTART_HOLD_MS floor (via the __kosmosRestartHoldMs test seam), not a bare literal',
     /window\.__kosmosRestartHoldMs/.test(rstGoBody) && /RESTART_HOLD_MS/.test(rstGoBody));
 
@@ -112,7 +120,7 @@ function initStub() {
     pageErrors.push('console: ' + m.text());
   });
 
-  // Pin reduced-motion OFF so startKLoader takes its ANIMATING (rAF) path and paints deterministically.
+  // Pin reduced-motion OFF so KORB turns the orb (under reduce it draws it once and holds it still).
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.addInitScript(initStub);
   await page.goto(PAGE);
@@ -133,16 +141,24 @@ function initStub() {
 
   const PLACED = 'Restarted, and said hello to wake them. Say hello when you want to talk to them.';
 
-  // Does the loader canvas mounted in the rst-modal interstitial have painted pixels?
-  const loaderPaints = () => page.evaluate(() => {
-    const kcv = document.querySelector('#rst-msg .chg-restart-k');
-    if (!kcv || !kcv.getContext) return false;
+  // #7896: the orb KORB draws in the rst-modal interstitial. ink = pixels with alpha over 20 (a laid-out
+  // blank canvas has none); sum hashes the alpha plane so two samples differ only if the orb turned.
+  const ORB_CV = '#rst-modal #rst-msg .chg-restart-k.orb-wait > canvas.korb';
+  const orbSample = () => page.evaluate((sel) => {
+    const kcv = document.querySelector(sel);
+    if (!kcv || !kcv.width) return { ink: 0, sum: -1 };
     try {
       const d = kcv.getContext('2d').getImageData(0, 0, kcv.width, kcv.height).data;
-      for (let i = 3; i < d.length; i += 4) { if (d[i] !== 0) return true; }
-    } catch { return false; }
-    return false;
-  });
+      let ink = 0; let sum = 0;
+      for (let i = 3; i < d.length; i += 4) { if (d[i] > 20) ink += 1; sum = (sum + d[i] * (i + 1)) % 1000000007; }
+      return { ink, sum };
+    } catch { return { ink: 0, sum: -1 }; }
+  }, ORB_CV);
+  // Drawn and turning: two samples 150 ms (about four KORB frames) apart.
+  const loaderPaints = async () => {
+    const a = await orbSample(); await page.waitForTimeout(150); const b = await orbSample();
+    return a.ink > 200 && b.ink > 200 && a.sum !== b.sum;
+  };
 
   // ---- Arm 1: SUCCESS. The loader shows + paints + hides the confirm content while it holds,
   //             then tears down and the receipt reaches the placed line with the say-hello nudge.
@@ -164,26 +180,25 @@ function initStub() {
   });
   await page.click('#rst-go');
   // Race-free: wait for the interstitial to actually appear rather than a fixed sleep, then a
-  // short beat so startKLoader's rAF has painted a frame before loaderPaints() reads pixels.
+  // short beat so KORB has drawn a frame before loaderPaints() reads pixels.
   await page.waitForFunction(
-    () => !document.getElementById('rst-modal').hidden
-      && !!document.querySelector('#rst-modal #rst-msg canvas.chg-restart-k'),
-    { timeout: 3000 },
+    (sel) => !document.getElementById('rst-modal').hidden && !!document.querySelector(sel),
+    ORB_CV, { timeout: 3000 },
   ).catch(() => {});
   await page.waitForTimeout(120);
-  const busy = await page.evaluate(() => ({
+  const busy = await page.evaluate((sel) => ({
     modalOpen: document.getElementById('rst-modal').hidden === false,
-    hasCanvas: !!document.querySelector('#rst-modal #rst-msg canvas.chg-restart-k'),
+    hasCanvas: !!document.querySelector(sel) && !document.querySelector('#rst-msg canvas.chg-restart-k'),
     restartingText: /Restarting the agent/i.test(document.getElementById('rst-msg').innerHTML),
     keepHidden: document.getElementById('rst-keep').hidden === true,
     goHidden: document.getElementById('rst-go').hidden === true,
     smallHidden: document.getElementById('rst-small').hidden === true,
     costHidden: document.getElementById('rst-cost').hidden === true,
     noReceiptYet: (document.querySelector('#__ah .instr-restart-note').textContent || '') === '',
-  }));
+  }), ORB_CV);
   const busyPaints = await loaderPaints();
   // Hold a reference to the live canvas to prove the success teardown detaches it.
-  await page.evaluate(() => { window.__kcv = document.querySelector('#rst-modal #rst-msg canvas.chg-restart-k'); });
+  await page.evaluate((sel) => { window.__kcv = document.querySelector(sel); }, ORB_CV);
   const stillHeld = await page.evaluate(() => {
     // still inside the hold: interstitial up, receipt not written yet
     return /Restarting the agent/i.test(document.getElementById('rst-msg').innerHTML)
@@ -196,11 +211,12 @@ function initStub() {
   const done = await page.evaluate(() => ({
     note: (document.querySelector('#__ah .instr-restart-note') || {}).textContent || '',
     modalHidden: document.getElementById('rst-modal').hidden === true,
+    hadCanvas: !!window.__kcv,
     canvasDetached: !!(window.__kcv && !window.__kcv.isConnected),
     threadCalls: window.__posted.filter((p) => /\/api\/agent\/[^/]+\/thread$/.test(p.url) && p.method === 'POST').length,
   }));
 
-  check('SUCCESS: the branded loader canvas mounts in the restart dialog and is ACTUALLY PAINTING while it holds',
+  check('SUCCESS: the KOSMOS orb mounts in the restart dialog (no K canvas) and its canvas.korb has ink and is turning while it holds',
     busy.hasCanvas && busyPaints && busy.restartingText, JSON.stringify(busy) + ' paints=' + busyPaints);
   check('SUCCESS: the confirm content (Restart/Leave-running buttons, the two sentences) is HIDDEN behind the interstitial',
     busy.keepHidden && busy.goHidden && busy.smallHidden && busy.costHidden, JSON.stringify(busy));
@@ -209,8 +225,8 @@ function initStub() {
   check('SUCCESS: exactly one auto-hello is sent after the restart (the #2686 behavior is preserved)',
     done.threadCalls === 1, 'calls=' + done.threadCalls);
   check('SUCCESS: the receipt reaches the placed line WITH the say-hello nudge (#2831)', done.note === PLACED, JSON.stringify(done.note));
-  check('SUCCESS: the modal closes and the loader canvas is DETACHED afterwards (its rAF loop bails, no leak)',
-    done.modalHidden && done.canvasDetached, JSON.stringify(done));
+  check('SUCCESS: the modal closes and the orb canvas is DETACHED afterwards (KORB lets it go, no leak)',
+    done.modalHidden && !!done.hadCanvas && done.canvasDetached, JSON.stringify(done));
 
   // ---- Arm 1b: DISMISSAL IS BLOCKED WHILE THE INTERSTITIAL HOLDS (#2831 W1). The restart is
   //             already POSTed, so Escape and a backdrop click must NOT close the modal -- "leave
@@ -266,7 +282,7 @@ function initStub() {
     afterDismiss.modalHidden && afterDismiss.busyFlag === false && afterDismiss.note === PLACED, JSON.stringify(afterDismiss));
 
   // ---- Arm 2: REFUSED. No hold on failure -- the failure line shows at once even with a LONG
-  //             hold set, the confirm controls come back, and no loader canvas is left mounted.
+  //             hold set, the confirm controls come back, and no orb (or K canvas) is left mounted.
   await page.evaluate(() => {
     window.__posted = [];
     window.__restartOutcome = 'refused';
@@ -281,7 +297,7 @@ function initStub() {
   const failMs = Date.now() - clickAt;
   const refused = await page.evaluate(() => ({
     failLine: /cannot start it again/i.test(document.getElementById('rst-msg').textContent || ''),
-    noCanvas: !document.querySelector('#rst-msg canvas.chg-restart-k'),
+    noCanvas: !document.querySelector('#rst-msg .chg-restart-k') && !document.querySelector('#rst-msg canvas.korb'),
     goBack: document.getElementById('rst-go').hidden === false && document.getElementById('rst-go').disabled === false,
     modalStillOpen: document.getElementById('rst-modal').hidden === false,
     note: (document.querySelector('#__ah .instr-restart-note') || {}).textContent || '',
@@ -301,7 +317,7 @@ function initStub() {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-restart-kloader-2831: the explicit restart-from-here (rst-go) path plays the branded K-into-circle loader (RESTART_BUSY_HTML + startKLoader) held on the shared RESTART_HOLD_MS floor with the confirm content hidden, then tears it down and lands the #2686 auto-hello receipt on the placed line WITH the say-hello nudge; a refused restart does not hold, shows the failure line, and restores the controls.');
+  console.log('render-restart-kloader-2831: the explicit restart-from-here (rst-go) path plays the restart interstitial with the turning KOSMOS orb (RESTART_BUSY_HTML, drawn by KORB, #7896) held on the shared RESTART_HOLD_MS floor with the confirm content hidden, then tears it down and lands the #2686 auto-hello receipt on the placed line WITH the say-hello nudge; a refused restart does not hold, shows the failure line, and restores the controls.');
 })().catch((err) => {
   console.error('FAIL  render-restart-kloader-2831: the check itself threw: '
     + (err && err.message ? err.message.split('\n')[0] : err));
