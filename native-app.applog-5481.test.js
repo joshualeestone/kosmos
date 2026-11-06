@@ -58,7 +58,7 @@ test('#5481: logToSystem writes the unified log with a fixed format, and the har
   assert.match(body, /logLine\(s\)/, 'the harness file no longer gets the line');
 });
 
-test('#5481: only the two microphone permission lines and the two tls-pin lines (kosmos#6589) go to the unified log, and none carries a URL, title, name or path', () => {
+test('#5481: only the microphone permission lines, the tls-pin lines (kosmos#6589) and the failed-download line (kosmos#5167) go to the unified log, and none carries a URL, title, name or path', () => {
   const calls = systemCalls();
   assert.equal(calls.length, 6, 'logToSystem has ' + calls.length + ' callers; each new one needs its content checked and this count raised:\n' + calls.join('\n'));
   assert.ok(calls.some((c) => c.startsWith('logToSystem("voice: back from Settings (')), 'the return-from-Settings line is not one of them');
