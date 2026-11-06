@@ -7,7 +7,7 @@
 ## Change
 The Mac app (native-app/main.swift):
 - `kosmosDownload` message handler: its presence tells the page the app will answer; its one message, `{reveal: <id>}` (a number), shows in Finder a file this app saved, only for the origin that saved it, and answers `revealfailed` when it cannot.
-- Every answer is the `kosmos-download` event carrying the page's own key for the click (the `kdl` query value the page put on the download's address): `asking` (the Allow question), `saving` (it has a place in Downloads), `saved` (only from downloadDidFinish), `failed`. A click refused before any download exists is answered too (Don't Allow, a refused link or attachment). Only the page's own main-frame clicks, only keyed clicks, and only while that page still shows (pageCommits).
+- Every answer is the `kosmos-download` event carrying the page's own key for the click (the `kdl` query value the page put on the download's address): `asking` (the Allow question), `saving` (it has a place in Downloads), `saved` (only from downloadDidFinish), `failed`. A click refused before any download exists is answered too (Don't Allow, a refused link or attachment). Only keyed clicks, and only while the page that asked still shows (pageCommits). On a download click the key is read only from the page's main frame; on the response paths (an attachment answer) it is read from the request whatever its frame, which is safe because a key cannot be guessed, but not a frame check.
 - The Kosmos+ tunnel passes `kdl` through (it strips only `token` and `boot`, kosmos-relay proxy.rs strip_query_params); the board reads only `name`.
 
 The page (web/index.html):
