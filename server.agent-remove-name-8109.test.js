@@ -132,6 +132,8 @@ test('kosmos#8113 the hidden setup guide does not make a listed name ambiguous',
   const sa = require('./engine/setup-assistant');
   folderAgent('kseen8113', 'Klist8113');
   folderAgent('kguide8113', 'Klist8113');
+  const seedFile = path.join(require('./engine/store').ROOT, 'setup-assistant.json');   // where setup-assistant's flagPath writes
+  const seedBefore = fs.existsSync(seedFile) ? fs.readFileSync(seedFile) : null;
   fs.writeFileSync(path.join(create.workerDir('kguide8113'), sa.GUIDE_MARKER), 'kguide8113\n');   // what the seed writes
   assert.ok(sa.markSetupAssistantSeeded({ name: 'kguide8113' }), 'CONTROL: the guide was not seeded');
   try {
@@ -140,7 +142,7 @@ test('kosmos#8113 the hidden setup guide does not make a listed name ambiguous',
     assert.equal(p.code, 200, 'the hidden guide made a listed name ambiguous: ' + p.text.slice(0, 220));
     assert.equal(p.json && p.json.name, 'kseen8113', p.text.slice(0, 200));
   } finally {
-    fs.rmSync(path.join(require('./engine/store').ROOT, 'setup-assistant.json'), { force: true });   // where setup-assistant's flagPath writes
+    if (seedBefore === null) fs.rmSync(seedFile, { force: true }); else fs.writeFileSync(seedFile, seedBefore);
     fs.rmSync(path.join(create.workerDir('kguide8113'), sa.GUIDE_MARKER), { force: true });   // no guide left behind for later tests
   }
   // CONTROL: once kguide8113 is not the guide, the list shows it and the same name is ambiguous.
@@ -192,6 +194,30 @@ test('kosmos#8113 an unreadable removed list resolves nothing (the route cannot 
     if (before === null) fs.rmSync(removal.REMOVED_FILE, { force: true }); else fs.writeFileSync(removal.REMOVED_FILE, before);
     board.restore();
     board = fleet.install([]);
+  }
+});
+
+test('kosmos#8113 the hidden guide\'s exact machine name is refused as ambiguous when a listed agent is shown by it', async () => {
+  // Review 3. The guide as create makes it: machine name slugged (`jkit8113`), shown as "Jkit8113". A listed agent
+  // shown as "Jkit8113" too. Typing the guide's exact machine name must not plan the hidden guide with no refusal.
+  const sa = require('./engine/setup-assistant');
+  folderAgent('jkit8113', 'Jkit8113');
+  folderAgent('jsmith8113', 'Jkit8113');
+  const seedFile = path.join(require('./engine/store').ROOT, 'setup-assistant.json');
+  const seedBefore = fs.existsSync(seedFile) ? fs.readFileSync(seedFile) : null;
+  fs.writeFileSync(path.join(create.workerDir('jkit8113'), sa.GUIDE_MARKER), 'jkit8113\n');
+  assert.ok(sa.markSetupAssistantSeeded({ name: 'jkit8113' }), 'CONTROL: the guide was not seeded');
+  try {
+    assert.equal(sa.isGuideFolder(sa.guideName()), true, 'CONTROL: the board does not see jkit8113 as the guide');
+    const exact = await call('GET', 'jkit8113', RESOLVE);
+    assert.equal(exact.code, 400, 'the hidden guide was planned for a name a listed agent answers to: ' + exact.text.slice(0, 220));
+    assert.match(exact.text, /more than one agent is called jkit8113 \(jkit8113; jsmith8113, shown as Jkit8113\)/, exact.text.slice(0, 220));
+    // The display name the list printed once reaches the one listed agent.
+    const shown = await call('GET', 'Jkit8113', RESOLVE);
+    assert.equal(shown.json && shown.json.name, 'jsmith8113', 'the listed display name did not reach the listed agent: ' + shown.text.slice(0, 200));
+  } finally {
+    if (seedBefore === null) fs.rmSync(seedFile, { force: true }); else fs.writeFileSync(seedFile, seedBefore);
+    fs.rmSync(path.join(create.workerDir('jkit8113'), sa.GUIDE_MARKER), { force: true });
   }
 });
 

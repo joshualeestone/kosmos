@@ -53,3 +53,17 @@ removed (route test red); folder scan used despite cards (three engine tests red
 - NIT: the guide test left its marker file behind --> FIXED.
 - NIT: dry-run restored as a hardcoded true --> NO CHANGE (the suite sets it; nothing reads the old value).
 - NIT: guideMarkName read after the awaited reads, a one-poll skew --> NO CHANGE (fails safe).
+
+## Review round 3 (opus; no BLOCKER)
+- WARNING: the exact-name shortcut (folder, job or session) skipped the cards, so a HIDDEN agent's exact name that a
+  listed agent also answered to planned the hidden agent with no refusal --> FIXED: an exact agent NOT on the cards
+  is one more candidate (ambiguous if a card also matches); on the cards it still wins (the decided rule); alone it is
+  acted on as given, as before #8109. Engine and route tests; mutant (shortcut back) turns both red.
+  Measured while fixing: a real guide's machine name is slugged (`createAgent` -> `slugFor`, "Josh" -> `josh`, shown
+  "Josh"), so the reachable case is typing `josh`. The reviewer's fixture used a folder `Josh`, a shape create does not
+  make; with a lowercase profile on a case-insensitive disk that fixture even lists the guide twice, which is the
+  fixture, not the product.
+- CONVENTION: `guideMarkName` comment said a listed name cannot reach the guide --> FIXED (now names the exact-name
+  rule); and it had split `setupGuideNow` from its doc comment --> FIXED (moved below it).
+- NIT: `cardsForResolve` header still argued from the folder scan --> FIXED.
+- NIT: the guide test deleted the seed record instead of restoring it --> FIXED (snapshot and restore).

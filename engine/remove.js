@@ -1322,8 +1322,9 @@ function unsafeToActOn(name) {
  * printed: a folder the list does not show can neither make a listed name ambiguous nor be reached by its display
  * name. Anything but an array (`null` when the route could not read the cards) resolves nothing.
  *
- * Returns the name unchanged when an agent has it exactly (folder, job or session), when the board cannot be read,
- * or when no single card matches. Otherwise it returns the machine name of the ONE card whose machine name or display
+ * Returns the name unchanged when the agent with that exact name (folder, job or session) is on the cards or is the
+ * only match, when the board cannot be read, or when no single card matches. An exact agent NOT on the cards counts as
+ * one more match, so a listed card with the same name makes it ambiguous. Otherwise it returns the machine name of the ONE card whose machine name or display
  * name equals it, ignoring case. Two matches resolve to nothing (`ambiguous` lists them), so the refusal never names
  * a different agent as if it were the one asked for.
  */
@@ -1333,12 +1334,20 @@ function resolve(name, platform, listed) {
   let clean;
   try { clean = create.cleanName(name); } catch { return asGiven; }
   if (!clean || unsafeToActOn(clean)) return asGiven;
-  if (existsExactly(create.workerDir(clean)) || jobFor(clean, platform)) return asGiven;
-  let found;
-  try { found = sessionFor(clean); } catch { return asGiven; }
-  if (found.kind !== FOUND.NONE) return asGiven;   // its own session (ours, untied) or unknown: act on the name as given
+  // An agent with this exact name (folder, job, or a session; an unknown session also counts, so it fails closed).
+  let exact = existsExactly(create.workerDir(clean)) || Boolean(jobFor(clean, platform));
+  if (!exact) {
+    let found;
+    try { found = sessionFor(clean); } catch { return asGiven; }
+    exact = found.kind !== FOUND.NONE;
+  }
+  // On the cards, the exact name wins over another card's display name (test: "an exact folder name wins"). NOT on the
+  // cards (an agent the list hides, such as the setup guide, whose folder `Josh` is also its display name), it is one
+  // more candidate: if a listed card answers to the name too, the name is refused as ambiguous rather than acting on
+  // the hidden agent the person never saw (kosmos#8113 review 3; test: "a hidden agent's exact name").
+  if (exact && listed.some((c) => c && c.name === clean)) return asGiven;
   const want = clean.toLowerCase();
-  const hits = [];
+  const hits = exact ? [clean] : [];
   const displayOf = {};
   // An unsafe name still counts, so it can make a name ambiguous, but is never resolved to.
   for (const card of listed) {
@@ -1349,7 +1358,10 @@ function resolve(name, platform, listed) {
       if (!hits.includes(machine)) { hits.push(machine); displayOf[machine] = shown; }
     }
   }
-  if (hits.length === 1) return unsafeToActOn(hits[0]) ? asGiven : { name: hits[0], ambiguous: [], shown: {} };
+  if (hits.length === 1) {
+    if (exact || unsafeToActOn(hits[0])) return asGiven;   // only the exact agent answers: act on the name as given
+    return { name: hits[0], ambiguous: [], shown: {} };
+  }
   return hits.length > 1 ? { name, ambiguous: hits.sort(), shown: displayOf } : asGiven;
 }
 /* The refusal for a name two or more agents answer to: it names the folders, so the person can pick one. */
