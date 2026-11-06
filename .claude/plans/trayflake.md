@@ -8,6 +8,8 @@ Seen: the wait after a tap expired (All photos at 20 s, a tile at 10 s). Not see
 
 Rejected: retrying the tap (it would hide a real dropped tap); longer timeouts, for now (the artifact from the next red says whether they would help).
 
-Weakest premise: the tap landing mid-slide is reasoned. 30 of 30 passed locally on the same phone and iOS, so this may not cure it. A second premise under it: the frame the wait reads may report where the tray lands rather than where it is, which would make the wait a plain 0.5 s pause. The artifact is what tells us if it does not. Nobody has yet forced a red and opened the artifact; the first real red does that.
+Weakest premise: the tap landing mid-slide is reasoned. 30 of 30 passed locally on the same phone and iOS, so this may not cure it. A second premise under it: the frame the wait reads may report where the tray lands rather than where it is, which would make the wait a plain 0.5 s pause. The artifact is what tells us if it does not. 
 
 Not covered: a job cancelled at its time limit leaves no artifact. KeyboardSlideUITests.testComposerGrowingKeepsMessagesDrawn, the third red.
+
+First real red (run 42184198471, on this branch's own CI): the artifact downloaded and opened by name. It showed testTheLastRowScrollsClearOfTheBottomRow crashing on the frame of a tile the lazy grid had dropped mid-scroll, so that read now allows for it. Its real assert still needs the tile at the end.
