@@ -166,7 +166,7 @@ do {
         .reduce(0) { $0 + repoText("ios/Kosmos/" + $1 + ".swift").components(separatedBy: ".dotsRefresh {").count - 1 }
     check(usesDots == 10 && repoText("ios/Kosmos/ContentView.swift").contains("DotsRefreshDriver()"), "pull to refresh keeps the dots at its 11 places (\(usesDots) lists and the board page)")
     // Pulling past a chat's end is the state the #7420 blank fixes act on (Angel, kosmos#8072).
-    check(!chat.contains("dotsRefresh") && !room.contains("dotsRefresh"), "the dots' pull to refresh stays out of a chat and a room")
+    check(!repoText("ios/Kosmos/ChatView.swift").contains("dotsRefresh") && !room.contains("dotsRefresh"), "the dots' pull to refresh stays out of a chat and a room")
 }
 
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")
