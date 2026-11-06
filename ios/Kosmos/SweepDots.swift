@@ -19,11 +19,11 @@ struct SweepDots: View {
     /// the launch screen's fixed 20 pt picture; its words still grow with the text.
     var scales = true
     /// The most frames a second it draws. kosmos#8058: 15 inside a chat or room's lazy thread, the orb's rate. Elsewhere
-    /// 30, the board's. whether 15 avoids #7427 (a clock-drawn view in the thread stopped it following new messages) is
+    /// 30, the board's. Whether 15 avoids #7427 (a clock-drawn view in the thread stopped it following new messages) is
     /// not measured. At 15 the dots step 2-2-2-3 frames each (0.15 s a dot); how that looks on a phone is not measured.
     var framesPerSecond: Double = 30
     /// kosmos#8058: with Reduce Motion, one still frame and no clock, as the orb drew everywhere before #8058,
-    /// rather than the pulse, so a Reduce Motion reader gains no clock-drawn view there.
+    /// rather than the pulse, so a Reduce Motion reader gains no clock-drawn view inside a lazy thread.
     var stillWhenReduced = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .footnote) private var grow: CGFloat = 1

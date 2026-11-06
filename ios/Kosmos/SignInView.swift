@@ -510,7 +510,7 @@ struct SignInView: View {
                         .foregroundColor(Palette.primary).accessibilityLabel("Code \(matchCode.map { String($0) }.joined(separator: " "))")
                 }
                 line("Your Mac is asking whether to let this iPhone in. Allow it there if it shows this code.")
-                HStack(spacing: 8) { SweepDots(scales: false, stillWhenReduced: true); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
+                HStack(spacing: 8) { SweepDots(scales: false); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
             } else {
                 line("No computer is connected to this account yet. Set up Kosmos on your Mac, and this iPhone will be asked about there.")
             }
@@ -519,7 +519,7 @@ struct SignInView: View {
             title("Your Mac said no")
             if asking {
                 line("Your Mac did not let this iPhone in before. It is asking again now: if that was a mistake, allow it there, and this screen moves on.")
-                HStack(spacing: 8) { SweepDots(scales: false, stillWhenReduced: true); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
+                HStack(spacing: 8) { SweepDots(scales: false); Text("Waiting for your Mac").font(.footnote).foregroundColor(Palette.secondary) }
             } else {
                 line("Your Mac did not let this iPhone in. If that was a mistake, sign in again and it will ask again.")
             }
@@ -561,7 +561,7 @@ struct SignInView: View {
             primary("Confirm", action: model.confirmSetup)
             link("Use a different email", action: model.differentEmail)
         case .done:
-            HStack(spacing: 8) { SweepDots(scales: false, stillWhenReduced: true); Text("Signed in").font(.footnote).foregroundColor(Palette.secondary) }
+            HStack(spacing: 8) { SweepDots(scales: false); Text("Signed in").font(.footnote).foregroundColor(Palette.secondary) }
         }
     }
 
@@ -604,7 +604,7 @@ struct SignInView: View {
     private func primary(_ label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             // Busy, the button is disabled and iOS greys its fill: the card colour would vanish on it (review round 7).
-            HStack { Spacer(); if model.busy { SweepDots(colour: Palette.secondary, label: label, scales: false, stillWhenReduced: true) } else { Text(label) }; Spacer() }
+            HStack { Spacer(); if model.busy { SweepDots(colour: Palette.secondary, label: label, scales: false) } else { Text(label) }; Spacer() }
                 // The app's tint is ink (near-white in dark), so the label takes the card colour to stay readable.
                 .foregroundColor(Palette.card).padding(.vertical, 6)
         }
