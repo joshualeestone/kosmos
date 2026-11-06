@@ -35,6 +35,6 @@ That the person reads "Always Allow" as "this computer" and not "everything". Th
 computer, and the text says "for this computer"; a blanket answer does not exist to choose by mistake.
 
 ## Tests
-`--kosmos-app-download-selftest` (+8, 47 rows), in its own preferences suite for the whole run (review 1): Always Allow not asked again after a quit;
+`--kosmos-app-download-selftest` (+8, 47 rows), with the kept list in memory for the whole run, never on disk (reviews 1 and 2): Always Allow not asked again after a quit;
 CONTROL a plain Allow asked again; a Don't Allow never kept; one computer only; Forget asks again; a tampered saved list keeps
 only Kosmos+ computers; review 1: Forget clears this run's Allows without a quit; an Always Allow pressed on a changed page is void and not kept. The sign-in host is never offered Always Allow. Mutants: the kept check removed fails the first row; keeping before the page-changed check fails the void row. Menu table: live == expected.
