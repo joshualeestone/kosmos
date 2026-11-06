@@ -427,3 +427,25 @@ test('kosmos#8063 review 6: every field beside a hook\'s identity counts; a refu
     assert.equal(carry.losses(folder({ hooks: [cmd] }), none, P).ok, false, cmd + ' was checked');
   }
 });
+
+test('kosmos#8063 review 7: a command is checked only when it names exactly one script for certain', () => {
+  const w = (cmd) => folder({ settings: JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: cmd }] }] } }) });
+  fs.mkdirSync(path.join(HOMEDIR, 'hooks'), { recursive: true });
+  for (const f of ['run.sh', 'gate.sh', 'gate']) fs.writeFileSync(path.join(HOMEDIR, 'hooks', f), '#!/bin/sh\n');
+  const none = folder({ settings: '{}' });
+  /* Measured by the reviewer: each of these, against a target lacking the gate, read as nothing lost. */
+  for (const [src, dst] of [['bash ~/hooks/run.sh ~/hooks/gate.sh', 'bash ~/hooks/run.sh ~/hooks/other.sh'],
+    ['bash ~/hooks/run.sh && bash ~/hooks/gate.sh', 'bash ~/hooks/run.sh && bash ~/hooks/zzz.sh'],
+    ['bash ~/hooks/gate.sh;true', 'echo other']]) {
+    assert.equal(carry.losses(w(src), w(dst), H).ok, false, src + ' read as checked');
+  }
+  /* An extensionless script as the command is the script: missing on the target, it is lost. */
+  assert.deepEqual(carry.losses(w('~/hooks/gate'), none, H).hooks, ['gate'], 'an extensionless gate read as kept');
+  assert.deepEqual(carry.losses(w('~/hooks/gate'), w('~/hooks/gate'), H).hooks, [], 'CONTROL: the same extensionless gate was not kept');
+  /* The interpreter is part of the hook. */
+  assert.deepEqual(carry.losses(w('bash ~/hooks/gate.sh'), w('node ~/hooks/gate.sh'), H).hooks, ['gate.sh'], 'node gate.sh read as bash gate.sh');
+  assert.deepEqual(carry.losses(w('bash ~/hooks/gate.sh'), w('bash ~/hooks/gate.sh'), H).hooks, [], 'CONTROL: the same bash gate was not kept');
+  /* The exec form hides a script inside -c. */
+  const ex = folder({ settings: JSON.stringify({ hooks: { Stop: [{ hooks: [{ type: 'command', command: 'bash', args: ['-c', '$CLAUDE_CONFIG_DIR/hooks/g.sh pre'] }] }] } }) });
+  assert.equal(carry.losses(ex, none, H).ok, false, 'a script inside an exec -c argument read as checked');
+});

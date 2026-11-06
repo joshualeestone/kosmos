@@ -65,7 +65,7 @@ function folderSum(root) {
     seen.add(real);
     if (++dirs > MAX_SKILL_DIRS) { cut = true; return; }
     let entries = [];
-    try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { return; }
+    try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { cut = true; return; }   // review 7: unread is not same
     for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
       if (n >= MAX_SKILL_FILES || bytes >= MAX_SKILL_BYTES) { cut = true; return; }   // a file left unread: cut
       const r = path.join(rel, e.name);
@@ -108,6 +108,9 @@ function skillNames(dir) {
 
 /* The script a hook command runs: the basename of the first word that names a .sh/.js/.mjs/.py file, or else the
    whole command, trimmed (an inline command is its own identity). */
+const SCRIPT_EXT = /\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i;
+/* A word that names a file: a separator, ~, a variable, or a script extension. */
+function looksLikePath(word) { return /[\\/~$]/.test(word) || SCRIPT_EXT.test(word); }
 function hookId(command) {
   const words = String(command).trim().split(/\s+/);
   for (const w of words) {
@@ -247,10 +250,15 @@ function hookEntries(dir, home, project) {
            compared by its arguments too, and the script among them resolved as one word, spaces and all. */
         if (typeof h.command === 'string' && h.command.trim() && Array.isArray(h.args)) {
           const words = [h.command, ...h.args].map((x) => String(x));
-          const script = words.find((x) => /\.(sh|js|mjs|cjs|py|ps1|bat|cmd)$/i.test(x.trim()));
+          /* Review 7: a script is named for certain only when exactly one word is one and no argument hides a command
+             (`-c '$CLAUDE_CONFIG_DIR/hooks/g.sh pre'`: an argument holding a space and a path). An extensionless path as
+             the command itself is the script. Anything else cannot be checked. */
+          const scripts = words.filter((x) => SCRIPT_EXT.test(x.trim()));
+          const script = scripts.length === 1 ? scripts[0] : (!scripts.length && /[\\/~$]/.test(words[0]) ? words[0] : null);
+          const hidden = h.args.some((x) => String(x) !== script && /\s/.test(String(x)) && looksLikePath(String(x)));
           const oneX = (x) => x.replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home).replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, path.resolve(dir))
             .split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
-          const id = script ? script.trim().split(/[\\/]/).pop() : words.join(' ');
+          const id = script ? script.trim().split(/[\\/]/).pop() : (scripts[0] ? scripts[0].trim().split(/[\\/]/).pop() : words.join(' '));
           /* Review 3: as in the shell form, a bare name as the command itself is looked up on PATH. */
           const onPath = !!script && script === words[0] && !/[\\/]/.test(script.trim());
           const at = script && !onPath ? resolveWord(script.trim(), dir, home, project) : null;
@@ -258,7 +266,9 @@ function hookEntries(dir, home, project) {
           if (at && sum === null && !missing(at)) throw new Error(`the hook script ${at} cannot be read`);
           const key = 'exec\n' + words.filter((x) => x !== script).map(oneX).join('\0') + (script ? '\n' + id : '');
           const viaProject = !!project && at !== null && resolveWord(script.trim(), dir, home, null) === null;
-          list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved: !!script && (at === null || uncertain(viaProject, sum, words.join(' '))) });
+          const unsure = hidden || scripts.length > 1;
+          list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum,
+            unresolved: unsure || (!!script && (at === null || uncertain(viaProject, sum, words.join(' ')))) });
           continue;
         }
         if (typeof h.command !== 'string' || !h.command.trim()) {
@@ -269,28 +279,37 @@ function hookEntries(dir, home, project) {
           list.push({ id: `a ${typeof h.type === 'string' ? h.type : 'untyped'} hook on ${event}`, wiring: `${event}\n${matcher}\nother\n${crypto.createHash('sha256').update(body).digest('hex')}`, file: null, sum: null });
           continue;
         }
-        const id = hookId(h.command);
-        const at = scriptPath(h.command, dir, home, project);
+        /* Review 7: a command is checked only when it names exactly one script for certain. Several scripts (a
+           dispatcher and its gate, or a chain), or shell operators beside any path (`g.sh;true`, `&& bash other.sh`),
+           cannot be checked. An extensionless path as the command (after an interpreter, if any) is the script. The
+           interpreter stays in the key: node gate.sh is not bash gate.sh. */
+        const cmd = String(h.command).trim();
+        const words = cmd.split(/\s+/);
+        const unq = (x) => x.replace(/["']/g, '');
+        const scripts = words.filter((x) => SCRIPT_EXT.test(unq(x)));
+        const head = /^(bash|sh|zsh|dash|node|python3?|pwsh|powershell)$/.test(words[0]) ? 1 : 0;
+        const exe = !scripts.length && words[head] && /[\\/~$]/.test(unq(words[head])) ? words[head] : null;
+        const scriptWord = scripts.length === 1 ? scripts[0] : exe;
+        const unsure = scripts.length > 1 || (/[;&|()`<>]/.test(cmd) && words.some((x) => looksLikePath(unq(x))));
         /* Review 2: the wiring keeps the command's arguments (`gate.sh pre` and `gate.sh post` are two hooks), with the
-           home and folder spellings made one, so the same gate spelled ~ or $HOME still matches. */
-        /* Review 4: the spellings made one inside the arguments too (~, $HOME, the folder or $CLAUDE_CONFIG_DIR), so the
-           same hook written two ways is not a false loss. */
-        /* Review 6: expand first, then name the folder, then the home: `~/.claude-b/x` in account .claude-b is <CFG>/x. */
+           home and folder spellings made one (~, $HOME, the folder or $CLAUDE_CONFIG_DIR), so the same hook written two
+           ways is not a false loss. Expand first, then name the folder, then the home. */
         const one = (x) => x.replace(/^["']|["']$/g, '').replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home)
           .replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, path.resolve(dir)).split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
-        const args = String(h.command).trim().split(/\s+/).filter((x) => !/\.(sh|js|mjs|cjs|py|ps1|bat|cmd)["']?$/i.test(x) && !/^(bash|sh|node|python3?|pwsh|powershell)$/.test(x)).map(one).join(' ');
+        const scriptless = !scriptWord && !unsure;
+        const id = scriptWord ? unq(scriptWord).split(/[\\/]/).pop() : (scripts[0] ? unq(scripts[0]).split(/[\\/]/).pop() : cmd);
+        /* #8063 review 2: a bare name as the command itself (gate.sh) is looked up on PATH, not in the working folder. */
+        const bareOnPath = !!scriptWord && scriptWord === words[0] && !/[\\/]/.test(unq(scriptWord));
+        const at = scriptWord && !unsure && !bareOnPath ? resolveWord(unq(scriptWord), dir, home, project) : null;
         const sum = at ? digest(at) : null;
         /* Review 6: a script that is there but cannot be read is "cannot tell" for the whole folder, never "does not
            run here". */
         if (at && sum === null && !missing(at)) throw new Error(`the hook script ${at} cannot be read`);
-        /* An inline command (no script) is its own identity: its key is the normalised text, its id the text as written. */
-        /* #8063 review 2: scriptless means no word names a script, not "the id is the whole command": a bare `gate.sh` is
-           a script, and one this cannot resolve. */
-        const scriptless = !String(h.command).trim().split(/\s+/).some((x) => /\.(sh|js|mjs|cjs|py|ps1|bat|cmd)["']?$/i.test(x));
-        const key = scriptless ? String(h.command).trim().split(/\s+/).map(one).join(' ') : `${id}\n${args}`;
-        /* #8063 item 2: a command that names a script this cannot resolve cannot be checked. */
-        const viaProject = !!project && at !== null && scriptPath(h.command, dir, home, null) === null;
-        const unresolved = !scriptless && (at === null || uncertain(viaProject, sum, h.command));
+        /* An inline command (no script) is its own identity: its key is the normalised text. */
+        const key = scriptless ? words.map(one).join(' ') : `${id}\n${words.filter((x) => x !== scriptWord).map(one).join(' ')}`;
+        /* #8063 item 2: a command whose script this cannot name or resolve for certain cannot be checked. */
+        const viaProject = !!project && at !== null && resolveWord(unq(scriptWord), dir, home, null) === null;
+        const unresolved = unsure || (!!scriptWord && (at === null || uncertain(viaProject, sum, cmd)));
         list.push({ id, wiring: `${event}\n${matcher}\n${key}${runFields(h)}`, file: at, sum, unresolved });
       }
     }
