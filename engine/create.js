@@ -2096,7 +2096,7 @@ function setQwenAccount(clean, spoken, dir, job, platform) {
    before the job moves (and put back if the job cannot be rewritten). */
 function setVendorAccount(clean, spoken, dir, job, platform, v) {
   const compat = require('./anthropiccompat');
-  if (!compat.enabled(platform)) return { outcome: OUTCOME.REFUSED, because: compat.notYet(v.id) };
+  if (!compat.enabled(platform, v.id)) return { outcome: OUTCOME.REFUSED, because: compat.notYet(v.id) };
   if (dir === '' || dir == null) return { outcome: OUTCOME.REFUSED, because: `pick which ${v.name} account it should run on, so nothing was changed` };
   const wanted = path.resolve(String(dir));
   if (compat.vendorOfName(wanted) !== v.id) {
@@ -2234,7 +2234,7 @@ function setProvider(name, provider, opts) {
   /* #7206 slice 1b: a vendor (DeepSeek) is a provider only while its switch is on (anthropiccompat.enabled, off by
      default and never on Windows); while off it is refused here exactly as an unknown provider is, with its own words. */
   const compatVendor = require('./anthropiccompat').vendorOf(provider);
-  if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform)) {
+  if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform, compatVendor.id)) {
     return { outcome: OUTCOME.REFUSED, because: require('./anthropiccompat').notYet(provider) };
   }
   if (provider !== 'anthropic' && provider !== 'openai' && provider !== 'google' && provider !== 'xai' && provider !== 'alibaba'
@@ -5082,7 +5082,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
      switch is read for this computer's own platform (no caller passes one; only a test's opts.platform can differ). */
   { const compat = require('./anthropiccompat'); const v = compat.vendorOf(prov);
     if (v) {
-      if (!dir || !compat.enabled()) return { ok: true };
+      if (!dir || !compat.enabled(process.platform, v.id)) return { ok: true };
       try {
         const listed = compat.list(prov).find((a) => a.dir === require('path').resolve(dir));
         if (!listed) return { ok: true };   // createAgentInner refuses an unknown account with its own words
@@ -5393,7 +5393,7 @@ function createAgentInner(opts) {
   /* #7206 slice 1b: a vendor (DeepSeek) is a provider only while its switch is on (off by default, never on Windows).
      Before `steps` on purpose: the accept test below must stay where orgpolicy-names-6233 reads it. */
   const compatVendor = require('./anthropiccompat').vendorOf(provider);
-  if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform)) {
+  if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform, compatVendor.id)) {
     return { outcome: OUTCOME.REFUSED, because: require('./anthropiccompat').notYet(provider), steps: [] };
   }
   const steps = [];

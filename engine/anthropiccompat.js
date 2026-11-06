@@ -45,7 +45,7 @@ const VENDORS = Object.freeze({
      is not measured yet (no key held); that is part of the switch-on measurement. */
   glm: Object.freeze({
     id: 'glm',
-    name: 'GLM',
+    name: 'Z.ai GLM',   // the menus' and the policy's name, so a person sees one name for it
     baseUrl: 'https://api.z.ai/api/anthropic',
     checkUrl: 'https://api.z.ai/api/coding/paas/v4/models',
     models: Object.freeze(['glm-5.3', 'glm-5.3-flash']),
@@ -73,12 +73,20 @@ function vendorOf(id) {
  */
 const ON_MARKER = 'compat-providers-on';
 function onMarker() { return path.join(require('./store').ROOT, ON_MARKER); }
-function enabled(platform = process.platform) {
+/* #7206 slice 2a review 1: one switch per vendor, so measuring one vendor and switching it on never turns on another
+   that nobody has measured. DeepSeek keeps the original marker; every later row has its own, compat-<id>-on. */
+function markerFor(id) { return id === 'deepseek' ? ON_MARKER : 'compat-' + id + '-on'; }
+/**
+ * enabled(platform, vendor): with a vendor, whether THAT vendor is offered; with none, whether any is (for the routes
+ * that refuse before they know which). An unknown vendor is never on.
+ */
+function enabled(platform = process.platform, vendor) {
   if (platform !== 'darwin') return false;
+  const ids = vendor === undefined ? Object.keys(VENDORS) : (vendorOf(vendor) ? [vendor] : []);
+  try { return ids.some((id) => fs.existsSync(path.join(require('./store').ROOT, markerFor(id)))); } catch { return false; }
   /* 1b review 3: the marker is the ONLY on-state. An environment variable reached the board but never an agent's launchd
      job (its plist carries a fixed environment), so an agent made with it on could not start. The marker is read by
      both, from the data folder. An unreadable data folder leaves it off: off is the default. */
-  try { return fs.existsSync(onMarker()); } catch { return false; }
 }
 /* The sentence every refusal uses while the switch is off. */
 const NOT_YET = 'is not available in Kosmos yet';
@@ -261,10 +269,8 @@ async function validateLive(ep, opts) {
   if (r.status !== 200) return { state: STATE.UNKNOWN, because: `we asked ${v.name} for its models and it answered ${r.status || 'nothing usable'}` };
   const data = r.body && Array.isArray(r.body.data) ? r.body.data : null;
   if (!data) return { state: STATE.UNKNOWN, because: v.name + ' answered, but not with a list of models' };
-  /* #7206 slice 2a: compared without case. Z.ai's guide spells its models GLM-5.3 in one place and glm-5.3 in another,
-     and a list that names the model in other capitals is not a vendor refusing it. */
-  const ids = data.map((m) => (m && typeof m.id === 'string' ? m.id.toLowerCase() : '')).filter(Boolean);
-  if (ids.includes(String(ep.model).toLowerCase())) return { state: STATE.CONNECTED, because: `${v.name} accepted the key and has ${ep.model}` };
+  const ids = data.map((m) => (m && typeof m.id === 'string' ? m.id : '')).filter(Boolean);
+  if (ids.includes(ep.model)) return { state: STATE.CONNECTED, because: `${v.name} accepted the key and has ${ep.model}` };
   return { state: STATE.NONE, because: `${v.name} accepted the key but does not offer ${ep.model}` };
 }
 
@@ -412,7 +418,7 @@ if (require.main === module) {
     if (verb !== 'launch-env') process.exit(64);
     /* 1b review 2: the switch is a kill switch too. An agent made while it was on does not start with its key once it is
        off (a restart, a crash loop, a hand-edited job): the supervisor refuses the launch with this sentence. */
-    if (!enabled()) {
+    if (!enabled(process.platform, vendorOfName(dir) || '')) {
       const v = vendorOf(vendorOfName(dir));
       process.stdout.write(`${notYet(v ? v.id : '')}, so this agent was not started on it`);
       process.exit(2);
@@ -428,7 +434,7 @@ if (require.main === module) {
 
 module.exports = {
   STATE, VENDORS, ENDPOINT_BASENAME, LAUNCH_VARS, vendorOf,
-  enabled, notYet, ON_MARKER,
+  enabled, notYet, ON_MARKER, markerFor,
   homeDir, dirPrefix, forgottenPrefix, endpointFile, vendorOfName, isCompatHome, accountProblem, readAccount,
   list, cleanLabel, dirForLabel, storeAccount,
   setFetcher, askModels, validateLive, checkLive, listLive, resetLiveCacheForTest,

@@ -833,7 +833,7 @@ function repair(opts) {
       if (v) {
         /* 1b review 1: Repair is a route to a vendor too, so it obeys the same switch as create and setProvider: with it
            off, a vendor agent is not rebuilt (and so not launched with its key), and the person is told why. */
-        if (!compat.enabled(platform)) {
+        if (!compat.enabled(platform, v.id)) {
           return { name, shownAs: shownName(name), ok: false, because: `it runs on ${v.name}, and ${compat.notYet(v.id)}` };
         }
         const rec = (store.readProfile(name) || {}).vendorAccount;

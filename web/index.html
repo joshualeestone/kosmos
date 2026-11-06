@@ -28991,7 +28991,7 @@ function vendorPicksModel(p) { return keyOnlyProvider(p) || p === 'antigravity' 
    picker's value for Anthropic. Pinned by docs/browser-checks/render-provider-order-3651.js. */
 // #3568: Gemini by subscription ('antigravity') sits beside Gemini.
 /* #7206: DeepSeek after Qwen. (No comment after the semicolon: tests lift this one-line const up to its first ';\n'.) */
-const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'deepseek', 'moonshot', 'mistral']);
+const PROVIDER_ORDER = Object.freeze(['anthropic', 'openai', 'google', 'antigravity', 'xai', 'meta', 'alibaba', 'deepseek', 'glm', 'moonshot', 'mistral']);
 const PROVIDER_ORDER_ALIAS = Object.freeze({ claude: 'anthropic' });
 function providerRank(value) {
   const v = String(value == null ? '' : value).toLowerCase();

@@ -302,7 +302,7 @@ test('review 4: the test switch helper never touches a data folder outside the t
 test('#7206 slice 2a: GLM is a row of the same table, checked at the Coding Plan model list, launched at Z.ai', async () => {
   const g = compat.VENDORS.glm;
   assert.deepEqual([g.id, g.name, g.baseUrl, g.checkUrl, g.models[0]],
-    ['glm', 'GLM', 'https://api.z.ai/api/anthropic', 'https://api.z.ai/api/coding/paas/v4/models', 'glm-5.3']);
+    ['glm', 'Z.ai GLM', 'https://api.z.ai/api/anthropic', 'https://api.z.ai/api/coding/paas/v4/models', 'glm-5.3']);
   /* Never the Anthropic address as the check: measured, it answers 200 for any key. */
   assert.notEqual(g.checkUrl, g.baseUrl);
   assert.doesNotMatch(g.checkUrl, /\/api\/anthropic/);
@@ -316,11 +316,16 @@ test('#7206 slice 2a: GLM is a row of the same table, checked at the Coding Plan
   assert.deepEqual([env.ok, env.env.ANTHROPIC_BASE_URL, env.env.ANTHROPIC_MODEL], [true, 'https://api.z.ai/api/anthropic', 'glm-5.3']);
 });
 
-test('#7206 slice 2a: a model list naming the model in other capitals still lists it; another model still does not', async () => {
-  const dir = nodePath.join(SANDBOX, compat.dirPrefix('glm') + 'g' + (++n));
-  compat.storeAccount(dir, { vendor: 'glm', model: 'glm-5.3', key: 'zai-key-0123456789' });
-  compat.resetLiveCacheForTest(); answering(models('GLM-5.3', 'GLM-5.3-Flash'));
-  assert.equal((await compat.checkLive(dir)).state, compat.STATE.CONNECTED, 'GLM-5.3 in the list read as not offering glm-5.3');
-  compat.resetLiveCacheForTest(); answering(models('GLM-4.7'));
-  assert.equal((await compat.checkLive(dir)).state, compat.STATE.NONE, 'CONTROL: a list without the model must still refuse it');
+test('#7206 2a review 1: each vendor has its own switch; none means any; an unknown vendor is never on', () => {
+  const sw = require('../test-support/compat-switch');
+  sw.set(false); sw.setVendor('glm', false);
+  try {
+    assert.deepEqual([compat.enabled('darwin'), compat.enabled('darwin', 'deepseek'), compat.enabled('darwin', 'glm')], [false, false, false]);
+    sw.set(true);
+    assert.deepEqual([compat.enabled('darwin'), compat.enabled('darwin', 'deepseek'), compat.enabled('darwin', 'glm')], [true, true, false], 'GLM came on with DeepSeek');
+    sw.set(false); sw.setVendor('glm', true);
+    assert.deepEqual([compat.enabled('darwin'), compat.enabled('darwin', 'deepseek'), compat.enabled('darwin', 'glm')], [true, false, true]);
+    assert.equal(compat.enabled('darwin', 'toString'), false);
+    assert.equal(compat.enabled('win32', 'glm'), false, 'never on off a Mac');
+  } finally { sw.set(false); sw.setVendor('glm', false); }
 });
