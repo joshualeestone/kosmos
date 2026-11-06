@@ -30,6 +30,8 @@
      they were. --spin-dot is the colour KORB reads: the deep gold on this
      light ground, the bright gold in the dark scheme (as the app does). */
   .spin{position:relative;display:inline-block;width:var(--sz);height:var(--sz);flex:none;vertical-align:-0.18em;--sz:16px;--dot:calc(var(--sz)*0.19);--spin-dot:#9c741b}
+  /* No --ok and no .korb-check-fallback here: they serve KORB.finish() (the orb into a check), which this page never
+     calls (#867: neither ending is a clean finish; install.installing-page.test.js holds it so). */
   .spin i{position:absolute;inset:0}
   .spin i::before{content:"";position:absolute;top:0;left:50%;width:var(--dot);height:var(--dot);margin-left:calc(var(--dot)/-2);border-radius:50%;background:var(--spin-dot)}
   .spin i:nth-child(1){transform:rotate(0deg)} .spin i:nth-child(2){transform:rotate(45deg)}
@@ -612,7 +614,7 @@ const KORB = (() => {
   // same way if they are what is showing.
   function settle(){
     var mark = document.getElementById("mark");
-    // No braces here: install.installing-page.test.js reads settle() up to its first "}".
+    // No braces here: install.installing-page.test.js reads settle() up to its closing line ("\n  }").
     if (mark) mark.classList.add("orb-still", "spin-still");
     // Stop the #3233 progress poll and clear its inline width so .settled's 100% wins.
     if (window.__kpStop) window.__kpStop();
