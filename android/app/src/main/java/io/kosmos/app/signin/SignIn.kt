@@ -514,4 +514,55 @@ object SignIn {
         }
         return ReviewAnswer.Answered(a)
     }
+
+    // MARK: - Setting up a required second step (kosmos#7046)
+    //
+    // When a sign-in answers needsSetup, the account must add a second step before it finishes. This app sets up an
+    // authenticator (totp); texts (sms) are set up on the web page. Pure logic: the request bodies, what enrol's
+    // answer carries, how the secret reads, and which refusal sends the person back to the email.
+
+    const val enrolPath = "/v1/second/enrol"
+    const val confirmPath = "/v1/second/confirm"
+
+    /** The default when enrol gives no sentence of its own. */
+    private const val enrolFailed = "That did not work. Try again."
+
+    const val setupWords =
+        "Your account needs a second sign-in step. Set up an authenticator app now: it shows a new six-digit code every 30 seconds."
+    const val webForTexts = "Setting up text messages continues on the sign-in page."
+
+    fun enrolBody(): Map<String, Any> = mapOf("kind" to "totp")
+    fun confirmBody(code: String): Map<String, Any> = mapOf("code" to code)
+
+    /** enrol's answer for an authenticator: the otpauth link and the secret (kosmos-relay second.rs EnrolResp), or a sentence. */
+    sealed interface Enrolled {
+        data class Totp(val otpauth: String, val secret: String) : Enrolled
+        data class Refused(val message: String) : Enrolled
+    }
+
+    /** Only an otpauth://totp/ link with a non-empty secret, for an authenticator (kind totp), is taken. */
+    fun enrolled(status: Int, body: Map<String, Any?>?): Enrolled {
+        val b = body ?: emptyMap()
+        if (status !in 200..299) return Enrolled.Refused(refusal(b["error"]) ?: enrolFailed)
+        val link = b["otpauth"] as? String
+        val secret = b["secret"] as? String
+        if (b["kind"] != "totp" || link == null || !link.startsWith("otpauth://totp/") || secret.isNullOrEmpty()) {
+            return Enrolled.Refused(enrolFailed)
+        }
+        return Enrolled.Totp(link, secret)
+    }
+
+    /** The secret as a person types it: groups of four. */
+    fun grouped(secret: String): String = secret.chunked(4).joinToString(" ")
+
+    /**
+     * A refusal no new code can fix: Kosmos+ says to start again (the enrol-only token expired, nothing is being set
+     * up any more, the setup is damaged) or the account is gone (second.rs). The person goes back to the email rather
+     * than retrying here. A wrong code says neither, and stays.
+     */
+    fun startsOver(message: String?): Boolean {
+        val m = message ?: ""
+        return listOf("start again", "sign in again", "no such account", "no longer exists", "being deleted")
+            .any { m.contains(it, ignoreCase = true) }
+    }
 }
