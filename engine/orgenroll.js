@@ -445,6 +445,10 @@ const SAY = Object.freeze({
   org_code_expired: 'That code has expired. Ask whoever sent it for a new one.',
   org_other_org: 'This Kosmos+ account is already in another company or family account.',
   org_wrong_domain: "That code was sent for a different email address than this account's.",
+  /* kosmos#6583 (S-11): an invite bound to one address, tried from an account with another. The coordinator has refused
+     it as org_wrong_email since relay c85f2652b; without this the person was told to try again in a minute, which never
+     works. It names no address, as the coordinator's own words do not. */
+  org_wrong_email: "That code was made for a different email address than the one this Kosmos+ account signs in with. Ask whoever sent it to invite your address.",
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',
