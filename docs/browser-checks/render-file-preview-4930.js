@@ -399,7 +399,7 @@ async function runApp(engine, say) {
     // Opened again while it still says Saved: it says Saved, not Saving.
     await open();
     const reSaved = await state();
-    say(/Saved to Downloads/.test(reSaved.text) && reSaved.show === 'Open in Finder', T + ': opened again after it saved, it says Saved (not Saving)', JSON.stringify(reSaved));
+    say(/Saved to Downloads/.test(reSaved.text) && reSaved.show === 'Open in Finder' && /Budget 2026\.xlsx is in your Downloads folder/.test(reSaved.msg || ''), T + ': opened again after it saved, it says Saved (not Saving), in its button and its line', JSON.stringify(reSaved));
     await pg.waitForTimeout(6300);
     const back = await state();
     say(back.text === 'Download' && !back.busy && !back.aria, T + ': six seconds on, the button is Download again (not stuck on Saved), its name its own', JSON.stringify(back));
@@ -409,7 +409,7 @@ async function runApp(engine, say) {
     const k3 = netSeen ? keyOf(asked[asked.length - 1] || '') : (await waitingKeys())[0];
     await open();
     const reopened = await state();
-    say(reopened.busy && /Saving/.test(reopened.text), T + ': opened again mid-save, the button says Saving', JSON.stringify(reopened));
+    say(reopened.busy && /Saving/.test(reopened.text) && /^Saving Budget 2026\.xlsx/.test(reopened.msg || ''), T + ': opened again mid-save, the button and the line say Saving', JSON.stringify(reopened));
     await tell({ state: 'saved', key: k3, id: 8, name: 'Budget 2026.xlsx' });
     const reAns = await state();
     say(/Saved to Downloads/.test(reAns.text) && /Budget 2026\.xlsx is in your Downloads folder/.test(reAns.msg || ''), T + ': and the save\'s answer lands on the reopened viewer, its button and its line', JSON.stringify(reAns));

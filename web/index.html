@@ -21761,7 +21761,7 @@ window.addEventListener('kosmos-download', (e) => {
   clearTimeout(w.slow); clearTimeout(w.lost);
   DL_WAIT.delete(w.key);   // answered; the file stays busy (DL_BUSY) until the button is back, so a click on Saved saves nothing
   const name = String(d.name || w.name || 'The file');
-  w.answered = true;
+  w.answered = true; w.savedName = String(d.name || w.name || 'The file');
   // The line takes the news if it is this click's, or holds only download words (Saving, Already saving, another file's
   // saved line): a second row clicked in the same list never hides the first one's saved; nobody's error is replaced.
   if (dlLineOk(w.say) && dlLineFree(w.say.el)) {
@@ -21812,10 +21812,14 @@ function dlAdopt(file, btn, say) {
     w.say = say; if (say.el) DL_LINE.set(say.el, w);
   }
   if (w.answered) {   // saved already, its button not yet back: it says Saved, not Saving, for the viewer's full time
-    dlShowSaved(w); clearTimeout(w.restore); w.restore = setTimeout(() => dlEnd(w, true), w.text ? 6000 : 3000); return;
+    dlShowSaved(w); clearTimeout(w.restore); w.restore = setTimeout(() => dlEnd(w, true), w.text ? 6000 : 3000);
+    if (say && say.el && !say.el.textContent && w.savedName) { say.el.textContent = w.savedName + ' is in your Downloads folder.'; say.el.classList.add('dl-said'); }   // its own line too (round 8)
+    return;
   }
+  // Mid-save: the new line says Saving too, as the old one did (round 8): set with the look just below.
   btn.classList.add('dl-busy'); btn.setAttribute('aria-disabled', 'true');
   dlBusyLook(w, DL_DOTS + (w.asking ? '' : (w.text ? 'Saving' : '')), w.asking ? 'Waiting for your answer to save' : 'Saving');
+  if (!w.asking && say && say.el && !say.el.textContent) { say.el.textContent = 'Saving ' + (w.name || 'the file') + '...'; say.el.classList.add('dl-said'); }
 }
 function kplusDownload(kind, owner, name, say, after, btn) {
   const file = kind + '\n' + owner + '\n' + name;

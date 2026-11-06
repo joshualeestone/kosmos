@@ -21,6 +21,7 @@ The page (web/index.html):
 
 ## Known limits
 - A board answer that redirects a download (the board does not today) loses the key on the response path, so `asking` and `failed` there are not heard; the 2-minute no-answer timer gives the button back.
+- A board that sends nothing at all for 2 minutes (no asking, no saving): the button comes back, and if the save then starts, a second click can save a second copy.
 - A Cmd-click or middle-click on an attachment card or the viewer's link downloads as before, with no key and no busy check (a person reaching for a second copy on purpose).
 - A save still running after the 30-minute ceiling says Kosmos lost track and gives the button back, so a second click then saves a second copy.
 - On the project Files rail, the saved line replaces the list's "cut short" note in that line (it comes back on the next listing).
