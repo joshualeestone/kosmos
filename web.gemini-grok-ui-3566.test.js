@@ -72,7 +72,7 @@ test('#3566: acctProvider maps every provider id, and unknown ids are Claude', (
   assert.equal(api.acctProvider({ provider: 'anthropic' }), 'anthropic');
   assert.equal(api.acctProvider({}), 'anthropic');
   assert.equal(api.acctProvider(null), 'anthropic');
-  assert.deepEqual(api.ACCT_KEYED_ROUTE, { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen', deepseek: 'compat', glm: 'compat' },   // #5977, #7206 (2b: GLM)
+  assert.deepEqual(api.ACCT_KEYED_ROUTE, { openai: 'openai', google: 'gemini', xai: 'grok', alibaba: 'qwen', deepseek: 'compat', glm: 'compat', minimax: 'compat' },   // #5977, #7206 (2b: GLM, 3: MiniMax)
     'the route words must match the engine routes /api/accounts/{openai,gemini,grok,qwen,compat}');
 });
 

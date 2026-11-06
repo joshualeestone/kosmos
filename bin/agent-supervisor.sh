@@ -1532,7 +1532,7 @@ if [ -z "$adopt" ]; then
     # in words about Claude.
     COMPAT_PREFIX=()
     case "$(basename "${EFFECTIVE_CCD:-}")" in
-      .kosmos-deepseek-?*|.kosmos-glm-?*)   # #7206 slice 2a: GLM, a second row of the same table
+      .kosmos-deepseek-?*|.kosmos-glm-?*|.kosmos-minimax-?*)   # #7206 slice 2a: GLM, a second row of the same table; slice 3: MiniMax
         if [ -z "${_eng:-}" ] || [ -z "${NODE_BIN:-}" ] || [ ! -f "$_eng/anthropiccompat.js" ]; then
           say "$SESSION: Kosmos could not load its provider helper; the agent was not started"
           exit 1

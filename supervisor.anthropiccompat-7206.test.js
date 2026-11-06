@@ -195,6 +195,24 @@ test('the supervisor\'s lists match the module: every vendor is recognised, ever
   assert.deepEqual(String(declared).trim().split(/\s+/).sort(), unset.slice().sort());
 });
 
+test('#7206 slice 3: a MiniMax home launches claude against MiniMax, only under its own switch', () => {
+  const mmHome = () => home({ 'kosmos-vendor.json': JSON.stringify({ vendor: 'minimax', model: 'MiniMax-M3.1-Flash', key: KEY }) }, '.kosmos-minimax-h');
+  const off = run(mmHome(), 'claude-sonnet-5');   // DATA_ON holds DeepSeek's switch only
+  assert.equal(/new-session/.test(off.argv), false, 'a MiniMax agent started under DeepSeek\'s switch: ' + off.out);
+  assert.equal(off.secrets.includes(KEY), false, 'its key went to a pane');
+  const sw = require('./test-support/compat-switch');
+  const mmOnly = nodePath.join(SANDBOX, 'data-minimax-only');
+  sw.setVendorAt(mmOnly, 'minimax', true);
+  try {
+    const r = run(mmHome(), 'claude-sonnet-5', { AGENT_WORKFORCE_DATA: mmOnly });
+    assert.match(r.argv, /new-session/, r.out);
+    assert.match(r.argv, /-e ANTHROPIC_BASE_URL=https:\/\/api\.minimax\.io\/anthropic/);
+    assert.match(r.argv, /--model MiniMax-M3\.1-Flash/);
+    assert.equal(/claude-sonnet-5/.test(r.argv), false, 'the agent\'s Claude model is not sent to MiniMax');
+    assert.equal(r.argv.includes(KEY), false, 'the key reached the argv');
+  } finally { sw.setVendorAt(mmOnly, 'minimax', false); }
+});
+
 test('#7206 slice 2a: a GLM home launches claude against Z.ai, through the same case, only under its own switch', () => {
   const glmHome = () => home({ 'kosmos-vendor.json': JSON.stringify({ vendor: 'glm', model: 'glm-5.3', key: KEY }) }, '.kosmos-glm-h');
   /* 2a review 1: DeepSeek's switch (on in DATA_ON) does not start a GLM agent. */
