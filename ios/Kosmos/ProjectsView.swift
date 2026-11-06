@@ -884,6 +884,7 @@ struct ProjectRowView: View {
                 // list puts its pill under the role. Side by side, a sub-project's indent left the name a few letters a line
                 // ("Cove r sho...") and stood the Working pill on end, one letter a line.
                 Text(project.name).font(.callout.weight(.semibold)).foregroundColor(Palette.primary).lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)   // its full height, or a sub-project's name stops at one line
                 stateAndBubble
             } else {
                 HStack(spacing: 6) {
