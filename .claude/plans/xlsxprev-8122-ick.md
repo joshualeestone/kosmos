@@ -32,3 +32,17 @@ UTF-8 CSV only (UTF-16 refused, Latin-1 mis-decoded); a semicolon CSV is one col
 ## Weakest premise
 That the 2 s budget and the caps bound the work on the board's one thread for every file shape; a worker thread would bound it
 absolutely.
+
+## Review round 2 (sonnet): 1 BLOCKER, 3 WARNINGs, fixed
+- BLOCKER: `clean()` ran two indexOf searches per pass, so a part full of empty comments (or CDATA) was quadratic: a 25 KB
+  file ran 40 s+, and the budget could not stop one call. Now one forward scan for "<". A real-clock test (2 MB of comments,
+  of CDATA, of unclosed tags, each under 1 s) fails at 29 s on the round-1 reader.
+- WARNING: "[h]:mm" durations were taken modulo a day (1.5 showed 12:00, Excel 36:00). Now total hours, minutes or seconds.
+- WARNING: simple number formats ignored. Now "0.00", "#,##0", "0%", "0.0%" and built-ins 1-4, 9, 10 show their decimals,
+  thousands and percent, rounded as Excel does; locale date formats 27-36 and 50-58 are dates; a time just before midnight
+  carries into the next day. KEPT: currency, fractions, scientific, conditional sections show the saved number.
+- WARNING: the zip reader refused a whole workbook for an entry it never reads ("[trash]/", "_xmlsignatures/", a name Windows
+  cannot store). engine/win32zip.js gains an opt-in `skipUnsafeNames` for a read-only lister (never extractZip): such an entry
+  is left out of the listing; every other check (encryption, links, sizes, totals, overlap) still refuses. Mona's test for
+  "an unexpected top-level entry" now checks the entry is never read rather than that the file is refused.
+- NITs: a budget check every 1024 steps in every loop (styles, rels, sheets, rows, cells, shared strings).
