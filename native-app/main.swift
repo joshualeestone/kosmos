@@ -5870,7 +5870,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             reopenOutstanding = false
             reopenMisses = 0   // review 6: the other computer's page LANDED, so it is reachable; only this resets the count
             if host != reopenComputerHost { reopenComputerHost = host; logLine("#8118: will reopen \(host) at the next launch") }
-        case .forget: reopenComputerHost = nil; logLine("#8118: forgot the computer to reopen (the window is home, or this Mac connects)")
+        case .forget: reopenComputerHost = nil; logLine("#8118: forgot the computer to reopen (the window is home, or this computer connects)")
         case .markAsked: reopenAskedThisLaunch = true
         case .forgetAndMarkAsked: reopenAskedThisLaunch = true; reopenComputerHost = nil; logLine("#8118: forgot a kept computer that is not a plain host")
         case .ask(let host):
