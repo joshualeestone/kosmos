@@ -24,6 +24,12 @@ on a prod 0.7.93 Linux board for a team made from the Team step (five agents, al
 - An agent token naming the agent by its display name now resolves too; the slug check and the ownership check both
   read the resolved name.
 
+## Review round 2 changes and decisions
+- A candidate whose removed-state or identity cannot be read ends the search with no resolution (it might be the
+  second agent with that name). Test: "an unreadable candidate".
+- Decided, unchanged: an exact folder, job or session name wins over another agent's display name, as before this
+  branch. The confirmation names the agent it will remove, so the person sees which one.
+
 ## Not in this branch
 - restart and move resolve names their own way; the card says "probably". Left for a follow-up if they show the same.
 - `agent list` output unchanged.
