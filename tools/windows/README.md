@@ -283,10 +283,11 @@ of the engine's own helpers, run with the bundle's node:
     which installs it. Only the person, SYSTEM, Administrators and TrustedInstaller may hold rights
     that change the folder, the code in it the launcher starts or loads (Kosmos.exe, runtime\,
     runtime\node.exe, runtime\WebView2Loader.dll and every other file directly in runtime\,
-    app\, app\server.js, open-board.js) or, on a folder above it, rename
+    app\, app\server.js, open-board.js, and every folder under app\ and runtime\) or, on a folder above it, rename
     it away; one of them must own each; accounts are compared by SID, so a domain group such
     as Domain Admins is not one of them. A folder whose permissions cannot be read, or a
-    drive with none (FAT, exFAT), is refused too. It is not a defence against a folder that
+    drive with none (FAT, exFAT), is refused too. A file below those is taken at its
+    folder's word: one with permissions of its own means the folder was already changed. It is not a defence against a folder that
     was already changed: Kosmos.exe itself comes from that folder. A copy that already ran
     in place from such a folder before this check keeps its logon task and in-app updates
     there; its Start menu entry now opens to the refusal, and so does anything that starts
