@@ -15,8 +15,9 @@
  * minutes, and a 77 KB one costing 19 s, before these):
  * - the zip is read by engine/win32zip.js's checked reader (entry count, sizes, overlapping entries, a deflate capped
  *   at its declared size);
- * - every XML part is capped in size and scanned forward with indexOf; the few patterns left run only on a short,
- *   capped piece (a start tag, a format code), never on a whole part or an attacker-sized string;
+ * - every XML part is capped in size and scanned forward with indexOf; the patterns that run on a whole part or body
+ *   (the prefix strip, the entity decode) have no nested repetition, so they are linear; the rest run on a short, capped
+ *   piece (a start tag, a format code);
  * - comments are cut and CDATA unwrapped first, so neither can hide or fake a value; namespace prefixes are dropped;
  * - each worksheet part is read once, however many sheets name it, and reading a sheet stops at its row cap;
  * - the whole read has a time budget (WORK_BUDGET_MS), checked every 1024 steps of every loop and between parts; past
@@ -197,6 +198,9 @@ function formatKind(code) {
   if (/[dy]/.test(lower)) return { kind: 'date' };
   if (/[hs]/.test(lower)) return { kind: 'time' };
   if (/m/.test(lower) && !/^[#0.,%\s]*$/.test(lower)) return { kind: 'date' };   // "mmm" alone is a month
+  // Only a code of digit placeholders (review 3: a currency or a unit, quoted or in brackets, was dropped from the shown
+  // text); anything else shows the saved number.
+  if (!/^[#0.,%\s]+$/.test(String(code || '').split(';')[0])) return null;
   const num = /^\s*(#,##0|#,#|0|#)?(?:\.(0+))?\s*(%)?\s*$/.exec(lower);
   if (num && (num[1] || num[2] || num[3])) return { kind: 'number', decimals: num[2] ? num[2].length : 0, thousands: (num[1] || '').indexOf(',') >= 0, percent: !!num[3] };
   return null;
@@ -227,9 +231,11 @@ function styleKinds(stylesXml, budget = () => {}) {
   const out = [];
   const xfs = elements(stylesXml, 'cellXfs').next().value;
   if (!xfs) return out;
+  const memo = new Map();   // review 3: one reading per format, not one per style
   for (const x of elements(xfs.body, 'xf')) {
     const id = Number(attr(x.tag, 'numFmtId') || 0);
-    out.push(custom.has(id) ? formatKind(custom.get(id)) : builtinKind(id));
+    if (!memo.has(id)) memo.set(id, custom.has(id) ? formatKind(custom.get(id)) : builtinKind(id));
+    out.push(memo.get(id));
     if ((++k & 1023) === 0) budget();
   }
   return out;
@@ -345,7 +351,9 @@ function readXlsx(buf) {
     // read), and only once.
     if (!/^worksheets\/[A-Za-z0-9_.-]+\.xml$/.test(target) || readTargets.has(target)) { sheets.push({ name, rows: [], cut: false, notGrid: true }); continue; }
     readTargets.add(target);
-    const xml = part('xl/' + target) || '';
+    const xml = part('xl/' + target);
+    // Review 3: a part that is not in the file (damaged, or a name the lister leaves out) is not a grid, never "empty".
+    if (xml === null) { sheets.push({ name, rows: [], cut: false, notGrid: true }); continue; }
     const grid = new Map();   // row -> Map(col -> text)
     let width = 0, cut = false;
     const data = elements(xml, 'sheetData', true).next().value;
@@ -378,6 +386,9 @@ function readXlsx(buf) {
             if (type === 's') text = shared[Number(raw)] ?? '';
             else if (type === 'b') text = raw === '1' ? 'TRUE' : 'FALSE';
             else if (type === 'e' || type === 'str') text = raw;
+            // Review 3: an ISO date cell (t="d", as openpyxl with iso_dates, SheetJS and Strict OOXML write) is shown as its
+            // date, never handed to the serial reader (it showed "NaN").
+            else if (type === 'd') text = raw.replace(/T00:00(:00(\.0+)?)?Z?$/, '').replace('T', ' ').slice(0, 16);
             else {
               const fmt = kinds[Number(attr(c.tag, 's') || 0)] || null;
               const kind = fmt && fmt.kind;

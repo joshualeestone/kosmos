@@ -247,3 +247,14 @@ test('every Windows device name is refused, with an extension or spaces before i
   /* The controls: names that merely start like one are ordinary. */
   assert.doesNotThrow(() => win32zip.readZipDirectory(buildZip(wellFormed([{ name: 'app/console.js', data: 'x' }, { name: 'app/connect.js', data: 'x' }])), LIMITS));
 });
+
+test('kosmos#8122: skipUnsafeNames leaves out an entry with a bad name for a read-only listing; the default still refuses; extractZip refuses the flag', () => {
+  const fx = require('../test-support/xlsxfixture');
+  const { readZipDirectory, extractZip, ZipRefusal } = require('./win32zip');
+  const buf = fx.zip({ 'xl/a.xml': 'a', 'junk/b.xml': 'b', 'xl/c:d.xml': 'c' });
+  const limits = { allowedTopLevel: ['xl'], maxEntries: 10, maxEntryBytes: 1000, maxTotalBytes: 10000 };
+  assert.throws(() => readZipDirectory(buf, limits), ZipRefusal, 'CONTROL: the default refuses the archive');
+  const listed = readZipDirectory(buf, { ...limits, skipUnsafeNames: true }).map((e) => e.name);
+  assert.deepEqual(listed, ['xl/a.xml'], 'a bad name was listed, or a good one dropped');
+  assert.throws(() => extractZip(buf, require('node:os').tmpdir(), { ...limits, skipUnsafeNames: true }), TypeError);
+});

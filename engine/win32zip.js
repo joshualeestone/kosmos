@@ -214,8 +214,10 @@ function readZipDirectory(buf, limits) {
     if (madeByHost === HOST_UNIX && ((externalAttributes >>> 16) & UNIX_FILE_TYPE_MASK) === UNIX_SYMLINK) {
       refuse(`the archive entry ${quoted(name)} is a link, and a Kosmos build has none`);
     }
-    /* kosmos#8122: `skipUnsafeNames` (a READ-ONLY lister, never extractZip) leaves out an entry whose name breaks the rules
-       above, rather than refusing the archive, since nothing is written to disk. Every other check still refuses. */
+    /* kosmos#8122: `skipUnsafeNames` (a READ-ONLY lister, never extractZip, which refuses the flag) leaves out an entry whose
+       NAME breaks the rules above, rather than refusing the archive, since nothing is written to disk. A skipped entry has
+       had only the checks above it (zip64, encryption, method, a link); the size, total, duplicate, header and overlap
+       checks below are not run for it, which is safe only because a skipped entry is never read. */
     let segments;
     try { segments = checkEntryName(name, l.allowedTopLevel); }
     catch (e) { if (l.skipUnsafeNames === true && e instanceof ZipRefusal) { at = next; continue; } throw e; }
@@ -300,6 +302,7 @@ function entryContents(buf, entry) {
  * Returns `{ entries, bytes }`.
  */
 function extractZip(buf, destDir, limits) {
+  if (limits && limits.skipUnsafeNames) throw new TypeError('win32zip: skipUnsafeNames is for a read-only listing; extractZip never skips an entry');   // kosmos#8122
   const entries = readZipDirectory(buf, limits);
   const dest = path.resolve(destDir);
   fs.mkdirSync(dest);

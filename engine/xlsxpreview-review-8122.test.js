@@ -169,3 +169,13 @@ test('#8122 r2: an entry the reader never reads ("[trash]/" from Excel, a name W
   const { readZipDirectory } = require('./win32zip');
   assert.throws(() => readZipDirectory(b, { allowedTopLevel: ['xl', '_rels', '[Content_Types].xml'], maxEntries: 100, maxEntryBytes: 1e6, maxTotalBytes: 1e7 }));
 });
+
+/* Review 3 */
+test('#8122 r3: an ISO date cell (t="d") shows its date; a sheet whose part is missing is not a grid; currency shows the saved number', () => {
+  const styles = STYLES('<xf numFmtId="0"/><xf numFmtId="14"/><xf numFmtId="169"/>', '<numFmts><numFmt numFmtId="169" formatCode="&quot;$&quot;#,##0.00"/></numFmts>');
+  const r = x.readXlsx(fx.book({ S: fx.SHEET('<row r="1"><c r="A1" s="1" t="d"><v>2024-01-15T00:00:00</v></c><c r="B1" t="d"><v>2024-01-15T13:45:00</v></c><c r="C1" s="2"><v>1234.5</v></c></row>') }, { 'xl/styles.xml': styles }));
+  assert.deepEqual(r.sheets[0].rows[0], ['2024-01-15', '2024-01-15 13:45', '1234.5'], 'a t="d" date showed NaN, or a currency code dropped its symbol');
+  const gone = x.readXlsx(fx.zip({ '[Content_Types].xml': '<Types/>', 'xl/workbook.xml': fx.WB(['S']), 'xl/_rels/workbook.xml.rels': fx.RELS(1) }));
+  assert.deepEqual(gone.sheets, [{ name: 'S', rows: [], cut: false, notGrid: true }]);
+  assert.equal(gone.empty, true);
+});
