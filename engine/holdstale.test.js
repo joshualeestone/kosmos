@@ -215,7 +215,7 @@ test('#6209 part 3 review 1: the person taking over an agent\'s hold is read fro
 test('#6209 part 3 review 2: the line reads right for mixed, plural and three-task holds, and never types an unsafe id', () => {
   const it = (n, byPerson, projectId = 'proj-a') => ({ projectId, project: 'Shop', n, sentence: 'Task ' + n, owner: REX, holdAt: NOW - 3 * HOUR, byPerson, posts: 4 });
   assert.equal(hs.tellText([it(1, false), it(2, true)], NOW),
-    'Kosmos: task #1, "Task 1" (put on hold 3 hours ago) and task #2, "Task 2" (the person put it on hold 3 hours ago) in Shop are still on hold, but you have posted 4 times in their project room since then. If their work is going on, take #1 off hold: kosmos task unhold proj-a 1; for #2, ask the person to take it off hold (only they can lift their own hold, on the screen). If one no longer needs doing, close #1: kosmos task close proj-a 1; for #2, ask the person whether to close it. If one should stay on hold, say why on the task.');
+    'Kosmos: task #1, "Task 1" (put on hold 3 hours ago) and task #2, "Task 2" (the person put it on hold 3 hours ago) in Shop are still on hold, but you have posted 4 times in their project room since then. If their work is going on, take #1 off hold: kosmos task unhold proj-a 1; for #2, ask the person to take it off hold (only they can lift their own hold, on the screen). If #1 no longer needs doing, close it: kosmos task close proj-a 1. If #2 no longer needs doing, ask the person whether to close it. If one should stay on hold, say why on the task.');
   assert.match(hs.tellText([it(1, true), it(2, true)], NOW), /If their work is going on, ask the person to take them off hold \(only they can lift their own hold, on the screen\)\./);
   assert.match(hs.tellText([it(1, false), it(2, false), it(3, false)], NOW), /task #1, "Task 1" \(put on hold 3 hours ago\), task #2, .* and task #3, /);
   const unsafe = hs.tellText([it(1, false, 'x; rm -rf ~')], NOW);
@@ -340,10 +340,9 @@ test('kosmos#8140 item 3: the stale and met lines offer closing an own hold, and
   const it = (extra = {}) => ({ projectId: 'proj-a', project: 'Shop', n: 7, sentence: 'Task 7', owner: REX, holdAt: NOW - 3 * HOUR, byPerson: false, posts: 4, ...extra });
   const CLOSE = /If it no longer needs doing, close it: kosmos task close proj-a 7\./;
   const ASK = /If it no longer needs doing, ask the person whether to close it\./;
-  const ASK_OUT = ASK;
   for (const [name, line] of [['stale', (x) => hs.tellText([x], NOW)], ['met', (x) => hs.metText([{ ...x, met: 'task #3 is closed' }], NOW)]]) {
     assert.match(line(it()), CLOSE, name + ': an own hold was not offered closing');
-    for (const [kind, extra] of [['the person\'s hold', { byPerson: true }], ['a hold for the person', { forPerson: true }], ['a shared task', { shared: true }]]) {
+    for (const [kind, extra] of [['the person\'s hold', { byPerson: true }], ['a hold for the person', { forPerson: true }], ['a shared task', { shared: true }], ['the person\'s repeat or reviewer', { personCloses: true }]]) {
       const text = line(it(extra));
       assert.match(text, ASK, name + ', ' + kind + ': the person was not asked');
       assert.doesNotMatch(text, /kosmos task close/, name + ', ' + kind + ': an agent was told to close what is not its own');
@@ -353,15 +352,15 @@ test('kosmos#8140 item 3: the stale and met lines offer closing an own hold, and
   }
   // Several: each own one by its command, the others by number.
   const many = hs.metText([it({ n: 1, met: 'x' }), it({ n: 2, met: 'x', shared: true }), it({ n: 4, met: 'x' })], NOW);
-  assert.match(many, /If one no longer needs doing, close only that one: kosmos task close proj-a 1 \(#1\), or kosmos task close proj-a 4 \(#4\); for #2, ask the person whether to close it\./);
+  assert.match(many, /If #1 no longer needs doing, close it: kosmos task close proj-a 1\. If #2 no longer needs doing, ask the person whether to close it\. If #4 no longer needs doing, close it: kosmos task close proj-a 4\./);
   // Review 1: several own tasks, or several of the person's, never read as closing them all.
   for (const line of [hs.tellText([it({ n: 1 }), it({ n: 4 })], NOW), hs.metText([it({ n: 1, met: 'x' }), it({ n: 4, met: 'x' })], NOW)]) {
-    assert.match(line, /If one no longer needs doing, close only that one: kosmos task close proj-a 1 \(#1\), or kosmos task close proj-a 4 \(#4\)\./);
-    assert.doesNotMatch(line, /close them/);
+    assert.match(line, /If #1 no longer needs doing, close it: kosmos task close proj-a 1\. If #4 no longer needs doing, close it: kosmos task close proj-a 4\./);
+    assert.doesNotMatch(line, /close them|If one no longer/);
   }
-  assert.match(hs.tellText([it({ n: 1, byPerson: true }), it({ n: 4, byPerson: true })], NOW), /If one no longer needs doing, ask the person which, if any, to close\./);
-  // Review 1: the person's repeat rule or reviewer makes the close route refuse an agent, so the person is asked.
-  assert.match(hs.tellText([it({ personCloses: true })], NOW), ASK_OUT);
+  const theirs = hs.tellText([it({ n: 1, byPerson: true }), it({ n: 4, byPerson: true })], NOW);
+  assert.match(theirs, /If #1 no longer needs doing, ask the person whether to close it\. If #4 no longer needs doing, ask the person whether to close it\./);
+  assert.doesNotMatch(theirs, /kosmos task close/);
   // An id the CLI would not take as it is is never typed into the command.
   const unsafe = hs.tellText([it({ projectId: 'x; rm -rf ~' })], NOW);
   assert.match(unsafe, /kosmos task close <project-id> 7\./);
@@ -389,6 +388,29 @@ test('kosmos#8140 item 3: owed() marks a held task whose open parts two agents h
   const loose = hs.owed(only(id), rows, NOW, { read });
   assert.equal(loose.length, 1);
   assert.equal(loose[0].shared, true, 'an open part with nobody on it did not make the task read as shared');
+  // Review 2: an open subtask (or one further down) another agent holds makes it shared; one nobody is on, one the owner
+  // holds, or a closed one does not (#5678: a subtask nobody is on is the parent holder's).
+  projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, parts: [{ id: 1, who: REX }] } : t)) }));
+  const kid = tasks.create(id, { sentence: 'Piece', parent: n }).number;
+  const grand = tasks.create(id, { sentence: 'Smaller piece', parent: kid }).number;
+  const set = (num, extra) => projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === num ? { ...t, ...extra } : t)) }));
+  const sharedNow = () => { const r = hs.owed(only(id), rows, NOW, { read }); assert.equal(r.length, 1); return r[0].shared; };
+  assert.equal(sharedNow(), undefined, 'CONTROL: subtasks nobody is on made it shared');
+  set(kid, { who: REX });
+  assert.equal(sharedNow(), undefined, 'CONTROL: the owner\'s own subtask made it shared');
+  set(grand, { who: ADA });
+  assert.equal(sharedNow(), true, 'another agent\'s open grandchild did not make it shared');
+  set(grand, { closedAt: iso(NOW - HOUR) });
+  assert.equal(sharedNow(), undefined, 'a closed subtask made it shared');
+  // Open work under a CLOSED subtask is still under the held task.
+  set(grand, { closedAt: undefined });
+  set(kid, { closedAt: iso(NOW - HOUR) });
+  assert.equal(sharedNow(), true, 'another agent\'s open grandchild under a closed subtask did not make it shared');
+  set(kid, { closedAt: undefined });
+  set(grand, { closedAt: iso(NOW - HOUR) });
+  set(kid, { who: ADA });
+  assert.equal(sharedNow(), true, 'another agent\'s open subtask did not make it shared');
+  set(kid, { who: REX });
   // Review 1: the person's repeat rule (or reviewer) is marked, an agent's own is not (control).
   for (const [extra, want] of [[{ repeatByPerson: true }, true], [{ repeatReviewerByPerson: true }, true], [{}, undefined]]) {
     projects.mutate(id, (x) => ({ ...x, tasks: x.tasks.map((t) => (t.number === n ? { ...t, parts: [{ id: 1, who: REX }], repeat: { every: 'day' }, repeatByPerson: undefined, repeatReviewerByPerson: undefined, ...extra } : t)) }));

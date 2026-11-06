@@ -104,7 +104,7 @@ function owed(projects, log, now = Date.now(), o = {}) {
           ...(t.onHoldForPerson === true ? { forPerson: true } : {}),   // kosmos#7797: the met line says it waits on the person
           /* kosmos#8140: other agents hold open parts, or an open part has nobody, so closing the whole task is not this
              owner's call; and the person's repeat rule or reviewer makes the close route refuse an agent (server.js). */
-          ...(owners.length > 1 || tasks.partsOf(t).some((x) => x && !x.who && !x.closedAt) ? { shared: true } : {}),
+          ...(owners.length > 1 || tasks.partsOf(t).some((x) => x && !x.who && !x.closedAt) || othersBelow(p, t.number, owner) ? { shared: true } : {}),
           ...(t.repeat && (t.repeatByPerson === true || t.repeatReviewerByPerson === true) ? { personCloses: true } : {}),
           members: Array.isArray(p.agents) ? p.agents.slice() : [],
           swarmOff: require('./projects').isSwarmOff(p, owner),
@@ -115,6 +115,25 @@ function owed(projects, log, now = Date.now(), o = {}) {
   // #7367: checked again after the task histories were read, as receipt.js and undo.plan do (the stamps can go unknown).
   if (!require('./projectborn').snapshot().ok) return [];
   return out;
+}
+
+/* kosmos#8140 review 2: whether an open task anywhere under task `n` has an open part another agent holds. Closing `n`
+   then offers that agent's built work for closing too (the close route's builtLeft), so it is not this owner's call. A
+   subtask nobody is on is the parent holder's already (#5678), so it does not count. The walk goes on below a closed
+   subtask too: open work further down is still under `n`. */
+function othersBelow(p, n, owner) {
+  const tasks = require('./tasks');
+  const tree = tasks.treeOf(p);
+  const seen = new Set([n]);
+  const stack = [...tree.under(n)];
+  while (stack.length) {
+    const c = stack.pop();
+    if (!c || seen.has(c.number)) continue;
+    seen.add(c.number);
+    if (tasks.partsOf(c).some((x) => x && x.who && x.who !== owner && !x.closedAt)) return true;
+    stack.push(...tree.under(c.number));
+  }
+  return false;
 }
 
 /* How long ago, in words a line can carry ("3 days", "5 hours"). */
@@ -135,15 +154,11 @@ function closeText(items, idOf) {
     const x = items[0];
     return 'If it no longer needs doing, ' + (own(x) ? 'close it: kosmos task close ' + idOf(x) + ' ' + x.n : 'ask the person whether to close it') + '.';
   }
-  const mine = items.filter(own);
-  const theirs = items.filter((x) => !own(x));
-  const parts = [];
-  /* Review 1: never "close them", which reads as closing every task named: each one is closed on its own. */
-  if (mine.length) parts.push(mine.length === 1 ? 'close #' + mine[0].n + ': kosmos task close ' + idOf(mine[0]) + ' ' + mine[0].n
-    : 'close only that one: ' + mine.map((x) => 'kosmos task close ' + idOf(x) + ' ' + x.n + ' (#' + x.n + ')').join(', or '));
-  if (theirs.length) parts.push((mine.length ? 'for ' + theirs.map((x) => '#' + x.n).join(', ') + ', ' : '')
-    + (theirs.length === 1 ? 'ask the person whether to close it' : 'ask the person which, if any, to close'));
-  return 'If one no longer needs doing, ' + parts.join('; ') + '.';
+  /* Review 2: with several tasks, each condition names its own task, so no command reads as meant for another one
+     ("if one no longer needs doing, close #1" read as closing #1 when #2 was the finished one). */
+  const sentence = (x) => 'If #' + x.n + ' no longer needs doing, '
+    + (own(x) ? 'close it: kosmos task close ' + idOf(x) + ' ' + x.n : 'ask the person whether to close it') + '.';
+  return items.map(sentence).join(' ');
 }
 
 /* The line an owner is sent, for its held tasks in one project (`group`, items of owed() for one owner and project). Names
