@@ -2400,8 +2400,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
        so the next launch reopens it. Written at quit (applicationWillTerminate), and kept as soon as another
        computer's page finishes loading (so a crash still leaves the last one); forgotten on Back to This Computer
        (and the #6585 navigation home, which calls it, unless that call is refused during an update or a board
-       start), in connect mode, and when the page says the computer can
-       never be reopened. UserDefaults, as relaunchedAtVersion: a value a launch branches on. */
+       start), in connect mode, when the page answers gone, home, bad, touched (the person chose to stay) or
+       signed-out, and after REOPEN_MISS_LIMIT launches in a row whose reopen missed (reopenMissesAfter). UserDefaults, as relaunchedAtVersion: a value a launch branches on. */
     private static let reopenComputerKey = "kosmos.reopenComputerHost"
     private var reopenComputerHost: String? {
         get { UserDefaults.standard.string(forKey: Self.reopenComputerKey) }
@@ -5957,7 +5957,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         case .forget: reopenComputerHost = nil; logLine("#8118: forgot the computer to reopen (the window is home, or this Mac connects)")
         case .markAsked: reopenAskedThisLaunch = true
         case .forgetAndMarkAsked: reopenAskedThisLaunch = true; reopenComputerHost = nil; logLine("#8118: forgot a kept computer that is not a plain host")
-        case .ask(let host): askPageToReopen(host, webView)
+        case .ask(let host):
+            // Review 7: a sign-in page's retry is bounded where the second ask would happen, not when its answer came.
+            if reopenRetryUntil != nil, !reopenRetryAllowed(now: Date(), until: reopenRetryUntil) {
+                reopenAskedThisLaunch = true
+                reopenOutstanding = false
+                logLine("#8118: no reopen within \(Int(REOPEN_RETRY_WINDOW_S)) s of the first ask; not asking again this launch")
+            } else {
+                askPageToReopen(host, webView)
+            }
         }
     }
 
@@ -5996,9 +6004,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     logLine("#8118: \(host) missed \(REOPEN_MISS_LIMIT) launches in a row, so it is forgotten")
                 }
             case .retryNextBoardLoad:
-                // Not the board page proper yet (a sign-in page): ask again at the next board load, if that is soon.
-                if reopenRetryAllowed(now: Date(), until: self.reopenRetryUntil) { self.reopenAskedThisLaunch = false }
-                else { self.reopenOutstanding = false; logLine("#8118: no reopen within \(Int(REOPEN_RETRY_WINDOW_S)) s of the ask; not asking again this launch") }
+                // Not the board page proper yet (a sign-in page): ask again at the next board load. Whether that is
+                // still soon enough is decided there (the .ask arm, reopenRetryAllowed), review 7.
+                self.reopenAskedThisLaunch = false
             case .forget:
                 self.reopenOutstanding = false
                 if self.reopenComputerHost == host { self.reopenComputerHost = nil }
@@ -6213,6 +6221,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let away = isOnAnotherComputer() ? computerToRemember(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost()) : nil
         let host = quitKeeps(awayHost: away, hasPage: committedPageURL != nil, reopenOutstanding: reopenOutstanding, kept: reopenComputerHost)
         if host != reopenComputerHost {
+            if host != nil { reopenMisses = 0 }   // review 7: a different computer starts its own count
             reopenComputerHost = host
             logLine(host.map { "#8118: quitting on \($0), so the next launch reopens it" } ?? "#8118: quitting at home, so the next launch opens here")
         }
