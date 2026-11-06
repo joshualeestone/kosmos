@@ -1154,7 +1154,7 @@
     },
     {
       "title": "Join codes that cannot be used say why",
-      "line": "When a company join code is for another address, another email domain or a full company, Kosmos now says so instead of a retry.",
+      "line": "When a join code is for another address or a company with no free seat, Kosmos now says what to do instead of asking you to try again.",
       "icon": "shield",
       "rank": 8,
       "since": "0.7.94",
@@ -1162,7 +1162,7 @@
     },
     {
       "title": "A half-typed new agent says why it is back",
-      "line": "Back from Settings within 30 minutes, New agent says it is where you left off, with Start over to clear the form.",
+      "line": "If Create agent sends you to Settings to connect a model, New agent keeps what you typed for 30 minutes and offers Start over.",
       "icon": "spark",
       "rank": 8.5,
       "since": "0.7.94",
@@ -1170,7 +1170,7 @@
     },
     {
       "title": "Use short names keeps names you typed",
-      "line": "When you make a team, Use short names now keeps any name you typed, and Another makes a row a suggestion again.",
+      "line": "When you make a team, Use short names now keeps any name you typed in a row.",
       "icon": "tasks",
       "rank": 9,
       "since": "0.7.94",
