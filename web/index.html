@@ -9455,7 +9455,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 .tc-retry { grid-column: 1 / -1; justify-self: start; }
 /* "(leads the team)" stays on one line. (#4709's Project-label gap is now the .field spacing below, #4935.) */
 .tc-leads { white-space: nowrap; }
-@media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-name, .tc-namebox { grid-column: 1 / -1; grid-row: 2; } }   /* kosmos#8092: the box now sits in .tc-namebox */
+@media (max-width: 560px) { .tc-row { grid-template-columns: minmax(0, 1fr) auto; } .tc-namebox { grid-column: 1 / -1; grid-row: 2; } }   /* kosmos#8092: the name box sits in .tc-namebox */
 /* #4935 (Josh, 0.7.16: "Some of the styling just doesn't feel like the Create an Agent styling" and "some of
    the input fields are touching the labels"). The team steps take the single create's own numbers, the
    #cstep-name rules above, rather than a second set: a field is 20px from the one above with no rule line,
@@ -63538,8 +63538,9 @@ function tcOneApart(a, b) {
 /* The polite line, cleared first so the same words pressed again are said again. */
 function tcSayName(text) {
   const el = document.getElementById('tc-name-said');
+  const gen = TC_GEN;
   el.textContent = '';
-  requestAnimationFrame(() => { el.textContent = text; });
+  requestAnimationFrame(() => { if (gen === TC_GEN) el.textContent = text; });   // not into the next team's step
 }
 /* Names to steer clear of, in lower case: the board's agents (read once per team, TC.boardNames) and the team's other rows. */
 function tcTakenNames(except) {
@@ -63571,15 +63572,15 @@ async function tcLoadBoardNames(gen) {
 }
 document.getElementById('tc-short').addEventListener('click', () => {
   if (!TC || TC.started || TC.busy) return;
-  for (const m of TC.members) if (m.state === 'ready') m.name = tcShortName(m);
   let n = 0;
+  for (const m of TC.members) if (m.state === 'ready') { const was = m.name; m.name = tcShortName(m); if (m.name !== was) n += 1; }
   for (const li of document.querySelectorAll('#tc-list li')) {
     const m = TC.members.find((x) => x.slot === li.dataset.slot);
     const box = li.querySelector('.tc-name');
-    if (m && box && !box.disabled) { box.value = m.name; n += 1; }
+    if (m && box && !box.disabled) box.value = m.name;
   }
   // It replaces names the person typed too: that is what the link says it does, and Another or typing undoes any one.
-  tcSayName(n === 1 ? '1 name is now short.' : n + ' names are now short.');
+  tcSayName(n === 0 ? 'No other short name is free.' : (n === 1 ? '1 name is now short.' : n + ' names are now short.'));
 });
 function tcPaint() {
   if (!TC) return;
@@ -63629,8 +63630,8 @@ function tcPaint() {
     another.setAttribute('aria-label', 'Another name for the ' + m.title);
     another.textContent = 'Another';   // a word, not an icon: a phone shows no tooltip
     another.addEventListener('click', () => {
-      m.name = tcShortName(m); input.value = m.name;
-      tcSayName('The ' + m.title + ' is now ' + m.name + '.');   // focus stays on the button
+      const was = m.name; m.name = tcShortName(m); input.value = m.name;
+      tcSayName(m.name === was ? 'No other short name is free.' : 'The ' + m.title + ' is now ' + m.name + '.');   // focus stays on the button
     });
     const namebox = document.createElement('span'); namebox.className = 'tc-namebox';
     namebox.append(input, another);

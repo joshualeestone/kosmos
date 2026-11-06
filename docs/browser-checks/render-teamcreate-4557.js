@@ -325,8 +325,8 @@ function chk(ok, label, extra) {
             await page.setViewportSize({ width: 1280, height: 900 });
           }
           const names = all.map((r) => r.name);
-          chk(names.every((n) => /^[A-Za-z]{3,5}$/.test(n)) && new Set(names.map((n) => n.toLowerCase())).size === names.length && !names.some((n) => /^(ade|ali)$/i.test(n)),
-            `${E} #8092 Use short names gives every row a short plain name, none twice, none on the board`, JSON.stringify(names));
+          chk(names.every((n) => /^[A-Za-z]{3,5}$/.test(n)) && new Set(names.map((n) => n.toLowerCase())).size === names.length && !names.some((n) => /^(ade|ali)$/i.test(n)) && await page.evaluate((ns) => ns.every((x, i) => ns.every((y, j) => i === j || !tcOneApart(x.toLowerCase(), y.toLowerCase()))), names),
+            `${E} #8092 Use short names gives every row a short plain name, none twice, none one letter from another, none on the board`, JSON.stringify(names));
           chk(names[0] !== one[0].name && names.slice(1).every((n, i) => n !== before[i + 1].name), `${E} #8092 CONTROL: every row did change, the lead again too`, JSON.stringify({ before: before.map((r) => r.name), names }));
           await settle(page, () => document.getElementById('tc-name-said').textContent === '3 names are now short.');
           const bulkSaid = await page.evaluate(() => document.getElementById('tc-name-said').textContent);
