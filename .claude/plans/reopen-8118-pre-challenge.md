@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: reopen-8118
-diff_hash: cc429e1cc1e853a39d67d6bc473fc072d3a59b18269c2bbfb858f2d2e5a70a3d
+diff_hash: 6d106bda7f260ab05023bfae76bef15bcc82a6cc5a5e058ed8fe6835088fc19b
 validation: local (every web*, native-app* and browser-checks* test file, the app selftest, the computers browser check in Chromium and WebKit, both browser-check gates); not run as the full yarn test
 subdir_audit: passed
-timestamp: 2026-11-06T20:20:28Z
+timestamp: 2026-11-06T21:06:52Z
 iterations: 8
 converged: true
 ---
@@ -94,6 +94,9 @@ kosmos#8118 (Josh: "If I quit or restart the app, it automatically kicks me back
 
 ### After the PR's first CI run
 CI's node suite failed one test on 942f8fbe3e: `install.this-computer-1290.test.js`, the product's "this Mac" wording guard, which flagged a log line of this branch ("or this Mac connects"). It was not in my local run, which covered web*, native-app* and browser-checks* files only. Fixed to "this computer". I then ran every other test file that reads main.swift (16 files, 305 tests, 0 fail). The diff hash is recomputed for that one-word change.
+
+### Rebase onto main, 15:0x CST
+No CI run was triggered for 159ea00c14 (GitHub created no pull_request runs for it; other branches ran). Main had moved, so the branch was rebased. The only conflicts were the selftest's row count in main.swift and its two pins: main's #5167 added 8 rows. They were resolved to this branch's count plus 8 (295), commit by commit. The conflicted re-commit stripped the first commit's `#` subject and its `#kpt=` body line, so its message was restored from the original. The count pin left at 287 by a later clean apply is corrected in its own commit. On the rebased head: selftest 295/295; 569 files (web*, native-app*, browser-checks*, and every test that reads main.swift or web/index.html), 6634 run, 0 fail; the computers browser check passes in both engines; both gates rc 0. The reviewed change is otherwise unchanged.
 
 ### Validation (honest scope)
 On db6ac614ac (rebased onto main): 475 web, native-app and browser-checks test files, 3937/3937; app selftest 287/287 (swiftc at the macOS 13.5 floor); the browser check 140/140 in both engines; both browser-check gates rc 0. Not run: the full `yarn test` (shell suite), and the app on a real install, which is the card's proof.
