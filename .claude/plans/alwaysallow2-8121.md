@@ -50,3 +50,26 @@ measurement that /api/remote/computers can answer from a stale cache.
 - node: the 49 test files that read main.swift or the bundle script, 585 tests: 1 fail (applog pin 6 -> 8,
   raised with both new lines named in fixed words), then 66/66 on the three pinning files.
 - Windows not touched or claimed.
+
+## Review rounds (blind, one reviewer each)
+1. No BLOCKER. Fixed: Forget during a check wins; a confirmation lasts an hour, not the run; offered only when
+   the list confirms; a page change mid-check says so; Reload clears the unconfirmed set; downloadAnswer pure.
+2. No BLOCKER. Fixed: Always Allow confirmed for the hour instead of a run-long allow; Don't Allow forgets a
+   kept computer; the kept check's verdict reused (no double read).
+3. BLOCKER fixed: the hour used systemUptime, which stops during sleep; now the wall clock (keptClock), a
+   future reading expired. Fixed: a voided Allow forgets nothing; stale verdicts cleared on Reload/Forget;
+   Always Allow stamped from the reading, not the press.
+4. No BLOCKER. Fixed: a reused reading must be under 5 s old and is cleared on any answer; the alert says
+   Don't Allow forgets a kept computer; the question counts in alertsOnScreen. Then rebased onto main
+   (#8120 added willAsk; it is carried through the check).
+5. No BLOCKER. Fixed: a page change voids only the downloads from the old page (per-waiter commit count);
+   rows count #8120's "asking" on the check path (0 / 2 / 0); the offer read is 2 s, not 8 s, because the
+   page is already told "asking" and the question must appear promptly (a slow list only drops the button).
+   Left (NIT): a commit during the 2 s offer read still shows the question, and its Allow is then voided,
+   as the question's own void rule already does.
+
+## Known limits, decided
+- Connect-only Macs (no board) never offer Always Allow.
+- A computer on the account whose list read takes over 2 s is asked without Always Allow that time.
+- A plain Allow lasting the run is #5167's, unchanged.
+- Merge waits for the 0.7.95 re-pin (the first landing was pulled from that release on purpose).
