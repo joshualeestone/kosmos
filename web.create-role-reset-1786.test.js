@@ -52,6 +52,9 @@ function run(resetDirty, seed) {
     // it as a no-op. resetCreateProvider's own behaviour + wiring are covered by
     // web.create-provider-reset-1834.test.js.
     const resetCreateProvider = () => {};
+    // kosmos#8051 added createKeptLine(false) to the same branch (the kept form's line); its own behaviour is covered by
+    // docs/browser-checks/render-nomodel-8040.js, so here it is a no-op too.
+    const createKeptLine = () => {};
     ${fn}
     refillDetails(_resetDirty);
     return {
