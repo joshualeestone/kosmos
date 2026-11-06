@@ -14,4 +14,4 @@ Data only: five new items in release/whats-new-pool.json (since 0.7.93), and web
 - A blind check read every line against the code: four true as written; the Windows line was overstated (it is said
   once, when the switch is turned on) and was rewritten in the reviewer's words. Review 1 then found #8039's
   "files your settings import" would send a person to the Settings screen (it is the agent's instructions), and
-  #8040's "keeps what you typed" broader than the code (kept for 30 minutes, if you follow the link and come back).
+  #8040's "keeps what you typed" broader than the code; review 2 found the 30-minute rewording ambiguous, so the claim was dropped (the line says only what is certain).
