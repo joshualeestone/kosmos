@@ -70,7 +70,8 @@ async function cli(port, args) {
 test('#7362 Mac: --yes reads the plan, then removes through the same route, never forced, and says it can be put back', () => withStub([200, PLAN], REMOVED, async (port, seen) => {
   const r = await cli(port, ['agent', 'remove', 'Sally Sales', '--yes']);
   assert.equal(r.code, 0, r.out);
-  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agent/Sally%20Sales/removal', 'DELETE /api/agent/Sally%20Sales/removal']);
+  // kosmos#8109: the DELETE goes to the agent the plan resolved (PLAN.name), not the typed name again.
+  assert.deepEqual(seen.map((s) => s.method + ' ' + s.url), ['GET /api/agent/Sally%20Sales/removal', 'DELETE /api/agent/sally-sales/removal']);
   assert.doesNotMatch(seen.map((s) => s.url).join(' '), /force/, 'the CLI sent the person\'s override');
   assert.match(r.out, /you can put it back\./, 'the plan\'s hint was not shown');
   assert.match(r.out, /Sally Sales has been removed from Kosmos\. Its folder/);
@@ -358,3 +359,22 @@ test('#7946: install/kosmos agent remove\'s request code has no pipeline into an
     `echo "x | head" | cat`, `say 'pipe into head | read'`, `printf '%s' "$b" | "$_node" -e "let a=b||c|0;"`];
   for (const ok of full) assert.deepEqual(earlyReaders(ok), [], 'false positive: ' + ok);
 });
+
+/* kosmos#8109: the removal goes to the agent the PLAN resolved (its folder name), not the typed name again, so a board
+   that changed while the person answered cannot point the DELETE at another agent. */
+test('#8109 Mac: the DELETE goes to the name the plan resolved, not the name as typed', () => withStub(
+  [200, { ...PLAN, name: 'cai', label: 'Cai' }], REMOVED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'remove', 'Cai', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    const d = deletes(seen);
+    assert.equal(d.length, 1, 'CONTROL: no DELETE was sent: ' + r.out);
+    assert.match(d[0].url, /\/api\/agent\/cai\/removal$/, 'the DELETE did not go to the resolved agent: ' + d[0].url);
+    assert.match(seen[0].url, /\/api\/agent\/Cai\/removal$/, 'CONTROL: the plan was not asked by the typed name');
+  }));
+
+test('#8109 Mac: a plan with no name (an older board) keeps the typed name for the DELETE', () => withStub(
+  [200, { ...PLAN, name: undefined }], REMOVED, async (port, seen) => {
+    const r = await cli(port, ['agent', 'remove', 'sally-sales', '--yes']);
+    assert.equal(r.code, 0, r.out);
+    assert.match(deletes(seen)[0].url, /\/api\/agent\/sally-sales\/removal$/, deletes(seen)[0] && deletes(seen)[0].url);
+  }));

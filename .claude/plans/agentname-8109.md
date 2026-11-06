@@ -14,9 +14,23 @@ on a prod 0.7.93 Linux board for a team made from the Team step (five agents, al
 - The refusal "we cannot find an agent called <name>" is unchanged and still quotes the name as asked; a name matching
   two agents resolves to nothing and reaches it.
 
+## Review round 1 changes
+- `remove.resolve(name)` returns `{ name, ambiguous }`; both routes refuse a name two or more agents answer to with
+  "more than one agent is called X (a, b); remove it by one of those names" (the folders are named so the person can
+  pick). A removed (hidden) agent is not a candidate.
+- The CLI (`install/kosmos agent remove`) sends the DELETE to the plan's `name` (the resolved folder), so a board that
+  changes between the plan and the person's answer cannot redirect it. An older board's plan with no name keeps the
+  typed name. The #7362 test that pinned the typed name on the DELETE is updated to the resolved one.
+- An agent token naming the agent by its display name now resolves too; the slug check and the ownership check both
+  read the resolved name.
+
 ## Not in this branch
 - restart and move resolve names their own way; the card says "probably". Left for a follow-up if they show the same.
 - `agent list` output unchanged.
+- An agent whose folder is recorded outside the workers folder (a profile `dir`) is not a candidate, so its display
+  name still does not resolve. Team-step agents (the card's case) live in the workers folder.
+- The Windows CLI has its own `agent remove`; the server now resolves its requests too, but it still sends the typed
+  name on its DELETE, so the between-requests window remains there.
 
 ## Validation
 `engine/remove.test.js` 109/109 (5 new, each turned red by a matching mutant: never resolves, ambiguous takes first,

@@ -3414,9 +3414,22 @@ test('#8109 a name that matches two agents resolves to nothing, and the refusal 
   folderAgent('kana8109', 'Kana Twin 8109');
   folderAgent('kana8109b', 'Kana Twin 8109');
   assert.equal(remove.resolveName('Kana Twin 8109', MAC), 'Kana Twin 8109', 'an ambiguous name was resolved to one of two agents');
-  const p = remove.plan(remove.resolveName('Kana Twin 8109', MAC), MAC);
-  assert.equal(p.ok, false, 'an ambiguous name was offered for removal');
-  assert.doesNotMatch(p.because, /kana8109/, 'the refusal named one of the two agents: ' + p.because);
+  assert.deepEqual(remove.resolve('Kana Twin 8109', MAC).ambiguous, ['kana8109', 'kana8109b'], 'the two agents it matches were not reported');
+  const said = remove.ambiguousRefusal('Kana Twin 8109', ['kana8109', 'kana8109b']);
+  assert.equal(said.ok, false);
+  assert.match(said.because, /more than one agent is called Kana Twin 8109 \(kana8109, kana8109b\)/, 'the refusal does not say there are two');
+});
+
+test('#8109 a removed agent with the same display name is not a second match', () => {
+  world();
+  status.setPaneSource(() => '');
+  folderAgent('kold8109', 'Kreuse 8109');
+  const gone = remove.remove('kold8109', { ...BINS, platform: MAC });
+  assert.equal(gone.outcome, remove.OUTCOME.REMOVED, 'CONTROL: the old agent was not removed: ' + gone.because);
+  folderAgent('knew8109', 'Kreuse 8109');
+  const r = remove.resolve('Kreuse 8109', MAC);
+  assert.deepEqual(r.ambiguous, [], 'a removed agent was counted as a second match');
+  assert.equal(r.name, 'knew8109', 'the name did not resolve to the agent on the list');
 });
 
 test('#8109 when the board cannot be read, the name is left as given (no guessing)', () => {
@@ -3437,7 +3450,7 @@ test('#8109 both removal routes resolve the name before they plan or remove', ()
   const getPart = route.slice(getAt, delAt);
   const delPart = route.slice(delAt, delAt + 4000);
   for (const [label, part, call] of [['GET', getPart, 'removal.plan(name'], ['DELETE', delPart, 'removal.remove(name']]) {
-    const r = part.indexOf('removal.resolveName(asked)');
+    const r = part.indexOf('removal.resolve(asked)');
     const c = part.indexOf(call);
     assert.ok(r >= 0, `${label} removal route does not resolve the name`);
     assert.ok(c > r, `${label} removal route acts before it resolves the name`);
