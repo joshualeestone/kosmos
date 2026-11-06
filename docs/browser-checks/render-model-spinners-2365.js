@@ -164,7 +164,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await new Promise((res) => { let k = 0; const f = () => (++k < 12 ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
     const span = host.querySelector('.spin.spin-sweep');
     const r = { orbCanvas: !!host.querySelector('canvas.korb'), dots: span ? [...span.querySelectorAll('i')].filter((i) => getComputedStyle(i).display !== 'none').length : 0,
-      dot: span ? getComputedStyle(span).getPropertyValue('--spin-dot').trim() : '' };
+      dot: span ? getComputedStyle(span).getPropertyValue('--spin-dot').trim() : '',
+      orbDot: (() => { const o = document.createElement('div'); o.innerHTML = kOrbWaitHtml('chk-orb', '', 88); host.appendChild(o); return getComputedStyle(o.firstElementChild).getPropertyValue('--spin-dot').trim(); })() };
     host.remove();
     return r;
   });
@@ -260,7 +261,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const firstFrame = await page.evaluate(async () => {
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;left:300px;top:10px;z-index:99999';
-    host.innerHTML = kOrbWaitHtml('chk-orb', '', 14);
+    host.innerHTML = kOrbWaitHtml('chk-orb', '', 88);   // the size a person sees on a whole-screen wait
     document.body.appendChild(host);
     await new Promise((res) => requestAnimationFrame(res));
     const cv = host.querySelector('canvas.korb');
@@ -281,7 +282,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const host = document.createElement('div');
     window.__korbDensityHost = host;   // the arm's own element, kept by reference (no page id)
     host.style.cssText = 'position:fixed;left:200px;top:10px;z-index:99999';
-    host.innerHTML = kOrbWaitHtml('chk-orb', '', 24);
+    host.innerHTML = kOrbWaitHtml('chk-orb', '', 88);
     document.body.appendChild(host);
     await frames(8);
     const cv = host.querySelector('canvas.korb');
@@ -301,7 +302,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       if (!cv) return { error: 'the still spinner lost its canvas' };
       const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
       let lit = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 20) lit++;
-      return { before: was.before, after: cv.width, want: Math.round(24 * (window.devicePixelRatio || 1)), dpr: window.devicePixelRatio, lit };
+      return { before: was.before, after: cv.width, want: Math.round(88 * (window.devicePixelRatio || 1)), dpr: window.devicePixelRatio, lit };
     }, calmMk);
   }
 
@@ -309,6 +310,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
   const orbProblems = [];
   if (smallKeepsDots.orbCanvas || smallKeepsDots.dots !== 8) orbProblems.push('a small spinner was given the orb or lost its dots (Josh 11-06: small spinners keep the Sweep dots): ' + JSON.stringify(smallKeepsDots));
+  // The dots keep the contrast fix (#7930): the same gold as the orb, the deep one on a light ground.
+  if (!smallKeepsDots.dot || smallKeepsDots.dot !== smallKeepsDots.orbDot) orbProblems.push('a small spinner is not in the orb\'s gold (the deep gold on light grounds, 3:1): ' + JSON.stringify(smallKeepsDots));
   if (onGold.error) orbProblems.push('orb on a gold button: ' + onGold.error);
   else if (!(onGold.avgRed >= 0 && onGold.avgRed < 90)) orbProblems.push('orb on a gold button: drawn in gold (average red ' + onGold.avgRed + '), not the button\'s dark ink, so it vanishes on the gold');
   // Within 14 of the wanted colour on each channel: the canvas blends edges, so the average is near the colour, not on it.
@@ -329,7 +332,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!orb.changed) orbProblems.push('orb: the drawing did not change between frames, so it is not turning');
     if (orb.oldDotsShown) orbProblems.push('orb: the old Sweep dots still show beside the orb');
     if (!orb.wasRunning) orbProblems.push('orb: the loop was not running while a spinner showed (CONTROL for the stop arm)');
-    if (!orb.stopped) orbProblems.push('orb: the loop kept running with no spinner visible (the page keeps four hidden ones)');
+    if (!orb.stopped) orbProblems.push('orb: the loop kept running with no spinner visible');
     if (!orb.reattachedTurns) orbProblems.push('orb: a spinner taken off the page and put back does not turn again');
     if (orb.side !== orb.want) orbProblems.push('orb: drawn at ' + orb.side + ' px, not the spinner\'s own size (' + orb.want + ')');
   }

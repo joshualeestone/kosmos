@@ -58,7 +58,7 @@ async function driveCreate(page, agentsOutcome) {
     // #2190 review: also pin the K-loader lifecycle, the regression-prone part
     // (a prior round caught a RAF left running on the hidden canvas). MADE_MARK is
     // a top-level `let`, reachable here as a bare identifier like loadRoles/cstep:
-    // the click block sets it (startKLoader) so it is non-null during-post; the
+    // the click block sets it (startMadeMark) so it is non-null during-post; the
     // route-back (dropMyLoader) finishes it and nulls it.
     const loaderSet = () => (typeof MADE_MARK !== 'undefined' && MADE_MARK !== null);
     const duringPostLoaderSet = loaderSet();
