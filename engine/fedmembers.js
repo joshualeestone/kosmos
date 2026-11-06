@@ -27,7 +27,8 @@ const LABEL_MAX = 80;
 /* Rows kept per project beyond the live ones. kosmos#8103: a live invite (not used, not withdrawn, not yet expired) is
    never dropped, because the coordinator lets one account hold up to 100 of them (FED_INVITES_OUTSTANDING_MAX) for 7
    days, and a row the board has forgotten can be neither listed nor withdrawn while it still counts against that cap.
-   The coordinator's cap is what bounds the live rows; this bounds the rest (used, withdrawn or expired), newest kept. */
+   Live rows are bounded by that cap plus codes used that this board has not noted yet, each lapsing within 7 days (then
+   trimmed at the next invite); this bounds the rest (used, withdrawn or expired), newest kept. */
 const KEEP_PER_PROJECT = 64;
 
 function file() { return path.join(store.ROOT, FILE); }
@@ -84,8 +85,11 @@ function rowsFor(projectId) {
   const all = readAll();
   return own(all, projectId) && Array.isArray(all[projectId]) ? all[projectId] : [];
 }
-/** Whether a row is a live invite: not used by anyone this board knows of, not withdrawn, and not yet expired. */
-function liveInvite(r, sec) { return !!r && !r.withdrawn_at && !r.member && Number.isFinite(r.expires_at) && r.expires_at > sec; }
+/** Whether a row is a live invite: not used by anyone this board knows of, not withdrawn, and not yet expired. An expiry
+    more than 30 days out is not a code's (they live 7; a time in milliseconds would read as live for ever), so it is not. */
+function liveInvite(r, sec) {
+  return !!r && !r.withdrawn_at && !r.member && Number.isFinite(r.expires_at) && r.expires_at > sec && r.expires_at <= sec + 30 * 86400;
+}
 /** The rows to keep, in their order: every live invite, and of the rest the newest KEEP_PER_PROJECT (kosmos#8103). */
 function keepRows(list, sec) {
   const rest = list.filter((r) => !liveInvite(r, sec));
