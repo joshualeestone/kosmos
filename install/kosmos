@@ -1170,16 +1170,21 @@ kosmos_engine_module() {
 # when this session itself sent a token: the caller already knows that much, so nothing is disclosed. A running
 # session cannot take on a new token (it is fixed when the session starts), and `kosmos adopt` mints one that never
 # reaches it, so the recovery is a restart from Kosmos. Printed after the board's words, never instead of them.
-token_refused_hint() {   # <token-sent> <board-answer>
-  [ -n "${1:-}" ] || return 0
+# kosmos#8071: the match alone, so `kosmos agent restart` reads the same four copies rather than a fifth.
+board_said_no_match() {   # <board-answer>
   # The refusal itself, never the sentence quoted inside some other answer: a JSON answer's own "because" (a msg or
   # post refusal is a delivery whose "because" it is), or a plain-text answer that is exactly the sentence (inbox,
   # as=text). The "error" arm is defensive: no route answers an unmatched sender that way today.
-  case "${2:-}" in
+  case "${1:-}" in
     *'"because":"we could not match that to one of your agents"'*|*'"error":"we could not match that to one of your agents"'*) ;;
     'we could not match that to one of your agents'|'we could not match that to one of your agents'$'\n') ;;
-    *) return 0 ;;
+    *) return 1 ;;
   esac
+}
+
+token_refused_hint() {   # <token-sent> <board-answer>
+  [ -n "${1:-}" ] || return 0
+  board_said_no_match "${2:-}" || return 0
   # On stderr, as the Windows CLI says it: a script capturing `kosmos whoami` or `kosmos inbox` gets the board's
   # answer alone, as before.
   {
@@ -7708,8 +7713,10 @@ cmd_agent() {
       # Reviews 2 to 4: four answers, told apart. NAMED (the board says who is asking). PERSON (its two "not an agent"
       # answers: a pane it cannot match to an agent, or no pane at all). REFUSED (any other refusal: it could not read
       # the roster or resolve the pane, or did not recognise a token). NONE (no answer it could read).
-      local rs_cls; rs_cls=$(printf '%s' "$rs_who" | "$_node" -e "$_rsparse"'const b=String(j.because||"");process.stdout.write(j.ok===true&&typeof j.agent==="string"?"N:"+one(j.agent):(j.ok===false?((/^we could not match that to one of your agents/.test(b)||/^we cannot tell which agent is sending this/.test(b))?"P":"R"):""))})' 2>/dev/null) || rs_cls=""
+      local rs_cls; rs_cls=$(printf '%s' "$rs_who" | "$_node" -e "$_rsparse"'const b=String(j.because||"");process.stdout.write(j.ok===true&&typeof j.agent==="string"?"N:"+one(j.agent):(j.ok===false?(/^we cannot tell which agent is sending this/.test(b)?"P":"F"):""))})' 2>/dev/null) || rs_cls=""
       [ "$rs_whorc" -eq 0 ] || rs_cls=""
+      # The board's NO_MATCH is matched where token_refused_hint matches it (CI #5333 pins exactly four copies).
+      if [ "$rs_cls" = F ]; then if board_said_no_match "$rs_who"; then rs_cls=P; else rs_cls=R; fi; fi
       rs_me=""; case "$rs_cls" in N:*) rs_me="${rs_cls#N:}" ;; esac
       # Review 5: the token sentence is the board's NO_MATCH, the same words as a pane it cannot match (class P).
       if [ -n "$_rtok" ] && [ "$rs_cls" = P ]; then
