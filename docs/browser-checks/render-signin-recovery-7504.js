@@ -14,7 +14,7 @@
  *  - watchdog registered, present, or no watchdog field: no line (the controls);
  *  - at 390 px nothing scrolls sideways.
  *
- * Browser-check-surface: set-machine-msg data-start-at-sign-in startAtSignInNoReopen startAtSignInReopenNextStart
+ * Browser-check-surface: set-machine-msg data-start-at-sign-in startAtSignInNoReopen startAtSignInReopenNextStart startAtSignInReopenUnknown
  *
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-signin-recovery-7504.js
  *
@@ -34,6 +34,7 @@ const WANT = {
   refused: NO_REOPEN + ' Windows did not allow it: <b>Access</b> is denied. ' + RETRY,
   notyet: 'Kosmos will start when you sign in. It will set itself to reopen if it closes the next time it starts.',
   notime: 'Kosmos will start when you sign in, but it will not reopen on its own yet if it closes. ' + RETRY,
+  unknown: 'Kosmos will start when you sign in, but we could not check whether it will reopen on its own if it closes. ' + RETRY,
   other: NO_REOPEN + ' ' + RETRY,
 };
 const ROW = (on) => ({ key: 'autostart', state: 'ok', title: 'Kosmos starts itself when you sign in',
@@ -42,6 +43,7 @@ const CASES = {
   refused: { watchdog: { ok: false, kind: 'refused', detail: '<b>Access</b> is denied.', because: ENGINE } },
   notyet: { watchdog: { ok: false, kind: 'not-yet', because: ENGINE } },
   notime: { watchdog: { ok: false, kind: 'no-time', because: ENGINE } },
+  unknown: { watchdog: { ok: false, kind: 'unknown', because: ENGINE } },
   other: { watchdog: { ok: false, because: ENGINE } },
   registered: { watchdog: { ok: true, action: 'registered' } },
   present: { watchdog: { ok: true, action: 'present' } },
@@ -109,7 +111,7 @@ const say = (ok, label, extra) => { console.log((ok ? 'PASS  ' : 'FAIL  ') + lab
         return out;
       }, { cases: CASES, rowOff: ROW(false), rowOn: ROW(true) });
       if (r.error) { say(false, tag + ' ' + r.error); await page.close(); continue; }
-      for (const k of ['refused', 'notyet', 'notime', 'other']) {
+      for (const k of ['refused', 'notyet', 'notime', 'unknown', 'other']) {
         const f = r[k];
         say(f.checked === 'true' && f.shown, tag + ' ' + k + ': switched on, and the line is shown', JSON.stringify(f));
         say(f.text === WANT[k], tag + ' ' + k + ': its own sentence, in the page\'s words', JSON.stringify(f.text));

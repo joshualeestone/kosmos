@@ -21414,6 +21414,7 @@ function windowsCopyTable() {
     startAtSignInWindowsRefused: 'Windows did not allow it',
     startAtSignInReopenNextStart: 'Kosmos will start when you sign in. It will set itself to reopen if it closes the next time it starts.',
     startAtSignInTryAgain: 'Turn the switch off and on to try again.',
+    startAtSignInReopenUnknown: 'Kosmos will start when you sign in, but we could not check whether it will reopen on its own if it closes.',
     /* Settings > Updates, the in-app updater armed (S4). The confirm dialog: the win32 updater
        downloads first, THEN stops the board to swap the new build in place, which the Mac's does not,
        so its body names both steps. */
@@ -27931,9 +27932,11 @@ function startAtSignInRecoverySaid(out) {
   if (w.kind === 'not-yet') return windowsCopy('startAtSignInReopenNextStart');
   const retry = windowsCopy('startAtSignInTryAgain');
   if (w.kind === 'no-time') return windowsCopy('startAtSignInNoReopenYet') + ' ' + retry;
+  if (w.kind === 'unknown') return windowsCopy('startAtSignInReopenUnknown') + ' ' + retry;
   if (w.kind === 'refused') {
     const detail = typeof w.detail === 'string' ? w.detail.trim().replace(/[.\s]+$/, '') : '';
-    return windowsCopy('startAtSignInNoReopen') + ' ' + windowsCopy('startAtSignInWindowsRefused') + (detail ? ': ' + detail : '') + '. ' + retry;
+    const end = /[!?]$/.test(detail) ? ' ' : '. ';
+    return windowsCopy('startAtSignInNoReopen') + ' ' + windowsCopy('startAtSignInWindowsRefused') + (detail ? ': ' + detail + end : '. ') + retry;
   }
   return windowsCopy('startAtSignInNoReopen') + ' ' + retry;
 }

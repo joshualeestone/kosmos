@@ -165,7 +165,10 @@ function withWatchdogState(state, watchdog) {
       if (watchdog === 'create-refused-in-message') return { ok: false, out: failed + '\r\nERROR: Access is denied.\r\n', code: 1 };
       if (watchdog === 'create-error-path') return { ok: false, out: failed, stderr: 'ERROR: Cannot read C:\\Users\\person\\x.xml\r\n', code: 1 };
       if (watchdog === 'create-timeout') return { ok: false, out: 'spawnSync schtasks.exe ETIMEDOUT', timedOut: true };
-      if (watchdog === 'create-long') return { ok: false, out: failed, stderr: 'ERROR: ' + 'x'.repeat(121) + '\r\n', code: 1 };
+      if (watchdog === 'create-long') return { ok: false, out: failed, stderr: 'ERROR: Access is denied. ' + 'x'.repeat(120) + '\r\n', code: 1 };
+      if (watchdog === 'create-malformed') return { ok: false, out: failed, stderr: 'ERROR: The task XML is malformed.\r\n', code: 1 };
+      if (watchdog === 'create-denied-path') return { ok: false, out: failed, stderr: 'ERROR: Access is denied to C:\\Users\\person\\x.xml\r\n', code: 1 };
+      if (watchdog === 'create-nothing-said') return { ok: false, out: failed, code: 1 };
       if (watchdog === 'create-missing') return { ok: false, out: 'spawnSync schtasks.exe ENOENT' };
       if (watchdog === 'create-silent') return { ok: false, out: '' };
       return { ok: true, out: 'SUCCESS' };
@@ -227,7 +230,7 @@ test('#7498: a watchdog whose presence cannot be read is not created blind, and 
   assert.ok(!createdWatchdog(s.calls), s.calls.join(' | '));
   assert.equal(r.watchdog.ok, false);
   assert.match(r.watchdog.because, /could not tell whether the job that restarts Kosmos if it stops is there/);
-  assert.equal(r.watchdog.kind, 'other', 'kosmos#7504: the kind Settings words this by');
+  assert.equal(r.watchdog.kind, 'unknown', 'kosmos#7504: the kind Settings words this by (it may be there)');
 });
 
 test('#7498: switching it OFF never touches the watchdog (turning it off is not removing crash recovery here)', () => {
@@ -331,4 +334,18 @@ test('kosmos#7504: a /Create that timed out is no-time; one with no ERROR: line 
     assert.equal(w.kind, 'other', state);
     assert.equal('detail' in w, false, state + ' carried a detail');
   }
+});
+
+test('kosmos#7504: an ERROR: that is not Windows saying no (malformed XML, a file) is other, never "Windows did not allow it"', () => {
+  const w = watchdogFor('create-malformed');
+  assert.equal(w.kind, 'other');
+  assert.equal('detail' in w, false);
+  const d = watchdogFor('create-denied-path');
+  assert.deepEqual([d.kind, d.detail], ['refused', ''], 'a denial naming a path should be refused with no words to quote');
+});
+
+test('kosmos#7504: with no schtasks words, because says so rather than quoting Node\'s command line', () => {
+  const w = watchdogFor('create-nothing-said');
+  assert.equal(w.kind, 'other');
+  assert.equal(w.because, 'we could not register the job that restarts the board if it stops (schtasks said nothing we can quote)');
 });

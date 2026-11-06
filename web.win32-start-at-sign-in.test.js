@@ -179,8 +179,15 @@ test('kosmos#7504: no time left says "yet" and the way out; any other kind, or n
   }
 });
 
+test('kosmos#7504: unknown (it could not be checked) says so, never that it will not reopen; a detail ending in ? or ! gets no extra full stop', async () => {
+  assert.equal(await saidFor({ ok: false, kind: 'unknown', because: 'we could not tell whether ...' }),
+    'Kosmos will start when you sign in, but we could not check whether it will reopen on its own if it closes. ' + RETRY);
+  assert.equal(await saidFor({ ok: false, kind: 'refused', detail: 'Access is denied!' }), NO_REOPEN + ' Windows did not allow it: Access is denied! ' + RETRY);
+  assert.equal(await saidFor({ ok: false, kind: 'refused', detail: 'Denied?' }), NO_REOPEN + ' Windows did not allow it: Denied? ' + RETRY);
+});
+
 test('kosmos#7504: the engine\'s own sentence is never on the page, whatever the kind', async () => {
-  for (const kind of ['refused', 'not-yet', 'no-time', 'other', undefined]) {
+  for (const kind of ['refused', 'not-yet', 'no-time', 'unknown', 'other', undefined]) {
     const said = await saidFor({ ok: false, kind, because: 'ENGINE WORDS job board register', detail: 'Access is denied.' });
     assert.ok(said && !/ENGINE WORDS|job|board|register/.test(said), kind + ': ' + said);
   }
