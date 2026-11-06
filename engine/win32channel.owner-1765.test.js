@@ -148,6 +148,34 @@ test('#1765: the owner check ends before a supervisor gives up on a silent calle
     'owner check ' + channel.OWNER_CHECK_TIMEOUT_MS + ' ms is not under the supervisor idle bound ' + channel.SAY_TIMEOUT_MS + ' ms');
 });
 
+test('#1765: a check PowerShell could not finish is told in plain words, with its own line kept for a log', () => {
+  /* Review 3. The stderr shapes are Windows PowerShell 5.1's own: the first is what Constrained Language Mode
+     (a WDAC or AppLocker policy) prints for New-Object of a .NET type. */
+  const clm = [
+    'New-Object : Cannot create type. Only core types are supported in this language mode.',
+    'At line:3 char:6',
+    '+ $c = New-Object System.IO.Pipes.NamedPipeClientStream(".", $env:KOSMOS ...',
+    '    + CategoryInfo          : PermissionDenied: (:) [New-Object], PSNotSupportedException',
+    '    + FullyQualifiedErrorId : CannotCreateTypeConstrainedLanguage,Microsoft.PowerShell.Commands.NewObjectCommand',
+  ].join('\r\n');
+  const cases = [
+    [clm, /runs Windows PowerShell locked down/],
+    ['Exception calling "Connect" with "1" argument(s): "The operation has timed out."', /^Windows did not say in time$/],
+    ['Exception calling "Connect" with "1" argument(s): "Access to the path is denied."', /would not let Kosmos look/],
+    ['Exception calling "Connect" with "1" argument(s): "All pipe instances are busy."', /channel closed before Windows could say/],
+    ['something nobody has seen before', /^Windows could not say who holds it$/],
+    ['', /^Windows could not say who holds it$/],
+  ];
+  for (const [stderr, want] of cases) {
+    const e = channel.ownerCheckFailure(stderr, 1);
+    assert.match(e.message, want, stderr.slice(0, 60));
+    assert.ok(!/Exception|New-Object|CategoryInfo|"/.test(e.message), 'engine output reached the sentence: ' + e.message);
+    assert.equal(typeof e.detail, 'string');
+  }
+  assert.match(channel.ownerCheckFailure(clm, 1).detail, /^New-Object : Cannot create type/, 'the raw first line is kept for a log');
+  assert.equal(channel.ownerCheckFailure('', 5).detail, 'Windows PowerShell ended with code 5');
+});
+
 test('#1765: serverOwnerOf refuses anything that is not a named pipe, without asking Windows', async () => {
   await assert.rejects(channel.serverOwnerOf('/tmp/sock', 1000), /not a pipe Windows can say the owner of/);
   await assert.rejects(channel.serverOwnerOf('\\\\.\\pipe\\', 1000), /not a pipe Windows can say the owner of/);

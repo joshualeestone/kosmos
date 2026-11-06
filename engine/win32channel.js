@@ -353,6 +353,31 @@ function powershellReason(stderr) {
   return line ? line.slice(0, 160) : null;
 }
 
+/**
+ * Review 3: what the person is told when Windows PowerShell could not answer, in plain words. PowerShell's own
+ * error line is engine output, so it never reaches the person: it rides on the error as `detail`, for a log.
+ * 🔑 A LOCKED-DOWN POWERSHELL HAS ITS OWN SENTENCE. On a PC whose policy (WDAC or AppLocker) runs PowerShell in
+ * Constrained Language Mode, the pipe type cannot be created and every message is refused, so the reason has to
+ * name that, or the outage cannot be told apart from a slow one. Pure, so a test pins each wording.
+ */
+function ownerCheckFailure(stderr, code) {
+  const detail = powershellReason(stderr) || ('Windows PowerShell ended with code ' + code);
+  const said = String(stderr || '');
+  let because = 'Windows could not say who holds it';
+  if (/language mode|Only core types are supported/i.test(said)) {
+    because = 'this computer runs Windows PowerShell locked down, so Kosmos cannot check who holds it';
+  } else if (/timed out|TimeoutException/i.test(said)) {
+    because = 'Windows did not say in time';
+  } else if (/access to the path.*is denied|access is denied|UnauthorizedAccess/i.test(said)) {
+    because = 'Windows would not let Kosmos look at who holds it';
+  } else if (/pipe (is being )?closed|pipe is broken|All pipe instances are busy|cannot find the file|FileNotFound/i.test(said)) {
+    because = 'its channel closed before Windows could say who holds it';
+  }
+  const e = new Error(because);
+  e.detail = detail;
+  return e;
+}
+
 function serverOwnerOf(at, timeoutMs) {
   return new Promise((resolve, reject) => {
     const full = String(at || '');
@@ -371,7 +396,7 @@ function serverOwnerOf(at, timeoutMs) {
       if (err) {
         if (err.killed || err.signal || err.code === 'ETIMEDOUT') { reject(new Error('Windows did not say in time')); return; }
         if (err.code === 'ENOENT') { reject(new Error('Windows PowerShell is not where Windows keeps it')); return; }
-        reject(new Error(powershellReason(stderr) || 'Windows PowerShell ended with code ' + err.code));
+        reject(ownerCheckFailure(stderr, err.code));
         return;
       }
       let j = null;
@@ -626,5 +651,5 @@ if (require.main === module) {
 
 module.exports = {
   PIPE_PREFIX, MAX_REQUEST_BYTES, SAY_TIMEOUT_MS, OWNER_CHECK_TIMEOUT_MS, TRUSTED_PIPE_OWNERS,
-  pipePath, secretPath, ensureSecret, sameSecret, serve, say, clientMain, serverOwnerOf, ownerRefusal,
+  pipePath, secretPath, ensureSecret, sameSecret, serve, say, clientMain, serverOwnerOf, ownerRefusal, ownerCheckFailure,
 };
