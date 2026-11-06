@@ -39,19 +39,49 @@ Sonya Blade handed slice 1 over with this first task, and it is done in this pus
   **Weakest part:** the Kotlin gradle wiring is reasoned, NOT built — this box has no local Kotlin/Java
   toolchain and Gradle builds are gated on the box being clear (#8046). First build on a clear box is the
   verification; if the plugin/version pin is wrong, that build is where it shows.
-- **Dots as a custom `View`**, not Jetpack Compose. The dots map cleanly onto `Canvas.drawCircle` either
-  way; a `View` keeps this increment self-contained with one new gradle plugin instead of a whole Compose
-  toolchain I cannot build-verify here. **The screen-layer framework (Compose vs Views) for the rest of
-  slice 1 is deferred and flagged to Liu Kang** — that is the truly foundational call and it deserves a
-  build + his eyes, not a silent commitment buried in this push.
+- **Jetpack Compose** for slice 1's native screens (approved by Liu Kang, 2026-11-06; recorded on #8046).
+  iOS is SwiftUI, so Compose is the closest declarative match and Android's current default. Compose
+  dependencies are added with the first native screen and verified by a build on a clear box.
+- **Dots as a custom `View`**, not Compose — kept on purpose: the dots pin by content to the board CSS and
+  their JVM tests (`SweepLogicTest`, `SweepGuardTest`) need no Compose. They render on a Canvas either way.
 - **Reuse the existing app identity and signing** (`io.kosmos.app`, versionCode 4) untouched — #8046 says
   the app must stay the same app on Play and on existing devices.
 
-## Still to do in slice 1 (after this push)
-- Native activity shell + board client (sign-in, token handling) wired to the dots.
-- Load-failure page (native) and the same-app upgrade check.
-- The screen-framework decision above, then the first native screen.
-- Build + run on the box (gated), then a signed debug APK with its SHA-256 on the card for Josh's device.
+## Board client + shell: what the iOS reference actually is (studied 2026-11-06)
+The iOS "shell and board client" is a **hybrid**, not fully-native screens:
+- `ShellLogic.swift` (Foundation-only, proven by `ios/LogicTests` with no simulator) holds: load-failure
+  classification (`Shell.LoadFailure`: offline / unreachable / macUnreachable / other), link routing
+  (in-app vs Safari vs block), retry/back actions, the "a Mac isn't answering" wording, and the whole
+  **`AppTabs` + `PressTracker` tab brain** — Agents is a native tab, the other tabs load the board in **one
+  WebView** through a JS "door" (`window.kosmosAppTab`).
+- `BoardClient.swift` / `SignInClient.swift` / `SessionKeychain.swift` / `SignInLogic.swift` / `BoardLogic.swift`
+  are the networking + token-storage + sign-in layer.
+- The existing Android app is already a **Trusted Web Activity** (a WebView board with native sign-in
+  handoff via `OpenAddressActivity`, a native `LoadErrorActivity`, and notification delegation).
+
+### OPEN DECISION to settle before porting the shell (surfaced to Liu Kang)
+Does Android slice 1 mirror iOS's **hybrid** (native chrome + board-in-WebView through a door), or go
+**fully native** (Compose screens hitting the API, no board WebView)? This is NOT settled by "use Compose".
+It decides whether most of `ShellLogic` (the `AppTabs`/`PressTracker`/door brain) is ported at all, or
+replaced by native navigation. The existing TWA leans hybrid; the iOS reference is hybrid; "rebuild
+natively… reuse the existing app" could mean either. I will not guess this — porting the tab brain blind
+would be large and likely rework. **Next increment waits on this answer.**
+
+## Next increment (isolable, architecture-independent — safe either way)
+Port **only the load-failure classification** (`Shell.LoadFailure` + the classifier) to Kotlin as
+`ShellLoadLogic.kt`, with a JVM test, because a native failure page is needed under BOTH architectures.
+**Android divergence to write on #8046:** iOS classifies `NSURLError` codes and gets "offline" from
+specific codes; Android classifies `WebViewClient.ERROR_*` codes (`ERROR_HOST_LOOKUP`, `ERROR_CONNECT`,
+`ERROR_TIMEOUT`, `ERROR_IO`, `ERROR_FAILED_SSL_HANDSHAKE`, …) and gets "offline" from `ConnectivityManager`
+(no active network), so the function takes an explicit `online: Boolean`. These code→category mappings are
+real decisions and will be named as the weakest part of that increment.
+
+## Still to do in slice 1 (after the decision above)
+- The shell per the hybrid-vs-native ruling: load-failure page (native), link routing, same-app upgrade check.
+- Board client: sign-in + token handling (`BoardClient`/`SignInClient`/`SessionKeychain` analogs; token in
+  Android Keystore / EncryptedSharedPreferences, not the iOS Keychain).
+- First native Compose screen, then build + run on the box (gated), then a signed debug APK with its
+  SHA-256 on the card for Josh's device.
 
 ## Build/▸machine discipline
 No Gradle build runs on Mortals until `who-has-the-box.sh` / `heavy-gate` report the box clear and no cut
