@@ -18,21 +18,21 @@ const os = require('node:os');
  *
  * #7693: each line ends with the machine's one-minute load, and a [load] line every LOAD_EVERY_MS records it between
  * stalls, so held time can be compared at like load, including hours with no stall at all. Left out when there is
- * none to report: Windows answers 0 for a load it does not keep.
+ * none to report, so no figure does not mean idle: Windows answers 0 for a load it does not keep.
  */
 
 const TICK_MS = 500;
 const HELD_MS = 2000;       // late by this much: the board answered nobody for that long
 const ASLEEP_MS = 300000;   // a gap this long is more likely the computer sleeping than the board held
 const MAX_PER_MINUTE = 10;
-const LOAD_EVERY_MS = 1800000;
+const LOAD_EVERY_MS = 1800000;   // shorter eats the diagnostics tail (LOG_TAIL_LINES) on a quiet board
 const monotonic = () => Math.round(performance.now());   // not the wall clock: a clock step is not a stall
 
 // "4.24", or '' when there is no load to report. A failed read loses the figure, never the line it goes on.
 function loadFigure(read) {
   try {
     const n = read();
-    return Number.isFinite(n) && n >= 0.005 ? n.toFixed(2) : '';
+    return Number.isFinite(n) && n >= 0.005 ? n.toFixed(2) : '';   // under 0.005 would print 0.00
   } catch { return ''; }
 }
 const loadWords = (read) => { const f = loadFigure(read); return f ? `, load ${f}` : ''; };
