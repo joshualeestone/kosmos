@@ -9,4 +9,7 @@ plugins {
     // kosmos#8046: native Android is built in Kotlin. Kotlin 2.0.21 is compatible with the pinned
     // AGP 8.13 / Gradle 8.13 and JDK 17+. Applied in app/build.gradle.
     id 'org.jetbrains.kotlin.android' version '2.0.21' apply false
+    // kosmos#8046 hybrid shell: the Compose compiler plugin. From Kotlin 2.0 the Compose compiler ships as a
+    // Gradle plugin versioned IN LOCKSTEP with Kotlin, so this is pinned to the same 2.0.21. Applied in app/build.gradle.
+    id 'org.jetbrains.kotlin.plugin.compose' version '2.0.21' apply false
 }

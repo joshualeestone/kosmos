@@ -34,9 +34,15 @@ class BoardWebViewClient(
     private val coordinatorOrigin: String,
     private val isOnline: () -> Boolean,
     private val onLoadFailure: (ShellLoad.LoadFailure, String?) -> Unit,
+    private val onMainFrameFinished: () -> Unit = {},
 ) : WebViewClient() {
 
     private val coordinatorHost: String? = runCatching { Uri.parse(coordinatorOrigin).host }.getOrNull()
+
+    override fun onPageFinished(view: WebView, url: String?) {
+        super.onPageFinished(view, url)
+        onMainFrameFinished()
+    }
 
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         // Subframe navigations do not come here as main-frame links; leave them to the WebView (ShellLink.allowsSubframe

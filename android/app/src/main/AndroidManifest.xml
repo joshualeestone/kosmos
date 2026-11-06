@@ -22,6 +22,22 @@
             android:name="asset_statements"
             android:resource="@string/assetStatements" />
 
+        <!-- kosmos#8046 hybrid shell: the native entry point (Compose + the board WebView host). It replaces the
+             TWA KosmosLauncherActivity below as the launcher. Deep-link (https VIEW) routing into the native shell
+             is a later increment, so those filters are not carried over yet; until then https links fall back to
+             the browser. Device-verified via the signed debug APK. -->
+        <activity
+            android:name="io.kosmos.app.MainActivity"
+            android:exported="true"
+            android:theme="@style/KosmosLauncherTheme">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Demoted from launcher by kosmos#8046: kept declared for the TWA machinery OpenAddressActivity uses
+             (androidbrowserhelper). No longer the MAIN/LAUNCHER activity and no longer the https deep-link target. -->
         <activity
             android:name="io.kosmos.app.KosmosLauncherActivity"
             android:exported="true">
@@ -62,19 +78,6 @@
                 android:name="android.support.customtabs.trusted.FILE_PROVIDER_AUTHORITY"
                 android:value="@string/providerAuthority" />
 
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-
-            <!-- Deep-link verification: opening an https://<host> link launches
-                 the TWA instead of the browser once asset links verify. -->
-            <intent-filter android:autoVerify="true">
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="@string/hostName" />
-            </intent-filter>
         </activity>
 
         <activity
