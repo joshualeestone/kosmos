@@ -109,7 +109,8 @@ test('a parent row carries its chip; with its family in the list the chip is the
 test('kosmos#8140: a parent row says how many of its subtasks are on hold, apart from not done', () => {
   const one = Object.assign({}, rows().find((t) => t.number === 1), { subtasks: { done: 0, built: 0, held: 3, total: 4 } });
   const alone = rowHtml(one, { depth: 0, crumb: false, kids: 0 });
-  assert.match(alone, /<span class="tsk-chip" title="0 of 4 subtasks done, 3 on hold">0\/4, 3 on hold<span class="vh"> subtasks done<\/span><\/span>/);
+  assert.match(alone, /<span class="tsk-chip" title="0 of 4 subtasks done, 3 on hold">0\/4<span class="vh"> subtasks done<\/span>, 3 on hold<\/span>/);
+  assert.doesNotMatch(alone, /on hold<span class="vh"> subtasks done/, 'a screen reader would hear "3 on hold subtasks done"');
   const withKids = rowHtml(one, { depth: 0, crumb: false, kids: 4 });
   assert.match(withKids, /aria-label="0 of 4 subtasks done, 3 on hold\. Hide them"/);
   assert.match(withKids, />0\/4, 3 on hold<\/button>/);

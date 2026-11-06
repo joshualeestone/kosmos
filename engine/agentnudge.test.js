@@ -662,7 +662,7 @@ test('#6421: a repeating parent is never told to mark itself built; CONTROL: the
   assert.ok(nudge.nudgeText(plain[0]).includes('kosmos task built'), 'CONTROL: ' + nudge.nudgeText(plain[0]));
 });
 
-test('#6421: plural counts, a held built subtask counts as not finished, and an unassigned open part is another part', () => {
+test('#6421: plural counts, a held built subtask is said as on hold (kosmos#8140), and an unassigned open part is another part', () => {
   const w = world([{ name: 'parentmany' }]);
   try {
     const n = taskOn(w, w.key.parentmany, 'ship a fifth release');
@@ -673,7 +673,8 @@ test('#6421: plural counts, a held built subtask counts as not finished, and an 
     tasks.setOnHold(w.pid, held, true);
     assert.ok(tasks.isOnHold(tasks.byNumber(projects.readAll().find((x) => x.id === w.pid), held)), 'fixture: the subtask is not held');
     const { calls } = pass(w);
-    assert.match(calls[0].text, /2 of its 4 subtasks are built, waiting for the person; 2 are not finished\./, calls[0].text);
+    // kosmos#8140: the held one is said apart; an agent is never told to finish what is on hold.
+    assert.match(calls[0].text, /2 of its 4 subtasks are built, waiting for the person; 1 is not finished, 1 is on hold\./, calls[0].text);
     const w2 = world([{ name: 'parentspare' }]);
     try {
       const m = taskOn(w2, w2.key.parentspare, 'ship a sixth release');

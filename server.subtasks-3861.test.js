@@ -190,3 +190,20 @@ test('Mac `task list` shows the parent and the subtask count', async () => {
   assert.match(r.out, new RegExp('\\(under task ' + top + '\\)'));
   assert.match(r.out, /\[\d+\/\d+ subtasks done\]/);
 });
+
+/* kosmos#8140: both `task list`s say a parent's held subtasks apart from the ones not done. */
+test('kosmos#8140: Mac and Windows `task list` say how many subtasks are on hold', async () => {
+  const pid = projects.create({ name: 'Held ' + Math.random().toString(36).slice(2) }).id;
+  const parent = tasks.create(pid, { sentence: 'Launch' }).number;
+  const kids = ['Copy', 'Art'].map((s) => tasks.create(pid, { sentence: s, parent }).number);
+  for (const [name, run] of [['Mac', mac], ['Windows', win]]) {
+    const before = await run(['task', 'list', pid]);
+    assert.match(before.out, /\[0\/2 subtasks done\]/, name + ' CONTROL: nothing held, nothing said');
+  }
+  tasks.setOnHold(pid, kids[1], true, { viaScreen: true });
+  for (const [name, run] of [['Mac', mac], ['Windows', win]]) {
+    const r = await run(['task', 'list', pid]);
+    assert.equal(r.code, 0, name + ': ' + r.out);
+    assert.match(r.out, /\[0\/2 subtasks done, 1 on hold\]/, name + ': ' + r.out);
+  }
+});

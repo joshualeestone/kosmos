@@ -116,7 +116,8 @@ test('kosmos#8140: a built parent with held subtasks shows how many are on hold 
   };
   const html = runPaintProjectTasks({ ...PROJECT, tasks: [t] }).els['pj-tasklist'].innerHTML;
   assert.match(html, /Task 7 \(built\)/, 'CONTROL: the parent shows its own state');
-  assert.match(html, /title="1 of 4 subtasks done, 3 on hold">1\/4, 3 on hold/);
+  assert.match(html, /title="1 of 4 subtasks done, 3 on hold">1\/4<span class="vh"> subtasks done<\/span>, 3 on hold/);
+  assert.doesNotMatch(html, /on hold<span class="vh"> subtasks done/, 'a screen reader would hear "3 on hold subtasks done"');
   const none = runPaintProjectTasks({ ...PROJECT, tasks: [{ ...t, subtasks: { done: 1, built: 0, held: 0, total: 4 } }] }).els['pj-tasklist'].innerHTML;
   assert.doesNotMatch(none, /on hold/, 'CONTROL: nothing held, nothing said');
 });
