@@ -871,7 +871,7 @@ struct ChatView: View {
                     // again; the keyboard's height flips (345, 380, 608) each sent a did-show and each one scrolled.
                     // Build 43 (Josh 11-04 21:11): shortOfEnd reads 0 past the end too, so a list 387 pt past its end, nothing drawn, was
                     // called "at the newest already" and left blank until a later look. Past the end is never at the newest, unless a finger or a fling is on it: that is a bounce, and is not moved.
-                    if endVisible || scrollBox.underFinger, scrollBox.reading()?.place != "past the end" || scrollBox.underFinger, let s = scrollBox.shortOfEnd(), s <= Double(Self.listPadV) + 4 { Self.trace("keyboard shown, at the newest already"); return }
+                    if scrollBox.reading()?.place != "past the end" || scrollBox.underFinger, let s = scrollBox.shortOfEnd(), s <= Double(Self.listPadV) + 4 { Self.trace("keyboard shown, at the newest already"); return }
                     Self.trace("keyboard shown, to the newest")
                     // kosmos#7344: re-setting an anchor that already reads "end" does not move the thread, so scroll to it.
                     // Not animated under the anchor, as goNewest is (the side lock, #7574, relies on that).
