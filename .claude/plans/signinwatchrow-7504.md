@@ -56,3 +56,14 @@ and nobody learned recovery was missing.
   refusal to quote); a detail over 120 characters is not shown.
 - NITs left: any signal-killed child is no-time (only a timeout kills it in practice); the boot path's withWatchdog
   answers carry no kind, and the page reads a missing kind as other.
+
+## Review round 4 (opus)
+- WARNING fixed: refused meant any ERROR: line; schtasks also prefixes our own mistakes ("The task XML is
+  malformed."). Refused now needs Windows saying no (denied, policy, privilege, not permitted); any other ERROR:
+  is other, with nothing quoted.
+- WARNING fixed: a watchdog whose presence could not be read was said as "will not reopen", which may be false. New
+  kind `unknown`, said as "we could not check whether it will reopen on its own if it closes", with the way out.
+  New copy key startAtSignInReopenUnknown (copy lane: Mona Lisa told on the card).
+- NITs taken: with no schtasks words, because says so instead of quoting Node's "Command failed:" line; timedOut is
+  only ETIMEDOUT; a detail ending in ? or ! gets no extra full stop.
+- NIT left: a localized ERROR: prefix (FEHLER:, ERREUR:) is other, so a German refusal shows no Windows words.

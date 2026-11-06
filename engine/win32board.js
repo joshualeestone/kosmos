@@ -115,7 +115,7 @@ function run(args, timeoutMs) {
     /* kosmos#7504: stderr and a timeout are kept beside `out` (unchanged for its readers): schtasks says why on stderr,
        and `out` falls back to Node's "Command failed: schtasks.exe ..." message, which carries a temp path. */
     return { ok: false, out: String((e && (e.stdout || e.message)) || ''), code: (e && e.status),
-      stderr: e && e.stderr ? String(e.stderr) : '', timedOut: !!(e && (e.code === 'ETIMEDOUT' || e.signal)) };
+      stderr: e && e.stderr ? String(e.stderr) : '', timedOut: !!(e && e.code === 'ETIMEDOUT') };
   }
 }
 
@@ -689,15 +689,17 @@ function installWatchdog(spec) {
        message, which names a temp file under the person's own folder. The ERROR: line schtasks wrote (stderr, then
        inside that message) is what `because` quotes when there is one, and the only source of `detail`. */
     const errLine = (String(r.stderr || '') + '\n' + String(r.out || '')).split(/\r?\n/).find((l) => /^\s*ERROR:/i.test(l));
-    const said = errLine ? errLine.trim() : (r.out || 'no detail').trim().split(/\r?\n/)[0];   // Windows ends lines with CRLF
+    const first = (r.out || '').trim().split(/\r?\n/)[0];   // Windows ends lines with CRLF
+    const said = errLine ? errLine.trim() : (first && !/^Command failed:/i.test(first) ? first : 'schtasks said nothing we can quote');
     const because = 'we could not register the job that restarts the board if it stops (' + said + ')';
     if (r.timedOut) return { ok: false, because, kind: 'no-time' };
     if (!errLine) return { ok: false, because, kind: 'other' };
     const detail = errLine.replace(/^\s*ERROR:\s*/i, '').trim();
-    /* A line naming a path, a command or schtasks itself is an argument or file error, not a refusal to put in front
-       of a person; a long one is not shown. */
-    if (/[\\/]|Command failed|schtasks/i.test(detail)) return { ok: false, because, kind: 'other' };
-    return { ok: false, because, kind: 'refused', detail: detail.length <= 120 ? detail : '' };
+    /* Refused only when Windows said no (denied, a policy, a privilege): schtasks puts ERROR: on our own mistakes too
+       ("The task XML is malformed."), and those are not a refusal a person could do anything about. A refusal's words
+       are shown only when they name no path or command and are short. */
+    if (!/denied|policy|privilege|not permitted/i.test(detail)) return { ok: false, because, kind: 'other' };
+    return { ok: false, because, kind: 'refused', detail: /[\\/]|Command failed|schtasks/i.test(detail) || detail.length > 120 ? '' : detail };
   }
   return { ok: true, task: WATCHDOG_TASK_NAME, watch: watchAt, removeHint: WATCHDOG_REMOVE_HINT };
 }
@@ -958,7 +960,7 @@ function ensureWatchdog(opts) {
       return { ok: false, kind: 'no-time', because: NO_TIME_LEFT + ', so the job that restarts Kosmos if it stops was not registered this time' };
     }
     if (!absent) {
-      return { ok: false, kind: 'other', because: 'we could not tell whether the job that restarts Kosmos if it stops is there, so we left it as it is' };
+      return { ok: false, kind: 'unknown', because: 'we could not tell whether the job that restarts Kosmos if it stops is there, so we left it as it is' };
     }
     /* Review 1: the spec a boot gives the watchdog, WITHOUT anchoring: anchoring rewrites the fleet's pointer and boot
        shim and is the boot's job alone. The watchdog needs only the anchor's folder and its interpreter, because its
