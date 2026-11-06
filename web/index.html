@@ -34687,7 +34687,7 @@ function openAcctAdd(ev) {
   ACCT_GROK_REAUTH_DIR = null;   // #3391 part 2: a fresh add is never a sign-in again
   acctApikeyShow(null);  /* #3566: the key step never outlives a visit (it holds a pasted key) */
   acctQwenShow(false);   // #5977: nor does the Qwen step (its key, and its download poll)
-  acctCompatShow(false);   // #7206: nor the DeepSeek or GLM step (it holds a pasted key)
+  acctCompatShow(false);   // #7206: nor a vendor's key step (it holds a pasted key)
   ACCT_ADD_VISIT += 1;
   acctAddPickSay('');
   acctMuseShow(false); ACCT_MUSE_ASKING = museAsk();   // #3939: Meta Muse is offered only when this Kosmos says so
@@ -35077,7 +35077,7 @@ let ACCT_COMPAT_GEN = 0;
 const COMPAT_ASK_MS = 5000;
 /* #7206 slice 2b: the page's words for each vendor whose endpoint speaks Claude Code's API (the engine's VENDORS rows,
    engine/anthropiccompat.js). COMPAT_ON says whether ANY is offered; COMPAT_ON_FOR says which, one switch per vendor,
-   so DeepSeek's switch never offers GLM. A Z.ai key is checked at the GLM Coding Plan's model list (2a), so its form
+   so one vendor's switch never offers another. A Z.ai key is checked at the GLM Coding Plan's model list (2a), so its form
    asks for a Coding Plan key by name. */
 const COMPAT_PAGE = Object.freeze({
   deepseek: Object.freeze({ name: 'DeepSeek', keyLabel: 'DeepSeek API key', placeholder: 'sk-\u2026',
@@ -61021,7 +61021,7 @@ function paintProviderPicker(a) {
     if (opt.value === 'anthropic' || opt.value === 'openai') opt.disabled = false;
   }
   paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current, ACCOUNTS_UNREADABLE);
-  // #7206: DeepSeek is offered only while this Kosmos's switch is on; the menu is painted again once that is known.
+  // #7206: each vendor is offered only while its own switch is on; the menu is painted again once that is known.
   (typeof compatAsk === 'function' ? compatAsk() : Promise.resolve(false)).then(() => paintKeyedProviderOptions(sel, ACCOUNTS, ACCOUNTS_LOADED && !ACCOUNTS_UNREADABLE, current, ACCOUNTS_UNREADABLE));
   paintAgyOption(sel, current); agyAsk();   // #3568: Gemini by subscription is gated on agy, not an account
   paintMuseOption(sel, current);   // #3939 3c-3b: Meta shows as the current provider of an agent on Muse

@@ -210,6 +210,15 @@ test('#7206 slice 3: a MiniMax home launches claude against MiniMax, only under 
     assert.match(r.argv, /--model MiniMax-M3\.1-Flash/);
     assert.equal(/claude-sonnet-5/.test(r.argv), false, 'the agent\'s Claude model is not sent to MiniMax');
     assert.equal(r.argv.includes(KEY), false, 'the key reached the argv');
+    /* Review 2: the launch environment the board builds for a MiniMax home names MiniMax's address and its key, and
+       every variable it sets reaches the pane as a -e pair (the DeepSeek test's rule, for this row). */
+    const set = compat.launchEnv(mmHome()).env;
+    assert.equal(set.ANTHROPIC_BASE_URL, 'https://api.minimax.io/anthropic');
+    assert.equal(set.ANTHROPIC_AUTH_TOKEN, KEY);
+    for (const [k, val] of Object.entries(set)) {
+      if (k === 'ANTHROPIC_AUTH_TOKEN') continue;
+      assert.ok(r.argv.includes(`-e ${k}=${val}`), `${k} is not set as a -e pair for a MiniMax home`);
+    }
   } finally { sw.setVendorAt(mmOnly, 'minimax', false); }
 });
 
