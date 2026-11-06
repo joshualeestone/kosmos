@@ -63657,7 +63657,8 @@ function tcPaint() {
     another.setAttribute('aria-label', 'Another name for the ' + m.title);
     another.textContent = 'Another';   // a word, not an icon: a phone shows no tooltip
     another.addEventListener('click', () => {
-      const was = m.name; m.name = tcShortName(m); input.value = m.name; m.typed = false; m.suggested = m.name;   // a suggestion again
+      const was = m.name; m.name = tcShortName(m); input.value = m.name;
+      if (m.name !== was) { m.typed = false; m.suggested = m.name; }   // a suggestion again; unchanged, a typed name stays theirs
       tcSayName(m.name === was ? 'No other short name is free.' : 'The ' + m.title + ' is now ' + m.name + '.');   // focus stays on the button
     });
     const namebox = document.createElement('span'); namebox.className = 'tc-namebox';
