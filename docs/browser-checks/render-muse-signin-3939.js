@@ -155,8 +155,11 @@ const chk = (ok, label, extra) => {
   // #4569 (Josh): from the click on, the button stays in place, off, with Connecting and a spinner beside it.
   const conn = await q(() => ({ go: !document.getElementById('acct-muse-go').hidden, off: document.getElementById('acct-muse-go').disabled,
     spin: !document.getElementById('acct-muse-spin').hidden, words: document.getElementById('acct-muse-spin').textContent,
-    beside: document.getElementById('acct-muse-spin').parentElement === document.getElementById('acct-muse-go').parentElement }));
+    beside: document.getElementById('acct-muse-spin').parentElement === document.getElementById('acct-muse-go').parentElement,
+    // #7896 (Josh 11-06 12:18: small waits are the Sweep dots): eight dots, no orb, no ring.
+    dots: document.querySelectorAll('#acct-muse-spin .spin.spin-sweep > i').length, orb: !!document.querySelector('#acct-muse-spin canvas.korb') }));
   chk(conn.go && conn.off && conn.spin && /Connecting/.test(conn.words) && conn.beside, 'while it runs: the button is off and Connecting spins beside it (#4569)', JSON.stringify(conn));
+  chk(conn.dots === 8 && !conn.orb, 'its spinner is the Sweep dots (#7896: every small wait), not the orb or a ring', JSON.stringify(conn));
   await q(() => { window.__status = { id: 'mine000000000001', state: 'code', url: 'https://auth.meta.com/device?user_code=WXYZ-1234', code: 'WXYZ-1234' }; });
   await tick();
   const code = await q(() => {
