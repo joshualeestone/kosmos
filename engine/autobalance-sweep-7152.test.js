@@ -81,6 +81,10 @@ test('#7152 slice 3: the sweep moves nothing: its module has no way to', () => {
 test('#7152 slice 3: with the setting off nothing is recorded; with one account the agents are not even walked', async () => {
   const file = fileFor();
   assert.equal((await sweep.create({ file }).tick(deps({ settingOn: false }), NOW)).did, 'off');
+  // kosmos#8083: an unreadable switch reads off, and says so; a deps without settingUnreadable is the plain off.
+  assert.deepEqual(await sweep.create({ file }).tick({ ...deps({ settingOn: false }), settingUnreadable: () => true }, NOW), { did: 'off', because: 'setting-unreadable' });
+  assert.deepEqual(await sweep.create({ file }).tick({ ...deps({ settingOn: false }), settingUnreadable: () => false }, NOW), { did: 'off' });
+  assert.deepEqual(await sweep.create({ file }).tick({ ...deps({ settingOn: false }), settingUnreadable: () => { throw new Error('x'); } }, NOW), { did: 'off', because: 'setting-unreadable' });
   assert.deepEqual(sweep.readLines(file), []);
   let walks = 0;
   const one = deps({ list: [LIST[0], { dir: '/u/.claude-key', apiKey: true }], agentsOn: () => { walks += 1; return { names: [], complete: true }; } });
