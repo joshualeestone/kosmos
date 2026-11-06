@@ -23,44 +23,90 @@ const HTML = fs.readFileSync(path.join(__dirname, 'install', 'pkg-scripts', 'ins
 const { codeOnly } = require('./test-support/code-only');
 const CODE = codeOnly(HTML);
 
-test('the mark is the real K loader canvas, and the progress bar exists, both always in the markup', () => {
-  // #892/#893 shipped a static badge; #905 (Josh, 2026-08-26, seeing it
-  // live: "let's put our animated K that turns into a circle there")
-  // replaced it with the same 155-dot canvas loader the create-an-agent
-  // screen uses. Same dimensions, so the badge reads as one identity.
-  assert.match(HTML, /<canvas class="mark" id="mark" width="132" height="154" aria-hidden="true"><\/canvas>/, 'the K loader canvas is gone');
+/* The KOSMOS orb's one implementation, KORB in web/index.html, as text: from its declaration to the first
+   `})();` after it, the same span installing.html carries. */
+const korbBody = (src) => {
+  const at = src.indexOf('const KORB = (() => {');
+  if (at < 0) return null;
+  const end = src.indexOf('\n})();', at);
+  return end < 0 ? null : src.slice(at, end + '\n})();'.length);
+};
+const APP = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+
+test('the mark is the KOSMOS orb at 88 px, and the progress bar exists, both always in the markup', () => {
+  // Josh 11-06 12:17: "basically anywhere we had the K Loader I want it to be the Orb". The K loader canvas
+  // (#905, Josh 2026-08-26) is replaced by the app's whole-screen wait markup (web/index.html's kOrbWaitHtml):
+  // the Sweep spinner marked .orb-wait, which KORB finds and draws the orb into. Eight <i> are the Sweep dots
+  // that show until KORB runs, or if it cannot.
+  assert.match(HTML, /<span class="spin spin-sweep orb-wait mark" id="mark" style="--sz:88px" aria-hidden="true">(<i><\/i>){8}<\/span>/,
+    'the orb markup (an 88 px .spin.spin-sweep.orb-wait with eight dots, aria-hidden) is gone');
   assert.match(HTML, /<div class="bar" id="bar" role="progressbar" aria-label="Installing" aria-valuemin="0" aria-valuemax="100"><i><\/i><\/div>/, 'the progress bar is gone');
   // Neither carries its own display:none the way #late/#taken do -- they
   // are meant to be visible from the very first paint.
   assert.doesNotMatch(HTML, /\.mark\s*{[^}]*display:\s*none/, 'the mark starts hidden');
   assert.doesNotMatch(HTML, /#bar\s*{[^}]*display:\s*none/, 'the bar starts hidden');
-  // The ported loader itself: pinned by name and by its two distinctive
-  // data arrays, not by re-checking its internal math line for line here
-  // (that risk belongs to the source file's own tests).
-  assert.match(HTML, /function startKLoader\(cv\) \{/, 'the ported K loader function is gone');
-  assert.match(HTML, /var K_LOAD = \[/, 'the K loader lost its dot data');
-  assert.match(HTML, /var CHECK_LOAD = \[/, 'the loader lost the finish/tick data it keeps for fidelity with the source');
+  // The vertical space the 66x77 K took with 1.25rem under it (97 px): 88 + 9, so the bar does not move.
+  assert.match(CODE, /\.spin\.mark\{display:block;margin:0 auto 9px\}/, 'the orb lost the margin that keeps the layout below where the K left it');
+  // The CSS the orb and its fallback dots need: the canvas over the span, the dots hidden once it is there,
+  // the Sweep animation, and --spin-dot, the colour KORB reads (deep gold light, bright gold dark).
+  assert.match(CODE, /\.spin\.korb-on i\{display:none\}/, 'the dots no longer hide under the orb');
+  assert.match(CODE, /\.spin>canvas\.korb\{position:absolute;inset:0;width:100%;height:100%\}/, 'the orb canvas lost its placement');
+  assert.match(CODE, /@keyframes sweepLite\{/, 'the fallback Sweep dots lost their animation');
+  assert.match(CODE, /\.spin\{[^}]*--spin-dot:#9c741b\}/, 'the light-ground orb is not the deep gold #9c741b');
+  assert.match(CODE, /@media \(prefers-color-scheme:dark\)\{[^@]*\.spin\{--spin-dot:#d6a62e\}\}/, 'the dark-scheme orb is not the bright gold #d6a62e');
+  // Same specificity, so the dark rule wins only by coming after the base one.
+  assert.ok(CODE.search(/@media \(prefers-color-scheme:dark\)\{[^@]*\.spin\{--spin-dot:#d6a62e\}/) > CODE.search(/\.spin\{[^}]*--spin-dot:#9c741b\}/),
+    'the dark-scheme gold comes before the base rule, so the dark scheme draws the deep gold');
 });
 
-test('settling stops the K loader where it sits, and freezes the bar in place, instead of hiding either', () => {
+test('KORB is ported verbatim, and the K loader is gone', () => {
+  const mine = korbBody(HTML);
+  assert.ok(mine, 'installing.html no longer carries KORB (const KORB = (() => { ... })();)');
+  // Distinctive tokens of the source, so a reimplementation or a trimmed copy fails here even before the
+  // byte comparison below can run.
+  assert.match(mine, /getElementsByClassName\('orb-wait'\)/, 'KORB no longer finds .orb-wait itself');
+  assert.match(mine, /getPropertyValue\('--spin-dot'\)/, 'KORB no longer reads --spin-dot');
+  assert.match(mine, /matchMedia\('\(prefers-color-scheme: dark\)'\)\.addEventListener\('change', recolour\)/, 'KORB no longer recolours on a colour-scheme change');
+  assert.match(mine, /classList\.contains\('orb-still'\)/, 'KORB lost its still state, which settle() uses');
+  assert.ok(mine.startsWith('const KORB = (() => {\n  const WORD = [[[-54.9,-65.3],[-47.2,-66.0],[-39.1,-64.6],[-30.8,-65.8],'),
+    'the WORD dot data does not open as the source does');
+  assert.ok(mine.length > 35000, 'KORB is ' + mine.length + ' bytes, too short to be the whole source (about 38 KB)');
+  // The K loader is removed from the code, not merely unused.
+  assert.doesNotMatch(CODE, /startKLoader|K_LOAD|CHECK_LOAD/, 'the ported K loader is still in the code');
+  assert.doesNotMatch(HTML, /<canvas class="mark"/, 'the K loader canvas is still in the markup');
+});
+
+test('KORB here is byte for byte the app\'s KORB', () => {
+  const app = korbBody(APP);
+  assert.ok(app, 'web/index.html has no KORB to compare with');
+  // Always compared (the app's #7896 KORB has landed): a change to either copy alone fails here, never skips.
+  assert.equal(korbBody(HTML), app, 'installing.html\'s KORB differs from web/index.html\'s: copy the app\'s KORB here again, whole');
+});
+
+test('neither ending turns the orb into a check, and KORB runs in its own script', () => {
+  // #867's rule, kept from the K loader's days: the page never reaches a clean finish. "Kosmos is ready" hands over to
+  // the board, and "taken" means something else answered; a check would claim a success this page did not see.
+  // The page's own script never names KORB at all (so no spelling of a finish can slip in); KORB finds the orb itself.
+  assert.doesNotMatch(CODE.slice(CODE.indexOf('(function(){')), /\bKORB\b/, 'the page script reaches into KORB (a finish would turn the orb into a check on an ending)');
+  // KORB in a <script> of its own, closed before the page's ES5 script opens: an engine that cannot run KORB keeps the
+  // polling, the bar and the endings (the dots show instead of the orb).
+  const korbAt = HTML.indexOf('const KORB = (() => {'), pageAt = HTML.indexOf('(function(){');
+  assert.ok(korbAt > 0 && pageAt > 0, 'KORB or the page script is missing');
+  const between = HTML.slice(korbAt, pageAt);
+  assert.match(between, /<\/script>[\s\S]*<script>/, 'KORB shares the page\'s script: a KORB error would stop the install page');
+});
+
+test('settling holds the orb still, and freezes the bar in place, instead of hiding either', () => {
   assert.match(HTML, /function settle\(\)\{/, 'the settle() function is gone');
   const at = HTML.indexOf('function settle(){');
-  const fn = HTML.slice(at, HTML.indexOf('}', at) + 1);
-  assert.match(fn, /loader\.stop\(\)/, 'settle() no longer stops the K loader');
+  const fn = HTML.slice(at, HTML.indexOf('\n  }', at) + 4);
+  assert.match(fn, /mark\.classList\.add\("orb-still", "spin-still"\)/, 'settle() no longer holds the orb (orb-still) and the fallback dots (spin-still) still');
   assert.match(fn, /bar.*classList\.add\("settled"\)/, 'settle() no longer freezes the bar');
   assert.doesNotMatch(fn, /display\s*=\s*"none"/, 'settle() hides an element instead of freezing it in place');
+  assert.match(CODE, /\.spin\.spin-still i::before\{animation:none !important/, 'the fallback dots have no still state for settle() to set');
   // Called on BOTH conclusions: the taken branch, and the real ready-to-open path.
   const onload = HTML.slice(HTML.indexOf('img.onload = function(){'), HTML.indexOf('img.onerror'));
   assert.equal((onload.match(/settle\(\);/g) || []).length, 2, 'settle() is not called on both the taken branch and the ready branch');
-});
-
-test('the loader never finishes into a checkmark on either ending -- neither is the pack\'s "clean finish"', () => {
-  // The taken branch found someone else's board (not success); the real ready
-  // branch (#2073) hides the shape and says Kosmos is opening in its app, then
-  // stops -- it no longer redirects, so a 900ms tick animation is not the point.
-  // finish() stays unused either way.
-  assert.doesNotMatch(HTML, /loader\.finish\(\)/, 'something now calls finish() -- confirm that ending is a genuine clean success before keeping this');
-  assert.match(HTML, /stop: function \(\) \{ stopped = 1; \}/, 'the stop() capability this file adds on top of the ported source is gone');
 });
 
 test('#2363: the taken branch offers NO browser link, and never points anything at the board', () => {
@@ -173,11 +219,10 @@ test('the late note does not repeat what the first screen already said', () => {
 });
 
 test('reduced motion turns off both animations, and dark mode is accounted for', () => {
-  // The bar's spinner is still CSS, so it still turns off in CSS. The K
-  // loader's motion is entirely canvas/JS now (startKLoader reads
-  // prefers-reduced-motion itself and draws one still frame instead of
-  // animating), so there is nothing left for a CSS rule to disable on
-  // .mark -- pinned in the loader's own `slow` branch instead.
+  // The bar's spinner is still CSS, so it still turns off in CSS. The orb
+  // (Josh 11-06 12:17) is canvas/JS: KORB reads prefers-reduced-motion itself
+  // and draws the orb once, still, K facing. The fallback Sweep dots calm to
+  // one slow pulse, as in the app.
   // kosmos#3233 a11y: the determinate bar adds a width transition, so the
   // reduced-motion rule must disable transition too, not only the swoosh animation.
   // The override must name BOTH .bar>i (the swoosh animation) AND .bar.determinate>i (the
@@ -188,9 +233,9 @@ test('reduced motion turns off both animations, and dark mode is accounted for',
   // rule inserted after this one, that would silently break the override again -- catching
   // that needs a jsdom/computed-style check, which this string-extraction test file does not run.
   assert.match(HTML, /@media \(prefers-reduced-motion:reduce\)\{\.bar>i,\.bar\.determinate>i\{animation:none;transition:none\}\}/);
-  assert.match(HTML, /var slow = window\.matchMedia && window\.matchMedia\('\(prefers-reduced-motion: reduce\)'\)\.matches;/,
-    'the K loader stopped reading reduced-motion itself');
-  assert.match(HTML, /if \(slow\) \{/, 'the loader lost its reduced-motion branch (one still frame instead of animating)');
+  assert.match(korbBody(HTML) || '', /calmQuery = matchMedia\('\(prefers-reduced-motion: reduce\)'\)/,
+    'the orb stopped reading reduced-motion itself');
+  assert.match(CODE, /@media \(prefers-reduced-motion:reduce\)\{\.spin i::before\{animation:calmPulse/, 'the fallback dots lost their reduced-motion pulse');
   assert.match(HTML, /@media \(prefers-color-scheme:dark\)/);
 });
 

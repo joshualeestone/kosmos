@@ -394,7 +394,6 @@ _menu_table_expected='menu:Kosmos
   item:Settings…	shortcut:cmd+,	action:openSettings:	target:set
   item:Run agents on this computer	shortcut:-	action:runAgentsHere:	target:set
   item:Update Kosmos	shortcut:-	action:updateKosmosNow:	target:set
-  item:Forget Always-Allowed Computers	shortcut:-	action:forgetAlwaysAllowedComputers:	target:set
   sep
   item:Services	shortcut:-	action:submenuAction:	target:set
   sep

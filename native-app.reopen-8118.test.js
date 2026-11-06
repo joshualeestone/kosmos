@@ -71,7 +71,9 @@ test('#8118: forgotten on the page\'s gone or home, and on Back to This Computer
   // Review 6: the count moves only through reopenMissesAfter (its rows are in the selftest), before the arms run.
   assert.ok(f.indexOf('self.reopenMisses = reopenMissesAfter(answer, self.reopenMisses)') > 0
     && f.indexOf('self.reopenMisses = reopenMissesAfter(answer, self.reopenMisses)') < f.indexOf('switch answer {'), 'the miss count is not moved by reopenMissesAfter before the arms');
-  assert.doesNotMatch(arm('case .opening, .notChecked:'), /reopenMisses/, 'a switch started resets the misses (only the page landing may, review 6)');
+  assert.doesNotMatch(arm('case .opening:'), /reopenMisses/, 'a switch started resets the misses (only the page landing may, review 6)');
+  assert.match(arm('case .opening:'), /self\.reopenLandingDue = true/, 'an opening answer does not note that a landing is due (#8125)');
+  assert.doesNotMatch(arm('case .notChecked:'), /reopenMisses/, 'a not-checked answer moves the misses');
   assert.match(arm('case .missed:'), /if reopenMissesForget\(self\.reopenMisses\)[\s\S]*self\.reopenComputerHost = nil/,
     'REOPEN_MISS_LIMIT misses do not forget (review 5: a computer that stays off toasts for ever)');
   assert.match(arm('case .retryNextBoardLoad:'), /self\.reopenAskedThisLaunch = false/, 'a sign-in page does not leave the ask for the next board load');
@@ -108,4 +110,23 @@ test('#8118 (round 4): the ask marks the reopen outstanding, and the other compu
   const keepArm = f.slice(at, f.indexOf('case .forget:', at));
   assert.match(keepArm, /reopenOutstanding = false/, 'the remote page loading leaves the reopen outstanding');
   assert.match(keepArm, /reopenMisses = 0   \/\/ review 6/, 'the page LANDING no longer resets the misses');
+});
+
+test('#8125: a switch that never landed counts one miss at quit, before quit decides; landing or going home clears it', () => {
+  const q = body('func applicationWillTerminate(_ notification: Notification)');
+  const awayAt = q.indexOf('let away = isOnAnotherComputer()');
+  const due = q.indexOf('let neverLanded = reopenLandingDue && away == nil && reopenComputerHost != nil');
+  const decide = q.indexOf('let host = quitKeeps(');
+  assert.ok(awayAt > 0 && due > awayAt && decide > due,
+    'the landing is not judged from where the window is (review 1: a page that committed has landed), or after quit decides');
+  const part = q.slice(due, decide);
+  assert.match(part, /reopenMisses = quitMissesAfter\(prior: reopenMisses, landingDue: neverLanded\)/,
+    'a switch that never landed is not counted through quitMissesAfter (its rows are in the selftest)');
+  // Review 1: the forget at the limit itself is pinned, not only the count.
+  assert.match(part, /if neverLanded, reopenMissesForget\(reopenMisses\), let gone = reopenComputerHost \{[\s\S]*reopenComputerHost = nil[\s\S]*reopenMisses = 0/,
+    'reaching the limit with a switch that never landed does not forget the computer');
+  const f = body('private func rememberOrReopenComputer(');
+  const at = f.indexOf('case .keep(let host):');
+  assert.match(f.slice(at, f.indexOf('case .forget:', at)), /reopenLandingDue = false/, 'the page landing does not clear the due landing');
+  assert.match(body('@objc func backToThisComputer(_ sender: Any?)'), /reopenLandingDue = false/, 'going home on purpose leaves a landing due');
 });
