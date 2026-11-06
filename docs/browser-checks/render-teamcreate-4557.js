@@ -298,25 +298,35 @@ function chk(ok, label, extra) {
            offers a name already on the board or elsewhere in the team; both go once the team starts. */
         {
           const { page, errs, posted } = await newPage(1280);
-          await page.route('**/api/agents/list', (r) => r.fulfill({ status: 200, json: { agents: [{ sessionName: 'ada', name: 'Ada' }, { sessionName: 'ade', name: 'Ade' }] } }));
-          await page.evaluate(() => { Math.random = () => 0; });   // the first free name, so "not Ada, not Ade" can be seen
+          // The board's agents as /api/status gives them: one reached as 'ali' though shown as 'Ali Bot', so only its typed name collides.
+          await page.evaluate(() => { window.__realStatus = window.statusFetchWithin; window.statusFetchWithin = () => Promise.resolve(new Response(JSON.stringify({ agents: [{ sessionName: 'ade', name: 'Ade' }, { sessionName: 'ali', name: 'Ali Bot' }] }), { status: 200 })); });
+          await page.evaluate(() => { Math.random = () => 0; });   // the first free name, so "not Ade, not Ali" can be seen
           await page.evaluate(() => openTeamCreate('marketing'));
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await settle(page, () => TC && Array.isArray(TC.boardNames));
+          await page.evaluate(() => { if (window.__realStatus) window.statusFetchWithin = window.__realStatus; });
           const before = await rows(page);
           chk(await page.isVisible('#tc-short'), `${E} #8092 Use short names is offered while the names can change`);
           await page.focus('#tc-list li[data-slot="lead"] .tc-another');
           await page.keyboard.press('Enter');
           const one = await rows(page);
           const focus = await page.evaluate(() => document.activeElement && document.activeElement.matches('#tc-list li[data-slot="lead"] .tc-another') && document.activeElement.getAttribute('aria-label'));
-          chk(one[0].name === 'Ali' && one.slice(1).every((r, i) => r.name === before[i + 1].name), `${E} #8092 Another name gives the lead the first short name free of the board (not Ada, not Ade) and leaves the others`, JSON.stringify({ before: before.map((r) => r.name), after: one.map((r) => r.name) }));
+          chk(one[0].name === 'Amir' && one.slice(1).every((r, i) => r.name === before[i + 1].name), `${E} #8092 Another name gives the lead the first short name free of the board (not Ade, and not Ali, which an agent is reached by) and leaves the others`, JSON.stringify({ before: before.map((r) => r.name), after: one.map((r) => r.name) }));
           chk(typeof focus === 'string' && /^Another name for the /.test(focus), `${E} #8092 and the keyboard stays on that button, which says what it does`, JSON.stringify(focus));
+          const said = await page.evaluate(() => ({ text: document.getElementById('tc-name-said').textContent, live: document.getElementById('tc-name-said').getAttribute('aria-live'), word: document.querySelector('#tc-list li[data-slot="lead"] .tc-another').textContent }));
+          chk(said.live === 'polite' && /^The .+ is now Amir\.$/.test(said.text) && said.word === 'Another', `${E} #8092 the new name is said aloud, and the button shows a word, not only an icon`, JSON.stringify(said));
           await page.click('#tc-short');
           const all = await rows(page);
+          if (process.env.KOSMOS_8092_SHOTS && engineName === 'chromium') {   // optional, for the design review
+            await page.locator('#cstep-teammake').screenshot({ path: process.env.KOSMOS_8092_SHOTS + '/team-names-desktop.png' });
+            await page.setViewportSize({ width: 390, height: 900 });
+            await page.locator('#cstep-teammake').screenshot({ path: process.env.KOSMOS_8092_SHOTS + '/team-names-phone.png' });
+            await page.setViewportSize({ width: 1280, height: 900 });
+          }
           const names = all.map((r) => r.name);
-          chk(names.every((n) => /^[A-Za-z]{2,5}$/.test(n)) && new Set(names.map((n) => n.toLowerCase())).size === names.length && !names.some((n) => /^(ada|ade)$/i.test(n)),
+          chk(names.every((n) => /^[A-Za-z]{3,5}$/.test(n)) && new Set(names.map((n) => n.toLowerCase())).size === names.length && !names.some((n) => /^(ade|ali)$/i.test(n)),
             `${E} #8092 Use short names gives every row a short plain name, none twice, none on the board`, JSON.stringify(names));
-          chk(names.slice(1).every((n, i) => n !== before[i + 1].name), `${E} #8092 CONTROL: the other rows did change`, JSON.stringify({ before: before.map((r) => r.name), names }));
+          chk(names[0] !== one[0].name && names.slice(1).every((n, i) => n !== before[i + 1].name), `${E} #8092 CONTROL: every row did change, the lead again too`, JSON.stringify({ before: before.map((r) => r.name), names }));
           await page.selectOption('#tc-project', 'none');
           await page.click('#tc-go');
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((e) => e.textContent === 'Running'));

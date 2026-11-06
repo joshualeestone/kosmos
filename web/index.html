@@ -9440,13 +9440,14 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 /* kosmos#8092: the name box and its Another name button share the middle column. */
 .tc-namebox { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .tc-namebox .tc-name { flex: 1 1 auto; }
-.tc-another { flex: none; display: grid; place-items: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 8px;
-  background: none; color: var(--label-2); cursor: pointer; }
+.tc-another { flex: none; min-height: 28px; padding: 4px 8px; border: 0; border-radius: 8px; font: var(--text-callout) var(--font-ui);
+  font-weight: 600; background: none; color: var(--label-2); text-decoration: underline; cursor: pointer; }
 .tc-another:hover:not(:disabled) { color: var(--label); background: var(--k-sunk, rgba(0,0,0,.05)); }
 .tc-another:focus-visible { outline: 2px solid var(--k-ink, currentColor); outline-offset: 1px; }
 .tc-another:disabled { visibility: hidden; }
 #cstep-teammake .tc-short { margin: 0 0 var(--space-2); font: var(--text-callout) var(--font-ui); }
 #cstep-teammake .tc-short .linkish { font: inherit; font-weight: 600; }
+@media (hover: none), (pointer: coarse) { .tc-another, #cstep-teammake .tc-short .linkish { min-height: 44px; } }   /* a finger's target */
 .tc-state { white-space: nowrap; color: var(--label-2); }
 .tc-state.made { color: var(--ok); }
 .tc-state.failed { color: var(--danger); }
@@ -16870,6 +16871,7 @@ window.kosmosMeasureScrollbarWidth();
          reach an agent. One press swaps every row still open for a short name; each row also has its own Another name. -->
     <p class="tc-short" id="tc-short-p" hidden><button type="button" class="linkish" id="tc-short">Use short names</button></p>
     <ol class="tc-list" id="tc-list" aria-labelledby="tc-title"></ol>
+    <p class="vh" id="tc-name-said" aria-live="polite"></p>
     <!-- #4935 (Josh: "Some of the styling just doesn't feel like the Create an Agent styling"): the same
          structure as that screen, .field > .flabel + .frow, and its stepped Model block (.msteps/.mstep), so
          the spacing and widths are its rules (extended to this step in the CSS), not a second set. -->
@@ -63516,14 +63518,15 @@ function tcFillProjects() {
 }
 
 /* kosmos#8092: short names to offer, 3 to 5 plain letters so anyone can type them on any keyboard, from many places.
-   A suggestion only: the person can always type their own, and Make still checks the name is free. */
-const TC_SHORT_NAMES = Object.freeze(['Ada', 'Ade', 'Ali', 'Amir', 'Ana', 'Anil', 'Ari', 'Asha', 'Ava', 'Ayo', 'Bea', 'Ben',
-  'Cai', 'Cara', 'Dan', 'Dara', 'Dev', 'Dina', 'Ebo', 'Eda', 'Eli', 'Emi', 'Esi', 'Eva', 'Ezra', 'Fia', 'Gabe', 'Gia',
-  'Hana', 'Hugo', 'Ian', 'Ida', 'Ife', 'Ines', 'Ira', 'Isa', 'Ivo', 'Jae', 'Jia', 'Jon', 'Juan', 'Kai', 'Kemi', 'Kian',
-  'Kim', 'Kira', 'Kofi', 'Lea', 'Lena', 'Leon', 'Lia', 'Lin', 'Liv', 'Lola', 'Luca', 'Luz', 'Mae', 'Mai', 'Mara', 'Max',
+   A suggestion only: the person can always type their own, and Make still checks the name is free. Names that are also a
+   common word, a brand or slang somewhere are left out. */
+const TC_SHORT_NAMES = Object.freeze(['Ade', 'Ali', 'Amir', 'Anil', 'Ari', 'Asha', 'Ava', 'Ayo', 'Bea', 'Ben',
+  'Cai', 'Cara', 'Dan', 'Dara', 'Dina', 'Ebo', 'Eda', 'Eli', 'Emi', 'Esi', 'Eva', 'Ezra', 'Fia', 'Gabe', 'Gia',
+  'Hana', 'Hugo', 'Ian', 'Ida', 'Ife', 'Ines', 'Isa', 'Ivo', 'Jae', 'Jia', 'Jon', 'Juan', 'Kai', 'Kemi', 'Kian',
+  'Kim', 'Kofi', 'Lea', 'Lena', 'Leon', 'Lia', 'Lin', 'Liv', 'Lola', 'Luca', 'Luz', 'Mae', 'Mai', 'Mara',
   'Mei', 'Mia', 'Mika', 'Milo', 'Mira', 'Nia', 'Nico', 'Nina', 'Noa', 'Nour', 'Obi', 'Ola', 'Omar', 'Oren', 'Otto',
   'Pia', 'Raj', 'Rana', 'Ravi', 'Rei', 'Remi', 'Rio', 'Rosa', 'Ruth', 'Sami', 'Sana', 'Sara', 'Seun', 'Sol', 'Tae',
-  'Tala', 'Tao', 'Tara', 'Teo', 'Tom', 'Uma', 'Vera', 'Vik', 'Wen', 'Yan', 'Yara', 'Yuki', 'Zara', 'Zoe', 'Zuri']);
+  'Tala', 'Tao', 'Tara', 'Teo', 'Tom', 'Uma', 'Vera', 'Vik', 'Wen', 'Yan', 'Yara', 'Yuki', 'Zoe', 'Zuri']);
 /* Names to steer clear of, in lower case: the board's agents (read once per team, TC.boardNames) and the team's other rows. */
 function tcTakenNames(except) {
   const taken = new Set(TC && Array.isArray(TC.boardNames) ? TC.boardNames : []);
@@ -63537,11 +63540,12 @@ function tcShortName(m) {
   const free = TC_SHORT_NAMES.filter((n) => !taken.has(n.toLowerCase()) && n.toLowerCase() !== now);
   return free.length ? free[Math.floor(Math.random() * free.length)] : m.name;
 }
-/* The board's agent names, so a suggestion does not collide with one. A failed read leaves only the team's own rows to
+/* The board's agents, by both names: the one typed to reach it (sessionName, what a message or an @ takes) and the one shown.
+   /api/status, not /api/agents/list, which sends only the shown name. A failed read leaves only the team's own rows to
    avoid; Make's own check still refuses a taken name with words. */
 async function tcLoadBoardNames(gen) {
   try {
-    const res = await fetch('/api/agents/list', { cache: 'no-store' });
+    const res = await (typeof statusFetchWithin === 'function' ? statusFetchWithin() : fetch('/api/status', { cache: 'no-store' }));
     const body = await res.json().catch(() => null);
     if (gen !== TC_GEN || !TC || !res.ok || !body || !Array.isArray(body.agents)) return;
     const names = [];
@@ -63569,7 +63573,7 @@ function tcPaint() {
   const hadSlot = hadRow ? hadRow.dataset.slot : null;
   // #4936 review 6: focus left on the row itself (a Try again was pressed and the row rebuilt without it) goes back to a
   // new Try again if the attempt failed again, not to the name box, which is disabled on a made row.
-  const hadKind = had && had.classList ? (had.classList.contains('tc-retry') ? 'retry' : (had === hadRow ? 'row' : 'name')) : null;
+  const hadKind = had && had.classList ? (had.classList.contains('tc-retry') ? 'retry' : (had.classList.contains('tc-another') ? 'another' : (had === hadRow ? 'row' : 'name')))   /* kosmos#8092: Another name keeps its own focus */ : null;
   const hadCaret = (had && hadKind === 'name' && typeof had.selectionStart === 'number') ? had.selectionStart : null;
   /* Round 28: the whole selection, not only its start. A person who selected a failed row's name to replace
      it and typed as a repaint landed had their text put in front of the old name ("AdaLeo"), which was
@@ -63603,9 +63607,12 @@ function tcPaint() {
     // kosmos#8092: Another name, a short one; it changes only what the name box would, so it is open exactly when that is.
     const another = document.createElement('button');
     another.type = 'button'; another.className = 'tc-another'; another.disabled = input.disabled;
-    another.setAttribute('aria-label', 'Another name for the ' + m.title); another.title = 'Another name';
-    another.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9"/><path d="M13.5 2.5v3h-3"/></svg>';
-    another.addEventListener('click', () => { m.name = tcShortName(m); input.value = m.name; });
+    another.setAttribute('aria-label', 'Another name for the ' + m.title);
+    another.textContent = 'Another';   // a word, not an icon: a phone shows no tooltip
+    another.addEventListener('click', () => {
+      m.name = tcShortName(m); input.value = m.name;
+      document.getElementById('tc-name-said').textContent = 'The ' + m.title + ' is now ' + m.name + '.';   // focus stays on the button
+    });
     const namebox = document.createElement('span'); namebox.className = 'tc-namebox';
     namebox.append(input, another);
     const st = document.createElement('span'); st.className = 'tc-state ' + m.state;
@@ -63664,7 +63671,7 @@ function tcPaint() {
   for (const making of list.querySelectorAll('.tc-state.creating')) making.insertAdjacentHTML('afterbegin', pjSpin());
   if (hadSlot && !list.contains(had)) {
     const row = list.querySelector('li[data-slot="' + CSS.escape(hadSlot) + '"]');
-    const back = row && (((hadKind === 'retry' || hadKind === 'row') && row.querySelector('.tc-retry')) || row.querySelector('.tc-name'));
+    const back = row && (((hadKind === 'retry' || hadKind === 'row') && row.querySelector('.tc-retry')) || (hadKind === 'another' && row.querySelector('.tc-another:not(:disabled)')) || row.querySelector('.tc-name'));
     if (back && !back.disabled) {
       back.focus({ preventScroll: true });
       if (hadCaret !== null && back.classList.contains('tc-name')) { try { back.setSelectionRange(hadCaret, hadEnd); } catch { /* not a text box */ } }
