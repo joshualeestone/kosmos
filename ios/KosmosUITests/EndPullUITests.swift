@@ -93,7 +93,7 @@ final class EndPullUITests: XCTestCase {
     // KOSMOS_SAMPLE_GROW: every read brings a message, the 5 s reads too, so this is a message landing around a pull, not
     // proof that the pull fetched it. It must reach the screen, with the list still drawn and at its end.
     func testAMessageLandingAroundAPullShowsAndNothingBlanks() {
-        let app = launch(["KOSMOS_SAMPLE_GROW": "1"])
+        let app = launch(["KOSMOS_SAMPLE_GROW": "1", "KOSMOS_SAMPLE_LONG": "1"])
         let grown = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH 'New message'"))
         XCTAssertTrue(grown.firstMatch.waitForExistence(timeout: 20), "CONTROL: no message arrived")
         pullUp(app, distance: 420)
@@ -104,6 +104,7 @@ final class EndPullUITests: XCTestCase {
         let more = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count > %d", seen), object: grown)
         XCTAssertEqual(XCTWaiter().wait(for: [more], timeout: 15), .completed, "no later message reached the list")
         let last = grown.element(boundBy: grown.count - 1)
+        KeyboardSlideUITests.settle(last)
         XCTAssertTrue(last.exists && last.isHittable, "the newest message is not on screen after a pull")
     }
 

@@ -171,8 +171,12 @@ do {
     check(refreshPiece.contains("let _ = { driver.refreshAction = action }()") && !refreshPiece.contains(".onAppear"), "a pull runs the latest render's refresh, set on every render")
     // WebKit manages the web view's insets, so the board page holds no space (review 1).
     check(repoText("ios/Kosmos/ContentView.swift").contains("refresh.holdsSpace = false"), "the board page's pull never writes the web view's insets")
-    // Pulling past a chat's end is the state the #7420 blank fixes act on (Angel, kosmos#8072).
-    check(!repoText("ios/Kosmos/ChatView.swift").contains("dotsRefresh") && !room.contains("dotsRefresh"), "the dots' pull to refresh stays out of a chat and a room")
+    // An inset changing on a list still estimating is what blanks it in the simulator (kosmos#7420), so the driver that holds
+    // space stays out of a chat and a room. A chat has its own pull, past its end, which writes neither inset nor offset (kosmos#8072).
+    check(!repoText("ios/Kosmos/ChatView.swift").contains("dotsRefresh") && !room.contains("dotsRefresh"), "the pull that holds space stays out of a chat and a room")
+    let endPull = refreshPiece.components(separatedBy: "final class EndPullDriver").last ?? ""
+    check(refreshPiece.contains("final class EndPullDriver") && !endPull.contains("contentInset") && !endPull.contains("setContentOffset") && !endPull.contains("contentOffset ="),
+          "a chat's pull past its end writes no inset and no offset")
 }
 
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")

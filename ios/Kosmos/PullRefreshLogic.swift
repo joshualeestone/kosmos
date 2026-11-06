@@ -15,11 +15,11 @@ struct PullRefreshLogic: Equatable {
 
     enum Phase: Equatable {
         case idle
-        /// A finger is on it and the list is past its top. `armed` means letting go now refreshes.
+        /// A finger is on it and the list is past its edge. `armed` means letting go now refreshes.
         case pulling(armed: Bool)
-        /// The work is running and the space is held open.
+        /// The work is running.
         case refreshing
-        /// The space has been given back; nothing starts until the list has come back to its top.
+        /// The work has ended; nothing starts until the list has come back to its edge.
         case settling
     }
 
