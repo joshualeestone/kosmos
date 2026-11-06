@@ -74,16 +74,18 @@ function vendorOf(id) {
  * restart.
  */
 const ON_MARKER = 'compat-providers-on';
-/* #7206 slice 2a review 1: one switch per vendor, so measuring one vendor and switching it on never turns on another
-   that nobody has measured. DeepSeek keeps the original marker; every later row has its own, compat-<id>-on. */
 /* A row with pageReady: false (GLM until slice 2b) is never on: the page would file its account under Claude. Only a
-   test lifts that, by naming the vendor in AGENT_WORKFORCE_TEST_COMPAT_READY; a launchd job never carries it. */
+   test lifts that: it names the vendor in AGENT_WORKFORCE_TEST_COMPAT_READY, AND runs under node's test runner
+   (NODE_TEST_CONTEXT, which node --test sets and a launchd job or a shell never does), so a stray export cannot. */
 function pageReady(id) {
   const v = vendorOf(id);
   if (!v) return false;
   if (v.pageReady !== false) return true;
+  if (!process.env.NODE_TEST_CONTEXT) return false;
   return String(process.env.AGENT_WORKFORCE_TEST_COMPAT_READY || '').split(',').map((x) => x.trim()).includes(id);
 }
+/* #7206 slice 2a review 1: one switch per vendor, so measuring one vendor and switching it on never turns on another
+   that nobody has measured. DeepSeek keeps the original marker; every later row has its own, compat-<id>-on. */
 function markerFor(id) { return id === 'deepseek' ? ON_MARKER : 'compat-' + id + '-on'; }
 /**
  * enabled(platform, vendor): with a vendor, whether THAT vendor is offered; with none, whether any is (for the routes

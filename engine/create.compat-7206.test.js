@@ -319,5 +319,5 @@ test('#7206 2a review 5: under DeepSeek\'s switch, a switch to GLM is refused in
     sw.setVendor('glm', true);
     const on = create.setProvider(name, 'glm', { ...BINS, accountDir: GLM_HOME, pickedByPerson: true, platform: 'darwin' });
     assert.notEqual(on.because, 'Z.ai GLM is not available in Kosmos yet', 'CONTROL: with its own switch on, GLM is not refused as off');
-  } finally { sw.setVendor('glm', false); process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = saved; }
+  } finally { sw.setVendor('glm', false); if (saved === undefined) delete process.env.AGENT_WORKFORCE_TEST_COMPAT_READY; else process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = saved; }
 });

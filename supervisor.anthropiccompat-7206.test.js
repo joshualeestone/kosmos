@@ -198,7 +198,7 @@ test('the supervisor\'s lists match the module: every vendor is recognised, ever
 test('#7206 slice 2a: a GLM home launches claude against Z.ai, through the same case, only under its own switch', () => {
   const glmHome = () => home({ 'kosmos-vendor.json': JSON.stringify({ vendor: 'glm', model: 'glm-5.3', key: KEY }) }, '.kosmos-glm-h');
   /* 2a review 1: DeepSeek's switch (on in DATA_ON) does not start a GLM agent. */
-  const off = run(glmHome(), 'claude-sonnet-5', { AGENT_WORKFORCE_TEST_COMPAT_READY: 'glm' });   // ready, so this arm tests the switch
+  const off = run(glmHome(), 'claude-sonnet-5', { AGENT_WORKFORCE_TEST_COMPAT_READY: 'glm', NODE_TEST_CONTEXT: process.env.NODE_TEST_CONTEXT || 'child' });   // ready, so this arm tests the switch
   assert.equal(/new-session/.test(off.argv), false, 'a GLM agent started under DeepSeek\'s switch: ' + off.out);
   assert.equal(off.secrets.includes(KEY), false, 'its key went to a pane');
   /* Review 3: GLM's own switch is enough on its own, with DeepSeek's off (a data folder holding only GLM's marker). */
@@ -209,7 +209,11 @@ test('#7206 slice 2a: a GLM home launches claude against Z.ai, through the same 
     /* Review 5: GLM is not page-ready until 2b, so without naming it its switch alone starts nothing. */
     const unready = run(glmHome(), 'claude-sonnet-5', { AGENT_WORKFORCE_DATA: glmOnly });
     assert.equal(/new-session/.test(unready.argv), false, 'a GLM agent started before slice 2b: ' + unready.out);
-    const r = run(glmHome(), 'claude-sonnet-5', { AGENT_WORKFORCE_DATA: glmOnly, AGENT_WORKFORCE_TEST_COMPAT_READY: 'glm' });
+    const READY = { AGENT_WORKFORCE_TEST_COMPAT_READY: 'glm', NODE_TEST_CONTEXT: process.env.NODE_TEST_CONTEXT || 'child' };
+    /* Review 6: naming it outside a test runner does nothing. */
+    const stray = run(glmHome(), 'claude-sonnet-5', { AGENT_WORKFORCE_DATA: glmOnly, AGENT_WORKFORCE_TEST_COMPAT_READY: 'glm' });
+    assert.equal(/new-session/.test(stray.argv), false, 'a stray AGENT_WORKFORCE_TEST_COMPAT_READY started GLM outside a test: ' + stray.out);
+    const r = run(glmHome(), 'claude-sonnet-5', { AGENT_WORKFORCE_DATA: glmOnly, ...READY });
     assert.match(r.argv, /new-session/, r.out);
     assert.match(r.argv, /-e ANTHROPIC_BASE_URL=https:\/\/api\.z\.ai\/api\/anthropic/);
     assert.match(r.argv, /--model glm-5\.3/);
