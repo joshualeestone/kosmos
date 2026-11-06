@@ -872,6 +872,14 @@ struct RoomView: View {
                 }
             }
             #endif
+            // kosmos#8053: the dots read the state and write none of it; Try again, on a tap, is the one write.
+            .modifier(BlankListRing(isBlank: {
+                roomDrawn.isEmpty && !roomScrolling && Board.listBlank(rows: items.count, drawn: roomDrawn.count, endShowing: endShown,
+                                                                       sending: !(store.pending[project.id] ?? []).isEmpty, visible: visible, searching: searchMode)
+            }, tryAgain: {
+                roomRebuilds = 0
+                roomBlankLook(proxy, after: 0)
+            }))
             .modifier(PersonScroll(scrolling: $roomScrolling) {})
             .onChange(of: roomScrolling) { s in if s { endJumps &+= 1 } }   // kosmos#7654: the person's scroll ends the opening retries
             .onChange(of: rows.last?.id) { _ in

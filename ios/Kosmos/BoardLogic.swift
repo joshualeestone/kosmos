@@ -640,6 +640,23 @@ enum Board {
     static func settledBlankActs(endVisible: Bool, endSeen: Bool, everDrew: Bool, messagesFor: Double?) -> Bool {
         endNeverShown(endSeen: endSeen, messagesFor: messagesFor) || (!endVisible && (endSeen || everDrew))
     }
+
+    // kosmos#8053 (Josh 11-05 12:57): what a person sees while a list with messages shows none. It reads the state and writes none, so
+    // the checks and rebuilds above cannot tell it is there. A normal open drew within 0.8 s in the captures of 11-05; it ends in words,
+    // since a ring that never stops is the same blank with an animation on it.
+    enum BlankRing: Equatable { case none, ring, failed }
+    static let blankRingAfter: Double = 1
+    static let blankRingGivesUp: Double = 10
+    static let blankRingWords = "Loading the conversation\u{2026}"
+    static let blankRingFailed = "The conversation did not load."
+    static func blankRing(blankFor: Double) -> BlankRing {
+        blankFor >= blankRingGivesUp ? .failed : blankFor >= blankRingAfter ? .ring : .none
+    }
+    // A showing end counts only with a send on its way, whose bubble can fill the list and is not counted as a row; otherwise the end
+    // flag can read as showing with nothing drawn.
+    static func listBlank(rows: Int, drawn: Int, endShowing: Bool, sending: Bool, visible: Bool, searching: Bool) -> Bool {
+        rows > 0 && drawn == 0 && !(endShowing && sending) && visible && !searching
+    }
     // kosmos#7420 (TestFlight 37, Josh 11-04 08:07): the reported blank (the first, `later` false) is rebuilt whatever the
     // reader's place: going to the newest by id lands in the same undrawn stretch (build 34) and a reader who had scrolled
     // was left blank. `later` alone never rebuilds for a reader higher up: the chat asks for that separately, as a first try
