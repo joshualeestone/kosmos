@@ -3890,7 +3890,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // frame only a blob: or data: download gets here: WebKit makes a cross-origin `download` link a plain link).
         if navigationAction.shouldPerformDownload {
             logLine("#5167: refused a download that is not from this board")
-            tellPageKey(webView, url: navigationAction.request.url, "failed")
+            tellPageKey(webView, url: navigationAction.sourceFrame.isMainFrame ? navigationAction.request.url : nil, "failed")
             let boardPage = isBoardPage(committedPageURL, board: badgeOrigin)
             if navigationAction.targetFrame?.isMainFrame != false {
                 tellDownloadFailed(boardPage

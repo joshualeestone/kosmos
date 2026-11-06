@@ -376,10 +376,12 @@ async function runApp(engine, say) {
     say(/Saved to Downloads/.test(saved.text) && /Budget 2026\.xlsx is in your Downloads folder/.test(saved.msg) && saved.show === 'Open in Finder', T + ': only the app\'s saved says Saved to Downloads, with the name and Open in Finder', JSON.stringify(saved));
     // A click while it says Saved saves nothing (it is the click Josh made three times), and the button comes back as
     // Download, never stuck on Saved (review round 2).
-    const before = asked.length, waitBefore = (await waitingKeys()).length;
+    const busyKeys = () => pg.evaluate(() => [...DL_BUSY.values()].map((w) => w.key));
+    const before = asked.length, waitBefore = (await waitingKeys()).length, busyBefore = JSON.stringify(await busyKeys());
     await pg.click('#pv-do', { force: true }); await pg.waitForTimeout(200);
     const again = await state();
-    say((netSeen ? asked.length === before : true) && (await waitingKeys()).length === waitBefore && /Saved to Downloads/.test(again.text),
+    // The busy watch is the same one (no new click started) on every engine; on Chromium also no new request.
+    say((netSeen ? asked.length === before : true) && (await waitingKeys()).length === waitBefore && JSON.stringify(await busyKeys()) === busyBefore && busyBefore !== '[]' && /Saved to Downloads/.test(again.text),
       T + ': a click while it says Saved saves nothing, and it still says Saved', JSON.stringify({ asked: asked.length - before, again }));
     // The keyboard reaches it: Tab from the action goes to Open in Finder (the viewer keeps focus inside itself).
     await pg.focus('#pv-do'); await pg.keyboard.press('Tab');
@@ -421,7 +423,7 @@ async function runApp(engine, say) {
     say(!!k2 && k2 !== k1 && !failed.busy && failed.text === 'Download' && !/Downloads folder/.test(failed.msg), T + ': a failed save puts the button straight back, and says no saved', JSON.stringify(failed));
     // 2b. Round 4: while the app asks Allow the button waits without saying Saving; with no word at all it comes back;
     // a save that never answers ends with an honest line; Open in Finder on a file that is gone says so.
-    await pg.evaluate(() => { window.__dlLostMs = 700; window.__dlCeilingMs = 900; });
+    await pg.evaluate(() => { window.__dlLostMs = 700; });   // the ceiling stays long until its own arm below
     await open();
     await pg.click('#pv-do'); await pg.waitForTimeout(80);
     const ka2 = netSeen ? keyOf(asked[asked.length - 1] || '') : (await waitingKeys())[0];
@@ -436,13 +438,31 @@ async function runApp(engine, say) {
     await pg.click('#pv-do'); await pg.waitForTimeout(900);
     const lost = await state();
     say(!lost.busy && lost.text === 'Download', T + ': no word from the app at all: the button comes back', JSON.stringify(lost));
+    await pg.evaluate(() => { window.__dlCeilingMs = 900; });
     await pg.click('#pv-do'); await pg.waitForTimeout(80);
     const kc = netSeen ? keyOf(asked[asked.length - 1] || '') : (await waitingKeys())[0];
     await tell({ state: 'saving', key: kc, id: 11, name: 'Budget 2026.xlsx' });
     await pg.waitForTimeout(1100);
     const ceiling = await state();
     say(!ceiling.busy && /lost track of Budget 2026\.xlsx\. Look in your Downloads folder/.test(ceiling.msg || ''), T + ': a save whose answer never comes ends with an honest line, not a claim', JSON.stringify(ceiling));
+    // Asked, then silence (the window gone): the honest line too, never a spinner for ever.
+    await open();
+    await pg.click('#pv-do'); await pg.waitForTimeout(80);
+    const kq = netSeen ? keyOf(asked[asked.length - 1] || '') : (await waitingKeys())[0];
+    await tell({ state: 'asking', key: kq });
+    await pg.waitForTimeout(1100);
+    const silent = await state();
+    say(!silent.busy && /lost track of/.test(silent.msg || ''), T + ': asked, then no answer at all, it ends with the honest line', JSON.stringify(silent));
     await pg.evaluate(() => { delete window.__dlLostMs; delete window.__dlCeilingMs; });
+    // 2c. Two rows clicked in one Files list (no buttons, one line): the first one's saved still shows (round 6).
+    const rowsLine = await pg.evaluate(() => { pvClose(); const m = document.createElement('p'); m.id = '__rl'; document.body.appendChild(m); const say = kplusSayer(m);
+      kplusDownload('agent', 'ana', 'r1.txt', say); kplusDownload('agent', 'ana', 'r2.txt', say);
+      return [...DL_WAIT.values()].filter((w) => /r[12]\.txt/.test(w.name)).map((w) => [w.name, w.key]); });
+    const kr1 = (rowsLine.find(([n]) => n === 'r1.txt') || [])[1];
+    await tell({ state: 'saved', key: kr1, id: 21, name: 'r1.txt' });
+    const rl = await pg.evaluate(() => document.getElementById('__rl').textContent);
+    say(rl === 'r1.txt is in your Downloads folder.', T + ': two rows clicked in one list, the first one\'s saved still shows in the line', JSON.stringify(rl));
+    await tell({ state: 'failed', key: (rowsLine.find(([n]) => n === 'r2.txt') || [])[1] });   // r2 ends, so it is not in the next arm
     // 3. Two files from a Files list, answered out of order, one failing: each answer reaches its own click.
     const two = await pg.evaluate(() => {
       pvClose();
@@ -454,7 +474,7 @@ async function runApp(engine, say) {
       return true;
     });
     await pg.waitForTimeout(200);
-    const files = asked.filter((a) => /files\/download/.test(a));
+    const files = asked.filter((a) => /files\/download\?name=(one|two)\.txt/.test(a));
     const byFile = await pg.evaluate(() => [...DL_WAIT.values()].map((w) => [w.name, w.key]));
     const kOf = (n) => netSeen ? keyOf(files.find((a) => new RegExp('name=' + n.replace('.', '\\.')).test(a)) || '') : ((byFile.find(([x]) => x === n) || [])[1] || null);
     const ka = kOf('one.txt'), kb = kOf('two.txt');

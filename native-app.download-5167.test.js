@@ -15,7 +15,7 @@
 const test = require('node:test');
 /* The Allow question's answer decides the download: yes downloads, no cancels. kosmos#8120 lets the no also tell the page
    (`failed`, under the click's own key), in the multi-line form; the decision itself is pinned the same either way. */
-const ALLOW_OR_CANCEL = String.raw`mayDownload\(file: (?:[^\n]*?\) \{ decisionHandler\(\$0 \? \.download : \.cancel\) \}|[^{}]*?(?:willAsk: \{[^\n]*\})?\) \{ \[weak self, weak webView\] yes in[^\n]*\n\s+if !yes \{ self\?\.tellPageKey\(webView, url: \w+, "failed"(?:, commits: clickCommits)?\) \}\n\s+decisionHandler\(yes \? \.download : \.cancel\)\n\s+\})`;
+const ALLOW_OR_CANCEL = String.raw`mayDownload\(file: [^{}]*?willAsk: (?:asking|\{[^\n]*\})\) \{ \[weak self, weak webView\] yes in[^\n]*\n\s+if !yes \{ self\?\.tellPageKey\(webView, url: \w+, "failed", commits: clickCommits\) \}\n\s+decisionHandler\(yes \? \.download : \.cancel\)\n\s+\}`;
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -156,6 +156,15 @@ test('kosmos#8120: a Kosmos+ computer\'s own download keeps its Allow decision: 
     'the Kosmos+ download path no longer cancels WebKit\'s own and starts only on Allow, or a Don\'t Allow is not told to the page');
   assert.match(b, /let keyed = navigationAction\.sourceFrame\.isMainFrame \? navigationAction\.request\.url : nil/,
     'a frame inside the page can answer the page\'s download click');
+});
+
+test('kosmos#8120: the response paths tell the page their refusals, and a frame cannot end the page\'s click', () => {
+  const a = body('@objc(webView:decidePolicyForNavigationAction:decisionHandler:)');
+  assert.match(a, /refused a download that is not from this board"\)\n\s+tellPageKey\(webView, url: navigationAction\.sourceFrame\.isMainFrame \? navigationAction\.request\.url : nil, "failed"\)/,
+    'a refused download is not told to the page, or a frame inside the page can end its click');
+  const r = body('@objc(webView:decidePolicyForNavigationResponse:decisionHandler:)');
+  assert.match(r, /refused an attachment that is not from this board"\)\n\s+tellPageKey\(webView, url: url, "failed"\)/, 'a refused attachment is not told to the page');
+  assert.match(r, /willAsk: \{ \[weak self, weak webView\] in self\?\.tellPageKey\(webView, url: url, "asking", commits: clickCommits\) \}/, 'the response path tells asking other than when the question is up');
 });
 
 test('#5167 review 6: a board file the window cannot show is saved; an unmarkable one is kept and said', () => {

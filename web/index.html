@@ -21679,7 +21679,10 @@ function dlWatch(file, btn, say, name) {
     // This line's last "is in your Downloads folder" (or Saving) was about the last save, not this one.
     if (dlLineOk(say) && say.el.classList.contains('dl-said')) { say(''); say.el.classList.remove('dl-said'); }
   }
-  if (btn && btn.parentNode) { const old = btn.parentNode.querySelector('.pv-quiet'); if (old) old.remove(); }   // the last copy's Show in Finder
+  if (btn && btn.parentNode) {   // the last copy's Finder button; focus stays on the button, not lost to the page
+    const old = btn.parentNode.querySelector('.pv-quiet');
+    if (old) { if (document.activeElement === old) btn.focus(); old.remove(); }
+  }
   // Only a save that takes a moment shows the dots (#7896: small waits are the Sweep dots), and gives the button a name
   // a screen reader can say while it does (dlBusyLook).
   dlArmSlow(w);
@@ -21715,6 +21718,12 @@ function dlArmSlow(w) {
     if (dlLineOk(w.say) && DL_LINE.get(w.say.el) === w && !w.say.el.textContent) { w.say('Saving ' + (w.name || 'the file') + '...'); w.say.el.classList.add('dl-said'); }
   }, 400);
 }
+/* The ceiling: no answer came after asking or saving. Says so, and claims nothing. */
+function dlLostTrack(w) {
+  const n = w.name || 'the file';
+  dlEnd(w);
+  if (dlLineOk(w.say) && DL_LINE.get(w.say.el) === w) { w.say('Kosmos lost track of ' + n + '. Look in your Downloads folder.'); w.say.el.classList.remove('dl-said'); }
+}
 function dlEnd(w, keepLine) {
   clearTimeout(w.slow); clearTimeout(w.lost); clearTimeout(w.restore);
   DL_WAIT.delete(w.key);
@@ -21732,6 +21741,7 @@ window.addEventListener('kosmos-download', (e) => {
   // Asking: the person is answering the app's Allow question, which it always answers; no timer, and no Saving yet.
   if (d.state === 'asking') {
     clearTimeout(w.lost); clearTimeout(w.slow); w.asking = true;
+    w.lost = setTimeout(() => dlLostTrack(w), DL_CEILING_MS());   // asked, then silence (the window gone): an honest line, late
     if (w.btn && !w.btn.classList.contains('dl-saved')) dlBusyLook(w, DL_DOTS, 'Waiting for your answer to save');   // waiting, not saving
     if (dlLineOk(w.say) && DL_LINE.get(w.say.el) === w && /^Saving /.test(w.say.el.textContent)) w.say('');
     return;
@@ -21740,11 +21750,7 @@ window.addEventListener('kosmos-download', (e) => {
   // answer is lost, says so rather than claim anything (and is long, so a big file is not saved twice).
   if (d.state === 'saving') {
     clearTimeout(w.lost); w.asking = false; dlArmSlow(w);
-    w.lost = setTimeout(() => {
-      const n = w.name || 'the file';
-      dlEnd(w);
-      if (dlLineOk(w.say) && DL_LINE.get(w.say.el) === w) { w.say('Kosmos lost track of ' + n + '. Look in your Downloads folder.'); w.say.el.classList.remove('dl-said'); }
-    }, DL_CEILING_MS());
+    w.lost = setTimeout(() => dlLostTrack(w), DL_CEILING_MS());
     return;
   }
   if (d.state === 'revealfailed') return;   // handled by the viewer's line (below)
@@ -21753,7 +21759,11 @@ window.addEventListener('kosmos-download', (e) => {
   DL_WAIT.delete(w.key);   // answered; the file stays busy (DL_BUSY) until the button is back, so a click on Saved saves nothing
   const name = String(d.name || w.name || 'The file');
   w.answered = true;
-  if (dlLineOk(w.say) && DL_LINE.get(w.say.el) === w) { w.say(name + ' is in your Downloads folder.'); w.say.el.classList.add('dl-said'); }
+  // The line takes the news if it is this click's, or holds only download words (Saving, Already saving, another file's
+  // saved line): a second row clicked in the same list never hides the first one's saved; nobody's error is replaced.
+  if (dlLineOk(w.say) && (DL_LINE.get(w.say.el) === w || !w.say.el.textContent || /^(Saving |Already saving )| is in your Downloads folder\.$/.test(w.say.el.textContent))) {
+    w.say(name + ' is in your Downloads folder.'); w.say.el.classList.add('dl-said');
+  }
   for (const x of w.extraSays || []) if (dlLineOk(x) && DL_LINE.get(x.el) === w && /^Already saving /.test(x.el.textContent)) x('');   // it is saved now
   w.savedId = typeof d.id === 'number' ? d.id : null;
   dlShowSaved(w);
