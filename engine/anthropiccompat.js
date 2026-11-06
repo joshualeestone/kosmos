@@ -75,6 +75,7 @@ const ON_MARKER = 'compat-providers-on';
 function onMarker() { return path.join(require('./store').ROOT, ON_MARKER); }
 /* #7206 slice 2a review 1: one switch per vendor, so measuring one vendor and switching it on never turns on another
    that nobody has measured. DeepSeek keeps the original marker; every later row has its own, compat-<id>-on. */
+/* 🛑 compat-glm-on must not be created before slice 2b: until the page knows GLM, it files a GLM account under Claude. */
 function markerFor(id) { return id === 'deepseek' ? ON_MARKER : 'compat-' + id + '-on'; }
 /**
  * enabled(platform, vendor): with a vendor, whether THAT vendor is offered; with none, whether any is (for the routes
@@ -420,6 +421,7 @@ if (require.main === module) {
     if (verb !== 'launch-env') process.exit(64);
     /* 1b review 2: the switch is a kill switch too. An agent made while it was on does not start with its key once it is
        off (a restart, a crash loop, a hand-edited job): the supervisor refuses the launch with this sentence. */
+    /* '' (never on) for a folder no vendor names, never undefined, which would mean "is any vendor on". */
     if (!enabled(process.platform, vendorOfName(dir) || '')) {
       const v = vendorOf(vendorOfName(dir));
       process.stdout.write(`${notYet(v ? v.id : '')}, so this agent was not started on it`);
