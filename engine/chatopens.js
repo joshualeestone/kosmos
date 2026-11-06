@@ -7,9 +7,10 @@
  * What the numbers mean, for a build: opens is showings (a chat appearing or coming back to the front, until it closes or
  * leaves the front), so one long chat can count twice. blankOpens is showings with a rebuild or left blank at close.
  * rebuilds is the total. closedBlank is showings with no row reported for the last 3 s before they closed.
- * NOT counted, so a rate here is a floor and a change in it can be a blank moving out of view: a blank repaired another
- * way (a list past its end put back), one that recovers with no repair, a screen with rows reported but not drawn, and a
- * showing lost as the app is killed.
+ * Missing from the blank count, so it is a floor and a change in it can be a blank moving out of view: a blank repaired
+ * another way (a list past its end put back), one that recovers with no repair, and a screen with rows reported but not
+ * drawn. Missing from both counts: a showing lost as the app is killed, or to a chat closed or backgrounded under its info
+ * page. Since those are mostly ordinary showings, blankOpens / opens can err either way. Compare builds, do not quote it.
  *
  * Read with GET /api/phone/chat-opens (the board's token, as its sibling chat-shifts) or from the file itself on this Mac.
  *
@@ -83,7 +84,7 @@ function add(body, now = new Date()) {
   try {
     fs.mkdirSync(store.ROOT, { recursive: true });
     store.saveFlushed(file(), JSON.stringify({ builds: Object.fromEntries(kept) }));
-  } catch { return { ok: false }; }
+  } catch (err) { console.warn('chatopens: could not keep a record:', err && err.code); return { ok: false }; }
   return { ok: true };
 }
 

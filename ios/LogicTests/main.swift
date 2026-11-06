@@ -5541,6 +5541,12 @@ do {
     plain.shown(rowsDrawn: true, now: t0); plain.rows(empty: true, now: t0 + 1)
     let unsearched = plain.finish(hasRows: true, excused: false, app: "0.1.0 (53)", now: t0 + 30)
     check((unsearched?["closedBlank"] as? Bool) == true, "the control: the same rows gone with no excuse is a blank")
+    plain.shown(rowsDrawn: false, now: t0); plain.messagesArrived(rowsDrawn: false, now: t0 + 10)
+    let slow = plain.finish(hasRows: true, excused: false, app: "0.1.0 (53)", now: t0 + 11)
+    check((slow?["closedBlank"] as? Bool) == false, "a slow load: the clock starts when the messages arrive")
+    plain.shown(rowsDrawn: false, now: t0); plain.messagesArrived(rowsDrawn: false, now: t0 + 10)
+    let slowBlank = plain.finish(hasRows: true, excused: false, app: "0.1.0 (53)", now: t0 + 14)
+    check((slowBlank?["closedBlank"] as? Bool) == true, "the control: messages there for 4 s and nothing drawn is a blank")
     let r = Board.chatOpenRequest(mac: URL(string: "https://studio.kosmosplus.com")!, body: neverDrew ?? [:])
     check(r?.httpMethod == "POST" && r?.url?.absoluteString == "https://studio.kosmosplus.com/api/phone/chat-open", "POST /api/phone/chat-open")
 }
