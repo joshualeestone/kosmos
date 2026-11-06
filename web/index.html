@@ -77447,9 +77447,11 @@ function pvSheetLoad(stage, url, fileCard) {
   const wait = document.createElement('p'); wait.className = 'pv-note'; wait.textContent = 'Opening the spreadsheet\u2026';
   stage.appendChild(wait);
   const card = (because) => { stage.textContent = ''; stage.appendChild(fileCard()); if (because) { const n = document.createElement('p'); n.className = 'pv-note'; n.textContent = because; stage.appendChild(n); } };
-  fetch(url, { cache: 'no-store' }).then((r) => r.json().catch(() => null)).then((j) => {
+  fetch(url, { cache: 'no-store' }).then(async (r) => ({ status: r.ok, j: await r.json().catch(() => null) })).then(({ status, j }) => {
     if (!stage.isConnected && !wait.isConnected) return;
-    if (!j || j.ok === false) { card(j && typeof j.because === 'string' ? j.because : ''); return; }
+    // Only a real grid answer draws (review 1): a 404 ({ error }), an older board without the route, or no sheets list
+    // shows the card, with the board's sentence when it gave one.
+    if (!status || !j || j.ok !== true || !Array.isArray(j.sheets)) { card(j && j.ok === false && typeof j.because === 'string' ? j.because : ''); return; }
     stage.textContent = ''; pvSheetInto(stage, j);
   }).catch(() => { if (stage.isConnected || wait.isConnected) card(''); });
 }
@@ -77651,7 +77653,8 @@ function filesPvOpen(row, where, e) {
   /* #6724: and a text file (attachments.kindOf's text extensions, which the server's preview answers as its first
      256 KiB of plain text), on every platform. */
   const kind = /^(png|jpe?g|gif|webp)$/.test(lower) ? 'image' : ((lower === 'pdf' && !onWindows()) ? 'pdf'
-    : (/^(txt|md|markdown|csv|json|yaml|yml|log|sh|js|ts|py|html?|css)$/.test(lower) ? 'text' : null));
+    : (/^(txt|md|markdown|csv|json|yaml|yml|log|sh|js|ts|py|html?|css)$/.test(lower) ? 'text'
+    : (/^(xlsx|xlsm|tsv)$/.test(lower) ? 'file' : null)));   // #8122: a workbook opens as its read-only grid (sheetUrl below)
   if (!kind) return false;
   let base;
   if (where && where.agent) base = { preview: '/api/agent/' + encodeURIComponent(where.agent) + '/files/preview', download: '/api/agent/' + encodeURIComponent(where.agent) + '/files/download' };

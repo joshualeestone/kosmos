@@ -583,6 +583,10 @@ async function runSheet(engine, say) {
     await open(BIG, 'Huge.xlsx');
     const big = await pg.evaluate(() => ({ card: !!document.querySelector('#pv-preview .pv-file'), notes: [...document.querySelectorAll('#pv-preview .pv-note')].map((n) => n.textContent), btn: !!document.getElementById('pv-do') }));
     say(big.card && big.notes.includes('This spreadsheet is too large to preview.') && big.btn, T + ': one too large to draw shows its card and the board\'s sentence, the button still there', JSON.stringify(big));
+    // A 404 ({ error }, a file gone, or a board without the route) shows the card, never an empty white box (review 1).
+    await open('e9'.repeat(12), 'Gone.xlsx');
+    const gone = await pg.evaluate(() => ({ card: !!document.querySelector('#pv-preview .pv-file'), grid: !!document.querySelector('#pv-preview .pv-grid-wrap') }));
+    say(gone.card && !gone.grid, T + ': a 404 shows the file card, not an empty grid', JSON.stringify(gone));
     say(errors.length === 0, T + ': no page errors', errors.slice(0, 3).join(' | '));
     await ctx.close();
   } finally { await browser.close(); }
