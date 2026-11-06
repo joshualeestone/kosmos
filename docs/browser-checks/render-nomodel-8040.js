@@ -666,8 +666,8 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.focus('#create-kept-over');
       await p.keyboard.press('Enter');
       await p.waitForTimeout(400);
-      const over = await p.evaluate(() => ({ kind: !document.getElementById('cstep-kind').hidden, name: document.getElementById('create-name').value, line: document.getElementById('create-kept').hidden, kept: CREATE_KEPT, focus: document.activeElement && document.activeElement.matches('#cstep-kind .nak-btn') }));
-      chk(over.kind && over.name === '' && over.line && over.kept === 0, 'start over: it empties the form onto the three-way choice, and the line goes', JSON.stringify(over));
+      const over = await p.evaluate(() => ({ kind: !document.getElementById('cstep-kind').hidden, name: document.getElementById('create-name').value, line: document.getElementById('create-kept').hidden, described: document.getElementById('create-name').hasAttribute('aria-describedby'), kept: CREATE_KEPT, focus: document.activeElement && document.activeElement.matches('#cstep-kind .nak-btn') }));
+      chk(over.kind && over.name === '' && over.line && !over.described && over.kept === 0, 'start over: it empties the form onto the three-way choice, and the line and the field\'s description go', JSON.stringify(over));
       chk(over.focus, 'start over: and the keyboard lands on the first choice, not the page', JSON.stringify(over));
       await p.close();
     }
