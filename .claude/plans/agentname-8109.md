@@ -61,3 +61,9 @@ folder name wins"). The confirmation names the agent it will remove.
 ## Weakest premise
 That `status.readIdentity(dir).displayName` is the same string `agent list` prints. Both read the agent's instruction
 file; not measured on a served board until a release carries it.
+
+## Review round 6 (no BLOCKER)
+- Added: a live session with the exact name is not redirected (mutant-checked).
+- Deferred: the "resolving stopped" log line is not throttled (only fires on a board with an unreadable folder); an
+  agent token can see sibling agents' display names in the ambiguity refusal (agents can already read them with
+  `kosmos agent list`, so nothing new is exposed).

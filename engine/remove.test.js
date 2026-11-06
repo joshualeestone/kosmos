@@ -3483,3 +3483,16 @@ test('#8109 an exact folder name wins over another agent\'s display name (no amb
   assert.equal(r.name, 'kprec8109', 'an exact folder name was resolved to another agent');
   assert.deepEqual(r.ambiguous, [], 'an exact folder name was reported as ambiguous');
 });
+
+test('#8109 a name that is a live session exactly is not redirected to another agent with that display name', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  folderAgent('kshown8109', 'Kses8109');           // another agent, displayed as the session's name
+  boardShows('Kses8109', 'Kses8109');              // a live session named exactly Kses8109, no folder
+  try {
+    const r = remove.resolve('Kses8109', MAC);
+    assert.equal(r.name, 'Kses8109', 'a live session\'s exact name was redirected to another agent');
+    assert.deepEqual(r.ambiguous, []);
+  } finally { status.setPaneSource(() => ''); }
+  // CONTROL: with the session gone, the same name does resolve to the other agent, so the test can see a redirect.
+  assert.equal(remove.resolve('Kses8109', MAC).name, 'kshown8109', 'CONTROL: the name does not resolve without the session');
+});
