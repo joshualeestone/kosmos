@@ -585,7 +585,7 @@ enum ReopenStep: Equatable { case nothing, keep(String), forget, markAsked, forg
 func reopenStep(mode: ComputerMode, awayHost: String?, onOwnBoard: Bool, asked: Bool, kept: String?) -> ReopenStep {
     if mode == .connect { return kept == nil ? .nothing : .forget }   // connect has no board of its own to come back to
     guard mode == .run || mode == .both else { return .nothing }      // unchosen: the first screen's question is showing
-    if let h = awayHost { return h == kept ? .nothing : .keep(h) }    // on another computer: that is the one to reopen
+    if let h = awayHost { return .keep(h) }                           // on another computer: that one (and the reopen is settled)
     guard onOwnBoard else { return .nothing }                          // a sign-in or service page decides nothing
     if asked { return .nothing }                                       // home again after the ask: QUIT decides (round 3), not reloads
     guard let k = kept else { return .markAsked }
@@ -595,24 +595,32 @@ func reopenStep(mode: ComputerMode, awayHost: String?, onOwnBoard: Bool, asked: 
 /// kosmos#8118: PURE, for --kosmos-app-mode-selftest. What the page's answer to a reopen does to the kept host.
 /// Round 3: what the window shows at QUIT decides what the next launch reopens (applicationWillTerminate), so an
 /// answer forgets only what can never be reopened: not on the account, this computer, or a bad value (and an answer
-/// nobody knows). Round 4: the others say whether the reopen is still OUTSTANDING (the person never chose home: a
-/// switch under way, or a passing failure such as the computer asleep or mid-update, so a quit keeps the host and the
-/// next launch tries again) or SETTLED (the person chose to stay, or Kosmos+ is signed out or remote access is off,
-/// so a quit at home forgets it). A page with no reopen at all (a sign-in page on the board's address) leaves the ask
-/// for the next load of the board; a script error does not, so a retry can never land hours later.
-enum ReopenAnswer { case stillOutstanding, settled, retryNextBoardLoad, forget }
+/// nobody knows). Round 5: also forgotten at once when the person chose to stay (touched) or Kosmos+ is signed out or
+/// remote access is off, so a crash or an update relaunch before the quit cannot bring it back. OPENING (a switch
+/// under way) keeps the reopen outstanding until the other computer's page loads. A MISS (the computer asleep,
+/// mid-update, on an older Kosmos, or the list slow or unreadable) keeps it outstanding too, so the next launch tries
+/// again, but misses are counted across launches and REOPEN_MISS_LIMIT in a row forget it (reopenMissesForget), so a
+/// computer that stays off does not toast at every launch for ever. A page with no reopen at all (a sign-in page on
+/// the board's address) leaves the ask for the next load of the board, within REOPEN_RETRY_WINDOW_S of the ask.
+enum ReopenAnswer { case opening, missed, retryNextBoardLoad, forget }
 func reopenAnswerKeeps(_ said: String) -> ReopenAnswer {
     switch said {
-    case "opening", "busy", "slow", "unknown", "updating", "offline", "not-instant", "error": return .stillOutstanding
-    case "touched", "signed-out": return .settled
+    case "opening", "busy": return .opening
+    case "slow", "unknown", "updating", "offline", "not-instant", "error": return .missed
     case "no-page-support": return .retryNextBoardLoad
-    default: return .forget   // gone, home, bad, and anything new
+    default: return .forget   // gone, home, bad, touched, signed-out, and anything new
     }
 }
 
+/// kosmos#8118 (review 5): PURE. Launches in a row whose reopen missed, after which the computer is forgotten.
+let REOPEN_MISS_LIMIT = 3
+func reopenMissesForget(_ misses: Int) -> Bool { misses >= REOPEN_MISS_LIMIT }
+/// kosmos#8118 (review 5): a sign-in page's retry is taken only this soon after the ask, never hours later.
+let REOPEN_RETRY_WINDOW_S: TimeInterval = 120
+
 /// kosmos#8118 (review 4): PURE, for --kosmos-app-mode-selftest. What a quit writes as the computer to reopen.
-/// On another computer: that one. With no page on screen (the page process crashed, or mid-switch): nothing is
-/// decided, so the kept value stands. At home with a reopen still outstanding (the person never chose home): the
+/// On another computer: that one. With no page on screen (the page process crashed): nothing is decided, so the
+/// kept value stands (mid-switch the old page is still committed, so it counts as where the window is). At home with a reopen still outstanding (the person never chose home): the
 /// kept value stands. At home otherwise: nothing, so the next launch opens here.
 func quitKeeps(awayHost: String?, hasPage: Bool, reopenOutstanding: Bool, kept: String?) -> String? {
     if let h = awayHost { return h }
@@ -2376,7 +2384,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /* kosmos#8118: the computer the window was on at quit (its host only, never a ticket or address with a token),
        so the next launch reopens it. Written at quit (applicationWillTerminate), and kept as soon as another
        computer's page finishes loading (so a crash still leaves the last one); forgotten on Back to This Computer
-       (and the #6585 navigation home, which calls it), in connect mode, and when the page says the computer can
+       (and the #6585 navigation home, which calls it, unless that call is refused during an update or a board
+       start), in connect mode, and when the page says the computer can
        never be reopened. UserDefaults, as relaunchedAtVersion: a value a launch branches on. */
     private static let reopenComputerKey = "kosmos.reopenComputerHost"
     private var reopenComputerHost: String? {
@@ -2385,9 +2394,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
     // kosmos#8118: the reopen is asked at most once a launch, after this computer's own board has loaded.
     private var reopenAskedThisLaunch = false
-    // kosmos#8118 (review 4): true from the ask until the person chooses home, the answer settles it, or the other
-    // computer's page commits. While true, a quit keeps the host (quitKeeps).
+    // kosmos#8118 (review 4, 5): true from the ask until the person chooses home, the answer forgets it, or another
+    // computer's page finishes loading (reopenStep's .keep, the same computer included). While true, a quit keeps
+    // the host (quitKeeps).
     private var reopenOutstanding = false
+    // kosmos#8118 (review 5): launches in a row whose reopen missed (reopenMissesForget), kept with the host.
+    private static let reopenMissesKey = "kosmos.reopenComputerMisses"
+    private var reopenMisses: Int {
+        get { UserDefaults.standard.integer(forKey: Self.reopenMissesKey) }
+        set { if newValue == 0 { UserDefaults.standard.removeObject(forKey: Self.reopenMissesKey) } else { UserDefaults.standard.set(newValue, forKey: Self.reopenMissesKey) } }
+    }
+    // kosmos#8118 (review 5): until when a sign-in page's retry may still ask (REOPEN_RETRY_WINDOW_S after the ask).
+    private var reopenRetryUntil: Date?
     // #965: a board start is already running on the background queue; reload
     // requests are ignored until it resolves, so two Cmd-R presses (or the
     // test seam firing during a slow boot) cannot race two `kosmos start`
@@ -3291,6 +3309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         boardStartFromBackHome = true
         // kosmos#8118: going home on purpose is the person's choice, so the next launch opens here too.
         reopenOutstanding = false
+        reopenMisses = 0
         if reopenComputerHost != nil { reopenComputerHost = nil; logLine("#8118: forgot the computer to reopen (back to this computer)") }
         loadBoard()
     }
@@ -5916,7 +5935,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let away = isOnAnotherComputer() ? computerToRemember(page, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost()) : nil
         switch reopenStep(mode: computerMode, awayHost: away, onOwnBoard: onOwnBoard, asked: reopenAskedThisLaunch, kept: reopenComputerHost) {
         case .nothing: return
-        case .keep(let host): reopenComputerHost = host; reopenOutstanding = false; logLine("#8118: will reopen \(host) at the next launch")
+        case .keep(let host):
+            reopenOutstanding = false
+            if host != reopenComputerHost { reopenComputerHost = host; reopenMisses = 0; logLine("#8118: will reopen \(host) at the next launch") }
         case .forget: reopenComputerHost = nil; logLine("#8118: forgot the computer to reopen (the window is home, or this Mac connects)")
         case .markAsked: reopenAskedThisLaunch = true
         case .forgetAndMarkAsked: reopenAskedThisLaunch = true; reopenComputerHost = nil; logLine("#8118: forgot a kept computer that is not a plain host")
@@ -5930,6 +5951,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func askPageToReopen(_ host: String, _ webView: WKWebView) {
         reopenAskedThisLaunch = true
         reopenOutstanding = true
+        if reopenRetryUntil == nil { reopenRetryUntil = Date().addingTimeInterval(REOPEN_RETRY_WINDOW_S) }
         let askedOn = pageCommits
         logLine("#8118: asking the page to reopen \(host)")
         webView.callAsyncJavaScript("return (typeof computersReopen === 'function') ? await computersReopen(host) : 'no-page-support'",
@@ -5946,10 +5968,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
             logLine("#8118: reopen of \(host) answered \(said)")
             switch reopenAnswerKeeps(said) {
-            case .stillOutstanding: break
-            case .settled: self.reopenOutstanding = false
-            case .retryNextBoardLoad: self.reopenAskedThisLaunch = false   // not the board page proper yet (a sign-in page)
-            case .forget: self.reopenOutstanding = false; if self.reopenComputerHost == host { self.reopenComputerHost = nil }
+            case .opening:
+                self.reopenMisses = 0
+            case .missed:
+                self.reopenMisses += 1
+                if reopenMissesForget(self.reopenMisses) {
+                    self.reopenOutstanding = false
+                    if self.reopenComputerHost == host { self.reopenComputerHost = nil }
+                    self.reopenMisses = 0
+                    logLine("#8118: \(host) missed \(REOPEN_MISS_LIMIT) launches in a row, so it is forgotten")
+                }
+            case .retryNextBoardLoad:
+                // Not the board page proper yet (a sign-in page): ask again at the next board load, if that is soon.
+                if let until = self.reopenRetryUntil, Date() < until { self.reopenAskedThisLaunch = false }
+                else { self.reopenOutstanding = false; logLine("#8118: no reopen within \(Int(REOPEN_RETRY_WINDOW_S)) s of the ask; not asking again this launch") }
+            case .forget:
+                self.reopenOutstanding = false
+                self.reopenMisses = 0
+                if self.reopenComputerHost == host { self.reopenComputerHost = nil }
             }
         }
     }
@@ -8191,21 +8227,30 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         if got != want { bad += 1 }
         print((got == want ? "PASS  " : "FAIL  ") + "reopened".padding(toLength: 11, withPad: " ", startingAt: 0) + why)
     }
-    answer("opening", .stillOutstanding, "a switch under way keeps the host")
-    answer("busy", .stillOutstanding, "a click already switching keeps it too")
-    answer("offline", .stillOutstanding, "OFFLINE IS PASSING: KEPT, SO THE NEXT LAUNCH TRIES AGAIN")
-    answer("updating", .stillOutstanding, "the other computer mid-update: kept")
-    answer("slow", .stillOutstanding, "a slow list: kept")
-    answer("unknown", .stillOutstanding, "a list that could not be read: kept")
-    answer("not-instant", .stillOutstanding, "an older Kosmos there: kept (the toast says to update it)")
-    answer("signed-out", .settled, "SIGNED OUT OR REMOTE ACCESS OFF: SETTLED, so a quit at home forgets it (no toast every launch)")
+    answer("opening", .opening, "a switch under way keeps the host")
+    answer("busy", .opening, "a click already switching keeps it too")
+    answer("offline", .missed, "OFFLINE IS A MISS: KEPT, SO THE NEXT LAUNCH TRIES AGAIN (COUNTED)")
+    answer("updating", .missed, "the other computer mid-update: kept")
+    answer("slow", .missed, "a slow list: kept")
+    answer("unknown", .missed, "a list that could not be read: kept")
+    answer("not-instant", .missed, "an older Kosmos there: kept (the toast says to update it)")
+    answer("signed-out", .forget, "SIGNED OUT OR REMOTE ACCESS OFF: FORGOTTEN AT ONCE (no toast every launch)")
     answer("gone", .forget, "not on the account: forgotten")
     answer("home", .forget, "this computer itself: forgotten")
     answer("bad", .forget, "a bad value: forgotten")
-    answer("touched", .settled, "THE PERSON CHOSE TO STAY: SETTLED, so a quit at home forgets it")
+    answer("touched", .forget, "THE PERSON CHOSE TO STAY: FORGOTTEN AT ONCE, so a crash before quit cannot bring it back")
     answer("no-page-support", .retryNextBoardLoad, "a page with no reopen (a sign-in page) asks again at the next board load")
-    answer("error", .stillOutstanding, "A SCRIPT ERROR DOES NOT RETRY (a retry could land hours later); quit decides")
+    answer("error", .missed, "A SCRIPT ERROR DOES NOT RETRY (a retry could land hours later); quit decides")
     answer("something new", .forget, "AN ANSWER NOBODY KNOWS STAYS HOME")
+    func misses(_ n: Int, _ want: Bool, _ why: String) {
+        ran += 1
+        let got = reopenMissesForget(n)
+        if got != want { bad += 1 }
+        print((got == want ? "PASS  " : "FAIL  ") + "misses".padding(toLength: 11, withPad: " ", startingAt: 0) + why)
+    }
+    misses(1, false, "one launch with the computer asleep: kept")
+    misses(2, false, "two in a row: kept")
+    misses(3, true, "THREE LAUNCHES IN A ROW MISSED: FORGOTTEN, so no toast for ever")
     func quit(_ away: String?, _ hasPage: Bool, _ outstanding: Bool, _ kept: String?, _ want: String?, _ why: String) {
         ran += 1
         let got = quitKeeps(awayHost: away, hasPage: hasPage, reopenOutstanding: outstanding, kept: kept)
@@ -8229,11 +8274,11 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     step(.both, nil, true, false, mini, .ask(mini), "both mode asks too")
     step(.run, nil, true, true, mini, .nothing, "THE OWN BOARD AGAIN AFTER THE ASK (A RELOAD, AN UPDATE): NOTHING; QUIT DECIDES")
     step(.run, nil, true, true, nil, .nothing, "home again with nothing kept: nothing to do")
-    step(.run, nil, true, false, nil, .markAsked, "a launch with nothing kept spends its ask, so a later home load forgets nothing wrongly")
+    step(.run, nil, true, false, nil, .markAsked, "a launch with nothing kept spends its ask (nothing to reopen)")
     step(.run, nil, true, false, "MINI\"x", .forgetAndMarkAsked, "a hand-edited value is forgotten, never asked")
     step(.run, mini, false, true, nil, .keep(mini), "on another computer: kept")
     step(.run, mini, false, false, nil, .keep(mini), "on another computer before this launch's ask: kept, the ask still waits for the board")
-    step(.run, mini, false, true, mini, .nothing, "the same computer again: no write")
+    step(.run, mini, false, true, mini, .keep(mini), "THE REOPENED COMPUTER LOADING SETTLES THE REOPEN (the wiring writes only a change)")
     step(.run, "third.kosmosplus.com", false, true, mini, .keep("third.kosmosplus.com"), "a third computer replaces the kept one")
     step(.run, nil, false, false, mini, .nothing, "A SIGN-IN OR SERVICE PAGE DECIDES NOTHING (the ask waits for the board)")
     step(.connect, nil, true, false, mini, .forget, "connect has no board to come back to: forgotten")
@@ -8454,7 +8499,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 284   // kosmos#8118: +50 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 6 quitKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 287   // kosmos#8118: +53 (7 computerToRemember rows, 7 rememberableHost rows, 15 reopenAnswerKeeps rows, 3 reopenMissesForget rows, 6 quitKeeps rows, 15 reopenStep rows); kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)

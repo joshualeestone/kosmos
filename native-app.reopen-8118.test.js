@@ -38,7 +38,8 @@ test('#8118: every finished load runs reopenStep (its rules are rows in the self
   ]) {
     const at = f.indexOf(arm);
     assert.ok(at > 0, arm + ' is gone');
-    assert.match(f.slice(at, f.indexOf('\n', at)), act, arm + ' no longer does what the step says');
+    const next = f.indexOf('\n        case .', at + arm.length);   // the whole arm, up to the next case
+    assert.match(f.slice(at, next > 0 ? next : f.length), act, arm + ' no longer does what the step says');
   }
 });
 
@@ -65,10 +66,13 @@ test('#8118: the host reaches the page as an ARGUMENT, never inside the script t
 test('#8118: forgotten on the page\'s gone or home, and on Back to This Computer before the board loads', () => {
   const f = body('private func askPageToReopen(');
   assert.match(f, /switch reopenAnswerKeeps\(said\) \{/, 'the page\'s answer no longer goes through reopenAnswerKeeps (its rows are in the selftest)');
-  assert.match(f, /case \.forget: self\.reopenOutstanding = false; if self\.reopenComputerHost == host \{ self\.reopenComputerHost = nil \}/, 'a forget answer no longer forgets the host');
-  assert.match(f, /case \.settled: self\.reopenOutstanding = false/, 'a settled answer leaves the reopen outstanding, so a quit at home keeps it');
-  assert.match(f, /case \.stillOutstanding: break/);
-  assert.match(f, /case \.retryNextBoardLoad: self\.reopenAskedThisLaunch = false/, 'a page that cannot answer spends the launch\'s reopen');
+  const arm = (name) => f.slice(f.indexOf(name), f.indexOf('case .', f.indexOf(name) + name.length) > 0 ? f.indexOf('case .', f.indexOf(name) + name.length) : undefined);
+  assert.match(arm('case .forget:'), /self\.reopenOutstanding = false[\s\S]*if self\.reopenComputerHost == host \{ self\.reopenComputerHost = nil \}/, 'a forget answer no longer forgets the host');
+  assert.match(arm('case .missed:'), /self\.reopenMisses \+= 1[\s\S]*if reopenMissesForget\(self\.reopenMisses\)[\s\S]*self\.reopenComputerHost = nil/,
+    'a miss is not counted, or REOPEN_MISS_LIMIT misses do not forget (review 5: a computer that stays off toasts for ever)');
+  assert.match(arm('case .opening:'), /self\.reopenMisses = 0/, 'a reopen that opens does not reset the misses');
+  assert.match(arm('case .retryNextBoardLoad:'), /if let until = self\.reopenRetryUntil, Date\(\) < until \{ self\.reopenAskedThisLaunch = false \}/,
+    'a sign-in page retry is not bounded in time (review 5)');
   const home = body('@objc func backToThisComputer(_ sender: Any?)');
   assert.match(home, /reopenOutstanding = false/, 'going home on purpose leaves a reopen outstanding');
   const forget = home.indexOf('reopenComputerHost = nil');
@@ -94,5 +98,5 @@ test('#8118 (round 4): the ask marks the reopen outstanding, and the other compu
   assert.match(body('private func askPageToReopen('), /reopenAskedThisLaunch = true\n\s+reopenOutstanding = true/);
   const f = body('private func rememberOrReopenComputer(');
   const at = f.indexOf('case .keep(let host):');
-  assert.match(f.slice(at, f.indexOf('\n', at)), /reopenOutstanding = false/, 'the remote page loading leaves the reopen outstanding');
+  assert.match(f.slice(at, f.indexOf('case .forget:', at)), /reopenOutstanding = false/, 'the remote page loading leaves the reopen outstanding');
 });
