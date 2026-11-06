@@ -1,6 +1,7 @@
 'use strict';
 /**
- * #7206 slice 1b: the vendor-provider switch for tests. The switch is the marker file `compat-providers-on` in the data
+ * #7206 slice 1b: the vendor-provider switches for tests. There is one marker file per vendor (engine/anthropiccompat.js
+ * markerFor); set, setAt and withSwitch move DeepSeek's, `compat-providers-on`, and setVendor / setVendorAt any one. Each is in the data
  * folder (engine/anthropiccompat.js enabled()); there is no environment variable. In-process, the data folder is
  * store.ROOT (a throwaway folder in a test process, or the test's AGENT_WORKFORCE_DATA). A child process (the supervisor,
  * the launch-env CLI) is given its own data folder with AGENT_WORKFORCE_DATA, and the marker is written there: never
@@ -27,7 +28,7 @@ function guard(root) {
 }
 function markerAt(root) { return path.join(root, MARKER); }
 /* #7206 slice 2a review 1: one switch per vendor. DeepSeek keeps MARKER; a later vendor's is compat-<id>-on. */
-function vendorMarkerAt(root, vendor) { return path.join(root, vendor === 'deepseek' ? MARKER : 'compat-' + vendor + '-on'); }
+function vendorMarkerAt(root, vendor) { return path.join(root, require('../engine/anthropiccompat').markerFor(vendor)); }   // the product's own rule, never a copy
 /** Set ONE vendor's switch for a process started with AGENT_WORKFORCE_DATA=<dataDir>. */
 function setVendorAt(dataDir, vendor, on) {
   const root = rootFor(dataDir); guard(root);

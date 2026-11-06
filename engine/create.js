@@ -2231,7 +2231,7 @@ function setProvider(name, provider, opts) {
   /* #3296/#3391: the four-way guard createAgentInner already uses. google launches
      the gemini runner, xai the grok runner; the switch path was the last post-birth
      setter still refusing both (setAccount/setModel already handle them). */
-  /* #7206 slice 1b: a vendor (DeepSeek) is a provider only while its switch is on (anthropiccompat.enabled, off by
+  /* #7206 slice 1b: a vendor (DeepSeek, GLM) is a provider only while its own switch is on (anthropiccompat.enabled, off by
      default and never on Windows); while off it is refused here exactly as an unknown provider is, with its own words. */
   const compatVendor = require('./anthropiccompat').vendorOf(provider);
   if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform, compatVendor.id)) {
@@ -5078,7 +5078,7 @@ async function accountConnectable({ provider, accountDir } = {}) {
     return { ok: true };
   }
   /* #7206: a vendor account (DeepSeek), checked the way Qwen's is: its own live check (the vendor's model list, free),
-     never the Claude sign-in probe. Only while the switch is on: off, createAgentInner refuses it right after. The
+     never the Claude sign-in probe. Only while its own switch is on: off, createAgentInner refuses it right after. The
      switch is read for this computer's own platform (no caller passes one; only a test's opts.platform can differ). */
   { const compat = require('./anthropiccompat'); const v = compat.vendorOf(prov);
     if (v) {
@@ -5390,7 +5390,7 @@ function createAgentInner(opts) {
   const runner = providerRunner(provider);
   const runnerBin = runner === 'codex' ? codexBin : runner === 'gemini' ? geminiBin : runner === 'grok' ? grokBin : runner === 'antigravity' ? antigravityBin : runner === 'muse' ? museBin : claudeBin;
 
-  /* #7206 slice 1b: a vendor (DeepSeek) is a provider only while its switch is on (off by default, never on Windows).
+  /* #7206 slice 1b: a vendor (DeepSeek, GLM) is a provider only while its own switch is on (off by default, never on Windows).
      Before `steps` on purpose: the accept test below must stay where orgpolicy-names-6233 reads it. */
   const compatVendor = require('./anthropiccompat').vendorOf(provider);
   if (compatVendor && !require('./anthropiccompat').enabled(opts && opts.platform, compatVendor.id)) {

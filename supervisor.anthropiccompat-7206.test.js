@@ -201,12 +201,19 @@ test('#7206 slice 2a: a GLM home launches claude against Z.ai, through the same 
   const off = run(glmHome(), 'claude-sonnet-5');
   assert.equal(/new-session/.test(off.argv), false, 'a GLM agent started under DeepSeek\'s switch: ' + off.out);
   assert.equal(off.secrets.includes(KEY), false, 'its key went to a pane');
-  require('./test-support/compat-switch').setVendorAt(DATA_ON, 'glm', true);
-  const r = run(home({ 'kosmos-vendor.json': JSON.stringify({ vendor: 'glm', model: 'glm-5.3', key: KEY }) }, '.kosmos-glm-h'), 'claude-sonnet-5');
-  assert.match(r.argv, /new-session/, r.out);
-  assert.match(r.argv, /-e ANTHROPIC_BASE_URL=https:\/\/api\.z\.ai\/api\/anthropic/);
-  assert.match(r.argv, /--model glm-5\.3/);
-  assert.equal(/claude-sonnet-5/.test(r.argv), false, 'the agent\'s Claude model is not sent to Z.ai');
-  assert.equal(r.argv.includes(KEY), false, 'the key reached the argv');
-  require('./test-support/compat-switch').setVendorAt(DATA_ON, 'glm', false);
+  /* Review 3: GLM's own switch is enough on its own, with DeepSeek's off (a data folder holding only GLM's marker). */
+  const sw = require('./test-support/compat-switch');
+  const glmOnly = nodePath.join(SANDBOX, 'data-glm-only');
+  sw.setVendorAt(glmOnly, 'glm', true);
+  try {
+    const r = run(glmHome(), 'claude-sonnet-5', { AGENT_WORKFORCE_DATA: glmOnly });
+    assert.match(r.argv, /new-session/, r.out);
+    assert.match(r.argv, /-e ANTHROPIC_BASE_URL=https:\/\/api\.z\.ai\/api\/anthropic/);
+    assert.match(r.argv, /--model glm-5\.3/);
+    assert.equal(/claude-sonnet-5/.test(r.argv), false, 'the agent\'s Claude model is not sent to Z.ai');
+    assert.equal(r.argv.includes(KEY), false, 'the key reached the argv');
+    /* CONTROL: in that same folder DeepSeek's switch is off, so a DeepSeek agent does not start. */
+    const ds = run(home({ 'kosmos-vendor.json': JSON.stringify(ACCT) }), 'claude-sonnet-5', { AGENT_WORKFORCE_DATA: glmOnly });
+    assert.equal(/new-session/.test(ds.argv), false, 'a DeepSeek agent started under GLM\'s switch: ' + ds.out);
+  } finally { sw.setVendorAt(glmOnly, 'glm', false); }
 });
