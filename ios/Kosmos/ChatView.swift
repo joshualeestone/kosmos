@@ -3472,7 +3472,12 @@ struct KeyboardHold: UIViewRepresentable {
 // are measured again. A class, so a reading redraws nothing. `watch` hands one row's fresh readings to the hold, and says
 // when that row stops being drawn (nil). Assumed, not measured: no reading arrives after a row's onDisappear; a stray one
 // would at worst offer a row outside what shows, which Board.readerRow never picks.
-struct RowReading: Equatable { let top: Double, content: Double, end: Double }   // end: its bottom in the content (#7420: did a rebuild come back?)
+struct RowReading: Equatable {
+    let top: Double, content: Double
+    let end: Double   // its bottom in the content, for a capture (#7420: did a rebuild come back?)
+    // Not in the comparison: a row growing at its bottom must not wake the keyboard hold, which watches these. So end is as of the row's last move.
+    static func == (a: RowReading, b: RowReading) -> Bool { a.top == b.top && a.content == b.content }
+}
 final class RowTops {
     var y: [String: RowReading] = [:]
     var last: [String: Double] = [:]   // each row's last place in the content, kept after it stops being drawn (one per row

@@ -5718,6 +5718,7 @@ do {
     check(Board.rowsAgainstScreen([100, 200], showing: (top: 250, bottom: 500), ends: [150, 300]).hasSuffix(", 1 reach the screen"), "a tall last row whose top is above the screen still reaches it")
     check(Board.rowsAgainstScreen([100, 200], showing: (top: 250, bottom: 500), ends: [150, 240]).hasSuffix(", 0 reach the screen"), "CONTROL: every row above the screen")
     check(Board.rowsAgainstScreen([100], showing: (top: 0, bottom: 500), ends: []) == "row tops 100 to 100, screen shows 0 to 500", "CONTROL: no ends read, the line as before")
+    check(!Board.rowsAgainstScreen([100, 200], showing: (top: 0, bottom: 500), ends: [150]).contains("reach"), "ends that do not match the rows say nothing")
     check(Board.rowsAgainstScreen([5, .nan, .infinity], showing: (top: .nan, bottom: 1)) == "row tops 5 to 5, screen unread", "a broken number never traps a report about a broken scroll")
     check(Board.rowsAgainstScreen([.nan], showing: (top: 1, bottom: 2)) == "no row read its place", "control: nothing finite")
     check(Board.rowsAgainstScreen([1e300, -1e300], showing: (top: .greatestFiniteMagnitude, bottom: 1)) == "row tops -1000000000000000 to 1000000000000000, screen shows 1000000000000000 to 1", "a huge finite value is clamped, never a crash in the report")
