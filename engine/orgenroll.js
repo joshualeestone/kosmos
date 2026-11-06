@@ -448,9 +448,10 @@ const SAY = Object.freeze({
   /* kosmos#6583 (S-11): an invite bound to one address, tried from an account with another, which the coordinator
      refuses as org_wrong_email. Without a sentence here the person was told to try again in a minute, which never
      works. It names no address, as the coordinator's own words do not. */
-  org_wrong_email: 'That code was made for a different email address. Ask whoever sent it to invite the address you sign in with to Kosmos+.',
+  org_wrong_email: 'That code was made for a different email address. Sign in with the address it was sent to, or ask whoever sent it for a new one.',
   /* kosmos#6583 review 1: the same gap for a company pilot with no free seat (kosmos#7585), refused at the preview and
-     at the join; retrying cannot help until a seat is freed. In the coordinator's own words. */
+     at the join; retrying cannot help until a seat is freed. In the coordinator's own words. Pilots are for companies
+     only (the coordinator's PILOT_FULL), so this sentence is never said to a family and is not run through inKind. */
   org_pilot_full: "Your company's Kosmos+ pilot has no free seat. Ask the people who run your company's accounts to free one or add seats.",
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',

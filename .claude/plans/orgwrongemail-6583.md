@@ -27,3 +27,10 @@ page code keys on the list of org codes (grep: only engine/orgenroll.js and its 
 - NITs taken: clearer wrong-address wording ("invite the address you sign in with to Kosmos+"); org_wrong_email added
   to familysay-6251's "refused before any org is known" guard; the uncheckable relay sha dropped from the comment.
 - Noted, not this card: org_not_accepted is in CODES with no SAY entry (falls to the log path).
+
+## Review round 2 (opus)
+- WARNING taken: the wrong-address sentence now gives the coordinator's two ways out, "Sign in with the address it
+  was sent to, or ask whoever sent it for a new one", and no longer says "to Kosmos+".
+- NIT taken: a comment that pilots are company-only, so org_pilot_full is never said to a family.
+- Noted, not this card: review_account (the store-review account only) is still uncoded on these screens;
+  org_wrong_domain's older sentence reads close to org_wrong_email's.
