@@ -49,6 +49,7 @@ struct ChatView: View {
     @State private var rebuilds: [Date] = []
     static let rebuildsMax = 3
     static var sampleNudged = false
+    static let sampleNoticeOver = ProcessInfo.processInfo.environment["KOSMOS_SAMPLE_NOTICEOVER"] == "1"
     // kosmos#7645: a keyboard put-back let the anchor go; true until a row is named again (keepAnchor keeps a page meanwhile).
     @State private var anchorLetGo = false
     // kosmos#7645: where each drawn row is on the screen (iOS 26 and later), for the keyboard hold.
@@ -213,13 +214,14 @@ struct ChatView: View {
         let _ = tick
         VStack(spacing: 0) {
             if thread != nil, let note = bannerText { banner(note) }
-            if let diagReport { diagLine(diagReport) }   // kosmos#7420
+            if let diagReport, !Self.sampleNoticeOver { diagLine(diagReport) }   // kosmos#7420
             if searchMode { searchBar }
             ZStack(alignment: .bottom) {
                 conversation
                 // Not over a search: new messages are not followed then (follow), so it would offer a jump in a filtered list.
                 if unseenNew && !searching { newMessagesCapsule }
             }
+            .overlay(alignment: .top) { if let diagReport, Self.sampleNoticeOver { diagLine(diagReport) } }   // EXPERIMENT kosmos#7420
             .messagesVisibleArea()   // kosmos#7419 review 4: the lit message's hole stays above the composer's strip
             // kosmos#7346 (Josh 10-27, Mona Lisa's design): the message box sits on a solid strip down to the home indicator,
             // with messages fading into it; the inset keeps the newest message above the box.
