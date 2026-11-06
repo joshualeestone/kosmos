@@ -355,7 +355,8 @@ function powershellReason(stderr) {
 
 /**
  * Review 3: what the person is told when Windows PowerShell could not answer, in plain words. PowerShell's own
- * error line is engine output, so it never reaches the person: it rides on the error as `detail`, for a log.
+ * error line is engine output, so it never reaches the person. It rides on the error as `detail`, so a caller
+ * can log it; nothing logs it yet (a follow-up on #1765), so an unrecognised failure reads only as the plain line.
  * 🔑 A LOCKED-DOWN POWERSHELL HAS ITS OWN SENTENCE. On a PC whose policy (WDAC or AppLocker) runs PowerShell in
  * Constrained Language Mode, the pipe type cannot be created and every message is refused, so the reason has to
  * name that, or the outage cannot be told apart from a slow one. Pure, so a test pins each wording.
@@ -460,7 +461,10 @@ function say(name, text, opts) {
       /* A little longer than the child's own deadline, so the child is the one
          that reports a timeout and it reports it as a sentence rather than as a
          killed process. #1765: on Windows the child also asks who holds the pipe
-         first, in a phase with its own bound, so it is given that much longer. */
+         first, in a phase with its own bound, so it is given that much longer.
+         One case still ends here instead: a connect that waits on a busy pipe
+         and then a slow check can outlast this bound, and say() reports it as
+         unsure (plan, pipe-owner-1765-v2). */
       timeout: timeout + 2000 + (process.platform === 'win32' ? OWNER_CHECK_TIMEOUT_MS : 0),
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
@@ -593,6 +597,13 @@ function clientMain(name, text, opts) {
     buf += chunk.toString('utf8');
     const nl = buf.indexOf('\n');
     if (nl === -1) return;
+    /* Review 4: 🛑 NOTHING THE CHANNEL SAYS BEFORE OUR REQUEST IS AN ANSWER TO IT. While the owner
+       check runs nothing has been written, and a holder that is not this account could otherwise
+       send {"ok":true} first and have a message nobody received recorded as delivered (or choose the
+       sentence the person reads). So a line that arrives before the request is a definite no, in our
+       own words. Our own supervisor never speaks first except to give up on a silent caller, which
+       is a definite no as well. */
+    if (!wrote) { finish({ ok: false, because: 'its channel spoke before we had asked it anything, so we did not type anything' }); return; }
     /* The supervisor's own flags travel with its sentence; an answer we cannot
        read, once the request is written, came from a supervisor that may already
        have typed the message. */

@@ -91,6 +91,32 @@ test('#1765: a pipe held by another account gets NOTHING: no token, no words', a
   assert.deepEqual(sq.got, [], 'bytes reached the other account\'s pipe');
 });
 
+test('#1765: a holder that answers before it is asked is never believed, and gets nothing', async () => {
+  /* Review 4: a squatter that says {"ok":true} on connect, before the owner check has answered, must not
+     have the message recorded as delivered, nor choose the sentence the person reads. */
+  for (const early of ['{"ok":true}', '{"ok":false,"because":"words the holder chose"}']) {
+    const addr = address();
+    const got = [];
+    const srv = net.createServer((sock) => {
+      sock.on('error', () => {});
+      sock.on('data', (c) => got.push(c.toString('utf8')));
+      sock.write(early + '\n');
+    });
+    await new Promise((res) => srv.listen(addr, res));
+    open.push(srv);
+    const r = await ask('early-' + got.length + '-' + early.length, 'the secret plan', addr, {
+      timeoutMs: 2000,
+      checkServer: () => new Promise((res) => setTimeout(() => res({ owner: SOMEONE_ELSE, me: ME }), 300)),
+    });
+    assert.equal(r.ok, false, early);
+    assert.match(r.because, /spoke before we had asked it anything/, early);
+    assert.ok(!r.because.includes('words the holder chose'), 'the holder chose the sentence');
+    assert.ok(!r.unsure, 'nothing was written, so it is a definite no');
+    await new Promise((res) => setTimeout(res, 400));
+    assert.deepEqual(got, [], early + ': bytes reached the holder');
+  }
+});
+
 test('#1765: a check that fails or throws refuses, and writes nothing', async () => {
   for (const [label, check] of [
     ['rejects', async () => { throw new Error('Windows did not say in time'); }],
@@ -148,7 +174,7 @@ test('#1765: the owner check ends before a supervisor gives up on a silent calle
     'owner check ' + channel.OWNER_CHECK_TIMEOUT_MS + ' ms is not under the supervisor idle bound ' + channel.SAY_TIMEOUT_MS + ' ms');
 });
 
-test('#1765: a check PowerShell could not finish is told in plain words, with its own line kept for a log', () => {
+test('#1765: a check PowerShell could not finish is told in plain words, with its own line kept on the error', () => {
   /* Review 3. The stderr shapes are Windows PowerShell 5.1's own: the first is what Constrained Language Mode
      (a WDAC or AppLocker policy) prints for New-Object of a .NET type. */
   const clm = [
@@ -172,7 +198,7 @@ test('#1765: a check PowerShell could not finish is told in plain words, with it
     assert.ok(!/Exception|New-Object|CategoryInfo|"/.test(e.message), 'engine output reached the sentence: ' + e.message);
     assert.equal(typeof e.detail, 'string');
   }
-  assert.match(channel.ownerCheckFailure(clm, 1).detail, /^New-Object : Cannot create type/, 'the raw first line is kept for a log');
+  assert.match(channel.ownerCheckFailure(clm, 1).detail, /^New-Object : Cannot create type/, 'the raw first line is kept on the error');
   assert.equal(channel.ownerCheckFailure('', 5).detail, 'Windows PowerShell ended with code 5');
 });
 
