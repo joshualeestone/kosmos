@@ -301,7 +301,7 @@ function hookEntries(dir, home, project) {
         const one = (x) => x.replace(/^["']|["']$/g, '').replace(/^~(?=[\/\\]|$)/, home).replace(/\$\{?HOME\}?/g, home)
           .replace(/\$\{?CLAUDE_CONFIG_DIR\}?/g, path.resolve(dir)).split(path.resolve(dir)).join('<CFG>').split(home).join('<HOME>');
         const scriptless = !scriptWord && !unsure;
-        const id = scriptWord ? unq(scriptWord).split(/[\\/]/).pop() : (scripts[0] ? unq(scripts[0]).split(/[\\/]/).pop() : cmd);
+        const id = scriptWord ? unq(scriptWord).split(/[\\/]/).pop() : hookId(cmd);   // hookId: the first script's name, or the command
         /* #8063 review 2: a bare name as the command itself (gate.sh) is looked up on PATH, not in the working folder. */
         const bareOnPath = !!scriptWord && scriptWord === words[0] && !/[\\/]/.test(unq(scriptWord));
         const at = scriptWord && !unsure && !bareOnPath ? resolveWord(unq(scriptWord), dir, home, project) : null;
