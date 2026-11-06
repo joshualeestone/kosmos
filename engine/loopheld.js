@@ -50,7 +50,8 @@ function perMinute(log, max = MAX_PER_MINUTE, now = monotonic) {
 
 function watch(opts = {}) {
   const now = opts.now || monotonic;
-  const log = perMinute(opts.log || ((line) => console.warn(line)), MAX_PER_MINUTE, now);
+  const write = opts.log || ((line) => console.warn(line));
+  const log = perMinute(write, MAX_PER_MINUTE, now);
   const blockedMs = opts.blockedMs || (() => 0);
   const load = opts.load || (() => os.loadavg()[0]);
   const every = opts.setInterval || setInterval;
@@ -75,7 +76,7 @@ function watch(opts = {}) {
       else if (at - loadAt >= LOAD_EVERY_MS) {
         loadAt = at;
         const f = loadFigure(load);
-        if (f) log(`[load] ${f}`);
+        if (f) write(`[load] ${f}`);
       }
     } catch { /* watching never breaks the board */ }
   };
