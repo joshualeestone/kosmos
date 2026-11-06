@@ -65,8 +65,8 @@ function vendorOf(id) {
  * setup, creating or switching an agent, the add route). OFF by default: Claude Code at a vendor's address with only a
  * key, in an empty config folder (no login, no onboarding stop, no anthropic.com traffic) has not been measured on a
  * real run, and nothing unproven ships to a person. It is turned on, after that measurement, by a support switch rather
- * than a setting, the mirror of Meta Muse's off switch (engine/musestatus.js): the ON MARKER, a file named
- * compat-providers-on in the Kosmos data folder, read by the board and by every agent's launch alike. (No environment
+ * than a setting, the mirror of Meta Muse's off switch (engine/musestatus.js): a marker file in the Kosmos data folder,
+ * one per vendor (DeepSeek's is compat-providers-on, see markerFor), read by the board and by every agent's launch alike. (No environment
  * variable: an agent's launchd job never carries one, review 3.) A Mac only: the Windows
  * launch does not point an agent at a vendor yet. Read on every check, so creating or deleting the marker needs no
  * restart.
@@ -83,10 +83,10 @@ function markerFor(id) { return id === 'deepseek' ? ON_MARKER : 'compat-' + id +
 function enabled(platform = process.platform, vendor) {
   if (platform !== 'darwin') return false;
   const ids = vendor === undefined ? Object.keys(VENDORS) : (vendorOf(vendor) ? [vendor] : []);
-  try { return ids.some((id) => fs.existsSync(path.join(require('./store').ROOT, markerFor(id)))); } catch { return false; }
   /* 1b review 3: the marker is the ONLY on-state. An environment variable reached the board but never an agent's launchd
      job (its plist carries a fixed environment), so an agent made with it on could not start. The marker is read by
      both, from the data folder. An unreadable data folder leaves it off: off is the default. */
+  try { return ids.some((id) => fs.existsSync(path.join(require('./store').ROOT, markerFor(id)))); } catch { return false; }
 }
 /* The sentence every refusal uses while the switch is off. */
 const NOT_YET = 'is not available in Kosmos yet';
@@ -297,7 +297,9 @@ async function checkLive(dir, opts) {
 function resetLiveCacheForTest() { liveCache.clear(); }
 
 async function listLiveNow(vendor) {
-  return Promise.all(list(vendor).map(async (row) => {
+  /* #7206 2a review 2: only accounts whose vendor's own switch is on are checked. Filtering after the check hid the row
+     but had already sent its key to the vendor. */
+  return Promise.all(list(vendor).filter((row) => enabled(process.platform, row.provider)).map(async (row) => {
     try {
       return { ...row, connection: await module.exports.checkLive(row.dir, { cached: true, timeoutMs: LIST_TIMEOUT_MS }) };
     } catch {
