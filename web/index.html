@@ -9481,7 +9481,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #team-seeded-pick .importrow { margin-top: var(--space-6); }
 /* Item 7: the status column is a fixed width, so a row's name does not move sideways as its status changes
    ("Making…" to "Made, starting…" to "Running"); a longer status wraps inside it instead. */
-#cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) 11rem; }   /* kosmos#8092: room for Another beside the box */
+#cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 11rem; }   /* kosmos#8092: room for Another beside the box (the box stays at least twice its width) */
 #cstep-teammake .tc-state { white-space: normal; text-align: right; display: inline-flex; align-items: center;
   justify-content: flex-end; gap: var(--space-3); }
 @media (max-width: 560px) { #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; } }
@@ -63528,7 +63528,7 @@ const TC_SHORT_NAMES = Object.freeze(['Ade', 'Ali', 'Amir', 'Anil', 'Ari', 'Asha
   'Mei', 'Mia', 'Mika', 'Mira', 'Nia', 'Nico', 'Nina', 'Noa', 'Nour', 'Obi', 'Omar', 'Oren', 'Otto',
   'Pia', 'Ravi', 'Rei', 'Remi', 'Rosa', 'Ruth', 'Sami', 'Sana', 'Sara', 'Seun', 'Tae',
   'Tala', 'Tao', 'Tara', 'Teo', 'Tom', 'Uma', 'Vera', 'Vik', 'Wen', 'Yan', 'Yara', 'Yuki', 'Zoe', 'Zuri']);
-/* Whether two names differ by one letter changed, added or dropped. */
+/* Whether two names differ by at most one letter changed, added or dropped (equal names count; they are filtered first). */
 function tcOneApart(a, b) {
   if (Math.abs(a.length - b.length) > 1) return false;
   let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
@@ -63580,7 +63580,8 @@ document.getElementById('tc-short').addEventListener('click', () => {
     if (m && box && !box.disabled) box.value = m.name;
   }
   // It replaces names the person typed too: that is what the link says it does, and Another or typing undoes any one.
-  tcSayName(n === 0 ? 'No other short name is free.' : (n === 1 ? '1 name is now short.' : n + ' names are now short.'));
+  const kept = TC.members.filter((m) => m.state === 'ready').length - n;
+  tcSayName(n === 0 ? 'No other short name is free.' : (n === 1 ? '1 name is now short.' : n + ' names are now short.') + (kept ? ' No other short name was free for ' + (kept === 1 ? '1 more.' : kept + ' more.') : ''));
 });
 function tcPaint() {
   if (!TC) return;
@@ -63692,7 +63693,7 @@ function tcPaint() {
   for (const making of list.querySelectorAll('.tc-state.creating')) making.insertAdjacentHTML('afterbegin', pjSpin());
   if (hadSlot && !list.contains(had)) {
     const row = list.querySelector('li[data-slot="' + CSS.escape(hadSlot) + '"]');
-    const back = row && (((hadKind === 'retry' || hadKind === 'row') && row.querySelector('.tc-retry')) || (hadKind === 'another' && row.querySelector('.tc-another:not(:disabled)')) || row.querySelector('.tc-name'));
+    const back = row && (((hadKind === 'retry' || hadKind === 'row') && row.querySelector('.tc-retry')) || (hadKind === 'another' && row.querySelector('.tc-another:not(:disabled):not([hidden])')) || row.querySelector('.tc-name'));
     if (back && !back.disabled) {
       back.focus({ preventScroll: true });
       if (hadCaret !== null && back.classList.contains('tc-name')) { try { back.setSelectionRange(hadCaret, hadEnd); } catch { /* not a text box */ } }
