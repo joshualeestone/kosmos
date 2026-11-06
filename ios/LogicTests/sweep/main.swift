@@ -142,8 +142,19 @@ do {
     check(room.components(separatedBy: "HStack { Spacer(); SweepDots(label: \"Loading\", framesPerSecond: 15, stillWhenReduced: true); Spacer() }").count == 3,
           "a room loading earlier posts, live and in its archive: the dots, 15 a second in the thread (RoomView.swift)")
     let chat = repoText("ios/Kosmos/ChatView.swift")
-    check(chat.contains("KosmosOrb().accessibilityHidden(true)\n                    Text(\"Loading the conversation"),
-          "CONTROL: the whole-screen wait in an empty chat keeps the orb")
+    // Josh 11-05 18:33: "only use the dots spinner in the mobile app and scrub any other instances". The guard: no app
+    // source draws the orb or the system's spinner, so neither can come back unnoticed (KosmosOrb.swift itself excepted).
+    var offenders: [String] = []
+    for folder in ["ios/Kosmos", "ios/KosmosNotice"] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: repo.appendingPathComponent(folder).path)) ?? []
+        for name in names where name.hasSuffix(".swift") && name != "KosmosOrb.swift" {
+            let text = repoText(folder + "/" + name)
+            for bad in ["KosmosOrb(", "ProgressView(", "UIActivityIndicatorView"] where text.contains(bad) { offenders.append(name + ": " + bad) }
+        }
+    }
+    let swiftFiles = ((try? FileManager.default.contentsOfDirectory(atPath: repo.appendingPathComponent("ios/Kosmos").path)) ?? []).filter { $0.hasSuffix(".swift") }
+    check(swiftFiles.count > 20 && chat.contains("SweepDots("), "the app's sources were read (\(swiftFiles.count) files)")
+    check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app" + (offenders.isEmpty ? "" : ": \(offenders)"))
 }
 
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")

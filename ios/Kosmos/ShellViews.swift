@@ -137,7 +137,7 @@ struct LoadFailureView: View {
                 }
                 Button(action: onRetry) {
                     HStack(spacing: 8) {
-                        if retrying { KosmosOrb(colour: .white).accessibilityHidden(true) }   // "Trying" beside it says what is happening
+                        if retrying { SweepDots(colour: .white) }   // "Trying" beside it says what is happening
                         Text(retrying ? "Trying" : "Try again")
                             .font(.body.weight(.semibold))
                     }
