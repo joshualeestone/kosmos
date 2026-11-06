@@ -23,3 +23,12 @@ Measured on Mortals 11-05: armed 15:26, no record and no log line by 20:12.
 engine/autobalance-quiet-8083.test.js: once then hourly; unmeasured counts; gate change said at once; Settings off;
 CONTROL logged ticks add nothing; bad inputs; server wiring and gate parity read from source. Mutations: no re-say,
 logged-ticks-not-said, early return silent: each red.
+
+## Review round 1 (opus): four WARNINGs, all fixed
+- A lasting unreadable decision went silent after one line: quietLine now has its own hourly "running, but it could
+  not work out the decision (why)" state, and counts a tick as said only when the board printed a line (`logged`).
+- A failed record write read as "nothing new to record": its own state and line.
+- A dry run was named "the usage poll is off": enabled() is asked before liveAllowed(), each with its own words.
+- A cleared risk got a false quiet line: the board now logs it as a recorded change (it writes a record line).
+- Also taken from the NITs: the start line says "timer set" and the current gate state; a tick that throws is said;
+  the parity control no longer matches the function's own name.
