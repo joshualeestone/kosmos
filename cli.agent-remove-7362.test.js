@@ -128,7 +128,8 @@ async function winRun(port, argv, seams) {
 test('#7362 Windows: --yes reads the plan, then removes through the same route, never forced, without asking', () => withStub([200, PLAN], REMOVED, async (port, seen) => {
   const r = await winRun(port, ['agent', 'remove', 'Sally Sales', '--yes']);
   assert.equal(r.code, 0, r.err);
-  assert.deepEqual(seen.map((x) => x.method + ' ' + x.url), ['GET /api/agent/Sally%20Sales/removal', 'DELETE /api/agent/Sally%20Sales/removal']);
+  // kosmos#8109: the DELETE goes to the agent the plan resolved (PLAN.name), not the typed name again.
+  assert.deepEqual(seen.map((x) => x.method + ' ' + x.url), ['GET /api/agent/Sally%20Sales/removal', 'DELETE /api/agent/sally-sales/removal']);
   assert.doesNotMatch(seen.map((x) => x.url).join(' '), /force/, 'the CLI sent the person\'s override');
   assert.equal(seen[1].headers['x-kosmos-agent-token'], 'abc123', 'the removal did not go as this agent');
   assert.equal(r.asked.length, 0, '--yes still asked');
@@ -378,3 +379,16 @@ test('#8109 Mac: a plan with no name (an older board) keeps the typed name for t
     assert.equal(r.code, 0, r.out);
     assert.match(deletes(seen)[0].url, /\/api\/agent\/sally-sales\/removal$/, deletes(seen)[0] && deletes(seen)[0].url);
   }));
+
+test('#8109 Windows: the DELETE goes to the name the plan resolved, and an older board\'s plan keeps the typed name', async () => {
+  await withStub([200, { ...PLAN, name: 'cai', label: 'Cai' }], REMOVED, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'remove', 'Cai', '--yes']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(deletes(seen)[0].url, /\/api\/agent\/cai\/removal$/, 'the DELETE did not go to the resolved agent');
+  });
+  await withStub([200, { ...PLAN, name: undefined }], REMOVED, async (port, seen) => {
+    const r = await winRun(port, ['agent', 'remove', 'sally-sales', '--yes']);
+    assert.equal(r.code, 0, r.err);
+    assert.match(deletes(seen)[0].url, /\/api\/agent\/sally-sales\/removal$/);
+  });
+});

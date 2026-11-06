@@ -2463,7 +2463,11 @@ async function agentRemove(ctx, args) {
     if (!/^\s*(y|yes)\s*$/i.test(answer || '')) { ctx.err('Cancelled. Nothing was removed.'); return 1; }
   }
   // A removal stops a session and a startup job, so it gets the long timeout; a timeout after it left is "may".
-  const r = await ctx.call('DELETE', route, undefined, { timeoutMs: POST_TIMEOUT_MS });
+  // kosmos#8109: the removal goes to the agent the plan resolved (its folder name); the DELETE route acts on the
+  // exact name it is given. An older board's plan with no name keeps the typed name.
+  const target = typeof plan.name === 'string' && plan.name ? plan.name : name;
+  const delRoute = '/api/agent/' + encodeURIComponent(target) + '/removal';
+  const r = await ctx.call('DELETE', delRoute, undefined, { timeoutMs: POST_TIMEOUT_MS });
   /* Anything but a failure to connect means the request may have reached the board: a timeout, or the connection
      dropping while the board was removing (a board restarting mid-removal). "May", never "not reached". */
   if (!r.reached) return !r.notConnected ? maybe(ctx.err, 'Kosmos stopped answering after it was asked. ' + label + ' may have been removed; look at the board before trying again.') : ctx.unreachable('remove ' + label);
