@@ -368,7 +368,7 @@ function chk(ok, label, extra) {
           const m = await page.evaluate(() => { const li = document.querySelector('#tc-list li'); const seat = li.querySelector('.tc-seat'), nb = li.querySelector('.tc-namebox');
             return { consolidated: document.body.classList.contains('consolidated'), box: li.querySelector('.tc-name').getBoundingClientRect().width, another: li.querySelector('.tc-another').getBoundingClientRect().width,
               seatClear: seat.getBoundingClientRect().bottom <= nb.getBoundingClientRect().top + 0.5 || seat.getBoundingClientRect().right <= nb.getBoundingClientRect().left, x: li.querySelector('.tc-name').getBoundingClientRect().left }; });
-          chk(m.consolidated && m.box >= 2 * m.another && m.seatClear, `${E} #8092 in the split view the name box keeps room beside Another and the seat stays clear of it`, JSON.stringify(m));
+          chk(m.consolidated && m.box >= 2 * m.another && m.seatClear, `${E} #8092 in the split view the name box keeps room beside Another (at least twice its width), the seat clear of it`, JSON.stringify(m));
           await page.selectOption('#tc-project', 'none');
           await page.click('#tc-go');
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((e) => e.textContent === 'Running'));

@@ -63588,7 +63588,7 @@ document.getElementById('tc-short').addEventListener('click', () => {
     const box = li.querySelector('.tc-name');
     if (m && box && !box.disabled) box.value = m.name;
   }
-  // It replaces names the person typed too: that is what the link says it does, and Another or typing undoes any one.
+  // It replaces names the person typed too, which is what the link says; a replaced name comes back only by typing it.
   const kept = TC.members.filter((m) => m.state === 'ready').length - n;
   tcSayName(n === 0 ? 'No other short name is free.' : 'Changed ' + (n === 1 ? '1 name.' : n + ' names.') + (kept ? ' ' + kept + ' kept ' + (kept === 1 ? 'its name' : 'their names') + ': no other short name was free.' : ''));
 });
