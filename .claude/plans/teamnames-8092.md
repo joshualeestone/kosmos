@@ -5,6 +5,7 @@ Design call on the card (Mona Lisa): build the user's first two asks as one smal
   from many places) that is not on the board, not elsewhere in the team, and not the one it has now.
 - Use short names, above the rows, does the same for every row still open.
 - No toggle (a setting for a once-per-team choice). Regional bias not built: Kosmos would have to guess a region.
+- Use short names replaces names the person typed too, as its words say; Another or typing undoes any one.
 - Both are offered only while names can change; Make still runs the engine's own taken-name check.
 
 Finished looks like: on the team step, Another name and Use short names give short free names, the made agents carry
