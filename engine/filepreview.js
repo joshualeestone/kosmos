@@ -15,6 +15,7 @@
  * page named by the file's stamp (device, inode, size and both times, so a changed file is drawn afresh), at most
  * CACHE_KEEP folders, and never written into the person's folder.
  */
+const sheetpreview = require('./sheetpreview');   // kosmos#8122
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -103,6 +104,20 @@ function prune() {
   const aged = ents.map((e) => { const d = path.join(CACHE, e.name); let t = 0; try { t = fs.statSync(d).mtimeMs; } catch { t = 0; } return { d, t }; })
     .sort((a, b) => a.t - b.t);
   for (const { d } of aged.slice(0, aged.length - CACHE_KEEP)) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* next time */ } }
+}
+
+/** kosmos#8122: the read-only grid of a spreadsheet the list shows (an .xlsx, .csv or .tsv), through the list's own rules
+ * (resolve) and the same one checked handle as the preview (readChecked). The size is checked before a byte is read.
+ * `{ ok: true, sheets, moreSheets, noValues, empty }` or `{ ok: false, because, tooLarge? }` (engine/sheetpreview.js). */
+async function sheet(folder, name, where, opts) {
+  const got = resolve(folder, name, where, opts);
+  if (!got.ok) return { ...got, notFound: true };
+  const kind = sheetpreview.kindOf(got.target);
+  if (!kind) return { ok: false, because: 'There is no spreadsheet preview for this kind of file.' };
+  if (got.st.size > sheetpreview.capFor(kind)) return { ok: false, because: sheetpreview.TOO_LARGE, tooLarge: true };
+  const read = readChecked(got);
+  if (!read.ok) return read;
+  return sheetpreview.fromBytes(read.bytes, got.target);
 }
 
 /** The picture the preview shows: { ok, type, bytes } or { ok: false, because }. */
@@ -265,4 +280,4 @@ function reveal(folder, name, where, opts) {
   return projects.revealFile(got.target, { namedAs: path.join(String(folder), got.given) });   // the record's spelling, for Windows (as openFile)
 }
 
-module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, MAX_PREVIEW_BYTES, SOURCE_FILE, TEXT_PREVIEW_BYTES, resolve, preview, reveal, sweep, _setNofollowForTest };
+module.exports = { get CACHE() { return cacheDir(); }, CACHE_KEEP, MAX_PREVIEW_BYTES, SOURCE_FILE, TEXT_PREVIEW_BYTES, resolve, preview, sheet /* kosmos#8122 */, reveal, sweep, _setNofollowForTest };

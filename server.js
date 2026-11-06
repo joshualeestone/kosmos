@@ -1960,6 +1960,7 @@ const ROOM_NOTICE_SOURCE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/;
 const unfurl = require('./engine/unfurl');
 const attachments = require('./engine/attachments');
 const filepreview = require('./engine/filepreview');   // #4997: the preview for a file in a Files list
+const sheetpreview = require('./engine/sheetpreview');   // kosmos#8122: an attached spreadsheet's read-only grid
 const zipwrite = require('./engine/zipwrite');   // #6724: a folder of an agent's Files, downloaded as one zip
 // #3485: the community feed's board->feed choke (feedguard scrub -> trust -> store).
 // The ONE primitive both the agent/board routes below and the community-site routes
@@ -6255,6 +6256,16 @@ function listedFileVerb(req, res, verb, folder, where, opts) {
     sendFileDownload(req, res, found, gate);
     return true;
   }
+  /* kosmos#8122: a spreadsheet's read-only grid, as JSON (filepreview.sheet: the list's rules, one checked handle, saved
+     values only). A file the list does not show is 404; a file it shows but cannot draw is a 200 refusal the viewer
+     says in words (too large, cannot be read), so the gold button still sits under it. */
+  if (verb === 'sheet') {
+    filepreview.sheet(folder, named, where, opts).then((r) => {
+      if (!r.ok && r.notFound) { sendJson(res, 404, { ok: false, because: r.because }); return; }
+      sendJson(res, 200, r.ok ? r : { ok: false, because: r.because, ...(r.tooLarge ? { tooLarge: true } : {}) });
+    }).catch(() => sendJson(res, 200, { ok: false, because: 'This file could not be read as a spreadsheet.' }));
+    return true;
+  }
   const sandbox = "default-src 'none'; sandbox";
   filepreview.preview(folder, named, where, opts).then((pv) => {
     if (!pv.ok) { sendJson(res, 404, { ok: false, because: pv.because }); return; }
@@ -9216,7 +9227,7 @@ const server = http.createServer(async (req, res) => {
   /* #6724: browse (one level of Files or a folder in it, ?dir=) and download-folder (that folder as one zip) are the
      in-app browser, for a person viewing the board from another computer, where Finder opens on the far Mac. Both
      resolve the folder by projects.resolveListedDir (the list's rules, for a folder) and take no path from the request. */
-  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|preview|download|reveal-file|browse|download-folder))?$/);
+  const agentFiles = pathname.match(/^\/api\/agent\/([^/]+)\/files(?:\/(open|reveal|preview|sheet|download|reveal-file|browse|download-folder))?$/);
   if (agentFiles) {
     const name = decodeSegment(agentFiles[1]);
     // #5165: a refusal of a download goes through refuseDownload, so a browser's download never saves it as the file.
@@ -9294,7 +9305,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     // #6724: as deep as the browser goes, so any file it shows can be previewed and downloaded (it was flat, the list).
-    if ((verb === 'preview' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, owner: { kind: 'agent', id: name } })) return;
+    if ((verb === 'preview' || verb === 'sheet' || verb === 'download' || verb === 'reveal-file') && listedFileVerb(req, res, verb, folder, 'this agent\u2019s Files folder', { maxDepth: AGENT_BROWSE_DEPTH, owner: { kind: 'agent', id: name } })) return;
     if (verb === 'open' && req.method === 'POST') {
       readBody(req)
         .then((buf) => {
@@ -21771,10 +21782,21 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, r && r.ok ? 200 : 409, r && r.ok ? { ok: true } : { ok: false, because: (r && r.because) || 'Finder did not open' });
     return;
   }
-  const attachGet = pathname.match(/^\/api\/attachment\/([0-9a-f]{24})(\/preview)?$/);
+  const attachGet = pathname.match(/^\/api\/attachment\/([0-9a-f]{24})(\/preview|\/sheet)?$/);
   if (attachGet && (req.method === 'GET' || req.method === 'HEAD')) {
     const rec = attachments.read(attachGet[1]);
     if (!rec) { sendJson(res, 404, { error: 'no such attachment' }); return; }
+    /* kosmos#8122: an attached spreadsheet's read-only grid, as JSON (sheetpreview.fromFile: one handle, no link
+       followed, the size checked before a byte is read, saved values only). A refusal is a 200 the viewer says in
+       words. A cross-site read is refused, as the Files lists' sheet is. */
+    if (attachGet[2] === '/sheet') {
+      const refusedRead = crossSiteRead(req);
+      if (refusedRead) { sendJson(res, 403, { ok: false, because: refusedRead }); return; }
+      let r;
+      try { r = sheetpreview.fromFile(rec.file, rec.name); } catch { r = { ok: false, because: 'This file could not be read as a spreadsheet.' }; }
+      sendJson(res, 200, r.ok ? r : { ok: false, because: r.because, ...(r.tooLarge ? { tooLarge: true } : {}) });
+      return;
+    }
     if (attachGet[2]) {
       attachments.previewFile(rec).then((pv) => {
         if (!pv.ok) { sendJson(res, 404, { error: pv.because }); return; }
@@ -24603,9 +24625,9 @@ const server = http.createServer(async (req, res) => {
 
   /* #4997: a project's listed file for the full-page preview (file-preview, file-download) and Finder (reveal-file),
      through open-file's gates plus the list's own rules (listedFileVerb, resolveListedFile's `listed` mode). */
-  const pjListed = pathname.match(/^\/api\/project\/([^/]+)\/(file-preview|file-download|reveal-file)$/);
+  const pjListed = pathname.match(/^\/api\/project\/([^/]+)\/(file-preview|file-sheet|file-download|reveal-file)$/);
   if (pjListed) {
-    const verb = { 'file-preview': 'preview', 'file-download': 'download', 'reveal-file': 'reveal-file' }[pjListed[2]];
+    const verb = { 'file-preview': 'preview', 'file-sheet': 'sheet', 'file-download': 'download', 'reveal-file': 'reveal-file' }[pjListed[2]];
     // #5165: a refusal of a download goes through refuseDownload, so a browser's download never saves it as the file.
     const refuse = (status, because) => (verb === 'download' && (req.method === 'GET' || req.method === 'HEAD')
       ? refuseDownload(req, res, because, status) : sendJson(res, status, { ok: false, because }));
