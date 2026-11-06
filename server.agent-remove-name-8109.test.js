@@ -39,10 +39,12 @@ test.before(async () => {
   board = fleet.install([]);
 });
 
-/* An agent as a folder and its instruction file, which is where its display name comes from. */
+/* An agent as create makes one: its folder, its instruction file (where its display name comes from) and its profile
+   (kosmos#8113: the list, and so name resolution, knows an agent by its profile, not by a bare folder). */
 function folderAgent(dir, displayName) {
   fs.mkdirSync(create.workerDir(dir), { recursive: true });
   fs.writeFileSync(path.join(create.workerDir(dir), 'CLAUDE.md'), `You are **${displayName}**.\n`, 'utf8');
+  require('./engine/store').writeProfile(dir, {});
 }
 const RESOLVE = '?resolve=1';   // what both CLIs send on the plan; the board's own button does not
 async function call(method, name, query = '') {
@@ -124,6 +126,26 @@ test('a card outside the folder: a session-only agent shown as X plus a folder s
   // CONTROL: with the session gone, the same name resolves to the folder agent, so the test can see the miss.
   const c = await call('GET', 'Ksrv8109', RESOLVE);
   assert.equal(c.json && c.json.name, 'ksrv8109', 'CONTROL: the name does not resolve without the session: ' + c.text.slice(0, 200));
+});
+
+test('kosmos#8113 the hidden setup guide does not make a listed name ambiguous', async () => {
+  const sa = require('./engine/setup-assistant');
+  folderAgent('kseen8113', 'Klist8113');
+  folderAgent('kguide8113', 'Klist8113');
+  fs.writeFileSync(path.join(create.workerDir('kguide8113'), sa.GUIDE_MARKER), 'kguide8113\n');   // what the seed writes
+  assert.ok(sa.markSetupAssistantSeeded({ name: 'kguide8113' }), 'CONTROL: the guide was not seeded');
+  try {
+    assert.equal(sa.isGuideFolder(sa.guideName()), true, 'CONTROL: the board does not see kguide8113 as the guide');
+    const p = await call('GET', 'Klist8113', RESOLVE);
+    assert.equal(p.code, 200, 'the hidden guide made a listed name ambiguous: ' + p.text.slice(0, 220));
+    assert.equal(p.json && p.json.name, 'kseen8113', p.text.slice(0, 200));
+  } finally {
+    fs.rmSync(path.join(require('./engine/store').ROOT, 'setup-assistant.json'), { force: true });   // where setup-assistant's flagPath writes
+  }
+  // CONTROL: once kguide8113 is not the guide, the list shows it and the same name is ambiguous.
+  const c = await call('GET', 'Klist8113', RESOLVE);
+  assert.equal(c.code, 400, 'CONTROL: without the guide mark the name is not ambiguous, so this test proves nothing: ' + c.text.slice(0, 200));
+  assert.match(c.text, /more than one agent is called Klist8113/);
 });
 
 test.after(() => {

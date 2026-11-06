@@ -3522,5 +3522,21 @@ test('#8109 when the route could not read the cards (null), nothing is resolved'
   status.setPaneSource(() => '');
   folderAgent('knull8109', 'Knull8109');
   assert.equal(remove.resolve('Knull8109', MAC, null).name, 'Knull8109', 'a name was resolved without the board\'s cards');
-  assert.equal(remove.resolve('Knull8109', MAC, []).name, 'knull8109', 'CONTROL: with the cards read, it resolves');
+  assert.equal(remove.resolve('Knull8109', MAC, [{ name: 'knull8109', shown: 'Knull8109' }]).name, 'knull8109', 'CONTROL: with the cards read, it resolves');
+});
+
+test('#8113 the hidden setup guide: with the cards given, a folder the list does not show is not a candidate', () => {
+  remove.setRunner(() => ({ ok: true, stdout: '' }));
+  status.setPaneSource(() => '');
+  folderAgent('kseen8113', 'Kguide 8113');
+  folderAgent('kguide8113', 'Kguide 8113');   // the guide: a folder the list hides
+  const listed = [{ name: 'kseen8113', shown: 'Kguide 8113' }];
+  const r = remove.resolve('Kguide 8113', MAC, listed);
+  assert.equal(r.name, 'kseen8113', 'a folder the list does not show made a listed name ambiguous');
+  assert.deepEqual(r.ambiguous, []);
+  // Typing only the hidden one's display name reaches nothing when the list does not show it.
+  folderAgent('konlyguide8113', 'Konlyguide 8113');
+  assert.equal(remove.resolve('Konlyguide 8113', MAC, listed).name, 'Konlyguide 8113', 'a hidden folder was reached by its display name');
+  // CONTROL: without the cards (the folder scan), the same two folders are ambiguous, so the test can see the change.
+  assert.deepEqual(remove.resolve('Kguide 8113', MAC).ambiguous, ['kguide8113', 'kseen8113'], 'CONTROL: the folder scan does not see both');
 });

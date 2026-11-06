@@ -1324,9 +1324,12 @@ function unsafeToActOn(name) {
  * `listed` is the board's own card list, as `agent list` prints it: [{ name: <machine name>, shown: <display name> }].
  * The folder scan alone cannot see a card whose agent has no folder in the workers folder (a connected or profile
  * agent, a symlinked folder, a session or a job with no folder), and such a card shown as "Cai" next to a folder `cai`
- * shown as "Cai" would have resolved to `cai` with no refusal (round 7). Every listed card counts as a candidate. The
- * route passes `null` when it could not read the cards, and that resolves nothing (test: "a card outside the folder").
- * Left out (engine tests), only the folders are candidates.
+ * shown as "Cai" would have resolved to `cai` with no refusal (round 7). The route passes `null` when it could not read
+ * the cards, and that resolves nothing (test: "a card outside the folder").
+ * kosmos#8113: when the cards are given they are the ONLY candidates, so the names that can match are exactly the
+ * names `agent list` printed. A folder the list does not show (the setup guide, which the list hides) can neither
+ * make a listed name ambiguous nor be reached by its display name (test: "the hidden setup guide"). Left out (the
+ * engine's own callers and tests), the folders in the workers folder are the candidates.
  */
 function resolve(name, platform, listed) {
   const asGiven = { name, ambiguous: [], shown: {} };
@@ -1337,13 +1340,27 @@ function resolve(name, platform, listed) {
   let found;
   try { found = sessionFor(clean); } catch { return asGiven; }
   if (found.kind !== FOUND.NONE) return asGiven;   // its own session (ours, untied) or unknown: act on the name as given
+  if (listed === null) return asGiven;
+  const want = clean.toLowerCase();
+  const hits = [];
+  const displayOf = {};
+  if (Array.isArray(listed)) {
+    // An unsafe name still counts, so it can make a name ambiguous, but is never resolved to.
+    for (const card of listed) {
+      const machine = card && typeof card.name === 'string' ? card.name : '';
+      if (!machine) continue;
+      const shown = card.shown == null ? null : String(card.shown);
+      if (machine.toLowerCase() === want || (shown && shown.trim().toLowerCase() === want)) {
+        if (!hits.includes(machine)) { hits.push(machine); displayOf[machine] = shown; }
+      }
+    }
+    if (hits.length === 1) return unsafeToActOn(hits[0]) ? asGiven : { name: hits[0], ambiguous: [], shown: {} };
+    return hits.length > 1 ? { name, ambiguous: hits.sort(), shown: displayOf } : asGiven;
+  }
   let dirs;
   try {
     dirs = fs.readdirSync(create.workersDir(), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
   } catch { return asGiven; }
-  const want = clean.toLowerCase();
-  const hits = [];
-  const displayOf = {};
   for (const dir of dirs) {
     if (unsafeToActOn(dir)) continue;
     // A removed agent keeps its folder and its name, and is not on the list; it is not a match (test: "removed agent").
@@ -1355,17 +1372,6 @@ function resolve(name, platform, listed) {
     let shown = null;
     try { shown = status.readIdentity(dir).displayName || null; } catch { process.stderr.write(`remove: resolving "${clean}" stopped: could not read ${dir}'s name\n`); return asGiven; }
     if (dir.toLowerCase() === want || (shown && String(shown).trim().toLowerCase() === want)) { hits.push(dir); displayOf[dir] = shown; }
-  }
-  // The cards the folder scan cannot see. One already found as a folder is not counted twice; an unsafe name still
-  // counts, so it can make a name ambiguous but is never resolved to (unsafeToActOn refuses it in plan anyway).
-  if (listed === null) return asGiven;
-  for (const card of Array.isArray(listed) ? listed : []) {
-    const machine = card && typeof card.name === 'string' ? card.name : '';
-    if (!machine || dirs.includes(machine)) continue;
-    const shown = card.shown == null ? null : String(card.shown);
-    if (machine.toLowerCase() === want || (shown && shown.trim().toLowerCase() === want)) {
-      if (!hits.includes(machine)) { hits.push(machine); displayOf[machine] = shown; }
-    }
   }
   if (hits.length === 1) return unsafeToActOn(hits[0]) ? asGiven : { name: hits[0], ambiguous: [], shown: {} };
   return hits.length > 1 ? { name, ambiguous: hits.sort(), shown: displayOf } : asGiven;
