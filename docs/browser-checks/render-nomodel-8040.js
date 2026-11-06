@@ -671,6 +671,26 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       chk(over.focus, 'start over: and the keyboard lands on the first choice, not the page', JSON.stringify(over));
       await p.close();
     }
+    // kosmos#8051 item 1 (review 6): a different role empties the form, so the line about the kept one goes with it.
+    {
+      const p = await b.newPage({ viewport: { width: 1280, height: 800 } });
+      p.on('pageerror', (e) => errs.push(String(e)));
+      await p.route('**/api/first-run', (r) => r.fulfill({ json: { done: true } }));
+      claudeHere();
+      await toNameStep(p);
+      await pressCreate(p, 'no Claude account');
+      await p.locator('#create-msg button').click();
+      await p.evaluate(() => document.getElementById('new-agent').click());
+      await p.waitForTimeout(400);
+      const kept = await keptLine(p);
+      chk(keptLineRight(kept), 'role change: CONTROL: the kept form shows the line', JSON.stringify(kept));
+      // The real role step and its Continue, with another role picked: role-next refills the form for the new role.
+      const other = await p.evaluate(() => { cstep('role'); const r = (ROLES || []).find((x) => x.key !== PICKED); if (!r) return null; PICKED = r.key; document.getElementById('role-next').click(); return r.key; });
+      await p.waitForTimeout(400);
+      const after = await p.evaluate(() => ({ name: document.getElementById('create-name').value, line: document.getElementById('create-kept').hidden, described: document.getElementById('create-name').hasAttribute('aria-describedby') }));
+      chk(!!other && after.name !== 'Nadia' && after.line && !after.described, 'role change: another role empties the form, and the line and the field\'s description go', JSON.stringify({ other, ...after }));
+      await p.close();
+    }
     // kosmos#8051 item 2: a provider picked by hand while a saved Gemini-by-subscription pick's read is still out wins,
     // and the kept form's account still comes back. Before #8051 the early return skipped the restore.
     {
