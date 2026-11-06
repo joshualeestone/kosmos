@@ -1,16 +1,18 @@
 'use strict';
 
 /**
- * A timed-out restart stops the animated K and tells the truth, without dropping to "gone" (#2019).
+ * A timed-out restart stops the moving restart mark and tells the truth, without dropping to "gone" (#2019).
+ *
+ * The mark is the 16 px Sweep dots since Josh 11-06 12:18 (#7896); it was the breathing .kspin K before.
  *
  * 🔑 A RENDERED CHECK IS THE ONLY KIND THAT CAN SEE THE ANIMATION STOP. The
  * engine (Renet's #2019 engine half) emits state 'restarting' with
  * disruption.timedOut when the restart overruns its window. The render must then
- * hold the K STILL rather than keep it pulsing (#920, the spinner that lies
+ * hold the dots STILL rather than keep them sweeping (#920, the spinner that lies
  * forever), say "not back yet" instead of promising "a few seconds", and STAY in
  * the restarting family -- never a bare stopped card that reads as "this agent
  * doesn't exist". Whether the pulse actually stopped is a COMPUTED fact
- * (animation-name), which only a browser can read; a source test cannot.
+ * (the animation-name of the dots' ::before), which only a browser can read; a source test cannot.
  *
  *   node docs/browser-checks/render-restart-timedout-2019.js <url>
  *
@@ -49,25 +51,36 @@ const { chromium } = require('playwright');
     say(render === 'OK', 'both restarting cards render without error', render);
 
     const cardSel = (n) => '.acard[data-agent="' + n + '"]';
-    const animOf = (n) => pg.$eval(cardSel(n) + ' .kspin img', (el) => getComputedStyle(el).animationName).catch(() => 'missing');
-    const hasStill = (n) => pg.$eval(cardSel(n) + ' .kspin', (el) => el.classList.contains('kspin-still')).catch(() => 'missing');
+    // The restart mark is the Sweep dots in the pill (kGlyph). Each dot is an <i>'s ::before; read the first one's
+    // animation, and require all eight to agree, so one stray dot cannot hide behind another.
+    const markSel = (n) => cardSel(n) + ' .astate .spin.spin-sweep';
+    const animOf = (n) => pg.$eval(markSel(n), (el) => {
+      const dots = [...el.querySelectorAll(':scope > i')];
+      if (dots.length !== 8) return 'dots=' + dots.length;
+      const names = [...new Set(dots.map((i) => getComputedStyle(i, '::before').animationName))];
+      return names.length === 1 ? names[0] : 'mixed:' + names.join('|');
+    }).catch(() => 'missing');
+    const hasStill = (n) => pg.$eval(markSel(n), (el) => el.classList.contains('spin-still')).catch(() => 'missing');
+    const hasOldK = (n) => pg.$(cardSel(n) + ' .kspin').then((h) => !!h);
     const stateClass = (n) => pg.$eval(cardSel(n) + ' .astate', (el) => el.className).catch(() => 'missing');
     const text = (n) => pg.$eval(cardSel(n), (el) => el.innerText).catch(() => 'missing');
 
-    // In-progress restart: the K breathes, the label is the plain cause, the
+    // In-progress restart: the dots sweep, the label is the plain cause, the
     // sub-line still promises "a few seconds". This is the control that proves
     // the timed-out assertions below are a real difference, not a constant.
-    say((await animOf('inprog')) === 'kbreathe', 'in progress: the K is animated (kbreathe)', String(await animOf('inprog')));
-    say((await hasStill('inprog')) === false, 'in progress: the K is NOT marked still');
+    say((await animOf('inprog')) === 'sweepLite', 'in progress: the restart dots are moving (sweepLite)', String(await animOf('inprog')));
+    say((await hasStill('inprog')) === false, 'in progress: the dots are NOT marked still');
+    say((await hasOldK('inprog')) === false, 'in progress: the retired breathing .kspin K is gone');
     const inTxt = await text('inprog');
     say(/Switching to GPT-5/.test(inTxt) && !/not back yet/.test(inTxt), 'in progress: label is the plain cause, no "not back yet"', JSON.stringify(inTxt));
     say(/a few seconds/.test(inTxt), 'in progress: sub-line still says "a few seconds"');
 
-    // Timed-out restart: the K holds STILL (the whole point), the label admits it
+    // Timed-out restart: the dots hold STILL (the whole point), the label admits it
     // has not come back, the sub-line drops the timing promise, and it is STILL a
     // restarting card -- never a stopped/gone one.
-    say((await animOf('timed')) === 'none', 'timed out: the K animation is STOPPED (none)', String(await animOf('timed')));
-    say((await hasStill('timed')) === true, 'timed out: the K is marked still (.kspin-still)');
+    say((await animOf('timed')) === 'none', 'timed out: the restart dots are STOPPED (animation none)', String(await animOf('timed')));
+    say((await hasStill('timed')) === true, 'timed out: the dots are marked still (.spin-still)');
+    say((await hasOldK('timed')) === false, 'timed out: the retired breathing .kspin K is gone');
     const tTxt = await text('timed');
     say(/Switching to GPT-5, not back yet/.test(tTxt), 'timed out: label keeps the cause and says "not back yet"', JSON.stringify(tTxt));
     say(/taking longer than usual/.test(tTxt) && !/a few seconds/.test(tTxt), 'timed out: sub-line drops "a few seconds" for the honest overrun line');

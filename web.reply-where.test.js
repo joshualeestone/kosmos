@@ -331,16 +331,12 @@ test('the update overlay carries the mark, and the loader never claims progress'
   assert.match(PAGE, /getElementsByClassName\('orb-wait'\)/,
     'KORB no longer draws the whole-screen waits, so the overlay mark renders as bare dots or blank');
 
-  /* 🛑 ONE IMPLEMENTATION of the K geometry. Since #7896 only the making-an-agent finish draws the K (into the tick),
-     and a second copy would drift the first time the brand does. */
-  assert.equal(PAGE.split('var K_LOAD = [').length - 1, 1,
-    'the K geometry has been copied; there are now two marks free to disagree');
+  /* 🛑 ONE MARK. #7896 (Josh 11-06 12:17): the orb replaced the K loader everywhere, so a K loader coming back is
+     a second whole-screen mark free to disagree with the first. */
+  assert.doesNotMatch(PAGE, /var K_LOAD = \[|function startKLoader\(/, 'the K loader is back beside the orb');
 
-  /* ⚠️ AND IT MUST STAY A LOOP RATHER THAN A PROGRESS READING. If somebody ever
-     wires it to a percentage, this is the line that should stop them. */
-  assert.doesNotMatch(String(fn('startKLoader')), /percent|progress|\bpct\b/i,
-    'the loader has been given something to fill toward, which it cannot know');
-  /* #7896: the overlay's mark is now the orb, so the same guard reads KORB's source too. */
+  /* ⚠️ AND IT MUST STAY A LOOP RATHER THAN A PROGRESS READING. If somebody ever wires it to a percentage, this is the
+     line that should stop them. */
   { const at = PAGE.indexOf('const KORB = '); assert.ok(at > 0, 'KORB is not where this test reads it');
     const korb = PAGE.slice(at, PAGE.indexOf('})();', at));
     assert.doesNotMatch(korb, /percent|progress|\bpct\b/i, 'the orb has been given something to fill toward, which it cannot know'); }

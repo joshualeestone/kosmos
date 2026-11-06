@@ -118,9 +118,10 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
         buttonInNote: !!(btn && n && n.contains(btn)),
         hasUpdating: !!upd,
         sweepInUpdating: !!(upd && upd.querySelector('.spin-sweep')),
-        // #3050 CONVENTION: NOT the .kspin restart mark (Josh flagged it as the wrong
-        // loader asset); assert it is absent so a regression back to it is caught.
-        noKspinInUpdating: !!(upd && !upd.querySelector('.kspin')),
+        // #3050 CONVENTION: NOT the retired .kspin K (Josh flagged it as the wrong loader
+        // asset), and (#7896, Josh 11-06: "the small loading spinners [stay] the small loading
+        // spinners") NOT the big KOSMOS orb either: a small Sweep, never .orb-wait.
+        noKspinInUpdating: !!(upd && !upd.querySelector('.kspin') && !upd.querySelector('.orb-wait')),
         updatingSeparateFromNote: !!(upd && n && !n.contains(upd)),
       };
     });
@@ -128,7 +129,7 @@ const V2 = 'NEW instructions now on disk (post-reassign)';
     chk(!/reopen this agent/i.test(markup.noteText), 'the dead-end "Reopen this agent to see the current version" wording is gone', markup.noteText);
     chk(markup.hasButton && markup.btnText === 'Update' && markup.buttonInNote, 'the note offers an Update button', JSON.stringify(markup));
     chk(markup.hasUpdating && markup.sweepInUpdating && markup.noKspinInUpdating && markup.updatingSeparateFromNote,
-      'the Sweep loader (not the .kspin mark) lives in its own element outside the note (which hides on click)', JSON.stringify(markup));
+      'the small Sweep loader (not the retired .kspin K, not the big orb) lives in its own element outside the note (which hides on click)', JSON.stringify(markup));
 
     // ── Behaviour: the file has moved on since the box was opened. Put the box in
     // its stale state and raise the note (as the poll would), flip the served file

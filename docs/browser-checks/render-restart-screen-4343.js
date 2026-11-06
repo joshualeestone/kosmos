@@ -1,4 +1,4 @@
-// Browser-check-surface: restart-back restart-msg restart-k restart-up uoffline-slot
+// Browser-check-surface: restart-back restart-msg restart-k restart-up uoffline-slot orb-still
 'use strict';
 
 /**
@@ -14,7 +14,8 @@
  *   - down, before the wait is up: only the small note (positive control: the poll really failed);
  *   - down, after it: the screen. Exact headline, the remedy and nothing else (details logged), opaque, full
  *     window, centered, page scroll off, everything behind it inert (including a node added while it
- *     is up), focus on it, a K that is drawn and does not move, and Escape/Tab doing nothing to a
+ *     is up), focus on it, a KOSMOS orb (KORB's canvas.korb, the K before #7896) that is drawn and does
+ *     not move, and Escape/Tab doing nothing to a
  *     dialog left open under it;
  *   - up again: the real poll removes it, gives back exactly the inert elements it took, and puts
  *     the page scroll back;
@@ -176,7 +177,8 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       ok(t + ' the headline is Josh\'s words exactly', s.head === 'Kosmos requires a full restart', JSON.stringify(s.head));
       ok(t + ' in a browser tab it says to reopen Kosmos (Command-Q there would quit the browser)', s.how === 'Open Kosmos again from your Applications folder.', JSON.stringify(s.how));
       grounds[theme] = s.bg;
-      ok(t + ' nothing else on it: the mark, the headline and how to restart, and no details line', s.parts === 'canvas,h1,p', s.parts);
+      // #7896: the mark is the orb's <span> now (kOrbWaitHtml), not the K loader's <canvas>.
+      ok(t + ' nothing else on it: the mark, the headline and how to restart, and no details line', s.parts === 'span,h1,p', s.parts);
       ok(t + ' the version and the address that did not answer go to the log instead', logs.some((l) => /^Kosmos requires a full restart: .*nothing answered at 127\.0\.0\.1:\d+\.$/i.test(l)), JSON.stringify(logs.slice(-3)));
       ok(t + ' the ground is opaque (nothing shows through)', s.alpha === 1, s.bg);
       ok(t + ' it fills the window and covers the header, the board and the corners', s.full && s.covered, JSON.stringify({ full: s.full, covered: s.covered }));
@@ -200,18 +202,27 @@ const nextPolls = (page) => page.waitForTimeout(6500);
       });
       ok(t + ' a node added to the page while it is up is made inert too', late === true);
 
+      /* #7896 (Josh 11-06 12:17): the mark is the KOSMOS orb, held still as the K was. It is the
+         .restart-k span made by kOrbWaitHtml with .orb-still, and KORB draws it into its own canvas.korb.
+         "Drawn" is real ink (pixels with alpha over 20), not a laid-out blank canvas; "still" is two samples
+         some frames apart reading the same. */
       const pix = () => page.evaluate(() => {
-        const cv = document.querySelector('.restart-k');
+        const span = document.querySelector('.restart-back .restart-msg .restart-k');
+        const cv = document.querySelector('.restart-back .restart-msg .restart-k.orb-wait.orb-still > canvas.korb');
+        const info = { orb: !!span && span.classList.contains('orb-wait') && span.classList.contains('orb-still') && span.classList.contains('korb-on'),
+          oldK: !!document.querySelector('.restart-back canvas.restart-k') };
+        if (!cv || !cv.width) return Object.assign(info, { lit: 0, sum: -1, w: cv ? cv.width : null });
         const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
         let lit = 0; let sum = 0;
-        for (let i = 3; i < d.length; i += 4) { if (d[i] > 0) lit += 1; sum = (sum + d[i] * (i + 1)) % 1000000007; }
-        return { lit, sum };
+        for (let i = 3; i < d.length; i += 4) { if (d[i] > 20) lit += 1; sum = (sum + d[i] * (i + 1)) % 1000000007; }
+        return Object.assign(info, { lit, sum, w: cv.width });
       });
       const a = await pix();
       await page.waitForTimeout(400);
       const b = await pix();
-      ok(t + ' the K mark is drawn', a.lit > 500, JSON.stringify(a));
-      ok(t + ' the K mark is still (nothing is working, so nothing moves)', a.sum === b.sum, JSON.stringify({ a: a.sum, b: b.sum }));
+      ok(t + ' the mark is the still KOSMOS orb (.restart-k.orb-wait.orb-still, drawn by KORB), not the K canvas', a.orb && !a.oldK, JSON.stringify(a));
+      ok(t + ' the orb is drawn (its canvas.korb has ink)', a.lit > 200, JSON.stringify(a));
+      ok(t + ' the orb is still (nothing is working, so nothing moves)', a.lit > 200 && a.sum === b.sum, JSON.stringify({ a: a.sum, b: b.sum }));
 
       // ── The board answers again: the real poll removes it. ──
       MODE = 'up';
@@ -436,6 +447,6 @@ const nextPolls = (page) => page.waitForTimeout(6500);
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-restart-screen-4343: ' + pass + ' passed (the full-restart screen: drawn by the real poll after the wait, Josh\'s headline, the Mac remedy, opaque and centered over everything, inert behind, a still K; removed by the real poll when the board answers, restoring inert and scroll; never for a board that answered; not during an update, a device outage or on file://). problems: none');
+  console.log('render-restart-screen-4343: ' + pass + ' passed (the full-restart screen: drawn by the real poll after the wait, Josh\'s headline, the Mac remedy, opaque and centered over everything, inert behind, a still KOSMOS orb; removed by the real poll when the board answers, restoring inert and scroll; never for a board that answered; not during an update, a device outage or on file://). problems: none');
   process.exit(0);
 })().catch((e) => { console.error('FAIL  render-restart-screen-4343: ' + (e && e.message ? e.message.split('\n')[0] : e)); server.close(); process.exit(1); });

@@ -14199,8 +14199,7 @@ window.kosmosMeasureScrollbarWidth();
          a keyboard/screen-reader user is not dropped to <body> when the button goes.
          The loader is the "Sweep" dots (.spin.spin-sweep), Josh's chosen loading
          indicator (#2236) - NOT the .kspin Kosmos MARK, which Josh flagged as the wrong
-         asset for a loader, and not the startKLoader branded K, a multi-second canvas
-         animation ending in a success tick built for restarts/app-updates and far too
+         asset for a loader, and not the KOSMOS orb, the whole-screen mark (#7896), far too
          heavy for a near-instant instructions reload. -->
     <div class="stale-note" id="d-instr-updating" role="status" aria-live="polite" tabindex="-1" hidden
          style="display:flex; align-items:center; gap:var(--space-3);">
@@ -53101,7 +53100,7 @@ document.getElementById('rst-go').addEventListener('click', async () => {
   /* #2831 (Josh, 0.6.57 review, 2026-09-11): "if i restart an agent from here, it
      should show the animated K to circle, send an auto hello, and tell the user to
      say hello to wake the agent." The auto-hello (#2686) already fires below; the K
-     loader already exists (startKLoader) and already plays during a model/provider
+     loader already exists and already plays during a model/provider
      change (changeDialog's RESTART_BUSY_HTML interstitial). The delta is to play it
      on THIS explicit path too. It is a pure INTERSTITIAL: while the restart is in
      flight the confirm content is hidden and the branded loader holds on the
@@ -53753,211 +53752,9 @@ document.getElementById('d-save').addEventListener('click', async () => {
 
 let ROLES = null;          // the menu, fetched once it includes the downloaded catalogue
 let ROLES_COMPLETE = false; // #4632: false while the board holds only the built-in roles
-  /* ---- the K loader, ported from the pack ------------------------------
-     🔑 PORTED, NOT REWRITTEN, and the pack's own note below says why: its loop
-     never fills toward completion. That is the only reason a loader is allowed
-     on a screen whose rule is that nothing is asserted on a timer — it says
-     "still working" without implying it knows how far along it is.
-     ⚠️ A FUNCTION TAKING A CANVAS rather than the pack's IIFE bound to
-     `#kload`. Since Josh 11-06 12:17 ("anywhere we had the K Loader I want it to
-     be the Orb") ONE screen still uses it: the making-an-agent step, where
-     startMadeMark hands it a canvas at the clean finish so the mark turns into the
-     green tick. Every other wait it drew is now the KOSMOS orb (KORB).
-     📌 THE LOOP SELF-TERMINATES WHEN ITS CANVAS LEAVES THE DOM (`!cv.isConnected`).
-     That guard is load-bearing on the making step: each start swaps in a fresh
-     canvas (startMadeMark), so an earlier loop stops when its canvas is replaced,
-     with no external stop handle.
-  ---- the making-it loader --------------------------------------------
-     The K's own 155 dots, scattered and gathered on a loop. `p` runs 0 to 1
-     and back, so the mark assembles, holds, and falls apart again -- which is
-     the honest shape of "still working" rather than a bar that implies it
-     knows how far along it is. */
-  var K_LOAD = [6,5,2.9,14,4,3.5,22,6,3.2,29,6,2.6,93,5,2.1,100,6,2.9,108,5,2.9,117,5,3.2,5,12,2.8,13,14,3.1,21,12,3.2,29,12,2.8,85,12,2.8,93,13,3.5,101,12,3.6,108,14,2.2,6,21,3.5,13,22,2.4,21,22,3.2,29,21,2.3,77,20,2.8,84,21,3.4,93,21,3.6,102,21,3.4,5,30,3.4,14,29,3.6,22,28,2.5,29,29,3.5,69,29,2.5,76,28,2.8,84,28,2.7,93,30,3.1,4,37,2.5,12,37,2.7,20,36,2.8,29,38,3.4,61,38,2.8,70,37,3.5,77,37,3.5,86,38,2.7,92,36,2.7,5,45,3.5,14,45,3.5,21,45,2.8,30,46,2.9,61,44,2.7,69,44,3.0,77,46,3.6,86,45,2.6,6,53,2.5,14,53,3.4,21,53,3.0,29,53,2.4,53,54,2.8,61,52,3.3,69,53,2.7,77,54,2.2,5,62,2.2,13,62,3.0,21,62,3.0,29,62,2.6,46,61,2.7,54,62,3.5,61,62,3.7,69,61,2.8,5,69,3.0,13,70,2.4,22,69,2.4,29,70,2.6,38,69,2.5,45,69,3.4,54,69,2.9,61,69,2.3,69,70,2.3,5,78,2.6,12,77,3.0,20,77,2.1,30,78,3.1,38,77,3.6,45,77,3.2,53,78,3.4,61,78,2.6,68,76,2.6,6,86,3.7,13,86,2.5,20,86,2.2,29,86,2.9,37,84,2.9,46,85,2.3,54,85,2.8,61,86,2.5,70,85,2.1,76,86,2.2,4,94,3.5,13,92,2.9,22,93,3.6,30,92,2.5,38,93,3.5,52,93,2.6,61,93,2.3,70,93,2.7,77,92,2.2,86,93,2.3,5,101,3.4,13,101,2.9,21,101,3.2,30,101,2.3,62,100,2.3,70,101,2.7,76,101,2.3,84,101,2.8,93,101,2.8,5,109,2.5,13,109,2.7,21,110,3.3,29,110,3.6,69,109,2.8,76,110,3.5,85,109,3.6,93,109,2.5,4,117,2.8,13,117,3.4,22,117,3.4,29,116,2.5,69,117,2.2,77,116,3.2,85,117,2.3,92,117,2.9,101,118,2.5,5,125,2.2,13,126,3.3,22,125,2.3,29,124,2.7,77,124,2.6,84,125,3.2,93,126,2.4,100,125,3.1,110,125,3.0,5,133,3.5,12,133,3.0,21,134,3.3,29,134,2.5,84,133,2.9,93,134,2.2,101,132,3.3,110,133,3.5,4,141,3.6,12,141,3.0,22,142,3.1,29,141,3.3,86,141,2.2,93,142,3.0,102,141,2.8,109,140,3.3,117,141,2.3];
-  /* One full gather-hold-open loop of the loader, in ms. #2692 needs this shared
-     with the restart interstitial's minimum hold (Josh asked it to show for "at
-     least ... a single animation of the K animating into the circle"), so it lives
-     here as the one source rather than a magic 4400 duplicated at the two sites. */
+  /* #2692's restart hold is at least one loop of the K loader that used to show there (4.4 s). The K loader is gone
+     since #7896 (Josh 11-06 12:17, "anywhere we had the K Loader I want it to be the Orb"); the hold keeps its length. */
   const K_LOADER_CYCLE_MS = 4400;
-  function startKLoader(cv, opts) {
-    if (!cv || !cv.getContext) return;
-    var g = cv.getContext('2d');
-    var W = cv.width, H = cv.height;
-    var slow = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-    /* ⚠️ WHY THE RESTING STATE IS A RING AND NOT A SCATTER.
-       The first version scattered the dots to `20 + random*44` from centre,
-       which is an ANNULUS -- so its rest state was, precisely, a lumpy gold
-       doughnut with a hole in it. It read as a shape because it WAS a shape,
-       just not one anybody chose. It went unnoticed on the way up, because the
-       dots leave it immediately; on the way down they land back in it and stop,
-       which is the only moment you get a clear look.
-
-       So the rest state is now a deliberate mark instead of leftover geometry:
-       an even ring at a single radius, which is the Kosmos badge. Even angles,
-       not random ones -- randomness at this dot count reads as clumping, and
-       clumping is what made the old one look chewed. Same dots, one circle,
-       swirling into the K and opening back out to the circle. */
-    var CX = W / 2, CY = H / 2, RING = Math.min(W, H) * 0.40;
-
-    var pts = [];
-    var N = K_LOAD.length / 3;
-    for (var i = 0; i < K_LOAD.length; i += 3) {
-      var j = i / 3;
-      pts.push({
-        hx: K_LOAD[i] * (W / 128.28),
-        hy: K_LOAD[i+1] * (H / 150.28),
-        /* Even spacing round the circle, with a jitter far too small to break
-           the ring but enough that it does not look printed. */
-        ang: (j / N) * Math.PI * 2,
-        rr: RING * (0.965 + Math.random() * 0.07),
-        r: Math.max(0.9, K_LOAD[i+2] * (W / 128.28) * 0.8),
-        d: (K_LOAD[i+1] / 150.28) * 0.42 + Math.random() * 0.10,
-        g: i % 5
-      });
-    }
-    var GOLD = ['214,166,46', '227,179,65', '198,154,50', '216,182,90', '184,137,32'];
-    function ease(n) { return n < 0.5 ? 4*n*n*n : 1 - Math.pow(-2*n + 2, 3)/2; }
-
-    /* The swirl. The dot's ORIGIN rotates as it travels, so the path bends into
-       an arc instead of a straight line to the middle. Straight lines at this
-       count look like an implosion; arcs look like the mark gathering. */
-    var SWIRL = 1.15;
-
-    function frame(p, spin) {
-      g.clearRect(0, 0, W, H);
-      for (var b = 0; b < 5; b++) {
-        /* The ring is never invisible -- it is the badge, not a loading state
-           of the badge -- so alpha opens at a readable floor rather than 0. */
-        g.fillStyle = 'rgba(' + GOLD[b] + ',' + (0.42 + 0.45 * p).toFixed(2) + ')';
-        g.beginPath();
-        var any = false;
-        for (var k = 0; k < pts.length; k++) {
-          var d = pts[k];
-          if (d.g !== b) continue;
-          any = true;
-          var t = ease(Math.max(0, Math.min(1, (p - d.d) / 0.58)));
-          var a = d.ang + spin + (1 - t) * SWIRL;
-          var sx = CX + Math.cos(a) * d.rr, sy = CY + Math.sin(a) * d.rr;
-          var x = sx + (d.hx - sx) * t, y = sy + (d.hy - sy) * t;
-          g.moveTo(x + d.r, y);
-          g.arc(x, y, d.r, 0, Math.PI * 2);
-        }
-        if (any) g.fill();
-      }
-    }
-
-    /* ---- the finish ------------------------------------------------------
-       🔑 THE SAME 155 DOTS BECOME A TICK. Not a new drawing that replaces the
-       mark: every dot travels from where it sits in the K to where it sits in
-       the check, so nothing appears and nothing vanishes. That only works
-       because the two arrays are the same length AND SORTED THE SAME WAY.
-
-       🛑 THE ORDER IS THE WHOLE THING, and the first version of the check array
-       was wrong about it. It was ordered along the stroke path; `K_LOAD` is
-       raster order, rows of increasing y and left to right within a row. Paired
-       index for index those two are a SHUFFLE: every dot crosses the frame to
-       reach a partner chosen by nothing. Measured, after Mona Lisa re-sorted it:
-
-         path order,   paired by index          69.8px mean travel
-         raster order, paired by index          41.8px
-         greedy nearest-neighbour (a floor)     40.7px
-
-       Raster lands within 3% of the floor, so no matching algorithm is worth
-       running. Sort both the same way and pair by index.
-
-       ⚠️ AND IT IS ONLY EVER CALLED ON A CLEAN FINISH. A completed mark is a
-       claim that the thing finished; a partial creation resolves to the failed
-       heading with the mark still breathing, which is true and is the point. */
-    var CHECK_LOAD = [99.1,27.2,2.4,103.1,27.9,2.2,94.1,35.8,2.4,99.7,34.2,2.8,99.9,32.3,3.6,101.4,34.8,3.6,101.5,36,2.8,106.1,31,3.5,108.8,35.4,3.4,92.4,39.9,3.5,95.5,38.6,3.3,97,40.8,2.2,98.9,37.2,3.1,104.1,43.7,3.4,105.2,43.2,3.5,109.9,36.5,3.1,84.5,51,3.6,86.4,50.8,3.6,90.1,46.8,3.4,93.5,46.9,2.3,95.4,50.3,3.4,95.6,46.4,3.6,97.3,45.5,3.6,99.1,48.6,2.7,100.5,49.2,3.2,101.5,48.3,3,101.8,47.8,2.9,102.5,46.8,2.6,78.4,59.8,2.9,82.1,59.8,3.5,82.7,58,2.1,83.2,55.3,3.5,87.4,57.8,3.3,87.5,55.6,2.5,88.5,53.5,2.7,91.6,52.5,2.9,93.1,52.9,3.2,96.3,58.6,3.1,97.8,55.8,2.3,74.7,67.1,3.6,77,66,3.4,81.4,63.4,2.7,81.8,63.7,2.3,85.6,64.7,3.6,85.6,62.2,3.6,88.5,63.6,2.5,88.6,63.9,3.1,93.2,63.7,3.3,24.1,75.5,2.1,73.1,71,3.6,77,75.8,2.6,78.8,74.3,3.5,78.8,73.4,2.6,79.7,69.5,2.3,84.2,70.8,3.2,85.8,74.3,2.9,85.8,69.4,3.5,88.8,69.9,3.2,26.4,78.4,3.5,27.1,83.3,3.6,27.4,82.7,3.1,30.2,83.4,2.7,65.8,83.8,2.4,67.6,77.8,3.1,67.9,82.2,3.1,67.9,80.4,3.6,73.4,77,3.5,73.7,77.2,3.4,77.9,81,2.4,79.8,81.1,2.2,80,77.2,3,82.4,79.6,3.3,15.7,87.4,3.3,20.3,88.2,2.5,22,89.8,3.2,27.8,85.8,2.9,28.2,88.4,3.4,29.4,91.4,2.3,30,84.9,3.6,33.5,89.6,3.6,33.7,89.7,2.9,60.3,89.7,2.3,62.6,84.3,2.6,62.7,86,3,65.2,85.6,3.3,65.9,88.7,3.5,69.5,88,2.2,70.9,85.9,3.5,72.5,85.9,3.4,74.4,85.3,2.8,77.7,85.4,3.6,79.5,84.2,2.8,20.7,93,2.3,28.2,92.1,3.4,29.8,98.7,3.6,30.4,98.3,3.5,31.7,97.1,3,32.1,92.2,3.2,32.4,93.7,2.6,34.1,99.6,3.5,34.2,93.7,2.6,35.8,94.2,3.3,37.2,93.1,2.2,41.3,94.2,3.4,41.6,97.5,2.8,44.4,95.8,3.1,54.3,96.7,3.1,57.2,95.4,3.6,58.2,95.6,3.4,58.4,95.6,3.2,59.1,97.3,2.7,61.5,92.4,3.4,62.5,98.8,2.9,65.3,93.7,3.2,65.4,97.7,2.3,66.5,93.6,2.9,67.5,92.5,3.6,70.4,93.6,2.7,71,94.1,3.6,36.5,103.8,2.4,37.3,107,3.6,38.4,102.1,3.6,39.4,101.2,2.8,40.4,106.8,2.4,41.5,106.5,3.1,43.4,105.2,2.2,45.6,106.8,3.3,47,100.5,3.5,47.2,104.7,3.4,51.6,106.4,3.6,52.8,106.5,2.6,57.1,103.4,2.5,58.1,107,2.1,58.2,107.5,3.5,58.9,107.6,3.3,59.3,105,3.3,60,102.7,3.5,60.9,101.4,3.6,42.6,111,3,42.9,109.9,3.5,43.3,113.5,2.6,43.8,115.7,3.6,46.5,115.9,3.6,46.6,113.4,2.9,46.9,109.6,2.3,47.5,109,3.5,48.2,110.2,3.2,51.2,109.1,2.9,52.3,111,2.7,53.7,112.9,3.6,55.6,112.5,3.4,56,110.4,2.3,60,108.2,2.5,61.9,110.7,3.1,47.4,117.8,3.2];
-    for (var ci = 0; ci < CHECK_LOAD.length; ci += 3) {
-      var cp = pts[ci / 3];
-      if (!cp) break;
-      cp.cx = CHECK_LOAD[ci] * (W / 128.28);
-      cp.cy = CHECK_LOAD[ci+1] * (H / 150.28);
-      cp.cr = Math.max(0.9, CHECK_LOAD[ci+2] * (W / 128.28) * 0.8);
-    }
-    /* The app's own success green, in five bands like the gold, so the dots
-       keep the depth they had rather than flattening into one flat colour. */
-    var GREEN = ['47,125,90', '58,143,104', '38,110,78', '70,158,118', '32,96,68'];
-
-    var finishing = 0;       // 0 while working, then 0 -> 1 as it becomes a tick
-    var finishFrom = null;   // the moment the finish started, in frame time
-
-    function checkFrame(m) {
-      g.clearRect(0, 0, W, H);
-      var e = ease(Math.max(0, Math.min(1, m)));
-      for (var b = 0; b < 5; b++) {
-        var col = e < 0.5 ? GOLD[b] : GREEN[b];
-        g.fillStyle = 'rgba(' + col + ',' + (0.87 + 0.13 * e).toFixed(2) + ')';
-        g.beginPath();
-        var any = false;
-        for (var k = 0; k < pts.length; k++) {
-          var d = pts[k];
-          if (d.g !== b || d.cx === undefined) continue;
-          any = true;
-          var x = d.hx + (d.cx - d.hx) * e;
-          var y = d.hy + (d.cy - d.hy) * e;
-          var rr = d.r + (d.cr - d.r) * e;
-          g.moveTo(x + rr, y);
-          g.arc(x, y, rr, 0, Math.PI * 2);
-        }
-        if (any) g.fill();
-      }
-    }
-
-    /* #4343: `still` draws the finished mark and nothing moves, for a screen where nothing is working. */
-    if (slow || (opts && opts.still)) {
-      /* Reduced motion still gets both STATES, because they are information:
-         the mark, and the mark completed. It just does not travel between them. */
-      frame(1, 0);
-      return { finish: function () { checkFrame(1); } };
-    }
-
-    var t0 = null;
-    function tick(ts) {
-      /* #2692: stop when the canvas has left the DOM. The restart interstitial
-         tears its canvas down without a page reload (changeDialog replaces the
-         modal's content), so without this the rAF loop would run forever drawing
-         to a detached canvas. Benign for the reload-exit mounts: their canvas
-         stays connected until the reload that ends the loop anyway. */
-      if (!cv.isConnected) return;
-      if (t0 === null) t0 = ts;
-      var el = ts - t0;
-      if (finishing) {
-        if (finishFrom === null) finishFrom = el;
-        var m = (el - finishFrom) / 900;
-        checkFrame(m);
-        if (m < 1) requestAnimationFrame(tick);
-        return;
-      }
-      var cycle = (el % K_LOADER_CYCLE_MS) / K_LOADER_CYCLE_MS;
-      /* Gather, hold, open back out. The old timing gave the collapse a third
-         of the time the build got, so the mark fell apart three times faster
-         than it came together and snapped to a stop. Opening out is now nearly
-         as long as gathering, which is what makes it read as breathing. */
-      var p = cycle < 0.52 ? cycle / 0.52
-            : cycle < 0.70 ? 1
-            : 1 - (cycle - 0.70) / 0.30;
-      frame(Math.max(0, Math.min(1, p)), el / 5200);
-      requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
-    /* ⚠️ THE HANDLE IS RETURNED RATHER THAN THE LOOP BEING RESTARTED. The
-       update overlay's caller ignores it, which is why this stayed a bare
-       function for so long; the create screen needs to say "it worked" to a
-       loop that is already running. */
-    return {
-      finish: function () {
-        if (finishing) return;
-        finishing = 1;
-        /* ⚠️ IT DOES NOT WAIT FOR THE BREATH TO REACH THE TOP. Waiting would
-           put up to four seconds between the last row resolving and the mark
-           completing, and the mark would be describing something that finished
-           a while ago. It travels from wherever the dots are to the tick. */
-        requestAnimationFrame(tick);
-      },
-    };
-  }
 
 /* The running mark on the creation screen, so the one branch that may complete
    it can reach the loop that is already drawing. Null on every other screen. */
@@ -62679,8 +62476,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
 const RESTART_HOLD_MS = Math.max(2000, K_LOADER_CYCLE_MS);
 /* #2692: the branded-K-loader interstitial markup, parameterised by its line so the provider
    switch can say "Setting up OpenAI" while the model switch says "Restarting the agent".
-   The canvas is the loader's mount (startKLoader is driven on it at the changeDialog call
-   site, once it is in the document); it is decorative (aria-hidden) because `line` is the
+   Its mark is the KOSMOS orb (#7896), which KORB draws once the markup is in the page; it is decorative (aria-hidden) because `line` is the
    announced text. `line` is an app-generated fixed literal or an app-derived provider label,
    never user input, so the innerHTML at the changeDialog call site stays safe. */
 const chgBusyHtml = (line) => '<span class="chg-restart">'

@@ -11,14 +11,14 @@
  * asks the live agent (POST .../handoff-restart/ask) and shows a "writing its
  * handoff" status while it polls, (2) it advances to the restart ONLY once the
  * handoff is confirmed fresh (GET .../handoff-restart/status -> fresh:true), (3)
- * it plays the shared restart interstitial (the loader canvas mounts in the
- * dialog), and (4) after the restart it delivers the pickup (POST
+ * it plays the shared restart interstitial (the KOSMOS orb mounts in the
+ * dialog: since #7896 a .chg-restart-k.orb-wait span with KORB's canvas.korb), and (4) after the restart it delivers the pickup (POST
  * .../handoff-restart/pickup) and lands the placed receipt. And the two safety
  * arms a source read cannot prove: an UNCONFIRMED ask and a handoff that never
  * arrives BOTH restore the confirm view and NEVER POST /restart -- an agent's
  * context is never lost to a mistimed restart.
  *
- * The paint of the loader itself is covered by render-restart-kloader-2831; this
+ * The drawing of the orb itself is covered by render-restart-kloader-2831; this
  * check asserts the FLOW and its DOM STATES, so it deliberately does not re-check
  * pixels. HERMETIC (file://, every route answered by a window.fetch stub).
  *
@@ -172,9 +172,9 @@ const posted = (page, re, method) => page.evaluate(({ src, m }) => {
   const wroteStatus = await page.waitForFunction(
     () => /writing its handoff/i.test(document.getElementById('rst-msg').textContent || ''),
     { timeout: 2000 }).then(() => true).catch(() => false);
-  // Then the restart interstitial mounts (the loader canvas appears in the dialog).
+  // Then the restart interstitial mounts (the orb appears in the dialog, and KORB has given it its canvas).
   const loaderMounted = await page.waitForFunction(
-    () => !!document.querySelector('#rst-modal #rst-msg canvas.chg-restart-k'),
+    () => !!document.querySelector('#rst-modal #rst-msg .chg-restart .chg-restart-k.orb-wait > canvas.korb'),
     { timeout: 3000 }).then(() => true).catch(() => false);
   // Then the modal closes and the receipt reaches the pickup-placed line.
   const settled = await page.waitForFunction(() => {
@@ -189,7 +189,7 @@ const posted = (page, re, method) => page.evaluate(({ src, m }) => {
   const restartN = await posted(page, /\/api\/agent\/[^/]+\/restart$/, 'POST');
   const pickupN = await posted(page, /\/handoff-restart\/pickup$/, 'POST');
   check('SUCCESS: the pre-restart phase shows the handoff-writing status while it polls', wroteStatus);
-  check('SUCCESS: once the handoff is fresh, the restart interstitial mounts in the dialog', loaderMounted);
+  check('SUCCESS: once the handoff is fresh, the restart interstitial (with the KOSMOS orb) mounts in the dialog', loaderMounted);
   check('SUCCESS: it asked once, restarted once, and delivered the pickup once',
     askN === 1 && restartN === 1 && pickupN === 1, `ask=${askN} restart=${restartN} pickup=${pickupN}`);
   check('SUCCESS: the modal closes and the receipt reports the fresh session was pointed at its handoff',
