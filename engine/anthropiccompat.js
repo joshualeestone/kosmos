@@ -50,6 +50,8 @@ const VENDORS = Object.freeze({
     checkUrl: 'https://api.z.ai/api/coding/paas/v4/models',
     models: Object.freeze(['glm-5.3', 'glm-5.3-flash']),
     keyPage: 'https://z.ai/manage-apikey/apikey-list',
+    /* 2a review 5: not offerable until the page knows it (slice 2b), whatever its switch says. 2b deletes this line. */
+    pageReady: false,
   }),
 });
 
@@ -74,7 +76,14 @@ function vendorOf(id) {
 const ON_MARKER = 'compat-providers-on';
 /* #7206 slice 2a review 1: one switch per vendor, so measuring one vendor and switching it on never turns on another
    that nobody has measured. DeepSeek keeps the original marker; every later row has its own, compat-<id>-on. */
-/* 🛑 compat-glm-on must not be created before slice 2b: until the page knows GLM, it files a GLM account under Claude. */
+/* A row with pageReady: false (GLM until slice 2b) is never on: the page would file its account under Claude. Only a
+   test lifts that, by naming the vendor in AGENT_WORKFORCE_TEST_COMPAT_READY; a launchd job never carries it. */
+function pageReady(id) {
+  const v = vendorOf(id);
+  if (!v) return false;
+  if (v.pageReady !== false) return true;
+  return String(process.env.AGENT_WORKFORCE_TEST_COMPAT_READY || '').split(',').map((x) => x.trim()).includes(id);
+}
 function markerFor(id) { return id === 'deepseek' ? ON_MARKER : 'compat-' + id + '-on'; }
 /**
  * enabled(platform, vendor): with a vendor, whether THAT vendor is offered; with none, whether any is (for the routes
@@ -85,12 +94,15 @@ function enabled(platform = process.platform, vendor) {
   /* 2a review 4: "any vendor" is asked by leaving the vendor out entirely. A vendor slot passed but empty (a caller whose
      vendor came back undefined) is off, never "any": a missing vendor must fail closed. */
   if (arguments.length >= 2 && vendor === undefined) return false;
-  const ids = vendor === undefined ? Object.keys(VENDORS) : (vendorOf(vendor) ? [vendor] : []);
+  const ids = (vendor === undefined ? Object.keys(VENDORS) : (vendorOf(vendor) ? [vendor] : [])).filter(pageReady);
   /* 1b review 3: the marker is the ONLY on-state. An environment variable reached the board but never an agent's launchd
      job (its plist carries a fixed environment), so an agent made with it on could not start. The marker is read by
      both, from the data folder. An unreadable data folder leaves it off: off is the default. */
   try { return ids.some((id) => fs.existsSync(path.join(require('./store').ROOT, markerFor(id)))); } catch { return false; }
 }
+/* Whether any vendor is offered: for the routes that refuse before they know which. Named, so "any" is never an empty
+   vendor by accident. */
+function anyEnabled(platform = process.platform) { return enabled(platform); }
 /* The sentence every refusal uses while the switch is off. */
 const NOT_YET = 'is not available in Kosmos yet';
 function notYet(vendor) { const v = vendorOf(vendor); return `${v ? v.name : 'That provider'} ${NOT_YET}`; }
@@ -440,7 +452,7 @@ if (require.main === module) {
 
 module.exports = {
   STATE, VENDORS, ENDPOINT_BASENAME, LAUNCH_VARS, vendorOf,
-  enabled, notYet, ON_MARKER, markerFor,
+  enabled, anyEnabled, notYet, ON_MARKER, markerFor,
   homeDir, dirPrefix, forgottenPrefix, endpointFile, vendorOfName, isCompatHome, accountProblem, readAccount,
   list, cleanLabel, dirForLabel, storeAccount,
   setFetcher, askModels, validateLive, checkLive, listLive, resetLiveCacheForTest,

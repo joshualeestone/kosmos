@@ -18,6 +18,7 @@ const { execFileSync } = require('node:child_process');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-compat-7206-'));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 const compat = require('./anthropiccompat');
+process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = 'glm';   // 2a review 5: the arms that turn GLM on name it; the readiness test below removes it
 
 test.after(() => { compat.setFetcher(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
@@ -329,4 +330,17 @@ test('#7206 2a review 1: each vendor has its own switch; none means any; an unkn
     assert.equal(compat.enabled('darwin', undefined), false, 'a vendor slot passed empty read as any vendor');   // review 4: fails closed
     assert.equal(compat.enabled('win32', 'glm'), false, 'never on off a Mac');
   } finally { sw.set(false); sw.setVendor('glm', false); }
+});
+
+test('#7206 2a review 5: GLM is never on before slice 2b, whatever its switch says; only a test that names it lifts that', () => {
+  const sw = require('../test-support/compat-switch');
+  const saved = process.env.AGENT_WORKFORCE_TEST_COMPAT_READY;
+  sw.setVendor('glm', true);
+  try {
+    delete process.env.AGENT_WORKFORCE_TEST_COMPAT_READY;
+    assert.equal(compat.enabled('darwin', 'glm'), false, 'GLM came on before the page knows it');
+    assert.equal(compat.anyEnabled('darwin'), false, 'GLM\'s switch alone made "any vendor" true');
+    process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = 'glm';
+    assert.equal(compat.enabled('darwin', 'glm'), true, 'CONTROL: named as ready, its switch turns it on');
+  } finally { sw.setVendor('glm', false); process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = saved; }
 });
