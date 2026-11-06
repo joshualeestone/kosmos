@@ -51,7 +51,7 @@ test('#8118: the one ask latches first, and reads its answer only from the page 
   assert.match(f, /let askedOn = pageCommits/);
   assert.match(body('func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!)'), /pageCommits \+= 1/, 'commits are no longer counted');
   const guard = f.indexOf('guard self.pageCommits == askedOn else {');
-  assert.ok(guard > 0 && guard < f.indexOf('switch reopenAnswerKeeps(said)'), 'a stale answer is acted on (review 2: a reload while it waits)');
+  assert.ok(guard > 0 && guard < f.indexOf('let answer = reopenAnswerKeeps(said)'), 'a stale answer is acted on (review 2: a reload while it waits)');
 });
 
 test('#8118: the host reaches the page as an ARGUMENT, never inside the script text', () => {
@@ -65,13 +65,16 @@ test('#8118: the host reaches the page as an ARGUMENT, never inside the script t
 
 test('#8118: forgotten on the page\'s gone or home, and on Back to This Computer before the board loads', () => {
   const f = body('private func askPageToReopen(');
-  assert.match(f, /switch reopenAnswerKeeps\(said\) \{/, 'the page\'s answer no longer goes through reopenAnswerKeeps (its rows are in the selftest)');
+  assert.match(f, /let answer = reopenAnswerKeeps\(said\)[\s\S]*switch answer \{/, 'the page\'s answer no longer goes through reopenAnswerKeeps (its rows are in the selftest)');
   const arm = (name) => f.slice(f.indexOf(name), f.indexOf('case .', f.indexOf(name) + name.length) > 0 ? f.indexOf('case .', f.indexOf(name) + name.length) : undefined);
   assert.match(arm('case .forget:'), /self\.reopenOutstanding = false[\s\S]*if self\.reopenComputerHost == host \{ self\.reopenComputerHost = nil \}/, 'a forget answer no longer forgets the host');
-  assert.match(arm('case .missed:'), /self\.reopenMisses \+= 1[\s\S]*if reopenMissesForget\(self\.reopenMisses\)[\s\S]*self\.reopenComputerHost = nil/,
-    'a miss is not counted, or REOPEN_MISS_LIMIT misses do not forget (review 5: a computer that stays off toasts for ever)');
-  assert.match(arm('case .opening:'), /self\.reopenMisses = 0/, 'a reopen that opens does not reset the misses');
-  assert.match(arm('case .retryNextBoardLoad:'), /if let until = self\.reopenRetryUntil, Date\(\) < until \{ self\.reopenAskedThisLaunch = false \}/,
+  // Review 6: the count moves only through reopenMissesAfter (its rows are in the selftest), before the arms run.
+  assert.ok(f.indexOf('self.reopenMisses = reopenMissesAfter(answer, self.reopenMisses)') > 0
+    && f.indexOf('self.reopenMisses = reopenMissesAfter(answer, self.reopenMisses)') < f.indexOf('switch answer {'), 'the miss count is not moved by reopenMissesAfter before the arms');
+  assert.doesNotMatch(arm('case .opening, .notChecked:'), /reopenMisses/, 'a switch started resets the misses (only the page landing may, review 6)');
+  assert.match(arm('case .missed:'), /if reopenMissesForget\(self\.reopenMisses\)[\s\S]*self\.reopenComputerHost = nil/,
+    'REOPEN_MISS_LIMIT misses do not forget (review 5: a computer that stays off toasts for ever)');
+  assert.match(arm('case .retryNextBoardLoad:'), /if reopenRetryAllowed\(now: Date\(\), until: self\.reopenRetryUntil\) \{ self\.reopenAskedThisLaunch = false \}/,
     'a sign-in page retry is not bounded in time (review 5)');
   const home = body('@objc func backToThisComputer(_ sender: Any?)');
   assert.match(home, /reopenOutstanding = false/, 'going home on purpose leaves a reopen outstanding');
@@ -98,5 +101,7 @@ test('#8118 (round 4): the ask marks the reopen outstanding, and the other compu
   assert.match(body('private func askPageToReopen('), /reopenAskedThisLaunch = true\n\s+reopenOutstanding = true/);
   const f = body('private func rememberOrReopenComputer(');
   const at = f.indexOf('case .keep(let host):');
-  assert.match(f.slice(at, f.indexOf('case .forget:', at)), /reopenOutstanding = false/, 'the remote page loading leaves the reopen outstanding');
+  const keepArm = f.slice(at, f.indexOf('case .forget:', at));
+  assert.match(keepArm, /reopenOutstanding = false/, 'the remote page loading leaves the reopen outstanding');
+  assert.match(keepArm, /reopenMisses = 0   \/\/ review 6/, 'the page LANDING no longer resets the misses');
 });

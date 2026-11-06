@@ -122,6 +122,22 @@ board load).
   mid-switch; a row title; the #6585 comment's condition. NIT kept: the first toast uses the host label (the name is
   not known until the list answers).
 
+## Review round 6 (sonnet; no BLOCKER)
+- WARNING: misses were reset when a switch STARTED, so a computer whose page never lands never reached the limit
+  --> FIXED: only the other computer's page loading resets them (`reopenMissesAfter`, 5 rows; `.keep` resets).
+- WARNING: an offline laptop counted its own failures (unknown, slow, error) as misses and forgot the mini after 3
+  launches --> FIXED: those are `.notChecked`, kept outstanding and not counted. Only offline, updating and
+  not-instant (the other computer's own state) count.
+- WARNING: a bare modifier key counted as "stay" --> FIXED: Shift, Control, Alt, Command, Caps Lock, Fn alone do
+  not. KEPT: a click that only focuses the window still counts; the toast says "click ... to stay", and the window
+  is short (the answer is usually back in a second).
+- CONVENTION: the count and retry wiring were source-text tests --> FIXED: `reopenMissesAfter` and
+  `reopenRetryAllowed` (3 rows) are pure with selftest rows.
+- NIT, documented: quitting during a MANUAL switch's ticket wait forgets the computer (the old page is home and
+  nothing is outstanding), so the next launch opens home. The person had not landed there yet.
+- NIT kept: the 'busy' answer is nearly unreachable (a click that switches also counts as touched). Harmless.
+- NIT fixed: a row title.
+
 ## Weakest premise (now)
 That every way the app ends reaches applicationWillTerminate (Cmd-Q, the menu, the Dock, the last window, an
 update's relaunch). A force quit or crash skips it, and then the last host kept at a page load stands.

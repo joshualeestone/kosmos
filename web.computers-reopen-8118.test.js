@@ -41,7 +41,7 @@ function world(answer, { opening = false, during = null, hang = false } = {}) {
   };
   const fetch = (url, opts) => {
     assert.equal(url, '/api/remote/computers', 'the reopen read something other than the switcher\'s list');
-    if (during) for (const fn of (listeners[during] || [])) fn();   // the person clicks or types while it is read
+    if (during) for (const fn of (listeners[during.type || during] || [])) fn(typeof during === 'string' ? { type: during } : during);   // the person clicks or types while it is read
     if (hang) {
       return new Promise((_, rej) => { opts.signal.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; rej(e); }); });
     }
@@ -199,4 +199,13 @@ test('#8118: the wait is the route\'s own limit (30 s, OA_COMPUTERS_LIMIT_MS), n
   const v = (name) => Number((PAGE.match(new RegExp('const ' + name + ' = (\\d+);')) || [])[1]);
   assert.equal(v('COMPUTERS_REOPEN_MAX_MS'), 30000, 'the reopen limit changed');
   assert.ok(v('COMPUTERS_REOPEN_MAX_MS') >= v('OA_COMPUTERS_LIMIT_MS'), 'the reopen gives up before the route can answer');
+});
+
+test('#8118 (review 6): a modifier key alone is not a choice to stay', async () => {
+  for (const key of ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock']) {
+    const w = world(list([HERE, MINI]), { during: { type: 'keydown', key } });
+    assert.equal(await w.run('mini.kosmosplus.com'), 'opening', key + ' alone stopped the reopen');
+  }
+  // CONTROL: a real key does stop it.
+  assert.equal(await world(list([HERE, MINI]), { during: { type: 'keydown', key: 'a' } }).run('mini.kosmosplus.com'), 'touched');
 });

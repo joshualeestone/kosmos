@@ -33225,7 +33225,9 @@ async function computersReopen(host) {
   const label = h.split('.')[0];
   try { if (typeof msgToast === 'function') msgToast('Going back to ' + label + ', the computer you were looking at. Click, type or scroll here to stay on this computer.', COMPUTERS_REOPEN_MAX_MS); } catch {}
   let touched = false;
-  const mark = () => { touched = true; };
+  // Review 6: a modifier key alone (Shift, Control, Alt, Command, Caps Lock) is not a choice to stay.
+  const MODIFIERS = ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Fn'];
+  const mark = (e) => { if (e && e.type === 'keydown' && MODIFIERS.includes(e.key)) return; touched = true; };
   const ev = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
   try { for (const k of ev) document.addEventListener(k, mark, true); } catch {}
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
