@@ -152,7 +152,9 @@ final class AttachMenuUITests: XCTestCase {
         let top = p.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
         let up = p.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
         var seen: [CGFloat] = [last.frame.maxY]
-        for _ in 0..<8 { top.press(forDuration: 0.05, thenDragTo: up); seen.append(last.frame.maxY) }
+        // kosmos#7609: the grid is lazy, so a tile off screen can leave the tree between drags (-1 here). CI, 11-06.
+        for _ in 0..<8 { top.press(forDuration: 0.05, thenDragTo: up); seen.append(last.exists ? last.frame.maxY : -1) }
+        XCTAssertTrue(last.waitForExistence(timeout: 5), "the last tile is not there after scrolling to the end: \(seen)")
         let row = p.buttons["All photos"].frame
         XCTAssertLessThanOrEqual(last.frame.maxY, row.minY, "the last tile stops under the bottom row: \(seen), row \(row)")
         shot(app, "scrolled to the end")
