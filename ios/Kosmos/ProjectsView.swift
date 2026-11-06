@@ -870,9 +870,10 @@ struct ProjectRowView: View {
     /// added here too.
     private var hasStateOrBubble: Bool { word != nil || bubble != nil }
     // kosmos#7486 (Josh 10-28 09:35): Working is the Agents list's own animated green pill, in the same place; the other
-    // words keep their look. kosmos#7342 (Mona Lisa): the unread bubble after the word, 6 pt apart, as the Agents list has
-    // it, so the two tabs read alike: at the row's right end, or under the name at the accessibility sizes, where the pill
-    // wraps only if it alone is wider than the row, rather than truncate, as the Agents list's does.
+    // words keep their look. kosmos#7342 (Mona Lisa): the unread bubble after the word, as the Agents list has it, so the two
+    // tabs read alike: at the row's right end, 6 pt apart. At the accessibility sizes (kosmos#7055) both go under the name,
+    // on one line if they fit, else the bubble under the word; the Agents list's pill also wraps there rather than
+    // truncate, and this one does too, but only when the word alone is wider than the row.
     @ViewBuilder private var stateAndBubble: some View {
         if typeSize.isAccessibilitySize {
             // Whole words first: the word and bubble on one line, else the bubble under the word, and only if the word alone
