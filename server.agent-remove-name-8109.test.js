@@ -148,6 +148,52 @@ test('kosmos#8113 the hidden setup guide does not make a listed name ambiguous',
   assert.match(c.text, /more than one agent is called Klist8113/);
 });
 
+test('kosmos#8113 a removed agent: not a second match beside a live one, and never resolved to on its own', async () => {
+  folderAgent('krm8113', 'Krm 8113');
+  // A real, recorded removal: DRY_RUN reports "removed" and records nothing, so the board would still list it. A
+  // stubbed runner stands in for launchctl and tmux (has-session exit 1: the session is gone), never the real ones.
+  const removal = require('./engine/remove');
+  removal.setRunner((file, args) => (args && args[0] === 'has-session' ? { ok: false, code: 1 } : { ok: true, stdout: '' }));
+  removal.setDryRun(false);
+  let gone;
+  try { gone = await call('DELETE', 'krm8113'); } finally { removal.setRunner(null); removal.setDryRun(true); }
+  assert.equal(gone.json && gone.json.outcome, 'removed', 'CONTROL: the agent was not removed: ' + gone.text.slice(0, 200));
+  assert.ok(removal.removedAgents().some((r) => r.name === 'krm8113' && removal.hidesCard(r)), 'CONTROL: the removal was not recorded as hiding its card');
+  const alone = await call('GET', 'Krm 8113', RESOLVE);
+  assert.equal(alone.code, 400, 'a removed agent was resolved to by its display name: ' + alone.text.slice(0, 200));
+  assert.match(alone.text, /cannot find an agent called Krm 8113/, alone.text.slice(0, 200));
+  folderAgent('klive8113', 'Krm 8113');
+  const p = await call('GET', 'Krm 8113', RESOLVE);
+  assert.equal(p.code, 200, 'a removed agent made a listed name ambiguous: ' + p.text.slice(0, 220));
+  assert.equal(p.json && p.json.name, 'klive8113', p.text.slice(0, 200));
+});
+
+test('kosmos#8113 an unreadable removed list resolves nothing (the route cannot tell which cards are removed)', async () => {
+  const removal = require('./engine/remove');
+  const store = require('./engine/store');
+  folderAgent('kunread8113', 'Kunread 8113');
+  // And a LIVE card (a session agent, shown by its profile): its card comes from the snapshot, not the survey, so only
+  // the route's own check of the survey keeps it from resolving while removed agents cannot be told apart.
+  store.writeProfile('kunlive8113', { displayName: 'Kunlive 8113' });
+  board.restore();
+  board = fleet.install([fleet.agent('kunlive8113', { ours: 'claim' })], { strict: false });
+  const before = fs.existsSync(removal.REMOVED_FILE) ? fs.readFileSync(removal.REMOVED_FILE) : null;
+  try {
+    assert.equal((await call('GET', 'Kunread 8113', RESOLVE)).json.name, 'kunread8113', 'CONTROL: readable, the stopped agent resolves');
+    assert.equal((await call('GET', 'Kunlive 8113', RESOLVE)).json.name, 'kunlive8113', 'CONTROL: readable, the live agent resolves');
+    fs.writeFileSync(removal.REMOVED_FILE, '{ not json');
+    for (const asked of ['Kunread 8113', 'Kunlive 8113']) {
+      const p = await call('GET', asked, RESOLVE);
+      assert.equal(p.code, 400, `${asked} was resolved while the removed list could not be read: ` + p.text.slice(0, 200));
+      assert.match(p.text, new RegExp(`cannot find an agent called ${asked}`), p.text.slice(0, 200));
+    }
+  } finally {
+    if (before === null) fs.rmSync(removal.REMOVED_FILE, { force: true }); else fs.writeFileSync(removal.REMOVED_FILE, before);
+    board.restore();
+    board = fleet.install([]);
+  }
+});
+
 test.after(() => {
   try { board.restore(); } catch { /* ignore */ }
   try { server.close(); } catch { /* ignore */ }

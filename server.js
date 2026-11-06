@@ -6960,6 +6960,15 @@ function gateLog(req) {
    - Removing an agent deletes nothing on disk (engine/remove.js), so the marker survives
      a removal: a REMOVED guide is "no guide" (404) until it is restored. An unreadable
      removed list refuses (409) rather than act for an agent that may be gone. */
+/* #3739, kosmos#8113: the session name of the row the board hides as the setup guide, or null. ONE rule, read by the
+   list route (markGuide) and by remove's name resolution (cardsForResolve), so the guide `agent list` hides is the
+   guide a listed name cannot reach. An unreadable removed list ('unchecked') is not "no guide": the seeded guide is
+   still marked, or it would flicker back onto the board on that poll. */
+function guideMarkName() {
+  const guideNow = setupGuideNow();
+  if (guideNow.ok) return guideNow.name;
+  return guideNow.reason === 'unchecked' && setupAssistant.isGuideFolder(setupAssistant.guideName()) ? setupAssistant.guideName() : null;
+}
 function setupGuideNow() {
   const guide = setupAssistant.guideName();
   /* `reason` tells a caller that has already met the guide which refusals mean it is GONE ('none',
@@ -7152,10 +7161,8 @@ async function cardsForResolve() {
       if (!k || k.removed || !(k.folder || k.job) || seen.has(k.name) || gone.has(k.name)) continue;
       cards.push({ name: k.name, shown: k.shownAs || k.name });
     }
-    /* kosmos#8113: the setup guide off, as the list route marks it (`markGuide`, the same name rule) and leaves it out. */
-    const guideNow = setupGuideNow();
-    const guide = guideNow.ok ? guideNow.name
-      : (guideNow.reason === 'unchecked' && setupAssistant.isGuideFolder(setupAssistant.guideName()) ? setupAssistant.guideName() : null);
+    /* kosmos#8113: the setup guide off, by the one rule the list route marks it with (guideMarkName). */
+    const guide = guideMarkName();
     return guide ? cards.filter((c) => c.name !== guide) : cards;
   } catch { return null; }
 }
@@ -8329,12 +8336,7 @@ const server = http.createServer(async (req, res) => {
       /* #3739 (Josh, 2026-09-25 09:22: "let's hide it"): the setup guide is reached from the bubble only. Its
          row is marked `isGuide` so the page leaves it out of every list while still finding it by name, and the
          counts leave it out here, so the fleet the tiles count is the fleet the grid draws. */
-      const guideNow = setupGuideNow();
-      /* An unreadable removed list ('unchecked') is not "no guide": mark the seeded guide anyway, or it would
-         flicker back onto the board on that poll. */
-      const markName = guideNow.ok ? guideNow.name
-        : (guideNow.reason === 'unchecked' && setupAssistant.isGuideFolder(setupAssistant.guideName()) ? setupAssistant.guideName() : null);
-      markGuide(agents.concat(offline), markName);
+      markGuide(agents.concat(offline), guideMarkName());
       const counts = countAgents(agents.filter((a) => !a.isGuide), snap.counts && snap.counts.unreadableLines, snap.counts && snap.counts.unreadableSamples);
       /* #3216: the RAW active-projects DM-unread total, so a cross-tab Projects nav badge can
          read a FRESH number every /api/status tick (the projects poll that refreshes p.unread is

@@ -1313,26 +1313,23 @@ function unsafeToActOn(name) {
 
 /**
  * kosmos#8109: the name a person or agent copied from `kosmos agent list` (an agent's display name, such as "Cai")
- * resolved to the agent it names (folder `cai`), so Remove finds it. Called once by the removal routes, before both
- * the plan and the removal, so the two always act on the same agent.
+ * resolved to the agent it names (machine name `cai`), so Remove finds it. Called only by the plan route (GET, with
+ * `?resolve=1`); the DELETE route acts on the exact name it is sent and never resolves.
+ *
+ * `listed` is the board's own card list, as `agent list` prints it: [{ name: <machine name>, shown: <display name> }]
+ * (server.js `cardsForResolve`: live cards and the survey's stopped ones, removed agents and the setup guide left
+ * out). The cards are the ONLY candidates (kosmos#8113), so the names that can match are exactly the names the list
+ * printed: a folder the list does not show can neither make a listed name ambiguous nor be reached by its display
+ * name. Anything but an array (`null` when the route could not read the cards) resolves nothing.
  *
  * Returns the name unchanged when an agent has it exactly (folder, job or session), when the board cannot be read,
- * or when no single agent matches. Otherwise it returns the folder name of the ONE agent whose folder name or display
- * name equals it, ignoring case. Two matches resolve to nothing, so `plan` still answers "we cannot find an agent
- * called <name>", spelled as asked: the refusal never names a different agent.
- *
- * `listed` is the board's own card list, as `agent list` prints it: [{ name: <machine name>, shown: <display name> }].
- * The folder scan alone cannot see a card whose agent has no folder in the workers folder (a connected or profile
- * agent, a symlinked folder, a session or a job with no folder), and such a card shown as "Cai" next to a folder `cai`
- * shown as "Cai" would have resolved to `cai` with no refusal (round 7). The route passes `null` when it could not read
- * the cards, and that resolves nothing (test: "a card outside the folder").
- * kosmos#8113: when the cards are given they are the ONLY candidates, so the names that can match are exactly the
- * names `agent list` printed. A folder the list does not show (the setup guide, which the list hides) can neither
- * make a listed name ambiguous nor be reached by its display name (test: "the hidden setup guide"). Left out (the
- * engine's own callers and tests), the folders in the workers folder are the candidates.
+ * or when no single card matches. Otherwise it returns the machine name of the ONE card whose machine name or display
+ * name equals it, ignoring case. Two matches resolve to nothing (`ambiguous` lists them), so the refusal never names
+ * a different agent as if it were the one asked for.
  */
 function resolve(name, platform, listed) {
   const asGiven = { name, ambiguous: [], shown: {} };
+  if (!Array.isArray(listed)) return asGiven;
   let clean;
   try { clean = create.cleanName(name); } catch { return asGiven; }
   if (!clean || unsafeToActOn(clean)) return asGiven;
@@ -1340,43 +1337,21 @@ function resolve(name, platform, listed) {
   let found;
   try { found = sessionFor(clean); } catch { return asGiven; }
   if (found.kind !== FOUND.NONE) return asGiven;   // its own session (ours, untied) or unknown: act on the name as given
-  if (listed === null) return asGiven;
   const want = clean.toLowerCase();
   const hits = [];
   const displayOf = {};
-  if (Array.isArray(listed)) {
-    // An unsafe name still counts, so it can make a name ambiguous, but is never resolved to.
-    for (const card of listed) {
-      const machine = card && typeof card.name === 'string' ? card.name : '';
-      if (!machine) continue;
-      const shown = card.shown == null ? null : String(card.shown);
-      if (machine.toLowerCase() === want || (shown && shown.trim().toLowerCase() === want)) {
-        if (!hits.includes(machine)) { hits.push(machine); displayOf[machine] = shown; }
-      }
+  // An unsafe name still counts, so it can make a name ambiguous, but is never resolved to.
+  for (const card of listed) {
+    const machine = card && typeof card.name === 'string' ? card.name : '';
+    if (!machine) continue;
+    const shown = card.shown == null ? null : String(card.shown);
+    if (machine.toLowerCase() === want || (shown && shown.trim().toLowerCase() === want)) {
+      if (!hits.includes(machine)) { hits.push(machine); displayOf[machine] = shown; }
     }
-    if (hits.length === 1) return unsafeToActOn(hits[0]) ? asGiven : { name: hits[0], ambiguous: [], shown: {} };
-    return hits.length > 1 ? { name, ambiguous: hits.sort(), shown: displayOf } : asGiven;
-  }
-  let dirs;
-  try {
-    dirs = fs.readdirSync(create.workersDir(), { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
-  } catch { return asGiven; }
-  for (const dir of dirs) {
-    if (unsafeToActOn(dir)) continue;
-    // A removed agent keeps its folder and its name, and is not on the list; it is not a match (test: "removed agent").
-    // A candidate that cannot be read ends the search: skipping it could make a two-agent name look like one
-    // (test: "an unreadable candidate").
-    let hidden;
-    try { hidden = isHidden(dir); } catch { process.stderr.write(`remove: resolving "${clean}" stopped: could not read whether ${dir} was removed\n`); return asGiven; }
-    if (hidden) continue;
-    let shown = null;
-    try { shown = status.readIdentity(dir).displayName || null; } catch { process.stderr.write(`remove: resolving "${clean}" stopped: could not read ${dir}'s name\n`); return asGiven; }
-    if (dir.toLowerCase() === want || (shown && String(shown).trim().toLowerCase() === want)) { hits.push(dir); displayOf[dir] = shown; }
   }
   if (hits.length === 1) return unsafeToActOn(hits[0]) ? asGiven : { name: hits[0], ambiguous: [], shown: {} };
   return hits.length > 1 ? { name, ambiguous: hits.sort(), shown: displayOf } : asGiven;
 }
-function resolveName(name, platform) { return resolve(name, platform).name; }
 /* The refusal for a name two or more agents answer to: it names the folders, so the person can pick one. */
 function ambiguousRefusal(asked, folders, shown) {
   // Each folder with the name it is shown by, so the person can tell which is which (test: "two agents answer to").
@@ -2869,7 +2844,6 @@ module.exports = {
   reapplyAtBoardStart,
   RESTART_CHANGED_NOTHING,   // #7470
   plan,
-  resolveName,   // #8109: a name as `agent list` prints it, resolved to the one agent it names
   resolve,   // #8109: the same, saying when two or more agents answer to the name
   ambiguousRefusal,
   restart,

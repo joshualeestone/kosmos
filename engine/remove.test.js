@@ -3385,6 +3385,9 @@ function folderAgent(dir, displayName) {
   fs.writeFileSync(nodePath.join(create.workerDir(dir), 'CLAUDE.md'), `You are **${displayName}**.\n`, 'utf8');
   return dir;
 }
+/* The cards the route hands resolve (server.js cardsForResolve), for these folder agents: machine name and the name the
+   card shows. kosmos#8113: resolve takes only these, so a test lists exactly the agents its board would print. */
+function listedOf(...dirs) { return dirs.map((d) => ({ name: d, shown: status.readIdentity(d).displayName })); }
 
 test('#8109 a display name copied from agent list resolves to the one agent it names, and Remove finds it', () => {
   remove.setRunner(() => ({ ok: true, stdout: '' }));
@@ -3394,18 +3397,21 @@ test('#8109 a display name copied from agent list resolves to the one agent it n
   const before = remove.plan('Kcai8109', MAC);
   assert.equal(before.ok, false, 'CONTROL: the display name as given already plans; this fixture cannot show the bug');
   assert.match(before.because, /cannot find an agent called Kcai8109/, 'CONTROL: refused for another reason: ' + before.because);
-  assert.equal(remove.resolveName('Kcai8109', MAC), 'kcai8109', 'the listed display name did not resolve to its agent');
-  const after = remove.plan(remove.resolveName('Kcai8109', MAC), MAC);
+  const L = listedOf('kcai8109');
+  assert.equal(remove.resolve('Kcai8109', MAC, L).name, 'kcai8109', 'the listed display name did not resolve to its agent');
+  const after = remove.plan(remove.resolve('Kcai8109', MAC, L).name, MAC);
   assert.equal(after.ok, true, 'Remove still refused the listed name after resolving it: ' + after.because);
-  assert.equal(remove.resolveName('kcai8109', MAC), 'kcai8109', 'an exact machine name was changed');
+  assert.equal(remove.resolve('kcai8109', MAC, L).name, 'kcai8109', 'an exact machine name was changed');
+  // kosmos#8113: with no cards at all, nothing resolves (no folder scan to fall back to).
+  assert.equal(remove.resolve('Kcai8109', MAC).name, 'Kcai8109', 'a name was resolved without the board\'s cards');
 });
 
 test('#8109 a folder name in other letter case resolves too (the display name differs)', () => {
   remove.setRunner(() => ({ ok: true, stdout: '' }));
   status.setPaneSource(() => '');
   folderAgent('kbo8109', 'Bo Smith 8109');
-  assert.equal(remove.resolveName('KBO8109', MAC), 'kbo8109');
-  assert.equal(remove.resolveName('bo smith 8109', MAC), 'kbo8109', 'a display name in other case did not resolve');
+  assert.equal(remove.resolve('KBO8109', MAC, listedOf('kbo8109')).name, 'kbo8109');
+  assert.equal(remove.resolve('bo smith 8109', MAC, listedOf('kbo8109')).name, 'kbo8109', 'a display name in other case did not resolve');
 });
 
 test('#8109 a name that matches two agents resolves to nothing, and the refusal still names what was asked', () => {
@@ -3413,8 +3419,8 @@ test('#8109 a name that matches two agents resolves to nothing, and the refusal 
   status.setPaneSource(() => '');
   folderAgent('kana8109', 'Kana Twin 8109');
   folderAgent('kana8109b', 'Kana Twin 8109');
-  assert.equal(remove.resolveName('Kana Twin 8109', MAC), 'Kana Twin 8109', 'an ambiguous name was resolved to one of two agents');
-  const r = remove.resolve('Kana Twin 8109', MAC);
+  const r = remove.resolve('Kana Twin 8109', MAC, listedOf('kana8109', 'kana8109b'));
+  assert.equal(r.name, 'Kana Twin 8109', 'an ambiguous name was resolved to one of two agents');
   assert.deepEqual(r.ambiguous, ['kana8109', 'kana8109b'], 'the two agents it matches were not reported');
   const said = remove.ambiguousRefusal('Kana Twin 8109', r.ambiguous, r.shown);
   assert.equal(said.ok, false);
@@ -3424,39 +3430,16 @@ test('#8109 a name that matches two agents resolves to nothing, and the refusal 
   assert.match(remove.ambiguousRefusal('X', ['a', 'b'], { a: 'a', b: 'Bob' }).because, /\(a; b, shown as Bob\)/);
 });
 
-test('#8109 a removed agent with the same display name is not a second match', () => {
-  world();
-  status.setPaneSource(() => '');
-  folderAgent('kold8109', 'Kreuse 8109');
-  const gone = remove.remove('kold8109', { ...BINS, platform: MAC });
-  assert.equal(gone.outcome, remove.OUTCOME.REMOVED, 'CONTROL: the old agent was not removed: ' + gone.because);
-  folderAgent('knew8109', 'Kreuse 8109');
-  const r = remove.resolve('Kreuse 8109', MAC);
-  assert.deepEqual(r.ambiguous, [], 'a removed agent was counted as a second match');
-  assert.equal(r.name, 'knew8109', 'the name did not resolve to the agent on the list');
-});
-
-test('#8109 an unreadable candidate resolves nothing (it might be the second agent with that name)', () => {
-  remove.setRunner(() => ({ ok: true, stdout: '' }));
-  status.setPaneSource(() => '');
-  folderAgent('kpair8109a', 'Kpair 8109');
-  folderAgent('kpair8109b', 'Kpair 8109');
-  const real = status.readIdentity;
-  status.readIdentity = (dir) => { if (dir === 'kpair8109b') throw new Error('unreadable'); return real(dir); };
-  try {
-    const r = remove.resolve('Kpair 8109', MAC);
-    assert.equal(r.name, 'Kpair 8109', 'one of two agents was chosen because the other could not be read');
-    assert.deepEqual(r.ambiguous, []);
-  } finally { status.readIdentity = real; }
-  assert.deepEqual(remove.resolve('Kpair 8109', MAC).ambiguous, ['kpair8109a', 'kpair8109b'], 'CONTROL: readable, both are found');
-});
+/* kosmos#8113: "a removed agent is not a second match" and "an unreadable candidate resolves nothing" were folder-scan
+   tests. Removed agents are now left out by the route's cards (server.agent-remove-name-8109.test.js: "a removed
+   agent"), and cards that cannot be read are `null` (below: "could not read the cards"). */
 
 test('#8109 when the board cannot be read, the name is left as given (no guessing)', () => {
   remove.setRunner(() => ({ ok: true, stdout: '' }));
   folderAgent('kdee8109', 'Kdee8109');
   status.setPaneSource(() => { throw new Error('tmux is not answering'); });
   try {
-    assert.equal(remove.resolveName('Kdee8109', MAC), 'Kdee8109', 'a name was resolved while the board could not be read');
+    assert.equal(remove.resolve('Kdee8109', MAC, listedOf('kdee8109')).name, 'Kdee8109', 'a name was resolved while the board could not be read');
   } finally { status.setPaneSource(() => ''); }
 });
 
@@ -3479,7 +3462,7 @@ test('#8109 an exact folder name wins over another agent\'s display name (no amb
   status.setPaneSource(() => '');
   folderAgent('kprec8109', 'Kprec8109');
   folderAgent('kprec8109x', 'kprec8109');   // another agent displayed as the first one's machine name
-  const r = remove.resolve('kprec8109', MAC);
+  const r = remove.resolve('kprec8109', MAC, listedOf('kprec8109', 'kprec8109x'));
   assert.equal(r.name, 'kprec8109', 'an exact folder name was resolved to another agent');
   assert.deepEqual(r.ambiguous, [], 'an exact folder name was reported as ambiguous');
 });
@@ -3489,12 +3472,12 @@ test('#8109 a name that is a live session exactly is not redirected to another a
   folderAgent('kshown8109', 'Kses8109');           // another agent, displayed as the session's name
   boardShows('Kses8109', 'Kses8109');              // a live session named exactly Kses8109, no folder
   try {
-    const r = remove.resolve('Kses8109', MAC);
+    const r = remove.resolve('Kses8109', MAC, listedOf('kshown8109'));
     assert.equal(r.name, 'Kses8109', 'a live session\'s exact name was redirected to another agent');
     assert.deepEqual(r.ambiguous, []);
   } finally { status.setPaneSource(() => ''); }
   // CONTROL: with the session gone, the same name does resolve to the other agent, so the test can see a redirect.
-  assert.equal(remove.resolve('Kses8109', MAC).name, 'kshown8109', 'CONTROL: the name does not resolve without the session');
+  assert.equal(remove.resolve('Kses8109', MAC, listedOf('kshown8109')).name, 'kshown8109', 'CONTROL: the name does not resolve without the session');
 });
 
 test('#8109 a card outside the folder: a listed agent with no folder here makes a shared name ambiguous', () => {
@@ -3537,6 +3520,7 @@ test('#8113 the hidden setup guide: with the cards given, a folder the list does
   // Typing only the hidden one's display name reaches nothing when the list does not show it.
   folderAgent('konlyguide8113', 'Konlyguide 8113');
   assert.equal(remove.resolve('Konlyguide 8113', MAC, listed).name, 'Konlyguide 8113', 'a hidden folder was reached by its display name');
-  // CONTROL: without the cards (the folder scan), the same two folders are ambiguous, so the test can see the change.
-  assert.deepEqual(remove.resolve('Kguide 8113', MAC).ambiguous, ['kguide8113', 'kseen8113'], 'CONTROL: the folder scan does not see both');
+  // CONTROL: listed, the same folder makes the name ambiguous, so the test can see that leaving it out is what decides.
+  assert.deepEqual(remove.resolve('Kguide 8113', MAC, listedOf('kguide8113', 'kseen8113')).ambiguous, ['kguide8113', 'kseen8113'],
+    'CONTROL: listed, the two do not make the name ambiguous');
 });
