@@ -71,9 +71,11 @@ const SAY_TIMEOUT_MS = 8000;
 
 /* #1765: the most the helper waits for Windows to say who owns the pipe it reached, before it
    writes anything (serverOwnerOf). Measured on the Windows box: about 0.35 to 0.55 s, almost all of
-   it Windows PowerShell starting. This is its own phase, outside SAY_TIMEOUT_MS, so the
+   it Windows PowerShell starting. Review 1: 10 s, not 4, because a cold box (just after a boot, or with
+   Defender scanning while many agents start) can take several seconds to start Windows PowerShell, and a
+   check that times out refuses a message that would have been safe. This is its own phase, outside SAY_TIMEOUT_MS, so the
    conversation keeps its whole budget; say() waits this much longer for the helper on Windows. */
-const OWNER_CHECK_TIMEOUT_MS = 4000;
+const OWNER_CHECK_TIMEOUT_MS = 10000;
 
 /* The accounts a pipe Kosmos may write to can be owned by: this account (what a supervisor
    started by its logon task creates), and the two that can already read this account's channel
@@ -318,8 +320,11 @@ function serve(name, opts) {
  *
  * ⚠️ WEAKEST PART: it costs a Windows PowerShell start per message (about half a second on the box),
  * while the board waits in say(). And the helper's connection is made before the check, with the
- * default impersonation level, as before this change: a holder without SeImpersonatePrivilege (an
- * ordinary account) gets only an identification token from it.
+ * default impersonation level, as before this change. That gives a refused holder nothing: a pipe server can
+ * impersonate its client only after it has read data from it, and nothing is written to a pipe this check
+ * refused. Administrators are trusted, so ANY administrator on this PC whose objects Windows owns as
+ * Administrators passes; and a lower-integrity process of this same account passes too (owner = me), which
+ * adds nothing, as it can already read the key file.
  *
  * Resolves `{ owner, me }` (two SIDs); rejects, with a sentence, when Windows does not answer in time
  * or in a shape it can read. The pipe's name rides in the environment, never the command line.

@@ -194,6 +194,24 @@ test('#1765: with no seam, a real pipe of this account takes the message', WINDO
   assert.deepEqual(said, ['in process']);
 });
 
+/* Review 1: the source-text match above can be reformatted away; this proves by behaviour that the default
+   client really asks Windows, and that a check that cannot run sends nothing. With no seam and no Windows
+   PowerShell to start (SystemRoot pointed at an empty folder), a listener of this account gets no byte. */
+test('#1765: with no seam, the real check runs, and a check that cannot start writes nothing', WINDOWS_ONLY, async () => {
+  const sq = await recorder();
+  const empty = fs.mkdtempSync(path.join(SANDBOX, 'no-windows-'));
+  const was = process.env.SystemRoot;
+  process.env.SystemRoot = empty;
+  let r;
+  try { r = await ask('nopowershell', 'the secret plan', sq.addr, { timeoutMs: 2000 }); }
+  finally { if (was === undefined) delete process.env.SystemRoot; else process.env.SystemRoot = was; }
+  assert.equal(r.ok, false);
+  assert.ok(r.because.includes("could not confirm its channel belongs to you (Windows PowerShell is not where Windows keeps it)"), r.because);
+  assert.ok(!r.unsure, 'nothing was written, so it is a definite no');
+  await new Promise((res) => setTimeout(res, 100));
+  assert.deepEqual(sq.got, [], 'bytes reached a pipe nobody checked');
+});
+
 /** A stand-in supervisor in another process, as engine/win32channel.test.js does it, so say() can block. */
 function servingElsewhere(name, addr) {
   const script = path.join(SANDBOX, 'serve-' + name + '.js');
