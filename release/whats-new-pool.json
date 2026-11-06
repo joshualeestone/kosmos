@@ -1102,6 +1102,51 @@
       "rank": 9.5,
       "since": "0.7.92",
       "status": "pending"
+    },
+    {
+      "title": "Create agent says when no model is connected",
+      "line": "If no AI model is connected yet, Create agent now says so where you can see it, with a link to connect one, and keeps what you typed.",
+      "icon": "spark",
+      "rank": 8,
+      "since": "0.7.93",
+      "status": "pending"
+    },
+    {
+      "title": "Start a new agent without imported files",
+      "line": "When Claude Code asks a new agent whether to use files your settings import, you can now start it without them from its page.",
+      "icon": "shield",
+      "rank": 8.5,
+      "since": "0.7.93",
+      "status": "pending"
+    },
+    {
+      "title": "Windows says when crash recovery is not set up",
+      "line": "On Windows, Settings now tells you when Kosmos is set to start at sign-in but could not set itself to reopen if it closes.",
+      "icon": "shield",
+      "platforms": [
+        "windows"
+      ],
+      "rank": 15,
+      "since": "0.7.93",
+      "status": "pending"
+    },
+    {
+      "title": "Agents can restart another agent",
+      "line": "kosmos agent restart restarts another agent, the same Restart as on its page; an agent cannot restart itself this way.",
+      "icon": "list",
+      "rank": 63,
+      "since": "0.7.93",
+      "status": "pending",
+      "notesOnly": true
+    },
+    {
+      "title": "Agents can move an agent to another account",
+      "line": "kosmos agent move says what an agent would lose on another account (skills, hooks) before it moves it.",
+      "icon": "list",
+      "rank": 64,
+      "since": "0.7.93",
+      "status": "pending",
+      "notesOnly": true
     }
   ]
 }
