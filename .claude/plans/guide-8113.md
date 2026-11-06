@@ -78,3 +78,13 @@ removed (route test red); folder scan used despite cards (three engine tests red
 ## Note for the PR
 Stacked on agentname-8109. After #8109 rebase-merges, rebase this branch onto main; the proof's diff_hash is over
 origin/main...HEAD, so it must be recomputed then (the code reviewed is unchanged; only the base moves).
+
+## After convergence: a follow-up tried and reverted (round 5, opus)
+- I tried fixing round 4's first NIT by letting a removed agent's exact name win (9a2ffa7174), so the plan would say
+  "already removed". Round 5 WARNING: with a live card shown by that same name, which is the one the person copied
+  from `agent list`, that answers "already removed" about an agent they never saw, and the live one keeps running.
+  The ambiguity refusal was the fail-closed answer. REVERTED; the code is byte-identical to 276090ee2e, which
+  round 4 reviewed clean. Round 5's CONVENTION and NITs were all about the reverted lines.
+- DECIDED: round 4's first NIT stays as is. A removed agent's exact name beside a live card shown by it is refused
+  as ambiguous, naming both. Would change my mind: a way to label the removed one in the refusal that a script
+  cannot misread (a possible later polish, not a safety fix).
