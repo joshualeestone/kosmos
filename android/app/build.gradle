@@ -104,6 +104,11 @@ dependencies {
     // AndroidManifest.xml and the TwaLauncher that OpenAddressActivity uses (#2854).
     implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
 
+    // kosmos#8046 hybrid shell: the board WebView host. androidx.webkit gives the document-start script
+    // hand-over (WebViewCompat.addDocumentStartJavaScript / WebViewFeature.DOCUMENT_START_SCRIPT) that the
+    // native shell uses to carry the app's session into the page before its restore() reads localStorage.
+    implementation 'androidx.webkit:webkit:1.12.1'
+
     // Plain JVM tests for the address rule (AddressChoice has no Android types).
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'androidx.test:core:1.6.1'
