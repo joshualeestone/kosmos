@@ -186,7 +186,9 @@ test('#1765: the run folder: only this user, SYSTEM, Administrators and TrustedI
   // A deny is never counted against the folder, and a locked-down one is safe.
   const denied = sandboxFolder('run');
   lockDown(denied);
-  icacls(denied, '/deny', USERS + ':(OI)(CI)M');
+  // Write data and add folder only: a deny of Modify or W also denies reading (W carries Synchronize), and a folder
+  // this account cannot list is refused.
+  icacls(denied, '/deny', USERS + ':(OI)(CI)(WD,AD)');
   assert.equal(probe(denied, NOT_MY_PROFILE), 'SAFE');
 });
 
@@ -260,6 +262,27 @@ test('#1765: the code inside is read on its own, whatever the run folder says', 
   fs.writeFileSync(path.join(deep, 'app', 'other.js'), '');
   icacls(path.join(deep, 'app', 'other.js'), '/grant', USERS + ':(M)');
   assert.equal(probe(deep, NOT_MY_PROFILE), 'SAFE');
+  // Review 5 (v2): bin\, first on every agent's PATH, stopped inheriting and lets Users change it.
+  const bin = build();
+  fs.mkdirSync(path.join(bin, 'bin'));
+  icacls(path.join(bin, 'bin'), '/inheritance:r', '/grant:r', '*' + mySid + ':(OI)(CI)F', USERS + ':(OI)(CI)M');
+  answer = probe(bin, NOT_MY_PROFILE);
+  assert.match(answer, /^UNSAFE .+ can change /);
+  assert.ok(answer.includes(path.join(bin, 'bin')), 'the reason does not name bin: ' + answer);
+  // A file in bin\ given to Users on its own.
+  const binFile = build();
+  fs.mkdirSync(path.join(binFile, 'bin'));
+  fs.writeFileSync(path.join(binFile, 'bin', 'kosmos.ps1'), '');
+  icacls(path.join(binFile, 'bin', 'kosmos.ps1'), '/grant', USERS + ':(M)');
+  answer = probe(binFile, NOT_MY_PROFILE);
+  assert.ok(answer.includes(path.join(binFile, 'bin', 'kosmos.ps1')), 'the reason does not name the file in bin: ' + answer);
+  // A junction inside is refused, never followed.
+  const linked = build();
+  const target = sandboxFolder('elsewhere');
+  const mk = spawnSync(path.join(SYSROOT, 'System32', 'cmd.exe'), ['/d', '/c', 'mklink', '/J', path.join(linked, 'app', 'linked'), target], { encoding: 'utf8', windowsHide: true });
+  assert.equal(mk.status, 0, 'mklink /J failed: ' + mk.stdout + mk.stderr);
+  answer = probe(linked, NOT_MY_PROFILE);
+  assert.match(answer, /is a link to another place/, 'a junction inside was not refused: ' + answer);
   // Review 4 (v2): but a folder under app\ that stopped inheriting and lets Users change it is read on its own.
   const sub = build();
   const lib = path.join(sub, 'app', 'node_modules', 'lib');
@@ -385,4 +408,10 @@ test('#1765: a folder owned by anyone but the four is refused, whatever its entr
   const answer = probe(f, NOT_MY_PROFILE, someoneElse);
   assert.match(answer, /^UNSAFE .+ owns /, 'an untrusted owner was not refused as the owner: ' + answer);
   assert.ok(answer.includes(f), 'the reason does not name the folder: ' + answer);
+});
+
+test('#1765: a folder on a network share is refused before anything is read', WINDOWS_ONLY, (t) => {
+  if (!needsBuild(t)) return;
+  /* Review 5 (v2): the well-known accounts in a share's permissions are the file server's. */
+  assert.match(probe('\\\\fileserver\\apps\\Kosmos', NOT_MY_PROFILE), /^UNSAFE .+ is on another computer \(a network share\)/);
 });

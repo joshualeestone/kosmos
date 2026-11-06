@@ -418,8 +418,9 @@ class KosmosLauncher
     //   - the run folder: every allow entry counts, including ones that only reach the files and folders inside
     //     it, because that is where the code is;
     //   - the code inside it that this launcher starts, loads or points at (Kosmos.exe, runtime\, runtime\node.exe,
-    //     runtime\WebView2Loader.dll, app\, app\server.js, open-board.js), every file directly in runtime\, and
-    //     every folder under app\ and runtime\, each read on its own;
+    //     runtime\WebView2Loader.dll, app\, app\server.js, open-board.js), every folder in the run folder at any
+    //     depth (bin\ included, first on every agent's PATH), and every file directly in the run folder, runtime\
+    //     and bin\, each read on its own; a link inside, and a folder on a network share, are refused;
     //   - each folder above it, up to the drive: entries that apply to that folder itself, and only the rights
     //     that would let someone rename or replace what is below it (delete, delete children, permissions, owner).
     // CREATOR OWNER and OWNER RIGHTS stand for the owner, who is checked. A deny entry is never counted, so a deny
@@ -428,11 +429,10 @@ class KosmosLauncher
     // one of the four, so a folder IT set up with one is refused, and a copy in the profile is the way round it.
     // WHY THOSE ARE READ ON THEIR OWN (review 4, v2): the run folder's word covers only what inherits from it. An item
     // that stopped inheriting, or carries entries of its own, is not covered by it, so the entry points, everything
-    // beside node.exe (which loads DLLs from its own folder first) and every folder of code are read for their own
+    // beside node.exe (which loads DLLs from its own folder first) or in bin\, and every folder are read for their own
     // entries and owner. A folder is read, not each file in it: a file inside inherits from its folder, and a file
     // with entries of its own already means somebody changed the folder, which this check does not claim to catch
-    // (above). The shipped build has five folders under app\ and four files in runtime\, so this stays a few
-    // milliseconds.
+    // (above). The shipped build has a handful of folders and files to read, so this stays a few milliseconds.
     // ⚠️ WEAKEST PART: below those, a file inside a folder is taken at the folder's word. A folder inside the profile is trusted by where it is, not
     // read, as the profile is this person's; a junction from the profile to somewhere else is taken at its
     // profile path, and a junction outside the profile is read at its target, without the folders above the
@@ -495,12 +495,29 @@ class KosmosLauncher
 
     // Null when Kosmos may run from this folder; otherwise what makes it unsafe, in one line for support
     // (the person reads RefuseUnsafeFolder's words, not this).
+    // A folder path as one Path.Combine can join onto: a bare drive ("C:") gets its separator.
+    static string AsDirectoryPath(string folder)
+    {
+        return folder.EndsWith(":") ? folder + "\\" : folder;
+    }
+
+    // A UNC path or a mapped network drive.
+    internal static bool IsOnAnotherComputer(string full)
+    {
+        if (full.StartsWith("\\\\")) return true;
+        try { return new DriveInfo(Path.GetPathRoot(full)).DriveType == DriveType.Network; }
+        catch { return true; }
+    }
+
     internal static string UnsafeRunFolderReason(string here)
     {
         string full = FullPathOrNull(here);
         if (full == null) return "the folder's path could not be read";
         string profile = FullPathOrNull(userProfileFolder());
         if (profile != null && IsSameOrInside(full, profile)) return null;
+        // Review 5 (v2): on a network share the well-known accounts in its permissions (Administrators, SYSTEM) are the
+        // file server's, not this computer's, and the share's own permissions cannot be read from here.
+        if (IsOnAnotherComputer(full)) return full + " is on another computer (a network share), whose accounts this computer cannot vouch for";
         System.Security.Principal.SecurityIdentifier me;
         try { me = currentUser(); }
         catch (Exception e) { return "this account could not be read (" + e.Message + ")"; }
@@ -508,36 +525,48 @@ class KosmosLauncher
         string folder = full.TrimEnd('\\', '/');
         string problem = OtherWriterOf(folder, me, AclScope.RunFolder);
         if (problem != null) return problem;
+        string root = AsDirectoryPath(folder);
         foreach (string entry in RunFolderCode)
         {
-            string item = Path.Combine(folder.EndsWith(":") ? folder + "\\" : folder, entry);
+            string item = Path.Combine(root, entry);
             // A missing one is not this check's to report: the checks after it say what is missing.
             if (!File.Exists(item) && !Directory.Exists(item)) continue;
             problem = OtherWriterOf(item, me, AclScope.Code);
             if (problem != null) return problem;
         }
-        string runtimeFolder = Path.Combine(folder.EndsWith(":") ? folder + "\\" : folder, "runtime");
-        if (Directory.Exists(runtimeFolder))
+        // Review 5 (v2): EVERY folder in the run folder, at any depth, read for its own entries and owner, not a list
+        // of the ones known today: bin\ is first on every agent's PATH (engine/win32launch.js), app\ and runtime\
+        // hold the code, and .kosmos-update\ stages the next build. A folder that stopped inheriting is not covered
+        // by its parent's word. A link inside (a junction or symlink) is not a shipped shape and could send the walk
+        // anywhere, so it is refused, never followed.
+        Stack<string> pending = new Stack<string>();
+        pending.Push(root);
+        while (pending.Count > 0)
         {
-            string[] beside;
-            try { beside = Directory.GetFiles(runtimeFolder); }
-            catch (Exception e) { return "what is in " + runtimeFolder + " could not be read (" + e.Message + ")"; }
-            foreach (string item in beside)
+            string dir = pending.Pop();
+            string[] subs;
+            try { subs = Directory.GetDirectories(dir); }
+            catch (Exception e) { return "what is in " + dir + " could not be read (" + e.Message + ")"; }
+            foreach (string sub in subs)
             {
-                problem = OtherWriterOf(item, me, AclScope.Code);
+                FileAttributes attributes;
+                try { attributes = File.GetAttributes(sub); }
+                catch (Exception e) { return "what " + sub + " is could not be read (" + e.Message + ")"; }
+                if ((attributes & FileAttributes.ReparsePoint) != 0) return sub + " is a link to another place, which a Kosmos folder never has";
+                problem = OtherWriterOf(sub, me, AclScope.Code);
                 if (problem != null) return problem;
+                pending.Push(sub);
             }
         }
-        // Review 4 (v2): every folder under app\ and runtime\, read for its own entries and owner (a folder that
-        // stopped inheriting is not covered by its parent's word).
-        foreach (string top in new[] { "app", "runtime" })
+        // And every file directly in the run folder, in runtime\ (node.exe loads DLLs from its own folder first) and
+        // in bin\ (searched before the rest of an agent's PATH), read on its own.
+        foreach (string place in new[] { root, Path.Combine(root, "runtime"), Path.Combine(root, "bin") })
         {
-            string root = Path.Combine(folder.EndsWith(":") ? folder + "\\" : folder, top);
-            if (!Directory.Exists(root)) continue;
-            string[] below;
-            try { below = Directory.GetDirectories(root, "*", SearchOption.AllDirectories); }
-            catch (Exception e) { return "what is in " + root + " could not be read (" + e.Message + ")"; }
-            foreach (string item in below)
+            if (!Directory.Exists(place)) continue;
+            string[] files;
+            try { files = Directory.GetFiles(place); }
+            catch (Exception e) { return "what is in " + place + " could not be read (" + e.Message + ")"; }
+            foreach (string item in files)
             {
                 problem = OtherWriterOf(item, me, AclScope.Code);
                 if (problem != null) return problem;
