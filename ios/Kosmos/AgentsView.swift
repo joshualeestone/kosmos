@@ -478,7 +478,7 @@ struct BoardStates<Empty: View>: View {
             VStack(spacing: 12) {
                 message("Allow this iPhone on \(mac).",
                         detail: code.map { "Your Mac is showing a code. Check it matches: \($0)" } ?? "Your Mac is asking whether to let this iPhone in.")
-                SweepDots(label: "Waiting for your Mac", scales: false, stillWhenReduced: true)
+                SweepDots(label: "Waiting for your Mac", scales: false, framesPerSecond: 15, stillWhenReduced: true)
             }
             .accessibilityElement(children: .combine)
             // The code is spelled out character by character, as the gate page reads it.

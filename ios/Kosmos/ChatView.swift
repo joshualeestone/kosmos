@@ -914,7 +914,7 @@ struct ChatView: View {
                     Text(Shell.macUnreachableTitle(client.failingMacName)).font(.headline).foregroundColor(Palette.primary)
                     WayThroughRow(text: Text("Open this chat on your computer's board \u{203A}"), action: openOnBoard)
                 } else {
-                    SweepDots(scales: false, stillWhenReduced: true)
+                    SweepDots(scales: false, framesPerSecond: 15, stillWhenReduced: true)
                     Text("Loading the conversation\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
                 }
                 Spacer()

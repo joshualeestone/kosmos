@@ -7,18 +7,20 @@ every wait, full-screen ones included, overriding the earlier rule that whole-sc
 ## Change
 
 - Every `KosmosOrb` in the app (30 sites across 13 screens) becomes `SweepDots`, with the same colour and the orb's
-  fixed size (`scales: false`, so nothing grows in toolbars or buttons at large text sizes), and still under Reduce
-  Motion as the orb was (`stillWhenReduced: true`).
+  fixed size (`scales: false`, so nothing grows in toolbars or buttons at large text sizes), still under Reduce
+  Motion and at 15 frames a second, as the orb was (`stillWhenReduced: true`, `framesPerSecond: 15`). The app no
+  longer warms the orb's geometry at launch.
   VoiceOver unchanged: the orb said "Loading" unless hidden, so an unlabelled orb becomes `SweepDots(label: "Loading")`
   and a hidden one plain `SweepDots()` (hidden by default); a labelled one keeps its label.
 - The system's own spinner remains in one place: pull to refresh (10 `.refreshable` lists and the board page's
-  `UIRefreshControl`). Dots there need pull to refresh rebuilt; follow-up card, said on #8058.
+  `UIRefreshControl`). Dots there need pull to refresh rebuilt: #8078 (Renet Tilley).
 - Guard in the sweep suite, subfolders included: no app source (ios/Kosmos, ios/KosmosNotice) may contain
-  `KosmosOrb(`, `ProgressView(` or `UIActivityIndicatorView`, and pull to refresh is pinned at its 11 places so none
+  `KosmosOrb(`, `ProgressView`, `.progressViewStyle` or `UIActivityIndicatorView`, and pull to refresh is pinned at its 11 places so none
   is added. KosmosOrb.swift is unused and excluded; it can be deleted with its project entry.
 - Doc comments in SweepDots and KosmosOrb say so.
 
-Not in scope, said on the card: the board's own web pages shown inside the app (their spinner is the web's, #7896).
+Kept on purpose: the three-dot wave on working lines and the Agents pill shows an agent working, not a wait (Josh
+asked for it, #7427). Not in scope, said on the card: the board's own web pages shown inside the app (their spinner is the web's, #7896).
 
 ## Checks
 
