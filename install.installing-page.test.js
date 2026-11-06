@@ -67,20 +67,29 @@ test('KORB is ported verbatim, and the K loader is gone', () => {
   assert.match(mine, /classList\.contains\('orb-still'\)/, 'KORB lost its still state, which settle() uses');
   assert.ok(mine.startsWith('const KORB = (() => {\n  const WORD = [[[-54.9,-65.3],[-47.2,-66.0],[-39.1,-64.6],[-30.8,-65.8],'),
     'the WORD dot data does not open as the source does');
-  assert.ok(mine.length > 25000, 'KORB is ' + mine.length + ' bytes, too short to be the whole source (about 28 KB)');
+  assert.ok(mine.length > 35000, 'KORB is ' + mine.length + ' bytes, too short to be the whole source (about 38 KB)');
   // The K loader is removed from the code, not merely unused.
   assert.doesNotMatch(CODE, /startKLoader|K_LOAD|CHECK_LOAD/, 'the ported K loader is still in the code');
   assert.doesNotMatch(HTML, /<canvas class="mark"/, 'the K loader canvas is still in the markup');
 });
 
-test('KORB here is byte for byte the app\'s KORB', (t) => {
+test('KORB here is byte for byte the app\'s KORB', () => {
   const app = korbBody(APP);
   assert.ok(app, 'web/index.html has no KORB to compare with');
-  // This page's copy is the #7896 whole-screen-waits KORB (it finds .orb-wait and has the orb-still state that
-  // settle() sets). Until that app branch lands, web/index.html carries the earlier KORB without them, so this
-  // shows as SKIPPED, never as passed; from then on the two must match byte for byte.
-  if (!/classList\.contains\('orb-still'\)/.test(app)) { t.skip('web/index.html still has the pre-#7896 KORB (no orb-still): the app branch has not landed'); return; }
+  // Always compared (the app's #7896 KORB has landed): a change to either copy alone fails here, never skips.
   assert.equal(korbBody(HTML), app, 'installing.html\'s KORB differs from web/index.html\'s: copy the app\'s KORB here again, whole');
+});
+
+test('neither ending turns the orb into a check, and KORB runs in its own script', () => {
+  // #867's rule, kept from the K loader's days: the page never reaches a clean finish. "Kosmos is ready" hands over to
+  // the board, and "taken" means something else answered; a check would claim a success this page did not see.
+  assert.doesNotMatch(CODE.slice(CODE.indexOf('(function(){')), /KORB\.finish\(/, 'the page turns the orb into a check on an ending');
+  // KORB in a <script> of its own, closed before the page's ES5 script opens: an engine that cannot run KORB keeps the
+  // polling, the bar and the endings (the dots show instead of the orb).
+  const korbAt = HTML.indexOf('const KORB = (() => {'), pageAt = HTML.indexOf('(function(){');
+  assert.ok(korbAt > 0 && pageAt > 0, 'KORB or the page script is missing');
+  const between = HTML.slice(korbAt, pageAt);
+  assert.match(between, /<\/script>[\s\S]*<script>/, 'KORB shares the page\'s script: a KORB error would stop the install page');
 });
 
 test('settling holds the orb still, and freezes the bar in place, instead of hiding either', () => {
