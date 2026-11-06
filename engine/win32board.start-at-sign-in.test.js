@@ -158,8 +158,15 @@ function withWatchdogState(state, watchdog) {
       base.calls.push(args.join(' '));
       fn.createTimeoutMs = opt && opt.timeoutMs;   // review 3: the /Create's own timeout
       fn.xml = fs.readFileSync(args[5]).toString('utf16le');
-      if (watchdog === 'create-refused') return { ok: false, out: 'ERROR: Access is denied.\r\nmore lines' };   // kosmos#7504
-      if (watchdog === 'create-silent') return { ok: false, out: '' };   // kosmos#7504
+      /* kosmos#7504: the shapes win32board.run returns on Windows. schtasks says why on stderr; `out` is then Node's
+         "Command failed: ..." message, which names the temp file under the person's own folder. */
+      const failed = 'Command failed: schtasks.exe /Create /F /TN Kosmos\\board-watchdog /XML C:\\Users\\person\\AppData\\Local\\Temp\\kosmos-board-watchdog-task-1-2.xml';
+      if (watchdog === 'create-refused') return { ok: false, out: failed, stderr: 'ERROR: Access is denied.\r\n', code: 1 };
+      if (watchdog === 'create-refused-in-message') return { ok: false, out: failed + '\r\nERROR: Access is denied.\r\n', code: 1 };
+      if (watchdog === 'create-error-path') return { ok: false, out: failed, stderr: 'ERROR: Cannot read C:\\Users\\person\\x.xml\r\n', code: 1 };
+      if (watchdog === 'create-timeout') return { ok: false, out: 'spawnSync schtasks.exe ETIMEDOUT', timedOut: true };
+      if (watchdog === 'create-missing') return { ok: false, out: 'spawnSync schtasks.exe ENOENT' };
+      if (watchdog === 'create-silent') return { ok: false, out: '' };
       return { ok: true, out: 'SUCCESS' };
     }
     return base(args);
@@ -290,17 +297,33 @@ test('#7498 review 3: a request that already spent its two timeouts on the board
   assert.equal(r.watchdog.kind, 'no-time', 'kosmos#7504: the kind Settings words this by');
 });
 
-/* kosmos#7504: a /Create Windows refused carries kind 'refused' and Windows' own first line without "ERROR:", so
-   Settings can word it itself; one that said nothing has an empty detail. */
-test('kosmos#7504: a watchdog /Create Windows refused answers kind refused, with Windows\' words as the detail', () => {
-  withWatchdogState({ registered: true, enabled: false }, 'create-refused');
+/* kosmos#7504: a /Create Windows refused carries kind 'refused' and only the ERROR: line schtasks wrote, so Settings
+   can word it itself. Node's "Command failed: ..." line (a command and the person's own folder) is never the detail. */
+function watchdogFor(state) {
+  withWatchdogState({ registered: true, enabled: false }, state);
   const r = board.setStartAtSignIn(true, BUNDLE);
   assert.equal(r.ok, true, 'the switch itself still worked: ' + JSON.stringify(r));
-  assert.equal(r.watchdog.ok, false);
-  assert.equal(r.watchdog.kind, 'refused');
-  assert.equal(r.watchdog.detail, 'Access is denied.');
-  assert.match(r.watchdog.because, /could not register the job that restarts the board if it stops \(ERROR: Access is denied\.\)/, 'the engine sentence changed');
-  withWatchdogState({ registered: true, enabled: false }, 'create-silent');
-  const q = board.setStartAtSignIn(true, BUNDLE);
-  assert.deepEqual([q.watchdog.kind, q.watchdog.detail], ['refused', ''], JSON.stringify(q));
+  assert.equal(r.watchdog.ok, false, JSON.stringify(r));
+  return r.watchdog;
+}
+test('kosmos#7504: Windows refused on stderr: kind refused, detail is its words only, never the command or a path', () => {
+  const w = watchdogFor('create-refused');
+  assert.deepEqual([w.kind, w.detail], ['refused', 'Access is denied.']);
+  assert.match(w.because, /could not register the job that restarts the board if it stops/, 'the engine sentence changed');
+  const m = watchdogFor('create-refused-in-message');
+  assert.deepEqual([m.kind, m.detail], ['refused', 'Access is denied.'], 'the ERROR: line inside Node\'s message was not found');
+});
+
+test('kosmos#7504: an ERROR: line that names a path is refused with no detail; the person\'s folder never reaches the page', () => {
+  const w = watchdogFor('create-error-path');
+  assert.deepEqual([w.kind, w.detail], ['refused', '']);
+});
+
+test('kosmos#7504: a /Create that timed out is no-time; one with no ERROR: line (schtasks missing, nothing said) is other', () => {
+  assert.equal(watchdogFor('create-timeout').kind, 'no-time');
+  for (const state of ['create-missing', 'create-silent']) {
+    const w = watchdogFor(state);
+    assert.equal(w.kind, 'other', state);
+    assert.equal('detail' in w, false, state + ' carried a detail');
+  }
 });
