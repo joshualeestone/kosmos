@@ -10,12 +10,12 @@ Rejected: counting "blank, not yet acting" lines (those can be an instant); a sc
 
 A showing: from the chat appearing or coming back to the front until it closes or goes to the background. So one long chat can count twice. Rate is per showing, not per person.
 
-Blank here means a rebuild happened or the list had no rows for 3 s when it closed. A blank that recovers by itself with no rebuild is not counted.
+Blank here means a rebuild happened or the list had no rows for 3 s when it closed. So the number is a floor: see engine/chatopens.js for what it misses. Past-the-end put-backs are not counted on purpose: the simulator does one on every box shrink with rows drawn, so they would swamp it.
 
 Not widened: GET stays behind the board's token like /api/phone/chat-shifts rather than joining AGENT_TOKEN_ROUTES; the file is readable on this Mac, and nothing here justifies more reach.
 
 Known under-counts: a chat torn down under its info page, a background entered from the info page, and a killed app send nothing. A count that loses a few showings is fine for a rate; a false blank is not.
 
-Weakest premise: rows-gone timing at close. Tested in logic only; the real order of SwiftUI's row and chat disappear events on a phone is unseen.
+Weakest premise: rows-gone timing at close, and the whole path from phone to board. Tested in logic and by source checks only; nothing has run it end to end on a phone.
 
 Needs a board release to receive; an older board answers 404 and the phone ignores it. Needs a TestFlight to send.
