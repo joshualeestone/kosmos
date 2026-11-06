@@ -42,26 +42,34 @@ has() { case "$1" in *"$2"*) return 0;; *) return 1;; esac; }
 # port appears) and cap 4 (past that a stuck server is a real hang, not load).
 . "$HERE/lib/test-time-scale.sh"
 if [ -n "${KOSMOS_TEST_TIME_SCALE:-}" ]; then PORT_WAIT_SCALE="$KOSMOS_TEST_TIME_SCALE"; else PORT_WAIT_SCALE=$(kosmos_test_time_scale); fi
-# Effective scale, clamped to the lib's [1,4] guardrails so the budget and the diagnostic
-# below agree even on an out-of-range env value (the lib's own output is already in range).
-PORT_WAIT_SCALE_EFF=$(LC_ALL=C awk -v s="$PORT_WAIT_SCALE" 'BEGIN{ s=s+0; if(s<1)s=1; if(s>4)s=4; printf "%.2f", s }')
-# base 15s at a 0.25s step = 60 polls, scaled -> 15s at scale 1, 60s at the cap. The base is
-# 15 (not 20) so the THREE sequential waits (setup, ARM 4 flip, final control) sum to at most
-# 3*60s = 180s even at the cap, comfortably under the node wrapper's 230s spawn timeout
+# Effective scale, clamped to the lib's [1,4] guardrails so the budget and the diagnostic below
+# agree even on an out-of-range env value (the lib's own output is already in range; run-tests.sh
+# exports [1,4]). A non-decimal string (nan, inf, empty, garbage) falls to the floor BEFORE any
+# numeric compare: on BSD awk "nan"+0 is NaN and NaN<1 / NaN>4 are both false, so a numeric-only
+# clamp would pass nan straight through (and 15*nan prints 0, an instant-give-up budget). The
+# regex gate is total and awk-NaN-independent; the lib and run-tests.sh always emit a clean %.2f.
+PORT_WAIT_SCALE_EFF=$(LC_ALL=C awk -v s="$PORT_WAIT_SCALE" 'BEGIN{ if (s !~ /^[+-]?[0-9]+(\.[0-9]+)?$/) { print "1.00"; exit } s=s+0; if(s<1)s=1; if(s>4)s=4; printf "%.2f", s }')
+# base 15s, scaled -> 15s at scale 1, 60s at the cap. The wait below gives up after this many
+# ELAPSED WALL-CLOCK seconds (bash $SECONDS), NOT after a fixed poll count: under load each
+# sleep/sed also stretches, so a poll count understates the real give-up time -- a seconds
+# deadline is what makes the bound a true CEILING. The base is 15 (not 20) so the THREE
+# sequential waits (setup, ARM 4 flip, final control) give up after at most 3*60s = 180s even at
+# the cap, comfortably under the node wrapper's 230s spawn timeout
 # (tools.pkg-checksum-home-6507.test.js) -- a slow-but-succeeding box still reports a clean
 # per-arm result rather than a SIGKILL. 15s is still 3x the old 5s, well above the observed
 # 5-20s loaded bind the flake is about.
-PORT_WAIT_TRIES=$(LC_ALL=C awk -v s="$PORT_WAIT_SCALE_EFF" 'BEGIN{ t=60*(s+0); printf "%d", (t<1?1:t) }')
-# wait_for_port <logfile>: poll the server log until it prints "port NNNNN"; echo the
-# port and return 0, or return 1 after the scaled budget. Breaks the instant the port
-# appears, so a generous ceiling only governs how long we wait before a real failure.
+PORT_WAIT_SECS=$(LC_ALL=C awk -v s="$PORT_WAIT_SCALE_EFF" 'BEGIN{ t=15*(s+0); printf "%d", (t<1?1:t) }')
+# wait_for_port <logfile>: poll the server log until it prints "port NNNNN"; echo the port and
+# return 0, or return 1 after PORT_WAIT_SECS of WALL-CLOCK time. Bounding by $SECONDS (bash's
+# real-time counter, bash 3.2 safe) rather than a poll count means a loaded box that stretches
+# each sleep cannot push the give-up time past the budget. Breaks the instant the port appears,
+# so the ceiling only governs how long we wait before a real failure.
 wait_for_port() {
-  local _log="$1" _port="" _i=0
-  while [ "$_i" -lt "$PORT_WAIT_TRIES" ]; do
+  local _log="$1" _port="" _deadline=$(( SECONDS + PORT_WAIT_SECS ))
+  while [ "$SECONDS" -lt "$_deadline" ]; do
     _port=$(sed -n 's/.*port \([0-9][0-9]*\).*/\1/p' "$_log" 2>/dev/null | head -1)
     [ -n "$_port" ] && { printf '%s\n' "$_port"; return 0; }
     sleep 0.25
-    _i=$((_i+1))
   done
   return 1
 }
@@ -97,7 +105,7 @@ cd "$REPO" || exit 1
 # buffers the port line and this poll times out on an empty file; without -b it
 # binds :: and the IPv4 URL below cannot reach it.
 if ! PORT=$(wait_for_port "$T/srv.log"); then
-  echo "FAIL  local origin did not start within ${PORT_WAIT_TRIES} polls (time scale ${PORT_WAIT_SCALE_EFF}): $(cat "$T/srv.log" 2>/dev/null)"; exit 1
+  echo "FAIL  local origin did not start within ${PORT_WAIT_SECS}s (time scale ${PORT_WAIT_SCALE_EFF}): $(cat "$T/srv.log" 2>/dev/null)"; exit 1
 fi
 pass "local origin listening on $PORT"
 URL="http://127.0.0.1:$PORT/setup"
@@ -296,7 +304,7 @@ open(LOG,"w").write("port %d\n" % srv.server_address[1])
 srv.serve_forever()
 PY
 SRV=$!
-if ! FPORT=$(wait_for_port "$FLIPLOG"); then FPORT=""; fail "ARM 4 flip-origin did not start within ${PORT_WAIT_TRIES} polls (time scale ${PORT_WAIT_SCALE_EFF}): $(cat "$FLIPLOG" 2>/dev/null)"; else
+if ! FPORT=$(wait_for_port "$FLIPLOG"); then FPORT=""; fail "ARM 4 flip-origin did not start within ${PORT_WAIT_SECS}s (time scale ${PORT_WAIT_SCALE_EFF}): $(cat "$FLIPLOG" 2>/dev/null)"; else
   rm -f "$T/RAN" "$T/DIR"
   out=$(/bin/sh -c "$(cat "$INNER")" "http://127.0.0.1:$FPORT/setup" 0 2>&1); rc=$?
   if [ "$rc" -eq 0 ] && [ -f "$T/RAN" ]; then pass "a TRANSIENT mismatch that then matches RECOVERS and runs (retry works)"
@@ -326,7 +334,7 @@ cd "$WWW" || exit 1
 SRV=$!
 cd "$REPO" || exit 1
 if ! PORT=$(wait_for_port "$T/srv.log"); then
-  fail "CONTROL: the local origin did not start within ${PORT_WAIT_TRIES} polls (time scale ${PORT_WAIT_SCALE_EFF}), so the run-vs-refusal control could not run: $(cat "$T/srv.log" 2>/dev/null)"
+  fail "CONTROL: the local origin did not start within ${PORT_WAIT_SECS}s (time scale ${PORT_WAIT_SCALE_EFF}), so the run-vs-refusal control could not run: $(cat "$T/srv.log" 2>/dev/null)"
 else
   URL="http://127.0.0.1:$PORT/setup"
   rm -f "$T/RAN"; printf '%s  setup\n' "$GOOD" > "$WWW/setup.sha256"

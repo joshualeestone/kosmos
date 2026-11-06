@@ -31,11 +31,14 @@ established #5727 mechanism:
   `run-tests.sh` (propagated into the node→bash child via `spawnSync({...process.env})`), else
   compute it live from the box. **floor 1** (a quiet box's SUCCESS path is unchanged — the poll
   breaks the instant the port appears) and **cap 4** (past that a stuck server is a real hang).
-- Base **15 s** at the 0.25 s step = 60 polls, scaled → 15 s at scale 1, 60 s at cap 4. Because each
-  poll breaks the moment the port appears, a generous ceiling costs the happy path nothing; it only
-  governs how long we wait before declaring a real failure. (Baron suggested 20 s; 15 s keeps the
-  three sequential waits provably under the spawn timeout — see the ceiling bound below — and is
-  still 3× the old 5 s, well above the observed 5–20 s loaded bind.)
+- Base **15 s**, scaled → 15 s at scale 1, 60 s at cap 4. The wait gives up after that many
+  **elapsed wall-clock seconds** (bash `$SECONDS`), not after a fixed poll count: under load each
+  `sleep`/`sed` also stretches, so a poll count understates the real give-up time — a seconds
+  deadline is what makes the bound a true ceiling. Because the poll breaks the moment the port
+  appears, the ceiling costs the happy path nothing; it only governs how long we wait before
+  declaring a real failure. (Baron suggested 20 s; 15 s keeps the three sequential waits provably
+  under the spawn timeout — see the ceiling bound below — and is still 3× the old 5 s, well above
+  the observed 5–20 s loaded bind.)
 - Consolidate the three identical loops into one `wait_for_port <log>` helper with honest
   diagnostics (names the budget + scale + server log on timeout).
 - **Guard empty PORT in the final control:** a startup timeout now fails with
@@ -46,18 +49,19 @@ established #5727 mechanism:
 - **Happy path unchanged:** the loops break on the first poll that sees the port, so on any box
   that starts a server the runtime is identical (measured: 3.6 s standalone, 3.3 s at forced
   scale 4 — same). The scale only raises the give-up ceiling.
-- **floor 1** means the budget is never shorter than before (it is *longer*: 5 s → 20 s base),
+- **floor 1** means the budget is never shorter than before (it is *longer*: 5 s → 15 s base),
   so the change can only convert a false-fail into a pass, never a pass into a fail.
 - Scaling a liveness ceiling never lowers an assertion or touches a stub's stimulus delay
   (the `KOSMOS_PKG_RETRY_SLEEP=0`/`RETRY_MAX` knobs, the flip server's first-hit-bad logic, the
   checksum arms) — all untouched.
 - **Ceiling bound vs the harness timeout:** the node test is `timeout: 240000`, spawn
-  `timeout: 230000`. Two paths to bound. (1) All-fail: the setup loop exits the whole script on
-  timeout (`exit 1`), so the three loops never stack. (2) Success-but-slow (the path the iter-1
-  review flagged): three near-cap *successful* waits sum to at most 3 × 60 s = **180 s**, which with
-  the fast arm work in between stays under the 230 s spawn timeout — so even a pathologically slow
-  box reports a clean per-arm result, never a SIGKILL. This is why the base is 15 s, not 20 s:
-  20 s × cap 4 × 3 = 240 s would have crossed the spawn timeout.
+  `timeout: 230000`. Because each wait gives up on an elapsed-seconds deadline (`$SECONDS`), not a
+  poll count, 3 × 60 s = **180 s** is a *true* upper bound on total give-up time at the cap (a poll
+  count would not bound wall-clock under load — the iter-2 finding). With the fast arm work in
+  between that stays under the 230 s spawn timeout, so even a pathologically slow box reports a
+  clean per-arm result, never a SIGKILL. This is why the base is 15 s, not 20 s: 20 s × cap 4 × 3 =
+  240 s would have crossed the spawn timeout. (All-fail is also bounded the other way: the setup
+  loop exits the whole script on timeout, so the three never stack.)
 
 ## Weakest part (named)
 The port-wait timeout path (helper returns 1) is **not exercised on a quiet box** — on this
@@ -70,8 +74,9 @@ the scaling at scale 1 and 4.
 
 ## Validation done before PR
 - `bash -n` clean.
-- Scale→tries (base 60 polls): 1→60 (15 s), 1.38→82 (20.6 s), 2→120 (30 s), 4→240 (60 s);
-  empty/`abc`→60 (floor); 9→240 (cap). Never below the old 5 s; 3×cap = 180 s < 230 s spawn timeout.
+- Scale→seconds (base 15 s, elapsed-wall-clock deadline): 1→15 s, 1.38→20 s, 2→30 s, 4→60 s;
+  empty/`abc`/`nan`→15 s (floor); 9/`inf`→60 s (cap). Never below the old 5 s; 3×cap = 180 s < 230 s
+  spawn timeout (a true upper bound, since the deadline is wall-clock not poll count).
 - Helper: breaks immediately on a real port line; returns 1 after budget on an empty log.
 - Masking fix proven by unit: empty port → "did not start … could not run" + log.
 - Node test green: standalone 3.6 s, forced `KOSMOS_TEST_TIME_SCALE=4` 3.3 s (outcome identical),
