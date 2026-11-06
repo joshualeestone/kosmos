@@ -50,8 +50,8 @@ const VENDORS = Object.freeze({
     checkUrl: 'https://api.z.ai/api/coding/paas/v4/models',
     models: Object.freeze(['glm-5.3', 'glm-5.3-flash']),
     keyPage: 'https://z.ai/manage-apikey/apikey-list',
-    /* 2a review 5: not offerable until the page knows it (slice 2b), whatever its switch says. 2b deletes this line. */
-    pageReady: false,
+    /* 2b: the page knows it now (its key form, menus, setup row and words), so 2a's pageReady hold and its test-only
+       override are gone: GLM is offered exactly when its own switch (compat-glm-on) is. */
   }),
 });
 
@@ -74,16 +74,6 @@ function vendorOf(id) {
  * restart.
  */
 const ON_MARKER = 'compat-providers-on';   // DeepSeek's switch alone since slice 2a (markerFor); its name is kept, so no board moves
-/* A row with pageReady: false (GLM until slice 2b) is never on: the page would file its account under Claude. Only a
-   test lifts that: it names the vendor in AGENT_WORKFORCE_TEST_COMPAT_READY, AND runs under node's test runner
-   (NODE_TEST_CONTEXT, which node --test sets and a launchd job does not), so one stray export alone cannot. */
-function pageReady(id) {
-  const v = vendorOf(id);
-  if (!v) return false;
-  if (v.pageReady !== false) return true;
-  if (!process.env.NODE_TEST_CONTEXT) return false;
-  return String(process.env.AGENT_WORKFORCE_TEST_COMPAT_READY || '').split(',').map((x) => x.trim()).includes(id);
-}
 /* #7206 slice 2a review 1: one switch per vendor, so measuring one vendor and switching it on never turns on another
    that nobody has measured. DeepSeek keeps the original marker; every later row has its own, compat-<id>-on. */
 function markerFor(id) { return id === 'deepseek' ? ON_MARKER : 'compat-' + id + '-on'; }
@@ -96,7 +86,7 @@ function enabled(platform = process.platform, vendor) {
   /* 2a review 4: "any vendor" is asked by leaving the vendor out entirely. A vendor slot passed but empty (a caller whose
      vendor came back undefined) is off, never "any": a missing vendor must fail closed. */
   if (arguments.length >= 2 && vendor === undefined) return false;
-  const ids = (vendor === undefined ? Object.keys(VENDORS) : (vendorOf(vendor) ? [vendor] : [])).filter(pageReady);
+  const ids = vendor === undefined ? Object.keys(VENDORS) : (vendorOf(vendor) ? [vendor] : []);
   /* 1b review 3: the marker is the ONLY on-state. An environment variable reached the board but never an agent's launchd
      job (its plist carries a fixed environment), so an agent made with it on could not start. The marker is read by
      both, from the data folder. An unreadable data folder leaves it off: off is the default. */

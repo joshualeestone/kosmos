@@ -18,7 +18,6 @@ const { execFileSync } = require('node:child_process');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-compat-7206-'));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 const compat = require('./anthropiccompat');
-process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = 'glm';   // 2a review 5: the arms that turn GLM on name it; the readiness test below removes it
 
 test.after(() => { compat.setFetcher(null); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
@@ -332,19 +331,16 @@ test('#7206 2a review 1: each vendor has its own switch; none means any; an unkn
   } finally { sw.set(false); sw.setVendor('glm', false); }
 });
 
-test('#7206 2a review 5: GLM is never on before slice 2b, whatever its switch says; only a test that names it lifts that', () => {
+test('#7206 2b: GLM is on exactly when its own switch is, with no other condition (the 2a page hold is gone)', () => {
   const sw = require('../test-support/compat-switch');
-  const saved = process.env.AGENT_WORKFORCE_TEST_COMPAT_READY;
+  assert.equal(compat.enabled('darwin', 'glm'), false, 'GLM is on with its switch off');
   sw.setVendor('glm', true);
   try {
-    delete process.env.AGENT_WORKFORCE_TEST_COMPAT_READY;
-    assert.equal(compat.enabled('darwin', 'glm'), false, 'GLM came on before the page knows it');
-    assert.equal(compat.anyEnabled('darwin'), false, 'GLM\'s switch alone made "any vendor" true');
-    process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = 'glm';
-    assert.equal(compat.enabled('darwin', 'glm'), true, 'CONTROL: named as ready, its switch turns it on');
-    /* Review 6: naming it without the test runner's mark does nothing (as a board or a shell would). */
-    const ntc = process.env.NODE_TEST_CONTEXT; delete process.env.NODE_TEST_CONTEXT;
-    try { assert.equal(compat.enabled('darwin', 'glm'), false, 'the readiness override worked outside node --test'); }
-    finally { if (ntc !== undefined) process.env.NODE_TEST_CONTEXT = ntc; }
-  } finally { sw.setVendor('glm', false); if (saved === undefined) delete process.env.AGENT_WORKFORCE_TEST_COMPAT_READY; else process.env.AGENT_WORKFORCE_TEST_COMPAT_READY = saved; }
+    assert.equal(compat.enabled('darwin', 'glm'), true, 'GLM\'s own switch did not turn it on');
+    assert.equal(compat.anyEnabled('darwin'), true, 'GLM\'s switch alone is not "any vendor"');
+    assert.equal(compat.enabled('darwin', 'deepseek'), false, 'GLM\'s switch turned DeepSeek on');
+    assert.equal(compat.enabled('win32', 'glm'), false, 'GLM is on off a Mac');
+    assert.equal('pageReady' in compat.VENDORS.glm, false, 'the GLM row still carries a page hold');
+  } finally { sw.setVendor('glm', false); }
+  assert.equal(compat.enabled('darwin', 'glm'), false, 'CONTROL: GLM stayed on after its switch went off');
 });

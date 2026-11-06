@@ -411,6 +411,7 @@ const SITE_COUNTS = {
   'render-gated-next.js': [1, 1],
   'render-gemini-logo-3422.js': [1, 1],
   'render-github-door.js': [1, 1],
+  'render-glm-add-7206.js': [2, 2],
   'render-grid-card-width.js': [0, 1],
   'render-grok-subscription-3391.js': [1, 1],
   'render-gutter-return-4506.js': [2, 0],
