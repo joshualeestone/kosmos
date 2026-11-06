@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: keptline-8051
-diff_hash: e8fffd144822a77e1375851d367aa820518e022de35ef64e493203086970e3b4
+diff_hash: 846f1d40c734c02d7b0f856f315e5198b9fe31d1f903c02a30211eaeb4997f31
 validation: full suite on 62598eb83b (the reviewed code) 27482 tests, 27071 pass, 1 fail (an isolation test lacking a stub for the new helper); fixed in 5b10a01711 (test only), every test lifting the touched functions rerun 36/36; CI's full suite on the exact head is the gate
 subdir_audit: not run (no CLAUDE.md under a changed path)
 timestamp: 2026-11-06T05:07:58Z
@@ -15,6 +15,8 @@ converged: false
 **Iterations:** 8 (opus and sonnet alternating), the cap. **Converged:** No: round 8, the final whole-branch read, found NITs only (no BLOCKER, no WARNING). Two were taken (comments give reasons, not round numbers), two DEFERRED with reasons below.
 
 **What it is:** #8051 item 1 (Mona Lisa's design call on the card). A New agent within 30 minutes of the "Settings, AI Models" link reopens the half-typed form; it now says "This is where you left off before going to Settings." with Start over. Start over empties the form onto the three-way choice and focuses its first card; the name field is described by the sentence while it shows; Create agent and a role change take it away.
+
+**Rebased 00:2x 11-06** onto main 0a8ed9bfee (Baron's #8094, the render-create-form fix for GLM's 11th provider, which had red'd this PR's browser-checks). Patch id unchanged (25f76566), so the reviewed changes are byte-identical; the hash moved with the base.
 
 **After round 8:** a one-line test stub (web.create-role-reset-1786.test.js), from the full suite. Test code only.
 
