@@ -119,8 +119,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
      spinners keep the Sweep dots (the arm after this one). This reads the orb's DRAWING: the page's own kOrbWaitHtml,
      put on the page, gets a canvas.korb with drawn pixels (alpha) on it that
      change between frames, and its old dots are hidden. Then, with reduced motion, it is drawn once and holds still.
-     And the loop STOPS once no spinner is visible: four spinners live hidden in the page, so a loop that only stops
-     when there are none would run forever (review round 1 measured 289 frames in 2 s with nothing showing). */
+     And the loop STOPS once no orb is visible: a hidden orb is kept in the page during this arm (chk-hidden), so a loop
+     that only stopped when there were none would read as running (review round 1 measured 289 frames in 2 s). */
   const orbRead = async (pg) => pg.evaluate(async () => {
     if (typeof KORB !== 'object' || typeof kOrbWaitHtml !== 'function') return { error: 'KORB or kOrbWaitHtml is missing' };
     const host = document.createElement('div');
@@ -191,7 +191,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
      more on every light ground; --gold is about 2.1:1) and --gold #d6a62e on a dark one, and on the Kosmos+ navy
      (body.plus-active) in either theme. Read by the colour of the drawn pixels, as the gold-button arm above, in every
      theme state: system light and forced dark (this light page), system dark and forced light (a dark-scheme page). */
-  const goldIn = (pg, theme, plus) => pg.evaluate(async ([theme, plus]) => {
+  const goldIn = (pg, theme, plus, wrap) => pg.evaluate(async ([theme, plus, wrap]) => {
     const frames = (n) => new Promise((res) => { let k = 0; const f = () => (++k < n ? requestAnimationFrame(f) : res()); requestAnimationFrame(f); });
     const html = document.documentElement, was = html.getAttribute('data-theme'), wasPlus = document.body.classList.contains('plus-active');
     if (theme === null) html.removeAttribute('data-theme'); else html.setAttribute('data-theme', theme);
@@ -199,6 +199,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const host = document.createElement('div');
     try {
       host.style.cssText = 'position:fixed;left:500px;top:10px;z-index:99999';
+      if (wrap) host.className = wrap;   // the orb as it sits on that screen's ground
       host.innerHTML = kOrbWaitHtml('chk-orb', '', 32);
       document.body.appendChild(host);
       await frames(6);
@@ -212,11 +213,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       document.body.classList.toggle('plus-active', wasPlus);
       if (was === null) html.removeAttribute('data-theme'); else html.setAttribute('data-theme', was);
     }
-  }, [theme, plus]);
+  }, [theme, plus, wrap || '']);
   const themeGold = {
     systemLight: await goldIn(page, null, false),
     forcedDark: await goldIn(page, 'dark', false),
     plusLight: await goldIn(page, null, true),
+    updLight: await goldIn(page, null, false, 'upd-back'),
   };
   const darkPage = await browser.newPage({ viewport: { width: 900, height: 800 }, colorScheme: 'dark' });
   await darkPage.goto('file://' + PAGE);
@@ -325,7 +327,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (res.error || !near(res.before, DEEP) || !near(res.after, GOLD)) orbProblems.push(words + ' was not redrawn from the deep gold to --gold: ' + JSON.stringify(res));
   }
   for (const [state, want, words] of [['systemLight', DEEP, 'light theme (system)'], ['forcedLight', DEEP, 'light theme forced on a dark system'],
-    ['systemDark', GOLD, 'dark theme (system)'], ['forcedDark', GOLD, 'dark theme forced on a light system'], ['plusLight', GOLD, 'Kosmos+ navy in the light theme']]) {
+    ['systemDark', GOLD, 'dark theme (system)'], ['forcedDark', GOLD, 'dark theme forced on a light system'], ['plusLight', GOLD, 'Kosmos+ navy in the light theme'], ['updLight', GOLD, 'the update overlay\'s dark scrim in the light theme']]) {
     if (!near(themeGold[state], want)) orbProblems.push('orb, ' + words + ': not ' + (want === DEEP ? 'the deep gold #9c741b' : '--gold #d6a62e') + ' but ' + JSON.stringify(themeGold[state]));
   }
   if (!(firstFrame.lit > 40)) orbProblems.push('orb: not drawn on its first frame (' + (firstFrame.why || firstFrame.lit + ' drawn pixels') + '), so it blinks in');
