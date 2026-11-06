@@ -12,8 +12,10 @@
  *   binary          NOT checked here, on purpose: it is matched against the COMPILED app, where a WebKit delegate
  *                   method is an Objective-C selector string ("runOpenPanel") that no source file spells.
  * The absent kinds are not checked here either: a marker that must be absent has no source by design.
- * Matched against each source with its comments stripped (check-served.js's own strip): a marker that survives only in a
- * comment would pass the served check for the wrong reason, so here it fails.
+ * Matched against each source with its comments stripped (the strip check-served.js uses on its ABSENT side). So this is
+ * deliberately STRICTER than the served check, which matches present markers against the raw page: a marker live only
+ * in a comment passes there and fails here. The strip is non-greedy and can over-strip a page holding a '/*' string or
+ * regex literal; that gives a false red here, never a false green.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -35,11 +37,12 @@ test('kosmos#8132: the sources are the files check-served reads, and none is emp
   assert.ok(PAGE.length > 100000, 'web/index.html read as ' + PAGE.length + ' bytes after the comment strip');
   assert.ok(PAGE.length > RAW_PAGE.length * 0.1, 'the comment strip removed more than 90% of web/index.html; it is broken');
   for (const p of PKG) assert.ok(p.body.length > 500, p.rel + ' read as ' + p.body.length + ' bytes');
-  // check-served reads these three pages from the expanded .pkg; if it ever reads another, this list must follow.
+  // check-served reads exactly these pages from the expanded .pkg; if it reads another, PKG_PAGES here must follow.
   const served = read('tools/check-served.js');
-  for (const rel of ['component.pkg/Scripts/installing.html', 'Resources/welcome.html', 'Resources/conclusion.html']) {
-    assert.ok(served.includes("'" + rel + "'"), 'check-served.js no longer reads ' + rel + '; update PKG_PAGES here to match');
-  }
+  const lit = /const PAGES = (\[[^\]]*\]);/.exec(served);
+  assert.ok(lit, 'check-served.js has no `const PAGES = [...]` list to compare with');
+  assert.deepEqual(JSON.parse(lit[1].replace(/'/g, '"')), ['component.pkg/Scripts/installing.html', 'Resources/welcome.html', 'Resources/conclusion.html'],
+    'check-served.js reads a different set of installer pages; update PKG_PAGES here to match');
 });
 
 test('kosmos#8132: every present and order marker is in web/index.html', () => {
@@ -68,4 +71,8 @@ test('kosmos#8132 CONTROL: the lookups can say no (a made-up marker, and the old
   const rawPkg = PKG_PAGES.map(read).join('\n');
   assert.ok(rawPkg.includes('Nothing to do.'), 'CONTROL: the comment that quotes "Nothing to do." is gone; pick another commented-only sentence');
   assert.equal(inPkg('Nothing to do.'), false, 'a sentence found only in a comment counted as a source');
+  // And on web/index.html: an absent marker that check-served notes survives in its deletion comment.
+  const commented = 'Two questions: what it is for';
+  assert.ok(RAW_PAGE.includes(commented), 'CONTROL: web/index.html no longer quotes "' + commented + '" in a comment; pick another');
+  assert.equal(PAGE.includes(commented), false, 'a sentence found only in a comment of web/index.html counted as a source');
 });
