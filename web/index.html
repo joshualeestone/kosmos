@@ -63255,7 +63255,7 @@ async function openTeamCreate(key) {
   }
   TC = {
     key, team: body.team,
-    members: body.members.map((m) => ({ slot: m.slot, title: m.title, name: m.name || '', suggested: m.name || '', state: 'ready', why: '', made: null, portrait: null, seen: null })),
+    members: body.members.map((m) => ({ slot: m.slot, title: m.title, name: m.name || '', suggested: m.name || '', typed: false, state: 'ready', why: '', made: null, portrait: null, seen: null })),
     leadSlot: (body.team && body.team.lead) || (body.members[0] && body.members[0].slot) || null,
     started: false,
   };

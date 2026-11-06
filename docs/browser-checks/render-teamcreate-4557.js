@@ -386,33 +386,46 @@ function chk(ok, label, extra) {
           await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
           await page.fill('#tc-list li[data-slot="content"] .tc-name', 'Rosalind');
           const before = await rows(page);
+          const at = (rs, slot) => rs.find((r) => r.slot === slot).name;
           await page.click('#tc-short');
           await settle(page, () => /Kept the name you typed\./.test(document.getElementById('tc-name-said').textContent));
           const after = await rows(page);
           const said = await page.evaluate(() => document.getElementById('tc-name-said').textContent);
-          chk(after[1].name === 'Rosalind' && after[0].name !== before[0].name && after[2].name !== before[2].name && said === 'Changed 2 names. Kept the name you typed.',
+          chk(at(after, 'content') === 'Rosalind' && at(after, 'lead') !== at(before, 'lead') && at(after, 'social') !== at(before, 'social') && said === 'Changed 2 names. Kept the name you typed.',
             `${E} #8092 Use short names keeps the name the person typed and says so`, JSON.stringify({ names: after.map((r) => r.name), said }));
           await page.click('#tc-list li[data-slot="content"] .tc-another');
-          const another = (await rows(page))[1].name;
+          const another = at(await rows(page), 'content');
           await page.click('#tc-short');
           await settle(page, () => /Changed 3 names\./.test(document.getElementById('tc-name-said').textContent));
-          const again = (await rows(page))[1].name;
+          const again = at(await rows(page), 'content');
           chk(again !== another, `${E} #8092 CONTROL: after Another the row is a suggestion again, so Use short names may change it`, JSON.stringify({ another, again }));
           // A typed name, then emptied, is not a typed name any more: Use short names fills it.
           await page.fill('#tc-list li[data-slot="lead"] .tc-name', 'Bartholomew');
           await page.click('#tc-short');
           await settle(page, () => /Kept the name you typed\./.test(document.getElementById('tc-name-said').textContent));
-          chk((await rows(page))[0].name === 'Bartholomew', `${E} #8092 CONTROL: the lead's typed name is kept before it is emptied`);
+          chk(at(await rows(page), 'lead') === 'Bartholomew', `${E} #8092 CONTROL: the lead's typed name is kept before it is emptied`);
           // The suggestion typed back exactly is a suggestion again (the other two rows hold Kosmos's names).
-          const sugg = (await rows(page))[1].name;
+          const sugg = at(await rows(page), 'content');
           await page.fill('#tc-list li[data-slot="content"] .tc-name', 'x');
-          await page.fill('#tc-list li[data-slot="content"] .tc-name', sugg);
-          const typedBack = await page.evaluate(() => TC.members[1].typed);
-          chk(typedBack === false, `${E} #8092 the suggestion typed back is not a typed name`, JSON.stringify({ sugg, typedBack }));
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', ' ' + sugg + ' ');
+          const typedBack = await page.evaluate(() => TC.members.find((m) => m.slot === 'content').typed);
+          chk(typedBack === false, `${E} #8092 the suggestion typed back, spaces aside, is not a typed name`, JSON.stringify({ sugg, typedBack }));
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', sugg.toLowerCase());
+          const lowered = await page.evaluate(() => TC.members.find((m) => m.slot === 'content').typed);
+          chk(lowered === true, `${E} #8092 the suggestion in another case is their own spelling, so it is typed`, JSON.stringify({ sugg, lowered }));
+          // Two typed names (content, social; the lead emptied, so it is changed): the line says the plural.
+          await page.fill('#tc-list li[data-slot="lead"] .tc-name', '');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', 'Evangeline');
+          await page.click('#tc-short');
+          await settle(page, () => /Kept the 2 names you typed\./.test(document.getElementById('tc-name-said').textContent));
+          const plural = await page.evaluate(() => document.getElementById('tc-name-said').textContent);
+          chk(/^Kept the 2 names you typed\.$/.test(plural.replace(/^Changed 1 name\. /, '')) && at(await rows(page), 'social') === 'Evangeline', `${E} #8092 two typed names: kept, and the line says the plural`, JSON.stringify(plural));
+          await page.fill('#tc-list li[data-slot="content"] .tc-name', '');
+          await page.fill('#tc-list li[data-slot="social"] .tc-name', '');
           await page.fill('#tc-list li[data-slot="lead"] .tc-name', '');
           await page.click('#tc-short');
           await settle(page, () => /Changed 3 names\./.test(document.getElementById('tc-name-said').textContent) && document.querySelector('#tc-list li[data-slot="lead"] .tc-name').value !== '');
-          const filled = (await rows(page))[0].name;
+          const filled = at(await rows(page), 'lead');
           chk(/^[A-Za-z]{3,5}$/.test(filled), `${E} #8092 an emptied box is filled by Use short names, not kept as typed`, JSON.stringify(filled));
           chk(errs.length === 0, `${E} no page errors (#8092 typed arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
