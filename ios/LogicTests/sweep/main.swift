@@ -141,7 +141,6 @@ do {
     let room = repoText("ios/Kosmos/RoomView.swift")
     check(room.components(separatedBy: "HStack { Spacer(); SweepDots(label: \"Loading\", framesPerSecond: 15, stillWhenReduced: true); Spacer() }").count == 3,
           "a room loading earlier posts, live and in its archive: the dots, 15 a second in the thread (RoomView.swift)")
-    let chat = repoText("ios/Kosmos/ChatView.swift")
     // Josh 11-05 18:33: "only use the dots spinner in the mobile app and scrub any other instances". The guard: no app
     // source draws the orb or the system's spinner, so neither can come back unnoticed (KosmosOrb.swift itself excepted).
     var offenders: [String] = [], read: [String] = [], refreshable = 0, refreshControls = 0
@@ -161,7 +160,7 @@ do {
           "both app folders were read, subfolders included (\(read.count) files)")
     check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app (caught by name, not a hand-made spinner)" + (offenders.isEmpty ? "" : ": \(offenders)"))
     // The one known exception, pinned so no new one appears: pull to refresh draws iOS's own spinner (10 lists and the board
-    // page's refresh control). Dots there need pull to refresh rebuilt; follow-up card on #8058.
+    // page's refresh control). Dots there need pull to refresh rebuilt: #8078.
     check(refreshable == 10 && refreshControls == 1, "pull to refresh is the only system spinner left (comments are not counted here; the check above reads them too), at its 11 known places (\(refreshable) + \(refreshControls))")
 }
 
