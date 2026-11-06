@@ -1828,6 +1828,13 @@ func pageOrigin(of url: URL?) -> String? {
     guard let url, let scheme = url.scheme, let host = url.host else { return nil }
     return pageOrigin(protocol: scheme, host: host, port: url.port ?? 0)
 }
+/// kosmos#8120: PURE. The id in the page's Show in Finder message, {reveal: <whole number>}, or nil for anything else
+/// (true, a fraction, a string, a missing field): a page cannot name a download by any other shape.
+func revealId(from body: Any) -> Int? {
+    guard let d = body as? [String: Any], let n = d["reveal"] as? NSNumber, CFGetTypeID(n) == CFNumberGetTypeID(),
+          n.doubleValue == n.doubleValue.rounded(), n.doubleValue >= 1, n.doubleValue < 1e9 else { return nil }
+    return n.intValue
+}
 /// kosmos#8120: PURE. The page's key for one download click: the `kdl` query value it put on the address, digits and
 /// letters only, at most 24, or nil. A download without one (a folder zip, a room link) is not told to the page.
 func downloadKey(_ url: URL?) -> String? {
@@ -1853,9 +1860,7 @@ final class DownloadMessageProxy: NSObject, WKScriptMessageHandler {
         let page = URL(string: "\(origin.protocol)://\(origin.host)" + (origin.port > 0 ? ":\(origin.port)" : ""))
         guard owner.isBoardOrigin(host: origin.host, port: origin.port, scheme: origin.protocol)
                 || (page.map(isKosmosPlusURL) ?? false) else { return }
-        guard let body = message.body as? [String: Any], let n = body["reveal"] as? NSNumber,
-              CFGetTypeID(n) == CFNumberGetTypeID(), n.doubleValue == n.doubleValue.rounded() else { return }   // a number, not true
-        let id = n.intValue
+        guard let id = revealId(from: message.body) else { return }
         if !owner.revealSavedDownload(id, from: pageOrigin(protocol: origin.protocol, host: origin.host, port: origin.port)) {
             // Said in the page: the file is not where it was saved any more (or was saved too long ago to be shown).
             message.webView?.evaluateJavaScript("window.dispatchEvent(new CustomEvent('kosmos-download', { detail: { state: 'revealfailed', id: \(id) } }))", completionHandler: nil)
@@ -4149,7 +4154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     /// #5167: where each running download is being saved, so its end can be told to the Dock.
     private var downloadsInFlight: [ObjectIdentifier: URL] = [:]
     /// kosmos#8120: each download's id, the page's key for it, and the page it was started from (its commit count and
-    /// origin); and the files this app saved, with the origin that saved each (the last 20).
+    /// origin); and the files this app saved, with the origin that saved each (the last 50).
     private var downloadInfo: [ObjectIdentifier: (id: Int, key: String?, commits: Int, origin: String?)] = [:]
     private var downloadNext = 1
     private var downloadsSaved: [(id: Int, url: URL, origin: String?)] = []
@@ -4320,7 +4325,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download)) else { return }
         logLine("#5167: download saved: \(dest.lastPathComponent)")
         if let info = downloadInfo[ObjectIdentifier(download)] {
-            downloadsSaved.append((info.id, dest, info.origin)); if downloadsSaved.count > 20 { downloadsSaved.removeFirst() }
+            downloadsSaved.append((info.id, dest, info.origin)); if downloadsSaved.count > 50 { downloadsSaved.removeFirst() }
         }
         tellPageDownload(download, "saved", name: dest.lastPathComponent)
         /* Marked as downloaded, as Safari marks its own, so Gatekeeper checks it when it is opened: the
@@ -6923,10 +6928,14 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             let own = d.revealSavedDownload(sid, from: "http://127.0.0.1:\(port)")
             let other = d.revealSavedDownload(sid, from: "http://localhost:\(port)")
             let unknown = d.revealSavedDownload(99999, from: "http://127.0.0.1:\(port)")
+            let shapes = [revealId(from: ["reveal": true]), revealId(from: ["reveal": 1.5]), revealId(from: ["reveal": "3"]),
+                          revealId(from: ["other": 3]), revealId(from: "x"), revealId(from: ["reveal": 0])]
+            row(shapes.allSatisfy { $0 == nil } && revealId(from: ["reveal": 7]) == 7,
+                "kosmos#8120: SHOW IN FINDER TAKES ONLY A WHOLE NUMBER (true, 1.5, a string, 0 and no field are refused) (\(shapes))")
             row(own && !other && !unknown && revealed.map { $0.lastPathComponent } == ["same.txt"],
                 "kosmos#8120: SHOW IN FINDER SELECTS A FILE THIS APP SAVED, ONLY FOR THE ORIGIN THAT SAVED IT, and nothing for an unknown id (\(own)/\(other)/\(unknown))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 44   // kosmos#8120: +6 (what the page is told, that it runs there, and Show in Finder); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 45   // kosmos#8120: +7 (what the page is told, that it runs there, and Show in Finder); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)

@@ -21635,7 +21635,8 @@ const KPLUS_LATEST = new WeakMap();   // message line -> the last download asked
    the file has saved, and cannot be clicked again while it saves. The app tells the page `saving`, `saved` or `failed`
    (native-app kosmosDownload, the event `kosmos-download`); `saved` comes only from the save finishing, never from the
    click, so a failed save never says saved. A plain browser shows its own downloads, and an older app tells nothing,
-   so without the app's handler nothing here changes. Each event is matched to the click that started it, oldest first. */
+   so without the app's handler nothing here changes. Each answer carries the key the click put on its address, and
+   reaches that click alone. */
 const DL_WAIT = new Map();   // kosmos#8120: each click waiting to hear from the app, by the key it put on its address
 const DL_BUSY = new Map();   // the same clicks by the file they save, so a second click on that file waits (any button for it)
 const DL_LINE = new WeakMap();   // message line -> the last click that writes to it, so an older save never overwrites a newer word
@@ -21645,7 +21646,13 @@ function dlNewKey() {
   try { const a = new Uint32Array(3); crypto.getRandomValues(a); return 'k' + Array.from(a, (n) => n.toString(36)).join(''); }
   catch { return 'k' + Date.now().toString(36) + (++DL_SEQ) + Math.random().toString(36).slice(2, 10); }
 }
-const DL_BACKSTOP_MS = 10 * 60 * 1000;   // while the app's Allow question is up: the button comes back if it is never answered
+/* Timers (round 4): with no word from the app at all, the button comes back after DL_LOST_MS (long enough for a server
+   that takes a while to answer, a zip being built); while the app asks Allow, none (it always answers the question);
+   once it is saving, a ceiling (DL_CEILING_MS) after which the line says so honestly. window.__dlLostMs and
+   window.__dlCeilingMs shorten them for a browser check (undefined in the product). */
+const DL_LOST_MS = () => (typeof window.__dlLostMs === 'number' ? window.__dlLostMs : 2 * 60 * 1000);
+const DL_CEILING_MS = () => (typeof window.__dlCeilingMs === 'number' ? window.__dlCeilingMs : 30 * 60 * 1000);
+const DL_DOTS = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 const DL_TICK = '<svg class="dl-tick" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M3.5 8.5 6.5 11.5 12.5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function dlAppTells() {
   try { return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.kosmosDownload); } catch { return false; }
@@ -21674,13 +21681,9 @@ function dlWatch(file, btn, say, name) {
   }
   if (btn && btn.parentNode) { const old = btn.parentNode.querySelector('.pv-quiet'); if (old) old.remove(); }   // the last copy's Show in Finder
   // Only a save that takes a moment shows the dots (#7896: small waits are the Sweep dots), and says so to a screen reader.
-  w.slow = setTimeout(() => {
-    if (!DL_WAIT.has(w.key)) return;
-    if (btn) btn.innerHTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>' + (w.text ? 'Saving' : '');
-    if (dlLineOk(say) && DL_LINE.get(say.el) === w && !say.el.textContent) { say('Saving ' + (w.name || 'the file') + '...'); say.el.classList.add('dl-said'); }
-  }, 400);
-  // No word from the app (an older app, or a click it never saw): the button comes back. Paused while it asks (`asking`).
-  w.lost = setTimeout(() => dlEnd(w), 30000);
+  dlArmSlow(w);
+  // No word from the app (an older app, or a click it never saw): the button comes back.
+  w.lost = setTimeout(() => dlEnd(w), DL_LOST_MS());
   DL_WAIT.set(w.key, w);
   if (file) DL_BUSY.set(file, w);
   return w;
@@ -21693,6 +21696,15 @@ function dlRestoreBtn(b) {
 function dlLineOk(say) { return !!(say && say.el && (!say.ok || say.ok())); }
 /* The line's own words about this save (Saving, Already saving), which end with it; never anyone else's. */
 const DL_OWN_WORDS = /^(Saving |Already saving )/;
+/* After 0.4 s of saving, the dots and Saving (and, in an empty line, Saving <name>...). Not while the app asks Allow. */
+function dlArmSlow(w) {
+  clearTimeout(w.slow);
+  w.slow = setTimeout(() => {
+    if (!DL_WAIT.has(w.key) || w.asking) return;
+    if (w.btn) w.btn.innerHTML = DL_DOTS + (w.text ? 'Saving' : '');
+    if (dlLineOk(w.say) && DL_LINE.get(w.say.el) === w && !w.say.el.textContent) { w.say('Saving ' + (w.name || 'the file') + '...'); w.say.el.classList.add('dl-said'); }
+  }, 400);
+}
 function dlEnd(w, keepLine) {
   clearTimeout(w.slow); clearTimeout(w.lost); clearTimeout(w.restore);
   DL_WAIT.delete(w.key);
@@ -21707,16 +21719,32 @@ window.addEventListener('kosmos-download', (e) => {
   const w = typeof d.key === 'string' ? DL_WAIT.get(d.key) : null;
   if (!w) return;   // not a click this page is watching
   // Asking (the person is answering the app's question) or saving: wait, with a long backstop rather than the 30 s one.
-  if (d.state === 'asking') { clearTimeout(w.lost); w.lost = setTimeout(() => dlEnd(w), DL_BACKSTOP_MS); return; }
-  // Saving: the app always answers saved or failed for a download it has started, however long a big file takes, so no
-  // timer gives the button back (one that did would let a click save a second copy mid-download).
-  if (d.state === 'saving') { clearTimeout(w.lost); w.saving = true; return; }
+  // Asking: the person is answering the app's Allow question, which it always answers; no timer, and no Saving yet.
+  if (d.state === 'asking') {
+    clearTimeout(w.lost); clearTimeout(w.slow); w.asking = true;
+    if (w.btn && !w.btn.classList.contains('dl-saved')) w.btn.innerHTML = DL_DOTS;   // waiting, not saving
+    if (dlLineOk(w.say) && DL_LINE.get(w.say.el) === w && /^Saving /.test(w.say.el.textContent)) w.say('');
+    return;
+  }
+  // Saving: the app answers saved or failed for a download it has started, however long it takes. A ceiling, in case an
+  // answer is lost, says so rather than claim anything (and is long, so a big file is not saved twice).
+  if (d.state === 'saving') {
+    clearTimeout(w.lost); w.asking = false; dlArmSlow(w);
+    w.lost = setTimeout(() => {
+      const n = w.name || 'the file';
+      dlEnd(w);
+      if (dlLineOk(w.say) && DL_LINE.get(w.say.el) === w) { w.say('Kosmos lost track of ' + n + '. Look in your Downloads folder.'); w.say.el.classList.remove('dl-said'); }
+    }, DL_CEILING_MS());
+    return;
+  }
+  if (d.state === 'revealfailed') return;   // handled by the viewer's line (below)
   if (d.state !== 'saved') { dlEnd(w); return; }   // failed: the app or the page has already said why
   clearTimeout(w.slow); clearTimeout(w.lost);
   DL_WAIT.delete(w.key);   // answered; the file stays busy (DL_BUSY) until the button is back, so a click on Saved saves nothing
   const name = String(d.name || w.name || 'The file');
   w.answered = true;
   if (dlLineOk(w.say) && DL_LINE.get(w.say.el) === w) { w.say(name + ' is in your Downloads folder.'); w.say.el.classList.add('dl-said'); }
+  for (const x of w.extraSays || []) if (dlLineOk(x) && DL_LINE.get(x.el) === w && /^Already saving /.test(x.el.textContent)) x('');   // it is saved now
   w.savedId = typeof d.id === 'number' ? d.id : null;
   dlShowSaved(w);
   w.restore = setTimeout(() => dlEnd(w, true), w.btn && w.text ? 6000 : 3000);
@@ -21752,9 +21780,11 @@ function dlAdopt(file, btn, say) {
   if (w.btn && w.btn !== btn) (w.others = w.others || []).push(w.btn);   // given back when the save ends (dlEnd)
   w.btn = btn; w.html = btn.dataset.dlHtml; w.text = btn.classList.contains('pv-btn');
   if (say) { w.say = say; if (say.el) DL_LINE.set(say.el, w); }
-  if (w.answered) { dlShowSaved(w); return; }   // saved already, its button not yet back: it says Saved, not Saving
+  if (w.answered) {   // saved already, its button not yet back: it says Saved, not Saving, for the viewer's full time
+    dlShowSaved(w); clearTimeout(w.restore); w.restore = setTimeout(() => dlEnd(w, true), w.text ? 6000 : 3000); return;
+  }
   btn.classList.add('dl-busy'); btn.setAttribute('aria-disabled', 'true');
-  btn.innerHTML = '<span class="spin spin-sweep" style="--sz:14px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>' + (w.text ? 'Saving' : '');
+  btn.innerHTML = DL_DOTS + (w.asking ? '' : (w.text ? 'Saving' : ''));
 }
 function kplusDownload(kind, owner, name, say, after, btn) {
   const file = kind + '\n' + owner + '\n' + name;
@@ -77328,9 +77358,6 @@ function pvOpen(id, from) {
     stage.appendChild(fileCard());
   }
   back.querySelector('#pv-name').textContent = a.name;
-  // #8122: a file that cannot be shown has its name on its card already, with the button right under it; the bar's copy
-  // stays only as the dialog's label.
-  if (stage.querySelector('.pv-file')) back.querySelector('#pv-name').classList.add('pv-dup');
   const act = back.querySelector('#pv-act');
   if (kplusRemote() && typeof a.download === 'function') {
     /* #4997: a Files-list file downloads through kplusDownload, so a refusal (renamed, moved, a gate) is said in the

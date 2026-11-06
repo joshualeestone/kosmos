@@ -403,6 +403,33 @@ async function runApp(engine, say) {
     await tell({ state: 'failed', key: k2 });
     const failed = await state();
     say(!!k2 && k2 !== k1 && !failed.busy && failed.text === 'Download' && !/Downloads folder/.test(failed.msg), T + ': a failed save puts the button straight back, and says no saved', JSON.stringify(failed));
+    // 2b. Round 4: while the app asks Allow the button waits without saying Saving; with no word at all it comes back;
+    // a save that never answers ends with an honest line; Open in Finder on a file that is gone says so.
+    await pg.evaluate(() => { window.__dlLostMs = 700; window.__dlCeilingMs = 900; });
+    await open();
+    await pg.click('#pv-do'); await pg.waitForTimeout(80);
+    const ka2 = netSeen ? keyOf(asked[asked.length - 1] || '') : (await waitingKeys())[0];
+    await tell({ state: 'asking', key: ka2 });
+    await pg.waitForTimeout(600);
+    const asking = await state();
+    say(asking.busy && !/Saving/.test(asking.text) && !/Saving/.test(asking.msg || ''), T + ': while the app asks Allow, it waits without saying Saving', JSON.stringify(asking));
+    await pg.waitForTimeout(400);
+    say((await state()).busy, T + ': and no timer gives the button back while it asks', JSON.stringify(await state()));
+    await tell({ state: 'failed', key: ka2 });
+    await open();
+    await pg.click('#pv-do'); await pg.waitForTimeout(900);
+    const lost = await state();
+    say(!lost.busy && lost.text === 'Download', T + ': no word from the app at all: the button comes back', JSON.stringify(lost));
+    await pg.click('#pv-do'); await pg.waitForTimeout(80);
+    const kc = netSeen ? keyOf(asked[asked.length - 1] || '') : (await waitingKeys())[0];
+    await tell({ state: 'saving', key: kc, id: 11, name: 'Budget 2026.xlsx' });
+    await pg.waitForTimeout(1100);
+    const ceiling = await state();
+    say(!ceiling.busy && /lost track of Budget 2026\.xlsx\. Look in your Downloads folder/.test(ceiling.msg || ''), T + ': a save whose answer never comes ends with an honest line, not a claim', JSON.stringify(ceiling));
+    await pg.evaluate(() => { delete window.__dlLostMs; delete window.__dlCeilingMs; });
+    await pg.evaluate(() => window.dispatchEvent(new CustomEvent('kosmos-download', { detail: { state: 'revealfailed', id: 99 } })));
+    const gone = await state();
+    say(gone.msg === 'That file is not in your Downloads folder any more.', T + ': Open in Finder on a file that is gone says so', JSON.stringify(gone));
     // 3. Two files from a Files list, answered out of order, one failing: each answer reaches its own click.
     const two = await pg.evaluate(() => {
       pvClose();
