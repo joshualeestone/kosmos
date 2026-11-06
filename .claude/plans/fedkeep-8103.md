@@ -5,7 +5,7 @@ FED_INVITES_OUTSTANDING_MAX), the board's record kept the newest 64, and 36 live
 withdrawn while they counted against the cap for 7 days.
 
 Call (Mona Lisa): trimming never drops a live invite (not used by anyone this board knows of, not withdrawn, not yet
-expired); the 64 bound applies only to finished rows (used, withdrawn or expired), newest kept, as before.
+expired, and an expiry no more than 30 days out: codes live 7, so a later one is malformed and not held for ever); the 64 bound applies only to finished rows (used, withdrawn or expired), newest kept, as before.
 Rejected: drop only expired rows (a used invite's row carries the member's label after its code expires, and losing
 it unnames them); raise the bound to 100 (a mixed history would still push out a live row).
 Weakest premise: that the coordinator's cap bounds the live rows. If the coordinator raised its cap, this board would
