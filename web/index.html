@@ -24867,19 +24867,26 @@ function paintRunFolder(notice) {
   });
 }
 /* The board asks its folder's Kosmos.exe after it starts serving, so a page can ask first: while the board says the
-   answer is pending, ask again shortly, for as long as the board's own bounds on the question: up to 20 s for an
-   answer, and once more after 30 s when the first could not read everything (engine/win32runfolder.js). */
+   answer is pending, ask again every 3 s, for as long as it says so (the board always settles it: each question has
+   its own bound), one ask at a time. The cap is only a safety net far past the board's own bounds (review 4). */
 const RUNFOLDER_RETRY_MS = 3000;
-const RUNFOLDER_RETRIES = 25;
+const RUNFOLDER_RETRY_CAP = 200;
+let RUNFOLDER_ASKING = false;
 async function runFolderCheck(tries) {
-  const left = typeof tries === 'number' ? tries : RUNFOLDER_RETRIES;
+  if (RUNFOLDER_ASKING) return;   // one chain at a time: a board restart's ask joins the one already running
+  RUNFOLDER_ASKING = true;
+  let again = false;
+  const left = typeof tries === 'number' ? tries : RUNFOLDER_RETRY_CAP;
   try {
     const res = await fetch('/api/board/run-folder', { cache: 'no-store' });
     const got = await res.json().catch(() => null);   // read the body either way (an unread one holds the connection open)
-    if (!res.ok || !got) return;
-    paintRunFolder(got.notice);
-    if (got.pending === true && !got.notice && left > 0) setTimeout(() => runFolderCheck(left - 1), RUNFOLDER_RETRY_MS);
+    if (res.ok && got) {
+      paintRunFolder(got.notice);
+      again = got.pending === true && !got.notice && left > 0;
+    }
   } catch { /* a courtesy: the board log has it too */ }
+  RUNFOLDER_ASKING = false;
+  if (again) setTimeout(() => runFolderCheck(left - 1), RUNFOLDER_RETRY_MS);
 }
 async function damagedFilesCheck() {
   try {

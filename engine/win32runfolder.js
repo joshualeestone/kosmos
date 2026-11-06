@@ -39,12 +39,26 @@ let NOTICE = null;   // { folder, message } while this start's answer says the f
    arrives, and must be told to ask again rather than told there is nothing (review 1). */
 let PENDING = false;
 
+/** A folder in its long, real form when it exists (an 8.3 short name expanded, as the launcher's GetFullPath does). */
+function longForm(p) {
+  try { return fs.realpathSync.native(String(p)); } catch { return String(p); }
+}
+
 /** Is `child` the same folder as `parent`, or inside it? Windows paths, compared without regard to case. */
 function isSameOrInside(child, parent) {
   if (!child || !parent) return false;
-  const c = path.win32.resolve(String(child)).replace(/[\\/]+$/, '').toLowerCase();
-  const p = path.win32.resolve(String(parent)).replace(/[\\/]+$/, '').toLowerCase();
+  const c = path.win32.resolve(longForm(child)).replace(/[\\/]+$/, '').toLowerCase();
+  const p = path.win32.resolve(longForm(parent)).replace(/[\\/]+$/, '').toLowerCase();
   return c === p || c.startsWith(p + '\\');
+}
+
+/**
+ * Does this Kosmos.exe know --check-run-folder? Read from the file itself, before it is run (review 4): a launcher
+ * that predates the flag would take it for an ordinary start, with a box or a board of its own. A .NET program keeps
+ * its string literals as UTF-16, so the flag's own spelling is in the file exactly when the program knows it.
+ */
+function knowsFlag(exe) {
+  try { return fs.readFileSync(exe).indexOf(Buffer.from(FLAG, 'utf16le')) !== -1; } catch { return false; }
 }
 
 function log(o, words) {
@@ -83,11 +97,12 @@ function atStart(opts) {
     if (!root) { done(false); return; }   // a source checkout, or the updater's own work folder
     /* The launcher's own first early return is the same test (UnsafeRunFolderReason: inside the profile is trusted by
        where it is); keep the two alike, or the board would ask about a folder the launcher never reads. */
-    const profile = o.profile !== undefined ? o.profile : process.env.USERPROFILE;
+    const profile = o.profile !== undefined ? o.profile : env.USERPROFILE;
     if (profile && isSameOrInside(root, profile)) { done(false); return; }   // where Kosmos installs itself
     const exe = path.win32.join(root, 'Kosmos.exe');
     const exists = o.exists || ((p) => fs.existsSync(p));
     if (!exists(exe)) { log(o, 'Kosmos could not check whether others can change ' + root + ': there is no Kosmos.exe in it.'); done(false); return; }
+    if (!(o.knowsFlag || knowsFlag)(exe)) { log(o, 'Kosmos did not check whether others can change ' + root + ': its Kosmos.exe is older than the check, so it was not asked.'); done(false); return; }
     const run = o.run || ((file, args, opt, cb) => cp.execFile(file, args, opt, cb));
     const wait = o.wait || ((ms, fn) => { const t = setTimeout(fn, ms); if (t && t.unref) t.unref(); });
     const ask = (again) => {
@@ -114,9 +129,9 @@ function atStart(opts) {
         done(again);   // asked once already if this was the second question
       }
     };
-    /* 📌 THE Kosmos.exe ASKED SHOULD ALWAYS KNOW THE FLAG: an update replaces Kosmos.exe together with app\
-       (win32update.js REQUIRED_ENTRIES lists both). If one ever did not (a hand-copied app\), it would take the flag
-       for an ordinary start; ASKING_ENV keeps the board it starts from asking again. */
+    /* 📌 THE Kosmos.exe ASKED KNOWS THE FLAG: an update replaces Kosmos.exe together with app\ (win32update.js
+       REQUIRED_ENTRIES lists both), and knowsFlag reads it from the file before it is run in case one ever did not
+       (a hand-copied app\). ASKING_ENV is the second guard: a board started under the check never asks. */
     ask(false);
   });
 }
@@ -128,4 +143,4 @@ function pending() { return PENDING; }
 /** Hides it until the next start. */
 function dismiss() { NOTICE = null; return true; }
 
-module.exports = { atStart, current, pending, dismiss, readAnswer, isSameOrInside, CHECK_TIMEOUT_MS, RECHECK_MS, FLAG, ASKING_ENV };
+module.exports = { atStart, current, pending, dismiss, readAnswer, isSameOrInside, knowsFlag, CHECK_TIMEOUT_MS, RECHECK_MS, FLAG, ASKING_ENV };

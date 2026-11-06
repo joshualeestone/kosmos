@@ -21,6 +21,7 @@ function seams(over) {
     bundleRoot: () => ROOT,
     profile: PROFILE,
     exists: () => true,
+    knowsFlag: () => true,
     log: (s) => logs.push(s),
     run: (file, args, opt, cb) => { calls.push({ file, args, opt }); setImmediate(() => cb(null, UNSAFE)); },
   }, over || {});
@@ -160,4 +161,28 @@ test('#1765: a board started by the check never asks, so an old launcher cannot 
   assert.equal(calls.length, 0, 'it asked again');
   assert.deepEqual(got, { asked: false, notice: null });
   assert.ok(logs.some((l) => /started by that check/.test(l)), logs.join(' | '));
+});
+
+test('#1765: a Kosmos.exe older than the check is never run (review 4)', async () => {
+  const { o, calls, logs } = seams({ knowsFlag: () => false });
+  const got = await rf.atStart(o);
+  assert.equal(calls.length, 0, 'an older launcher was run with a flag it would take for an ordinary start');
+  assert.deepEqual(got, { asked: false, notice: null });
+  assert.ok(logs.some((l) => /older than the check/.test(l)), logs.join(' | '));
+});
+
+test('#1765: knowsFlag reads the flag\'s UTF-16 spelling from the file, as .NET keeps string literals', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-knowsflag-'));
+  try {
+    const knows = path.join(dir, 'new.exe');
+    fs.writeFileSync(knows, Buffer.concat([Buffer.from('MZ....'), Buffer.from('--check-run-folder', 'utf16le'), Buffer.from('....')]));
+    const old = path.join(dir, 'old.exe');
+    fs.writeFileSync(old, Buffer.concat([Buffer.from('MZ....'), Buffer.from('--check-run-folder'), Buffer.from('--console', 'utf16le')]));
+    assert.equal(rf.knowsFlag(knows), true);
+    assert.equal(rf.knowsFlag(old), false, 'an 8-bit spelling is not how .NET keeps it');
+    assert.equal(rf.knowsFlag(path.join(dir, 'gone.exe')), false);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
