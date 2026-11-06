@@ -275,4 +275,20 @@ test('#7206 2a review 1: DeepSeek\'s switch on does not turn GLM on: GLM is refu
     const on = await (await fetch(base + '/api/accounts/compat')).json();
     assert.deepEqual(on.vendors.map((v) => v.id), ['deepseek', 'glm'], 'CONTROL: with its own switch on, GLM is offered');
   } finally { sw.setVendorAt(SANDBOX, 'glm', false); }
+  /* 2a review 2: a GLM account already on disk is not live-checked by the account list under DeepSeek's switch: the key
+     never leaves for Z.ai, and the row is not shown. Its own switch is the control. */
+  compat.storeAccount(nodePath.join(SANDBOX, '.kosmos-glm-stored'), { vendor: 'glm', model: 'glm-5.3', key: 'zai-stored-key-0123456789' });
+  compat.resetLiveCacheForTest();
+  const asked = vendorAnswers({ status: 200, body: { data: [{ id: 'glm-5.3' }] } });
+  const list = await (await fetch(base + '/api/accounts')).json();
+  assert.equal(list.accounts.some((a) => a.provider === 'glm'), false, 'a GLM row is listed under DeepSeek\'s switch');
+  assert.deepEqual(asked.filter((u) => /z\.ai/.test(u)), [], 'the account list sent a GLM key to Z.ai while its switch is off');
+  sw.setVendorAt(SANDBOX, 'glm', true);
+  try {
+    compat.resetLiveCacheForTest();
+    const asked2 = vendorAnswers({ status: 200, body: { data: [{ id: 'glm-5.3' }] } });
+    const on = await (await fetch(base + '/api/accounts')).json();
+    assert.equal(on.accounts.some((a) => a.provider === 'glm'), true, 'CONTROL: with its own switch on, the GLM row is listed');
+    assert.equal(asked2.some((u) => /z\.ai/.test(u)), true, 'CONTROL: with its own switch on, it is checked');
+  } finally { sw.setVendorAt(SANDBOX, 'glm', false); fs.rmSync(nodePath.join(SANDBOX, '.kosmos-glm-stored'), { recursive: true, force: true }); }
 });
