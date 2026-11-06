@@ -1133,7 +1133,8 @@
       ],
       "rank": 15,
       "since": "0.7.93",
-      "status": "pending"
+      "status": "shown",
+      "shownIn": "0.7.93"
     },
     {
       "title": "Agents can restart another agent",
