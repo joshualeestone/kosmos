@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: signinwatchrow-7504
-diff_hash: f4ed96a5f40fb90b46afe8c4e79f9e8a2210bf560a86ff1fd9edbe8fa3bf72e8
+diff_hash: 556e5fa2b7948ad033138162362b214c488810d9c5537f7bbf54ba458e7fa340
 validation: pending (full suite queued after convergence, per the fleet's queue rule; focused suites, the browser check and both browser-check gates passed every round)
 subdir_audit: passed
 timestamp: 2026-11-06T03:03:13Z
