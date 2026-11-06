@@ -84,10 +84,31 @@ mirroring the iOS `ShellLogic` cases. **Android divergences, written here and on
 file is plain-JVM-testable) and must equal the real `android.webkit.WebViewClient` values — verified by the
 build on a clear box.
 
-## Next increment
-The shell's link routing + tab/door brain (`AppTabs`/`PressTracker` analogs) and the board client
-(sign-in/token: `BoardClient`/`SignInClient`/`SessionKeychain` analogs, token in Android Keystore /
-EncryptedSharedPreferences). Then the native Compose chrome + WebView host, and the first native screen.
+## Board client (sign-in / token) — Liu Kang's conditions (2026-11-06)
+1. **Token store behind an interface**, so the Android Keystore / EncryptedSharedPreferences code is
+   isolated and reviewable on its own. DONE for the abstraction: `SessionStore` interface +
+   `InMemorySessionStore` (io.kosmos.app.signin). The real `KeystoreSessionStore` is a SEPARATE, isolated
+   file added in a following increment.
+2. **Run the full `/challenge-loop` on the whole branch BEFORE the slice 1 PR opens** — sign-in and token
+   handling carry the most risk. The challenge-loop proof file is also required by the pre-challenge-gate
+   hook before `gh pr create`. (Also: the plan file is hook-enforced in the PR diff; a committed non-proof
+   plan file in .claude/plans/ — this file — is required.)
+
+### Board-client increments (framework-free core first, crypto/Keystore isolated)
+- DONE: `SignIn` input core (looksLikeEmail, code, route paths) + `SessionStore` interface.
+- NEXT: the sign-in request/answer model — `SignIn.Answer`/`Session`/`DeviceStatus`, `answer(status, body: Map)`
+  (body pre-parsed by the networking layer, NOT org.json, to stay JVM-testable), `allowRead`, `next(after:)`
+  step machine, `cleanMessage`/`sentence`/`refusal`, `companySignInRequired`.
+- THEN (highest risk, isolated behind interfaces): the device-proof crypto — `base64url`/`deviceID` (SHA-256)/
+  `proofMessage`/`verifyBody`, behind a `DeviceKey` interface (software impl for tests; Android Keystore
+  EC-P256 impl isolated); and `KeystoreSessionStore`. Secondary: passkey / company-SSO / review-account /
+  TOTP-enrol paths.
+
+## After the board client
+The native Compose chrome + WebView host wiring the door (`AppTabs.pressScript`/`markScript`) + the
+`SweepDots` loader, the native load-failure PAGE (driven by `ShellLoad`), the same-app upgrade check, and
+the first native Compose screen (Agents). Then build + run on the box (gated) → signed debug APK + SHA-256
+on the card for Josh's device. **The `/challenge-loop` gate (condition 2) runs before the PR.**
 
 ## Still to do in slice 1 (after the decision above)
 - The shell per the hybrid-vs-native ruling: load-failure page (native), link routing, same-app upgrade check.
