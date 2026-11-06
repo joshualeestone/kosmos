@@ -445,7 +445,7 @@ const SAY = Object.freeze({
   org_code_expired: 'That code has expired. Ask whoever sent it for a new one.',
   org_other_org: 'This Kosmos+ account is already in another company or family account.',
   /* kosmos#6583 review 4: the domain refusal, worded apart from org_wrong_email's exact-address one, with its way out. */
-  org_wrong_domain: 'That code only works for email addresses at the domain it was made for. Sign in with an address there.',
+  org_wrong_domain: 'That code only works for an email address at the domain it was made for. Sign in with one, or ask whoever sent it for a new code.',
   /* kosmos#6583 (S-11): an invite bound to one address, tried from an account with another, which the coordinator
      refuses as org_wrong_email. Without a sentence here the person was told to try again in a minute, which never
      works. It names no address, as the coordinator's own words do not. */
@@ -453,7 +453,7 @@ const SAY = Object.freeze({
   /* kosmos#6583 review 1: the same gap for a company pilot with no free seat (kosmos#7585), refused at the preview and
      at the join; retrying cannot help until a seat is freed. Refused at the preview, before this board knows whether the
      org is a company or a family, so it names neither (as the other refusals made before any org is known). */
-  org_pilot_full: 'This Kosmos+ pilot has no free seat. Ask whoever sent the code to free one or add seats.',
+  org_pilot_full: 'This Kosmos+ account has no free seat right now. Ask whoever sent the code to free a seat or add one.',
   org_not_member: 'You are not in a company.',
   org_last_admin: 'You are the last admin of your company, so you cannot leave until someone else is made an admin.',
   org_bad_world: 'This Kosmos could not be named to your company. Try again.',

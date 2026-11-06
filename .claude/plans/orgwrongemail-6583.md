@@ -51,3 +51,9 @@ page code keys on the list of org codes (grep: only engine/orgenroll.js and its 
   there." orgenroll-5531's assertion updated to match; familysay-6251's guard already covers the code.
 - NITs taken: the new test's no-org-kind check is case-insensitive and covers "family"; the "@" assertion, which
   could not fail on a fixed sentence, removed.
+
+## Copy (Mona Lisa, 11-06 04:31, the copy owner)
+- org_wrong_email kept. org_pilot_full: "This Kosmos+ account has no free seat right now. Ask whoever sent the code to free a
+  seat or add one." ("pilot" is the admin's word). org_wrong_domain: "That code only works for an email address at the
+  domain it was made for. Sign in with one, or ask whoever sent it for a new code." (a way out for someone without one).
+  Copy only; the three focused files 81/81 after.
