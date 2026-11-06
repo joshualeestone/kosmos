@@ -24,3 +24,16 @@ error page served by that computer) counts as landed.
 
 ## Validation
 App selftest 290/290 (a mutant that never counts fails both counting rows); web*/native-app* test files 3860/3860.
+
+## Review round 1 (opus; no BLOCKER)
+- WARNING: a quit after the remote page COMMITTED but before it finished counted a landed switch as a miss (and at the
+  limit logged a forget that quitKeeps then undid) --> FIXED: where the window is (`away`) is read first; only a quit
+  with the window not on another computer, and a computer kept, counts (`neverLanded`). This also gives
+  quitMissesAfter's false branch a real caller.
+- WARNING: the test could not fail if the forget at the limit were removed --> FIXED: the forget block is pinned; a
+  mutant without it fails.
+- NIT fixed: with no computer kept, nothing is counted.
+- NIT kept: a click-started switch that fails, answered 'busy' during the reopen, charges the kept computer one miss.
+  If that switch lands, `.keep` replaces the kept computer, so only a failed one costs a miss.
+Validation after: selftest 290/290; 482 files (web*, native-app*, and every test that reads main.swift), 4165 run,
+0 fail.
