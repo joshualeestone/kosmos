@@ -251,9 +251,10 @@ test('item 13 -- the remnant copy on the create-first-agent screen stays deleted
    assertion in this file would have been green from the day it was written and
    would have guarded nothing.
 
-   Its merge-time pin is install.installing-page.test.js ('item 4 -- "Nothing
-   to do." stays deleted'), and tools/check-served.js's pkg_absent row checks
-   the served installer when that tool is run (by hand; kosmos#8132).
+   Its merge-time pin is in install.installing-page.test.js, the test titled:
+   item 4 -- "Nothing to do." stays deleted, and only that sentence went
+   tools/check-served.js's pkg_absent row checks the served installer when
+   that tool is run (by hand; kosmos#8132).
 
    ⇒ Not pinned here, on purpose, rather than in the wrong
    file where it would read as covered. A green assertion in the wrong
