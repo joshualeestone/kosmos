@@ -3,7 +3,7 @@ pre_challenge: true
 method: challenge-loop
 branch: abquiet-8083
 diff_hash: f88986cef3cad53849d604465c78297cb3304a699c8c90e0cbb334cfa19cce76
-validation: pending (full suite queued after convergence, per the fleet's queue rule; focused suites passed every round)
+validation: passed (full suite 27501 tests, 0 fail, at 1dcfcd9f9d, 21:28 CST)
 subdir_audit: passed
 timestamp: 2026-11-06T02:45:04Z
 iterations: 7
