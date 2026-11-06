@@ -35,6 +35,7 @@ test('#1765: an unsafe run folder is asked of its own Kosmos.exe once, and becom
   assert.deepEqual(calls[0].args, ['--check-run-folder']);
   assert.equal(calls[0].opt.timeout, rf.CHECK_TIMEOUT_MS, 'the answer has a time bound');
   assert.equal(calls[0].opt.windowsHide, true);
+  assert.equal(calls[0].opt.env[rf.ASKING_ENV], '1', 'the Kosmos.exe asked is not marked, so a board it started could ask again');
   assert.deepEqual(got, { asked: true, notice: { folder: ROOT, message: JSON.parse(UNSAFE).message } });
   assert.deepEqual(rf.current(), { folder: ROOT, message: JSON.parse(UNSAFE).message });
   assert.ok(logs.some((l) => l.includes('Authenticated Users can change')), 'the reason goes to board.log: ' + logs.join(' | '));
@@ -151,4 +152,12 @@ test('#1765: still unreadable the second time, the board shows the softer words 
 test('#1765: the second question waits off the board (an unref timer by default)', () => {
   const src = require('node:fs').readFileSync(require('node:path').join(__dirname, 'win32runfolder.js'), 'utf8');
   assert.match(src, /const wait = o\.wait \|\| \(\(ms, fn\) => \{ const t = setTimeout\(fn, ms\); if \(t && t\.unref\) t\.unref\(\); \}\);/);
+});
+
+test('#1765: a board started by the check never asks, so an old launcher cannot loop (review 3)', async () => {
+  const { o, calls, logs } = seams({ env: { [rf.ASKING_ENV]: '1' } });
+  const got = await rf.atStart(o);
+  assert.equal(calls.length, 0, 'it asked again');
+  assert.deepEqual(got, { asked: false, notice: null });
+  assert.ok(logs.some((l) => /started by that check/.test(l)), logs.join(' | '));
 });

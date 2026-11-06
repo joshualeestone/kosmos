@@ -24836,7 +24836,8 @@ function paintDamagedFiles(files) {
   });
 }
 /* kosmos#1765: this board runs from a folder other people on this PC may be able to change (engine/win32runfolder.js,
-   which asks that folder's own Kosmos.exe). The words are the launcher's own; the X hides it until the next start,
+   which asks that folder's own Kosmos.exe). It wears the restart note's tone and layout (`utoast reboot`), as the
+   damaged-files note does: restyling that note restyles these. The words are the launcher's own; the X hides it until the next start,
    and says so when that did not work, as the damaged-files note's X does. */
 function paintRunFolder(notice) {
   const slot = document.getElementById('runfolder-slot');

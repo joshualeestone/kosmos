@@ -20,10 +20,16 @@ const cp = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-/* A cold Kosmos.exe start under an antivirus scan can be slow; the board is serving meanwhile, so this only bounds
-   how long the answer may take to arrive. Measured on the Windows box: about 0.3 s. */
+/* How long the answer may take to arrive; the board is serving meanwhile. Measured on the Windows box: Kosmos.exe
+   starts and answers in about 0.3 s, and reading the permissions of a whole installed build (829 files, every one
+   read on its own outside the profile) takes about 90 ms the first time and 40 ms after. The bound is far above that
+   for a cold start under an antivirus scan, which can be slow; one that runs out is logged, never shown. */
 const CHECK_TIMEOUT_MS = 20000;
 const FLAG = '--check-run-folder';
+/* Set in the Kosmos.exe the board asks. A board started under it never asks: if a launcher that predates the flag were
+   ever beside this code, it would take the flag for an ordinary start and start a board, which must not ask again
+   (review 3). */
+const ASKING_ENV = 'KOSMOS_RUNFOLDER_ASKING';
 /* A check that could not read something is asked once more after this long: an update writing .kosmos-update\ can
    make an item unreadable for a moment. Still unreadable then, the board shows the launcher's softer words (review 2). */
 const RECHECK_MS = 30000;
@@ -70,6 +76,8 @@ function atStart(opts) {
   return new Promise((resolve) => {
     const done = (asked, notice) => { PENDING = false; resolve({ asked, notice: notice || null }); };
     if ((o.platform || process.platform) !== 'win32') { done(false); return; }
+    const env = o.env || process.env;
+    if (env[ASKING_ENV] === '1') { log(o, 'Kosmos did not check its own folder: this board was started by that check.'); done(false); return; }
     let root = null;
     try { root = (o.bundleRoot || (() => require('./win32board').bundleRoot()))(); } catch { root = null; }
     if (!root) { done(false); return; }   // a source checkout, or the updater's own work folder
@@ -84,7 +92,7 @@ function atStart(opts) {
     const wait = o.wait || ((ms, fn) => { const t = setTimeout(fn, ms); if (t && t.unref) t.unref(); });
     const ask = (again) => {
       try {
-        run(exe, [FLAG], { encoding: 'utf8', timeout: CHECK_TIMEOUT_MS, windowsHide: true, maxBuffer: 64 * 1024 }, (err, stdout) => {
+        run(exe, [FLAG], { encoding: 'utf8', timeout: CHECK_TIMEOUT_MS, windowsHide: true, maxBuffer: 64 * 1024, env: { ...env, [ASKING_ENV]: '1' } }, (err, stdout) => {
           if (err) { log(o, 'Kosmos could not check whether others can change ' + root + ' (' + ((err && err.code) || 'it failed') + ').'); done(true); return; }
           const a = readAnswer(stdout);
           if (!a) { log(o, 'Kosmos could not read the answer about ' + root + ', so the board says nothing about it.'); done(true); return; }
@@ -103,12 +111,12 @@ function atStart(opts) {
         });
       } catch (e) {
         log(o, 'Kosmos could not check whether others can change ' + root + ' (' + ((e && e.message) || 'it failed') + ').');
-        done(false);
+        done(again);   // asked once already if this was the second question
       }
     };
-    /* 📌 THE Kosmos.exe ASKED IS ALWAYS ONE THAT KNOWS THE FLAG. An update replaces Kosmos.exe together with app\
-       (win32update.js REQUIRED_ENTRIES lists both), so a board running this code sits beside a launcher built with
-       --check-run-folder; an older launcher would take the flag for an ordinary start. */
+    /* 📌 THE Kosmos.exe ASKED SHOULD ALWAYS KNOW THE FLAG: an update replaces Kosmos.exe together with app\
+       (win32update.js REQUIRED_ENTRIES lists both). If one ever did not (a hand-copied app\), it would take the flag
+       for an ordinary start; ASKING_ENV keeps the board it starts from asking again. */
     ask(false);
   });
 }
@@ -120,4 +128,4 @@ function pending() { return PENDING; }
 /** Hides it until the next start. */
 function dismiss() { NOTICE = null; return true; }
 
-module.exports = { atStart, current, pending, dismiss, readAnswer, isSameOrInside, CHECK_TIMEOUT_MS, RECHECK_MS, FLAG };
+module.exports = { atStart, current, pending, dismiss, readAnswer, isSameOrInside, CHECK_TIMEOUT_MS, RECHECK_MS, FLAG, ASKING_ENV };

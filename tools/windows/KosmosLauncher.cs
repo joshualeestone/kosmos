@@ -546,8 +546,9 @@ class KosmosLauncher
     // the full walk on purpose: the first pass makes a refusal name the one that matters most.
     internal static string UnsafeRunFolderReason(string here)
     {
+        lastReasonUnreadable = false;
         string full = FullPathOrNull(here);
-        if (full == null) return "the folder's path could not be read";
+        if (full == null) return Unreadable("the folder's path could not be read");
         string profile = FullPathOrNull(userProfileFolder());
         if (profile != null && IsSameOrInside(full, profile)) return null;
         // On a network share the well-known accounts in its permissions (Administrators, SYSTEM) are the
@@ -555,8 +556,8 @@ class KosmosLauncher
         if (IsOnAnotherComputer(full)) return full + " is on another computer (a network share), whose accounts this computer cannot vouch for";
         System.Security.Principal.SecurityIdentifier me;
         try { me = currentUser(); }
-        catch (Exception e) { return "this account could not be read (" + e.Message + ")"; }
-        if (me == null) return "this account could not be read";
+        catch (Exception e) { return Unreadable("this account could not be read (" + e.Message + ")"); }
+        if (me == null) return Unreadable("this account could not be read");
         string folder = full.TrimEnd('\\', '/');
         // The run folder, or a folder above it, being a link (junction or symlink) is refused: its permissions are
         // read at the place it points to, never on the link itself, and whoever may delete the link can put a folder
@@ -585,12 +586,12 @@ class KosmosLauncher
             string dir = pending.Pop();
             string[] files;
             try { files = Directory.GetFiles(dir); }
-            catch (Exception e) { return "what is in " + dir + " could not be read (" + e.Message + ")"; }
+            catch (Exception e) { return Unreadable("what is in " + dir + " could not be read (" + e.Message + ")"); }
             foreach (string item in files)
             {
                 FileAttributes fileAttributes;
                 try { fileAttributes = File.GetAttributes(item); }
-                catch (Exception e) { return "what " + item + " is could not be read (" + e.Message + ")"; }
+                catch (Exception e) { return Unreadable("what " + item + " is could not be read (" + e.Message + ")"); }
                 // A file link is read through to its target, never the target's folder, so it is refused like a folder link.
                 if ((fileAttributes & FileAttributes.ReparsePoint) != 0) return item + " is a link to another place, which a Kosmos folder never has";
                 problem = OtherWriterOf(item, me, AclScope.Code);
@@ -598,12 +599,12 @@ class KosmosLauncher
             }
             string[] subs;
             try { subs = Directory.GetDirectories(dir); }
-            catch (Exception e) { return "what is in " + dir + " could not be read (" + e.Message + ")"; }
+            catch (Exception e) { return Unreadable("what is in " + dir + " could not be read (" + e.Message + ")"); }
             foreach (string sub in subs)
             {
                 FileAttributes attributes;
                 try { attributes = File.GetAttributes(sub); }
-                catch (Exception e) { return "what " + sub + " is could not be read (" + e.Message + ")"; }
+                catch (Exception e) { return Unreadable("what " + sub + " is could not be read (" + e.Message + ")"); }
                 if ((attributes & FileAttributes.ReparsePoint) != 0) return sub + " is a link to another place, which a Kosmos folder never has";
                 problem = OtherWriterOf(sub, me, AclScope.Code);
                 if (problem != null) return problem;
@@ -641,7 +642,7 @@ class KosmosLauncher
                 : File.GetAccessControl(shown, sections);
             descriptor = new System.Security.AccessControl.RawSecurityDescriptor(security.GetSecurityDescriptorBinaryForm(), 0);
         }
-        catch (Exception e) { return "who can change " + shown + " could not be read (" + e.Message + ")"; }
+        catch (Exception e) { return Unreadable("who can change " + shown + " could not be read (" + e.Message + ")"); }
         // No permissions at all first: a FAT or exFAT drive reports no owner worth naming either, and its
         // own reason is the one the person can act on.
         System.Security.AccessControl.RawAcl acl = descriptor.DiscretionaryAcl;
@@ -722,10 +723,11 @@ class KosmosLauncher
     internal static string RunFolderAnswer(string here)
     {
         string reason;
-        try { reason = UnsafeRunFolderReason(here); }
-        catch (Exception e) { reason = "the folder could not be read (" + e.Message + ")"; }
+        bool unreadable;
+        try { reason = UnsafeRunFolderReason(here); unreadable = lastReasonUnreadable; }
+        catch (Exception e) { reason = "the folder could not be read (" + e.Message + ")"; unreadable = true; }
         if (reason == null) return "{\"safe\":true}";
-        if (CouldNotRead(reason))
+        if (unreadable)
         {
             return "{\"safe\":false,\"checked\":false,\"folder\":" + JsonText(FullPathOrNull(here) ?? here) + ",\"reason\":" + JsonText(reason)
                 + ",\"message\":" + JsonText(UncheckedFolderMessage(here)) + "}";
@@ -735,11 +737,13 @@ class KosmosLauncher
             + ",\"message\":" + JsonText(RunningFolderMessage(here)) + "}";
     }
 
-    // True for UnsafeRunFolderReason's answers that say something could not be read, rather than that someone else
-    // can change it. Every such answer of its says "could not be read"; a test holds that.
-    internal static bool CouldNotRead(string reason)
+    // Set by UnsafeRunFolderReason when its answer is that something could not be read, rather than that someone else
+    // can change it. A flag, not a search of the sentence: the sentence can quote names from the folder judged.
+    [ThreadStatic] static bool lastReasonUnreadable;
+    static string Unreadable(string reason)
     {
-        return reason != null && reason.IndexOf("could not be read", StringComparison.Ordinal) >= 0;
+        lastReasonUnreadable = true;
+        return reason;
     }
 
     // What the board tells a person whose Kosmos already runs from such a folder: the same fact and the same way out

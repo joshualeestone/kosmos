@@ -84,7 +84,7 @@ test('#1765: the rights that count, and the only accounts that may hold them', (
   const reason = slice('internal static string UnsafeRunFolderReason(string here)', '\n    }\n');
   assert.match(reason, /if \(profile != null && IsSameOrInside\(full, profile\)\) return null;/);
   const other = slice('static string OtherWriterOf(', '\n    }\n');
-  assert.match(other, /catch \(Exception e\) \{ return "who can change "/);
+  assert.match(other, /catch \(Exception e\) \{ return Unreadable\("who can change "/);
   assert.match(other, /if \(acl == null \|\| !hasDacl\) return "anyone can change "/);
 });
 
@@ -524,7 +524,7 @@ test('#1765: --check-run-folder answers one JSON line: safe in the profile, and 
   assert.ok(a.message.endsWith('Once you have next signed in to Windows, you can delete ' + open + '.'), a.message);
   assert.equal(a.checked, undefined, 'a folder that was read is not marked unchecked');
   assert.doesNotMatch(a.message, /\u2014/, 'an em dash in the words');
-  // A folder that cannot be read answers unchecked, with the reason and no words for the person (review 1).
+  // A folder that cannot be read answers unchecked, with the reason and the softer words for the person.
   const gone = path.join(path.dirname(open), 'not-there');
   const u = JSON.parse(spawnSync(probeExe, ['--answer', gone, NOT_MY_PROFILE], { encoding: 'utf8', windowsHide: true, timeout: 30000 }).stdout);
   assert.equal(u.safe, false);
@@ -532,6 +532,14 @@ test('#1765: --check-run-folder answers one JSON line: safe in the profile, and 
   assert.match(u.reason, /could not be read/);
   assert.ok(u.message.startsWith('Kosmos is running from ' + gone + ', and it could not check whether other people who use this computer can change'), u.message);
   assert.equal(u.folder, gone);
+  // A folder whose NAME says "could not be read" but that Users can change is unsafe, not unchecked: the launcher
+  // flags an unreadable answer, it does not search the sentence (review 3).
+  const named = sandboxFolder('could not be read');
+  icacls(named, '/grant', USERS + ':(OI)(CI)M');
+  const nm = JSON.parse(spawnSync(probeExe, ['--answer', named, NOT_MY_PROFILE], { encoding: 'utf8', windowsHide: true, timeout: 30000 }).stdout);
+  assert.equal(nm.safe, false);
+  assert.equal(nm.checked, undefined, 'a name that quotes the words turned "can change" into "unchecked": ' + JSON.stringify(nm));
+  assert.match(nm.reason, / can change /);
   // A locked folder answers safe.
   const locked = sandboxFolder('answer-locked');
   lockDown(locked);
