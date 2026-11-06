@@ -32223,7 +32223,7 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
   document.getElementById('acct-openai-flow').hidden = true;
   acctApikeyShow(null);
   acctQwenShow(false);   // #5977
-  acctCompatShow(false);   // #7206 (1b review 2): the DeepSeek key form too, and its in-flight add stops
+  acctCompatShow(false);   // #7206 (1b review 2): the DeepSeek or GLM key form too, and its in-flight add stops
   acctAddPickSay('');   // #3939 slice 3c-2 (round 5): going back to "Choose a provider" is a choice too
 });
 /* #770: the door opens the dialog; the dialog remembers nothing between
@@ -34663,7 +34663,7 @@ function openAcctAdd(ev) {
   ACCT_GROK_REAUTH_DIR = null;   // #3391 part 2: a fresh add is never a sign-in again
   acctApikeyShow(null);  /* #3566: the key step never outlives a visit (it holds a pasted key) */
   acctQwenShow(false);   // #5977: nor does the Qwen step (its key, and its download poll)
-  acctCompatShow(false);   // #7206: nor the DeepSeek step (it holds a pasted key)
+  acctCompatShow(false);   // #7206: nor the DeepSeek or GLM step (it holds a pasted key)
   ACCT_ADD_VISIT += 1;
   acctAddPickSay('');
   acctMuseShow(false); ACCT_MUSE_ASKING = museAsk();   // #3939: Meta Muse is offered only when this Kosmos says so
@@ -34713,7 +34713,7 @@ function closeAcctAdd() {
   acctOpenaiSubReset();   // hides the sub affordances and re-enables the Sign-in button
   acctApikeyShow(null);   // #3566: a pasted Gemini/Grok key does not stay in a hidden field after close
   acctQwenShow(false);   // #5977: the Qwen key and name too, and its download poll stops
-  acctCompatShow(false);   // #7206 (1b review 2): the DeepSeek key form too, and its in-flight add stops
+  acctCompatShow(false);   // #7206 (1b review 2): the DeepSeek or GLM key form too, and its in-flight add stops
   acctMuseShow(false);   // #3939: a Muse sign-in left running is stopped, not left polling a closed dialog
   /* kosmos#1656: return the modal to its form state on the way out, so the next
      open is clean: the success panel gone and the sign-in controls back. */
@@ -35107,20 +35107,21 @@ function compatAsk() {
 /* 2b: acctCompatShow(vendor) opens the key form for that vendor (only while its own switch is on); any other value
    (false, null, an id the page does not know) puts it away. */
 function acctCompatShow(which) {
-  ACCT_COMPAT_GEN += 1;
   const flow = document.getElementById('acct-compat-flow');
   if (!flow) return;
   const id = compatId(which);
   const on = !!(id && COMPAT_ON_FOR[id]);
-  /* 2b review 1: a vendor change clears what was typed, as acctApikeyShow does: a DeepSeek key left in the field and
-     submitted under GLM would be sent to Z.ai's check. */
+  /* 2b review 1: a vendor change (or putting the form away) clears what was typed, as acctApikeyShow does: a DeepSeek
+     key left in the field and submitted under GLM would be sent to Z.ai's check. Review 2: only a CHANGE starts a new
+     visit. Re-picking the vendor already open keeps the add in flight (its generation, its disabled Add, its line). */
   if (ACCT_COMPAT_WHICH !== (on ? id : '')) {
+    ACCT_COMPAT_GEN += 1;
     const k = document.getElementById('acct-compat-key'); if (k) k.value = '';
     const n = document.getElementById('acct-compat-name'); if (n) n.value = '';
+    const m = document.getElementById('acct-compat-msg'); if (m) m.textContent = '';
+    const go = document.getElementById('acct-compat-go'); if (go) go.disabled = false;
   }
   ACCT_COMPAT_WHICH = on ? id : '';
-  /* A new show starts armed: the add it bumps past cannot re-enable Add itself (its finally checks the generation). */
-  const go = document.getElementById('acct-compat-go'); if (go) go.disabled = false;
   flow.hidden = !on;
   if (on) {
     const w = COMPAT_PAGE[id];
@@ -35132,11 +35133,6 @@ function acctCompatShow(which) {
     if (k) { k.setAttribute('aria-label', w.keyLabel); k.setAttribute('placeholder', w.placeholder); }
     const a = document.getElementById('acct-compat-keypage');
     if (a) { a.setAttribute('href', w.keyPage); a.textContent = w.keyHost; }
-  }
-  const m = document.getElementById('acct-compat-msg'); if (m) m.textContent = '';
-  if (flow.hidden) {   // put away means put away: a pasted key does not stay in a hidden field
-    const k = document.getElementById('acct-compat-key'); if (k) k.value = '';
-    const n = document.getElementById('acct-compat-name'); if (n) n.value = '';
   }
 }
 let ACCT_QWEN_GEN = 0;
