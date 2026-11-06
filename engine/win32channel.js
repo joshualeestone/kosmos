@@ -355,8 +355,8 @@ function powershellReason(stderr) {
 
 /**
  * Review 3: what the person is told when Windows PowerShell could not answer, in plain words. PowerShell's own
- * error line is engine output, so it never reaches the person. It rides on the error as `detail`, so a caller
- * can log it; nothing logs it yet (a follow-up on #1765), so an unrecognised failure reads only as the plain line.
+ * error line is engine output, so it never reaches the person. It rides on the error as `detail`, which the
+ * helper passes back and say() writes to the board's log (review 6), never into the sentence.
  * 🔑 A LOCKED-DOWN POWERSHELL HAS ITS OWN SENTENCE. On a PC whose policy (WDAC or AppLocker) runs PowerShell in
  * Constrained Language Mode, the pipe type cannot be created and every message is refused, so the reason has to
  * name that, or the outage cannot be told apart from a slow one. Pure, so a test pins each wording.
@@ -371,7 +371,9 @@ function ownerCheckFailure(stderr, code) {
     because = 'Windows did not say in time';
   } else if (/access to the path.*is denied|access is denied|UnauthorizedAccess/i.test(said)) {
     because = 'Windows would not let Kosmos look at who holds it';
-  } else if (/pipe (is being )?closed|pipe is broken|All pipe instances are busy|cannot find the file|FileNotFound/i.test(said)) {
+  } else if (/All pipe instances are busy/i.test(said)) {
+    because = 'its channel was busy, so Windows could not say who holds it';
+  } else if (/pipe (is being )?closed|pipe is broken|cannot find the file|FileNotFound/i.test(said)) {
     because = 'its channel closed before Windows could say who holds it';
   }
   const e = new Error(because);
@@ -397,6 +399,7 @@ function serverOwnerOf(at, timeoutMs, onChild) {
       encoding: 'utf8', timeout: timeoutMs, windowsHide: true, maxBuffer: 64 * 1024, env,
     }, (err, stdout, stderr) => {
       if (err) {
+        if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') { reject(new Error('Windows answered in a form Kosmos could not read')); return; }
         if (err.killed || err.signal || err.code === 'ETIMEDOUT') { reject(new Error('Windows did not say in time')); return; }
         if (err.code === 'ENOENT') { reject(new Error('Windows PowerShell is not where Windows keeps it')); return; }
         reject(ownerCheckFailure(stderr, err.code));
@@ -504,7 +507,16 @@ function say(name, text, opts) {
   }
   /* The helper RAN -- a never-started one returned above -- so it may have
      handed the message over before its verdict went wrong. */
-  return readVerdict(String(out).trim().split('\n').pop(), true);
+  const last = String(out).trim().split('\n').pop();
+  const verdict = readVerdict(last, true);
+  /* Review 6: a refused owner check carries Windows PowerShell's own line as `detail`. It goes to the board's
+     log, never to the person or a caller, so a check that fails the same way on every message can be diagnosed. */
+  if (!verdict.ok) {
+    let detail = null;
+    try { const raw = JSON.parse(last); detail = raw && typeof raw.detail === 'string' && raw.detail ? raw.detail : null; } catch { detail = null; }
+    if (detail) { try { console.error('kosmos channel: ' + String(name) + ': ' + verdict.because + ' [' + detail.slice(0, 300) + ']'); } catch { /* a log is never fatal */ } }
+  }
+  return verdict;
 }
 
 /**
@@ -653,7 +665,9 @@ function clientMain(name, text, opts) {
       send();
     }, (e) => {
       if (settled) return;
-      finish({ ok: false, because: 'we could not confirm its channel belongs to you (' + String((e && e.message) || 'no answer').slice(0, 160) + '), so we did not type anything' });
+      const failed = { ok: false, because: 'we could not confirm its channel belongs to you (' + String((e && e.message) || 'no answer').slice(0, 160) + '), so we did not type anything' };
+      if (e && typeof e.detail === 'string' && e.detail) failed.detail = e.detail.slice(0, 300);   // for say()'s log line only
+      finish(failed);
     });
   });
   return sock;

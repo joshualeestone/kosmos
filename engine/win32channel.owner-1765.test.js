@@ -135,6 +135,19 @@ test('#1765: a client that settles first ends the check\'s own process', async (
   assert.equal(killed, 1, 'the check process was left running');
 });
 
+test('#1765: a refused check passes PowerShell\'s own line back for the log, never into the sentence', async () => {
+  /* Review 6: the helper's verdict carries `detail`; the sentence stays plain. */
+  const sq = await recorder();
+  const fail = new Error('Windows could not say who holds it');
+  fail.detail = 'New-Object : something only a log should show';
+  const r = await ask('detailed', 'hello', sq.addr, { timeoutMs: 1000, checkServer: async () => { throw fail; } });
+  assert.equal(r.ok, false);
+  assert.equal(r.detail, 'New-Object : something only a log should show');
+  assert.ok(!r.because.includes('New-Object'), 'engine output reached the sentence');
+  await new Promise((res) => setTimeout(res, 50));
+  assert.deepEqual(sq.got, []);
+});
+
 test('#1765: a check that fails or throws refuses, and writes nothing', async () => {
   for (const [label, check] of [
     ['rejects', async () => { throw new Error('Windows did not say in time'); }],
@@ -206,7 +219,8 @@ test('#1765: a check PowerShell could not finish is told in plain words, with it
     [clm, /runs Windows PowerShell locked down/],
     ['Exception calling "Connect" with "1" argument(s): "The operation has timed out."', /^Windows did not say in time$/],
     ['Exception calling "Connect" with "1" argument(s): "Access to the path is denied."', /would not let Kosmos look/],
-    ['Exception calling "Connect" with "1" argument(s): "All pipe instances are busy."', /channel closed before Windows could say/],
+    ['Exception calling "Connect" with "1" argument(s): "All pipe instances are busy."', /channel was busy/],
+    ['Exception calling "Connect" with "1" argument(s): "Pipe is broken."', /channel closed before Windows could say/],
     ['something nobody has seen before', /^Windows could not say who holds it$/],
     ['', /^Windows could not say who holds it$/],
   ];
