@@ -9325,6 +9325,7 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 #cstep-name .sfoot #create-go { flex: 0 0 auto; }
 #create-msg .linkish { font-size: inherit; }   /* kosmos#8040: the link in a refusal reads at its sentence's size */
 #create-kept .linkish { font-size: inherit; }   /* kosmos#8051: Start over reads at its sentence's size */
+#create-kept { color: var(--label-2); }   /* kosmos#8051: it holds the only way out, so not the faint hint colour */
 #cstep-name { padding-bottom: var(--space-7); }   /* kosmos#8040: room under the sentence, or in the consolidated column it ends at the window's very edge */
 /* kosmos#8040: the sample name reads as a name already typed, so "Give the agent a name." looked wrong beside it and the
    press looked like nothing. While the box is refused it shows as what it is: empty. The sample stays for everyone else. */
@@ -67971,7 +67972,8 @@ function createEnter() {
   loadCreateExtras({ provider: val('create-provider'), account: CREATE_ACCOUNT_TOUCHED ? val('create-account') : '', model: CREATE_MODEL_TOUCHED ? val('create-model') : '', reports: val('create-reports') });
 }
 /* kosmos#8051 item 1: the line that says a form was kept. Focus goes to the name field on a kept return, so the field
-   names the line as its description: a screen reader hears why the old name is there. */
+   names the line as its description: a screen reader hears why the old name is there. This function owns that attribute:
+   if the field ever gets another description, join the two here rather than set it elsewhere. */
 function createKeptLine(on) {
   document.getElementById('create-kept').hidden = !on;
   const name = document.getElementById('create-name');
