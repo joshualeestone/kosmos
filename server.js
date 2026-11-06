@@ -7152,7 +7152,11 @@ async function cardsForResolve() {
       if (!k || k.removed || !(k.folder || k.job) || seen.has(k.name) || gone.has(k.name)) continue;
       cards.push({ name: k.name, shown: k.shownAs || k.name });
     }
-    return cards;
+    /* kosmos#8113: the setup guide off, as the list route marks it (`markGuide`, the same name rule) and leaves it out. */
+    const guideNow = setupGuideNow();
+    const guide = guideNow.ok ? guideNow.name
+      : (guideNow.reason === 'unchecked' && setupAssistant.isGuideFolder(setupAssistant.guideName()) ? setupAssistant.guideName() : null);
+    return guide ? cards.filter((c) => c.name !== guide) : cards;
   } catch { return null; }
 }
 
