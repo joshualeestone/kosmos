@@ -108,7 +108,7 @@ test('#5167: the selftest runs the download rows and counts them', () => {
   const dl = (st.slice(0, st.indexOf('let expected')).match(/\n    dl\(/g) || []).length;
   const dest = (st.slice(0, st.indexOf('let expected')).match(/\n    dest\(/g) || []).length;
   assert.equal(dl + dest, 29, 'the #5167 rows changed; update the expected count with them');
-  assert.match(st, /let expected = 226\b/);   // kosmos#7952: +12 (download-folder says rows, isFolderDownload rows, downloadAskedByPage rows, the marked request)
+  assert.match(st, /let expected = 234\b/);   // kosmos#5167 (11-06): +6 (the failure reason rows); kosmos#7952: +12 (download-folder says rows, isFolderDownload rows, downloadAskedByPage rows, the marked request)
   // kosmos#5167 (2026-10-27): +9 refusalShouldShow rows; kosmos#6589: +14 tls-pin rows; #6585: +10 switchGoesHome rows; #5896: +14 config rows; #6411: +42 own-board, own-settings, address, board-start retry and advice-origin rows; #6358: +27 (sign-in-again, log redaction, sign-in-again page, decision)
 });
 
@@ -124,7 +124,7 @@ test('#5167: the live download selftest exists, measures the dangerous answers, 
     'AN ATTACHMENT FROM ANOTHER ORIGIN SAVES NOTHING', 'a saved file carries THIS APP', 'a same-origin <a download> is saved']) {
     assert.ok(hatch.includes('"' + row), 'the selftest no longer checks: ' + row);
   }
-  assert.match(hatch, /let expected = 38[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
+  assert.match(hatch, /let expected = 39[^\n]*\n\s+if ran != expected \{/, 'the live selftest no longer counts its rows, so a dropped row still prints all good');
   assert.match(hatch, /d\.badgeOrigin = \("127\.0\.0\.1", Int\(p\)\)/, 'the selftest page is not the board, so every download would be refused');
   assert.match(hatch, /AppDelegate\.downloadAlertPresenter = \{ told\.append\(\$0\) \}/, 'the selftest would put up a real alert nobody can press');
   assert.match(SRC, /static var downloadsDirOverride: URL\?/);

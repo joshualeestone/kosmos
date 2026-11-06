@@ -652,6 +652,31 @@ func pageSaysDownloadRefusal(_ url: URL?) -> Bool {
     return false
 }
 
+/// #5167 (11-06): PURE, for --kosmos-app-mode-selftest. The words a failed download's alert gives: WebKit's own, which for a
+/// file it could not make is only "Cannot create file", then the system's reason when WebKit says one (a POSIX error under
+/// NSUnderlyingErrorKey: "Permission denied", "File exists", "No space left on device"). Only that reason, in libc's fixed
+/// words: the error's other details carry the download's address, and with it the board token.
+func downloadFailureWords(_ error: Error) -> String {
+    let ns = error as NSError
+    // Review 1: the reason can sit a level further down (a Cocoa file error over the POSIX one); three levels at most.
+    var under = ns.userInfo[NSUnderlyingErrorKey] as? NSError
+    var depth = 0
+    while let u = under, u.domain != NSPOSIXErrorDomain, depth < 2 { under = u.userInfo[NSUnderlyingErrorKey] as? NSError; depth += 1 }
+    guard let u = under, u.domain == NSPOSIXErrorDomain, u.code > 0, u.code < 200 else { return ns.localizedDescription }
+    return ns.localizedDescription + ": " + String(cString: strerror(Int32(u.code)))
+}
+/// #5167 (11-06): PURE. A failed download for the unified log, in domains and numbers only (logToSystem's rule: no address,
+/// no file): "NSURLErrorDomain -3000, NSPOSIXErrorDomain 13", or the one domain when nothing lies under it.
+func downloadFailureCodes(_ error: Error) -> String {
+    let ns = error as NSError
+    func one(_ e: NSError) -> String { e.domain.filter { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == ".") } + " " + String(e.code) }
+    // Review 2: down to the same three levels the alert reads, so a POSIX reason under a Cocoa file error is logged too.
+    var parts = [one(ns)]
+    var under = ns.userInfo[NSUnderlyingErrorKey] as? NSError
+    while let u = under, parts.count < 4 { parts.append(one(u)); under = u.userInfo[NSUnderlyingErrorKey] as? NSError }
+    return parts.joined(separator: ", ")
+}
+
 /// #5167: PURE, for --kosmos-app-mode-selftest. Where a saved download goes: `dir` (the person's
 /// Downloads), under the name the page or server suggested, made safe and never over an existing file.
 /// WebKit already reduces the suggestion to a file name; this does not rely on that. A path separator,
@@ -4221,6 +4246,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
         let dest = downloadsInFlight.removeValue(forKey: ObjectIdentifier(download))
         logLine("#5167: a download failed (\(dest?.lastPathComponent ?? "no destination yet")): \(error.localizedDescription)")
+        // 11-06: kept on a person's Mac too (logLine's file is the test harness's only), in codes alone.
+        logToSystem("#5167: a download failed (" + downloadFailureCodes(error) + ")")
         // Said once per download: a refusal this app already told arrives here as a cancel too. A cancel
         // it did not start (WebKit refusing a download on its own) is said as a refusal; any other
         // failure always.
@@ -4232,7 +4259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // the window may then show the file: #5169). Said as a refusal, through its guard, so one click cannot put up two alerts.
                 tellDownloadFailed("The download stopped before it began, so nothing was saved.", refusal: true)
             } else {
-                tellDownloadFailed("The file could not be saved to Downloads (\(error.localizedDescription)).")
+                tellDownloadFailed("The file could not be saved to Downloads (\(downloadFailureWords(error))).")   // 11-06: and why, when WebKit says
             }
         }
     }
@@ -6445,6 +6472,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         case "/":
             let page = "<!doctype html><meta charset=utf-8>"
                 + "<a id=same href=/same.txt download>a</a>"
+                + "<a id=denied href=/denied.txt download>z</a>"
                 + "<a id=att href=/att>b</a>"
                 + "<a id=redir href=/redir download>c</a>"
                 + "<a id=redir2 href=/redir2 download>g</a>"
@@ -6556,7 +6584,7 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
        Allow), and only those are counted here: refusals are said too, but how many reach the screen depends on the
        guard's timing; a run that says fewer failures is judged as it stands. */
     func settled(_ go: @escaping () -> Void, tries: Int = 200) {
-        if failures().count >= 3 || tries == 0 { go(); return }
+        if failures().count >= 4 || tries == 0 { go(); return }   // #5167 (11-06) review 2: +1, the uncreatable file's failure comes first
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settled(go, tries: tries - 1) }
     }
     /* The per-computer question through a real click: the probe page is treated as a Kosmos+ computer that
@@ -6674,6 +6702,16 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
         // for one, and the Allow question (askArm). Every other arm runs the path this computer's own board ships on,
         // WebKit's own download.
         func mark(_ on: Bool, then: @escaping () -> Void) { AppDelegate.markBoardDownloadsForSelftest = on; then() }
+        /* #5167 (11-06): a file WebKit could not create (the folder made unwritable for this one click) says the system's
+           reason, as the operator's "Cannot create file" did not. Restored before every other arm. */
+        chmod(dl.path, 0o500)
+        /* Review 1: restored once the failure is said (up to 5s), not after click's fixed wait, so a slow answer is
+           still refused by the read-only folder rather than landing after it is writable again. */
+        func whenDenied(_ tries: Int, _ then: @escaping () -> Void) {
+            if tries == 0 || told.contains(where: { $0.contains("Cannot create file") }) { chmod(dl.path, 0o700); then(); return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { whenDenied(tries - 1, then) }
+        }
+        load { web.evaluateJavaScript("document.getElementById('denied').click()") { _, _ in }; whenDenied(50) {
         mark(true) { click("same", expect: "same.txt") { mark(false) { click("att", expect: "att.txt") { click("redir2", expect: "ok2.txt") { click("missing") { click("empty") { click("gone") { click("signin") { click("zip", expect: "pack.zip") { click("attstar", expect: "\u{6587}.txt") { click("foreignzip") { mark(true) { click("frames") { mark(false) { notBoard { click("redir") { click("foreign") { click("foreignatt") { click("last", expect: "last.txt") { mark(true) { click("startvoid") { click("refused") { click("htmlpage") { mark(false) { click("busyzip") { mark(true) { askArm { mark(false) { modalArm { settled {
             var bad = 0, ran = 0
             func row(_ ok: Bool, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why) }
@@ -6738,8 +6776,10 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!saved("attframe.txt") && !saved("attframe2.txt"), "A FRAME LOADING AN ATTACHMENT SAVES NOTHING, from the board's origin or another")
             row(!saved("nb.txt") && notBoardStayed, "A PAGE THAT IS NOT THE BOARD CANNOT SAVE ITS OWN FILE, and stays in the window")
             row(all.sorted() == ["asked-yes.txt", "att.txt", "framed.txt", "last.txt", "modal-yes.txt", "ok2.txt", "pack.zip", "same.txt", "\u{6587}.txt"], "nothing else was saved (saw: \(all.sorted().joined(separator: ", ")))")
-            let fails = failures()   // kosmos#7952: +3 (the voided start, the refused 403, the busy folder) and the web page
-            row(fails.count == 7 && voided.count == 1 && notStarted.count == 1 && refusedSaid.count == 1 && busySaid.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
+            let denied = told.filter { $0.contains("(Cannot create file: Permission denied)") }
+            row(!saved("denied.txt") && denied.count == 1, "#5167 (11-06): A FILE WEBKIT COULD NOT CREATE SAYS WHY, in the system's words (\(denied.count))")
+            let fails = failures()   // #5167 (11-06): +1, the uncreatable file; kosmos#7952: +3 (the voided start, the refused 403, the busy folder) and the web page
+            row(fails.count == 8 && denied.count == 1 && voided.count == 1 && notStarted.count == 1 && refusedSaid.count == 1 && busySaid.count == 1 && fails.contains { $0.contains("answer was 404") } && fails.contains { $0.contains("a web page, not the file") },
                 "EVERY REAL FAILURE IS SAID, ONE ALERT EACH (the 404, two web pages answered for a file, the voided Allow, the voided start, the refused download, the busy folder) (failures \(fails.count): \(fails.joined(separator: " | ")))")
             let refused = refusals()
             let heard = " (asked \(requested.count): \(requested.joined(separator: " | ")))"
@@ -6762,11 +6802,11 @@ if CommandLine.arguments.contains("--kosmos-app-download-selftest") {
             row(!leftBoard.contains("foreignatt"),
                 "A REFUSED ATTACHMENT DOES NOT LOAD IN THE WINDOW instead (other arms that left the board, all #5169: \(leftBoard.joined(separator: ", ")))")
             try? FileManager.default.removeItem(at: dl)
-            let expected = 38   // kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
+            let expected = 39   // #5167 (11-06): +1 (the uncreatable file says why); kosmos#7952: +6 (start voided by a commit; refused, web page and busy-folder arms); the page's own download says same-origin, a frame's is never marked; 2026-10-27: the policy-refusal row became six (each refusal path's sentence, and the guard); +1 the question waits
             if ran != expected { print("\ndownload-check: only \(ran) of \(expected) rows ran, so this proved nothing"); exit(1) }
             print(bad == 0 ? "\ndownload-check: all good (\(ran) rows)" : "\ndownload-check: \(bad) row(s) wrong")
             exit(bad == 0 ? 0 : 1)
-        } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
+        } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } } }
     }
     listener.start(queue: .main)
     withExtendedLifetime((d, listener, win)) { app.run() }
@@ -7898,6 +7938,25 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
     }
     dest("report.pdf", [], "report.pdf", "the suggested name, in Downloads")
     dest("report.pdf", ["report.pdf"], "report (2).pdf", "a taken name is never replaced")
+    // #5167 (11-06): a failed download's alert says the system's reason; the log line carries only codes.
+    do {
+        func fail(_ under: NSError?) -> NSError {
+            var info: [String: Any] = [NSLocalizedDescriptionKey: "Cannot create file", NSURLErrorFailingURLStringErrorKey: "http://127.0.0.1:1/x?token=SECRET"]
+            if let under { info[NSUnderlyingErrorKey] = under }
+            return NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotCreateFile, userInfo: info)
+        }
+        func fr(_ ok: Bool, _ got: String, _ why: String) { ran += 1; if !ok { bad += 1 }; print((ok ? "PASS  " : "FAIL  ") + why + " (" + got + ")") }
+        let eacces = fail(NSError(domain: NSPOSIXErrorDomain, code: 13))
+        fr(downloadFailureWords(eacces) == "Cannot create file: Permission denied", downloadFailureWords(eacces), "#5167: Cannot create file says the system's reason")
+        fr(downloadFailureWords(fail(NSError(domain: NSPOSIXErrorDomain, code: 17))) == "Cannot create file: File exists", downloadFailureWords(fail(NSError(domain: NSPOSIXErrorDomain, code: 17))), "#5167: and a name already taken says so")
+        fr(downloadFailureWords(fail(nil)) == "Cannot create file", downloadFailureWords(fail(nil)), "#5167: CONTROL: with no reason under it, WebKit's words alone")
+        let nested = fail(NSError(domain: NSCocoaErrorDomain, code: 513, userInfo: [NSUnderlyingErrorKey: NSError(domain: NSPOSIXErrorDomain, code: 13)]))
+        fr(downloadFailureWords(nested) == "Cannot create file: Permission denied", downloadFailureWords(nested), "#5167: a reason one level further down is found")
+        fr(downloadFailureCodes(nested) == "NSURLErrorDomain -3000, NSCocoaErrorDomain 513, NSPOSIXErrorDomain 13", downloadFailureCodes(nested), "#5167: and the log line names every level down to it")
+        fr(downloadFailureWords(fail(NSError(domain: "SomeOtherDomain", code: 4))) == "Cannot create file", downloadFailureWords(fail(NSError(domain: "SomeOtherDomain", code: 4))), "#5167: a reason that is not the system's is not shown")
+        fr(downloadFailureCodes(eacces) == "NSURLErrorDomain -3000, NSPOSIXErrorDomain 13", downloadFailureCodes(eacces), "#5167: the log line carries codes only")
+        fr(!downloadFailureCodes(eacces).contains("SECRET") && !downloadFailureWords(eacces).contains("SECRET") && !downloadFailureWords(eacces).contains("127.0.0.1"), downloadFailureCodes(eacces), "#5167: and neither carries the download's address or its token")
+    }
     dest("report.pdf", ["report.pdf", "report (2).pdf"], "report (3).pdf", "and counts on")
     dest("notes", ["notes"], "notes (2)", "no extension")
     dest("../../.zshrc", [], "-..-.zshrc", "A PATH CANNOT LEAVE Downloads (separators become -)")
@@ -8021,7 +8080,7 @@ if CommandLine.arguments.contains("--kosmos-app-mode-selftest") {
         }
     }
     while certRows < 1 { pin("missing", "present", "the test certificate could not be read"); certRows += 1 }
-    let expected = 226   // kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
+    let expected = 234   // kosmos#5167 (11-06): +8 (downloadFailureWords and downloadFailureCodes); kosmos#7952: +12 (2 download-folder says rows, 2 isFolderDownload rows, 7 downloadAskedByPage rows, 1 marked request); kosmos#5167 (2026-10-27): +9 (refusalShouldShow: two shown and a control, six logged); kosmos#6589: +14 (3 key hash, 10 decision, 1 real-certificate); #6585: +10 (switchGoesHome); #6358: +27 (the sign-in-again throttle, the log redaction, the sign-in-again page, the decision); #6411: +42 (10 isOwnBoardPage, 12 isOwnSettingsPage, 4 ownPlusHostFrom, 7 showsAnotherComputer, 3 board-start retry, 6 advice-origin rows); #5896: +14 (7 config-order rows, 7 disk rows); #5169: +12 (1 clicked-foreign link arm, 8 navCase rows incl. the checkout merge-gate, 3 isKosmosPlusSiteURL rows)
     if ran != expected {
         print("\nmode-check: only \(ran) of \(expected) rows ran, so this proved nothing")
         exit(1)
