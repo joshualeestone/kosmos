@@ -26,6 +26,9 @@ const CHECK_TIMEOUT_MS = 20000;
 const FLAG = '--check-run-folder';
 
 let NOTICE = null;   // { folder, message } while this start's answer says the folder is unsafe and it is not dismissed
+/* True while this start's question is still out: the board is already serving, so a page can ask before the answer
+   arrives, and must be told to ask again rather than told there is nothing (review 1). */
+let PENDING = false;
 
 /** Is `child` the same folder as `parent`, or inside it? Windows paths, compared without regard to case. */
 function isSameOrInside(child, parent) {
@@ -45,6 +48,7 @@ function readAnswer(stdout) {
   try { a = JSON.parse(String(stdout || '').trim()); } catch { return null; }
   if (!a || typeof a !== 'object' || typeof a.safe !== 'boolean') return null;
   if (a.safe) return { safe: true };
+  if (a.checked === false) return { safe: false, checked: false, reason: typeof a.reason === 'string' ? a.reason : '' };
   if (typeof a.message !== 'string' || !a.message || typeof a.folder !== 'string' || !a.folder) return null;
   return { safe: false, folder: a.folder, reason: typeof a.reason === 'string' ? a.reason : '', message: a.message };
 }
@@ -56,12 +60,15 @@ function readAnswer(stdout) {
 function atStart(opts) {
   const o = opts || {};
   NOTICE = null;
+  PENDING = true;
   return new Promise((resolve) => {
-    const done = (asked, notice) => resolve({ asked, notice: notice || null });
+    const done = (asked, notice) => { PENDING = false; resolve({ asked, notice: notice || null }); };
     if ((o.platform || process.platform) !== 'win32') { done(false); return; }
     let root = null;
     try { root = (o.bundleRoot || (() => require('./win32board').bundleRoot()))(); } catch { root = null; }
     if (!root) { done(false); return; }   // a source checkout, or the updater's own work folder
+    /* The launcher's own first early return is the same test (UnsafeRunFolderReason: inside the profile is trusted by
+       where it is); keep the two alike, or the board would ask about a folder the launcher never reads. */
     const profile = o.profile !== undefined ? o.profile : process.env.USERPROFILE;
     if (profile && isSameOrInside(root, profile)) { done(false); return; }   // where Kosmos installs itself
     const exe = path.win32.join(root, 'Kosmos.exe');
@@ -74,6 +81,7 @@ function atStart(opts) {
         const a = readAnswer(stdout);
         if (!a) { log(o, 'Kosmos could not read the answer about ' + root + ', so the board says nothing about it.'); done(true); return; }
         if (a.safe) { done(true); return; }
+        if (a.checked === false) { log(o, 'Kosmos could not finish checking whether others can change ' + root + ' (' + (a.reason || 'it could not read it') + '), so the board says nothing about it.'); done(true); return; }
         NOTICE = { folder: a.folder, message: a.message };
         log(o, 'Kosmos is serving from a folder other people on this computer may be able to change: ' + (a.reason || a.folder) + '.');
         done(true, NOTICE);
@@ -87,7 +95,9 @@ function atStart(opts) {
 
 /** The notice for the page, or null. */
 function current() { return NOTICE ? { folder: NOTICE.folder, message: NOTICE.message } : null; }
+/** True while this start's question is still out. */
+function pending() { return PENDING; }
 /** Hides it until the next start. */
 function dismiss() { NOTICE = null; return true; }
 
-module.exports = { atStart, current, dismiss, readAnswer, isSameOrInside, CHECK_TIMEOUT_MS, FLAG };
+module.exports = { atStart, current, pending, dismiss, readAnswer, isSameOrInside, CHECK_TIMEOUT_MS, FLAG };

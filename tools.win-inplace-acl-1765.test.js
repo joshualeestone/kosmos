@@ -514,8 +514,17 @@ test('#1765: --check-run-folder answers one JSON line: safe in the profile, and 
   assert.equal(a.folder, open);
   assert.match(a.reason, / can change /);
   assert.ok(a.message.startsWith('Kosmos is running from ' + open + ', and other people who use this computer may be able to change'), a.message);
-  assert.ok(a.message.includes('After that you can delete ' + open + '.'), a.message);
+  // Not before the next sign-in: the old board and its agents run from that folder until then (review 1).
+  assert.ok(a.message.endsWith('Once you have next signed in to Windows, you can delete ' + open + '.'), a.message);
+  assert.equal(a.checked, undefined, 'a folder that was read is not marked unchecked');
   assert.doesNotMatch(a.message, /\u2014/, 'an em dash in the words');
+  // A folder that cannot be read answers unchecked, with the reason and no words for the person (review 1).
+  const gone = path.join(path.dirname(open), 'not-there');
+  const u = JSON.parse(spawnSync(probeExe, ['--answer', gone, NOT_MY_PROFILE], { encoding: 'utf8', windowsHide: true, timeout: 30000 }).stdout);
+  assert.equal(u.safe, false);
+  assert.equal(u.checked, false);
+  assert.match(u.reason, /could not be read/);
+  assert.equal(u.message, undefined, 'an unchecked folder carries words for the person');
   // A locked folder answers safe.
   const locked = sandboxFolder('answer-locked');
   lockDown(locked);

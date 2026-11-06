@@ -102,3 +102,26 @@ test('#1765: readAnswer takes only the launcher\'s shape', () => {
   assert.equal(rf.readAnswer('[true]'), null);
   assert.deepEqual(rf.readAnswer(UNSAFE + '\r\n'), { safe: false, folder: ROOT, reason: JSON.parse(UNSAFE).reason, message: JSON.parse(UNSAFE).message });
 });
+
+test('#1765: pending while the question is out, so a page that asks early asks again (review 1)', async () => {
+  let answer = null;
+  const { o } = seams({ run: (f, a, opt, cb) => { answer = () => cb(null, UNSAFE); } });
+  const p = rf.atStart(o);
+  assert.equal(rf.pending(), true, 'not pending while Kosmos.exe has not answered');
+  assert.equal(rf.current(), null);
+  answer();
+  await p;
+  assert.equal(rf.pending(), false);
+  assert.ok(rf.current());
+  const { o: off } = seams({ platform: 'linux' });
+  await rf.atStart(off);
+  assert.equal(rf.pending(), false, 'pending left on where nothing is asked');
+});
+
+test('#1765: a check that could not read something says nothing on the board, only in board.log (review 1)', async () => {
+  const { o, logs } = seams({ run: (f, a, opt, cb) => setImmediate(() => cb(null, '{"safe":false,"checked":false,"reason":"what is in C:\\\\Kosmos\\\\.kosmos-update could not be read (busy)"}')) });
+  const got = await rf.atStart(o);
+  assert.deepEqual(got, { asked: true, notice: null });
+  assert.equal(rf.current(), null);
+  assert.ok(logs.some((l) => /could not finish checking[^\n]*kosmos-update could not be read/.test(l)), logs.join(' | '));
+});

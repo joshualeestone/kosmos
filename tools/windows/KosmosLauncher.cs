@@ -714,16 +714,26 @@ class KosmosLauncher
 
     // kosmos#1765: the --check-run-folder answer, one JSON line. A folder Kosmos may run from answers {"safe":true};
     // one it may not answers the reason (for support) and the words the board shows a person whose Kosmos is
-    // already running from it. Never throws: a check that fails answers unsafe, as the launcher would refuse.
+    // already running from it. A check that could not read something answers {"safe":false,"checked":false} with
+    // only the reason: the launcher refuses on that, but a running board can meet it for a moment (an update writing
+    // .kosmos-update\), so the board logs it rather than telling the person something that may be untrue. Never throws.
     internal static string RunFolderAnswer(string here)
     {
         string reason;
         try { reason = UnsafeRunFolderReason(here); }
-        catch (Exception e) { reason = "the folder could not be checked (" + e.Message + ")"; }
+        catch (Exception e) { reason = "the folder could not be read (" + e.Message + ")"; }
         if (reason == null) return "{\"safe\":true}";
+        if (CouldNotRead(reason)) return "{\"safe\":false,\"checked\":false,\"reason\":" + JsonText(reason) + "}";
         string folder = FullPathOrNull(here) ?? here;
         return "{\"safe\":false,\"folder\":" + JsonText(folder) + ",\"reason\":" + JsonText(reason)
             + ",\"message\":" + JsonText(RunningFolderMessage(here)) + "}";
+    }
+
+    // True for UnsafeRunFolderReason's answers that say something could not be read, rather than that someone else
+    // can change it. Every such answer of its says "could not be read"; a test holds that.
+    internal static bool CouldNotRead(string reason)
+    {
+        return reason != null && reason.IndexOf("could not be read", StringComparison.Ordinal) >= 0;
     }
 
     // What the board tells a person whose Kosmos already runs from such a folder: the same fact and the same way out
@@ -733,7 +743,7 @@ class KosmosLauncher
         string folder = FullPathOrNull(here) ?? here;
         string downloads = FreshCopyFolder(FullPathOrNull(userProfileFolder()));
         return "Kosmos is running from " + folder + ", and other people who use this computer may be able to change the files in that folder, so they could change what Kosmos runs as you. "
-            + "To fix it, download Kosmos again, extract it into " + downloads + ", and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change and starts from there from your next sign-in. After that you can delete " + folder + ".";
+            + "To fix it, download Kosmos again, extract it into " + downloads + ", and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change and starts from there from your next sign-in. Once you have next signed in to Windows, you can delete " + folder + ".";
     }
 
     // A JSON string literal: quotes, backslashes and control characters escaped, anything outside ASCII as \uXXXX.

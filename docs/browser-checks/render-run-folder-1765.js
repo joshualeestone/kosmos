@@ -20,7 +20,7 @@ const chk = (ok, label, extra) => {
 
 const NOTICE = {
   folder: 'C:\\Kosmos',
-  message: 'Kosmos is running from C:\\Kosmos, and other people who use this computer may be able to change the files in that folder, so they could change what Kosmos runs as you. To fix it, download Kosmos again, extract it into C:\\Users\\sam\\Downloads, and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change and starts from there from your next sign-in. After that you can delete C:\\Kosmos.',
+  message: 'Kosmos is running from C:\\Kosmos, and other people who use this computer may be able to change the files in that folder, so they could change what Kosmos runs as you. To fix it, download Kosmos again, extract it into C:\\Users\\sam\\Downloads, and open Kosmos.exe from there. Kosmos then installs itself in a folder only you can change and starts from there from your next sign-in. Once you have next signed in to Windows, you can delete C:\\Kosmos.',
 };
 
 (async () => {
@@ -33,11 +33,16 @@ const NOTICE = {
       await page.addInitScript((notice) => {
         window.__posts = [];
         window.__dismissAnswer = 200;
+        window.__pendingFor = 0;   // how many asks answer "pending" before the notice comes
         const enc = (o, status) => new Response(JSON.stringify(o), { status: status || 200, headers: { 'content-type': 'application/json' } });
         window.setInterval = () => 0;
         window.fetch = async (url) => {
           const u = String(url);
-          if (u.endsWith('/api/board/run-folder')) return enc({ notice });
+          if (u.endsWith('/api/board/run-folder')) {
+            window.__asks = (window.__asks || 0) + 1;
+            if (window.__pendingFor > 0) { window.__pendingFor -= 1; return enc({ notice: null, pending: true }); }
+            return enc({ notice, pending: false });
+          }
           if (u.endsWith('/api/board/run-folder/dismiss')) {
             window.__posts.push('dismiss');
             return window.__dismissAnswer === 200 ? enc({ dismissed: true }) : enc({ error: 'we could not record that just now' }, 500);
@@ -90,6 +95,18 @@ const NOTICE = {
       await page.waitForTimeout(300);
       const gone = await page.evaluate(() => ({ html: document.getElementById('runfolder-slot').innerHTML, posts: window.__posts }));
       chk(gone.html === '' && gone.posts.filter((p) => p === 'dismiss').length === 2, t + 'the X tells the board and hides the note', JSON.stringify(gone.posts));
+
+      // A page that asks while the board's question is still out asks again, and shows the notice when it comes
+      // (review 1). Its retries are shortened for the check.
+      await page.evaluate(() => { window.__pendingFor = 2; window.__asks = 0; document.getElementById('runfolder-slot').innerHTML = ''; });
+      await page.evaluate(() => runFolderCheck());
+      await page.waitForTimeout(300);
+      const early = await page.evaluate(() => ({ html: document.getElementById('runfolder-slot').innerHTML, asks: window.__asks }));
+      chk(early.html === '' && early.asks === 1, t + 'an early ask paints nothing yet', JSON.stringify(early));
+      await page.waitForTimeout(6800);
+      const late = await page.evaluate(() => ({ shown: !!document.querySelector('#runfolder-slot .rfmsg'), asks: window.__asks }));
+      chk(late.shown && late.asks === 3, t + 'it asks again while pending, and shows the notice when it comes', JSON.stringify(late));
+      await page.evaluate(() => paintRunFolder(null));
 
       // CONTROL: no notice, nothing shown.
       await page.evaluate(() => paintRunFolder(null));

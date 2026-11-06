@@ -21526,8 +21526,9 @@ const server = http.createServer(async (req, res) => {
      (engine/win32runfolder.js). Null in every other case; dismissed for this start by the person. */
   if (pathname === '/api/board/run-folder' && (req.method === 'GET' || req.method === 'HEAD')) {
     let notice = null;
-    try { notice = require('./engine/win32runfolder').current(); } catch { notice = null; }
-    sendJson(res, 200, { notice });
+    let pending = false;
+    try { const rf = require('./engine/win32runfolder'); notice = rf.current(); pending = rf.pending(); } catch { notice = null; pending = false; }
+    sendJson(res, 200, { notice, pending });
     return;
   }
   if (pathname === '/api/board/run-folder/dismiss' && req.method === 'POST') {

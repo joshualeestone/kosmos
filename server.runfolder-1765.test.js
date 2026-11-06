@@ -51,7 +51,7 @@ test('#1765: GET /api/board/run-folder answers no notice from a source checkout,
     });
     const got = await fetch(url + '/api/board/run-folder');
     assert.equal(got.status, 200);
-    assert.deepEqual(await got.json(), { notice: null });
+    assert.deepEqual(await got.json(), { notice: null, pending: false });
     const dis = await fetch(url + '/api/board/run-folder/dismiss', { method: 'POST' });
     assert.equal(dis.status, 200);
     assert.deepEqual(await dis.json(), { dismissed: true });

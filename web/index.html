@@ -24865,11 +24865,18 @@ function paintRunFolder(notice) {
     rebootFocusAway();
   });
 }
-async function runFolderCheck() {
+/* The board asks its folder's Kosmos.exe after it starts serving, so a page can ask first: while the board says the
+   answer is pending, ask again shortly, for as long as the board's own bound on the question (review 1). */
+const RUNFOLDER_RETRY_MS = 3000;
+const RUNFOLDER_RETRIES = 10;
+async function runFolderCheck(tries) {
+  const left = typeof tries === 'number' ? tries : RUNFOLDER_RETRIES;
   try {
     const res = await fetch('/api/board/run-folder', { cache: 'no-store' });
     const got = await res.json().catch(() => null);   // read the body either way (an unread one holds the connection open)
-    if (res.ok && got) paintRunFolder(got.notice);
+    if (!res.ok || !got) return;
+    paintRunFolder(got.notice);
+    if (got.pending === true && !got.notice && left > 0) setTimeout(() => runFolderCheck(left - 1), RUNFOLDER_RETRY_MS);
   } catch { /* a courtesy: the board log has it too */ }
 }
 async function damagedFilesCheck() {
