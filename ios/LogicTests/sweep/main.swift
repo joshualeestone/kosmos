@@ -154,15 +154,19 @@ do {
             let code = text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
             for bad in ["KosmosOrb", "ProgressView", ".progressViewStyle", "UIActivityIndicatorView"] where code.contains(where: { $0.contains(bad) }) { offenders.append(name + ": " + bad) }
             refreshable += code.filter { $0.contains(".refreshable") }.count
-            refreshControls += code.filter { $0.contains("UIRefreshControl()") }.count
+            refreshControls += code.filter { $0.contains("UIRefreshControl") }.count
         }
     }
     check(read.contains("ios/Kosmos/ChatView.swift") && read.contains(where: { $0.hasPrefix("ios/KosmosNotice/") }) && read.count > 20,
           "both app folders were read, subfolders included (\(read.count) files)")
     check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app (caught by these names, // comment lines skipped; a renamed type or a hand-made spinner is not caught)" + (offenders.isEmpty ? "" : ": \(offenders)"))
-    // The one known exception, pinned so no new one appears: pull to refresh draws iOS's own spinner (10 lists and the board
-    // page's refresh control). Dots there need pull to refresh rebuilt: #8078.
-    check(refreshable == 10 && refreshControls == 1, "pull to refresh is the only system spinner left (// comment lines skipped, as above), at its 11 known places (\(refreshable) + \(refreshControls))")
+    // kosmos#8078: iOS's own pull to refresh always draws iOS's spinner, so none may come back. Use dotsRefresh.
+    check(refreshable == 0 && refreshControls == 0, "no system pull to refresh anywhere in the app (\(refreshable) + \(refreshControls))")
+    let usesDots = ["AgentInfoView", "AgentsView", "FilesView", "ProjectInfoView", "ProjectsView", "SettingsView", "TaskPageView", "TasksView", "TodayView"]
+        .reduce(0) { $0 + repoText("ios/Kosmos/" + $1 + ".swift").components(separatedBy: ".dotsRefresh {").count - 1 }
+    check(usesDots == 10 && repoText("ios/Kosmos/ContentView.swift").contains("DotsRefreshDriver()"), "pull to refresh keeps the dots at its 11 places (\(usesDots) lists and the board page)")
+    // Pulling past a chat's end is the state the #7420 blank fixes act on (Angel, kosmos#8072).
+    check(!chat.contains("dotsRefresh") && !room.contains("dotsRefresh"), "the dots' pull to refresh stays out of a chat and a room")
 }
 
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")

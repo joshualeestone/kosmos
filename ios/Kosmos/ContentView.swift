@@ -923,10 +923,12 @@ struct WebView: UIViewRepresentable {
         // Setting .never here would push the board's top under the status bar.
         // Dragging the page down dismisses the keyboard, as in Messages.
         webView.scrollView.keyboardDismissMode = .interactive
-        // Pull to refresh.
-        let refresh = UIRefreshControl()
-        refresh.addTarget(web.coordinator, action: #selector(Coordinator.pulledToRefresh(_:)), for: .valueChanged)
-        webView.scrollView.refreshControl = refresh
+        // Pull to refresh, with the dots (kosmos#8078). The page's finish or failure ends it (endRefreshing below).
+        let refresh = DotsRefreshDriver()
+        refresh.onRefresh = { [weak coordinator = web.coordinator] in coordinator?.reloadOrHome() }
+        refresh.attach(to: webView.scrollView)
+        web.coordinator.refresher = refresh
+        webView.accessibilityCustomActions = [UIAccessibilityCustomAction(name: "Refresh") { [weak refresh] _ in refresh?.ask(); return true }]
         web.coordinator.webView = webView
         web.coordinator.shell = shell
         web.coordinator.home = url
@@ -1025,12 +1027,11 @@ struct WebView: UIViewRepresentable {
             }
         }
 
-        @objc func pulledToRefresh(_ sender: UIRefreshControl) {
-            reloadOrHome()
-        }
+        /// kosmos#8078: the board page's pull to refresh.
+        var refresher: DotsRefreshDriver?
 
         private func endRefreshing() {
-            webView?.scrollView.refreshControl?.endRefreshing()
+            MainActor.assumeIsolated { refresher?.finish() }
         }
 
         // Main-frame navigations: Kosmos+ and the person's Macs stay in the app,

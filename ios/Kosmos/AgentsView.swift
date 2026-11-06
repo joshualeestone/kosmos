@@ -366,7 +366,7 @@ struct AgentsView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Palette.ground)
-        .refreshable { await client.refreshNow() }
+        .dotsRefresh { await client.refreshNow() }
     }
 
     // kosmos#7222: the one ask for notification permission, with one line saying why. "Turn on notifications" shows

@@ -68,7 +68,7 @@ struct FilesView: View {
         .modifier(FilesTitle(title: !titled ? nil : dir.isEmpty ? Board.filesTitle : (dir.split(separator: "/").last.map(String.init) ?? Board.filesTitle)))
         .navigationBarTitleDisplayMode(.inline)
         .kosmosSolidTopBar()
-        .refreshable { await load() }
+        .dotsRefresh { await load() }
         // Review 2: keyed on the account, so a sign-out, another account or another Mac cancels the old read and starts
         // a new one; load() also drops an answer that lands for the account before.
         .task(id: client.chatEpoch) {

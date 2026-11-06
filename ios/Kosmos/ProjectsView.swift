@@ -827,7 +827,7 @@ struct ProjectsView: View {
                 }
                 .listStyle(.insetGrouped)
                 .scrollContentBackground(.hidden)
-                .refreshable { await store.loadList() }
+                .dotsRefresh { await store.loadList() }
             }
         } else if Board.showsConnectionScreen(liveOrStarting: client.phase.liveOrStarting, keepsList: client.phase.keepsList,
                                               hasList: store.list != nil) {

@@ -4,7 +4,7 @@ import SwiftUI
 /// loader as its CSS defines it, eight gold dots on a ring lighting one after another (SweepLogic has the numbers). It
 /// is the iPhone app's only loading indicator (Josh 2026-11-05 18:33: "only use the dots spinner in the mobile app and
 /// scrub any other instances", kosmos#8058); the sweep suite fails if app source in ios/Kosmos or ios/KosmosNotice uses
-/// the orb or the system's spinner, except pull to refresh, pinned at its known places (kosmos#8078).
+/// the orb or the system's spinner, pull to refresh included (DotsRefresh, kosmos#8078).
 /// With no label it is hidden from VoiceOver, for a place whose words already say what is loading; with one, VoiceOver
 /// reads that label. It grows with the person's text size (unless `scales` is false). Drawn from the clock at 30 frames
 /// a second at most by default (`framesPerSecond`), as WorkingDots is; with Reduce Motion the dots stay where they are
