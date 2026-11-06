@@ -67,3 +67,14 @@ removed (route test red); folder scan used despite cards (three engine tests red
   rule); and it had split `setupGuideNow` from its doc comment --> FIXED (moved below it).
 - NIT: `cardsForResolve` header still argued from the folder scan --> FIXED.
 - NIT: the guide test deleted the seed record instead of restoring it --> FIXED (snapshot and restore).
+
+## Review round 4 (sonnet; no BLOCKER, WARNING or CONVENTION: converged)
+- NIT: a removed agent's exact machine name, while a live card is shown by it, now refuses as ambiguous ("cai; cai2")
+  where it used to answer "already removed". Fails closed; DEFERRED (noted on #8113 as a follow-up: leave removed
+  folders out of the exact-name candidate, with a test).
+- NIT: the removed-agent route test leaves `krm8113` in the sandbox removed list --> DEFERRED (no later test reuses it).
+- NIT: one long docstring sentence --> DEFERRED (accurate).
+
+## Note for the PR
+Stacked on agentname-8109. After #8109 rebase-merges, rebase this branch onto main; the proof's diff_hash is over
+origin/main...HEAD, so it must be recomputed then (the code reviewed is unchanged; only the base moves).
