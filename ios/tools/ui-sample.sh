@@ -14,6 +14,7 @@
 # new for each run and deleted at the end, and so are the build and the results (--keep keeps them). SignInUITests is left
 # out: it needs a real account (ios/tools/ui-signin.sh). The keyboard checks need the on-screen keyboard, so a run stops if
 # the Simulator's hardware keyboard preference is on (a setting others on a shared Mac use; it is never changed here).
+# UI_SAMPLE_FAILED_RESULT=<path>: on a failed run, copy the result bundle there before it is deleted (CI's job sets it).
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 keep=0
@@ -141,7 +142,7 @@ if grep -q -E "^Test Case '-\[KosmosUITests\.KeyboardSlideUITests testRebuilt[A-
     echo "  (no trace from the app for the rebuild check)"
   fi
 fi
-# kosmos#7609: CI's job sets this, so a red that does not repeat still leaves its screens and traces to read.
+# kosmos#7609: CI's job sets this, so a red that does not repeat still leaves its result bundle to read.
 if [ -n "${UI_SAMPLE_FAILED_RESULT:-}" ] && [ -d "$work/result.xcresult" ]; then
   cp -R "$work/result.xcresult" "$UI_SAMPLE_FAILED_RESULT" && echo "  result kept for CI: $UI_SAMPLE_FAILED_RESULT"
 fi
