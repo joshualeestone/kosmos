@@ -55,7 +55,15 @@ class, a loss read as none.
 - A script the board is refused is cannot tell; only ENOENT or ENOTDIR means it does not run.
 - The plain-command rule also refuses --directory, --cwd and combined flags such as -lc. It is best effort.
 
+## Review 7 (a blocker that predates the branch)
+- The key dropped every script word and only the first was resolved, so a dispatcher or a chain lost its gate silently.
+  A command is now checked only when it names exactly one script for certain: several scripts, or shell operators
+  beside a path, cannot be checked; an extensionless path as the command is the script; an exec argument holding a
+  space and a path hides a command; the interpreter is part of the key.
+
 ## Residual, stated
+- A command that runs a script through a path in no word of its own (a script that sources another, an alias) is
+  checked as the one script it names.
 - The caps are per skill. A comparison reads up to about 16 MB per skill name on both sides together, and one folder
   with a huge number of entries is listed whole before its caps apply. Both run on the board's thread.
 - A run field written out at its default on one side (`timeout: 60` against none, `shell: "bash"` against none) reads
