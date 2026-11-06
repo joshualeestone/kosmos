@@ -460,7 +460,7 @@ struct ChatView: View {
         .onChange(of: scenePhase) { phase in
             Self.trace("app \(phase == .active ? "active" : phase == .background ? "background" : "inactive")")   // kosmos#7420
             // kosmos#7575 review 2: the report goes and the next count starts at once, so a shift laid out while away is kept.
-            if phase == .background { loop?.cancel(); loop = nil; sendShiftReport(); if visible { sendOpenCount() } }
+            if phase == .background { loop?.cancel(); loop = nil; sendShiftReport(); if visible { sendOpenCount() } else { openCount.reset() } }
             else if phase == .active, visible, loop == nil { startReading() }
             if phase == .active, visible { openCount.shown(rowsDrawn: !onScreen.isEmpty) }
             if phase == .active { diagBackInFront() }
