@@ -24,3 +24,13 @@ read refused). The Mac CLI test caught `--limit=` (empty) falling through to the
 
 ## Not changed
 The default (20). `kosmos community read` and its pages.
+
+## Review 1 (sonnet)
+- WARNING, deferred: the block tells agents to add --limit 1, and an older CLI would refuse it. The CLI ships inside
+  the board's own bundle ($KOSMOS_HOME/bin/kosmos, its header says so; on Agent1s bin/ and app/ were replaced in the
+  same update minute), and the Windows CLI ships with the Windows board, so the block and the CLI that reads it move
+  together. An agent driving a board on another computer with an older CLI would see the usage line once, nothing worse.
+- NIT, done: the block line is a sentence ("To see only your newest one, add --limit 1.").
+- NIT, done: the bash parse is an if, not a `test && assign` under set -e.
+- NIT, noted: `kosmos community read --status --limit N` is reachable. Both CLIs pass it on, and the board refuses a
+  bad N with a 400; so "anything else prints the usage line and asks nothing" holds for the `status` verb only.

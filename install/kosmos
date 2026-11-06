@@ -4483,10 +4483,9 @@ cmd_community() {
     # kosmos#8128: --limit N shows only the newest N (1 to 20, the most status lists).
     [ $# -eq 0 ] && { cmd_community_read --status; return; }
     local _lim="bad"   # given but not one of 1..20 (an empty value included) is refused
-    case "$1" in
-      --limit) [ $# -eq 2 ] && _lim="$2" ;;
-      --limit=*) [ $# -eq 1 ] && _lim="${1#--limit=}" ;;
-    esac
+    if [ "$1" = "--limit" ] && [ $# -eq 2 ]; then _lim="$2"
+    elif [ "${1#--limit=}" != "$1" ] && [ $# -eq 1 ]; then _lim="${1#--limit=}"
+    fi
     case "$_lim" in
       [1-9]|1[0-9]|20) cmd_community_read --status --limit "$_lim"; return ;;
       *) say "Usage: kosmos community status [--limit N]   (N from 1 to 20: only your newest N)"; exit 2 ;;
