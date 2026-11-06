@@ -77409,8 +77409,10 @@ function pvSheetInto(stage, data) {
     [...tabs.children].forEach((t, k) => { t.setAttribute('aria-selected', String(k === i)); t.tabIndex = k === i ? 0 : -1; });
     const sh = sheets[i]; panel.textContent = ''; notes.textContent = '';
     if (tabs.children[i]) panel.setAttribute('aria-labelledby', tabs.children[i].id);
-    if (sh.notGrid) { panel.appendChild(note('This sheet is a chart, not a table, so it is not shown here.')); return; }
-    if (!sh.rows.length) { panel.appendChild(note('This sheet is empty.')); return; }
+    // Said under the sheet, in the viewer's own (light) words colour, never inside the white panel.
+    if (sh.notGrid) { notes.appendChild(note('This sheet is not a table of values, so it is not shown here.')); panel.hidden = true; return; }
+    if (!sh.rows.length) { notes.appendChild(note('This sheet is empty.')); panel.hidden = true; return; }
+    panel.hidden = false;
     const t = document.createElement('table'); t.className = 'pv-grid';
     const head = t.createTHead().insertRow(); head.appendChild(document.createElement('th'));
     const width = sh.rows[0].length;
@@ -77534,7 +77536,7 @@ function pvOpen(id, from) {
   // A click on the dark closes it: anything but the file, the X, the action (its row, with #8120's Show in Finder), and the words a person may want to
   // select or copy (the name, a note, an error). Only when the press began on the dark too, so selecting a text
   // file's words and letting go past them does not close it.
-  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, #pv-x, .pv-acts, .pv-name, .pv-msg, .pv-note'));
+  const onFile = (t) => !!(t && t.closest && t.closest('.pv-media, .pv-text, .pv-file, .pv-sheet, #pv-x, .pv-acts, .pv-name, .pv-msg, .pv-note'));
   let pressedOnFile = false;
   back.addEventListener('pointerdown', (e) => { pressedOnFile = onFile(e.target); });
   back.addEventListener('click', (e) => { if (!pressedOnFile && !onFile(e.target)) pvClose(); pressedOnFile = false; });

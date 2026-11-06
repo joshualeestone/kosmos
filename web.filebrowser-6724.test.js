@@ -252,7 +252,11 @@ test('iteration 3: a list stopped by the read budget says Kosmos stopped looking
 });
 
 test('iteration 6: the preview fetches a text file only through an explicit Files address, never from an attachment\u2019s own words', () => {
-  const kind = new Function(page.lift(SCRIPT, 'pvStageKind') + '\nreturn pvStageKind;')();
+  // #8122: pvStageKind asks pvSheetUrl first (a spreadsheet's grid), so both are lifted with the extensions it reads.
+  const kind = new Function(page.liftConst(SCRIPT, 'PV_SHEET_EXT') + '\n' + page.lift(SCRIPT, 'pvSheetUrl') + '\n' + page.lift(SCRIPT, 'pvStageKind') + '\nreturn pvStageKind;')();
+  assert.equal(kind({ kind: 'file', name: 'Budget.xlsx', url: '/api/attachment/' + 'a1'.repeat(12) }), 'sheet', 'an .xlsx attachment opens as its grid');
+  assert.equal(kind({ kind: 'file', name: 'Budget.xlsx', url: '/api/attachment/not-an-id' }), 'card', 'an attachment address that is not an id gets no grid');
+  assert.equal(kind({ kind: 'file', name: 'Budget.xlsx', sheetUrl: 'https://elsewhere/x' }), 'card', 'a sheet address that is not the board\'s own is ignored');
   // An attachment's preview is the file's first characters: untrusted, and never an address.
   assert.equal(kind({ kind: 'text', preview: '/api/accounts' }), 'card', 'a text attachment beginning "/api/" would make the viewer fetch that path');
   assert.equal(kind({ kind: 'text', preview: 'hello there' }), 'snippet', 'CONTROL: an attachment\u2019s words show as its snippet');
