@@ -170,7 +170,7 @@ test('opening the menu reads the computers fresh: the shipped worldswOpen CALLS 
 
 /* kosmos#6406 step 2: a plain click on a link to another computer, in the app, asks this computer for a ticket and opens
    the other computer with it in the fragment; anything else keeps the plain address. */
-const OPEN = slice('computersInApp') + slice('computersGo') + slice('computersOpenClick');
+const OPEN = slice('computersInApp') + slice('computersGo') + slice('computersOpenClick') + slice('computersOpenWithTicket');   // kosmos#8118: the click's switch is shared with the launch reopen
 const DECL = (() => { const at = PAGE.indexOf('let computersOpening = '); assert.ok(at >= 0, 'computersOpening moved'); return PAGE.slice(at, PAGE.indexOf('\n', at) + 1); })();   // the page's own declaration, not a copy
 function clickWith({ win, answer, ev, href, twice, timers, linkAttrs }) {
   const went = [];
