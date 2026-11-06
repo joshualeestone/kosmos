@@ -7,26 +7,9 @@
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const zlib = require('node:zlib');
-const { localHeader, centralRecord, endRecord } = require('./zipwrite');
 const { readXlsx, XlsxRefusal, MAX_ROWS, MAX_COLS, MAX_CELL_CHARS, MAX_FILE_BYTES } = require('./xlsxpreview');
-
-/* A zip of { name: text } parts, stored. */
-function zip(parts) {
-  const chunks = [], central = [];
-  let offset = 0;
-  const mtime = new Date('2026-11-06T12:00:00Z');
-  for (const [name, text] of Object.entries(parts)) {
-    const data = Buffer.from(text, 'utf8');
-    const entry = { name, isDir: false, size: data.length, crc: zlib.crc32(data) >>> 0, mtime, mode: 0o644 };
-    const h = localHeader(entry);
-    central.push(centralRecord(entry, offset));
-    chunks.push(h, data);
-    offset += h.length + data.length;
-  }
-  const cd = Buffer.concat(central);
-  return Buffer.concat([...chunks, cd, endRecord(central.length, cd.length, offset)]);
-}
+/* The zip builder is shared with the route tests (test-support/xlsxfixture.js), so the two make the same bytes. */
+const { zip } = require('../test-support/xlsxfixture');
 const WB = (sheets) => '<?xml version="1.0"?><workbook xmlns:r="r"><sheets>'
   + sheets.map((s, i) => `<sheet name="${s}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('') + '</sheets></workbook>';
 const RELS = (n, target = (i) => `worksheets/sheet${i}.xml`) => '<Relationships>'

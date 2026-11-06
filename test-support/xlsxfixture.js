@@ -1,7 +1,8 @@
 'use strict';
 /**
  * kosmos#8122: workbooks built byte for byte with the repo's own zip writer (engine/zipwrite.js), for the spreadsheet
- * preview's tests. The same builder as engine/xlsxpreview.test.js, shared so the route tests make the same files.
+ * preview's tests. One builder, used by engine/xlsxpreview.test.js, engine/xlsxpreview-review-8122.test.js,
+ * engine/sheetpreview.test.js and the route tests, so they all make the same files.
  */
 const zlib = require('node:zlib');
 const { localHeader, centralRecord, endRecord } = require('../engine/zipwrite');
