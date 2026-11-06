@@ -279,6 +279,9 @@ const SEAMS_5548 = {
   // kosmos#8122 xlsxprev-8122: the reader's pure helpers (cell refs, dates, number formats, the XML clean) and its test clock,
   // so engine/xlsxpreview-review-8122.test.js can pin each review finding on its own. Production calls only readXlsx.
   _internal: 'engine/xlsxpreview.js',
+  // kosmos#8122 review 5: forgets the remembered sheet answers, so engine/xlsxpreview-review-8122.test.js can count a read
+  // from a clean start. Production never calls it.
+  _forgetForTests: 'engine/sheetpreview.js',
   // kosmos#7404 personalswitch-7404: forgets when the personal follow-up last refreshed, so each test in
   // engine/personalbackup-7404.test.js can count the hourly refresh from a clean start. Production never calls it.
   _resetFollowUpForTests: 'engine/personalbackup.js',

@@ -21794,7 +21794,9 @@ const server = http.createServer(async (req, res) => {
       if (refusedRead) { sendJson(res, 403, { ok: false, because: refusedRead }); return; }
       let r;
       try { r = sheetpreview.fromFile(rec.file, rec.name); } catch { r = { ok: false, because: 'This file could not be read as a spreadsheet.' }; }
-      sendJson(res, 200, r.ok ? r : { ok: false, because: r.because, ...(r.tooLarge ? { tooLarge: true } : {}) });
+      // Review 5: an answer that cannot be written must not reach the async handler uncaught (it ended the board).
+      try { sendJson(res, 200, r.ok ? r : { ok: false, because: r.because, ...(r.tooLarge ? { tooLarge: true } : {}) }); }
+      catch { sendJson(res, 200, { ok: false, because: 'This spreadsheet is too large to preview.', tooLarge: true }); }
       return;
     }
     if (attachGet[2]) {

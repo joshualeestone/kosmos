@@ -78,10 +78,11 @@ test('a hostile or broken file is refused in words, never a crash or a hang', ()
   refused(zip({ '[Content_Types].xml': '<Types/>' }), 'a zip with no workbook');
   refused(Buffer.alloc(MAX_FILE_BYTES + 1), 'over the size cap');
   refused(zip({ 'xl/workbook.xml': '<workbook><sheets></sheets></workbook>' }), 'a workbook with no sheets');
-  // A name outside a workbook's own folders is left out and never read (review 2: Excel's own "[trash]/" refused real
-  // files), so it cannot be the sheet a workbook names.
+  // An archive with an entry outside a workbook's own folders is not refused (review 2: Excel's own "[trash]/" refused
+  // real files) and the entry is never read. (The rels target here would not be read anyway, as the next case shows;
+  // what this pins is that the archive is still a workbook.)
   const extra = readXlsx(zip({ 'xl/workbook.xml': WB(['S']), 'xl/_rels/workbook.xml.rels': RELS(1, () => '../evil/x.xml'), 'evil/x.xml': SHEET('<row r="1"><c r="A1"><v>666</v></c></row>') }));
-  assert.deepEqual(extra.sheets, [{ name: 'S', rows: [], cut: false, notGrid: true }], 'an entry outside the workbook was read');
+  assert.deepEqual(extra.sheets, [{ name: 'S', rows: [], cut: false, notGrid: true }], 'an archive with a stray entry was refused, or the entry was read');
   // A sheet whose target climbs out of xl/worksheets is not read (shown as not a grid), whatever it names.
   const climb = readXlsx(zip({ 'xl/workbook.xml': WB(['S']), 'xl/_rels/workbook.xml.rels': RELS(1, () => '../../docProps/app.xml'), 'docProps/app.xml': SHEET('<row r="1"><c r="A1" t="str"><v>secret</v></c></row>') }));
   assert.equal(climb.sheets[0].notGrid, true);
