@@ -11626,8 +11626,9 @@ const server = http.createServer(async (req, res) => {
   /* #7420: how often the iPhone chat goes blank, per build (engine/chatopens.js). As the shift routes above: POST comes
      from the person's phone, GET is for an agent on this Mac. */
   if (pathname === '/api/phone/chat-opens' && (req.method === 'GET' || req.method === 'HEAD')) {
-    const r = require('./engine/chatopens').read();
-    sendJson(res, 200, { builds: r.builds, ok: r.ok });
+    const opens = require('./engine/chatopens');
+    const r = opens.read();
+    sendJson(res, 200, { builds: r.builds, ok: r.ok, note: opens.NOTE });
     return;
   }
   if (pathname === '/api/phone/chat-open' && req.method === 'POST') {

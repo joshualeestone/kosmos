@@ -8,7 +8,7 @@ Call: a tally per build on the board (engine/chatopens.js), not more shift-repor
 
 Rejected: counting "blank, not yet acting" lines (those can be an instant); a screen for it (agents read it, Josh said he will not look things up).
 
-A showing: from the chat appearing or coming back to the front until it closes or goes to the background. So one long chat can count twice. Rate is per showing, not per person.
+A showing: from the chat appearing or coming back to the front until it leaves the front (closed, background, or a full-screen cover such as a picture or the camera, unmeasured). So one long chat can count twice. Rate is per showing, not per person.
 
 Blank here means a rebuild happened or the list had no rows for 3 s when it closed. So the number is a floor: see engine/chatopens.js for what it misses. Past-the-end put-backs are not counted on purpose: the simulator does one on every box shrink with rows drawn, so they would swamp it.
 
@@ -16,8 +16,8 @@ Not widened: GET stays behind the board's token like /api/phone/chat-shifts rath
 
 Known under-counts: a chat torn down under its info page, a background entered from the info page, a killed app, and a send from the background that iOS suspends first (the shift report has the same shape) send nothing. A count that loses a few showings is fine for a rate; a false blank is not.
 
-Known false blank, accepted: a fast scroll past the last row left for 3 s before closing. Rare, and the board's header says to compare builds rather than quote the number.
+Known false blank, accepted: a fast scroll past the last row left for 3 s before closing. Rare, and the GET response itself says to compare builds rather than quote the number.
 
 Weakest premise: rows-gone timing at close, and the whole path from phone to board. Tested in logic and by source checks only; nothing has run it end to end on a phone.
 
-Needs a board release to receive; an older board answers 404 and the phone ignores it. Needs a TestFlight to send.
+So merging is not finishing: #7420 stays open for this until a real tally has been read off the board. Needs a board release to receive; an older board answers 404 and the phone ignores it. Needs a TestFlight to send.
