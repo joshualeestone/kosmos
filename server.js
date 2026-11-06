@@ -20497,6 +20497,14 @@ const server = http.createServer(async (req, res) => {
         }
       } catch { /* no report: the line stays "Nothing back yet" */ }
     }
+    /* #8141: an agent that declared where it answers its person (kosmos reply-channel, #5805) may have answered there,
+       which Kosmos cannot see, so the page says where it says it answers instead of "Nothing back yet". What it said in
+       its own window (#4612) is something Kosmos did see, so that stays first. A profile that cannot be read is no
+       declaration (replychannel.forAgent never throws), and the line stays as it was. */
+    if (owes && owes.state === 'owes' && !owes.unsent) {
+      const ch = require('./engine/replychannel').forAgent(name, store);
+      if (ch) owes.elsewhere = ch;
+    }
     const TAIL = tailAsked;
     /* kosmos#5841: a conversation that rolled over at the engine's cap continues earlier files; their messages are
        older still, and counted here so "Show earlier messages" reaches them (positions run across the whole chain). */
