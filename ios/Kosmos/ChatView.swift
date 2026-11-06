@@ -366,7 +366,6 @@ struct ChatView: View {
             shifts.attach(send: shiftSender())
             openCount.shown()
         }
-        .onChange(of: onScreen.isEmpty) { empty in openCount.rows(empty: empty) }
         // kosmos#7354: on every read of the list while the chat is open, unread replies are marked read again, as the board's
         // paintTalk does on each poll; so one that failed is sent again, and replies landing while it is open are read.
         .onReceive(client.$agents) { _ in markDmSeen() }
@@ -531,10 +530,11 @@ struct ChatView: View {
             // appear and go together (kosmos#7265), so they count as on screen while any of them shows.
             // kosmos#7420: a row of a list since rebuilt (listEpoch) counts no more: the new list's rows have the same ids, and
             // an old row leaving after its new twin appeared would take the twin out of onScreen.
-            .onAppear { if epochAtDraw == listEpoch { onScreen.insert(item.id); if !diagEverDrew { diagEverDrew = true } } }
+            .onAppear { if epochAtDraw == listEpoch { onScreen.insert(item.id); openCount.rows(empty: false); if !diagEverDrew { diagEverDrew = true } } }
             .onDisappear {
                 guard epochAtDraw == listEpoch else { return }
                 onScreen.remove(item.id)
+                if onScreen.isEmpty { openCount.rows(empty: true) }
                 if onScreen.isEmpty { diagTick &+= 1 }   // kosmos#7420: the diagnostic's check, only when the last row leaves
             }
     }

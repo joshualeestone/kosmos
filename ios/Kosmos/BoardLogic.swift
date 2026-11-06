@@ -728,7 +728,7 @@ enum Board {
             guard shownAt == nil else { return }
             shownAt = now; blankSince = now; rebuilds = 0
         }
-        func rebuilt() { rebuilds += 1 }
+        func rebuilt(now: Date = Date()) { rebuilds += 1; blankSince = now }   // a new list starts with no rows
         func rows(empty: Bool, now: Date = Date()) {
             if !empty { blankSince = nil } else if blankSince == nil { blankSince = now }
         }
