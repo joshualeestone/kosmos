@@ -26,6 +26,22 @@ function guard(root) {
   if (!(real === tmp || real.startsWith(tmp + path.sep))) throw new Error('compat-switch: refusing a data folder outside the temp folder: ' + real);
 }
 function markerAt(root) { return path.join(root, MARKER); }
+/* #7206 slice 2a review 1: one switch per vendor. DeepSeek keeps MARKER; a later vendor's is compat-<id>-on. */
+function vendorMarkerAt(root, vendor) { return path.join(root, vendor === 'deepseek' ? MARKER : 'compat-' + vendor + '-on'); }
+/** Set ONE vendor's switch for a process started with AGENT_WORKFORCE_DATA=<dataDir>. */
+function setVendorAt(dataDir, vendor, on) {
+  const root = rootFor(dataDir); guard(root);
+  const m = vendorMarkerAt(root, vendor);
+  if (on) { fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(m, ''); }
+  else { try { fs.rmSync(m, { force: true }); } catch { /* absent */ } }
+}
+/** This process's switch for one vendor (its store.ROOT). */
+function setVendor(vendor, on) {
+  const root = require('../engine/store').ROOT; guard(root);
+  const m = vendorMarkerAt(root, vendor);
+  if (on) { fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(m, ''); }
+  else { try { fs.rmSync(m, { force: true }); } catch { /* absent */ } }
+}
 /** Set the switch for a process started with AGENT_WORKFORCE_DATA=<dataDir> (a child, or this test's own data env). */
 function setAt(dataDir, on) { setRoot(rootFor(dataDir), on); }
 function setRoot(root, on) {
@@ -49,4 +65,4 @@ function withSwitch(on, fn) {
   return out;
 }
 
-module.exports = { MARKER, markerAt, rootFor, setAt, setRoot, set, withSwitch };
+module.exports = { setVendorAt, setVendor, MARKER, markerAt, rootFor, setAt, setRoot, set, withSwitch };

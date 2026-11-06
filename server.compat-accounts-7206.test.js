@@ -82,7 +82,7 @@ test('slice 1b: with the switch OFF (the default) the add route refuses and GET 
   // CONTROL: on, the page is told which vendors exist.
   const on = await (await fetch(base + '/api/accounts/compat')).json();
   assert.equal(on.enabled, true);
-  assert.deepEqual(on.vendors.map((v) => v.id), ['deepseek', 'glm']);   // #7206 slice 2a
+  assert.deepEqual(on.vendors.map((v) => v.id), ['deepseek'], 'GLM was offered under DeepSeek\'s switch');   // #7206 2a review 1: one switch per vendor
 });
 
 test('add: with no Claude Code on the computer, nothing is stored and the person is told why', async () => {
@@ -259,4 +259,20 @@ test('1b review 3: a DeepSeek agent\'s model line names DeepSeek, never Claude',
   assert.equal(modelLine({ runner: 'claude', account: { provider: 'deepseek' } }), 'DeepSeek');
   assert.equal(modelLine({ runner: 'claude', account: { provider: 'deepseek' }, modelName: 'deepseek-chat' }), 'deepseek-chat');
   assert.doesNotMatch(String(modelLine({ runner: 'claude', account: { dir: '/x/.claude-a' }, modelName: 'claude-sonnet-5' })), /DeepSeek/, 'CONTROL');
+});
+
+test('#7206 2a review 1: DeepSeek\'s switch on does not turn GLM on: GLM is refused, offered nowhere and sent no key; its own switch is the control', async () => {
+  const urls = vendorAnswers({ status: 200, body: { data: [{ id: 'glm-5.3' }] } });
+  const sw = require('./test-support/compat-switch');
+  const r = await post('/api/accounts/compat', { vendor: 'glm', key: 'zai-route-key-0123456789', label: 'glmoff' });
+  assert.equal(r.status, 400);
+  const b = await r.json();
+  assert.deepEqual([b.notYet, b.error], [true, 'Z.ai GLM is not available in Kosmos yet']);
+  assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.kosmos-glm-glmoff')), false, 'a GLM account was stored');
+  assert.deepEqual(urls, [], 'a GLM key was sent to Z.ai');
+  sw.setVendorAt(SANDBOX, 'glm', true);
+  try {
+    const on = await (await fetch(base + '/api/accounts/compat')).json();
+    assert.deepEqual(on.vendors.map((v) => v.id), ['deepseek', 'glm'], 'CONTROL: with its own switch on, GLM is offered');
+  } finally { sw.setVendorAt(SANDBOX, 'glm', false); }
 });

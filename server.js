@@ -3832,7 +3832,7 @@ function handleCompatAccountStore(req, res) {
          account would start against Anthropic with no sign-in. Refused until the Windows launch does the same. */
       if (process.platform === 'win32') { sendJson(res, 400, { error: `${v.name} agents run on a Mac for now; this computer cannot run them yet` }); return; }
       /* Slice 1b: off by default (engine/anthropiccompat.js enabled): nothing unproven reaches a person. */
-      if (!compatAccounts.enabled()) { sendJson(res, 400, { error: compatAccounts.notYet(v.id), notYet: true }); return; }
+      if (!compatAccounts.enabled(process.platform, v.id)) { sendJson(res, 400, { error: compatAccounts.notYet(v.id), notYet: true }); return; }
       if (!runners.resolveBin('claude').present || runners.installing('claude')) {   // filed under 'claude' (engine/runners.js)
         sendJson(res, 400, { error: `we could not find Claude Code, the runner ${v.name} agents use, on this computer`, needsRunner: true, provider: 'claude' });
         return;
@@ -13873,7 +13873,7 @@ const server = http.createServer(async (req, res) => {
       .map((a) => [a.dir, grokAccounts.subscriptionLive(a.dir).catch(() => ({ verdict: 'unknown', because: 'we could not check this sign-in just now' }))]));
     Promise.all([accounts.listLive(), openaiAccounts.listLive(), geminiAccounts.listLive(), grokAccounts.listLive(), qwenAccounts.listLive(),
       /* #7206 slice 1b: vendor rows, listed and checked ONLY while their switch is on (off: no row, and no key sent). */
-      compatAccounts.enabled() ? compatAccounts.listLive().catch(() => []) : Promise.resolve([])])   // review 5: never fails the whole list
+      compatAccounts.enabled() ? compatAccounts.listLive().then((rows) => rows.filter((r) => compatAccounts.enabled(process.platform, r.provider))).catch(() => []) : Promise.resolve([])])   // 2a review 1: each vendor its own switch   // review 5: never fails the whole list
       .then(async ([claudeRows, openaiRows, geminiRows, grokRows, qwenRows, compatRows]) => {
         /* #1921: overlay each Claude account's badge with the LAST OBSERVED
            real-call outcome (engine/observed), joined to the account via the SAME
@@ -14810,7 +14810,8 @@ const server = http.createServer(async (req, res) => {
      /api/muse is, so turning the switch on needs no restart. */
   if (pathname === '/api/accounts/compat' && req.method === 'GET') {
     const on = compatAccounts.enabled();
-    sendJson(res, 200, { enabled: on, vendors: on ? Object.values(compatAccounts.VENDORS).map((v) => ({ id: v.id, name: v.name, models: v.models.slice(), keyPage: v.keyPage })) : [] });
+    /* 2a review 1: only the vendors whose own switch is on. */
+    sendJson(res, 200, { enabled: on, vendors: on ? Object.values(compatAccounts.VENDORS).filter((v) => compatAccounts.enabled(process.platform, v.id)).map((v) => ({ id: v.id, name: v.name, models: v.models.slice(), keyPage: v.keyPage })) : [] });
     return;
   }
   if (pathname === '/api/accounts/compat' && req.method === 'POST') {
@@ -14832,6 +14833,7 @@ const server = http.createServer(async (req, res) => {
         if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
         const acct = compatAccounts.list().find((a) => a.dir === path.resolve(dir));
         if (!acct) { sendJson(res, 404, { error: 'we could not find that account on this computer' }); return; }
+        if (!compatAccounts.enabled(process.platform, acct.provider)) { sendJson(res, 400, { error: compatAccounts.notYet(acct.provider), notYet: true }); return; }   // 2a review 1
         const c = await compatAccounts.checkLive(acct.dir);
         sendJson(res, 200, { state: c.state, because: c.because });
       })

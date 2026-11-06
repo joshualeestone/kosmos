@@ -543,7 +543,7 @@ function firstStartOfImport(entry, platform) {
   { const compat = require('./anthropiccompat'); const v = compat.vendorOf(entryProvider);
     if (v) {
       try { store.writeProfile(entry.name, { provider: entryProvider, vendorAccount: entry.configDir }); } catch { /* the entry retries here */ }
-      if (!compat.enabled()) return `${entry.name} was not started here: ${compat.notYet(v.id)}`;
+      if (!compat.enabled(process.platform, v.id)) return `${entry.name} was not started here: ${compat.notYet(v.id)}`;
     } }
   const allowed = create.policyAllows(entryProvider, entry.model, typeof entry.configDir === 'string' ? entry.configDir : null);
   /* Marked on its profile, so Repair (which restores agents that lost their job, and is not gated) does not start
