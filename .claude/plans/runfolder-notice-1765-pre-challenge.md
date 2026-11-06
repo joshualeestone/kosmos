@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: runfolder-notice-1765
-diff_hash: 955b54fbf4c9c76eadcac97f829de5bbd6d8d22bc3052c0cd5d9464f021a69a7
+diff_hash: f405ff8e80684c86a4215ebf6cc3ffa533dca21ce65f5a7ec2ea32de88061c67
 validation: substituted (the helper needs yarn/npm, which this Windows box does not have; instead, at 624afc846b, with the no-schtasks preload: engine/win32runfolder.test.js plus 16 launcher, installer and policy test files, 316 tests, 314 pass, 0 fail, 2 skipped (no 8.3 names on this volume; a platform skip); server.runfolder-1765.test.js 1/1 run on its own (it boots a board, and run beside tools.win-launcher-stuck-board-4543 on this box the two see each other's processes; the Windows CI job runs neither file next to the other, as it runs only win32-named files and boots no board); the browser-check meta tests (120) fail on exactly the 12 tests origin/main fails on this box; tools/windows/verify-launcher.ps1 OK; worktree clean. The Playwright check itself cannot run here (no Playwright on this box); its page behaviour was checked live in a private browser against the branch page: the notice at 390 px, a refused and an accepted dismiss, the pending retry (nothing, then the notice on a later ask), one chain for three overlapping starts, and the live region filled and cleared)
 subdir_audit: passed
 timestamp: 2026-11-06T15:21:19Z
@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 1 BLOCKER, 12 WARNINGs, 1 CONVENTION, about 22 NITs
 **Fixed:** 14 | **Deferred:** 0 | **Asked (awaiting user):** 0
 
-After the loop: one commit, 624afc846b, adds the check's name to docs/browser-checks/gated.txt (the #1387 rule, found by running the browser-check meta tests on the branch and on origin/main). It changes no code and was not reviewed by a further round.
+After the loop: one commit, 624afc846b, adds the check's name to docs/browser-checks/gated.txt (the #1387 rule, found by running the browser-check meta tests on the branch and on origin/main). It changes no code and was not reviewed by a further round. And after the first CI run: one commit adds #runfolder-slot to the floating stack's :empty rule (web.cert-notice-6613, red in CI; 29/29 here after) and carries Browser-check-surface trailers for the seven checks whose tokens that line or the notice's reused classes touch (the #2518 gate, run here: it fails without the trailers and passes with them). No logic changed; not reviewed by a further round.
 
 Live proof on the Windows box: `Kosmos.exe --check-run-folder`, built from this source, answers `{"safe":false,...}` with the reason and the words from a folder at the drive root (Authenticated Users: Modify) in about 0.35 s, and `{"safe":true}` from a folder in the profile; knowsFlag reads the branch's Kosmos.exe as knowing the flag and the installed 0.7.93 one as not. Mutation controls: the recheck, dismissed-in-flight, ASKING_ENV and knowsFlag-gate tests each fail with their fix switched off.
 
