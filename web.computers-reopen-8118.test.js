@@ -21,7 +21,7 @@ function slice(name) {
   assert.ok(at >= 0, name + ' moved or renamed; re-anchor this test');
   return PAGE.slice(at, PAGE.indexOf('\n}\n', at) + 2);
 }
-const REOPEN = slice('computersReopen');
+const REOPEN = (() => { const at = PAGE.indexOf('const COMPUTERS_REOPEN_MAX_MS = '); assert.ok(at >= 0, 'COMPUTERS_REOPEN_MAX_MS moved'); return PAGE.slice(at, PAGE.indexOf('\n', at) + 1); })() + slice('computersReopen');
 const RE = slice('computerAddressOk');
 
 const DOMAIN = 'kosmosplus.com';
@@ -29,20 +29,30 @@ const MINI = { name: 'mini', address: 'mini.kosmosplus.com', online: true, insta
 const HERE = { name: 'laptop', address: 'laptop.kosmosplus.com', online: true, this: true };
 
 /* The page's world for one reopen: what /api/remote/computers answers (or a throw), what is toasted, what is opened. */
-function world(answer, { opening = false } = {}) {
+function world(answer, { opening = false, during = null, hang = false } = {}) {
   const said = [];
   const opened = [];
-  const fetch = async (url) => {
+  const listeners = {};
+  const document = {
+    addEventListener: (k, fn) => { (listeners[k] = listeners[k] || []).push(fn); },
+    removeEventListener: (k, fn) => { listeners[k] = (listeners[k] || []).filter((f) => f !== fn); },
+  };
+  const fetch = (url, opts) => {
     assert.equal(url, '/api/remote/computers', 'the reopen read something other than the switcher\'s list');
-    if (answer instanceof Error) throw answer;
-    return { ok: true, json: async () => answer };
+    if (during) for (const fn of (listeners[during] || [])) fn();   // the person clicks or types while it is read
+    if (hang) {
+      return new Promise((_, rej) => { opts.signal.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; rej(e); }); });
+    }
+    if (answer instanceof Error) return Promise.reject(answer);
+    return Promise.resolve({ ok: true, json: async () => answer });
   };
   const msgToast = (t) => { said.push(t); };
   const computersOpenWithTicket = (url, name, a) => { opened.push({ href: url.href, name, a }); };
   // eslint-disable-next-line no-new-func
-  const run = new Function('fetch', 'msgToast', 'computersOpenWithTicket', 'computersOpening',
-    RE + REOPEN + '\nreturn computersReopen;')(fetch, msgToast, computersOpenWithTicket, opening);
-  return { run, said, opened };
+  const run = new Function('fetch', 'msgToast', 'computersOpenWithTicket', 'computersOpening', 'document', 'setTimeout',
+    RE + REOPEN + '\nreturn computersReopen;')(fetch, msgToast, computersOpenWithTicket, opening, document,
+    hang ? (fn) => setTimeout(fn, 0) : setTimeout);   // a hung read meets the limit at once in the test
+  return { run, said, opened, listeners };
 }
 const list = (computers, extra = {}) => ({ ok: true, domain: DOMAIN, computers, ...extra });
 
@@ -58,7 +68,7 @@ test('#8118: a computer no longer on the account is not opened, is said so, and 
   const w = world(list([HERE]));
   assert.equal(await w.run('mini.kosmosplus.com'), 'gone');
   assert.deepEqual(w.opened, []);
-  assert.match(w.said.join('\n'), /no longer on your Kosmos\+ account/);
+  assert.match(w.said.join('\n'), /is not on your Kosmos\+ account/);
 });
 
 test('#8118: this computer itself is home: nothing opened, nothing said, the app forgets', async () => {
@@ -72,7 +82,8 @@ test('#8118: signed out of Kosmos+ stays home and says so (never a sign-in dead 
   const w = world({ ok: false, signedIn: false });
   assert.equal(await w.run('mini.kosmosplus.com'), 'signed-out');
   assert.deepEqual(w.opened, []);
-  assert.match(w.said.join('\n'), /signed out of Kosmos\+/);
+  assert.match(w.said.join('\n'), /signed out of Kosmos\+ or remote access is off/);
+  assert.doesNotMatch(w.said.join('\n'), /top-left menu/, 'signed out, the menu has no computers to switch to');
 });
 
 test('#8118: off, updating, or unable to take the instant switch: stays home, names the computer, says why', async () => {
@@ -88,11 +99,35 @@ test('#8118: off, updating, or unable to take the instant switch: stays home, na
   }
 });
 
-test('#8118: when the list cannot be read, or the host is not this account\'s kind of address, nothing opens', async () => {
+test('#8118: a host under another domain is not this account\'s computer: gone, so the app forgets it', async () => {
+  const w = world(list([HERE, { ...MINI, address: 'mini.example.com' }]));
+  assert.equal(await w.run('mini.example.com'), 'gone');
+  assert.deepEqual(w.opened, []);
+});
+
+test('#8118: the person clicks or types while the list is read: no switch, nothing said', async () => {
+  for (const k of ['pointerdown', 'keydown']) {
+    const w = world(list([HERE, MINI]), { during: k });
+    assert.equal(await w.run('mini.kosmosplus.com'), 'touched', k + ' did not stop the reopen');
+    assert.deepEqual(w.opened, [], k + ': the window was pulled away while they worked here');
+    assert.deepEqual(w.said, []);
+    assert.deepEqual([...(w.listeners.pointerdown || []), ...(w.listeners.keydown || [])], [], 'the listeners were left on the page');
+  }
+  // CONTROL: with no click, the same reopen opens, so the test can see the difference.
+  assert.equal(await world(list([HERE, MINI])).run('mini.kosmosplus.com'), 'opening');
+});
+
+test('#8118: a list that does not answer in time stays home and says so', async () => {
+  const w = world(null, { hang: true });
+  assert.equal(await w.run('mini.kosmosplus.com'), 'slow');
+  assert.deepEqual(w.opened, []);
+  assert.match(w.said.join('\n'), /took too long to answer/);
+});
+
+test('#8118: when the list cannot be read, nothing opens', async () => {
   for (const [answer, host] of [
     [new Error('board not answering'), 'mini.kosmosplus.com'],
     [{ ok: false }, 'mini.kosmosplus.com'],
-    [list([HERE, MINI]), 'mini.example.com'],
   ]) {
     const w = world(answer);
     assert.equal(await w.run(host), 'unknown');
@@ -112,4 +147,24 @@ test('#8118: the click and the reopen share one switch (computersOpenWithTicket)
   const click = slice('computersOpenClick');
   assert.match(click, /computersOpenWithTicket\(url, name, a\)/, 'the switcher click no longer goes through the shared switch');
   assert.match(slice('computersOpenWithTicket'), /\/api\/remote\/open-ticket/, 'the shared switch no longer asks for a ticket');
+});
+
+test('#8118: the shared switch with no clicked link (a reopen) opens with a ticket and marks nothing', async () => {
+  const OPENT = slice('computersOpenWithTicket');
+  const went = [];
+  let screen = null;
+  const fetch = async (url, opts) => {
+    assert.equal(url, '/api/remote/open-ticket');
+    assert.deepEqual(JSON.parse(opts.body), { address: 'mini.kosmosplus.com' });
+    return { ok: true, json: async () => ({ ticket: 'T'.repeat(24) }) };
+  };
+  // eslint-disable-next-line no-new-func
+  const go = new Function('fetch', 'computersSwitchingScreen', 'computersGo', 'AbortController', 'setTimeout', 'clearTimeout',
+    'let computersOpening = false;\n' + OPENT + '\nreturn (u, n, a) => { computersOpenWithTicket(u, n, a); return () => computersOpening; };')(
+    fetch, (n) => { screen = n; }, (to) => { went.push(to); }, AbortController, setTimeout, clearTimeout);
+  const opening = go(new URL('https://mini.kosmosplus.com/'), 'mini', null);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(screen, 'mini', 'the switching screen did not show for a reopen');
+  assert.deepEqual(went, ['https://mini.kosmosplus.com/#kpt=' + 'T'.repeat(24)]);
+  assert.equal(opening(), false, 'the switch did not settle');
 });
