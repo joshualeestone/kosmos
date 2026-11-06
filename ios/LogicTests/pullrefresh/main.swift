@@ -89,9 +89,11 @@ check(L.shown(pulled: L.threshold * 3, refreshing: false) == 1, "never over all"
 check(L.shown(pulled: 0, refreshing: true) == 1, "all while refreshing, wherever the list is")
 
 // kosmos#8072: past the end of a chat, from the scroll view's numbers.
-check(L.pastEnd(offsetY: 1000, content: 1800, view: 900, adjustedBottom: 100) == 0, "resting exactly at the end is not past it")
-check(L.pastEnd(offsetY: 1040, content: 1800, view: 900, adjustedBottom: 100) == 40, "40 past the end")
-check(L.pastEnd(offsetY: 200, content: 1800, view: 900, adjustedBottom: 100) == 0, "higher up is not past it")
+check(L.pastEnd(offsetY: 1000, content: 1800, view: 900, adjustedTop: 100, adjustedBottom: 100) == 0, "resting exactly at the end is not past it")
+check(L.pastEnd(offsetY: 1040, content: 1800, view: 900, adjustedTop: 100, adjustedBottom: 100) == 40, "40 past the end")
+check(L.pastEnd(offsetY: 200, content: 1800, view: 900, adjustedTop: 100, adjustedBottom: 100) == 0, "higher up is not past it")
+check(L.pastEnd(offsetY: -100, content: 300, view: 900, adjustedTop: 100, adjustedBottom: 100) == 0, "a list too short to fill the screen, at rest, is not past it")
+check(L.pastEnd(offsetY: -60, content: 300, view: 900, adjustedTop: 100, adjustedBottom: 100) == 40, "and 40 up from its top is 40 past it")
 check(L.leastShow > 0 && L.leastShow < L.longestHold, "the dots are seen, and still end")
 // The constants the feel rests on.
 check(L.held < L.threshold, "the held space is less than the pull, so it settles back on release")

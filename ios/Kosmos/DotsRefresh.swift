@@ -241,7 +241,8 @@ final class EndPullDriver: NSObject {
     private func amount(_ view: UIScrollView) -> Double {
         guard allowed() else { return 0 }
         return PullRefreshLogic.pastEnd(offsetY: Double(view.contentOffset.y), content: Double(view.contentSize.height),
-                                        view: Double(view.bounds.height), adjustedBottom: Double(view.adjustedContentInset.bottom))
+                                        view: Double(view.bounds.height), adjustedTop: Double(view.adjustedContentInset.top),
+                                        adjustedBottom: Double(view.adjustedContentInset.bottom))
     }
 
     private func moved() {
@@ -296,6 +297,7 @@ final class EndPullDriver: NSObject {
         let side: CGFloat = 24
         // Centred in the space the pull opens, in the content's own coordinates, and never lower than the space kept free
         // at the end of the content, where it rests after the bounce.
+        // A short list's end sits above the screen's bottom, and the gap there is its own to use.
         let centre = max(view.contentSize.height + CGFloat(pulled) / 2, view.contentSize.height - restsAbove / 2)
         host.view.frame = CGRect(x: view.bounds.midX - side / 2, y: centre - side / 2, width: side, height: side)
         host.view.alpha = CGFloat(PullRefreshLogic.shown(pulled: pulled, refreshing: refreshing))
