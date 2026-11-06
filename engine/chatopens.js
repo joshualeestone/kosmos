@@ -4,6 +4,13 @@
  * numbers and the app's version, never text or a name. Counted by build rather than kept as records, so a rate can be
  * read for any build however long ago it shipped.
  *
+ * What the numbers mean, for a build: opens is showings (a chat appearing or coming back to the front, until it closes or
+ * leaves the front), so one long chat can count twice. blankOpens is showings with a rebuild or left blank at close, and
+ * a blank that recovers by itself with no rebuild is not in it. rebuilds is the total. closedBlank is showings with no
+ * row drawn for the last 3 s before they closed. A showing lost as the app is killed is not counted.
+ *
+ * Read with GET /api/phone/chat-opens (the board's token, as its sibling chat-shifts) or from the file itself on this Mac.
+ *
  * Kept on the board (store.ROOT/phone-chat-opens.json). Never throws to a caller. A file that cannot be read reads as
  * no builds with ok false and is never overwritten from that reading.
  */

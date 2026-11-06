@@ -724,20 +724,21 @@ enum Board {
         private var blankSince: Date?
         private var rebuilds = 0
         init() {}
-        func shown(now: Date = Date()) {
+        func shown(rowsDrawn: Bool, now: Date = Date()) {
             guard shownAt == nil else { return }
-            shownAt = now; blankSince = now; rebuilds = 0
+            shownAt = now; blankSince = rowsDrawn ? nil : now; rebuilds = 0
         }
         func rebuilt(now: Date = Date()) { rebuilds += 1; blankSince = now }   // a new list starts with no rows
         func rows(empty: Bool, now: Date = Date()) {
             if !empty { blankSince = nil } else if blankSince == nil { blankSince = now }
         }
         func reset() { shownAt = nil; blankSince = nil; rebuilds = 0 }
-        // Ends the showing. nil when there is nothing to count: not shown, or a chat with no messages.
-        func finish(hasRows: Bool, app: String, now: Date = Date()) -> [String: Any]? {
+        // Ends the showing. nil when there is nothing to count: not shown, or a chat with no messages. A search with no
+        // matches draws no rows too, so a search is never called blank.
+        func finish(hasRows: Bool, searching: Bool, app: String, now: Date = Date()) -> [String: Any]? {
             defer { reset() }
             guard shownAt != nil, hasRows else { return nil }
-            let closedBlank = blankSince.map { now.timeIntervalSince($0) >= Self.closedBlankAfter } ?? false
+            let closedBlank = !searching && (blankSince.map { now.timeIntervalSince($0) >= Self.closedBlankAfter } ?? false)
             return ["app": app, "rebuilds": rebuilds, "closedBlank": closedBlank]
         }
     }
