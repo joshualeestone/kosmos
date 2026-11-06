@@ -83,6 +83,10 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
     await p.waitForFunction((w) => new RegExp(w).test(document.getElementById('create-msg').textContent), words, { timeout: 15000 });
     await p.waitForTimeout(500);   // anything still repainting the form moves it now, not after the measure
   };
+  /* kosmos#8051 item 1: the kept form's line as a person and a screen reader meet it, and the sentence it should say. */
+  const KEPT_LINE = 'This is where you left off before going to Settings. Start over';
+  const keptLine = (p) => p.evaluate(() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim(), described: document.getElementById('create-name').getAttribute('aria-describedby') }; });
+  const keptLineRight = (k) => k.shown && k.text === KEPT_LINE && k.described === 'create-kept-why';
   const errs = [];
   try {
     for (const [size, viewport] of [['800-tall window', { width: 1280, height: 800 }], ['phone', { width: 390, height: 700 }]]) {
@@ -378,7 +382,7 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await newAgent();
       chk(await p.evaluate((t) => document.getElementById('create-name').value === 'Nadia' && document.getElementById('create-instr').value === t && !document.getElementById('cstep-name').hidden, TYPED), 'limit: CONTROL: 29 minutes after the link, the form is kept');
       // kosmos#8051 item 1: the kept form says why it is back, and the name field (where focus lands) is described by it.
-      const keptNow = await p.evaluate((() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim(), described: document.getElementById('create-name').getAttribute('aria-describedby') }; }));
+      const keptNow = await keptLine(p);
       // In the hint's type, under the title: a size step below the role's blurb, and above it (review 3: `.panel p` had
       // out-ranked the class, so the line came out as a second blurb).
       const look = await p.evaluate(() => { const k = document.getElementById('create-kept'), bl = document.getElementById('create-blurb'), s = (e) => parseFloat(getComputedStyle(e).fontSize); return { kept: s(k), blurb: s(bl), above: !!(k.compareDocumentPosition(bl) & Node.DOCUMENT_POSITION_FOLLOWING) }; });
@@ -389,7 +393,7 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
         await p.emulateMedia({ colorScheme: 'light' });
       }
       chk(look.kept < look.blurb && look.above, 'kept line: it reads as a hint under the title, smaller than the blurb and above it', JSON.stringify(look));
-      chk(keptNow.shown && keptNow.text === 'This is where you left off before going to Settings. Start over' && keptNow.described === 'create-kept-why', 'kept line: a kept form says it was kept, with Start over, and the name field is described by it', JSON.stringify(keptNow));
+      chk(keptLineRight(keptNow), 'kept line: a kept form says it was kept, with Start over, and the name field is described by it', JSON.stringify(keptNow));
       await pressCreate(p, 'no Claude account');
       const T1 = T0 + 29 * 60e3;
       chk(await p.evaluate(() => document.getElementById('create-kept').hidden && !document.getElementById('create-name').hasAttribute('aria-describedby')), 'kept line: pressing Create agent on the kept form takes the line away');
@@ -636,8 +640,8 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.evaluate(() => document.getElementById('rail-agents-new').click());
       await p.waitForTimeout(500);
       chk(await cons() && await p.evaluate(() => document.getElementById('create-name').value === 'Nadia' && !document.getElementById('cstep-name').hidden && !document.getElementById('panel-create').hidden), 'consolidated: coming back, the layout, the step and the name are all there');
-      const consLine = await p.evaluate((() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim(), described: document.getElementById('create-name').getAttribute('aria-describedby') }; }));
-      chk(consLine.shown && consLine.text === 'This is where you left off before going to Settings. Start over' && consLine.described === 'create-kept-why', 'consolidated: the kept form says it was kept, and the name field is described by it', JSON.stringify(consLine));
+      const consLine = await keptLine(p);
+      chk(keptLineRight(consLine), 'consolidated: the kept form says it was kept, and the name field is described by it', JSON.stringify(consLine));
       await p.click('#create-kept-over');
       await p.waitForTimeout(400);
       chk(await cons() && await p.evaluate(() => !document.getElementById('cstep-kind').hidden && !document.getElementById('panel-create').hidden && document.getElementById('create-kept').hidden), 'consolidated: Start over keeps the layout and opens the three-way choice');
@@ -657,7 +661,8 @@ const FAKE_KEY = 'sk-ant-fake-8040-not-a-real-key-000000000000';
       await p.locator('#create-msg button').click();
       await p.evaluate(() => document.getElementById('new-agent').click());
       await p.waitForTimeout(400);
-      chk((await p.evaluate((() => { const el = document.getElementById('create-kept'); return { shown: !el.hidden && el.getBoundingClientRect().height > 0, text: el.textContent.replace(/\s+/g, ' ').trim(), described: document.getElementById('create-name').getAttribute('aria-describedby') }; }))).shown, 'start over: CONTROL: the kept form shows the line');
+      const before = await keptLine(p);
+      chk(keptLineRight(before), 'start over: CONTROL: the kept form shows the line, as it should', JSON.stringify(before));
       await p.focus('#create-kept-over');
       await p.keyboard.press('Enter');
       await p.waitForTimeout(400);
