@@ -7927,6 +7927,22 @@ html:has(> body > #pv-preview) { overflow: hidden; scrollbar-gutter: auto; }
 .pv-file svg { width: 56px; height: 56px; }
 .pv-file b { font: 600 1.0625rem var(--font-ui); }
 .pv-file span { color: rgba(255, 255, 255, .62); font: var(--text-caption) var(--font-ui); }
+/* #8122 (Josh 11-06: "It's a spreadsheet so I don't know why we couldn't render a spreadsheet view. Obviously they
+   couldn't edit it or change it"): a read-only look at a workbook, as a light sheet on the dark, its sheets as tabs. */
+.pv-sheet { display: flex; flex-direction: column; gap: 8px; width: min(100%, 72rem); min-height: 0; max-height: 100%; }
+.pv-tabs { display: flex; gap: 4px; overflow-x: auto; flex: none; }
+.pv-tab { flex: none; min-height: 32px; padding: 6px 12px; border: 0; border-radius: 6px; background: rgba(255, 255, 255, .10);
+  color: rgba(255, 255, 255, .78); font: 600 .8125rem var(--font-ui); cursor: pointer; white-space: nowrap; }
+.pv-tab[aria-selected="true"] { background: #fff; color: #14161a; }
+.pv-tab:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.pv-grid-wrap { overflow: auto; min-height: 0; max-height: 100%; width: fit-content; max-width: 100%; border-radius: 6px; background: #fff; }   /* as wide as its table, never a white slab past the last column */
+.pv-grid { border-collapse: separate; border-spacing: 0; font: 13px/1.35 var(--font-ui); color: #1c1b19; }
+.pv-grid th, .pv-grid td { padding: 4px 8px; border-right: 1px solid #e6e3dc; border-bottom: 1px solid #e6e3dc; text-align: left;
+  white-space: pre; max-width: 24rem; overflow: hidden; text-overflow: ellipsis; vertical-align: top; }
+.pv-grid thead th { position: sticky; top: 0; z-index: 1; background: #f3f1ec; color: #6b6862; font-weight: 600; text-align: center; }
+.pv-grid tbody th { position: sticky; left: 0; background: #f3f1ec; color: #6b6862; font-weight: 600; text-align: right; }
+.pv-grid thead th:first-child { left: 0; z-index: 2; }
+.pv-grid td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .pv-bar { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 4px 18px 40px; min-width: 0; text-align: center; }
 .pv-acts { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; }
 /* #8122: the regular gold button (.btn.uprime's gold and ink), on the dark. */
@@ -77373,6 +77389,56 @@ const PV_HTML = '<div class="rm-back pv-back" id="pv-preview">'
   + '<div class="pv-stage" id="pv-stage"></div>'
   + '<div class="pv-bar"><span class="pv-name" id="pv-name"></span><span class="pv-acts"><span id="pv-act"></span></span><span class="pv-msg" id="pv-msg" role="status"></span></div>'
   + '</div></div>';
+/* #8122: draws a workbook's saved values (the board's reader answer: { sheets: [{ name, rows, cut, notGrid }],
+   moreSheets, noValues, someNoValues, empty }) into the viewer's stage, read-only. Every word here is said as text,
+   never markup: a cell is the file's own words. */
+const PV_COL = (n) => { let s = ''; for (n++; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
+function pvSheetInto(stage, data) {
+  const note = (text) => { const p = document.createElement('p'); p.className = 'pv-note'; p.textContent = text; return p; };
+  if (!data || data.empty) { stage.appendChild(note('This spreadsheet is empty.')); return; }
+  if (data.noValues) {
+    stage.appendChild(note('This spreadsheet has formulas but no saved values, so there is nothing to show here. Download it and open it to see them.'));
+    return;
+  }
+  const box = document.createElement('div'); box.className = 'pv-sheet';
+  const sheets = data.sheets || [];
+  const tabs = document.createElement('div'); tabs.className = 'pv-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', 'Sheets');
+  const panel = document.createElement('div'); panel.className = 'pv-grid-wrap'; panel.setAttribute('role', 'tabpanel'); panel.tabIndex = 0;
+  const notes = document.createElement('div');
+  const show = (i) => {
+    [...tabs.children].forEach((t, k) => { t.setAttribute('aria-selected', String(k === i)); t.tabIndex = k === i ? 0 : -1; });
+    const sh = sheets[i]; panel.textContent = ''; notes.textContent = '';
+    if (tabs.children[i]) panel.setAttribute('aria-labelledby', tabs.children[i].id);
+    if (sh.notGrid) { panel.appendChild(note('This sheet is a chart, not a table, so it is not shown here.')); return; }
+    if (!sh.rows.length) { panel.appendChild(note('This sheet is empty.')); return; }
+    const t = document.createElement('table'); t.className = 'pv-grid';
+    const head = t.createTHead().insertRow(); head.appendChild(document.createElement('th'));
+    const width = sh.rows[0].length;
+    for (let c = 0; c < width; c++) { const th = document.createElement('th'); th.scope = 'col'; th.textContent = PV_COL(c); head.appendChild(th); }
+    const body = t.createTBody();
+    sh.rows.forEach((r, ri) => {
+      const tr = body.insertRow(); const th = document.createElement('th'); th.scope = 'row'; th.textContent = String(ri + 1); tr.appendChild(th);
+      r.forEach((v) => { const td = tr.insertCell(); td.textContent = v; if (v && /^-?[0-9][0-9.,]*$/.test(v)) td.className = 'num'; });
+    });
+    panel.appendChild(t);
+    if (sh.cut) notes.appendChild(note('Showing the first 200 rows and 50 columns. Download it to see the rest.'));
+  };
+  sheets.forEach((sh, i) => {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'pv-tab'; b.setAttribute('role', 'tab');
+    b.id = 'pv-tab-' + i; b.textContent = sh.name; b.addEventListener('click', () => show(i));
+    b.addEventListener('keydown', (e) => {   // the tab pattern: arrows move between sheets
+      if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+      e.preventDefault(); const n = (i + (e.key === 'ArrowRight' ? 1 : -1) + sheets.length) % sheets.length; show(n); tabs.children[n].focus();
+    });
+    tabs.appendChild(b);
+  });
+  if (sheets.length > 1) box.appendChild(tabs);
+  box.appendChild(panel); box.appendChild(notes);
+  if (data.someNoValues) box.appendChild(note('Some cells hold formulas with no saved value, so they are blank here.'));
+  if (data.moreSheets) box.appendChild(note(data.moreSheets === 1 ? 'One more sheet is not shown.' : data.moreSheets + ' more sheets are not shown.'));
+  stage.appendChild(box);
+  if (sheets.length) show(0);
+}
 function pvRevealWord() { return onWindows() ? 'Show in File Explorer' : 'Open in Finder'; }
 /* The preview's action is Download, not a reveal, through Kosmos+ (the file is not on this device) and, #5865, on
    Linux (revealFolder runs /usr/bin/open, which a Linux board does not have). */
