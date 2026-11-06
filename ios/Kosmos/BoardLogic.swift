@@ -543,13 +543,17 @@ enum Board {
     // black list, so a report could not tell a rebuild that recovered from one that stayed blank. This says where the drawn rows
     // sit in the content against what the screen shows, as numbers: a record, which decides nothing. nil readings or a nil
     // screen say so: on iOS below 26 no row reads its place.
-    static func rowsAgainstScreen(_ rows: [Double], showing: (top: Double, bottom: Double)?) -> String {
+    static func rowsAgainstScreen(_ rows: [Double], showing: (top: Double, bottom: Double)?, ends: [Double] = []) -> String {
         // Clamped: Int() traps on a finite value past its range too, and this runs when the scroll is already suspected broken.
         func n(_ x: Double) -> Int { Int(max(-1e15, min(1e15, x))) }
         let finite = rows.filter(\.isFinite)
         guard let low = finite.min(), let high = finite.max() else { return "no row read its place" }
         guard let s = showing, s.top.isFinite, s.bottom.isFinite else { return "row tops \(n(low)) to \(n(high)), screen unread" }
-        return "row tops \(n(low)) to \(n(high)), screen shows \(n(s.top)) to \(n(s.bottom))"
+        let line = "row tops \(n(low)) to \(n(high)), screen shows \(n(s.top)) to \(n(s.bottom))"
+        // kosmos#7420: tops alone could not say whether a tall last row reached the screen, which is the question after a rebuild.
+        guard ends.count == rows.count, !ends.isEmpty else { return line }
+        let reaching = zip(rows, ends).filter { $0.0.isFinite && $0.1.isFinite && $0.0 < s.bottom && $0.1 > s.top }.count
+        return line + ", \(reaching) reach the screen"
     }
     // kosmos#7654: the tops of the rows whose reading agrees with where the list is: a row at `top` on the screen should sit at
     // offset + (top - bandTop) in the content, where offset is the scroll's plus its top inset. A settled list agrees exactly; 30 pt is
