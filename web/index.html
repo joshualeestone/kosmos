@@ -33208,10 +33208,11 @@ function computersOpenWithTicket(url, name, a) {
    own board has loaded at launch, asks this page to go back to the computer the window was last on (only its host is
    kept). Checked against the switcher's own list, so it opens only what the switcher would open, the same way (a
    ticket, the switching screen). Otherwise the window stays on this computer's agents and says why, in the
-   switcher's words. Resolves the outcome for the app (native-app reopenAnswerKeeps): a FINAL answer ('gone', 'home',
-   'touched', 'signed-out', 'bad') forgets the host; a passing one ('slow', 'unknown', 'updating', 'offline',
-   'not-instant') keeps it for the next launch, so one slow launch or a computer mid-update does not lose it (Angel's
-   review); 'opening' and 'busy' keep it too (the next page records it).
+   switcher's words. Resolves the outcome for the app (native-app reopenAnswerKeeps): 'gone', 'home' and 'bad' make
+   it forget the host (it can never be reopened); every other answer keeps it, and what the window shows at quit
+   decides the next launch (review 3).
+   Said at once (review 3: up to 30 s of home with no sign, then the switching screen): "Going back to <name>", and
+   that a click or a key stays here, so the switch is expected and staying is the person's visible choice.
    It gives up after COMPUTERS_REOPEN_MAX_MS, which is OA_COMPUTERS_LIMIT_MS's value and reason (above the route's
    own worst case: a 20 s Mac request plus a 4 s probe for a computer that is off; Angel's review: 6 s was below it),
    and stays home with no switch if the person clicks, types, scrolls or touches meanwhile: a switch that lands
@@ -33221,6 +33222,8 @@ async function computersReopen(host) {
   const h = typeof host === 'string' ? host.trim().toLowerCase() : '';
   if (!h) return 'bad';
   const say = (t) => { try { if (typeof msgToast === 'function') msgToast(t, 9000); } catch {} };
+  const label = h.split('.')[0];
+  try { if (typeof msgToast === 'function') msgToast('Going back to ' + label + ', the computer you were looking at. Click or type here to stay on this computer.', COMPUTERS_REOPEN_MAX_MS); } catch {}
   let touched = false;
   const mark = () => { touched = true; };
   const ev = ['pointerdown', 'keydown', 'wheel', 'touchstart'];
@@ -33235,7 +33238,7 @@ async function computersReopen(host) {
   } catch (e) { data = null; late = !!(e && e.name === 'AbortError'); }
   clearTimeout(cut);
   try { for (const k of ev) document.removeEventListener(k, mark, true); } catch {}
-  if (touched) return 'touched';   // they are working here: stay, quietly
+  if (touched) { say('Staying on this computer.'); return 'touched'; }   // they chose to stay
   if (late) {
     say('Kosmos opened this computer\'s agents: your other computers took too long to answer. Switch from the top-left menu.');
     return 'slow';
@@ -33254,7 +33257,7 @@ async function computersReopen(host) {
     return 'gone';
   }
   if (c.this === true) return 'home';
-  const name = typeof c.name === 'string' && c.name ? c.name : h.split('.')[0];
+  const name = typeof c.name === 'string' && c.name ? c.name : label;
   if (c.updating === true) { say(name + ' is updating, so Kosmos opened this computer\'s agents. Switch to it from the top-left menu when it is done.'); return 'updating'; }
   if (c.online !== true) { say(name + ' is not connected, so Kosmos opened this computer\'s agents.'); return 'offline'; }
   if (c.instant === false) {
