@@ -313,6 +313,7 @@ function chk(ok, label, extra) {
           const focus = await page.evaluate(() => document.activeElement && document.activeElement.matches('#tc-list li[data-slot="lead"] .tc-another') && document.activeElement.getAttribute('aria-label'));
           chk(one[0].name === 'Amir' && one.slice(1).every((r, i) => r.name === before[i + 1].name), `${E} #8092 Another name gives the lead the first short name free of the board (not Ade, and not Ali, which an agent is reached by) and leaves the others`, JSON.stringify({ before: before.map((r) => r.name), after: one.map((r) => r.name) }));
           chk(typeof focus === 'string' && /^Another name for the /.test(focus), `${E} #8092 and the keyboard stays on that button, which says what it does`, JSON.stringify(focus));
+          await settle(page, () => /is now/.test(document.getElementById('tc-name-said').textContent));
           const said = await page.evaluate(() => ({ text: document.getElementById('tc-name-said').textContent, live: document.getElementById('tc-name-said').getAttribute('aria-live'), word: document.querySelector('#tc-list li[data-slot="lead"] .tc-another').textContent }));
           chk(said.live === 'polite' && /^The .+ is now Amir\.$/.test(said.text) && said.word === 'Another', `${E} #8092 the new name is said aloud, and the button shows a word, not only an icon`, JSON.stringify(said));
           await page.click('#tc-short');
@@ -327,8 +328,9 @@ function chk(ok, label, extra) {
           chk(names.every((n) => /^[A-Za-z]{3,5}$/.test(n)) && new Set(names.map((n) => n.toLowerCase())).size === names.length && !names.some((n) => /^(ade|ali)$/i.test(n)),
             `${E} #8092 Use short names gives every row a short plain name, none twice, none on the board`, JSON.stringify(names));
           chk(names[0] !== one[0].name && names.slice(1).every((n, i) => n !== before[i + 1].name), `${E} #8092 CONTROL: every row did change, the lead again too`, JSON.stringify({ before: before.map((r) => r.name), names }));
+          await settle(page, () => document.getElementById('tc-name-said').textContent === '3 names are now short.');
           const bulkSaid = await page.evaluate(() => document.getElementById('tc-name-said').textContent);
-          chk(bulkSaid === 'Gave 3 names short ones.', `${E} #8092 Use short names says what it did`, JSON.stringify(bulkSaid));
+          chk(bulkSaid === '3 names are now short.', `${E} #8092 Use short names says what it did`, JSON.stringify(bulkSaid));
           // Another alone, last, on a row Use short names already changed: Make must carry THIS name (the box and TC agree).
           await page.click('#tc-list li[data-slot="social"] .tc-another');
           const last = (await rows(page)).find((r) => r.slot === 'social').name;
@@ -339,8 +341,42 @@ function chk(ok, label, extra) {
           await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((e) => e.textContent === 'Running'));
           chk(JSON.stringify(posted.map((b) => b.name)) === JSON.stringify(shown) && posted[2] && posted[2].name === last, `${E} #8092 the names made are the ones shown, Another's included`, JSON.stringify(posted.map((b) => b.name)));
           const after = await page.evaluate(() => ({ link: document.getElementById('tc-short-p').hidden, buttons: [...document.querySelectorAll('#tc-list .tc-another')].map((b) => getComputedStyle(b).display) }));
-          chk(after.link && after.buttons.every((v) => v === 'none'), `${E} #8092 once the team starts, neither is offered`, JSON.stringify(after));
+          chk(after.link && after.buttons.length === 3 && after.buttons.every((v) => v === 'none'), `${E} #8092 once the team starts, neither is offered`, JSON.stringify(after));
           chk(errs.length === 0, `${E} no page errors (#8092 arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #8092: a member that failed is renamed with Another, and Try again makes it under that name -------- */
+        {
+          const { page, errs, posted, script } = await newPage(1280);
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          // Not one letter from a teammate: beside "Anir", Amir and Anil are skipped and Ari offered (without the rule: Amir).
+          const near = await page.evaluate(() => {
+            const real = Math.random; Math.random = () => 0;
+            const keep = TC.members.map((m) => m.name); const boardKeep = TC.boardNames;
+            TC.boardNames = ['ade', 'ali']; TC.members[1].name = 'Anir'; TC.members[2].name = 'Zzz';
+            const got = tcShortName(TC.members[0]);
+            TC.members.forEach((m, i) => { m.name = keep[i]; }); TC.boardNames = boardKeep; Math.random = real;
+            return { got, pair: [tcOneApart('mae', 'mai'), tcOneApart('ana', 'anil'), tcOneApart('ari', 'anir')] };
+          });
+          chk(near.got === 'Ari' && JSON.stringify(near.pair) === '[true,false,false]', `${E} #8092 a name one letter from a teammate's is not offered`, JSON.stringify(near));
+          await page.click('#tc-short');
+          const short = (await rows(page)).map((r) => r.name);
+          script[short[2]] = 'that name could not be used just now';   // the last member is refused once
+          await page.selectOption('#tc-project', 'none');
+          await page.click('#tc-go');
+          await settle(page, () => (document.querySelector('#tc-list li[data-slot="social"] .tc-retry')));
+          const failed = await page.evaluate(() => { const b = document.querySelector('#tc-list li[data-slot="social"] .tc-another'); return { open: !!b && !b.disabled && getComputedStyle(b).display !== 'none', box: !document.querySelector('#tc-list li[data-slot="social"] .tc-name').disabled }; });
+          chk(failed.open && failed.box, `${E} #8092 a failed member offers Another, as its name box is open`, JSON.stringify(failed));
+          await page.click('#tc-list li[data-slot="social"] .tc-another');
+          const renamed = (await rows(page)).find((r) => r.slot === 'social').name;
+          await page.click('#tc-list li[data-slot="social"] .tc-retry');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((e) => e.textContent === 'Running'));
+          const last = posted[posted.length - 1];
+          chk(renamed !== short[2] && last && last.name === renamed, `${E} #8092 Try again makes it under the name Another gave`, JSON.stringify({ was: short[2], renamed, posted: posted.map((b) => b.name) }));
+          chk(errs.length === 0, `${E} no page errors (#8092 retry arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
         }

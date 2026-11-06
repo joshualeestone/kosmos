@@ -63528,6 +63528,19 @@ const TC_SHORT_NAMES = Object.freeze(['Ade', 'Ali', 'Amir', 'Anil', 'Ari', 'Asha
   'Mei', 'Mia', 'Mika', 'Mira', 'Nia', 'Nico', 'Nina', 'Noa', 'Nour', 'Obi', 'Omar', 'Oren', 'Otto',
   'Pia', 'Ravi', 'Rei', 'Remi', 'Rosa', 'Ruth', 'Sami', 'Sana', 'Sara', 'Seun', 'Tae',
   'Tala', 'Tao', 'Tara', 'Teo', 'Tom', 'Uma', 'Vera', 'Vik', 'Wen', 'Yan', 'Yara', 'Yuki', 'Zoe', 'Zuri']);
+/* Whether two names differ by one letter changed, added or dropped. */
+function tcOneApart(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  let j = 0; while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
+  return Math.max(a.length, b.length) - i - j <= 1;
+}
+/* The polite line, cleared first so the same words pressed again are said again. */
+function tcSayName(text) {
+  const el = document.getElementById('tc-name-said');
+  el.textContent = '';
+  requestAnimationFrame(() => { el.textContent = text; });
+}
 /* Names to steer clear of, in lower case: the board's agents (read once per team, TC.boardNames) and the team's other rows. */
 function tcTakenNames(except) {
   const taken = new Set(TC && Array.isArray(TC.boardNames) ? TC.boardNames : []);
@@ -63538,7 +63551,9 @@ function tcTakenNames(except) {
 function tcShortName(m) {
   const taken = tcTakenNames(m);
   const now = (m.name || '').trim().toLowerCase();
-  const free = TC_SHORT_NAMES.filter((n) => !taken.has(n.toLowerCase()) && n.toLowerCase() !== now);
+  // Not one letter away from a teammate's name either (Mae beside Mai is easy to mistype in a message).
+  const mates = TC ? TC.members.filter((o) => o !== m && o.name).map((o) => o.name.trim().toLowerCase()) : [];
+  const free = TC_SHORT_NAMES.filter((n) => !taken.has(n.toLowerCase()) && n.toLowerCase() !== now && !mates.some((o) => tcOneApart(o, n.toLowerCase())));
   return free.length ? free[Math.floor(Math.random() * free.length)] : m.name;
 }
 /* The board's agents, by both names: the one typed to reach it (sessionName, what a message or an @ takes) and the one shown.
@@ -63564,7 +63579,7 @@ document.getElementById('tc-short').addEventListener('click', () => {
     if (m && box && !box.disabled) { box.value = m.name; n += 1; }
   }
   // It replaces names the person typed too: that is what the link says it does, and Another or typing undoes any one.
-  document.getElementById('tc-name-said').textContent = n === 1 ? 'Gave one name a short name.' : 'Gave ' + n + ' names short ones.';
+  tcSayName(n === 1 ? '1 name is now short.' : n + ' names are now short.');
 });
 function tcPaint() {
   if (!TC) return;
@@ -63615,7 +63630,7 @@ function tcPaint() {
     another.textContent = 'Another';   // a word, not an icon: a phone shows no tooltip
     another.addEventListener('click', () => {
       m.name = tcShortName(m); input.value = m.name;
-      document.getElementById('tc-name-said').textContent = 'The ' + m.title + ' is now ' + m.name + '.';   // focus stays on the button
+      tcSayName('The ' + m.title + ' is now ' + m.name + '.');   // focus stays on the button
     });
     const namebox = document.createElement('span'); namebox.className = 'tc-namebox';
     namebox.append(input, another);
