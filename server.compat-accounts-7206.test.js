@@ -246,6 +246,7 @@ test('1b review 2: a DeepSeek agent reads as DeepSeek on the board (accountForAg
   const providerOf = new Function(script.slice(at, script.indexOf(';\n', at) + 1) + '\nreturn providerOf;')();
   assert.equal(providerOf({ runner: 'claude', account: { provider: 'deepseek' } }), 'deepseek');
   assert.equal(providerOf({ runner: 'claude', account: { provider: 'glm' } }), 'glm', '2b: a GLM agent reads as GLM');
+  assert.equal(providerOf({ runner: 'claude', account: { provider: 'minimax' } }), 'minimax', 'slice 3: a MiniMax agent reads as MiniMax');
   assert.equal(providerOf({ runner: 'claude', account: { dir: '/x/.claude-a' } }), 'anthropic', 'CONTROL');
   assert.equal(providerOf({ runner: 'codex', account: { provider: 'alibaba' } }), 'alibaba', 'CONTROL: Qwen unchanged');
 });
