@@ -65,9 +65,12 @@ test('#8118: the host reaches the page as an ARGUMENT, never inside the script t
 test('#8118: forgotten on the page\'s gone or home, and on Back to This Computer before the board loads', () => {
   const f = body('private func askPageToReopen(');
   assert.match(f, /switch reopenAnswerKeeps\(said\) \{/, 'the page\'s answer no longer goes through reopenAnswerKeeps (its rows are in the selftest)');
-  assert.match(f, /case \.forget: if self\.reopenComputerHost == host \{ self\.reopenComputerHost = nil \}/, 'a forget answer no longer forgets the host');
+  assert.match(f, /case \.forget: self\.reopenOutstanding = false; if self\.reopenComputerHost == host \{ self\.reopenComputerHost = nil \}/, 'a forget answer no longer forgets the host');
+  assert.match(f, /case \.settled: self\.reopenOutstanding = false/, 'a settled answer leaves the reopen outstanding, so a quit at home keeps it');
+  assert.match(f, /case \.stillOutstanding: break/);
   assert.match(f, /case \.retryNextBoardLoad: self\.reopenAskedThisLaunch = false/, 'a page that cannot answer spends the launch\'s reopen');
   const home = body('@objc func backToThisComputer(_ sender: Any?)');
+  assert.match(home, /reopenOutstanding = false/, 'going home on purpose leaves a reopen outstanding');
   const forget = home.indexOf('reopenComputerHost = nil');
   assert.ok(forget > 0 && forget < home.lastIndexOf('loadBoard()'), 'Back to This Computer does not forget the computer before loading home');
 });
@@ -80,7 +83,16 @@ test('#8118: the kept value is a plain string in UserDefaults under its own key,
 test('#8118 (round 3): quit decides: on another computer its host, at home nothing, only in run or both', () => {
   const f = body('func applicationWillTerminate(_ notification: Notification)');
   assert.match(f, /guard computerMode == \.run \|\| computerMode == \.both else \{ return \}/);
-  assert.match(f, /let host = isOnAnotherComputer\(\) \? computerToRemember\(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost\(\)\) : nil/,
-    'quit no longer writes what the window shows');
+  assert.match(f, /let away = isOnAnotherComputer\(\) \? computerToRemember\(committedPageURL, board: badgeOrigin, ownPlusHost: ownKosmosPlusHost\(\)\) : nil/,
+    'quit no longer reads what the window shows');
+  assert.match(f, /let host = quitKeeps\(awayHost: away, hasPage: committedPageURL != nil, reopenOutstanding: reopenOutstanding, kept: reopenComputerHost\)/,
+    'quit no longer goes through quitKeeps (its rows are in the selftest)');
   assert.match(f, /reopenComputerHost = host/, 'quit does not write the decision');
+});
+
+test('#8118 (round 4): the ask marks the reopen outstanding, and the other computer\'s page settles it', () => {
+  assert.match(body('private func askPageToReopen('), /reopenAskedThisLaunch = true\n\s+reopenOutstanding = true/);
+  const f = body('private func rememberOrReopenComputer(');
+  const at = f.indexOf('case .keep(let host):');
+  assert.match(f.slice(at, f.indexOf('\n', at)), /reopenOutstanding = false/, 'the remote page loading leaves the reopen outstanding');
 });

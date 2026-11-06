@@ -76,11 +76,11 @@ test('#8118: a computer no longer on the account is not opened, is said so, and 
   assert.match(w.said.join('\n'), /is not on your Kosmos\+ account/);
 });
 
-test('#8118: this computer itself is home: nothing opened, nothing said, the app forgets', async () => {
+test('#8118: this computer itself is home: nothing opened, staying said, the app forgets', async () => {
   const w = world(list([HERE, MINI]));
   assert.equal(await w.run('laptop.kosmosplus.com'), 'home');
   assert.deepEqual(w.opened, []);
-  assert.deepEqual(w.said, []);
+  assert.deepEqual(w.said, ['Staying on this computer.'], 'the "Going back" toast is left up while the window stays');
 });
 
 test('#8118: signed out of Kosmos+ (or remote access off) stays home and says so, never a sign-in dead end', async () => {
@@ -154,7 +154,7 @@ test('#8118: the click and the reopen share one switch AND one rule, so "what th
   assert.match(click, /computersOlderSaid\(name, url\.host\)/, 'the click types its own older-Kosmos sentence again');
   assert.match(slice('computersOpenWithTicket'), /\/api\/remote\/open-ticket/, 'the shared switch no longer asks for a ticket');
   assert.match(slice('computersRender'), /const opens = computersOpens\(c\);/, 'the menu decides links by its own copy of the rule');
-  assert.match(REOPEN, /if \(!computersOpens\(c\)\) return 'unknown';/, 'the reopen no longer ends on the switcher\'s rule');
+  assert.match(REOPEN, /if \(!computersOpens\(c\)\) \{ say\('Staying on this computer\.'\); return 'unknown'; \}/, 'the reopen no longer ends on the switcher\'s rule');
 });
 
 test('#8118: the shared rule decides last: a row the switcher would not link is never opened', async () => {

@@ -25,10 +25,13 @@ own agents, so he switches again every time.
    - signed out of Kosmos+, offline, or unable to take the instant switch: stay home, with one line in the switcher's
      wording (#6585), naming the computer;
    - no longer on the account (or a host under another domain): stay home, say so, and tell the app to forget it.
-   - the list does not answer in 6 s, or the person clicks or types meanwhile: stay home (review 1: a late switch
-     would take unsent text with it).
-   The page's answer reaches the app through `reopenAnswerKeeps`: 'opening'/'busy' keep the host, a page with no
-   reopen (a sign-in page) asks again at the next board load, everything else forgets it.
+   - the list does not answer in 30 s (OA_COMPUTERS_LIMIT_MS), or the person clicks, types, scrolls or touches
+     meanwhile: stay home (a late switch would take unsent text with it). A toast says at once where it is going
+     and how to stay.
+   The page's answer reaches the app through `reopenAnswerKeeps` (round 4's version, below): gone, home, bad forget;
+   touched and signed-out settle the reopen (a quit at home then forgets); every other answer leaves it
+   outstanding (a quit keeps it); a page with no reopen (a sign-in page) asks again at the next board load.
+   What the next launch reopens is decided at QUIT (`quitKeeps`, round 3 and 4).
 4. Windows and iPhone: say on the card what each does today; Mac first.
 
 ## Decided
@@ -89,6 +92,19 @@ board load).
   computer."), "Staying on this computer." when they do, and a click no longer forgets anything (quit decides).
 - NITs fixed: a reopenStep row for another computer before the ask; the 30 s value is pinned against
   OA_COMPUTERS_LIMIT_MS. NIT kept: the offline toast does not promise a retry (quit at home forgets, so it may not).
+
+## Review round 4 (sonnet; no BLOCKER)
+- WARNING: quit at home forgot the computer when the person never chose home (a quit during the reopen, the
+  update relaunch, or after a passing failure such as the computer asleep) --> FIXED: `reopenOutstanding`, set at
+  the ask and cleared when the person chooses home (touched, Back to This Computer), the answer settles it
+  (signed-out) or forgets it (gone, home, bad), or the other computer's page loads. `quitKeeps` (6 selftest rows)
+  keeps the host while it is outstanding. So a computer asleep for one launch is tried again next launch; a person
+  who prefers home clicks once during "Going back to ...", and the quit then forgets it.
+- WARNING: a crashed page (committedPageURL nil) read as home at quit --> FIXED: no page decides nothing.
+- NIT: the update relaunch's new copy can read the value before the old copy's quit writes it --> COMMENT (same
+  host in the common case).
+- NIT: the "Going back" toast stayed up on quiet exits --> FIXED ("Staying on this computer.").
+- NIT: stale plan text (6 s, "everything else forgets", signed-out) --> FIXED above.
 
 ## Weakest premise (now)
 That every way the app ends reaches applicationWillTerminate (Cmd-Q, the menu, the Dock, the last window, an
