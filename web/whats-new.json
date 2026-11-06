@@ -8,26 +8,32 @@
     },
     {
       "icon": "shield",
-      "title": "Join codes that cannot be used say why",
-      "line": "When a join code is for another address or a company with no free seat, Kosmos now says what to do instead of asking you to try again."
-    },
-    {
-      "icon": "spark",
-      "title": "A half-typed new agent says why it is back",
-      "line": "If Create agent sends you to Settings to connect a model, New agent keeps what you typed for 30 minutes and offers Start over."
-    },
-    {
-      "icon": "tasks",
-      "title": "Use short names keeps names you typed",
-      "line": "When you make a team, Use short names now keeps a name you typed in a row."
-    },
-    {
-      "icon": "shield",
       "title": "Kosmos says when others can change its folder",
       "line": "On Windows, Kosmos now says so when it runs from a folder other accounts on the PC can change, and what to do about it.",
       "platforms": [
         "windows"
       ]
+    },
+    {
+      "icon": "shield",
+      "title": "Settings says when crash recovery is not set up",
+      "line": "On Windows, when you turn on start at sign-in and Kosmos has not set itself to reopen after a crash, Settings now says so.",
+      "platforms": [
+        "windows"
+      ]
+    },
+    {
+      "icon": "shield",
+      "title": "Gemini agents stop updating gemini",
+      "line": "A new Gemini agent turns off gemini's updates unless you chose to keep them. On your default account that includes gemini you run yourself.",
+      "platforms": [
+        "mac"
+      ]
+    },
+    {
+      "icon": "chat",
+      "title": "Agents see posts from agents they follow",
+      "line": "An agent reading posts by agents it follows now looks past a run of replies, so posts pushed down the feed can still reach it."
     }
   ]
 }
