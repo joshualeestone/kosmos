@@ -199,7 +199,7 @@ struct ContentView: View {
         .onChange(of: pushManager.agentToOpen) { target in if let target { openAgentChat(target) } }
         // kosmos#7008: a sign-out or another account drops the chats now, not at the next visit to the tab.
         .onChange(of: pushManager.accountChanges) { _ in
-            board.accountChanged(); web.sessionChanged()
+            board.accountChanged(why: pushManager.lastChangeWhy); web.sessionChanged()
             // kosmos#7418 review 1: a chat or room a notice asked for belonged to the account that was signed in.
             agentRequest = nil; roomRequest = nil
             pendingTells = [:]   // kosmos#7488: a tell names a project on the computer of the account that made it
@@ -275,7 +275,12 @@ struct ContentView: View {
             }, teamBusy: $newTeamBusy)
         }
         .onChange(of: board.agents) { rows in sendTells(rows) }
+        // kosmos#8055: the other things that can draw the tabs again, in the device log beside the chat's own close lines.
+        .onChange(of: nativeSignIn) { on in NSLog("[Chat] the sign-in screen is %@", on ? "on" : "off"); board.noteTabsChange(on ? "the sign-in screen came up" : "the sign-in screen went") }
+        .onChange(of: isUnlocked) { open in NSLog("[Chat] the lock is %@", open ? "open" : "shut"); board.noteTabsChange(open ? "the lock opened" : "the lock shut") }
         .onChange(of: web.tasksTab) { shown in
+            NSLog("[Chat] the tab bar's Tasks tab is now %@", shown == true ? "shown" : "hidden")   // kosmos#8055: a redraw trigger
+            board.noteTabsChange(shown == true ? "the Tasks tab joined the bar" : "the Tasks tab left the bar")
             let kept = AppTabs.keep(tab, tasksTab: shown)
             guard kept != tab else { return }
             if kept == .today { showBoardToday() } else { select(kept) }
@@ -293,6 +298,11 @@ struct ContentView: View {
             // Back at the front after a real background: the bar may take Tasks now. Mona Lisa: the bar changes at
             // launch or on a return, not on each poll (a launch's first read can still land while it is on screen).
             if newPhase == .background { tabsBackgrounded = true }
+            // kosmos#8055: when the app really came back (not Control Center), cleared while it is away, and each phase logged so
+            // the device log shows what came just before an open chat closed.
+            NSLog("[Chat] scene %@", String(describing: newPhase))
+            if newPhase == .background { board.cameBackAt = nil }
+            if newPhase != .background && tabsBackgrounded && board.cameBackAt == nil { board.cameBackAt = Date(); board.noteTabsChange("the app came back to the front") }   // the first step back
             // kosmos#7050 slice C: here, not on the sign-in screen, so it runs even when the lock takes the screen away.
             if newPhase == .background { signIn.appLeft() }
             // kosmos#7416 review 3: a not-answering screen left up overnight says this morning's time on the return.

@@ -381,11 +381,11 @@ final class BoardClient: ObservableObject {
         // Another account (or a new sign-in) drops everything learned under the old one. No session at all is handled
         // just below, without touching the kept Mac session. The app knows an account only by its session, so a new
         // session counts as another account here, as it does for the kept Mac session (PushNotificationManager).
-        if let held = admitted, let session, held.session != session { forget() }
+        if let held = admitted, let session, held.session != session { forget(why: "the Kosmos+ session on this iPhone changed") }
         // The shown list is checked too, since admitted is often unset by then (after a refusal or not answering).
-        if let owner = shownOwner, let session, owner != Board.owner(of: session) { forget() }
+        if let owner = shownOwner, let session, owner != Board.owner(of: session) { forget(why: "the list showing was another account's") }
         // And the chats, whose owner outlives a read that found no session.
-        if let owner = chatsOwner, let session, owner != Board.owner(of: session) { forgetChats() }
+        if let owner = chatsOwner, let session, owner != Board.owner(of: session) { blankOpenChat(); forgetChats(why: "the chats were another account's") }
         if let session { chatsOwner = Board.owner(of: session) }
         fresh = false
         // No Kosmos+ session (signed out, or the Keychain could not be read yet): nothing from the last one is shown.
@@ -489,7 +489,7 @@ final class BoardClient: ObservableObject {
         pictures = [:]
         pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil; prunedFor = nil
         forgetYou()
-        forgetChats()
+        forgetChats(why: "you picked another computer", byPerson: true)
         forgetToday()
         start()
     }
@@ -1286,18 +1286,44 @@ final class BoardClient: ObservableObject {
     // A sign-out, or a sign-in as someone else, reported by the web view (PushNotificationManager.accountChanges).
     // The loop is stopped first, so a read in flight under the old account cannot write its list back afterwards, and
     // started again if it was running, under whoever is signed in now.
-    func accountChanged() {
+    func accountChanged(why: String) {
         let running = loop != nil
         stop()
-        forget()
+        forget(why: why)
         if running { start() }
     }
 
     // Who the chats belong to (a fingerprint of the Kosmos+ session they were made under).
     private var chatsOwner: String?
 
+    /// kosmos#8055: why the chats were last forgotten, in words, read by the Agents tab when an open chat closes.
+    private(set) var chatsForgottenWhy = ""
+    /// kosmos#8055: whether the person chose that (a computer they picked), so no line says it closed on its own.
+    private(set) var chatsForgottenByPerson = false
+    /// kosmos#8055: the chat the Agents tab has open and the chatEpoch it opened under, kept here, outside the tab, so a
+    /// tab drawn again can tell it lost one, and whether the chats were forgotten meanwhile.
+    var chatOpen: (session: String, name: String, epoch: Int)? {
+        didSet { if chatOpen != nil { chatsForgottenByPerson = false } }   // a chat opened since: a later forget is news
+    }
+    /// kosmos#8055: the open chat's link closed while the app was not in front, so the record is kept for the next appear,
+    /// and which Agents tab already said so (its own id), so that tab does not say it twice and a new one does.
+    var chatClosedAway = false
+    var chatClosedAwaySaidBy: UUID?
+    /// kosmos#8055: the last thing that changed the tabs (ContentView), and when, named in the line a close writes.
+    var lastTabsChange: (what: String, at: Date)?
+    func noteTabsChange(_ what: String) { lastTabsChange = (what, Date()) }
+    /// kosmos#8055: on any change of account, another account's agent name never shows: the kept name goes, and the open
+    /// chat's record keeps only that one was open (and its epoch), so a tab drawn again still says a chat closed.
+    private func blankOpenChat() {
+        UserDefaults.standard.removeObject(forKey: Board.openChatKey)
+        chatOpen = chatOpen.map { (session: "", name: "", epoch: $0.epoch) }
+    }
+    /// kosmos#8055: when the app last came to the front (ContentView), to tell the screen's own close from a press on back.
+    var cameBackAt: Date?
     // Another Mac keeps chatsOwner (the account has not changed); forget() clears it.
-    private func forgetChats() {
+    private func forgetChats(why: String, byPerson: Bool = false) {
+        chatsForgottenWhy = why
+        chatsForgottenByPerson = byPerson
         starNote = nil   // kosmos#7034: a star note was about the other computer's list
         starring = []   // kosmos#7034 review 3: a save still out was for the other computer; its answer is dropped
         pending = [:]
@@ -1717,8 +1743,9 @@ final class BoardClient: ObservableObject {
     }
 
     // Everything learned under the previous Kosmos+ session goes, cookies and the kept Mac session included.
-    private func forget() {
-        forgetChats()
+    private func forget(why: String) {
+        forgetChats(why: why)
+        blankOpenChat()
         chatsOwner = nil
         admitted = nil
         shownMac = nil
@@ -1799,7 +1826,7 @@ final class BoardClient: ObservableObject {
         }
         // Another Mac: its agents' pictures are its own, even for an agent of the same name.
         // Another Mac: its pictures and the chats (opened on the one before) go now, before any chat call reaches it.
-        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil; prunedFor = nil; forgetYou(); forgetChats(); forgetToday() }
+        if let shown = shownMac, shown.address != mac.address { pictures = [:]; pictureVersions = [:]; pictureFetchedAt = [:]; picturesLoadedFor = nil; prunedFor = nil; forgetYou(); forgetChats(why: "another computer answered"); forgetToday() }
         failedRefreshes = 0
         while !Task.isCancelled && gen == generation {
             guard await refresh(url: url, mac: mac, gen) else { return }

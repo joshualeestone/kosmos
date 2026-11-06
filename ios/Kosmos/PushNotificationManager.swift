@@ -35,6 +35,8 @@ final class PushNotificationManager: NSObject, ObservableObject {
     // kosmos#7042 review round 6: whether the last account change was a sign-out, as the message said (not read back
     // from the keychain, which a failed save leaves empty while the app is signed in for the launch).
     private(set) var lastChangeSignedOut = false
+    /// kosmos#8055: what made the last account change, in words for the line that says why an open chat closed.
+    private(set) var lastChangeWhy = ""
 
     // MARK: - Configuration
 
@@ -185,20 +187,20 @@ final class PushNotificationManager: NSObject, ObservableObject {
             NSLog("[Push] ignored a malformed kosmosSession post")
             return
         }
-        take(message)
+        take(message, from: "the sign-in page")
     }
 
     // kosmos#7042: the native sign-in's session, from Kosmos+ itself (SignInClient asked the coordinator directly), so
     // there is no frame to check: it takes the same path as the sign-in page's post.
     func signedInNatively(_ token: String) {
         guard !token.isEmpty else { return }
-        take(.signedIn(token))
+        take(.signedIn(token), from: "the sign-in on this iPhone")
     }
 
     // kosmos#7042: the person backed out of a session the native sign-in had issued.
-    func signedOutNatively() { take(.signedOut) }
+    func signedOutNatively() { take(.signedOut, from: "backing out of the sign-in on this iPhone") }
 
-    private func take(_ message: PushBridge.SessionMessage) {
+    private func take(_ message: PushBridge.SessionMessage, from source: String) {
         // kosmos#6838: a sign-out, or a sign-in as someone else, also makes the Agents tab forget its kept Mac session,
         // at once rather than at the next visit. (Forgotten on this iPhone; the Mac ends the session on its own
         // schedule, as for the web view.) Read before the registrar stores the new session.
@@ -215,6 +217,8 @@ final class PushNotificationManager: NSObject, ObservableObject {
             // A sign-out of a session the app held: one that arrives with nothing held (the page clearing a session
             // the app had already dropped) brings nothing back (review round 7).
             lastChangeSignedOut = message == .signedOut && held != nil
+            // Kept for the person to read on the Agents list, so in plain words; the source says which part spoke.
+            lastChangeWhy = Board.accountChangeWhy(source: source, signedOut: message == .signedOut, heldBefore: held != nil, readBefore: before != nil)
             accountChanges += 1
         }
     }
