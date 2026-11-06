@@ -103,8 +103,10 @@ test('fromFile: one handle; a link is not followed, a FIFO does not block, the s
   fs.writeFileSync(real, fx.SIMPLE());
   assert.equal(sp.fromFile(real, 'plan.xlsx').ok, true, 'CONTROL: a real workbook is read');
   const link = path.join(DIR, 'link.xlsx');
-  fs.symlinkSync(real, link);
-  assert.equal(sp.fromFile(link, 'link.xlsx').ok, false, 'a link was followed');
+  let linked = true;
+  try { fs.symlinkSync(real, link); } catch (e) { if (process.platform === 'win32' && e && e.code === 'EPERM') linked = false; else throw e; }
+  // On Windows a link needs a privilege the runner may not have; where it can be made, it must be refused there too.
+  if (linked) assert.equal(sp.fromFile(link, 'link.xlsx').ok, false, 'a link was followed');
   if (process.platform !== 'win32') {
     const fifo = path.join(DIR, 'pipe.csv');
     execFileSync('mkfifo', [fifo]);
