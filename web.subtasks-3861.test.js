@@ -84,7 +84,7 @@ test('the project page rows carry the same tree facts as the Tasks view rows', (
     assert.equal(by[n].parentSentence, view[n].parentSentence, 'parentSentence of ' + n);
     assert.deepEqual(by[n].subtasks, view[n].subtasks, 'subtasks of ' + n);
   }
-  assert.deepEqual(by[1].subtasks, { done: 1, built: 0, total: 2 });
+  assert.deepEqual(by[1].subtasks, { done: 1, built: 0, held: 0, total: 2 });
 });
 
 const rowHtml = (t, at, sel) => new Function('TSK', 'LAST', 'esc', 'agoWords', 'tskKey', 'claimNotReported', 'tskAgentName',
@@ -103,6 +103,20 @@ test('a parent row carries its chip; with its family in the list the chip is the
   assert.match(alone, /<span class="tsk-chip" title="1 of 2 subtasks done">1\/2<span class="vh"> subtasks done<\/span><\/span>/);
   assert.doesNotMatch(alone, /<span[^>]*aria-label/, 'no aria-label on a plain span: the words are in the chip');
   assert.doesNotMatch(withKids, /all subtasks done/, 'one subtask is still open');
+});
+
+/* kosmos#8140: held subtasks are said apart from the ones not done, in the chip's words, its label and its title. */
+test('kosmos#8140: a parent row says how many of its subtasks are on hold, apart from not done', () => {
+  const one = Object.assign({}, rows().find((t) => t.number === 1), { subtasks: { done: 0, built: 0, held: 3, total: 4 } });
+  const alone = rowHtml(one, { depth: 0, crumb: false, kids: 0 });
+  assert.match(alone, /<span class="tsk-chip" title="0 of 4 subtasks done, 3 on hold">0\/4, 3 on hold<span class="vh"> subtasks done<\/span><\/span>/);
+  const withKids = rowHtml(one, { depth: 0, crumb: false, kids: 4 });
+  assert.match(withKids, /aria-label="0 of 4 subtasks done, 3 on hold\. Hide them"/);
+  assert.match(withKids, />0\/4, 3 on hold<\/button>/);
+  const none = rowHtml(Object.assign({}, one, { subtasks: { done: 0, built: 0, held: 0, total: 4 } }), { depth: 0, crumb: false, kids: 0 });
+  assert.doesNotMatch(none, /on hold/, 'CONTROL: nothing held, nothing said');
+  const old = rowHtml(Object.assign({}, one, { subtasks: { done: 0, built: 0, total: 4 } }), { depth: 0, crumb: false, kids: 0 });
+  assert.doesNotMatch(old, /on hold|NaN|undefined/, 'an answer from an older board (no held) says nothing about holds');
 });
 
 test('every subtask closed and the parent open: "all subtasks done" and Close it; a nested row is indented', () => {
