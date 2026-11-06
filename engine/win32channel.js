@@ -71,11 +71,15 @@ const SAY_TIMEOUT_MS = 8000;
 
 /* #1765: the most the helper waits for Windows to say who owns the pipe it reached, before it
    writes anything (serverOwnerOf). Measured on the Windows box: about 0.35 to 0.55 s, almost all of
-   it Windows PowerShell starting. Review 1: 10 s, not 4, because a cold box (just after a boot, or with
-   Defender scanning while many agents start) can take several seconds to start Windows PowerShell, and a
-   check that times out refuses a message that would have been safe. This is its own phase, outside SAY_TIMEOUT_MS, so the
-   conversation keeps its whole budget; say() waits this much longer for the helper on Windows. */
-const OWNER_CHECK_TIMEOUT_MS = 10000;
+   it Windows PowerShell starting. This is its own phase, outside SAY_TIMEOUT_MS, so the
+   conversation keeps its whole budget; say() waits this much longer for the helper on Windows.
+   🛑 IT MUST STAY UNDER THE SUPERVISOR'S IDLE BOUND. The helper connects first and asks second, and a
+   supervisor drops a connection that sends nothing for its idleMs (SAY_TIMEOUT_MS by default, 8 s,
+   in supervisors already running). A check longer than that is refused by the supervisor anyway,
+   with a reason that blames the wrong side. So 7 s: room for a cold box (just after a boot, or with
+   Defender busy) to start Windows PowerShell, and a second clear of the supervisor's 8 s. A test
+   holds the two in that order. */
+const OWNER_CHECK_TIMEOUT_MS = 7000;
 
 /* The accounts a pipe Kosmos may write to can be owned by: this account (what a supervisor
    started by its logon task creates), and the two that can already read this account's channel

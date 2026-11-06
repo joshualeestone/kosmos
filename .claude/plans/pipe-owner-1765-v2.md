@@ -21,6 +21,8 @@
 - **PowerShell, not a native call.** Node has no API for a named pipe's server owner or process id. Rejected: a native addon (new build dependency on the box and CI), the Rust connector (not present for every agent). What would change it: the per-message cost becoming visible to people, or a locked-down PowerShell being common among users.
 - **Trust Administrators and SYSTEM.** Both can already read this account's channel key, so trusting them gives nothing away.
 - **Fail closed.** A check that cannot run refuses. A wrongly refused message is retried; a key handed to another account is not recoverable.
+- **The cost lands on the board's thread, accepted for now.** `say()` is `execFileSync`, so each message's owner check (about 0.3 to 0.5 s measured) blocks the whole board while it runs, and a burst of deliveries pays it per message. Worst case per message rises from 10 s to 17 s (8 + 2 + 7). Accepted because delivery was already a blocking call with a 10 s ceiling, the typical added cost is under half a second, and a key handed to another account is the worse failure. Rejected for this PR: caching the verdict per pipe (needs a way to tell the holder has not changed, which Node cannot read) and a long-lived checker process (a new resident process per board). Recorded as a follow-up on #1765, with the non-PowerShell check.
+- **Check bound under the supervisor's idle bound.** The helper connects, then asks; a supervisor drops a silent caller after 8 s. The check is capped at 7 s and a test holds that order.
 
 ## Weakest premise
 

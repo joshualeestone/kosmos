@@ -141,6 +141,13 @@ test('#1765: on Windows the real check is the default; elsewhere there is no nam
   assert.equal((src.match(/sock\.write\(/g) || []).length, 1, 'another write to the pipe appeared');
 });
 
+test('#1765: the owner check ends before a supervisor gives up on a silent caller', () => {
+  /* The helper connects, then asks; a supervisor drops a connection that sends nothing for SAY_TIMEOUT_MS
+     (serve's default idleMs). A longer check would be refused by the supervisor for the wrong reason. */
+  assert.ok(channel.OWNER_CHECK_TIMEOUT_MS < channel.SAY_TIMEOUT_MS,
+    'owner check ' + channel.OWNER_CHECK_TIMEOUT_MS + ' ms is not under the supervisor idle bound ' + channel.SAY_TIMEOUT_MS + ' ms');
+});
+
 test('#1765: serverOwnerOf refuses anything that is not a named pipe, without asking Windows', async () => {
   await assert.rejects(channel.serverOwnerOf('/tmp/sock', 1000), /not a pipe Windows can say the owner of/);
   await assert.rejects(channel.serverOwnerOf('\\\\.\\pipe\\', 1000), /not a pipe Windows can say the owner of/);
@@ -164,7 +171,10 @@ test('#1765: Windows names this account as the owner of a pipe this account made
   const t0 = Date.now();
   const a = await channel.serverOwnerOf(addr, channel.OWNER_CHECK_TIMEOUT_MS);
   const ms = Date.now() - t0;
-  assert.deepEqual(a, { owner: sid, me: sid });
+  /* An elevated administrator (a CI runner) gets objects owned by Administrators rather than by its own
+     SID; both pass the rule, so either is a right answer here. */
+  assert.equal(a.me, sid);
+  assert.ok(a.owner === sid || channel.TRUSTED_PIPE_OWNERS.includes(a.owner), 'owner ' + a.owner);
   assert.equal(channel.ownerRefusal(a), null);
   assert.ok(ms < channel.OWNER_CHECK_TIMEOUT_MS, 'the check took ' + ms + ' ms');
   t.diagnostic('serverOwnerOf took ' + ms + ' ms');
