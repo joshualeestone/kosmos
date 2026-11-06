@@ -202,7 +202,7 @@ struct TasksView: View {
             }
         } else {
             VStack(spacing: 8) {
-                SweepDots()
+                SweepDots(scales: false)
                 Text("Reading your tasks\u{2026}").font(.footnote).foregroundColor(Palette.secondary)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         }

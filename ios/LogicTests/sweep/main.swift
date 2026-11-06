@@ -144,17 +144,23 @@ do {
     let chat = repoText("ios/Kosmos/ChatView.swift")
     // Josh 11-05 18:33: "only use the dots spinner in the mobile app and scrub any other instances". The guard: no app
     // source draws the orb or the system's spinner, so neither can come back unnoticed (KosmosOrb.swift itself excepted).
-    var offenders: [String] = []
+    var offenders: [String] = [], read: [String] = [], refreshable = 0, refreshControls = 0
     for folder in ["ios/Kosmos", "ios/KosmosNotice"] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: repo.appendingPathComponent(folder).path)) ?? []
+        let names = (FileManager.default.enumerator(atPath: repo.appendingPathComponent(folder).path)?.allObjects as? [String]) ?? []
         for name in names where name.hasSuffix(".swift") && name != "KosmosOrb.swift" {
             let text = repoText(folder + "/" + name)
+            read.append(folder + "/" + name)
             for bad in ["KosmosOrb(", "ProgressView(", "UIActivityIndicatorView"] where text.contains(bad) { offenders.append(name + ": " + bad) }
+            refreshable += text.components(separatedBy: ".refreshable").count - 1
+            refreshControls += text.components(separatedBy: "UIRefreshControl()").count - 1
         }
     }
-    let swiftFiles = ((try? FileManager.default.contentsOfDirectory(atPath: repo.appendingPathComponent("ios/Kosmos").path)) ?? []).filter { $0.hasSuffix(".swift") }
-    check(swiftFiles.count > 20 && chat.contains("SweepDots("), "the app's sources were read (\(swiftFiles.count) files)")
+    check(read.contains("ios/Kosmos/ChatView.swift") && read.contains(where: { $0.hasPrefix("ios/KosmosNotice/") }) && read.count > 20,
+          "both app folders were read, subfolders included (\(read.count) files)")
     check(offenders.isEmpty, "only the dots: no orb and no system spinner anywhere in the app" + (offenders.isEmpty ? "" : ": \(offenders)"))
+    // The one known exception, pinned so no new one appears: pull to refresh draws iOS's own spinner (10 lists and the board
+    // page's refresh control). Dots there need pull to refresh rebuilt; follow-up card on #8058.
+    check(refreshable == 10 && refreshControls == 1, "pull to refresh is the only system spinner left, at its 11 known places (\(refreshable) + \(refreshControls))")
 }
 
 print(failures == 0 ? "VERDICT: PASS \(total)/\(total)" : "VERDICT: FAIL \(total - failures)/\(total)")
