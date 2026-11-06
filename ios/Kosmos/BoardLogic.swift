@@ -715,6 +715,44 @@ enum Board {
         deinit { flush() }
     }
 
+    // kosmos#7420: one showing of a chat, for the board's count of blanks per build (engine/chatopens.js). A class, so
+    // counting mid-layout redraws nothing. blankSince is when the list last had no rows, so rows leaving as the chat closes
+    // do not read as a blank.
+    final class ChatOpenCount {
+        static let closedBlankAfter: Double = 3
+        private var shownAt: Date?
+        private var blankSince: Date?
+        private var rebuilds = 0
+        init() {}
+        func shown(now: Date = Date()) {
+            guard shownAt == nil else { return }
+            shownAt = now; blankSince = now; rebuilds = 0
+        }
+        func rebuilt() { rebuilds += 1 }
+        func rows(empty: Bool, now: Date = Date()) {
+            if !empty { blankSince = nil } else if blankSince == nil { blankSince = now }
+        }
+        func reset() { shownAt = nil; blankSince = nil; rebuilds = 0 }
+        // Ends the showing. nil when there is nothing to count: not shown, or a chat with no messages.
+        func finish(hasRows: Bool, app: String, now: Date = Date()) -> [String: Any]? {
+            defer { reset() }
+            guard shownAt != nil, hasRows else { return nil }
+            let closedBlank = blankSince.map { now.timeIntervalSince($0) >= Self.closedBlankAfter } ?? false
+            return ["app": app, "rebuilds": rebuilds, "closedBlank": closedBlank]
+        }
+    }
+
+    // POST /api/phone/chat-open with one finished showing. nil when the body cannot be made.
+    static func chatOpenRequest(mac: URL, body: [String: Any]) -> URLRequest? {
+        guard let data = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+        var r = URLRequest(url: URL(string: "/api/phone/chat-open", relativeTo: mac)!.absoluteURL)
+        r.httpMethod = "POST"
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue("application/json", forHTTPHeaderField: "Accept")
+        r.httpBody = data
+        return r
+    }
+
     // The kind of each row on screen, counted. A message with reactions counts as reactions, one with files as file, a
     // question or permission as choice; the working line and day lines by their own words.
     static func chatRowKinds(_ items: [ChatItem], onScreen: Set<String>, working: Bool) -> [String: Int] {

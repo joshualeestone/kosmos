@@ -127,6 +127,7 @@ struct ChatView: View {
     // kosmos#7575: this chat open's sideways shifts, sent to the board once when it closes. A reference held in state:
     // a shift is counted in the middle of a layout, possibly every frame, and changing it must never redraw the chat.
     @State private var shifts = Board.ShiftBox()
+    @State private var openCount = Board.ChatOpenCount()   // kosmos#7420
     // kosmos#7420: the scroll view the chat sits in (found by SideScrollLock), read only by the empty-list diagnostic.
     @State private var scrollBox = ScrollBox()
     @State private var diagContentWidth: CGFloat = 0
@@ -363,12 +364,15 @@ struct ChatView: View {
             // kosmos#7575: the sender for this computer. The count is not reset here (review 3: a shift laid out before this
             // ran is kept); a return from the info page goes on with the same count.
             shifts.attach(send: shiftSender())
+            openCount.shown()
         }
+        .onChange(of: onScreen.isEmpty) { empty in openCount.rows(empty: empty) }
         // kosmos#7354: on every read of the list while the chat is open, unread replies are marked read again, as the board's
         // paintTalk does on each poll; so one that failed is sent again, and replies landing while it is open are read.
         .onReceive(client.$agents) { _ in markDmSeen() }
         .onDisappear {
             visible = false
+            if !infoOpen { sendOpenCount() }
             if !infoOpen { sendShiftReport() }   // kosmos#7575 (review 1: the info page pushed over the chat is not a close)
             if !infoOpen { client.releasePreviewImages() }   // kosmos#7864: the pictures do not outlive the chat
             if PushNotificationManager.chatOnScreen?.session == agent.session { PushNotificationManager.chatOnScreen = nil }   // review 3: by session on purpose: a computer switch while open must never leave a stale value hiding banners; the cost is an extra banner
@@ -424,6 +428,7 @@ struct ChatView: View {
             boxAskedAt = nil   // kosmos#7420 review 7: a box change in the chat before is not this one's
             // kosmos#7575 review 1: what one computer saw is dropped, never sent to another's board (deliberately lost).
             shifts.reset(); shifts.attach(send: shiftSender())
+            openCount.reset(); openCount.shown()
             dictation.reset(); emojiOpen = false; trayOpen = false   // kosmos#7268: another account's conversation starts clean
             epoch = now
             endSeen = false   // kosmos#7265 review 3: a rebuilt thread has not shown its end yet
@@ -456,8 +461,9 @@ struct ChatView: View {
         .onChange(of: scenePhase) { phase in
             Self.trace("app \(phase == .active ? "active" : phase == .background ? "background" : "inactive")")   // kosmos#7420
             // kosmos#7575 review 2: the report goes and the next count starts at once, so a shift laid out while away is kept.
-            if phase == .background { loop?.cancel(); loop = nil; sendShiftReport() }
+            if phase == .background { loop?.cancel(); loop = nil; sendShiftReport(); sendOpenCount() }
             else if phase == .active, visible, loop == nil { startReading() }
+            if phase == .active, visible { openCount.shown() }
             if phase == .active { diagBackInFront() }
         }
     }
@@ -1308,6 +1314,7 @@ struct ChatView: View {
                 return
             }
             rebuilds.append(now)
+            openCount.rebuilt()
             diagThreadAt = now   // the new list has its own 2 s
             Self.trace("diag: empty within the content (at newest \(atBottom)), list rebuilt (\(rebuilds.count) this chat open)")
             // As a chat opens (measured 10-31, iOS 26.5 and 27): the new list starts with no anchor, so its first rows are
@@ -1370,6 +1377,23 @@ struct ChatView: View {
                 _ = await client.throughMac { Board.chatShiftRequest(mac: $0, body: body) }
                 if task != .invalid { UIApplication.shared.endBackgroundTask(task); task = .invalid }
             }
+        }
+    }
+
+    // kosmos#7420: as the shift report: one try, with a little background time, only to the computer it was counted on.
+    private func sendOpenCount() {
+        let info = Bundle.main.infoDictionary
+        let app = "\(info?["CFBundleShortVersionString"] as? String ?? "?") (\(info?["CFBundleVersion"] as? String ?? "?"))"
+        guard let body = openCount.finish(hasRows: !(thread?.rows.isEmpty ?? true), app: app) else { return }
+        let client = self.client, epoch = client.chatEpoch
+        Task { @MainActor in
+            guard epoch == client.chatEpoch else { return }
+            var task = UIBackgroundTaskIdentifier.invalid
+            task = UIApplication.shared.beginBackgroundTask(withName: "chat-open") {
+                if task != .invalid { UIApplication.shared.endBackgroundTask(task); task = .invalid }
+            }
+            _ = await client.throughMac { Board.chatOpenRequest(mac: $0, body: body) }
+            if task != .invalid { UIApplication.shared.endBackgroundTask(task); task = .invalid }
         }
     }
 

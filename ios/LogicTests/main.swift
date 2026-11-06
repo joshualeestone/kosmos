@@ -5506,6 +5506,30 @@ do {
           "Mona Lisa's words")
 }
 
+section("a chat showing, counted for the board (kosmos#7420)")
+do {
+    let t0 = Date(timeIntervalSince1970: 1000)
+    let plain = Board.ChatOpenCount()
+    check(plain.finish(hasRows: true, app: "0.1.0 (53)", now: t0) == nil, "never shown: nothing to count")
+    plain.shown(now: t0)
+    check(plain.finish(hasRows: false, app: "0.1.0 (53)", now: t0 + 60) == nil, "a chat with no messages is not counted")
+    plain.shown(now: t0); plain.rows(empty: false, now: t0 + 1); plain.rows(empty: true, now: t0 + 30)
+    let closing = plain.finish(hasRows: true, app: "0.1.0 (53)", now: t0 + 30.1)
+    check((closing?["closedBlank"] as? Bool) == false && (closing?["rebuilds"] as? Int) == 0, "rows leaving as the chat closes are not a blank")
+    check(plain.finish(hasRows: true, app: "0.1.0 (53)", now: t0 + 31) == nil, "a finished showing cannot be sent twice")
+    plain.shown(now: t0); plain.rebuilt(); plain.rebuilt(); plain.rows(empty: false, now: t0 + 2); plain.rows(empty: true, now: t0 + 10)
+    let stuck = plain.finish(hasRows: true, app: "0.1.0 (53)", now: t0 + 13)
+    check((stuck?["closedBlank"] as? Bool) == true && (stuck?["rebuilds"] as? Int) == 2, "blank at close for 3 s, with its rebuilds")
+    plain.shown(now: t0)
+    let never = plain.finish(hasRows: true, app: "0.1.0 (53)", now: t0 + 2)
+    check((never?["closedBlank"] as? Bool) == false, "closed within 3 s of opening, before it could draw: not a blank")
+    plain.shown(now: t0)
+    let neverDrew = plain.finish(hasRows: true, app: "0.1.0 (53)", now: t0 + 5)
+    check((neverDrew?["closedBlank"] as? Bool) == true && (neverDrew.map { Set($0.keys) }) == ["app", "rebuilds", "closedBlank"], "never drew in 5 s is a blank; the body holds only what the board keeps")
+    let r = Board.chatOpenRequest(mac: URL(string: "https://studio.kosmosplus.com")!, body: neverDrew ?? [:])
+    check(r?.httpMethod == "POST" && r?.url?.absoluteString == "https://studio.kosmosplus.com/api/phone/chat-open", "POST /api/phone/chat-open")
+}
+
 section("kosmos#7575: the chat's sideways-shift report")
 do {
     var r = Board.ChatShiftReport()
