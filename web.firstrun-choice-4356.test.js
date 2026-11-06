@@ -341,7 +341,7 @@ test('#4356: the restart screen, run for real: it hides a waiting first screen, 
     document: doc, location: { protocol: 'http:', host: '127.0.0.1:1' }, Date: { now: () => now }, console: { info() {} },
     MutationObserver: undefined,
     offlineRemoteView: () => false, bakedVersion: () => '0.0.0', restartHowText: () => '',   // #5862: the screen's one step (per platform) is its own function now
-    asSentence: (s) => s, startKLoader() {},
+    asSentence: (s) => s, kOrbWaitHtml: () => '<span class="spin spin-sweep orb-wait"></span>',
   };
   vm.createContext(ctx);
   vm.runInContext([
