@@ -6,13 +6,13 @@ every wait, full-screen ones included, overriding the earlier rule that whole-sc
 
 ## Change
 
-- Every `KosmosOrb` in the app (30 sites across 13 screens) becomes `SweepDots`, with the same colour and the orb's
-  fixed size (`scales: false`, so nothing grows in toolbars or buttons at large text sizes), with Reduce Motion they
-  pulse, the dots' own rule (#4591: still dots read as frozen), where the orb held still; none is in a thread. They draw at the dots' own 30 frames a second, the board's rate:
-  none sits inside a chat or room thread, where 15 is kept (#7427), and 15 makes the ring step unevenly. The app no
-  longer warms the orb's geometry at launch. Follow-up, not in this change: delete KosmosOrb.swift (the project syncs its folder) and OrbLogic.warm.
-  VoiceOver unchanged: the orb said "Loading" unless hidden, so an unlabelled orb becomes `SweepDots(label: "Loading")`
-  and a hidden one plain `SweepDots()` (hidden by default); a labelled one keeps its label.
+- Every `KosmosOrb` in the app (30 sites across 13 screens) becomes `SweepDots` with the same colour and the orb's
+  fixed size (`scales: false`, so nothing grows in toolbars or buttons at large text sizes).
+- Two deliberate differences from the orb. Frame rate: the dots' own 30 a second (the board's); 15 made the ring step
+  unevenly, and none of these sites is inside a chat or room thread, where 15 stays (#7427). Reduce Motion: the dots
+  pulse, the dots' own rule (#4591: still dots read as frozen), where the orb held still; the in-thread sites hold still.
+- The app no longer warms the orb's geometry at launch. Follow-up, not here: delete KosmosOrb.swift (the project syncs
+  its folder) and OrbLogic.warm.
 - The system's own spinner remains in one place: pull to refresh (10 `.refreshable` lists and the board page's
   `UIRefreshControl`). Dots there need pull to refresh rebuilt: #8078 (Renet Tilley).
 - Guard in the sweep suite, subfolders included: no app source (ios/Kosmos, ios/KosmosNotice) may contain
