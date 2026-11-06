@@ -9482,6 +9482,10 @@ html:not([data-layout="consolidated"]) #pj-one-agents .pj-member .pj-face.pjd.pj
 /* Item 7: the status column is a fixed width, so a row's name does not move sideways as its status changes
    ("Making…" to "Made, starting…" to "Running"); a longer status wraps inside it instead. */
 #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) 11rem; }   /* kosmos#8092: room for Another beside the box (the box stays at least twice its width) */
+/* kosmos#8092: the split view's panel is too narrow for three columns plus Another, so it lays the rows out as a phone
+   does: seat and state on one line, the name box and Another under them. The same at every state, so nothing moves. */
+body.consolidated #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; }
+body.consolidated #cstep-teammake .tc-namebox { grid-column: 1 / -1; grid-row: 2; }
 #cstep-teammake .tc-state { white-space: normal; text-align: right; display: inline-flex; align-items: center;
   justify-content: flex-end; gap: var(--space-3); }
 @media (max-width: 560px) { #cstep-teammake .tc-row { grid-template-columns: minmax(0, 1fr) 9rem; } }
@@ -63528,8 +63532,13 @@ const TC_SHORT_NAMES = Object.freeze(['Ade', 'Ali', 'Amir', 'Anil', 'Ari', 'Asha
   'Mei', 'Mia', 'Mika', 'Mira', 'Nia', 'Nico', 'Nina', 'Noa', 'Nour', 'Obi', 'Omar', 'Oren', 'Otto',
   'Pia', 'Ravi', 'Rei', 'Remi', 'Rosa', 'Ruth', 'Sami', 'Sana', 'Sara', 'Seun', 'Tae',
   'Tala', 'Tao', 'Tara', 'Teo', 'Tom', 'Uma', 'Vera', 'Vik', 'Wen', 'Yan', 'Yara', 'Yuki', 'Zoe', 'Zuri']);
-/* Whether two names differ by at most one letter changed, added or dropped (equal names count; they are filtered first). */
+/* Whether two names are a slip apart: one letter changed, added or dropped, or two side by side swapped (equal names
+   count; they are filtered first). */
 function tcOneApart(a, b) {
+  if (a.length === b.length && a !== b) {   // two letters swapped (Mia, Mai) is the commonest slip in a short name
+    const d = [...a].map((c, i) => (c === b[i] ? -1 : i)).filter((i) => i >= 0);
+    if (d.length === 2 && d[1] === d[0] + 1 && a[d[0]] === b[d[1]] && a[d[1]] === b[d[0]]) return true;
+  }
   if (Math.abs(a.length - b.length) > 1) return false;
   let i = 0; while (i < a.length && i < b.length && a[i] === b[i]) i++;
   let j = 0; while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
@@ -63540,7 +63549,7 @@ function tcSayName(text) {
   const el = document.getElementById('tc-name-said');
   const gen = TC_GEN;
   el.textContent = '';
-  requestAnimationFrame(() => { if (gen === TC_GEN) el.textContent = text; });   // not into the next team's step
+  setTimeout(() => { if (gen === TC_GEN) el.textContent = text; }, 120);   // long enough to be heard as a new line; not into the next team's step
 }
 /* Names to steer clear of, in lower case: the board's agents (read once per team, TC.boardNames) and the team's other rows. */
 function tcTakenNames(except) {
@@ -63581,11 +63590,11 @@ document.getElementById('tc-short').addEventListener('click', () => {
   }
   // It replaces names the person typed too: that is what the link says it does, and Another or typing undoes any one.
   const kept = TC.members.filter((m) => m.state === 'ready').length - n;
-  tcSayName(n === 0 ? 'No other short name is free.' : (n === 1 ? '1 name is now short.' : n + ' names are now short.') + (kept ? ' No other short name was free for ' + (kept === 1 ? '1 more.' : kept + ' more.') : ''));
+  tcSayName(n === 0 ? 'No other short name is free.' : 'Changed ' + (n === 1 ? '1 name.' : n + ' names.') + (kept ? ' ' + kept + ' kept ' + (kept === 1 ? 'its name' : 'their names') + ': no other short name was free.' : ''));
 });
 function tcPaint() {
   if (!TC) return;
-  document.getElementById('tc-short-p').hidden = Boolean(TC.started || TC.busy);   // kosmos#8092: only while names can change
+  { const sp = document.getElementById('tc-short-p'); sp.hidden = Boolean(TC.started); sp.style.visibility = TC.busy ? 'hidden' : ''; }   // kosmos#8092: only while names can change; it keeps its space while they are checked
   const list = document.getElementById('tc-list');
   /* Round 1 (a11y): the list is rebuilt on every change, so remember what had focus (a row's name box or
      its Try again) and put focus back on the same row afterwards, or a keyboard user drops to the page. */

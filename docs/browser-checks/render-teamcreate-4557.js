@@ -339,9 +339,9 @@ function chk(ok, label, extra) {
           chk(names.every((n) => /^[A-Za-z]{3,5}$/.test(n)) && new Set(names.map((n) => n.toLowerCase())).size === names.length && !names.some((n) => /^(ade|ali)$/i.test(n)) && await page.evaluate((ns) => ns.every((x, i) => ns.every((y, j) => i === j || !tcOneApart(x.toLowerCase(), y.toLowerCase()))), names),
             `${E} #8092 Use short names gives every row a short plain name, none twice, none one letter from another, none on the board`, JSON.stringify(names));
           chk(names[0] !== one[0].name && names.slice(1).every((n, i) => n !== before[i + 1].name), `${E} #8092 CONTROL: every row did change, the lead again too`, JSON.stringify({ before: before.map((r) => r.name), names }));
-          await settle(page, () => document.getElementById('tc-name-said').textContent === '3 names are now short.');
+          await settle(page, () => document.getElementById('tc-name-said').textContent === 'Changed 3 names.');
           const bulkSaid = await page.evaluate(() => document.getElementById('tc-name-said').textContent);
-          chk(bulkSaid === '3 names are now short.', `${E} #8092 Use short names says what it did`, JSON.stringify(bulkSaid));
+          chk(bulkSaid === 'Changed 3 names.', `${E} #8092 Use short names says what it did`, JSON.stringify(bulkSaid));
           // Another alone, last, on a row Use short names already changed: Make must carry THIS name (the box and TC agree).
           await page.click('#tc-list li[data-slot="social"] .tc-another');
           const last = (await rows(page)).find((r) => r.slot === 'social').name;
@@ -354,6 +354,27 @@ function chk(ok, label, extra) {
           const after = await page.evaluate(() => ({ link: document.getElementById('tc-short-p').hidden, buttons: [...document.querySelectorAll('#tc-list .tc-another')].map((b) => getComputedStyle(b).display) }));
           chk(after.link && after.buttons.length === 3 && after.buttons.every((v) => v === 'none'), `${E} #8092 once the team starts, neither is offered`, JSON.stringify(after));
           chk(errs.length === 0, `${E} no page errors (#8092 arm)`, errs.join(' | '));
+          await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
+          await page.context().close();
+        }
+
+        /* --- #8092: the split view (consolidated layout): the rows lay out as on a phone, so the name box keeps room beside
+           Another and the seat never meets it, and the box stays put when the run starts (#4935's rule). */
+        {
+          const { page, errs } = await newPage(1280);
+          await page.evaluate(() => { document.documentElement.setAttribute('data-layout', 'consolidated'); showTab('agents'); });
+          await page.evaluate(() => openTeamCreate('marketing'));
+          await settle(page, () => document.querySelectorAll('#tc-list li').length === 3);
+          const m = await page.evaluate(() => { const li = document.querySelector('#tc-list li'); const seat = li.querySelector('.tc-seat'), nb = li.querySelector('.tc-namebox');
+            return { consolidated: document.body.classList.contains('consolidated'), box: li.querySelector('.tc-name').getBoundingClientRect().width, another: li.querySelector('.tc-another').getBoundingClientRect().width,
+              seatClear: seat.getBoundingClientRect().bottom <= nb.getBoundingClientRect().top + 0.5 || seat.getBoundingClientRect().right <= nb.getBoundingClientRect().left, x: li.querySelector('.tc-name').getBoundingClientRect().left }; });
+          chk(m.consolidated && m.box >= 2 * m.another && m.seatClear, `${E} #8092 in the split view the name box keeps room beside Another and the seat stays clear of it`, JSON.stringify(m));
+          await page.selectOption('#tc-project', 'none');
+          await page.click('#tc-go');
+          await settle(page, () => [...document.querySelectorAll('#tc-list .tc-state')].every((e) => e.textContent === 'Running'));
+          const x2 = await page.evaluate(() => document.querySelector('#tc-list li .tc-name').getBoundingClientRect().left);
+          chk(Math.abs(x2 - m.x) < 1, `${E} #8092 in the split view the name stays put once the run starts`, JSON.stringify({ before: m.x, after: x2 }));
+          chk(errs.length === 0, `${E} no page errors (#8092 split arm)`, errs.join(' | '));
           await page.unrouteAll({ behavior: 'ignoreErrors' }).catch(() => {});
           await page.context().close();
         }
@@ -373,9 +394,9 @@ function chk(ok, label, extra) {
             TC.members.forEach((m, i) => { m.name = keep[i]; }); TC.boardNames = boardKeep;
             const board = (() => { TC.boardNames = ['ade', 'ali', 'amie']; const g = tcShortName(TC.members[0]); TC.boardNames = boardKeep; return g; })();
             Math.random = real;
-            return { got, board, pair: [tcOneApart('mae', 'mai'), tcOneApart('ana', 'anil'), tcOneApart('ari', 'anir'), tcOneApart('ana', 'anna'), tcOneApart('anna', 'ana')] };
+            return { got, board, pair: [tcOneApart('mae', 'mai'), tcOneApart('ana', 'anil'), tcOneApart('ari', 'anir'), tcOneApart('ana', 'anna'), tcOneApart('anna', 'ana'), tcOneApart('mia', 'mai'), tcOneApart('mia', 'aim'), tcOneApart('amir', 'mira')] };
           });
-          chk(near.got === 'Asha' && near.board === 'Anil' && JSON.stringify(near.pair) === '[true,false,false,true,true]', `${E} #8092 a name one letter from a teammate's, or a board agent's, is not offered`, JSON.stringify(near));
+          chk(near.got === 'Asha' && near.board === 'Anil' && JSON.stringify(near.pair) === '[true,false,false,true,true,true,false,false]', `${E} #8092 a name one letter from a teammate's, or a board agent's, is not offered`, JSON.stringify(near));
           await page.click('#tc-short');
           const short = (await rows(page)).map((r) => r.name);
           script[short[2]] = 'that name could not be used just now';   // the last member is refused once
