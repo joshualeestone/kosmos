@@ -46,3 +46,15 @@ absolutely.
   is left out of the listing; every other check (encryption, links, sizes, totals, overlap) still refuses. Mona's test for
   "an unexpected top-level entry" now checks the entry is never read rather than that the file is refused.
 - NITs: a budget check every 1024 steps in every loop (styles, rels, sheets, rows, cells, shared strings).
+
+## Review round 3 (opus): no BLOCKER; 2 WARNINGs, 4 CONVENTIONs, fixed
+12 hostile 15 MB-part workbooks (23-93 KB files) all linear and inside the budget (worst 1.85 s, styles, now memoized).
+- WARNING: a t="d" ISO date cell showed "NaN" --> shown as its date (time kept when not midnight).
+- WARNING: a sheet whose part is missing (damaged, or a name the lister skips) read as "empty" --> notGrid.
+- CONVENTION: the skip comment overstated the checks --> it names what still runs; extractZip throws on the flag.
+- CONVENTION: no win32zip test of the mode --> added (listing, default refuses, extractZip refuses the flag).
+- CONVENTION: the size-before-read test could not fail --> it counts fs.readSync calls (0 for a file over the cap).
+- CONVENTION: currency and units were dropped from the shown text --> only digit-placeholder codes are formatted.
+- KEPT (NITs): numbers past 15 digits, multi-section codes (negatives in parentheses, ";;;" hide), "[h]" alone, "#.00",
+  AM/PM in 24-hour form, serial 0-1 under a date, negative 1900 durations, a CSV trailing blank line at the row cap marked cut,
+  the long unquoted CSV field path (linear, about 10x the quoted one), no per-file cache of a sheet answer.

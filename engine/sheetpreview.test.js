@@ -119,7 +119,13 @@ test('fromFile: one handle; a link is not followed, a FIFO does not block, the s
   const fd = fs.openSync(big, 'w');
   fs.ftruncateSync(fd, xlsx.MAX_FILE_BYTES + 1);
   fs.closeSync(fd);
-  const r = sp.fromFile(big, 'big.xlsx');
+  // Review 3: the size is checked BEFORE a byte is read (the bytes path would refuse the same file after reading it all).
+  const realRead = fs.readSync;
+  let reads = 0;
+  fs.readSync = (...a) => { reads += 1; return realRead(...a); };
+  let r;
+  try { r = sp.fromFile(big, 'big.xlsx'); } finally { fs.readSync = realRead; }
+  assert.equal(reads, 0, 'a file over the cap was read before it was refused');
   assert.equal(r.tooLarge, true);
   assert.match(r.because, /too large to preview/);
   assert.match(sp.fromFile(path.join(DIR, 'missing.csv'), 'missing.csv').because, /could not be read/);
